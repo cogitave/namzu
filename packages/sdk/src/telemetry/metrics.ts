@@ -1,0 +1,69 @@
+import { getMeter } from '../provider/telemetry/setup.js'
+
+export interface PlatformMetrics {
+	recordTokenUsage(model: string, inputTokens: number, outputTokens: number): void
+	recordToolCall(toolName: string, success: boolean): void
+	recordSessionDuration(status: string, durationSec: number): void
+	recordLLMLatency(model: string, durationSec: number): void
+}
+
+export function createPlatformMetrics(): PlatformMetrics {
+	const meter = getMeter()
+
+	const tokenInputCounter = meter.createCounter('gen_ai.client.token.usage', {
+		description: 'Number of input (prompt) tokens used',
+		unit: '{token}',
+	})
+
+	const tokenOutputCounter = meter.createCounter('gen_ai.client.token.usage.output', {
+		description: 'Number of output (completion) tokens used',
+		unit: '{token}',
+	})
+
+	const toolCallCounter = meter.createCounter('gen_ai.tool.call.count', {
+		description: 'Number of tool calls executed',
+		unit: '{call}',
+	})
+
+	const sessionDurationHistogram = meter.createHistogram('namzu.session.duration', {
+		description: 'Agent session duration',
+		unit: 's',
+	})
+
+	const llmLatencyHistogram = meter.createHistogram('gen_ai.client.operation.duration', {
+		description: 'LLM request duration (GenAI semantic convention)',
+		unit: 's',
+	})
+
+	return {
+		recordTokenUsage(model: string, inputTokens: number, outputTokens: number): void {
+			tokenInputCounter.add(inputTokens, {
+				'gen_ai.request.model': model,
+				'gen_ai.token.type': 'input',
+			})
+			tokenOutputCounter.add(outputTokens, {
+				'gen_ai.request.model': model,
+				'gen_ai.token.type': 'output',
+			})
+		},
+
+		recordToolCall(toolName: string, success: boolean): void {
+			toolCallCounter.add(1, {
+				'gen_ai.tool.name': toolName,
+				'namzu.tool.success': success,
+			})
+		},
+
+		recordSessionDuration(status: string, durationSec: number): void {
+			sessionDurationHistogram.record(durationSec, {
+				'namzu.session.status': status,
+			})
+		},
+
+		recordLLMLatency(model: string, durationSec: number): void {
+			llmLatencyHistogram.record(durationSec, {
+				'gen_ai.request.model': model,
+			})
+		},
+	}
+}

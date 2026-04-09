@@ -1,0 +1,48 @@
+name: Feature Request
+description: Suggest a new feature or improvement
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for suggesting a feature. Please describe the problem you're trying to solve.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What problem does this feature solve? What's the use case?
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed Solution
+      description: How do you think this should work? Code examples are welcome.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: Other approaches you've thought about.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Agents (reactive, pipeline, router, supervisor)
+        - Tools
+        - Providers
+        - RAG
+        - Connectors (HTTP, webhook, MCP)
+        - A2A Protocol
+        - Persona / Skills
+        - Human-in-the-Loop
+        - Telemetry
+        - Other
+    validations:
+      required: true
