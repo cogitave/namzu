@@ -77,7 +77,7 @@ jobs:
           fi
 
           gh release create "$GITHUB_REF_NAME" \
-            --title "Namzu ${{ steps.channel.outputs.version }}" \
+            --title "$GITHUB_REF_NAME" \
             --notes "$NOTES" \
             $FLAGS
         env:
