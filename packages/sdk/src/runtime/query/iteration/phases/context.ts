@@ -1,3 +1,6 @@
+import type { AdvisoryContext } from '../../../../advisory/context.js'
+import type { WorkingStateManager } from '../../../../compaction/manager.js'
+import type { CompactionConfig } from '../../../../config/runtime.js'
 import type { PlanManager } from '../../../../manager/plan/lifecycle.js'
 import type { RunPersistence } from '../../../../manager/run/persistence.js'
 import type { ToolRegistry } from '../../../../registry/tool/execute.js'
@@ -44,6 +47,12 @@ export interface IterationContext {
 	readonly pendingNotifications: TaskHandle[]
 
 	readonly launchedTasks: Map<TaskId, LaunchedTaskMeta>
+
+	readonly compactionConfig?: CompactionConfig
+
+	readonly workingStateManager?: WorkingStateManager
+
+	readonly advisoryCtx?: AdvisoryContext
 }
 
 export type PhaseSignal = 'continue' | 'stop'

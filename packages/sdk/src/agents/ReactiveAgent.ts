@@ -66,6 +66,7 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 				signal: input.signal,
 				taskStore: input.taskStore,
 				runtimeToolOverrides: input.runtimeToolOverrides,
+				advisory: config.advisory,
 			},
 			listener,
 		)

@@ -7,6 +7,8 @@ export const ZERO_COST: CostInfo = {
 	cacheDiscount: 0,
 }
 
+export const CHARS_PER_TOKEN = 4
+
 export const EMPTY_TOKEN_USAGE: TokenUsage = {
 	promptTokens: 0,
 	completionTokens: 0,

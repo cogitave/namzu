@@ -1,4 +1,8 @@
 import { SpanStatusCode } from '@opentelemetry/api'
+import type { AdvisoryContext } from '../../../advisory/context.js'
+import { extractFromAssistantMessage } from '../../../compaction/extractor.js'
+import type { WorkingStateManager } from '../../../compaction/manager.js'
+import type { CompactionConfig } from '../../../config/runtime.js'
 import type { PlanManager } from '../../../manager/plan/lifecycle.js'
 import type { RunPersistence } from '../../../manager/run/persistence.js'
 import { getTracer } from '../../../provider/telemetry/setup.js'
@@ -15,7 +19,9 @@ import type { CheckpointManager } from '../checkpoint.js'
 import type { EmitEvent } from '../events.js'
 import type { ToolExecutor } from '../executor.js'
 import type { GuardCoordinator } from '../guard.js'
+import { runAdvisoryPhase } from './phases/advisory.js'
 import { runIterationCheckpoint } from './phases/checkpoint.js'
+import { runCompactionCheck } from './phases/compaction.js'
 import type { IterationContext } from './phases/index.js'
 import { runPlanGate } from './phases/plan.js'
 import { runToolReview } from './phases/tool-review.js'
@@ -35,6 +41,9 @@ export interface IterationConfig {
 		import('../../../types/ids/index.js').TaskId,
 		import('./phases/context.js').LaunchedTaskMeta
 	>
+	compactionConfig?: CompactionConfig
+	workingStateManager?: WorkingStateManager
+	advisoryCtx?: AdvisoryContext
 }
 
 export class IterationOrchestrator {
@@ -74,6 +83,9 @@ export class IterationOrchestrator {
 			taskStore: config.taskStore,
 			pendingNotifications: [],
 			launchedTasks: config.launchedTasks ?? new Map(),
+			compactionConfig: config.compactionConfig,
+			workingStateManager: config.workingStateManager,
+			advisoryCtx: config.advisoryCtx,
 		}
 	}
 
@@ -163,6 +175,8 @@ export class IterationOrchestrator {
 						await this.injectOneTaskNotification()
 					}
 
+					await runCompactionCheck(this.ctx)
+
 					const openAITools = forceFinalize
 						? undefined
 						: this.ctx.tools.toLLMTools(this.ctx.allowedTools)
@@ -210,6 +224,14 @@ export class IterationOrchestrator {
 						forceFinalize ? undefined : response.message.toolCalls,
 					)
 					sessionMgr.pushMessage(assistantMsg)
+
+					if (this.ctx.workingStateManager && this.ctx.compactionConfig && assistantMsg.content) {
+						extractFromAssistantMessage(
+							this.ctx.workingStateManager,
+							assistantMsg.content,
+							this.ctx.compactionConfig,
+						)
+					}
 
 					await this.ctx.emitEvent({
 						type: 'llm_response',
@@ -306,6 +328,8 @@ export class IterationOrchestrator {
 						iterSpan.end()
 						return
 					}
+
+					await runAdvisoryPhase(this.ctx, iterationNum, response)
 
 					await this.ctx.emitEvent({
 						type: 'iteration_completed',

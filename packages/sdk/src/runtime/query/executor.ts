@@ -1,3 +1,5 @@
+import { extractFromToolCall, extractFromToolResult } from '../../compaction/extractor.js'
+import type { WorkingStateManager } from '../../compaction/manager.js'
 import type { ToolRegistry } from '../../registry/tool/execute.js'
 import type { ActivityStore } from '../../store/activity/memory.js'
 import type { RunId } from '../../types/ids/index.js'
@@ -30,6 +32,7 @@ export class ToolExecutor {
 	private activityStore: ActivityStore
 	private emitEvent: EmitEvent
 	private log: Logger
+	private workingStateManager?: WorkingStateManager
 
 	constructor(
 		config: ToolExecutorConfig,
@@ -41,6 +44,10 @@ export class ToolExecutor {
 		this.activityStore = activityStore
 		this.emitEvent = emitEvent
 		this.log = log
+	}
+
+	setWorkingStateManager(manager: WorkingStateManager): void {
+		this.workingStateManager = manager
 	}
 
 	async executeBatch(response: ChatCompletionResponse): Promise<ToolExecutionBatch> {
@@ -120,6 +127,10 @@ export class ToolExecutor {
 			input,
 		})
 
+		if (this.workingStateManager) {
+			extractFromToolCall(this.workingStateManager, toolName, toolCall.function.arguments)
+		}
+
 		const startMs = Date.now()
 		const result = await this.config.tools.execute(toolName, input, toolContext)
 		const durationMs = Date.now() - startMs
@@ -129,6 +140,10 @@ export class ToolExecutor {
 			: `Error: ${result.error ?? 'Tool execution failed'}`
 
 		const output = result.success ? this.maybeCompress(toolName, rawOutput) : rawOutput
+
+		if (this.workingStateManager) {
+			extractFromToolResult(this.workingStateManager, toolName, output, !result.success)
+		}
 
 		if (result.success) {
 			this.log.debug('Tool executed successfully', {

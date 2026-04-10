@@ -1,4 +1,5 @@
 import type { AgentManager } from '../../manager/agent/lifecycle.js'
+import type { AdvisoryConfig } from '../advisory/index.js'
 import type { LLMProvider } from '../provider/index.js'
 import type { TaskRouterConfig } from '../router/index.js'
 import type { BaseAgentConfig, BaseAgentResult } from './base.js'
@@ -20,6 +21,8 @@ export interface SupervisorAgentConfig extends BaseAgentConfig {
 	taskRouter?: TaskRouterConfig
 
 	factoryOptions?: AgentFactoryOptions
+
+	advisory?: AdvisoryConfig
 }
 
 export interface AgentTaskResult {

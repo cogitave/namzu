@@ -128,6 +128,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 				runtimeToolOverrides: input.runtimeToolOverrides,
 				taskGateway: gateway,
 				launchedTasks,
+				advisory: config.advisory,
 			},
 			listener,
 		)
