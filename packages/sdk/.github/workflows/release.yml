@@ -74,9 +74,9 @@ jobs:
           # Generate release notes (only current tag)
           PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
           if [[ -n "$PREV_TAG" ]]; then
-            git-cliff "${PREV_TAG}..HEAD" --strip header --strip all > RELEASE_NOTES.md
+            git-cliff "${PREV_TAG}..HEAD" --strip all > RELEASE_NOTES.md
           else
-            git-cliff --strip header --strip all > RELEASE_NOTES.md
+            git-cliff --strip all > RELEASE_NOTES.md
           fi
 
       - name: Commit changelog
