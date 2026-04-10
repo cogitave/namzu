@@ -1,4 +1,5 @@
 export * from './a2a/index.js'
+export * from './compaction/index.js'
 export * from './mcp/index.js'
 export * from './provider/index.js'
 export * from './rag/index.js'

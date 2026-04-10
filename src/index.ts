@@ -1,6 +1,11 @@
 export { VERSION } from './version.js'
-export { RuntimeConfigSchema, RUNTIME_DEFAULTS } from './config/runtime.js'
-export type { RuntimeConfig } from './config/runtime.js'
+export {
+	RuntimeConfigSchema,
+	TaskRouterConfigSchema,
+	CompactionConfigSchema,
+	RUNTIME_DEFAULTS,
+} from './config/runtime.js'
+export type { RuntimeConfig, CompactionConfig } from './config/runtime.js'
 
 export * from './constants/index.js'
 
@@ -27,6 +32,7 @@ export * from './types/connector/index.js'
 export * from './types/skills/index.js'
 export * from './types/a2a/index.js'
 export * from './types/conversation/index.js'
+export * from './types/router/index.js'
 
 export {
 	assembleSystemPrompt,
@@ -56,6 +62,8 @@ export type {
 export { createChildAbortController } from './utils/abort.js'
 export { memoizeAsync } from './utils/memoize.js'
 export { extractFinalResponse } from './utils/conversation.js'
+
+export { resolveTaskModel } from './router/task-router.js'
 
 export { query, drainQuery } from './runtime/query/index.js'
 export type { QueryParams } from './runtime/query/index.js'
@@ -231,3 +239,21 @@ export {
 } from './telemetry/index.js'
 export type { PlatformMetrics } from './telemetry/index.js'
 export * from './telemetry/attributes.js'
+
+export {
+	WorkingStateManager,
+	serializeState,
+	extractFromToolCall,
+	extractFromToolResult,
+	extractFromUserMessage,
+	extractFromAssistantMessage,
+	buildVerifiedSummary,
+} from './compaction/index.js'
+export type {
+	WorkingState,
+	PlanSlot,
+	FileSlot,
+	FileAction,
+	ToolResultSlot,
+	CompactionStrategy,
+} from './compaction/index.js'

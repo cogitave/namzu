@@ -36,6 +36,7 @@ export interface ToolDefinition<TInput = unknown> {
 	description: string
 	inputSchema: z.ZodType<TInput, z.ZodTypeDef, unknown>
 	execute(input: TInput, context: ToolContext): Promise<ToolResult>
+	tier?: string
 	permissions?: ToolPermission[]
 	category?: 'filesystem' | 'shell' | 'network' | 'analysis' | 'custom'
 
@@ -64,6 +65,20 @@ export type ToolAvailability = 'deferred' | 'active' | 'suspended'
 
 export type ZodToJsonSchema = (schema: z.ZodType) => Record<string, unknown>
 
+export interface ToolTierDefinition {
+	id: string
+	label: string
+	priority: number
+	description?: string
+}
+
+export interface ToolTierConfig {
+	tiers: ToolTierDefinition[]
+	guidanceTemplate?: (tiers: ToolTierDefinition[]) => string
+	labelInDescription?: boolean
+}
+
 export interface ToolRegistryConfig {
 	logger?: Logger
+	tierConfig?: ToolTierConfig
 }

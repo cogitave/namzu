@@ -16,6 +16,7 @@ export interface DefineToolOptions<S extends z.ZodType> {
 	readOnly: boolean
 	destructive: boolean | ((input: z.infer<S>) => boolean)
 	concurrencySafe: boolean
+	tier?: string
 	execute(input: z.infer<S>, context: ToolContext): Promise<ToolResult>
 }
 
@@ -28,6 +29,7 @@ export function defineTool<S extends z.ZodType>(
 		name: options.name,
 		description: options.description,
 		inputSchema: options.inputSchema,
+		tier: options.tier,
 		category: options.category,
 		permissions: options.permissions,
 		isReadOnly: () => options.readOnly,
