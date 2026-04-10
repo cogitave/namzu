@@ -1,12 +1,12 @@
 # Namzu
 
+Open-source AI agent framework — multi-model, multi-tenant, MCP + A2A native.
+
 [![npm](https://img.shields.io/npm/v/@namzu/sdk?color=blue)](https://www.npmjs.com/package/@namzu/sdk)
 [![CI](https://github.com/cogitave/namzu/actions/workflows/ci.yml/badge.svg)](https://github.com/cogitave/namzu/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-FSL--1.1--MIT-green)](./LICENSE.md)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue)](https://www.typescriptlang.org/)
 [![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](https://nodejs.org/)
-
-TypeScript SDK for building AI agents with tool use, multi-model support, orchestration patterns, RAG, MCP integration, and A2A protocol compatibility.
 
 > **Our goal is to build an open, community-driven agent framework that reduces systemic dependencies on proprietary platforms — so that everyone can build, own, and run AI agents freely.** Namzu is designed to work with any LLM provider through a bring-your-own-key model, and every version becomes fully open source (MIT) after two years. If this vision resonates with you, we'd love your help — whether it's a bug report, a feature idea, a pull request, or just spreading the word. Every contribution matters.
 
