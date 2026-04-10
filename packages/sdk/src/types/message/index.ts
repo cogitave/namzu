@@ -1,5 +1,7 @@
 export type MessageRole = 'system' | 'user' | 'assistant' | 'tool'
 
+export type CacheHint = 'cache' | 'ephemeral' | 'none'
+
 export interface ToolCall {
 	id: string
 	type: 'function'
@@ -13,6 +15,7 @@ export interface BaseMessage {
 	role: MessageRole
 	content: string | null
 	timestamp?: number
+	cacheHint?: CacheHint
 }
 
 export interface SystemMessage extends BaseMessage {
@@ -39,8 +42,13 @@ export interface ToolMessage extends BaseMessage {
 
 export type Message = SystemMessage | UserMessage | AssistantMessage | ToolMessage
 
-export function createSystemMessage(content: string): SystemMessage {
-	return { role: 'system', content, timestamp: Date.now() }
+export function createSystemMessage(content: string, cacheHint?: CacheHint): SystemMessage {
+	return {
+		role: 'system',
+		content,
+		timestamp: Date.now(),
+		...(cacheHint !== undefined && { cacheHint }),
+	}
 }
 
 export function createUserMessage(content: string): UserMessage {

@@ -26,7 +26,9 @@ import type { TaskRouterConfig } from '../../types/router/index.js'
 import type { AgentRun, AgentRunConfig, RunEvent, RunEventListener } from '../../types/run/index.js'
 import type { Skill } from '../../types/skills/index.js'
 import type { TaskStore } from '../../types/task/index.js'
+import type { VerificationGateConfig } from '../../types/verification/index.js'
 import type { ModelPricing } from '../../utils/cost.js'
+import { VerificationGate } from '../../verification/gate.js'
 import { CheckpointManager } from './checkpoint.js'
 import type { ContextCache } from './context-cache.js'
 import { RunContextFactory } from './context.js'
@@ -34,6 +36,7 @@ import { EventTranslator } from './events.js'
 import { GuardCoordinator } from './guard.js'
 import { IterationOrchestrator } from './iteration/index.js'
 import { PromptBuilder } from './prompt.js'
+import type { PromptSegments } from './prompt.js'
 import { ResultAssembler } from './result.js'
 import { ToolingBootstrap } from './tooling.js'
 
@@ -90,6 +93,10 @@ export interface QueryParams {
 	advisory?: AdvisoryConfig
 
 	compactionConfig?: CompactionConfig
+
+	agentBus?: import('../../bus/index.js').AgentBus
+
+	verificationGate?: VerificationGateConfig
 }
 
 export async function* query(params: QueryParams): AsyncGenerator<RunEvent, AgentRun> {
@@ -242,6 +249,10 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Agen
 		}
 	}
 
+	const verificationGate = params.verificationGate?.enabled
+		? new VerificationGate(params.verificationGate, ctx.log)
+		: undefined
+
 	const iterationOrchestrator = new IterationOrchestrator(
 		{
 			provider: params.provider,
@@ -254,6 +265,8 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Agen
 			advisoryCtx,
 			compactionConfig: params.compactionConfig,
 			workingStateManager,
+			agentBus: params.agentBus,
+			verificationGate: verificationGate,
 		},
 		ctx.sessionMgr,
 		toolExecutor,
@@ -294,16 +307,34 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Agen
 			})
 
 			const contextLevel = params.contextLevel ?? 'full'
-			const assembledPrompt = params.contextCache
-				? params.contextCache.getSystemPrompt({
-						systemPrompt: params.systemPrompt,
-						persona: params.persona,
-						skills: params.skills,
-						basePrompt: contextLevel === 'full' ? params.basePrompt : undefined,
-						tools: params.tools,
-						allowedTools: params.allowedTools,
-					})
-				: promptBuilder.build(contextLevel, params.workingDirectory)
+			const cacheInput = {
+				systemPrompt: params.systemPrompt,
+				persona: params.persona,
+				skills: params.skills,
+				basePrompt: contextLevel === 'full' ? params.basePrompt : undefined,
+				tools: params.tools,
+				allowedTools: params.allowedTools,
+			}
+
+			const segments: PromptSegments = params.contextCache
+				? params.contextCache.getSystemPromptSegmented(
+						cacheInput,
+						contextLevel,
+						params.workingDirectory,
+					)
+				: promptBuilder.buildSegmented(contextLevel, params.workingDirectory)
+
+			ctx.log.info('Prompt segments assembled', {
+				staticLength: segments.static.length,
+				dynamicLength: segments.dynamic.length,
+			})
+
+			const pushSystemMessages = (): void => {
+				ctx.sessionMgr.pushMessage(createSystemMessage(segments.static, 'cache'))
+				if (segments.dynamic.length > 0) {
+					ctx.sessionMgr.pushMessage(createSystemMessage(segments.dynamic, 'ephemeral'))
+				}
+			}
 
 			if (params.resumeFromCheckpoint) {
 				const checkpoint = await checkpointMgr.restore(params.resumeFromCheckpoint)
@@ -314,7 +345,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Agen
 				})
 				yield* eventTranslator.drainPending()
 
-				ctx.sessionMgr.pushMessage(createSystemMessage(assembledPrompt))
+				pushSystemMessages()
 				for (const msg of checkpoint.messages) {
 					if (msg.role === 'system') continue
 					ctx.sessionMgr.pushMessage(msg)
@@ -324,7 +355,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Agen
 					ctx.sessionMgr.pushMessage(msg)
 				}
 			} else {
-				ctx.sessionMgr.pushMessage(createSystemMessage(assembledPrompt))
+				pushSystemMessages()
 				let isFirstUserMessage = true
 				for (const msg of params.messages) {
 					if (msg.role === 'system') continue
@@ -336,6 +367,11 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Agen
 					}
 				}
 			}
+
+			const assembledPrompt =
+				segments.dynamic.length > 0
+					? `${segments.static}\n\n---\n\n${segments.dynamic}`
+					: segments.static
 
 			ctx.sessionMgr.markRunning()
 			await eventTranslator.emitEvent({

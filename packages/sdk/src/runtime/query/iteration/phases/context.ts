@@ -1,4 +1,5 @@
 import type { AdvisoryContext } from '../../../../advisory/context.js'
+import type { AgentBus } from '../../../../bus/index.js'
 import type { WorkingStateManager } from '../../../../compaction/manager.js'
 import type { CompactionConfig } from '../../../../config/runtime.js'
 import type { PlanManager } from '../../../../manager/plan/lifecycle.js'
@@ -53,6 +54,10 @@ export interface IterationContext {
 	readonly workingStateManager?: WorkingStateManager
 
 	readonly advisoryCtx?: AdvisoryContext
+
+	readonly agentBus?: AgentBus
+
+	readonly verificationGate?: import('../../../../verification/gate.js').VerificationGate
 }
 
 export type PhaseSignal = 'continue' | 'stop'

@@ -1,0 +1,1 @@
+export const MAX_CUSTOM_PATTERN_LENGTH = 500

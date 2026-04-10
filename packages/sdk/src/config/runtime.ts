@@ -31,6 +31,24 @@ export const CompactionConfigSchema = z.object({
 
 export type CompactionConfig = z.infer<typeof CompactionConfigSchema>
 
+export const AgentBusConfigSchema = z.object({
+	enabled: z.boolean().default(false),
+	lockTimeoutMs: z.number().positive().default(60_000),
+	lockAcquireTimeoutMs: z.number().positive().default(5_000),
+	maxLocksPerAgent: z.number().positive().default(10),
+	breakerFailureThreshold: z.number().positive().default(5),
+	breakerResetTimeoutMs: z.number().positive().default(30_000),
+})
+
+export type AgentBusConfig = z.infer<typeof AgentBusConfigSchema>
+
+export const PromptCacheConfigSchema = z.object({
+	enabled: z.boolean().default(true),
+	strategy: z.enum(['auto', 'disabled']).default('auto'),
+})
+
+export type PromptCacheConfig = z.infer<typeof PromptCacheConfigSchema>
+
 export const RuntimeConfigSchema = z.object({
 	model: z.string().default('qwen/qwen3.6-plus:free'),
 	temperature: z.number().min(0).max(2).default(0.3),
@@ -40,6 +58,8 @@ export const RuntimeConfigSchema = z.object({
 	maxIterations: z.number().positive().default(200),
 	taskRouter: TaskRouterConfigSchema,
 	compaction: CompactionConfigSchema.default({}),
+	agentBus: AgentBusConfigSchema.optional(),
+	promptCache: PromptCacheConfigSchema.optional(),
 })
 
 export type RuntimeConfig = z.infer<typeof RuntimeConfigSchema>

@@ -1,12 +1,17 @@
 import { createUserMessage } from '../../../../types/message/index.js'
 import type { ChatCompletionResponse } from '../../../../types/provider/index.js'
 import type { RunEvent } from '../../../../types/run/index.js'
+import type { VerificationGate } from '../../../../verification/index.js'
 import type { IterationContext } from './context.js'
+
+interface VerificationAwareContext extends IterationContext {
+	readonly verificationGate?: VerificationGate
+}
 
 export type ToolReviewOutcome = 'executed' | 'rejected' | 'stop'
 
 export async function* runToolReview(
-	ctx: IterationContext,
+	ctx: VerificationAwareContext,
 	response: ChatCompletionResponse,
 	iterationNum: number,
 ): AsyncGenerator<RunEvent, ToolReviewOutcome> {
@@ -32,6 +37,52 @@ export async function* runToolReview(
 			isDestructive,
 		}
 	})
+
+	if (ctx.verificationGate) {
+		const gate = ctx.verificationGate
+		const gateResults = toolCallSummaries.map((tc) => ({
+			toolCall: tc,
+			gateResult: gate.evaluate({
+				toolName: tc.name,
+				toolInput: tc.input,
+				toolDef: ctx.tools.get(tc.name),
+			}),
+		}))
+
+		const allAllowed = gateResults.every((gr) => gr.gateResult.decision === 'allow')
+		const allDenied = gateResults.every((gr) => gr.gateResult.decision === 'deny')
+
+		if (allAllowed) {
+			ctx.log.debug('Verification gate: all tool calls pre-approved', {
+				tools: gateResults.map((gr) => gr.toolCall.name),
+			})
+			const batch = await ctx.toolExecutor.executeBatch(response)
+			for (const msg of batch.messages) {
+				ctx.sessionMgr.pushMessage(msg)
+			}
+			return 'executed'
+		}
+
+		if (allDenied) {
+			const reasons = gateResults
+				.map((gr) => `${gr.toolCall.name}: ${gr.gateResult.reason}`)
+				.join('; ')
+			ctx.log.debug('Verification gate: all tool calls denied', {
+				tools: gateResults.map((gr) => gr.toolCall.name),
+			})
+			ctx.sessionMgr.pushMessage(
+				createUserMessage(`[SYSTEM] Tool calls blocked by verification gate: ${reasons}`),
+			)
+			return 'rejected'
+		}
+
+		ctx.log.debug('Verification gate: mixed decisions, proceeding to review', {
+			decisions: gateResults.map((gr) => ({
+				tool: gr.toolCall.name,
+				decision: gr.gateResult.decision,
+			})),
+		})
+	}
 
 	const reviewCheckpoint = await ctx.checkpointMgr.create(ctx.sessionMgr, iterationNum)
 

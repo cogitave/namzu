@@ -54,12 +54,16 @@ export async function runCompactionCheck(ctx: IterationContext): Promise<void> {
 		return
 	}
 
-	const systemMessage = messages[0]
-	if (!systemMessage) return
+	const systemMessages: typeof messages = []
+	for (const msg of messages) {
+		if (msg.role !== 'system') break
+		systemMessages.push(msg)
+	}
+	if (systemMessages.length === 0) return
 
 	const keepStart = messages.length - config.keepRecentMessages
 	const recentMessages = messages.slice(keepStart)
-	const olderMessages = messages.slice(1, keepStart)
+	const olderMessages = messages.slice(systemMessages.length, keepStart)
 
 	let compactedContent: string
 
@@ -71,7 +75,7 @@ export async function runCompactionCheck(ctx: IterationContext): Promise<void> {
 
 	const compactionMessage = createSystemMessage(`${COMPACTION_HEADER}\n\n${compactedContent}`)
 
-	const newMessages = [systemMessage, compactionMessage, ...recentMessages]
+	const newMessages = [...systemMessages, compactionMessage, ...recentMessages]
 
 	const oldCount = messages.length
 	messages.length = 0
