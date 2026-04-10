@@ -83,8 +83,8 @@ export function assertPluginContributionType(type: PluginContributionType): void
 // ---------------------------------------------------------------------------
 
 export type PluginHookEvent =
-	| 'session_start'
-	| 'session_end'
+	| 'run_start'
+	| 'run_end'
 	| 'pre_tool_use'
 	| 'post_tool_use'
 	| 'pre_llm_call'
@@ -94,8 +94,8 @@ export type PluginHookEvent =
 
 export function assertPluginHookEvent(event: PluginHookEvent): void {
 	switch (event) {
-		case 'session_start':
-		case 'session_end':
+		case 'run_start':
+		case 'run_end':
 		case 'pre_tool_use':
 		case 'post_tool_use':
 		case 'pre_llm_call':
