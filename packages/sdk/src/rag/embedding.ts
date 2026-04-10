@@ -31,7 +31,10 @@ export class OpenRouterEmbeddingProvider implements EmbeddingProvider {
 
 	async embedQuery(query: string): Promise<number[]> {
 		const [result] = await this.embed([query])
-		return result!
+		if (!result) {
+			throw new Error('Embedding returned no results')
+		}
+		return result
 	}
 
 	private async callEmbeddingApi(texts: string[]): Promise<number[][]> {

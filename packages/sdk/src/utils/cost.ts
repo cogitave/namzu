@@ -1,3 +1,4 @@
+import { ZERO_COST } from '../constants/limits.js'
 import type { CostInfo, TokenUsage } from '../types/common/index.js'
 
 export interface ModelPricing {
@@ -5,12 +6,7 @@ export interface ModelPricing {
 	outputCostPer1M: number
 }
 
-export const ZERO_COST: CostInfo = {
-	inputCostPer1M: 0,
-	outputCostPer1M: 0,
-	totalCost: 0,
-	cacheDiscount: 0,
-}
+export { ZERO_COST }
 
 export function calculateCost(
 	usage: TokenUsage,

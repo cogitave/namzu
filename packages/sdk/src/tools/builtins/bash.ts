@@ -1,6 +1,7 @@
 import { exec } from 'node:child_process'
 import { promisify } from 'node:util'
 import { z } from 'zod'
+import { DANGEROUS_PATTERNS } from '../../constants/tools/index.js'
 import { defineTool } from '../defineTool.js'
 
 const execAsync = promisify(exec)
@@ -13,8 +14,6 @@ const inputSchema = z.object({
 })
 
 type BashInput = z.infer<typeof inputSchema>
-
-const DANGEROUS_PATTERNS = [/rm\s+-rf\s+\//, /mkfs/, /dd\s+if=/, /:(){ :\|:& };:/]
 
 function isDangerousCommand(command: string): boolean {
 	return DANGEROUS_PATTERNS.some((pattern) => pattern.test(command))

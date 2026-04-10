@@ -12,13 +12,7 @@ export interface TokenUsage {
 	cacheWriteTokens: number
 }
 
-export const EMPTY_TOKEN_USAGE: TokenUsage = {
-	promptTokens: 0,
-	completionTokens: 0,
-	totalTokens: 0,
-	cachedTokens: 0,
-	cacheWriteTokens: 0,
-}
+export { EMPTY_TOKEN_USAGE } from '../../constants/limits.js'
 
 export function accumulateTokenUsage(current: TokenUsage, addition: TokenUsage): TokenUsage {
 	return {

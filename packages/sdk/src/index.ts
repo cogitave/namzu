@@ -2,6 +2,8 @@ export { VERSION } from './version.js'
 export { RuntimeConfigSchema, RUNTIME_DEFAULTS } from './config/runtime.js'
 export type { RuntimeConfig } from './config/runtime.js'
 
+export * from './constants/index.js'
+
 export * from './contracts/index.js'
 
 export * from './types/ids/index.js'

@@ -1,8 +1,7 @@
+import { A2A_PROTOCOL_VERSION } from '../../constants/a2a/index.js'
 import type { AgentInfo } from '../../contracts/index.js'
 import type { A2AAgentCard, A2AAgentSkill, A2AServerConfig } from '../../types/a2a/index.js'
 import type { Skill } from '../../types/skills/index.js'
-
-const A2A_PROTOCOL_VERSION = '0.3.0'
 
 function toolToA2ASkill(toolName: string): A2AAgentSkill {
 	return {

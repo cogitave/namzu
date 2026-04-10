@@ -1,3 +1,4 @@
+import { FALLBACK_MOCK_MODEL, PROVIDER_CAPABILITIES } from '../constants/provider/index.js'
 import type { TokenUsage } from '../types/common/index.js'
 import type {
 	ChatCompletionParams,
@@ -12,8 +13,6 @@ import type {
 } from '../types/provider/index.js'
 import { BedrockProvider } from './bedrock/client.js'
 import { OpenRouterProvider } from './openrouter/client.js'
-
-const FALLBACK_MOCK_MODEL = 'mock-model'
 
 class MockLLMProvider implements LLMProvider {
 	readonly id = 'mock'
@@ -103,24 +102,6 @@ class MockLLMProvider implements LLMProvider {
 		await this.delay()
 		return true
 	}
-}
-
-const PROVIDER_CAPABILITIES: Record<ProviderType, ProviderCapabilities> = {
-	openrouter: {
-		supportsTools: true,
-		supportsStreaming: true,
-		supportsFunctionCalling: true,
-	},
-	bedrock: {
-		supportsTools: true,
-		supportsStreaming: true,
-		supportsFunctionCalling: true,
-	},
-	mock: {
-		supportsTools: false,
-		supportsStreaming: true,
-		supportsFunctionCalling: false,
-	},
 }
 
 export class UnknownProviderError extends Error {

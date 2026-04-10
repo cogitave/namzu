@@ -25,8 +25,22 @@ export class AgentRegistry extends Registry<AgentDefinition> {
 			return
 		}
 
-		const def = typeof idOrDef === 'string' ? maybeDef! : idOrDef
-		const id = typeof idOrDef === 'string' ? idOrDef : def.info.id
+		if (typeof idOrDef === 'string') {
+			if (!maybeDef) {
+				throw new Error('register(id, definition) requires a definition argument')
+			}
+			const id = idOrDef
+			const def = maybeDef
+			if (this.has(id)) {
+				this.log.warn(`Agent "${id}" already registered, overwriting.`)
+			}
+			super.register(id, def)
+			this.log.info(`Agent registered: ${id}`)
+			return
+		}
+
+		const def = idOrDef
+		const id = def.info.id
 
 		if (this.has(id)) {
 			this.log.warn(`Agent "${id}" already registered, overwriting.`)

@@ -1,3 +1,4 @@
+import { DEFAULT_RETRIEVAL_CONFIG } from '../constants/rag/index.js'
 import type { KnowledgeBaseId } from '../types/ids/index.js'
 import type {
 	EmbeddingProvider,
@@ -10,12 +11,7 @@ import type {
 	VectorStore,
 } from '../types/rag/index.js'
 
-export const DEFAULT_RETRIEVAL_CONFIG: RetrievalConfig = {
-	mode: 'vector',
-	topK: 5,
-	minScore: 0.3,
-	hybridAlpha: 0.7,
-}
+export { DEFAULT_RETRIEVAL_CONFIG }
 
 export class DefaultRetriever implements Retriever {
 	constructor(

@@ -1,12 +1,7 @@
+import { DEFAULT_RAG_CONTEXT_CONFIG } from '../constants/rag/index.js'
 import type { RAGContext, RAGContextConfig, VectorSearchResult } from '../types/rag/index.js'
 
-export const DEFAULT_RAG_CONTEXT_CONFIG: RAGContextConfig = {
-	maxTokens: 4096,
-	separator: '\n\n---\n\n',
-	includeMetadata: true,
-	headerTemplate:
-		'## Retrieved Knowledge\n\nThe following information was retrieved from the knowledge base:\n',
-}
+export { DEFAULT_RAG_CONTEXT_CONFIG }
 
 export function assembleRAGContext(
 	results: VectorSearchResult[],

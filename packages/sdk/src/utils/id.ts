@@ -32,9 +32,10 @@ function generateId<T extends string>(prefix: T, length = 12): `${T}${string}` {
 	let remaining = length
 	while (remaining > 0) {
 		const bytes = randomBytes(remaining + 8)
-		for (let i = 0; i < bytes.length && remaining > 0; i++) {
-			if (bytes[i]! < MAX_UNIFORM_BYTE) {
-				suffix += ALPHABET[bytes[i]! % ALPHABET_LEN]
+		for (const byte of bytes) {
+			if (remaining <= 0) break
+			if (byte < MAX_UNIFORM_BYTE) {
+				suffix += ALPHABET[byte % ALPHABET_LEN]
 				remaining--
 			}
 		}

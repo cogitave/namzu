@@ -45,9 +45,16 @@ export class ToolRegistry extends Registry<ToolDefinition> {
 			return
 		}
 
-		const tool =
-			typeof idOrToolOrTools === 'string' ? (maybeTool as ToolDefinition)! : idOrToolOrTools
-		const id = typeof idOrToolOrTools === 'string' ? idOrToolOrTools : tool.name
+		if (typeof idOrToolOrTools === 'string') {
+			if (!maybeTool || typeof maybeTool === 'string') {
+				throw new Error('register(id, tool) requires a ToolDefinition argument')
+			}
+			this.registerOne(idOrToolOrTools, maybeTool, 'active')
+			return
+		}
+
+		const tool = idOrToolOrTools
+		const id = tool.name
 		const state: ToolAvailability = typeof maybeTool === 'string' ? maybeTool : 'active'
 
 		this.registerOne(id, tool, state)

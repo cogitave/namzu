@@ -26,7 +26,8 @@
       },
       "complexity": {
         "noForEach": "warn",
-        "useFlatMap": "warn"
+        "useFlatMap": "warn",
+        "noStaticOnlyClass": "off"
       },
       "performance": {
         "noAccumulatingSpread": "warn",

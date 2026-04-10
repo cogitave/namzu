@@ -1,10 +1,9 @@
+import { FILESYSTEM_TOOLS } from '../../constants/tools/index.js'
 import { assembleSystemPrompt } from '../../persona/assembler.js'
 import type { ToolRegistry } from '../../registry/tool/execute.js'
 import type { AgentContextLevel } from '../../types/agent/factory.js'
 import type { AgentPersona } from '../../types/persona/index.js'
 import type { Skill } from '../../types/skills/index.js'
-
-const FILESYSTEM_TOOLS = new Set(['glob', 'read_file', 'write_file', 'bash'])
 
 export interface PromptBuilderConfig {
 	systemPrompt?: string

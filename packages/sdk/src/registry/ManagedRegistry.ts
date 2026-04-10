@@ -30,8 +30,25 @@ export class ManagedRegistry<TDefinition> extends Registry<TDefinition> {
 			return
 		}
 
-		const item = typeof idOrItem === 'string' ? maybeItem! : idOrItem
-		const id = typeof idOrItem === 'string' ? idOrItem : String(item[this.idField!])
+		if (typeof idOrItem === 'string') {
+			if (!maybeItem) {
+				throw new Error('register(id, item) requires an item argument')
+			}
+			const id = idOrItem
+			const item = maybeItem
+			if (this.has(id)) {
+				this.log.warn(`"${id}" already registered, overwriting.`)
+			}
+			super.register(id, item)
+			this.log.info(`Registered: ${id}`)
+			return
+		}
+
+		const item = idOrItem
+		if (!this.idField) {
+			throw new Error('register(item) requires idField to be configured')
+		}
+		const id = String(item[this.idField])
 
 		if (this.has(id)) {
 			this.log.warn(`"${id}" already registered, overwriting.`)
