@@ -385,7 +385,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Agen
 			yield* eventTranslator.drainPending()
 
 			if (params.pluginManager) {
-				await params.pluginManager.executeHooks('session_start', {
+				await params.pluginManager.executeHooks('run_start', {
 					runId: ctx.runId,
 				})
 			}
@@ -393,7 +393,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Agen
 			yield* iterationOrchestrator.runLoop()
 
 			if (params.pluginManager) {
-				await params.pluginManager.executeHooks('session_end', {
+				await params.pluginManager.executeHooks('run_end', {
 					runId: ctx.runId,
 				})
 			}
