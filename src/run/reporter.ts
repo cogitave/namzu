@@ -154,6 +154,23 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				})
 				break
 
+			case 'plugin_hook_executing':
+				log.debug('Plugin hook executing', {
+					runId: event.runId,
+					pluginId: event.pluginId,
+					hookEvent: event.hookEvent,
+				})
+				break
+
+			case 'plugin_hook_completed':
+				log.debug('Plugin hook completed', {
+					runId: event.runId,
+					pluginId: event.pluginId,
+					hookEvent: event.hookEvent,
+					action: event.result.action,
+				})
+				break
+
 			default: {
 				const _exhaustive: never = event
 				throw new Error(`Unhandled run event type: ${(_exhaustive as RunEvent).type}`)

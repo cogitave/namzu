@@ -22,3 +22,6 @@ export type CheckpointId = `cp_${string}`
 export type LockId = `lock_${string}`
 export type AdvisoryId = `adv_${string}`
 export type AdvisoryCallId = `advc_${string}`
+export type EmergencySaveId = `esave_${string}`
+export type MemoryId = `mem_${string}`
+export type PluginId = `plg_${string}`

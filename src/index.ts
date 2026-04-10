@@ -3,9 +3,10 @@ export {
 	RuntimeConfigSchema,
 	TaskRouterConfigSchema,
 	CompactionConfigSchema,
+	PluginRuntimeConfigSchema,
 	RUNTIME_DEFAULTS,
 } from './config/runtime.js'
-export type { RuntimeConfig, CompactionConfig } from './config/runtime.js'
+export type { RuntimeConfig, CompactionConfig, PluginRuntimeConfig } from './config/runtime.js'
 
 export * from './constants/index.js'
 
@@ -34,6 +35,8 @@ export * from './types/a2a/index.js'
 export * from './types/conversation/index.js'
 export * from './types/router/index.js'
 export * from './types/advisory/index.js'
+export * from './types/memory/index.js'
+export * from './types/plugin/index.js'
 
 export {
 	AdvisorRegistry,
@@ -99,12 +102,27 @@ export type { DefineAgentOptions } from './agents/index.js'
 
 export { InMemoryStore } from './store/InMemoryStore.js'
 export type { Identifiable, Timestamped } from './store/InMemoryStore.js'
+export { InMemoryMemoryIndex } from './store/memory/index.js'
+export { InMemoryMemoryStore } from './store/memory/memory.js'
+export { DiskMemoryStore } from './store/memory/disk.js'
+export type { DiskMemoryStoreConfig } from './store/memory/disk.js'
 
 export { Registry } from './registry/Registry.js'
 export { ManagedRegistry } from './registry/ManagedRegistry.js'
 export type { ManagedRegistryConfig } from './registry/ManagedRegistry.js'
 export { AgentRegistry } from './registry/agent/definitions.js'
+export { PluginRegistry } from './registry/plugin/index.js'
 
+export {
+	PluginLifecycleManager,
+	PluginResolver,
+	discoverPlugins,
+	loadPluginManifest,
+	discoverAllPluginDirs,
+} from './plugin/index.js'
+export type { PluginLifecycleManagerConfig } from './plugin/lifecycle.js'
+
+export { EmergencySaveManager } from './manager/run/emergency.js'
 export { RunPersistence } from './manager/run/persistence.js'
 export { RunDiskStore } from './store/run/disk.js'
 export { SessionStore } from './store/run/disk.js'
@@ -122,6 +140,7 @@ export {
 } from './tools/task/index.js'
 export { buildAdvisoryTools } from './tools/advisory/index.js'
 export type { AdvisoryToolsOptions } from './tools/advisory/index.js'
+export { buildMemoryTools } from './tools/memory/index.js'
 export { InMemoryConversationStore } from './store/conversation/memory.js'
 export type { InMemoryConversationStoreConfig } from './store/conversation/memory.js'
 export { PlanManager } from './manager/plan/lifecycle.js'

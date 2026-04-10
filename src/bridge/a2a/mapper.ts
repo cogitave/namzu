@@ -150,6 +150,9 @@ const MAPPING: {
 
 	task_created: null,
 	task_updated: null,
+
+	plugin_hook_executing: null,
+	plugin_hook_completed: null,
 }
 
 export function mapRunToA2AEvent(event: RunEvent, contextId?: string): A2AStreamEvent | null {

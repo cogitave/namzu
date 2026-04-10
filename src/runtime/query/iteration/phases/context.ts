@@ -58,6 +58,8 @@ export interface IterationContext {
 	readonly agentBus?: AgentBus
 
 	readonly verificationGate?: import('../../../../verification/gate.js').VerificationGate
+
+	readonly pluginManager?: import('../../../../plugin/lifecycle.js').PluginLifecycleManager
 }
 
 export type PhaseSignal = 'continue' | 'stop'

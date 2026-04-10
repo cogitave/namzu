@@ -177,6 +177,8 @@ export type StreamEventType =
 	| 'agent.canceled'
 	| 'task.created'
 	| 'task.updated'
+	| 'plugin.hook_executing'
+	| 'plugin.hook_completed'
 
 export interface StreamEvent {
 	event: StreamEventType

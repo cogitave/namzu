@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { HOOK_TIMEOUT_MS } from '../constants/plugin/index.js'
 
 export const TaskRouterConfigSchema = z
 	.object({
@@ -49,6 +50,15 @@ export const PromptCacheConfigSchema = z.object({
 
 export type PromptCacheConfig = z.infer<typeof PromptCacheConfigSchema>
 
+export const PluginRuntimeConfigSchema = z.object({
+	enabled: z.boolean().default(false),
+	autoDiscovery: z.boolean().default(true),
+	allowedScopes: z.array(z.enum(['project', 'user'])).default(['project', 'user']),
+	hookTimeoutMs: z.number().positive().default(HOOK_TIMEOUT_MS),
+})
+
+export type PluginRuntimeConfig = z.infer<typeof PluginRuntimeConfigSchema>
+
 export const RuntimeConfigSchema = z.object({
 	model: z.string().default('qwen/qwen3.6-plus:free'),
 	temperature: z.number().min(0).max(2).default(0.3),
@@ -60,6 +70,7 @@ export const RuntimeConfigSchema = z.object({
 	compaction: CompactionConfigSchema.default({}),
 	agentBus: AgentBusConfigSchema.optional(),
 	promptCache: PromptCacheConfigSchema.optional(),
+	plugins: PluginRuntimeConfigSchema.optional(),
 })
 
 export type RuntimeConfig = z.infer<typeof RuntimeConfigSchema>
