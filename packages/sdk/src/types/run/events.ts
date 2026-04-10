@@ -2,8 +2,9 @@ import type { ActivityStatus, ActivityType } from '../activity/index.js'
 import type { BaseAgentResult } from '../agent/base.js'
 import type { CostInfo, TokenUsage } from '../common/index.js'
 import type { CheckpointId, ToolCallSummary } from '../hitl/index.js'
-import type { ActivityId, PlanId, RunId, TaskId } from '../ids/index.js'
+import type { ActivityId, PlanId, PluginId, RunId, TaskId } from '../ids/index.js'
 import type { PlanStep } from '../plan/index.js'
+import type { PluginHookEvent, PluginHookResult } from '../plugin/index.js'
 import type { TaskStatus } from '../task/index.js'
 
 export type StopReason =
@@ -152,6 +153,19 @@ export type RunEvent =
 			subject: string
 			status: TaskStatus
 			owner?: string
+	  }
+	| {
+			type: 'plugin_hook_executing'
+			runId: RunId
+			pluginId: PluginId
+			hookEvent: PluginHookEvent
+	  }
+	| {
+			type: 'plugin_hook_completed'
+			runId: RunId
+			pluginId: PluginId
+			hookEvent: PluginHookEvent
+			result: PluginHookResult
 	  }
 
 export type RunEventListener = (event: RunEvent) => void | Promise<void>

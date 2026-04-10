@@ -46,6 +46,7 @@ export interface IterationConfig {
 	advisoryCtx?: AdvisoryContext
 	agentBus?: import('../../../bus/index.js').AgentBus
 	verificationGate?: import('../../../verification/gate.js').VerificationGate
+	pluginManager?: import('../../../plugin/lifecycle.js').PluginLifecycleManager
 }
 
 export class IterationOrchestrator {
@@ -90,6 +91,7 @@ export class IterationOrchestrator {
 			advisoryCtx: config.advisoryCtx,
 			agentBus: config.agentBus,
 			verificationGate: config.verificationGate,
+			pluginManager: config.pluginManager,
 		}
 	}
 
@@ -175,6 +177,13 @@ export class IterationOrchestrator {
 				yield* this.ctx.drainPending()
 
 				try {
+					if (this.ctx.pluginManager) {
+						await this.ctx.pluginManager.executeHooks('iteration_start', {
+							runId: sessionMgr.id,
+							iteration: iterationNum,
+						})
+					}
+
 					if (this.ctx.pendingNotifications.length > 0) {
 						await this.injectOneTaskNotification()
 					}
@@ -194,6 +203,13 @@ export class IterationOrchestrator {
 							]
 						: sessionMgr.messages
 
+					if (this.ctx.pluginManager) {
+						await this.ctx.pluginManager.executeHooks('pre_llm_call', {
+							runId: sessionMgr.id,
+							iteration: iterationNum,
+						})
+					}
+
 					const response = await this.ctx.provider.chat({
 						model,
 						messages,
@@ -204,6 +220,13 @@ export class IterationOrchestrator {
 					})
 
 					sessionMgr.accumulateUsage(response.usage)
+
+					if (this.ctx.pluginManager) {
+						await this.ctx.pluginManager.executeHooks('post_llm_call', {
+							runId: sessionMgr.id,
+							iteration: iterationNum,
+						})
+					}
 
 					this.ctx.log.debug('LLM response received', {
 						runId: sessionMgr.id,
@@ -335,6 +358,13 @@ export class IterationOrchestrator {
 					}
 
 					await runAdvisoryPhase(this.ctx, iterationNum, response)
+
+					if (this.ctx.pluginManager) {
+						await this.ctx.pluginManager.executeHooks('iteration_end', {
+							runId: sessionMgr.id,
+							iteration: iterationNum,
+						})
+					}
 
 					await this.ctx.emitEvent({
 						type: 'iteration_completed',

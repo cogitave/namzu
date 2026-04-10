@@ -9,14 +9,17 @@ import type {
 	ConnectorInstanceId,
 	CredentialId,
 	DocumentId,
+	EmergencySaveId,
 	EnvironmentId,
 	ExecutionContextId,
 	KnowledgeBaseId,
 	MCPClientId,
 	MCPServerId,
 	MCPSessionId,
+	MemoryId,
 	MessageId,
 	PlanId,
+	PluginId,
 	RunId,
 	SessionId,
 	TaskId,
@@ -137,6 +140,18 @@ export function generateAdvisoryCallId(): AdvisoryCallId {
 	return generateId('advc_')
 }
 
+export function generateEmergencySaveId(): EmergencySaveId {
+	return generateId('esave_')
+}
+
+export function generateMemoryId(): MemoryId {
+	return generateId('mem_')
+}
+
+export function generatePluginId(): PluginId {
+	return generateId('plg_')
+}
+
 function parseId<T extends string>(raw: string, prefix: string, typeName: string): T {
 	if (!raw.startsWith(prefix)) {
 		throw new Error(`Invalid ${typeName}: expected "${prefix}" prefix, got "${raw}"`)
@@ -152,4 +167,7 @@ export function parseRunId(raw: string): RunId {
 }
 export function parseConnectorInstanceId(raw: string): ConnectorInstanceId {
 	return parseId<ConnectorInstanceId>(raw, 'ci_', 'ConnectorInstanceId')
+}
+export function parsePluginId(raw: string): PluginId {
+	return parseId<PluginId>(raw, 'plg_', 'PluginId')
 }

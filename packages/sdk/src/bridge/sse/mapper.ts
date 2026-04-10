@@ -228,6 +228,25 @@ const MAPPING: {
 			owner: e.owner ?? null,
 		}),
 	},
+
+	plugin_hook_executing: {
+		wire: 'plugin.hook_executing',
+		transform: (e, runId) => ({
+			run_id: runId,
+			plugin_id: e.pluginId,
+			hook_event: e.hookEvent,
+		}),
+	},
+
+	plugin_hook_completed: {
+		wire: 'plugin.hook_completed',
+		transform: (e, runId) => ({
+			run_id: runId,
+			plugin_id: e.pluginId,
+			hook_event: e.hookEvent,
+			result_action: e.result.action,
+		}),
+	},
 }
 
 export function mapRunToStreamEvent(event: RunEvent, runId: RunId): MappedStreamEvent | null {

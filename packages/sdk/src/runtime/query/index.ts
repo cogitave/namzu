@@ -97,6 +97,8 @@ export interface QueryParams {
 	agentBus?: import('../../bus/index.js').AgentBus
 
 	verificationGate?: VerificationGateConfig
+
+	pluginManager?: import('../../plugin/lifecycle.js').PluginLifecycleManager
 }
 
 export async function* query(params: QueryParams): AsyncGenerator<RunEvent, AgentRun> {
@@ -267,6 +269,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Agen
 			workingStateManager,
 			agentBus: params.agentBus,
 			verificationGate: verificationGate,
+			pluginManager: params.pluginManager,
 		},
 		ctx.sessionMgr,
 		toolExecutor,
@@ -381,7 +384,19 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Agen
 			})
 			yield* eventTranslator.drainPending()
 
+			if (params.pluginManager) {
+				await params.pluginManager.executeHooks('session_start', {
+					runId: ctx.runId,
+				})
+			}
+
 			yield* iterationOrchestrator.runLoop()
+
+			if (params.pluginManager) {
+				await params.pluginManager.executeHooks('session_end', {
+					runId: ctx.runId,
+				})
+			}
 
 			yield* resultAssembler.completeRun(rootSpan)
 		} catch (err) {
