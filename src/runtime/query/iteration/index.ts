@@ -44,6 +44,8 @@ export interface IterationConfig {
 	compactionConfig?: CompactionConfig
 	workingStateManager?: WorkingStateManager
 	advisoryCtx?: AdvisoryContext
+	agentBus?: import('../../../bus/index.js').AgentBus
+	verificationGate?: import('../../../verification/gate.js').VerificationGate
 }
 
 export class IterationOrchestrator {
@@ -86,6 +88,8 @@ export class IterationOrchestrator {
 			compactionConfig: config.compactionConfig,
 			workingStateManager: config.workingStateManager,
 			advisoryCtx: config.advisoryCtx,
+			agentBus: config.agentBus,
+			verificationGate: config.verificationGate,
 		}
 	}
 
@@ -196,6 +200,7 @@ export class IterationOrchestrator {
 						tools: openAITools && openAITools.length > 0 ? openAITools : undefined,
 						temperature: sessionConfig.temperature,
 						maxTokens: sessionConfig.maxResponseTokens,
+						cacheControl: { type: 'auto' },
 					})
 
 					sessionMgr.accumulateUsage(response.usage)
@@ -450,6 +455,7 @@ export class IterationOrchestrator {
 				messages: finalMessages,
 				temperature: this.ctx.sessionConfig.temperature,
 				maxTokens: this.ctx.sessionConfig.maxResponseTokens,
+				cacheControl: { type: 'auto' },
 			})
 
 			this.ctx.sessionMgr.accumulateUsage(response.usage)
