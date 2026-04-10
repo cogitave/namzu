@@ -9,6 +9,7 @@ import type {
 	ToolDefinition,
 	ToolRegistryConfig,
 	ToolResult,
+	ToolTierConfig,
 } from '../../types/tool/index.js'
 import { toErrorMessage } from '../../utils/error.js'
 import { type Logger, getRootLogger } from '../../utils/logger.js'
@@ -22,12 +23,14 @@ export interface ToolExecutionResult extends ToolResult {
 export class ToolRegistry extends Registry<ToolDefinition> {
 	private log: Logger
 	private availability: Map<string, ToolAvailability> = new Map()
+	private tierConfig?: ToolTierConfig
 
 	constructor(config?: ToolRegistryConfig) {
 		super()
 		this.log = (config?.logger ?? getRootLogger()).child({
 			component: 'ToolRegistry',
 		})
+		this.tierConfig = config?.tierConfig
 	}
 
 	override register(id: string, tool: ToolDefinition): void
@@ -61,6 +64,14 @@ export class ToolRegistry extends Registry<ToolDefinition> {
 	}
 
 	private registerOne(id: string, tool: ToolDefinition, state: ToolAvailability): void {
+		if (tool.tier && this.tierConfig) {
+			const validIds = this.tierConfig.tiers.map((t) => t.id)
+			if (!validIds.includes(tool.tier)) {
+				throw new Error(
+					`Tool "${id}" has tier "${tool.tier}" which is not defined. Valid tiers: ${validIds.join(', ')}`,
+				)
+			}
+		}
 		if (this.has(id)) {
 			this.log.warn(`Tool "${id}" is already registered, overwriting.`)
 		}
@@ -122,6 +133,26 @@ export class ToolRegistry extends Registry<ToolDefinition> {
 		)
 	}
 
+	assignTiers(mapping: Record<string, string>): void {
+		for (const [toolName, tierId] of Object.entries(mapping)) {
+			const tool = this.getOrThrow(toolName)
+			if (this.tierConfig) {
+				const validIds = this.tierConfig.tiers.map((t) => t.id)
+				if (!validIds.includes(tierId)) {
+					throw new Error(
+						`Tier "${tierId}" for tool "${toolName}" is not defined. Valid tiers: ${validIds.join(', ')}`,
+					)
+				}
+			}
+			tool.tier = tierId
+		}
+	}
+
+	toTierGuidance(): string | null {
+		if (!this.tierConfig?.guidanceTemplate) return null
+		return this.tierConfig.guidanceTemplate(this.tierConfig.tiers)
+	}
+
 	getOrThrow(name: string): ToolDefinition {
 		const tool = this.get(name)
 		if (!tool) {
@@ -159,17 +190,26 @@ export class ToolRegistry extends Registry<ToolDefinition> {
 	toLLMTools(toolNames?: string[]): LLMToolSchema[] {
 		const toolsToConvert = this.getByAvailability(['active', 'suspended'], toolNames)
 
-		return toolsToConvert.map((tool) => ({
-			type: 'function' as const,
-			function: {
-				name: tool.name,
-				description: tool.description,
-				parameters: zodToJsonSchema(tool.inputSchema, {
-					target: 'jsonSchema7',
-					$refStrategy: 'none',
-				}) as Record<string, unknown>,
-			},
-		}))
+		return toolsToConvert.map((tool) => {
+			let description = tool.description
+			if (this.tierConfig?.labelInDescription && tool.tier) {
+				const tierDef = this.tierConfig.tiers.find((t) => t.id === tool.tier)
+				if (tierDef) {
+					description = `[${tierDef.label}] ${description}`
+				}
+			}
+			return {
+				type: 'function' as const,
+				function: {
+					name: tool.name,
+					description,
+					parameters: zodToJsonSchema(tool.inputSchema, {
+						target: 'jsonSchema7',
+						$refStrategy: 'none',
+					}) as Record<string, unknown>,
+				},
+			}
+		})
 	}
 
 	getCallableTools(toolNames?: string[]): ToolDefinition[] {

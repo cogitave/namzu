@@ -1,4 +1,5 @@
 import type { AgentInfo } from '../../contracts/index.js'
+import type { TaskRouterConfig } from '../router/index.js'
 import type { AgentContextLevel, BaseAgentConfig, BaseAgentResult } from './base.js'
 import type { Agent } from './core.js'
 
@@ -35,6 +36,8 @@ export interface AgentFactoryOptions {
 	}
 
 	agentDefinitions?: AgentDefinition[]
+
+	taskRouter?: TaskRouterConfig
 
 	threadId?: string
 

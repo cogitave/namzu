@@ -49,6 +49,17 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 		if (config.gateway) {
 			gateway = config.gateway
 		} else if (config.agentManager) {
+			const mergedFactoryOptions = config.factoryOptions
+				? {
+						...config.factoryOptions,
+						taskRouter: config.taskRouter ?? config.factoryOptions.taskRouter,
+					}
+				: config.taskRouter
+					? ({
+							taskRouter: config.taskRouter,
+						} as import('../types/agent/index.js').AgentFactoryOptions)
+					: undefined
+
 			const taskContext: AgentTaskContext = {
 				parentRunId: runId,
 				parentAgentId: this.metadata.id,
@@ -58,7 +69,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 					total: config.tokenBudget,
 					remaining: config.tokenBudget,
 				},
-				factoryOptions: config.factoryOptions,
+				factoryOptions: mergedFactoryOptions,
 				threadId: config.threadId as ThreadId,
 			}
 			gateway = new LocalTaskGateway(config.agentManager, taskContext, listener, input)

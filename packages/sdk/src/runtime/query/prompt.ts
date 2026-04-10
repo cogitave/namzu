@@ -57,6 +57,11 @@ export class PromptBuilder {
 			if (toolSection) {
 				parts.push(toolSection)
 			}
+
+			const tierGuidance = this.config.tools.toTierGuidance()
+			if (tierGuidance) {
+				parts.push(tierGuidance)
+			}
 		}
 
 		if (

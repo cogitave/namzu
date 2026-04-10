@@ -11,6 +11,7 @@ import type { RunId, ThreadId } from '../../types/ids/index.js'
 import { type Message, createSystemMessage } from '../../types/message/index.js'
 import type { AgentPersona } from '../../types/persona/index.js'
 import type { LLMProvider } from '../../types/provider/index.js'
+import type { TaskRouterConfig } from '../../types/router/index.js'
 import type { AgentRun, AgentRunConfig, RunEvent, RunEventListener } from '../../types/run/index.js'
 import type { Skill } from '../../types/skills/index.js'
 import type { TaskStore } from '../../types/task/index.js'
@@ -72,6 +73,8 @@ export interface QueryParams {
 	onContextCreated?: (ctx: {
 		planManager: import('../../manager/plan/lifecycle.js').PlanManager
 	}) => void
+
+	taskRouter?: TaskRouterConfig
 }
 
 export async function* query(params: QueryParams): AsyncGenerator<RunEvent, AgentRun> {
