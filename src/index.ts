@@ -45,6 +45,14 @@ export * from './utils/cost.js'
 export * from './utils/error.js'
 export * from './utils/logger.js'
 export { hashToolResult, buildToolResultHashes } from './utils/hash.js'
+export {
+	compressShellOutput,
+	compressShellOutputFull,
+} from './utils/shell-compress.js'
+export type {
+	ShellCompressResult,
+	ShellCompressOptions,
+} from './utils/shell-compress.js'
 export { createChildAbortController } from './utils/abort.js'
 export { memoizeAsync } from './utils/memoize.js'
 export { extractFinalResponse } from './utils/conversation.js'
