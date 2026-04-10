@@ -1,3 +1,4 @@
+import { CHARS_PER_TOKEN } from '../constants/limits.js'
 import { assembleSystemPrompt } from '../persona/assembler.js'
 import type { AdvisorDefinition } from '../types/advisory/config.js'
 import type { AdvisoryRequest, AdvisoryResult } from '../types/advisory/result.js'
@@ -142,8 +143,7 @@ export class AdvisoryExecutor {
 			return messages
 		}
 
-		// Rough heuristic: 1 token ~= 4 characters
-		const charBudget = maxTokens * 4
+		const charBudget = maxTokens * CHARS_PER_TOKEN
 		let totalChars = 0
 		const result: Message[] = []
 

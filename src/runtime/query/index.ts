@@ -1,8 +1,19 @@
+import {
+	AdvisorRegistry,
+	AdvisoryContext,
+	AdvisoryExecutor,
+	TriggerEvaluator,
+} from '../../advisory/index.js'
+import { extractFromUserMessage } from '../../compaction/extractor.js'
+import { WorkingStateManager } from '../../compaction/manager.js'
+import type { CompactionConfig } from '../../config/runtime.js'
 import { getTracer } from '../../provider/telemetry/setup.js'
 import type { ToolRegistry } from '../../registry/tool/execute.js'
 import { GENAI, NAMZU, agentSessionSpanName } from '../../telemetry/attributes.js'
+import { buildAdvisoryTools } from '../../tools/advisory/index.js'
 import { SearchToolsTool } from '../../tools/builtins/search-tools.js'
 import { buildTaskTools } from '../../tools/task/index.js'
+import type { AdvisoryConfig } from '../../types/advisory/index.js'
 import type { RuntimeToolOverrides } from '../../types/agent/base.js'
 import type { AgentContextLevel } from '../../types/agent/factory.js'
 import type { CheckpointId, ResumeHandler } from '../../types/hitl/index.js'
@@ -75,6 +86,10 @@ export interface QueryParams {
 	}) => void
 
 	taskRouter?: TaskRouterConfig
+
+	advisory?: AdvisoryConfig
+
+	compactionConfig?: CompactionConfig
 }
 
 export async function* query(params: QueryParams): AsyncGenerator<RunEvent, AgentRun> {
@@ -165,6 +180,12 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Agen
 		ctx.log,
 	)
 
+	let workingStateManager: WorkingStateManager | undefined
+	if (params.compactionConfig && params.compactionConfig.strategy !== 'disabled') {
+		workingStateManager = new WorkingStateManager(params.compactionConfig)
+		toolExecutor.setWorkingStateManager(workingStateManager)
+	}
+
 	const promptBuilder = new PromptBuilder({
 		systemPrompt: params.systemPrompt,
 		persona: params.persona,
@@ -192,6 +213,35 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Agen
 		drainPending: () => eventTranslator.drainPending(),
 	})
 
+	let advisoryCtx: AdvisoryContext | undefined
+	if (params.advisory && params.advisory.advisors.length > 0) {
+		const advisorRegistry = new AdvisorRegistry(
+			params.advisory.advisors,
+			params.advisory.defaultAdvisorId,
+		)
+		const advisoryExecutor = new AdvisoryExecutor(ctx.log)
+		const triggerEvaluator = new TriggerEvaluator(
+			params.advisory.triggers ?? [],
+			params.advisory.budget,
+		)
+		advisoryCtx = new AdvisoryContext(
+			advisorRegistry,
+			advisoryExecutor,
+			triggerEvaluator,
+			params.advisory.budget,
+		)
+
+		if (params.advisory.enableAgentTool) {
+			const advisoryTools = buildAdvisoryTools({ advisoryCtx })
+			const overrides = params.runtimeToolOverrides
+			for (const tool of advisoryTools) {
+				const override = overrides?.[tool.name]
+				if (override === 'disabled') continue
+				params.tools.register(tool, override ?? 'active')
+			}
+		}
+	}
+
 	const iterationOrchestrator = new IterationOrchestrator(
 		{
 			provider: params.provider,
@@ -201,6 +251,9 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Agen
 			taskGateway: params.taskGateway,
 			taskStore: params.taskStore,
 			launchedTasks: params.launchedTasks,
+			advisoryCtx,
+			compactionConfig: params.compactionConfig,
+			workingStateManager,
 		},
 		ctx.sessionMgr,
 		toolExecutor,
@@ -272,9 +325,15 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Agen
 				}
 			} else {
 				ctx.sessionMgr.pushMessage(createSystemMessage(assembledPrompt))
+				let isFirstUserMessage = true
 				for (const msg of params.messages) {
 					if (msg.role === 'system') continue
 					ctx.sessionMgr.pushMessage(msg)
+
+					if (workingStateManager && msg.role === 'user' && msg.content) {
+						extractFromUserMessage(workingStateManager, msg.content, isFirstUserMessage)
+						isFirstUserMessage = false
+					}
 				}
 			}
 

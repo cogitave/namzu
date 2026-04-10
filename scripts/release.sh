@@ -4,18 +4,29 @@ set -euo pipefail
 # Namzu Release Script (local orchestration)
 #
 # Usage:
-#   ./scripts/release.sh patch              # 0.1.3 → 0.1.4 (stable)
-#   ./scripts/release.sh minor              # 0.1.3 → 0.2.0 (stable)
-#   ./scripts/release.sh major              # 0.1.3 → 1.0.0 (stable)
-#   ./scripts/release.sh rc                 # 0.1.3 → 0.2.0-rc.1 (pre-release)
-#   ./scripts/release.sh rc                 # 0.2.0-rc.1 → 0.2.0-rc.2 (bump rc)
-#   ./scripts/release.sh stable             # 0.2.0-rc.2 → 0.2.0 (promote to stable)
-#   ./scripts/release.sh patch --dry-run    # Preview without changes
+#   Stable releases:
+#     ./scripts/release.sh patch                # 0.1.3 → 0.1.4
+#     ./scripts/release.sh minor                # 0.1.3 → 0.2.0
+#     ./scripts/release.sh major                # 0.1.3 → 1.0.0
+#
+#   Pre-releases (explicit bump required):
+#     ./scripts/release.sh rc patch             # 0.1.3 → 0.1.4-rc.1
+#     ./scripts/release.sh rc minor             # 0.1.3 → 0.2.0-rc.1
+#     ./scripts/release.sh rc                   # 0.1.4-rc.1 → 0.1.4-rc.2 (bump counter)
+#     ./scripts/release.sh beta patch           # 0.1.3 → 0.1.4-beta.1
+#     ./scripts/release.sh alpha minor          # 0.1.3 → 0.2.0-alpha.1
+#
+#   Promote to stable:
+#     ./scripts/release.sh stable               # 0.1.4-rc.2 → 0.1.4
+#
+#   Dry run:
+#     ./scripts/release.sh patch --dry-run
+#     ./scripts/release.sh rc patch --dry-run
 #
 # What happens locally:
 #   1. Validates clean working tree + main branch
 #   2. Bumps version in package.json
-#   3. Generates CHANGELOG.md via git-cliff (if available)
+#   3. Generates CHANGELOG.md via git-cliff (stable only, if available)
 #   4. Runs local verification (lint + typecheck + build + test)
 #   5. Commits, tags, pushes
 #
@@ -26,15 +37,17 @@ set -euo pipefail
 #
 # Prerequisites: jq, git-cliff (optional)
 
-BUMP="${1:-}"
-DRY_RUN="${2:-}"
+CHANNEL="${1:-}"
+BUMP="${2:-}"
+DRY_RUN=""
 
-if [[ -z "$BUMP" ]] || [[ ! "$BUMP" =~ ^(patch|minor|major|rc|beta|alpha|stable)$ ]]; then
-  echo "Usage: ./scripts/release.sh <patch|minor|major|rc|beta|alpha|stable> [--dry-run]"
-  echo ""
-  echo "  patch/minor/major  — stable release (npm: latest)"
-  echo "  rc/beta/alpha      — pre-release (npm: rc/beta/alpha)"
-  echo "  stable             — promote current pre-release to stable (npm: latest)"
+# Parse args
+if [[ "$CHANNEL" == "--dry-run" ]] || [[ "$BUMP" == "--dry-run" ]] || [[ "${3:-}" == "--dry-run" ]]; then
+  DRY_RUN="true"
+fi
+
+if [[ -z "$CHANNEL" ]]; then
+  echo "Usage: ./scripts/release.sh <patch|minor|major|rc|beta|alpha|stable> [patch|minor|major] [--dry-run]"
   exit 1
 fi
 
@@ -66,30 +79,40 @@ if [[ "$CURRENT" == *"-"* ]]; then
 fi
 
 # Calculate next version
-case "$BUMP" in
-  major)
-    MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0
+case "$CHANNEL" in
+  patch|minor|major)
+    # Stable release
+    case "$CHANNEL" in
+      major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+      minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+      patch) PATCH=$((PATCH + 1)) ;;
+    esac
     VERSION="${MAJOR}.${MINOR}.${PATCH}"
     ;;
-  minor)
-    MINOR=$((MINOR + 1)); PATCH=0
-    VERSION="${MAJOR}.${MINOR}.${PATCH}"
-    ;;
-  patch)
-    PATCH=$((PATCH + 1))
-    VERSION="${MAJOR}.${MINOR}.${PATCH}"
-    ;;
+
   rc|beta|alpha)
-    if [[ "$PRE_TAG" == "$BUMP" ]]; then
-      # Already on this pre-release channel — bump the number
+    if [[ "$PRE_TAG" == "$CHANNEL" ]]; then
+      # Already on this channel → bump counter
       PRE_NUM=$((PRE_NUM + 1))
-      VERSION="${BASE_VERSION}-${BUMP}.${PRE_NUM}"
+      VERSION="${BASE_VERSION}-${CHANNEL}.${PRE_NUM}"
+    elif [[ -z "$BUMP" ]] || [[ "$BUMP" == "--dry-run" ]]; then
+      echo "Error: First pre-release requires a bump level."
+      echo "Usage: ./scripts/release.sh $CHANNEL <patch|minor|major>"
+      echo ""
+      echo "Example: ./scripts/release.sh $CHANNEL patch   # ${CURRENT} → $((PATCH + 1))-${CHANNEL}.1"
+      exit 1
     else
-      # New pre-release — bump minor and start at .1
-      NEW_MINOR=$((MINOR + 1))
-      VERSION="${MAJOR}.${NEW_MINOR}.0-${BUMP}.1"
+      # New pre-release with explicit bump
+      case "$BUMP" in
+        major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+        minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+        patch) PATCH=$((PATCH + 1)) ;;
+        *) echo "Invalid bump level: $BUMP (use patch, minor, or major)"; exit 1 ;;
+      esac
+      VERSION="${MAJOR}.${MINOR}.${PATCH}-${CHANNEL}.1"
     fi
     ;;
+
   stable)
     if [[ -z "$PRE_TAG" ]]; then
       echo "Already on a stable version (${CURRENT}). Nothing to promote."
@@ -97,26 +120,33 @@ case "$BUMP" in
     fi
     VERSION="${BASE_VERSION}"
     ;;
+
+  *)
+    echo "Unknown channel: $CHANNEL"
+    echo "Usage: ./scripts/release.sh <patch|minor|major|rc|beta|alpha|stable> [patch|minor|major] [--dry-run]"
+    exit 1
+    ;;
 esac
 
 TAG="v${VERSION}"
 
 echo ""
-echo "  Release: ${CURRENT} → ${VERSION} (${BUMP})"
+echo "  Release: ${CURRENT} → ${VERSION}"
 echo "  Tag:     ${TAG}"
 if [[ "$VERSION" == *"-"* ]]; then
-  echo "  Type:    pre-release (npm tag: ${VERSION#*-})"
+  PRE_CHANNEL="${VERSION#*-}"
+  PRE_CHANNEL="${PRE_CHANNEL%%.*}"
+  echo "  Channel: ${PRE_CHANNEL} (npm tag: ${PRE_CHANNEL})"
 else
-  echo "  Type:    stable (npm tag: latest)"
+  echo "  Channel: stable (npm tag: latest)"
 fi
 echo ""
 
-if [[ "$DRY_RUN" == "--dry-run" ]]; then
-  if command -v git-cliff >/dev/null 2>&1; then
+if [[ -n "$DRY_RUN" ]]; then
+  if command -v git-cliff >/dev/null 2>&1 && [[ "$VERSION" != *"-"* ]]; then
     echo "  [dry-run] Changelog preview:"
     git-cliff --tag "$TAG" --unreleased --strip header
   fi
-  echo ""
   echo "  [dry-run] No changes made."
   exit 0
 fi
@@ -125,7 +155,7 @@ fi
 TMPFILE=$(mktemp)
 jq ".version = \"${VERSION}\"" package.json > "$TMPFILE" && mv "$TMPFILE" package.json
 
-# Generate changelog (optional, skip for pre-releases)
+# Generate changelog (stable only)
 if [[ "$VERSION" != *"-"* ]] && command -v git-cliff >/dev/null 2>&1; then
   git-cliff --tag "$TAG" --unreleased --prepend CHANGELOG.md
 elif [[ "$VERSION" == *"-"* ]]; then
