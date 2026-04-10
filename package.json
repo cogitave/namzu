@@ -1,6 +1,6 @@
 {
   "name": "@namzu/sdk",
-  "version": "0.1.3",
+  "version": "0.1.4-rc.1",
   "description": "Open-source AI agent framework — multi-model, multi-tenant, MCP + A2A native",
   "license": "FSL-1.1-MIT",
   "type": "module",
