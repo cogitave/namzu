@@ -2,15 +2,26 @@
 
 All notable changes to Namzu are documented here.
 
-## [Unreleased]
+## [0.1.4-rc.3] — 2026-04-10
+
+### Miscellaneous
+
+- **release**: derive version from git tag, no manual bump needed
+## [0.1.4-rc.2] — 2026-04-10
 
 ### Bug Fixes
 
+- **ci**: remove duplicate --strip flag in git-cliff command
+- **plugin**: rename session hooks to run_start/run_end
 - **release**: use tag name as release title instead of prefixed name
 ### Features
 
+- P3 + plugin architecture — emergency save, memory index, plugin system
 - P2 — AgentBus, prompt cache split, verification gate
 - integrate compaction loop and advisory phase into iteration pipeline
+### Miscellaneous
+
+- **changelog**: automate CHANGELOG.md via git-cliff in release workflow
 ## [0.1.4-rc.1] — 2026-04-10
 
 ### Bug Fixes
