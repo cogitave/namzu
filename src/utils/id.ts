@@ -1,6 +1,8 @@
 import { randomBytes } from 'node:crypto'
 import type {
 	ActivityId,
+	AdvisoryCallId,
+	AdvisoryId,
 	CheckpointId,
 	ChunkId,
 	ConnectorId,
@@ -125,6 +127,14 @@ export function generateEnvironmentId(): EnvironmentId {
 
 export function generateCheckpointId(): CheckpointId {
 	return generateId('cp_')
+}
+
+export function generateAdvisoryId(): AdvisoryId {
+	return generateId('adv_')
+}
+
+export function generateAdvisoryCallId(): AdvisoryCallId {
+	return generateId('advc_')
 }
 
 function parseId<T extends string>(raw: string, prefix: string, typeName: string): T {

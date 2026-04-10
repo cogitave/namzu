@@ -28,6 +28,14 @@ There are great agent frameworks out there — LangChain, CrewAI, AutoGen, Verce
 
 **Progressive tool disclosure.** Agents don't see all tools at once. Tools start as deferred (searchable but not active), get activated on demand, and can be suspended. This keeps the LLM's context focused and reduces hallucinated tool calls.
 
+**Advisory System.** A three-layer advisory architecture where agents can consult specialized advisors mid-execution. Unlike Anthropic's Advisor Tool (Claude-only, single advisor), Namzu's system is provider-agnostic (any model advises any model via BYOK), supports multi-advisor with domain routing, configurable triggers, and agent-autonomous consultation. Define a security advisor on Bedrock, an architecture advisor on OpenRouter, and let the agent decide when to consult whom.
+
+**Structured compaction.** When context reaches capacity, Namzu doesn't just truncate — it incrementally extracts structured data (task, plan, files, decisions, failures) into a typed WorkingState, serializes it as compact markdown, and replaces old messages. The agent continues with full context awareness at a fraction of the token cost.
+
+**Tool tiering.** Configurable tier system that teaches the LLM to prefer cheaper tools first. Unlike hardcoded approaches, Namzu's tiers are fully user-defined — bring your own tier labels, priorities, and guidance templates.
+
+**Task routing.** Route sub-tasks to different models based on task type. Compaction and summarization go to cheap models, coding stays on expensive ones. Provider-agnostic, configurable per task type, with automatic fallback chains.
+
 | | Namzu | LangChain/LangGraph | CrewAI | OpenAI Agents SDK | Vercel AI SDK |
 |---|---|---|---|---|---|
 | Language | TypeScript | Python/JS | Python | Python/JS | TypeScript |
@@ -40,6 +48,10 @@ There are great agent frameworks out there — LangChain, CrewAI, AutoGen, Verce
 | Plan review (HITL) | Structured | Graph interrupts | No | Basic | Tool approval |
 | Persona inheritance | Yes | No | Role strings | Instructions | System prompt |
 | Progressive tool loading | Yes | No | No | No | No |
+| Advisory system | Multi-advisor, provider-agnostic | No | No | No | No |
+| Context compaction | Structured WorkingState | No | No | No | No |
+| Tool tiering | Configurable, user-defined | No | No | No | No |
+| Task routing | Per-task model selection | No | No | No | No |
 | RAG built-in | Full pipeline | Via integrations | Via integrations | Via tools | No |
 | Telemetry | OpenTelemetry | LangSmith | CrewAI+ | Built-in tracing | No |
 

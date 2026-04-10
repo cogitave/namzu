@@ -5,6 +5,7 @@ export type TaskType =
 	| 'coding'
 	| 'verification'
 	| 'planning'
+	| 'advisory'
 	| 'default'
 
 export interface TaskRouterConfig {
@@ -14,5 +15,6 @@ export interface TaskRouterConfig {
 	readonly coding?: string | null
 	readonly verification?: string | null
 	readonly planning?: string | null
+	readonly advisory?: string | null
 	readonly default?: string | null
 }

@@ -19,3 +19,5 @@ export type MCPClientId = `mcpc_${string}`
 export type MCPSessionId = `mcps_${string}`
 export type EnvironmentId = `env_${string}`
 export type CheckpointId = `cp_${string}`
+export type AdvisoryId = `adv_${string}`
+export type AdvisoryCallId = `advc_${string}`

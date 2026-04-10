@@ -33,6 +33,18 @@ export * from './types/skills/index.js'
 export * from './types/a2a/index.js'
 export * from './types/conversation/index.js'
 export * from './types/router/index.js'
+export * from './types/advisory/index.js'
+
+export {
+	AdvisorRegistry,
+	AdvisoryExecutor,
+	TriggerEvaluator,
+	AdvisoryContext,
+} from './advisory/index.js'
+export type {
+	AdvisoryCallContext,
+	AdvisoryExecutionResult,
+} from './advisory/index.js'
 
 export {
 	assembleSystemPrompt,
@@ -108,6 +120,8 @@ export {
 	buildTaskUpdateTool,
 	buildTaskListTool,
 } from './tools/task/index.js'
+export { buildAdvisoryTools } from './tools/advisory/index.js'
+export type { AdvisoryToolsOptions } from './tools/advisory/index.js'
 export { InMemoryConversationStore } from './store/conversation/memory.js'
 export type { InMemoryConversationStoreConfig } from './store/conversation/memory.js'
 export { PlanManager } from './manager/plan/lifecycle.js'
