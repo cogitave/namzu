@@ -43,6 +43,9 @@
     "release:patch": "bash scripts/release.sh patch",
     "release:minor": "bash scripts/release.sh minor",
     "release:major": "bash scripts/release.sh major",
+    "release:rc": "bash scripts/release.sh rc",
+    "release:beta": "bash scripts/release.sh beta",
+    "release:stable": "bash scripts/release.sh stable",
     "release:dry": "bash scripts/release.sh patch --dry-run",
     "prepublishOnly": "pnpm lint && pnpm typecheck && pnpm build"
   },

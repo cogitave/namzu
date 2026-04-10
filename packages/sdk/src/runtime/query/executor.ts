@@ -7,6 +7,7 @@ import type { ChatCompletionResponse } from '../../types/provider/index.js'
 import type { RunEvent } from '../../types/run/index.js'
 import type { ToolContext } from '../../types/tool/index.js'
 import type { Logger } from '../../utils/logger.js'
+import { compressShellOutput } from '../../utils/shell-compress.js'
 
 export type EmitEvent = (event: RunEvent) => Promise<void>
 
@@ -123,9 +124,11 @@ export class ToolExecutor {
 		const result = await this.config.tools.execute(toolName, input, toolContext)
 		const durationMs = Date.now() - startMs
 
-		const output = result.success
+		const rawOutput = result.success
 			? result.output
 			: `Error: ${result.error ?? 'Tool execution failed'}`
+
+		const output = result.success ? this.maybeCompress(toolName, rawOutput) : rawOutput
 
 		if (result.success) {
 			this.log.debug('Tool executed successfully', {
@@ -159,5 +162,23 @@ export class ToolExecutor {
 		})
 
 		return { toolCallId: toolCall.id, output }
+	}
+
+	private maybeCompress(toolName: string, output: string): string {
+		const tool = this.config.tools.get(toolName)
+		if (!tool || tool.category !== 'shell') {
+			return output
+		}
+
+		const compressed = compressShellOutput(output)
+		if (compressed.length < output.length) {
+			this.log.debug('Shell output compressed', {
+				tool: toolName,
+				originalLength: output.length,
+				compressedLength: compressed.length,
+				reductionPercent: Math.round((1 - compressed.length / output.length) * 100),
+			})
+		}
+		return compressed
 	}
 }

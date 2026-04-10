@@ -40,20 +40,45 @@ jobs:
       - name: Test
         run: pnpm test
 
-      - name: Publish to npm (Trusted Publishing)
-        run: npm publish --access public --provenance
+      - name: Detect release channel
+        id: channel
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          if [[ "$VERSION" == *"-rc."* ]]; then
+            echo "tag=rc" >> "$GITHUB_OUTPUT"
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          elif [[ "$VERSION" == *"-beta."* ]]; then
+            echo "tag=beta" >> "$GITHUB_OUTPUT"
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          elif [[ "$VERSION" == *"-alpha."* ]]; then
+            echo "tag=alpha" >> "$GITHUB_OUTPUT"
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=latest" >> "$GITHUB_OUTPUT"
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Publish to npm
+        run: npm publish --access public --provenance --tag ${{ steps.channel.outputs.tag }}
 
       - name: Create GitHub Release
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
           PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
           if [[ -n "$PREV_TAG" ]]; then
             NOTES=$(git log --oneline "${PREV_TAG}..HEAD" --no-merges)
           else
             NOTES=$(git log --oneline --no-merges)
           fi
+
+          FLAGS=""
+          if [[ "${{ steps.channel.outputs.prerelease }}" == "true" ]]; then
+            FLAGS="--prerelease"
+          fi
+
           gh release create "$GITHUB_REF_NAME" \
-            --title "Namzu ${VERSION}" \
-            --notes "$NOTES"
+            --title "Namzu ${{ steps.channel.outputs.version }}" \
+            --notes "$NOTES" \
+            $FLAGS
         env:
           GH_TOKEN: ${{ github.token }}

@@ -1,4 +1,4 @@
-import type { AgentPersona } from '../types/persona/index.js'
+import type { AgentPersona, OutputDiscipline } from '../types/persona/index.js'
 import type { Skill } from '../types/skills/index.js'
 
 export function assembleSystemPrompt(persona: AgentPersona, skills?: Skill[]): string {
@@ -33,6 +33,10 @@ export function assembleSystemPrompt(persona: AgentPersona, skills?: Skill[]): s
 		}
 	}
 
+	if (persona.reflexes?.outputDiscipline) {
+		sections.push(renderOutputDiscipline(persona.reflexes.outputDiscipline))
+	}
+
 	if (persona.output) {
 		sections.push(`## Output Format\n${persona.output.format.trim()}`)
 	}
@@ -42,6 +46,36 @@ export function assembleSystemPrompt(persona: AgentPersona, skills?: Skill[]): s
 	}
 
 	return sections.join('\n\n')
+}
+
+export function renderOutputDiscipline(discipline: OutputDiscipline): string {
+	const lines: string[] = []
+
+	if (discipline.betweenToolCalls === 'silent') {
+		lines.push('- Emit zero words between tool calls. Call tools back-to-back with no narration.')
+	} else {
+		lines.push(
+			'- Emit minimal text between tool calls. Keep inter-tool narration to a single short sentence.',
+		)
+	}
+
+	if (discipline.suppressInnerMonologue) {
+		lines.push('- Do not output inner monologue, reasoning traces, or planning text between turns.')
+	}
+
+	if (discipline.finalResponse?.singleFileMaxWords) {
+		lines.push(
+			`- Final response for single-file changes: ${discipline.finalResponse.singleFileMaxWords} words maximum. Describe the why, not the what.`,
+		)
+	}
+
+	if (discipline.finalResponse?.multiFileMaxWords) {
+		lines.push(
+			`- Final response for multi-file changes: ${discipline.finalResponse.multiFileMaxWords} words maximum. Summarize intent and scope.`,
+		)
+	}
+
+	return `## Output Discipline\n${lines.join('\n')}`
 }
 
 export function mergePersonas(base: AgentPersona, override: Partial<AgentPersona>): AgentPersona {
@@ -56,6 +90,7 @@ export function mergePersonas(base: AgentPersona, override: Partial<AgentPersona
 				...(override.reflexes?.constraints ?? []),
 			],
 			toolGuidance: override.reflexes?.toolGuidance ?? base.reflexes?.toolGuidance,
+			outputDiscipline: override.reflexes?.outputDiscipline ?? base.reflexes?.outputDiscipline,
 		},
 		output: override.output ?? base.output,
 		sessionContext: override.sessionContext ?? base.sessionContext,

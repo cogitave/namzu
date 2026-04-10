@@ -18,10 +18,21 @@ export interface PersonaExpertise {
 	domains: string[]
 }
 
+export interface OutputDiscipline {
+	betweenToolCalls: 'silent' | 'minimal'
+	finalResponse?: {
+		singleFileMaxWords?: number
+		multiFileMaxWords?: number
+	}
+	suppressInnerMonologue?: boolean
+}
+
 export interface PersonaReflexes {
 	constraints: string[]
 
 	toolGuidance?: string
+
+	outputDiscipline?: OutputDiscipline
 }
 
 export interface PersonaOutput {
