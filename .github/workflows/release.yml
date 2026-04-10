@@ -40,7 +40,7 @@ jobs:
       - name: Test
         run: pnpm test
 
-      - name: Detect release channel
+      - name: Detect release channel and sync version
         id: channel
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
@@ -58,6 +58,9 @@ jobs:
             echo "prerelease=false" >> "$GITHUB_OUTPUT"
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          # Sync package.json version from git tag (single source of truth)
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
 
       - name: Publish to npm
         run: npm publish --access public --provenance --tag ${{ steps.channel.outputs.tag }}
