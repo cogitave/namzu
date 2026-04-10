@@ -40,8 +40,8 @@ export class FallbackResolver {
 					break
 				}
 				case 'first_route': {
-					if (validAgentIds.length > 0) {
-						const first = validAgentIds[0]!
+					const first = validAgentIds[0]
+					if (first !== undefined) {
 						this.log.info('Fallback resolved via first_route strategy', { agentId: first })
 						return {
 							agentId: first,

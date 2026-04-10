@@ -1,4 +1,5 @@
 import { SpanStatusCode } from '@opentelemetry/api'
+import { OPENROUTER_BASE_URL } from '../../constants/provider/index.js'
 import { GENAI, NAMZU, chatSpanName } from '../../telemetry/attributes.js'
 import type { TokenUsage } from '../../types/common/index.js'
 import type {
@@ -15,8 +16,6 @@ import { getRootLogger } from '../../utils/logger.js'
 import { getTracer } from '../telemetry/setup.js'
 
 const logger = getRootLogger().child({ component: 'OpenRouterProvider' })
-
-const OPENROUTER_BASE_URL = process.env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api/v1'
 
 interface RawUsage {
 	prompt_tokens: number

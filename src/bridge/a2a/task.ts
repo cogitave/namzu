@@ -1,3 +1,4 @@
+import { RUN_STATUS_TO_A2A, TERMINAL_STATES } from '../../constants/a2a/index.js'
 import type { Run, RunConfig, RunStatus, ThreadMessage } from '../../contracts/index.js'
 import type {
 	A2AArtifact,
@@ -8,23 +9,6 @@ import type {
 	A2ATaskStatus,
 } from '../../types/a2a/index.js'
 import { extractTextFromA2AMessage, threadMessageToA2A } from './message.js'
-
-const RUN_STATUS_TO_A2A: Record<RunStatus, A2ATaskState> = {
-	queued: 'pending',
-	running: 'running',
-	completed: 'completed',
-	failed: 'failed',
-	cancelled: 'canceled',
-	cancelling: 'running',
-	expired: 'failed',
-}
-
-const TERMINAL_STATES: ReadonlySet<A2ATaskState> = new Set([
-	'completed',
-	'failed',
-	'canceled',
-	'rejected',
-])
 
 export function isTerminalState(state: A2ATaskState): boolean {
 	return TERMINAL_STATES.has(state)

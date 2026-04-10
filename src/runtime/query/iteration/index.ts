@@ -112,16 +112,17 @@ export class IterationOrchestrator {
 						break
 					}
 
+					const stopReason = guardResult.stopReason ?? 'end_turn'
 					this.ctx.log.info('Guard enforcing stop', {
 						runId: sessionMgr.id,
-						stopReason: guardResult.stopReason,
+						stopReason,
 						iteration: sessionMgr.currentIteration,
 						inputTokens: sessionMgr.tokenUsage.promptTokens,
 						outputTokens: sessionMgr.tokenUsage.completionTokens,
 					})
-					await this.requestFinalResponse(model, guardResult.stopReason!)
+					await this.requestFinalResponse(model, stopReason)
 					yield* this.ctx.drainPending()
-					sessionMgr.setStopReason(guardResult.stopReason!)
+					sessionMgr.setStopReason(stopReason)
 					break
 				}
 
@@ -159,7 +160,7 @@ export class IterationOrchestrator {
 
 				try {
 					if (this.ctx.pendingNotifications.length > 0) {
-						yield* this.injectOneTaskNotification()
+						await this.injectOneTaskNotification()
 					}
 
 					const openAITools = forceFinalize
@@ -350,13 +351,12 @@ export class IterationOrchestrator {
 			await new Promise((r) => setTimeout(r, 250))
 		}
 
-		yield* this.injectOneTaskNotification()
+		await this.injectOneTaskNotification()
 	}
 
-	private async *injectOneTaskNotification(): AsyncGenerator<RunEvent> {
-		if (this.ctx.pendingNotifications.length === 0) return
-
-		const handle = this.ctx.pendingNotifications.shift()!
+	private async injectOneTaskNotification(): Promise<void> {
+		const handle = this.ctx.pendingNotifications.shift()
+		if (!handle) return
 		const meta = this.ctx.launchedTasks.get(handle.taskId)
 		const resultText =
 			handle.result?.result ??

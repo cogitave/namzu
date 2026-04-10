@@ -1,11 +1,5 @@
-import type { ChunkContent, Chunker, ChunkingConfig, ChunkingStrategy } from '../types/rag/index.js'
-
-const DEFAULT_SEPARATORS: Record<ChunkingStrategy, string[]> = {
-	fixed: [],
-	sentence: ['. ', '! ', '? ', '.\n', '!\n', '?\n'],
-	paragraph: ['\n\n', '\n'],
-	recursive: ['\n\n', '\n', '. ', ' ', ''],
-}
+import { DEFAULT_CHUNKING_CONFIG, DEFAULT_SEPARATORS } from '../constants/rag/index.js'
+import type { ChunkContent, Chunker, ChunkingConfig } from '../types/rag/index.js'
 
 export class TextChunker implements Chunker {
 	chunk(content: string, config: ChunkingConfig): ChunkContent[] {
@@ -102,8 +96,8 @@ export class TextChunker implements Chunker {
 			const nextParts: string[] = []
 			for (const part of parts) {
 				const splits = part.split(sep)
-				for (let i = 0; i < splits.length; i++) {
-					const piece = i < splits.length - 1 ? splits[i]! + sep : splits[i]!
+				for (const [i, segment] of splits.entries()) {
+					const piece = i < splits.length - 1 ? segment + sep : segment
 					if (piece.trim().length > 0) {
 						nextParts.push(piece)
 					}
@@ -138,8 +132,4 @@ export class TextChunker implements Chunker {
 	}
 }
 
-export const DEFAULT_CHUNKING_CONFIG: ChunkingConfig = {
-	strategy: 'recursive',
-	chunkSize: 512,
-	chunkOverlap: 64,
-}
+export { DEFAULT_CHUNKING_CONFIG }

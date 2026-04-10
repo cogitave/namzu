@@ -32,6 +32,10 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 	): Promise<ReactiveAgentResult> {
 		const startTime = Date.now()
 
+		if (!config.threadId) {
+			throw new Error('ReactiveAgent.run requires a threadId in config')
+		}
+
 		const session = await drainQuery(
 			{
 				systemPrompt: config.systemPrompt,
@@ -54,7 +58,7 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 				agentId: this.metadata.id,
 				agentName: this.metadata.name,
 				workingDirectory: input.workingDirectory,
-				threadId: config.threadId!,
+				threadId: config.threadId,
 				parentRunId: config.parentRunId,
 				depth: config.depth,
 				contextLevel: config.contextLevel,

@@ -52,8 +52,7 @@ export class HybridExecutionContext extends BaseExecutionContext implements Comm
 
 		this.localCtx.on((event) => this.emit(event))
 
-		for (let i = 0; i < options.remotes.length; i++) {
-			const target = options.remotes[i]!
+		for (const [i, target] of options.remotes.entries()) {
 			const remoteId = `${options.id}_remote_${i}`
 			const remote = new RemoteExecutionContext({
 				id: remoteId,
@@ -149,7 +148,10 @@ export class HybridExecutionContext extends BaseExecutionContext implements Comm
 				}
 				const targetIndex = this.roundRobinIndex % targets.length
 				this.roundRobinIndex++
-				const target = targets[targetIndex]!
+				const target = targets[targetIndex]
+				if (target === undefined) {
+					return this.localCtx.executeCommand(command, args, options)
+				}
 
 				if (target === this.localCtx) {
 					return this.localCtx.executeCommand(command, args, options)

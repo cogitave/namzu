@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  publish:
+    name: Build, Test & Publish
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org/
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Type check
+        run: pnpm typecheck
+
+      - name: Build
+        run: pnpm build
+
+      - name: Test
+        run: pnpm test
+
+      - name: Publish to npm (Trusted Publishing)
+        run: npm publish --access public --provenance
+
+      - name: Create GitHub Release
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [[ -n "$PREV_TAG" ]]; then
+            NOTES=$(git log --oneline "${PREV_TAG}..HEAD" --no-merges)
+          else
+            NOTES=$(git log --oneline --no-merges)
+          fi
+          gh release create "$GITHUB_REF_NAME" \
+            --title "Namzu ${VERSION}" \
+            --notes "$NOTES"
+        env:
+          GH_TOKEN: ${{ github.token }}

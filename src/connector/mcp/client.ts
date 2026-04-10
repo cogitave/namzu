@@ -20,8 +20,10 @@ import { type Logger, getRootLogger } from '../../utils/logger.js'
 import { HttpSseTransport } from './http-sse.js'
 import { StdioTransport } from './stdio.js'
 
-const MCP_PROTOCOL_VERSION = '2024-11-05'
-const NAMZU_CLIENT_INFO = { name: 'namzu-sdk', version: '0.1.0' }
+import { MCP_PROTOCOL_VERSION } from '../../constants/mcp/index.js'
+import { VERSION } from '../../version.js'
+
+const NAMZU_CLIENT_INFO = { name: 'namzu-sdk', version: VERSION }
 
 export class MCPClient {
 	readonly id: MCPClientId

@@ -10,7 +10,10 @@ export async function* runToolReview(
 	response: ChatCompletionResponse,
 	iterationNum: number,
 ): AsyncGenerator<RunEvent, ToolReviewOutcome> {
-	const toolCalls = response.message.toolCalls!
+	const toolCalls = response.message.toolCalls
+	if (!toolCalls || toolCalls.length === 0) {
+		return 'executed'
+	}
 
 	const toolCallSummaries = toolCalls.map((tc) => {
 		let input: unknown

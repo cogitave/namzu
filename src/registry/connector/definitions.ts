@@ -24,8 +24,22 @@ export class ConnectorRegistry extends Registry<ConnectorDefinition> {
 			return
 		}
 
-		const def = typeof idOrDef === 'string' ? maybeDef! : idOrDef
-		const id = typeof idOrDef === 'string' ? idOrDef : def.id
+		if (typeof idOrDef === 'string') {
+			if (!maybeDef) {
+				throw new Error('register(id, definition) requires a definition argument')
+			}
+			const id = idOrDef
+			const def = maybeDef
+			if (this.has(id)) {
+				this.log.warn(`Connector "${id}" is already registered, overwriting.`)
+			}
+			super.register(id, def)
+			this.log.info(`Connector registered: ${id}`)
+			return
+		}
+
+		const def = idOrDef
+		const id = def.id
 
 		if (this.has(id)) {
 			this.log.warn(`Connector "${id}" is already registered, overwriting.`)

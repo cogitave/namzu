@@ -1,3 +1,4 @@
+import { DEFAULT_CAPABILITIES } from '../constants/agent/index.js'
 import type {
 	Agent,
 	AgentCapabilities,
@@ -22,13 +23,6 @@ export interface DefineAgentOptions<
 	capabilities?: Partial<AgentCapabilities>
 	run(input: AgentInput, config: TConfig, listener?: RunEventListener): Promise<TResult>
 	cancel?(): Promise<void>
-}
-
-const DEFAULT_CAPABILITIES: AgentCapabilities = {
-	supportsTools: false,
-	supportsStreaming: false,
-	supportsConcurrency: false,
-	supportsSubAgents: false,
 }
 
 export function defineAgent<

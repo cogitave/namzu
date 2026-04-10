@@ -21,8 +21,10 @@ export class EventTranslator {
 	};
 
 	*drainPending(): Generator<RunEvent> {
-		while (this.pendingEvents.length > 0) {
-			yield this.pendingEvents.shift()!
+		let event = this.pendingEvents.shift()
+		while (event !== undefined) {
+			yield event
+			event = this.pendingEvents.shift()
 		}
 	}
 
