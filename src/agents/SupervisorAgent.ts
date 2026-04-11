@@ -98,12 +98,12 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 			tools.register(tool)
 		}
 
-		const session = await drainQuery(
+		const run = await drainQuery(
 			{
 				systemPrompt: config.systemPrompt,
 				provider: config.provider,
 				tools,
-				sessionConfig: {
+				runConfig: {
 					model: config.model,
 					tokenBudget: config.tokenBudget,
 					timeoutMs: config.timeoutMs,
@@ -151,16 +151,16 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 		const completedTasks = taskResults.filter((t) => t.result.status === 'completed').length
 
 		return {
-			runId: session.id,
-			status: session.status === 'completed' ? 'completed' : 'failed',
-			stopReason: session.stopReason,
-			usage: session.tokenUsage,
-			cost: session.costInfo,
-			iterations: session.currentIteration,
+			runId: run.id,
+			status: run.status === 'completed' ? 'completed' : 'failed',
+			stopReason: run.stopReason,
+			usage: run.tokenUsage,
+			cost: run.costInfo,
+			iterations: run.currentIteration,
 			durationMs: Date.now() - startTime,
-			messages: session.messages,
-			result: session.result,
-			lastError: session.lastError,
+			messages: run.messages,
+			result: run.result,
+			lastError: run.lastError,
 			taskResults,
 			completedTasks,
 			totalTasks: taskResults.length,

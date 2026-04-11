@@ -25,3 +25,4 @@ export type AdvisoryCallId = `advc_${string}`
 export type EmergencySaveId = `esave_${string}`
 export type MemoryId = `mem_${string}`
 export type PluginId = `plg_${string}`
+export type SandboxId = `sbx_${string}`

@@ -39,6 +39,37 @@ export const BashTool = defineTool({
 			}
 		}
 
+		// Sandbox-aware: route through sandbox.exec() when available
+		if (context.sandbox) {
+			const result = await context.sandbox.exec('/bin/sh', ['-c', input.command], {
+				timeout: input.timeout,
+				cwd: context.workingDirectory,
+				env: context.env,
+			})
+
+			if (result.timedOut) {
+				return {
+					success: false,
+					output: '',
+					error: `Command timed out after ${input.timeout}ms`,
+				}
+			}
+
+			const output = [
+				result.stdout ? `STDOUT:\n${result.stdout}` : '',
+				result.stderr ? `STDERR:\n${result.stderr}` : '',
+			]
+				.filter(Boolean)
+				.join('\n\n')
+
+			return {
+				success: result.exitCode === 0,
+				output: output || '(no output)',
+				data: { exitCode: result.exitCode, sandboxed: true },
+				error: result.exitCode !== 0 ? `Command exited with code ${result.exitCode}` : undefined,
+			}
+		}
+
 		const { stdout, stderr } = await execAsync(input.command, {
 			cwd: context.workingDirectory,
 			timeout: input.timeout,

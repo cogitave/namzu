@@ -7,11 +7,11 @@ export async function* runPlanGate(ctx: IterationContext): AsyncGenerator<RunEve
 		return 'continue'
 	}
 
-	const planCheckpoint = await ctx.checkpointMgr.create(ctx.sessionMgr, 0)
+	const planCheckpoint = await ctx.checkpointMgr.create(ctx.runMgr, 0)
 
 	await ctx.emitEvent({
 		type: 'checkpoint_created',
-		runId: ctx.sessionMgr.id,
+		runId: ctx.runMgr.id,
 		checkpointId: planCheckpoint.id,
 		iteration: 0,
 	})
@@ -20,7 +20,7 @@ export async function* runPlanGate(ctx: IterationContext): AsyncGenerator<RunEve
 	const plan = ctx.planManager.active
 	const planDecision = await ctx.resumeHandler({
 		type: 'plan_approval',
-		runId: ctx.sessionMgr.id,
+		runId: ctx.runMgr.id,
 		checkpointId: planCheckpoint.id,
 		plan: {
 			planId: plan.id,

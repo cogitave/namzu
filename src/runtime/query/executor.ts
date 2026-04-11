@@ -7,6 +7,7 @@ import { type Message, createToolMessage } from '../../types/message/index.js'
 import type { PermissionMode } from '../../types/permission/index.js'
 import type { ChatCompletionResponse } from '../../types/provider/index.js'
 import type { RunEvent } from '../../types/run/index.js'
+import type { Sandbox } from '../../types/sandbox/index.js'
 import type { ToolContext } from '../../types/tool/index.js'
 import type { Logger } from '../../utils/logger.js'
 import { compressShellOutput } from '../../utils/shell-compress.js'
@@ -20,6 +21,7 @@ export interface ToolExecutorConfig {
 	permissionMode: PermissionMode
 	env: Record<string, string>
 	abortSignal: AbortSignal
+	sandbox?: Sandbox
 }
 
 export interface ToolExecutionBatch {
@@ -48,6 +50,10 @@ export class ToolExecutor {
 
 	setWorkingStateManager(manager: WorkingStateManager): void {
 		this.workingStateManager = manager
+	}
+
+	setSandbox(sandbox: Sandbox): void {
+		this.config = { ...this.config, sandbox }
 	}
 
 	async executeBatch(response: ChatCompletionResponse): Promise<ToolExecutionBatch> {
@@ -82,10 +88,11 @@ export class ToolExecutor {
 			log: (level, message) => this.log[level](message),
 			permissionContext: {
 				mode: this.config.permissionMode,
-				sessionId: this.config.runId,
+				runId: this.config.runId,
 				workingDirectory: this.config.workingDirectory,
 			},
 			toolRegistry: this.config.tools,
+			sandbox: this.config.sandbox,
 		}
 	}
 

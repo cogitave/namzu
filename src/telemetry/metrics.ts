@@ -3,7 +3,7 @@ import { getMeter } from '../provider/telemetry/setup.js'
 export interface PlatformMetrics {
 	recordTokenUsage(model: string, inputTokens: number, outputTokens: number): void
 	recordToolCall(toolName: string, success: boolean): void
-	recordSessionDuration(status: string, durationSec: number): void
+	recordRunDuration(status: string, durationSec: number): void
 	recordLLMLatency(model: string, durationSec: number): void
 }
 
@@ -25,8 +25,8 @@ export function createPlatformMetrics(): PlatformMetrics {
 		unit: '{call}',
 	})
 
-	const sessionDurationHistogram = meter.createHistogram('namzu.session.duration', {
-		description: 'Agent session duration',
+	const runDurationHistogram = meter.createHistogram('namzu.run.duration', {
+		description: 'Agent run duration',
 		unit: 's',
 	})
 
@@ -54,9 +54,9 @@ export function createPlatformMetrics(): PlatformMetrics {
 			})
 		},
 
-		recordSessionDuration(status: string, durationSec: number): void {
-			sessionDurationHistogram.record(durationSec, {
-				'namzu.session.status': status,
+		recordRunDuration(status: string, durationSec: number): void {
+			runDurationHistogram.record(durationSec, {
+				'namzu.run.status': status,
 			})
 		},
 

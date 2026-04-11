@@ -16,7 +16,7 @@ import { getRootLogger } from '../../utils/logger.js'
 export interface RunContextConfig {
 	agentId: string
 	agentName: string
-	sessionConfig: AgentRunConfig
+	runConfig: AgentRunConfig
 	provider: LLMProvider
 	workingDirectory?: string
 	pricing?: ModelPricing
@@ -36,7 +36,7 @@ export interface RunContextConfig {
 export interface RunContext {
 	runId: RunId
 	threadId: ThreadId
-	sessionMgr: RunPersistence
+	runMgr: RunPersistence
 	activityStore: ActivityStore
 	planManager: PlanManager
 	abortController: AbortController
@@ -55,7 +55,7 @@ export class RunContextFactory {
 		}
 
 		const cwd = config.workingDirectory ?? process.cwd()
-		const permissionMode = config.sessionConfig.permissionMode ?? 'auto'
+		const permissionMode = config.runConfig.permissionMode ?? 'auto'
 		const runId = config.runId ?? generateRunId()
 
 		if (!config.threadId) {
@@ -71,11 +71,11 @@ export class RunContextFactory {
 			threadId,
 		})
 
-		const sessionMgr = new RunPersistence({
+		const runMgr = new RunPersistence({
 			runId,
 			agentId: config.agentId,
 			agentName: config.agentName,
-			sessionConfig: config.sessionConfig,
+			runConfig: config.runConfig,
 			providerId: config.provider.id,
 			outputDir,
 			pricing: config.pricing,
@@ -91,7 +91,7 @@ export class RunContextFactory {
 		return {
 			runId,
 			threadId,
-			sessionMgr,
+			runMgr,
 			activityStore,
 			planManager,
 			abortController,

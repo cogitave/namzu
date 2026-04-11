@@ -4,9 +4,14 @@ export {
 	TaskRouterConfigSchema,
 	CompactionConfigSchema,
 	PluginRuntimeConfigSchema,
+	SandboxConfigSchema,
 	RUNTIME_DEFAULTS,
 } from './config/runtime.js'
-export type { RuntimeConfig, CompactionConfig, PluginRuntimeConfig } from './config/runtime.js'
+export type {
+	RuntimeConfig,
+	CompactionConfig,
+	PluginRuntimeConfig,
+} from './config/runtime.js'
 
 export * from './constants/index.js'
 
@@ -37,6 +42,7 @@ export * from './types/router/index.js'
 export * from './types/advisory/index.js'
 export * from './types/memory/index.js'
 export * from './types/plugin/index.js'
+export * from './types/sandbox/index.js'
 
 export {
 	AdvisorRegistry,
@@ -83,7 +89,10 @@ export { resolveTaskModel } from './router/task-router.js'
 export { query, drainQuery } from './runtime/query/index.js'
 export type { QueryParams } from './runtime/query/index.js'
 export { ContextCache } from './runtime/query/context-cache.js'
-export type { ContextCacheConfig, PromptCacheInput } from './runtime/query/context-cache.js'
+export type {
+	ContextCacheConfig,
+	PromptCacheInput,
+} from './runtime/query/context-cache.js'
 export { CheckpointManager } from './runtime/query/checkpoint.js'
 export { DecisionParser } from './runtime/decision/parser.js'
 export { FallbackResolver } from './runtime/decision/fallback.js'
@@ -128,7 +137,10 @@ export { RunDiskStore } from './store/run/disk.js'
 export { SessionStore } from './store/run/disk.js'
 
 export { ActivityStore } from './store/activity/memory.js'
-export type { ActivityEvent, ActivityEventListener } from './store/activity/memory.js'
+export type {
+	ActivityEvent,
+	ActivityEventListener,
+} from './store/activity/memory.js'
 export { InMemoryTaskStore } from './store/task/memory.js'
 export { DiskTaskStore } from './store/task/disk.js'
 export type { DiskTaskStoreConfig } from './store/task/disk.js'
@@ -159,6 +171,11 @@ export {
 	MockLLMProvider,
 	UnknownProviderError,
 } from './provider/index.js'
+
+export {
+	LocalSandboxProvider,
+	SandboxProviderFactory,
+} from './sandbox/index.js'
 
 export { defineTool } from './tools/defineTool.js'
 export type { DefineToolOptions } from './tools/defineTool.js'
@@ -257,7 +274,10 @@ export {
 } from './bridge/a2a/index.js'
 export type { CreateRunFromA2A } from './bridge/a2a/index.js'
 
-export { mapRunToStreamEvent, mapSessionToStreamEvent } from './bridge/sse/index.js'
+export {
+	mapRunToStreamEvent,
+	mapSessionToStreamEvent,
+} from './bridge/sse/index.js'
 export type { MappedStreamEvent } from './bridge/sse/index.js'
 
 export { InMemoryCredentialVault } from './vault/index.js'

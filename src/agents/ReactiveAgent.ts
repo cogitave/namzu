@@ -36,7 +36,7 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 			throw new Error('ReactiveAgent.run requires a threadId in config')
 		}
 
-		const session = await drainQuery(
+		const run = await drainQuery(
 			{
 				systemPrompt: config.systemPrompt,
 				persona: config.persona,
@@ -44,7 +44,7 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 				basePrompt: config.basePrompt,
 				provider: config.provider,
 				tools: config.tools,
-				sessionConfig: {
+				runConfig: {
 					model: config.model,
 					tokenBudget: config.tokenBudget,
 					timeoutMs: config.timeoutMs,
@@ -72,7 +72,7 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 		)
 
 		let toolCallCount = 0
-		for (const msg of session.messages) {
+		for (const msg of run.messages) {
 			if (msg.role === 'assistant') {
 				const assistantMsg = msg as AssistantMessage
 				if (assistantMsg.toolCalls) {
@@ -82,16 +82,16 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 		}
 
 		return {
-			runId: session.id,
-			status: session.status,
-			stopReason: session.stopReason,
-			usage: session.tokenUsage,
-			cost: session.costInfo,
-			iterations: session.currentIteration,
+			runId: run.id,
+			status: run.status,
+			stopReason: run.stopReason,
+			usage: run.tokenUsage,
+			cost: run.costInfo,
+			iterations: run.currentIteration,
 			durationMs: Date.now() - startTime,
-			messages: session.messages,
-			result: session.result,
-			lastError: session.lastError,
+			messages: run.messages,
+			result: run.result,
+			lastError: run.lastError,
 			toolCallCount,
 		}
 	}

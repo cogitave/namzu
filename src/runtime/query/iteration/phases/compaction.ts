@@ -9,7 +9,7 @@ const COMPACTION_HEADER =
 
 function estimateTokens(ctx: IterationContext): number {
 	let chars = 0
-	for (const msg of ctx.sessionMgr.messages) {
+	for (const msg of ctx.runMgr.messages) {
 		if (msg.content) {
 			chars += msg.content.length
 		}
@@ -31,13 +31,13 @@ export async function runCompactionCheck(ctx: IterationContext): Promise<void> {
 	if (!manager) return
 
 	const estimatedTokens = estimateTokens(ctx)
-	const budget = ctx.sessionConfig.tokenBudget
+	const budget = ctx.runConfig.tokenBudget
 	const usage = estimatedTokens / budget
 
 	if (usage < config.triggerThreshold) return
 
 	ctx.log.info('Compaction threshold reached — compacting context', {
-		runId: ctx.sessionMgr.id,
+		runId: ctx.runMgr.id,
 		estimatedTokens,
 		budget,
 		usage: Math.round(usage * 100),
@@ -45,7 +45,7 @@ export async function runCompactionCheck(ctx: IterationContext): Promise<void> {
 		slotCount: manager.slotCount(),
 	})
 
-	const messages = ctx.sessionMgr.messages
+	const messages = ctx.runMgr.messages
 	if (messages.length < config.keepRecentMessages + 2) {
 		ctx.log.debug('Not enough messages to compact', {
 			messageCount: messages.length,
@@ -86,7 +86,7 @@ export async function runCompactionCheck(ctx: IterationContext): Promise<void> {
 	const newEstimate = estimateTokens(ctx)
 
 	ctx.log.info('Context compacted', {
-		runId: ctx.sessionMgr.id,
+		runId: ctx.runMgr.id,
 		oldMessageCount: oldCount,
 		newMessageCount: messages.length,
 		removedMessages: oldCount - messages.length,

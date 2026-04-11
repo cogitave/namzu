@@ -26,10 +26,10 @@ export interface LaunchedTaskMeta {
 
 export interface IterationContext {
 	readonly provider: LLMProvider
-	readonly sessionConfig: AgentRunConfig
+	readonly runConfig: AgentRunConfig
 	readonly tools: ToolRegistry
 	readonly allowedTools?: string[]
-	readonly sessionMgr: RunPersistence
+	readonly runMgr: RunPersistence
 	readonly toolExecutor: ToolExecutor
 	readonly guard: GuardCoordinator
 	readonly activityStore: ActivityStore
@@ -74,31 +74,31 @@ export async function* handleHITLDecision(
 		case 'pause': {
 			await ctx.emitEvent({
 				type: 'run_paused',
-				runId: ctx.sessionMgr.id,
+				runId: ctx.runMgr.id,
 				checkpointId: checkpointId as `cp_${string}`,
 				reason: decision.reason,
 			})
 			yield* ctx.drainPending()
-			ctx.sessionMgr.setStopReason('paused')
-			ctx.log.info(`Session paused at ${context}`, {
-				sessionId: ctx.sessionMgr.id,
+			ctx.runMgr.setStopReason('paused')
+			ctx.log.info(`Run paused at ${context}`, {
+				sessionId: ctx.runMgr.id,
 				reason: decision.reason,
 			})
 			return 'stop'
 		}
 		case 'abort': {
-			ctx.sessionMgr.setStopReason('cancelled')
-			ctx.sessionMgr.markCancelled()
-			ctx.log.info(`Session aborted at ${context}`, {
-				sessionId: ctx.sessionMgr.id,
+			ctx.runMgr.setStopReason('cancelled')
+			ctx.runMgr.markCancelled()
+			ctx.log.info(`Run aborted at ${context}`, {
+				sessionId: ctx.runMgr.id,
 				reason: decision.reason,
 			})
 			return 'stop'
 		}
 		case 'reject_plan': {
-			ctx.sessionMgr.setStopReason('plan_rejected')
+			ctx.runMgr.setStopReason('plan_rejected')
 			ctx.log.info('Plan rejected by user', {
-				sessionId: ctx.sessionMgr.id,
+				sessionId: ctx.runMgr.id,
 				feedback: decision.feedback,
 			})
 			return 'stop'
@@ -108,7 +108,7 @@ export async function* handleHITLDecision(
 				ctx.planManager.approve()
 				ctx.planManager.startExecution()
 			}
-			ctx.log.info('Plan approved by user', { sessionId: ctx.sessionMgr.id })
+			ctx.log.info('Plan approved by user', { sessionId: ctx.runMgr.id })
 			return 'continue'
 		}
 		case 'continue':

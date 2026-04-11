@@ -32,7 +32,7 @@ export type { ToolReviewOutcome } from './phases/index.js'
 
 export interface IterationConfig {
 	provider: LLMProvider
-	sessionConfig: AgentRunConfig
+	runConfig: AgentRunConfig
 	tools: ToolRegistry
 	allowedTools?: string[]
 	taskGateway?: import('../../../types/agent/gateway.js').TaskGateway
@@ -54,7 +54,7 @@ export class IterationOrchestrator {
 
 	constructor(
 		config: IterationConfig,
-		sessionMgr: RunPersistence,
+		runMgr: RunPersistence,
 		toolExecutor: ToolExecutor,
 		guard: GuardCoordinator,
 		activityStore: ActivityStore,
@@ -68,10 +68,10 @@ export class IterationOrchestrator {
 	) {
 		this.ctx = {
 			provider: config.provider,
-			sessionConfig: config.sessionConfig,
+			runConfig: config.runConfig,
 			tools: config.tools,
 			allowedTools: config.allowedTools,
-			sessionMgr,
+			runMgr,
 			toolExecutor,
 			guard,
 			activityStore,
@@ -96,8 +96,8 @@ export class IterationOrchestrator {
 	}
 
 	async *runLoop(): AsyncGenerator<RunEvent> {
-		const { sessionConfig, sessionMgr } = this.ctx
-		const { model } = sessionConfig
+		const { runConfig, runMgr } = this.ctx
+		const { model } = runConfig
 		const tracer = getTracer()
 
 		let unsubscribeTaskListener: (() => void) | undefined
@@ -117,41 +117,38 @@ export class IterationOrchestrator {
 			if (planSignal === 'stop') return
 
 			while (true) {
-				const guardResult = this.ctx.guard.beforeIteration(
-					sessionMgr,
-					this.ctx.abortController.signal,
-				)
+				const guardResult = this.ctx.guard.beforeIteration(runMgr, this.ctx.abortController.signal)
 
 				if (guardResult.shouldStop) {
 					if (guardResult.isCancelled) {
-						this.ctx.log.info('Run cancelled by signal', { runId: sessionMgr.id })
-						sessionMgr.setStopReason('cancelled')
-						sessionMgr.markCancelled()
+						this.ctx.log.info('Run cancelled by signal', { runId: runMgr.id })
+						runMgr.setStopReason('cancelled')
+						runMgr.markCancelled()
 						break
 					}
 
 					const stopReason = guardResult.stopReason ?? 'end_turn'
 					this.ctx.log.info('Guard enforcing stop', {
-						runId: sessionMgr.id,
+						runId: runMgr.id,
 						stopReason,
-						iteration: sessionMgr.currentIteration,
-						inputTokens: sessionMgr.tokenUsage.promptTokens,
-						outputTokens: sessionMgr.tokenUsage.completionTokens,
+						iteration: runMgr.currentIteration,
+						inputTokens: runMgr.tokenUsage.promptTokens,
+						outputTokens: runMgr.tokenUsage.completionTokens,
 					})
 					await this.requestFinalResponse(model, stopReason)
 					yield* this.ctx.drainPending()
-					sessionMgr.setStopReason(stopReason)
+					runMgr.setStopReason(stopReason)
 					break
 				}
 
 				const forceFinalize = guardResult.forceFinalize
-				const iterationNum = sessionMgr.incrementIteration()
+				const iterationNum = runMgr.incrementIteration()
 				this.ctx.log.debug('Iteration started', {
-					runId: sessionMgr.id,
+					runId: runMgr.id,
 					iteration: iterationNum,
 					model,
 					forceFinalize,
-					messageCount: sessionMgr.messages.length,
+					messageCount: runMgr.messages.length,
 				})
 
 				const iterationActivity = this.ctx.activityStore.create({
@@ -165,13 +162,13 @@ export class IterationOrchestrator {
 				const iterSpan = tracer.startSpan(agentIterationSpanName(iterationNum))
 				iterSpan.setAttributes({
 					[NAMZU.ITERATION]: iterationNum,
-					[NAMZU.SESSION_ID]: sessionMgr.id,
+					[NAMZU.RUN_ID]: runMgr.id,
 					[GENAI.REQUEST_MODEL]: model,
 				})
 
 				await this.ctx.emitEvent({
 					type: 'iteration_started',
-					runId: sessionMgr.id,
+					runId: runMgr.id,
 					iteration: iterationNum,
 				})
 				yield* this.ctx.drainPending()
@@ -179,7 +176,7 @@ export class IterationOrchestrator {
 				try {
 					if (this.ctx.pluginManager) {
 						await this.ctx.pluginManager.executeHooks('iteration_start', {
-							runId: sessionMgr.id,
+							runId: runMgr.id,
 							iteration: iterationNum,
 						})
 					}
@@ -196,16 +193,16 @@ export class IterationOrchestrator {
 
 					const messages = forceFinalize
 						? [
-								...sessionMgr.messages,
+								...runMgr.messages,
 								createUserMessage(
 									'[SYSTEM] You are approaching your resource limits. Provide your final, comprehensive response now based on everything you have gathered so far. Do not request any more tool calls.',
 								),
 							]
-						: sessionMgr.messages
+						: runMgr.messages
 
 					if (this.ctx.pluginManager) {
 						await this.ctx.pluginManager.executeHooks('pre_llm_call', {
-							runId: sessionMgr.id,
+							runId: runMgr.id,
 							iteration: iterationNum,
 						})
 					}
@@ -214,44 +211,44 @@ export class IterationOrchestrator {
 						model,
 						messages,
 						tools: openAITools && openAITools.length > 0 ? openAITools : undefined,
-						temperature: sessionConfig.temperature,
-						maxTokens: sessionConfig.maxResponseTokens,
+						temperature: runConfig.temperature,
+						maxTokens: runConfig.maxResponseTokens,
 						cacheControl: { type: 'auto' },
 					})
 
-					sessionMgr.accumulateUsage(response.usage)
+					runMgr.accumulateUsage(response.usage)
 
 					if (this.ctx.pluginManager) {
 						await this.ctx.pluginManager.executeHooks('post_llm_call', {
-							runId: sessionMgr.id,
+							runId: runMgr.id,
 							iteration: iterationNum,
 						})
 					}
 
 					this.ctx.log.debug('LLM response received', {
-						runId: sessionMgr.id,
+						runId: runMgr.id,
 						iteration: iterationNum,
 						finishReason: response.finishReason,
 						hasContent: response.message.content !== null && response.message.content.length > 0,
 						toolCallCount: response.message.toolCalls?.length ?? 0,
 						promptTokens: response.usage.promptTokens,
 						completionTokens: response.usage.completionTokens,
-						totalTokens: sessionMgr.tokenUsage.totalTokens,
-						totalCost: sessionMgr.costInfo.totalCost,
+						totalTokens: runMgr.tokenUsage.totalTokens,
+						totalCost: runMgr.costInfo.totalCost,
 					})
 
 					await this.ctx.emitEvent({
 						type: 'token_usage_updated',
-						runId: sessionMgr.id,
-						usage: sessionMgr.tokenUsage,
-						cost: sessionMgr.costInfo,
+						runId: runMgr.id,
+						usage: runMgr.tokenUsage,
+						cost: runMgr.costInfo,
 					})
 
 					const assistantMsg = createAssistantMessage(
 						response.message.content,
 						forceFinalize ? undefined : response.message.toolCalls,
 					)
-					sessionMgr.pushMessage(assistantMsg)
+					runMgr.pushMessage(assistantMsg)
 
 					if (this.ctx.workingStateManager && this.ctx.compactionConfig && assistantMsg.content) {
 						extractFromAssistantMessage(
@@ -263,7 +260,7 @@ export class IterationOrchestrator {
 
 					await this.ctx.emitEvent({
 						type: 'llm_response',
-						runId: sessionMgr.id,
+						runId: runMgr.id,
 						content: response.message.content,
 						hasToolCalls: forceFinalize ? false : !!response.message.toolCalls?.length,
 					})
@@ -296,7 +293,7 @@ export class IterationOrchestrator {
 							this.ctx.log.info(
 								'LLM ended turn but agent tasks still running — waiting for notifications',
 								{
-									runId: sessionMgr.id,
+									runId: runMgr.id,
 									runningTasks: hasRunningTasks,
 									pendingNotifications: hasPendingNotifications,
 								},
@@ -304,7 +301,7 @@ export class IterationOrchestrator {
 
 							await this.ctx.emitEvent({
 								type: 'iteration_completed',
-								runId: sessionMgr.id,
+								runId: runMgr.id,
 								iteration: iterationNum,
 								hasToolCalls: false,
 							})
@@ -329,12 +326,12 @@ export class IterationOrchestrator {
 
 						await this.ctx.emitEvent({
 							type: 'iteration_completed',
-							runId: sessionMgr.id,
+							runId: runMgr.id,
 							iteration: iterationNum,
 							hasToolCalls: false,
 						})
 						yield* this.ctx.drainPending()
-						sessionMgr.setStopReason('end_turn')
+						runMgr.setStopReason('end_turn')
 						iterSpan.end()
 						break
 					}
@@ -361,14 +358,14 @@ export class IterationOrchestrator {
 
 					if (this.ctx.pluginManager) {
 						await this.ctx.pluginManager.executeHooks('iteration_end', {
-							runId: sessionMgr.id,
+							runId: runMgr.id,
 							iteration: iterationNum,
 						})
 					}
 
 					await this.ctx.emitEvent({
 						type: 'iteration_completed',
-						runId: sessionMgr.id,
+						runId: runMgr.id,
 						iteration: iterationNum,
 						hasToolCalls: true,
 					})
@@ -401,7 +398,7 @@ export class IterationOrchestrator {
 	}
 
 	private async *waitAndInjectNotifications(): AsyncGenerator<RunEvent> {
-		const deadline = Date.now() + (this.ctx.sessionConfig.timeoutMs ?? 120_000)
+		const deadline = Date.now() + (this.ctx.runConfig.timeoutMs ?? 120_000)
 		while (
 			this.ctx.pendingNotifications.length === 0 &&
 			Date.now() < deadline &&
@@ -444,7 +441,7 @@ export class IterationOrchestrator {
 			'</task-notification>',
 		].join('\n')
 
-		this.ctx.sessionMgr.pushMessage(createUserMessage(notification))
+		this.ctx.runMgr.pushMessage(createUserMessage(notification))
 
 		this.ctx.log.info('Task notification injected', {
 			taskId: handle.taskId,
@@ -457,7 +454,7 @@ export class IterationOrchestrator {
 	}
 
 	private async requestFinalResponse(model: string, reason: StopReason): Promise<void> {
-		const lastAssistant = [...this.ctx.sessionMgr.messages]
+		const lastAssistant = [...this.ctx.runMgr.messages]
 			.reverse()
 			.find((m) => m.role === 'assistant')
 
@@ -474,28 +471,28 @@ export class IterationOrchestrator {
 
 		try {
 			const finalMessages = [
-				...this.ctx.sessionMgr.messages,
+				...this.ctx.runMgr.messages,
 				createUserMessage(
-					`[SYSTEM] Session is ending due to ${reason}. You MUST provide a final response now summarizing all your findings and work so far. Do not use any tools.`,
+					`[SYSTEM] Run is ending due to ${reason}. You MUST provide a final response now summarizing all your findings and work so far. Do not use any tools.`,
 				),
 			]
 
 			const response = await this.ctx.provider.chat({
 				model,
 				messages: finalMessages,
-				temperature: this.ctx.sessionConfig.temperature,
-				maxTokens: this.ctx.sessionConfig.maxResponseTokens,
+				temperature: this.ctx.runConfig.temperature,
+				maxTokens: this.ctx.runConfig.maxResponseTokens,
 				cacheControl: { type: 'auto' },
 			})
 
-			this.ctx.sessionMgr.accumulateUsage(response.usage)
+			this.ctx.runMgr.accumulateUsage(response.usage)
 
 			const assistantMsg = createAssistantMessage(response.message.content)
-			this.ctx.sessionMgr.pushMessage(assistantMsg)
+			this.ctx.runMgr.pushMessage(assistantMsg)
 
 			await this.ctx.emitEvent({
 				type: 'llm_response',
-				runId: this.ctx.sessionMgr.id,
+				runId: this.ctx.runMgr.id,
 				content: response.message.content,
 				hasToolCalls: false,
 			})

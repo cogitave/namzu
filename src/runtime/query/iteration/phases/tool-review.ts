@@ -58,7 +58,7 @@ export async function* runToolReview(
 			})
 			const batch = await ctx.toolExecutor.executeBatch(response)
 			for (const msg of batch.messages) {
-				ctx.sessionMgr.pushMessage(msg)
+				ctx.runMgr.pushMessage(msg)
 			}
 			return 'executed'
 		}
@@ -70,7 +70,7 @@ export async function* runToolReview(
 			ctx.log.debug('Verification gate: all tool calls denied', {
 				tools: gateResults.map((gr) => gr.toolCall.name),
 			})
-			ctx.sessionMgr.pushMessage(
+			ctx.runMgr.pushMessage(
 				createUserMessage(`[SYSTEM] Tool calls blocked by verification gate: ${reasons}`),
 			)
 			return 'rejected'
@@ -84,11 +84,11 @@ export async function* runToolReview(
 		})
 	}
 
-	const reviewCheckpoint = await ctx.checkpointMgr.create(ctx.sessionMgr, iterationNum)
+	const reviewCheckpoint = await ctx.checkpointMgr.create(ctx.runMgr, iterationNum)
 
 	await ctx.emitEvent({
 		type: 'tool_review_requested',
-		runId: ctx.sessionMgr.id,
+		runId: ctx.runMgr.id,
 		toolCalls: toolCallSummaries,
 		iteration: iterationNum,
 	})
@@ -96,7 +96,7 @@ export async function* runToolReview(
 
 	const reviewDecision = await ctx.resumeHandler({
 		type: 'tool_review',
-		runId: ctx.sessionMgr.id,
+		runId: ctx.runMgr.id,
 		checkpointId: reviewCheckpoint.id,
 		toolCalls: toolCallSummaries,
 	})
@@ -105,20 +105,20 @@ export async function* runToolReview(
 		case 'reject_tools': {
 			await ctx.emitEvent({
 				type: 'tool_review_completed',
-				runId: ctx.sessionMgr.id,
+				runId: ctx.runMgr.id,
 				decision: 'rejected',
 			})
 			yield* ctx.drainPending()
 
 			const feedback = reviewDecision.feedback || 'User rejected the tool calls'
-			ctx.sessionMgr.pushMessage(createUserMessage(`[SYSTEM] Tool calls rejected: ${feedback}`))
+			ctx.runMgr.pushMessage(createUserMessage(`[SYSTEM] Tool calls rejected: ${feedback}`))
 			return 'rejected'
 		}
 
 		case 'modify_tools': {
 			await ctx.emitEvent({
 				type: 'tool_review_completed',
-				runId: ctx.sessionMgr.id,
+				runId: ctx.runMgr.id,
 				decision: 'modified',
 			})
 			yield* ctx.drainPending()
@@ -138,7 +138,7 @@ export async function* runToolReview(
 			const filteredToolCalls = toolCalls.filter((tc) => !deniedIds.has(tc.id))
 
 			if (filteredToolCalls.length === 0) {
-				ctx.sessionMgr.pushMessage(createUserMessage('[SYSTEM] All tool calls were denied by user'))
+				ctx.runMgr.pushMessage(createUserMessage('[SYSTEM] All tool calls were denied by user'))
 				return 'rejected'
 			}
 
@@ -147,7 +147,7 @@ export async function* runToolReview(
 				message: { ...response.message, toolCalls: filteredToolCalls },
 			})
 			for (const msg of batch.messages) {
-				ctx.sessionMgr.pushMessage(msg)
+				ctx.runMgr.pushMessage(msg)
 			}
 			return 'executed'
 		}
@@ -155,29 +155,29 @@ export async function* runToolReview(
 		case 'pause': {
 			await ctx.emitEvent({
 				type: 'tool_review_completed',
-				runId: ctx.sessionMgr.id,
+				runId: ctx.runMgr.id,
 				decision: 'rejected',
 			})
 			await ctx.emitEvent({
 				type: 'run_paused',
-				runId: ctx.sessionMgr.id,
+				runId: ctx.runMgr.id,
 				checkpointId: reviewCheckpoint.id,
 				reason: reviewDecision.reason,
 			})
 			yield* ctx.drainPending()
-			ctx.sessionMgr.setStopReason('paused')
+			ctx.runMgr.setStopReason('paused')
 			return 'stop'
 		}
 
 		case 'abort': {
 			await ctx.emitEvent({
 				type: 'tool_review_completed',
-				runId: ctx.sessionMgr.id,
+				runId: ctx.runMgr.id,
 				decision: 'rejected',
 			})
 			yield* ctx.drainPending()
-			ctx.sessionMgr.setStopReason('cancelled')
-			ctx.sessionMgr.markCancelled()
+			ctx.runMgr.setStopReason('cancelled')
+			ctx.runMgr.markCancelled()
 			return 'stop'
 		}
 
@@ -185,14 +185,14 @@ export async function* runToolReview(
 		case 'continue': {
 			await ctx.emitEvent({
 				type: 'tool_review_completed',
-				runId: ctx.sessionMgr.id,
+				runId: ctx.runMgr.id,
 				decision: 'approved',
 			})
 			yield* ctx.drainPending()
 
 			const batch = await ctx.toolExecutor.executeBatch(response)
 			for (const msg of batch.messages) {
-				ctx.sessionMgr.pushMessage(msg)
+				ctx.runMgr.pushMessage(msg)
 			}
 			return 'executed'
 		}
@@ -204,7 +204,7 @@ export async function* runToolReview(
 			})
 			const batch = await ctx.toolExecutor.executeBatch(response)
 			for (const msg of batch.messages) {
-				ctx.sessionMgr.pushMessage(msg)
+				ctx.runMgr.pushMessage(msg)
 			}
 			return 'executed'
 		}

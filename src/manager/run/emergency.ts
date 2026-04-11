@@ -18,7 +18,7 @@ import type { RunPersistence } from './persistence.js'
 
 export class EmergencySaveManager {
 	private static _instance: EmergencySaveManager | undefined
-	private sessionRef: WeakRef<RunPersistence> | undefined
+	private runRef: WeakRef<RunPersistence> | undefined
 	private outputDir: string | undefined
 	private signalHandlers: Map<string, () => void> = new Map()
 	private log: Logger
@@ -37,9 +37,9 @@ export class EmergencySaveManager {
 		return EmergencySaveManager._instance
 	}
 
-	attach(sessionMgr: RunPersistence, outputDir: string, log: Logger): void {
+	attach(runMgr: RunPersistence, outputDir: string, log: Logger): void {
 		this.detach()
-		this.sessionRef = new WeakRef(sessionMgr)
+		this.runRef = new WeakRef(runMgr)
 		this.outputDir = outputDir
 		this.log = log.child({ component: 'EmergencySaveManager' })
 
@@ -67,17 +67,17 @@ export class EmergencySaveManager {
 			process.removeListener(signal, handler)
 		}
 		this.signalHandlers.clear()
-		this.sessionRef = undefined
+		this.runRef = undefined
 		this.outputDir = undefined
 	}
 
 	emergencySave(signal: string): void {
-		const sessionMgr = this.sessionRef?.deref()
-		if (!sessionMgr || !this.outputDir) {
+		const runMgr = this.runRef?.deref()
+		if (!runMgr || !this.outputDir) {
 			return
 		}
 
-		const snapshot = sessionMgr.toEmergencySnapshot(signal)
+		const snapshot = runMgr.toEmergencySnapshot(signal)
 
 		const emergencyDir = join(this.outputDir, '..', EMERGENCY_DIR_NAME)
 		mkdirSync(emergencyDir, { recursive: true })

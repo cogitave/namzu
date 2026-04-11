@@ -22,8 +22,8 @@ export const GENAI = {
 } as const
 
 export const NAMZU = {
-	SESSION_ID: 'namzu.session.id',
-	SESSION_STATUS: 'namzu.session.status',
+	RUN_ID: 'namzu.run.id',
+	RUN_STATUS: 'namzu.run.status',
 	ITERATION: 'namzu.iteration',
 	TOOL_SUCCESS: 'namzu.tool.success',
 	TOOL_ERROR: 'namzu.tool.error',

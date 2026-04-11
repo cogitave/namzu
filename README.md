@@ -1,6 +1,6 @@
 # Namzu
 
-Open-source AI agent framework — multi-model, multi-tenant, MCP + A2A native.
+Open-source AI agent SDK with a built-in runtime. Nothing between you and your agents.
 
 [![npm](https://img.shields.io/npm/v/@namzu/sdk?color=blue)](https://www.npmjs.com/package/@namzu/sdk)
 [![CI](https://github.com/cogitave/namzu/actions/workflows/ci.yml/badge.svg)](https://github.com/cogitave/namzu/actions/workflows/ci.yml)
@@ -13,6 +13,8 @@ Open-source AI agent framework — multi-model, multi-tenant, MCP + A2A native.
 ## Why Namzu?
 
 There are great agent frameworks out there — LangChain, CrewAI, AutoGen, Vercel AI SDK, OpenAI Agents SDK. Each solves a real problem. Namzu exists because we think some things are still missing.
+
+**Sandboxed execution.** Agents execute tools inside process-level sandboxes — macOS Seatbelt (SBPL) profiles and Linux namespaces. File I/O, shell commands, and code execution are isolated to the agent's workspace by default. No Docker required, no container overhead. Deny-default, allow-back for what the agent actually needs.
 
 **True provider independence.** Most frameworks say they're provider-agnostic but are optimized for one vendor. Namzu treats every provider as a first-class citizen through BYOK (Bring Your Own Key). Switch from OpenRouter to Bedrock by changing one line. No performance penalties, no second-class APIs.
 
@@ -40,6 +42,7 @@ There are great agent frameworks out there — LangChain, CrewAI, AutoGen, Verce
 |---|---|---|---|---|---|
 | Language | TypeScript | Python/JS | Python | Python/JS | TypeScript |
 | Provider lock-in | None (BYOK) | Low | Low | Optimized for OpenAI | Low |
+| **Process sandbox** | **Native (Seatbelt + NS)** | No | No | No | No |
 | Agent patterns | 4 (reactive, pipeline, router, supervisor) | Graph-based | Role-based crews | Handoffs | Single-agent |
 | A2A protocol | Native | No | No | No | No |
 | MCP support | Native (client + server) | Plugin | No | Client only | No |
@@ -259,7 +262,66 @@ registry.activate(['read_file', 'bash'])
 const llmTools = registry.toLLMTools() // Only active + suspended tools
 ```
 
-Built-in tools: `ReadFileTool`, `WriteFileTool`, `BashTool`, `GlobTool`, `SearchToolsTool`
+Built-in tools: `ReadFileTool`, `WriteFileTool`, `EditTool`, `BashTool`, `GlobTool`, `GrepTool`, `LsTool`, `SearchToolsTool`
+
+### Sandbox-Aware Execution
+
+All built-in tools are sandbox-aware. When a sandbox is present in the execution context, tools automatically route through `sandbox.exec()`, `sandbox.readFile()`, and `sandbox.writeFile()`. When no sandbox is present, they fall back to native operations — zero config required.
+
+```typescript
+// With sandbox: tool calls are isolated to agent workspace
+const result = await query({ agent, provider, tools: getBuiltinTools(), messages, sandboxProvider })
+
+// Without sandbox: same tools, same API, native execution
+const result = await query({ agent, provider, tools: getBuiltinTools(), messages })
+```
+
+## Sandbox
+
+Process-level isolation for agent tool execution. No Docker, no containers — native OS mechanisms.
+
+```typescript
+import { query, SandboxProviderFactory, getBuiltinTools } from '@namzu/sdk'
+
+const sandboxProvider = SandboxProviderFactory.create({ provider: 'local' })
+
+const result = await query({
+  agent,
+  provider,
+  tools: getBuiltinTools(),
+  messages: [{ role: 'user', content: 'Write a Python script and run it' }],
+  sandboxProvider, // All tool calls execute inside the sandbox
+})
+```
+
+**How it works:**
+
+| Platform | Mechanism | Profile |
+|----------|-----------|---------|
+| macOS | `sandbox-exec` with Seatbelt (SBPL) | Deny-default, allow-back for agent workspace |
+| Linux | Namespace isolation | Process + filesystem isolation |
+
+The sandbox creates a temporary workspace directory, restricts file I/O to that directory, and destroys everything on cleanup. The seatbelt profile is minimal by design:
+
+- **Deny-default** — nothing is allowed unless explicitly granted
+- **Workspace-scoped I/O** — reads and writes only within the agent's `rootDir`
+- **Path canonicalization** — resolves macOS symlinks (`/var` → `/private/var`) so seatbelt rules match real paths
+- **Process isolation** — `same-sandbox` scope for signals and process info
+- **Automatic lifecycle** — sandbox is created before query iteration, destroyed in `finally`
+
+```typescript
+// Direct sandbox API (low-level)
+const sandbox = await sandboxProvider.create({ agentId: 'agt_coder' })
+
+const result = await sandbox.exec('/bin/sh', ['-c', 'echo hello'], { timeout: 5000 })
+console.log(result.stdout)  // "hello\n"
+console.log(result.exitCode) // 0
+
+await sandbox.writeFile('script.py', 'print("namzu")')
+const content = await sandbox.readFile('script.py')
+
+await sandbox.destroy() // Cleanup workspace
+```
 
 ## Providers
 
@@ -524,7 +586,7 @@ const persistence = new RunPersistence({
   runId,
   agentId,
   outputDir: './runs',
-  sessionConfig: { model: 'claude-3', temperature: 0.7 },
+  runConfig: { model: 'claude-3', temperature: 0.7 },
 })
 await persistence.init()
 persistence.accumulateUsage({ promptTokens: 100, completionTokens: 50 })
@@ -567,6 +629,7 @@ span.end()
 ├── bridge/          A2A protocol, SSE mapping, connector tools
 ├── config/          Runtime configuration with Zod schemas
 ├── connector/       HTTP, webhook, MCP client/server, tenant isolation
+├── sandbox/         Process-level isolation (Seatbelt, namespace)
 ├── contracts/       API wire types and validation schemas
 ├── gateway/         Local task gateway
 ├── manager/         Plan lifecycle, agent coordination, run persistence

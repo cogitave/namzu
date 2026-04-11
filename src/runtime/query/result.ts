@@ -10,7 +10,7 @@ import type { Logger } from '../../utils/logger.js'
 import type { EmitEvent } from './events.js'
 
 export interface ResultAssemblerConfig {
-	sessionMgr: RunPersistence
+	runMgr: RunPersistence
 	planManager: PlanManager
 	activityStore: ActivityStore
 	log: Logger
@@ -26,31 +26,31 @@ export class ResultAssembler {
 	}
 
 	async *completeRun(rootSpan: Span): AsyncGenerator<RunEvent> {
-		const { sessionMgr, activityStore, log, emitEvent, drainPending } = this.config
+		const { runMgr, activityStore, log, emitEvent, drainPending } = this.config
 
-		if (sessionMgr.status === 'running') {
-			sessionMgr.markCompleted(sessionMgr.stopReason)
+		if (runMgr.status === 'running') {
+			runMgr.markCompleted(runMgr.stopReason)
 		}
 
 		await emitEvent({
 			type: 'run_completed',
-			runId: sessionMgr.id,
-			result: sessionMgr.getRun().result ?? '',
+			runId: runMgr.id,
+			result: runMgr.getRun().result ?? '',
 		})
 		yield* drainPending()
 
 		rootSpan.setAttributes({
-			[NAMZU.SESSION_STATUS]: sessionMgr.stopReason ?? 'completed',
-			[NAMZU.ITERATION]: sessionMgr.currentIteration,
-			[GENAI.USAGE_INPUT_TOKENS]: sessionMgr.tokenUsage.promptTokens,
-			[GENAI.USAGE_OUTPUT_TOKENS]: sessionMgr.tokenUsage.completionTokens,
+			[NAMZU.RUN_STATUS]: runMgr.stopReason ?? 'completed',
+			[NAMZU.ITERATION]: runMgr.currentIteration,
+			[GENAI.USAGE_INPUT_TOKENS]: runMgr.tokenUsage.promptTokens,
+			[GENAI.USAGE_OUTPUT_TOKENS]: runMgr.tokenUsage.completionTokens,
 		})
 		rootSpan.setStatus({ code: SpanStatusCode.OK })
 
 		log.info('Query completed', {
-			runId: sessionMgr.id,
-			iterations: sessionMgr.currentIteration,
-			stopReason: sessionMgr.stopReason,
+			runId: runMgr.id,
+			iterations: runMgr.currentIteration,
+			stopReason: runMgr.stopReason,
 			activityStats: activityStore.enabled ? activityStore.stats() : undefined,
 		})
 	}
@@ -60,9 +60,9 @@ export class ResultAssembler {
 	}
 
 	async *handleError(err: unknown, rootSpan: Span): AsyncGenerator<RunEvent> {
-		const { sessionMgr, planManager, log, emitEvent, drainPending } = this.config
+		const { runMgr, planManager, log, emitEvent, drainPending } = this.config
 		const errorMessage = toErrorMessage(err)
-		sessionMgr.markFailed(errorMessage)
+		runMgr.markFailed(errorMessage)
 
 		if (planManager.isActive) {
 			planManager.failPlan(errorMessage)
@@ -70,26 +70,26 @@ export class ResultAssembler {
 
 		await emitEvent({
 			type: 'run_failed',
-			runId: sessionMgr.id,
+			runId: runMgr.id,
 			error: errorMessage,
 		})
 		yield* drainPending()
 
 		rootSpan.setAttributes({
-			[NAMZU.SESSION_STATUS]: 'error',
-			[NAMZU.ITERATION]: sessionMgr.currentIteration,
+			[NAMZU.RUN_STATUS]: 'error',
+			[NAMZU.ITERATION]: runMgr.currentIteration,
 		})
 		rootSpan.setStatus({ code: SpanStatusCode.ERROR, message: errorMessage })
 		rootSpan.recordException(err instanceof Error ? err : new Error(errorMessage))
 
 		log.error('Query failed', {
-			runId: sessionMgr.id,
+			runId: runMgr.id,
 			error: errorMessage,
 		})
 	}
 
 	async finalize(): Promise<AgentRun> {
-		await this.config.sessionMgr.persist()
-		return this.config.sessionMgr.getRun()
+		await this.config.runMgr.persist()
+		return this.config.runMgr.getRun()
 	}
 }

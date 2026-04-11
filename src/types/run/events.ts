@@ -2,7 +2,7 @@ import type { ActivityStatus, ActivityType } from '../activity/index.js'
 import type { BaseAgentResult } from '../agent/base.js'
 import type { CostInfo, TokenUsage } from '../common/index.js'
 import type { CheckpointId, ToolCallSummary } from '../hitl/index.js'
-import type { ActivityId, PlanId, PluginId, RunId, TaskId } from '../ids/index.js'
+import type { ActivityId, PlanId, PluginId, RunId, SandboxId, TaskId } from '../ids/index.js'
 import type { PlanStep } from '../plan/index.js'
 import type { PluginHookEvent, PluginHookResult } from '../plugin/index.js'
 import type { TaskStatus } from '../task/index.js'
@@ -167,5 +167,20 @@ export type RunEvent =
 			hookEvent: PluginHookEvent
 			result: PluginHookResult
 	  }
+	| {
+			type: 'sandbox_created'
+			runId: RunId
+			sandboxId: SandboxId
+			environment: string
+	  }
+	| {
+			type: 'sandbox_exec'
+			runId: RunId
+			sandboxId: SandboxId
+			command: string
+			exitCode: number
+			durationMs: number
+	  }
+	| { type: 'sandbox_destroyed'; runId: RunId; sandboxId: SandboxId }
 
 export type RunEventListener = (event: RunEvent) => void | Promise<void>

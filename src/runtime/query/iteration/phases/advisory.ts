@@ -8,7 +8,7 @@ import type { IterationContext } from './context.js'
 
 function countToolCalls(ctx: IterationContext): number {
 	let count = 0
-	for (const msg of ctx.sessionMgr.messages) {
+	for (const msg of ctx.runMgr.messages) {
 		if (msg.role === 'assistant' && msg.toolCalls) {
 			count += msg.toolCalls.length
 		}
@@ -17,15 +17,15 @@ function countToolCalls(ctx: IterationContext): number {
 }
 
 function estimateContextWindowPercent(ctx: IterationContext): number {
-	const budget = ctx.sessionConfig.tokenBudget
+	const budget = ctx.runConfig.tokenBudget
 	if (budget <= 0) return 0
-	return (ctx.sessionMgr.tokenUsage.totalTokens / budget) * 100
+	return (ctx.runMgr.tokenUsage.totalTokens / budget) * 100
 }
 
 function computeCostBudgetPercent(ctx: IterationContext): number | undefined {
-	const limit = ctx.sessionConfig.costLimitUsd
+	const limit = ctx.runConfig.costLimitUsd
 	if (limit === undefined || limit <= 0) return undefined
-	return (ctx.sessionMgr.costInfo.totalCost / limit) * 100
+	return (ctx.runMgr.costInfo.totalCost / limit) * 100
 }
 
 function extractLastToolCategory(
@@ -53,7 +53,7 @@ export async function runAdvisoryPhase(
 	const budgetCheck = advisoryCtx.checkBudget()
 	if (!budgetCheck.allowed) {
 		ctx.log.debug('Advisory budget exhausted, skipping advisory phase', {
-			runId: ctx.sessionMgr.id,
+			runId: ctx.runMgr.id,
 			reason: budgetCheck.reason,
 		})
 		return
@@ -62,9 +62,9 @@ export async function runAdvisoryPhase(
 	const evalState: TriggerEvaluationState = {
 		iteration: iterationNum,
 		totalToolCalls: countToolCalls(ctx),
-		totalTokens: ctx.sessionMgr.tokenUsage.totalTokens,
+		totalTokens: ctx.runMgr.tokenUsage.totalTokens,
 		contextWindowPercent: estimateContextWindowPercent(ctx),
-		totalCostUsd: ctx.sessionMgr.costInfo.totalCost,
+		totalCostUsd: ctx.runMgr.costInfo.totalCost,
 		costBudgetPercent: computeCostBudgetPercent(ctx),
 		lastError: extractLastErrorFromMessages(ctx),
 		lastToolCategory: extractLastToolCategory(ctx, response),
@@ -80,7 +80,7 @@ export async function runAdvisoryPhase(
 	const advisor = advisoryCtx.registry.resolve(trigger.advisorId)
 	if (!advisor) {
 		ctx.log.warn('Advisory trigger fired but advisor not found', {
-			runId: ctx.sessionMgr.id,
+			runId: ctx.runMgr.id,
 			triggerId: trigger.id,
 			advisorId: trigger.advisorId,
 		})
@@ -103,7 +103,7 @@ export async function runAdvisoryPhase(
 
 	try {
 		const executionResult = await advisoryCtx.executor.consult(advisor, request, {
-			messages: ctx.sessionMgr.messages,
+			messages: ctx.runMgr.messages,
 			workingStateSummary,
 			toolCatalog: ctx.tools.toLLMTools(ctx.allowedTools),
 			iteration: iterationNum,
@@ -152,10 +152,10 @@ export async function runAdvisoryPhase(
 
 		sections.push('</advisory-result>')
 
-		ctx.sessionMgr.pushMessage(createUserMessage(sections.join('\n')))
+		ctx.runMgr.pushMessage(createUserMessage(sections.join('\n')))
 
 		ctx.log.info('Advisory phase completed', {
-			runId: ctx.sessionMgr.id,
+			runId: ctx.runMgr.id,
 			iteration: iterationNum,
 			triggerId: trigger.id,
 			advisorId: advisor.id,
@@ -164,7 +164,7 @@ export async function runAdvisoryPhase(
 		})
 	} catch (err) {
 		ctx.log.warn('Advisory phase failed', {
-			runId: ctx.sessionMgr.id,
+			runId: ctx.runMgr.id,
 			iteration: iterationNum,
 			triggerId: trigger.id,
 			advisorId: advisor.id,
@@ -174,7 +174,7 @@ export async function runAdvisoryPhase(
 }
 
 function extractLastErrorFromMessages(ctx: IterationContext): string | undefined {
-	const messages = ctx.sessionMgr.messages
+	const messages = ctx.runMgr.messages
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const msg = messages[i]
 		if (msg?.role === 'tool' && msg.content?.startsWith('Error:')) {
