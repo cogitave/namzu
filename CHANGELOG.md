@@ -2,6 +2,14 @@
 
 All notable changes to Namzu are documented here.
 
+## [0.1.4] — 2026-04-11
+
+### Documentation
+
+- **changelog**: update for v0.1.4-rc.3
+### Features
+
+- sandbox isolation, new tools (edit/grep/ls), session-to-run migration
 ## [0.1.4-rc.3] — 2026-04-10
 
 ### Miscellaneous
