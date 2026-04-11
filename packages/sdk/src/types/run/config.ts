@@ -13,13 +13,18 @@ export interface AgentRunConfig {
 	temperature?: number
 	env?: Record<string, string>
 	permissionMode?: PermissionMode
+	sandbox?: {
+		timeoutMs?: number
+		memoryLimitMb?: number
+		maxProcesses?: number
+	}
 }
 
 export interface RunPersistenceConfig {
 	runId: RunId
 	agentId: string
 	agentName: string
-	sessionConfig: AgentRunConfig
+	runConfig: AgentRunConfig
 	providerId: string
 	outputDir: string
 	pricing?: ModelPricing
@@ -43,8 +48,11 @@ export interface LimitCheckerConfig {
 	budgetWarningThreshold: number
 }
 
+/** @deprecated Use AgentRunConfig directly */
 export type SessionConfig = AgentRunConfig
 
+/** @deprecated Use RunPersistenceConfig directly */
 export type SessionManagerConfig = RunPersistenceConfig
 
+/** @deprecated Use RunStoreConfig directly */
 export type SessionStoreConfig = RunStoreConfig

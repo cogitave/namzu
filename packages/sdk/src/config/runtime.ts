@@ -1,5 +1,8 @@
 import { z } from 'zod'
 import { HOOK_TIMEOUT_MS } from '../constants/plugin/index.js'
+import { SandboxConfigSchema } from '../types/sandbox/index.js'
+
+export { SandboxConfigSchema }
 
 export const TaskRouterConfigSchema = z
 	.object({
@@ -71,6 +74,7 @@ export const RuntimeConfigSchema = z.object({
 	agentBus: AgentBusConfigSchema.optional(),
 	promptCache: PromptCacheConfigSchema.optional(),
 	plugins: PluginRuntimeConfigSchema.optional(),
+	sandbox: SandboxConfigSchema.optional(),
 })
 
 export type RuntimeConfig = z.infer<typeof RuntimeConfigSchema>

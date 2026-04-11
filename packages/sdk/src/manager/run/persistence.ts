@@ -35,7 +35,7 @@ export class RunPersistence {
 			metadata: {
 				agentId: config.agentId,
 				agentName: config.agentName,
-				config: config.sessionConfig,
+				config: config.runConfig,
 				provider: config.providerId,
 			},
 			messages: [],

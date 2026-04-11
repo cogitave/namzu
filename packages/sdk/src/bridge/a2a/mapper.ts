@@ -128,7 +128,7 @@ const MAPPING: {
 	run_paused: (e, ctx) =>
 		statusEvent(e.runId, 'input-required', false, ctx, {
 			role: 'agent',
-			parts: [{ kind: 'text', text: `Session paused: ${e.reason}` }],
+			parts: [{ kind: 'text', text: `Run paused: ${e.reason}` }],
 		}),
 
 	iteration_completed: null,
@@ -153,6 +153,10 @@ const MAPPING: {
 
 	plugin_hook_executing: null,
 	plugin_hook_completed: null,
+
+	sandbox_created: null,
+	sandbox_exec: null,
+	sandbox_destroyed: null,
 }
 
 export function mapRunToA2AEvent(event: RunEvent, contextId?: string): A2AStreamEvent | null {
@@ -164,4 +168,5 @@ export function mapRunToA2AEvent(event: RunEvent, contextId?: string): A2AStream
 	)
 }
 
+/** @deprecated Use mapRunToA2AEvent */
 export const mapSessionToA2AEvent = mapRunToA2AEvent

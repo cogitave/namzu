@@ -2,6 +2,7 @@ import type { z } from 'zod'
 import type { Logger } from '../../utils/logger.js'
 import type { RunId } from '../ids/index.js'
 import type { PermissionMode } from '../permission/index.js'
+import type { Sandbox } from '../sandbox/index.js'
 
 export interface ToolRegistryRef {
 	searchDeferred(query: string): ToolDefinition[]
@@ -17,11 +18,12 @@ export interface ToolContext {
 	log: (level: 'info' | 'warn' | 'error', message: string) => void
 	permissionContext?: {
 		mode: PermissionMode
-		sessionId: string
+		runId: string
 		workingDirectory: string
 	}
 
 	toolRegistry?: ToolRegistryRef
+	sandbox?: Sandbox
 }
 
 export interface ToolResult {

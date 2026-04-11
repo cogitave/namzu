@@ -30,12 +30,12 @@ export class GuardCoordinator {
 		this.startTime = Date.now()
 	}
 
-	beforeIteration(sessionMgr: RunPersistence, abortSignal: AbortSignal): GuardCheckResult {
+	beforeIteration(runMgr: RunPersistence, abortSignal: AbortSignal): GuardCheckResult {
 		const limitState = {
 			aborted: abortSignal.aborted,
-			totalTokens: sessionMgr.tokenUsage.totalTokens,
-			totalCost: sessionMgr.costInfo.totalCost,
-			currentIteration: sessionMgr.currentIteration,
+			totalTokens: runMgr.tokenUsage.totalTokens,
+			totalCost: runMgr.costInfo.totalCost,
+			currentIteration: runMgr.currentIteration,
 			startTime: this.startTime,
 		}
 

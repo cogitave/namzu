@@ -20,6 +20,16 @@ export const WriteFileTool = defineTool({
 	concurrencySafe: false,
 
 	async execute(input, context) {
+		// Sandbox-aware: route through sandbox.writeFile() when available
+		if (context.sandbox) {
+			await context.sandbox.writeFile(input.path, input.content)
+			return {
+				success: true,
+				output: `File written successfully: ${input.path} (${input.content.length} chars) [sandboxed]`,
+				data: { path: input.path, size: input.content.length, sandboxed: true },
+			}
+		}
+
 		const filePath = resolve(context.workingDirectory, input.path)
 
 		await mkdir(dirname(filePath), { recursive: true })

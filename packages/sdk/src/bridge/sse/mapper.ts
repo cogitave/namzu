@@ -247,6 +247,31 @@ const MAPPING: {
 			result_action: e.result.action,
 		}),
 	},
+
+	sandbox_created: {
+		wire: 'sandbox.created',
+		transform: (e, runId) => ({
+			run_id: runId,
+			sandbox_id: e.sandboxId,
+			environment: e.environment,
+		}),
+	},
+
+	sandbox_exec: {
+		wire: 'sandbox.exec',
+		transform: (e, runId) => ({
+			run_id: runId,
+			sandbox_id: e.sandboxId,
+			command: e.command,
+			exit_code: e.exitCode,
+			duration_ms: e.durationMs,
+		}),
+	},
+
+	sandbox_destroyed: {
+		wire: 'sandbox.destroyed',
+		transform: (e, runId) => ({ run_id: runId, sandbox_id: e.sandboxId }),
+	},
 }
 
 export function mapRunToStreamEvent(event: RunEvent, runId: RunId): MappedStreamEvent | null {
@@ -269,4 +294,5 @@ export function mapRunToStreamEvent(event: RunEvent, runId: RunId): MappedStream
 	return { wire: mapping.wire, data }
 }
 
+/** @deprecated Use mapRunToStreamEvent */
 export const mapSessionToStreamEvent = mapRunToStreamEvent

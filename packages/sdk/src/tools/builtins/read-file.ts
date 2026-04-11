@@ -26,6 +26,30 @@ export const ReadFileTool = defineTool({
 	concurrencySafe: true,
 
 	async execute(input, context) {
+		// Sandbox-aware: route through sandbox.readFile() when available
+		if (context.sandbox) {
+			const buffer = await context.sandbox.readFile(input.path)
+			const content = buffer.toString('utf-8')
+			const lines = content.split('\n')
+
+			const start = Math.max(0, input.offset ?? 0)
+			const end = input.limit ? start + input.limit : lines.length
+			const selectedLines = lines.slice(start, end)
+
+			const numberedLines = selectedLines.map((line, i) => `${start + i}\t${line}`).join('\n')
+
+			return {
+				success: true,
+				output: numberedLines,
+				data: {
+					totalLines: lines.length,
+					returnedLines: selectedLines.length,
+					path: input.path,
+					sandboxed: true,
+				},
+			}
+		}
+
 		const filePath = resolve(context.workingDirectory, input.path)
 		const content = await readFile(filePath, 'utf-8')
 		const lines = content.split('\n')

@@ -1,7 +1,7 @@
 export { GENAI, NAMZU } from '../constants/telemetry/index.js'
 
-export function agentSessionSpanName(agentName: string): string {
-	return `namzu.agent.session ${agentName}`
+export function agentRunSpanName(agentName: string): string {
+	return `namzu.agent.run ${agentName}`
 }
 
 export function agentIterationSpanName(iteration: number): string {

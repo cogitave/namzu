@@ -179,6 +179,9 @@ export type StreamEventType =
 	| 'task.updated'
 	| 'plugin.hook_executing'
 	| 'plugin.hook_completed'
+	| 'sandbox.created'
+	| 'sandbox.exec'
+	| 'sandbox.destroyed'
 
 export interface StreamEvent {
 	event: StreamEventType

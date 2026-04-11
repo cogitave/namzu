@@ -171,6 +171,31 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				})
 				break
 
+			case 'sandbox_created':
+				log.info('Sandbox created', {
+					runId: event.runId,
+					sandboxId: event.sandboxId,
+					environment: event.environment,
+				})
+				break
+
+			case 'sandbox_exec':
+				log.debug('Sandbox exec', {
+					runId: event.runId,
+					sandboxId: event.sandboxId,
+					command: event.command,
+					exitCode: event.exitCode,
+					durationMs: event.durationMs,
+				})
+				break
+
+			case 'sandbox_destroyed':
+				log.info('Sandbox destroyed', {
+					runId: event.runId,
+					sandboxId: event.sandboxId,
+				})
+				break
+
 			default: {
 				const _exhaustive: never = event
 				throw new Error(`Unhandled run event type: ${(_exhaustive as RunEvent).type}`)

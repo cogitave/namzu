@@ -9,15 +9,15 @@ export type EmitEvent = (event: RunEvent) => Promise<void>
 
 export class EventTranslator {
 	private pendingEvents: RunEvent[] = []
-	private sessionMgr: RunPersistence
+	private runMgr: RunPersistence
 
-	constructor(sessionMgr: RunPersistence) {
-		this.sessionMgr = sessionMgr
+	constructor(runMgr: RunPersistence) {
+		this.runMgr = runMgr
 	}
 
 	readonly emitEvent: EmitEvent = async (event: RunEvent): Promise<void> => {
 		this.pendingEvents.push(event)
-		await this.sessionMgr.getRunStore().appendEvent(event)
+		await this.runMgr.getRunStore().appendEvent(event)
 	};
 
 	*drainPending(): Generator<RunEvent> {

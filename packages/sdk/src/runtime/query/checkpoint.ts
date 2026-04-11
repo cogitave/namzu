@@ -19,7 +19,7 @@ export class CheckpointManager {
 	}
 
 	async create(
-		sessionMgr: RunPersistence,
+		runMgr: RunPersistence,
 		iteration: number,
 		extra?: {
 			toolResults?: Array<{ toolCallId: string; toolName: string; input: unknown; output: string }>
@@ -29,14 +29,14 @@ export class CheckpointManager {
 	): Promise<IterationCheckpoint> {
 		const checkpoint: IterationCheckpoint = {
 			id: generateCheckpointId(),
-			runId: sessionMgr.id,
+			runId: runMgr.id,
 			iteration,
-			messages: [...sessionMgr.messages],
-			tokenUsage: { ...sessionMgr.tokenUsage },
-			costInfo: { ...sessionMgr.costInfo },
+			messages: [...runMgr.messages],
+			tokenUsage: { ...runMgr.tokenUsage },
+			costInfo: { ...runMgr.costInfo },
 			guardState: {
-				iterationCount: sessionMgr.currentIteration,
-				elapsedMs: Date.now() - (sessionMgr.getSession().startedAt ?? Date.now()),
+				iterationCount: runMgr.currentIteration,
+				elapsedMs: Date.now() - (runMgr.getSession().startedAt ?? Date.now()),
 			},
 			createdAt: Date.now(),
 			toolResultHashes: extra?.toolResults ? buildToolResultHashes(extra.toolResults) : undefined,
@@ -71,16 +71,16 @@ export class CheckpointManager {
 		}
 	}
 
-	static buildSummary(sessionMgr: RunPersistence, iteration: number): CheckpointSummary {
-		const lastAssistant = [...sessionMgr.messages]
+	static buildSummary(runMgr: RunPersistence, iteration: number): CheckpointSummary {
+		const lastAssistant = [...runMgr.messages]
 			.reverse()
 			.find((m): m is AssistantMessage => m.role === 'assistant' && m.content !== null)
 
 		return {
 			iteration,
-			messageCount: sessionMgr.messages.length,
-			tokenUsage: { ...sessionMgr.tokenUsage },
-			costInfo: { ...sessionMgr.costInfo },
+			messageCount: runMgr.messages.length,
+			tokenUsage: { ...runMgr.tokenUsage },
+			costInfo: { ...runMgr.costInfo },
 			lastAssistantMessage: lastAssistant?.content ?? undefined,
 		}
 	}

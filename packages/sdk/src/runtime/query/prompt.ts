@@ -6,7 +6,7 @@ import type { AgentPersona } from '../../types/persona/index.js'
 import type { Skill } from '../../types/skills/index.js'
 
 export interface PromptSegments {
-	/** Layers 1-6: basePrompt, persona identity/expertise/reflexes/skills/outputDiscipline. Stable within a session. */
+	/** Layers 1-6: basePrompt, persona identity/expertise/reflexes/skills/outputDiscipline. Stable within a run. */
 	readonly static: string
 	/** Layers 7-10: tools, tier guidance, env context, sessionContext. May change per run. */
 	readonly dynamic: string

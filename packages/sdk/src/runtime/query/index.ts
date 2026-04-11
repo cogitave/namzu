@@ -9,7 +9,7 @@ import { WorkingStateManager } from '../../compaction/manager.js'
 import type { CompactionConfig } from '../../config/runtime.js'
 import { getTracer } from '../../provider/telemetry/setup.js'
 import type { ToolRegistry } from '../../registry/tool/execute.js'
-import { GENAI, NAMZU, agentSessionSpanName } from '../../telemetry/attributes.js'
+import { GENAI, NAMZU, agentRunSpanName } from '../../telemetry/attributes.js'
 import { buildAdvisoryTools } from '../../tools/advisory/index.js'
 import { SearchToolsTool } from '../../tools/builtins/search-tools.js'
 import { buildTaskTools } from '../../tools/task/index.js'
@@ -24,6 +24,7 @@ import type { AgentPersona } from '../../types/persona/index.js'
 import type { LLMProvider } from '../../types/provider/index.js'
 import type { TaskRouterConfig } from '../../types/router/index.js'
 import type { AgentRun, AgentRunConfig, RunEvent, RunEventListener } from '../../types/run/index.js'
+import type { Sandbox, SandboxProvider } from '../../types/sandbox/index.js'
 import type { Skill } from '../../types/skills/index.js'
 import type { TaskStore } from '../../types/task/index.js'
 import type { VerificationGateConfig } from '../../types/verification/index.js'
@@ -47,7 +48,7 @@ export interface QueryParams {
 	basePrompt?: string
 	provider: LLMProvider
 	tools: ToolRegistry
-	sessionConfig: AgentRunConfig
+	runConfig: AgentRunConfig
 	allowedTools?: string[]
 	agentId: string
 	agentName: string
@@ -99,13 +100,15 @@ export interface QueryParams {
 	verificationGate?: VerificationGateConfig
 
 	pluginManager?: import('../../plugin/lifecycle.js').PluginLifecycleManager
+
+	sandboxProvider?: SandboxProvider
 }
 
 export async function* query(params: QueryParams): AsyncGenerator<RunEvent, AgentRun> {
 	const ctx = RunContextFactory.build({
 		agentId: params.agentId,
 		agentName: params.agentName,
-		sessionConfig: params.sessionConfig,
+		runConfig: params.runConfig,
 		provider: params.provider,
 		workingDirectory: params.workingDirectory,
 		pricing: params.pricing,
@@ -149,7 +152,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Agen
 
 	params.onContextCreated?.({ planManager: ctx.planManager })
 
-	const eventTranslator = new EventTranslator(ctx.sessionMgr)
+	const eventTranslator = new EventTranslator(ctx.runMgr)
 	eventTranslator.wireActivityStore(ctx.activityStore, ctx.runId)
 	eventTranslator.wirePlanManager(ctx.planManager, ctx.runId)
 	const unsubscribeTaskStore = params.taskStore
@@ -181,7 +184,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Agen
 			runId: ctx.runId,
 			workingDirectory: ctx.cwd,
 			permissionMode: ctx.permissionMode,
-			env: params.sessionConfig.env ?? {},
+			env: params.runConfig.env ?? {},
 			abortSignal: ctx.abortController.signal,
 		},
 		ctx.activityStore,
@@ -205,16 +208,16 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Agen
 	})
 
 	const guard = new GuardCoordinator({
-		tokenBudget: params.sessionConfig.tokenBudget,
-		timeoutMs: params.sessionConfig.timeoutMs,
-		costLimitUsd: params.sessionConfig.costLimitUsd,
-		maxIterations: params.sessionConfig.maxIterations,
+		tokenBudget: params.runConfig.tokenBudget,
+		timeoutMs: params.runConfig.timeoutMs,
+		costLimitUsd: params.runConfig.costLimitUsd,
+		maxIterations: params.runConfig.maxIterations,
 	})
 
-	const checkpointMgr = new CheckpointManager(ctx.sessionMgr.getRunStore())
+	const checkpointMgr = new CheckpointManager(ctx.runMgr.getRunStore())
 
 	const resultAssembler = new ResultAssembler({
-		sessionMgr: ctx.sessionMgr,
+		runMgr: ctx.runMgr,
 		planManager: ctx.planManager,
 		activityStore: ctx.activityStore,
 		log: ctx.log,
@@ -258,7 +261,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Agen
 	const iterationOrchestrator = new IterationOrchestrator(
 		{
 			provider: params.provider,
-			sessionConfig: params.sessionConfig,
+			runConfig: params.runConfig,
 			tools: params.tools,
 			allowedTools: params.allowedTools,
 			taskGateway: params.taskGateway,
@@ -271,7 +274,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Agen
 			verificationGate: verificationGate,
 			pluginManager: params.pluginManager,
 		},
-		ctx.sessionMgr,
+		ctx.runMgr,
 		toolExecutor,
 		guard,
 		ctx.activityStore,
@@ -287,23 +290,25 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Agen
 	const tracer = getTracer()
 
 	return yield* (async function* (): AsyncGenerator<RunEvent, AgentRun> {
-		const rootSpan = tracer.startSpan(agentSessionSpanName(params.agentName))
+		const rootSpan = tracer.startSpan(agentRunSpanName(params.agentName))
 		rootSpan.setAttributes({
-			[NAMZU.SESSION_ID]: ctx.sessionMgr.id,
+			[NAMZU.RUN_ID]: ctx.runMgr.id,
 			[GENAI.AGENT_NAME]: params.agentName,
 			[GENAI.AGENT_ID]: params.agentId,
-			[GENAI.REQUEST_MODEL]: params.sessionConfig.model,
+			[GENAI.REQUEST_MODEL]: params.runConfig.model,
 			[GENAI.SYSTEM]: params.provider.id,
 		})
 
+		let sandbox: Sandbox | undefined
+
 		try {
-			await ctx.sessionMgr.init()
+			await ctx.runMgr.init()
 
 			ctx.log.info('Starting query', {
-				runId: ctx.sessionMgr.id,
+				runId: ctx.runMgr.id,
 				agent: params.agentName,
-				model: params.sessionConfig.model,
-				tokenBudget: params.sessionConfig.tokenBudget,
+				model: params.runConfig.model,
+				tokenBudget: params.runConfig.tokenBudget,
 				activityTracking: ctx.activityStore.enabled,
 				permissionMode: ctx.permissionMode,
 				resumeFromCheckpoint: params.resumeFromCheckpoint ?? null,
@@ -333,9 +338,9 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Agen
 			})
 
 			const pushSystemMessages = (): void => {
-				ctx.sessionMgr.pushMessage(createSystemMessage(segments.static, 'cache'))
+				ctx.runMgr.pushMessage(createSystemMessage(segments.static, 'cache'))
 				if (segments.dynamic.length > 0) {
-					ctx.sessionMgr.pushMessage(createSystemMessage(segments.dynamic, 'ephemeral'))
+					ctx.runMgr.pushMessage(createSystemMessage(segments.dynamic, 'ephemeral'))
 				}
 			}
 
@@ -343,7 +348,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Agen
 				const checkpoint = await checkpointMgr.restore(params.resumeFromCheckpoint)
 				await eventTranslator.emitEvent({
 					type: 'run_resuming',
-					runId: ctx.sessionMgr.id,
+					runId: ctx.runMgr.id,
 					fromCheckpointId: checkpoint.id,
 				})
 				yield* eventTranslator.drainPending()
@@ -351,18 +356,18 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Agen
 				pushSystemMessages()
 				for (const msg of checkpoint.messages) {
 					if (msg.role === 'system') continue
-					ctx.sessionMgr.pushMessage(msg)
+					ctx.runMgr.pushMessage(msg)
 				}
 			} else if (params.continuationMode) {
 				for (const msg of params.messages) {
-					ctx.sessionMgr.pushMessage(msg)
+					ctx.runMgr.pushMessage(msg)
 				}
 			} else {
 				pushSystemMessages()
 				let isFirstUserMessage = true
 				for (const msg of params.messages) {
 					if (msg.role === 'system') continue
-					ctx.sessionMgr.pushMessage(msg)
+					ctx.runMgr.pushMessage(msg)
 
 					if (workingStateManager && msg.role === 'user' && msg.content) {
 						extractFromUserMessage(workingStateManager, msg.content, isFirstUserMessage)
@@ -376,10 +381,10 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Agen
 					? `${segments.static}\n\n---\n\n${segments.dynamic}`
 					: segments.static
 
-			ctx.sessionMgr.markRunning()
+			ctx.runMgr.markRunning()
 			await eventTranslator.emitEvent({
 				type: 'run_started',
-				runId: ctx.sessionMgr.id,
+				runId: ctx.runMgr.id,
 				systemPrompt: assembledPrompt,
 			})
 			yield* eventTranslator.drainPending()
@@ -387,6 +392,30 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Agen
 			if (params.pluginManager) {
 				await params.pluginManager.executeHooks('run_start', {
 					runId: ctx.runId,
+				})
+			}
+
+			// --- Sandbox lifecycle: create before iteration loop ---
+			if (params.sandboxProvider) {
+				sandbox = await params.sandboxProvider.create({
+					timeoutMs: params.runConfig.sandbox?.timeoutMs,
+					memoryLimitMb: params.runConfig.sandbox?.memoryLimitMb,
+					maxProcesses: params.runConfig.sandbox?.maxProcesses,
+				})
+				toolExecutor.setSandbox(sandbox)
+
+				await eventTranslator.emitEvent({
+					type: 'sandbox_created',
+					runId: ctx.runId,
+					sandboxId: sandbox.id,
+					environment: sandbox.environment,
+				})
+				yield* eventTranslator.drainPending()
+
+				ctx.log.info('Sandbox created for run', {
+					sandboxId: sandbox.id,
+					environment: sandbox.environment,
+					rootDir: sandbox.rootDir,
 				})
 			}
 
@@ -402,6 +431,25 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Agen
 		} catch (err) {
 			yield* resultAssembler.handleError(err, rootSpan)
 		} finally {
+			// --- Sandbox lifecycle: destroy after run ---
+			if (sandbox) {
+				const sandboxId = sandbox.id
+				try {
+					await sandbox.destroy()
+					await eventTranslator.emitEvent({
+						type: 'sandbox_destroyed',
+						runId: ctx.runId,
+						sandboxId,
+					})
+					ctx.log.info('Sandbox destroyed', { sandboxId })
+				} catch (destroyErr) {
+					ctx.log.error('Sandbox destroy failed', {
+						sandboxId,
+						error: destroyErr instanceof Error ? destroyErr.message : String(destroyErr),
+					})
+				}
+			}
+
 			unsubscribeTaskStore?.()
 			rootSpan.end()
 		}

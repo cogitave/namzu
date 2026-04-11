@@ -21,6 +21,7 @@ import type {
 	PlanId,
 	PluginId,
 	RunId,
+	SandboxId,
 	SessionId,
 	TaskId,
 	TenantId,
@@ -152,6 +153,10 @@ export function generatePluginId(): PluginId {
 	return generateId('plg_')
 }
 
+export function generateSandboxId(): SandboxId {
+	return generateId('sbx_')
+}
+
 function parseId<T extends string>(raw: string, prefix: string, typeName: string): T {
 	if (!raw.startsWith(prefix)) {
 		throw new Error(`Invalid ${typeName}: expected "${prefix}" prefix, got "${raw}"`)
@@ -170,4 +175,7 @@ export function parseConnectorInstanceId(raw: string): ConnectorInstanceId {
 }
 export function parsePluginId(raw: string): PluginId {
 	return parseId<PluginId>(raw, 'plg_', 'PluginId')
+}
+export function parseSandboxId(raw: string): SandboxId {
+	return parseId<SandboxId>(raw, 'sbx_', 'SandboxId')
 }
