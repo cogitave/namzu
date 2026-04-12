@@ -2,6 +2,14 @@
 
 All notable changes to Namzu are documented here.
 
+## [0.1.5-rc.1] — 2026-04-12
+
+### Documentation
+
+- **changelog**: update for v0.1.4
+### Refactor
+
+- architectural cleanup and infrastructure improvements
 ## [0.1.4] — 2026-04-11
 
 ### Documentation
