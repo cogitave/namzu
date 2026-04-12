@@ -1,6 +1,6 @@
 import type { AgentStatus, CostInfo, TokenUsage } from '../common/index.js'
 import type { RunId, TaskId, ThreadId } from '../ids/index.js'
-import type { StopReason } from './events.js'
+import type { StopReason } from './stop-reason.js'
 
 export interface RunMetadata {
 	id: RunId

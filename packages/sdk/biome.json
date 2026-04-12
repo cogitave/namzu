@@ -53,5 +53,23 @@
   },
   "files": {
     "include": ["src/**/*.ts"]
-  }
+  },
+  "overrides": [
+    {
+      "include": ["src/**/__tests__/**/*.ts"],
+      "linter": {
+        "rules": {
+          "complexity": {
+            "useLiteralKeys": "off"
+          },
+          "suspicious": {
+            "noExplicitAny": "off"
+          },
+          "style": {
+            "noNonNullAssertion": "off"
+          }
+        }
+      }
+    }
+  ]
 }

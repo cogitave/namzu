@@ -1,5 +1,6 @@
-import type { AgentDefinition, AgentType } from '../../types/agent/index.js'
-import type { Agent, BaseAgentConfig, BaseAgentResult } from '../../types/agent/index.js'
+import type { AgentType, BaseAgentConfig, BaseAgentResult } from '../../types/agent/base.js'
+import type { Agent } from '../../types/agent/core.js'
+import type { AgentDefinition } from '../../types/agent/factory.js'
 import { type Logger, getRootLogger } from '../../utils/logger.js'
 import { Registry } from '../Registry.js'
 

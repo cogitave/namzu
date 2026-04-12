@@ -3,11 +3,9 @@ import { assembleSystemPrompt } from '../persona/assembler.js'
 import type { AdvisorDefinition } from '../types/advisory/config.js'
 import type { AdvisoryRequest, AdvisoryResult } from '../types/advisory/result.js'
 import type { CostInfo, TokenUsage } from '../types/common/index.js'
-import type { Message } from '../types/message/index.js'
-import { createSystemMessage, createUserMessage } from '../types/message/index.js'
+import { type Message, createSystemMessage, createUserMessage } from '../types/message/index.js'
 import type { LLMToolSchema } from '../types/tool/index.js'
-import type { Logger } from '../utils/logger.js'
-import { getRootLogger } from '../utils/logger.js'
+import { type Logger, getRootLogger } from '../utils/logger.js'
 
 export interface AdvisoryCallContext {
 	readonly messages: Message[]

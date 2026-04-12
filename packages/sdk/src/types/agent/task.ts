@@ -66,8 +66,6 @@ export interface AgentTaskProgress {
 	recentActivities: string[]
 }
 
-export { MAX_RECENT_ACTIVITIES } from '../../constants/agent/index.js'
-
 export interface SendMessageOptions {
 	agentId: string
 
@@ -88,5 +86,3 @@ export interface AgentManagerConfig {
 
 	maxBudgetFraction: number
 }
-
-export { AGENT_MANAGER_DEFAULTS } from '../../constants/agent/index.js'

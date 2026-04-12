@@ -1,13 +1,15 @@
-import type { AgentManager } from '../manager/agent/lifecycle.js'
 import type { AgentInput } from '../types/agent/base.js'
 import type { CreateTaskOptions, TaskGateway, TaskHandle } from '../types/agent/gateway.js'
+import type { AgentManagerContract } from '../types/agent/manager.js'
 import type { AgentTaskContext } from '../types/agent/task.js'
 import type { TaskId } from '../types/ids/index.js'
 import { createUserMessage } from '../types/message/index.js'
 import type { RunEventListener } from '../types/run/events.js'
+import { toErrorMessage } from '../utils/error.js'
+import { getRootLogger } from '../utils/logger.js'
 
 export class LocalTaskGateway implements TaskGateway {
-	private agentManager: AgentManager
+	private agentManager: AgentManagerContract
 	private taskContext: AgentTaskContext
 	private listener: RunEventListener | undefined
 	private trackedTaskIds: Set<TaskId> = new Set()
@@ -17,7 +19,7 @@ export class LocalTaskGateway implements TaskGateway {
 	private completionListeners: Set<(handle: TaskHandle) => void> = new Set()
 
 	constructor(
-		agentManager: AgentManager,
+		agentManager: AgentManagerContract,
 		taskContext: AgentTaskContext,
 		listener?: RunEventListener,
 		parentInput?: Pick<AgentInput, 'taskStore' | 'runtimeToolOverrides'>,
@@ -56,7 +58,14 @@ export class LocalTaskGateway implements TaskGateway {
 					}
 				}
 			})
-			.catch(() => {})
+			.catch((err) => {
+				getRootLogger()
+					.child({ component: 'LocalTaskGateway' })
+					.error('Task completion tracking failed', {
+						taskId: task.taskId,
+						error: toErrorMessage(err),
+					})
+			})
 
 		return toHandle(task)
 	}

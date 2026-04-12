@@ -1,9 +1,9 @@
 import { FILESYSTEM_TOOLS } from '../../constants/tools/index.js'
 import { assembleSystemPrompt } from '../../persona/assembler.js'
-import type { ToolRegistry } from '../../registry/tool/execute.js'
 import type { AgentContextLevel } from '../../types/agent/factory.js'
 import type { AgentPersona } from '../../types/persona/index.js'
 import type { Skill } from '../../types/skills/index.js'
+import type { ToolRegistryContract } from '../../types/tool/index.js'
 
 export interface PromptSegments {
 	/** Layers 1-6: basePrompt, persona identity/expertise/reflexes/skills/outputDiscipline. Stable within a run. */
@@ -21,7 +21,7 @@ export interface PromptBuilderConfig {
 
 	basePrompt?: string
 
-	tools: ToolRegistry
+	tools: ToolRegistryContract
 	allowedTools?: string[]
 }
 
@@ -34,7 +34,7 @@ Platform: ${process.platform}
 IMPORTANT: Always use absolute paths based on the working directory above. Before reading a file, use the glob tool to discover actual file paths — never guess or hallucinate paths.`
 }
 
-function hasFilesystemTools(tools: ToolRegistry, allowedTools?: string[]): boolean {
+function hasFilesystemTools(tools: ToolRegistryContract, allowedTools?: string[]): boolean {
 	const activeTools = allowedTools ?? tools.listNames()
 	return activeTools.some((name) => FILESYSTEM_TOOLS.has(name))
 }

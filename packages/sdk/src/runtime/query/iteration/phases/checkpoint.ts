@@ -1,7 +1,6 @@
 import type { RunEvent } from '../../../../types/run/index.js'
 import { CheckpointManager } from '../../checkpoint.js'
-import type { IterationContext, PhaseSignal } from './context.js'
-import { handleHITLDecision } from './context.js'
+import { type IterationContext, type PhaseSignal, handleHITLDecision } from './context.js'
 
 export async function* runIterationCheckpoint(
 	ctx: IterationContext,

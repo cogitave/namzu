@@ -1,7 +1,6 @@
 import { z } from 'zod'
 import type { RunId } from '../../types/ids/index.js'
-import type { TaskStore } from '../../types/task/index.js'
-import { isTerminalTaskStatus } from '../../types/task/index.js'
+import { type TaskStore, isTerminalTaskStatus } from '../../types/task/index.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
 

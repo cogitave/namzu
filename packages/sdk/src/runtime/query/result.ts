@@ -1,5 +1,4 @@
-import { SpanStatusCode } from '@opentelemetry/api'
-import type { Span } from '@opentelemetry/api'
+import { type Span, SpanStatusCode } from '@opentelemetry/api'
 import type { PlanManager } from '../../manager/plan/lifecycle.js'
 import type { RunPersistence } from '../../manager/run/persistence.js'
 import type { ActivityStore } from '../../store/activity/memory.js'

@@ -1,3 +1,4 @@
+import { EMPTY_TOKEN_USAGE } from '../constants/limits.js'
 import { LocalTaskGateway } from '../gateway/local.js'
 import { ToolRegistry } from '../registry/tool/execute.js'
 import { drainQuery } from '../runtime/query/index.js'
@@ -11,8 +12,8 @@ import type {
 	SupervisorAgentResult,
 } from '../types/agent/index.js'
 import type { AgentTaskContext } from '../types/agent/task.js'
-import { EMPTY_TOKEN_USAGE } from '../types/common/index.js'
 import type { TaskId, ThreadId } from '../types/ids/index.js'
+import { deriveChildState } from '../types/invocation/index.js'
 import type { RunEventListener } from '../types/run/index.js'
 import { ZERO_COST } from '../utils/cost.js'
 import { AbstractAgent } from './AbstractAgent.js'
@@ -98,6 +99,8 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 			tools.register(tool)
 		}
 
+		const childInvocationState = deriveChildState(config.invocationState, this.metadata.id)
+
 		const run = await drainQuery(
 			{
 				systemPrompt: config.systemPrompt,
@@ -129,6 +132,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 				taskGateway: gateway,
 				launchedTasks,
 				advisory: config.advisory,
+				invocationState: childInvocationState,
 			},
 			listener,
 		)

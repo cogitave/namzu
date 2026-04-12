@@ -1,6 +1,5 @@
 import type { ConnectorManager } from '../../../manager/connector/lifecycle.js'
-import type { ToolRegistry } from '../../../registry/tool/execute.js'
-import type { ToolDefinition } from '../../../types/tool/index.js'
+import type { ToolDefinition, ToolRegistryContract } from '../../../types/tool/index.js'
 import { toErrorMessage } from '../../../utils/error.js'
 import { type Logger, getRootLogger } from '../../../utils/logger.js'
 import { connectorInstanceToTools, createConnectorRouterTool } from './adapter.js'
@@ -43,7 +42,7 @@ export class ConnectorToolRouter {
 		return tools
 	}
 
-	registerTools(toolRegistry: ToolRegistry): string[] {
+	registerTools(toolRegistry: ToolRegistryContract): string[] {
 		const tools = this.getTools()
 		const names: string[] = []
 		for (const tool of tools) {
@@ -54,14 +53,14 @@ export class ConnectorToolRouter {
 		return names
 	}
 
-	unregisterTools(toolRegistry: ToolRegistry, toolNames: string[]): void {
+	unregisterTools(toolRegistry: ToolRegistryContract, toolNames: string[]): void {
 		for (const name of toolNames) {
 			toolRegistry.unregister(name)
 		}
 		this.log.info(`Unregistered ${toolNames.length} connector tools`)
 	}
 
-	refreshTools(toolRegistry: ToolRegistry, previousNames: string[]): string[] {
+	refreshTools(toolRegistry: ToolRegistryContract, previousNames: string[]): string[] {
 		this.unregisterTools(toolRegistry, previousNames)
 		return this.registerTools(toolRegistry)
 	}

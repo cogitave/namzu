@@ -17,7 +17,7 @@ export const TaskRouterConfigSchema = z
 	.optional()
 
 export const CompactionConfigSchema = z.object({
-	strategy: z.enum(['structured', 'disabled']).default('structured'),
+	strategy: z.enum(['structured', 'sliding-window', 'disabled']).default('structured'),
 	triggerThreshold: z.number().min(0).max(1).default(0.7),
 	resetThreshold: z.number().min(0).max(1).default(0.4),
 	keepRecentMessages: z.number().positive().default(4),

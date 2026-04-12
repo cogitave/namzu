@@ -8,7 +8,6 @@ import { extractFromUserMessage } from '../../compaction/extractor.js'
 import { WorkingStateManager } from '../../compaction/manager.js'
 import type { CompactionConfig } from '../../config/runtime.js'
 import { getTracer } from '../../provider/telemetry/setup.js'
-import type { ToolRegistry } from '../../registry/tool/execute.js'
 import { GENAI, NAMZU, agentRunSpanName } from '../../telemetry/attributes.js'
 import { buildAdvisoryTools } from '../../tools/advisory/index.js'
 import { SearchToolsTool } from '../../tools/builtins/search-tools.js'
@@ -16,9 +15,13 @@ import { buildTaskTools } from '../../tools/task/index.js'
 import type { AdvisoryConfig } from '../../types/advisory/index.js'
 import type { RuntimeToolOverrides } from '../../types/agent/base.js'
 import type { AgentContextLevel } from '../../types/agent/factory.js'
-import type { CheckpointId, ResumeHandler } from '../../types/hitl/index.js'
-import { autoApproveHandler } from '../../types/hitl/index.js'
+import {
+	type CheckpointId,
+	type ResumeHandler,
+	autoApproveHandler,
+} from '../../types/hitl/index.js'
 import type { RunId, ThreadId } from '../../types/ids/index.js'
+import type { InvocationState } from '../../types/invocation/index.js'
 import { type Message, createSystemMessage } from '../../types/message/index.js'
 import type { AgentPersona } from '../../types/persona/index.js'
 import type { LLMProvider } from '../../types/provider/index.js'
@@ -27,6 +30,7 @@ import type { AgentRun, AgentRunConfig, RunEvent, RunEventListener } from '../..
 import type { Sandbox, SandboxProvider } from '../../types/sandbox/index.js'
 import type { Skill } from '../../types/skills/index.js'
 import type { TaskStore } from '../../types/task/index.js'
+import type { ToolRegistryContract } from '../../types/tool/index.js'
 import type { VerificationGateConfig } from '../../types/verification/index.js'
 import type { ModelPricing } from '../../utils/cost.js'
 import { VerificationGate } from '../../verification/gate.js'
@@ -47,7 +51,7 @@ export interface QueryParams {
 	skills?: Skill[]
 	basePrompt?: string
 	provider: LLMProvider
-	tools: ToolRegistry
+	tools: ToolRegistryContract
 	runConfig: AgentRunConfig
 	allowedTools?: string[]
 	agentId: string
@@ -102,6 +106,8 @@ export interface QueryParams {
 	pluginManager?: import('../../plugin/lifecycle.js').PluginLifecycleManager
 
 	sandboxProvider?: SandboxProvider
+
+	invocationState?: InvocationState
 }
 
 export async function* query(params: QueryParams): AsyncGenerator<RunEvent, AgentRun> {
@@ -186,6 +192,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Agen
 			permissionMode: ctx.permissionMode,
 			env: params.runConfig.env ?? {},
 			abortSignal: ctx.abortController.signal,
+			invocationState: params.invocationState,
 		},
 		ctx.activityStore,
 		eventTranslator.emitEvent,

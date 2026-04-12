@@ -17,14 +17,9 @@ export class DecisionParser {
 	parse(rawContent: string | null): DecisionParseResult {
 		if (!rawContent || rawContent.trim().length === 0) {
 			return {
-				ok: true,
-				decision: {
-					agentId: this.config.fallbackAgentId,
-					confidence: 0,
-					reasoning: 'Empty LLM response',
-				},
-				source: 'fallback',
-				reason: 'empty_response',
+				ok: false,
+				error: 'Empty LLM response',
+				rawContent: rawContent ?? '',
 			}
 		}
 
@@ -34,14 +29,9 @@ export class DecisionParser {
 				contentPreview: rawContent.slice(0, 200),
 			})
 			return {
-				ok: true,
-				decision: {
-					agentId: this.config.fallbackAgentId,
-					confidence: 0,
-					reasoning: 'Could not extract JSON from response',
-				},
-				source: 'fallback',
-				reason: 'json_extraction_failed',
+				ok: false,
+				error: 'Could not extract JSON from response',
+				rawContent,
 			}
 		}
 
@@ -54,14 +44,9 @@ export class DecisionParser {
 				contentPreview: jsonStr.slice(0, 200),
 			})
 			return {
-				ok: true,
-				decision: {
-					agentId: this.config.fallbackAgentId,
-					confidence: 0,
-					reasoning: `JSON parse failed: ${String(err)}`,
-				},
-				source: 'fallback',
-				reason: 'json_parse_failed',
+				ok: false,
+				error: `JSON parse failed: ${String(err)}`,
+				rawContent: jsonStr,
 			}
 		}
 
@@ -74,14 +59,9 @@ export class DecisionParser {
 			this.log.warn('Routing response failed schema validation', { errors })
 
 			return {
-				ok: true,
-				decision: {
-					agentId: this.config.fallbackAgentId,
-					confidence: 0,
-					reasoning: `Schema validation failed: ${errors}`,
-				},
-				source: 'fallback',
-				reason: 'schema_validation_failed',
+				ok: false,
+				error: `Schema validation failed: ${errors}`,
+				rawContent: jsonStr,
 			}
 		}
 
@@ -94,14 +74,9 @@ export class DecisionParser {
 			})
 
 			return {
-				ok: true,
-				decision: {
-					agentId: this.config.fallbackAgentId,
-					confidence: 0,
-					reasoning: `Unknown agentId "${response.agentId}", falling back`,
-				},
-				source: 'fallback',
-				reason: 'unknown_agent_id',
+				ok: false,
+				error: `Unknown agentId "${response.agentId}"`,
+				rawContent: jsonStr,
 			}
 		}
 

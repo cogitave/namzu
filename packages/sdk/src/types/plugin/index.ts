@@ -125,6 +125,25 @@ export type PluginHookResult =
 	| { action: 'skip'; reason: string }
 	| { action: 'modify'; input: unknown }
 	| { action: 'error'; message: string }
+	| { action: 'resume'; input: string }
+	| { action: 'retry' }
+
+export function assertPluginHookResult(result: PluginHookResult): asserts result {
+	const action = result.action
+	switch (action) {
+		case 'continue':
+		case 'skip':
+		case 'modify':
+		case 'error':
+		case 'resume':
+		case 'retry':
+			break
+		default: {
+			const _exhaustive: never = action
+			throw new Error(`Unknown PluginHookResult action: ${_exhaustive}`)
+		}
+	}
+}
 
 export interface PluginHookDefinition {
 	readonly event: PluginHookEvent

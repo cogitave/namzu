@@ -7,16 +7,7 @@ import type { PlanStep } from '../plan/index.js'
 import type { PluginHookEvent, PluginHookResult } from '../plugin/index.js'
 import type { TaskStatus } from '../task/index.js'
 
-export type StopReason =
-	| 'end_turn'
-	| 'token_budget'
-	| 'cost_limit'
-	| 'timeout'
-	| 'max_iterations'
-	| 'cancelled'
-	| 'plan_rejected'
-	| 'paused'
-	| 'error'
+export type { StopReason } from './stop-reason.js'
 
 export type RunEvent =
 	| { type: 'run_started'; runId: RunId; systemPrompt?: string }

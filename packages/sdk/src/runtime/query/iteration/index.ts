@@ -6,13 +6,13 @@ import type { CompactionConfig } from '../../../config/runtime.js'
 import type { PlanManager } from '../../../manager/plan/lifecycle.js'
 import type { RunPersistence } from '../../../manager/run/persistence.js'
 import { getTracer } from '../../../provider/telemetry/setup.js'
-import type { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { ActivityStore } from '../../../store/activity/memory.js'
 import { GENAI, NAMZU, agentIterationSpanName } from '../../../telemetry/attributes.js'
 import type { ResumeHandler } from '../../../types/hitl/index.js'
 import { createAssistantMessage, createUserMessage } from '../../../types/message/index.js'
 import type { LLMProvider } from '../../../types/provider/index.js'
 import type { AgentRunConfig, RunEvent, StopReason } from '../../../types/run/index.js'
+import type { ToolRegistryContract } from '../../../types/tool/index.js'
 import { toErrorMessage } from '../../../utils/error.js'
 import type { Logger } from '../../../utils/logger.js'
 import type { CheckpointManager } from '../checkpoint.js'
@@ -33,7 +33,7 @@ export type { ToolReviewOutcome } from './phases/index.js'
 export interface IterationConfig {
 	provider: LLMProvider
 	runConfig: AgentRunConfig
-	tools: ToolRegistry
+	tools: ToolRegistryContract
 	allowedTools?: string[]
 	taskGateway?: import('../../../types/agent/gateway.js').TaskGateway
 	taskStore?: import('../../../types/task/index.js').TaskStore

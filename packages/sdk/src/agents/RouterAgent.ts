@@ -1,3 +1,4 @@
+import { EMPTY_TOKEN_USAGE } from '../constants/limits.js'
 import { FallbackResolver } from '../runtime/decision/fallback.js'
 import { DecisionParser } from '../runtime/decision/parser.js'
 import type {
@@ -7,8 +8,8 @@ import type {
 	RouterAgentResult,
 	RoutingDecision,
 } from '../types/agent/index.js'
-import { EMPTY_TOKEN_USAGE } from '../types/common/index.js'
 import type { FallbackStrategy } from '../types/decision/index.js'
+import { deriveChildState } from '../types/invocation/index.js'
 import { createSystemMessage, createUserMessage } from '../types/message/index.js'
 import type { RunEventListener } from '../types/run/index.js'
 import { ZERO_COST } from '../utils/cost.js'
@@ -83,7 +84,12 @@ export class RouterAgent extends AbstractAgent<RouterAgentConfig, RouterAgentRes
 			targetRoute = fallback
 		}
 
-		const delegateResult = await targetRoute.agent.run(input, config, listener)
+		const childInvocationState = deriveChildState(config.invocationState, this.metadata.id)
+		const delegateResult = await targetRoute.agent.run(
+			input,
+			{ ...config, invocationState: childInvocationState },
+			listener,
+		)
 
 		await this.emitEvent(
 			{

@@ -29,10 +29,10 @@ export class EventTranslator {
 	}
 
 	wireActivityStore(activityStore: ActivityStore, runId: RunId): void {
-		activityStore.on((event: ActivityEvent) => {
+		activityStore.on(async (event: ActivityEvent) => {
 			const activity = event.activity
 			if (event.type === 'activity.created') {
-				this.emitEvent({
+				await this.emitEvent({
 					type: 'activity_created',
 					runId,
 					activityId: activity.id,
@@ -40,7 +40,7 @@ export class EventTranslator {
 					description: activity.description,
 				})
 			} else {
-				this.emitEvent({
+				await this.emitEvent({
 					type: 'activity_updated',
 					runId,
 					activityId: activity.id,
@@ -53,13 +53,13 @@ export class EventTranslator {
 	}
 
 	wireTaskStore(taskStore: TaskStore, runId: RunId): () => void {
-		const unsubscribe = taskStore.on((event: TaskEvent) => {
+		const unsubscribe = taskStore.on(async (event: TaskEvent) => {
 			const task = event.task
 
 			if (task.runId !== runId) return
 			switch (event.type) {
 				case 'task.created':
-					this.emitEvent({
+					await this.emitEvent({
 						type: 'task_created',
 						runId,
 						taskId: task.id,
@@ -70,7 +70,7 @@ export class EventTranslator {
 				case 'task.updated':
 				case 'task.claimed':
 				case 'task.deleted':
-					this.emitEvent({
+					await this.emitEvent({
 						type: 'task_updated',
 						runId,
 						taskId: task.id,
@@ -89,11 +89,11 @@ export class EventTranslator {
 	}
 
 	wirePlanManager(planManager: PlanManager, runId: RunId): void {
-		planManager.on((event: PlanEvent) => {
+		planManager.on(async (event: PlanEvent) => {
 			const plan = event.plan
 			switch (event.type) {
 				case 'plan.ready':
-					this.emitEvent({
+					await this.emitEvent({
 						type: 'plan_ready',
 						runId,
 						planId: plan.id,
@@ -103,14 +103,14 @@ export class EventTranslator {
 					})
 					break
 				case 'plan.approved':
-					this.emitEvent({
+					await this.emitEvent({
 						type: 'plan_approved',
 						runId,
 						planId: plan.id,
 					})
 					break
 				case 'plan.rejected':
-					this.emitEvent({
+					await this.emitEvent({
 						type: 'plan_rejected',
 						runId,
 						planId: plan.id,
@@ -119,7 +119,7 @@ export class EventTranslator {
 					break
 				case 'plan.step_updated':
 					if (event.step) {
-						this.emitEvent({
+						await this.emitEvent({
 							type: 'plan_step_updated',
 							runId,
 							planId: plan.id,

@@ -1,14 +1,14 @@
 import { PLUGIN_NAMESPACE_SEPARATOR } from '../constants/plugin/index.js'
 import type { PluginRegistry } from '../registry/plugin/index.js'
-import type { ToolRegistry } from '../registry/tool/execute.js'
 import type { PluginId } from '../types/ids/index.js'
 import type { PluginContributionType } from '../types/plugin/index.js'
+import type { ToolRegistryContract } from '../types/tool/index.js'
 
 export class PluginResolver {
 	private pluginRegistry: PluginRegistry
-	private toolRegistry: ToolRegistry
+	private toolRegistry: ToolRegistryContract
 
-	constructor(pluginRegistry: PluginRegistry, toolRegistry: ToolRegistry) {
+	constructor(pluginRegistry: PluginRegistry, toolRegistry: ToolRegistryContract) {
 		this.pluginRegistry = pluginRegistry
 		this.toolRegistry = toolRegistry
 	}

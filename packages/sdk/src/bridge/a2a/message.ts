@@ -1,7 +1,6 @@
 import type { ThreadMessage } from '../../contracts/index.js'
 import type { A2AMessage, A2AMessageRole, A2APart, TextPart } from '../../types/a2a/index.js'
-import type { MessageRole } from '../../types/message/index.js'
-import type { Message } from '../../types/message/index.js'
+import type { Message, MessageRole } from '../../types/message/index.js'
 
 function toA2ARole(role: MessageRole): A2AMessageRole {
 	switch (role) {
