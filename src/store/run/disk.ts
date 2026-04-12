@@ -1,8 +1,7 @@
 import { appendFile, mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { CheckpointId, IterationCheckpoint } from '../../types/hitl/index.js'
-import type { AgentRun, RunEvent } from '../../types/run/index.js'
-import type { RunStoreConfig } from '../../types/run/index.js'
+import type { AgentRun, RunEvent, RunStoreConfig } from '../../types/run/index.js'
 import { type Logger, getRootLogger } from '../../utils/logger.js'
 
 export class RunDiskStore {
@@ -96,8 +95,9 @@ export class RunDiskStore {
 		try {
 			const content = await readFile(join(dir, 'checkpoints', `${checkpointId}.json`), 'utf-8')
 			return JSON.parse(content) as IterationCheckpoint
-		} catch {
-			return null
+		} catch (err) {
+			if (isFileNotFound(err)) return null
+			throw err
 		}
 	}
 
@@ -117,8 +117,9 @@ export class RunDiskStore {
 				}
 			}
 			return checkpoints.sort((a, b) => a.createdAt - b.createdAt)
-		} catch {
-			return []
+		} catch (err) {
+			if (isFileNotFound(err)) return []
+			throw err
 		}
 	}
 
@@ -126,7 +127,9 @@ export class RunDiskStore {
 		const dir = this.requireInit()
 		try {
 			await unlink(join(dir, 'checkpoints', `${checkpointId}.json`))
-		} catch {}
+		} catch (err) {
+			if (!isFileNotFound(err)) throw err
+		}
 	}
 
 	static async listRuns(baseDir: string): Promise<
@@ -142,8 +145,9 @@ export class RunDiskStore {
 			const indexPath = join(baseDir, 'index.json')
 			const content = await readFile(indexPath, 'utf-8')
 			return JSON.parse(content)
-		} catch {
-			return []
+		} catch (err) {
+			if (isFileNotFound(err)) return []
+			throw err
 		}
 	}
 
@@ -166,13 +170,7 @@ export class RunDiskStore {
 				const content = await readFile(indexPath, 'utf-8')
 				index = JSON.parse(content)
 			} catch (err) {
-				const isNotFound =
-					typeof err === 'object' &&
-					err !== null &&
-					(err as NodeJS.ErrnoException).code === 'ENOENT'
-				if (!isNotFound) {
-					this.log.warn('Failed to read run index — starting fresh', { error: String(err) })
-				}
+				if (!isFileNotFound(err)) throw err
 			}
 
 			const entry = {
@@ -214,6 +212,10 @@ async function atomicWriteFile(filePath: string, content: string): Promise<void>
 
 async function atomicWriteJson(filePath: string, value: unknown): Promise<void> {
 	await atomicWriteFile(filePath, JSON.stringify(value, null, 2))
+}
+
+function isFileNotFound(err: unknown): boolean {
+	return typeof err === 'object' && err !== null && (err as NodeJS.ErrnoException).code === 'ENOENT'
 }
 
 export const SessionStore = RunDiskStore

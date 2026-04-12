@@ -1,10 +1,10 @@
-import type { AgentManager } from '../../manager/agent/lifecycle.js'
 import type { AdvisoryConfig } from '../advisory/index.js'
 import type { LLMProvider } from '../provider/index.js'
 import type { TaskRouterConfig } from '../router/index.js'
 import type { BaseAgentConfig, BaseAgentResult } from './base.js'
 import type { AgentFactoryOptions } from './factory.js'
 import type { TaskGateway } from './gateway.js'
+import type { AgentManagerContract } from './manager.js'
 
 export interface SupervisorAgentConfig extends BaseAgentConfig {
 	provider: LLMProvider
@@ -12,7 +12,7 @@ export interface SupervisorAgentConfig extends BaseAgentConfig {
 	agentIds: string[]
 
 	gateway?: TaskGateway
-	agentManager?: AgentManager
+	agentManager?: AgentManagerContract
 
 	systemPrompt: string
 

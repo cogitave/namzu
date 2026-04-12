@@ -1,4 +1,4 @@
-import type { AgentCapabilities } from '../../types/agent/index.js'
+import type { AgentCapabilities } from '../../types/agent/base.js'
 import type { AgentManagerConfig } from '../../types/agent/task.js'
 
 export const MAX_RECENT_ACTIVITIES = 5

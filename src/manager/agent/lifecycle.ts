@@ -1,3 +1,5 @@
+import { AGENT_MANAGER_DEFAULTS } from '../../constants/agent/index.js'
+import { EMPTY_TOKEN_USAGE } from '../../constants/limits.js'
 import type { AgentRegistry } from '../../registry/agent/definitions.js'
 import type { BaseAgentConfig, BaseAgentResult } from '../../types/agent/base.js'
 import type {
@@ -11,8 +13,7 @@ import type {
 	AgentTaskState,
 	SendMessageOptions,
 } from '../../types/agent/task.js'
-import { AGENT_MANAGER_DEFAULTS, isTerminalAgentTaskState } from '../../types/agent/task.js'
-import { EMPTY_TOKEN_USAGE } from '../../types/common/index.js'
+import { isTerminalAgentTaskState } from '../../types/agent/task.js'
 import type { RunId, TaskId } from '../../types/ids/index.js'
 import type { Message } from '../../types/message/index.js'
 import { createChildAbortController } from '../../utils/abort.js'

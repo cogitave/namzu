@@ -7,18 +7,15 @@ import type {
 	ToolAvailability,
 	ToolContext,
 	ToolDefinition,
+	ToolExecutionResult,
 	ToolRegistryConfig,
-	ToolResult,
 	ToolTierConfig,
 } from '../../types/tool/index.js'
 import { toErrorMessage } from '../../utils/error.js'
 import { type Logger, getRootLogger } from '../../utils/logger.js'
 import { Registry } from '../Registry.js'
 
-export interface ToolExecutionResult extends ToolResult {
-	permissionDenied?: boolean
-	permissionMessage?: string
-}
+export type { ToolExecutionResult }
 
 export class ToolRegistry extends Registry<ToolDefinition> {
 	private log: Logger

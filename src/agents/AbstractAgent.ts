@@ -1,4 +1,4 @@
-import type { AgentManager } from '../manager/agent/lifecycle.js'
+import { EMPTY_TOKEN_USAGE } from '../constants/limits.js'
 import type {
 	Agent,
 	AgentCapabilities,
@@ -8,13 +8,14 @@ import type {
 	BaseAgentConfig,
 	BaseAgentResult,
 } from '../types/agent/index.js'
-import { EMPTY_TOKEN_USAGE } from '../types/common/index.js'
+import type { AgentManagerContract } from '../types/agent/manager.js'
 import type { RunId } from '../types/ids/index.js'
 import type { RunEvent, RunEventListener } from '../types/run/index.js'
 import { ZERO_COST } from '../utils/cost.js'
 import { toErrorMessage } from '../utils/error.js'
 import { generateRunId } from '../utils/id.js'
 import { type Logger, getRootLogger } from '../utils/logger.js'
+import { InvocationLock } from './lock.js'
 
 export abstract class AbstractAgent<
 	TConfig extends BaseAgentConfig = BaseAgentConfig,
@@ -25,14 +26,16 @@ export abstract class AbstractAgent<
 	readonly metadata: AgentMetadata
 	protected log: Logger
 	protected abortController: AbortController
+	private readonly invocationLock: InvocationLock
 
-	protected agentManager?: AgentManager
+	protected agentManager?: AgentManagerContract
 
 	protected currentRunId?: RunId
 
 	constructor(metadata: AgentMetadata) {
 		this.metadata = metadata
 		this.abortController = new AbortController()
+		this.invocationLock = new InvocationLock()
 		this.log = getRootLogger().child({
 			component: `Agent:${metadata.type}`,
 			agentId: metadata.id,
@@ -40,6 +43,26 @@ export abstract class AbstractAgent<
 	}
 
 	abstract run(input: AgentInput, config: TConfig, listener?: RunEventListener): Promise<TResult>
+
+	/**
+	 * Acquire the invocation lock to prevent concurrent execution.
+	 * Returns a Disposable that must be disposed to release the lock.
+	 *
+	 * Usage:
+	 * ```typescript
+	 * const lock = this.acquireInvocationLock()
+	 * try {
+	 *   // do work
+	 * } finally {
+	 *   lock[Symbol.dispose]()
+	 * }
+	 * ```
+	 *
+	 * @throws {ConcurrentInvocationError} if the agent is already executing
+	 */
+	protected acquireInvocationLock() {
+		return this.invocationLock.acquire(this.metadata.id)
+	}
 
 	async cancel(): Promise<void> {
 		this.abortController.abort()

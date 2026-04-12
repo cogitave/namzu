@@ -2,7 +2,7 @@ import type { AgentStatus, CostInfo, TokenUsage } from '../common/index.js'
 import type { RunId } from '../ids/index.js'
 import type { Message } from '../message/index.js'
 import type { AgentRunConfig } from './config.js'
-import type { StopReason } from './events.js'
+import type { StopReason } from './stop-reason.js'
 
 export interface RunStateMetadata {
 	agentId: string

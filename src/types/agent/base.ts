@@ -1,8 +1,9 @@
 import type { AgentStatus, CostInfo, TokenUsage } from '../common/index.js'
 import type { RunId, ThreadId } from '../ids/index.js'
+import type { InvocationState } from '../invocation/index.js'
 import type { Message } from '../message/index.js'
 import type { PermissionMode } from '../permission/index.js'
-import type { StopReason } from '../run/index.js'
+import type { StopReason } from '../run/stop-reason.js'
 import type { TaskStore } from '../task/index.js'
 import type { ToolAvailability } from '../tool/index.js'
 
@@ -28,6 +29,9 @@ export interface BaseAgentConfig {
 	depth?: number
 
 	contextLevel?: AgentContextLevel
+
+	/** Shared invocation state passed through agent hierarchies */
+	invocationState?: InvocationState
 }
 
 export type RuntimeToolOverrides = Record<string, ToolAvailability | 'disabled'>

@@ -1,3 +1,4 @@
+import { EMPTY_TOKEN_USAGE } from '../constants/limits.js'
 import type {
 	AgentInput,
 	AgentMetadata,
@@ -6,7 +7,6 @@ import type {
 	PipelineStepResult,
 	StepContext,
 } from '../types/agent/index.js'
-import { EMPTY_TOKEN_USAGE } from '../types/common/index.js'
 import type { RunEventListener } from '../types/run/index.js'
 import { ZERO_COST } from '../utils/cost.js'
 import { toErrorMessage } from '../utils/error.js'

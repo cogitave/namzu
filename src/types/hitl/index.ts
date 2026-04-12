@@ -1,9 +1,8 @@
 import type { CostInfo, TokenUsage } from '../common/index.js'
-import type { PlanId, RunId } from '../ids/index.js'
+import type { CheckpointId, PlanId, RunId } from '../ids/index.js'
 import type { Message } from '../message/index.js'
 import type { PlanStatus } from '../plan/index.js'
 
-import type { CheckpointId } from '../ids/index.js'
 export type { CheckpointId }
 
 export type HITLResumeDecision =

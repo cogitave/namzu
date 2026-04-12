@@ -1,27 +1,28 @@
 import { extractFromToolCall, extractFromToolResult } from '../../compaction/extractor.js'
 import type { WorkingStateManager } from '../../compaction/manager.js'
-import type { ToolRegistry } from '../../registry/tool/execute.js'
 import type { ActivityStore } from '../../store/activity/memory.js'
 import type { RunId } from '../../types/ids/index.js'
+import type { InvocationState } from '../../types/invocation/index.js'
 import { type Message, createToolMessage } from '../../types/message/index.js'
 import type { PermissionMode } from '../../types/permission/index.js'
 import type { ChatCompletionResponse } from '../../types/provider/index.js'
 import type { RunEvent } from '../../types/run/index.js'
 import type { Sandbox } from '../../types/sandbox/index.js'
-import type { ToolContext } from '../../types/tool/index.js'
+import type { ToolContext, ToolRegistryContract } from '../../types/tool/index.js'
 import type { Logger } from '../../utils/logger.js'
 import { compressShellOutput } from '../../utils/shell-compress.js'
 
 export type EmitEvent = (event: RunEvent) => Promise<void>
 
 export interface ToolExecutorConfig {
-	tools: ToolRegistry
+	tools: ToolRegistryContract
 	runId: RunId
 	workingDirectory: string
 	permissionMode: PermissionMode
 	env: Record<string, string>
 	abortSignal: AbortSignal
 	sandbox?: Sandbox
+	invocationState?: InvocationState
 }
 
 export interface ToolExecutionBatch {
@@ -91,6 +92,7 @@ export class ToolExecutor {
 				runId: this.config.runId,
 				workingDirectory: this.config.workingDirectory,
 			},
+			invocationState: this.config.invocationState,
 			toolRegistry: this.config.tools,
 			sandbox: this.config.sandbox,
 		}

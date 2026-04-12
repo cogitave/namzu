@@ -2,7 +2,6 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { HOOK_TIMEOUT_MS, PLUGIN_NAMESPACE_SEPARATOR } from '../constants/plugin/index.js'
 import type { PluginRegistry } from '../registry/plugin/index.js'
-import type { ToolRegistry } from '../registry/tool/execute.js'
 import type { PluginId } from '../types/ids/index.js'
 import type {
 	PluginDefinition,
@@ -14,7 +13,7 @@ import type {
 	PluginLifecycleEvent,
 	PluginScope,
 } from '../types/plugin/index.js'
-import type { ToolDefinition } from '../types/tool/index.js'
+import type { ToolDefinition, ToolRegistryContract } from '../types/tool/index.js'
 import { toErrorMessage } from '../utils/error.js'
 import { generatePluginId } from '../utils/id.js'
 import type { Logger } from '../utils/logger.js'
@@ -22,14 +21,14 @@ import { loadPluginManifest } from './loader.js'
 
 export interface PluginLifecycleManagerConfig {
 	pluginRegistry: PluginRegistry
-	toolRegistry: ToolRegistry
+	toolRegistry: ToolRegistryContract
 	log: Logger
 	hookTimeoutMs?: number
 }
 
 export class PluginLifecycleManager {
 	private pluginRegistry: PluginRegistry
-	private toolRegistry: ToolRegistry
+	private toolRegistry: ToolRegistryContract
 	private listeners: PluginEventListener[] = []
 	private hookHandlers: Map<
 		PluginHookEvent,
@@ -257,7 +256,25 @@ export class PluginLifecycleManager {
 
 		const results: PluginHookResult[] = []
 
-		for (const { pluginId, handler } of handlers) {
+		// Determine execution order: post_* hooks run backward (for cleanup semantics)
+		const isPost = event.startsWith('post_')
+
+		// For post_* hooks, we need to process in reverse order (last registered runs first)
+		const indicesToProcess: number[] = []
+		if (isPost) {
+			for (let i = handlers.length - 1; i >= 0; i--) {
+				indicesToProcess.push(i)
+			}
+		} else {
+			for (let i = 0; i < handlers.length; i++) {
+				indicesToProcess.push(i)
+			}
+		}
+
+		for (const idx of indicesToProcess) {
+			const hookEntry = handlers[idx]
+			if (!hookEntry) continue
+			const { pluginId, handler: handlerFn } = hookEntry
 			const hookContext: PluginHookContext = {
 				...context,
 				pluginId,
@@ -269,7 +286,7 @@ export class PluginLifecycleManager {
 
 			try {
 				result = await Promise.race([
-					handler(hookContext),
+					handlerFn(hookContext),
 					new Promise<PluginHookResult>((_, reject) =>
 						setTimeout(() => reject(new Error('Hook timeout')), this.hookTimeoutMs),
 					),
@@ -289,6 +306,15 @@ export class PluginLifecycleManager {
 			})
 
 			results.push(result)
+
+			// Handle flow control: check priority order: error > skip > retry > resume > modify > continue
+			// Short-circuit on error or skip; return immediately on resume or retry
+			if (result.action === 'error' || result.action === 'skip') {
+				break
+			}
+			if (result.action === 'resume' || result.action === 'retry') {
+				break
+			}
 		}
 
 		return results

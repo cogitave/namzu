@@ -1,7 +1,11 @@
+import { findSafeTrimIndex } from '../../compaction/dangling.js'
 import type { ConversationStore } from '../../types/conversation/index.js'
 import type { MessageId, RunId, ThreadId } from '../../types/ids/index.js'
-import type { Message } from '../../types/message/index.js'
-import { createAssistantMessage, createUserMessage } from '../../types/message/index.js'
+import {
+	type Message,
+	createAssistantMessage,
+	createUserMessage,
+} from '../../types/message/index.js'
 import { extractFinalResponse } from '../../utils/conversation.js'
 import { generateMessageId } from '../../utils/id.js'
 
@@ -35,16 +39,28 @@ export class InMemoryConversationStore implements ConversationStore {
 		const messages = this.threads.get(threadId)
 		if (!messages) return []
 
-		const slice = messages.length > this.maxMessages ? messages.slice(-this.maxMessages) : messages
-
-		return slice.map((m) => {
+		// Convert to Message type for trim safety check
+		const convertedMessages: Message[] = messages.map((m) => {
 			switch (m.role) {
 				case 'user':
 					return createUserMessage(m.content)
 				case 'assistant':
 					return createAssistantMessage(m.content)
+				default: {
+					const _exhaustive: never = m.role
+					throw new Error(`Unhandled message role: ${_exhaustive}`)
+				}
 			}
 		})
+
+		// Apply safe trimming to preserve tool call/result atomicity
+		let trimStartIdx = 0
+		if (convertedMessages.length > this.maxMessages) {
+			const desiredTrimPoint = convertedMessages.length - this.maxMessages
+			trimStartIdx = findSafeTrimIndex(convertedMessages, desiredTrimPoint)
+		}
+
+		return convertedMessages.slice(trimStartIdx)
 	}
 
 	persistRunResult(threadId: ThreadId, runId: RunId, messages: Message[]): void {

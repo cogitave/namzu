@@ -1,0 +1,10 @@
+export type StopReason =
+	| 'end_turn'
+	| 'token_budget'
+	| 'cost_limit'
+	| 'timeout'
+	| 'max_iterations'
+	| 'cancelled'
+	| 'plan_rejected'
+	| 'paused'
+	| 'error'

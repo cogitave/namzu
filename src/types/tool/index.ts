@@ -1,6 +1,7 @@
 import type { z } from 'zod'
 import type { Logger } from '../../utils/logger.js'
 import type { RunId } from '../ids/index.js'
+import type { InvocationState } from '../invocation/index.js'
 import type { PermissionMode } from '../permission/index.js'
 import type { Sandbox } from '../sandbox/index.js'
 
@@ -21,6 +22,8 @@ export interface ToolContext {
 		runId: string
 		workingDirectory: string
 	}
+
+	invocationState?: InvocationState
 
 	toolRegistry?: ToolRegistryRef
 	sandbox?: Sandbox
@@ -83,4 +86,46 @@ export interface ToolTierConfig {
 export interface ToolRegistryConfig {
 	logger?: Logger
 	tierConfig?: ToolTierConfig
+}
+
+export interface ToolExecutionResult extends ToolResult {
+	permissionDenied?: boolean
+	permissionMessage?: string
+}
+
+/**
+ * Full tool registry contract — registration, lookup, execution, prompt generation.
+ * Concrete implementation: `ToolRegistry` in `registry/tool/execute.ts`.
+ */
+export interface ToolRegistryContract {
+	register(id: string, tool: ToolDefinition): void
+	register(tool: ToolDefinition, initialState?: ToolAvailability): void
+	register(tools: ToolDefinition[], initialState?: ToolAvailability): void
+
+	unregister(id: string): boolean
+	clear(): void
+
+	get(name: string): ToolDefinition | undefined
+	getOrThrow(name: string): ToolDefinition
+	has(name: string): boolean
+	getAll(): ToolDefinition[]
+	listIds(): string[]
+	listNames(): string[]
+
+	getAvailability(name: string): ToolAvailability
+	activate(names: string[]): void
+	defer(names: string[]): void
+	suspendAll(): void
+	hasSuspended(): boolean
+	searchDeferred(query: string): ToolDefinition[]
+	getCallableTools(toolNames?: string[]): ToolDefinition[]
+
+	execute(toolName: string, rawInput: unknown, context: ToolContext): Promise<ToolExecutionResult>
+
+	size(): number
+
+	toLLMTools(toolNames?: string[]): LLMToolSchema[]
+	toPromptSection(toolNames?: string[]): string
+	toTierGuidance(): string | null
+	assignTiers(mapping: Record<string, string>): void
 }

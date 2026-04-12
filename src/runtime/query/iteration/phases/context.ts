@@ -4,7 +4,6 @@ import type { WorkingStateManager } from '../../../../compaction/manager.js'
 import type { CompactionConfig } from '../../../../config/runtime.js'
 import type { PlanManager } from '../../../../manager/plan/lifecycle.js'
 import type { RunPersistence } from '../../../../manager/run/persistence.js'
-import type { ToolRegistry } from '../../../../registry/tool/execute.js'
 import type { ActivityStore } from '../../../../store/activity/memory.js'
 import type { TaskGateway, TaskHandle } from '../../../../types/agent/gateway.js'
 import type { HITLResumeDecision, ResumeHandler } from '../../../../types/hitl/index.js'
@@ -12,6 +11,7 @@ import type { TaskId } from '../../../../types/ids/index.js'
 import type { LLMProvider } from '../../../../types/provider/index.js'
 import type { AgentRunConfig, RunEvent } from '../../../../types/run/index.js'
 import type { TaskStore } from '../../../../types/task/index.js'
+import type { ToolRegistryContract } from '../../../../types/tool/index.js'
 import type { Logger } from '../../../../utils/logger.js'
 import type { CheckpointManager } from '../../checkpoint.js'
 import type { EmitEvent } from '../../events.js'
@@ -27,7 +27,7 @@ export interface LaunchedTaskMeta {
 export interface IterationContext {
 	readonly provider: LLMProvider
 	readonly runConfig: AgentRunConfig
-	readonly tools: ToolRegistry
+	readonly tools: ToolRegistryContract
 	readonly allowedTools?: string[]
 	readonly runMgr: RunPersistence
 	readonly toolExecutor: ToolExecutor

@@ -1,8 +1,8 @@
-import type { ToolRegistry } from '../../registry/tool/execute.js'
 import type { AdvisoryConfig } from '../advisory/index.js'
 import type { AgentPersona } from '../persona/index.js'
 import type { LLMProvider } from '../provider/index.js'
 import type { Skill } from '../skills/index.js'
+import type { ToolRegistryContract } from '../tool/index.js'
 import type { BaseAgentConfig, BaseAgentResult } from './base.js'
 
 export interface ReactiveAgentConfig extends BaseAgentConfig {
@@ -14,7 +14,7 @@ export interface ReactiveAgentConfig extends BaseAgentConfig {
 
 	basePrompt?: string
 	provider: LLMProvider
-	tools: ToolRegistry
+	tools: ToolRegistryContract
 
 	advisory?: AdvisoryConfig
 }

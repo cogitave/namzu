@@ -1,6 +1,5 @@
 import { serializeState } from '../../../../compaction/serializer.js'
-import type { AdvisoryRequest } from '../../../../types/advisory/index.js'
-import type { TriggerEvaluationState } from '../../../../types/advisory/index.js'
+import type { AdvisoryRequest, TriggerEvaluationState } from '../../../../types/advisory/index.js'
 import { createUserMessage } from '../../../../types/message/index.js'
 import type { ChatCompletionResponse } from '../../../../types/provider/index.js'
 import { toErrorMessage } from '../../../../utils/error.js'

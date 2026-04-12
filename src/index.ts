@@ -43,6 +43,8 @@ export * from './types/advisory/index.js'
 export * from './types/memory/index.js'
 export * from './types/plugin/index.js'
 export * from './types/sandbox/index.js'
+export * from './types/structured-output/index.js'
+export * from './types/invocation/index.js'
 
 export {
 	AdvisorRegistry,
@@ -106,8 +108,10 @@ export {
 	RouterAgent,
 	SupervisorAgent,
 	defineAgent,
+	InvocationLock,
+	ConcurrentInvocationError,
 } from './agents/index.js'
-export type { DefineAgentOptions } from './agents/index.js'
+export type { DefineAgentOptions, ConcurrencyMode, Disposable } from './agents/index.js'
 
 export { InMemoryStore } from './store/InMemoryStore.js'
 export type { Identifiable, Timestamped } from './store/InMemoryStore.js'
@@ -184,9 +188,16 @@ export type { ToolExecutionResult } from './registry/tool/execute.js'
 export { getBuiltinTools } from './tools/builtins/index.js'
 export { ReadFileTool } from './tools/builtins/read-file.js'
 export { WriteFileTool } from './tools/builtins/write-file.js'
+export { EditTool } from './tools/builtins/edit.js'
 export { BashTool } from './tools/builtins/bash.js'
 export { GlobTool } from './tools/builtins/glob.js'
+export { GrepTool } from './tools/builtins/grep.js'
+export { LsTool } from './tools/builtins/ls.js'
 export { SearchToolsTool } from './tools/builtins/search-tools.js'
+export {
+	createStructuredOutputTool,
+	STRUCTURED_OUTPUT_TOOL_NAME,
+} from './tools/builtins/structuredOutput.js'
 
 export {
 	TextChunker,
@@ -280,6 +291,23 @@ export {
 } from './bridge/sse/index.js'
 export type { MappedStreamEvent } from './bridge/sse/index.js'
 
+export {
+	AgentBus,
+	CircuitBreaker,
+	FileLockManager,
+	EditOwnershipTracker,
+} from './bus/index.js'
+export type { AgentBusConfig } from './bus/index.js'
+
+export { VerificationGate, evaluateRule } from './verification/index.js'
+export type { ToolCallContext } from './verification/index.js'
+
+export { buildCoordinatorTools } from './tools/coordinator/index.js'
+export type { CoordinatorToolsOptions, TaskLaunchedCallback } from './tools/coordinator/index.js'
+
+export { checkLimitsDetailed, buildLimitConfig } from './run/LimitChecker.js'
+export type { LimitCheckerState, LimitCheckResult } from './run/LimitChecker.js'
+
 export { InMemoryCredentialVault } from './vault/index.js'
 
 export {
@@ -301,6 +329,13 @@ export {
 	extractFromUserMessage,
 	extractFromAssistantMessage,
 	buildVerifiedSummary,
+	findDanglingMessages,
+	removeDanglingMessages,
+	findSafeTrimIndex,
+	NullManager,
+	SlidingWindowManager,
+	StructuredCompactionManager,
+	createConversationManager,
 } from './compaction/index.js'
 export type {
 	WorkingState,
@@ -309,4 +344,6 @@ export type {
 	FileAction,
 	ToolResultSlot,
 	CompactionStrategy,
+	DanglingResult,
+	ConversationManager,
 } from './compaction/index.js'

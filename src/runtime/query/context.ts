@@ -10,8 +10,7 @@ import type { LLMProvider } from '../../types/provider/index.js'
 import type { AgentRunConfig } from '../../types/run/index.js'
 import type { ModelPricing } from '../../utils/cost.js'
 import { generateRunId } from '../../utils/id.js'
-import type { Logger } from '../../utils/logger.js'
-import { getRootLogger } from '../../utils/logger.js'
+import { type Logger, getRootLogger } from '../../utils/logger.js'
 
 export interface RunContextConfig {
 	agentId: string
