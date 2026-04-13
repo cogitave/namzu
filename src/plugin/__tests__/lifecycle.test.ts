@@ -426,5 +426,49 @@ describe('PluginLifecycleManager', () => {
 				await expect(executePromise).resolves.not.toThrow()
 			})
 		})
+
+		describe('RunEvent emission', () => {
+			it('should emit plugin_hook_executing and plugin_hook_completed when emitRunEvent provided', async () => {
+				const emitted: any[] = []
+				const emitRunEvent = vi.fn(async (event: any) => {
+					emitted.push(event)
+				})
+
+				const handler = vi.fn(
+					async (): Promise<PluginHookResult> => ({ action: 'modify', input: { x: 1 } }),
+				)
+
+				manager['hookHandlers'].set('pre_tool_use', [{ pluginId: mockPluginId, handler }])
+
+				await manager.executeHooks(
+					'pre_tool_use',
+					{ runId: mockRunId, toolName: 't', toolInput: {} },
+					emitRunEvent,
+				)
+
+				expect(emitted).toHaveLength(2)
+				expect(emitted[0]).toMatchObject({
+					type: 'plugin_hook_executing',
+					runId: mockRunId,
+					pluginId: mockPluginId,
+					hookEvent: 'pre_tool_use',
+				})
+				expect(emitted[1]).toMatchObject({
+					type: 'plugin_hook_completed',
+					runId: mockRunId,
+					pluginId: mockPluginId,
+					hookEvent: 'pre_tool_use',
+				})
+				expect(emitted[1].result).toEqual({ action: 'modify', input: { x: 1 } })
+			})
+
+			it('should not emit RunEvents when emitRunEvent omitted', async () => {
+				const handler = vi.fn(async (): Promise<PluginHookResult> => ({ action: 'continue' }))
+				manager['hookHandlers'].set('run_start', [{ pluginId: mockPluginId, handler }])
+				await expect(manager.executeHooks('run_start', { runId: mockRunId })).resolves.toHaveLength(
+					1,
+				)
+			})
+		})
 	})
 })

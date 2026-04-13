@@ -1,14 +1,16 @@
 import { extractFromToolCall, extractFromToolResult } from '../../compaction/extractor.js'
 import type { WorkingStateManager } from '../../compaction/manager.js'
+import type { PluginLifecycleManager } from '../../plugin/lifecycle.js'
 import type { ActivityStore } from '../../store/activity/memory.js'
 import type { RunId } from '../../types/ids/index.js'
 import type { InvocationState } from '../../types/invocation/index.js'
 import { type Message, createToolMessage } from '../../types/message/index.js'
 import type { PermissionMode } from '../../types/permission/index.js'
+import type { PluginHookResult } from '../../types/plugin/index.js'
 import type { ChatCompletionResponse } from '../../types/provider/index.js'
 import type { RunEvent } from '../../types/run/index.js'
 import type { Sandbox } from '../../types/sandbox/index.js'
-import type { ToolContext, ToolRegistryContract } from '../../types/tool/index.js'
+import type { ToolContext, ToolRegistryContract, ToolResult } from '../../types/tool/index.js'
 import type { Logger } from '../../utils/logger.js'
 import { compressShellOutput } from '../../utils/shell-compress.js'
 
@@ -23,7 +25,13 @@ export interface ToolExecutorConfig {
 	abortSignal: AbortSignal
 	sandbox?: Sandbox
 	invocationState?: InvocationState
+	pluginManager?: PluginLifecycleManager
 }
+
+type PreToolHookOutcome =
+	| { kind: 'continue'; input: unknown }
+	| { kind: 'skip'; input: unknown; output: string }
+	| { kind: 'error'; input: unknown; output: string }
 
 export interface ToolExecutionBatch {
 	messages: Message[]
@@ -118,6 +126,12 @@ export class ToolExecutor {
 			}
 		}
 
+		const preOutcome = await this.runPreToolHook(toolName, input)
+		if (preOutcome.kind === 'skip' || preOutcome.kind === 'error') {
+			return this.recordSyntheticHookOutcome(toolCall.id, toolName, preOutcome.input, preOutcome)
+		}
+		input = preOutcome.input
+
 		const activity = this.activityStore.create({
 			type: 'tool_call',
 			description: toolName,
@@ -137,7 +151,7 @@ export class ToolExecutor {
 		})
 
 		if (this.workingStateManager) {
-			extractFromToolCall(this.workingStateManager, toolName, toolCall.function.arguments)
+			extractFromToolCall(this.workingStateManager, toolName, JSON.stringify(input))
 		}
 
 		const startMs = Date.now()
@@ -148,10 +162,17 @@ export class ToolExecutor {
 			? result.output
 			: `Error: ${result.error ?? 'Tool execution failed'}`
 
-		const output = result.success ? this.maybeCompress(toolName, rawOutput) : rawOutput
+		let output = result.success ? this.maybeCompress(toolName, rawOutput) : rawOutput
+
+		const postOverride = await this.runPostToolHook(toolName, input, result)
+		if (postOverride !== null) {
+			output = postOverride
+		}
+
+		const effectiveIsError = !result.success || postOverride !== null
 
 		if (this.workingStateManager) {
-			extractFromToolResult(this.workingStateManager, toolName, output, !result.success)
+			extractFromToolResult(this.workingStateManager, toolName, output, effectiveIsError)
 		}
 
 		if (result.success) {
@@ -171,10 +192,10 @@ export class ToolExecutor {
 		}
 
 		if (activity) {
-			if (result.success) {
-				this.activityStore.complete(activity.id, output)
+			if (effectiveIsError) {
+				this.activityStore.fail(activity.id, output)
 			} else {
-				this.activityStore.fail(activity.id, result.error ?? 'Tool execution failed')
+				this.activityStore.complete(activity.id, output)
 			}
 		}
 
@@ -186,6 +207,126 @@ export class ToolExecutor {
 		})
 
 		return { toolCallId: toolCall.id, output }
+	}
+
+	private async runPreToolHook(toolName: string, input: unknown): Promise<PreToolHookOutcome> {
+		if (!this.config.pluginManager) return { kind: 'continue', input }
+		const results = await this.config.pluginManager.executeHooks(
+			'pre_tool_use',
+			{ runId: this.config.runId, toolName, toolInput: input },
+			this.emitEvent,
+		)
+		return this.interpretPreToolResults(toolName, input, results)
+	}
+
+	private interpretPreToolResults(
+		toolName: string,
+		initialInput: unknown,
+		results: readonly PluginHookResult[],
+	): PreToolHookOutcome {
+		let currentInput = initialInput
+		for (const result of results) {
+			switch (result.action) {
+				case 'continue':
+					continue
+				case 'modify':
+					currentInput = result.input
+					continue
+				case 'skip':
+					return {
+						kind: 'skip',
+						input: currentInput,
+						output: `Tool ${toolName} skipped by plugin: ${result.reason}`,
+					}
+				case 'error':
+					return {
+						kind: 'error',
+						input: currentInput,
+						output: `Error: ${result.message}`,
+					}
+				case 'retry':
+				case 'resume':
+					throw new Error(
+						`Plugin hook pre_tool_use returned unsupported action '${result.action}' for tool ${toolName}`,
+					)
+				default: {
+					const _exhaustive: never = result
+					throw new Error(`Unknown PluginHookResult: ${JSON.stringify(_exhaustive)}`)
+				}
+			}
+		}
+		return { kind: 'continue', input: currentInput }
+	}
+
+	private async runPostToolHook(
+		toolName: string,
+		input: unknown,
+		toolResult: ToolResult,
+	): Promise<string | null> {
+		if (!this.config.pluginManager) return null
+		const results = await this.config.pluginManager.executeHooks(
+			'post_tool_use',
+			{ runId: this.config.runId, toolName, toolInput: input, toolResult },
+			this.emitEvent,
+		)
+		let override: string | null = null
+		for (const result of results) {
+			switch (result.action) {
+				case 'continue':
+					continue
+				case 'error':
+					override = `Error: ${result.message}`
+					continue
+				case 'skip':
+				case 'modify':
+				case 'retry':
+				case 'resume':
+					throw new Error(
+						`Plugin hook post_tool_use returned unsupported action '${result.action}' for tool ${toolName}`,
+					)
+				default: {
+					const _exhaustive: never = result
+					throw new Error(`Unknown PluginHookResult: ${JSON.stringify(_exhaustive)}`)
+				}
+			}
+		}
+		return override
+	}
+
+	private async recordSyntheticHookOutcome(
+		toolCallId: string,
+		toolName: string,
+		input: unknown,
+		outcome: { kind: 'skip' | 'error'; output: string },
+	): Promise<{ toolCallId: string; output: string }> {
+		const activity = this.activityStore.create({
+			type: 'tool_call',
+			description: toolName,
+			input,
+			toolName,
+			toolCallId,
+		})
+		if (activity) {
+			this.activityStore.start(activity.id)
+			if (outcome.kind === 'skip') {
+				this.activityStore.complete(activity.id, outcome.output)
+			} else {
+				this.activityStore.fail(activity.id, outcome.output)
+			}
+		}
+		await this.emitEvent({
+			type: 'tool_executing',
+			runId: this.config.runId,
+			toolName,
+			input,
+		})
+		await this.emitEvent({
+			type: 'tool_completed',
+			runId: this.config.runId,
+			toolName,
+			result: outcome.output,
+		})
+		return { toolCallId, output: outcome.output }
 	}
 
 	private maybeCompress(toolName: string, output: string): string {

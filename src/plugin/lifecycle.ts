@@ -13,6 +13,7 @@ import type {
 	PluginLifecycleEvent,
 	PluginScope,
 } from '../types/plugin/index.js'
+import type { RunEvent } from '../types/run/index.js'
 import type { ToolDefinition, ToolRegistryContract } from '../types/tool/index.js'
 import { toErrorMessage } from '../utils/error.js'
 import { generatePluginId } from '../utils/id.js'
@@ -248,6 +249,7 @@ export class PluginLifecycleManager {
 	async executeHooks(
 		event: PluginHookEvent,
 		context: Omit<PluginHookContext, 'pluginId' | 'event'>,
+		emitRunEvent?: (event: RunEvent) => Promise<void>,
 	): Promise<PluginHookResult[]> {
 		const handlers = this.hookHandlers.get(event)
 		if (!handlers || handlers.length === 0) {
@@ -271,14 +273,28 @@ export class PluginLifecycleManager {
 			}
 		}
 
+		// Track input overlay so chained `modify` actions compose: each subsequent
+		// hook sees the input produced by the previous hook's modify.
+		let toolInputOverlay = context.toolInput
+
 		for (const idx of indicesToProcess) {
 			const hookEntry = handlers[idx]
 			if (!hookEntry) continue
 			const { pluginId, handler: handlerFn } = hookEntry
 			const hookContext: PluginHookContext = {
 				...context,
+				toolInput: toolInputOverlay,
 				pluginId,
 				event,
+			}
+
+			if (emitRunEvent) {
+				await emitRunEvent({
+					type: 'plugin_hook_executing',
+					runId: context.runId,
+					pluginId,
+					hookEvent: event,
+				})
 			}
 
 			const start = performance.now()
@@ -305,7 +321,21 @@ export class PluginLifecycleManager {
 				durationMs,
 			})
 
+			if (emitRunEvent) {
+				await emitRunEvent({
+					type: 'plugin_hook_completed',
+					runId: context.runId,
+					pluginId,
+					hookEvent: event,
+					result,
+				})
+			}
+
 			results.push(result)
+
+			if (result.action === 'modify') {
+				toolInputOverlay = result.input
+			}
 
 			// Handle flow control: check priority order: error > skip > retry > resume > modify > continue
 			// Short-circuit on error or skip; return immediately on resume or retry

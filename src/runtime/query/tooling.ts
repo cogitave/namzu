@@ -1,3 +1,4 @@
+import type { PluginLifecycleManager } from '../../plugin/lifecycle.js'
 import type { ActivityStore } from '../../store/activity/memory.js'
 import type { RunId } from '../../types/ids/index.js'
 import type { InvocationState } from '../../types/invocation/index.js'
@@ -17,6 +18,7 @@ export interface ToolingBootstrapConfig {
 	env: Record<string, string>
 	abortSignal: AbortSignal
 	invocationState?: InvocationState
+	pluginManager?: PluginLifecycleManager
 }
 
 export class ToolingBootstrap {
@@ -35,6 +37,7 @@ export class ToolingBootstrap {
 				env: config.env,
 				abortSignal: config.abortSignal,
 				invocationState: config.invocationState,
+				pluginManager: config.pluginManager,
 			},
 			activityStore,
 			emitEvent,
