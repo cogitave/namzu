@@ -264,6 +264,25 @@ const llmTools = registry.toLLMTools() // Only active + suspended tools
 
 Built-in tools: `ReadFileTool`, `WriteFileTool`, `EditTool`, `BashTool`, `GlobTool`, `GrepTool`, `LsTool`, `SearchToolsTool`
 
+### Plugin Contributions
+
+Plugins extend the runtime with tools, hooks, and MCP servers via a manifest. `PluginLifecycleManager.enable()` loads contributions on demand and rolls back cleanly on failure.
+
+```typescript
+import { PluginLifecycleManager } from '@namzu/sdk'
+
+const manager = new PluginLifecycleManager({ pluginRegistry, toolRegistry, log })
+const plugin = await manager.install('/path/to/plugin', 'project')
+await manager.enable(plugin.id)
+// → manifest.tools registered as `${plugin}:${tool}` (deferred)
+// → manifest.hooks attached for run_start/end, iteration_start/end,
+//   pre/post_llm_call, pre/post_tool_use
+// → manifest.mcpServers connected via stdio; their tools registered as
+//   `${plugin}:mcp__${server}__${tool}` (deferred)
+```
+
+Hook handlers can return `continue`, `modify` (rewrite tool input), `skip` (synthesize a tool result), or `error` (fail the run). Modify actions compose — chained hooks each see the previous hook's modified input. The runtime emits `plugin_hook_executing` / `plugin_hook_completed` events around every handler.
+
 ### Sandbox-Aware Execution
 
 All built-in tools are sandbox-aware. When a sandbox is present in the execution context, tools automatically route through `sandbox.exec()`, `sandbox.readFile()`, and `sandbox.writeFile()`. When no sandbox is present, they fall back to native operations — zero config required.
@@ -440,6 +459,8 @@ const tenantManager = new TenantConnectorManager({
 })
 ```
 
+MCP servers can also be declared in a plugin manifest (`mcpServers: [{ name, command, args, env }]`). The plugin lifecycle starts each server on enable, discovers its tools, and registers them under the plugin namespace. Disable disconnects the clients before unregistering the tools.
+
 ## Human-in-the-Loop
 
 Pause agent execution for human review of plans and tool calls. Checkpoint and resume runs across sessions.
@@ -498,7 +519,8 @@ Map internal agent execution events to Server-Sent Events for real-time client u
 ```typescript
 import { mapRunToStreamEvent } from '@namzu/sdk'
 
-// 28 event types: run.*, iteration.*, tool.*, message.*, plan.*, agent.*, task.*
+// Event families: run.*, iteration.*, tool.*, token.*, message.*, review.*,
+// checkpoint.*, activity.*, plan.*, agent.*, task.*, plugin.*, sandbox.*
 agent.on('event', (event) => {
   const sseEvent = mapRunToStreamEvent(event, runId)
   if (sseEvent) {
@@ -625,26 +647,35 @@ span.end()
 
 ```
 @namzu/sdk
+├── advisory/        Advisor registry, execution, trigger evaluation
 ├── agents/          Reactive, Pipeline, Router, Supervisor
-├── bridge/          A2A protocol, SSE mapping, connector tools
+├── bridge/          A2A, SSE, connector→tool adapters
+├── bus/             Agent bus and coordination primitives
+├── compaction/      WorkingState extraction and conversation compaction
 ├── config/          Runtime configuration with Zod schemas
 ├── connector/       HTTP, webhook, MCP client/server, tenant isolation
-├── sandbox/         Process-level isolation (Seatbelt, namespace)
-├── contracts/       API wire types and validation schemas
+├── constants/       Shared SDK constants
+├── contracts/       External wire types and validation schemas (HTTP/A2A/SSE)
+├── execution/       Base and local execution contexts
 ├── gateway/         Local task gateway
-├── manager/         Plan lifecycle, agent coordination, run persistence
+├── manager/         Plan, agent, connector, run lifecycle
 ├── persona/         System prompt assembly and merging
+├── plugin/          Manifest discovery, lifecycle, contributions, hooks
 ├── provider/        OpenRouter, Bedrock, Mock LLM providers
 ├── rag/             Chunking, embedding, vector store, retrieval
-├── registry/        Agent, tool, and managed registries
-├── runtime/         Query engine, decision parser, context cache
+├── registry/        Base, managed, agent, connector, tool, plugin registries
+├── router/          Task→model routing
+├── run/             Reporters and limit checking
+├── runtime/         Query engine, iteration phases, decision parser
+├── sandbox/         Process-level isolation (Seatbelt, namespace)
 ├── skills/          Skill registry, discovery, and chaining
-├── store/           In-memory, disk, conversation, activity stores
+├── store/           In-memory, disk, conversation, activity, task, memory
 ├── telemetry/       OpenTelemetry tracing and metrics
-├── tools/           defineTool, built-in tools, task tools
-├── types/           Full type system (57 files)
-├── utils/           ID generation, cost calc, hashing, logging
-└── vault/           Credential management
+├── tools/           defineTool, built-ins, task / advisory / memory tools
+├── types/           Domain model and internal type definitions
+├── utils/           ID generation, cost calc, hashing, logging, shell
+├── vault/           Credential management
+└── verification/    Verification gate and rules
 ```
 
 ## Vision
