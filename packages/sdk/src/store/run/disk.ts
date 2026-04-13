@@ -217,7 +217,3 @@ async function atomicWriteJson(filePath: string, value: unknown): Promise<void> 
 function isFileNotFound(err: unknown): boolean {
 	return typeof err === 'object' && err !== null && (err as NodeJS.ErrnoException).code === 'ENOENT'
 }
-
-export const SessionStore = RunDiskStore
-
-export type SessionStore = RunDiskStore

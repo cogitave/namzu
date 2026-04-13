@@ -98,8 +98,8 @@ export type {
 export { CheckpointManager } from './runtime/query/checkpoint.js'
 export { DecisionParser } from './runtime/decision/parser.js'
 export { FallbackResolver } from './runtime/decision/fallback.js'
-export { createRunReporter, createSessionReporter } from './run/reporter.js'
-export type { RunReporter, SessionReporter } from './run/reporter.js'
+export { createRunReporter } from './run/reporter.js'
+export type { RunReporter } from './run/reporter.js'
 
 export {
 	AbstractAgent,
@@ -138,7 +138,6 @@ export type { PluginLifecycleManagerConfig } from './plugin/lifecycle.js'
 export { EmergencySaveManager } from './manager/run/emergency.js'
 export { RunPersistence } from './manager/run/persistence.js'
 export { RunDiskStore } from './store/run/disk.js'
-export { SessionStore } from './store/run/disk.js'
 
 export { ActivityStore } from './store/activity/memory.js'
 export type {

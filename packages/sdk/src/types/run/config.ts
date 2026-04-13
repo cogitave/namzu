@@ -47,12 +47,3 @@ export interface LimitCheckerConfig {
 	maxIterations: number
 	budgetWarningThreshold: number
 }
-
-/** @deprecated Use AgentRunConfig directly */
-export type SessionConfig = AgentRunConfig
-
-/** @deprecated Use RunPersistenceConfig directly */
-export type SessionManagerConfig = RunPersistenceConfig
-
-/** @deprecated Use RunStoreConfig directly */
-export type SessionStoreConfig = RunStoreConfig

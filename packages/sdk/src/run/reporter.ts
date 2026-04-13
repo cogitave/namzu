@@ -16,8 +16,6 @@ export interface RunReporter {
 	summary(run: AgentRun): void
 }
 
-export type SessionReporter = RunReporter
-
 export function createRunReporter(parentLogger?: Logger): RunReporter {
 	const log = (parentLogger ?? getRootLogger()).child({
 		component: 'RunReporter',
@@ -223,5 +221,3 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 
 	return { listener, summary }
 }
-
-export const createSessionReporter = createRunReporter
