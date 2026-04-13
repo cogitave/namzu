@@ -19,6 +19,7 @@ import type { CheckpointManager } from '../checkpoint.js'
 import type { EmitEvent } from '../events.js'
 import type { ToolExecutor } from '../executor.js'
 import type { GuardCoordinator } from '../guard.js'
+import { applyLifecycleHookResults } from '../plugin-hooks.js'
 import { runAdvisoryPhase } from './phases/advisory.js'
 import { runIterationCheckpoint } from './phases/checkpoint.js'
 import { runCompactionCheck } from './phases/compaction.js'
@@ -175,10 +176,13 @@ export class IterationOrchestrator {
 
 				try {
 					if (this.ctx.pluginManager) {
-						await this.ctx.pluginManager.executeHooks('iteration_start', {
-							runId: runMgr.id,
-							iteration: iterationNum,
-						})
+						const hookResults = await this.ctx.pluginManager.executeHooks(
+							'iteration_start',
+							{ runId: runMgr.id, iteration: iterationNum },
+							this.ctx.emitEvent,
+						)
+						applyLifecycleHookResults('iteration_start', hookResults)
+						yield* this.ctx.drainPending()
 					}
 
 					if (this.ctx.pendingNotifications.length > 0) {
@@ -201,10 +205,13 @@ export class IterationOrchestrator {
 						: runMgr.messages
 
 					if (this.ctx.pluginManager) {
-						await this.ctx.pluginManager.executeHooks('pre_llm_call', {
-							runId: runMgr.id,
-							iteration: iterationNum,
-						})
+						const hookResults = await this.ctx.pluginManager.executeHooks(
+							'pre_llm_call',
+							{ runId: runMgr.id, iteration: iterationNum },
+							this.ctx.emitEvent,
+						)
+						applyLifecycleHookResults('pre_llm_call', hookResults)
+						yield* this.ctx.drainPending()
 					}
 
 					const response = await this.ctx.provider.chat({
@@ -219,10 +226,13 @@ export class IterationOrchestrator {
 					runMgr.accumulateUsage(response.usage)
 
 					if (this.ctx.pluginManager) {
-						await this.ctx.pluginManager.executeHooks('post_llm_call', {
-							runId: runMgr.id,
-							iteration: iterationNum,
-						})
+						const hookResults = await this.ctx.pluginManager.executeHooks(
+							'post_llm_call',
+							{ runId: runMgr.id, iteration: iterationNum },
+							this.ctx.emitEvent,
+						)
+						applyLifecycleHookResults('post_llm_call', hookResults)
+						yield* this.ctx.drainPending()
 					}
 
 					this.ctx.log.debug('LLM response received', {
@@ -357,10 +367,13 @@ export class IterationOrchestrator {
 					await runAdvisoryPhase(this.ctx, iterationNum, response)
 
 					if (this.ctx.pluginManager) {
-						await this.ctx.pluginManager.executeHooks('iteration_end', {
-							runId: runMgr.id,
-							iteration: iterationNum,
-						})
+						const hookResults = await this.ctx.pluginManager.executeHooks(
+							'iteration_end',
+							{ runId: runMgr.id, iteration: iterationNum },
+							this.ctx.emitEvent,
+						)
+						applyLifecycleHookResults('iteration_end', hookResults)
+						yield* this.ctx.drainPending()
 					}
 
 					await this.ctx.emitEvent({

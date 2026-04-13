@@ -40,6 +40,7 @@ import { RunContextFactory } from './context.js'
 import { EventTranslator } from './events.js'
 import { GuardCoordinator } from './guard.js'
 import { IterationOrchestrator } from './iteration/index.js'
+import { applyLifecycleHookResults } from './plugin-hooks.js'
 import { PromptBuilder } from './prompt.js'
 import type { PromptSegments } from './prompt.js'
 import { ResultAssembler } from './result.js'
@@ -193,6 +194,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Agen
 			env: params.runConfig.env ?? {},
 			abortSignal: ctx.abortController.signal,
 			invocationState: params.invocationState,
+			pluginManager: params.pluginManager,
 		},
 		ctx.activityStore,
 		eventTranslator.emitEvent,
@@ -397,9 +399,13 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Agen
 			yield* eventTranslator.drainPending()
 
 			if (params.pluginManager) {
-				await params.pluginManager.executeHooks('run_start', {
-					runId: ctx.runId,
-				})
+				const hookResults = await params.pluginManager.executeHooks(
+					'run_start',
+					{ runId: ctx.runId },
+					eventTranslator.emitEvent,
+				)
+				applyLifecycleHookResults('run_start', hookResults)
+				yield* eventTranslator.drainPending()
 			}
 
 			// --- Sandbox lifecycle: create before iteration loop ---
@@ -429,9 +435,13 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Agen
 			yield* iterationOrchestrator.runLoop()
 
 			if (params.pluginManager) {
-				await params.pluginManager.executeHooks('run_end', {
-					runId: ctx.runId,
-				})
+				const hookResults = await params.pluginManager.executeHooks(
+					'run_end',
+					{ runId: ctx.runId },
+					eventTranslator.emitEvent,
+				)
+				applyLifecycleHookResults('run_end', hookResults)
+				yield* eventTranslator.drainPending()
 			}
 
 			yield* resultAssembler.completeRun(rootSpan)
