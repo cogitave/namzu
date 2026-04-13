@@ -1,6 +1,5 @@
 import { z } from 'zod'
 import {
-	HOOK_TIMEOUT_MS,
 	MAX_CONNECTORS_PER_PLUGIN,
 	MAX_HOOKS_PER_PLUGIN,
 	MAX_MCP_SERVERS_PER_PLUGIN,
@@ -235,16 +234,3 @@ export type PluginLifecycleEvent =
 	  }
 
 export type PluginEventListener = (event: PluginLifecycleEvent) => void
-
-// ---------------------------------------------------------------------------
-// Plugin config — added to RuntimeConfig
-// ---------------------------------------------------------------------------
-
-export const PluginConfigSchema = z.object({
-	enabled: z.boolean().default(false),
-	autoDiscovery: z.boolean().default(true),
-	allowedScopes: z.array(z.enum(['project', 'user'])).default(['project', 'user']),
-	hookTimeoutMs: z.number().positive().default(HOOK_TIMEOUT_MS),
-})
-
-export type PluginConfig = z.infer<typeof PluginConfigSchema>
