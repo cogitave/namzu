@@ -76,6 +76,9 @@ export type RunStatus =
 	| 'cancelling'
 	| 'expired'
 
+// Wire-side rename of types/run/events.StopReason. Kept distinct so the HTTP
+// payload field name (`stop_reason`) stays decoupled from the internal type
+// identifier even if the domain type is later renamed.
 export type RunStopReason = StopReason
 
 export interface Run {
