@@ -12,21 +12,16 @@ import type {
 	ToolTierConfig,
 } from '../../types/tool/index.js'
 import { toErrorMessage } from '../../utils/error.js'
-import { type Logger, getRootLogger } from '../../utils/logger.js'
-import { Registry } from '../Registry.js'
+import { ManagedRegistry } from '../ManagedRegistry.js'
 
 export type { ToolExecutionResult }
 
-export class ToolRegistry extends Registry<ToolDefinition> {
-	private log: Logger
+export class ToolRegistry extends ManagedRegistry<ToolDefinition> {
 	private availability: Map<string, ToolAvailability> = new Map()
 	private tierConfig?: ToolTierConfig
 
 	constructor(config?: ToolRegistryConfig) {
-		super()
-		this.log = (config?.logger ?? getRootLogger()).child({
-			component: 'ToolRegistry',
-		})
+		super({ componentName: 'ToolRegistry', idField: 'name', logger: config?.logger })
 		this.tierConfig = config?.tierConfig
 	}
 
@@ -54,10 +49,9 @@ export class ToolRegistry extends Registry<ToolDefinition> {
 		}
 
 		const tool = idOrToolOrTools
-		const id = tool.name
 		const state: ToolAvailability = typeof maybeTool === 'string' ? maybeTool : 'active'
 
-		this.registerOne(id, tool, state)
+		this.registerOne(tool.name, tool, state)
 	}
 
 	private registerOne(id: string, tool: ToolDefinition, state: ToolAvailability): void {
@@ -69,12 +63,8 @@ export class ToolRegistry extends Registry<ToolDefinition> {
 				)
 			}
 		}
-		if (this.has(id)) {
-			this.log.warn(`Tool "${id}" is already registered, overwriting.`)
-		}
 		super.register(id, tool)
 		this.availability.set(id, state)
-		this.log.info(`Tool registered: ${id} (${state})`)
 	}
 
 	override unregister(id: string): boolean {
@@ -148,14 +138,6 @@ export class ToolRegistry extends Registry<ToolDefinition> {
 	toTierGuidance(): string | null {
 		if (!this.tierConfig?.guidanceTemplate) return null
 		return this.tierConfig.guidanceTemplate(this.tierConfig.tiers)
-	}
-
-	getOrThrow(name: string): ToolDefinition {
-		const tool = this.get(name)
-		if (!tool) {
-			throw new Error(`Tool not found: "${name}". Available tools: ${this.listIds().join(', ')}`)
-		}
-		return tool
 	}
 
 	listNames(): string[] {

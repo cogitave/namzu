@@ -1,59 +1,9 @@
 import type { ConnectorDefinition } from '../../types/connector/index.js'
-import { type Logger, getRootLogger } from '../../utils/logger.js'
-import { Registry } from '../Registry.js'
+import { ManagedRegistry } from '../ManagedRegistry.js'
 
-export class ConnectorRegistry extends Registry<ConnectorDefinition> {
-	private log: Logger
-
+export class ConnectorRegistry extends ManagedRegistry<ConnectorDefinition> {
 	constructor() {
-		super()
-		this.log = getRootLogger().child({ component: 'ConnectorRegistry' })
-	}
-
-	override register(id: string, definition: ConnectorDefinition): void
-	override register(definition: ConnectorDefinition): void
-	override register(definitions: ConnectorDefinition[]): void
-	override register(
-		idOrDef: string | ConnectorDefinition | ConnectorDefinition[],
-		maybeDef?: ConnectorDefinition,
-	): void {
-		if (Array.isArray(idOrDef)) {
-			for (const def of idOrDef) {
-				this.register(def)
-			}
-			return
-		}
-
-		if (typeof idOrDef === 'string') {
-			if (!maybeDef) {
-				throw new Error('register(id, definition) requires a definition argument')
-			}
-			const id = idOrDef
-			const def = maybeDef
-			if (this.has(id)) {
-				this.log.warn(`Connector "${id}" is already registered, overwriting.`)
-			}
-			super.register(id, def)
-			this.log.info(`Connector registered: ${id}`)
-			return
-		}
-
-		const def = idOrDef
-		const id = def.id
-
-		if (this.has(id)) {
-			this.log.warn(`Connector "${id}" is already registered, overwriting.`)
-		}
-		super.register(id, def)
-		this.log.info(`Connector registered: ${id}`)
-	}
-
-	getOrThrow(id: string): ConnectorDefinition {
-		const def = this.get(id)
-		if (!def) {
-			throw new Error(`Connector not found: "${id}". Available: ${this.listIds().join(', ')}`)
-		}
-		return def
+		super({ componentName: 'ConnectorRegistry', idField: 'id' })
 	}
 
 	listByType(connectionType: ConnectorDefinition['connectionType']): ConnectorDefinition[] {

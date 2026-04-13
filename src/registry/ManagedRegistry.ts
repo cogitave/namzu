@@ -4,16 +4,23 @@ import { Registry } from './Registry.js'
 export interface ManagedRegistryConfig<TDefinition> {
 	componentName: string
 	idField?: keyof TDefinition & string
+	/**
+	 * Extract id from a full item. Takes precedence over `idField` when provided.
+	 * Required when the id field is nested (e.g. `def.info.id`).
+	 */
+	computeId?: (item: TDefinition) => string
 	logger?: Logger
 }
 
 export class ManagedRegistry<TDefinition> extends Registry<TDefinition> {
 	protected log: Logger
 	private idField?: keyof TDefinition & string
+	private computeId?: (item: TDefinition) => string
 
 	constructor(config: ManagedRegistryConfig<TDefinition>) {
 		super()
 		this.idField = config.idField
+		this.computeId = config.computeId
 		this.log = (config.logger ?? getRootLogger()).child({
 			component: config.componentName,
 		})
@@ -45,10 +52,14 @@ export class ManagedRegistry<TDefinition> extends Registry<TDefinition> {
 		}
 
 		const item = idOrItem
-		if (!this.idField) {
-			throw new Error('register(item) requires idField to be configured')
+		const id = this.computeId
+			? this.computeId(item)
+			: this.idField
+				? String(item[this.idField])
+				: undefined
+		if (id === undefined) {
+			throw new Error('register(item) requires idField or computeId to be configured')
 		}
-		const id = String(item[this.idField])
 
 		if (this.has(id)) {
 			this.log.warn(`"${id}" already registered, overwriting.`)
