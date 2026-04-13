@@ -182,7 +182,3 @@ export class RunPersistence {
 		})
 	}
 }
-
-export const SessionManager = RunPersistence
-
-export type SessionManager = RunPersistence

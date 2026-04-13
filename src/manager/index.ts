@@ -1,4 +1,4 @@
-export { RunPersistence, SessionManager } from './run/persistence.js'
+export { RunPersistence } from './run/persistence.js'
 
 export { ConnectorManager } from './connector/lifecycle.js'
 export type { ConnectorManagerConfig } from './connector/lifecycle.js'
