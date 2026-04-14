@@ -12,3 +12,8 @@ export type { DiskTaskStoreConfig } from './task/disk.js'
 
 export { InMemoryConversationStore } from './conversation/memory.js'
 export type { InMemoryConversationStoreConfig } from './conversation/memory.js'
+
+export { InMemoryMemoryIndex } from './memory/index.js'
+export { InMemoryMemoryStore } from './memory/memory.js'
+export { DiskMemoryStore } from './memory/disk.js'
+export type { DiskMemoryStoreConfig } from './memory/disk.js'

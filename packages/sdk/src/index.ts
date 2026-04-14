@@ -96,10 +96,16 @@ export type {
 	PromptCacheInput,
 } from './runtime/query/context-cache.js'
 export { CheckpointManager } from './runtime/query/checkpoint.js'
-export { DecisionParser } from './runtime/decision/parser.js'
-export { FallbackResolver } from './runtime/decision/fallback.js'
-export { createRunReporter } from './run/reporter.js'
-export type { RunReporter } from './run/reporter.js'
+export { DecisionParser, FallbackResolver } from './runtime/decision/index.js'
+
+export {
+	createRunReporter,
+	type RunReporter,
+	checkLimitsDetailed,
+	buildLimitConfig,
+	type LimitCheckerState,
+	type LimitCheckResult,
+} from './run/index.js'
 
 export {
 	AbstractAgent,
@@ -113,18 +119,34 @@ export {
 } from './agents/index.js'
 export type { DefineAgentOptions, ConcurrencyMode, Disposable } from './agents/index.js'
 
-export { InMemoryStore } from './store/InMemoryStore.js'
-export type { Identifiable, Timestamped } from './store/InMemoryStore.js'
-export { InMemoryMemoryIndex } from './store/memory/index.js'
-export { InMemoryMemoryStore } from './store/memory/memory.js'
-export { DiskMemoryStore } from './store/memory/disk.js'
-export type { DiskMemoryStoreConfig } from './store/memory/disk.js'
+export {
+	InMemoryStore,
+	type Identifiable,
+	type Timestamped,
+	RunDiskStore,
+	ActivityStore,
+	type ActivityEvent,
+	type ActivityEventListener,
+	InMemoryTaskStore,
+	DiskTaskStore,
+	type DiskTaskStoreConfig,
+	InMemoryConversationStore,
+	type InMemoryConversationStoreConfig,
+	InMemoryMemoryIndex,
+	InMemoryMemoryStore,
+	DiskMemoryStore,
+	type DiskMemoryStoreConfig,
+} from './store/index.js'
 
-export { Registry } from './registry/Registry.js'
-export { ManagedRegistry } from './registry/ManagedRegistry.js'
-export type { ManagedRegistryConfig } from './registry/ManagedRegistry.js'
-export { AgentRegistry } from './registry/agent/definitions.js'
-export { PluginRegistry } from './registry/plugin/index.js'
+export {
+	Registry,
+	ManagedRegistry,
+	type ManagedRegistryConfig,
+	AgentRegistry,
+	PluginRegistry,
+	ToolRegistry,
+	type ToolExecutionResult,
+} from './registry/index.js'
 
 export {
 	PluginLifecycleManager,
@@ -135,18 +157,16 @@ export {
 } from './plugin/index.js'
 export type { PluginLifecycleManagerConfig } from './plugin/lifecycle.js'
 
-export { EmergencySaveManager } from './manager/run/emergency.js'
-export { RunPersistence } from './manager/run/persistence.js'
-export { RunDiskStore } from './store/run/disk.js'
+export {
+	RunPersistence,
+	EmergencySaveManager,
+	PlanManager,
+	type PlanEvent,
+	type PlanEventListener,
+	type PlanApprovalHandler,
+	AgentManager,
+} from './manager/index.js'
 
-export { ActivityStore } from './store/activity/memory.js'
-export type {
-	ActivityEvent,
-	ActivityEventListener,
-} from './store/activity/memory.js'
-export { InMemoryTaskStore } from './store/task/memory.js'
-export { DiskTaskStore } from './store/task/disk.js'
-export type { DiskTaskStoreConfig } from './store/task/disk.js'
 export {
 	buildTaskTools,
 	buildTaskCreateTool,
@@ -156,15 +176,6 @@ export {
 export { buildAdvisoryTools } from './tools/advisory/index.js'
 export type { AdvisoryToolsOptions } from './tools/advisory/index.js'
 export { buildMemoryTools } from './tools/memory/index.js'
-export { InMemoryConversationStore } from './store/conversation/memory.js'
-export type { InMemoryConversationStoreConfig } from './store/conversation/memory.js'
-export { PlanManager } from './manager/plan/lifecycle.js'
-export type {
-	PlanEvent,
-	PlanEventListener,
-	PlanApprovalHandler,
-} from './manager/plan/lifecycle.js'
-export { AgentManager } from './manager/agent/lifecycle.js'
 export { LocalTaskGateway } from './gateway/local.js'
 
 export {
@@ -182,8 +193,6 @@ export {
 
 export { defineTool } from './tools/defineTool.js'
 export type { DefineToolOptions } from './tools/defineTool.js'
-export { ToolRegistry } from './registry/tool/execute.js'
-export type { ToolExecutionResult } from './registry/tool/execute.js'
 export { getBuiltinTools } from './tools/builtins/index.js'
 export { ReadFileTool } from './tools/builtins/read-file.js'
 export { WriteFileTool } from './tools/builtins/write-file.js'
@@ -303,9 +312,6 @@ export type { ToolCallContext } from './verification/index.js'
 
 export { buildCoordinatorTools } from './tools/coordinator/index.js'
 export type { CoordinatorToolsOptions, TaskLaunchedCallback } from './tools/coordinator/index.js'
-
-export { checkLimitsDetailed, buildLimitConfig } from './run/LimitChecker.js'
-export type { LimitCheckerState, LimitCheckResult } from './run/LimitChecker.js'
 
 export { InMemoryCredentialVault } from './vault/index.js'
 
