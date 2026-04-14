@@ -76,6 +76,8 @@ if [[ "$CURRENT" == *"-"* ]]; then
   PRE_PART="${CURRENT#*-}"
   PRE_TAG="${PRE_PART%%.*}"
   PRE_NUM="${PRE_PART#*.}"
+  # Strip any non-digit suffix (e.g. `1-fix` from corruption-remediation tags → `1`)
+  PRE_NUM="${PRE_NUM%%[!0-9]*}"
 fi
 
 # Calculate next version
