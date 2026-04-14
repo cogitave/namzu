@@ -2,6 +2,23 @@
 
 All notable changes to Namzu are documented here.
 
+## [0.1.5-rc.2] — 2026-04-14
+
+### Bug Fixes
+
+- **plugin**: wire MCP servers and fail fast on unsupported contributions
+- **plugin**: consume hook results and wire tool hooks in runtime
+- **release**: normalize pre-release counter to strip non-digit suffix
+### Documentation
+
+- **changelog**: update for v0.1.5-rc.1-fix
+- **contracts**: formalize wire/domain duality + refresh README
+- **readme**: rewrite code examples to match current SDK API
+### Refactor
+
+- **plugin**: remove duplicate PluginConfigSchema in types/
+- **registry**: migrate Agent/Connector/Tool registries to ManagedRegistry
+- **run**: remove legacy Session* aliases for run-centric classes
 ## [0.1.5-rc.1] — 2026-04-12
 
 ### Documentation
