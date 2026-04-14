@@ -14,7 +14,7 @@ Open-source AI agent SDK with a built-in runtime. Nothing between you and your a
 
 There are great agent frameworks out there — LangChain, CrewAI, AutoGen, Vercel AI SDK, OpenAI Agents SDK. Each solves a real problem. Namzu exists because we think some things are still missing.
 
-**Sandboxed execution.** Agents execute tools inside process-level sandboxes — macOS Seatbelt (SBPL) profiles and Linux namespaces. File I/O, shell commands, and code execution are isolated to the agent's workspace by default. No Docker required, no container overhead. Deny-default, allow-back for what the agent actually needs.
+**Sandboxed execution.** Agents execute tools inside process-level sandboxes. macOS uses Seatbelt (SBPL) profiles for deny-default file-I/O and process isolation. Linux uses lightweight mount + PID namespace isolation for process scoping, with resource limits (memory, timeout, max processes) enforced by the runtime. No Docker, no containers.
 
 **True provider independence.** Most frameworks say they're provider-agnostic but are optimized for one vendor. Namzu treats every provider as a first-class citizen through BYOK (Bring Your Own Key). Switch from OpenRouter to Bedrock by changing one line. No performance penalties, no second-class APIs.
 
@@ -125,7 +125,7 @@ npm install @namzu/sdk
 ## Quick Start
 
 ```typescript
-import { defineAgent, defineTool, ProviderFactory } from '@namzu/sdk'
+import { defineTool, ProviderFactory, ReactiveAgent, ToolRegistry } from '@namzu/sdk'
 import { z } from 'zod'
 
 // Define a tool
@@ -133,32 +133,39 @@ const searchWeb = defineTool({
   name: 'search_web',
   description: 'Search the web for information',
   inputSchema: z.object({ query: z.string() }),
+  category: 'network',
+  permissions: ['network_access'],
+  readOnly: true,
+  destructive: false,
+  concurrencySafe: true,
   execute: async ({ query }) => {
     const results = await fetch(`https://api.search.com?q=${query}`)
     return { success: true, output: await results.text() }
   },
 })
 
-// Create a provider
+// Create a provider (model is chosen per-run, not on the provider)
 const provider = ProviderFactory.createProvider({
   type: 'openrouter',
   apiKey: process.env.OPENROUTER_KEY!,
-  model: 'anthropic/claude-sonnet-4-20250514',
 })
 
-// Define an agent
-const agent = defineAgent({
-  info: {
-    id: 'researcher',
-    name: 'Research Assistant',
-    version: '1.0.0',
-    category: 'research',
-    description: 'Finds and synthesizes information from the web',
-    tools: ['search_web'],
-    defaults: { model: 'anthropic/claude-sonnet-4-20250514', tokenBudget: 8192 },
-  },
-  tools: [searchWeb],
+// Register tools and build the agent
+const tools = new ToolRegistry()
+tools.register(searchWeb)
+
+const agent = new ReactiveAgent({
+  id: 'researcher',
+  name: 'Research Assistant',
+  version: '1.0.0',
+  category: 'research',
+  description: 'Finds and synthesizes information from the web',
 })
+
+const result = await agent.run(
+  { messages: [{ role: 'user', content: 'Summarize the latest LLM benchmarks' }], workingDirectory: process.cwd() },
+  { model: 'anthropic/claude-sonnet-4-20250514', tokenBudget: 8192, timeoutMs: 600_000, provider, tools },
+)
 ```
 
 ## Agent Types
@@ -172,10 +179,24 @@ The core agentic loop. Sends messages to an LLM, executes tool calls, and iterat
 ```typescript
 import { ReactiveAgent } from '@namzu/sdk'
 
-const agent = new ReactiveAgent({ id: 'solver', name: 'Problem Solver' })
+const agent = new ReactiveAgent({
+  id: 'solver',
+  name: 'Problem Solver',
+  version: '1.0.0',
+  category: 'analysis',
+  description: 'Analyzes data with LLM + tools',
+})
+
 const result = await agent.run(
-  { messages: [{ role: 'user', content: 'Analyze this dataset and find trends' }] },
-  { provider, tools, systemPrompt: 'You are a data analyst.' },
+  { messages: [{ role: 'user', content: 'Analyze this dataset and find trends' }], workingDirectory: process.cwd() },
+  {
+    model: 'anthropic/claude-sonnet-4-20250514',
+    tokenBudget: 8192,
+    timeoutMs: 600_000,
+    provider,
+    tools,                          // ToolRegistry
+    systemPrompt: 'You are a data analyst.',
+  },
 )
 ```
 
@@ -186,14 +207,27 @@ Deterministic, sequential step execution. Each step receives the output of the p
 ```typescript
 import { PipelineAgent } from '@namzu/sdk'
 
-const etl = new PipelineAgent({ id: 'etl', name: 'ETL Pipeline' })
-const result = await etl.run(input, {
-  steps: [
-    { name: 'extract', execute: async (inp) => await readSource(inp.path) },
-    { name: 'transform', execute: async (data) => normalize(data) },
-    { name: 'load', execute: async (data) => await writeToDb(data) },
-  ],
+const etl = new PipelineAgent({
+  id: 'etl',
+  name: 'ETL Pipeline',
+  version: '1.0.0',
+  category: 'pipeline',
+  description: 'Extract → transform → load',
 })
+
+const result = await etl.run(
+  { messages: [], workingDirectory: process.cwd() },
+  {
+    model: 'anthropic/claude-sonnet-4-20250514',
+    tokenBudget: 8192,
+    timeoutMs: 600_000,
+    steps: [
+      { name: 'extract',   execute: async (inp, ctx) => await readSource('./data') },
+      { name: 'transform', execute: async (data, ctx) => normalize(data) },
+      { name: 'load',      execute: async (data, ctx) => await writeToDb(data) },
+    ],
+  },
+)
 ```
 
 ### Router Agent
@@ -203,15 +237,28 @@ Intelligent delegation. An LLM analyzes the input and routes it to the best-suit
 ```typescript
 import { RouterAgent } from '@namzu/sdk'
 
-const router = new RouterAgent({ id: 'dispatcher', name: 'Task Router' })
-const result = await router.run(input, {
-  provider,
-  routes: [
-    { agentId: 'math-solver', agent: mathAgent, description: 'Solves equations' },
-    { agentId: 'writer', agent: writerAgent, description: 'Writes content' },
-  ],
-  fallbackAgentId: 'writer',
+const router = new RouterAgent({
+  id: 'dispatcher',
+  name: 'Task Router',
+  version: '1.0.0',
+  category: 'routing',
+  description: 'Routes an input to the best-fit agent',
 })
+
+const result = await router.run(
+  { messages: [{ role: 'user', content: 'Solve 2x + 3 = 11' }], workingDirectory: process.cwd() },
+  {
+    model: 'anthropic/claude-sonnet-4-20250514',
+    tokenBudget: 4096,
+    timeoutMs: 600_000,
+    provider,
+    routes: [
+      { agentId: 'math-solver', agent: mathAgent, description: 'Solves equations' },
+      { agentId: 'writer',      agent: writerAgent, description: 'Writes content' },
+    ],
+    fallbackAgentId: 'writer',
+  },
+)
 ```
 
 ### Supervisor Agent
@@ -221,12 +268,26 @@ Multi-agent coordinator. Manages child agents, delegates tasks, aggregates resul
 ```typescript
 import { SupervisorAgent, AgentManager } from '@namzu/sdk'
 
-const supervisor = new SupervisorAgent({ id: 'lead', name: 'Project Lead' })
-const result = await supervisor.run(input, {
-  provider,
-  agentManager,
-  agentDefinitions: [researcherDef, writerDef, reviewerDef],
+const supervisor = new SupervisorAgent({
+  id: 'lead',
+  name: 'Project Lead',
+  version: '1.0.0',
+  category: 'coordination',
+  description: 'Delegates sub-tasks to specialized agents',
 })
+
+const result = await supervisor.run(
+  { messages: [{ role: 'user', content: 'Research, write, and review a Q3 report' }], workingDirectory: process.cwd() },
+  {
+    model: 'anthropic/claude-sonnet-4-20250514',
+    tokenBudget: 32_768,
+    timeoutMs: 1_800_000,
+    provider,
+    agentManager,                                        // resolves agent ids → implementations
+    agentIds: ['researcher', 'writer', 'reviewer'],
+    systemPrompt: 'You coordinate specialists. Decompose tasks, delegate, and synthesize results.',
+  },
+)
 // Child runs tracked via parent_run_id and depth
 ```
 
@@ -246,6 +307,7 @@ const fetchApi = defineTool({
   permissions: ['network_access'],
   readOnly: true,
   destructive: false,
+  concurrencySafe: true,
   execute: async ({ url, method }) => {
     const resp = await fetch(url, { method })
     return { success: true, output: await resp.text() }
@@ -285,14 +347,20 @@ Hook handlers can return `continue`, `modify` (rewrite tool input), `skip` (synt
 
 ### Sandbox-Aware Execution
 
-All built-in tools are sandbox-aware. When a sandbox is present in the execution context, tools automatically route through `sandbox.exec()`, `sandbox.readFile()`, and `sandbox.writeFile()`. When no sandbox is present, they fall back to native operations — zero config required.
+File and shell built-ins (`ReadFileTool`, `WriteFileTool`, `EditTool`, `BashTool`) route through `sandbox.exec()` / `sandbox.readFile()` / `sandbox.writeFile()` when a sandbox is present in the execution context, and fall back to native operations when not. Use `query()` (streaming generator) with a `ToolRegistry` and a `sandboxProvider`:
 
 ```typescript
-// With sandbox: tool calls are isolated to agent workspace
-const result = await query({ agent, provider, tools: getBuiltinTools(), messages, sandboxProvider })
+import { drainQuery, ToolRegistry, getBuiltinTools } from '@namzu/sdk'
 
-// Without sandbox: same tools, same API, native execution
-const result = await query({ agent, provider, tools: getBuiltinTools(), messages })
+const tools = new ToolRegistry()
+tools.register(getBuiltinTools(), 'active')
+
+// With sandbox: file + shell tool calls are isolated to the agent workspace
+const result = await drainQuery({
+  agentId: 'solver', agentName: 'Solver', threadId,
+  provider, tools, runConfig, messages, resumeHandler,
+  sandboxProvider,
+})
 ```
 
 ## Sandbox
@@ -300,16 +368,22 @@ const result = await query({ agent, provider, tools: getBuiltinTools(), messages
 Process-level isolation for agent tool execution. No Docker, no containers — native OS mechanisms.
 
 ```typescript
-import { query, SandboxProviderFactory, getBuiltinTools } from '@namzu/sdk'
+import { drainQuery, SandboxProviderFactory, ToolRegistry, getBuiltinTools, getRootLogger } from '@namzu/sdk'
 
-const sandboxProvider = SandboxProviderFactory.create({ provider: 'local' })
+const sandboxProvider = SandboxProviderFactory.create(
+  { enabled: true, provider: 'local', timeoutMs: 60_000, memoryLimitMb: 512, maxProcesses: 16, cleanupOnDestroy: true },
+  getRootLogger(),
+)
 
-const result = await query({
-  agent,
-  provider,
-  tools: getBuiltinTools(),
+const tools = new ToolRegistry()
+tools.register(getBuiltinTools(), 'active')
+
+const result = await drainQuery({
+  agentId: 'coder', agentName: 'Coder', threadId,
+  provider, tools, runConfig,
   messages: [{ role: 'user', content: 'Write a Python script and run it' }],
-  sandboxProvider, // All tool calls execute inside the sandbox
+  resumeHandler,
+  sandboxProvider,                                      // sandbox-aware tools opt in here
 })
 ```
 
@@ -330,9 +404,14 @@ The sandbox creates a temporary workspace directory, restricts file I/O to that 
 
 ```typescript
 // Direct sandbox API (low-level)
-const sandbox = await sandboxProvider.create({ agentId: 'agt_coder' })
+const sandbox = await sandboxProvider.create({
+  workingDirectory: process.cwd(),
+  timeoutMs: 30_000,
+  memoryLimitMb: 512,
+  maxProcesses: 16,
+})
 
-const result = await sandbox.exec('/bin/sh', ['-c', 'echo hello'], { timeout: 5000 })
+const result = await sandbox.exec('/bin/sh', ['-c', 'echo hello'], { timeoutMs: 5_000 })
 console.log(result.stdout)  // "hello\n"
 console.log(result.exitCode) // 0
 
@@ -346,30 +425,33 @@ await sandbox.destroy() // Cleanup workspace
 
 Pluggable LLM backends with a unified interface for chat, streaming, and model discovery.
 
+The provider is constructed once with credentials; the model is selected per chat/run so you can swap models without rebuilding the client.
+
 ```typescript
-import { ProviderFactory, OpenRouterProvider, BedrockProvider } from '@namzu/sdk'
+import { ProviderFactory } from '@namzu/sdk'
 
 // OpenRouter (BYOK)
 const openrouter = ProviderFactory.createProvider({
   type: 'openrouter',
   apiKey: process.env.OPENROUTER_KEY!,
-  model: 'anthropic/claude-sonnet-4-20250514',
 })
 
 // AWS Bedrock
 const bedrock = ProviderFactory.createProvider({
   type: 'bedrock',
   region: 'us-east-1',
-  model: 'anthropic.claude-3-sonnet-20240229-v1:0',
 })
 
-// Streaming
-for await (const chunk of provider.chatStream(params)) {
+// Streaming — model is part of the per-call params
+for await (const chunk of openrouter.chatStream({
+  model: 'anthropic/claude-sonnet-4-20250514',
+  messages: [{ role: 'user', content: 'hi' }],
+})) {
   process.stdout.write(chunk.delta?.content ?? '')
 }
 
 // Model discovery
-const models = await provider.listModels()
+const models = await openrouter.listModels()
 ```
 
 ## RAG
@@ -382,7 +464,6 @@ import {
   OpenRouterEmbeddingProvider,
   InMemoryVectorStore,
   DefaultRetriever,
-  DefaultIngestionPipeline,
   DefaultKnowledgeBase,
   createRAGTool,
 } from '@namzu/sdk'
@@ -403,11 +484,15 @@ const embedder = new OpenRouterEmbeddingProvider({
 
 // Vector store and retriever
 const vectorStore = new InMemoryVectorStore()
-const retriever = new DefaultRetriever(vectorStore)
+const retriever = new DefaultRetriever(vectorStore, embedder)
 
-// Knowledge base
-const kb = new DefaultKnowledgeBase({ retriever, ingestionPipeline })
-await kb.ingest({ id: 'doc-1', title: 'API Guide', content: apiDoc })
+// Knowledge base — pass (config, vectorStore, embeddingProvider)
+const kb = new DefaultKnowledgeBase(
+  { id: 'docs', name: 'API Guides', tenantId: 'default' },
+  vectorStore,
+  embedder,
+)
+await kb.ingest(apiDoc, { title: 'API Guide', source: 'doc-1' })
 const results = await kb.query({ text: 'How do I authenticate?', config: { topK: 5 } })
 
 // Attach to agent as a tool
@@ -424,20 +509,19 @@ Unified framework for integrating external services — HTTP APIs, webhooks, and
 ```typescript
 import {
   HttpConnector,
+  ConnectorManager,
   ConnectorRegistry,
   MCPClient,
   MCPConnectorBridge,
   TenantConnectorManager,
 } from '@namzu/sdk'
 
-// HTTP connector
-const slack = new HttpConnector({
-  id: 'slack',
-  baseUrl: 'https://slack.com/api',
-  methods: [
-    { name: 'send_message', path: '/chat.postMessage', httpMethod: 'POST' },
-  ],
-})
+// HTTP connector — configure via connect()
+const slack = new HttpConnector()
+await slack.connect(
+  { id: 'slack', baseUrl: 'https://slack.com/api' },
+  { type: 'bearer', token: process.env.SLACK_TOKEN! },
+)
 
 // MCP client (stdio or HTTP-SSE transport)
 const mcpClient = new MCPClient({
@@ -448,15 +532,15 @@ await mcpClient.connect()
 const tools = await mcpClient.listTools()
 const result = await mcpClient.callTool('my_tool', { input: 'value' })
 
-// Bridge MCP tools into Namzu tool system
-const bridge = new MCPConnectorBridge(mcpClient)
-const namzuTools = bridge.toToolDefinitions()
+// Bridge MCP as a connector so connector-based code paths can reach it
+const connectorManager = new ConnectorManager({ registry: new ConnectorRegistry() })
+const mcpBridge = new MCPConnectorBridge({ manager: connectorManager })
+const discoveredTools = await mcpBridge.listTools()
+await mcpBridge.callTool('my_tool', { input: 'value' })
 
 // Multi-tenant isolation
-const tenantManager = new TenantConnectorManager({
-  connectorRegistry,
-  tenantId: 'org-123',
-})
+const tenantManager = new TenantConnectorManager({ registry: new ConnectorRegistry() })
+tenantManager.registerTenant({ tenantId: 'org-123', name: 'Org 123' })
 ```
 
 MCP servers can also be declared in a plugin manifest (`mcpServers: [{ name, command, args, env }]`). The plugin lifecycle starts each server on enable, discovers its tools, and registers them under the plugin namespace. Disable disconnects the clients before unregistering the tools.
@@ -465,30 +549,40 @@ MCP servers can also be declared in a plugin manifest (`mcpServers: [{ name, com
 
 Pause agent execution for human review of plans and tool calls. Checkpoint and resume runs across sessions.
 
+Plan approval and tool review are separate handlers wired at different points:
+
 ```typescript
-import { PlanManager } from '@namzu/sdk'
+import { PlanManager, drainQuery, autoApproveHandler } from '@namzu/sdk'
+import type { ResumeHandler } from '@namzu/sdk'
 
+// 1. Plan approval — runs when the agent produces a plan
 const planManager = new PlanManager(runId, async (request) => {
-  if (request.type === 'plan_approval') {
-    // Present plan to user, get approval
-    const userDecision = await showPlanUI(request.plan)
-    return { approved: userDecision.approved }
+  const decision = await showPlanUI(request)
+  return {
+    approved: decision.approved,
+    feedback: decision.feedback,
+    modifiedSteps: decision.editedSteps,
   }
-
-  if (request.type === 'tool_review') {
-    // Review tool calls before execution
-    const hasDestructive = request.toolCalls.some((t) => t.isDestructive)
-    if (hasDestructive) {
-      return { approved: false, feedback: 'Destructive tool blocked' }
-    }
-    return { approved: true }
-  }
-
-  return { action: 'continue' }
 })
+
+// 2. Tool review — runs for every pending tool call (required by query/drainQuery)
+const resumeHandler: ResumeHandler = async (request) => {
+  if (request.type === 'tool_review') {
+    const hasDestructive = request.toolCalls.some((t) => t.isDestructive)
+    return hasDestructive
+      ? { action: 'reject_tools', feedback: 'Destructive tool blocked' }
+      : { action: 'approve_tools' }
+  }
+  if (request.type === 'plan_approval') {
+    return { action: 'approve_plan' }
+  }
+  return { action: 'continue' }
+}
+
+await drainQuery({ /* ...runConfig, provider, tools, messages, */ resumeHandler })
 ```
 
-Checkpoint/resume enables long-running agents to pause and restart without losing state.
+Checkpoint/resume enables long-running agents to pause and restart without losing state (`CheckpointManager`, `checkpointId` in `QueryParams`).
 
 ## A2A Protocol
 
@@ -505,28 +599,35 @@ const card = buildAgentCard(agentInfo, {
 })
 // Serve at /.well-known/agent-card.json
 
-// Convert inbound A2A message to a Namzu run
-const runParams = a2aMessageToCreateRun(agentId, a2aMessage)
+// Convert an inbound A2A message-send into run creation params
+const runParams = a2aMessageToCreateRun(agentId, {
+  message: a2aMessage,
+  contextId: a2aMessage.contextId,
+  metadata: { model: 'anthropic/claude-sonnet-4-20250514', tokenBudget: 8192 },
+})
 
-// Convert completed run to A2A task response
-const a2aTask = runToA2ATask(run, messages)
+// Convert a persisted Run (wire type) + thread messages into an A2A task response
+const a2aTask = runToA2ATask(run, threadMessages)
 ```
 
 ## Streaming (SSE)
 
 Map internal agent execution events to Server-Sent Events for real-time client updates.
 
+Agents emit `RunEvent`s through the listener passed to `run()` / `drainQuery()`. `mapRunToStreamEvent` translates those into SSE-ready `{ event, data }` tuples (returns `null` for events without a wire mapping, which you should skip):
+
 ```typescript
-import { mapRunToStreamEvent } from '@namzu/sdk'
+import { mapRunToStreamEvent, drainQuery } from '@namzu/sdk'
 
 // Event families: run.*, iteration.*, tool.*, token.*, message.*, review.*,
 // checkpoint.*, activity.*, plan.*, agent.*, task.*, plugin.*, sandbox.*
-agent.on('event', (event) => {
-  const sseEvent = mapRunToStreamEvent(event, runId)
-  if (sseEvent) {
-    response.write(`event: ${sseEvent.wire}\ndata: ${JSON.stringify(sseEvent.data)}\n\n`)
-  }
-})
+const listener = (event) => {
+  const mapped = mapRunToStreamEvent(event, runId)
+  if (!mapped) return
+  response.write(`event: ${mapped.wire}\ndata: ${JSON.stringify(mapped.data)}\n\n`)
+}
+
+await drainQuery({ /* ...runConfig, provider, tools, messages */ }, listener)
 ```
 
 ## Persona System
@@ -562,10 +663,11 @@ import { SkillRegistry, resolveSkillChain } from '@namzu/sdk'
 const registry = new SkillRegistry()
 await registry.registerAll('/path/to/skills', 'metadata')
 
-// Load full skill content on demand
-const skill = await registry.load('web-search', 'full')
+// Load full skill content on demand — returns SkillLoadResult | undefined
+const loaded = await registry.load('web-search', 'full')
+const skill = loaded?.skill
 
-// Resolve inheritance: category skills + agent-specific overrides
+// Resolve inheritance: shared skills + agent-specific overrides
 const chain = await resolveSkillChain(
   '/skills/shared',
   '/skills/agent-specific',
@@ -594,27 +696,39 @@ const history = store.loadMessages('thd_abc123')
 // → [{ role: 'user', content: '...' }, { role: 'assistant', content: '...' }]
 ```
 
-The `ConversationStore` interface is pluggable — swap in SQLite, Postgres, or any backend. The SDK ships with `InMemoryConversationStore` as the default.
+The `ConversationStore` interface is pluggable — swap in SQLite, Postgres, or any backend. `InMemoryConversationStore` is bundled for non-persistent use; applications wire it into the runtime themselves.
 
 ## Persistence
 
 In-memory and disk-backed stores for runs, tasks, conversations, and activities.
 
 ```typescript
-import { RunPersistence, DiskTaskStore, InMemoryConversationStore } from '@namzu/sdk'
+import { RunPersistence, DiskTaskStore, getRootLogger } from '@namzu/sdk'
 
 // Run persistence with token/cost tracking
 const persistence = new RunPersistence({
   runId,
-  agentId,
+  agentId: 'researcher',
+  agentName: 'Research Assistant',
+  providerId: 'openrouter',
   outputDir: './runs',
-  runConfig: { model: 'claude-3', temperature: 0.7 },
+  runConfig: {
+    model: 'anthropic/claude-sonnet-4-20250514',
+    tokenBudget: 8192,
+    timeoutMs: 600_000,
+    temperature: 0.7,
+  },
+  log: getRootLogger(),
 })
 await persistence.init()
-persistence.accumulateUsage({ promptTokens: 100, completionTokens: 50 })
+persistence.accumulateUsage({
+  promptTokens: 100,
+  completionTokens: 50,
+  totalTokens: 150,
+})
 await persistence.persist()
 
-// Multi-tenant task store with atomic writes
+// Task store with atomic writes (tenant-aware)
 const taskStore = new DiskTaskStore({
   baseDir: './tasks',
   defaultRunId: runId,
@@ -627,20 +741,25 @@ const taskStore = new DiskTaskStore({
 OpenTelemetry integration for distributed tracing and metrics across agents, tools, and providers.
 
 ```typescript
-import { initTelemetry, getTracer, getMeter, createPlatformMetrics } from '@namzu/sdk'
+import { initTelemetry, getTracer, createPlatformMetrics } from '@namzu/sdk'
 
-initTelemetry({
+const telemetry = initTelemetry({
   serviceName: 'agent-platform',
-  traceExporter: { endpoint: 'http://localhost:4318/v1/traces' },
-  metricsExporter: { endpoint: 'http://localhost:4318/v1/metrics' },
+  exporterType: 'otlp',
+  otlpEndpoint: 'http://localhost:4318',
+  otlpHeaders: { authorization: `Bearer ${process.env.OTLP_TOKEN!}` },
 })
+await telemetry.start()
 
 const tracer = getTracer()
 const metrics = createPlatformMetrics()
 
 const span = tracer.startSpan('agent.run')
-metrics.tokenCounter.add(150, { agent_id: 'researcher', model: 'claude-3' })
+metrics.recordTokenUsage('anthropic/claude-sonnet-4-20250514', 100, 50)
+metrics.recordToolCall('search_web', true)
 span.end()
+
+metrics.recordRunDuration('completed', 12.4)
 ```
 
 ## Architecture
