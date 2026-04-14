@@ -9,3 +9,4 @@ export { ConnectorRegistry } from './connector/definitions.js'
 export { ScopedConnectorRegistry } from './connector/scoped.js'
 
 export { AgentRegistry } from './agent/definitions.js'
+export { PluginRegistry } from './plugin/index.js'
