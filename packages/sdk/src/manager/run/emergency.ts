@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import {
 	mkdirSync,
 	readFileSync,
@@ -43,9 +44,15 @@ export class EmergencySaveManager {
 		this.outputDir = outputDir
 		this.log = log.child({ component: 'EmergencySaveManager' })
 
+		// Attaching a listener for SIGINT/SIGTERM/uncaughtException suppresses
+		// Node's default termination behavior. After saving state we MUST
+		// terminate explicitly, otherwise Ctrl+C leaves the process running
+		// and uncaught errors stop propagating as crashes.
 		for (const signal of EMERGENCY_SIGNALS) {
+			const exitCode = signal === 'SIGINT' ? 130 : 143 // 128 + signal number
 			const handler = (): void => {
 				this.emergencySave(signal)
+				process.exit(exitCode)
 			}
 			this.signalHandlers.set(signal, handler)
 			process.on(signal, handler)
@@ -54,6 +61,7 @@ export class EmergencySaveManager {
 		for (const event of EMERGENCY_EVENTS) {
 			const handler = (): void => {
 				this.emergencySave(event)
+				process.exit(1)
 			}
 			this.signalHandlers.set(event, handler)
 			process.on(event, handler)
@@ -77,22 +85,43 @@ export class EmergencySaveManager {
 			return
 		}
 
-		const snapshot = runMgr.toEmergencySnapshot(signal)
+		let tmpPath: string | undefined
+		try {
+			const snapshot = runMgr.toEmergencySnapshot(signal)
 
-		const emergencyDir = join(this.outputDir, '..', EMERGENCY_DIR_NAME)
-		mkdirSync(emergencyDir, { recursive: true })
+			const emergencyDir = join(this.outputDir, '..', EMERGENCY_DIR_NAME)
+			mkdirSync(emergencyDir, { recursive: true })
 
-		const tmpPath = join(emergencyDir, `${snapshot.runId}.json.tmp`)
-		const finalPath = join(emergencyDir, `${snapshot.runId}.json`)
+			tmpPath = join(emergencyDir, `${snapshot.runId}.json.tmp.${randomUUID()}`)
+			const finalPath = join(emergencyDir, `${snapshot.runId}.json`)
 
-		writeFileSync(tmpPath, JSON.stringify(snapshot, null, '\t'), 'utf-8')
-		renameSync(tmpPath, finalPath)
+			writeFileSync(tmpPath, JSON.stringify(snapshot, null, '\t'), 'utf-8')
+			renameSync(tmpPath, finalPath)
+			tmpPath = undefined
 
-		this.log.warn('Emergency save completed', {
-			runId: snapshot.runId,
-			signal,
-			path: finalPath,
-		})
+			this.log.warn('Emergency save completed', {
+				runId: snapshot.runId,
+				signal,
+				path: finalPath,
+			})
+		} catch (err) {
+			if (tmpPath) {
+				try {
+					unlinkSync(tmpPath)
+				} catch {
+					// best-effort cleanup; swallowing here is intentional because we
+					// are already in a crash-handling path and must not throw.
+				}
+			}
+			try {
+				this.log.error('Emergency save failed', {
+					signal,
+					error: err instanceof Error ? err.message : String(err),
+				})
+			} catch {
+				// Logger itself failed — nothing more we can safely do.
+			}
+		}
 	}
 
 	static listSaves(baseDir: string): string[] {
