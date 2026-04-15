@@ -2,6 +2,12 @@
 
 All notable changes to Namzu are documented here.
 
+## [0.1.8] — 2026-04-15
+
+### Documentation
+
+- **changelog**: update for sdk-v0.1.7
+- **readme**: rewrite root + fix sdk stale ProviderFactory refs
 ## [0.1.7] — 2026-04-15
 
 ### Documentation
