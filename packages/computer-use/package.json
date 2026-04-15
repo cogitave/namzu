@@ -1,6 +1,6 @@
 {
   "name": "@namzu/computer-use",
-  "version": "0.0.1",
+  "version": "0.0.2-rc.1",
   "description": "Subprocess-based computer-use host for @namzu/sdk. Screenshot, mouse, and keyboard control via platform-native CLIs (screencapture/osascript on darwin, xdotool/maim on Linux X11, grim/wtype/ydotool on Wayland, PowerShell on Windows).",
   "license": "FSL-1.1-MIT",
   "type": "module",
