@@ -125,6 +125,28 @@ importers:
         specifier: ^5.5.0
         version: 5.9.3
 
+  packages/providers/anthropic:
+    dependencies:
+      '@anthropic-ai/sdk':
+        specifier: ^0.89.0
+        version: 0.89.0(zod@3.25.76)
+    devDependencies:
+      '@biomejs/biome':
+        specifier: ^1.9.4
+        version: 1.9.4
+      '@namzu/sdk':
+        specifier: workspace:^
+        version: link:../../sdk
+      '@types/node':
+        specifier: ^22.19.17
+        version: 22.19.17
+      typescript:
+        specifier: ^5.5.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.0.0
+        version: 2.1.9(@types/node@22.19.17)
+
   packages/providers/bedrock:
     dependencies:
       '@aws-sdk/client-bedrock-runtime':
@@ -209,6 +231,28 @@ importers:
         specifier: ^2.0.0
         version: 2.1.9(@types/node@22.19.17)
 
+  packages/providers/openai:
+    dependencies:
+      openai:
+        specifier: ^6.0.0
+        version: 6.34.0(ws@8.20.0)(zod@3.25.76)
+    devDependencies:
+      '@biomejs/biome':
+        specifier: ^1.9.4
+        version: 1.9.4
+      '@namzu/sdk':
+        specifier: workspace:^
+        version: link:../../sdk
+      '@types/node':
+        specifier: ^22.19.17
+        version: 22.19.17
+      typescript:
+        specifier: ^5.5.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.0.0
+        version: 2.1.9(@types/node@22.19.17)
+
   packages/providers/openrouter:
     devDependencies:
       '@biomejs/biome':
@@ -274,6 +318,15 @@ importers:
         version: 2.1.9(@types/node@22.19.17)
 
 packages:
+
+  '@anthropic-ai/sdk@0.89.0':
+    resolution: {integrity: sha512-nyGau0zex62EpU91hsHa0zod973YEoiMgzWZ9hC55WdiOLrE4AGpcg4wXI7lFqtvMLqMcLfewQU9sHgQB6psow==}
+    hasBin: true
+    peerDependencies:
+      zod: ^3.25.0 || ^4.0.0
+    peerDependenciesMeta:
+      zod:
+        optional: true
 
   '@aws-crypto/crc32@5.2.0':
     resolution: {integrity: sha512-nLbCWqQNgUiwwtFsen1AdzAtvuLRsQS8rYgMuxCrdKf9kOssamGLuPwyTY9wyYblNr9+1XM8v6zoDTPPSIeANg==}
@@ -411,6 +464,10 @@ packages:
   '@aws/lambda-invoke-store@0.2.4':
     resolution: {integrity: sha512-iY8yvjE0y651BixKNPgmv1WrQc+GZ142sb0z4gYnChDDY2YqI4P/jsSopBWrKfAt7LOJAkOXt7rC/hms+WclQQ==}
     engines: {node: '>=18.0.0'}
+
+  '@babel/runtime@7.29.2':
+    resolution: {integrity: sha512-JiDShH45zKHWyGe4ZNVRrCjBz8Nh9TMmZG1kh4QTK8hCBTWBi8Da+i7s1fJw7/lYpM4ccepSNfqzZ/QvABBi5g==}
+    engines: {node: '>=6.9.0'}
 
   '@biomejs/biome@1.9.4':
     resolution: {integrity: sha512-1rkd7G70+o9KkTn5KLmDYXihGoTaIGO9PIIN2ZB7UJxFrWw04CZHPYiMRjYsaDvVV7hP1dYNRLxSANLaBFGpog==}
@@ -1497,6 +1554,10 @@ packages:
     resolution: {integrity: sha512-zymm5+u+sCsSWyD9qNaejV3DFvhCKclKdizYaJUuHA83RLjb7nSuGnddCHGv0hk+KY7BMAlsWeK4Ueg6EV6XQg==}
     engines: {node: '>=8'}
 
+  json-schema-to-ts@3.1.1:
+    resolution: {integrity: sha512-+DWg8jCJG2TEnpy7kOm/7/AxaYoaRbjVB4LFZLySZlWn8exGs3A4OLJR966cVvU26N7X9TWxl+Jsw7dzAqKT6g==}
+    engines: {node: '>=16'}
+
   jsonschema@1.5.0:
     resolution: {integrity: sha512-K+A9hhqbn0f3pJX17Q/7H6yQfD/5OXgdrR5UE12gMXCiN9D5Xq2o5mddV2QEcX/bjla99ASsAAQUyMCCRWAEhw==}
 
@@ -1525,6 +1586,18 @@ packages:
 
   ollama@0.5.18:
     resolution: {integrity: sha512-lTFqTf9bo7Cd3hpF6CviBe/DEhewjoZYd9N/uCe7O20qYTvGqrNOFOBDj3lbZgFWHUgDv5EeyusYxsZSLS8nvg==}
+
+  openai@6.34.0:
+    resolution: {integrity: sha512-yEr2jdGf4tVFYG6ohmr3pF6VJuveP0EA/sS8TBx+4Eq5NT10alu5zg2dmxMXMgqpihRDQlFGpRt2XwsGj+Fyxw==}
+    hasBin: true
+    peerDependencies:
+      ws: ^8.18.0
+      zod: ^3.25 || ^4.0
+    peerDependenciesMeta:
+      ws:
+        optional: true
+      zod:
+        optional: true
 
   path-expression-matcher@1.2.1:
     resolution: {integrity: sha512-d7gQQmLvAKXKXE2GeP9apIGbMYKz88zWdsn/BN2HRWVQsDFdUY36WSLTY0Jvd4HWi7Fb30gQ62oAOzdgJA6fZw==}
@@ -1629,6 +1702,9 @@ packages:
   tinyspy@3.0.2:
     resolution: {integrity: sha512-n1cw8k1k0x4pgA2+9XrOkFydTerNcJ1zWCO5Nn9scWHTD+5tp8dghT2x1uduQePZTZgd3Tupf+x9BxJjeJi77Q==}
     engines: {node: '>=14.0.0'}
+
+  ts-algebra@2.0.0:
+    resolution: {integrity: sha512-FPAhNPFMrkwz76P7cdjdmiShwMynZYN6SgOujD1urY4oNm80Ou9oMdmbR45LotcKOXoy7wSmHkRFE6Mxbrhefw==}
 
   tslib@2.8.1:
     resolution: {integrity: sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w==}
@@ -1760,6 +1836,12 @@ packages:
     resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
 
 snapshots:
+
+  '@anthropic-ai/sdk@0.89.0(zod@3.25.76)':
+    dependencies:
+      json-schema-to-ts: 3.1.1
+    optionalDependencies:
+      zod: 3.25.76
 
   '@aws-crypto/crc32@5.2.0':
     dependencies:
@@ -2148,6 +2230,8 @@ snapshots:
       tslib: 2.8.1
 
   '@aws/lambda-invoke-store@0.2.4': {}
+
+  '@babel/runtime@7.29.2': {}
 
   '@biomejs/biome@1.9.4':
     optionalDependencies:
@@ -3224,6 +3308,11 @@ snapshots:
 
   is-fullwidth-code-point@3.0.0: {}
 
+  json-schema-to-ts@3.1.1:
+    dependencies:
+      '@babel/runtime': 7.29.2
+      ts-algebra: 2.0.0
+
   jsonschema@1.5.0: {}
 
   lodash.camelcase@4.3.0: {}
@@ -3245,6 +3334,11 @@ snapshots:
   ollama@0.5.18:
     dependencies:
       whatwg-fetch: 3.6.20
+
+  openai@6.34.0(ws@8.20.0)(zod@3.25.76):
+    optionalDependencies:
+      ws: 8.20.0
+      zod: 3.25.76
 
   path-expression-matcher@1.2.1: {}
 
@@ -3365,6 +3459,8 @@ snapshots:
   tinyrainbow@1.2.0: {}
 
   tinyspy@3.0.2: {}
+
+  ts-algebra@2.0.0: {}
 
   tslib@2.8.1: {}
 

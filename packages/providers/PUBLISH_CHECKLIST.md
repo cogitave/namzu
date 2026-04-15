@@ -4,7 +4,7 @@ Follow this runbook once per new `@namzu/<vendor>` package **before** the first 
 
 ## Per-package order
 
-For each package, in order: `bedrock` → `openrouter` → `ollama` → `lmstudio` → `http` (→ `openai`, `anthropic` when added).
+For each package, in order: `bedrock` → `openrouter` → `ollama` → `lmstudio` → `http` → `openai` → `anthropic`.
 
 ### 1. Placeholder publish (reserve npm name; no provenance)
 
@@ -78,6 +78,8 @@ Create GitHub Release manually if the workflow's release creation step fails fro
 | `@namzu/ollama` | ⏸ batched | ⏸ batched | ⏸ batched |
 | `@namzu/lmstudio` | ⏸ batched | ⏸ batched | ⏸ batched |
 | `@namzu/http` | ⏸ batched | ⏸ batched | ⏸ batched |
+| `@namzu/openai` | ⏸ batched | ⏸ batched | ⏸ batched |
+| `@namzu/anthropic` | ⏸ batched | ⏸ batched | ⏸ batched |
 
 All packages are **implemented + tested + committed** but not yet published. The publish round runs as Phase I.10 (coordinated release) per ADR-0001.
 

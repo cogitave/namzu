@@ -6,6 +6,12 @@
     "lib": ["ES2022"],
     "types": ["node"],
     "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitReturns": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
@@ -13,19 +19,12 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
+    "composite": true,
     "outDir": "./dist",
     "rootDir": "./src"
   },
   "references": [
-    { "path": "./packages/sdk" },
-    { "path": "./packages/computer-use" },
-    { "path": "./packages/providers/bedrock" },
-    { "path": "./packages/providers/openrouter" },
-    { "path": "./packages/providers/ollama" },
-    { "path": "./packages/providers/lmstudio" },
-    { "path": "./packages/providers/http" },
-    { "path": "./packages/providers/openai" },
-    { "path": "./packages/providers/anthropic" }
+    { "path": "../../sdk" }
   ],
-  "files": []
+  "include": ["src/**/*"]
 }
