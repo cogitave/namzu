@@ -6,7 +6,7 @@
 [![CI](https://github.com/cogitave/namzu/actions/workflows/ci.yml/badge.svg)](https://github.com/cogitave/namzu/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-FSL--1.1--MIT-green)](./LICENSE.md)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue)](https://www.typescriptlang.org/)
-[![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](https://nodejs.org/)
+[![Node](https://img.shields.io/badge/node-%3E%3D20-brightgreen)](https://nodejs.org/)
 
 ---
 
@@ -265,9 +265,9 @@ The kernel does not render a UI for this — it emits events and exposes a typed
 
 ### 15. Providers (`provider/`)
 
-An LLM provider implements a narrow interface: given a typed request, return a typed response (streaming or not) and propagate normalized usage, cost, and cache telemetry. Today `provider/openrouter/` and `provider/bedrock/` are in the box; adding another vendor is adding one directory. `provider/telemetry/` normalizes provider-specific response fields (OpenRouter's `cache_read_input_tokens`, `cache_creation_input_tokens`, `cache_discount`, Bedrock's equivalents) into a single kernel-wide telemetry shape.
+An LLM provider implements a narrow interface: given a typed request, return a typed response (streaming or not) and propagate normalized usage, cost, and cache telemetry. Concrete providers live in dedicated sibling packages — `@namzu/anthropic`, `@namzu/bedrock`, `@namzu/http`, `@namzu/lmstudio`, `@namzu/ollama`, `@namzu/openai`, `@namzu/openrouter` — each calling `ProviderRegistry.register('<vendor>', Class, capabilities)` via a `register<Vendor>()` helper. The kernel itself ships only the `LLMProvider` interface, the `ProviderRegistry`, and a pre-registered `MockLLMProvider` for tests and offline work. `provider/telemetry/` normalizes provider-specific response fields (`cache_read_input_tokens`, `cache_creation_input_tokens`, `cache_discount`, Bedrock equivalents) into a single kernel-wide telemetry shape.
 
-`ProviderFactory` is the single entry point. Every run chooses its provider by name; the provider object itself is stateless enough to be shared across runs.
+`ProviderRegistry` is the single entry point. `ProviderRegistry.create({ type, ... })` returns `{ provider, capabilities }`; TypeScript module augmentation from each provider package gives type-narrowed config. Providers are stateless enough to be shared across runs.
 
 ### 16. Connectors (`connector/`)
 
@@ -321,16 +321,21 @@ A **thread** is a conversation: a series of user ↔ assistant messages, possibl
 ## Install
 
 ```bash
-npm install @namzu/sdk
+pnpm add @namzu/sdk
 ```
 
-Requirements: Node ≥ 22, TypeScript strict mode, ESM.
+Requirements: Node ≥ 20, TypeScript strict mode, ESM.
+
+The SDK ships the kernel only. Pick an LLM backend by adding a provider package — `@namzu/anthropic`, `@namzu/openai`, `@namzu/ollama`, `@namzu/bedrock`, `@namzu/openrouter`, `@namzu/lmstudio`, or the zero-dep `@namzu/http`. The kernel alone runs against `MockLLMProvider`, which is pre-registered and good for tests.
 
 ## Quick Start
 
 ```typescript
-import { defineTool, ProviderFactory, ReactiveAgent, ToolRegistry } from '@namzu/sdk'
+import { defineTool, ProviderRegistry, ReactiveAgent, ToolRegistry } from '@namzu/sdk'
+import { registerOpenRouter } from '@namzu/openrouter'
 import { z } from 'zod'
+
+registerOpenRouter()
 
 const searchWeb = defineTool({
   name: 'search_web',
@@ -347,7 +352,7 @@ const searchWeb = defineTool({
   },
 })
 
-const provider = ProviderFactory.createProvider({
+const { provider } = ProviderRegistry.create({
   type: 'openrouter',
   apiKey: process.env.OPENROUTER_KEY!,
 })
@@ -365,11 +370,11 @@ const agent = new ReactiveAgent({
 
 const result = await agent.run(
   { messages: [{ role: 'user', content: 'Summarize the latest LLM benchmarks' }], workingDirectory: process.cwd() },
-  { model: 'anthropic/claude-sonnet-4-20250514', tokenBudget: 8192, timeoutMs: 600_000, provider, tools },
+  { model: 'anthropic/claude-sonnet-4', tokenBudget: 8192, timeoutMs: 600_000, provider, tools },
 )
 ```
 
-That is a complete, sandbox-isolated, checkpointed, telemetrized agent run with prompt caching, progressive tool disclosure, structured compaction, and emergency save all wired in by default. Those are not features you enable; they are how the kernel runs.
+That is a complete, sandbox-isolated, checkpointed, telemetrized agent run with prompt caching, progressive tool disclosure, structured compaction, and emergency save all wired in by default. Those are not features you enable; they are how the kernel runs. Swap `registerOpenRouter()` for `registerOllama()`, `registerAnthropic()`, `registerBedrock()`, `registerOpenAI()`, `registerLMStudio()`, or `registerHttp()` — the code below the registration line stays identical.
 
 Examples for `PipelineAgent`, `RouterAgent`, and `SupervisorAgent` are in `src/agents/`.
 
