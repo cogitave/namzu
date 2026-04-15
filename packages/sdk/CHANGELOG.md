@@ -2,7 +2,12 @@
 
 All notable changes to Namzu are documented here.
 
-## [sdk-v0.1.6-rc.1] — 2026-04-15
+## [0.1.6] — 2026-04-15
+
+### Documentation
+
+- **changelog**: update for sdk-v0.1.6-rc.1
+## [0.1.6-rc.1] — 2026-04-15
 
 ### Documentation
 
