@@ -7,6 +7,7 @@ export { GrepTool } from './grep.js'
 export { LsTool } from './ls.js'
 export { SearchToolsTool } from './search-tools.js'
 export { createStructuredOutputTool, STRUCTURED_OUTPUT_TOOL_NAME } from './structuredOutput.js'
+export { createComputerUseTool, COMPUTER_USE_TOOL_NAME } from './computer-use.js'
 
 import type { ToolDefinition } from '../../types/tool/index.js'
 import { BashTool } from './bash.js'
