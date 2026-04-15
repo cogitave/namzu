@@ -31,6 +31,10 @@ export class DuplicateProviderError extends Error {
 	}
 }
 
+// Module-private state. Only the exported functions below can read/mutate.
+const providers = new Map<string, LLMProviderConstructor<unknown>>()
+const capabilities = new Map<string, ProviderCapabilities>()
+
 /**
  * Central registry for LLM providers.
  *
@@ -54,30 +58,27 @@ export class DuplicateProviderError extends Error {
  * ```
  */
 export class ProviderRegistry {
-	private static providers = new Map<string, LLMProviderConstructor<unknown>>()
-	private static capabilities = new Map<string, ProviderCapabilities>()
-
 	static register<K extends ProviderType>(
 		type: K,
 		ctor: LLMProviderConstructor<ProviderConfigRegistry[K]>,
 		caps: ProviderCapabilities,
 		options?: RegisterOptions,
 	): void {
-		if (ProviderRegistry.providers.has(type) && !options?.replace) {
+		if (providers.has(type) && !options?.replace) {
 			throw new DuplicateProviderError(type)
 		}
-		ProviderRegistry.providers.set(type, ctor as LLMProviderConstructor<unknown>)
-		ProviderRegistry.capabilities.set(type, caps)
+		providers.set(type, ctor as LLMProviderConstructor<unknown>)
+		capabilities.set(type, caps)
 	}
 
 	static create(config: ProviderFactoryConfig): ProviderFactoryResult {
 		const provider = ProviderRegistry.createProvider(config)
-		const capabilities = ProviderRegistry.getCapabilities(config.type)
-		return { provider, capabilities }
+		const caps = ProviderRegistry.getCapabilities(config.type)
+		return { provider, capabilities: caps }
 	}
 
 	static createProvider(config: ProviderFactoryConfig): LLMProvider {
-		const Ctor = ProviderRegistry.providers.get(config.type)
+		const Ctor = providers.get(config.type)
 		if (!Ctor) {
 			throw new UnknownProviderError(config.type)
 		}
@@ -85,7 +86,7 @@ export class ProviderRegistry {
 	}
 
 	static getCapabilities(type: string): ProviderCapabilities {
-		const caps = ProviderRegistry.capabilities.get(type)
+		const caps = capabilities.get(type)
 		if (!caps) {
 			throw new UnknownProviderError(type)
 		}
@@ -93,24 +94,25 @@ export class ProviderRegistry {
 	}
 
 	static isSupported(type: string): type is ProviderType {
-		return ProviderRegistry.providers.has(type)
+		return providers.has(type)
 	}
 
 	static unregister(type: ProviderType): boolean {
-		ProviderRegistry.capabilities.delete(type)
-		return ProviderRegistry.providers.delete(type)
+		capabilities.delete(type)
+		return providers.delete(type)
 	}
 
 	static listTypes(): ProviderType[] {
-		return Array.from(ProviderRegistry.providers.keys()) as ProviderType[]
+		return Array.from(providers.keys()) as ProviderType[]
 	}
+}
 
-	/**
-	 * Testing-only: wipe all registrations.
-	 * Caller is responsible for re-registering after reset (e.g. via `registerMock()`).
-	 */
-	static _reset(): void {
-		ProviderRegistry.providers.clear()
-		ProviderRegistry.capabilities.clear()
-	}
+/**
+ * @internal — not exported from the package barrel. Do not use in production code.
+ * Available to in-tree tests via relative import (`./provider/registry.js`).
+ * External consumers cannot reach this because `@namzu/sdk` only exports `.`.
+ */
+export function __resetProviderRegistryInternal(): void {
+	providers.clear()
+	capabilities.clear()
 }

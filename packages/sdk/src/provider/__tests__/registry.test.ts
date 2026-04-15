@@ -2,19 +2,30 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import type { LLMProvider, ProviderCapabilities } from '../../types/provider/index.js'
 import { registerMock } from '../mock-register.js'
 import { MockLLMProvider } from '../mock.js'
-import { DuplicateProviderError, ProviderRegistry, UnknownProviderError } from '../registry.js'
+import {
+	DuplicateProviderError,
+	ProviderRegistry,
+	UnknownProviderError,
+	__resetProviderRegistryInternal,
+} from '../registry.js'
 
-const MOCK_CAPS: ProviderCapabilities = {
-	supportsTools: false,
-	supportsStreaming: true,
-	supportsFunctionCalling: false,
+// Simulate a downstream provider package's type registration via module augmentation.
+// This is the pattern @namzu/bedrock, @namzu/openai, etc. use in their own code.
+interface TestProviderConfig {
+	type: 'test'
+	value?: string
 }
 
-// Helper: custom provider for tests
+declare module '../../types/provider/config.js' {
+	interface ProviderConfigRegistry {
+		test: TestProviderConfig
+	}
+}
+
 class TestProvider implements LLMProvider {
 	readonly id = 'test'
 	readonly name = 'Test'
-	constructor(public readonly config: unknown) {}
+	constructor(public readonly config: TestProviderConfig) {}
 	async chat() {
 		return {
 			id: 'x',
@@ -35,15 +46,21 @@ class TestProvider implements LLMProvider {
 	}
 }
 
+const TEST_CAPS: ProviderCapabilities = {
+	supportsTools: false,
+	supportsStreaming: true,
+	supportsFunctionCalling: false,
+}
+
 describe('ProviderRegistry', () => {
 	beforeEach(() => {
-		ProviderRegistry._reset()
+		__resetProviderRegistryInternal()
 		registerMock()
 	})
 
 	describe('register', () => {
 		it('registers a provider and stores capabilities', () => {
-			ProviderRegistry.register('test' as never, TestProvider as never, {
+			ProviderRegistry.register('test', TestProvider, {
 				supportsTools: true,
 				supportsStreaming: false,
 				supportsFunctionCalling: true,
@@ -54,23 +71,21 @@ describe('ProviderRegistry', () => {
 		})
 
 		it('throws DuplicateProviderError on re-register without replace', () => {
-			ProviderRegistry.register('test' as never, TestProvider as never, MOCK_CAPS)
-			expect(() =>
-				ProviderRegistry.register('test' as never, TestProvider as never, MOCK_CAPS),
-			).toThrowError(DuplicateProviderError)
+			ProviderRegistry.register('test', TestProvider, TEST_CAPS)
+			expect(() => ProviderRegistry.register('test', TestProvider, TEST_CAPS)).toThrowError(
+				DuplicateProviderError,
+			)
 		})
 
 		it('allows replacement when { replace: true }', () => {
-			ProviderRegistry.register('test' as never, TestProvider as never, MOCK_CAPS)
+			ProviderRegistry.register('test', TestProvider, TEST_CAPS)
 			const newCaps: ProviderCapabilities = {
 				supportsTools: true,
 				supportsStreaming: true,
 				supportsFunctionCalling: true,
 			}
 			expect(() =>
-				ProviderRegistry.register('test' as never, TestProvider as never, newCaps, {
-					replace: true,
-				}),
+				ProviderRegistry.register('test', TestProvider, newCaps, { replace: true }),
 			).not.toThrow()
 			expect(ProviderRegistry.getCapabilities('test').supportsTools).toBe(true)
 		})
@@ -87,9 +102,9 @@ describe('ProviderRegistry', () => {
 		})
 
 		it('throws UnknownProviderError for unregistered type', () => {
-			expect(() => ProviderRegistry.create({ type: 'nonexistent' as never })).toThrowError(
-				UnknownProviderError,
-			)
+			expect(() =>
+				ProviderRegistry.create({ type: 'nonexistent' } as unknown as { type: 'mock' }),
+			).toThrowError(UnknownProviderError)
 		})
 	})
 
@@ -105,30 +120,22 @@ describe('ProviderRegistry', () => {
 
 	describe('unregister', () => {
 		it('removes provider and capabilities', () => {
-			ProviderRegistry.register('test' as never, TestProvider as never, MOCK_CAPS)
-			expect(ProviderRegistry.unregister('test' as never)).toBe(true)
+			ProviderRegistry.register('test', TestProvider, TEST_CAPS)
+			expect(ProviderRegistry.unregister('test')).toBe(true)
 			expect(ProviderRegistry.isSupported('test')).toBe(false)
 		})
 
 		it('returns false when type is not registered', () => {
-			expect(ProviderRegistry.unregister('absent' as never)).toBe(false)
+			expect(ProviderRegistry.unregister('test')).toBe(false)
 		})
 	})
 
 	describe('listTypes', () => {
 		it('returns all registered types', () => {
-			ProviderRegistry.register('test' as never, TestProvider as never, MOCK_CAPS)
+			ProviderRegistry.register('test', TestProvider, TEST_CAPS)
 			const types = ProviderRegistry.listTypes()
 			expect(types).toContain('mock')
 			expect(types).toContain('test')
-		})
-	})
-
-	describe('_reset', () => {
-		it('clears all registrations', () => {
-			ProviderRegistry._reset()
-			expect(ProviderRegistry.listTypes()).toHaveLength(0)
-			expect(ProviderRegistry.isSupported('mock')).toBe(false)
 		})
 	})
 
