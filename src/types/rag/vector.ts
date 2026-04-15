@@ -1,4 +1,4 @@
-import type { ChunkId, DocumentId, KnowledgeBaseId } from '../ids/index.js'
+import type { ChunkId, DocumentId, KnowledgeBaseId, TenantId } from '../ids/index.js'
 import type { Chunk } from './storage.js'
 
 export interface VectorSearchResult {
@@ -9,7 +9,7 @@ export interface VectorSearchResult {
 export interface VectorStoreQuery {
 	embedding: number[]
 	topK: number
-	tenantId: string
+	tenantId: TenantId
 	knowledgeBaseId?: KnowledgeBaseId
 	filter?: Record<string, unknown>
 	minScore?: number
@@ -20,5 +20,5 @@ export interface VectorStore {
 	search(query: VectorStoreQuery): Promise<VectorSearchResult[]>
 	delete(chunkIds: ChunkId[]): Promise<void>
 	deleteByDocument(documentId: DocumentId): Promise<void>
-	deleteByKnowledgeBase(knowledgeBaseId: KnowledgeBaseId, tenantId: string): Promise<void>
+	deleteByKnowledgeBase(knowledgeBaseId: KnowledgeBaseId, tenantId: TenantId): Promise<void>
 }

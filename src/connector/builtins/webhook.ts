@@ -25,7 +25,7 @@ const WebhookSendInputSchema = z.object({
 })
 
 export class WebhookConnector extends BaseConnector<WebhookConnectorConfig> {
-	readonly id = 'webhook'
+	readonly id = 'conn_webhook' as const
 	readonly name = 'Webhook Connector'
 	readonly description = 'Send webhook payloads to configured endpoints with optional HMAC signing'
 	readonly connectionType: ConnectionType = 'webhook'

@@ -1,4 +1,4 @@
-import type { ConnectorInstanceId, MCPClientId, MCPServerId } from '../ids/index.js'
+import type { ConnectorId, ConnectorInstanceId, MCPClientId, MCPServerId } from '../ids/index.js'
 import type {
 	ConnectorDefinition,
 	ConnectorExecuteParams,
@@ -180,7 +180,7 @@ export interface MCPConnectorBridgeConfig {
 
 export interface MCPConnectorBridgeToolMapping {
 	mcpToolName: string
-	connectorId: string
+	connectorId: ConnectorId
 	instanceId: ConnectorInstanceId
 	methodName: string
 }
@@ -205,8 +205,8 @@ export type MCPEventListener = (event: MCPLifecycleEvent) => void
 type ConnectorManager = {
 	getInstance(instanceId: ConnectorInstanceId): ConnectorInstance | undefined
 	getRegistry(): {
-		get(connectorId: string): ConnectorDefinition | undefined
-		getOrThrow(connectorId: string): ConnectorDefinition
+		get(connectorId: ConnectorId): ConnectorDefinition | undefined
+		getOrThrow(connectorId: ConnectorId): ConnectorDefinition
 	}
 	listConnectedInstances(): ConnectorInstance[]
 	execute(params: ConnectorExecuteParams): Promise<ConnectorExecuteResult>

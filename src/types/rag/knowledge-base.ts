@@ -1,4 +1,4 @@
-import type { DocumentId, KnowledgeBaseId } from '../ids/index.js'
+import type { DocumentId, KnowledgeBaseId, TenantId } from '../ids/index.js'
 import type { ChunkingConfig } from './chunking.js'
 import type { EmbeddingConfig } from './embedding.js'
 import type { IngestionResult } from './ingestion.js'
@@ -9,7 +9,7 @@ export interface KnowledgeBaseConfig {
 	id?: KnowledgeBaseId
 	name: string
 	description?: string
-	tenantId: string
+	tenantId: TenantId
 	namespace?: string
 	chunking?: Partial<ChunkingConfig>
 	retrieval?: Partial<RetrievalConfig>

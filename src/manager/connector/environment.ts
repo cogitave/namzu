@@ -16,7 +16,7 @@ import type {
 	ResolvedConnectorConfig,
 	ScopeChain,
 } from '../../types/connector/index.js'
-import type { EnvironmentId } from '../../types/ids/index.js'
+import type { ConnectorId, EnvironmentId } from '../../types/ids/index.js'
 import { toErrorMessage } from '../../utils/error.js'
 import { type Logger, getRootLogger } from '../../utils/logger.js'
 import { ConnectorManager } from './lifecycle.js'
@@ -28,7 +28,7 @@ export interface EnvironmentConnectorSetup {
 
 	executionContext?: ExecutionContextConfig
 
-	connectorOverrides?: Record<string, Partial<ConnectorConfig>>
+	connectorOverrides?: Record<ConnectorId, Partial<ConnectorConfig>>
 }
 
 export interface EnvironmentConnectorManagerConfig {
@@ -44,7 +44,7 @@ interface EnvironmentState {
 	scopeChain: ScopeChain
 	manager: ConnectorManager
 	executionContext?: BaseExecutionContext
-	connectorOverrides: Record<string, Partial<ConnectorConfig>>
+	connectorOverrides: Record<ConnectorId, Partial<ConnectorConfig>>
 }
 
 export class EnvironmentConnectorManager {
@@ -121,7 +121,7 @@ export class EnvironmentConnectorManager {
 
 	resolveConnectorConfig(
 		envId: EnvironmentId,
-		connectorId: string,
+		connectorId: ConnectorId,
 	): ResolvedConnectorConfig | undefined {
 		const state = this.getEnvironmentOrThrow(envId)
 		const resolved = this.scopedRegistry.resolve(connectorId, state.scopeChain)
@@ -147,7 +147,7 @@ export class EnvironmentConnectorManager {
 
 	async createConnectorFromScope(
 		envId: EnvironmentId,
-		connectorId: string,
+		connectorId: ConnectorId,
 		connector: BaseConnector<unknown>,
 	): Promise<ConnectorInstance> {
 		const state = this.getEnvironmentOrThrow(envId)

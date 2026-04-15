@@ -1,5 +1,5 @@
 import type { AuthConfig, CredentialRef, CredentialVault } from '../types/connector/index.js'
-import type { CredentialId, TenantId } from '../types/ids/index.js'
+import type { ConnectorId, CredentialId, TenantId } from '../types/ids/index.js'
 import { generateCredentialId } from '../utils/id.js'
 import { type Logger, getRootLogger } from '../utils/logger.js'
 
@@ -14,7 +14,7 @@ export class InMemoryCredentialVault implements CredentialVault {
 
 	async store(
 		tenantId: TenantId,
-		connectorId: string,
+		connectorId: ConnectorId,
 		label: string,
 		auth: AuthConfig,
 	): Promise<CredentialRef> {
@@ -48,7 +48,7 @@ export class InMemoryCredentialVault implements CredentialVault {
 		return existed
 	}
 
-	async list(tenantId: TenantId, connectorId?: string): Promise<CredentialRef[]> {
+	async list(tenantId: TenantId, connectorId?: ConnectorId): Promise<CredentialRef[]> {
 		const results: CredentialRef[] = []
 		for (const ref of this.refs.values()) {
 			if (ref.tenantId !== tenantId) continue

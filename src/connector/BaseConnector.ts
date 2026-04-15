@@ -7,10 +7,11 @@ import type {
 	ConnectorLifecycle,
 	ConnectorMethod,
 } from '../types/connector/index.js'
+import type { ConnectorId } from '../types/ids/index.js'
 import { type Logger, getRootLogger } from '../utils/logger.js'
 
 export abstract class BaseConnector<TConfig = unknown> implements ConnectorLifecycle<TConfig> {
-	abstract readonly id: string
+	abstract readonly id: ConnectorId
 	abstract readonly name: string
 	abstract readonly description: string
 	abstract readonly connectionType: ConnectionType

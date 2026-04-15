@@ -25,7 +25,7 @@ const HttpRequestInputSchema = z.object({
 })
 
 export class HttpConnector extends BaseConnector<HttpConnectorConfig> {
-	readonly id = 'http'
+	readonly id = 'conn_http' as const
 	readonly name = 'HTTP Connector'
 	readonly description = 'Generic HTTP/REST API connector for making HTTP requests'
 	readonly connectionType: ConnectionType = 'http'

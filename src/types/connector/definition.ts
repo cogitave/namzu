@@ -1,5 +1,5 @@
 import type { z } from 'zod'
-import type { ConnectorInstanceId } from '../ids/index.js'
+import type { ConnectorId, ConnectorInstanceId } from '../ids/index.js'
 import type {
 	AuthConfig,
 	AuthType,
@@ -11,7 +11,7 @@ import type {
 } from './core.js'
 
 export interface ConnectorDefinition<TConfig = unknown> {
-	id: string
+	id: ConnectorId
 	name: string
 	description: string
 	version?: string
@@ -24,7 +24,7 @@ export interface ConnectorDefinition<TConfig = unknown> {
 }
 
 export interface ConnectorConfig {
-	connectorId: string
+	connectorId: ConnectorId
 	name: string
 	auth?: AuthConfig
 	options?: Record<string, unknown>
@@ -32,7 +32,7 @@ export interface ConnectorConfig {
 
 export interface ConnectorInstance {
 	id: ConnectorInstanceId
-	connectorId: string
+	connectorId: ConnectorId
 	config: ConnectorConfig
 	status: ConnectorStatus
 	createdAt: number
@@ -63,9 +63,9 @@ export interface ConnectorLifecycle<TConfig = unknown> {
 }
 
 export type ConnectorLifecycleEvent =
-	| { type: 'connector_registered'; connectorId: string }
-	| { type: 'connector_unregistered'; connectorId: string }
-	| { type: 'instance_created'; instanceId: ConnectorInstanceId; connectorId: string }
+	| { type: 'connector_registered'; connectorId: ConnectorId }
+	| { type: 'connector_unregistered'; connectorId: ConnectorId }
+	| { type: 'instance_created'; instanceId: ConnectorInstanceId; connectorId: ConnectorId }
 	| { type: 'instance_connecting'; instanceId: ConnectorInstanceId }
 	| { type: 'instance_connected'; instanceId: ConnectorInstanceId }
 	| { type: 'instance_disconnected'; instanceId: ConnectorInstanceId }

@@ -1,5 +1,7 @@
+import type { TenantId } from '../ids/index.js'
+
 export interface TenantScope {
-	tenantId: string
+	tenantId: TenantId
 	namespace?: string
 }
 

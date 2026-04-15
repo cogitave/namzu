@@ -1,5 +1,5 @@
 import type { z } from 'zod'
-import type { ConnectorInstanceId } from '../ids/index.js'
+import type { ConnectorId, ConnectorInstanceId } from '../ids/index.js'
 
 export type ConnectionType = 'http' | 'webhook' | 'custom'
 
@@ -39,7 +39,7 @@ export interface ConnectorTrigger {
 }
 
 export interface ConnectorEvent {
-	connectorId: string
+	connectorId: ConnectorId
 	instanceId: ConnectorInstanceId
 	trigger: string
 	payload: unknown

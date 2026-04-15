@@ -1,4 +1,4 @@
-import type { CredentialId, EnvironmentId, TenantId } from '../ids/index.js'
+import type { ConnectorId, CredentialId, EnvironmentId, TenantId } from '../ids/index.js'
 import type { AuthConfig, AuthType } from './core.js'
 
 export type EnvironmentTier = 'production' | 'staging' | 'development' | 'testing'
@@ -25,7 +25,7 @@ export interface TenantRateLimitConfig {
 
 export interface CredentialRef {
 	id: CredentialId
-	connectorId: string
+	connectorId: ConnectorId
 	tenantId: TenantId
 	label: string
 	authType: AuthType
@@ -36,11 +36,11 @@ export interface CredentialRef {
 export interface CredentialVault {
 	store(
 		tenantId: TenantId,
-		connectorId: string,
+		connectorId: ConnectorId,
 		label: string,
 		auth: AuthConfig,
 	): Promise<CredentialRef>
 	retrieve(credentialId: CredentialId): Promise<AuthConfig | undefined>
 	revoke(credentialId: CredentialId): Promise<boolean>
-	list(tenantId: TenantId, connectorId?: string): Promise<CredentialRef[]>
+	list(tenantId: TenantId, connectorId?: ConnectorId): Promise<CredentialRef[]>
 }

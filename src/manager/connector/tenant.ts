@@ -11,7 +11,12 @@ import type {
 	TenantDescriptor,
 	TenantRateLimitConfig,
 } from '../../types/connector/index.js'
-import type { ConnectorInstanceId, CredentialId, TenantId } from '../../types/ids/index.js'
+import type {
+	ConnectorId,
+	ConnectorInstanceId,
+	CredentialId,
+	TenantId,
+} from '../../types/ids/index.js'
 import { toErrorMessage } from '../../utils/error.js'
 import { type Logger, getRootLogger } from '../../utils/logger.js'
 import { ConnectorManager } from './lifecycle.js'
@@ -176,7 +181,7 @@ export class TenantConnectorManager {
 
 	async storeCredential(
 		tenantId: TenantId,
-		connectorId: string,
+		connectorId: ConnectorId,
 		label: string,
 		auth: import('../../types/connector/index.js').AuthConfig,
 	): Promise<import('../../types/connector/index.js').CredentialRef> {
@@ -189,7 +194,7 @@ export class TenantConnectorManager {
 
 	async listCredentials(
 		tenantId: TenantId,
-		connectorId?: string,
+		connectorId?: ConnectorId,
 	): Promise<import('../../types/connector/index.js').CredentialRef[]> {
 		if (!this.credentialVault) {
 			return []

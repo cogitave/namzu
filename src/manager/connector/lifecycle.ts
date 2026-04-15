@@ -9,7 +9,7 @@ import type {
 	ConnectorLifecycleEvent,
 	ConnectorStatus,
 } from '../../types/connector/index.js'
-import type { ConnectorInstanceId } from '../../types/ids/index.js'
+import type { ConnectorId, ConnectorInstanceId } from '../../types/ids/index.js'
 import { toErrorMessage } from '../../utils/error.js'
 import { generateConnectorInstanceId } from '../../utils/id.js'
 import { type Logger, getRootLogger } from '../../utils/logger.js'
@@ -198,7 +198,7 @@ export class ConnectorManager {
 		return Array.from(this.instances.values())
 	}
 
-	listInstancesByConnector(connectorId: string): ConnectorInstance[] {
+	listInstancesByConnector(connectorId: ConnectorId): ConnectorInstance[] {
 		return this.listInstances().filter((i) => i.connectorId === connectorId)
 	}
 
