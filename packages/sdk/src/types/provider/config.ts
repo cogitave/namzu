@@ -20,11 +20,10 @@ import type { LLMProvider } from './interface.js'
  */
 export interface ProviderConfigRegistry {
 	mock: MockProviderConfig
-	// Transitional: bedrock + openrouter still live in sdk core until
-	// extracted to their own packages (@namzu/bedrock, @namzu/openrouter).
-	// Once extracted, these keys are removed here and re-added via module
-	// augmentation in the provider packages.
-	bedrock: BedrockProviderConfig
+	// Transitional: openrouter still lives in sdk core until extracted to its
+	// own package (@namzu/openrouter). Once extracted, this key is removed here
+	// and re-added via module augmentation in the provider package.
+	// Bedrock has been extracted to @namzu/bedrock (ADR-0001).
 	openrouter: OpenRouterProviderConfig
 }
 
@@ -51,18 +50,6 @@ export interface OpenRouterConfig {
 
 export interface OpenRouterProviderConfig extends OpenRouterConfig {
 	type: 'openrouter'
-}
-
-export interface BedrockConfig {
-	region?: string
-	accessKeyId?: string
-	secretAccessKey?: string
-	sessionToken?: string
-	timeout?: number
-}
-
-export interface BedrockProviderConfig extends BedrockConfig {
-	type: 'bedrock'
 }
 
 export interface ProviderCapabilities {

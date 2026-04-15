@@ -14,23 +14,16 @@ import type {
 	ToolResultContentBlock,
 	ToolUseBlock,
 } from '@aws-sdk/client-bedrock-runtime'
-import { SpanStatusCode } from '@opentelemetry/api'
-import { GENAI, NAMZU, chatSpanName } from '../../telemetry/attributes.js'
-import type { TokenUsage } from '../../types/common/index.js'
 import type {
 	ChatCompletionParams,
 	ChatCompletionResponse,
 	LLMProvider,
 	ModelInfo,
 	StreamChunk,
+	TokenUsage,
 	ToolChoice,
-} from '../../types/provider/index.js'
-import type { BedrockConfig } from '../../types/provider/index.js'
-import { toErrorMessage } from '../../utils/error.js'
-import { getRootLogger } from '../../utils/logger.js'
-import { getTracer } from '../telemetry/setup.js'
-
-const logger = getRootLogger().child({ component: 'BedrockProvider' })
+} from '@namzu/sdk'
+import type { BedrockConfig } from './types.js'
 
 function extractSystemBlocks(messages: ChatCompletionParams['messages']): SystemContentBlock[] {
 	return messages
@@ -287,89 +280,45 @@ export class BedrockProvider implements LLMProvider {
 	}
 
 	async chat(params: ChatCompletionParams): Promise<ChatCompletionResponse> {
-		const tracer = getTracer()
+		const system = extractSystemBlocks(params.messages)
+		const messages = toBedrockMessages(params.messages)
+		const toolConfig = toBedrockToolConfig(params)
 
-		return tracer.startActiveSpan(chatSpanName(params.model), async (span) => {
-			span.setAttributes({
-				[GENAI.OPERATION_NAME]: 'chat',
-				[GENAI.SYSTEM]: 'bedrock',
-				[GENAI.REQUEST_MODEL]: params.model,
-			})
-			if (params.temperature !== undefined) {
-				span.setAttribute(GENAI.REQUEST_TEMPERATURE, params.temperature)
-			}
-			if (params.maxTokens !== undefined) {
-				span.setAttribute(GENAI.REQUEST_MAX_TOKENS, params.maxTokens)
-			}
+		const inferenceConfig: Record<string, unknown> = {}
+		if (params.maxTokens !== undefined) inferenceConfig.maxTokens = params.maxTokens
+		if (params.temperature !== undefined) inferenceConfig.temperature = params.temperature
+		if (params.topP !== undefined) inferenceConfig.topP = params.topP
+		if (params.stop) inferenceConfig.stopSequences = params.stop
 
-			try {
-				const system = extractSystemBlocks(params.messages)
-				const messages = toBedrockMessages(params.messages)
-				const toolConfig = toBedrockToolConfig(params)
-
-				const inferenceConfig: Record<string, unknown> = {}
-				if (params.maxTokens !== undefined) inferenceConfig.maxTokens = params.maxTokens
-				if (params.temperature !== undefined) inferenceConfig.temperature = params.temperature
-				if (params.topP !== undefined) inferenceConfig.topP = params.topP
-				if (params.stop) inferenceConfig.stopSequences = params.stop
-
-				logger.debug('Sending Bedrock Converse request', {
-					model: params.model,
-				})
-
-				const command = new ConverseCommand({
-					modelId: params.model,
-					system: system.length > 0 ? system : undefined,
-					messages,
-					toolConfig,
-					inferenceConfig,
-				})
-
-				const response = await this.client.send(command, {
-					requestTimeout: this.config.timeout ?? 120_000,
-				})
-
-				const { text, toolCalls } = extractResponseContent(response.output?.message?.content)
-				const usage = parseUsage(response.usage as RawBedrockUsage | undefined)
-				const finishReason = mapStopReason(response.stopReason)
-
-				const requestId = response.$metadata.requestId ?? `bedrock-${Date.now()}`
-
-				const result: ChatCompletionResponse = {
-					id: requestId,
-					model: params.model,
-					message: {
-						role: 'assistant',
-						content: text,
-						toolCalls,
-					},
-					finishReason,
-					usage,
-				}
-
-				span.setAttributes({
-					[GENAI.RESPONSE_ID]: requestId,
-					[GENAI.RESPONSE_MODEL]: params.model,
-					[GENAI.RESPONSE_FINISH_REASONS]: finishReason,
-					[GENAI.USAGE_INPUT_TOKENS]: usage.promptTokens,
-					[GENAI.USAGE_OUTPUT_TOKENS]: usage.completionTokens,
-					[NAMZU.CACHE_READ_TOKENS]: usage.cachedTokens,
-					[NAMZU.CACHE_WRITE_TOKENS]: usage.cacheWriteTokens,
-				})
-				span.setStatus({ code: SpanStatusCode.OK })
-
-				return result
-			} catch (err) {
-				span.setStatus({
-					code: SpanStatusCode.ERROR,
-					message: toErrorMessage(err),
-				})
-				span.recordException(err instanceof Error ? err : new Error(String(err)))
-				throw err
-			} finally {
-				span.end()
-			}
+		const command = new ConverseCommand({
+			modelId: params.model,
+			system: system.length > 0 ? system : undefined,
+			messages,
+			toolConfig,
+			inferenceConfig,
 		})
+
+		const response = await this.client.send(command, {
+			requestTimeout: this.config.timeout ?? 120_000,
+		})
+
+		const { text, toolCalls } = extractResponseContent(response.output?.message?.content)
+		const usage = parseUsage(response.usage as RawBedrockUsage | undefined)
+		const finishReason = mapStopReason(response.stopReason)
+
+		const requestId = response.$metadata.requestId ?? `bedrock-${Date.now()}`
+
+		return {
+			id: requestId,
+			model: params.model,
+			message: {
+				role: 'assistant',
+				content: text,
+				toolCalls,
+			},
+			finishReason,
+			usage,
+		}
 	}
 
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
@@ -481,15 +430,12 @@ export class BedrockProvider implements LLMProvider {
 					}
 				}
 			} catch (parseErr) {
-				logger.warn('Failed to process Bedrock stream event', {
-					error: toErrorMessage(parseErr),
-				})
 				yield {
 					id: requestId,
 					delta: { content: undefined },
 					finishReason: undefined,
 					usage: undefined,
-					error: `Stream parse error: ${toErrorMessage(parseErr)}`,
+					error: `Stream parse error: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
 				}
 			}
 		}

@@ -13,8 +13,6 @@ export type {
 	ProviderType,
 	OpenRouterConfig,
 	OpenRouterProviderConfig,
-	BedrockConfig,
-	BedrockProviderConfig,
 	MockProviderConfig,
 	ProviderFactoryConfig,
 	ProviderCapabilities,

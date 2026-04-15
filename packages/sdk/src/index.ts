@@ -186,11 +186,9 @@ export {
 	MockLLMProvider,
 	registerMock,
 	MOCK_CAPABILITIES,
-	// Transitional — these move to @namzu/bedrock / @namzu/openrouter in upcoming releases
-	BedrockProvider,
+	// Transitional — OpenRouter moves to @namzu/openrouter in an upcoming release.
+	// Bedrock has been extracted to @namzu/bedrock (ADR-0001).
 	OpenRouterProvider,
-	registerBedrock,
-	BEDROCK_CAPABILITIES,
 	registerOpenRouter,
 	OPENROUTER_CAPABILITIES,
 } from './provider/index.js'
