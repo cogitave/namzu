@@ -2,6 +2,19 @@
 
 All notable changes to Namzu are documented here.
 
+## [0.1.7] — 2026-04-15
+
+### Documentation
+
+- **changelog**: add 0.1.6 (sdk) and 0.1.0 (computer-use) entries; fix cliff tag prefix + workflow race
+### Features
+
+- **bedrock**: extract BedrockProvider to @namzu/bedrock package (Phase I.3 pilot)
+- **openrouter**: extract OpenRouterProvider to @namzu/openrouter package (Phase I.4)
+### Refactor
+
+- **sdk**: address Codex review — scope providers/ subfolder, hide registry reset
+- **sdk**: replace ProviderFactory with ProviderRegistry for per-vendor extraction [**BREAKING**]
 ## [0.1.6] — 2026-04-15
 
 ### Documentation
