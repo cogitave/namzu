@@ -58,13 +58,13 @@ The goal is not to be minimal — the kernel is plenty rich. The goal is to keep
 |---------------------------|----------------------------------------------------------------------|-----------------|---------------|
 | `@namzu/sdk`              | The kernel — runtime, agents, tools, registry, stores, RAG, connectors | `0.1.7`         | published     |
 | `@namzu/computer-use`     | Subprocess-based `ComputerUseHost` (screenshot, mouse, keyboard)     | `0.1.0`         | published     |
-| `@namzu/anthropic`        | Anthropic Messages API provider                                      | `0.1.0`         | unpublished   |
-| `@namzu/openai`           | OpenAI Chat Completions provider                                     | `0.1.0`         | unpublished   |
-| `@namzu/bedrock`          | AWS Bedrock Converse provider                                        | `0.1.0`         | unpublished   |
-| `@namzu/openrouter`       | OpenRouter aggregated-model provider                                 | `0.1.0`         | unpublished   |
-| `@namzu/ollama`           | Local Ollama provider                                                | `0.1.0`         | unpublished   |
-| `@namzu/lmstudio`         | LM Studio local-inference provider (WebSocket)                       | `0.1.0`         | unpublished   |
-| `@namzu/http`             | Zero-dep generic HTTP provider (OpenAI- or Anthropic-compatible)     | `0.1.0`         | unpublished   |
+| `@namzu/anthropic`        | Anthropic Messages API provider                                      | `0.1.0`         | published   |
+| `@namzu/openai`           | OpenAI Chat Completions provider                                     | `0.1.0`         | published   |
+| `@namzu/bedrock`          | AWS Bedrock Converse provider                                        | `0.1.0`         | published   |
+| `@namzu/openrouter`       | OpenRouter aggregated-model provider                                 | `0.1.0`         | published   |
+| `@namzu/ollama`           | Local Ollama provider                                                | `0.1.0`         | published   |
+| `@namzu/lmstudio`         | LM Studio local-inference provider (WebSocket)                       | `0.1.0`         | published   |
+| `@namzu/http`             | Zero-dep generic HTTP provider (OpenAI- or Anthropic-compatible)     | `0.1.0`         | published   |
 
 Unpublished packages are tracked, tested, and committed in the repo; first npm publication is the next batched step (see `packages/providers/PUBLISH_CHECKLIST.md`).
 
