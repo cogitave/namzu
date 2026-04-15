@@ -1,14 +1,14 @@
 {
-  "name": "@namzu/sdk",
-  "version": "0.1.6",
-  "description": "Open-source AI agent SDK with a built-in runtime. Nothing between you and your agents.",
+  "name": "@namzu/openrouter",
+  "version": "0.1.0",
+  "description": "OpenRouter LLM provider for @namzu/sdk. Access to 200+ models (Claude, GPT-4, Llama, Mixtral) via OpenRouter's unified API.",
   "license": "FSL-1.1-MIT",
   "type": "module",
-  "packageManager": "pnpm@10.33.0",
   "homepage": "https://github.com/cogitave/namzu#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/cogitave/namzu.git"
+    "url": "git+https://github.com/cogitave/namzu.git",
+    "directory": "packages/providers/openrouter"
   },
   "bugs": {
     "url": "https://github.com/cogitave/namzu/issues"
@@ -28,9 +28,7 @@
     "README.md",
     "CHANGELOG.md"
   ],
-  "sideEffects": [
-    "./dist/provider/mock-register.js"
-  ],
+  "sideEffects": false,
   "publishConfig": {
     "access": "public",
     "provenance": true
@@ -53,20 +51,13 @@
     "release:dry": "bash scripts/release.sh patch --dry-run",
     "prepublishOnly": "pnpm lint && pnpm typecheck && pnpm build"
   },
-  "dependencies": {
-    "@opentelemetry/api": "^1.9.0",
-    "@opentelemetry/exporter-metrics-otlp-http": "^0.57.0",
-    "@opentelemetry/exporter-trace-otlp-http": "^0.57.0",
-    "@opentelemetry/resources": "^1.30.0",
-    "@opentelemetry/sdk-metrics": "^1.30.0",
-    "@opentelemetry/sdk-node": "^0.57.0",
-    "@opentelemetry/sdk-trace-node": "^1.30.0",
-    "@opentelemetry/semantic-conventions": "^1.30.0",
-    "zod": "^3.23.0",
-    "zod-to-json-schema": "^3.23.0"
+  "dependencies": {},
+  "peerDependencies": {
+    "@namzu/sdk": "^1 || ^0.1.6"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
+    "@namzu/sdk": "workspace:^",
     "@types/node": "^22.19.17",
     "typescript": "^5.5.0",
     "vitest": "^2.0.0"

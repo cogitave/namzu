@@ -1,21 +1,15 @@
-import { SpanStatusCode } from '@opentelemetry/api'
-import { OPENROUTER_BASE_URL } from '../../constants/provider/index.js'
-import { GENAI, NAMZU, chatSpanName } from '../../telemetry/attributes.js'
-import type { TokenUsage } from '../../types/common/index.js'
 import type {
 	ChatCompletionParams,
 	ChatCompletionResponse,
 	LLMProvider,
 	ModelInfo,
 	StreamChunk,
+	TokenUsage,
 	ToolChoice,
-} from '../../types/provider/index.js'
-import type { OpenRouterConfig } from '../../types/provider/index.js'
-import { toErrorMessage } from '../../utils/error.js'
-import { getRootLogger } from '../../utils/logger.js'
-import { getTracer } from '../telemetry/setup.js'
+} from '@namzu/sdk'
+import type { OpenRouterConfig } from './types.js'
 
-const logger = getRootLogger().child({ component: 'OpenRouterProvider' })
+const OPENROUTER_BASE_URL = process.env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api/v1'
 
 interface RawUsage {
 	prompt_tokens: number
@@ -46,10 +40,6 @@ function parseUsage(raw?: RawUsage): TokenUsage {
 		cachedTokens: raw.prompt_tokens_details?.cached_tokens ?? raw.cache_read_input_tokens ?? 0,
 		cacheWriteTokens: raw.cache_creation_input_tokens ?? 0,
 	}
-}
-
-function parseCacheDiscount(raw?: RawUsage): number {
-	return raw?.cache_discount ?? 0
 }
 
 function formatToolChoice(tc: ToolChoice): unknown {
@@ -148,108 +138,62 @@ export class OpenRouterProvider implements LLMProvider {
 	}
 
 	async chat(params: ChatCompletionParams): Promise<ChatCompletionResponse> {
-		const tracer = getTracer()
+		const body = this.buildRequestBody(params, false)
 
-		return tracer.startActiveSpan(chatSpanName(params.model), async (span) => {
-			span.setAttributes({
-				[GENAI.OPERATION_NAME]: 'chat',
-				[GENAI.SYSTEM]: 'openrouter',
-				[GENAI.REQUEST_MODEL]: params.model,
-			})
-			if (params.temperature !== undefined) {
-				span.setAttribute(GENAI.REQUEST_TEMPERATURE, params.temperature)
-			}
-			if (params.maxTokens !== undefined) {
-				span.setAttribute(GENAI.REQUEST_MAX_TOKENS, params.maxTokens)
-			}
-
-			try {
-				const body = this.buildRequestBody(params, false)
-
-				logger.debug('Sending chat completion request', { model: params.model })
-
-				const response = await fetch(`${this.baseUrl}/chat/completions`, {
-					method: 'POST',
-					headers: this.getHeaders(),
-					body: JSON.stringify(body),
-					signal: AbortSignal.timeout(this.config.timeout ?? 120_000),
-				})
-
-				if (!response.ok) {
-					const errorBody = await response.text()
-					logger.error('OpenRouter API error', {
-						status: response.status,
-						body: errorBody,
-					})
-					throw new Error(`OpenRouter API error (${response.status}): ${errorBody}`)
-				}
-
-				const data = (await response.json()) as {
-					id: string
-					model: string
-					choices: Array<{
-						message: {
-							role: string
-							content: string | null
-							tool_calls?: Array<{
-								id: string
-								type: string
-								function: { name: string; arguments: string }
-							}>
-						}
-						finish_reason: string
-					}>
-					usage?: RawUsage
-				}
-
-				const choice = data.choices[0]
-				if (!choice) {
-					throw new Error('OpenRouter returned empty choices')
-				}
-
-				const usage = parseUsage(data.usage)
-				const cacheDiscount = parseCacheDiscount(data.usage)
-
-				const result: ChatCompletionResponse = {
-					id: data.id,
-					model: data.model,
-					message: {
-						role: 'assistant',
-						content: choice.message.content,
-						toolCalls: choice.message.tool_calls?.map((tc) => ({
-							id: tc.id,
-							type: 'function' as const,
-							function: tc.function,
-						})),
-					},
-					finishReason: choice.finish_reason as ChatCompletionResponse['finishReason'],
-					usage,
-				}
-
-				span.setAttributes({
-					[GENAI.RESPONSE_ID]: data.id,
-					[GENAI.RESPONSE_MODEL]: data.model,
-					[GENAI.RESPONSE_FINISH_REASONS]: choice.finish_reason,
-					[GENAI.USAGE_INPUT_TOKENS]: usage.promptTokens,
-					[GENAI.USAGE_OUTPUT_TOKENS]: usage.completionTokens,
-					[NAMZU.CACHE_READ_TOKENS]: usage.cachedTokens,
-					[NAMZU.CACHE_WRITE_TOKENS]: usage.cacheWriteTokens,
-					[NAMZU.CACHE_DISCOUNT]: cacheDiscount,
-				})
-				span.setStatus({ code: SpanStatusCode.OK })
-
-				return result
-			} catch (err) {
-				span.setStatus({
-					code: SpanStatusCode.ERROR,
-					message: toErrorMessage(err),
-				})
-				span.recordException(err instanceof Error ? err : new Error(String(err)))
-				throw err
-			} finally {
-				span.end()
-			}
+		const response = await fetch(`${this.baseUrl}/chat/completions`, {
+			method: 'POST',
+			headers: this.getHeaders(),
+			body: JSON.stringify(body),
+			signal: AbortSignal.timeout(this.config.timeout ?? 120_000),
 		})
+
+		if (!response.ok) {
+			const errorBody = await response.text()
+			throw new Error(`OpenRouter API error (${response.status}): ${errorBody}`)
+		}
+
+		const data = (await response.json()) as {
+			id: string
+			model: string
+			choices: Array<{
+				message: {
+					role: string
+					content: string | null
+					tool_calls?: Array<{
+						id: string
+						type: string
+						function: { name: string; arguments: string }
+					}>
+				}
+				finish_reason: string
+			}>
+			usage?: RawUsage
+		}
+
+		const choice = data.choices[0]
+		if (!choice) {
+			throw new Error('OpenRouter returned empty choices')
+		}
+
+		const usage = parseUsage(data.usage)
+
+		const result: ChatCompletionResponse = {
+			id: data.id,
+			model: data.model,
+			message: {
+				role: 'assistant',
+				content: choice.message.content,
+				toolCalls: choice.message.tool_calls?.map((tc) => ({
+					id: tc.id,
+					type: 'function' as const,
+					function: tc.function,
+				})),
+			},
+			finishReason: choice.finish_reason as ChatCompletionResponse['finishReason'],
+			usage,
+		}
+
+		return result
 	}
 
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
@@ -326,16 +270,12 @@ export class OpenRouterProvider implements LLMProvider {
 							usage: parsed.usage ? parseUsage(parsed.usage) : undefined,
 						}
 					} catch (parseErr) {
-						logger.warn('Failed to parse streaming chunk', {
-							error: toErrorMessage(parseErr),
-							data: data.slice(0, 200),
-						})
 						yield {
 							id: '',
 							delta: { content: undefined },
 							finishReason: undefined,
 							usage: undefined,
-							error: `Stream parse error: ${toErrorMessage(parseErr)}`,
+							error: `Stream parse error: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
 						}
 					}
 				}

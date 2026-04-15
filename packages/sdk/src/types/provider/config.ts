@@ -20,11 +20,6 @@ import type { LLMProvider } from './interface.js'
  */
 export interface ProviderConfigRegistry {
 	mock: MockProviderConfig
-	// Transitional: openrouter still lives in sdk core until extracted to its
-	// own package (@namzu/openrouter). Once extracted, this key is removed here
-	// and re-added via module augmentation in the provider package.
-	// Bedrock has been extracted to @namzu/bedrock (ADR-0001).
-	openrouter: OpenRouterProviderConfig
 }
 
 export type ProviderType = keyof ProviderConfigRegistry & string
@@ -38,18 +33,6 @@ export interface MockProviderConfig {
 	model?: string
 	responseText?: string
 	responseDelayMs?: number
-}
-
-export interface OpenRouterConfig {
-	apiKey: string
-	baseUrl?: string
-	siteUrl?: string
-	siteName?: string
-	timeout?: number
-}
-
-export interface OpenRouterProviderConfig extends OpenRouterConfig {
-	type: 'openrouter'
 }
 
 export interface ProviderCapabilities {

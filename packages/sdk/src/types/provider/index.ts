@@ -11,8 +11,6 @@ export type { LLMProvider } from './interface.js'
 export type {
 	ProviderConfigRegistry,
 	ProviderType,
-	OpenRouterConfig,
-	OpenRouterProviderConfig,
 	MockProviderConfig,
 	ProviderFactoryConfig,
 	ProviderCapabilities,
