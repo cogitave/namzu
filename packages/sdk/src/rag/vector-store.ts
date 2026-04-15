@@ -1,4 +1,4 @@
-import type { ChunkId, DocumentId, KnowledgeBaseId } from '../types/ids/index.js'
+import type { ChunkId, DocumentId, KnowledgeBaseId, TenantId } from '../types/ids/index.js'
 import type {
 	Chunk,
 	VectorSearchResult,
@@ -57,7 +57,7 @@ export class InMemoryVectorStore implements VectorStore {
 		}
 	}
 
-	async deleteByKnowledgeBase(knowledgeBaseId: KnowledgeBaseId, tenantId: string): Promise<void> {
+	async deleteByKnowledgeBase(knowledgeBaseId: KnowledgeBaseId, tenantId: TenantId): Promise<void> {
 		for (const [id, chunk] of this.chunks) {
 			if (chunk.knowledgeBaseId === knowledgeBaseId && chunk.tenantId === tenantId) {
 				this.chunks.delete(id)

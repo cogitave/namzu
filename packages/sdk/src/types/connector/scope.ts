@@ -1,3 +1,4 @@
+import type { ConnectorId } from '../ids/index.js'
 import type { AuthConfig } from './core.js'
 import type { ConnectorConfig } from './definition.js'
 
@@ -18,7 +19,7 @@ export interface ScopeRef {
 
 export interface ScopedConnectorConfig {
 	scope: ScopeRef
-	connectorId: string
+	connectorId: ConnectorId
 
 	config?: Partial<ConnectorConfig>
 
@@ -30,7 +31,7 @@ export interface ScopedConnectorConfig {
 }
 
 export interface ResolvedConnectorConfig {
-	connectorId: string
+	connectorId: ConnectorId
 	config: ConnectorConfig
 	auth?: AuthConfig
 	enabled: boolean

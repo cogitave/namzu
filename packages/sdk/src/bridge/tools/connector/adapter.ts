@@ -1,12 +1,12 @@
 import { z } from 'zod'
 import type { ConnectorManager } from '../../../manager/connector/lifecycle.js'
 import type { ConnectorMethod } from '../../../types/connector/index.js'
-import type { ConnectorInstanceId } from '../../../types/ids/index.js'
+import type { ConnectorId, ConnectorInstanceId } from '../../../types/ids/index.js'
 import type { ToolContext, ToolDefinition, ToolResult } from '../../../types/tool/index.js'
 import { parseConnectorInstanceId } from '../../../utils/id.js'
 
 export function connectorMethodToTool(
-	connectorId: string,
+	connectorId: ConnectorId,
 	instanceId: ConnectorInstanceId,
 	method: ConnectorMethod,
 	manager: ConnectorManager,
@@ -64,7 +64,9 @@ export function allConnectorTools(manager: ConnectorManager): ToolDefinition[] {
 }
 
 const ConnectorRouterInputSchema = z.object({
-	connectorId: z.string().describe('The connector definition ID (e.g., "http", "webhook")'),
+	connectorId: z
+		.string()
+		.describe('The connector definition ID (e.g., "conn_http", "conn_webhook")'),
 	instanceId: z.string().describe('The connector instance ID (e.g., "ci_abc123")'),
 	method: z.string().describe('The method to execute on the connector'),
 	input: z.record(z.unknown()).describe('The input data for the method'),
