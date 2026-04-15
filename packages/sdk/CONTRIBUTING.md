@@ -7,8 +7,8 @@ Thank you for your interest in contributing to Namzu! Every contribution matters
 1. Fork the repository
 2. Clone your fork:
    ```bash
-   git clone https://github.com/<your-username>/namzu-sdk.git
-   cd namzu-sdk
+   git clone https://github.com/<your-username>/namzu.git
+   cd namzu
    ```
 3. Install dependencies:
    ```bash

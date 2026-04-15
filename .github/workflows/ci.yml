@@ -42,7 +42,7 @@ jobs:
         run: pnpm typecheck
 
       - name: Build
-        run: pnpm build
+        run: pnpm -r build
 
       - name: Test
-        run: pnpm test
+        run: pnpm -r test

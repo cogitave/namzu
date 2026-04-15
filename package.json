@@ -1,0 +1,28 @@
+{
+  "name": "namzu",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Namzu — Open-source AI agent SDK with a built-in runtime. Nothing between you and your agents.",
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev": "pnpm -r --parallel dev",
+    "lint": "pnpm -r lint",
+    "lint:fix": "pnpm -r lint:fix",
+    "test": "pnpm -r test",
+    "typecheck": "tsc --build",
+    "namzu": "tsx packages/cli/src/index.ts",
+    "review": "tsx packages/cli/src/commands/review.ts",
+    "api": "tsx packages/api/src/server.ts",
+    "api:dev": "tsx watch packages/api/src/server.ts"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.0",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  }
+}

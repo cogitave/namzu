@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Namzu Release Script (local orchestration)
+# @namzu/computer-use Release Script (local orchestration)
 #
 # Usage:
 #   Stable releases:
@@ -130,7 +130,7 @@ case "$CHANNEL" in
     ;;
 esac
 
-TAG="sdk-v${VERSION}"
+TAG="computer-use-v${VERSION}"
 
 echo ""
 echo "  Release: ${CURRENT} → ${VERSION}"
@@ -172,8 +172,8 @@ pnpm verify || { echo "Verification failed — aborting release"; git checkout p
 
 # Commit and tag
 git add package.json CHANGELOG.md 2>/dev/null
-git commit -m "chore(release): sdk ${VERSION}"
-git tag -a "$TAG" -m "Release @namzu/sdk ${VERSION}"
+git commit -m "chore(release): computer-use ${VERSION}"
+git tag -a "$TAG" -m "Release @namzu/computer-use ${VERSION}"
 
 echo ""
 echo "  Pushing to origin..."

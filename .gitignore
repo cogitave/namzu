@@ -1,0 +1,19 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+*.tsbuildinfo
+.DS_Store
+coverage/
+docs.local/
+
+# Runtime state
+.namzu/
+
+# Local-only packages (not yet published; un-ignore when ready for release)
+packages/contracts/
+packages/agents/
+packages/api/
+packages/cli/
+packages/docs/

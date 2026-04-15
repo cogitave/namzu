@@ -1,9 +1,9 @@
-name: Release
+name: Release @namzu/computer-use
 
 on:
   push:
     tags:
-      - 'v*'
+      - 'computer-use-v*'
 
 permissions:
   contents: write
@@ -11,8 +11,11 @@ permissions:
 
 jobs:
   publish:
-    name: Build, Test & Publish
+    name: Build, Test & Publish @namzu/computer-use
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/computer-use
     steps:
       - uses: actions/checkout@v4
         with:
@@ -26,24 +29,30 @@ jobs:
           cache: pnpm
           registry-url: https://registry.npmjs.org/
 
-      - run: pnpm install --frozen-lockfile
+      - name: Install
+        run: pnpm install --frozen-lockfile
+        working-directory: .
 
       - name: Lint
-        run: pnpm lint
+        run: pnpm -r lint
+        working-directory: .
 
       - name: Type check
         run: pnpm typecheck
+        working-directory: .
 
       - name: Build
-        run: pnpm build
+        run: pnpm -r build
+        working-directory: .
 
       - name: Test
-        run: pnpm test
+        run: pnpm -r test
+        working-directory: .
 
       - name: Detect release channel and sync version
         id: channel
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${GITHUB_REF_NAME#computer-use-v}"
           if [[ "$VERSION" == *"-rc."* ]]; then
             echo "tag=rc" >> "$GITHUB_OUTPUT"
             echo "prerelease=true" >> "$GITHUB_OUTPUT"
@@ -59,36 +68,20 @@ jobs:
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-          # Sync package.json version from git tag (single source of truth)
           npm version "$VERSION" --no-git-tag-version --allow-same-version
 
       - name: Publish to npm
-        run: npm publish --access public --provenance --tag ${{ steps.channel.outputs.tag }}
+        run: pnpm --filter @namzu/computer-use publish --no-git-checks --access public --provenance --tag ${{ steps.channel.outputs.tag }}
+        working-directory: .
 
-      - name: Install git-cliff
-        run: pip install git-cliff
-
-      - name: Generate changelog
-        id: changelog
-        run: |
-          # Generate full CHANGELOG.md
-          git-cliff --output CHANGELOG.md
-
-          # Generate release notes (only current tag)
-          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
-          if [[ -n "$PREV_TAG" ]]; then
-            git-cliff "${PREV_TAG}..HEAD" --strip all > RELEASE_NOTES.md
-          else
-            git-cliff --strip all > RELEASE_NOTES.md
-          fi
-
-      - name: Commit changelog
+      - name: Commit version bump
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add CHANGELOG.md
-          git diff --cached --quiet || git commit -m "docs(changelog): update for $GITHUB_REF_NAME"
+          git add packages/computer-use/package.json
+          git diff --cached --quiet || git commit -m "chore(release): computer-use $GITHUB_REF_NAME"
           git push origin HEAD:main
+        working-directory: .
         env:
           GH_TOKEN: ${{ github.token }}
 
@@ -101,7 +94,8 @@ jobs:
 
           gh release create "$GITHUB_REF_NAME" \
             --title "$GITHUB_REF_NAME" \
-            --notes-file RELEASE_NOTES.md \
+            --notes "Release of @namzu/computer-use v${{ steps.channel.outputs.version }}" \
             $FLAGS
+        working-directory: .
         env:
           GH_TOKEN: ${{ github.token }}

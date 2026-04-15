@@ -1,0 +1,116 @@
+name: Release @namzu/sdk
+
+on:
+  push:
+    tags:
+      - 'sdk-v*'
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  publish:
+    name: Build, Test & Publish @namzu/sdk
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/sdk
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org/
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+        working-directory: .
+
+      - name: Lint
+        run: pnpm -r lint
+        working-directory: .
+
+      - name: Type check
+        run: pnpm typecheck
+        working-directory: .
+
+      - name: Build
+        run: pnpm -r build
+        working-directory: .
+
+      - name: Test
+        run: pnpm -r test
+        working-directory: .
+
+      - name: Detect release channel and sync version
+        id: channel
+        run: |
+          VERSION="${GITHUB_REF_NAME#sdk-v}"
+          if [[ "$VERSION" == *"-rc."* ]]; then
+            echo "tag=rc" >> "$GITHUB_OUTPUT"
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          elif [[ "$VERSION" == *"-beta."* ]]; then
+            echo "tag=beta" >> "$GITHUB_OUTPUT"
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          elif [[ "$VERSION" == *"-alpha."* ]]; then
+            echo "tag=alpha" >> "$GITHUB_OUTPUT"
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=latest" >> "$GITHUB_OUTPUT"
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+
+      - name: Publish to npm
+        run: pnpm --filter @namzu/sdk publish --no-git-checks --access public --provenance --tag ${{ steps.channel.outputs.tag }}
+        working-directory: .
+
+      - name: Install git-cliff
+        run: pip install git-cliff
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          git-cliff --config cliff.toml --output CHANGELOG.md
+
+          PREV_TAG=$(git describe --tags --abbrev=0 --match "sdk-v*" HEAD^ 2>/dev/null || echo "")
+          if [[ -n "$PREV_TAG" ]]; then
+            git-cliff --config cliff.toml "${PREV_TAG}..HEAD" --strip all > RELEASE_NOTES.md
+          else
+            git-cliff --config cliff.toml --strip all > RELEASE_NOTES.md
+          fi
+
+      - name: Commit changelog
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add packages/sdk/package.json packages/sdk/CHANGELOG.md
+          git diff --cached --quiet || git commit -m "docs(changelog): update for $GITHUB_REF_NAME"
+          git push origin HEAD:main
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Create GitHub Release
+        run: |
+          FLAGS=""
+          if [[ "${{ steps.channel.outputs.prerelease }}" == "true" ]]; then
+            FLAGS="--prerelease"
+          fi
+
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file packages/sdk/RELEASE_NOTES.md \
+            $FLAGS
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
