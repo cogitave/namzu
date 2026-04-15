@@ -45,6 +45,7 @@ export * from './types/plugin/index.js'
 export * from './types/sandbox/index.js'
 export * from './types/structured-output/index.js'
 export * from './types/invocation/index.js'
+export * from './types/computer-use/index.js'
 
 export {
 	AdvisorRegistry,
@@ -206,6 +207,10 @@ export {
 	createStructuredOutputTool,
 	STRUCTURED_OUTPUT_TOOL_NAME,
 } from './tools/builtins/structuredOutput.js'
+export {
+	createComputerUseTool,
+	COMPUTER_USE_TOOL_NAME,
+} from './tools/builtins/computer-use.js'
 
 export {
 	TextChunker,
