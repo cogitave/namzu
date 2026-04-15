@@ -1,6 +1,6 @@
 {
   "name": "@namzu/sdk",
-  "version": "0.1.6-rc.1",
+  "version": "0.1.6",
   "description": "Open-source AI agent SDK with a built-in runtime. Nothing between you and your agents.",
   "license": "FSL-1.1-MIT",
   "type": "module",
