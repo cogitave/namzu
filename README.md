@@ -2,370 +2,364 @@
 
 <h1>Namzu</h1>
 
-<p><strong>Open-source AI agent SDK with a built-in runtime. Nothing between you and your agents.</strong></p>
+Open-source AI agent SDK with a built-in runtime. Nothing between you and your agents.
 
-<p>
-  <a href="https://github.com/cogitave/namzu/blob/main/LICENSE.md"><img alt="License: FSL-1.1-MIT" src="https://img.shields.io/badge/license-FSL--1.1--MIT-blue.svg" /></a>
-  <a href="https://www.npmjs.com/package/@namzu/sdk"><img alt="npm version" src="https://img.shields.io/npm/v/@namzu/sdk.svg?label=%40namzu%2Fsdk" /></a>
-  <a href="https://nodejs.org/"><img alt="Node >= 20" src="https://img.shields.io/badge/node-%3E%3D20-339933.svg?logo=node.js&logoColor=white" /></a>
-  <a href="https://www.typescriptlang.org/"><img alt="TypeScript 5.5+" src="https://img.shields.io/badge/typescript-5.5%2B-3178C6.svg?logo=typescript&logoColor=white" /></a>
-</p>
+[![License: FSL-1.1-MIT](https://img.shields.io/badge/license-FSL--1.1--MIT-blue.svg)](./LICENSE.md)
+[![npm version](https://img.shields.io/npm/v/@namzu/sdk.svg)](https://www.npmjs.com/package/@namzu/sdk)
+[![Node >=20](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](https://nodejs.org)
+[![TypeScript 5.5+](https://img.shields.io/badge/typescript-5.5%2B-3178c6.svg)](https://www.typescriptlang.org)
 
 </div>
 
 ---
 
-Namzu is a TypeScript-native agent platform: an SDK, a runtime, and a small set of protocol integrations shipped as one coherent stack. It sits alongside LangChain, Mastra, and the Vercel AI SDK in the agent-framework space — but with an opinionated runtime, process-level sandboxing, and first-class MCP/A2A support baked into core instead of bolted on. The core philosophy is simple: a **zero-dep core** with **opt-in providers**. Install `@namzu/sdk` and nothing ships with it except a mock LLM; reach for vendor packages — `@namzu/openai`, `@namzu/anthropic`, `@namzu/ollama`, `@namzu/http` — only when you want them.
-
-## Why Namzu
-
-- **Sandboxed agent execution.** Agents run in isolated processes with platform-native sandboxing — macOS Seatbelt profiles and Linux user namespaces — so a compromised or drifting agent can't escape its declared filesystem, network, or subprocess boundary. Sandboxing is on by default, not a checkbox.
-- **Provider-agnostic via a typed registry.** `ProviderRegistry` is the single indirection between your agent code and any LLM backend. Swap OpenAI for Bedrock for local Ollama by changing one `register*()` call at startup — agents keep consuming the `LLMProvider` interface and never know the difference. `MockLLMProvider` ships pre-registered in core for tests and offline work.
-- **Protocol-native MCP and A2A.** Model Context Protocol (tool servers) and Agent-to-Agent (peer orchestration) are not plugins — they're first-class surfaces in `@namzu/sdk`. Expose an agent as an MCP server, consume an MCP tool server, or federate work across A2A peers without pulling a separate package.
-- **Multi-tenant isolation for SaaS.** Tenant boundaries are enforced end-to-end: credential vaults, run scoping, and event streams all carry tenant identity as a branded ID. The same SDK that powers a solo-dev CLI also powers multi-tenant platforms without a rewrite.
-- **Convention-driven TypeScript.** Branded IDs for every resource handle, exhaustive `never`-assertion switches on discriminated unions, and deny-by-default error handling are project-wide conventions — not style preferences. The compiler catches the class of bugs most agent frameworks defer to runtime.
-- **Local-first LLM story.** `@namzu/ollama`, `@namzu/lmstudio`, and `@namzu/http` make running agents against local models — or any self-hosted OpenAI/Anthropic-compatible endpoint (vLLM, TGI, llama-server, Groq, DeepInfra) — a first-class path, not an afterthought.
-- **Tiny core.** `@namzu/sdk` pulls almost no runtime dependencies. Heavy vendor SDKs (`@aws-sdk/*`, `openai`, `@anthropic-ai/sdk`, `ollama`, `@lmstudio/sdk`) live in their own per-vendor packages and install only when you ask for them.
+Namzu is a TypeScript monorepo that ships an agent SDK with a built-in runtime and a family of per-vendor LLM provider packages. The design is a tiny brand-neutral core (`@namzu/sdk`) plus opt-in providers and capability packages — installing the SDK alone pulls no vendor SDKs, and each provider is added by a deliberate `pnpm add`. Heavy vendor dependencies (AWS, Anthropic, OpenAI, LM Studio, Ollama) live in separate packages and are loaded only when the application registers them.
 
 ## Quick Start
 
-Install the core SDK plus whichever provider you want. The local-first default is Ollama — no API keys, no network, no egress:
+Install the SDK and a provider package. The SDK itself ships no vendor SDKs — you pull in the backend(s) you need.
 
 ```bash
 pnpm add @namzu/sdk @namzu/ollama
 ```
 
-Register the provider once at startup, then use it anywhere in your app:
+Minimal working example: register Ollama, create a provider, make one chat call.
 
 ```typescript
-import { ProviderRegistry } from '@namzu/sdk'
+import { ProviderRegistry, createUserMessage } from '@namzu/sdk'
 import { registerOllama } from '@namzu/ollama'
 
-// Register once at app startup. Swap this single line to change backends:
-//   import { registerOpenAI }    from '@namzu/openai'    ; registerOpenAI()
-//   import { registerBedrock }   from '@namzu/bedrock'   ; registerBedrock()
-//   import { registerAnthropic } from '@namzu/anthropic' ; registerAnthropic()
-// Agent code below stays identical — it only sees the LLMProvider interface.
 registerOllama()
 
 const { provider } = ProviderRegistry.create({
   type: 'ollama',
   host: 'http://localhost:11434',
-  model: 'llama3.2',
 })
 
 const response = await provider.chat({
   model: 'llama3.2',
-  messages: [{ role: 'user', content: 'Summarize Namzu in one line.' }],
+  messages: [createUserMessage('What is the capital of France?')],
 })
 
 console.log(response.message.content)
+console.log(`finish: ${response.finishReason}`)
 ```
 
-That's the full loop: register a provider, create it from the registry, call `chat()`. No config files, no bootstrapping module, no service container. Swap `registerOllama()` for `registerOpenAI()` or `registerBedrock()` and the whole app runs against a different backend with zero changes below the registration line.
+The response shape is `{ id, model, message: { role, content, toolCalls? }, finishReason, usage }` — content lives at `response.message.content`, not `response.content`.
 
 ## Provider Selection
 
-Pick the package that matches the backend you want. Every provider implements the same `LLMProvider` contract; agent code is portable across all of them.
+| Backend    | Install                                 | Key config fields                                            |
+|------------|-----------------------------------------|--------------------------------------------------------------|
+| OpenAI     | `pnpm add @namzu/sdk @namzu/openai`     | `apiKey`, `model?`, `baseURL?`, `organization?`, `project?`  |
+| Anthropic  | `pnpm add @namzu/sdk @namzu/anthropic`  | `apiKey`, `model?`, `baseURL?`, `maxTokens?`                 |
+| Bedrock    | `pnpm add @namzu/sdk @namzu/bedrock`    | `region?`, `accessKeyId?`, `secretAccessKey?`, `sessionToken?` |
+| OpenRouter | `pnpm add @namzu/sdk @namzu/openrouter` | `apiKey`, `baseUrl?`, `siteUrl?`, `siteName?`                |
+| Ollama     | `pnpm add @namzu/sdk @namzu/ollama`     | `host?`, `model?`, `fetch?`, `timeout?`                      |
+| LM Studio  | `pnpm add @namzu/sdk @namzu/lmstudio`   | `host?`, `model?`, `timeout?`                                |
+| HTTP       | `pnpm add @namzu/sdk @namzu/http`       | `baseURL`, `apiKey?`, `dialect?` (`'openai'` \| `'anthropic'`), `headers?` |
+| Mock       | `pnpm add @namzu/sdk` (built-in)        | `model?`, `responseText?`, `responseDelayMs?`                |
 
-| I want to use…                                                  | Install                                       | Notes |
-|-----------------------------------------------------------------|-----------------------------------------------|-------|
-| **OpenAI** (GPT-4o, GPT-4.1, o-series)                          | `pnpm add @namzu/sdk @namzu/openai`           | Thin wrapper over the official `openai` SDK — Chat Completions with streaming and tool use. |
-| **Anthropic Claude** (Sonnet, Opus, Haiku)                      | `pnpm add @namzu/sdk @namzu/anthropic`        | Messages API via `@anthropic-ai/sdk`, full tool-use streaming. |
-| **AWS Bedrock** (Claude, Nova, Llama, Mistral on AWS)           | `pnpm add @namzu/sdk @namzu/bedrock`          | Bedrock Converse API via `@aws-sdk/client-bedrock-runtime`, SigV4-signed. |
-| **OpenRouter** (200+ models behind one key)                     | `pnpm add @namzu/sdk @namzu/openrouter`       | Zero-dep fetch-based; model routing and fallback built in. |
-| **Local Ollama**                                                | `pnpm add @namzu/sdk @namzu/ollama`           | Talks to a local `ollama serve` — no API key, no egress. |
-| **Local LM Studio**                                             | `pnpm add @namzu/sdk @namzu/lmstudio`         | Native `@lmstudio/sdk` integration with model loading API. |
-| **Generic HTTP** (Groq, vLLM, TGI, llama-server, self-hosted)   | `pnpm add @namzu/sdk @namzu/http`             | Zero runtime deps — pure native `fetch`. Pick `dialect: 'openai'` or `'anthropic'` plus any `baseURL`. |
-| **Testing / no network**                                        | `pnpm add @namzu/sdk`                         | `MockLLMProvider` is pre-registered in core. `ProviderRegistry.create({ type: 'mock' })` works out of the box. |
-
-### Version status
-
-- `@namzu/sdk` — currently `0.1.6` on npm. `1.0.0` is the planned target at the provider-extraction boundary (see [ADR-0001](docs/architecture/decisions/0001-per-vendor-provider-extraction.md)).
-- Provider packages (`@namzu/openai`, `@namzu/anthropic`, `@namzu/bedrock`, `@namzu/openrouter`, `@namzu/ollama`, `@namzu/lmstudio`, `@namzu/http`) — all at `0.1.0`, batch-releasing together.
-- `@namzu/computer-use` — `0.1.0` on npm, independent capability package for subprocess-based computer-use hosts.
-
-Each package releases on its own tag-prefix (`sdk-v*`, `ollama-v*`, `openai-v*`, …) through a dedicated GitHub Action — no hand-edited `package.json` bumps, no coupled releases.
+Every provider package exports a `register<Vendor>()` function that augments the SDK's `ProviderConfigRegistry` type with a `type: '<vendor>'` discriminator, so `ProviderRegistry.create({ type: 'openai', apiKey: ... })` is fully type-narrowed.
 
 ## Core Concepts
 
+### LLMProvider and ProviderRegistry
+
+Providers implement a narrow `LLMProvider` interface (`chat`, `chatStream`, optionally `listModels`, `healthCheck`). The `ProviderRegistry` is a process-global map from a type string to a constructor + capability record. Provider packages self-register through `register<Vendor>()`; you pick one at call time.
+
+```typescript
+import { ProviderRegistry } from '@namzu/sdk'
+import { registerOpenAI } from '@namzu/openai'
+
+registerOpenAI()
+
+const { provider, capabilities } = ProviderRegistry.create({
+  type: 'openai',
+  apiKey: process.env.OPENAI_API_KEY as string,
+})
+
+console.log(capabilities.supportsTools, capabilities.supportsStreaming)
+```
+
+`ProviderRegistry.create(config)` returns `{ provider, capabilities }`. Use `ProviderRegistry.register(type, Class, capabilities, options?)` to wire a custom provider.
+
 ### Agents
 
-Agents are the unit of work. `AbstractAgent` is the base class; `ReactiveAgent`, `PipelineAgent`, `RouterAgent`, and `SupervisorAgent` are the four shapes most workloads want. For anything lighter, `defineAgent` builds a minimal agent without the full reactive loop.
+Five agent shapes ship in the SDK: `AbstractAgent`, `ReactiveAgent`, `PipelineAgent`, `RouterAgent`, `SupervisorAgent`, plus the `defineAgent()` factory. `ReactiveAgent` is the common case — a tool-calling loop around a single provider.
 
-- **`ReactiveAgent`** — canonical prompt → LLM → tool-call → iterate loop with token/time/cost budgets, progressive tool disclosure, compaction, and checkpointing.
-- **`PipelineAgent`** — deterministic sequential steps; output of step N is input of step N+1; rolls back on failure.
-- **`RouterAgent`** — LLM classifies the input and delegates to the best-fit child from a configured set.
-- **`SupervisorAgent`** — coordinator that spawns specialized children, tracks the parent/child hierarchy, and aggregates results.
+```typescript
+import { ReactiveAgent } from '@namzu/sdk'
 
-### Runtime
+const agent = new ReactiveAgent({
+  id: 'agent_demo',
+  name: 'demo',
+  description: 'Demo reactive agent',
+  version: '0.1.0',
+})
+```
 
-`query` is the entry point for running an agent's iteration loop. It is an async generator that yields `RunEvent`s (tool calls, iteration events, plan events, cost updates) and resolves to a final run record. `drainQuery` is the batched variant — it awaits every event and returns only the final run. Every higher-level agent class is a thin wrapper on top of `drainQuery`.
+Call `agent.run(input, config)` where `config` is a `ReactiveAgentConfig` carrying `provider`, `tools`, `model`, `threadId`, etc. See `packages/sdk/src/types/agent/` for full shapes.
 
 ### Tools
 
-Tools are side-effectful capabilities the agent can invoke. Define one with `defineTool` — Zod schema for input, category, permission set, and an `execute` function. The runtime validates input, records activity, and enforces the permission mode on your behalf.
-
-The SDK ships a complete set of filesystem and shell builtins: `ReadFileTool`, `WriteFileTool`, `EditTool`, `BashTool`, `GlobTool`, `GrepTool`, `LsTool`, plus `SearchToolsTool` for progressive disclosure. Higher-level builders — `buildTaskTools`, `buildMemoryTools`, `buildAdvisoryTools`, `createStructuredOutputTool`, `createComputerUseTool` — compose stateful toolsets against a store or host.
-
-### Providers
-
-A provider is anything that implements `LLMProvider`: a vendor SDK, a proxy, a mock. Providers register against `ProviderRegistry` by a type string (`'openai'`, `'anthropic'`, `'ollama'`, …). Each provider package exports a `register<Vendor>()` helper that does the registration for you.
+The SDK ships eight built-in tool classes — `ReadFileTool`, `WriteFileTool`, `EditTool`, `BashTool`, `GlobTool`, `GrepTool`, `LsTool`, `SearchToolsTool` — and a `defineTool()` helper for custom ones.
 
 ```typescript
-import { ProviderRegistry } from '@namzu/sdk'
-import { registerOllama } from '@namzu/ollama'
-
-registerOllama()
-
-const { provider, capabilities } = ProviderRegistry.create({
-  type: 'ollama',
-  host: 'http://localhost:11434',
-})
-```
-
-`ProviderRegistry.create` returns both the constructed provider and its static capabilities (`supportsTools`, `supportsStreaming`, `supportsFunctionCalling`) so your code can branch on what the vendor can actually do. `UnknownProviderError` is thrown for unregistered types; `DuplicateProviderError` on double-registration unless `{ replace: true }` is passed.
-
-### Memory and Task Store
-
-Runs and tasks are persisted through pluggable stores. `InMemoryTaskStore` is the default for local dev. `DiskTaskStore` writes atomic JSON files under a configurable base directory — survives process restarts, safe for crash recovery. `DiskMemoryStore` plays the same role for long-lived agent memory (facts, summaries, preferences) that outlives a thread.
-
-### Plugins
-
-Plugins extend the runtime with discoverable manifests: tools, advisors, skills, personas. `PluginLifecycleManager` wires discovery, loading, and the `onBeforeToolCall` / `onAfterToolCall` hook points; `discoverPlugins` walks a directory and reads each `plugin.json`.
-
-### Sandbox
-
-Sandboxes isolate filesystem and shell side-effects. `LocalSandboxProvider` is an in-process implementation that enforces a working-directory root and a deny-by-default policy for file I/O. `SandboxProviderFactory.create(config, log)` picks the right provider based on your `SandboxConfig.provider` discriminator. Every builtin tool routes file reads/writes through the sandbox.
-
-## Examples
-
-These snippets are illustrative. Consult each package's README for the exact config shapes and advanced options.
-
-### Example 1 — Hello, agent
-
-```typescript
-import { ProviderRegistry } from '@namzu/sdk'
-import { registerOllama } from '@namzu/ollama'
-
-registerOllama()
-
-const { provider } = ProviderRegistry.create({
-  type: 'ollama',
-  host: 'http://localhost:11434',
-})
-
-const response = await provider.chat({
-  model: 'llama3.2',
-  messages: [{ role: 'user', content: 'In one sentence, what is Namzu?' }],
-})
-
-console.log(response.message.content)
-```
-
-### Example 2 — Agent with tools
-
-Reactive agent reading a file and summarizing it via a built-in `ReadFileTool` and a custom `word_count` tool.
-
-```typescript
-import {
-  defineTool,
-  ProviderRegistry,
-  ReactiveAgent,
-  ReadFileTool,
-  ToolRegistry,
-} from '@namzu/sdk'
-import { registerOllama } from '@namzu/ollama'
 import { z } from 'zod'
+import { ToolRegistry, ReadFileTool, BashTool, defineTool } from '@namzu/sdk'
 
-registerOllama()
+const tools = new ToolRegistry()
+tools.register(ReadFileTool)
+tools.register(BashTool)
 
-const WordCountTool = defineTool({
-  name: 'word_count',
-  description: 'Counts words in a string.',
-  inputSchema: z.object({ text: z.string() }),
-  category: 'text',
+const greet = defineTool({
+  name: 'greet',
+  description: 'Greet someone.',
+  inputSchema: z.object({ name: z.string() }),
+  category: 'custom',
   permissions: [],
   readOnly: true,
   destructive: false,
   concurrencySafe: true,
-  async execute({ text }) {
-    const count = text.trim().split(/\s+/).filter(Boolean).length
-    return { success: true, output: String(count) }
+  async execute(input) {
+    return { success: true, output: `Hello, ${input.name}!` }
   },
 })
-
-const tools = new ToolRegistry()
-tools.register(ReadFileTool)
-tools.register(WordCountTool)
-
-const { provider } = ProviderRegistry.create({ type: 'ollama' })
-
-const agent = new ReactiveAgent({
-  id: 'summarizer',
-  name: 'File Summarizer',
-  version: '1.0.0',
-  category: 'filesystem',
-  description: 'Reads a file and returns a one-line summary with word count.',
-})
-
-// agent.run(...) returns the final run with the LLM's result + recorded tool calls.
+tools.register(greet)
 ```
 
-### Example 3 — Multi-provider fallback
+### Runtime
 
-Try Anthropic first; fall back to OpenRouter if the key isn't set. Registering multiple vendors at boot is cheap — pick per-request.
+`query(params)` is the core event-yielding generator; `drainQuery(params, listener?)` awaits it to completion and returns the final `AgentRun`. `QueryParams` has roughly 25 fields — most are optional; `provider`, `tools`, `runConfig`, `agentId`, `agentName`, `threadId`, and `messages` are required. See `packages/sdk/src/runtime/query/index.ts` for the full interface; most callers use the agent classes instead of invoking `drainQuery` directly.
 
-```typescript
-import { ProviderRegistry } from '@namzu/sdk'
-import type { LLMProvider } from '@namzu/sdk'
-import { registerAnthropic } from '@namzu/anthropic'
-import { registerOpenRouter } from '@namzu/openrouter'
+### Stores
 
-registerAnthropic()
-registerOpenRouter()
-
-function resolveProvider(): { provider: LLMProvider; model: string } {
-  if (process.env.ANTHROPIC_API_KEY) {
-    const { provider } = ProviderRegistry.create({
-      type: 'anthropic',
-      apiKey: process.env.ANTHROPIC_API_KEY,
-    })
-    return { provider, model: 'claude-sonnet-4-5' }
-  }
-  if (process.env.OPENROUTER_API_KEY) {
-    const { provider } = ProviderRegistry.create({
-      type: 'openrouter',
-      apiKey: process.env.OPENROUTER_API_KEY,
-    })
-    return { provider, model: 'anthropic/claude-sonnet-4' }
-  }
-  throw new Error('No provider key available (ANTHROPIC_API_KEY or OPENROUTER_API_KEY).')
-}
-
-const { provider, model } = resolveProvider()
-const response = await provider.chat({
-  model,
-  messages: [{ role: 'user', content: 'Explain prompt caching in two sentences.' }],
-})
-```
-
-### Example 4 — Persistent task state
-
-`DiskTaskStore` persists task-tracker state atomically to disk so a long-running plan survives process restarts.
+`InMemoryTaskStore` and `DiskTaskStore` persist task objects; `InMemoryMemoryStore` / `DiskMemoryStore` persist agent memory; `InMemoryVectorStore` backs RAG.
 
 ```typescript
 import { DiskTaskStore } from '@namzu/sdk'
 import type { RunId } from '@namzu/sdk'
 
 const taskStore = new DiskTaskStore({
-  baseDir: '.namzu/tasks',
-  defaultRunId: 'run_bootstrap' as RunId,
+  baseDir: './.namzu/tasks',
+  defaultRunId: 'run_root' as RunId,
 })
-
-// Pass `taskStore` through the agent's run options to persist plan/task events
-// across restarts. Re-open the same store path on the next process start and
-// resume from the last known state.
 ```
 
-## Packages
+### Sandbox
 
-Namzu is a monorepo of focused packages. The SDK ships the runtime; provider packages plug into the registry; `@namzu/computer-use` is an optional capability host.
+`LocalSandboxProvider` creates ephemeral working directories for tool execution (Bash, file edits). It takes a `Logger` and returns a `SandboxProvider` the runtime can bind to a run. `SandboxProviderFactory` picks an implementation from a `SandboxConfig`.
 
-| Package | Purpose | Version | Runtime Dep |
-|---|---|---|---|
-| [`@namzu/sdk`](./packages/sdk) | Core runtime, agents, tools, registry, stores, RAG, connectors. | `0.1.6` published | `zod`, `@opentelemetry/api` |
-| [`@namzu/computer-use`](./packages/computer-use) | Subprocess-based computer-use host (screenshot, mouse, keyboard). | `0.1.0` published | `@namzu/sdk` (peer) |
-| [`@namzu/anthropic`](./packages/providers/anthropic) | Anthropic Messages API provider (Claude). | `0.1.0` coming soon | `@anthropic-ai/sdk` |
-| [`@namzu/openai`](./packages/providers/openai) | OpenAI Chat Completions provider. | `0.1.0` coming soon | `openai` |
-| [`@namzu/openrouter`](./packages/providers/openrouter) | OpenRouter aggregated-model provider. | `0.1.0` coming soon | none (native fetch) |
-| [`@namzu/bedrock`](./packages/providers/bedrock) | AWS Bedrock provider (Claude, Llama, Mistral on Bedrock). | `0.1.0` coming soon | `@aws-sdk/client-bedrock-runtime` |
-| [`@namzu/ollama`](./packages/providers/ollama) | Local-first Ollama provider. | `0.1.0` coming soon | `ollama` |
-| [`@namzu/lmstudio`](./packages/providers/lmstudio) | LM Studio local-inference provider (WebSocket). | `0.1.0` coming soon | `@lmstudio/sdk` |
-| [`@namzu/http`](./packages/providers/http) | Generic HTTP provider (OpenAI- or Anthropic-compatible endpoints). | `0.1.0` coming soon | none (native fetch) |
+```typescript
+import { LocalSandboxProvider, getRootLogger } from '@namzu/sdk'
 
-Provider packages are scheduled for their first batch release in Phase I.10 per [ADR-0001](./docs/architecture/decisions/0001-per-vendor-provider-extraction.md); `@namzu/sdk` and `@namzu/computer-use` are already on npm.
+const sandboxProvider = new LocalSandboxProvider(getRootLogger())
+```
+
+## Examples
+
+### Example 1 — Bare provider call
+
+```typescript
+import { ProviderRegistry, createUserMessage } from '@namzu/sdk'
+import { registerOllama } from '@namzu/ollama'
+
+registerOllama()
+
+const { provider } = ProviderRegistry.create({
+  type: 'ollama',
+  host: 'http://localhost:11434',
+})
+
+const response = await provider.chat({
+  model: 'llama3.2',
+  messages: [createUserMessage('What is the capital of France?')],
+})
+
+console.log(response.message.content)
+```
+
+### Example 2 — Streaming
+
+`chatStream()` returns an `AsyncIterable<StreamChunk>`. Each chunk carries `delta.content` (partial text) or `delta.toolCalls`; `finishReason` only appears on the terminal chunk.
+
+```typescript
+import { ProviderRegistry, createUserMessage } from '@namzu/sdk'
+import { registerOllama } from '@namzu/ollama'
+
+registerOllama()
+
+const { provider } = ProviderRegistry.create({
+  type: 'ollama',
+  host: 'http://localhost:11434',
+})
+
+const stream = provider.chatStream({
+  model: 'llama3.2',
+  messages: [createUserMessage('Stream me a limerick.')],
+})
+
+for await (const chunk of stream) {
+  if (chunk.delta.content) {
+    process.stdout.write(chunk.delta.content)
+  }
+  if (chunk.finishReason) {
+    process.stdout.write(`\n[done: ${chunk.finishReason}]\n`)
+  }
+}
+```
+
+### Example 3 — Multi-provider fallback
+
+Register two providers and pick based on which credentials are present. The same `ChatCompletionParams` shape works for both.
+
+```typescript
+import { ProviderRegistry, createUserMessage } from '@namzu/sdk'
+import { registerAnthropic } from '@namzu/anthropic'
+import { registerOpenRouter } from '@namzu/openrouter'
+
+registerAnthropic()
+registerOpenRouter()
+
+const useAnthropic = Boolean(process.env.ANTHROPIC_API_KEY)
+
+const { provider } = useAnthropic
+  ? ProviderRegistry.create({
+      type: 'anthropic',
+      apiKey: process.env.ANTHROPIC_API_KEY as string,
+    })
+  : ProviderRegistry.create({
+      type: 'openrouter',
+      apiKey: process.env.OPENROUTER_API_KEY as string,
+      siteName: 'my-app',
+    })
+
+const model = useAnthropic ? 'claude-sonnet-4-5' : 'anthropic/claude-sonnet-4'
+
+const response = await provider.chat({
+  model,
+  messages: [createUserMessage('Hello!')],
+  maxTokens: 256,
+})
+
+console.log(response.message.content)
+```
+
+## Repository Layout
+
+```
+namzu/
+├── packages/
+│   ├── sdk/                       @namzu/sdk           0.1.7   published
+│   ├── computer-use/              @namzu/computer-use  0.1.0   published
+│   ├── providers/
+│   │   ├── anthropic/             @namzu/anthropic     0.1.0   unpublished
+│   │   ├── bedrock/               @namzu/bedrock       0.1.0   unpublished
+│   │   ├── http/                  @namzu/http          0.1.0   unpublished
+│   │   ├── lmstudio/              @namzu/lmstudio      0.1.0   unpublished
+│   │   ├── ollama/                @namzu/ollama        0.1.0   unpublished
+│   │   ├── openai/                @namzu/openai        0.1.0   unpublished
+│   │   ├── openrouter/            @namzu/openrouter    0.1.0   unpublished
+│   │   └── PUBLISH_CHECKLIST.md
+│   ├── contracts/                                              local-only (gitignored)
+│   ├── agents/                                                 local-only (gitignored)
+│   ├── api/                                                    local-only (gitignored)
+│   ├── cli/                                                    local-only (gitignored)
+│   └── docs/                                                   local-only (gitignored)
+├── docs/architecture/decisions/   ADRs (public)
+├── docs.local/                    detailed pattern + convention docs (gitignored)
+├── .github/workflows/             per-package release-*.yml + ci.yml
+├── AGENTS.md  CLAUDE.md           AI-tool guidance
+└── LICENSE.md
+```
+
+Status markers:
+
+- **published** — on npm under `@namzu/*`.
+- **unpublished** — tracked, tested, committed; npm publication pending (see Project Status).
+- **local-only (gitignored)** — exists on the maintainer's machine, excluded from the public repo via `.gitignore`. Not on npm.
 
 ## Architecture
 
-Namzu is a pnpm workspace monorepo. The runtime is a single small core (`@namzu/sdk`) that depends on nothing vendor-specific. Concrete LLM providers and capability packages plug into the core through an explicit registry, and every non-core package is opt-in at install time.
+`@namzu/sdk` is the core and has no workspace dependencies. Provider and capability packages depend on the SDK via a `peerDependencies` entry on `@namzu/sdk`; nothing in the SDK depends back on them.
 
 ```
-                          ┌────────────────────────┐
-                          │   @namzu/contracts     │  shared types, zero deps
-                          │   (local-only today)   │  leaf package
-                          └───────────┬────────────┘
-                                      │
-                                      ▼
-                          ┌────────────────────────┐
-                          │      @namzu/sdk        │  core runtime,
-                          │  ProviderRegistry,     │  agents, tools,
-                          │  MockLLMProvider       │  persona, streaming
-                          └───────────┬────────────┘
-                                      │
-            ┌─────────────────────────┼────────────────────────┐
-            ▼                         ▼                        ▼
-  ┌───────────────────┐    ┌────────────────────┐   ┌─────────────────────┐
-  │  Providers        │    │  Capabilities      │   │  Apps               │
-  │  @namzu/bedrock   │    │  @namzu/computer-  │   │  @namzu/agents      │
-  │  @namzu/openai    │    │    use             │   │  @namzu/api         │
-  │  @namzu/anthropic │    │                    │   │  @namzu/cli         │
-  │  @namzu/openrouter│    │                    │   │  (all local-only    │
-  │  @namzu/ollama    │    │                    │   │   for now)          │
-  │  @namzu/lmstudio  │    │                    │   │                     │
-  │  @namzu/http      │    │                    │   │                     │
-  └───────────────────┘    └────────────────────┘   └─────────────────────┘
+                ┌────────────────────────────────────────┐
+                │              @namzu/sdk                │
+                │                                        │
+                │  • LLMProvider interface               │
+                │  • ProviderRegistry (register/create)  │
+                │  • MockLLMProvider (pre-registered)    │
+                │  • runtime, agents, tools, personas    │
+                └────────────────────────────────────────┘
+                    ▲                               ▲
+                    │ peerDependency                │ peerDependency
+                    │                               │
+    ┌───────────────┴──────────────────┐   ┌────────┴────────────┐
+    │      Provider packages           │   │ Capability packages │
+    │                                  │   │                     │
+    │  @namzu/anthropic  @namzu/openai │   │  @namzu/computer-use│
+    │  @namzu/bedrock    @namzu/openrouter                       │
+    │  @namzu/http       @namzu/ollama │   │                     │
+    │  @namzu/lmstudio                 │   │                     │
+    └──────────────────────────────────┘   └─────────────────────┘
 ```
 
-**The three layers.** `@namzu/contracts` is a leaf package of shared types, pulled in only by other Namzu packages; it is local-only today and will publish once its API stabilizes. `@namzu/sdk` is the core runtime — agents, tools, streaming, persona, and a `ProviderRegistry` extension point that replaces the older hardcoded factory. Providers and capabilities are thin, independently versioned packages that register themselves with the SDK at app startup via explicit `register<Vendor>()` calls (see [ADR-0001](docs/architecture/decisions/0001-per-vendor-provider-extraction.md)).
+Concrete contract points (verified in source):
 
-Dependency direction is strictly one-way:
+- `@namzu/sdk` exports the `LLMProvider` interface (via `src/types/provider/`) and the `ProviderRegistry` class plus `UnknownProviderError` / `DuplicateProviderError` (via `src/provider/`). Both are re-exported from the root barrel.
+- Each provider package declares `"@namzu/sdk": "^1 || ^0.1.6"` under `peerDependencies`.
+- Each provider package exports a `register<Vendor>()` function that calls `ProviderRegistry.register(type, Class, capabilities, options)`. Providers use TypeScript module augmentation (`declare module '@namzu/sdk'`) to extend `ProviderConfigRegistry`, giving callers type-narrowed config.
+- `@namzu/computer-use` is a separate capability package implementing a subprocess-based `ComputerUseHost` for the contract in `@namzu/sdk` (platform-native CLIs: `screencapture`/`osascript` on darwin, `xdotool`/`maim` on X11, `grim`/`wtype`/`ydotool` on Wayland, PowerShell on Windows).
+- Dependency direction is strictly downward: `@namzu/sdk` does not import any `@namzu/*` workspace package.
 
-```
-@namzu/contracts  ─►  @namzu/sdk  ─►  @namzu/{providers/*, computer-use, apps}
-```
-
-No package imports from the same level or above. Providers never import each other; apps never import from each other. Node.js `>= 20` is required across the workspace.
+**Note on SDK footprint.** Published `@namzu/sdk@0.1.7` still carries `zod`, `zod-to-json-schema`, and eight `@opentelemetry/*` runtime dependencies. ADR-0001 describes a zod-plus-interface target footprint; that reduction is not yet applied in `0.1.x`.
 
 ## Release Flow
 
-The monorepo uses a **tag-prefix release scheme**. Each package has a dedicated GitHub Actions workflow keyed off its own tag prefix — `sdk-v*` publishes `@namzu/sdk`, `ollama-v*` publishes `@namzu/ollama`, `http-v*` publishes `@namzu/http`, and so on. Publishing to npm is handled via **Trusted Publisher (OIDC)**: no long-lived `NPM_TOKEN` secret lives in the repo, and every release ships with `--provenance`.
+Every published package has its own release workflow in `.github/workflows/`, keyed off a tag prefix:
 
-Locally, each package provides `pnpm release:<channel>` scripts (`rc`, `patch`, `minor`, `major`, `stable`, `beta`, `alpha`) that bump `package.json`, commit, tag, and push. The workflow picks up the tag and publishes under the correct dist-tag (`*-rc.*` → `rc`, plain semver → `latest`, etc.). Never hand-edit `package.json` versions; the tag is the canonical release signal. See `AGENTS.md` section **Release Flow** for the full contract, and `packages/providers/PUBLISH_CHECKLIST.md` for the first-release bootstrap runbook.
+| Tag prefix        | Workflow                       | Publishes                  |
+|-------------------|--------------------------------|----------------------------|
+| `sdk-v*`          | `release-sdk.yml`              | `@namzu/sdk`               |
+| `computer-use-v*` | `release-computer-use.yml`     | `@namzu/computer-use`      |
+| `anthropic-v*`    | `release-anthropic.yml`        | `@namzu/anthropic`         |
+| `bedrock-v*`      | `release-bedrock.yml`          | `@namzu/bedrock`           |
+| `http-v*`         | `release-http.yml`             | `@namzu/http`              |
+| `lmstudio-v*`     | `release-lmstudio.yml`         | `@namzu/lmstudio`          |
+| `ollama-v*`       | `release-ollama.yml`           | `@namzu/ollama`            |
+| `openai-v*`       | `release-openai.yml`           | `@namzu/openai`            |
+| `openrouter-v*`   | `release-openrouter.yml`       | `@namzu/openrouter`        |
 
-## Project Status and Roadmap
+Publishing uses npm Trusted Publisher (OIDC) with `--provenance`. No `NPM_TOKEN` secret in the repo.
 
-Namzu is in its **pre-1.0 phase** and moving fast.
+Locally, release is driven by `pnpm release:<channel>` inside each package (`patch`, `minor`, `major`, `rc`, `beta`, `stable`, `dry`). The script bumps version, commits, tags, and pushes; the corresponding GitHub Action then publishes. First-time provider publication follows `packages/providers/PUBLISH_CHECKLIST.md`.
 
-- **Published.** `@namzu/sdk@0.1.6` on npm — full agent runtime, persona system, tool definitions, streaming. `@namzu/computer-use@0.1.0` ships alongside as the first opt-in capability package.
-- **In flight.** Per-vendor provider extraction per [ADR-0001](docs/architecture/decisions/0001-per-vendor-provider-extraction.md). `@namzu/bedrock`, `@namzu/openrouter`, `@namzu/ollama`, `@namzu/lmstudio`, `@namzu/openai`, `@namzu/anthropic`, and `@namzu/http` are implemented, tested, and committed — they land as a coordinated batch release alongside `@namzu/sdk@1.0.0`, which introduces the `ProviderRegistry` pattern. `@namzu/sdk@0.1.x` continues to receive critical security backports until **2026-10-15**.
-- **Next.** `@namzu/telemetry` — opt-in OpenTelemetry instrumentation for agents, tools, and LLM calls. OTel was stripped from provider `v0.1.0` specifically so the telemetry package owns that surface cleanly.
-- **Planned.** Additional protocol bridges (e.g. a `gemini` dialect for `@namzu/http`), community-contributed provider packages under `@namzu-community/<vendor>`, and publication of the currently-local `@namzu/contracts`, `@namzu/agents`, `@namzu/api`, and `@namzu/cli` once their public APIs stabilize.
+## Project Status
 
-No timeline commitments on pre-1.0 work — breaking changes are possible until `@namzu/sdk@1.0.0` ships.
+- **`@namzu/sdk@0.1.7`** — latest published. `ProviderRegistry` is the current API; the older `ProviderFactory` is no longer exported. `MockLLMProvider` is pre-registered under the `'mock'` type.
+- **`@namzu/computer-use@0.1.0`** — published.
+- **Seven provider packages at `0.1.0`** — implemented, tested, committed: `@namzu/anthropic`, `@namzu/bedrock`, `@namzu/http`, `@namzu/lmstudio`, `@namzu/ollama`, `@namzu/openai`, `@namzu/openrouter`. **Not yet on npm.** Publication is the next batched step per `packages/providers/PUBLISH_CHECKLIST.md`.
+- **Five packages local-only** — `contracts`, `agents`, `api`, `cli`, `docs` are gitignored, not part of the public release surface today.
+
+Roadmap direction (see ADR-0001 for the vendor-split rationale):
+
+- A `1.0.0` boundary for `@namzu/sdk` is discussed in ADR-0001 in the context of provider peer-range operability (`"@namzu/sdk": "^1 || ^0.1.6"`). No date committed.
+- A future `@namzu/telemetry` package for observability — scoped internally, not yet shipped. OpenTelemetry primitives (`TelemetryProvider`, `initTelemetry`, `getTracer`) are currently exported from `@namzu/sdk` itself.
+- Eventual publication of currently-local packages as they stabilise.
 
 ## Documentation
 
-- **ADRs — `docs/architecture/decisions/`.** Decision records for cross-cutting architectural choices. Currently [`0001-per-vendor-provider-extraction.md`](docs/architecture/decisions/0001-per-vendor-provider-extraction.md), the authoritative reference for the provider split, `ProviderRegistry`, `@namzu/http` dialect model, and the `sdk@0.1.x` support window.
-- **`docs.local/CONVENTIONS.md`.** Lean one-paragraph-per-rule code conventions (naming, error handling, barrels, provider abstraction, atomic writes, logging, commits). Local-only; not published.
-- **`AGENTS.md` and `CLAUDE.md`.** Guidance for AI tools (Claude Code, Codex, etc.) operating inside the repo — doc hierarchy, working flow, dependency direction, release flow, git safety rules, commit conventions.
-- **Per-package `README.md`.** Each published package documents its own install, auth, configuration, and usage.
+- **`docs/architecture/decisions/`** — public ADRs. Today: `0001-per-vendor-provider-extraction.md`.
+- **`AGENTS.md`** / **`CLAUDE.md`** — canonical AI-tool guidance for the monorepo.
+- **`docs.local/`** — detailed pattern docs and conventions. Local-only.
+- **Per-package READMEs** — each package has its own with install, config, and vendor-specific notes.
 
 ## Contributing
 
-Contributions are welcome on the publicly tracked packages (`@namzu/sdk`, `@namzu/computer-use`, and provider packages under `packages/providers/`).
-
-- **Bugs and feature requests.** Open a GitHub issue on `cogitave/namzu` with a reproducible case or a clear use-case motivation. Prefer discussion on an issue before a large PR.
-- **Pull requests.** Follow `packages/sdk/CONTRIBUTING.md`. Keep PRs narrowly scoped. Run `pnpm typecheck && pnpm lint && pnpm test` locally before pushing; CI enforces all three. New conventions go through an ADR.
-- **Commit style.** Conventional Commits are **required**. Example: `feat(sdk): add ProviderRegistry.listTypes`. Breaking changes use `!` (`feat(sdk)!: ...`) with a `BREAKING CHANGE:` footer.
-- **No AI co-author trailers.** Commits must not include `Co-Authored-By: Claude …` or similar.
-
-Community provider packages are encouraged under the `@namzu-community/<vendor>` scope — open an issue if you'd like one linked from the README.
+Issues and PRs welcome at [cogitave/namzu](https://github.com/cogitave/namzu). See `packages/sdk/CONTRIBUTING.md` for local setup and conventions.
 
 ## License
 
-Namzu is released under the **Functional Source License, Version 1.1, MIT Future License (FSL-1.1-MIT)**. The license grants production and non-commercial use immediately with a narrow competing-use restriction, and automatically converts to MIT two years after each release. Full text: [LICENSE.md](LICENSE.md).
-
-## Acknowledgements
-
-Namzu draws on lessons from prior work in the ecosystem: the Vercel AI SDK demonstrated that a per-provider package split produces a cleaner install footprint than a monolithic core; LangChain mapped out the problem shape of agent frameworks and toolchains; and Anthropic's Model Context Protocol (MCP) informed how we think about tool and capability boundaries. Namzu's choices differ in places — most visibly in the registry-plus-explicit-activation pattern over side-effect auto-registration — but the intellectual debt is real and worth naming.
+[FSL-1.1-MIT](./LICENSE.md). The Functional Source License converts to MIT two years after each release, so every published version of Namzu becomes MIT-licensed on its second anniversary.
