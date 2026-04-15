@@ -61,8 +61,13 @@ export class DiskTaskStore implements TaskStore {
 	}
 
 	private async withLock<T>(taskId: TaskId, fn: () => Promise<T>): Promise<T> {
-		const existing = this.locks.get(taskId)
-		if (existing) {
+		// Loop instead of single await: after awaiting a lock, the map may
+		// already hold a NEW lock acquired by another coroutine that woke
+		// up before us. Re-check on each iteration until we observe an empty
+		// slot, at which point the synchronous set() below claims it.
+		while (true) {
+			const existing = this.locks.get(taskId)
+			if (!existing) break
 			await existing.catch(() => undefined)
 		}
 
@@ -82,6 +87,22 @@ export class DiskTaskStore implements TaskStore {
 		}
 	}
 
+	/**
+	 * Acquires locks on multiple task IDs in a canonical (lexicographic) order
+	 * to prevent deadlocks when operations touch several related tasks.
+	 * Duplicates are removed; each ID is locked exactly once.
+	 */
+	private async withLocks<T>(taskIds: readonly TaskId[], fn: () => Promise<T>): Promise<T> {
+		const unique = [...new Set(taskIds)].sort() as TaskId[]
+		const acquire = async (i: number): Promise<T> => {
+			if (i >= unique.length) return fn()
+			const nextId = unique[i]
+			if (nextId === undefined) return fn()
+			return this.withLock(nextId, () => acquire(i + 1))
+		}
+		return acquire(0)
+	}
+
 	on(listener: TaskEventListener): () => void {
 		this.listeners.push(listener)
 		return () => {
@@ -93,7 +114,12 @@ export class DiskTaskStore implements TaskStore {
 		for (const listener of this.listeners) {
 			try {
 				listener(event)
-			} catch {}
+			} catch (err) {
+				this.log.warn('Task event listener threw', {
+					error: err instanceof Error ? err.message : String(err),
+					eventType: event.type,
+				})
+			}
 		}
 	}
 
@@ -118,18 +144,27 @@ export class DiskTaskStore implements TaskStore {
 
 		const dir = this.taskDir(runId)
 		await mkdir(dir, { recursive: true })
-		await atomicWriteJson(this.taskPath(runId, taskId), task)
 
-		if (params.blockedBy) {
-			for (const blockerId of params.blockedBy) {
-				await this.withLock(blockerId, async () => {
+		const blockers = params.blockedBy ?? []
+		if (blockers.length === 0) {
+			await atomicWriteJson(this.taskPath(runId, taskId), task)
+		} else {
+			// Hold locks on all blockers while establishing the bidirectional edge:
+			// update each blocker's `blocks` list AND write the new task together,
+			// so concurrent delete(blockerId) sees a consistent pair.
+			await this.withLocks(blockers, async () => {
+				for (const blockerId of blockers) {
 					const blocker = await this.readTask(runId, blockerId)
 					if (blocker && !blocker.blocks.includes(taskId)) {
 						blocker.blocks.push(taskId)
 						await atomicWriteJson(this.taskPath(runId, blockerId), blocker)
 					}
-				})
-			}
+					// If blocker is missing, we still write the new task with its
+					// blockedBy reference; the dangling reference is visible to
+					// subsequent readers rather than silently pruned.
+				}
+				await atomicWriteJson(this.taskPath(runId, taskId), task)
+			})
 		}
 
 		this.log.info('Task created', { taskId, subject: params.subject, runId })
@@ -185,30 +220,59 @@ export class DiskTaskStore implements TaskStore {
 		const found = await this.findTask(id)
 		if (!found) return false
 
-		return this.withLock(id, async () => {
+		// Read the task once (unlocked) to discover its related IDs, then acquire
+		// locks on the entire set (self + blockers + blocked) in canonical order.
+		// Locking the full set up-front in sorted order prevents deadlock when two
+		// deletes race on tasks that mutually reference each other.
+		//
+		// Known trade-off: the lock set is computed from the unlocked preview. If
+		// create()/block() adds a NEW relation between preview and lock acquisition,
+		// we will mutate that neighbor without holding its lock. The alternative
+		// (retry loop with expanding lock set) adds substantial complexity for a
+		// rare interleaving in a single-tenant single-writer store; revisit if the
+		// store grows concurrent writers.
+		const preview = await this.readTask(found.runId, id)
+		if (!preview) return false
+
+		const relatedIds: TaskId[] = [id, ...preview.blockedBy, ...preview.blocks]
+
+		return this.withLocks(relatedIds, async () => {
+			// Re-read under lock: the task's block graph may have changed between
+			// the unlocked preview and lock acquisition.
 			const task = await this.readTask(found.runId, id)
 			if (!task) return false
 
 			for (const blockerId of task.blockedBy) {
-				await this.withLock(blockerId, async () => {
-					const blocker = await this.readTask(task.runId, blockerId)
-					if (blocker) {
-						blocker.blocks = blocker.blocks.filter((bid) => bid !== id)
-						await atomicWriteJson(this.taskPath(task.runId, blockerId), blocker)
-					}
-				})
+				const blocker = await this.readTask(task.runId, blockerId)
+				if (blocker) {
+					blocker.blocks = blocker.blocks.filter((bid) => bid !== id)
+					await atomicWriteJson(this.taskPath(task.runId, blockerId), blocker)
+				}
 			}
 			for (const blockedId of task.blocks) {
-				await this.withLock(blockedId, async () => {
-					const blocked = await this.readTask(task.runId, blockedId)
-					if (blocked) {
-						blocked.blockedBy = blocked.blockedBy.filter((bid) => bid !== id)
-						await atomicWriteJson(this.taskPath(task.runId, blockedId), blocked)
-					}
-				})
+				const blocked = await this.readTask(task.runId, blockedId)
+				if (blocked) {
+					blocked.blockedBy = blocked.blockedBy.filter((bid) => bid !== id)
+					await atomicWriteJson(this.taskPath(task.runId, blockedId), blocked)
+				}
 			}
 
-			await unlink(this.taskPath(task.runId, id)).catch(() => undefined)
+			try {
+				await unlink(this.taskPath(task.runId, id))
+			} catch (err) {
+				const code = (err as NodeJS.ErrnoException).code
+				if (code !== 'ENOENT') {
+					this.log.error(
+						'Failed to delete task file; relations may be in a partially-updated state',
+						{
+							taskId: id,
+							error: err instanceof Error ? err.message : String(err),
+						},
+					)
+					throw err
+				}
+				// ENOENT: already gone, treat as success.
+			}
 			this.log.info('Task deleted', { taskId: id })
 			this.emit({ type: 'task.deleted', taskId: id, task, timestamp: Date.now() })
 			return true
@@ -222,7 +286,13 @@ export class DiskTaskStore implements TaskStore {
 		let files: string[]
 		try {
 			files = await readdir(dir)
-		} catch {
+		} catch (err) {
+			const code = (err as NodeJS.ErrnoException).code
+			if (code === 'ENOENT') return []
+			this.log.warn('Failed to list task directory', {
+				dir,
+				error: err instanceof Error ? err.message : String(err),
+			})
 			return []
 		}
 
@@ -233,8 +303,11 @@ export class DiskTaskStore implements TaskStore {
 				const raw = await readFile(join(dir, file), 'utf-8')
 				const task = JSON.parse(raw) as Task
 				tasks.push(task)
-			} catch {
-				this.log.warn('Failed to read task file', { file })
+			} catch (err) {
+				this.log.warn('Failed to read task file', {
+					file,
+					error: err instanceof Error ? err.message : String(err),
+				})
 			}
 		}
 
@@ -274,19 +347,40 @@ export class DiskTaskStore implements TaskStore {
 		const blockedFound = await this.findTask(blockedId)
 		if (!blockerFound || !blockedFound) return
 
-		await this.withLock(blockerId, async () => {
+		// Acquire BOTH locks before mutating either side of the edge. Sequential
+		// single-locks allow a concurrent operation to interleave and observe
+		// a half-established relationship.
+		await this.withLocks([blockerId, blockedId], async () => {
 			const blocker = await this.readTask(blockerFound.runId, blockerId)
-			if (blocker && !blocker.blocks.includes(blockedId)) {
+			const blocked = await this.readTask(blockedFound.runId, blockedId)
+
+			// Re-validate under lock: either side may have been deleted between
+			// the pre-check (findTask) and lock acquisition. Establishing only
+			// one side of the edge would leave a dangling reference; skip the
+			// whole operation instead.
+			if (!blocker || !blocked) {
+				this.log.warn('block(): task disappeared before lock acquired; skipping', {
+					blockerId,
+					blockedId,
+					blockerExists: !!blocker,
+					blockedExists: !!blocked,
+				})
+				return
+			}
+
+			let mutated = false
+			if (!blocker.blocks.includes(blockedId)) {
 				blocker.blocks.push(blockedId)
 				await atomicWriteJson(this.taskPath(blocker.runId, blockerId), blocker)
+				mutated = true
 			}
-		})
-
-		await this.withLock(blockedId, async () => {
-			const blocked = await this.readTask(blockedFound.runId, blockedId)
-			if (blocked && !blocked.blockedBy.includes(blockerId)) {
+			if (!blocked.blockedBy.includes(blockerId)) {
 				blocked.blockedBy.push(blockerId)
 				await atomicWriteJson(this.taskPath(blocked.runId, blockedId), blocked)
+				mutated = true
+			}
+			if (!mutated) {
+				this.log.debug('block(): edge already exists', { blockerId, blockedId })
 			}
 		})
 	}
@@ -307,10 +401,29 @@ export class DiskTaskStore implements TaskStore {
 	}
 
 	private async readTask(runId: RunId, taskId: TaskId): Promise<Task | null> {
+		const path = this.taskPath(runId, taskId)
+		let raw: string
 		try {
-			const raw = await readFile(this.taskPath(runId, taskId), 'utf-8')
+			raw = await readFile(path, 'utf-8')
+		} catch (err) {
+			const code = (err as NodeJS.ErrnoException).code
+			if (code === 'ENOENT') return null
+			this.log.warn('Failed to read task', {
+				taskId,
+				path,
+				error: err instanceof Error ? err.message : String(err),
+			})
+			return null
+		}
+
+		try {
 			return JSON.parse(raw) as Task
-		} catch {
+		} catch (err) {
+			this.log.error('Corrupt task JSON on disk', {
+				taskId,
+				path,
+				error: err instanceof Error ? err.message : String(err),
+			})
 			return null
 		}
 	}
