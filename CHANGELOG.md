@@ -2,6 +2,22 @@
 
 All notable changes to Namzu are documented here.
 
+## [0.1.5] — 2026-04-15
+
+### Bug Fixes
+
+- **emergency**: uuid tmp suffix, outer try/catch, and explicit exit
+- **store**: resolve withLock race, delete deadlock, and atomic edge updates
+### Documentation
+
+- **changelog**: update for v0.1.5-rc.2
+### Refactor
+
+- **barrels**: route root barrel through sub-barrels (Path B)
+- **connector**: brand ConnectorId/TenantId on public interfaces [**BREAKING**]
+### Testing
+
+- **store**: add concurrency regression tests for DiskTaskStore
 ## [0.1.5-rc.2] — 2026-04-14
 
 ### Bug Fixes
