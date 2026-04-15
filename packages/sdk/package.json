@@ -28,6 +28,11 @@
     "README.md",
     "CHANGELOG.md"
   ],
+  "sideEffects": [
+    "./dist/provider/mock-register.js",
+    "./dist/provider/bedrock-register.js",
+    "./dist/provider/openrouter-register.js"
+  ],
   "publishConfig": {
     "access": "public",
     "provenance": true

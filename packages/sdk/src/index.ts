@@ -180,11 +180,19 @@ export { buildMemoryTools } from './tools/memory/index.js'
 export { LocalTaskGateway } from './gateway/local.js'
 
 export {
-	OpenRouterProvider,
-	BedrockProvider,
-	ProviderFactory,
-	MockLLMProvider,
+	ProviderRegistry,
 	UnknownProviderError,
+	DuplicateProviderError,
+	MockLLMProvider,
+	registerMock,
+	MOCK_CAPABILITIES,
+	// Transitional — these move to @namzu/bedrock / @namzu/openrouter in upcoming releases
+	BedrockProvider,
+	OpenRouterProvider,
+	registerBedrock,
+	BEDROCK_CAPABILITIES,
+	registerOpenRouter,
+	OPENROUTER_CAPABILITIES,
 } from './provider/index.js'
 
 export {

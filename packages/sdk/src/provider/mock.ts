@@ -1,20 +1,14 @@
-import { FALLBACK_MOCK_MODEL, PROVIDER_CAPABILITIES } from '../constants/provider/index.js'
+import { FALLBACK_MOCK_MODEL } from '../constants/provider/index.js'
 import type { TokenUsage } from '../types/common/index.js'
 import type {
 	ChatCompletionParams,
 	ChatCompletionResponse,
 	LLMProvider,
 	MockProviderConfig,
-	ProviderCapabilities,
-	ProviderFactoryConfig,
-	ProviderFactoryResult,
-	ProviderType,
 	StreamChunk,
 } from '../types/provider/index.js'
-import { BedrockProvider } from './bedrock/client.js'
-import { OpenRouterProvider } from './openrouter/client.js'
 
-class MockLLMProvider implements LLMProvider {
+export class MockLLMProvider implements LLMProvider {
 	readonly id = 'mock'
 	readonly name = 'Mock LLM Provider'
 
@@ -103,52 +97,3 @@ class MockLLMProvider implements LLMProvider {
 		return true
 	}
 }
-
-export class UnknownProviderError extends Error {
-	readonly providerType: string
-
-	constructor(providerType: string) {
-		super(`Unsupported provider type: ${providerType}`)
-		this.name = 'UnknownProviderError'
-		this.providerType = providerType
-	}
-}
-
-export class ProviderFactory {
-	static create(config: ProviderFactoryConfig): ProviderFactoryResult {
-		const provider = ProviderFactory.createProvider(config)
-		const capabilities = ProviderFactory.getCapabilities(config.type)
-		return { provider, capabilities }
-	}
-
-	static createProvider(config: ProviderFactoryConfig): LLMProvider {
-		if (config.type === 'openrouter') {
-			const { type, ...openrouterConfig } = config
-			return new OpenRouterProvider(openrouterConfig)
-		}
-		if (config.type === 'bedrock') {
-			const { type, ...bedrockConfig } = config
-			return new BedrockProvider(bedrockConfig)
-		}
-		if (config.type === 'mock') {
-			return new MockLLMProvider(config)
-		}
-
-		throw new UnknownProviderError((config as { type: string }).type)
-	}
-
-	static getCapabilities(type: ProviderType): ProviderCapabilities {
-		const capabilities = PROVIDER_CAPABILITIES[type]
-		if (!capabilities) {
-			throw new UnknownProviderError(type)
-		}
-
-		return capabilities
-	}
-
-	static isSupported(type: string): type is ProviderType {
-		return type === 'openrouter' || type === 'bedrock' || type === 'mock'
-	}
-}
-
-export { OpenRouterProvider, BedrockProvider, MockLLMProvider }
