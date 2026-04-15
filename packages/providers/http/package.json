@@ -1,0 +1,65 @@
+{
+  "name": "@namzu/http",
+  "version": "0.1.0",
+  "description": "Zero-dependency LLM provider for any OpenAI- or Anthropic-compatible HTTP endpoint. Use with vLLM, TGI, llama-server, Groq, DeepInfra, Together.ai, or any custom inference server.",
+  "license": "FSL-1.1-MIT",
+  "type": "module",
+  "homepage": "https://github.com/cogitave/namzu#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cogitave/namzu.git",
+    "directory": "packages/providers/http"
+  },
+  "bugs": {
+    "url": "https://github.com/cogitave/namzu/issues"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "LICENSE.md",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "dev": "tsc --build --watch",
+    "lint": "biome check src/",
+    "lint:fix": "biome check --write src/",
+    "format": "biome format --write src/",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit",
+    "verify": "bash scripts/verify.sh",
+    "release:patch": "bash scripts/release.sh patch",
+    "release:minor": "bash scripts/release.sh minor",
+    "release:major": "bash scripts/release.sh major",
+    "release:rc": "bash scripts/release.sh rc",
+    "release:beta": "bash scripts/release.sh beta",
+    "release:stable": "bash scripts/release.sh stable",
+    "release:dry": "bash scripts/release.sh patch --dry-run",
+    "prepublishOnly": "pnpm lint && pnpm typecheck && pnpm build"
+  },
+  "dependencies": {},
+  "peerDependencies": {
+    "@namzu/sdk": "^1 || ^0.1.6"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@namzu/sdk": "workspace:^",
+    "@types/node": "^22.19.17",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  }
+}
