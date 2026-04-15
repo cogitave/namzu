@@ -7,6 +7,7 @@ All notable changes to Namzu are documented here.
 ### Documentation
 
 - **changelog**: add 0.1.6 (sdk) and 0.1.0 (computer-use) entries; fix cliff tag prefix + workflow race
+- **changelog**: update for sdk-v0.1.6-rc.1
 ### Features
 
 - **bedrock**: extract BedrockProvider to @namzu/bedrock package (Phase I.3 pilot)
@@ -15,11 +16,6 @@ All notable changes to Namzu are documented here.
 
 - **sdk**: address Codex review — scope providers/ subfolder, hide registry reset
 - **sdk**: replace ProviderFactory with ProviderRegistry for per-vendor extraction [**BREAKING**]
-## [0.1.6] — 2026-04-15
-
-### Documentation
-
-- **changelog**: update for sdk-v0.1.6-rc.1
 ## [0.1.6-rc.1] — 2026-04-15
 
 ### Documentation
