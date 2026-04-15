@@ -2,6 +2,17 @@
 
 All notable changes to Namzu are documented here.
 
+## [sdk-v0.1.6-rc.1] — 2026-04-15
+
+### Documentation
+
+- **changelog**: update for v0.1.5
+### Features
+
+- **sdk**: add ComputerUseHost interface and computer_use tool
+### Miscellaneous
+
+- initialize namzu monorepo from sdk; add @namzu/computer-use capability package
 ## [0.1.5] — 2026-04-15
 
 ### Bug Fixes
