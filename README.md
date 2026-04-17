@@ -127,13 +127,13 @@ namzu/
 │   ├── sdk/                       @namzu/sdk           0.1.7   published
 │   ├── computer-use/              @namzu/computer-use  0.1.0   published
 │   ├── providers/
-│   │   ├── anthropic/             @namzu/anthropic     0.1.0   unpublished
-│   │   ├── bedrock/               @namzu/bedrock       0.1.0   unpublished
-│   │   ├── http/                  @namzu/http          0.1.0   unpublished
-│   │   ├── lmstudio/              @namzu/lmstudio      0.1.0   unpublished
-│   │   ├── ollama/                @namzu/ollama        0.1.0   unpublished
-│   │   ├── openai/                @namzu/openai        0.1.0   unpublished
-│   │   ├── openrouter/            @namzu/openrouter    0.1.0   unpublished
+│   │   ├── anthropic/             @namzu/anthropic     0.1.0   published
+│   │   ├── bedrock/               @namzu/bedrock       0.1.0   published
+│   │   ├── http/                  @namzu/http          0.1.0   published
+│   │   ├── lmstudio/              @namzu/lmstudio      0.1.0   published
+│   │   ├── ollama/                @namzu/ollama        0.1.0   published
+│   │   ├── openai/                @namzu/openai        0.1.0   published
+│   │   ├── openrouter/            @namzu/openrouter    0.1.0   published
 │   │   └── PUBLISH_CHECKLIST.md
 │   ├── contracts/                                              local-only (gitignored)
 │   ├── agents/                                                 local-only (gitignored)
