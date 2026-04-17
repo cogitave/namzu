@@ -12,6 +12,7 @@ import type {
 	EmergencySaveId,
 	EnvironmentId,
 	ExecutionContextId,
+	HandoffId,
 	KnowledgeBaseId,
 	MCPClientId,
 	MCPServerId,
@@ -180,6 +181,10 @@ export function generateSubSessionId(): SubSessionId {
 
 export function generateSummaryId(): SummaryId {
 	return generateId('sum_')
+}
+
+export function generateHandoffId(): HandoffId {
+	return generateId('hof_')
 }
 
 function parseId<T extends string>(raw: string, prefix: string, typeName: string): T {

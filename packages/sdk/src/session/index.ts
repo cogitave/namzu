@@ -6,4 +6,5 @@
 export * from './hierarchy/index.js'
 export * from './events/index.js'
 export * from './workspace/index.js'
+export * from './handoff/index.js'
 export { TenantIsolationError, WorkspaceBackendError, AncestryCycleError } from './errors.js'
