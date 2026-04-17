@@ -24,10 +24,13 @@ import type {
 	RunId,
 	SandboxId,
 	SessionId,
+	SubSessionId,
+	SummaryId,
 	TaskId,
 	TenantId,
 	ThreadId,
 	ToolCallId,
+	WorkspaceId,
 } from '../types/ids/index.js'
 
 const ALPHABET = '0123456789abcdefghijklmnopqrstuvwxyz'
@@ -165,6 +168,18 @@ export function generatePluginId(): PluginId {
 
 export function generateSandboxId(): SandboxId {
 	return generateId('sbx_')
+}
+
+export function generateWorkspaceId(): WorkspaceId {
+	return generateId('wsp_')
+}
+
+export function generateSubSessionId(): SubSessionId {
+	return generateId('sub_')
+}
+
+export function generateSummaryId(): SummaryId {
+	return generateId('sum_')
 }
 
 function parseId<T extends string>(raw: string, prefix: string, typeName: string): T {

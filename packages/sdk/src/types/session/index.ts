@@ -18,3 +18,11 @@ export type {
 	ThreadId,
 	ThreadIdDeprecated,
 } from './ids.js'
+
+export type {
+	SessionStore,
+	SessionView,
+	CreateProjectParams,
+	CreateSessionParams,
+	CreateSubSessionParams,
+} from './store.js'

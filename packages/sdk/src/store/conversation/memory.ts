@@ -1,3 +1,22 @@
+/**
+ * @deprecated Use `InMemorySessionStore` from
+ * `@namzu/sdk/store/session`. This class implements the deprecated
+ * `ConversationStore` contract (thread-scoped, no tenantId) and is kept
+ * for one migration window per session-hierarchy.md §13.1; it will be
+ * removed in 0.3.0.
+ *
+ * INTERPRETATION (Phase 3): the old class exposes helpers
+ * (`addUserMessage`, `createThread`, `hasThread`, `deleteThread`,
+ * `messageCount`, `clear`) that are not part of `ConversationStore` and
+ * whose signatures rely on `ThreadId` + `Message` without `TenantId`.
+ * Those signatures are structurally incompatible with the new
+ * `SessionStore` surface, so a strict alias re-export would lose API
+ * (roadmap §2 Phase 3 option (a)). We pick option (b) — retain the
+ * original class body verbatim with a deprecation banner — to preserve
+ * existing consumers during the migration window without polluting the
+ * new `InMemorySessionStore` with thread-scoped helpers.
+ */
+
 import { findSafeTrimIndex } from '../../compaction/dangling.js'
 import type { ConversationStore } from '../../types/conversation/index.js'
 import type { MessageId, RunId, ThreadId } from '../../types/ids/index.js'
@@ -27,6 +46,10 @@ export interface InMemoryConversationStoreConfig {
 	readonly maxMessages?: number
 }
 
+/**
+ * @deprecated See module banner. Use `InMemorySessionStore` from
+ * `@namzu/sdk/store/session`.
+ */
 export class InMemoryConversationStore implements ConversationStore {
 	private readonly threads = new Map<ThreadId, ConversationMessage[]>()
 	private readonly maxMessages: number

@@ -1,7 +1,9 @@
 // Top-level barrel for the session hierarchy module.
-// Phase 1 populates `hierarchy/`; Phase 2 adds `events/`. Later phases add
-// handoff/, workspace/, summary/, intervention/, retention/, and migration/
-// sub-barrels.
+// Phase 1 populates `hierarchy/`; Phase 2 adds `events/`; Phase 3 adds
+// `workspace/` + `errors.ts`. Later phases add handoff/, summary/,
+// intervention/, retention/, and migration/ sub-barrels.
 
 export * from './hierarchy/index.js'
 export * from './events/index.js'
+export * from './workspace/index.js'
+export { TenantIsolationError, WorkspaceBackendError, AncestryCycleError } from './errors.js'
