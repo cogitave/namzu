@@ -20,6 +20,7 @@ import type {
 	MessageId,
 	PlanId,
 	PluginId,
+	ProjectId,
 	RunId,
 	SandboxId,
 	SessionId,
@@ -49,8 +50,17 @@ function generateId<T extends string>(prefix: T, length = 12): `${T}${string}` {
 	return `${prefix}${suffix}` as `${T}${string}`
 }
 
+/**
+ * @deprecated Prefer {@link generateProjectId}. `ThreadId` is an alias of
+ * `ProjectId` during the 0.2.x migration window; this helper emits the new
+ * `prj_` prefix and will be removed in 0.3.0. See session-hierarchy.md §13.
+ */
 export function generateThreadId(): ThreadId {
-	return generateId('thd_')
+	return generateId('prj_')
+}
+
+export function generateProjectId(): ProjectId {
+	return generateId('prj_')
 }
 
 export function generateRunId(): RunId {
@@ -62,7 +72,7 @@ export function generateMessageId(): MessageId {
 }
 
 export function generateSessionId(): SessionId {
-	return generateId('sess_')
+	return generateId('ses_')
 }
 
 export function generateToolCallId(): ToolCallId {
@@ -102,7 +112,7 @@ export function generateConnectorInstanceId(): ConnectorInstanceId {
 }
 
 export function generateTenantId(): TenantId {
-	return generateId('ten_')
+	return generateId('tnt_')
 }
 
 export function generateCredentialId(): CredentialId {
@@ -164,8 +174,24 @@ function parseId<T extends string>(raw: string, prefix: string, typeName: string
 	return raw as T
 }
 
+/**
+ * @deprecated Parses either the legacy `thd_*` prefix or the new `prj_*`
+ * prefix during the 0.2.x migration window. 0.3.x will only accept `prj_*`.
+ * See session-hierarchy.md §13.3.1.
+ */
 export function parseThreadId(raw: string): ThreadId {
-	return parseId<ThreadId>(raw, 'thd_', 'ThreadId')
+	if (raw.startsWith('prj_')) {
+		return raw as ThreadId
+	}
+	if (raw.startsWith('thd_')) {
+		// Read-accept legacy prefix; a proper coercion pipeline lands in Phase 7.
+		return raw as unknown as ThreadId
+	}
+	throw new Error(`Invalid ThreadId: expected "prj_" or "thd_" prefix, got "${raw}"`)
+}
+
+export function parseProjectId(raw: string): ProjectId {
+	return parseId<ProjectId>(raw, 'prj_', 'ProjectId')
 }
 export function parseRunId(raw: string): RunId {
 	return parseId<RunId>(raw, 'run_', 'RunId')

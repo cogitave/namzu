@@ -16,7 +16,7 @@ describe('InvocationState', () => {
 
 		it('should create child state with single agent in parentChain when parent has no parentChain', () => {
 			const parent: InvocationState = {
-				tenantId: 'ten_abc' as TenantId,
+				tenantId: 'tnt_abc' as TenantId,
 				metadata: { userId: 'user-123' },
 			}
 
@@ -30,7 +30,7 @@ describe('InvocationState', () => {
 		it('should extend parentChain with current agent', () => {
 			const parent: InvocationState = {
 				parentChain: ['supervisor', 'router'],
-				tenantId: 'ten_xyz' as TenantId,
+				tenantId: 'tnt_xyz' as TenantId,
 			}
 
 			const childState = deriveChildState(parent, 'worker-agent')
@@ -39,7 +39,7 @@ describe('InvocationState', () => {
 		})
 
 		it('should preserve tenantId through derivation', () => {
-			const tenantId = 'ten_tenant123' as TenantId
+			const tenantId = 'tnt_tenant123' as TenantId
 			const parent: InvocationState = {
 				tenantId,
 				parentChain: ['agent-1'],
@@ -53,7 +53,7 @@ describe('InvocationState', () => {
 		it('should preserve metadata through derivation', () => {
 			const metadata = {
 				userId: 'user-456',
-				sessionId: 'sess_789',
+				sessionId: 'ses_789',
 				correlationId: 'corr_abc',
 			}
 			const parent: InvocationState = {
@@ -83,7 +83,7 @@ describe('InvocationState', () => {
 		})
 
 		it('should preserve all fields through multi-level derivation', () => {
-			const tenantId = 'ten_multi' as TenantId
+			const tenantId = 'tnt_multi' as TenantId
 			const metadata = { userId: 'user-multi' }
 			const services = { db: 'postgres' }
 
@@ -146,7 +146,7 @@ describe('InvocationState', () => {
 		it('should not mutate parent state', () => {
 			const parent: InvocationState = {
 				parentChain: ['original'],
-				tenantId: 'ten_orig' as TenantId,
+				tenantId: 'tnt_orig' as TenantId,
 				metadata: { key: 'value' },
 			}
 
@@ -163,14 +163,14 @@ describe('InvocationState', () => {
 	describe('InvocationState immutability', () => {
 		it('should have readonly fields', () => {
 			const state: InvocationState = {
-				tenantId: 'ten_test' as TenantId,
+				tenantId: 'tnt_test' as TenantId,
 				metadata: { key: 'value' },
 				services: { db: 'postgres' },
 				parentChain: ['agent-1'],
 			}
 
 			// Type system enforces immutability, so these assertions verify the type definitions
-			expect(state.tenantId).toBe('ten_test')
+			expect(state.tenantId).toBe('tnt_test')
 			expect(state.metadata).toBeDefined()
 			expect(state.services).toBeDefined()
 			expect(state.parentChain).toBeDefined()
