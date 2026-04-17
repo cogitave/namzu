@@ -2,6 +2,22 @@
 
 All notable changes to Namzu are documented here.
 
+## [0.2.0] — 2026-04-17
+
+### Features
+
+- **sdk**: close Task 10 known deltas + expose session hierarchy (Phase 9) [**BREAKING**]
+- **sdk**: add retention + archival primitives with deleteSession close-out (Phase 8)
+- **sdk**: add migration utilities for 0.2.0 upgrade path (Phase 7)
+- **sdk**: refactor AgentManager to spawn SubSession triple with kernel summarization (Phase 6) [**BREAKING**]
+- **sdk**: add SessionSummaryMaterializer kernel terminalization primitive (Phase 5)
+- **sdk**: add handoff state machine with atomic broadcast rollback (Phase 4)
+- **sdk**: add SessionStore + PathBuilder + git-worktree workspace driver (Phase 3) [**BREAKING**]
+- **sdk**: add RunEvent schemaVersion + sub-session lifecycle events (Phase 2) [**BREAKING**]
+- **sdk**: introduce session hierarchy type foundation (Phase 1) [**BREAKING**]
+### Testing
+
+- **sdk**: add Task 10 integration test coverage matrix (Phase 10)
 ## [0.1.8] — 2026-04-15
 
 ### Documentation
