@@ -1,9 +1,10 @@
 import type { AgentStatus, CostInfo, TokenUsage } from '../common/index.js'
-import type { RunId, ThreadId } from '../ids/index.js'
+import type { RunId, SessionId, TenantId, ThreadId } from '../ids/index.js'
 import type { InvocationState } from '../invocation/index.js'
 import type { Message } from '../message/index.js'
 import type { PermissionMode } from '../permission/index.js'
 import type { StopReason } from '../run/stop-reason.js'
+import type { ProjectId } from '../session/ids.js'
 import type { TaskStore } from '../task/index.js'
 import type { ToolAvailability } from '../tool/index.js'
 
@@ -22,7 +23,20 @@ export interface BaseAgentConfig {
 	permissionMode?: PermissionMode
 	env?: Record<string, string>
 
+	/**
+	 * @deprecated Use `projectId`. Kept as a migration-window mirror; when both
+	 * are present `projectId` wins. See session-hierarchy.md §13.1.
+	 */
 	threadId?: ThreadId
+
+	/** Long-lived goal scope for the run. Required in 0.2.0 (§12.1). */
+	projectId?: ProjectId
+
+	/** Session under which the run executes. Required in 0.2.0 (§12.1). */
+	sessionId?: SessionId
+
+	/** Isolation boundary. Required in 0.2.0 (§12.1). */
+	tenantId?: TenantId
 
 	parentRunId?: RunId
 

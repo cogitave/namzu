@@ -84,6 +84,11 @@ export class RouterAgent extends AbstractAgent<RouterAgentConfig, RouterAgentRes
 			targetRoute = fallback
 		}
 
+		if (!config.invocationState) {
+			throw new Error(
+				'RouterAgent requires invocationState with tenantId in config (session-hierarchy.md §12.1).',
+			)
+		}
 		const childInvocationState = deriveChildState(config.invocationState, this.metadata.id)
 		const delegateResult = await targetRoute.agent.run(
 			input,

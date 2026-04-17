@@ -1,10 +1,11 @@
 import { EMPTY_TOKEN_USAGE } from '../../constants/limits.js'
 import { RunDiskStore } from '../../store/run/disk.js'
 import { type CostInfo, type TokenUsage, accumulateTokenUsage } from '../../types/common/index.js'
-import type { RunId } from '../../types/ids/index.js'
+import type { RunId, SessionId, TenantId } from '../../types/ids/index.js'
 import type { AssistantMessage, Message } from '../../types/message/index.js'
 import type { EmergencySaveData } from '../../types/run/emergency.js'
 import type { AgentRun, RunPersistenceConfig, StopReason } from '../../types/run/index.js'
+import type { ProjectId } from '../../types/session/ids.js'
 import { type ModelPricing, ZERO_COST, accumulateCost } from '../../utils/cost.js'
 import { generateEmergencySaveId } from '../../utils/id.js'
 import type { Logger } from '../../utils/logger.js'
@@ -14,10 +15,16 @@ export class RunPersistence {
 	private runStore: RunDiskStore
 	private pricing?: ModelPricing
 	private log: Logger
+	private readonly _sessionId: SessionId
+	private readonly _tenantId: TenantId
+	private readonly _projectId: ProjectId
 
 	constructor(config: RunPersistenceConfig) {
 		this.pricing = config.pricing
 		this.log = config.log
+		this._sessionId = config.sessionId
+		this._tenantId = config.tenantId
+		this._projectId = config.projectId
 
 		this.runStore = new RunDiskStore({
 			baseDir: config.outputDir,
@@ -45,6 +52,18 @@ export class RunPersistence {
 
 	get id(): RunId {
 		return this.run.id
+	}
+
+	get sessionId(): SessionId {
+		return this._sessionId
+	}
+
+	get tenantId(): TenantId {
+		return this._tenantId
+	}
+
+	get projectId(): ProjectId {
+		return this._projectId
 	}
 
 	get status() {

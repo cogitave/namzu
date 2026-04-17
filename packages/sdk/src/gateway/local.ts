@@ -40,6 +40,12 @@ export class LocalTaskGateway implements TaskGateway {
 					taskStore: this.parentInput?.taskStore,
 					runtimeToolOverrides: this.parentInput?.runtimeToolOverrides,
 				},
+				// Phase 6: spawn scope propagates from the gateway's task context.
+				// The caller built it at SupervisorAgent boundary (§12.1).
+				parentSessionId: this.taskContext.sessionId,
+				tenantId: this.taskContext.tenantId,
+				projectId: this.taskContext.projectId,
+				parentActor: this.taskContext.parentActor,
 			},
 			{ ...this.taskContext, budgetTracker: { ...this.taskContext.budgetTracker } },
 			this.listener,

@@ -3,6 +3,7 @@ import { LocalTaskGateway } from '../gateway/local.js'
 import { ToolRegistry } from '../registry/tool/execute.js'
 import { drainQuery } from '../runtime/query/index.js'
 import type { LaunchedTaskMeta } from '../runtime/query/iteration/phases/context.js'
+import type { ActorRef } from '../session/hierarchy/actor.js'
 import { buildCoordinatorTools } from '../tools/coordinator/index.js'
 import type { TaskGateway } from '../types/agent/gateway.js'
 import type {
@@ -12,7 +13,7 @@ import type {
 	SupervisorAgentResult,
 } from '../types/agent/index.js'
 import type { AgentTaskContext } from '../types/agent/task.js'
-import type { TaskId, ThreadId } from '../types/ids/index.js'
+import type { AgentId, TaskId } from '../types/ids/index.js'
 import { deriveChildState } from '../types/invocation/index.js'
 import type { RunEventListener } from '../types/run/index.js'
 import { ZERO_COST } from '../utils/cost.js'
@@ -42,8 +43,19 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 		const startTime = Date.now()
 		const runId = this.createRunId()
 
-		if (!config.threadId) {
-			throw new Error('SupervisorAgent requires threadId in config')
+		if (!config.sessionId || !config.projectId || !config.tenantId) {
+			throw new Error(
+				'SupervisorAgent requires sessionId, projectId, and tenantId in config (session-hierarchy.md §12.1).',
+			)
+		}
+		const sessionId = config.sessionId
+		const projectId = config.projectId
+		const tenantId = config.tenantId
+
+		const parentActor: ActorRef = {
+			kind: 'agent',
+			agentId: this.metadata.id as AgentId,
+			tenantId,
 		}
 
 		let gateway: TaskGateway
@@ -71,7 +83,10 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 					remaining: config.tokenBudget,
 				},
 				factoryOptions: mergedFactoryOptions,
-				threadId: config.threadId as ThreadId,
+				tenantId,
+				sessionId,
+				projectId,
+				parentActor,
 			}
 			gateway = new LocalTaskGateway(config.agentManager, taskContext, listener, input)
 		} else {
@@ -99,7 +114,10 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 			tools.register(tool)
 		}
 
-		const childInvocationState = deriveChildState(config.invocationState, this.metadata.id)
+		const childInvocationState = deriveChildState(
+			config.invocationState ?? { tenantId },
+			this.metadata.id,
+		)
 
 		const run = await drainQuery(
 			{
@@ -119,7 +137,9 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 				workingDirectory: input.workingDirectory,
 				messages: input.messages,
 				signal: input.signal,
-				threadId: config.threadId as ThreadId,
+				sessionId,
+				projectId,
+				tenantId,
 				runId,
 				parentRunId: config.parentRunId,
 				depth: config.depth,

@@ -3,18 +3,20 @@ import type { TenantId } from '../../ids/index.js'
 import { deriveChildState } from '../index.js'
 import type { InvocationState } from '../index.js'
 
+const ROOT_TENANT = 'tnt_root' as TenantId
+
 describe('InvocationState', () => {
 	describe('deriveChildState', () => {
-		it('should create child state with single agent in parentChain when parent is undefined', () => {
-			const childState = deriveChildState(undefined, 'agent-123')
+		it('seeds parentChain from a root seed when no parent state exists', () => {
+			const childState = deriveChildState({ tenantId: ROOT_TENANT }, 'agent-123')
 
 			expect(childState.parentChain).toEqual(['agent-123'])
-			expect(childState.tenantId).toBeUndefined()
+			expect(childState.tenantId).toBe(ROOT_TENANT)
 			expect(childState.metadata).toBeUndefined()
 			expect(childState.services).toBeUndefined()
 		})
 
-		it('should create child state with single agent in parentChain when parent has no parentChain', () => {
+		it('seeds parentChain when parent has no parentChain', () => {
 			const parent: InvocationState = {
 				tenantId: 'tnt_abc' as TenantId,
 				metadata: { userId: 'user-123' },
@@ -27,7 +29,7 @@ describe('InvocationState', () => {
 			expect(childState.metadata).toBe(parent.metadata)
 		})
 
-		it('should extend parentChain with current agent', () => {
+		it('extends parentChain with current agent', () => {
 			const parent: InvocationState = {
 				parentChain: ['supervisor', 'router'],
 				tenantId: 'tnt_xyz' as TenantId,
@@ -38,7 +40,7 @@ describe('InvocationState', () => {
 			expect(childState.parentChain).toEqual(['supervisor', 'router', 'worker-agent'])
 		})
 
-		it('should preserve tenantId through derivation', () => {
+		it('preserves tenantId through derivation', () => {
 			const tenantId = 'tnt_tenant123' as TenantId
 			const parent: InvocationState = {
 				tenantId,
@@ -50,13 +52,14 @@ describe('InvocationState', () => {
 			expect(childState.tenantId).toBe(tenantId)
 		})
 
-		it('should preserve metadata through derivation', () => {
+		it('preserves metadata through derivation', () => {
 			const metadata = {
 				userId: 'user-456',
 				sessionId: 'ses_789',
 				correlationId: 'corr_abc',
 			}
 			const parent: InvocationState = {
+				tenantId: ROOT_TENANT,
 				metadata,
 				parentChain: ['agent-1'],
 			}
@@ -67,12 +70,13 @@ describe('InvocationState', () => {
 			expect(childState.metadata?.userId).toBe('user-456')
 		})
 
-		it('should preserve services through derivation', () => {
+		it('preserves services through derivation', () => {
 			const services = {
 				db: { pool: 'mock-pool' },
 				cache: { client: 'mock-redis' },
 			}
 			const parent: InvocationState = {
+				tenantId: ROOT_TENANT,
 				services,
 				parentChain: ['agent-1'],
 			}
@@ -82,12 +86,12 @@ describe('InvocationState', () => {
 			expect(childState.services).toBe(services)
 		})
 
-		it('should preserve all fields through multi-level derivation', () => {
+		it('preserves all fields through multi-level derivation', () => {
 			const tenantId = 'tnt_multi' as TenantId
 			const metadata = { userId: 'user-multi' }
 			const services = { db: 'postgres' }
 
-			const level1 = deriveChildState(undefined, 'supervisor')
+			const level1 = deriveChildState({ tenantId }, 'supervisor')
 			expect(level1.parentChain).toEqual(['supervisor'])
 
 			const parent: InvocationState = {
@@ -110,8 +114,9 @@ describe('InvocationState', () => {
 			expect(level3.services).toBe(services)
 		})
 
-		it('should create immutable parentChain', () => {
+		it('creates immutable parentChain', () => {
 			const parent: InvocationState = {
+				tenantId: ROOT_TENANT,
 				parentChain: ['agent-1'],
 			}
 
@@ -122,8 +127,9 @@ describe('InvocationState', () => {
 			expect(childState.parentChain).toEqual(['agent-1', 'agent-2'])
 		})
 
-		it('should handle empty parentChain in parent', () => {
+		it('handles empty parentChain in parent', () => {
 			const parent: InvocationState = {
+				tenantId: ROOT_TENANT,
 				parentChain: [],
 			}
 
@@ -132,25 +138,25 @@ describe('InvocationState', () => {
 			expect(childState.parentChain).toEqual(['agent-first'])
 		})
 
-		it('should allow complex agent IDs in parentChain', () => {
+		it('allows complex agent IDs in parentChain', () => {
 			const agentIds = ['supervisor-agent-123', 'router-multi-path', 'worker-task-handler']
 
-			let state: InvocationState | undefined
+			let state: InvocationState = { tenantId: ROOT_TENANT }
 			for (const agentId of agentIds) {
 				state = deriveChildState(state, agentId)
 			}
 
-			expect(state?.parentChain).toEqual(agentIds)
+			expect(state.parentChain).toEqual(agentIds)
 		})
 
-		it('should not mutate parent state', () => {
+		it('does not mutate parent state', () => {
 			const parent: InvocationState = {
 				parentChain: ['original'],
 				tenantId: 'tnt_orig' as TenantId,
 				metadata: { key: 'value' },
 			}
 
-			const originalParentChain = [...parent.parentChain!]
+			const originalParentChain = [...(parent.parentChain ?? [])]
 
 			deriveChildState(parent, 'child')
 
@@ -161,7 +167,7 @@ describe('InvocationState', () => {
 	})
 
 	describe('InvocationState immutability', () => {
-		it('should have readonly fields', () => {
+		it('has readonly fields', () => {
 			const state: InvocationState = {
 				tenantId: 'tnt_test' as TenantId,
 				metadata: { key: 'value' },
@@ -176,18 +182,19 @@ describe('InvocationState', () => {
 			expect(state.parentChain).toBeDefined()
 		})
 
-		it('should support undefined optional fields', () => {
+		it('supports undefined optional fields (tenantId still required)', () => {
 			const minimalState: InvocationState = {
+				tenantId: ROOT_TENANT,
 				parentChain: ['agent-1'],
 			}
 
-			expect(minimalState.tenantId).toBeUndefined()
+			expect(minimalState.tenantId).toBe(ROOT_TENANT)
 			expect(minimalState.metadata).toBeUndefined()
 			expect(minimalState.services).toBeUndefined()
 			expect(minimalState.parentChain).toEqual(['agent-1'])
 		})
 
-		it('should handle metadata with various types', () => {
+		it('handles metadata with various types', () => {
 			const metadata = {
 				userId: 'user-123',
 				count: 42,
@@ -197,6 +204,7 @@ describe('InvocationState', () => {
 			}
 
 			const state: InvocationState = {
+				tenantId: ROOT_TENANT,
 				metadata,
 			}
 
