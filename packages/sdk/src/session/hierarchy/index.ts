@@ -4,7 +4,7 @@
 export type { ActorRef, SystemRoleId } from './actor.js'
 export type { Lineage } from './lineage.js'
 export type { Tenant } from './tenant.js'
-export type { Project, ProjectConfig, RetentionPolicyRef } from './project.js'
+export type { Project, ProjectConfig } from './project.js'
 export type { Session, SessionStatus } from './session.js'
 export { deriveStatus } from './session.js'
 export type {

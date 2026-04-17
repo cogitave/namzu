@@ -22,6 +22,7 @@
  */
 
 import type { SessionId, TenantId } from '../../types/ids/index.js'
+import type { SubSessionId } from '../../types/session/ids.js'
 import type { SessionStore } from '../../types/session/store.js'
 import { TenantIsolationError } from '../errors.js'
 import type { Session } from '../hierarchy/session.js'
@@ -44,13 +45,16 @@ export interface BroadcastHandoffDeps {
 
 /**
  * Per-recipient partial state tracked during fan-out so rollback can
- * compensate exactly what was created.
+ * compensate exactly what was created. `subSessionId` is populated at the
+ * same step that creates the record so rollback can delete it in reverse
+ * order alongside the child session.
  */
 interface RecipientPartial {
 	assignmentId: HandoffAssignment['id']
 	recipientActor: HandoffAssignment['recipientActor']
 	workspace: WorkspaceRef | null
 	createdSessionId: SessionId | null
+	createdSubSessionId: SubSessionId | null
 }
 
 /**
@@ -208,6 +212,7 @@ export async function executeBroadcastHandoff(
 				recipientActor: assignment.recipientActor,
 				workspace: null,
 				createdSessionId: null,
+				createdSubSessionId: null,
 			}
 			partials.push(partial)
 
@@ -220,7 +225,7 @@ export async function executeBroadcastHandoff(
 			)
 			partial.createdSessionId = childSession.id
 
-			await deps.store.createSubSession(
+			const subSession = await deps.store.createSubSession(
 				{
 					parentSessionId: source.id,
 					childSessionId: childSession.id,
@@ -229,6 +234,7 @@ export async function executeBroadcastHandoff(
 				},
 				tenantId,
 			)
+			partial.createdSubSessionId = subSession.id
 			subsessionsCreated += 1
 
 			// "Assignments written" is the last per-recipient step — counts any
@@ -279,10 +285,16 @@ export async function executeBroadcastHandoff(
 /**
  * Compensating rollback — idempotent per Risk #3.
  *
- * Order (reverse of commit): tear down worktrees → archive partially created
- * child sessions → release source CAS lock → emit `onBroadcastRollback`.
- * Every sub-op swallows its own secondary error so the primary failure
- * remains the surfaced cause.
+ * Order (reverse of commit): tear down worktrees → delete partially created
+ * sub-sessions → delete partially created child sessions → release source
+ * CAS lock → emit `onBroadcastRollback`. Every sub-op swallows its own
+ * secondary error so the primary failure remains the surfaced cause.
+ *
+ * Phase 8 closed the Phase 4 Known Delta (INTERP #2): previous implementation
+ * flipped partial recipient sessions to `status: 'archived'` as a stopgap
+ * because the store had no `deleteSession` primitive. The store now exposes
+ * `deleteSession` + `deleteSubSession` (idempotent), so rollback is total —
+ * no orphan records remain.
  */
 async function rollbackBroadcast(
 	deps: BroadcastHandoffDeps,
@@ -308,20 +320,30 @@ async function rollbackBroadcast(
 		}
 	}
 
-	// b. Archive any partially created recipient sessions.
+	// b. Delete any partially created sub-sessions (reverse order of creation
+	//    so child-side constraints release before the session below them).
 	for (const partial of partials) {
-		if (!partial.createdSessionId) continue
+		if (!partial.createdSubSessionId) continue
 		try {
-			const recipient = await deps.store.getSession(partial.createdSessionId, tenantId)
-			if (recipient) {
-				await deps.store.updateSession({ ...recipient, status: 'archived' }, tenantId)
-			}
+			await deps.store.deleteSubSession(partial.createdSubSessionId, tenantId)
 		} catch {
 			// Idempotent.
 		}
 	}
 
-	// c. Release source CAS — `locked → idle`, preserving ownerVersion.
+	// c. Delete partially created recipient sessions (total cleanup — pattern
+	//    doc §6.2: fan-out is atomic, partial state is externally
+	//    unobservable).
+	for (const partial of partials) {
+		if (!partial.createdSessionId) continue
+		try {
+			await deps.store.deleteSession(partial.createdSessionId, tenantId)
+		} catch {
+			// Idempotent.
+		}
+	}
+
+	// d. Release source CAS — `locked → idle`, preserving ownerVersion.
 	try {
 		const reverted: Session = { ...source, status: 'idle' }
 		await deps.store.updateSession(reverted, tenantId)

@@ -187,6 +187,40 @@ describe('executeBroadcastHandoff', () => {
 		expect(rollbackCall?.partialState.subsessionsCreated).toBe(1)
 		expect(rollbackCall?.partialState.assignmentsWritten).toBe(1)
 		expect(rollbackCall?.broadcastId).toBe('bc_1')
+
+		// Phase 8: rollback now fully deletes partial records rather than
+		// flipping them to 'archived'. The source session has no children and
+		// no orphan child sessions remain under the project.
+		const children = await store.getChildren(session.id, tenant)
+		expect(children).toHaveLength(0)
+	})
+
+	it('rollback performs full cleanup via deleteSubSession/deleteSession (no status-flip stopgap)', async () => {
+		const { project, session } = await seedIdle(store)
+
+		let addCount = 0
+		const exec: ExecFile = async (_file, args) => {
+			if (args.includes('add')) {
+				addCount += 1
+				if (addCount === 2) throw new Error('simulated failure')
+			}
+			return okExec()
+		}
+		const { deps } = buildDeps(store, exec)
+
+		const assignments = buildAssignments(session.id, project.id, 0, [user('usr_b'), user('usr_c')])
+
+		await expect(executeBroadcastHandoff(deps, assignments, tenant)).rejects.toThrow()
+
+		// No sub-session record remains.
+		const children = await store.getChildren(session.id, tenant)
+		expect(children).toHaveLength(0)
+
+		// Source is back to idle with its original ownerVersion (unchanged because
+		// the CAS commit never landed).
+		const reloaded = await store.getSession(session.id, tenant)
+		expect(reloaded?.status).toBe('idle')
+		expect(reloaded?.ownerVersion).toBe(0)
 	})
 
 	it('rollback idempotency: worktree dispose throwing during rollback does not bubble a secondary failure', async () => {

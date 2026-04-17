@@ -253,6 +253,74 @@ describe('DiskSessionStore', () => {
 		})
 	})
 
+	it('deleteSession removes the session directory recursively', async () => {
+		const { project, session } = await seed(store, tenantA)
+		await store.appendMessage(session.id, createUserMessage('hi'), tenantA)
+
+		await store.deleteSession(session.id, tenantA)
+
+		const sessionDir = join(rootDir, 'projects', project.id, 'sessions', session.id)
+		// Directory should be gone.
+		const sessionsDirListing = await readdir(join(rootDir, 'projects', project.id, 'sessions'))
+		expect(sessionsDirListing).not.toContain(session.id)
+		// Session read returns null.
+		expect(await store.getSession(session.id, tenantA)).toBeNull()
+		// Path sanity: no ghost file at the session path.
+		void sessionDir
+	})
+
+	it('deleteSession tolerates missing session directory (idempotent)', async () => {
+		await expect(
+			store.deleteSession('ses_nonexistent' as SessionId, tenantA),
+		).resolves.toBeUndefined()
+	})
+
+	it('deleteSession rejects if sub-sessions are still attached', async () => {
+		const { project, session: root } = await seed(store, tenantA)
+		const child = await store.createSession(
+			{ projectId: project.id, currentActor: agentActor(tenantA) },
+			tenantA,
+		)
+		await store.createSubSession(
+			{
+				parentSessionId: root.id,
+				childSessionId: child.id,
+				kind: 'agent_spawn',
+				spawnedBy: userActor(tenantA),
+			},
+			tenantA,
+		)
+
+		await expect(store.deleteSession(root.id, tenantA)).rejects.toThrow(/attached sub-sessions/)
+	})
+
+	it('deleteSubSession removes the sub-session directory and is idempotent', async () => {
+		const { project, session: root } = await seed(store, tenantA)
+		const child = await store.createSession(
+			{ projectId: project.id, currentActor: agentActor(tenantA) },
+			tenantA,
+		)
+		const sub = await store.createSubSession(
+			{
+				parentSessionId: root.id,
+				childSessionId: child.id,
+				kind: 'agent_spawn',
+				spawnedBy: userActor(tenantA),
+			},
+			tenantA,
+		)
+
+		await store.deleteSubSession(sub.id, tenantA)
+		expect(await store.getSubSession(sub.id, tenantA)).toBeNull()
+
+		const subsDir = join(rootDir, 'projects', project.id, 'sessions', root.id, 'subsessions')
+		const listing = await readdir(subsDir).catch(() => [] as string[])
+		expect(listing).not.toContain(sub.id)
+
+		// Idempotent.
+		await expect(store.deleteSubSession(sub.id, tenantA)).resolves.toBeUndefined()
+	})
+
 	it('getSummary rejects cross-tenant reads', async () => {
 		const { session } = await seed(store, tenantA)
 		const summary: SessionSummaryRef & { materializedBy: 'kernel' } = {

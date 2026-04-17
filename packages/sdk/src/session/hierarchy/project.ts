@@ -1,13 +1,6 @@
 import type { KnowledgeBaseRef, MemoryStoreRef, TenantId, VaultRef } from '../../types/ids/index.js'
 import type { ProjectId } from '../../types/session/ids.js'
-
-/**
- * Placeholder ref for {@link ProjectConfig.retentionPolicy}. The full
- * {@link RetentionPolicy} shape lands in Phase 8 (session-hierarchy.md
- * §12.3); kept as `unknown` here so Phase 1 stays type-only with no
- * behavioural dependencies.
- */
-export type RetentionPolicyRef = unknown
+import type { RetentionPolicy } from '../retention/policy.js'
 
 /**
  * Per-project configuration. Defaults per session-hierarchy.md §3 / §4.2 /
@@ -17,6 +10,11 @@ export type RetentionPolicyRef = unknown
  *   - maxDelegationWidth: 8
  *   - maxInterventionDepth: 10
  *   - sharedDeliverables: false
+ *
+ * `retentionPolicy` replaces the Phase 1 `RetentionPolicyRef = unknown`
+ * placeholder with the real {@link RetentionPolicy} shape (§12.3). Absent
+ * (deny-by-default per Convention #5) means archival is fully disabled for
+ * the project; explicit configuration is required.
  */
 export interface ProjectConfig {
 	maxDelegationDepth: number
@@ -26,7 +24,7 @@ export interface ProjectConfig {
 	sharedVaults?: readonly VaultRef[]
 	sharedKnowledgeBases?: readonly KnowledgeBaseRef[]
 	sharedDeliverables?: boolean
-	retentionPolicy?: RetentionPolicyRef
+	retentionPolicy?: RetentionPolicy
 }
 
 /**

@@ -154,6 +154,28 @@ export class InMemorySessionStore implements SessionStore {
 		this.sessions.set(session.id, { tenantId, session: { ...session, updatedAt: new Date() } })
 	}
 
+	async deleteSession(sessionId: SessionId, tenantId: TenantId): Promise<void> {
+		const record = this.sessions.get(sessionId)
+		if (!record) return // Idempotent: missing = no-op.
+		this.assertTenant(record.tenantId, tenantId, `session(${sessionId})`)
+
+		// Policy: reject if sub-sessions still attach to this session (either as
+		// parent or child). Callers must delete children first — Convention #5
+		// deny-by-default; no implicit cascade.
+		for (const subRecord of this.subSessions.values()) {
+			const { subSession } = subRecord
+			if (subSession.parentSessionId === sessionId || subSession.childSessionId === sessionId) {
+				throw new Error(
+					`Session ${sessionId} has attached sub-sessions; delete them before deleting the session`,
+				)
+			}
+		}
+
+		this.sessions.delete(sessionId)
+		this.messages.delete(sessionId)
+		this.summaries.delete(sessionId)
+	}
+
 	// SubSession CRUD ---------------------------------------------------------
 
 	async createSubSession(params: CreateSubSessionParams, tenantId: TenantId): Promise<SubSession> {
@@ -204,6 +226,13 @@ export class InMemorySessionStore implements SessionStore {
 			tenantId,
 			subSession: { ...subSession, updatedAt: new Date() },
 		})
+	}
+
+	async deleteSubSession(subSessionId: SubSessionId, tenantId: TenantId): Promise<void> {
+		const record = this.subSessions.get(subSessionId)
+		if (!record) return // Idempotent: missing = no-op.
+		this.assertTenant(record.tenantId, tenantId, `sub-session(${subSessionId})`)
+		this.subSessions.delete(subSessionId)
 	}
 
 	// Messages ----------------------------------------------------------------

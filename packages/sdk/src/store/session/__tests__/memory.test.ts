@@ -217,6 +217,77 @@ describe('InMemorySessionStore', () => {
 		})
 	})
 
+	it('deleteSession is idempotent (missing session → no throw)', async () => {
+		const store = new InMemorySessionStore()
+		// Never seeded — just assert no throw.
+		await expect(store.deleteSession('ses_missing' as SessionId, tenantA)).resolves.toBeUndefined()
+	})
+
+	it('deleteSession rejects cross-tenant', async () => {
+		const store = new InMemorySessionStore()
+		const { session } = await seed(store, tenantA)
+		await expect(store.deleteSession(session.id, tenantB)).rejects.toBeInstanceOf(
+			TenantIsolationError,
+		)
+	})
+
+	it('deleteSession rejects while sub-sessions are still attached (deny-by-default: no implicit cascade)', async () => {
+		const store = new InMemorySessionStore()
+		const { project, session: root } = await seed(store, tenantA)
+		const child = await store.createSession(
+			{ projectId: project.id, currentActor: agentActor(tenantA) },
+			tenantA,
+		)
+		await store.createSubSession(
+			{
+				parentSessionId: root.id,
+				childSessionId: child.id,
+				kind: 'agent_spawn',
+				spawnedBy: userActor(tenantA),
+			},
+			tenantA,
+		)
+
+		await expect(store.deleteSession(root.id, tenantA)).rejects.toThrow(/attached sub-sessions/)
+	})
+
+	it('deleteSession removes session + messages + summary (after children deleted)', async () => {
+		const store = new InMemorySessionStore()
+		const { session } = await seed(store, tenantA)
+		await store.appendMessage(session.id, createUserMessage('x'), tenantA)
+
+		await store.deleteSession(session.id, tenantA)
+		expect(await store.getSession(session.id, tenantA)).toBeNull()
+		expect(await store.loadMessages(session.id, tenantA)).toEqual([])
+	})
+
+	it('deleteSubSession is idempotent and rejects cross-tenant', async () => {
+		const store = new InMemorySessionStore()
+		const { project, session: root } = await seed(store, tenantA)
+		const child = await store.createSession(
+			{ projectId: project.id, currentActor: agentActor(tenantA) },
+			tenantA,
+		)
+		const sub = await store.createSubSession(
+			{
+				parentSessionId: root.id,
+				childSessionId: child.id,
+				kind: 'agent_spawn',
+				spawnedBy: userActor(tenantA),
+			},
+			tenantA,
+		)
+
+		await expect(store.deleteSubSession(sub.id, tenantB)).rejects.toBeInstanceOf(
+			TenantIsolationError,
+		)
+
+		await store.deleteSubSession(sub.id, tenantA)
+		expect(await store.getSubSession(sub.id, tenantA)).toBeNull()
+		// Second call — idempotent.
+		await expect(store.deleteSubSession(sub.id, tenantA)).resolves.toBeUndefined()
+	})
+
 	it('orderChildren yields deterministic ordering by spawnedAt then id', async () => {
 		const store = new InMemorySessionStore()
 		const { project, session: root } = await seed(store, tenantA)

@@ -21,7 +21,16 @@
  * path lives in Phase 7 of the overall roadmap.
  */
 
-import { appendFile, mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises'
+import {
+	appendFile,
+	mkdir,
+	readFile,
+	readdir,
+	rename,
+	rm,
+	unlink,
+	writeFile,
+} from 'node:fs/promises'
 import { join } from 'node:path'
 import { TenantIsolationError } from '../../session/errors.js'
 import type { Project } from '../../session/hierarchy/project.js'
@@ -97,6 +106,8 @@ interface PersistedSubSession {
 	workspaceId: SubSession['workspaceId']
 	broadcastGroupId?: string
 	summaryRef?: SubSession['summaryRef']
+	archiveRef?: SubSession['archiveRef']
+	archivedAt?: string
 	updatedAt: string
 }
 
@@ -258,6 +269,85 @@ export class DiskSessionStore implements SessionStore {
 		await atomicWriteJson(join(located.path, 'session.json'), serializeSession(updated))
 	}
 
+	async deleteSession(sessionId: SessionId, tenantId: TenantId): Promise<void> {
+		const located = await this.locateSession(sessionId)
+		if (!located) return // Idempotent: missing = no-op.
+		const existing = await readJson<PersistedSession>(join(located.path, 'session.json'))
+		if (!existing) return
+		this.assertTenant(existing.tenantId, tenantId, `session(${sessionId})`)
+
+		// Policy: reject if sub-sessions are attached. Callers must delete
+		// children first — Convention #5 deny-by-default; no implicit cascade.
+		// We check BOTH directions (this session as parent, or as child) to
+		// match the in-memory semantics.
+		const subsDir = join(located.path, 'subsessions')
+		let subEntries: string[] = []
+		try {
+			subEntries = await readdir(subsDir)
+		} catch (err) {
+			const code = (err as NodeJS.ErrnoException).code
+			if (code !== 'ENOENT') throw err
+		}
+		if (subEntries.some((e) => e.startsWith('sub_'))) {
+			throw new Error(
+				`Session ${sessionId} has attached sub-sessions; delete them before deleting the session`,
+			)
+		}
+
+		// Also scan tree for sub-session records that reference this session as
+		// `childSessionId`. We need to walk siblings; acceptable cost for the
+		// MVP disk store since the broadcast rollback path always pairs a
+		// deleteSubSession + deleteSession call on the child (no orphans at
+		// steady state).
+		const projectsDir = join(this.rootDir, 'projects')
+		let projectDirs: string[]
+		try {
+			projectDirs = await readdir(projectsDir)
+		} catch (err) {
+			const code = (err as NodeJS.ErrnoException).code
+			if (code === 'ENOENT') projectDirs = []
+			else throw err
+		}
+		for (const rawProject of projectDirs) {
+			if (!rawProject.startsWith('prj_')) continue
+			const sessionsRoot = join(projectsDir, rawProject, 'sessions')
+			let siblingSessions: string[] = []
+			try {
+				siblingSessions = await readdir(sessionsRoot)
+			} catch {
+				continue
+			}
+			for (const rawSib of siblingSessions) {
+				if (!rawSib.startsWith('ses_')) continue
+				const sibSubsDir = join(sessionsRoot, rawSib, 'subsessions')
+				let sibSubs: string[] = []
+				try {
+					sibSubs = await readdir(sibSubsDir)
+				} catch {
+					continue
+				}
+				for (const rawSub of sibSubs) {
+					if (!rawSub.startsWith('sub_')) continue
+					const subRaw = await readJson<PersistedSubSession>(
+						join(sibSubsDir, rawSub, 'subsession.json'),
+					)
+					if (!subRaw) continue
+					if (subRaw.childSessionId === sessionId || subRaw.parentSessionId === sessionId) {
+						throw new Error(
+							`Session ${sessionId} has attached sub-sessions; delete them before deleting the session`,
+						)
+					}
+				}
+			}
+		}
+
+		// Recursive removal — `fs.rm` with `recursive: true` is the atomic
+		// primitive for bulk delete. No write-tmp-rename applies here (we're
+		// destroying state, not creating it).
+		await rm(located.path, { recursive: true, force: true })
+		this.sessionIndex.delete(sessionId)
+	}
+
 	// SubSession CRUD ---------------------------------------------------------
 
 	async createSubSession(params: CreateSubSessionParams, tenantId: TenantId): Promise<SubSession> {
@@ -319,6 +409,21 @@ export class DiskSessionStore implements SessionStore {
 			join(located.path, 'subsession.json'),
 			serializeSubSession(updated, tenantId),
 		)
+	}
+
+	async deleteSubSession(subSessionId: SubSessionId, tenantId: TenantId): Promise<void> {
+		const located = await this.locateSubSession(subSessionId)
+		if (!located) return // Idempotent: missing = no-op.
+		const existing = await readJson<PersistedSubSession>(join(located.path, 'subsession.json'))
+		if (!existing) {
+			// Record vanished between locate + read — treat as already deleted.
+			this.subSessionIndex.delete(subSessionId)
+			return
+		}
+		this.assertTenant(existing.tenantId, tenantId, `sub-session(${subSessionId})`)
+
+		await rm(located.path, { recursive: true, force: true })
+		this.subSessionIndex.delete(subSessionId)
 	}
 
 	// Messages ----------------------------------------------------------------
@@ -704,6 +809,8 @@ function serializeSubSession(s: SubSession, tenantId: TenantId): PersistedSubSes
 		workspaceId: s.workspaceId,
 		...(s.broadcastGroupId !== undefined && { broadcastGroupId: s.broadcastGroupId }),
 		...(s.summaryRef !== undefined && { summaryRef: s.summaryRef }),
+		...(s.archiveRef !== undefined && { archiveRef: s.archiveRef }),
+		...(s.archivedAt !== undefined && { archivedAt: s.archivedAt.toISOString() }),
 		updatedAt: s.updatedAt.toISOString(),
 	}
 }
@@ -722,6 +829,8 @@ function deserializeSubSession(s: PersistedSubSession): SubSession {
 		workspaceId: s.workspaceId,
 		...(s.broadcastGroupId !== undefined && { broadcastGroupId: s.broadcastGroupId }),
 		...(s.summaryRef !== undefined && { summaryRef: s.summaryRef }),
+		...(s.archiveRef !== undefined && { archiveRef: s.archiveRef }),
+		...(s.archivedAt !== undefined && { archivedAt: new Date(s.archivedAt) }),
 		updatedAt: new Date(s.updatedAt),
 	}
 }

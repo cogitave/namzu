@@ -1,5 +1,6 @@
 import type { SessionId } from '../../types/ids/index.js'
 import type { SubSessionId, SummaryId, WorkspaceId } from '../../types/session/ids.js'
+import type { ArchiveBackendRef } from '../retention/archive-backend-ref.js'
 import type { DeliverableRef } from '../summary/deliverable.js'
 import type { ActorRef } from './actor.js'
 
@@ -79,5 +80,13 @@ export interface SubSession {
 	broadcastGroupId?: string
 	/** Populated by {@link SessionSummaryMaterializer} on terminalization (§8). */
 	summaryRef?: SummaryId
+	/**
+	 * Pointer to the archive bundle for this sub-session. Present iff
+	 * `status === 'archived'` (pattern doc §12.3). The paired
+	 * {@link archivedAt} timestamp captures when the bundle was sealed.
+	 * Cleared by {@link ArchivalManager.restore}.
+	 */
+	archiveRef?: ArchiveBackendRef
+	archivedAt?: Date
 	updatedAt: Date
 }

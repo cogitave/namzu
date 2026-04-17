@@ -102,6 +102,23 @@ export interface SessionStore {
 
 	updateSession(session: Session, tenantId: TenantId): Promise<void>
 
+	/**
+	 * Hard-delete a session. Idempotent — absent sessions succeed as a no-op.
+	 * Rejects with `TenantIsolationError` on cross-tenant access.
+	 *
+	 * Closes the Phase 4 Known Delta (broadcast rollback previously had to
+	 * flip status to `'archived'` as a stopgap). Used by:
+	 *   - Broadcast rollback (compensating cleanup — pattern doc §6.2)
+	 *   - Archival tombstone consolidation when a caller prefers deletion
+	 *     over the in-slot tombstone (uncommon — default is in-slot).
+	 *
+	 * Policy: rejects when the session still has sub-sessions attached —
+	 * callers must delete children first. This keeps the operation a single,
+	 * locally-reasoning write rather than an implicit recursive cascade
+	 * (Convention #5 deny-by-default).
+	 */
+	deleteSession(sessionId: SessionId, tenantId: TenantId): Promise<void>
+
 	// SubSession CRUD ---------------------------------------------------------
 
 	createSubSession(params: CreateSubSessionParams, tenantId: TenantId): Promise<SubSession>
@@ -109,6 +126,15 @@ export interface SessionStore {
 	getSubSession(subSessionId: SubSessionId, tenantId: TenantId): Promise<SubSession | null>
 
 	updateSubSession(subSession: SubSession, tenantId: TenantId): Promise<void>
+
+	/**
+	 * Hard-delete a sub-session record. Idempotent — absent sub-sessions
+	 * succeed as a no-op. Rejects with `TenantIsolationError` on cross-tenant
+	 * access. Does not cascade to the owned child session; the caller owns
+	 * that (typical broadcast-rollback flow deletes the sub-session first,
+	 * then the child session).
+	 */
+	deleteSubSession(subSessionId: SubSessionId, tenantId: TenantId): Promise<void>
 
 	// Messages (replaces ConversationStore surface) ---------------------------
 
