@@ -27,9 +27,16 @@ import { TenantIsolationError } from '../../session/errors.js'
 import type { Project } from '../../session/hierarchy/project.js'
 import type { Session } from '../../session/hierarchy/session.js'
 import type { SubSession } from '../../session/hierarchy/sub-session.js'
+import type { DeliverableRef } from '../../session/summary/deliverable.js'
+import { SessionAlreadySummarizedError } from '../../session/summary/ref.js'
+import type {
+	SessionSummaryKeyDecision,
+	SessionSummaryOutcome,
+	SessionSummaryRef,
+} from '../../session/summary/ref.js'
 import type { MessageId, SessionId, TenantId } from '../../types/ids/index.js'
 import type { Message } from '../../types/message/index.js'
-import type { ProjectId, SubSessionId } from '../../types/session/ids.js'
+import type { ProjectId, SubSessionId, SummaryId } from '../../types/session/ids.js'
 import type {
 	CreateProjectParams,
 	CreateSessionParams,
@@ -100,6 +107,29 @@ interface PersistedMessageLine {
 	message: Message
 	at: string
 }
+
+interface PersistedSummary {
+	id: SummaryId
+	sessionRef: SessionId
+	tenantId: TenantId
+	outcome: SessionSummaryOutcome
+	deliverables: readonly DeliverableRef[]
+	agentSummary: string
+	keyDecisions: ReadonlyArray<{ at: string; summary: string }>
+	at: string
+	materializedBy: 'kernel'
+}
+
+/**
+ * Non-terminal statuses from which {@link DiskSessionStore.recordSummary}
+ * flips the owning session to `'idle'` as part of the atomic materialize +
+ * transition contract (session-hierarchy.md §8.1).
+ */
+const SUMMARY_TERMINAL_FLIP_STATUSES: ReadonlySet<Session['status']> = new Set([
+	'active',
+	'locked',
+	'awaiting_merge',
+])
 
 /**
  * Index of projectId → its directory path. Built lazily on lookup via
@@ -365,6 +395,79 @@ export class DiskSessionStore implements SessionStore {
 		}
 	}
 
+	// Summary (§4.7 / §8.1) ---------------------------------------------------
+
+	/**
+	 * Atomic materialize-with-terminal-transition (§8.1). Two write-tmp-renames:
+	 *
+	 *   1. Persist `summary.json` under the session directory.
+	 *   2. Flip `session.json#status` to `'idle'` if it's in a non-terminal
+	 *      state (`'active' | 'locked' | 'awaiting_merge'`).
+	 *
+	 * Each rename is atomic individually. A crash between step 1 and step 2
+	 * leaves summary present + session still non-terminal — recovery replays
+	 * the flip via {@link SessionSummaryMaterializer.recover}. Idempotent when
+	 * the same summary is re-presented (recovery path); rejects a *different*
+	 * summary for the same session as {@link SessionAlreadySummarizedError}.
+	 */
+	async recordSummary(
+		summary: SessionSummaryRef & { materializedBy: 'kernel' },
+		tenantId: TenantId,
+	): Promise<void> {
+		if (summary.tenantId !== tenantId) {
+			throw new TenantIsolationError({
+				requested: tenantId,
+				resource: `summary(${summary.id}) payload`,
+			})
+		}
+
+		const located = await this.locateSession(summary.sessionRef)
+		if (!located) {
+			throw new Error(`Session ${summary.sessionRef} not found`)
+		}
+		const sessionRaw = await readJson<PersistedSession>(join(located.path, 'session.json'))
+		if (!sessionRaw) {
+			throw new Error(`Session ${summary.sessionRef} not found on disk`)
+		}
+		this.assertTenant(sessionRaw.tenantId, tenantId, `session(${summary.sessionRef})`)
+
+		const summaryPath = join(located.path, 'summary.json')
+		const existingRaw = await readJson<PersistedSummary>(summaryPath)
+		if (existingRaw) {
+			this.assertTenant(existingRaw.tenantId, tenantId, `summary(${existingRaw.id})`)
+			if (existingRaw.id !== summary.id) {
+				throw new SessionAlreadySummarizedError({
+					sessionId: summary.sessionRef,
+					existingSummaryId: existingRaw.id,
+				})
+			}
+			// Same summary id — recovery replay. No duplicate write; fall through
+			// to the status flip so crash-between-writes is recovered.
+		} else {
+			// Step 1: persist summary.
+			await atomicWriteJson(summaryPath, serializeSummary(summary))
+		}
+
+		// Step 2: flip session status atomically if still non-terminal.
+		if (SUMMARY_TERMINAL_FLIP_STATUSES.has(sessionRaw.status)) {
+			const flipped: PersistedSession = {
+				...sessionRaw,
+				status: 'idle',
+				updatedAt: new Date().toISOString(),
+			}
+			await atomicWriteJson(join(located.path, 'session.json'), flipped)
+		}
+	}
+
+	async getSummary(sessionId: SessionId, tenantId: TenantId): Promise<SessionSummaryRef | null> {
+		const located = await this.locateSession(sessionId)
+		if (!located) return null
+		const raw = await readJson<PersistedSummary>(join(located.path, 'summary.json'))
+		if (!raw) return null
+		this.assertTenant(raw.tenantId, tenantId, `summary(${raw.id})`)
+		return deserializeSummary(raw)
+	}
+
 	// Helpers -----------------------------------------------------------------
 
 	private assertTenant(actual: TenantId, requested: TenantId, resource: string): void {
@@ -620,6 +723,41 @@ function deserializeSubSession(s: PersistedSubSession): SubSession {
 		...(s.broadcastGroupId !== undefined && { broadcastGroupId: s.broadcastGroupId }),
 		...(s.summaryRef !== undefined && { summaryRef: s.summaryRef }),
 		updatedAt: new Date(s.updatedAt),
+	}
+}
+
+function serializeSummary(s: SessionSummaryRef): PersistedSummary {
+	return {
+		id: s.id,
+		sessionRef: s.sessionRef,
+		tenantId: s.tenantId,
+		outcome: s.outcome,
+		deliverables: s.deliverables,
+		agentSummary: s.agentSummary,
+		keyDecisions: s.keyDecisions.map((k) => ({
+			at: k.at.toISOString(),
+			summary: k.summary,
+		})),
+		at: s.at.toISOString(),
+		materializedBy: 'kernel',
+	}
+}
+
+function deserializeSummary(s: PersistedSummary): SessionSummaryRef {
+	const decisions: SessionSummaryKeyDecision[] = s.keyDecisions.map((k) => ({
+		at: new Date(k.at),
+		summary: k.summary,
+	}))
+	return {
+		id: s.id,
+		sessionRef: s.sessionRef,
+		tenantId: s.tenantId,
+		outcome: s.outcome,
+		deliverables: s.deliverables,
+		agentSummary: s.agentSummary,
+		keyDecisions: decisions,
+		at: new Date(s.at),
+		materializedBy: 'kernel',
 	}
 }
 

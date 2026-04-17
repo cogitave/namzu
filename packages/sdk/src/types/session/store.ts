@@ -20,9 +20,10 @@ import type {
 	SubSession,
 	SubSessionKind,
 } from '../../session/hierarchy/sub-session.js'
+import type { SessionSummaryRef } from '../../session/summary/ref.js'
 import type { MessageId, SessionId, TenantId } from '../ids/index.js'
 import type { Message } from '../message/index.js'
-import type { ProjectId, SubSessionId } from '../session/ids.js'
+import type { ProjectId, SubSessionId, SummaryId } from '../session/ids.js'
 
 /**
  * Params for {@link SessionStore.createSession}. The store owns id generation,
@@ -145,4 +146,41 @@ export interface SessionStore {
 	 * not exist for the tenant. See session-hierarchy.md §14.3.
 	 */
 	drill(sessionId: SessionId, tenantId: TenantId): Promise<SessionView | null>
+
+	// Summary (pattern doc §4.7 / §8.1) --------------------------------------
+
+	/**
+	 * @internal Kernel-internal. Call through
+	 * `SessionSummaryMaterializer.materialize`, never directly. The
+	 * `materializedBy: 'kernel'` constraint on the argument type ensures
+	 * external callers cannot construct a valid input — the only mint site for
+	 * `SummaryId` is `generateSummaryId` inside the Materializer.
+	 *
+	 * Atomic write-then-status-flip (Convention #8): persists the summary and
+	 * transitions the owning Session's status to `'idle'` if it was in a
+	 * non-terminal state (`'active' | 'locked' | 'awaiting_merge'`). The two
+	 * writes commit as one logical unit; mid-crash recovery is replay via
+	 * `SessionSummaryMaterializer.recover()`.
+	 *
+	 * Rejects with {@link SessionAlreadySummarizedError} if a summary already
+	 * exists for the session (re-materialization forbidden; see
+	 * session-hierarchy.md §4.7 immutability invariant).
+	 */
+	recordSummary(
+		summary: SessionSummaryRef & { materializedBy: 'kernel' },
+		tenantId: TenantId,
+	): Promise<void>
+
+	/**
+	 * Loads the persisted summary for a session. Returns `null` when none has
+	 * been materialized. Cross-tenant reads reject with `TenantIsolationError`
+	 * (Convention #17).
+	 */
+	getSummary(sessionId: SessionId, tenantId: TenantId): Promise<SessionSummaryRef | null>
 }
+
+/**
+ * Re-export of {@link SummaryId} so downstream consumers importing from
+ * `types/session/store.js` pick up the brand alongside the store contract.
+ */
+export type { SummaryId }

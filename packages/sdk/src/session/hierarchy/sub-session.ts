@@ -1,5 +1,6 @@
 import type { SessionId } from '../../types/ids/index.js'
 import type { SubSessionId, SummaryId, WorkspaceId } from '../../types/session/ids.js'
+import type { DeliverableRef } from '../summary/deliverable.js'
 import type { ActorRef } from './actor.js'
 
 /**
@@ -46,11 +47,12 @@ export type FailureMode = 'fail_fast' | 'delegate'
 export type CompletionMode = 'summary_ref' | 'merge_back'
 
 /**
- * TODO(Phase 5): replace with the real `DeliverableRef` discriminated union
- * defined in `src/session/summary/deliverable.ts`. Kept as `unknown` here so
- * Phase 1 stays type-only — agents must not construct a ref from this type.
+ * Re-export of the real {@link DeliverableRef} discriminated union. The
+ * concrete shape lives in `../summary/deliverable.ts` — see
+ * session-hierarchy.md §4.7 / §8.1. Phase 5 (this phase) replaced the Phase 1
+ * `unknown` placeholder with the real type.
  */
-export type DeliverableRef = unknown
+export type { DeliverableRef }
 
 /**
  * Edge between a parent {@link Session} and a child session, carrying the

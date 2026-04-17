@@ -168,7 +168,111 @@ describe('DiskSessionStore', () => {
 		const fresh = new DiskSessionStore({ rootDir })
 		expect(await fresh.getSession('ses_missing' as SessionId, tenantA)).toBeNull()
 	})
+
+	// Summary (§4.7 / §8.1) ---------------------------------------------------
+
+	it('recordSummary persists summary.json and flips session status atomically', async () => {
+		const { project, session } = await seed(store, tenantA)
+		await store.updateSession({ ...session, status: 'active' }, tenantA)
+
+		const summary: SessionSummaryRef & { materializedBy: 'kernel' } = {
+			id: 'sum_disk1' as SummaryId,
+			sessionRef: session.id,
+			tenantId: tenantA,
+			outcome: { status: 'succeeded' },
+			deliverables: [],
+			agentSummary: 'done',
+			keyDecisions: [],
+			at: new Date('2026-04-17T00:00:00Z'),
+			materializedBy: 'kernel',
+		}
+		await store.recordSummary(summary, tenantA)
+
+		const summaryJson = join(
+			rootDir,
+			'projects',
+			project.id,
+			'sessions',
+			session.id,
+			'summary.json',
+		)
+		const rawSummary = JSON.parse(await readFile(summaryJson, 'utf-8'))
+		expect(rawSummary.id).toBe('sum_disk1')
+		expect(rawSummary.materializedBy).toBe('kernel')
+
+		const reloadedSession = await store.getSession(session.id, tenantA)
+		expect(reloadedSession?.status).toBe('idle')
+	})
+
+	it('recordSummary is idempotent when replaying the same summary (recovery)', async () => {
+		const { session } = await seed(store, tenantA)
+		await store.updateSession({ ...session, status: 'active' }, tenantA)
+
+		const summary: SessionSummaryRef & { materializedBy: 'kernel' } = {
+			id: 'sum_disk2' as SummaryId,
+			sessionRef: session.id,
+			tenantId: tenantA,
+			outcome: { status: 'succeeded' },
+			deliverables: [],
+			agentSummary: '',
+			keyDecisions: [],
+			at: new Date('2026-04-17T00:00:00Z'),
+			materializedBy: 'kernel',
+		}
+		await store.recordSummary(summary, tenantA)
+
+		// Force session back to active (simulating a crash mid-flip).
+		const mid = await store.getSession(session.id, tenantA)
+		if (!mid) throw new Error('mid session missing')
+		await store.updateSession({ ...mid, status: 'active' }, tenantA)
+
+		// Replay with the same summary — no throw, status flips again.
+		await store.recordSummary(summary, tenantA)
+		const after = await store.getSession(session.id, tenantA)
+		expect(after?.status).toBe('idle')
+	})
+
+	it('recordSummary rejects a different summary for an already-summarized session', async () => {
+		const { session } = await seed(store, tenantA)
+		const first: SessionSummaryRef & { materializedBy: 'kernel' } = {
+			id: 'sum_disk3a' as SummaryId,
+			sessionRef: session.id,
+			tenantId: tenantA,
+			outcome: { status: 'succeeded' },
+			deliverables: [],
+			agentSummary: '',
+			keyDecisions: [],
+			at: new Date(),
+			materializedBy: 'kernel',
+		}
+		await store.recordSummary(first, tenantA)
+
+		const second = { ...first, id: 'sum_disk3b' as SummaryId }
+		await expect(store.recordSummary(second, tenantA)).rejects.toMatchObject({
+			name: 'SessionAlreadySummarizedError',
+		})
+	})
+
+	it('getSummary rejects cross-tenant reads', async () => {
+		const { session } = await seed(store, tenantA)
+		const summary: SessionSummaryRef & { materializedBy: 'kernel' } = {
+			id: 'sum_disk4' as SummaryId,
+			sessionRef: session.id,
+			tenantId: tenantA,
+			outcome: { status: 'succeeded' },
+			deliverables: [],
+			agentSummary: '',
+			keyDecisions: [],
+			at: new Date(),
+			materializedBy: 'kernel',
+		}
+		await store.recordSummary(summary, tenantA)
+
+		await expect(store.getSummary(session.id, tenantB)).rejects.toBeInstanceOf(TenantIsolationError)
+	})
 })
 
+import type { SessionSummaryRef } from '../../../session/summary/ref.js'
 // Import after use so tests are self-contained w.r.t. types we already use.
 import type { SessionId } from '../../../types/ids/index.js'
+import type { SummaryId } from '../../../types/session/ids.js'

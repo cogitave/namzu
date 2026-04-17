@@ -12,6 +12,8 @@ import { TenantIsolationError } from '../../session/errors.js'
 import type { Project } from '../../session/hierarchy/project.js'
 import type { Session } from '../../session/hierarchy/session.js'
 import type { SubSession } from '../../session/hierarchy/sub-session.js'
+import { SessionAlreadySummarizedError } from '../../session/summary/ref.js'
+import type { SessionSummaryRef } from '../../session/summary/ref.js'
 import type { MessageId, SessionId, TenantId } from '../../types/ids/index.js'
 import type { Message } from '../../types/message/index.js'
 import type { ProjectId, SubSessionId } from '../../types/session/ids.js'
@@ -47,11 +49,29 @@ interface SubSessionRecord {
 	subSession: SubSession
 }
 
+interface SummaryRecord {
+	tenantId: TenantId
+	summary: SessionSummaryRef
+}
+
+/**
+ * Non-terminal statuses from which {@link InMemorySessionStore.recordSummary}
+ * flips the owning session to `'idle'` as part of the atomic materialize +
+ * transition contract (session-hierarchy.md §8.1). Other statuses — already
+ * terminal or awaiting HITL — are left untouched.
+ */
+const SUMMARY_TERMINAL_FLIP_STATUSES: ReadonlySet<Session['status']> = new Set([
+	'active',
+	'locked',
+	'awaiting_merge',
+])
+
 export class InMemorySessionStore implements SessionStore {
 	private readonly projects = new Map<ProjectId, ProjectRecord>()
 	private readonly sessions = new Map<SessionId, SessionRecord>()
 	private readonly subSessions = new Map<SubSessionId, SubSessionRecord>()
 	private readonly messages = new Map<SessionId, SessionMessage[]>()
+	private readonly summaries = new Map<SessionId, SummaryRecord>()
 
 	// Project CRUD ------------------------------------------------------------
 
@@ -251,6 +271,58 @@ export class InMemorySessionStore implements SessionStore {
 			children: orderChildren(getChildren(view, sessionId)),
 			ancestry: getAncestry(view, sessionId),
 		}
+	}
+
+	// Summary (§4.7 / §8.1) ---------------------------------------------------
+
+	async recordSummary(
+		summary: SessionSummaryRef & { materializedBy: 'kernel' },
+		tenantId: TenantId,
+	): Promise<void> {
+		if (summary.tenantId !== tenantId) {
+			throw new TenantIsolationError({
+				requested: tenantId,
+				resource: `summary(${summary.id}) payload`,
+			})
+		}
+		const sessionRecord = this.sessions.get(summary.sessionRef)
+		if (!sessionRecord) {
+			throw new Error(`Session ${summary.sessionRef} not found`)
+		}
+		this.assertTenant(sessionRecord.tenantId, tenantId, `session(${summary.sessionRef})`)
+
+		// Atomic within the call: summary persist + session status flip commit
+		// together. An existing summary with the same id is the recovery path —
+		// idempotently replay the status flip without duplicating the record.
+		const existing = this.summaries.get(summary.sessionRef)
+		if (existing && existing.summary.id !== summary.id) {
+			throw new SessionAlreadySummarizedError({
+				sessionId: summary.sessionRef,
+				existingSummaryId: existing.summary.id,
+			})
+		}
+
+		if (!existing) {
+			this.summaries.set(summary.sessionRef, { tenantId, summary })
+		}
+
+		if (SUMMARY_TERMINAL_FLIP_STATUSES.has(sessionRecord.session.status)) {
+			this.sessions.set(summary.sessionRef, {
+				tenantId,
+				session: {
+					...sessionRecord.session,
+					status: 'idle',
+					updatedAt: new Date(),
+				},
+			})
+		}
+	}
+
+	async getSummary(sessionId: SessionId, tenantId: TenantId): Promise<SessionSummaryRef | null> {
+		const record = this.summaries.get(sessionId)
+		if (!record) return null
+		this.assertTenant(record.tenantId, tenantId, `summary(${record.summary.id})`)
+		return record.summary
 	}
 
 	// Helpers -----------------------------------------------------------------

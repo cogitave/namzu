@@ -8,6 +8,7 @@ import type {
 	ConnectorId,
 	ConnectorInstanceId,
 	CredentialId,
+	DeliverableId,
 	DocumentId,
 	EmergencySaveId,
 	EnvironmentId,
@@ -185,6 +186,10 @@ export function generateSummaryId(): SummaryId {
 
 export function generateHandoffId(): HandoffId {
 	return generateId('hof_')
+}
+
+export function generateDeliverableId(): DeliverableId {
+	return generateId('del_')
 }
 
 function parseId<T extends string>(raw: string, prefix: string, typeName: string): T {
