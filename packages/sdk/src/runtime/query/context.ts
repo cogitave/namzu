@@ -1,6 +1,13 @@
 import { join } from 'node:path'
 import { PlanManager } from '../../manager/plan/lifecycle.js'
 import { RunPersistence } from '../../manager/run/persistence.js'
+import {
+	DefaultFilesystemMigrator,
+	type FilesystemMigrationResult,
+	type FilesystemMigrationSink,
+	type FilesystemMigrator,
+	NOOP_FILESYSTEM_MIGRATION_SINK,
+} from '../../session/migration/index.js'
 import { DefaultPathBuilder, type PathBuilder } from '../../session/workspace/path-builder.js'
 import { ActivityStore } from '../../store/activity/memory.js'
 import { type ActivityTrackingConfig, resolveActivityTracking } from '../../types/activity/index.js'
@@ -24,6 +31,13 @@ import { type Logger, getRootLogger } from '../../utils/logger.js'
  * `pathBuilder` is optional; when absent a {@link DefaultPathBuilder} is
  * constructed against `{workingDirectory}/.namzu` — no more hardcoded
  * `.namzu/threads` path.
+ *
+ * Phase 7 adds `filesystemMigrator` + `migrationSink`. These are also
+ * optional; when absent a {@link DefaultFilesystemMigrator} wired to the
+ * {@link NOOP_FILESYSTEM_MIGRATION_SINK} is used. Migration runs once per
+ * process via {@link RunContextFactory.ensureMigrated}; the static `build`
+ * method stays synchronous so existing call sites are not broken — async
+ * callers (e.g. `query()`) invoke `ensureMigrated` themselves before build.
  */
 export interface RunContextConfig {
 	agentId: string
@@ -41,6 +55,16 @@ export interface RunContextConfig {
 	tenantId: TenantId
 
 	pathBuilder?: PathBuilder
+
+	/**
+	 * Optional injected migrator — tests pass a stub; production code relies
+	 * on the {@link DefaultFilesystemMigrator}. See session-hierarchy.md
+	 * §13.4.1.
+	 */
+	filesystemMigrator?: FilesystemMigrator
+
+	/** Optional sink for `filesystem.migrated` events. Defaults to no-op. */
+	migrationSink?: FilesystemMigrationSink
 
 	runId?: RunId
 
@@ -75,7 +99,44 @@ export interface RunContext {
 	trackingConfig: ActivityTrackingConfig
 }
 
+/**
+ * Module-level first-call guard for the boot-time filesystem migration
+ * (session-hierarchy.md §13.4.1). Keyed on the root directory so a single
+ * process that spans multiple `.namzu` roots (unusual but legal) migrates
+ * each one once. Subsequent calls short-circuit via the cached promise —
+ * never re-reading the on-disk marker per call.
+ */
+const migrationPromises = new Map<string, Promise<FilesystemMigrationResult>>()
+
+/** Testing hook — clears the first-call guard cache. */
+export function __resetMigrationGuardForTests(): void {
+	migrationPromises.clear()
+}
+
 export class RunContextFactory {
+	/**
+	 * Run the boot-time filesystem migration for `rootDir` at most once per
+	 * process. Safe to `await` from any async entry point; concurrent callers
+	 * for the same root share a single migration promise (no duplicate work,
+	 * no race with the on-disk `.tmp` lock).
+	 */
+	static ensureMigrated(
+		rootDir: string,
+		migrator: FilesystemMigrator = new DefaultFilesystemMigrator(NOOP_FILESYSTEM_MIGRATION_SINK),
+	): Promise<FilesystemMigrationResult> {
+		const cached = migrationPromises.get(rootDir)
+		if (cached) return cached
+		const promise = migrator.migrate(rootDir)
+		migrationPromises.set(rootDir, promise)
+		// Crash-safety: if the migration rejects, drop the cached promise so
+		// the next caller gets a fresh attempt. Successful results stay cached
+		// (idempotency — further calls short-circuit without re-running).
+		promise.catch(() => {
+			migrationPromises.delete(rootDir)
+		})
+		return promise
+	}
+
 	static build(config: RunContextConfig): RunContext {
 		const abortController = new AbortController()
 		if (config.signal) {

@@ -139,6 +139,14 @@ export interface QueryParams {
 }
 
 export async function* query(params: QueryParams): AsyncGenerator<RunEvent, AgentRun> {
+	// Boot-time filesystem migration (session-hierarchy.md §13.4.1). First
+	// call per process per root actually runs; subsequent calls short-circuit
+	// via the in-memory guard in `context.ts`. Kept here rather than inside
+	// the synchronous `RunContextFactory.build` so the factory signature stays
+	// sync for tests / non-async call sites.
+	const cwdForMigration = params.workingDirectory ?? process.cwd()
+	await RunContextFactory.ensureMigrated(`${cwdForMigration}/.namzu`)
+
 	const ctx = RunContextFactory.build({
 		agentId: params.agentId,
 		agentName: params.agentName,

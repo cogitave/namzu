@@ -56,3 +56,12 @@ import type { ProjectId } from '../session/ids.js'
  * window; will be removed in 0.3.0. See session-hierarchy.md §13.3.1.
  */
 export type ThreadId = ProjectId
+
+/**
+ * Sentinel {@link TenantId} for legacy pre-0.2.0 runs rehomed by the
+ * boot-time filesystem migration (session-hierarchy.md §13.4.1). Consumers
+ * with strict tenant enforcement should either tag these records on first
+ * access or reject them until a real tenant is assigned — the kernel
+ * surfaces the sentinel but does not prescribe policy (Convention #17).
+ */
+export const UNKNOWN_TENANT_ID = 'tnt_unknown_legacy' as TenantId
