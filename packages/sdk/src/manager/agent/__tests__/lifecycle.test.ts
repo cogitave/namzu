@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import { EMPTY_TOKEN_USAGE } from '../../../constants/limits.js'
 import { AgentRegistry } from '../../../registry/agent/definitions.js'
-import { DelegationCapacityExceeded } from '../../../session/handoff/capacity.js'
+import {
+	DefaultCapacityValidator,
+	DelegationCapacityExceeded,
+} from '../../../session/handoff/capacity.js'
 import type { ActorRef } from '../../../session/hierarchy/actor.js'
 import type { DeliverableRef } from '../../../session/summary/deliverable.js'
 import { SessionSummaryMaterializer } from '../../../session/summary/materialize.js'
+import { WorkspaceBackendRegistry } from '../../../session/workspace/registry.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
 import type {
 	AgentCapabilities,
@@ -142,6 +146,8 @@ async function buildHarness(
 	const manager = new AgentManager(registry, undefined, {
 		sessionStore: store,
 		summaryMaterializer: materializer,
+		workspaceRegistry: new WorkspaceBackendRegistry(),
+		capacity: new DefaultCapacityValidator(store),
 	})
 
 	return {
@@ -440,27 +446,7 @@ describe('AgentManager.sendMessage — Phase 6 SubSession spawn', () => {
 	})
 })
 
-describe('AgentManager.sendMessage — legacy mode (no session deps)', () => {
-	it('runs without a SessionStore and completes successfully (single migration window)', async () => {
-		const childAgent = makeAgent('legacy-child', async () => successResult())
-		const registry = new AgentRegistry()
-		registry.register(makeDefinition(childAgent))
-		const manager = new AgentManager(registry)
-
-		const ctx = buildContext(
-			'ses_legacy_parent' as SessionId,
-			'prj_legacy' as import('../../../types/session/ids.js').ProjectId,
-		)
-		const opts = buildOptions(
-			'legacy-child',
-			'ses_legacy_parent' as SessionId,
-			'prj_legacy' as import('../../../types/session/ids.js').ProjectId,
-		)
-
-		const task = await manager.sendMessage(opts, ctx)
-		await manager.waitForCompletion(task.taskId)
-
-		expect(manager.getState(task.taskId)).toBe('completed')
-		expect(manager.getSpawnRecord(task.taskId)).toBeUndefined()
-	})
-})
+// Phase 9 Known Delta #5: legacy compat mode removed — AgentManagerDeps is
+// unconditional required. Prior `describe('AgentManager.sendMessage — legacy
+// mode (no session deps)')` block deleted; every spawn now produces a
+// SubSession + Session + WorkspaceRef triple (Convention #0).

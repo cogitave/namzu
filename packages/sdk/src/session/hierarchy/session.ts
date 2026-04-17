@@ -50,9 +50,9 @@ export interface Session {
  *      - `awaiting_merge` (broadcast source post-fan-out, §5.4) — preserved
  *      - `archived` (retention tombstone, §12.3) — preserved
  *   2. Any Run `running` or `awaiting_subsession` → Session `active`.
- *      (Phase 4 note: `awaiting_subsession` is not yet in {@link RunStatus};
- *      handled defensively as a future-proof guard — once the enum grows the
- *      exhaustiveness site here catches it automatically.)
+ *      Delegation-in-flight is an active state of the parent — the parent
+ *      Run is suspended waiting on the child's SessionSummaryMaterializer,
+ *      and the session is NOT idle while that is pending.
  *   3. Any Run `awaiting_hitl` or `awaiting_hitl_resolution` → Session
  *      `awaiting_hitl`.
  *   4. All Runs `failed` and at least one Run present → Session `failed`.
@@ -72,8 +72,10 @@ export function deriveStatus(
 	if (session.status === 'awaiting_merge') return 'awaiting_merge'
 	if (session.status === 'archived') return 'archived'
 
-	// Any active Run → `active`.
-	const hasActive = runs.some((r) => r.status === 'running')
+	// Any active Run (in-flight iteration or awaiting a child sub-session) →
+	// `active`. Delegation is an active state: the parent Run is suspended
+	// waiting on the child's Materializer, not idle.
+	const hasActive = runs.some((r) => r.status === 'running' || r.status === 'awaiting_subsession')
 	if (hasActive) return 'active'
 
 	// Any HITL block (synchronous or persisted) → `awaiting_hitl`.

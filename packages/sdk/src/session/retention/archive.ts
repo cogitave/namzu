@@ -25,7 +25,6 @@
  * path, so the archive is navigable without a parallel index.
  */
 
-import type { SessionMessage } from '../../store/session/messages.js'
 import type { SessionId, SubSessionId, TenantId } from '../../types/ids/index.js'
 import type { WorkspaceId } from '../../types/session/ids.js'
 import type { SessionStore } from '../../types/session/store.js'
@@ -171,21 +170,12 @@ export class ArchivalManager {
 		}
 
 		// 2. Load owning child session bundle (messages + optional summary).
+		// Phase 9 Known Delta #7: uses `loadSessionMessages` for full-fidelity
+		// round-trip (original MessageId + timestamp preserved). Previously
+		// the Phase 8 archivalmanager synthesized `msg_restored_N` IDs from the
+		// payload-only `loadMessages` return — that lossy reshape is gone.
 		const childSessionId: SessionId = sub.childSessionId
-		const messagesRaw = await this.deps.sessionStore.loadMessages(childSessionId, tenantId)
-		// `loadMessages` returns Message[] (payload only); we need the full
-		// SessionMessage rows for archival. Re-load via the store's native
-		// accessor is not yet exposed — Phase 8 interpretation: reshape the
-		// payload-only list into minimal SessionMessage records at archive time.
-		// Callers wanting fidelity to the wire format can replay by ID post-restore.
-		const now = new Date()
-		const messages = messagesRaw.map((m, idx) => ({
-			id: `msg_restored_${idx}` as SessionMessage['id'],
-			sessionId: childSessionId,
-			tenantId,
-			message: m,
-			at: now,
-		}))
+		const messages = await this.deps.sessionStore.loadSessionMessages(childSessionId, tenantId)
 
 		const summaryRefOrNull = await this.deps.sessionStore.getSummary(childSessionId, tenantId)
 		const summaryRef = summaryRefOrNull ?? undefined

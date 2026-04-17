@@ -4,7 +4,6 @@ import type { AgentRegistry } from '../../registry/agent/definitions.js'
 import { RUN_EVENT_SCHEMA_VERSION } from '../../session/events/schema-version.js'
 import {
 	type CapacityValidator,
-	DefaultCapacityValidator,
 	DelegationCapacityExceeded,
 } from '../../session/handoff/capacity.js'
 import type { ActorRef } from '../../session/hierarchy/actor.js'
@@ -38,23 +37,29 @@ import { generateTaskId } from '../../utils/id.js'
 import { type Logger, getRootLogger } from '../../utils/logger.js'
 
 /**
- * Dependencies threaded into {@link AgentManager}. Phase 6 promotes the
+ * Dependencies threaded into {@link AgentManager}. Phase 6 promoted the
  * SubSession + Session + WorkspaceRef triple to mandatory spawn primitives —
  * these collaborators replace the old `Object.assign({sourceAgentId,
  * parentTaskId})` loose-cast cadence with a typed {@link Lineage} +
  * {@link SessionSummaryMaterializer} closure of the parent→child message gap.
  *
- * Optional fields leave the manager operable in test and legacy surfaces that
- * have not yet wired the full hierarchy. When absent, `sendMessage` still
- * spawns children but the sub-session records are not persisted — the loose
- * legacy behavior is preserved for a single migration window so downstream
- * consumers can migrate incrementally.
+ * Phase 9 Known Delta #5: fields are now unconditional required. The legacy
+ * "run without deps" compat branch was removed; every `AgentManager` consumer
+ * (SDK internals, `@namzu/agents`, `@namzu/api`, `@namzu/cli`) MUST wire the
+ * full set before instantiating. Convention #0 (no workarounds): the
+ * partially-wired mode was a migration-window bridge; 0.2.0 closes it.
+ *
+ * `workspaceRegistry` is required but may be empty — spawns without a
+ * registered workspace backend still succeed with `workspaceRef: undefined`
+ * (the runtime uses `.has(backend)` to gate provisioning). This keeps the
+ * registry deny-by-default while matching pattern doc §7.1 (lazy workspace
+ * provisioning).
  */
 export interface AgentManagerDeps {
-	sessionStore?: SessionStore
-	workspaceRegistry?: WorkspaceBackendRegistry
-	summaryMaterializer?: SessionSummaryMaterializer
-	capacity?: CapacityValidator
+	readonly sessionStore: SessionStore
+	readonly workspaceRegistry: WorkspaceBackendRegistry
+	readonly summaryMaterializer: SessionSummaryMaterializer
+	readonly capacity: CapacityValidator
 }
 
 interface ChildSpawnRecord {
@@ -80,18 +85,13 @@ export class AgentManager {
 
 	constructor(
 		registry: AgentRegistry,
-		config?: Partial<AgentManagerConfig>,
-		deps?: AgentManagerDeps,
+		config: Partial<AgentManagerConfig> | undefined,
+		deps: AgentManagerDeps,
 	) {
 		this.registry = registry
 		this.config = { ...AGENT_MANAGER_DEFAULTS, ...config }
 		this.log = getRootLogger().child({ component: 'AgentManager' })
-		this.deps = {
-			...deps,
-			capacity:
-				deps?.capacity ??
-				(deps?.sessionStore ? new DefaultCapacityValidator(deps.sessionStore) : undefined),
-		}
+		this.deps = deps
 	}
 
 	async sendMessage(
@@ -146,7 +146,7 @@ export class AgentManager {
 			budgetTracker: context.budgetTracker,
 			factoryOptions: context.factoryOptions,
 			tenantId: context.tenantId,
-			sessionId: spawnRecord?.childSessionId ?? context.sessionId,
+			sessionId: spawnRecord.childSessionId,
 			projectId: context.projectId,
 			parentActor: childParentActor,
 		}
@@ -164,9 +164,7 @@ export class AgentManager {
 		}
 
 		this.instances.set(taskId, agentTask)
-		if (spawnRecord) {
-			this.spawnRecords.set(taskId, spawnRecord)
-		}
+		this.spawnRecords.set(taskId, spawnRecord)
 		this.emit({
 			type: 'pending',
 			taskId,
@@ -185,23 +183,21 @@ export class AgentManager {
 				depth: context.depth,
 			})
 
-			if (spawnRecord) {
-				const lineage: Lineage = {
-					parentSessionId: spawnRecord.parentSessionId,
-					rootSessionId: spawnRecord.rootSessionId,
-					depth: spawnRecord.childDepth,
-				}
-				listener({
-					type: 'subsession_spawned',
-					runId: context.parentRunId,
-					subSessionId: spawnRecord.subSessionId,
-					parentSessionId: spawnRecord.parentSessionId,
-					spawnedBy: context.parentActor,
-					lineage,
-					schemaVersion: RUN_EVENT_SCHEMA_VERSION,
-					at: new Date(),
-				})
+			const lineage: Lineage = {
+				parentSessionId: spawnRecord.parentSessionId,
+				rootSessionId: spawnRecord.rootSessionId,
+				depth: spawnRecord.childDepth,
 			}
+			listener({
+				type: 'subsession_spawned',
+				runId: context.parentRunId,
+				subSessionId: spawnRecord.subSessionId,
+				parentSessionId: spawnRecord.parentSessionId,
+				spawnedBy: context.parentActor,
+				lineage,
+				schemaVersion: RUN_EVENT_SCHEMA_VERSION,
+				at: new Date(),
+			})
 		}
 		this.log.info(`Agent task pending: ${taskId} (${options.agentId}, depth=${context.depth})`)
 
@@ -241,7 +237,7 @@ export class AgentManager {
 				maxResponseTokens: options.configOverrides?.maxResponseTokens,
 				env: options.configOverrides?.env,
 				threadId: context.projectId,
-				sessionId: spawnRecord?.childSessionId ?? context.sessionId,
+				sessionId: spawnRecord.childSessionId,
 				projectId: context.projectId,
 				tenantId: context.tenantId,
 				parentRunId: context.parentRunId,
@@ -365,15 +361,11 @@ export class AgentManager {
 	private async provisionSpawn(
 		options: SendMessageOptions,
 		context: AgentTaskContext,
-	): Promise<ChildSpawnRecord | undefined> {
+	): Promise<ChildSpawnRecord> {
+		// Phase 9: deps are unconditional required. Every spawn produces a
+		// SubSession + Session + WorkspaceRef triple (Convention #0: no
+		// partial/legacy path).
 		const store = this.deps.sessionStore
-		if (!store) {
-			// No session store wired — run in legacy compat mode. Downstream
-			// phases will make this unconditional once every spawn site is
-			// migrated. Still enforce capacity via the parent `depth` counter
-			// used historically.
-			return undefined
-		}
 
 		const project = await store.getProject(context.projectId, context.tenantId)
 		if (!project) {
@@ -384,19 +376,17 @@ export class AgentManager {
 
 		// Capacity: depth + width. Depth uses the parent session's ancestry
 		// chain; width counts existing direct children of the parent.
-		if (this.deps.capacity) {
-			await this.deps.capacity.validateDepth(
-				options.parentSessionId,
-				project.config.maxDelegationDepth,
-				context.tenantId,
-			)
-			await this.deps.capacity.validateWidth(
-				options.parentSessionId,
-				1,
-				project.config.maxDelegationWidth,
-				context.tenantId,
-			)
-		}
+		await this.deps.capacity.validateDepth(
+			options.parentSessionId,
+			project.config.maxDelegationDepth,
+			context.tenantId,
+		)
+		await this.deps.capacity.validateWidth(
+			options.parentSessionId,
+			1,
+			project.config.maxDelegationWidth,
+			context.tenantId,
+		)
 
 		// Ancestry walk gives both the child depth and the root session id
 		// attached to every sub-session event from here down.
@@ -432,13 +422,15 @@ export class AgentManager {
 			context.tenantId,
 		)
 
-		// Workspace provisioning — best-effort. If the registry is wired we
-		// create a new workspace for the child; failures surface as
-		// WorkspaceBackendError and abort the spawn (Convention #0: no silent
-		// fallback).
+		// Workspace provisioning — best-effort. When the requested backend is
+		// registered we create a new workspace for the child; failures surface
+		// as WorkspaceBackendError and abort the spawn (Convention #0: no
+		// silent fallback). Pattern doc §7.1 allows lazy provisioning: an
+		// unregistered backend leaves `workspaceRef: undefined` on the spawn
+		// record, not a hard error — the registry is the capability surface.
 		let workspaceRef: WorkspaceRef | undefined
 		const backend = options.workspaceBackend ?? 'git-worktree'
-		if (this.deps.workspaceRegistry?.has(backend)) {
+		if (this.deps.workspaceRegistry.has(backend)) {
 			const driver = this.deps.workspaceRegistry.get(backend)
 			try {
 				workspaceRef = await driver.create({ label: subSession.id })
@@ -518,10 +510,10 @@ export class AgentManager {
 		// atomically flips the child session active→idle. Only run when the
 		// child actually succeeded; failed sub-sessions skip materialization
 		// and transition the sub-session record to 'failed' (§5.5).
-		if (spawnRecord && this.deps.sessionStore) {
+		if (spawnRecord) {
 			const store = this.deps.sessionStore
 			try {
-				if (result.status === 'completed' && this.deps.summaryMaterializer) {
+				if (result.status === 'completed') {
 					const outcome: SessionSummaryOutcome = deriveOutcome(result)
 					const agentSummary = deriveAgentSummary(result)
 					const summary = await this.deps.summaryMaterializer.materialize({
@@ -554,7 +546,7 @@ export class AgentManager {
 					if (subSession) {
 						await store.updateSubSession({ ...subSession, status: 'failed' }, spawnRecord.tenantId)
 					}
-					if (spawnRecord.workspaceRef && this.deps.workspaceRegistry) {
+					if (spawnRecord.workspaceRef) {
 						const backend = spawnRecord.workspaceRef.meta.backend
 						if (this.deps.workspaceRegistry.has(backend)) {
 							await this.deps.workspaceRegistry
@@ -654,7 +646,7 @@ export class AgentManager {
 		// Best-effort: mark sub-session failed + dispose workspace. The result
 		// emission path already synthesized a failure result above.
 		const spawnRecord = this.spawnRecords.get(taskId)
-		if (spawnRecord && this.deps.sessionStore) {
+		if (spawnRecord) {
 			this.failSubSession(spawnRecord).catch((err) => {
 				this.log.warn('SubSession failure update failed', {
 					taskId,
@@ -668,7 +660,6 @@ export class AgentManager {
 	}
 
 	private async failSubSession(spawnRecord: ChildSpawnRecord): Promise<void> {
-		if (!this.deps.sessionStore) return
 		const subSession = await this.deps.sessionStore.getSubSession(
 			spawnRecord.subSessionId,
 			spawnRecord.tenantId,
@@ -679,7 +670,7 @@ export class AgentManager {
 				spawnRecord.tenantId,
 			)
 		}
-		if (spawnRecord.workspaceRef && this.deps.workspaceRegistry) {
+		if (spawnRecord.workspaceRef) {
 			const backend = spawnRecord.workspaceRef.meta.backend
 			if (this.deps.workspaceRegistry.has(backend)) {
 				await this.deps.workspaceRegistry

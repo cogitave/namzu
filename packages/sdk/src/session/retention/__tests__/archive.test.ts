@@ -259,6 +259,46 @@ describe('ArchivalManager', () => {
 		expect(after?.status).toBe('archived')
 	})
 
+	it('SessionMessage round-trip: archive preserves original MessageId + timestamps', async () => {
+		// Phase 9 Known Delta #7: ArchivalManager now uses
+		// SessionStore.loadSessionMessages for full-fidelity archival (no more
+		// synthetic `msg_restored_N` IDs).
+		const { sub, child } = await seedIdleSubSession(store)
+		const id1 = await store.appendMessage(child.id, createUserMessage('m1'), tenantA)
+		const id2 = await store.appendMessage(child.id, createUserMessage('m2'), tenantA)
+
+		const captured: unknown[] = []
+		const capturingBackend: DiskArchiveBackend = Object.assign(
+			new DiskArchiveBackend({ rootDir }),
+			{
+				store: vi.fn(async (bundle: unknown) => {
+					captured.push(bundle)
+					return {
+						archiveRef: 'arc_test_ref',
+						archivedAt: new Date(),
+					}
+				}),
+			},
+		) as unknown as DiskArchiveBackend
+
+		const manager = new ArchivalManager({
+			sessionStore: store,
+			workspaceRegistry: buildRegistry(),
+			archiveBackend: capturingBackend,
+		})
+		await manager.archive(sub.id, tenantA)
+
+		expect(captured).toHaveLength(1)
+		const bundle = captured[0] as {
+			messages: Array<{ id: string; at: Date; message: unknown }>
+		}
+		expect(bundle.messages).toHaveLength(2)
+		expect(bundle.messages[0]?.id).toBe(id1)
+		expect(bundle.messages[1]?.id).toBe(id2)
+		expect(bundle.messages[0]?.id).not.toMatch(/^msg_restored_/)
+		expect(bundle.messages[0]?.at).toBeInstanceOf(Date)
+	})
+
 	it('onArchived callback fires exactly once on success with the tombstone', async () => {
 		const { sub } = await seedIdleSubSession(store)
 		const onArchived = vi.fn()

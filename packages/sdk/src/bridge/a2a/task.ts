@@ -1,5 +1,5 @@
 import { RUN_STATUS_TO_A2A, TERMINAL_STATES } from '../../constants/a2a/index.js'
-import type { Run, RunConfig, RunStatus, ThreadMessage } from '../../contracts/index.js'
+import type { Run, RunConfig, ThreadMessage, WireRunStatus } from '../../contracts/index.js'
 import type {
 	A2AArtifact,
 	A2AMessage,
@@ -14,7 +14,7 @@ export function isTerminalState(state: A2ATaskState): boolean {
 	return TERMINAL_STATES.has(state)
 }
 
-export function runStatusToA2AState(status: RunStatus): A2ATaskState {
+export function runStatusToA2AState(status: WireRunStatus): A2ATaskState {
 	return RUN_STATUS_TO_A2A[status]
 }
 

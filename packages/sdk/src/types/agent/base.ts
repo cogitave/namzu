@@ -29,13 +29,29 @@ export interface BaseAgentConfig {
 	 */
 	threadId?: ThreadId
 
-	/** Long-lived goal scope for the run. Required in 0.2.0 (§12.1). */
+	/**
+	 * Long-lived goal scope for the run. Required at runtime in 0.2.0 per
+	 * session-hierarchy.md §12.1 — `{@link ReactiveAgent}`, `{@link
+	 * SupervisorAgent}`, etc. reject configs missing this (`'X requires
+	 * sessionId, projectId, and tenantId in config (§12.1)'`).
+	 *
+	 * Kept optional at the TYPE level during the 0.2.x migration window
+	 * because {@link AgentManager} stamps this field AFTER `configBuilder`
+	 * returns (manager/agent/lifecycle.ts:228–230). That stamping path is
+	 * how every `@namzu/agents` configBuilder currently gets its tenant /
+	 * session / project triple; flipping the type to required without first
+	 * updating every {@link AgentFactoryOptions} consumer (which does not
+	 * carry these fields) would be a gratuitous downstream break.
+	 *
+	 * Tightening to required is Phase 9 Known Delta #6. The type-level flip
+	 * lands in 0.3.0 alongside `AgentFactoryOptions` gaining the triple.
+	 */
 	projectId?: ProjectId
 
-	/** Session under which the run executes. Required in 0.2.0 (§12.1). */
+	/** Session under which the run executes. See `projectId` for the tightening plan. */
 	sessionId?: SessionId
 
-	/** Isolation boundary. Required in 0.2.0 (§12.1). */
+	/** Isolation boundary (Convention #17). See `projectId` for the tightening plan. */
 	tenantId?: TenantId
 
 	parentRunId?: RunId

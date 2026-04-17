@@ -34,8 +34,10 @@ import { createAssistantMessage } from '../../../types/message/index.js'
 import type { RunEvent } from '../../../types/run/events.js'
 import type { SummaryId } from '../../../types/session/ids.js'
 import { ZERO_COST } from '../../../utils/cost.js'
+import { DefaultCapacityValidator } from '../../handoff/capacity.js'
 import type { ActorRef } from '../../hierarchy/actor.js'
 import { SessionSummaryMaterializer } from '../../summary/materialize.js'
+import { WorkspaceBackendRegistry } from '../../workspace/registry.js'
 
 const tenant = 'tnt_alpha' as TenantId
 
@@ -118,6 +120,8 @@ describe('E2E — SubSession spawn → kernel summary → parent drill', () => {
 		const manager = new AgentManager(registry, undefined, {
 			sessionStore: store,
 			summaryMaterializer: materializer,
+			workspaceRegistry: new WorkspaceBackendRegistry(),
+			capacity: new DefaultCapacityValidator(store),
 		})
 
 		const capturedEvents: RunEvent[] = []
@@ -233,6 +237,8 @@ describe('E2E — SubSession spawn → kernel summary → parent drill', () => {
 		const manager = new AgentManager(registry, undefined, {
 			sessionStore: store,
 			summaryMaterializer: materializer,
+			workspaceRegistry: new WorkspaceBackendRegistry(),
+			capacity: new DefaultCapacityValidator(store),
 		})
 
 		const task = await manager.sendMessage(

@@ -61,6 +61,7 @@ import {
 } from '../../utils/id.js'
 import { getAncestry, getChildren, orderChildren } from './linkage.js'
 import type { LinkageView } from './linkage.js'
+import type { SessionMessage } from './messages.js'
 
 /**
  * Config for {@link DiskSessionStore}. `rootDir` is absolute; all files live
@@ -453,6 +454,14 @@ export class DiskSessionStore implements SessionStore {
 	}
 
 	async loadMessages(sessionId: SessionId, tenantId: TenantId): Promise<readonly Message[]> {
+		const rows = await this.loadSessionMessages(sessionId, tenantId)
+		return rows.map((r) => r.message)
+	}
+
+	async loadSessionMessages(
+		sessionId: SessionId,
+		tenantId: TenantId,
+	): Promise<readonly SessionMessage[]> {
 		const located = await this.locateSession(sessionId)
 		if (!located) return []
 
@@ -470,7 +479,16 @@ export class DiskSessionStore implements SessionStore {
 			throw err
 		}
 		const lines = raw.split('\n').filter((l) => l.length > 0)
-		return lines.map((line) => (JSON.parse(line) as PersistedMessageLine).message)
+		return lines.map((line) => {
+			const persisted = JSON.parse(line) as PersistedMessageLine
+			return {
+				id: persisted.id,
+				sessionId: persisted.sessionId,
+				tenantId: persisted.tenantId,
+				message: persisted.message,
+				at: new Date(persisted.at),
+			}
+		})
 	}
 
 	// Linkage -----------------------------------------------------------------

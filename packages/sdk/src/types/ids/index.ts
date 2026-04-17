@@ -38,18 +38,17 @@ export type MemoryStoreRef = `mms_${string}`
 export type VaultRef = `vlt_${string}`
 export type KnowledgeBaseRef = `kbs_${string}`
 
-// Session hierarchy IDs are defined in `../session/ids.ts`; re-exported here
-// for ergonomic access from modules that already import from `types/ids/`.
-export type {
-	ProjectId,
-	SubSessionId,
-	HandoffId,
-	WorkspaceId,
-	SummaryId,
-	DeliverableId,
-} from '../session/ids.js'
-
-import type { ProjectId } from '../session/ids.js'
+// Session hierarchy IDs — live canonically here (Phase 9 Known Delta #4
+// collapse: previously split across `types/ids/` and `types/session/ids.ts`
+// with a circular re-export). Convention #2 branded IDs; prefixes mandated
+// by session-hierarchy.md §4. The `types/session/ids.ts` barrel re-exports
+// these for co-location ergonomics.
+export type ProjectId = `prj_${string}`
+export type SubSessionId = `sub_${string}`
+export type HandoffId = `hof_${string}`
+export type WorkspaceId = `wsp_${string}`
+export type SummaryId = `sum_${string}`
+export type DeliverableId = `del_${string}`
 
 /**
  * @deprecated Use {@link ProjectId}. Alias retained for the 0.2.x migration

@@ -43,6 +43,16 @@ describe('deriveStatus', () => {
 		expect(deriveStatus(makeSession('idle'), runs('succeeded', 'running'))).toBe('active')
 	})
 
+	it('any awaiting_subsession → active (delegation-in-flight parent is active)', () => {
+		expect(deriveStatus(makeSession('idle'), runs('succeeded', 'awaiting_subsession'))).toBe(
+			'active',
+		)
+	})
+
+	it('awaiting_subsession alone → active', () => {
+		expect(deriveStatus(makeSession('idle'), runs('awaiting_subsession'))).toBe('active')
+	})
+
 	it('any awaiting_hitl → awaiting_hitl', () => {
 		expect(deriveStatus(makeSession('idle'), runs('succeeded', 'awaiting_hitl'))).toBe(
 			'awaiting_hitl',

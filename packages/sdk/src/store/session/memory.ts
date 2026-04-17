@@ -273,6 +273,18 @@ export class InMemorySessionStore implements SessionStore {
 		return entries.map((e) => e.message)
 	}
 
+	async loadSessionMessages(
+		sessionId: SessionId,
+		tenantId: TenantId,
+	): Promise<readonly SessionMessage[]> {
+		const record = this.sessions.get(sessionId)
+		if (!record) return []
+		this.assertTenant(record.tenantId, tenantId, `session(${sessionId})`)
+		const entries = this.messages.get(sessionId) ?? []
+		// Return a shallow copy so callers cannot mutate the internal log.
+		return entries.map((e) => ({ ...e }))
+	}
+
 	// Linkage -----------------------------------------------------------------
 
 	async getChildren(sessionId: SessionId, tenantId: TenantId): Promise<readonly SubSession[]> {

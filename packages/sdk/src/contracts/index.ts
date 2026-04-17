@@ -15,6 +15,8 @@ export type {
 	ThreadMessage,
 	CreateThreadRequest,
 	CreateMessageRequest,
+	WireRunStatus,
+	/** @deprecated Use {@link WireRunStatus}. */
 	RunStatus,
 	RunStopReason,
 	Run,

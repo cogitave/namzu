@@ -21,6 +21,7 @@ import type {
 	SubSessionKind,
 } from '../../session/hierarchy/sub-session.js'
 import type { SessionSummaryRef } from '../../session/summary/ref.js'
+import type { SessionMessage } from '../../store/session/messages.js'
 import type { MessageId, SessionId, TenantId } from '../ids/index.js'
 import type { Message } from '../message/index.js'
 import type { ProjectId, SubSessionId, SummaryId } from '../session/ids.js'
@@ -148,8 +149,24 @@ export interface SessionStore {
 	/**
 	 * Load the full message history for a session in insertion order.
 	 * Returns an empty array when the session has no messages.
+	 *
+	 * Returns payload-only {@link Message} records. Callers that need the
+	 * full persistence envelope (including {@link MessageId} and timestamp)
+	 * should use {@link SessionStore.loadSessionMessages} instead.
 	 */
 	loadMessages(sessionId: SessionId, tenantId: TenantId): Promise<readonly Message[]>
+
+	/**
+	 * Load the full {@link SessionMessage} envelope for every persisted
+	 * message in insertion order (Phase 9 Known Delta #7). Unlike
+	 * {@link SessionStore.loadMessages} this preserves the original
+	 * {@link MessageId} and timestamp — required for full-fidelity archival
+	 * round-trips via {@link ArchivalManager.archive}.
+	 *
+	 * Returns an empty array when the session has no messages; cross-tenant
+	 * reads reject with `TenantIsolationError` (Convention #17).
+	 */
+	loadSessionMessages(sessionId: SessionId, tenantId: TenantId): Promise<readonly SessionMessage[]>
 
 	// Linkage (pattern doc §10.4 / §14.3) ------------------------------------
 

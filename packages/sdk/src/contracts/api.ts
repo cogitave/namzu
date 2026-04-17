@@ -67,7 +67,20 @@ export interface CreateMessageRequest {
 	metadata?: Record<string, unknown>
 }
 
-export type RunStatus =
+/**
+ * Wire-side run status for HTTP / A2A / SSE payloads.
+ *
+ * Distinct from the domain {@link import('../types/run/status.js').RunStatus}
+ * which models the kernel state machine (session-hierarchy.md §4.6 + §5.2).
+ * The wire enum collapses domain variants onto the HTTP-facing shape (e.g.
+ * domain `succeeded` → wire `completed`; domain `awaiting_hitl*` → wire
+ * `running`; domain `awaiting_subsession` → wire `running`).
+ *
+ * Renamed from `RunStatus` to `WireRunStatus` in 0.2.0 to disambiguate from
+ * the domain enum; a deprecated alias `RunStatus = WireRunStatus` is retained
+ * at the bottom of this module for one migration window.
+ */
+export type WireRunStatus =
 	| 'queued'
 	| 'running'
 	| 'completed'
@@ -87,7 +100,7 @@ export interface Run {
 	session_id?: SessionId
 	agent_id: string
 	agent_name?: string
-	status: RunStatus
+	status: WireRunStatus
 	stop_reason?: RunStopReason
 	created_at: ISOTimestamp
 	started_at?: ISOTimestamp
@@ -111,7 +124,7 @@ export interface RunHierarchyNode {
 	run_id: RunId
 	agent_id: string
 	depth: number
-	status: RunStatus
+	status: WireRunStatus
 	children: RunHierarchyNode[]
 }
 
@@ -221,3 +234,10 @@ export interface ApiError {
 		param?: string
 	}
 }
+
+/**
+ * @deprecated Use {@link WireRunStatus}. Alias retained for one migration
+ * window (0.2.x); scheduled for removal in 0.3.0. Renamed to disambiguate
+ * from the domain `RunStatus` in `../types/run/status.js`.
+ */
+export type RunStatus = WireRunStatus
