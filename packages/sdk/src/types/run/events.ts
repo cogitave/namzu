@@ -1,3 +1,9 @@
+import type {
+	SubsessionIdledEvent,
+	SubsessionMessagedEvent,
+	SubsessionSpawnedEvent,
+} from '../../session/events/index.js'
+import type { Lineage } from '../../session/hierarchy/lineage.js'
 import type { ActivityStatus, ActivityType } from '../activity/index.js'
 import type { BaseAgentResult } from '../agent/base.js'
 import type { CostInfo, TokenUsage } from '../common/index.js'
@@ -9,7 +15,21 @@ import type { TaskStatus } from '../task/index.js'
 
 export type { StopReason } from './stop-reason.js'
 
-export type RunEvent =
+/**
+ * Additive envelope fields present on every {@link RunEvent} variant.
+ *
+ * Per session-hierarchy.md §10.1 evolution is additive and consumers filter
+ * by the `type` discriminator, never by field shape. 0.2.0+ emitters stamp
+ * `schemaVersion: 2`; older untagged events are treated as virtually v1 by
+ * readers. `lineage` is populated on sub-session emissions (§10.4) and left
+ * absent on root-session events.
+ */
+interface RunEventEnvelope {
+	schemaVersion?: 2
+	lineage?: Lineage
+}
+
+type CoreRunEvent =
 	| { type: 'run_started'; runId: RunId; systemPrompt?: string }
 	| { type: 'iteration_started'; runId: RunId; iteration: number }
 	| {
@@ -173,5 +193,20 @@ export type RunEvent =
 			durationMs: number
 	  }
 	| { type: 'sandbox_destroyed'; runId: RunId; sandboxId: SandboxId }
+
+/**
+ * Discriminated union of all run-scoped events emitted by the kernel.
+ *
+ * Convention #16: `type` is the sole discriminator for exhaustive switches;
+ * envelope fields (`schemaVersion`, `lineage`) are additive and never
+ * participate in discrimination. Sub-session lifecycle variants
+ * (`subsession_spawned`, `subsession_messaged`, `subsession_idled`) carry a
+ * required `lineage` — see session-hierarchy.md §10.4.
+ */
+export type RunEvent =
+	| (CoreRunEvent & RunEventEnvelope)
+	| SubsessionSpawnedEvent
+	| SubsessionMessagedEvent
+	| SubsessionIdledEvent
 
 export type RunEventListener = (event: RunEvent) => void | Promise<void>

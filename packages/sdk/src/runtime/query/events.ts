@@ -80,6 +80,10 @@ export class EventTranslator {
 					})
 					break
 				default: {
+					// `TaskEvent.type` is scoped to task-store events; sub-session
+					// lifecycle events (subsession_spawned / _messaged / _idled) and
+					// run-scoped `RunEvent` variants never reach this wrapper. The
+					// exhaustiveness guard below enforces that at compile time.
 					const _exhaustive: never = event.type
 					throw new Error(`Unhandled task event type: ${_exhaustive}`)
 				}
@@ -134,6 +138,10 @@ export class EventTranslator {
 				case 'plan.failed':
 					break
 				default: {
+					// `PlanEvent.type` is scoped to plan-manager events; sub-session
+					// lifecycle events and other `RunEvent` variants never reach this
+					// wrapper. The exhaustiveness guard below enforces that at compile
+					// time.
 					const _exhaustive: never = event.type
 					throw new Error(`Unhandled plan event type: ${_exhaustive}`)
 				}

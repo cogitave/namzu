@@ -157,6 +157,13 @@ const MAPPING: {
 	sandbox_created: null,
 	sandbox_exec: null,
 	sandbox_destroyed: null,
+
+	// Sub-session lifecycle events (session-hierarchy.md §10.4). These are
+	// in-flight visibility signals for the kernel bus; the A2A bridge does not
+	// surface them today.
+	subsession_spawned: null,
+	subsession_messaged: null,
+	subsession_idled: null,
 }
 
 export function mapRunToA2AEvent(event: RunEvent, contextId?: string): A2AStreamEvent | null {

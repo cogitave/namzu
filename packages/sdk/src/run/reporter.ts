@@ -194,6 +194,34 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				})
 				break
 
+			case 'subsession_spawned':
+				log.debug('Sub-session spawned', {
+					runId: event.runId,
+					subSessionId: event.subSessionId,
+					parentSessionId: event.parentSessionId,
+					depth: event.lineage.depth,
+				})
+				break
+
+			case 'subsession_messaged':
+				log.debug('Sub-session message', {
+					runId: event.runId,
+					subSessionId: event.subSessionId,
+					parentSessionId: event.parentSessionId,
+					messageId: event.messageId,
+					depth: event.lineage.depth,
+				})
+				break
+
+			case 'subsession_idled':
+				log.debug('Sub-session idled', {
+					runId: event.runId,
+					subSessionId: event.subSessionId,
+					parentSessionId: event.parentSessionId,
+					depth: event.lineage.depth,
+				})
+				break
+
 			default: {
 				const _exhaustive: never = event
 				throw new Error(`Unhandled run event type: ${(_exhaustive as RunEvent).type}`)

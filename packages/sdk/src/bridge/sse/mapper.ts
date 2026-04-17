@@ -272,6 +272,13 @@ const MAPPING: {
 		wire: 'sandbox.destroyed',
 		transform: (e, runId) => ({ run_id: runId, sandbox_id: e.sandboxId }),
 	},
+
+	// Sub-session lifecycle events (session-hierarchy.md §10.4). These are
+	// in-flight signals carried on the kernel bus; the SSE wire surface does
+	// not emit them today.
+	subsession_spawned: null,
+	subsession_messaged: null,
+	subsession_idled: null,
 }
 
 export function mapRunToStreamEvent(event: RunEvent, runId: RunId): MappedStreamEvent | null {
@@ -283,7 +290,7 @@ export function mapRunToStreamEvent(event: RunEvent, runId: RunId): MappedStream
 		runId,
 	)
 
-	const annotated = event as Record<string, unknown>
+	const annotated = event as unknown as Record<string, unknown>
 	if ('sourceAgentId' in annotated && annotated.sourceAgentId) {
 		data.source_agent_id = annotated.sourceAgentId
 	}
