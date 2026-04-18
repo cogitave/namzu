@@ -8,6 +8,7 @@
  */
 
 import type { SessionId, TenantId } from '../types/ids/index.js'
+import type { ThreadId } from '../types/session/ids.js'
 import type { WorkspaceBackendKind } from './workspace/driver.js'
 
 /**
@@ -65,6 +66,48 @@ export class WorkspaceBackendError extends Error {
 	constructor(details: { op: string; kind: WorkspaceBackendKind; cause?: unknown }) {
 		super(`Workspace backend ${details.kind} failed on ${details.op}`)
 		this.name = 'WorkspaceBackendError'
+		this.details = details
+	}
+}
+
+/**
+ * Raised by {@link import('../types/thread/store.js').ThreadStore.updateThread}
+ * when the supplied {@link Thread.ownerVersion} does not match the persisted
+ * record. The caller must re-read via `getThread`, re-apply its intended
+ * mutation on top of the fresh record, and retry. Mirrors the Session
+ * handoff CAS pattern (§6.1).
+ */
+export class StaleThreadError extends Error {
+	readonly details: {
+		threadId: ThreadId
+		expectedVersion: number
+		actualVersion: number
+	}
+
+	constructor(details: { threadId: ThreadId; expectedVersion: number; actualVersion: number }) {
+		super(
+			`Stale Thread ${details.threadId}: expected ownerVersion=${details.expectedVersion}, actual=${details.actualVersion}`,
+		)
+		this.name = 'StaleThreadError'
+		this.details = details
+	}
+}
+
+/**
+ * Raised by the spawn path (and any caller that enforces the open-thread
+ * precondition) when a Thread is in `'archived'` state and would-be mutations
+ * require it to be `'open'`. Convention #5: deny-by-default — archival is a
+ * hard read-only boundary.
+ */
+export class ThreadClosedError extends Error {
+	readonly details: {
+		threadId: ThreadId
+		op: string
+	}
+
+	constructor(details: { threadId: ThreadId; op: string }) {
+		super(`Thread ${details.threadId} is archived; operation '${details.op}' rejected`)
+		this.name = 'ThreadClosedError'
 		this.details = details
 	}
 }
