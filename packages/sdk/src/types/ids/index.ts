@@ -42,6 +42,7 @@ export type KnowledgeBaseRef = `kbs_${string}`
 // five-layer hierarchy (Project → Thread → Session → SubSession → Run). The
 // `types/session/ids.ts` barrel re-exports these for co-location ergonomics.
 export type ProjectId = `prj_${string}`
+export type ThreadId = `thd_${string}`
 export type SubSessionId = `sub_${string}`
 export type HandoffId = `hof_${string}`
 export type WorkspaceId = `wsp_${string}`

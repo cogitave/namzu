@@ -8,6 +8,7 @@
 
 export type {
 	ProjectId,
+	ThreadId,
 	SubSessionId,
 	HandoffId,
 	WorkspaceId,

@@ -30,6 +30,7 @@ import type {
 	SummaryId,
 	TaskId,
 	TenantId,
+	ThreadId,
 	ToolCallId,
 	WorkspaceId,
 } from '../types/ids/index.js'
@@ -56,6 +57,10 @@ function generateId<T extends string>(prefix: T, length = 12): `${T}${string}` {
 
 export function generateProjectId(): ProjectId {
 	return generateId('prj_')
+}
+
+export function generateThreadId(): ThreadId {
+	return generateId('thd_')
 }
 
 export function generateRunId(): RunId {
