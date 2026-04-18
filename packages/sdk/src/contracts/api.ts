@@ -1,7 +1,7 @@
 import type { AgentCapabilities, AgentType } from '../types/agent/base.js'
 import type { MessageRole } from '../types/message/index.js'
 import type { StopReason } from '../types/run/events.js'
-import type { MessageId, RunId, SessionId, ThreadId } from './ids.js'
+import type { ProjectId, RunId, SessionId } from './ids.js'
 
 export type { MessageRole, StopReason, AgentType, AgentCapabilities }
 
@@ -27,14 +27,6 @@ export interface AgentInfo {
 	capabilities?: AgentCapabilities
 }
 
-export interface Thread {
-	id: ThreadId
-	created_at: ISOTimestamp
-	updated_at: ISOTimestamp
-	metadata: Record<string, string>
-	message_count: number
-}
-
 export interface ToolCallInfo {
 	id: string
 	type: 'function'
@@ -42,23 +34,6 @@ export interface ToolCallInfo {
 		name: string
 		arguments: string
 	}
-}
-
-export interface ThreadMessage {
-	id: MessageId
-	thread_id: ThreadId
-	role: MessageRole
-	content: string | null
-	created_at: ISOTimestamp
-	run_id?: RunId
-	tool_call_id?: string
-	tool_calls?: ToolCallInfo[]
-	metadata?: Record<string, unknown>
-}
-
-export interface CreateThreadRequest {
-	metadata?: Record<string, string>
-	messages?: CreateMessageRequest[]
 }
 
 export interface CreateMessageRequest {
@@ -71,14 +46,10 @@ export interface CreateMessageRequest {
  * Wire-side run status for HTTP / A2A / SSE payloads.
  *
  * Distinct from the domain {@link import('../types/run/status.js').RunStatus}
- * which models the kernel state machine (session-hierarchy.md §4.6 + §5.2).
- * The wire enum collapses domain variants onto the HTTP-facing shape (e.g.
- * domain `succeeded` → wire `completed`; domain `awaiting_hitl*` → wire
- * `running`; domain `awaiting_subsession` → wire `running`).
- *
- * Renamed from `RunStatus` to `WireRunStatus` in 0.2.0 to disambiguate from
- * the domain enum; a deprecated alias `RunStatus = WireRunStatus` is retained
- * at the bottom of this module for one migration window.
+ * which models the kernel state machine. The wire enum collapses domain
+ * variants onto the HTTP-facing shape (e.g. domain `succeeded` → wire
+ * `completed`; domain `awaiting_hitl*` → wire `running`; domain
+ * `awaiting_subsession` → wire `running`).
  */
 export type WireRunStatus =
 	| 'queued'
@@ -96,7 +67,7 @@ export type RunStopReason = StopReason
 
 export interface Run {
 	id: RunId
-	thread_id: ThreadId | null
+	project_id: ProjectId | null
 	session_id?: SessionId
 	agent_id: string
 	agent_name?: string
@@ -234,10 +205,3 @@ export interface ApiError {
 		param?: string
 	}
 }
-
-/**
- * @deprecated Use {@link WireRunStatus}. Alias retained for one migration
- * window (0.2.x); scheduled for removal in 0.3.0. Renamed to disambiguate
- * from the domain `RunStatus` in `../types/run/status.js`.
- */
-export type RunStatus = WireRunStatus

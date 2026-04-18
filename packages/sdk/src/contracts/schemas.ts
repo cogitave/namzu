@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-export const ThreadIdSchema = z.string().regex(/^thd_[a-z0-9]+$/, 'Invalid thread ID format')
+export const ProjectIdSchema = z.string().regex(/^prj_[a-z0-9]+$/, 'Invalid project ID format')
 export const RunIdSchema = z.string().regex(/^run_[a-z0-9]+$/, 'Invalid run ID format')
 export const MessageIdSchema = z.string().regex(/^msg_[a-z0-9]+$/, 'Invalid message ID format')
 
@@ -21,13 +21,6 @@ export const CreateMessageSchema = z
 		role: z.literal('user'),
 		content: z.string().min(1, 'Message content cannot be empty'),
 		metadata: z.record(z.unknown()).optional(),
-	})
-	.strict()
-
-export const CreateThreadSchema = z
-	.object({
-		metadata: z.record(z.string()).optional(),
-		messages: z.array(CreateMessageSchema).optional(),
 	})
 	.strict()
 

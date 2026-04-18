@@ -1,5 +1,5 @@
 import { RUN_STATUS_TO_A2A, TERMINAL_STATES } from '../../constants/a2a/index.js'
-import type { Run, RunConfig, ThreadMessage, WireRunStatus } from '../../contracts/index.js'
+import type { Run, RunConfig, WireRunStatus } from '../../contracts/index.js'
 import type {
 	A2AArtifact,
 	A2AMessage,
@@ -8,7 +8,8 @@ import type {
 	A2ATaskState,
 	A2ATaskStatus,
 } from '../../types/a2a/index.js'
-import { extractTextFromA2AMessage, threadMessageToA2A } from './message.js'
+import type { Message } from '../../types/message/index.js'
+import { extractTextFromA2AMessage, messageToA2A } from './message.js'
 
 export function isTerminalState(state: A2ATaskState): boolean {
 	return TERMINAL_STATES.has(state)
@@ -53,12 +54,12 @@ function buildArtifacts(run: Run): A2AArtifact[] | undefined {
 	]
 }
 
-export function runToA2ATask(run: Run, messages?: readonly ThreadMessage[]): A2ATask {
+export function runToA2ATask(run: Run, messages?: readonly Message[]): A2ATask {
 	return {
 		id: run.id,
-		contextId: run.thread_id ?? undefined,
+		contextId: run.project_id ?? undefined,
 		status: buildTaskStatus(run),
-		history: messages?.map(threadMessageToA2A),
+		history: messages?.map(messageToA2A),
 		artifacts: buildArtifacts(run),
 		metadata: {
 			agent_id: run.agent_id,
@@ -71,7 +72,7 @@ export function runToA2ATask(run: Run, messages?: readonly ThreadMessage[]): A2A
 export interface CreateRunFromA2A {
 	readonly agentId: string
 	readonly input: string
-	readonly threadId?: string
+	readonly projectId?: string
 	readonly config: RunConfig
 }
 
@@ -99,7 +100,7 @@ export function a2aMessageToCreateRun(
 	return {
 		agentId,
 		input,
-		threadId: params.contextId,
+		projectId: params.contextId,
 		config,
 	}
 }

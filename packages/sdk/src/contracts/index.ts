@@ -10,14 +10,9 @@ export type {
 	ISOTimestamp,
 	AgentDefaults,
 	AgentInfo,
-	Thread,
 	ToolCallInfo,
-	ThreadMessage,
-	CreateThreadRequest,
 	CreateMessageRequest,
 	WireRunStatus,
-	/** @deprecated Use {@link WireRunStatus}. */
-	RunStatus,
 	RunStopReason,
 	Run,
 	RunHierarchyNode,
@@ -34,15 +29,14 @@ export type {
 	ApiError,
 } from './api.js'
 
-export type { ThreadId, RunId, MessageId, SessionId } from './ids.js'
+export type { ProjectId, RunId, MessageId, SessionId } from './ids.js'
 
 export {
-	ThreadIdSchema,
+	ProjectIdSchema,
 	RunIdSchema,
 	MessageIdSchema,
 	RunConfigSchema,
 	CreateMessageSchema,
-	CreateThreadSchema,
 	CreateRunSchema,
 	CreateStatelessRunSchema,
 	PaginationSchema,

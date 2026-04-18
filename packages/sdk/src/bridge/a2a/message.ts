@@ -1,4 +1,3 @@
-import type { ThreadMessage } from '../../contracts/index.js'
 import type { A2AMessage, A2AMessageRole, A2APart, TextPart } from '../../types/a2a/index.js'
 import type { Message, MessageRole } from '../../types/message/index.js'
 
@@ -26,37 +25,6 @@ export function messageToA2A(msg: Message): A2AMessage {
 
 	if (msg.role === 'assistant' && 'toolCalls' in msg && msg.toolCalls) {
 		for (const tc of msg.toolCalls) {
-			parts.push({
-				kind: 'data',
-				data: {
-					toolCallId: tc.id,
-					name: tc.function.name,
-					arguments: tc.function.arguments,
-				},
-				mimeType: 'application/x-namzu-tool-call',
-			})
-		}
-	}
-
-	if (parts.length === 0) {
-		parts.push({ kind: 'text', text: '' })
-	}
-
-	return {
-		role: toA2ARole(msg.role),
-		parts,
-	}
-}
-
-export function threadMessageToA2A(msg: ThreadMessage): A2AMessage {
-	const parts: A2APart[] = []
-
-	if (msg.content) {
-		parts.push({ kind: 'text', text: msg.content })
-	}
-
-	if (msg.tool_calls) {
-		for (const tc of msg.tool_calls) {
 			parts.push({
 				kind: 'data',
 				data: {

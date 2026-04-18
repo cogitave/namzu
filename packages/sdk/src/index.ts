@@ -42,7 +42,6 @@ export * from './types/execution/index.js'
 export * from './types/connector/index.js'
 export * from './types/skills/index.js'
 export * from './types/a2a/index.js'
-export * from './types/conversation/index.js'
 export * from './types/router/index.js'
 export * from './types/advisory/index.js'
 export * from './types/memory/index.js'
@@ -140,8 +139,6 @@ export {
 	InMemoryTaskStore,
 	DiskTaskStore,
 	type DiskTaskStoreConfig,
-	InMemoryConversationStore,
-	type InMemoryConversationStoreConfig,
 	InMemoryMemoryIndex,
 	InMemoryMemoryStore,
 	DiskMemoryStore,
@@ -300,7 +297,6 @@ export {
 	runStatusToA2AState,
 	a2aMessageToCreateRun,
 	messageToA2A,
-	threadMessageToA2A,
 	extractTextFromA2AMessage,
 	a2aMessageToInput,
 	mapRunToA2AEvent,

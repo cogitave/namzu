@@ -10,7 +10,6 @@ export {
 
 export {
 	messageToA2A,
-	threadMessageToA2A,
 	extractTextFromA2AMessage,
 	a2aMessageToInput,
 } from './message.js'
