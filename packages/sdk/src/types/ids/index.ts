@@ -38,11 +38,9 @@ export type MemoryStoreRef = `mms_${string}`
 export type VaultRef = `vlt_${string}`
 export type KnowledgeBaseRef = `kbs_${string}`
 
-// Session hierarchy IDs — live canonically here (Phase 9 Known Delta #4
-// collapse: previously split across `types/ids/` and `types/session/ids.ts`
-// with a circular re-export). Convention #2 branded IDs; prefixes mandated
-// by session-hierarchy.md §4. The `types/session/ids.ts` barrel re-exports
-// these for co-location ergonomics.
+// Session hierarchy IDs. Convention #2 branded IDs; prefixes mandated by the
+// five-layer hierarchy (Project → Thread → Session → SubSession → Run). The
+// `types/session/ids.ts` barrel re-exports these for co-location ergonomics.
 export type ProjectId = `prj_${string}`
 export type SubSessionId = `sub_${string}`
 export type HandoffId = `hof_${string}`
@@ -51,16 +49,10 @@ export type SummaryId = `sum_${string}`
 export type DeliverableId = `del_${string}`
 
 /**
- * @deprecated Use {@link ProjectId}. Alias retained for the 0.2.x migration
- * window; will be removed in 0.3.0. See session-hierarchy.md §13.3.1.
- */
-export type ThreadId = ProjectId
-
-/**
  * Sentinel {@link TenantId} for legacy pre-0.2.0 runs rehomed by the
- * boot-time filesystem migration (session-hierarchy.md §13.4.1). Consumers
- * with strict tenant enforcement should either tag these records on first
- * access or reject them until a real tenant is assigned — the kernel
- * surfaces the sentinel but does not prescribe policy (Convention #17).
+ * boot-time filesystem migration. Consumers with strict tenant enforcement
+ * should either tag these records on first access or reject them until a
+ * real tenant is assigned — the kernel surfaces the sentinel but does not
+ * prescribe policy (Convention #17).
  */
 export const UNKNOWN_TENANT_ID = 'tnt_unknown_legacy' as TenantId

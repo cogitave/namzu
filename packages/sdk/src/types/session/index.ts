@@ -15,8 +15,6 @@ export type {
 	AgentId,
 	UserId,
 	TaskId,
-	ThreadId,
-	ThreadIdDeprecated,
 } from './ids.js'
 
 export type {

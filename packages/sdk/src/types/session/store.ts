@@ -1,14 +1,9 @@
 /**
  * SessionStore — canonical persistence contract for the session hierarchy.
  *
- * Replaces `ConversationStore` (deprecated; `types/conversation/index.ts`).
- * Per session-hierarchy.md §4 Entity Model, §10.4 Parent-Child Linkage, §12
- * Multi-Tenant and Security — every accessor takes explicit {@link TenantId}
- * (Convention #17). Cross-tenant access rejects with `TenantIsolationError`.
- *
- * Minimum surface — covers downstream phases 4 (handoff), 5 (summary), and
- * 6 (sub-session spawn) plus the drill primitive (§14.3). Extensions land in
- * paired phases alongside their consumers (Convention #0: no speculative API).
+ * Every accessor takes explicit {@link TenantId} (Convention #17). Cross-tenant
+ * access rejects with `TenantIsolationError`. Convention #0: no speculative
+ * API — extensions land alongside their consumers.
  */
 
 import type { ActorRef } from '../../session/hierarchy/actor.js'
@@ -137,7 +132,7 @@ export interface SessionStore {
 	 */
 	deleteSubSession(subSessionId: SubSessionId, tenantId: TenantId): Promise<void>
 
-	// Messages (replaces ConversationStore surface) ---------------------------
+	// Messages -----------------------------------------------------------------
 
 	/**
 	 * Append a single message to the session's message log. Returns the

@@ -1,9 +1,8 @@
 // Sub-barrel for the session-scoped persistence module (Convention #4).
 //
-// `SessionStore` replaces the legacy `ConversationStore`; messages are scoped
-// to a `SessionId` (not a bare thread) and every accessor carries explicit
-// `TenantId` per session-hierarchy.md §12.1. Concrete implementations live
-// in sibling files; re-export them here so consumers import via
+// Messages are scoped to a `SessionId` and every accessor carries explicit
+// `TenantId` (Convention #17). Concrete implementations live in sibling
+// files; re-export them here so consumers import via
 // `../store/session/index.js`.
 
 export { InMemorySessionStore } from './memory.js'
