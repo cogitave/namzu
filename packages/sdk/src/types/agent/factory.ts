@@ -39,8 +39,6 @@ export interface AgentFactoryOptions {
 
 	taskRouter?: TaskRouterConfig
 
-	threadId?: string
-
 	runId?: string
 
 	parentRunId?: string

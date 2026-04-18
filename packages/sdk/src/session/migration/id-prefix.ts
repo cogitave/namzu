@@ -1,23 +1,18 @@
 /**
  * ID-prefix migration window — read-side compat for legacy `thd_*` IDs.
  *
- * Phase 1 already ships {@link parseThreadId} in `utils/id.ts` that accepts
- * either `thd_*` or `prj_*` silently. This module formalises the warning
- * emission path called out in session-hierarchy.md §13.3.1:
- *
- * | Version | Reader accepts      | Writer emits | Legacy read behaviour         |
- * |---------|---------------------|--------------|-------------------------------|
- * | 0.2.x   | `thd_*` AND `prj_*` | `prj_*` only | emits `MigrationWarning` once |
- * | 0.3.x   | `prj_*` only        | `prj_*` only | rejects `StalePrefixError`    |
- *
  * Consumers that touch raw legacy IDs (filesystem migrator, wire decoders,
  * CLI imports) route through {@link acceptLegacyThreadId} so the warning
  * signal is structured rather than ad-hoc console output (Convention #18).
  *
- * The `WINDOW_OPEN` constant is the single switch that flips this module
- * from soft-accept to hard-reject when 0.3.0 cuts. Convention #0: no silent
- * long-lived compat — the window is explicit, dated, and fails closed when
- * the clock runs out.
+ * | Window state | Reader accepts      | Writer emits | Legacy read behaviour         |
+ * |--------------|---------------------|--------------|-------------------------------|
+ * | OPEN (now)   | `thd_*` AND `prj_*` | `prj_*` only | emits `MigrationWarning` once |
+ * | CLOSED       | `prj_*` only        | `prj_*` only | rejects `StalePrefixError`    |
+ *
+ * The {@link WINDOW_OPEN} constant is the single switch that flips this
+ * module from soft-accept to hard-reject. Convention #0: no silent
+ * long-lived compat — the window is explicit and fails closed when closed.
  */
 
 import type { ProjectId } from '../../types/session/ids.js'

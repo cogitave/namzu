@@ -23,15 +23,10 @@ export function isTerminalAgentTaskState(state: AgentTaskState): boolean {
 }
 
 /**
- * Context carried into {@link AgentManager.sendMessage}. Phase 6 promotes
- * `tenantId`, `sessionId`, `projectId`, and `parentActor` to required fields —
- * the spawn path is the ingress point for the session hierarchy; callers must
- * provide the full scoping set (session-hierarchy.md §12.1 required-callsite
- * matrix).
- *
- * `threadId` was removed — `projectId` owns the root scope. The deprecated
- * alias `type ThreadId = ProjectId` still compiles for consumers transitioning
- * off the name, but the shape no longer exposes a separate slot.
+ * Context carried into {@link AgentManager.sendMessage}. `tenantId`,
+ * `sessionId`, `projectId`, and `parentActor` are required — the spawn path
+ * is the ingress point for the session hierarchy; callers must provide the
+ * full scoping set.
  */
 export interface AgentTaskContext {
 	parentRunId: RunId
@@ -55,7 +50,7 @@ export interface AgentTaskContext {
 	 */
 	sessionId: SessionId
 
-	/** Long-lived goal scope (replaces `threadId`). Required. */
+	/** Long-lived goal scope. Required. */
 	projectId: ProjectId
 
 	/**

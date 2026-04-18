@@ -38,7 +38,7 @@ function buildConfig(overrides: Partial<Parameters<typeof RunContextFactory.buil
 	}
 }
 
-describe('RunContextFactory.build — Phase 6', () => {
+describe('RunContextFactory.build', () => {
 	it('requires sessionId, projectId, tenantId and returns them on the context', () => {
 		const cfg = buildConfig()
 		const ctx = RunContextFactory.build(cfg)
@@ -46,8 +46,6 @@ describe('RunContextFactory.build — Phase 6', () => {
 		expect(ctx.sessionId).toBe(cfg.sessionId)
 		expect(ctx.projectId).toBe(cfg.projectId)
 		expect(ctx.tenantId).toBe(cfg.tenantId)
-		// threadId remains as a deprecated mirror of projectId.
-		expect(ctx.threadId).toBe(cfg.projectId)
 	})
 
 	it('uses the injected PathBuilder to resolve the output dir (no hardcoded .namzu/threads)', () => {
@@ -72,8 +70,7 @@ describe('RunContextFactory.build — Phase 6', () => {
 		const cfg = buildConfig()
 		const ctx = RunContextFactory.build(cfg)
 
-		// No more `/.namzu/threads/{threadId}/runs` — the new layout lives under
-		// projects/{pid}/sessions/{sid}.
+		// Layout lives under projects/{pid}/sessions/{sid} — no `.namzu/threads/`.
 		expect(ctx.outputDir).toContain('/.namzu/projects/prj_test/sessions/ses_test')
 		expect(ctx.outputDir).not.toContain('threads')
 	})

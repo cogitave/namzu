@@ -11,7 +11,7 @@ import {
 import { DefaultPathBuilder, type PathBuilder } from '../../session/workspace/path-builder.js'
 import { ActivityStore } from '../../store/activity/memory.js'
 import { type ActivityTrackingConfig, resolveActivityTracking } from '../../types/activity/index.js'
-import type { RunId, SessionId, TenantId, ThreadId } from '../../types/ids/index.js'
+import type { RunId, SessionId, TenantId } from '../../types/ids/index.js'
 import type { Message } from '../../types/message/index.js'
 import type { PermissionMode } from '../../types/permission/index.js'
 import type { LLMProvider } from '../../types/provider/index.js'
@@ -22,18 +22,15 @@ import { generateRunId } from '../../utils/id.js'
 import { type Logger, getRootLogger } from '../../utils/logger.js'
 
 /**
- * Config accepted by {@link RunContextFactory.build}. Phase 6 promotes
- * `sessionId`, `projectId`, and `tenantId` to required — runs are scoped
- * under a Session within a Project within a Tenant (session-hierarchy.md
- * §12.1). `threadId` is retained only as a deprecated compat alias of
- * `projectId` — consumers can still pass it, but no new path layout honors it.
+ * Config accepted by {@link RunContextFactory.build}. `sessionId`,
+ * `projectId`, and `tenantId` are required — runs are scoped under a Session
+ * within a Project within a Tenant (Convention #17).
  *
  * `pathBuilder` is optional; when absent a {@link DefaultPathBuilder} is
- * constructed against `{workingDirectory}/.namzu` — no more hardcoded
- * `.namzu/threads` path.
+ * constructed against `{workingDirectory}/.namzu`.
  *
- * Phase 7 adds `filesystemMigrator` + `migrationSink`. These are also
- * optional; when absent a {@link DefaultFilesystemMigrator} wired to the
+ * `filesystemMigrator` + `migrationSink` are optional; when absent a
+ * {@link DefaultFilesystemMigrator} wired to the
  * {@link NOOP_FILESYSTEM_MIGRATION_SINK} is used. Migration runs once per
  * process via {@link RunContextFactory.ensureMigrated}; the static `build`
  * method stays synchronous so existing call sites are not broken — async
@@ -73,21 +70,12 @@ export interface RunContextConfig {
 	depth?: number
 }
 
-/**
- * Result of {@link RunContextFactory.build}. `threadId` remains as a
- * deprecated read-only mirror of `projectId` for consumers still referencing
- * the old name — scheduled for removal in 0.3.0 (session-hierarchy.md §13.1).
- */
+/** Result of {@link RunContextFactory.build}. */
 export interface RunContext {
 	runId: RunId
 	sessionId: SessionId
 	projectId: ProjectId
 	tenantId: TenantId
-	/**
-	 * @deprecated Mirrors `projectId` — remove when callers migrate off the
-	 * legacy name.
-	 */
-	threadId: ThreadId
 	runMgr: RunPersistence
 	activityStore: ActivityStore
 	planManager: PlanManager
@@ -185,7 +173,6 @@ export class RunContextFactory {
 			sessionId: config.sessionId,
 			projectId: config.projectId,
 			tenantId: config.tenantId,
-			threadId: config.projectId as ThreadId,
 			runMgr,
 			activityStore,
 			planManager,

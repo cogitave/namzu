@@ -21,7 +21,7 @@ import {
 	type ResumeHandler,
 	autoApproveHandler,
 } from '../../types/hitl/index.js'
-import type { RunId, SessionId, TenantId, ThreadId } from '../../types/ids/index.js'
+import type { RunId, SessionId, TenantId } from '../../types/ids/index.js'
 import type { InvocationState } from '../../types/invocation/index.js'
 import { type Message, createSystemMessage } from '../../types/message/index.js'
 import type { AgentPersona } from '../../types/persona/index.js'
@@ -67,30 +67,19 @@ export interface QueryParams {
 	resumeHandler: ResumeHandler
 	resumeFromCheckpoint?: CheckpointId
 
-	/**
-	 * Session scope for the run. Required in 0.2.0 — every run is attributed to
-	 * a Session (session-hierarchy.md §12.1).
-	 */
+	/** Session scope for the run. Required — every run is attributed to a Session. */
 	sessionId: SessionId
 
 	/** Long-lived goal scope for the run. Required. */
 	projectId: ProjectId
 
-	/** Isolation boundary. Required. */
+	/** Isolation boundary (Convention #17). Required. */
 	tenantId: TenantId
 
 	/**
-	 * @deprecated Pass `projectId` instead. When both are present, `projectId`
-	 * wins. During the 0.2.x migration window a caller supplying only
-	 * `threadId` must also supply `projectId` — the kernel no longer infers
-	 * `projectId` from a bare `threadId` on the QueryParams shape.
-	 */
-	threadId?: ThreadId
-
-	/**
 	 * Optional path layout override. Defaults to a {@link DefaultPathBuilder}
-	 * rooted at `{workingDirectory}/.namzu` (§13.4). Phase 7 wires first-call
-	 * filesystem migration onto this same entry point.
+	 * rooted at `{workingDirectory}/.namzu`. First-call filesystem migration
+	 * runs on this same entry point.
 	 */
 	pathBuilder?: PathBuilder
 

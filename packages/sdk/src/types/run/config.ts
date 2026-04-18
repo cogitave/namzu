@@ -22,10 +22,9 @@ export interface AgentRunConfig {
 }
 
 /**
- * Config for {@link RunPersistence}. Phase 6 promotes `sessionId`, `tenantId`,
- * and `projectId` to required — every Run must be attributed to a Session
- * under a Project within a Tenant (session-hierarchy.md §12.1). The legacy
- * `threadId`-only shape is gone.
+ * Config for {@link RunPersistence}. `sessionId`, `tenantId`, and `projectId`
+ * are required — every Run is attributed to a Session under a Project within
+ * a Tenant (Convention #17).
  */
 export interface RunPersistenceConfig {
 	runId: RunId

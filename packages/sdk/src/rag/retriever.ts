@@ -57,11 +57,11 @@ export class DefaultRetriever implements Retriever {
 	}
 
 	private expandQuery(query: RetrievalQuery): string {
-		if (!query.threadMessages || query.threadMessages.length === 0) {
+		if (!query.recentMessages || query.recentMessages.length === 0) {
 			return query.text
 		}
 
-		const recentContext = query.threadMessages.slice(-3).join(' ')
+		const recentContext = query.recentMessages.slice(-3).join(' ')
 		return `${query.text}\n\nContext: ${recentContext}`
 	}
 

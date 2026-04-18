@@ -1,14 +1,14 @@
 import { createHash } from 'node:crypto'
 import type { AgentContextLevel } from '../../types/agent/factory.js'
-import type { ThreadId } from '../../types/ids/index.js'
 import type { AgentPersona } from '../../types/persona/index.js'
+import type { ProjectId } from '../../types/session/ids.js'
 import type { Skill } from '../../types/skills/index.js'
 import type { ToolRegistryContract } from '../../types/tool/index.js'
 import { PromptBuilder, type PromptSegments } from './prompt.js'
 
 export interface ContextCacheConfig {
 	agentId: string
-	threadId: ThreadId
+	projectId: ProjectId
 }
 
 export interface PromptCacheInput {
@@ -21,7 +21,7 @@ export interface PromptCacheInput {
 }
 
 export class ContextCache {
-	readonly threadId: ThreadId
+	readonly projectId: ProjectId
 	readonly agentId: string
 
 	private cachedPrompt: string | undefined
@@ -30,7 +30,7 @@ export class ContextCache {
 	private cachedStaticHash: string | undefined
 
 	constructor(config: ContextCacheConfig) {
-		this.threadId = config.threadId
+		this.projectId = config.projectId
 		this.agentId = config.agentId
 	}
 

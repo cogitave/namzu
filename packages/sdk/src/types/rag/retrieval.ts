@@ -1,4 +1,5 @@
-import type { KnowledgeBaseId, ThreadId } from '../ids/index.js'
+import type { KnowledgeBaseId } from '../ids/index.js'
+import type { ProjectId } from '../session/ids.js'
 import type { TenantScope } from './scope.js'
 import type { VectorSearchResult } from './vector.js'
 
@@ -13,8 +14,8 @@ export interface RetrievalConfig {
 
 export interface RetrievalQuery {
 	text: string
-	threadId?: ThreadId
-	threadMessages?: string[]
+	projectId?: ProjectId
+	recentMessages?: string[]
 	config?: Partial<RetrievalConfig>
 }
 

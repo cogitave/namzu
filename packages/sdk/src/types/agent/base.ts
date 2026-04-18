@@ -1,5 +1,5 @@
 import type { AgentStatus, CostInfo, TokenUsage } from '../common/index.js'
-import type { RunId, SessionId, TenantId, ThreadId } from '../ids/index.js'
+import type { RunId, SessionId, TenantId } from '../ids/index.js'
 import type { InvocationState } from '../invocation/index.js'
 import type { Message } from '../message/index.js'
 import type { PermissionMode } from '../permission/index.js'
@@ -24,27 +24,14 @@ export interface BaseAgentConfig {
 	env?: Record<string, string>
 
 	/**
-	 * @deprecated Use `projectId`. Kept as a migration-window mirror; when both
-	 * are present `projectId` wins. See session-hierarchy.md §13.1.
-	 */
-	threadId?: ThreadId
-
-	/**
-	 * Long-lived goal scope for the run. Required at runtime in 0.2.0 per
-	 * session-hierarchy.md §12.1 — `{@link ReactiveAgent}`, `{@link
-	 * SupervisorAgent}`, etc. reject configs missing this (`'X requires
-	 * sessionId, projectId, and tenantId in config (§12.1)'`).
+	 * Long-lived goal scope for the run. Required at runtime — agents reject
+	 * configs missing this (`'X requires sessionId, projectId, and tenantId
+	 * in config'`).
 	 *
-	 * Kept optional at the TYPE level during the 0.2.x migration window
-	 * because {@link AgentManager} stamps this field AFTER `configBuilder`
-	 * returns (manager/agent/lifecycle.ts:228–230). That stamping path is
-	 * how every `@namzu/agents` configBuilder currently gets its tenant /
-	 * session / project triple; flipping the type to required without first
-	 * updating every {@link AgentFactoryOptions} consumer (which does not
-	 * carry these fields) would be a gratuitous downstream break.
-	 *
-	 * Tightening to required is Phase 9 Known Delta #6. The type-level flip
-	 * lands in 0.3.0 alongside `AgentFactoryOptions` gaining the triple.
+	 * Kept optional at the TYPE level because {@link AgentManager} stamps
+	 * this field AFTER `configBuilder` returns (manager/agent/lifecycle.ts).
+	 * Tightening to required is a separate task alongside
+	 * `AgentFactoryOptions` carrying the triple.
 	 */
 	projectId?: ProjectId
 
