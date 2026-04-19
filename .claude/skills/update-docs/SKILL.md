@@ -31,36 +31,50 @@ Every page in `docs/` carries a YAML frontmatter block:
 ```yaml
 ---
 title: <page title>
-related_packages: [sdk, contracts, cli, api, agents, computer-use]
-surface: [api | cli | wire | types | config | workflow]
-status: stable | beta | deprecated
+description: <one-line summary, used in indexes and search>
 last_updated: YYYY-MM-DD
+status: current
+related_packages: ["@namzu/sdk", "@namzu/anthropic", ...]
 ---
 ```
 
-Agents discover affected pages by matching `related_packages` and `surface` against the code change.
+Field semantics:
+
+- `title` — short, human-readable; appears in nav.
+- `description` — one sentence, ≤140 chars; used by index pages and any search snippet generator.
+- `last_updated` — ISO date of the last *content-verified* edit. Bump only when the page was actually checked against current code.
+- `status` — `current` for live pages. Use `superseded` (with a `superseded_by:` link) for pages kept as redirects; use `deprecated` for content describing removed surface that has not yet been deleted. Do not invent statuses.
+- `related_packages` — array of fully-qualified package names with the `@namzu/` scope and quoted strings. This is the field agents grep against to find candidate pages for a code change. Use the actual package name as it appears in `package.json#name`.
+
+Agents discover affected pages by matching `related_packages` against the code change. Example — a change to `@namzu/anthropic` triggers a search:
+
+```bash
+grep -rl '"@namzu/anthropic"' docs/
+```
+
+There is no `surface` field. Page topic is implied by directory placement (`docs/sdk/runtime/`, `docs/providers/anthropic.md`, etc.) and by `related_packages` scope.
 </frontmatter>
 
 ## Steps
 
 <procedure>
-1. Identify the change's surface and affected packages. Examples:
+1. Identify the affected packages. Examples:
 
    <mapping>
-     - New exported SDK type → `related_packages: [sdk]`, `surface: [types]`.
-     - CLI flag change → `related_packages: [cli]`, `surface: [cli]`.
-     - Wire schema field added → `related_packages: [contracts, api]`, `surface: [wire]`.
-     - Config key renamed → `related_packages: [sdk]`, `surface: [config]`.
+     - New exported SDK type → `"@namzu/sdk"`.
+     - CLI flag change → `"@namzu/cli"`.
+     - Wire schema field added → `"@namzu/contracts"` (and consumers like `"@namzu/api"`).
+     - Provider-specific config key → `"@namzu/<provider>"` and usually `"@namzu/sdk"` if it surfaces in SDK config too.
    </mapping>
 
 2. Find candidate pages in `docs/` by grepping frontmatter:
 
    ```bash
    # find pages related to a package
-   grep -rl "related_packages:.*sdk" docs/
+   grep -rl '"@namzu/sdk"' docs/
 
-   # narrow by surface
-   grep -rl "surface:.*wire" docs/
+   # combine with directory hint when scope is narrower
+   grep -rl '"@namzu/anthropic"' docs/providers/
    ```
 
 3. For each candidate page:

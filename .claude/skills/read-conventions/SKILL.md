@@ -20,7 +20,7 @@ Loads the relevant project rules from `docs.local/conventions/` before a non-tri
 ## Steps
 
 <procedure>
-1. Read `docs.local/conventions/README.md` to see the catalogue of ratified rules.
+1. Read `docs.local/conventions/README.md` to see the catalogue of ratified rules. **If the file is missing**, this is not a hard error — `docs.local/` is gitignored and lives only on the author machine, so a fresh `git clone` may not have a catalogue yet (per `ses_002-workflow-discipline` design.md §9.4). Treat missing as "single-machine deployment, no catalogue yet" and report `no ratified rules apply yet`. Do not fabricate or guess rules.
 
 2. Map the change's surface to the catalogue. Examples:
    <mapping>
@@ -44,4 +44,4 @@ Loads the relevant project rules from `docs.local/conventions/` before a non-tri
 
 - List of rule files consulted.
 - One-line compliance note per rule: `complies` / `ambiguous — see session ses_NNN` / `deviation — session ses_NNN opened`.
-- Empty catalogue is a valid result while conventions/ is still growing; in that case report "no ratified rules apply yet".
+- Empty or missing catalogue is a valid result while `docs.local/conventions/` is still growing or has not been bootstrapped on the local machine; in that case report "no ratified rules apply yet".
