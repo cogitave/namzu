@@ -118,6 +118,7 @@ export class InMemorySessionStore implements SessionStore {
 		const now = new Date()
 		const session: Session = {
 			id: generateSessionId(),
+			threadId: params.threadId,
 			projectId: params.projectId,
 			tenantId,
 			status: 'idle',

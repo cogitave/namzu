@@ -108,6 +108,9 @@ export async function executeBroadcastHandoff(
 		if (a.expectedOwnerVersion !== first.expectedOwnerVersion) {
 			throw new Error('executeBroadcastHandoff: all assignments must share expectedOwnerVersion')
 		}
+		if (a.threadId !== first.threadId) {
+			throw new Error('executeBroadcastHandoff: all assignments must share threadId')
+		}
 		if (a.projectId !== first.projectId) {
 			throw new Error('executeBroadcastHandoff: all assignments must share projectId')
 		}
@@ -140,6 +143,11 @@ export async function executeBroadcastHandoff(
 			requested: tenantId,
 			resource: `session(${source.id})`,
 		})
+	}
+	if (source.threadId !== first.threadId) {
+		throw new Error(
+			`Assignment threadId ${first.threadId} does not match source threadId ${source.threadId}`,
+		)
 	}
 	if (source.projectId !== first.projectId) {
 		throw new Error(
@@ -220,7 +228,11 @@ export async function executeBroadcastHandoff(
 			worktreesProvisioned += 1
 
 			const childSession = await deps.store.createSession(
-				{ projectId: source.projectId, currentActor: assignment.recipientActor },
+				{
+					threadId: source.threadId,
+					projectId: source.projectId,
+					currentActor: assignment.recipientActor,
+				},
 				tenantId,
 			)
 			partial.createdSessionId = childSession.id

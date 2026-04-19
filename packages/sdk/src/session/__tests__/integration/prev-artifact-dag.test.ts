@@ -14,7 +14,12 @@
 import { describe, expect, it } from 'vitest'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
 import type { SessionId } from '../../../types/ids/index.js'
-import type { DeliverableId, SubSessionId, SummaryId } from '../../../types/session/ids.js'
+import type {
+	DeliverableId,
+	SubSessionId,
+	SummaryId,
+	ThreadId,
+} from '../../../types/session/ids.js'
 import {
 	ArtifactRefCycleError,
 	type InterventionChainLoader,
@@ -23,6 +28,8 @@ import {
 } from '../../intervention/prev-artifact.js'
 import type { DeliverableRef, SessionSummaryDeliverable } from '../../summary/deliverable.js'
 import { DEFAULT_TENANT, agentActor, userActor } from './_fixtures.js'
+
+const TEST_THREAD_ID = 'thd_test' as ThreadId
 
 /**
  * Build a live loader pointing at a real InMemorySessionStore. Each node
@@ -68,7 +75,7 @@ async function buildLinearChain(
 	let previous: SessionId | null = null
 	for (let i = 0; i < length; i++) {
 		const s = await store.createSession(
-			{ projectId: project.id, currentActor: agentActor(`agt_${i}`) },
+			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor(`agt_${i}`) },
 			DEFAULT_TENANT,
 		)
 		if (previous) {
@@ -260,15 +267,15 @@ describe('Integration — prevArtifactRef DAG against real store', () => {
 			DEFAULT_TENANT,
 		)
 		const sA = await store.createSession(
-			{ projectId: project.id, currentActor: agentActor('agt_a') },
+			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor('agt_a') },
 			DEFAULT_TENANT,
 		)
 		const sB = await store.createSession(
-			{ projectId: project.id, currentActor: agentActor('agt_b') },
+			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor('agt_b') },
 			DEFAULT_TENANT,
 		)
 		const sC = await store.createSession(
-			{ projectId: project.id, currentActor: agentActor('agt_c') },
+			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor('agt_c') },
 			DEFAULT_TENANT,
 		)
 

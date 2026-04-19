@@ -23,9 +23,11 @@ import type { AgentTaskContext, SendMessageOptions } from '../../../types/agent/
 import type { AgentId, SessionId, TenantId, UserId } from '../../../types/ids/index.js'
 import { createAssistantMessage } from '../../../types/message/index.js'
 import type { RunEvent } from '../../../types/run/events.js'
-import type { SummaryId } from '../../../types/session/ids.js'
+import type { SummaryId, ThreadId } from '../../../types/session/ids.js'
 import { ZERO_COST } from '../../../utils/cost.js'
 import { AgentManager } from '../lifecycle.js'
+
+const TEST_THREAD_ID = 'thd_test' as ThreadId
 
 const tenant = 'tnt_alpha' as TenantId
 const otherTenant = 'tnt_beta' as TenantId
@@ -127,7 +129,7 @@ async function buildHarness(
 	const store = new InMemorySessionStore()
 	const project = await store.createProject({ tenantId, name: 'p1' }, tenantId)
 	const parentSession = await store.createSession(
-		{ projectId: project.id, currentActor: user(tenantId) },
+		{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: user(tenantId) },
 		tenantId,
 	)
 	// Parent runs kick the session into 'active' so the materializer can
@@ -259,7 +261,11 @@ describe('AgentManager.sendMessage — Phase 6 SubSession spawn', () => {
 		// Pre-fill 8 direct sub-sessions under the parent, up to the default width cap.
 		for (let i = 0; i < 8; i++) {
 			const sibling = await harness.store.createSession(
-				{ projectId: harness.projectId, currentActor: agentActor('sibling') },
+				{
+					threadId: TEST_THREAD_ID,
+					projectId: harness.projectId,
+					currentActor: agentActor('sibling'),
+				},
 				tenant,
 			)
 			await harness.store.createSubSession(
@@ -290,7 +296,7 @@ describe('AgentManager.sendMessage — Phase 6 SubSession spawn', () => {
 		let parentId: SessionId = harness.parentSession.id
 		for (let i = 0; i < 4; i++) {
 			const child = await harness.store.createSession(
-				{ projectId: harness.projectId, currentActor: agentActor('c') },
+				{ threadId: TEST_THREAD_ID, projectId: harness.projectId, currentActor: agentActor('c') },
 				tenant,
 			)
 			await harness.store.createSubSession(
@@ -364,7 +370,7 @@ describe('AgentManager.sendMessage — Phase 6 SubSession spawn', () => {
 
 		// Seed c1 under parentSession, c2 under c1.
 		const c1 = await harness.store.createSession(
-			{ projectId: harness.projectId, currentActor: agentActor('c1') },
+			{ threadId: TEST_THREAD_ID, projectId: harness.projectId, currentActor: agentActor('c1') },
 			tenant,
 		)
 		await harness.store.createSubSession(
@@ -377,7 +383,7 @@ describe('AgentManager.sendMessage — Phase 6 SubSession spawn', () => {
 			tenant,
 		)
 		const c2 = await harness.store.createSession(
-			{ projectId: harness.projectId, currentActor: agentActor('c2') },
+			{ threadId: TEST_THREAD_ID, projectId: harness.projectId, currentActor: agentActor('c2') },
 			tenant,
 		)
 		await harness.store.createSubSession(

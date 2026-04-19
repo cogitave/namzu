@@ -9,6 +9,7 @@ import {
 import { WorkspaceBackendRegistry } from '../../../session/workspace/registry.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
 import type { AgentId, SessionId, TenantId, UserId } from '../../../types/ids/index.js'
+import type { ThreadId } from '../../../types/session/ids.js'
 import { generateHandoffId } from '../../../utils/id.js'
 import type { HandoffAssignment } from '../assignment.js'
 import { DefaultCapacityValidator } from '../capacity.js'
@@ -22,6 +23,8 @@ import type {
 } from '../events.js'
 import { type RunStatusResolver, type SingleHandoffDeps, executeSingleHandoff } from '../single.js'
 import { HandoffLockRejected, HandoffVersionConflict } from '../version.js'
+
+const TEST_THREAD_ID = 'thd_test' as ThreadId
 
 const tenant = 'tnt_alpha' as TenantId
 const otherTenant = 'tnt_beta' as TenantId
@@ -98,7 +101,7 @@ function buildDeps(
 async function seedIdle(store: InMemorySessionStore) {
 	const project = await store.createProject({ tenantId: tenant, name: 'p' }, tenant)
 	const session = await store.createSession(
-		{ projectId: project.id, currentActor: user('usr_source') },
+		{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: user('usr_source') },
 		tenant,
 	)
 	return { project, session }
@@ -115,6 +118,7 @@ function buildAssignment(
 		mode: 'single',
 		sourceSessionId,
 		tenantId: tenant,
+		threadId: TEST_THREAD_ID,
 		projectId,
 		sourceActor: user('usr_source'),
 		recipientActor: recipient,
@@ -228,14 +232,14 @@ describe('executeSingleHandoff', () => {
 		// store hardcodes defaults {4,8,10}. Build a depth-4 chain then attempt
 		// handoff on depth-4 node (ancestry length 5 > 4).
 		const root = await store.createSession(
-			{ projectId: project.id, currentActor: user('usr_source') },
+			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: user('usr_source') },
 			tenant,
 		)
 		let parent = root.id
 		let tail: SessionId = root.id
 		for (let i = 0; i < 4; i++) {
 			const child = await store.createSession(
-				{ projectId: project.id, currentActor: user(`usr_${i}`) },
+				{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: user(`usr_${i}`) },
 				tenant,
 			)
 			await store.createSubSession(

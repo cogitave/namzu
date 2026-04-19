@@ -8,7 +8,7 @@ import {
 import { WorkspaceBackendRegistry } from '../../../session/workspace/registry.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
 import type { SessionId, TenantId, UserId } from '../../../types/ids/index.js'
-import type { ProjectId } from '../../../types/session/ids.js'
+import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
 import { generateHandoffId } from '../../../utils/id.js'
 import type { HandoffAssignment } from '../assignment.js'
 import { type BroadcastHandoffDeps, executeBroadcastHandoff } from '../broadcast.js'
@@ -21,6 +21,8 @@ import type {
 	HandoffUnlockedEvent,
 } from '../events.js'
 import { HandoffVersionConflict } from '../version.js'
+
+const TEST_THREAD_ID = 'thd_test' as ThreadId
 
 const tenant = 'tnt_alpha' as TenantId
 
@@ -87,7 +89,7 @@ function buildDeps(store: InMemorySessionStore, execOverride?: ExecFile): DepsBu
 async function seedIdle(store: InMemorySessionStore) {
 	const project = await store.createProject({ tenantId: tenant, name: 'p' }, tenant)
 	const session = await store.createSession(
-		{ projectId: project.id, currentActor: user('usr_source') },
+		{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: user('usr_source') },
 		tenant,
 	)
 	return { project, session }
@@ -105,6 +107,7 @@ function buildAssignments(
 		mode: 'broadcast' as const,
 		sourceSessionId,
 		tenantId: tenant,
+		threadId: TEST_THREAD_ID,
 		projectId,
 		sourceActor: user('usr_source'),
 		recipientActor,

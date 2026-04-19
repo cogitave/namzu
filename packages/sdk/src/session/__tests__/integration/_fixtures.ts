@@ -17,6 +17,7 @@ import { EMPTY_TOKEN_USAGE } from '../../../constants/limits.js'
 import { AgentManager } from '../../../manager/agent/lifecycle.js'
 import { AgentRegistry } from '../../../registry/agent/definitions.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
+import { InMemoryThreadStore } from '../../../store/thread/memory.js'
 import type {
 	AgentCapabilities,
 	AgentInput,
@@ -28,7 +29,7 @@ import type { AgentDefinition } from '../../../types/agent/factory.js'
 import type { AgentTaskContext, SendMessageOptions } from '../../../types/agent/task.js'
 import type { AgentId, RunId, SessionId, TenantId, UserId } from '../../../types/ids/index.js'
 import { createAssistantMessage } from '../../../types/message/index.js'
-import type { ProjectId, SummaryId } from '../../../types/session/ids.js'
+import type { ProjectId, SummaryId, ThreadId } from '../../../types/session/ids.js'
 import { ZERO_COST } from '../../../utils/cost.js'
 import { DefaultCapacityValidator } from '../../handoff/capacity.js'
 import type { ActorRef } from '../../hierarchy/actor.js'
@@ -149,6 +150,7 @@ export function buildDefinition(agent: Agent<BaseAgentConfig, BaseAgentResult>):
 
 export interface IntegrationHarness {
 	readonly store: InMemorySessionStore
+	readonly threadStore: InMemoryThreadStore
 	readonly registry: AgentRegistry
 	readonly manager: AgentManager
 	readonly materializer: SessionSummaryMaterializer
@@ -178,6 +180,7 @@ export interface IntegrationHarnessOptions {
 export function buildHarness(options: IntegrationHarnessOptions = {}): IntegrationHarness {
 	const tenantId = options.tenantId ?? DEFAULT_TENANT
 	const store = new InMemorySessionStore()
+	const threadStore = new InMemoryThreadStore()
 
 	const workspaceRegistry = new WorkspaceBackendRegistry()
 	if (options.withWorktreeDriver !== false) {
@@ -208,17 +211,31 @@ export function buildHarness(options: IntegrationHarnessOptions = {}): Integrati
 		capacity,
 	})
 
-	return { store, registry, manager, materializer, workspaceRegistry, capacity, tenantId }
+	return {
+		store,
+		threadStore,
+		registry,
+		manager,
+		materializer,
+		workspaceRegistry,
+		capacity,
+		tenantId,
+	}
 }
 
 /**
- * Seeds a Tenant → Project → Session triple and flips the session into
- * `active` so it is a legal spawn parent. Returns the project + active
- * session for the caller to drive spawns against.
+ * Seeds a Tenant → Project → Thread → Session quadruple and flips the session
+ * into `active` so it is a legal spawn parent. Returns the project, thread,
+ * and active session for the caller to drive spawns against.
  */
 export async function seedActiveParent(
 	harness: IntegrationHarness,
-	options?: { actor?: ActorRef; projectName?: string; tenantId?: TenantId },
+	options?: {
+		actor?: ActorRef
+		projectName?: string
+		tenantId?: TenantId
+		threadTitle?: string
+	},
 ) {
 	const tenantId = options?.tenantId ?? harness.tenantId
 	const actor: ActorRef = options?.actor ?? userActor('usr_root', tenantId)
@@ -226,12 +243,16 @@ export async function seedActiveParent(
 		{ tenantId, name: options?.projectName ?? 'integration-project' },
 		tenantId,
 	)
+	const thread = await harness.threadStore.createThread(
+		{ projectId: project.id, title: options?.threadTitle ?? 'default' },
+		tenantId,
+	)
 	const session = await harness.store.createSession(
-		{ projectId: project.id, currentActor: actor },
+		{ threadId: thread.id, projectId: project.id, currentActor: actor },
 		tenantId,
 	)
 	await harness.store.updateSession({ ...session, status: 'active' as Session['status'] }, tenantId)
-	return { project, session, actor }
+	return { project, thread, session, actor }
 }
 
 /**
@@ -242,6 +263,7 @@ export async function seedActiveParent(
 export function buildTaskContext(params: {
 	sessionId: SessionId
 	projectId: ProjectId
+	threadId?: ThreadId
 	tenantId: TenantId
 	parentActor: ActorRef
 	depth?: number
@@ -268,6 +290,7 @@ export function buildSendMessageOptions(params: {
 	agentId: string
 	parentSessionId: SessionId
 	projectId: ProjectId
+	threadId?: ThreadId
 	tenantId: TenantId
 	parentActor: ActorRef
 }): SendMessageOptions {

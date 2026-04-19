@@ -3,7 +3,7 @@ import { TenantIsolationError } from '../../../session/errors.js'
 import type { ActorRef } from '../../../session/hierarchy/actor.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
 import type { AgentId, SessionId, TenantId, UserId } from '../../../types/ids/index.js'
-import type { SummaryId } from '../../../types/session/ids.js'
+import type { SummaryId, ThreadId } from '../../../types/session/ids.js'
 import type { DeliverableRef } from '../deliverable.js'
 import { SessionSummaryMaterializer } from '../materialize.js'
 import {
@@ -11,6 +11,8 @@ import {
 	AgentSummaryTooLongError,
 	SessionAlreadySummarizedError,
 } from '../ref.js'
+
+const TEST_THREAD_ID = 'thd_test' as ThreadId
 
 const tenantA = 'tnt_alpha' as TenantId
 const tenantB = 'tnt_beta' as TenantId
@@ -31,7 +33,7 @@ function makeSummaryIdGenerator(): () => SummaryId {
 async function seedActiveSession(store: InMemorySessionStore, tenantId: TenantId) {
 	const project = await store.createProject({ tenantId, name: 'p1' }, tenantId)
 	const session = await store.createSession(
-		{ projectId: project.id, currentActor: agentActor(tenantId) },
+		{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor(tenantId) },
 		tenantId,
 	)
 	// Put the session into `active` so the materializer's status-flip behavior
@@ -232,7 +234,7 @@ describe('SessionSummaryMaterializer.materialize', () => {
 		const store = new InMemorySessionStore()
 		const project = await store.createProject({ tenantId: tenantA, name: 'p1' }, tenantA)
 		const session = await store.createSession(
-			{ projectId: project.id, currentActor: userActor(tenantA) },
+			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor(tenantA) },
 			tenantA,
 		)
 		// session.status defaults to 'idle'
@@ -255,7 +257,7 @@ describe('SessionSummaryMaterializer.materialize', () => {
 		const store = new InMemorySessionStore()
 		const project = await store.createProject({ tenantId: tenantA, name: 'p1' }, tenantA)
 		const session = await store.createSession(
-			{ projectId: project.id, currentActor: agentActor(tenantA) },
+			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor(tenantA) },
 			tenantA,
 		)
 		await store.updateSession({ ...session, status: 'failed' }, tenantA)

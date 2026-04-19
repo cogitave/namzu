@@ -32,12 +32,14 @@ import type { AgentTaskContext, SendMessageOptions } from '../../../types/agent/
 import type { RunId, TenantId, UserId } from '../../../types/ids/index.js'
 import { createAssistantMessage } from '../../../types/message/index.js'
 import type { RunEvent } from '../../../types/run/events.js'
-import type { SummaryId } from '../../../types/session/ids.js'
+import type { SummaryId, ThreadId } from '../../../types/session/ids.js'
 import { ZERO_COST } from '../../../utils/cost.js'
 import { DefaultCapacityValidator } from '../../handoff/capacity.js'
 import type { ActorRef } from '../../hierarchy/actor.js'
 import { SessionSummaryMaterializer } from '../../summary/materialize.js'
 import { WorkspaceBackendRegistry } from '../../workspace/registry.js'
+
+const TEST_THREAD_ID = 'thd_test' as ThreadId
 
 const tenant = 'tnt_alpha' as TenantId
 
@@ -102,7 +104,7 @@ describe('E2E — SubSession spawn → kernel summary → parent drill', () => {
 		}
 
 		const parentSession = await store.createSession(
-			{ projectId: project.id, currentActor: userActor },
+			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor },
 			tenant,
 		)
 		// Parent Run in flight — session active while the spawn is happening.
@@ -220,7 +222,7 @@ describe('E2E — SubSession spawn → kernel summary → parent drill', () => {
 			tenantId: tenant,
 		}
 		const parentSession = await store.createSession(
-			{ projectId: project.id, currentActor: userActor },
+			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor },
 			tenant,
 		)
 		await store.updateSession({ ...parentSession, status: 'active' }, tenant)

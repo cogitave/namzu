@@ -18,10 +18,12 @@
 import { describe, expect, it } from 'vitest'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
 import type { SessionId } from '../../../types/ids/index.js'
-import type { SummaryId } from '../../../types/session/ids.js'
+import type { SummaryId, ThreadId } from '../../../types/session/ids.js'
 import { SessionSummaryMaterializer } from '../../summary/materialize.js'
 import { SessionAlreadySummarizedError } from '../../summary/ref.js'
 import { DEFAULT_TENANT, agentActor } from './_fixtures.js'
+
+const TEST_THREAD_ID = 'thd_test' as ThreadId
 
 async function seedActive(store: InMemorySessionStore) {
 	const project = await store.createProject(
@@ -29,7 +31,7 @@ async function seedActive(store: InMemorySessionStore) {
 		DEFAULT_TENANT,
 	)
 	const session = await store.createSession(
-		{ projectId: project.id, currentActor: agentActor('agt_worker') },
+		{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor('agt_worker') },
 		DEFAULT_TENANT,
 	)
 	await store.updateSession({ ...session, status: 'active' }, DEFAULT_TENANT)

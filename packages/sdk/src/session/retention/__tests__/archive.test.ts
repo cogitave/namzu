@@ -10,13 +10,15 @@ import { WorkspaceBackendRegistry } from '../../../session/workspace/registry.js
 import { InMemorySessionStore } from '../../../store/session/memory.js'
 import type { AgentId, TenantId, UserId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
-import type { WorkspaceId } from '../../../types/session/ids.js'
+import type { ThreadId, WorkspaceId } from '../../../types/session/ids.js'
 import {
 	ArchivalManager,
 	ArchiveNotConfiguredError,
 	SubSessionNotArchivableError,
 } from '../archive.js'
 import { DiskArchiveBackend } from '../disk-backend.js'
+
+const TEST_THREAD_ID = 'thd_test' as ThreadId
 
 const tenantA = 'tnt_alpha' as TenantId
 
@@ -43,11 +45,11 @@ function agentActor(tenantId: TenantId): ActorRef {
 async function seedIdleSubSession(store: InMemorySessionStore) {
 	const project = await store.createProject({ tenantId: tenantA, name: 'p' }, tenantA)
 	const parent = await store.createSession(
-		{ projectId: project.id, currentActor: userActor(tenantA) },
+		{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor(tenantA) },
 		tenantA,
 	)
 	const child = await store.createSession(
-		{ projectId: project.id, currentActor: agentActor(tenantA) },
+		{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor(tenantA) },
 		tenantA,
 	)
 	const sub = await store.createSubSession(

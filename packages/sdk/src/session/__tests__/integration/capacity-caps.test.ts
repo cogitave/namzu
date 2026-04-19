@@ -11,6 +11,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
+import type { ThreadId } from '../../../types/session/ids.js'
 import { DelegationCapacityExceeded } from '../../handoff/capacity.js'
 import type { ActorRef } from '../../hierarchy/actor.js'
 import {
@@ -25,6 +26,8 @@ import {
 	userActor,
 } from './_fixtures.js'
 
+const TEST_THREAD_ID = 'thd_test' as ThreadId
+
 describe('Integration — capacity caps at spawn sites', () => {
 	it('spawn at depth 4 accepted; depth 5 rejected (default maxDelegationDepth=4)', async () => {
 		const harness = buildHarness()
@@ -35,7 +38,11 @@ describe('Integration — capacity caps at spawn sites', () => {
 		const chainActors: ActorRef[] = [userActor('usr_root')]
 		let parentSessionId = (
 			await harness.store.createSession(
-				{ projectId: project.id, currentActor: chainActors[0] ?? userActor('usr_root') },
+				{
+					threadId: TEST_THREAD_ID,
+					projectId: project.id,
+					currentActor: chainActors[0] ?? userActor('usr_root'),
+				},
 				DEFAULT_TENANT,
 			)
 		).id
@@ -44,7 +51,7 @@ describe('Integration — capacity caps at spawn sites', () => {
 
 		for (let i = 0; i < 4; i++) {
 			const child = await harness.store.createSession(
-				{ projectId: project.id, currentActor: agentActor(`agt_${i}`) },
+				{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor(`agt_${i}`) },
 				DEFAULT_TENANT,
 			)
 			await harness.store.createSubSession(
@@ -91,7 +98,7 @@ describe('Integration — capacity caps at spawn sites', () => {
 		// Seed 8 existing children directly through the store.
 		for (let i = 0; i < 8; i++) {
 			const child = await harness.store.createSession(
-				{ projectId: project.id, currentActor: agentActor(`agt_${i}`) },
+				{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor(`agt_${i}`) },
 				DEFAULT_TENANT,
 			)
 			await harness.store.createSubSession(

@@ -17,6 +17,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
+import type { ThreadId } from '../../../types/session/ids.js'
 import { generateHandoffId } from '../../../utils/id.js'
 import type { HandoffAssignment } from '../../handoff/assignment.js'
 import { DefaultCapacityValidator } from '../../handoff/capacity.js'
@@ -30,6 +31,8 @@ import { HandoffLockRejected } from '../../handoff/version.js'
 import { GitWorktreeDriver } from '../../workspace/git-worktree.js'
 import { WorkspaceBackendRegistry } from '../../workspace/registry.js'
 import { DEFAULT_TENANT, okExec, stubLogger, userActor } from './_fixtures.js'
+
+const TEST_THREAD_ID = 'thd_test' as ThreadId
 
 function buildDeps(store: InMemorySessionStore, runStatus?: RunStatusResolver): SingleHandoffDeps {
 	const driver = new GitWorktreeDriver({
@@ -57,7 +60,7 @@ async function seedIdleSession(store: InMemorySessionStore) {
 		DEFAULT_TENANT,
 	)
 	const session = await store.createSession(
-		{ projectId: project.id, currentActor: userActor('usr_source') },
+		{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor('usr_source') },
 		DEFAULT_TENANT,
 	)
 	return { project, session }
@@ -72,6 +75,7 @@ function buildAssignment(
 		mode: 'single',
 		sourceSessionId,
 		tenantId: DEFAULT_TENANT,
+		threadId: TEST_THREAD_ID,
 		projectId,
 		sourceActor: userActor('usr_source'),
 		recipientActor: userActor('usr_target'),

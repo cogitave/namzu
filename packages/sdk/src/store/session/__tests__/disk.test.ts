@@ -23,7 +23,7 @@ function agentActor(tenantId: TenantId): ActorRef {
 async function seed(store: DiskSessionStore, tenantId: TenantId) {
 	const project = await store.createProject({ tenantId, name: 'p1' }, tenantId)
 	const session = await store.createSession(
-		{ projectId: project.id, currentActor: userActor(tenantId) },
+		{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor(tenantId) },
 		tenantId,
 	)
 	return { project, session }
@@ -45,7 +45,7 @@ describe('DiskSessionStore', () => {
 	it('writes the canonical directory layout (projects/.../sessions/.../subsessions)', async () => {
 		const { project, session } = await seed(store, tenantA)
 		const child = await store.createSession(
-			{ projectId: project.id, currentActor: agentActor(tenantA) },
+			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor(tenantA) },
 			tenantA,
 		)
 		const sub = await store.createSubSession(
@@ -143,7 +143,7 @@ describe('DiskSessionStore', () => {
 	it('drill returns children and ancestry after a cold reload', async () => {
 		const { project, session: root } = await seed(store, tenantA)
 		const child = await store.createSession(
-			{ projectId: project.id, currentActor: agentActor(tenantA) },
+			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor(tenantA) },
 			tenantA,
 		)
 		await store.createSubSession(
@@ -278,7 +278,7 @@ describe('DiskSessionStore', () => {
 	it('deleteSession rejects if sub-sessions are still attached', async () => {
 		const { project, session: root } = await seed(store, tenantA)
 		const child = await store.createSession(
-			{ projectId: project.id, currentActor: agentActor(tenantA) },
+			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor(tenantA) },
 			tenantA,
 		)
 		await store.createSubSession(
@@ -297,7 +297,7 @@ describe('DiskSessionStore', () => {
 	it('deleteSubSession removes the sub-session directory and is idempotent', async () => {
 		const { project, session: root } = await seed(store, tenantA)
 		const child = await store.createSession(
-			{ projectId: project.id, currentActor: agentActor(tenantA) },
+			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor(tenantA) },
 			tenantA,
 		)
 		const sub = await store.createSubSession(
@@ -343,4 +343,6 @@ describe('DiskSessionStore', () => {
 import type { SessionSummaryRef } from '../../../session/summary/ref.js'
 // Import after use so tests are self-contained w.r.t. types we already use.
 import type { SessionId } from '../../../types/ids/index.js'
-import type { SummaryId } from '../../../types/session/ids.js'
+import type { SummaryId, ThreadId } from '../../../types/session/ids.js'
+
+const TEST_THREAD_ID = 'thd_test' as ThreadId

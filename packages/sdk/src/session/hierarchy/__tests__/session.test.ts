@@ -1,11 +1,18 @@
 import { describe, expect, it } from 'vitest'
 import type { RunStatus } from '../../../types/run/status.js'
-import type { ProjectId, SessionId, TenantId, UserId } from '../../../types/session/ids.js'
+import type {
+	ProjectId,
+	SessionId,
+	TenantId,
+	ThreadId,
+	UserId,
+} from '../../../types/session/ids.js'
 import type { ActorRef } from '../actor.js'
 import { type Session, type SessionStatus, deriveStatus } from '../session.js'
 
 const tenant = 'tnt_a' as TenantId
 const project = 'prj_a' as ProjectId
+const thread = 'thd_a' as ThreadId
 
 function user(): ActorRef {
 	return { kind: 'user', userId: 'usr_a' as UserId, tenantId: tenant }
@@ -14,6 +21,7 @@ function user(): ActorRef {
 function makeSession(status: SessionStatus): Session {
 	return {
 		id: 'ses_a' as SessionId,
+		threadId: thread,
 		projectId: project,
 		tenantId: tenant,
 		status,

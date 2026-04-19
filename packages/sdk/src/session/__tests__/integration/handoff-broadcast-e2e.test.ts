@@ -12,7 +12,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
 import type { SessionId } from '../../../types/ids/index.js'
-import type { ProjectId } from '../../../types/session/ids.js'
+import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
 import { generateHandoffId } from '../../../utils/id.js'
 import type { HandoffAssignment } from '../../handoff/assignment.js'
 import { type BroadcastHandoffDeps, executeBroadcastHandoff } from '../../handoff/broadcast.js'
@@ -23,6 +23,8 @@ import type { ExecFile } from '../../workspace/git-worktree.js'
 import { GitWorktreeDriver } from '../../workspace/git-worktree.js'
 import { WorkspaceBackendRegistry } from '../../workspace/registry.js'
 import { DEFAULT_TENANT, okExec, stubLogger, userActor } from './_fixtures.js'
+
+const TEST_THREAD_ID = 'thd_test' as ThreadId
 
 function buildDeps(
 	store: InMemorySessionStore,
@@ -71,6 +73,7 @@ function buildAssignments(
 		mode: 'broadcast' as const,
 		sourceSessionId,
 		tenantId: DEFAULT_TENANT,
+		threadId: TEST_THREAD_ID,
 		projectId,
 		sourceActor: userActor('usr_source'),
 		recipientActor,
@@ -88,7 +91,7 @@ describe('Integration — broadcast handoff E2E', () => {
 			DEFAULT_TENANT,
 		)
 		const source = await store.createSession(
-			{ projectId: project.id, currentActor: userActor('usr_source') },
+			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor('usr_source') },
 			DEFAULT_TENANT,
 		)
 
@@ -133,7 +136,7 @@ describe('Integration — broadcast handoff E2E', () => {
 			DEFAULT_TENANT,
 		)
 		const source = await store.createSession(
-			{ projectId: project.id, currentActor: userActor('usr_source') },
+			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor('usr_source') },
 			DEFAULT_TENANT,
 		)
 
@@ -192,7 +195,7 @@ describe('Integration — broadcast handoff E2E', () => {
 		)
 		const coordinator = userActor('usr_source')
 		const source = await store.createSession(
-			{ projectId: project.id, currentActor: coordinator },
+			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: coordinator },
 			DEFAULT_TENANT,
 		)
 
@@ -218,7 +221,7 @@ describe('Integration — broadcast handoff E2E', () => {
 			DEFAULT_TENANT,
 		)
 		const source = await store.createSession(
-			{ projectId: project.id, currentActor: userActor('usr_source') },
+			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor('usr_source') },
 			DEFAULT_TENANT,
 		)
 

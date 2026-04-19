@@ -14,9 +14,11 @@
 import { describe, expect, it } from 'vitest'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
 import { createUserMessage } from '../../../types/message/index.js'
-import type { ProjectId, SubSessionId, SummaryId } from '../../../types/session/ids.js'
+import type { ProjectId, SubSessionId, SummaryId, ThreadId } from '../../../types/session/ids.js'
 import { TenantIsolationError } from '../../errors.js'
 import { DEFAULT_TENANT, OTHER_TENANT, agentActor, userActor } from './_fixtures.js'
+
+const TEST_THREAD_ID = 'thd_test' as ThreadId
 
 async function seedTenantAResources() {
 	const store = new InMemorySessionStore()
@@ -25,11 +27,11 @@ async function seedTenantAResources() {
 		DEFAULT_TENANT,
 	)
 	const parent = await store.createSession(
-		{ projectId: project.id, currentActor: userActor('usr_a') },
+		{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor('usr_a') },
 		DEFAULT_TENANT,
 	)
 	const child = await store.createSession(
-		{ projectId: project.id, currentActor: agentActor('agt_a') },
+		{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor('agt_a') },
 		DEFAULT_TENANT,
 	)
 	const sub = await store.createSubSession(
@@ -200,7 +202,11 @@ describe('Integration — tenant isolation', () => {
 		const { store, project } = await seedTenantAResources()
 		await expect(
 			store.createSession(
-				{ projectId: project.id, currentActor: userActor('usr_intruder', OTHER_TENANT) },
+				{
+					threadId: TEST_THREAD_ID,
+					projectId: project.id,
+					currentActor: userActor('usr_intruder', OTHER_TENANT),
+				},
 				OTHER_TENANT,
 			),
 		).rejects.toBeInstanceOf(TenantIsolationError)
@@ -232,7 +238,11 @@ describe('Integration — tenant isolation', () => {
 			OTHER_TENANT,
 		)
 		const otherChild = await store.createSession(
-			{ projectId: otherProject.id, currentActor: userActor('usr_other', OTHER_TENANT) },
+			{
+				threadId: TEST_THREAD_ID,
+				projectId: otherProject.id,
+				currentActor: userActor('usr_other', OTHER_TENANT),
+			},
 			OTHER_TENANT,
 		)
 
@@ -264,7 +274,7 @@ describe('Integration — tenant isolation', () => {
 			await store.createProject({ tenantId: DEFAULT_TENANT, name: 'del' }, DEFAULT_TENANT)
 		).id
 		const lonely = await store.createSession(
-			{ projectId: project, currentActor: userActor('usr_lonely') },
+			{ threadId: TEST_THREAD_ID, projectId: project, currentActor: userActor('usr_lonely') },
 			DEFAULT_TENANT,
 		)
 		await expect(store.deleteSession(lonely.id, OTHER_TENANT)).rejects.toBeInstanceOf(

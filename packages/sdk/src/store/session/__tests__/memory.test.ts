@@ -4,7 +4,10 @@ import type { ActorRef } from '../../../session/hierarchy/actor.js'
 import type { SubSession } from '../../../session/hierarchy/sub-session.js'
 import type { AgentId, SessionId, TenantId, UserId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
+import type { ThreadId } from '../../../types/session/ids.js'
 import { InMemorySessionStore } from '../memory.js'
+
+const TEST_THREAD_ID = 'thd_test' as ThreadId
 
 function userActor(tenantId: TenantId): ActorRef {
 	return { kind: 'user', userId: 'usr_a' as UserId, tenantId }
@@ -25,7 +28,7 @@ const tenantB = 'tnt_beta' as TenantId
 async function seed(store: InMemorySessionStore, tenantId: TenantId) {
 	const project = await store.createProject({ tenantId, name: 'p1' }, tenantId)
 	const session = await store.createSession(
-		{ projectId: project.id, currentActor: userActor(tenantId) },
+		{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor(tenantId) },
 		tenantId,
 	)
 	return { project, session }
@@ -84,7 +87,7 @@ describe('InMemorySessionStore', () => {
 
 		// Create a child session + link via sub-session.
 		const child = await store.createSession(
-			{ projectId: project.id, currentActor: agentActor(tenantA) },
+			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor(tenantA) },
 			tenantA,
 		)
 		const sub = await store.createSubSession(
@@ -139,7 +142,7 @@ describe('InMemorySessionStore', () => {
 		const { project: pB, session: rootB } = await seed(store, tenantB)
 
 		const childA = await store.createSession(
-			{ projectId: pA.id, currentActor: agentActor(tenantA) },
+			{ threadId: TEST_THREAD_ID, projectId: pA.id, currentActor: agentActor(tenantA) },
 			tenantA,
 		)
 		await store.createSubSession(
@@ -153,7 +156,7 @@ describe('InMemorySessionStore', () => {
 		)
 
 		const childB = await store.createSession(
-			{ projectId: pB.id, currentActor: agentActor(tenantB) },
+			{ threadId: TEST_THREAD_ID, projectId: pB.id, currentActor: agentActor(tenantB) },
 			tenantB,
 		)
 		await store.createSubSession(
@@ -186,7 +189,7 @@ describe('InMemorySessionStore', () => {
 		const store = new InMemorySessionStore()
 		const { project, session: rootA } = await seed(store, tenantA)
 		const sessionB = await store.createSession(
-			{ projectId: project.id, currentActor: agentActor(tenantA) },
+			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor(tenantA) },
 			tenantA,
 		)
 
@@ -235,7 +238,7 @@ describe('InMemorySessionStore', () => {
 		const store = new InMemorySessionStore()
 		const { project, session: root } = await seed(store, tenantA)
 		const child = await store.createSession(
-			{ projectId: project.id, currentActor: agentActor(tenantA) },
+			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor(tenantA) },
 			tenantA,
 		)
 		await store.createSubSession(
@@ -265,7 +268,7 @@ describe('InMemorySessionStore', () => {
 		const store = new InMemorySessionStore()
 		const { project, session: root } = await seed(store, tenantA)
 		const child = await store.createSession(
-			{ projectId: project.id, currentActor: agentActor(tenantA) },
+			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor(tenantA) },
 			tenantA,
 		)
 		const sub = await store.createSubSession(
@@ -293,11 +296,11 @@ describe('InMemorySessionStore', () => {
 		const { project, session: root } = await seed(store, tenantA)
 
 		const c1 = await store.createSession(
-			{ projectId: project.id, currentActor: agentActor(tenantA) },
+			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor(tenantA) },
 			tenantA,
 		)
 		const c2 = await store.createSession(
-			{ projectId: project.id, currentActor: agentActor(tenantA) },
+			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor(tenantA) },
 			tenantA,
 		)
 

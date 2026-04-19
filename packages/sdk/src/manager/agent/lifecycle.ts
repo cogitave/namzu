@@ -399,8 +399,23 @@ export class AgentManager {
 			parentActor: context.parentActor,
 		}
 
+		// Child session inherits parent's threadId — cross-thread spawn is
+		// forbidden by design (a delegated sub-agent stays on the same topic).
+		// Load the parent session to read its threadId; 2.6 will elevate this
+		// into `AgentTaskContext.threadId` so the extra read can be elided.
+		const parentSession = await store.getSession(options.parentSessionId, context.tenantId)
+		if (!parentSession) {
+			throw new Error(
+				`Parent session ${options.parentSessionId} not found for tenant ${context.tenantId} — spawn rejected`,
+			)
+		}
+
 		const childSession = await store.createSession(
-			{ projectId: context.projectId, currentActor: childActor },
+			{
+				threadId: parentSession.threadId,
+				projectId: context.projectId,
+				currentActor: childActor,
+			},
 			context.tenantId,
 		)
 

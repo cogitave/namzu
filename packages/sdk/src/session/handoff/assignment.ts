@@ -9,7 +9,7 @@
  */
 
 import type { SessionId, TenantId } from '../../types/ids/index.js'
-import type { HandoffId, ProjectId, WorkspaceId } from '../../types/session/ids.js'
+import type { HandoffId, ProjectId, ThreadId, WorkspaceId } from '../../types/session/ids.js'
 import type { ActorRef } from '../hierarchy/actor.js'
 
 /**
@@ -32,6 +32,18 @@ export interface HandoffAssignment {
 	mode: HandoffMode
 	sourceSessionId: SessionId
 	tenantId: TenantId
+	/**
+	 * Topic-layer scope the source session belongs to. Handoff recipients
+	 * always land on the same Thread (cross-thread handoff is forbidden —
+	 * a new actor taking over a conversation stays on the same topic).
+	 * Validated against `source.threadId` at execute time.
+	 */
+	threadId: ThreadId
+	/**
+	 * Denormalized from the owning Thread. Kept alongside `threadId` as the
+	 * Session record itself carries both (see `Session` JSDoc). Consistency
+	 * validated against `source.projectId` at execute time.
+	 */
 	projectId: ProjectId
 	/** The actor initiating the handoff (must be the source's current owner). */
 	sourceActor: ActorRef

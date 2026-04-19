@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import type { ActorRef } from '../../../session/hierarchy/actor.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
+import { InMemoryThreadStore } from '../../../store/thread/memory.js'
 import type { AgentId, SessionId, TenantId, UserId } from '../../../types/ids/index.js'
+import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
 import { DefaultCapacityValidator, DelegationCapacityExceeded } from '../capacity.js'
 
 const tenant = 'tnt_alpha' as TenantId
@@ -16,18 +18,22 @@ function agent(): ActorRef {
 
 async function seedProject(store: InMemorySessionStore) {
 	const project = await store.createProject({ tenantId: tenant, name: 'p' }, tenant)
-	const root = await store.createSession({ projectId: project.id, currentActor: user() }, tenant)
-	return { project, root }
+	const threadStore = new InMemoryThreadStore()
+	const thread = await threadStore.createThread({ projectId: project.id, title: 'default' }, tenant)
+	const root = await store.createSession(
+		{ threadId: thread.id, projectId: project.id, currentActor: user() },
+		tenant,
+	)
+	return { project, thread, root }
 }
 
 async function spawnChild(
 	store: InMemorySessionStore,
 	parentId: SessionId,
-	projectId: ReturnType<typeof String> extends never
-		? never
-		: Parameters<InMemorySessionStore['createSession']>[0]['projectId'],
+	projectId: ProjectId,
+	threadId: ThreadId,
 ): Promise<{ childId: SessionId }> {
-	const child = await store.createSession({ projectId, currentActor: user() }, tenant)
+	const child = await store.createSession({ threadId, projectId, currentActor: user() }, tenant)
 	await store.createSubSession(
 		{
 			parentSessionId: parentId,
@@ -51,11 +57,11 @@ describe('DefaultCapacityValidator', () => {
 
 	it('depth: chain of 4 (root→c1→c2→c3→c4) allows a 5th (depth 5) to pass when limit = 5', async () => {
 		const store = new InMemorySessionStore()
-		const { project, root } = await seedProject(store)
-		const c1 = await spawnChild(store, root.id, project.id)
-		const c2 = await spawnChild(store, c1.childId, project.id)
-		const c3 = await spawnChild(store, c2.childId, project.id)
-		const c4 = await spawnChild(store, c3.childId, project.id)
+		const { project, thread, root } = await seedProject(store)
+		const c1 = await spawnChild(store, root.id, project.id, thread.id)
+		const c2 = await spawnChild(store, c1.childId, project.id, thread.id)
+		const c3 = await spawnChild(store, c2.childId, project.id, thread.id)
+		const c4 = await spawnChild(store, c3.childId, project.id, thread.id)
 
 		const validator = new DefaultCapacityValidator(store)
 		// Ancestry of c4: root→c1→c2→c3→c4 = length 5. Spawning under c4 = depth 5.
@@ -64,11 +70,11 @@ describe('DefaultCapacityValidator', () => {
 
 	it('depth: over-limit throws DelegationCapacityExceeded with dimension=depth', async () => {
 		const store = new InMemorySessionStore()
-		const { project, root } = await seedProject(store)
-		const c1 = await spawnChild(store, root.id, project.id)
-		const c2 = await spawnChild(store, c1.childId, project.id)
-		const c3 = await spawnChild(store, c2.childId, project.id)
-		const c4 = await spawnChild(store, c3.childId, project.id)
+		const { project, thread, root } = await seedProject(store)
+		const c1 = await spawnChild(store, root.id, project.id, thread.id)
+		const c2 = await spawnChild(store, c1.childId, project.id, thread.id)
+		const c3 = await spawnChild(store, c2.childId, project.id, thread.id)
+		const c4 = await spawnChild(store, c3.childId, project.id, thread.id)
 
 		const validator = new DefaultCapacityValidator(store)
 		try {
@@ -94,9 +100,9 @@ describe('DefaultCapacityValidator', () => {
 
 	it('width: existing 5 + pending 3 = 8 passes exactly at the limit', async () => {
 		const store = new InMemorySessionStore()
-		const { project, root } = await seedProject(store)
+		const { project, thread, root } = await seedProject(store)
 		for (let i = 0; i < 5; i++) {
-			await spawnChild(store, root.id, project.id)
+			await spawnChild(store, root.id, project.id, thread.id)
 		}
 		const validator = new DefaultCapacityValidator(store)
 		await expect(validator.validateWidth(root.id, 3, 8, tenant)).resolves.toBeUndefined()
@@ -104,9 +110,9 @@ describe('DefaultCapacityValidator', () => {
 
 	it('width: existing 6 + pending 3 = 9 exceeds 8, throws dimension=width', async () => {
 		const store = new InMemorySessionStore()
-		const { project, root } = await seedProject(store)
+		const { project, thread, root } = await seedProject(store)
 		for (let i = 0; i < 6; i++) {
-			await spawnChild(store, root.id, project.id)
+			await spawnChild(store, root.id, project.id, thread.id)
 		}
 		const validator = new DefaultCapacityValidator(store)
 		try {

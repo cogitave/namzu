@@ -45,7 +45,7 @@ import type {
 } from '../../session/summary/ref.js'
 import type { MessageId, SessionId, TenantId } from '../../types/ids/index.js'
 import type { Message } from '../../types/message/index.js'
-import type { ProjectId, SubSessionId, SummaryId } from '../../types/session/ids.js'
+import type { ProjectId, SubSessionId, SummaryId, ThreadId } from '../../types/session/ids.js'
 import type {
 	CreateProjectParams,
 	CreateSessionParams,
@@ -82,6 +82,7 @@ interface PersistedProject {
 
 interface PersistedSession {
 	id: SessionId
+	threadId: ThreadId
 	projectId: ProjectId
 	tenantId: TenantId
 	status: Session['status']
@@ -221,6 +222,7 @@ export class DiskSessionStore implements SessionStore {
 		const now = new Date()
 		const session: Session = {
 			id: generateSessionId(),
+			threadId: params.threadId,
 			projectId: params.projectId,
 			tenantId,
 			status: 'idle',
@@ -785,6 +787,7 @@ function deserializeProject(p: PersistedProject): Project {
 function serializeSession(s: Session): PersistedSession {
 	return {
 		id: s.id,
+		threadId: s.threadId,
 		projectId: s.projectId,
 		tenantId: s.tenantId,
 		status: s.status,
@@ -800,6 +803,7 @@ function serializeSession(s: Session): PersistedSession {
 function deserializeSession(s: PersistedSession): Session {
 	return {
 		id: s.id,
+		threadId: s.threadId,
 		projectId: s.projectId,
 		tenantId: s.tenantId,
 		status: s.status,

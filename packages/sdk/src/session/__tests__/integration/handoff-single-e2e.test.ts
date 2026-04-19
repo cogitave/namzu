@@ -15,6 +15,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
 import type { TenantId } from '../../../types/ids/index.js'
+import type { ThreadId } from '../../../types/session/ids.js'
 import { generateHandoffId } from '../../../utils/id.js'
 import { TenantIsolationError } from '../../errors.js'
 import type { HandoffAssignment } from '../../handoff/assignment.js'
@@ -25,6 +26,8 @@ import type { Session } from '../../hierarchy/session.js'
 import { GitWorktreeDriver } from '../../workspace/git-worktree.js'
 import { WorkspaceBackendRegistry } from '../../workspace/registry.js'
 import { DEFAULT_TENANT, OTHER_TENANT, okExec, stubLogger, userActor } from './_fixtures.js'
+
+const TEST_THREAD_ID = 'thd_test' as ThreadId
 
 function buildHandoffDeps(store: InMemorySessionStore): {
 	deps: SingleHandoffDeps
@@ -73,7 +76,7 @@ describe('Integration — single-recipient handoff E2E', () => {
 		const sourceActor = userActor('usr_source')
 		const recipientActor = userActor('usr_target')
 		const session = await store.createSession(
-			{ projectId: project.id, currentActor: sourceActor },
+			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: sourceActor },
 			DEFAULT_TENANT,
 		)
 
@@ -83,6 +86,7 @@ describe('Integration — single-recipient handoff E2E', () => {
 			mode: 'single',
 			sourceSessionId: session.id,
 			tenantId: DEFAULT_TENANT,
+			threadId: TEST_THREAD_ID,
 			projectId: project.id,
 			sourceActor,
 			recipientActor,
@@ -120,7 +124,7 @@ describe('Integration — single-recipient handoff E2E', () => {
 			DEFAULT_TENANT,
 		)
 		const session = await store.createSession(
-			{ projectId: project.id, currentActor: userActor('usr_source') },
+			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor('usr_source') },
 			DEFAULT_TENANT,
 		)
 
@@ -130,6 +134,7 @@ describe('Integration — single-recipient handoff E2E', () => {
 			mode: 'single',
 			sourceSessionId: session.id,
 			tenantId: OTHER_TENANT,
+			threadId: TEST_THREAD_ID,
 			projectId: project.id,
 			sourceActor: userActor('usr_source', OTHER_TENANT),
 			recipientActor: userActor('usr_target', OTHER_TENANT),
@@ -149,7 +154,7 @@ describe('Integration — single-recipient handoff E2E', () => {
 			DEFAULT_TENANT,
 		)
 		const source = await store.createSession(
-			{ projectId: project.id, currentActor: userActor('usr_source') },
+			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor('usr_source') },
 			DEFAULT_TENANT,
 		)
 
@@ -159,6 +164,7 @@ describe('Integration — single-recipient handoff E2E', () => {
 			mode: 'single',
 			sourceSessionId: source.id,
 			tenantId: DEFAULT_TENANT,
+			threadId: TEST_THREAD_ID,
 			projectId: project.id,
 			sourceActor: userActor('usr_source'),
 			recipientActor: userActor('usr_target'),
@@ -195,7 +201,7 @@ describe('Integration — single-recipient handoff E2E', () => {
 			DEFAULT_TENANT,
 		)
 		const source = await store.createSession(
-			{ projectId: project.id, currentActor: userActor('usr_source') },
+			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor('usr_source') },
 			DEFAULT_TENANT,
 		)
 		const { deps } = buildHandoffDeps(store)
@@ -205,6 +211,7 @@ describe('Integration — single-recipient handoff E2E', () => {
 			mode: 'single',
 			sourceSessionId: source.id,
 			tenantId: DEFAULT_TENANT,
+			threadId: TEST_THREAD_ID,
 			projectId: project.id,
 			sourceActor: userActor('usr_source'),
 			recipientActor: userActor('usr_target'),

@@ -96,6 +96,11 @@ export async function executeSingleHandoff(
 			resource: `session(${source.id})`,
 		})
 	}
+	if (source.threadId !== assignment.threadId) {
+		throw new Error(
+			`Assignment threadId ${assignment.threadId} does not match source session threadId ${source.threadId}`,
+		)
+	}
 	if (source.projectId !== assignment.projectId) {
 		throw new Error(
 			`Assignment projectId ${assignment.projectId} does not match source session projectId ${source.projectId}`,
@@ -157,7 +162,11 @@ export async function executeSingleHandoff(
 		provisionedWorkspace = await driver.create({ label: `handoff-${assignment.id}` })
 
 		const recipientSession = await deps.store.createSession(
-			{ projectId: source.projectId, currentActor: assignment.recipientActor },
+			{
+				threadId: source.threadId,
+				projectId: source.projectId,
+				currentActor: assignment.recipientActor,
+			},
 			tenantId,
 		)
 		createdSessionId = recipientSession.id

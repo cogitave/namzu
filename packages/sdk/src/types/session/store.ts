@@ -19,13 +19,22 @@ import type { SessionSummaryRef } from '../../session/summary/ref.js'
 import type { SessionMessage } from '../../store/session/messages.js'
 import type { MessageId, SessionId, TenantId } from '../ids/index.js'
 import type { Message } from '../message/index.js'
-import type { ProjectId, SubSessionId, SummaryId } from '../session/ids.js'
+import type { ProjectId, SubSessionId, SummaryId, ThreadId } from '../session/ids.js'
 
 /**
  * Params for {@link SessionStore.createSession}. The store owns id generation,
- * `ownerVersion` initialization, and timestamps. See session-hierarchy.md §4.3.
+ * `ownerVersion` initialization, and timestamps.
+ *
+ * Both `threadId` and `projectId` are required. `projectId` must equal the
+ * `projectId` of the thread identified by `threadId`; the store does NOT
+ * perform that cross-store consistency check (it has no ThreadStore handle
+ * by design — see the store-boundary rationale in {@link ThreadStore}). The
+ * caller is the authority; typically spawn and handoff paths copy both from
+ * a freshly-loaded `Thread` record or from their own context which already
+ * tracks both.
  */
 export interface CreateSessionParams {
+	threadId: ThreadId
 	projectId: ProjectId
 	/**
 	 * Initial owner of the session. May be `null` for bootstrap scenarios where
