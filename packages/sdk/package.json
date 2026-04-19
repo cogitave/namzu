@@ -43,6 +43,8 @@
     "format": "biome format --write src/",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc --noEmit",
+    "knip": "knip",
+    "knip:production": "knip --production",
     "verify": "bash scripts/verify.sh",
     "release:patch": "bash scripts/release.sh patch",
     "release:minor": "bash scripts/release.sh minor",
@@ -68,6 +70,7 @@
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
     "@types/node": "^22.19.17",
+    "knip": "^6.4.1",
     "typescript": "^5.5.0",
     "vitest": "^2.0.0"
   }
