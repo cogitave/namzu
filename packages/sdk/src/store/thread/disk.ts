@@ -7,10 +7,12 @@
  *   {rootDir}/projects/{projectId}/threads/{threadId}/
  *     thread.json
  *
- * In step 2.5 sessions will move under `{threadId}/sessions/{sessionId}/...`
- * (consistent with the intermediate layout). Phase 6 collapses
- * `projects/{projectId}/` to `.namzu/` as part of `namzu init` folder binding,
- * which is the final design end-state.
+ * Sessions stay under `projects/{projectId}/sessions/{sessionId}/...` rather
+ * than nesting under `threads/{threadId}/` — the denormalized `threadId` on
+ * each session record (Phase 2.4 decision) makes thread-scoped queries
+ * addressable without path-level nesting, and keeps Project-scoped consumers
+ * (handoff, retention, archival) a single-directory scan. Phase 6 collapses
+ * `projects/{projectId}/` to `.namzu/` as part of `namzu init` folder binding.
  *
  * Tenant scoping is enforced through the JSON payload (`tenantId` field on
  * every record), not the path — cross-tenant reads reject with

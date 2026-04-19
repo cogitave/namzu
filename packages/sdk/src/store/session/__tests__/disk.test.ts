@@ -338,6 +338,55 @@ describe('DiskSessionStore', () => {
 
 		await expect(store.getSummary(session.id, tenantB)).rejects.toBeInstanceOf(TenantIsolationError)
 	})
+
+	describe('listSessions(threadId, tenantId)', () => {
+		const threadX = 'thd_x' as ThreadId
+		const threadY = 'thd_y' as ThreadId
+
+		it('returns [] when the projects root is empty', async () => {
+			// Fresh temp root — no projects directory yet.
+			expect(await store.listSessions(threadX, tenantA)).toEqual([])
+		})
+
+		it('filters by threadId and tenant; orders by createdAt ascending', async () => {
+			const project = await store.createProject({ tenantId: tenantA, name: 'p' }, tenantA)
+
+			const first = await store.createSession(
+				{ threadId: threadX, projectId: project.id, currentActor: userActor(tenantA) },
+				tenantA,
+			)
+			await new Promise((r) => setTimeout(r, 2))
+			const second = await store.createSession(
+				{ threadId: threadX, projectId: project.id, currentActor: userActor(tenantA) },
+				tenantA,
+			)
+			// Same project, different thread — must not appear.
+			await store.createSession(
+				{ threadId: threadY, projectId: project.id, currentActor: userActor(tenantA) },
+				tenantA,
+			)
+
+			const listed = await store.listSessions(threadX, tenantA)
+			expect(listed.map((s) => s.id)).toEqual([first.id, second.id])
+		})
+
+		it('skips cross-tenant sessions even when threadId matches', async () => {
+			const pA = await store.createProject({ tenantId: tenantA, name: 'pa' }, tenantA)
+			const pB = await store.createProject({ tenantId: tenantB, name: 'pb' }, tenantB)
+
+			const own = await store.createSession(
+				{ threadId: threadX, projectId: pA.id, currentActor: userActor(tenantA) },
+				tenantA,
+			)
+			await store.createSession(
+				{ threadId: threadX, projectId: pB.id, currentActor: userActor(tenantB) },
+				tenantB,
+			)
+
+			const listed = await store.listSessions(threadX, tenantA)
+			expect(listed.map((s) => s.id)).toEqual([own.id])
+		})
+	})
 })
 
 import type { SessionSummaryRef } from '../../../session/summary/ref.js'

@@ -16,7 +16,7 @@ import { SessionAlreadySummarizedError } from '../../session/summary/ref.js'
 import type { SessionSummaryRef } from '../../session/summary/ref.js'
 import type { MessageId, SessionId, TenantId } from '../../types/ids/index.js'
 import type { Message } from '../../types/message/index.js'
-import type { ProjectId, SubSessionId } from '../../types/session/ids.js'
+import type { ProjectId, SubSessionId, ThreadId } from '../../types/session/ids.js'
 import type {
 	CreateProjectParams,
 	CreateSessionParams,
@@ -138,6 +138,17 @@ export class InMemorySessionStore implements SessionStore {
 		if (!record) return null
 		this.assertTenant(record.tenantId, tenantId, `session(${sessionId})`)
 		return record.session
+	}
+
+	async listSessions(threadId: ThreadId, tenantId: TenantId): Promise<readonly Session[]> {
+		const matches: Session[] = []
+		for (const record of this.sessions.values()) {
+			if (record.tenantId !== tenantId) continue
+			if (record.session.threadId !== threadId) continue
+			matches.push(record.session)
+		}
+		matches.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+		return matches
 	}
 
 	async updateSession(session: Session, tenantId: TenantId): Promise<void> {

@@ -327,4 +327,76 @@ describe('InMemorySessionStore', () => {
 		const ids = children.map((s: SubSession) => s.id)
 		expect(new Set(ids)).toEqual(new Set([s1.id, s2.id]))
 	})
+
+	describe('listSessions(threadId, tenantId)', () => {
+		const threadX = 'thd_x' as ThreadId
+		const threadY = 'thd_y' as ThreadId
+
+		it('returns [] when the thread has no sessions', async () => {
+			const store = new InMemorySessionStore()
+			expect(await store.listSessions(threadX, tenantA)).toEqual([])
+		})
+
+		it('returns only sessions whose threadId matches, for the caller tenant', async () => {
+			const store = new InMemorySessionStore()
+			const project = await store.createProject({ tenantId: tenantA, name: 'p' }, tenantA)
+
+			const sX1 = await store.createSession(
+				{ threadId: threadX, projectId: project.id, currentActor: userActor(tenantA) },
+				tenantA,
+			)
+			const sX2 = await store.createSession(
+				{ threadId: threadX, projectId: project.id, currentActor: userActor(tenantA) },
+				tenantA,
+			)
+			// Same project, different thread — must not appear.
+			await store.createSession(
+				{ threadId: threadY, projectId: project.id, currentActor: userActor(tenantA) },
+				tenantA,
+			)
+
+			const listed = await store.listSessions(threadX, tenantA)
+			expect(listed.map((s) => s.id).sort()).toEqual([sX1.id, sX2.id].sort())
+		})
+
+		it('orders results by createdAt ascending', async () => {
+			const store = new InMemorySessionStore()
+			const project = await store.createProject({ tenantId: tenantA, name: 'p' }, tenantA)
+
+			const first = await store.createSession(
+				{ threadId: threadX, projectId: project.id, currentActor: userActor(tenantA) },
+				tenantA,
+			)
+			// Nudge clock for deterministic ordering; in-memory uses `new Date()`.
+			await new Promise((r) => setTimeout(r, 2))
+			const second = await store.createSession(
+				{ threadId: threadX, projectId: project.id, currentActor: userActor(tenantA) },
+				tenantA,
+			)
+
+			const listed = await store.listSessions(threadX, tenantA)
+			expect(listed.map((s) => s.id)).toEqual([first.id, second.id])
+		})
+
+		it('silently skips cross-tenant sessions sharing the same threadId', async () => {
+			// Thread ids are tenant-scoped in practice but nothing at the type
+			// level prevents the same string identifier being reused across
+			// tenants — the listing must filter by tenant without erroring.
+			const store = new InMemorySessionStore()
+			const pA = await store.createProject({ tenantId: tenantA, name: 'pa' }, tenantA)
+			const pB = await store.createProject({ tenantId: tenantB, name: 'pb' }, tenantB)
+
+			const own = await store.createSession(
+				{ threadId: threadX, projectId: pA.id, currentActor: userActor(tenantA) },
+				tenantA,
+			)
+			await store.createSession(
+				{ threadId: threadX, projectId: pB.id, currentActor: userActor(tenantB) },
+				tenantB,
+			)
+
+			const listed = await store.listSessions(threadX, tenantA)
+			expect(listed.map((s) => s.id)).toEqual([own.id])
+		})
+	})
 })

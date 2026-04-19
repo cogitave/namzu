@@ -108,6 +108,25 @@ export interface SessionStore {
 	updateSession(session: Session, tenantId: TenantId): Promise<void>
 
 	/**
+	 * List every Session that belongs to the given Thread for the caller's
+	 * tenant, ordered by `createdAt` ascending. Returns an empty array when
+	 * none exist.
+	 *
+	 * Thread-scoped queries rely on `session.threadId` (set at creation, never
+	 * rewritten). Cross-tenant sessions that happen to share the supplied
+	 * `threadId` are silently skipped — the listing is tenant-scoped, not an
+	 * isolation violation (the caller did not request a specific record).
+	 *
+	 * Exists to back ThreadManager's archival + delete preconditions
+	 * ({@link import('../../manager/thread/lifecycle.js').ThreadManager.archive}
+	 * rejects when any session is in a non-terminal state; `delete` rejects
+	 * while any session still references the thread). Keeping this primitive
+	 * on {@link SessionStore} preserves the store-ownership boundary —
+	 * ThreadStore stays unaware of session layout (Convention #0).
+	 */
+	listSessions(threadId: ThreadId, tenantId: TenantId): Promise<readonly Session[]>
+
+	/**
 	 * Hard-delete a session. Idempotent — absent sessions succeed as a no-op.
 	 * Rejects with `TenantIsolationError` on cross-tenant access.
 	 *

@@ -253,6 +253,58 @@ export class DiskSessionStore implements SessionStore {
 		return deserializeSession(raw)
 	}
 
+	async listSessions(threadId: ThreadId, tenantId: TenantId): Promise<readonly Session[]> {
+		// Walk projects/*/sessions/* and filter on the persisted record. Sessions
+		// don't live under a thread-scoped path in the current layout — the
+		// denormalized `threadId` on every session.json is the authority. Matches
+		// DiskThreadStore.listThreads in scan semantics.
+		//
+		// Cost: O(all sessions across all projects in the root) per call. The
+		// MVP disk store prioritizes simplicity over index freshness, matching
+		// `buildLinkageView` / `locateSession` which use the same pattern. A
+		// production driver would maintain a threadId → sessionIds secondary
+		// index populated on createSession / deleteSession. Acceptable for
+		// ThreadManager archive/delete today because those operations are
+		// admin-initiated and infrequent.
+		const projectsDir = join(this.rootDir, 'projects')
+		let projectDirs: string[]
+		try {
+			projectDirs = await readdir(projectsDir)
+		} catch (err) {
+			const code = (err as NodeJS.ErrnoException).code
+			if (code === 'ENOENT') return []
+			throw err
+		}
+
+		const results: Session[] = []
+		for (const rawProject of projectDirs) {
+			if (!rawProject.startsWith('prj_')) continue
+			const sessionsRoot = join(projectsDir, rawProject, 'sessions')
+			let sessionDirs: string[]
+			try {
+				sessionDirs = await readdir(sessionsRoot)
+			} catch {
+				continue
+			}
+			for (const rawSessionId of sessionDirs) {
+				if (!rawSessionId.startsWith('ses_')) continue
+				const path = join(sessionsRoot, rawSessionId)
+				const raw = await readJson<PersistedSession>(join(path, 'session.json'))
+				if (!raw) continue
+				if (raw.tenantId !== tenantId) continue
+				if (raw.threadId !== threadId) continue
+				results.push(deserializeSession(raw))
+				this.sessionIndex.set(raw.id, {
+					sessionId: raw.id,
+					projectId: rawProject as ProjectId,
+					path,
+				})
+			}
+		}
+		results.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+		return results
+	}
+
 	async updateSession(session: Session, tenantId: TenantId): Promise<void> {
 		const located = await this.locateSession(session.id)
 		if (!located) {

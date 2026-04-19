@@ -9,6 +9,7 @@
 
 import type { SessionId, TenantId } from '../types/ids/index.js'
 import type { ThreadId } from '../types/session/ids.js'
+import type { SessionStatus } from './hierarchy/session.js'
 import type { WorkspaceBackendKind } from './workspace/driver.js'
 
 /**
@@ -108,6 +109,51 @@ export class ThreadClosedError extends Error {
 	constructor(details: { threadId: ThreadId; op: string }) {
 		super(`Thread ${details.threadId} is archived; operation '${details.op}' rejected`)
 		this.name = 'ThreadClosedError'
+		this.details = details
+	}
+}
+
+/**
+ * Raised by {@link import('../manager/thread/lifecycle.js').ThreadManager.archive}
+ * and `.delete` when the Thread's session-presence precondition is violated:
+ *
+ * - `op: 'archive'` — at least one Session under the Thread is in a
+ *   non-terminal state (`active | locked | awaiting_hitl | awaiting_merge`).
+ *   The caller must first quiesce those sessions (let them reach `idle`,
+ *   `failed`, or `archived`) before flipping the Thread to archived.
+ * - `op: 'delete'` — the Thread still has at least one attached Session.
+ *   Callers must either archive + tombstone those sessions (`deleteSession`)
+ *   before calling `deleteThread`, or accept that deletion is not yet safe.
+ *
+ * `blockingSessions` carries the first {@link THREAD_NOT_EMPTY_SAMPLE_LIMIT}
+ * offenders with their current status so operator tooling can surface an
+ * actionable list without unbounded error payloads on large threads.
+ * `totalBlockingSessions` holds the full count even when the sample is
+ * truncated. Convention #5: deny-by-default — no implicit cascade, no silent
+ * no-op.
+ */
+export const THREAD_NOT_EMPTY_SAMPLE_LIMIT = 50
+
+export class ThreadNotEmptyError extends Error {
+	readonly details: {
+		threadId: ThreadId
+		tenantId: TenantId
+		op: 'archive' | 'delete'
+		blockingSessions: ReadonlyArray<{ sessionId: SessionId; status: SessionStatus }>
+		totalBlockingSessions: number
+	}
+
+	constructor(details: {
+		threadId: ThreadId
+		tenantId: TenantId
+		op: 'archive' | 'delete'
+		blockingSessions: ReadonlyArray<{ sessionId: SessionId; status: SessionStatus }>
+		totalBlockingSessions: number
+	}) {
+		super(
+			`Thread ${details.threadId} ${details.op} blocked: ${details.totalBlockingSessions} session(s) still attached`,
+		)
+		this.name = 'ThreadNotEmptyError'
 		this.details = details
 	}
 }
