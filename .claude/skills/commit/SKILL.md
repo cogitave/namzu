@@ -48,26 +48,22 @@ Prepares and creates a git commit on this repository with the correct author ide
 
 4. Stage only the files that belong to this commit. Avoid `git add -A` or `git add .` — they can sweep in secrets, generated files, or unrelated edits.
 
-5. **Session progress gate — MANDATORY, not milestone-gated.** Read the index at `docs.local/sessions/README.md`; for **every** row whose Status is `draft` or `in-progress`, that session's `progress.md` MUST be updated **before** running `git commit`. (The session's own `README.md` carries a `**Status:** <value>` field in the header for cross-checking.) An entry is minimum one line under an existing date heading; create today's `## YYYY-MM-DD` heading if missing:
+5. **Session progress gate — MANDATORY, not milestone-gated.** Read the index at `docs.local/sessions/README.md`; for **every** row whose Status is `draft` or `in-progress`, that session's `progress.md` MUST be touched (mtime newer than any staged file) **before** running `git commit`. The husky `pre-commit` hook (`.husky/pre-commit`) enforces this — if a session's `progress.md` is stale, the commit aborts.
+
+   **What the agent writes (only when there is something to say).** The auto-baseline (`- <hash> <subject>` line) is appended by the husky `post-commit` hook (`.husky/post-commit`); the agent never types a hash. The agent's job is to write *supplements* under a `### YYYY-MM-DD HH:MM — Commit <N> about to land` sub-heading **before** the commit:
 
    ```md
-   - `<hash-placeholder>` <commit subject> — <what landed / why>
+   ### 2026-04-19 23:45 — Commit 7 about to land
+   - **Deviation:** commit diverges from the ratified plan; state the deviation and the justification. Cross-link the `implementation-plan.md §` that is now stale.
+   - **Docs debt:** commit touches public surface (`packages/*/src/types/`, exported `index.ts` barrels, wire schemas, CLI flags, API routes). The `update-docs` skill will clear this at freeze time; queuing here makes the debt visible.
+   - **Tests:** new tests added or modified; one-line summary of coverage shift.
    ```
 
-   Add supplementary lines as needed, each on its own bullet:
-   - `**Deviation:**` — commit diverges from the ratified plan; state the deviation and the justification. Cross-link the `implementation-plan.md §` that is now stale.
-   - `**Docs debt:**` — commit touches public surface (`packages/*/src/types/`, exported `index.ts` barrels, wire schemas, CLI flags, API routes). The `update-docs` skill will clear this at freeze time; queuing here makes the debt visible.
-   - `**Tests:**` — new tests added or modified; one-line summary of coverage shift.
+   If the commit has no supplements (no deviation, no docs debt, no test shift), the agent still must touch `progress.md` for the pre-commit gate — the simplest way is a one-line `### HH:MM — Commit <N> about to land` sub-heading with no bullets, or a single bullet "no supplements". The auto-baseline arrives after the commit and is the canonical record.
 
-   **Multi-session rule.** When more than one session is in-progress, *every* one of them gets an entry. For commits unrelated to a given session's scope, write a one-liner under a `### YYYY-MM-DD HH:MM — Cross-session commit` heading:
+   **Multi-session rule.** The `pre-commit` and `post-commit` hooks both walk every active session. The agent supplements only the sessions a given commit actually impacts; sessions with no supplement get only the auto-baseline (which by convention means "no impact on this session's scope").
 
-   ```md
-   - `<hash-placeholder>` <commit subject> — landed in ses_<other>; no impact on this session's scope.
-   ```
-
-   This is mechanical, not judgement-based: if the session is in-progress, it gets a line. The cost is one bullet per unrelated commit; the saving is that no agent has to classify scope mid-flow.
-
-   **`docs.local/` is gitignored**, so progress.md does NOT enter the commit itself — it lives on local disk. The discipline is *synchronous update*: before `git commit`, verify with a direct Read of each in-progress session's `progress.md` that the entry exists and reflects the commit's scope. After the commit, replace the `<hash-placeholder>` token in every entry you wrote with the real short hash from `git log -1 --format=%h`. (Once the husky `post-commit` hook from `ses_002` lands, this baseline append is automatic; until then, the agent does it by hand.)
+   **`docs.local/` is gitignored**, so progress.md never enters a commit. The discipline is the synchronous-update timing, not commit contents. The post-commit hook reads `git log -1 --format='%h %s'` and appends the baseline line to each in-progress session's `progress.md`; today's `## YYYY-MM-DD` heading is created if missing.
 
    If no in-progress session exists, this step is a no-op.
 
@@ -102,7 +98,7 @@ Prepares and creates a git commit on this repository with the correct author ide
    git log -1 --format=%h
    ```
 
-   Confirm the author email matches `bahadirarda@users.noreply.github.com`. Take the short hash and replace the `<hash-placeholder>` token in **every** step-5 progress.md entry you wrote (one per in-progress session) with the real hash. `progress.md` is gitignored — no follow-up commit needed, just edit the local files. (Once the husky `post-commit` hook from `ses_002` lands, this hash backfill is automatic; until then, it is on the agent.)
+   Confirm the author email matches `bahadirarda@users.noreply.github.com`. The husky `post-commit` hook has already appended the baseline `- <hash> <subject>` line to every in-progress session's `progress.md` — no manual hash backfill needed. If the hook is unavailable (e.g. fresh clone before `pnpm install`), append the baseline by hand using the hash from `git log -1 --format='%h %s'`.
 </procedure>
 
 ## Hard rules
@@ -114,7 +110,7 @@ Prepares and creates a git commit on this repository with the correct author ide
 - Never amend an existing commit when a pre-commit hook has failed — the commit did not happen; create a new commit instead.
 - Never use `git add -A` or `git add .` — stage by named path.
 - Never push without explicit user approval. Committing and pushing are separate actions.
-- **Progress gate is NOT judgement-based.** If any in-progress session exists, every one of them gets a `progress.md` entry **before** `git commit` runs (the file itself is gitignored, so the entry stays on local disk; the discipline is the synchronous-update timing, not the commit contents). Do not decide "this sub-step isn't a milestone yet" and skip. A six-commit gap between 2026-04-18 and 2026-04-19 on `ses_001-hierarchy-redesign` required post-hoc reconstruction from commit bodies — this rule exists because that has already happened. Once the husky `pre-commit` hook from `ses_002` lands, this gate is machine-enforced; until then, it is on the agent.
+- **Progress gate is NOT judgement-based.** Every active session's `progress.md` must be touched (mtime newer than the staged files) before `git commit` runs. The husky `pre-commit` hook (`.husky/pre-commit`) machine-enforces this; the husky `post-commit` hook (`.husky/post-commit`) appends the auto-baseline `- <hash> <subject>` line. The agent's manual responsibility narrows to writing supplements (Deviation, Docs debt, Tests) when applicable. A six-commit gap between 2026-04-18 and 2026-04-19 on `ses_001-hierarchy-redesign` required post-hoc reconstruction from commit bodies — this rule plus the hook exists because that has already happened.
 </hard_rules>
 
 ## Output

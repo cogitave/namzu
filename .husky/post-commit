@@ -1,0 +1,46 @@
+#!/usr/bin/env sh
+# Post-commit progress baseline (ses_002-workflow-discipline).
+#
+# For every in-progress session under docs.local/sessions/, append the
+# just-completed commit's hash + subject to progress.md as the auto-
+# baseline line. Today's `## YYYY-MM-DD` heading is created if missing.
+#
+# Manual supplements (Deviation, Docs debt, Tests) belong in entries
+# the agent writes BEFORE the commit (under a `### HH:MM — Commit N`
+# sub-heading). This hook only handles the mechanical baseline append
+# so the agent never has to type a hash.
+
+set -e
+
+INDEX="docs.local/sessions/README.md"
+[ -f "$INDEX" ] || exit 0
+
+sessions=$(awk -F'|' '
+  /^\| ses_/ {
+    id = $2; gsub(/[ \t]/, "", id)
+    slug = $3; gsub(/^[ \t]+|[ \t]+$/, "", slug)
+    state = $4; gsub(/[ \t]/, "", state)
+    if (state == "draft" || state == "in-progress") {
+      print id "-" slug
+    }
+  }
+' "$INDEX")
+
+[ -z "$sessions" ] && exit 0
+
+hash=$(git log -1 --format='%h')
+subject=$(git log -1 --format='%s')
+today=$(date "+%Y-%m-%d")
+
+for sess in $sessions; do
+  pfile="docs.local/sessions/${sess}/progress.md"
+  [ -f "$pfile" ] || continue
+
+  if ! grep -q "^## ${today}$" "$pfile"; then
+    printf '\n## %s\n' "$today" >> "$pfile"
+  fi
+
+  printf -- '- `%s` %s\n' "$hash" "$subject" >> "$pfile"
+done
+
+exit 0
