@@ -10,7 +10,9 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
+import { ThreadManager } from '../../../manager/thread/lifecycle.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
+import { InMemoryThreadStore } from '../../../store/thread/memory.js'
 import type { SessionId } from '../../../types/ids/index.js'
 import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
 import { generateHandoffId } from '../../../utils/id.js'
@@ -24,10 +26,9 @@ import { GitWorktreeDriver } from '../../workspace/git-worktree.js'
 import { WorkspaceBackendRegistry } from '../../workspace/registry.js'
 import { DEFAULT_TENANT, okExec, stubLogger, userActor } from './_fixtures.js'
 
-const TEST_THREAD_ID = 'thd_test' as ThreadId
-
 function buildDeps(
 	store: InMemorySessionStore,
+	threadStore: InMemoryThreadStore,
 	execOverride?: ExecFile,
 ): {
 	deps: BroadcastHandoffDeps
@@ -56,6 +57,7 @@ function buildDeps(
 			workspaceRegistry,
 			capacity: new DefaultCapacityValidator(store),
 			events: sink,
+			threadManager: new ThreadManager({ threadStore, sessionStore: store }),
 		},
 		events: { ...sink, onBroadcastRollback },
 	}
@@ -64,6 +66,7 @@ function buildDeps(
 function buildAssignments(
 	sourceSessionId: SessionId,
 	projectId: ProjectId,
+	threadId: ThreadId,
 	recipients: ActorRef[],
 	broadcastId = 'bc_integration',
 	expectedOwnerVersion = 0,
@@ -73,7 +76,7 @@ function buildAssignments(
 		mode: 'broadcast' as const,
 		sourceSessionId,
 		tenantId: DEFAULT_TENANT,
-		threadId: TEST_THREAD_ID,
+		threadId,
 		projectId,
 		sourceActor: userActor('usr_source'),
 		recipientActor,
@@ -86,12 +89,17 @@ function buildAssignments(
 describe('Integration — broadcast handoff E2E', () => {
 	it('happy: 3-recipient fan-out → each recipient has isolated worktree + source reaches awaiting_merge', async () => {
 		const store = new InMemorySessionStore()
+		const threadStore = new InMemoryThreadStore()
 		const project = await store.createProject(
 			{ tenantId: DEFAULT_TENANT, name: 'bc-happy' },
 			DEFAULT_TENANT,
 		)
+		const thread = await threadStore.createThread(
+			{ projectId: project.id, title: 'bc-happy' },
+			DEFAULT_TENANT,
+		)
 		const source = await store.createSession(
-			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor('usr_source') },
+			{ threadId: thread.id, projectId: project.id, currentActor: userActor('usr_source') },
 			DEFAULT_TENANT,
 		)
 
@@ -106,10 +114,10 @@ describe('Integration — broadcast handoff E2E', () => {
 			}
 			return okExec()
 		}
-		const { deps } = buildDeps(store, exec)
+		const { deps } = buildDeps(store, threadStore, exec)
 
 		const recipients = [userActor('usr_bob'), userActor('usr_carol'), userActor('usr_dan')]
-		const assignments = buildAssignments(source.id, project.id, recipients)
+		const assignments = buildAssignments(source.id, project.id, thread.id, recipients)
 
 		const outcomes = await executeBroadcastHandoff(deps, assignments, DEFAULT_TENANT)
 		expect(outcomes).toHaveLength(3)
@@ -131,12 +139,17 @@ describe('Integration — broadcast handoff E2E', () => {
 
 	it('rollback on 2nd-recipient provisioning failure: zero orphan records, partialState accurate', async () => {
 		const store = new InMemorySessionStore()
+		const threadStore = new InMemoryThreadStore()
 		const project = await store.createProject(
 			{ tenantId: DEFAULT_TENANT, name: 'bc-rb' },
 			DEFAULT_TENANT,
 		)
+		const thread = await threadStore.createThread(
+			{ projectId: project.id, title: 'bc-rb' },
+			DEFAULT_TENANT,
+		)
 		const source = await store.createSession(
-			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor('usr_source') },
+			{ threadId: thread.id, projectId: project.id, currentActor: userActor('usr_source') },
 			DEFAULT_TENANT,
 		)
 
@@ -148,9 +161,9 @@ describe('Integration — broadcast handoff E2E', () => {
 			}
 			return okExec()
 		}
-		const { deps, events } = buildDeps(store, exec)
+		const { deps, events } = buildDeps(store, threadStore, exec)
 
-		const assignments = buildAssignments(source.id, project.id, [
+		const assignments = buildAssignments(source.id, project.id, thread.id, [
 			userActor('usr_b'),
 			userActor('usr_c'),
 			userActor('usr_d'),
@@ -189,18 +202,23 @@ describe('Integration — broadcast handoff E2E', () => {
 
 	it('source transitions to awaiting_merge + retains currentActor as coordinator (§5.4)', async () => {
 		const store = new InMemorySessionStore()
+		const threadStore = new InMemoryThreadStore()
 		const project = await store.createProject(
 			{ tenantId: DEFAULT_TENANT, name: 'coord' },
 			DEFAULT_TENANT,
 		)
+		const thread = await threadStore.createThread(
+			{ projectId: project.id, title: 'coord' },
+			DEFAULT_TENANT,
+		)
 		const coordinator = userActor('usr_source')
 		const source = await store.createSession(
-			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: coordinator },
+			{ threadId: thread.id, projectId: project.id, currentActor: coordinator },
 			DEFAULT_TENANT,
 		)
 
-		const { deps } = buildDeps(store)
-		const assignments = buildAssignments(source.id, project.id, [
+		const { deps } = buildDeps(store, threadStore)
+		const assignments = buildAssignments(source.id, project.id, thread.id, [
 			userActor('usr_b'),
 			userActor('usr_c'),
 		])
@@ -216,12 +234,17 @@ describe('Integration — broadcast handoff E2E', () => {
 
 	it('all recipients get isolated worktrees — zero path collisions even under N=8', async () => {
 		const store = new InMemorySessionStore()
+		const threadStore = new InMemoryThreadStore()
 		const project = await store.createProject(
 			{ tenantId: DEFAULT_TENANT, name: 'iso' },
 			DEFAULT_TENANT,
 		)
+		const thread = await threadStore.createThread(
+			{ projectId: project.id, title: 'iso' },
+			DEFAULT_TENANT,
+		)
 		const source = await store.createSession(
-			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor('usr_source') },
+			{ threadId: thread.id, projectId: project.id, currentActor: userActor('usr_source') },
 			DEFAULT_TENANT,
 		)
 
@@ -236,10 +259,10 @@ describe('Integration — broadcast handoff E2E', () => {
 			}
 			return okExec()
 		}
-		const { deps } = buildDeps(store, exec)
+		const { deps } = buildDeps(store, threadStore, exec)
 
 		const recipients = Array.from({ length: 8 }, (_, i) => userActor(`usr_${i}`))
-		const assignments = buildAssignments(source.id, project.id, recipients)
+		const assignments = buildAssignments(source.id, project.id, thread.id, recipients)
 
 		const outcomes = await executeBroadcastHandoff(deps, assignments, DEFAULT_TENANT)
 		expect(outcomes).toHaveLength(8)

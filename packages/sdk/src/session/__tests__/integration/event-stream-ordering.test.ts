@@ -34,7 +34,7 @@ import {
 describe('Integration — event stream ordering + lineage + schemaVersion', () => {
 	it('every sub-session RunEvent carries schemaVersion: 2', async () => {
 		const harness = buildHarness()
-		const { project, session, actor } = await seedActiveParent(harness)
+		const { project, thread, session, actor } = await seedActiveParent(harness)
 		harness.registry.register(buildDefinition(buildAgent('worker')))
 
 		const captured: RunEvent[] = []
@@ -49,6 +49,7 @@ describe('Integration — event stream ordering + lineage + schemaVersion', () =
 			buildTaskContext({
 				sessionId: session.id,
 				projectId: project.id,
+				threadId: thread.id,
 				tenantId: DEFAULT_TENANT,
 				parentActor: actor,
 			}),
@@ -73,7 +74,7 @@ describe('Integration — event stream ordering + lineage + schemaVersion', () =
 
 	it('every sub-session event carries lineage { parentSessionId, rootSessionId, depth }', async () => {
 		const harness = buildHarness()
-		const { project, session, actor } = await seedActiveParent(harness)
+		const { project, thread, session, actor } = await seedActiveParent(harness)
 		harness.registry.register(buildDefinition(buildAgent('worker')))
 
 		const captured: RunEvent[] = []
@@ -88,6 +89,7 @@ describe('Integration — event stream ordering + lineage + schemaVersion', () =
 			buildTaskContext({
 				sessionId: session.id,
 				projectId: project.id,
+				threadId: thread.id,
 				tenantId: DEFAULT_TENANT,
 				parentActor: actor,
 			}),
@@ -116,7 +118,7 @@ describe('Integration — event stream ordering + lineage + schemaVersion', () =
 
 	it('3-deep delegation: rootSessionId identical across tree; depth ascends 1→2→3', async () => {
 		const harness = buildHarness()
-		const { project, session, actor } = await seedActiveParent(harness)
+		const { project, thread, session, actor } = await seedActiveParent(harness)
 
 		// Wire a cascading agent: level-1 child spawns level-2 via its own
 		// sendMessage. We hand a reference to the manager into the child agent
@@ -129,7 +131,7 @@ describe('Integration — event stream ordering + lineage + schemaVersion', () =
 			'mid',
 			async (_input: AgentInput, config: BaseAgentConfig): Promise<BaseAgentResult> => {
 				// Spawn a level-2 child from inside the mid-agent's run.
-				if (!config.sessionId || !config.projectId || !config.tenantId) {
+				if (!config.sessionId || !config.threadId || !config.projectId || !config.tenantId) {
 					throw new Error('mid agent missing session scoping')
 				}
 				// Flip child session to active so it is a legal spawn parent.
@@ -154,6 +156,7 @@ describe('Integration — event stream ordering + lineage + schemaVersion', () =
 						depth: 1,
 						budgetTracker: { total: 10_000, remaining: 10_000 },
 						tenantId: config.tenantId,
+						threadId: config.threadId,
 						sessionId: childSessionId,
 						projectId: config.projectId,
 						parentActor: { kind: 'agent', agentId: 'mid' as never, tenantId: config.tenantId },
@@ -192,6 +195,7 @@ describe('Integration — event stream ordering + lineage + schemaVersion', () =
 			buildTaskContext({
 				sessionId: session.id,
 				projectId: project.id,
+				threadId: thread.id,
 				tenantId: DEFAULT_TENANT,
 				parentActor: actor,
 			}),
@@ -237,7 +241,7 @@ describe('Integration — event stream ordering + lineage + schemaVersion', () =
 		// its own listener — the outer listener does NOT see the nested
 		// listener's events (no cross-contamination).
 		const harness = buildHarness()
-		const { project, session, actor } = await seedActiveParent(harness)
+		const { project, thread, session, actor } = await seedActiveParent(harness)
 
 		const outerCaptured: RunEvent[] = []
 		const nestedCaptured: RunEvent[] = []
@@ -246,7 +250,7 @@ describe('Integration — event stream ordering + lineage + schemaVersion', () =
 		const midAgent = buildAgentCustom(
 			'mid',
 			async (_input: AgentInput, config: BaseAgentConfig): Promise<BaseAgentResult> => {
-				if (!config.sessionId || !config.projectId || !config.tenantId) {
+				if (!config.sessionId || !config.threadId || !config.projectId || !config.tenantId) {
 					throw new Error('mid missing scope')
 				}
 				const cs = await harness.store.getSession(config.sessionId, config.tenantId)
@@ -273,6 +277,7 @@ describe('Integration — event stream ordering + lineage + schemaVersion', () =
 						depth: 1,
 						budgetTracker: { total: 10_000, remaining: 10_000 },
 						tenantId: config.tenantId,
+						threadId: config.threadId,
 						sessionId: config.sessionId,
 						projectId: config.projectId,
 						parentActor: {
@@ -313,6 +318,7 @@ describe('Integration — event stream ordering + lineage + schemaVersion', () =
 			buildTaskContext({
 				sessionId: session.id,
 				projectId: project.id,
+				threadId: thread.id,
 				tenantId: DEFAULT_TENANT,
 				parentActor: actor,
 			}),
@@ -349,7 +355,7 @@ describe('Integration — event stream ordering + lineage + schemaVersion', () =
 		// therefore inherit the envelope even though they have no lineage in
 		// their own type definition.
 		const harness = buildHarness()
-		const { project, session, actor } = await seedActiveParent(harness)
+		const { project, thread, session, actor } = await seedActiveParent(harness)
 
 		const leafAgent = buildAgentCustom(
 			'leaf-emit',
@@ -385,6 +391,7 @@ describe('Integration — event stream ordering + lineage + schemaVersion', () =
 			buildTaskContext({
 				sessionId: session.id,
 				projectId: project.id,
+				threadId: thread.id,
 				tenantId: DEFAULT_TENANT,
 				parentActor: actor,
 			}),

@@ -18,8 +18,10 @@
 import { describe, expect, it } from 'vitest'
 import { EMPTY_TOKEN_USAGE } from '../../../constants/limits.js'
 import { AgentManager } from '../../../manager/agent/lifecycle.js'
+import { ThreadManager } from '../../../manager/thread/lifecycle.js'
 import { AgentRegistry } from '../../../registry/agent/definitions.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
+import { InMemoryThreadStore } from '../../../store/thread/memory.js'
 import type {
 	AgentCapabilities,
 	AgentInput,
@@ -32,14 +34,12 @@ import type { AgentTaskContext, SendMessageOptions } from '../../../types/agent/
 import type { RunId, TenantId, UserId } from '../../../types/ids/index.js'
 import { createAssistantMessage } from '../../../types/message/index.js'
 import type { RunEvent } from '../../../types/run/events.js'
-import type { SummaryId, ThreadId } from '../../../types/session/ids.js'
+import type { SummaryId } from '../../../types/session/ids.js'
 import { ZERO_COST } from '../../../utils/cost.js'
 import { DefaultCapacityValidator } from '../../handoff/capacity.js'
 import type { ActorRef } from '../../hierarchy/actor.js'
 import { SessionSummaryMaterializer } from '../../summary/materialize.js'
 import { WorkspaceBackendRegistry } from '../../workspace/registry.js'
-
-const TEST_THREAD_ID = 'thd_test' as ThreadId
 
 const tenant = 'tnt_alpha' as TenantId
 
@@ -95,7 +95,12 @@ function buildDefinition(agent: Agent<BaseAgentConfig, BaseAgentResult>): AgentD
 describe('E2E — SubSession spawn → kernel summary → parent drill', () => {
 	it('emits the §10.5 event sequence with lineage + schemaVersion stamping', async () => {
 		const store = new InMemorySessionStore()
+		const threadStore = new InMemoryThreadStore()
 		const project = await store.createProject({ tenantId: tenant, name: 'e2e-project' }, tenant)
+		const thread = await threadStore.createThread(
+			{ projectId: project.id, title: 'e2e-spawn' },
+			tenant,
+		)
 
 		const userActor: ActorRef = {
 			kind: 'user',
@@ -104,7 +109,7 @@ describe('E2E — SubSession spawn → kernel summary → parent drill', () => {
 		}
 
 		const parentSession = await store.createSession(
-			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor },
+			{ threadId: thread.id, projectId: project.id, currentActor: userActor },
 			tenant,
 		)
 		// Parent Run in flight — session active while the spawn is happening.
@@ -119,11 +124,13 @@ describe('E2E — SubSession spawn → kernel summary → parent drill', () => {
 		const registry = new AgentRegistry()
 		registry.register(buildDefinition(buildAgent('worker')))
 
+		const threadManager = new ThreadManager({ threadStore, sessionStore: store })
 		const manager = new AgentManager(registry, undefined, {
 			sessionStore: store,
 			summaryMaterializer: materializer,
 			workspaceRegistry: new WorkspaceBackendRegistry(),
 			capacity: new DefaultCapacityValidator(store),
+			threadManager,
 		})
 
 		const capturedEvents: RunEvent[] = []
@@ -138,6 +145,7 @@ describe('E2E — SubSession spawn → kernel summary → parent drill', () => {
 			depth: 0,
 			budgetTracker: { total: 100_000, remaining: 100_000 },
 			tenantId: tenant,
+			threadId: thread.id,
 			sessionId: parentSession.id,
 			projectId: project.id,
 			parentActor: userActor,
@@ -214,7 +222,12 @@ describe('E2E — SubSession spawn → kernel summary → parent drill', () => {
 
 	it('closes the parent→child message gap: parent can re-ingest child content via drill + summary', async () => {
 		const store = new InMemorySessionStore()
+		const threadStore = new InMemoryThreadStore()
 		const project = await store.createProject({ tenantId: tenant, name: 'e2e-gap' }, tenant)
+		const thread = await threadStore.createThread(
+			{ projectId: project.id, title: 'e2e-gap' },
+			tenant,
+		)
 
 		const userActor: ActorRef = {
 			kind: 'user',
@@ -222,7 +235,7 @@ describe('E2E — SubSession spawn → kernel summary → parent drill', () => {
 			tenantId: tenant,
 		}
 		const parentSession = await store.createSession(
-			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor },
+			{ threadId: thread.id, projectId: project.id, currentActor: userActor },
 			tenant,
 		)
 		await store.updateSession({ ...parentSession, status: 'active' }, tenant)
@@ -236,11 +249,13 @@ describe('E2E — SubSession spawn → kernel summary → parent drill', () => {
 		const registry = new AgentRegistry()
 		registry.register(buildDefinition(buildAgent('worker')))
 
+		const threadManager = new ThreadManager({ threadStore, sessionStore: store })
 		const manager = new AgentManager(registry, undefined, {
 			sessionStore: store,
 			summaryMaterializer: materializer,
 			workspaceRegistry: new WorkspaceBackendRegistry(),
 			capacity: new DefaultCapacityValidator(store),
+			threadManager,
 		})
 
 		const task = await manager.sendMessage(
@@ -259,6 +274,7 @@ describe('E2E — SubSession spawn → kernel summary → parent drill', () => {
 				depth: 0,
 				budgetTracker: { total: 10_000, remaining: 10_000 },
 				tenantId: tenant,
+				threadId: thread.id,
 				sessionId: parentSession.id,
 				projectId: project.id,
 				parentActor: userActor,

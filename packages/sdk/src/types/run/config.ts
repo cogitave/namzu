@@ -2,7 +2,7 @@ import type { ModelPricing } from '../../utils/cost.js'
 import type { Logger } from '../../utils/logger.js'
 import type { RunId, SessionId, TenantId } from '../ids/index.js'
 import type { PermissionMode } from '../permission/index.js'
-import type { ProjectId } from '../session/ids.js'
+import type { ProjectId, ThreadId } from '../session/ids.js'
 
 export interface AgentRunConfig {
 	model: string
@@ -22,9 +22,10 @@ export interface AgentRunConfig {
 }
 
 /**
- * Config for {@link RunPersistence}. `sessionId`, `tenantId`, and `projectId`
- * are required — every Run is attributed to a Session under a Project within
- * a Tenant (Convention #17).
+ * Config for {@link RunPersistence}. `sessionId`, `threadId`, `tenantId`,
+ * and `projectId` are required — every Run is attributed across the full
+ * five-layer scope (Tenant → Project → Thread → Session → Run,
+ * Convention #17).
  */
 export interface RunPersistenceConfig {
 	runId: RunId
@@ -37,6 +38,7 @@ export interface RunPersistenceConfig {
 	log: Logger
 
 	sessionId: SessionId
+	threadId: ThreadId
 	tenantId: TenantId
 	projectId: ProjectId
 

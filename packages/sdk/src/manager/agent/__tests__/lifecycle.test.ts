@@ -10,6 +10,7 @@ import type { DeliverableRef } from '../../../session/summary/deliverable.js'
 import { SessionSummaryMaterializer } from '../../../session/summary/materialize.js'
 import { WorkspaceBackendRegistry } from '../../../session/workspace/registry.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
+import { InMemoryThreadStore } from '../../../store/thread/memory.js'
 import type {
 	AgentCapabilities,
 	AgentInput,
@@ -25,9 +26,8 @@ import { createAssistantMessage } from '../../../types/message/index.js'
 import type { RunEvent } from '../../../types/run/events.js'
 import type { SummaryId, ThreadId } from '../../../types/session/ids.js'
 import { ZERO_COST } from '../../../utils/cost.js'
+import { ThreadManager } from '../../thread/lifecycle.js'
 import { AgentManager } from '../lifecycle.js'
-
-const TEST_THREAD_ID = 'thd_test' as ThreadId
 
 const tenant = 'tnt_alpha' as TenantId
 const otherTenant = 'tnt_beta' as TenantId
@@ -115,10 +115,13 @@ function agentActor(id: string, tid: TenantId = tenant): ActorRef {
 
 interface Harness {
 	store: InMemorySessionStore
+	threadStore: InMemoryThreadStore
+	threadManager: ThreadManager
 	materializer: SessionSummaryMaterializer
 	manager: AgentManager
 	parentSession: Awaited<ReturnType<InMemorySessionStore['createSession']>>
 	projectId: import('../../../types/session/ids.js').ProjectId
+	threadId: ThreadId
 	registry: AgentRegistry
 }
 
@@ -127,9 +130,15 @@ async function buildHarness(
 	tenantId: TenantId = tenant,
 ): Promise<Harness> {
 	const store = new InMemorySessionStore()
+	const threadStore = new InMemoryThreadStore()
+	const threadManager = new ThreadManager({ threadStore, sessionStore: store })
 	const project = await store.createProject({ tenantId, name: 'p1' }, tenantId)
+	const thread = await threadStore.createThread(
+		{ projectId: project.id, title: 'lifecycle-test' },
+		tenantId,
+	)
 	const parentSession = await store.createSession(
-		{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: user(tenantId) },
+		{ threadId: thread.id, projectId: project.id, currentActor: user(tenantId) },
 		tenantId,
 	)
 	// Parent runs kick the session into 'active' so the materializer can
@@ -150,14 +159,18 @@ async function buildHarness(
 		summaryMaterializer: materializer,
 		workspaceRegistry: new WorkspaceBackendRegistry(),
 		capacity: new DefaultCapacityValidator(store),
+		threadManager,
 	})
 
 	return {
 		store,
+		threadStore,
+		threadManager,
 		materializer,
 		manager,
 		parentSession: { ...parentSession, status: 'active' },
 		projectId: project.id,
+		threadId: thread.id,
 		registry,
 	}
 }
@@ -165,6 +178,7 @@ async function buildHarness(
 function buildContext(
 	parentSessionId: SessionId,
 	projectId: import('../../../types/session/ids.js').ProjectId,
+	threadId: ThreadId,
 	tenantId: TenantId = tenant,
 	depth = 0,
 ): AgentTaskContext {
@@ -175,6 +189,7 @@ function buildContext(
 		depth,
 		budgetTracker: { total: 100_000, remaining: 100_000 },
 		tenantId,
+		threadId,
 		sessionId: parentSessionId,
 		projectId,
 		parentActor: user(tenantId),
@@ -216,7 +231,7 @@ describe('AgentManager.sendMessage — Phase 6 SubSession spawn', () => {
 
 		const task = await harness.manager.sendMessage(
 			buildOptions('child-1', harness.parentSession.id, harness.projectId),
-			buildContext(harness.parentSession.id, harness.projectId),
+			buildContext(harness.parentSession.id, harness.projectId, harness.threadId),
 			listener,
 		)
 		await waitForTask(harness.manager, task.taskId)
@@ -262,7 +277,7 @@ describe('AgentManager.sendMessage — Phase 6 SubSession spawn', () => {
 		for (let i = 0; i < 8; i++) {
 			const sibling = await harness.store.createSession(
 				{
-					threadId: TEST_THREAD_ID,
+					threadId: harness.threadId,
 					projectId: harness.projectId,
 					currentActor: agentActor('sibling'),
 				},
@@ -282,7 +297,7 @@ describe('AgentManager.sendMessage — Phase 6 SubSession spawn', () => {
 		await expect(
 			harness.manager.sendMessage(
 				buildOptions('child-1', harness.parentSession.id, harness.projectId),
-				buildContext(harness.parentSession.id, harness.projectId),
+				buildContext(harness.parentSession.id, harness.projectId, harness.threadId),
 			),
 		).rejects.toBeInstanceOf(DelegationCapacityExceeded)
 	})
@@ -296,7 +311,7 @@ describe('AgentManager.sendMessage — Phase 6 SubSession spawn', () => {
 		let parentId: SessionId = harness.parentSession.id
 		for (let i = 0; i < 4; i++) {
 			const child = await harness.store.createSession(
-				{ threadId: TEST_THREAD_ID, projectId: harness.projectId, currentActor: agentActor('c') },
+				{ threadId: harness.threadId, projectId: harness.projectId, currentActor: agentActor('c') },
 				tenant,
 			)
 			await harness.store.createSubSession(
@@ -314,7 +329,7 @@ describe('AgentManager.sendMessage — Phase 6 SubSession spawn', () => {
 		await expect(
 			harness.manager.sendMessage(
 				buildOptions('child-1', parentId, harness.projectId),
-				buildContext(parentId, harness.projectId, tenant, 0),
+				buildContext(parentId, harness.projectId, harness.threadId, tenant, 0),
 			),
 		).rejects.toBeInstanceOf(DelegationCapacityExceeded)
 	})
@@ -325,7 +340,7 @@ describe('AgentManager.sendMessage — Phase 6 SubSession spawn', () => {
 
 		const task = await harness.manager.sendMessage(
 			buildOptions('child-fail', harness.parentSession.id, harness.projectId),
-			buildContext(harness.parentSession.id, harness.projectId),
+			buildContext(harness.parentSession.id, harness.projectId, harness.threadId),
 		)
 		await waitForTask(harness.manager, task.taskId)
 
@@ -348,7 +363,7 @@ describe('AgentManager.sendMessage — Phase 6 SubSession spawn', () => {
 
 		const task = await harness.manager.sendMessage(
 			buildOptions('child-msgs', harness.parentSession.id, harness.projectId),
-			buildContext(harness.parentSession.id, harness.projectId),
+			buildContext(harness.parentSession.id, harness.projectId, harness.threadId),
 		)
 		await waitForTask(harness.manager, task.taskId)
 
@@ -370,7 +385,7 @@ describe('AgentManager.sendMessage — Phase 6 SubSession spawn', () => {
 
 		// Seed c1 under parentSession, c2 under c1.
 		const c1 = await harness.store.createSession(
-			{ threadId: TEST_THREAD_ID, projectId: harness.projectId, currentActor: agentActor('c1') },
+			{ threadId: harness.threadId, projectId: harness.projectId, currentActor: agentActor('c1') },
 			tenant,
 		)
 		await harness.store.createSubSession(
@@ -383,7 +398,7 @@ describe('AgentManager.sendMessage — Phase 6 SubSession spawn', () => {
 			tenant,
 		)
 		const c2 = await harness.store.createSession(
-			{ threadId: TEST_THREAD_ID, projectId: harness.projectId, currentActor: agentActor('c2') },
+			{ threadId: harness.threadId, projectId: harness.projectId, currentActor: agentActor('c2') },
 			tenant,
 		)
 		await harness.store.createSubSession(
@@ -399,7 +414,7 @@ describe('AgentManager.sendMessage — Phase 6 SubSession spawn', () => {
 		const events: RunEvent[] = []
 		const task = await harness.manager.sendMessage(
 			buildOptions('grandchild', c2.id, harness.projectId),
-			buildContext(c2.id, harness.projectId),
+			buildContext(c2.id, harness.projectId, harness.threadId),
 			(e) => {
 				events.push(e)
 			},
@@ -446,7 +461,7 @@ describe('AgentManager.sendMessage — Phase 6 SubSession spawn', () => {
 		await expect(
 			harness.manager.sendMessage(
 				mismatchedOptions,
-				buildContext(harness.parentSession.id, harness.projectId, tenant),
+				buildContext(harness.parentSession.id, harness.projectId, harness.threadId, tenant),
 			),
 		).rejects.toThrow(/Tenant mismatch/)
 	})

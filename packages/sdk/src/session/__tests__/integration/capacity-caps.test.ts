@@ -11,7 +11,6 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import type { ThreadId } from '../../../types/session/ids.js'
 import { DelegationCapacityExceeded } from '../../handoff/capacity.js'
 import type { ActorRef } from '../../hierarchy/actor.js'
 import {
@@ -26,12 +25,10 @@ import {
 	userActor,
 } from './_fixtures.js'
 
-const TEST_THREAD_ID = 'thd_test' as ThreadId
-
 describe('Integration — capacity caps at spawn sites', () => {
 	it('spawn at depth 4 accepted; depth 5 rejected (default maxDelegationDepth=4)', async () => {
 		const harness = buildHarness()
-		const { project } = await seedActiveParent(harness)
+		const { project, thread } = await seedActiveParent(harness)
 
 		// Build a depth-4 ancestry chain under the project. Each layer flips to
 		// `active` so it is a legal spawn parent via the real AgentManager.
@@ -39,7 +36,7 @@ describe('Integration — capacity caps at spawn sites', () => {
 		let parentSessionId = (
 			await harness.store.createSession(
 				{
-					threadId: TEST_THREAD_ID,
+					threadId: thread.id,
 					projectId: project.id,
 					currentActor: chainActors[0] ?? userActor('usr_root'),
 				},
@@ -51,7 +48,7 @@ describe('Integration — capacity caps at spawn sites', () => {
 
 		for (let i = 0; i < 4; i++) {
 			const child = await harness.store.createSession(
-				{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor(`agt_${i}`) },
+				{ threadId: thread.id, projectId: project.id, currentActor: agentActor(`agt_${i}`) },
 				DEFAULT_TENANT,
 			)
 			await harness.store.createSubSession(
@@ -75,6 +72,7 @@ describe('Integration — capacity caps at spawn sites', () => {
 		const context = buildTaskContext({
 			sessionId: tail,
 			projectId: project.id,
+			threadId: thread.id,
 			tenantId: DEFAULT_TENANT,
 			parentActor: userActor('usr_root'),
 		})
@@ -93,12 +91,12 @@ describe('Integration — capacity caps at spawn sites', () => {
 
 	it('spawn at width 8 accepted; 9th sibling rejected (default maxDelegationWidth=8)', async () => {
 		const harness = buildHarness()
-		const { project, session, actor } = await seedActiveParent(harness)
+		const { project, thread, session, actor } = await seedActiveParent(harness)
 
 		// Seed 8 existing children directly through the store.
 		for (let i = 0; i < 8; i++) {
 			const child = await harness.store.createSession(
-				{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor(`agt_${i}`) },
+				{ threadId: thread.id, projectId: project.id, currentActor: agentActor(`agt_${i}`) },
 				DEFAULT_TENANT,
 			)
 			await harness.store.createSubSession(
@@ -117,6 +115,7 @@ describe('Integration — capacity caps at spawn sites', () => {
 		const context = buildTaskContext({
 			sessionId: session.id,
 			projectId: project.id,
+			threadId: thread.id,
 			tenantId: DEFAULT_TENANT,
 			parentActor: actor,
 		})
@@ -140,7 +139,7 @@ describe('Integration — capacity caps at spawn sites', () => {
 		// DefaultCapacityValidator(store) so it walks the actual persisted
 		// parent chain — confirms the wiring rather than a direct unit call.
 		const harness = buildHarness()
-		const { project, session, actor } = await seedActiveParent(harness)
+		const { project, thread, session, actor } = await seedActiveParent(harness)
 
 		harness.registry.register(buildDefinition(buildAgent('worker')))
 
@@ -149,6 +148,7 @@ describe('Integration — capacity caps at spawn sites', () => {
 		const context = buildTaskContext({
 			sessionId: session.id,
 			projectId: project.id,
+			threadId: thread.id,
 			tenantId: DEFAULT_TENANT,
 			parentActor: actor,
 		})

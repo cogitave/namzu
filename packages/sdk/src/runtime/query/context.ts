@@ -16,15 +16,16 @@ import type { Message } from '../../types/message/index.js'
 import type { PermissionMode } from '../../types/permission/index.js'
 import type { LLMProvider } from '../../types/provider/index.js'
 import type { AgentRunConfig } from '../../types/run/index.js'
-import type { ProjectId } from '../../types/session/ids.js'
+import type { ProjectId, ThreadId } from '../../types/session/ids.js'
 import type { ModelPricing } from '../../utils/cost.js'
 import { generateRunId } from '../../utils/id.js'
 import { type Logger, getRootLogger } from '../../utils/logger.js'
 
 /**
  * Config accepted by {@link RunContextFactory.build}. `sessionId`,
- * `projectId`, and `tenantId` are required — runs are scoped under a Session
- * within a Project within a Tenant (Convention #17).
+ * `threadId`, `projectId`, and `tenantId` are required — runs carry the full
+ * five-layer scope (Tenant → Project → Thread → Session → Run) per
+ * Convention #17.
  *
  * `pathBuilder` is optional; when absent a {@link DefaultPathBuilder} is
  * constructed against `{workingDirectory}/.namzu`.
@@ -48,6 +49,7 @@ export interface RunContextConfig {
 	signal?: AbortSignal
 
 	sessionId: SessionId
+	threadId: ThreadId
 	projectId: ProjectId
 	tenantId: TenantId
 
@@ -74,6 +76,7 @@ export interface RunContextConfig {
 export interface RunContext {
 	runId: RunId
 	sessionId: SessionId
+	threadId: ThreadId
 	projectId: ProjectId
 	tenantId: TenantId
 	runMgr: RunPersistence
@@ -144,6 +147,7 @@ export class RunContextFactory {
 			agent: config.agentName,
 			runId,
 			sessionId: config.sessionId,
+			threadId: config.threadId,
 			projectId: config.projectId,
 			tenantId: config.tenantId,
 		})
@@ -158,6 +162,7 @@ export class RunContextFactory {
 			pricing: config.pricing,
 			log,
 			sessionId: config.sessionId,
+			threadId: config.threadId,
 			tenantId: config.tenantId,
 			projectId: config.projectId,
 			parentRunId: config.parentRunId,
@@ -171,6 +176,7 @@ export class RunContextFactory {
 		return {
 			runId,
 			sessionId: config.sessionId,
+			threadId: config.threadId,
 			projectId: config.projectId,
 			tenantId: config.tenantId,
 			runMgr,

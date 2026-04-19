@@ -3,7 +3,7 @@ import { DefaultPathBuilder, type PathBuilder } from '../../../session/workspace
 import type { RunId, SessionId, TenantId } from '../../../types/ids/index.js'
 import type { LLMProvider } from '../../../types/provider/index.js'
 import type { AgentRunConfig } from '../../../types/run/index.js'
-import type { ProjectId } from '../../../types/session/ids.js'
+import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
 import { RunContextFactory } from '../context.js'
 
 function mockProvider(): LLMProvider {
@@ -16,6 +16,7 @@ function mockProvider(): LLMProvider {
 
 function buildConfig(overrides: Partial<Parameters<typeof RunContextFactory.build>[0]> = {}) {
 	const sessionId = 'ses_test' as SessionId
+	const threadId = 'thd_test' as ThreadId
 	const projectId = 'prj_test' as ProjectId
 	const tenantId = 'tnt_test' as TenantId
 	const runConfig: AgentRunConfig = {
@@ -31,6 +32,7 @@ function buildConfig(overrides: Partial<Parameters<typeof RunContextFactory.buil
 		provider: mockProvider(),
 		messages: [],
 		sessionId,
+		threadId,
 		projectId,
 		tenantId,
 		workingDirectory: '/tmp/run-context-test',
@@ -39,11 +41,12 @@ function buildConfig(overrides: Partial<Parameters<typeof RunContextFactory.buil
 }
 
 describe('RunContextFactory.build', () => {
-	it('requires sessionId, projectId, tenantId and returns them on the context', () => {
+	it('requires sessionId, threadId, projectId, tenantId and returns them on the context', () => {
 		const cfg = buildConfig()
 		const ctx = RunContextFactory.build(cfg)
 
 		expect(ctx.sessionId).toBe(cfg.sessionId)
+		expect(ctx.threadId).toBe(cfg.threadId)
 		expect(ctx.projectId).toBe(cfg.projectId)
 		expect(ctx.tenantId).toBe(cfg.tenantId)
 	})
@@ -75,11 +78,12 @@ describe('RunContextFactory.build', () => {
 		expect(ctx.outputDir).not.toContain('threads')
 	})
 
-	it('seeds RunPersistence with propagated sessionId/tenantId/projectId', () => {
+	it('seeds RunPersistence with propagated sessionId/threadId/tenantId/projectId', () => {
 		const cfg = buildConfig()
 		const ctx = RunContextFactory.build(cfg)
 
 		expect(ctx.runMgr.sessionId).toBe(cfg.sessionId)
+		expect(ctx.runMgr.threadId).toBe(cfg.threadId)
 		expect(ctx.runMgr.tenantId).toBe(cfg.tenantId)
 		expect(ctx.runMgr.projectId).toBe(cfg.projectId)
 	})

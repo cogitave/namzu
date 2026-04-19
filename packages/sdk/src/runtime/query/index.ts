@@ -29,7 +29,7 @@ import type { LLMProvider } from '../../types/provider/index.js'
 import type { TaskRouterConfig } from '../../types/router/index.js'
 import type { AgentRun, AgentRunConfig, RunEvent, RunEventListener } from '../../types/run/index.js'
 import type { Sandbox, SandboxProvider } from '../../types/sandbox/index.js'
-import type { ProjectId } from '../../types/session/ids.js'
+import type { ProjectId, ThreadId } from '../../types/session/ids.js'
 import type { Skill } from '../../types/skills/index.js'
 import type { TaskStore } from '../../types/task/index.js'
 import type { ToolRegistryContract } from '../../types/tool/index.js'
@@ -69,6 +69,15 @@ export interface QueryParams {
 
 	/** Session scope for the run. Required — every run is attributed to a Session. */
 	sessionId: SessionId
+
+	/**
+	 * Topic the Session lives under. Required in 0.3.0 — every run carries
+	 * the full five-layer scope (Tenant → Project → Thread → Session →
+	 * Run). Denormalized from `session.threadId`; callers build this
+	 * alongside `sessionId` so the query pipeline never needs a second
+	 * SessionStore round-trip to recover it.
+	 */
+	threadId: ThreadId
 
 	/** Long-lived goal scope for the run. Required. */
 	projectId: ProjectId
@@ -147,6 +156,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Agen
 		messages: params.messages,
 		signal: params.signal,
 		sessionId: params.sessionId,
+		threadId: params.threadId,
 		projectId: params.projectId,
 		tenantId: params.tenantId,
 		pathBuilder: params.pathBuilder,

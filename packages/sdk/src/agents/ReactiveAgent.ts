@@ -32,9 +32,9 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 	): Promise<ReactiveAgentResult> {
 		const startTime = Date.now()
 
-		if (!config.sessionId || !config.projectId || !config.tenantId) {
+		if (!config.sessionId || !config.threadId || !config.projectId || !config.tenantId) {
 			throw new Error(
-				'ReactiveAgent requires sessionId, projectId, and tenantId in config (session-hierarchy.md §12.1).',
+				'ReactiveAgent requires sessionId, threadId, projectId, and tenantId in config (session-hierarchy.md §12.1).',
 			)
 		}
 
@@ -61,6 +61,7 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 				agentName: this.metadata.name,
 				workingDirectory: input.workingDirectory,
 				sessionId: config.sessionId,
+				threadId: config.threadId,
 				projectId: config.projectId,
 				tenantId: config.tenantId,
 				parentRunId: config.parentRunId,

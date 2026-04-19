@@ -2,14 +2,22 @@
  * ThreadManager — thin orchestrator over {@link ThreadStore} and
  * {@link SessionStore}.
  *
- * Owns user-facing lifecycle operations on the Thread topic layer. Keeps the
- * kernel's spawn path (AgentManager) reading ThreadStore directly for the
- * `requireOpen` precondition, since that check is on the hot path and
- * threading a manager through is structural overhead for a one-method call.
+ * Owns user-facing lifecycle operations on the Thread topic layer plus the
+ * archive-gate contract enforced at session-creation ingress sites.
+ *
+ * Phase 2.6 wired `ThreadManager.requireOpen` into three ingress paths:
+ *   - {@link AgentManager.provisionSpawn} (child session creation)
+ *   - `executeSingleHandoff` (recipient session creation)
+ *   - `executeBroadcastHandoff` (N recipient sessions per fan-out)
+ * Those call sites depend on this manager, so the one-method indirection
+ * stopped being "structural overhead" the moment archive/delete needed the
+ * session-presence cross-check anyway.
  *
  * Archive + delete require cross-store preconditions (session-presence
  * checks) — enforced here where both stores are in scope. The stores
- * themselves stay unaware of each other's layout (Convention #0).
+ * themselves stay unaware of each other's layout (Convention #0), which is
+ * why the gate lives at the manager layer rather than as a universal store
+ * interceptor (see `archive` JSDoc for the direct-store-bypass boundary).
  */
 
 import {
@@ -118,13 +126,18 @@ export class ThreadManager {
 	 * concurrent writer propagates unchanged — the caller is expected to
 	 * re-read + retry (mirrors the `updateThread` contract).
 	 *
-	 * Known gap (tracked for Phase 2.6/2.7): spawn and handoff do not yet
-	 * invoke {@link ThreadManager.requireOpen} before creating a child
-	 * session. Until they do, the archive invariant is best-effort — a race
-	 * or a direct-store caller can still attach a live session after the
-	 * archive returns. The defensive re-check above catches the
-	 * already-smuggled case on a subsequent archive attempt but does not
-	 * prevent the write from landing in the first place.
+	 * Gate scope (Phase 2.6): `ThreadManager.requireOpen` is wired into
+	 * `AgentManager.provisionSpawn` and both handoff flows, so the production
+	 * ingress paths cannot attach new sessions under an archived thread.
+	 * `SessionStore.createSession` / `updateSession` remain public and
+	 * ungated at the store layer — a direct caller can still mutate a
+	 * session after archival (the store has no `ThreadStore` handle by
+	 * design; cross-store awareness lives in the manager). The defensive
+	 * re-check above catches a smuggled live session on a subsequent
+	 * archive call, but does not prevent the direct-store write from
+	 * landing. That's an acceptable boundary — kernel callers must go
+	 * through the ingress paths; direct store consumers are out of scope
+	 * for the archive invariant.
 	 */
 	async archive(threadId: ThreadId, tenantId: TenantId): Promise<Thread> {
 		const thread = await this.deps.threadStore.getThread(threadId, tenantId)

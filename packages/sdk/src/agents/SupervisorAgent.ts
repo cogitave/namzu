@@ -43,12 +43,13 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 		const startTime = Date.now()
 		const runId = this.createRunId()
 
-		if (!config.sessionId || !config.projectId || !config.tenantId) {
+		if (!config.sessionId || !config.threadId || !config.projectId || !config.tenantId) {
 			throw new Error(
-				'SupervisorAgent requires sessionId, projectId, and tenantId in config (session-hierarchy.md §12.1).',
+				'SupervisorAgent requires sessionId, threadId, projectId, and tenantId in config (session-hierarchy.md §12.1).',
 			)
 		}
 		const sessionId = config.sessionId
+		const threadId = config.threadId
 		const projectId = config.projectId
 		const tenantId = config.tenantId
 
@@ -84,6 +85,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 				},
 				factoryOptions: mergedFactoryOptions,
 				tenantId,
+				threadId,
 				sessionId,
 				projectId,
 				parentActor,
@@ -138,6 +140,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 				messages: input.messages,
 				signal: input.signal,
 				sessionId,
+				threadId,
 				projectId,
 				tenantId,
 				runId,

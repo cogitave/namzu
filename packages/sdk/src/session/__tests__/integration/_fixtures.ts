@@ -15,6 +15,7 @@
 import { vi } from 'vitest'
 import { EMPTY_TOKEN_USAGE } from '../../../constants/limits.js'
 import { AgentManager } from '../../../manager/agent/lifecycle.js'
+import { ThreadManager } from '../../../manager/thread/lifecycle.js'
 import { AgentRegistry } from '../../../registry/agent/definitions.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
 import { InMemoryThreadStore } from '../../../store/thread/memory.js'
@@ -151,6 +152,7 @@ export function buildDefinition(agent: Agent<BaseAgentConfig, BaseAgentResult>):
 export interface IntegrationHarness {
 	readonly store: InMemorySessionStore
 	readonly threadStore: InMemoryThreadStore
+	readonly threadManager: ThreadManager
 	readonly registry: AgentRegistry
 	readonly manager: AgentManager
 	readonly materializer: SessionSummaryMaterializer
@@ -203,17 +205,20 @@ export function buildHarness(options: IntegrationHarnessOptions = {}): Integrati
 	})
 
 	const capacity = new DefaultCapacityValidator(store)
+	const threadManager = new ThreadManager({ threadStore, sessionStore: store })
 	const registry = new AgentRegistry()
 	const manager = new AgentManager(registry, undefined, {
 		sessionStore: store,
 		summaryMaterializer: materializer,
 		workspaceRegistry,
 		capacity,
+		threadManager,
 	})
 
 	return {
 		store,
 		threadStore,
+		threadManager,
 		registry,
 		manager,
 		materializer,
@@ -263,7 +268,7 @@ export async function seedActiveParent(
 export function buildTaskContext(params: {
 	sessionId: SessionId
 	projectId: ProjectId
-	threadId?: ThreadId
+	threadId: ThreadId
 	tenantId: TenantId
 	parentActor: ActorRef
 	depth?: number
@@ -280,6 +285,7 @@ export function buildTaskContext(params: {
 			remaining: params.budget ?? 100_000,
 		},
 		tenantId: params.tenantId,
+		threadId: params.threadId,
 		sessionId: params.sessionId,
 		projectId: params.projectId,
 		parentActor: params.parentActor,
@@ -290,7 +296,6 @@ export function buildSendMessageOptions(params: {
 	agentId: string
 	parentSessionId: SessionId
 	projectId: ProjectId
-	threadId?: ThreadId
 	tenantId: TenantId
 	parentActor: ActorRef
 }): SendMessageOptions {

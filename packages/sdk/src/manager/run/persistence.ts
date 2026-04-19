@@ -5,7 +5,7 @@ import type { RunId, SessionId, TenantId } from '../../types/ids/index.js'
 import type { AssistantMessage, Message } from '../../types/message/index.js'
 import type { EmergencySaveData } from '../../types/run/emergency.js'
 import type { AgentRun, RunPersistenceConfig, StopReason } from '../../types/run/index.js'
-import type { ProjectId } from '../../types/session/ids.js'
+import type { ProjectId, ThreadId } from '../../types/session/ids.js'
 import { type ModelPricing, ZERO_COST, accumulateCost } from '../../utils/cost.js'
 import { generateEmergencySaveId } from '../../utils/id.js'
 import type { Logger } from '../../utils/logger.js'
@@ -16,6 +16,7 @@ export class RunPersistence {
 	private pricing?: ModelPricing
 	private log: Logger
 	private readonly _sessionId: SessionId
+	private readonly _threadId: ThreadId
 	private readonly _tenantId: TenantId
 	private readonly _projectId: ProjectId
 
@@ -23,6 +24,7 @@ export class RunPersistence {
 		this.pricing = config.pricing
 		this.log = config.log
 		this._sessionId = config.sessionId
+		this._threadId = config.threadId
 		this._tenantId = config.tenantId
 		this._projectId = config.projectId
 
@@ -56,6 +58,10 @@ export class RunPersistence {
 
 	get sessionId(): SessionId {
 		return this._sessionId
+	}
+
+	get threadId(): ThreadId {
+		return this._threadId
 	}
 
 	get tenantId(): TenantId {

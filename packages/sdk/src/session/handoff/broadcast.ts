@@ -21,6 +21,7 @@
  * ```
  */
 
+import type { ThreadManager } from '../../manager/thread/lifecycle.js'
 import type { SessionId, TenantId } from '../../types/ids/index.js'
 import type { SubSessionId } from '../../types/session/ids.js'
 import type { SessionStore } from '../../types/session/store.js'
@@ -41,6 +42,12 @@ export interface BroadcastHandoffDeps {
 	capacity: CapacityValidator
 	events: HandoffEventSink
 	runStatus?: RunStatusResolver
+	/**
+	 * Gate every recipient-session creation on the Thread being `'open'`.
+	 * Added in Phase 2.6; checked once per broadcast (all recipients share
+	 * a threadId by the fan-out invariant validated above).
+	 */
+	threadManager: ThreadManager
 }
 
 /**
@@ -132,6 +139,12 @@ export async function executeBroadcastHandoff(
 		}
 		seen.add(key)
 	}
+
+	// Thread archive gate (Phase 2.6) — runs BEFORE source load/capacity so an
+	// archived thread fails fastest with `ThreadClosedError`. All assignments
+	// share `threadId` by the shape validation above. Runs BEFORE the CAS
+	// lock so a denied fan-out leaves the source session untouched.
+	await deps.threadManager.requireOpen(first.threadId, tenantId)
 
 	// 3. Load source + tenant check.
 	const source = await deps.store.getSession(first.sourceSessionId, tenantId)

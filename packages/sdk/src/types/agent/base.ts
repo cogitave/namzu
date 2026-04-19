@@ -4,7 +4,7 @@ import type { InvocationState } from '../invocation/index.js'
 import type { Message } from '../message/index.js'
 import type { PermissionMode } from '../permission/index.js'
 import type { StopReason } from '../run/stop-reason.js'
-import type { ProjectId } from '../session/ids.js'
+import type { ProjectId, ThreadId } from '../session/ids.js'
 import type { TaskStore } from '../task/index.js'
 import type { ToolAvailability } from '../tool/index.js'
 
@@ -34,6 +34,15 @@ export interface BaseAgentConfig {
 	 * `AgentFactoryOptions` carrying the triple.
 	 */
 	projectId?: ProjectId
+
+	/**
+	 * Topic the run belongs to. Optional at the TYPE level for the same
+	 * reason as `projectId` — {@link AgentManager} stamps this field after
+	 * `configBuilder` returns so `configBuilder` implementations do not
+	 * need to be updated before this tightens. Tightening to required
+	 * lands with the `AgentFactoryOptions` triple refactor.
+	 */
+	threadId?: ThreadId
 
 	/** Session under which the run executes. See `projectId` for the tightening plan. */
 	sessionId?: SessionId

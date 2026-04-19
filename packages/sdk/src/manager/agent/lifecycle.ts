@@ -35,6 +35,7 @@ import { ZERO_COST } from '../../utils/cost.js'
 import { toErrorMessage } from '../../utils/error.js'
 import { generateTaskId } from '../../utils/id.js'
 import { type Logger, getRootLogger } from '../../utils/logger.js'
+import type { ThreadManager } from '../thread/lifecycle.js'
 
 /**
  * Dependencies threaded into {@link AgentManager}. Phase 6 promoted the
@@ -60,6 +61,14 @@ export interface AgentManagerDeps {
 	readonly workspaceRegistry: WorkspaceBackendRegistry
 	readonly summaryMaterializer: SessionSummaryMaterializer
 	readonly capacity: CapacityValidator
+	/**
+	 * Gate session creation on the parent Thread being `'open'` via
+	 * {@link ThreadManager.requireOpen}. Added in Phase 2.6 to close the
+	 * archive-gate gap flagged by the Phase 2.5 commit: without this,
+	 * `ThreadManager.archive` was best-effort because spawn could still
+	 * attach a live session under an archived Thread.
+	 */
+	readonly threadManager: ThreadManager
 }
 
 interface ChildSpawnRecord {
@@ -146,6 +155,7 @@ export class AgentManager {
 			budgetTracker: context.budgetTracker,
 			factoryOptions: context.factoryOptions,
 			tenantId: context.tenantId,
+			threadId: context.threadId,
 			sessionId: spawnRecord.childSessionId,
 			projectId: context.projectId,
 			parentActor: childParentActor,
@@ -221,6 +231,7 @@ export class AgentManager {
 			// configBuilder may not have been updated to emit these yet; we
 			// stamp them here so query() sees them regardless.
 			childConfig.sessionId = spawnRecord?.childSessionId ?? context.sessionId
+			childConfig.threadId = context.threadId
 			childConfig.projectId = context.projectId
 			childConfig.tenantId = context.tenantId
 		} else {
@@ -236,6 +247,7 @@ export class AgentManager {
 				maxResponseTokens: options.configOverrides?.maxResponseTokens,
 				env: options.configOverrides?.env,
 				sessionId: spawnRecord.childSessionId,
+				threadId: context.threadId,
 				projectId: context.projectId,
 				tenantId: context.tenantId,
 				parentRunId: context.parentRunId,
@@ -365,6 +377,42 @@ export class AgentManager {
 		// partial/legacy path).
 		const store = this.deps.sessionStore
 
+		// Thread archive gate — runs FIRST so an archived thread fails fastest
+		// with the correct error (not DelegationCapacityExceeded or a project
+		// lookup error). Phase 2.6 closes the gap the Phase 2.5 commit
+		// flagged: without it, `ThreadManager.archive` could be undermined by
+		// a concurrent spawn landing a live session post-archival.
+		// Scope: this gate enforces the archive invariant at the production
+		// ingress path (AgentManager.sendMessage + handoff flows). Direct
+		// callers of `SessionStore.createSession` bypass it — the store layer
+		// is intentionally unaware of thread status to preserve its
+		// single-responsibility boundary.
+		await this.deps.threadManager.requireOpen(context.threadId, context.tenantId)
+
+		// Parent session cross-check: validate that `options.parentSessionId`
+		// exists for this tenant AND lives under the same thread as the
+		// context. A mismatched `context.threadId` would otherwise attach the
+		// child's sub-session edge to a parent in a different thread —
+		// corrupting the hierarchy invariant (cross-thread spawn is forbidden
+		// by design). Mirrors the `source.threadId === assignment.threadId`
+		// check in handoff (Phase 2.4).
+		const parentSession = await store.getSession(options.parentSessionId, context.tenantId)
+		if (!parentSession) {
+			throw new Error(
+				`Parent session ${options.parentSessionId} not found for tenant ${context.tenantId} — spawn rejected`,
+			)
+		}
+		if (parentSession.threadId !== context.threadId) {
+			throw new Error(
+				`Thread mismatch on spawn: parent session ${parentSession.id} is on thread ${parentSession.threadId}, but context.threadId=${context.threadId}. Cross-thread spawn is forbidden (session-hierarchy.md §6.3).`,
+			)
+		}
+		if (parentSession.projectId !== context.projectId) {
+			throw new Error(
+				`Project mismatch on spawn: parent session ${parentSession.id} is on project ${parentSession.projectId}, but context.projectId=${context.projectId}.`,
+			)
+		}
+
 		const project = await store.getProject(context.projectId, context.tenantId)
 		if (!project) {
 			throw new Error(
@@ -399,20 +447,13 @@ export class AgentManager {
 			parentActor: context.parentActor,
 		}
 
-		// Child session inherits parent's threadId — cross-thread spawn is
-		// forbidden by design (a delegated sub-agent stays on the same topic).
-		// Load the parent session to read its threadId; 2.6 will elevate this
-		// into `AgentTaskContext.threadId` so the extra read can be elided.
-		const parentSession = await store.getSession(options.parentSessionId, context.tenantId)
-		if (!parentSession) {
-			throw new Error(
-				`Parent session ${options.parentSessionId} not found for tenant ${context.tenantId} — spawn rejected`,
-			)
-		}
-
+		// Child session inherits the parent's threadId verbatim (cross-thread
+		// spawn is forbidden by design — a delegated sub-agent stays on the
+		// same topic). Phase 2.6 elides the previous parent-session read by
+		// carrying `threadId` on `AgentTaskContext`.
 		const childSession = await store.createSession(
 			{
-				threadId: parentSession.threadId,
+				threadId: context.threadId,
 				projectId: context.projectId,
 				currentActor: childActor,
 			},

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { ThreadManager } from '../../../manager/thread/lifecycle.js'
 import { TenantIsolationError } from '../../../session/errors.js'
 import type { ActorRef } from '../../../session/hierarchy/actor.js'
 import {
@@ -8,8 +9,8 @@ import {
 } from '../../../session/workspace/git-worktree.js'
 import { WorkspaceBackendRegistry } from '../../../session/workspace/registry.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
+import { InMemoryThreadStore } from '../../../store/thread/memory.js'
 import type { AgentId, SessionId, TenantId, UserId } from '../../../types/ids/index.js'
-import type { ThreadId } from '../../../types/session/ids.js'
 import { generateHandoffId } from '../../../utils/id.js'
 import type { HandoffAssignment } from '../assignment.js'
 import { DefaultCapacityValidator } from '../capacity.js'
@@ -23,8 +24,6 @@ import type {
 } from '../events.js'
 import { type RunStatusResolver, type SingleHandoffDeps, executeSingleHandoff } from '../single.js'
 import { HandoffLockRejected, HandoffVersionConflict } from '../version.js'
-
-const TEST_THREAD_ID = 'thd_test' as ThreadId
 
 const tenant = 'tnt_alpha' as TenantId
 const otherTenant = 'tnt_beta' as TenantId
@@ -62,6 +61,7 @@ interface MockedHandoffEventSink extends HandoffEventSink {
 
 function buildDeps(
 	store: InMemorySessionStore,
+	threadStore: InMemoryThreadStore,
 	execOverride?: ExecFile,
 	runResolver?: RunStatusResolver,
 ): { deps: SingleHandoffDeps; events: MockedHandoffEventSink; execCalls: string[] } {
@@ -87,29 +87,36 @@ function buildDeps(
 		onBroadcastRollback: vi.fn<(ev: HandoffBroadcastRollbackEvent) => void>(),
 	}
 
+	const threadManager = new ThreadManager({ threadStore, sessionStore: store })
 	const deps: SingleHandoffDeps = {
 		store,
 		workspaceRegistry: registry,
 		capacity: new DefaultCapacityValidator(store),
 		events,
+		threadManager,
 		...(runResolver !== undefined && { runStatus: runResolver }),
 	}
 
 	return { deps, events, execCalls }
 }
 
-async function seedIdle(store: InMemorySessionStore) {
+async function seedIdle(store: InMemorySessionStore, threadStore: InMemoryThreadStore) {
 	const project = await store.createProject({ tenantId: tenant, name: 'p' }, tenant)
-	const session = await store.createSession(
-		{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: user('usr_source') },
+	const thread = await threadStore.createThread(
+		{ projectId: project.id, title: 'handoff-single-test' },
 		tenant,
 	)
-	return { project, session }
+	const session = await store.createSession(
+		{ threadId: thread.id, projectId: project.id, currentActor: user('usr_source') },
+		tenant,
+	)
+	return { project, thread, session }
 }
 
 function buildAssignment(
 	sourceSessionId: SessionId,
 	projectId: Awaited<ReturnType<InMemorySessionStore['createProject']>>['id'],
+	threadId: Awaited<ReturnType<InMemoryThreadStore['createThread']>>['id'],
 	expectedOwnerVersion: number,
 	recipient: ActorRef = user('usr_target'),
 ): HandoffAssignment {
@@ -118,7 +125,7 @@ function buildAssignment(
 		mode: 'single',
 		sourceSessionId,
 		tenantId: tenant,
-		threadId: TEST_THREAD_ID,
+		threadId,
 		projectId,
 		sourceActor: user('usr_source'),
 		recipientActor: recipient,
@@ -129,16 +136,18 @@ function buildAssignment(
 
 describe('executeSingleHandoff', () => {
 	let store: InMemorySessionStore
+	let threadStore: InMemoryThreadStore
 
 	beforeEach(() => {
 		store = new InMemorySessionStore()
+		threadStore = new InMemoryThreadStore()
 	})
 
 	it('happy path: idle source → lock → commit → outcome populated + source mutated', async () => {
-		const { project, session } = await seedIdle(store)
-		const { deps, events } = buildDeps(store)
+		const { project, thread, session } = await seedIdle(store, threadStore)
+		const { deps, events } = buildDeps(store, threadStore)
 
-		const assignment = buildAssignment(session.id, project.id, 0)
+		const assignment = buildAssignment(session.id, project.id, thread.id, 0)
 		const outcome = await executeSingleHandoff(deps, assignment, tenant)
 
 		expect(outcome.assignmentId).toBe(assignment.id)
@@ -159,11 +168,11 @@ describe('executeSingleHandoff', () => {
 	})
 
 	it('rejects when source session is non-idle (active → HandoffLockRejected with active_run)', async () => {
-		const { project, session } = await seedIdle(store)
+		const { project, thread, session } = await seedIdle(store, threadStore)
 		await store.updateSession({ ...session, status: 'active' }, tenant)
 
-		const { deps } = buildDeps(store)
-		const assignment = buildAssignment(session.id, project.id, 0)
+		const { deps } = buildDeps(store, threadStore)
+		const assignment = buildAssignment(session.id, project.id, thread.id, 0)
 
 		try {
 			await executeSingleHandoff(deps, assignment, tenant)
@@ -175,14 +184,14 @@ describe('executeSingleHandoff', () => {
 	})
 
 	it('rejects when Run resolver reports pending_hitl', async () => {
-		const { project, session } = await seedIdle(store)
+		const { project, thread, session } = await seedIdle(store, threadStore)
 		const resolver: RunStatusResolver = {
 			async blockingRun() {
 				return { reason: 'pending_hitl' }
 			},
 		}
-		const { deps } = buildDeps(store, undefined, resolver)
-		const assignment = buildAssignment(session.id, project.id, 0)
+		const { deps } = buildDeps(store, threadStore, undefined, resolver)
+		const assignment = buildAssignment(session.id, project.id, thread.id, 0)
 
 		try {
 			await executeSingleHandoff(deps, assignment, tenant)
@@ -194,11 +203,11 @@ describe('executeSingleHandoff', () => {
 	})
 
 	it('rejects on tenant mismatch (TenantIsolationError)', async () => {
-		const { project, session } = await seedIdle(store)
-		const { deps } = buildDeps(store)
+		const { project, thread, session } = await seedIdle(store, threadStore)
+		const { deps } = buildDeps(store, threadStore)
 		// Assignment tenant differs from the call-site tenant.
 		const assignment: HandoffAssignment = {
-			...buildAssignment(session.id, project.id, 0),
+			...buildAssignment(session.id, project.id, thread.id, 0),
 			tenantId: otherTenant,
 		}
 		await expect(executeSingleHandoff(deps, assignment, otherTenant)).rejects.toBeInstanceOf(
@@ -207,13 +216,13 @@ describe('executeSingleHandoff', () => {
 	})
 
 	it('rejects on CAS mismatch (HandoffVersionConflict)', async () => {
-		const { project, session } = await seedIdle(store)
-		const { deps } = buildDeps(store)
+		const { project, thread, session } = await seedIdle(store, threadStore)
+		const { deps } = buildDeps(store, threadStore)
 
 		// Simulate a concurrent bump: move ownerVersion to 1 before the assignment
 		// with expectedOwnerVersion=0 is executed.
 		await store.updateSession({ ...session, ownerVersion: 1 }, tenant)
-		const assignment = buildAssignment(session.id, project.id, 0)
+		const assignment = buildAssignment(session.id, project.id, thread.id, 0)
 
 		try {
 			await executeSingleHandoff(deps, assignment, tenant)
@@ -228,18 +237,22 @@ describe('executeSingleHandoff', () => {
 	it('depth cap enforcement rejects with DelegationCapacityExceeded (dimension=depth)', async () => {
 		// Build a chain so the handoff source already sits at max depth.
 		const project = await store.createProject({ tenantId: tenant, name: 'p' }, tenant)
+		const thread = await threadStore.createThread(
+			{ projectId: project.id, title: 'depth-cap' },
+			tenant,
+		)
 		// Set a tight limit on the project via a second createProject? — no, the
 		// store hardcodes defaults {4,8,10}. Build a depth-4 chain then attempt
 		// handoff on depth-4 node (ancestry length 5 > 4).
 		const root = await store.createSession(
-			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: user('usr_source') },
+			{ threadId: thread.id, projectId: project.id, currentActor: user('usr_source') },
 			tenant,
 		)
 		let parent = root.id
 		let tail: SessionId = root.id
 		for (let i = 0; i < 4; i++) {
 			const child = await store.createSession(
-				{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: user(`usr_${i}`) },
+				{ threadId: thread.id, projectId: project.id, currentActor: user(`usr_${i}`) },
 				tenant,
 			)
 			await store.createSubSession(
@@ -256,15 +269,15 @@ describe('executeSingleHandoff', () => {
 		}
 
 		// Source is `tail` at ancestry length 5 → depth-capacity with limit 4 rejects.
-		const { deps } = buildDeps(store)
-		const assignment = buildAssignment(tail, project.id, 0)
+		const { deps } = buildDeps(store, threadStore)
+		const assignment = buildAssignment(tail, project.id, thread.id, 0)
 		await expect(executeSingleHandoff(deps, assignment, tenant)).rejects.toBeInstanceOf(
 			DelegationCapacityExceeded,
 		)
 	})
 
 	it('compensating revert: workspace provisioning failure reverts source to idle, version unchanged, onUnlocked fires', async () => {
-		const { project, session } = await seedIdle(store)
+		const { project, thread, session } = await seedIdle(store, threadStore)
 
 		// Fail only on `worktree add` but pass for everything else. Here we fail
 		// the single worktree add.
@@ -274,8 +287,8 @@ describe('executeSingleHandoff', () => {
 			}
 			return okExec()
 		}
-		const { deps, events } = buildDeps(store, exec)
-		const assignment = buildAssignment(session.id, project.id, 0)
+		const { deps, events } = buildDeps(store, threadStore, exec)
+		const assignment = buildAssignment(session.id, project.id, thread.id, 0)
 
 		await expect(executeSingleHandoff(deps, assignment, tenant)).rejects.toThrow(
 			/Workspace backend git-worktree failed on create/,
@@ -294,7 +307,7 @@ describe('executeSingleHandoff', () => {
 	})
 
 	it('compensating revert: store.createSubSession failure still reverts + archives partial recipient', async () => {
-		const { project, session } = await seedIdle(store)
+		const { project, thread, session } = await seedIdle(store, threadStore)
 
 		// Monkey-patch createSubSession on the store to throw.
 		const original = store.createSubSession.bind(store)
@@ -302,8 +315,8 @@ describe('executeSingleHandoff', () => {
 			throw new Error('simulated createSubSession failure')
 		}
 
-		const { deps, events } = buildDeps(store)
-		const assignment = buildAssignment(session.id, project.id, 0)
+		const { deps, events } = buildDeps(store, threadStore)
+		const assignment = buildAssignment(session.id, project.id, thread.id, 0)
 
 		await expect(executeSingleHandoff(deps, assignment, tenant)).rejects.toThrow(
 			/createSubSession failure/,

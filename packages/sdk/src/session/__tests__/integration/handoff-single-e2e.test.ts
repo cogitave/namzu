@@ -13,9 +13,10 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
+import { ThreadManager } from '../../../manager/thread/lifecycle.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
+import { InMemoryThreadStore } from '../../../store/thread/memory.js'
 import type { TenantId } from '../../../types/ids/index.js'
-import type { ThreadId } from '../../../types/session/ids.js'
 import { generateHandoffId } from '../../../utils/id.js'
 import { TenantIsolationError } from '../../errors.js'
 import type { HandoffAssignment } from '../../handoff/assignment.js'
@@ -27,9 +28,10 @@ import { GitWorktreeDriver } from '../../workspace/git-worktree.js'
 import { WorkspaceBackendRegistry } from '../../workspace/registry.js'
 import { DEFAULT_TENANT, OTHER_TENANT, okExec, stubLogger, userActor } from './_fixtures.js'
 
-const TEST_THREAD_ID = 'thd_test' as ThreadId
-
-function buildHandoffDeps(store: InMemorySessionStore): {
+function buildHandoffDeps(
+	store: InMemorySessionStore,
+	threadStore: InMemoryThreadStore,
+): {
 	deps: SingleHandoffDeps
 	updateCalls: Array<{ status?: string; ownerVersion?: number }>
 } {
@@ -55,12 +57,14 @@ function buildHandoffDeps(store: InMemorySessionStore): {
 		return originalUpdate(session, tenantId)
 	}
 
+	const threadManager = new ThreadManager({ threadStore, sessionStore: store })
 	return {
 		deps: {
 			store,
 			workspaceRegistry,
 			capacity: new DefaultCapacityValidator(store),
 			events: sink,
+			threadManager,
 		},
 		updateCalls,
 	}
@@ -69,24 +73,29 @@ function buildHandoffDeps(store: InMemorySessionStore): {
 describe('Integration — single-recipient handoff E2E', () => {
 	it('idle → locked → commit: source previousActors grew + ownerVersion bumped atomically', async () => {
 		const store = new InMemorySessionStore()
+		const threadStore = new InMemoryThreadStore()
 		const project = await store.createProject(
 			{ tenantId: DEFAULT_TENANT, name: 'ho' },
+			DEFAULT_TENANT,
+		)
+		const thread = await threadStore.createThread(
+			{ projectId: project.id, title: 'ho' },
 			DEFAULT_TENANT,
 		)
 		const sourceActor = userActor('usr_source')
 		const recipientActor = userActor('usr_target')
 		const session = await store.createSession(
-			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: sourceActor },
+			{ threadId: thread.id, projectId: project.id, currentActor: sourceActor },
 			DEFAULT_TENANT,
 		)
 
-		const { deps, updateCalls } = buildHandoffDeps(store)
+		const { deps, updateCalls } = buildHandoffDeps(store, threadStore)
 		const assignment: HandoffAssignment = {
 			id: generateHandoffId(),
 			mode: 'single',
 			sourceSessionId: session.id,
 			tenantId: DEFAULT_TENANT,
-			threadId: TEST_THREAD_ID,
+			threadId: thread.id,
 			projectId: project.id,
 			sourceActor,
 			recipientActor,
@@ -119,22 +128,27 @@ describe('Integration — single-recipient handoff E2E', () => {
 
 	it('cross-tenant assignment rejects at entry (TenantIsolationError)', async () => {
 		const store = new InMemorySessionStore()
+		const threadStore = new InMemoryThreadStore()
 		const project = await store.createProject(
 			{ tenantId: DEFAULT_TENANT, name: 'ct' },
 			DEFAULT_TENANT,
 		)
+		const thread = await threadStore.createThread(
+			{ projectId: project.id, title: 'ct' },
+			DEFAULT_TENANT,
+		)
 		const session = await store.createSession(
-			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor('usr_source') },
+			{ threadId: thread.id, projectId: project.id, currentActor: userActor('usr_source') },
 			DEFAULT_TENANT,
 		)
 
-		const { deps } = buildHandoffDeps(store)
+		const { deps } = buildHandoffDeps(store, threadStore)
 		const assignment: HandoffAssignment = {
 			id: generateHandoffId(),
 			mode: 'single',
 			sourceSessionId: session.id,
 			tenantId: OTHER_TENANT,
-			threadId: TEST_THREAD_ID,
+			threadId: thread.id,
 			projectId: project.id,
 			sourceActor: userActor('usr_source', OTHER_TENANT),
 			recipientActor: userActor('usr_target', OTHER_TENANT),
@@ -149,22 +163,27 @@ describe('Integration — single-recipient handoff E2E', () => {
 
 	it('source-owned workspace provisioned for recipient', async () => {
 		const store = new InMemorySessionStore()
+		const threadStore = new InMemoryThreadStore()
 		const project = await store.createProject(
 			{ tenantId: DEFAULT_TENANT, name: 'wsp' },
 			DEFAULT_TENANT,
 		)
+		const thread = await threadStore.createThread(
+			{ projectId: project.id, title: 'wsp' },
+			DEFAULT_TENANT,
+		)
 		const source = await store.createSession(
-			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor('usr_source') },
+			{ threadId: thread.id, projectId: project.id, currentActor: userActor('usr_source') },
 			DEFAULT_TENANT,
 		)
 
-		const { deps } = buildHandoffDeps(store)
+		const { deps } = buildHandoffDeps(store, threadStore)
 		const assignment: HandoffAssignment = {
 			id: generateHandoffId(),
 			mode: 'single',
 			sourceSessionId: source.id,
 			tenantId: DEFAULT_TENANT,
-			threadId: TEST_THREAD_ID,
+			threadId: thread.id,
 			projectId: project.id,
 			sourceActor: userActor('usr_source'),
 			recipientActor: userActor('usr_target'),
@@ -196,22 +215,27 @@ describe('Integration — single-recipient handoff E2E', () => {
 	it('denormalized tenantId stamped on Session + SubSession records', async () => {
 		const _tenantType: TenantId = DEFAULT_TENANT
 		const store = new InMemorySessionStore()
+		const threadStore = new InMemoryThreadStore()
 		const project = await store.createProject(
 			{ tenantId: DEFAULT_TENANT, name: 'denorm' },
 			DEFAULT_TENANT,
 		)
-		const source = await store.createSession(
-			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor('usr_source') },
+		const thread = await threadStore.createThread(
+			{ projectId: project.id, title: 'denorm' },
 			DEFAULT_TENANT,
 		)
-		const { deps } = buildHandoffDeps(store)
+		const source = await store.createSession(
+			{ threadId: thread.id, projectId: project.id, currentActor: userActor('usr_source') },
+			DEFAULT_TENANT,
+		)
+		const { deps } = buildHandoffDeps(store, threadStore)
 
 		const assignment: HandoffAssignment = {
 			id: generateHandoffId(),
 			mode: 'single',
 			sourceSessionId: source.id,
 			tenantId: DEFAULT_TENANT,
-			threadId: TEST_THREAD_ID,
+			threadId: thread.id,
 			projectId: project.id,
 			sourceActor: userActor('usr_source'),
 			recipientActor: userActor('usr_target'),

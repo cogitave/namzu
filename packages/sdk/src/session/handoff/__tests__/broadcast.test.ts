@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { ThreadManager } from '../../../manager/thread/lifecycle.js'
 import type { ActorRef } from '../../../session/hierarchy/actor.js'
 import {
 	type ExecFile,
@@ -7,8 +8,9 @@ import {
 } from '../../../session/workspace/git-worktree.js'
 import { WorkspaceBackendRegistry } from '../../../session/workspace/registry.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
+import { InMemoryThreadStore } from '../../../store/thread/memory.js'
 import type { SessionId, TenantId, UserId } from '../../../types/ids/index.js'
-import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
+import type { ProjectId } from '../../../types/session/ids.js'
 import { generateHandoffId } from '../../../utils/id.js'
 import type { HandoffAssignment } from '../assignment.js'
 import { type BroadcastHandoffDeps, executeBroadcastHandoff } from '../broadcast.js'
@@ -21,8 +23,6 @@ import type {
 	HandoffUnlockedEvent,
 } from '../events.js'
 import { HandoffVersionConflict } from '../version.js'
-
-const TEST_THREAD_ID = 'thd_test' as ThreadId
 
 const tenant = 'tnt_alpha' as TenantId
 
@@ -58,7 +58,11 @@ interface DepsBundle {
 	events: MockedHandoffEventSink
 }
 
-function buildDeps(store: InMemorySessionStore, execOverride?: ExecFile): DepsBundle {
+function buildDeps(
+	store: InMemorySessionStore,
+	threadStore: InMemoryThreadStore,
+	execOverride?: ExecFile,
+): DepsBundle {
 	const exec: ExecFile = execOverride ? execOverride : async (_file, _args) => okExec()
 	const driver = new GitWorktreeDriver({
 		repoRoot: '/repo',
@@ -75,29 +79,36 @@ function buildDeps(store: InMemorySessionStore, execOverride?: ExecFile): DepsBu
 		onBroadcastRollback: vi.fn<(ev: HandoffBroadcastRollbackEvent) => void>(),
 	}
 
+	const threadManager = new ThreadManager({ threadStore, sessionStore: store })
 	return {
 		deps: {
 			store,
 			workspaceRegistry: registry,
 			capacity: new DefaultCapacityValidator(store),
 			events,
+			threadManager,
 		},
 		events,
 	}
 }
 
-async function seedIdle(store: InMemorySessionStore) {
+async function seedIdle(store: InMemorySessionStore, threadStore: InMemoryThreadStore) {
 	const project = await store.createProject({ tenantId: tenant, name: 'p' }, tenant)
-	const session = await store.createSession(
-		{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: user('usr_source') },
+	const thread = await threadStore.createThread(
+		{ projectId: project.id, title: 'handoff-broadcast-test' },
 		tenant,
 	)
-	return { project, session }
+	const session = await store.createSession(
+		{ threadId: thread.id, projectId: project.id, currentActor: user('usr_source') },
+		tenant,
+	)
+	return { project, thread, session }
 }
 
 function buildAssignments(
 	sourceSessionId: SessionId,
 	projectId: ProjectId,
+	threadId: Awaited<ReturnType<InMemoryThreadStore['createThread']>>['id'],
 	expectedOwnerVersion: number,
 	recipients: ActorRef[],
 	broadcastId = 'bc_1',
@@ -107,7 +118,7 @@ function buildAssignments(
 		mode: 'broadcast' as const,
 		sourceSessionId,
 		tenantId: tenant,
-		threadId: TEST_THREAD_ID,
+		threadId,
 		projectId,
 		sourceActor: user('usr_source'),
 		recipientActor,
@@ -119,16 +130,18 @@ function buildAssignments(
 
 describe('executeBroadcastHandoff', () => {
 	let store: InMemorySessionStore
+	let threadStore: InMemoryThreadStore
 
 	beforeEach(() => {
 		store = new InMemorySessionStore()
+		threadStore = new InMemoryThreadStore()
 	})
 
 	it('happy path: 3 recipients → source ends in awaiting_merge with 3 new children', async () => {
-		const { project, session } = await seedIdle(store)
-		const { deps, events } = buildDeps(store)
+		const { project, thread, session } = await seedIdle(store, threadStore)
+		const { deps, events } = buildDeps(store, threadStore)
 
-		const assignments = buildAssignments(session.id, project.id, 0, [
+		const assignments = buildAssignments(session.id, project.id, thread.id, 0, [
 			user('usr_bob'),
 			user('usr_carol'),
 			user('usr_dan'),
@@ -152,7 +165,7 @@ describe('executeBroadcastHandoff', () => {
 	})
 
 	it('rollback on mid-fan-out failure (2nd recipient worktree add fails): source reverts, rollback emits accurate partialState', async () => {
-		const { project, session } = await seedIdle(store)
+		const { project, thread, session } = await seedIdle(store, threadStore)
 
 		let addCount = 0
 		const exec: ExecFile = async (_file, args) => {
@@ -162,9 +175,9 @@ describe('executeBroadcastHandoff', () => {
 			}
 			return okExec()
 		}
-		const { deps, events } = buildDeps(store, exec)
+		const { deps, events } = buildDeps(store, threadStore, exec)
 
-		const assignments = buildAssignments(session.id, project.id, 0, [
+		const assignments = buildAssignments(session.id, project.id, thread.id, 0, [
 			user('usr_b'),
 			user('usr_c'),
 			user('usr_d'),
@@ -199,7 +212,7 @@ describe('executeBroadcastHandoff', () => {
 	})
 
 	it('rollback performs full cleanup via deleteSubSession/deleteSession (no status-flip stopgap)', async () => {
-		const { project, session } = await seedIdle(store)
+		const { project, thread, session } = await seedIdle(store, threadStore)
 
 		let addCount = 0
 		const exec: ExecFile = async (_file, args) => {
@@ -209,9 +222,12 @@ describe('executeBroadcastHandoff', () => {
 			}
 			return okExec()
 		}
-		const { deps } = buildDeps(store, exec)
+		const { deps } = buildDeps(store, threadStore, exec)
 
-		const assignments = buildAssignments(session.id, project.id, 0, [user('usr_b'), user('usr_c')])
+		const assignments = buildAssignments(session.id, project.id, thread.id, 0, [
+			user('usr_b'),
+			user('usr_c'),
+		])
 
 		await expect(executeBroadcastHandoff(deps, assignments, tenant)).rejects.toThrow()
 
@@ -227,7 +243,7 @@ describe('executeBroadcastHandoff', () => {
 	})
 
 	it('rollback idempotency: worktree dispose throwing during rollback does not bubble a secondary failure', async () => {
-		const { project, session } = await seedIdle(store)
+		const { project, thread, session } = await seedIdle(store, threadStore)
 
 		let addCount = 0
 		let removeCount = 0
@@ -245,9 +261,12 @@ describe('executeBroadcastHandoff', () => {
 			}
 			return okExec()
 		}
-		const { deps, events } = buildDeps(store, exec)
+		const { deps, events } = buildDeps(store, threadStore, exec)
 
-		const assignments = buildAssignments(session.id, project.id, 0, [user('usr_b'), user('usr_c')])
+		const assignments = buildAssignments(session.id, project.id, thread.id, 0, [
+			user('usr_b'),
+			user('usr_c'),
+		])
 
 		// Outer failure is the PRIMARY one — the secondary dispose failure is
 		// swallowed. Primary wraps in WorkspaceBackendError (create op).
@@ -265,11 +284,15 @@ describe('executeBroadcastHandoff', () => {
 	})
 
 	it('dedupe: two assignments targeting same recipient → rejected pre-lock (no side effects)', async () => {
-		const { project, session } = await seedIdle(store)
-		const { deps, events } = buildDeps(store)
+		const { project, thread, session } = await seedIdle(store, threadStore)
+		const { deps, events } = buildDeps(store, threadStore)
 
 		const bob = user('usr_bob')
-		const assignments = buildAssignments(session.id, project.id, 0, [bob, bob, user('usr_dan')])
+		const assignments = buildAssignments(session.id, project.id, thread.id, 0, [
+			bob,
+			bob,
+			user('usr_dan'),
+		])
 
 		await expect(executeBroadcastHandoff(deps, assignments, tenant)).rejects.toThrow(
 			/duplicate recipient/,
@@ -284,11 +307,11 @@ describe('executeBroadcastHandoff', () => {
 	})
 
 	it('width cap: 9 recipients exceeds default maxWidth=8 → rejected before source lock', async () => {
-		const { project, session } = await seedIdle(store)
-		const { deps, events } = buildDeps(store)
+		const { project, thread, session } = await seedIdle(store, threadStore)
+		const { deps, events } = buildDeps(store, threadStore)
 
 		const recipients = Array.from({ length: 9 }, (_, i) => user(`usr_${i}`))
-		const assignments = buildAssignments(session.id, project.id, 0, recipients)
+		const assignments = buildAssignments(session.id, project.id, thread.id, 0, recipients)
 
 		await expect(executeBroadcastHandoff(deps, assignments, tenant)).rejects.toThrow(
 			/Delegation capacity exceeded/,
@@ -301,12 +324,13 @@ describe('executeBroadcastHandoff', () => {
 	})
 
 	it('concurrent broadcast on same source: second attempt rejected with HandoffVersionConflict', async () => {
-		const { project, session } = await seedIdle(store)
-		const { deps } = buildDeps(store)
+		const { project, thread, session } = await seedIdle(store, threadStore)
+		const { deps } = buildDeps(store, threadStore)
 
 		const firstAssignments = buildAssignments(
 			session.id,
 			project.id,
+			thread.id,
 			0,
 			[user('usr_b'), user('usr_c')],
 			'bc_1',
@@ -325,6 +349,7 @@ describe('executeBroadcastHandoff', () => {
 		const second = buildAssignments(
 			session.id,
 			project.id,
+			thread.id,
 			0, // stale — actual is 1
 			[user('usr_d'), user('usr_e')],
 			'bc_2',
@@ -335,16 +360,16 @@ describe('executeBroadcastHandoff', () => {
 	})
 
 	it('empty assignments → throws a descriptive error', async () => {
-		const { deps } = buildDeps(store)
+		const { deps } = buildDeps(store, threadStore)
 		await expect(executeBroadcastHandoff(deps, [], tenant)).rejects.toThrow(
 			/assignments must not be empty/,
 		)
 	})
 
 	it('single-row broadcast → rejected (caller must use executeSingleHandoff)', async () => {
-		const { project, session } = await seedIdle(store)
-		const { deps } = buildDeps(store)
-		const assignments = buildAssignments(session.id, project.id, 0, [user('usr_b')])
+		const { project, thread, session } = await seedIdle(store, threadStore)
+		const { deps } = buildDeps(store, threadStore)
+		const assignments = buildAssignments(session.id, project.id, thread.id, 0, [user('usr_b')])
 
 		await expect(executeBroadcastHandoff(deps, assignments, tenant)).rejects.toThrow(
 			/single-recipient handoffs must use executeSingleHandoff/,

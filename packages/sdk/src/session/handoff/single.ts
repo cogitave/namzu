@@ -20,6 +20,7 @@
  *   9. Emit `onCommitted` with the new version.
  */
 
+import type { ThreadManager } from '../../manager/thread/lifecycle.js'
 import type { SessionId, TenantId } from '../../types/ids/index.js'
 import type { SessionStore } from '../../types/session/store.js'
 import { TenantIsolationError } from '../errors.js'
@@ -64,6 +65,12 @@ export interface SingleHandoffDeps {
 	capacity: CapacityValidator
 	events: HandoffEventSink
 	runStatus?: RunStatusResolver
+	/**
+	 * Gate the recipient-session creation on the Thread being `'open'`.
+	 * Added in Phase 2.6 to mirror spawn — a handoff into an archived
+	 * Thread would otherwise undermine `ThreadManager.archive`.
+	 */
+	threadManager: ThreadManager
 }
 
 /**
@@ -84,6 +91,12 @@ export async function executeSingleHandoff(
 			resource: `handoff-assignment(${assignment.id})`,
 		})
 	}
+
+	// Thread archive gate (Phase 2.6) — runs FIRST so an archived thread
+	// fails fastest with `ThreadClosedError` rather than a lock rejection or
+	// capacity error. Checked BEFORE the CAS lock so a denied handoff leaves
+	// the source session untouched.
+	await deps.threadManager.requireOpen(assignment.threadId, tenantId)
 
 	// 1. Load source session + tenant check.
 	const source = await deps.store.getSession(assignment.sourceSessionId, tenantId)

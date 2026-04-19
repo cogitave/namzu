@@ -4,7 +4,7 @@ import type { TokenUsage } from '../common/index.js'
 import type { RunId, SessionId, TaskId, TenantId } from '../ids/index.js'
 import type { Message } from '../message/index.js'
 import type { RunEventListener } from '../run/events.js'
-import type { ProjectId } from '../session/ids.js'
+import type { ProjectId, ThreadId } from '../session/ids.js'
 import type { AgentInput, BaseAgentConfig, BaseAgentResult } from './base.js'
 import type { Agent } from './core.js'
 import type { AgentFactoryOptions } from './factory.js'
@@ -24,9 +24,9 @@ export function isTerminalAgentTaskState(state: AgentTaskState): boolean {
 
 /**
  * Context carried into {@link AgentManager.sendMessage}. `tenantId`,
- * `sessionId`, `projectId`, and `parentActor` are required — the spawn path
- * is the ingress point for the session hierarchy; callers must provide the
- * full scoping set.
+ * `threadId`, `sessionId`, `projectId`, and `parentActor` are required —
+ * the spawn path is the ingress point for the session hierarchy; callers
+ * must provide the full scoping set.
  */
 export interface AgentTaskContext {
 	parentRunId: RunId
@@ -45,12 +45,25 @@ export interface AgentTaskContext {
 	tenantId: TenantId
 
 	/**
+	 * Topic the current task belongs to. Required in 0.3.0 — spawn copies
+	 * this onto the child session without a second ThreadStore round-trip,
+	 * and gates creation on {@link ThreadManager.requireOpen}. Children
+	 * inherit the parent's `threadId` verbatim; cross-thread spawn is
+	 * forbidden by design (a delegated sub-agent stays on the same topic).
+	 */
+	threadId: ThreadId
+
+	/**
 	 * Parent session under which any sub-agent spawn is recorded. Required
 	 * in 0.2.0; a spawn cannot be attributed without it.
 	 */
 	sessionId: SessionId
 
-	/** Long-lived goal scope. Required. */
+	/**
+	 * Long-lived goal scope. Required. Denormalized from the owning Thread
+	 * (see {@link Thread}) — structurally immutable per Phase 2.4 decision
+	 * (sessions never cross threads, threads never cross projects).
+	 */
 	projectId: ProjectId
 
 	/**
