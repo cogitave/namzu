@@ -88,7 +88,7 @@ Git tags with per-package prefixes drive releases (`sdk-v*`, `computer-use-v*`, 
 <workflow_safety>
 - Never push without explicit user approval.
 - Never run destructive ops (`git reset --hard`, `git push --force`, `rm -rf`, `npm unpublish`) without explicit approval.
-- Never skip hooks (`--no-verify`, `--no-gpg-sign`) unless the user explicitly asks.
+- Never skip hooks (`--no-verify`, `--no-gpg-sign`) unless the user explicitly asks. The husky `pre-commit` hook (`.husky/pre-commit`) machine-enforces the per-commit progress gate: every active session in `docs.local/sessions/README.md` must have a `progress.md` mtime newer than the staged files. Bypass with `--no-verify` is forbidden by this rule, not by the hook itself.
 - File-scoped operations (lint, unit tests) may run freely. Risky operations (installs, pushes, infrastructure changes) require approval.
 </workflow_safety>
 

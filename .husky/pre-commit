@@ -1,0 +1,80 @@
+#!/usr/bin/env sh
+# Pre-commit progress gate (ses_002-workflow-discipline).
+#
+# For every in-progress session under docs.local/sessions/, verify that
+# progress.md has been updated at least as recently as the most recent
+# staged file. If not, fail with a pointer to the commit skill Step 5.
+#
+# This hook prevents the failure mode that produced ses_001's six-commit
+# gap (2026-04-18 → 2026-04-19) — silent skipping of progress entries
+# under flow. The hook does not eliminate bypass; --no-verify still works
+# but is forbidden by AGENTS.md <workflow_safety> without explicit user
+# permission.
+#
+# docs.local/ is gitignored, so progress.md never enters a commit. The
+# discipline is the synchronous-update timing, not the commit contents.
+
+set -e
+
+INDEX="docs.local/sessions/README.md"
+
+# No index → no sessions to gate.
+[ -f "$INDEX" ] || exit 0
+
+# Extract in-progress + draft sessions from the index table.
+# Rows look like:  | ses_001 | hierarchy-redesign | in-progress | 2026-04-18 | — |
+sessions=$(awk -F'|' '
+  /^\| ses_/ {
+    id = $2; gsub(/[ \t]/, "", id)
+    slug = $3; gsub(/^[ \t]+|[ \t]+$/, "", slug)
+    state = $4; gsub(/[ \t]/, "", state)
+    if (state == "draft" || state == "in-progress") {
+      print id "-" slug
+    }
+  }
+' "$INDEX")
+
+[ -z "$sessions" ] && exit 0
+
+# Portable mtime helper (macOS uses -f %m, GNU uses -c %Y).
+mtime() {
+  stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null
+}
+
+# Newest staged-file mtime.
+staged_mtime=0
+for f in $(git diff --cached --name-only --diff-filter=ACMR); do
+  [ -f "$f" ] || continue
+  m=$(mtime "$f")
+  [ -n "$m" ] && [ "$m" -gt "$staged_mtime" ] && staged_mtime=$m
+done
+
+[ "$staged_mtime" -eq 0 ] && exit 0
+
+failed=""
+for sess in $sessions; do
+  pfile="docs.local/sessions/${sess}/progress.md"
+  if [ ! -f "$pfile" ]; then
+    echo "✗ pre-commit: session ${sess} is active in ${INDEX} but ${pfile} is missing." >&2
+    failed=1
+    continue
+  fi
+  pmtime=$(mtime "$pfile")
+  if [ -z "$pmtime" ] || [ "$pmtime" -lt "$staged_mtime" ]; then
+    echo "✗ pre-commit: ${pfile} is older than staged files. Add an entry per the commit skill Step 5 before committing." >&2
+    failed=1
+  fi
+done
+
+if [ -n "$failed" ]; then
+  echo "" >&2
+  echo "  Active sessions found in $INDEX:" >&2
+  for sess in $sessions; do echo "    - $sess" >&2; done
+  echo "" >&2
+  echo "  Procedure: .claude/skills/commit/SKILL.md (Step 5)." >&2
+  echo "  Bypass (forbidden without explicit user permission): git commit --no-verify ..." >&2
+  echo "" >&2
+  exit 1
+fi
+
+exit 0

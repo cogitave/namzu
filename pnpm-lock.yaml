@@ -14,6 +14,9 @@ importers:
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.17
+      husky:
+        specifier: ^9.1.7
+        version: 9.1.7
       tsx:
         specifier: ^4.19.0
         version: 4.21.0
@@ -129,7 +132,7 @@ importers:
     dependencies:
       '@anthropic-ai/sdk':
         specifier: ^0.89.0
-        version: 0.89.0(zod@3.25.76)
+        version: 0.89.0(zod@4.3.6)
     devDependencies:
       '@biomejs/biome':
         specifier: ^1.9.4
@@ -235,7 +238,7 @@ importers:
     dependencies:
       openai:
         specifier: ^6.0.0
-        version: 6.34.0(ws@8.20.0)(zod@3.25.76)
+        version: 6.34.0(ws@8.20.0)(zod@4.3.6)
     devDependencies:
       '@biomejs/biome':
         specifier: ^1.9.4
@@ -1543,6 +1546,11 @@ packages:
     resolution: {integrity: sha512-mx/p18PLy5og9ufies2GOSUqep98Td9q4i/EF6X7yJgAiIopxqdfIO3jbqsi3jRgTgw88jMDEzVKi+V2EF+27w==}
     engines: {node: '>=16.9.0'}
 
+  husky@9.1.7:
+    resolution: {integrity: sha512-5gs5ytaNjBrh5Ow3zrvdUUY+0VxIuWVL4i9irt6friV+BqdCfmV11CQTWMiBYWHbXhco+J1kHfTOUkePhCDvMA==}
+    engines: {node: '>=18'}
+    hasBin: true
+
   import-in-the-middle@1.15.0:
     resolution: {integrity: sha512-bpQy+CrsRmYmoPMAE/0G33iwRqwW4ouqdRg8jgbH3aKuCtOc8lxgmYXg2dMM92CRiGP660EtBcymH/eVUpCSaA==}
 
@@ -1835,13 +1843,16 @@ packages:
   zod@3.25.76:
     resolution: {integrity: sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ==}
 
+  zod@4.3.6:
+    resolution: {integrity: sha512-rftlrkhHZOcjDwkGlnUtZZkvaPHCsDATp4pGpuOOMDaTdDDXF91wuVDJoWoPsKX/3YPQ5fHuF3STjcYyKr+Qhg==}
+
 snapshots:
 
-  '@anthropic-ai/sdk@0.89.0(zod@3.25.76)':
+  '@anthropic-ai/sdk@0.89.0(zod@4.3.6)':
     dependencies:
       json-schema-to-ts: 3.1.1
     optionalDependencies:
-      zod: 3.25.76
+      zod: 4.3.6
 
   '@aws-crypto/crc32@5.2.0':
     dependencies:
@@ -3295,6 +3306,8 @@ snapshots:
 
   hono@4.12.10: {}
 
+  husky@9.1.7: {}
+
   import-in-the-middle@1.15.0:
     dependencies:
       acorn: 8.16.0
@@ -3335,10 +3348,10 @@ snapshots:
     dependencies:
       whatwg-fetch: 3.6.20
 
-  openai@6.34.0(ws@8.20.0)(zod@3.25.76):
+  openai@6.34.0(ws@8.20.0)(zod@4.3.6):
     optionalDependencies:
       ws: 8.20.0
-      zod: 3.25.76
+      zod: 4.3.6
 
   path-expression-matcher@1.2.1: {}
 
@@ -3638,3 +3651,6 @@ snapshots:
       zod: 3.25.76
 
   zod@3.25.76: {}
+
+  zod@4.3.6:
+    optional: true
