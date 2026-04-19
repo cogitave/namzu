@@ -460,40 +460,60 @@ export class AgentManager {
 			context.tenantId,
 		)
 
-		// Flip to 'active' so the materializer's atomic write + status flip
-		// lands on terminal — §5.3: pending→active→idle.
-		await store.updateSession({ ...childSession, status: 'active' }, context.tenantId)
-
-		const subSession = await store.createSubSession(
-			{
-				parentSessionId: options.parentSessionId,
-				childSessionId: childSession.id,
-				kind: 'agent_spawn',
-				spawnedBy: context.parentActor,
-				failureMode: 'delegate',
-				completionMode: 'summary_ref',
-			},
-			context.tenantId,
-		)
-
-		// Workspace provisioning — best-effort. When the requested backend is
-		// registered we create a new workspace for the child; failures surface
-		// as WorkspaceBackendError and abort the spawn (Convention #0: no
-		// silent fallback). Pattern doc §7.1 allows lazy provisioning: an
-		// unregistered backend leaves `workspaceRef: undefined` on the spawn
-		// record, not a hard error — the registry is the capability surface.
+		// Compensating rollback wraps every mutation after createSession so a
+		// mid-flight failure (status flip, subsession insert, workspace driver)
+		// leaves no orphan child session. Codex SPAWN-ROLLBACK critique (Phase
+		// 2 review, 2026-04-18): without this, `workspaceRegistry.get().create`
+		// throwing — or a concurrent `updateSession` race — strands an
+		// `active` child session with no subsession edge, invisible to the
+		// parent but counted against `maxDelegationWidth`.
+		let subSession: Awaited<ReturnType<typeof store.createSubSession>> | undefined
 		let workspaceRef: WorkspaceRef | undefined
-		const backend = options.workspaceBackend ?? 'git-worktree'
-		if (this.deps.workspaceRegistry.has(backend)) {
-			const driver = this.deps.workspaceRegistry.get(backend)
-			try {
+		try {
+			// Flip to 'active' so the materializer's atomic write + status flip
+			// lands on terminal — §5.3: pending→active→idle.
+			await store.updateSession({ ...childSession, status: 'active' }, context.tenantId)
+
+			subSession = await store.createSubSession(
+				{
+					parentSessionId: options.parentSessionId,
+					childSessionId: childSession.id,
+					kind: 'agent_spawn',
+					spawnedBy: context.parentActor,
+					failureMode: 'delegate',
+					completionMode: 'summary_ref',
+				},
+				context.tenantId,
+			)
+
+			// Workspace provisioning — best-effort. When the requested backend
+			// is registered we create a new workspace for the child; failures
+			// surface as WorkspaceBackendError and abort the spawn (Convention
+			// #0: no silent fallback). Pattern doc §7.1 allows lazy
+			// provisioning: an unregistered backend leaves `workspaceRef:
+			// undefined` on the spawn record, not a hard error — the registry
+			// is the capability surface.
+			const backend = options.workspaceBackend ?? 'git-worktree'
+			if (this.deps.workspaceRegistry.has(backend)) {
+				const driver = this.deps.workspaceRegistry.get(backend)
 				workspaceRef = await driver.create({ label: subSession.id })
-			} catch (err) {
-				// Surface the failure — the subsession record exists but is
-				// unusable without a workspace. Dispose any partial state.
-				await store.updateSubSession({ ...subSession, status: 'failed' }, context.tenantId)
-				throw err
 			}
+		} catch (err) {
+			// Compensating rollback order is mandated by the store's
+			// deny-by-default cascade policy (Convention #5): `deleteSession`
+			// throws when any subsession still references it, so the subsession
+			// record must be removed first. No failed-subsession audit row is
+			// kept — the `subsession_spawned` run event never fired (we aborted
+			// before `buildSpawnRecord`), so no observer is expecting one, and
+			// leaving a `status: 'failed'` breadcrumb would be a dangling
+			// record with no corresponding emission. The original `err` is the
+			// caller-visible signal; cleanup errors are swallowed so they
+			// cannot mask it.
+			if (subSession !== undefined) {
+				await store.deleteSubSession(subSession.id, context.tenantId).catch(() => undefined)
+			}
+			await store.deleteSession(childSession.id, context.tenantId).catch(() => undefined)
+			throw err
 		}
 
 		return {
