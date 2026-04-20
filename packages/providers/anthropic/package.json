@@ -1,6 +1,6 @@
 {
   "name": "@namzu/anthropic",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Anthropic LLM provider for @namzu/sdk via the official @anthropic-ai/sdk. Messages API with streaming, tool-use, and extended thinking support.",
   "license": "FSL-1.1-MIT",
   "type": "module",

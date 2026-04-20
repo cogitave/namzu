@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.3.0
+
+### Minor Changes
+
+- 40eb841: Unblock BYO-provider use of `AgentManager.spawn` and capture the full 0.2.x → 0.3.0 window.
+
+  **Bug Fixes**
+
+  - `AgentManager.sendMessage` no longer requires both `configBuilder` AND `factoryOptions` together. The configBuilder now runs whenever it is registered; `factoryOptions` defaults to `{}` when absent. This closes the silent crash path that consumers following README's "getting started" install hit with Bedrock (ERESOLVE → bare-config → ReactiveAgent null access).
+  - `AgentFactoryOptions.apiKey` is now optional. BYO-provider flows (Bedrock IAM, custom `ProviderRegistry.create(...)`) no longer need to fabricate a meaningless empty `apiKey` just to satisfy the type.
+
+  **Breaking Changes carried over from the 0.2.x → 0.3.0 window**
+
+  - `feat(sdk)!: propagate threadId through runtime + wire archive gate` — childConfig now receives `sessionId/threadId/projectId/tenantId` automatically from the parent context (stamped by AgentManager after configBuilder returns). configBuilder implementations that previously emitted these fields manually are unaffected; implementations relying on the old 0.2.0 three-ID triple (`sessionId/projectId/tenantId` without `threadId`) will now see `threadId` populated on the child config.
+
+  **Other**
+
+  - `knip` integrated as the dead-code detector (dev-only, no runtime surface change).
+  - `ThreadManager.archive`/`delete` primitives added to `SessionStore`; wire-side `thread_id` renamed during the Thread→Project wire refactor (internal rename).
+
+  See commits since `sdk-v0.2.0` for the full list; this changeset captures the visible-to-consumer summary.
+
 All notable changes to Namzu are documented here.
 
 ## [0.2.0] — 2026-04-17
@@ -15,56 +37,69 @@ All notable changes to Namzu are documented here.
 - **sdk**: add SessionStore + PathBuilder + git-worktree workspace driver (Phase 3) [**BREAKING**]
 - **sdk**: add RunEvent schemaVersion + sub-session lifecycle events (Phase 2) [**BREAKING**]
 - **sdk**: introduce session hierarchy type foundation (Phase 1) [**BREAKING**]
+
 ### Testing
 
 - **sdk**: add Task 10 integration test coverage matrix (Phase 10)
+
 ## [0.1.8] — 2026-04-15
 
 ### Documentation
 
 - **changelog**: update for sdk-v0.1.7
 - **readme**: rewrite root + fix sdk stale ProviderFactory refs
+
 ## [0.1.7] — 2026-04-15
 
 ### Documentation
 
 - **changelog**: add 0.1.6 (sdk) and 0.1.0 (computer-use) entries; fix cliff tag prefix + workflow race
 - **changelog**: update for sdk-v0.1.6-rc.1
+
 ### Features
 
 - **bedrock**: extract BedrockProvider to @namzu/bedrock package (Phase I.3 pilot)
 - **openrouter**: extract OpenRouterProvider to @namzu/openrouter package (Phase I.4)
+
 ### Refactor
 
 - **sdk**: address Codex review — scope providers/ subfolder, hide registry reset
 - **sdk**: replace ProviderFactory with ProviderRegistry for per-vendor extraction [**BREAKING**]
+
 ## [0.1.6-rc.1] — 2026-04-15
 
 ### Documentation
 
 - **changelog**: update for v0.1.5
+
 ### Features
 
 - **sdk**: add ComputerUseHost interface and computer_use tool
+
 ### Miscellaneous
 
 - initialize namzu monorepo from sdk; add @namzu/computer-use capability package
+
 ## [0.1.5] — 2026-04-15
 
 ### Bug Fixes
 
 - **emergency**: uuid tmp suffix, outer try/catch, and explicit exit
 - **store**: resolve withLock race, delete deadlock, and atomic edge updates
+
 ### Documentation
 
 - **changelog**: update for v0.1.5-rc.2
+
 ### Refactor
 
 - **barrels**: route root barrel through sub-barrels (Path B)
 - **connector**: brand ConnectorId/TenantId on public interfaces [**BREAKING**]
+
 ### Testing
 
 - **store**: add concurrency regression tests for DiskTaskStore
+
 ## [0.1.5-rc.2] — 2026-04-14
 
 ### Bug Fixes
@@ -72,37 +107,45 @@ All notable changes to Namzu are documented here.
 - **plugin**: wire MCP servers and fail fast on unsupported contributions
 - **plugin**: consume hook results and wire tool hooks in runtime
 - **release**: normalize pre-release counter to strip non-digit suffix
+
 ### Documentation
 
 - **changelog**: update for v0.1.5-rc.1-fix
 - **contracts**: formalize wire/domain duality + refresh README
 - **readme**: rewrite code examples to match current SDK API
+
 ### Refactor
 
 - **plugin**: remove duplicate PluginConfigSchema in types/
 - **registry**: migrate Agent/Connector/Tool registries to ManagedRegistry
-- **run**: remove legacy Session* aliases for run-centric classes
+- **run**: remove legacy Session\* aliases for run-centric classes
+
 ## [0.1.5-rc.1] — 2026-04-12
 
 ### Documentation
 
 - **changelog**: update for v0.1.4
+
 ### Refactor
 
 - architectural cleanup and infrastructure improvements
+
 ## [0.1.4] — 2026-04-11
 
 ### Documentation
 
 - **changelog**: update for v0.1.4-rc.3
+
 ### Features
 
 - sandbox isolation, new tools (edit/grep/ls), session-to-run migration
+
 ## [0.1.4-rc.3] — 2026-04-10
 
 ### Miscellaneous
 
 - **release**: derive version from git tag, no manual bump needed
+
 ## [0.1.4-rc.2] — 2026-04-10
 
 ### Bug Fixes
@@ -110,35 +153,43 @@ All notable changes to Namzu are documented here.
 - **ci**: remove duplicate --strip flag in git-cliff command
 - **plugin**: rename session hooks to run_start/run_end
 - **release**: use tag name as release title instead of prefixed name
+
 ### Features
 
 - P3 + plugin architecture — emergency save, memory index, plugin system
 - P2 — AgentBus, prompt cache split, verification gate
 - integrate compaction loop and advisory phase into iteration pipeline
+
 ### Miscellaneous
 
 - **changelog**: automate CHANGELOG.md via git-cliff in release workflow
+
 ## [0.1.4-rc.1] — 2026-04-10
 
 ### Bug Fixes
 
 - add description field to package.json, reorder README badges
+
 ### Features
 
 - **advisory**: provider-agnostic advisory system with three-layer architecture
 - structured compaction, tool tiering, task router
 - output discipline, shell compression, pre-release workflow
+
 ### Miscellaneous
 
 - remove BEFORE-RELEASE.md from repo
+
 ## [0.1.3] — 2026-04-10
 
 ### Bug Fixes
 
 - point entry fields to dist/ for bundler compatibility
+
 ### Documentation
 
 - add npm, ci, license, typescript, node badges to README
+
 ## [0.1.2] — 2026-04-10
 
 ### Other
@@ -148,7 +199,7 @@ All notable changes to Namzu are documented here.
 Open-source AI agent framework by cogitave.
 
 Let's build the agent layer together.
+
 ### Refactor
 
 - constants centralization, strict lint, release automation
-
