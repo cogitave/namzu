@@ -1,8 +1,9 @@
 name: CI
 
+# PR-only gate. The post-merge validation on `main` lives in release.yml so
+# we don't run the same matrix twice per merge cycle. Direct-to-main pushes
+# are validated by release.yml's own inline validation before publish.
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
 

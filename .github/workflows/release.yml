@@ -1,13 +1,18 @@
 name: Release
 
-# Only run after CI has succeeded on main. workflow_run decouples the
-# release job from the validation job while keeping them in lockstep:
-# if CI is red, release never starts. No duplicate lint/test/build.
+# Runs on every push to main — both direct pushes and merge commits from
+# PRs. This workflow is self-contained: it runs the full validation
+# matrix before touching the Changesets action, so it can stand alone
+# without the pre-merge ci.yml run.
+#
+# Per PR merge cycle:
+#   - PR opened:   ci.yml runs (pre-merge gate)
+#   - PR merged:   release.yml runs (post-merge validation + publish)
+# Total: 2 matrix runs per cycle, not 3 (was: CI-on-PR + CI-on-main + Release).
 on:
-  workflow_run:
-    workflows: ["CI"]
-    types: [completed]
-    branches: [main]
+  push:
+    branches:
+      - main
 
 concurrency:
   group: release-${{ github.ref }}
@@ -22,16 +27,10 @@ jobs:
   release:
     name: Release (Changesets)
     runs-on: ubuntu-latest
-    # Gate: only run if the triggering CI run succeeded. Otherwise skip.
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          # workflow_run events fire with the workflow file from the
-          # default branch, but checkout needs to point at the commit
-          # CI actually validated.
-          ref: ${{ github.event.workflow_run.head_sha }}
 
       - uses: pnpm/action-setup@v4
 
@@ -44,8 +43,37 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
       - name: Build
         run: pnpm -r build
+
+      - name: Test
+        run: pnpm -r test
+
+      - name: publint (package.json shape)
+        run: |
+          for pkg in sdk computer-use providers/anthropic providers/bedrock providers/http providers/lmstudio providers/ollama providers/openai providers/openrouter; do
+            echo "::group::publint packages/$pkg"
+            npx -y publint@latest packages/$pkg
+            echo "::endgroup::"
+          done
+
+      - name: Are the types wrong? (type resolution)
+        run: |
+          rm -rf /tmp/attw-pack && mkdir -p /tmp/attw-pack
+          for pkg in sdk computer-use anthropic bedrock http lmstudio ollama openai openrouter; do
+            pnpm --filter "@namzu/$pkg" pack --pack-destination /tmp/attw-pack >/dev/null
+          done
+          for tarball in /tmp/attw-pack/*.tgz; do
+            echo "::group::attw $(basename $tarball)"
+            npx -y @arethetypeswrong/cli@latest --pack "$tarball" --ignore-rules cjs-resolves-to-esm
+            echo "::endgroup::"
+          done
 
       # Pre-publish consumer install check. Runs only when this commit is
       # the merged "Version Packages" PR (the one Changesets opens to bump
@@ -53,7 +81,7 @@ jobs:
       # action only refreshes the Version Packages PR and this gate is
       # skipped — no need to pack 9 tarballs on unrelated commits.
       - name: Pre-publish consumer install check
-        if: "${{ startsWith(github.event.workflow_run.head_commit.message, 'chore(release): version packages') }}"
+        if: "${{ startsWith(github.event.head_commit.message, 'chore(release): version packages') }}"
         run: bash .github/scripts/verify-consumer-install.sh
 
       - name: Create Release Pull Request or Publish
