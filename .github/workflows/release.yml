@@ -57,7 +57,7 @@ jobs:
 
       - name: publint (package.json shape)
         run: |
-          for pkg in sdk computer-use providers/anthropic providers/bedrock providers/http providers/lmstudio providers/ollama providers/openai providers/openrouter; do
+          for pkg in sdk telemetry computer-use providers/anthropic providers/bedrock providers/http providers/lmstudio providers/ollama providers/openai providers/openrouter; do
             echo "::group::publint packages/$pkg"
             npx -y publint@latest packages/$pkg
             echo "::endgroup::"
@@ -66,7 +66,7 @@ jobs:
       - name: Are the types wrong? (type resolution)
         run: |
           rm -rf /tmp/attw-pack && mkdir -p /tmp/attw-pack
-          for pkg in sdk computer-use anthropic bedrock http lmstudio ollama openai openrouter; do
+          for pkg in sdk telemetry computer-use anthropic bedrock http lmstudio ollama openai openrouter; do
             pnpm --filter "@namzu/$pkg" pack --pack-destination /tmp/attw-pack >/dev/null
           done
           for tarball in /tmp/attw-pack/*.tgz; do
