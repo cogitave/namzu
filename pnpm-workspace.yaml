@@ -1,3 +1,11 @@
 packages:
   - "packages/*"
   - "packages/providers/*"
+  # Exclude gitignored application packages. They exist locally for dev
+  # (root scripts run them via `tsx packages/<x>/src/index.ts` directly)
+  # but are not Git-tracked, so CI never sees them. Keeping them as
+  # workspace members would break Changesets config validation on CI
+  # (an `ignore` list pointing at packages missing from the checkout).
+  - "!packages/agents"
+  - "!packages/api"
+  - "!packages/cli"
