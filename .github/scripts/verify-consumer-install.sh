@@ -125,6 +125,7 @@ npm install --no-fund --no-audit --silent \
   "$TELEMETRY_TARBALL" \
   @opentelemetry/api@^1.9.0 \
   @opentelemetry/sdk-trace-base@^1.30.0 \
+  @opentelemetry/sdk-trace-node@^1.30.0 \
   zod@^3.23.0 \
   zod-to-json-schema@^3.23.0
 
@@ -175,55 +176,65 @@ node assert-api-identity.mjs
 # the SDK side.
 
 cat > assert-span-smoke.mjs <<'EOF'
-import { registerTelemetry, getTracer as getTracerFromTelemetry } from '@namzu/telemetry'
+// Exercises the SDK tracer path ('namzu' namespace — same string used
+// internally by @namzu/sdk's runtime-accessors.ts) and asserts an
+// InMemorySpanExporter captures the span. This proves (a)
+// registerTelemetry mutates @opentelemetry/api's globals to a real
+// TracerProvider, (b) the SDK-side code path would produce valid spans
+// post-registration, (c) the full export pipeline wires up.
+import { registerTelemetry } from '@namzu/telemetry'
 import { trace } from '@opentelemetry/api'
+import { InMemorySpanExporter, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base'
 
+// The fixture uses exporterType: 'none' on purpose. After the Round-4
+// fix, 'none' still installs a real TracerProvider — only the exporter
+// is suppressed. We ATTACH our own InMemorySpanExporter directly to
+// the registered TracerProvider via its addSpanProcessor method. That
+// way spans emitted through @opentelemetry/api globals get captured
+// without writing to the console or needing an OTLP endpoint.
 const telemetry = await registerTelemetry({
   serviceName: 'verify-consumer-install',
   exporterType: 'none',
 })
 
-// After registerTelemetry, @opentelemetry/api's global TracerProvider
-// should be non-no-op. The cheapest distinguishing property: a span
-// created through trace.getTracer(...).startSpan(...) has a non-zero
-// spanId and a non-zero traceId in its context.
-const tracer = trace.getTracer('smoke-check')
-const span = tracer.startSpan('smoke')
-const ctx = span.spanContext()
+const inMemory = new InMemorySpanExporter()
+// @ts-ignore — addSpanProcessor exists on NodeTracerProvider.
+telemetry['tracerProvider'].addSpanProcessor(new SimpleSpanProcessor(inMemory))
+
+// This is THE SDK path: @namzu/sdk's internal getTracer() calls
+// trace.getTracer('namzu'). If it produces a valid span, the SDK's
+// own spans will too.
+const tracer = trace.getTracer('namzu')
+const span = tracer.startSpan('verify.sdk.span')
+span.setAttribute('test', true)
 span.end()
 
+await telemetry.shutdown()
+
+const collected = inMemory.getFinishedSpans()
+if (collected.length === 0) {
+  console.error('✗ span-smoke: InMemorySpanExporter captured zero spans')
+  console.error('  registerTelemetry must install a real TracerProvider that forwards to attached processors.')
+  process.exit(1)
+}
+
+const captured = collected[0]
 const zeroSpanId = '0000000000000000'
 const zeroTraceId = '00000000000000000000000000000000'
-if (ctx.spanId === zeroSpanId || ctx.traceId === zeroTraceId) {
-  console.error('✗ span smoke check failed: spans resolved through a no-op tracer provider')
-  console.error('  spanContext = ' + JSON.stringify(ctx))
-  console.error('  registerTelemetry did not mutate @opentelemetry/api globals correctly.')
-  await telemetry.shutdown()
+if (captured.spanContext().spanId === zeroSpanId) {
+  console.error('✗ span-smoke: captured span has zero spanId — tracer provider is no-op')
+  process.exit(1)
+}
+if (captured.spanContext().traceId === zeroTraceId) {
+  console.error('✗ span-smoke: captured span has zero traceId — tracer provider is no-op')
+  process.exit(1)
+}
+if (captured.name !== 'verify.sdk.span') {
+  console.error('✗ span-smoke: unexpected span name captured: ' + captured.name)
   process.exit(1)
 }
 
-// Also confirm @namzu/telemetry's getTracer() and @opentelemetry/api's
-// trace.getTracer() see the same provider — if they don't, the split
-// was subtler than what assertion 1 caught.
-const fromTel = getTracerFromTelemetry()
-const fromApi = trace.getTracer('namzu')
-// These are both proxies over the global TracerProvider; test that both
-// produce spans with valid trace context.
-const spanTel = fromTel.startSpan('from-telemetry')
-const spanApi = fromApi.startSpan('from-api')
-if (spanTel.spanContext().spanId === zeroSpanId) {
-  console.error('✗ @namzu/telemetry getTracer() returned no-op tracer')
-  process.exit(1)
-}
-if (spanApi.spanContext().spanId === zeroSpanId) {
-  console.error('✗ @opentelemetry/api trace.getTracer("namzu") returned no-op tracer')
-  process.exit(1)
-}
-spanTel.end()
-spanApi.end()
-
-await telemetry.shutdown()
-console.log('✅ span smoke: registerTelemetry mutated api globals; spans have valid context')
+console.log('✅ span-smoke: InMemorySpanExporter captured 1 span with name "' + captured.name + '" via trace.getTracer("namzu")')
 EOF
 
 node assert-span-smoke.mjs

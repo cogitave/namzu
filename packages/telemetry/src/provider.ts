@@ -7,11 +7,13 @@ import {
 	MeterProvider,
 	PeriodicExportingMetricReader,
 } from '@opentelemetry/sdk-metrics'
-import { NodeSDK } from '@opentelemetry/sdk-node'
-import { ConsoleSpanExporter, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-node'
+import {
+	ConsoleSpanExporter,
+	NodeTracerProvider,
+	SimpleSpanProcessor,
+} from '@opentelemetry/sdk-trace-node'
 import type { TelemetryConfig } from './types.js'
-
-const PACKAGE_VERSION = '0.0.0'
+import { VERSION } from './version.js'
 
 function toErrorMessage(err: unknown): string {
 	if (err instanceof Error) return err.message
@@ -24,7 +26,7 @@ function toErrorMessage(err: unknown): string {
 }
 
 export class TelemetryProvider {
-	private sdk: NodeSDK | null = null
+	private tracerProvider: NodeTracerProvider | null = null
 	private meterProvider: MeterProvider | null = null
 	private config: TelemetryConfig
 	private _tracer: Tracer | null = null
@@ -36,67 +38,69 @@ export class TelemetryProvider {
 
 	get tracer(): Tracer {
 		if (!this._tracer) {
-			this._tracer = trace.getTracer(
-				this.config.serviceName,
-				this.config.serviceVersion ?? PACKAGE_VERSION,
-			)
+			this._tracer = trace.getTracer(this.config.serviceName, this.config.serviceVersion ?? VERSION)
 		}
 		return this._tracer
 	}
 
 	get meter(): Meter {
 		if (!this._meter) {
-			this._meter = metrics.getMeter(
-				this.config.serviceName,
-				this.config.serviceVersion ?? PACKAGE_VERSION,
-			)
+			this._meter = metrics.getMeter(this.config.serviceName, this.config.serviceVersion ?? VERSION)
 		}
 		return this._meter
 	}
 
+	/**
+	 * Install a real TracerProvider and MeterProvider on @opentelemetry/api
+	 * globals. ALWAYS installs — even when exporterType is 'none' — so the
+	 * api surface stays live (spans get valid contexts, meters accept
+	 * writes). The exporterType switch only controls whether anything is
+	 * actually EMITTED downstream: 'none' means no span processor and no
+	 * metric reader, so spans created through the real provider are
+	 * discarded at end() without touching any exporter.
+	 *
+	 * This matches the docs' stated semantics: "Disable exporter startup
+	 * while keeping the API surface available." (docs/sdk/observability
+	 * /README.md §4).
+	 */
 	async start(): Promise<void> {
-		if (this.config.exporterType === 'none') {
-			return
-		}
-
 		const resource = new Resource({
 			'service.name': this.config.serviceName,
-			'service.version': this.config.serviceVersion ?? PACKAGE_VERSION,
+			'service.version': this.config.serviceVersion ?? VERSION,
 		})
 
-		const traceExporter =
-			this.config.exporterType === 'otlp'
-				? new OTLPTraceExporter({
-						url: this.config.otlpEndpoint ? `${this.config.otlpEndpoint}/v1/traces` : undefined,
-						headers: this.config.otlpHeaders,
-					})
-				: new ConsoleSpanExporter()
+		const tracerProvider = new NodeTracerProvider({ resource })
+		if (this.config.exporterType !== 'none') {
+			const traceExporter =
+				this.config.exporterType === 'otlp'
+					? new OTLPTraceExporter({
+							url: this.config.otlpEndpoint ? `${this.config.otlpEndpoint}/v1/traces` : undefined,
+							headers: this.config.otlpHeaders,
+						})
+					: new ConsoleSpanExporter()
+			tracerProvider.addSpanProcessor(new SimpleSpanProcessor(traceExporter))
+		}
+		tracerProvider.register()
+		this.tracerProvider = tracerProvider
 
-		const metricExporter =
-			this.config.exporterType === 'otlp'
-				? new OTLPMetricExporter({
-						url: this.config.otlpEndpoint ? `${this.config.otlpEndpoint}/v1/metrics` : undefined,
-						headers: this.config.otlpHeaders,
-					})
-				: new ConsoleMetricExporter()
-
-		this.meterProvider = new MeterProvider({
-			resource,
-			readers: [
+		const metricReaders: PeriodicExportingMetricReader[] = []
+		if (this.config.exporterType !== 'none') {
+			const metricExporter =
+				this.config.exporterType === 'otlp'
+					? new OTLPMetricExporter({
+							url: this.config.otlpEndpoint ? `${this.config.otlpEndpoint}/v1/metrics` : undefined,
+							headers: this.config.otlpHeaders,
+						})
+					: new ConsoleMetricExporter()
+			metricReaders.push(
 				new PeriodicExportingMetricReader({
 					exporter: metricExporter,
 					exportIntervalMillis: this.config.metricExportIntervalMs ?? 10_000,
 				}),
-			],
-		})
+			)
+		}
+		this.meterProvider = new MeterProvider({ resource, readers: metricReaders })
 		metrics.setGlobalMeterProvider(this.meterProvider)
-
-		this.sdk = new NodeSDK({
-			resource,
-			spanProcessor: new SimpleSpanProcessor(traceExporter),
-		})
-
-		this.sdk.start()
 	}
 
 	async shutdown(): Promise<void> {
@@ -104,8 +108,8 @@ export class TelemetryProvider {
 			if (this.meterProvider) {
 				await this.meterProvider.shutdown()
 			}
-			if (this.sdk) {
-				await this.sdk.shutdown()
+			if (this.tracerProvider) {
+				await this.tracerProvider.shutdown()
 			}
 		} catch (err) {
 			// biome-ignore lint/suspicious/noConsole: shutdown is the error-of-last-resort path; no app logger available here
@@ -119,19 +123,18 @@ let _globalProvider: TelemetryProvider | null = null
 /**
  * Install a TelemetryProvider as the process-global trace + meter provider.
  *
- * Mutates `@opentelemetry/api`'s global TracerProvider and MeterProvider via
- * `NodeSDK.start()` (which calls `trace.setGlobalTracerProvider`) and an
- * explicit `metrics.setGlobalMeterProvider(...)` call inside
- * `TelemetryProvider.start()`. This is the OTEL library/application pattern
- * documented by the OpenTelemetry project. It is not dependency injection.
+ * Mutates `@opentelemetry/api`'s global TracerProvider and MeterProvider —
+ * always, regardless of `exporterType`. OTEL-idiomatic library/application
+ * pattern; not dependency injection.
  *
- * MUST be awaited: `start()` returns `Promise<void>` and attaches the OTEL
- * Node SDK asynchronously. Firing-and-forgetting would detach startup
- * failures into an unhandled rejection and hide misconfigurations.
+ * MUST be awaited: `start()` returns `Promise<void>` and configures the
+ * trace + metric pipelines asynchronously. Firing-and-forgetting would
+ * detach startup failures into an unhandled rejection and hide
+ * misconfigurations.
  *
  * Call once at process startup, before any code creates spans or acquires
- * meters. Without it, `@opentelemetry/api`'s no-op defaults silently discard
- * spans and metric writes.
+ * meters. Without it, `@opentelemetry/api`'s no-op defaults silently
+ * discard spans and metric writes.
  */
 export async function registerTelemetry(config: TelemetryConfig): Promise<TelemetryProvider> {
 	const provider = new TelemetryProvider(config)
