@@ -1,58 +1,86 @@
 ---
 title: Telemetry
-description: Configure tracing and metrics in @namzu/sdk with TelemetryProvider, OTLP or console exporters, and the built-in platform metrics helpers.
-last_updated: 2026-04-18
+description: Configure tracing and metrics with @namzu/telemetry — OTLP or console exporters, and the built-in platform metrics helpers.
+last_updated: 2026-04-20
 status: current
-related_packages: ["@namzu/sdk"]
+related_packages: ["@namzu/telemetry", "@namzu/sdk"]
 ---
 
 # Telemetry
 
-The SDK exports a small but useful observability surface. It can bootstrap OpenTelemetry, expose shared tracers and meters, and provide a ready-made metrics helper for common Namzu runtime measurements.
+As of `0.4.0`, the OpenTelemetry exporter pipeline ships in a separate
+package: [`@namzu/telemetry`](https://www.npmjs.com/package/@namzu/telemetry).
+`@namzu/sdk` depends only on `@opentelemetry/api` (peer). Consumers who
+never emit telemetry no longer transitively install the full OTEL Node
+SDK. See [`docs/migration/0.4.md`](../../migration/0.4.md) if you are
+upgrading from `0.3.x`.
 
-## 1. The Public Telemetry Surface
+## 1. Install
 
-The main exports are:
+```
+pnpm add @namzu/telemetry @opentelemetry/api
+```
+
+`@opentelemetry/api` is a peer of both `@namzu/sdk` and `@namzu/telemetry`.
+On pnpm 9+ and npm 7+ it auto-installs; on older clients, install it
+explicitly yourself.
+
+## 2. The Public Telemetry Surface
+
+All telemetry exports come from `@namzu/telemetry` (not `@namzu/sdk`).
 
 | Export | Purpose |
 | --- | --- |
 | `TelemetryProvider` | Explicit telemetry lifecycle owner |
-| `initTelemetry()` | Create and store the global telemetry provider |
-| `getTelemetry()` | Read the current global telemetry provider |
-| `getTracer()` | Get the tracer used by runtime internals and your own code |
-| `getMeter()` | Get the shared meter used by metrics helpers |
+| `registerTelemetry()` | **async** — create the global provider and start it |
+| `getTelemetry()` | Read the current global provider |
+| `getTracer()` | Get the shared tracer |
+| `getMeter()` | Get the shared meter |
 | `createPlatformMetrics()` | Record common Namzu runtime metrics |
 
-## 2. Bootstrap Telemetry
+Types: `TelemetryConfig`, `ExporterType`, `PlatformMetrics`.
 
-`initTelemetry()` creates the global provider, but you still need to start it:
+Attribute constants (`GENAI`, `NAMZU`) and span-name helpers
+(`agentRunSpanName`, `agentIterationSpanName`, `chatSpanName`,
+`toolSpanName`) ship under the subpath:
 
 ```ts
-import { initTelemetry, createPlatformMetrics } from '@namzu/sdk'
+import { GENAI, NAMZU, toolSpanName } from '@namzu/telemetry/attributes'
+```
 
-const telemetry = initTelemetry({
+## 3. Bootstrap Telemetry
+
+`registerTelemetry()` is asynchronous. It must be awaited — the underlying
+`TelemetryProvider.start()` returns a `Promise<void>` because the OTEL
+Node SDK attaches its exporters asynchronously. Firing-and-forgetting
+would detach startup failures into an unhandled rejection.
+
+```ts
+import { registerTelemetry, createPlatformMetrics } from '@namzu/telemetry'
+
+const telemetry = await registerTelemetry({
   serviceName: 'docs-runtime',
   serviceVersion: '1.0.0',
   exporterType: 'console',
 })
 
-await telemetry.start()
-
 const metrics = createPlatformMetrics()
 metrics.recordToolCall('read_file', true)
+
+// ... application work ...
 
 await telemetry.shutdown()
 ```
 
-This is the safest application pattern:
+Safe application pattern:
 
-1. initialize once during app startup
-2. start the provider before traffic begins
-3. shut it down during graceful termination
+1. initialize once during app startup, `await` completion
+2. construct `createPlatformMetrics()` AFTER `registerTelemetry` resolves
+3. shut down during graceful termination
 
-## 3. Exporter Types
+## 4. Exporter Types
 
-`TelemetryConfig.exporterType` supports:
+`TelemetryConfig.exporterType`:
 
 | Value | Behavior |
 | --- | --- |
@@ -60,10 +88,10 @@ This is the safest application pattern:
 | `otlp` | Export through OTLP HTTP exporters |
 | `none` | Disable exporter startup while keeping the API surface available |
 
-For OTLP:
+OTLP:
 
 ```ts
-const telemetry = initTelemetry({
+const telemetry = await registerTelemetry({
   serviceName: 'docs-runtime',
   exporterType: 'otlp',
   otlpEndpoint: 'https://otel.example.com',
@@ -72,23 +100,35 @@ const telemetry = initTelemetry({
   },
   metricExportIntervalMs: 10_000,
 })
-
-await telemetry.start()
 ```
 
-## 4. What Happens If You Never Initialize Telemetry
+## 5. What Happens If You Never Call `registerTelemetry`
 
 The helper accessors are intentionally forgiving:
 
 - `getTelemetry()` returns `null`
-- `getTracer()` falls back to a default `namzu` tracer
-- `getMeter()` falls back to a default `namzu` meter
+- `getTracer()` falls back to the `@opentelemetry/api` no-op tracer
+- `getMeter()` falls back to the `@opentelemetry/api` no-op meter
 
-That means SDK code can keep calling tracing or metrics helpers safely, but you should not expect useful exports until you initialize and start a provider.
+That means SDK code can keep calling tracing or metrics helpers safely,
+but spans and metric writes are silently discarded until a real provider
+is registered. This is the standard OpenTelemetry library contract, not a
+Namzu quirk.
 
-## 5. Built-In Platform Metrics
+## 6. Eager-Bind Caveat for `createPlatformMetrics`
 
-`createPlatformMetrics()` returns a small metrics facade:
+`createPlatformMetrics()` builds counters and histograms at construction
+time against whatever `getMeter()` returns. If you construct it *before*
+`registerTelemetry()`, the counters bind to the no-op meter and every
+subsequent `.add()` / `.record()` is discarded — for the lifetime of
+that metrics instance. Registering a real provider later does *not*
+retroactively rewire existing counters.
+
+**Always** `await registerTelemetry({...})` first, then
+`createPlatformMetrics()`. Or wrap the latter in a lazy factory if the
+call order is not under your control.
+
+## 7. Built-In Platform Metrics
 
 ```ts
 const metrics = createPlatformMetrics()
@@ -99,19 +139,13 @@ metrics.recordRunDuration('completed', 3.2)
 metrics.recordLLMLatency('gpt-4o-mini', 0.84)
 ```
 
-Those methods cover four common operational signals:
+Four common operational signals: token usage, tool-call success/failure,
+run duration, LLM latency.
 
-- token usage
-- tool-call success or failure
-- run duration
-- LLM latency
-
-## 6. Add Custom Spans
-
-You can use the shared tracer for your own instrumentation:
+## 8. Add Custom Spans
 
 ```ts
-import { getTracer } from '@namzu/sdk'
+import { getTracer } from '@namzu/telemetry'
 
 const tracer = getTracer()
 const span = tracer.startSpan('docs.custom.operation')
@@ -123,43 +157,33 @@ try {
 }
 ```
 
-This is useful when your application adds orchestration logic around Namzu but still wants all spans under one telemetry setup.
+## 9. What the SDK Already Instruments
 
-## 7. Span Naming Helpers
+Even without custom spans, the SDK runtime already uses the shared
+tracer in core execution paths:
 
-The SDK also exports small helpers for consistent span names:
+- agent run setup (`runtime/query/index.ts`)
+- iteration execution (`runtime/query/iteration/index.ts`)
+- tool execution (`registry/tool/execute.ts`)
 
-- `agentRunSpanName(agentName)`
-- `agentIterationSpanName(iteration)`
-- `chatSpanName(model)`
-- `toolSpanName(toolName)`
+Telemetry becomes useful as soon as you `await registerTelemetry()` at
+startup; nothing else in your code needs to change to pick up the
+instrumentation already there.
 
-Use them when your custom instrumentation should align visually with the SDK's own traces.
-
-## 8. What the SDK Already Instruments
-
-Even without custom spans, the runtime already uses the shared tracer in core execution paths such as:
-
-- agent run setup
-- iteration execution
-- tool execution
-
-That means telemetry becomes more valuable as soon as you initialize the provider globally.
-
-## 9. Common Mistakes
+## 10. Common Mistakes
 
 | Mistake | Why it hurts |
 | --- | --- |
-| calling `initTelemetry()` but never `start()` | the provider exists, but exporters are not started |
-| expecting `getTelemetry()` to always return a provider | it returns `null` until initialization happens |
-| using custom spans with a different telemetry bootstrap than the runtime | traces become fragmented across providers |
-| assuming metrics export without a started provider | fallback meters keep code safe, but they do not replace real exporter startup |
+| calling `registerTelemetry()` without `await` | startup errors silently become unhandled rejections |
+| constructing `createPlatformMetrics()` before `registerTelemetry` | counters bind to the no-op meter and never rewire |
+| expecting `getTelemetry()` to always return a provider | it returns `null` until registration completes |
+| using custom spans with a different telemetry bootstrap than the SDK | traces fragment across providers |
 
 ## Related
 
+- [`@namzu/telemetry` on npm](https://www.npmjs.com/package/@namzu/telemetry)
+- [Migration guide for 0.4.0](../../migration/0.4.md)
 - [SDK Runtime](../runtime/README.md)
 - [Low-Level Runtime](../runtime/low-level.md)
 - [Event Bridges](../integrations/event-bridges.md)
 - [Safety and Operations](../architecture/safety.md)
-- [Telemetry Setup Source](https://github.com/cogitave/namzu/blob/main/packages/sdk/src/provider/telemetry/setup.ts)
-- [Metrics Source](https://github.com/cogitave/namzu/blob/main/packages/sdk/src/telemetry/metrics.ts)

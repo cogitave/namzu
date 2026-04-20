@@ -37,7 +37,6 @@ export * from './types/task/index.js'
 export * from './types/plan/index.js'
 export * from './types/hitl/index.js'
 export * from './types/rag/index.js'
-export * from './types/telemetry/index.js'
 export * from './types/execution/index.js'
 export * from './types/connector/index.js'
 export * from './types/skills/index.js'
@@ -326,16 +325,9 @@ export type { CoordinatorToolsOptions, TaskLaunchedCallback } from './tools/coor
 
 export { InMemoryCredentialVault } from './vault/index.js'
 
-export {
-	TelemetryProvider,
-	initTelemetry,
-	getTelemetry,
-	getTracer,
-	getMeter,
-	createPlatformMetrics,
-} from './telemetry/index.js'
-export type { PlatformMetrics } from './telemetry/index.js'
-export * from './telemetry/attributes.js'
+// Telemetry runtime surface moved to `@namzu/telemetry` in 0.4.0.
+// See docs/migration/0.4.md. Consumers import from `@namzu/telemetry`
+// and `@namzu/telemetry/attributes` instead of the SDK barrel.
 
 // Session hierarchy runtime primitives (Phase 9 — public API freeze for 0.2.0).
 // Convention #4: root barrel imports sub-barrels only, never concrete files.

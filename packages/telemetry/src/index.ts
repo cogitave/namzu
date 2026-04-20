@@ -1,14 +1,12 @@
 export {
 	TelemetryProvider,
-	initTelemetry,
+	registerTelemetry,
 	getTelemetry,
 	getTracer,
 	getMeter,
-} from '../provider/telemetry/setup.js'
-
-export type { TelemetryConfig, ExporterType } from '../types/telemetry/index.js'
+} from './provider.js'
 
 export { createPlatformMetrics } from './metrics.js'
 export type { PlatformMetrics } from './metrics.js'
 
-export * from './attributes.js'
+export type { TelemetryConfig, ExporterType } from './types.js'

@@ -1,4 +1,4 @@
-import { getMeter } from '../provider/telemetry/setup.js'
+import { getMeter } from './provider.js'
 
 export interface PlatformMetrics {
 	recordTokenUsage(model: string, inputTokens: number, outputTokens: number): void
@@ -7,6 +7,20 @@ export interface PlatformMetrics {
 	recordLLMLatency(model: string, durationSec: number): void
 }
 
+/**
+ * Eager-bind platform metrics. Counters and histograms are constructed
+ * immediately against whatever `getMeter()` returns.
+ *
+ * If called before `registerTelemetry(...)`, `getMeter()` returns the
+ * `@opentelemetry/api` no-op meter and every subsequent `.add()` / `.record()`
+ * call is silently discarded — for the lifetime of this `PlatformMetrics`
+ * instance. The no-op bindings are not retroactively rewired when
+ * `registerTelemetry` is called later.
+ *
+ * Call order: `await registerTelemetry({...})` FIRST, then `createPlatformMetrics()`.
+ * Or wrap the latter in a lazy factory if the metric bag must be constructed
+ * before telemetry registration is guaranteed.
+ */
 export function createPlatformMetrics(): PlatformMetrics {
 	const meter = getMeter()
 

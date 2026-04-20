@@ -1,14 +1,14 @@
 {
-  "name": "@namzu/sdk",
-  "version": "0.3.0",
-  "description": "Open-source AI agent SDK with a built-in runtime. Nothing between you and your agents.",
+  "name": "@namzu/telemetry",
+  "version": "0.0.0",
+  "description": "OpenTelemetry exporter pipeline for @namzu/sdk — OTLP traces + metrics, resource attributes, platform metrics. Extracted from @namzu/sdk so consumers who never emit telemetry don't transitively install the OTEL Node SDK.",
   "license": "FSL-1.1-MIT",
   "type": "module",
-  "packageManager": "pnpm@10.33.0",
   "homepage": "https://github.com/cogitave/namzu#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/cogitave/namzu.git"
+    "url": "git+https://github.com/cogitave/namzu.git",
+    "directory": "packages/telemetry"
   },
   "bugs": {
     "url": "https://github.com/cogitave/namzu/issues"
@@ -19,6 +19,15 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./attributes": {
+      "types": "./dist/attributes.d.ts",
+      "import": "./dist/attributes.js"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "attributes": ["./dist/attributes.d.ts"]
     }
   },
   "files": [
@@ -27,9 +36,6 @@
     "LICENSE.md",
     "README.md",
     "CHANGELOG.md"
-  ],
-  "sideEffects": [
-    "./dist/provider/mock-register.js"
   ],
   "publishConfig": {
     "access": "public",
@@ -43,23 +49,26 @@
     "format": "biome format --write src/",
     "test": "vitest run --passWithNoTests",
     "typecheck": "tsc --noEmit",
-    "knip": "knip",
-    "knip:production": "knip --production",
     "prepublishOnly": "pnpm lint && pnpm typecheck && pnpm build"
   },
   "peerDependencies": {
-    "@opentelemetry/api": "^1.9.0",
-    "zod": "^3.23.0",
-    "zod-to-json-schema": "^3.23.0"
+    "@namzu/sdk": ">=0.4.0 <1.0.0",
+    "@opentelemetry/api": "^1.9.0"
+  },
+  "dependencies": {
+    "@opentelemetry/exporter-metrics-otlp-http": "^0.57.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.57.0",
+    "@opentelemetry/resources": "^1.30.0",
+    "@opentelemetry/sdk-metrics": "^1.30.0",
+    "@opentelemetry/sdk-trace-node": "^1.30.0",
+    "@opentelemetry/semantic-conventions": "^1.30.0"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
+    "@namzu/sdk": "workspace:^",
     "@opentelemetry/api": "^1.9.0",
     "@types/node": "^22.19.17",
-    "knip": "^6.4.1",
     "typescript": "^5.5.0",
-    "vitest": "^2.0.0",
-    "zod": "^3.23.0",
-    "zod-to-json-schema": "^3.23.0"
+    "vitest": "^2.0.0"
   }
 }
