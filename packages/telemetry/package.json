@@ -1,0 +1,70 @@
+{
+  "name": "@namzu/telemetry",
+  "version": "0.0.0",
+  "description": "OpenTelemetry exporter pipeline for @namzu/sdk — OTLP traces + metrics, resource attributes, platform metrics. Extracted from @namzu/sdk so consumers who never emit telemetry don't transitively install the OTEL Node SDK.",
+  "license": "FSL-1.1-MIT",
+  "type": "module",
+  "homepage": "https://github.com/cogitave/namzu#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cogitave/namzu.git",
+    "directory": "packages/telemetry"
+  },
+  "bugs": {
+    "url": "https://github.com/cogitave/namzu/issues"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./attributes": {
+      "types": "./dist/attributes.d.ts",
+      "import": "./dist/attributes.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "LICENSE.md",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "dev": "tsc --build --watch",
+    "lint": "biome check src/",
+    "lint:fix": "biome check --write src/",
+    "format": "biome format --write src/",
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm lint && pnpm typecheck && pnpm build"
+  },
+  "peerDependencies": {
+    "@namzu/sdk": ">=0.4.0 <1.0.0",
+    "@opentelemetry/api": "^1.9.0"
+  },
+  "dependencies": {
+    "@opentelemetry/exporter-metrics-otlp-http": "^0.57.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.57.0",
+    "@opentelemetry/resources": "^1.30.0",
+    "@opentelemetry/sdk-metrics": "^1.30.0",
+    "@opentelemetry/sdk-node": "^0.57.0",
+    "@opentelemetry/sdk-trace-node": "^1.30.0",
+    "@opentelemetry/semantic-conventions": "^1.30.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@namzu/sdk": "workspace:^",
+    "@opentelemetry/api": "^1.9.0",
+    "@types/node": "^22.19.17",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  }
+}
