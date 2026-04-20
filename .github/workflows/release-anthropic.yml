@@ -70,6 +70,22 @@ jobs:
 
           npm version "$VERSION" --no-git-tag-version --allow-same-version
 
+      - name: Verify consumer install (peer range sanity check)
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/namzu-pack
+          pnpm --filter @namzu/anthropic pack --pack-destination /tmp/namzu-pack
+          TARBALL=$(ls /tmp/namzu-pack/namzu-anthropic-*.tgz | head -1)
+          test -f "$TARBALL"
+          mkdir -p /tmp/consumer-install
+          cd /tmp/consumer-install
+          npm init -y >/dev/null
+          npm install --no-fund --no-audit @namzu/sdk@latest "$TARBALL"
+          test -d node_modules/@namzu/anthropic
+          test -d node_modules/@namzu/sdk
+          echo "✓ Consumer install verified: @namzu/anthropic@${{ steps.channel.outputs.version }} resolves with @namzu/sdk@latest"
+        working-directory: .
+
       - name: Publish to npm
         run: pnpm --filter @namzu/anthropic publish --no-git-checks --access public --provenance --tag ${{ steps.channel.outputs.tag }}
         working-directory: .
