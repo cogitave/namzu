@@ -213,9 +213,14 @@ export class AgentManager {
 
 		const definition = this.registry.getOrThrow(options.agentId)
 		let childConfig: BaseAgentConfig
-		if (definition.configBuilder && context.factoryOptions) {
+		if (definition.configBuilder) {
+			// Call the configBuilder regardless of whether factoryOptions were
+			// supplied. BYO-provider flows (Bedrock IAM, custom ProviderRegistry)
+			// commonly omit factoryOptions because the provider resolves its own
+			// credentials; the builder still needs to run to wire provider+tools.
+			// Defaults: empty factoryOptions when omitted; configOverrides win.
 			childConfig = await definition.configBuilder({
-				...context.factoryOptions,
+				...(context.factoryOptions ?? {}),
 				tokenBudget: allocatedTokens,
 				timeoutMs: options.budgetAllocation?.timeoutMs ?? context.budgetTracker.remaining,
 				parentRunId: context.parentRunId as string | undefined,
@@ -235,7 +240,7 @@ export class AgentManager {
 			childConfig.projectId = context.projectId
 			childConfig.tenantId = context.tenantId
 		} else {
-			this.log.warn('No configBuilder or factoryOptions, using bare config', {
+			this.log.warn('No configBuilder, using bare config', {
 				agentId: options.agentId,
 			})
 			childConfig = {
