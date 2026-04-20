@@ -25,6 +25,11 @@
       "import": "./dist/attributes.js"
     }
   },
+  "typesVersions": {
+    "*": {
+      "attributes": ["./dist/attributes.d.ts"]
+    }
+  },
   "files": [
     "dist",
     "src",
