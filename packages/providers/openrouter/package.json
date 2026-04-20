@@ -53,7 +53,7 @@
   },
   "dependencies": {},
   "peerDependencies": {
-    "@namzu/sdk": "^1 || ^0.1.6"
+    "@namzu/sdk": ">=0.1.6 <0.3.0"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
