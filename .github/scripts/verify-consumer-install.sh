@@ -198,8 +198,8 @@ const telemetry = await registerTelemetry({
 })
 
 const inMemory = new InMemorySpanExporter()
-// @ts-ignore — addSpanProcessor exists on NodeTracerProvider.
-telemetry['tracerProvider'].addSpanProcessor(new SimpleSpanProcessor(inMemory))
+const tracerProvider = telemetry['tracerProvider']
+tracerProvider.addSpanProcessor(new SimpleSpanProcessor(inMemory))
 
 // This is THE SDK path: @namzu/sdk's internal getTracer() calls
 // trace.getTracer('namzu'). If it produces a valid span, the SDK's
@@ -209,9 +209,16 @@ const span = tracer.startSpan('verify.sdk.span')
 span.setAttribute('test', true)
 span.end()
 
-await telemetry.shutdown()
+// SimpleSpanProcessor.onEnd fires `void doExport(...)` — fire-and-forget.
+// forceFlush drains pending exports before we read the buffer.
+await tracerProvider.forceFlush()
 
 const collected = inMemory.getFinishedSpans()
+
+// shutdown() AFTER the read: InMemorySpanExporter.shutdown() sets
+// _finishedSpans = []. Reading after shutdown would always return empty.
+await telemetry.shutdown()
+
 if (collected.length === 0) {
   console.error('✗ span-smoke: InMemorySpanExporter captured zero spans')
   console.error('  registerTelemetry must install a real TracerProvider that forwards to attached processors.')
