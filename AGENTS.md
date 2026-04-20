@@ -82,7 +82,7 @@ Conventional Commits. No AI co-author trailers. See skill: `commit`.
 </commit_format>
 
 <releases>
-Git tags with per-package prefixes drive releases (`sdk-v*`, `computer-use-v*`, etc.). Never hand-edit `package.json#version`; use the per-package `release:*` scripts. See skill: `release`.
+Releases are driven by [Changesets](https://github.com/changesets/changesets). Every PR that touches a publishable package adds a `.changeset/<slug>.md` declaring bump intent; on merge to `main`, `changesets/action@v1` opens a "chore(release): version packages" PR; merging that PR publishes every bumped package to npm via `pnpm changeset publish` under `.github/workflows/release.yml`. Never hand-edit `package.json#version` or invoke `npm publish` directly. See skill: `release`.
 </releases>
 
 <workflow_safety>

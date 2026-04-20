@@ -46,3 +46,35 @@ jobs:
 
       - name: Test
         run: pnpm -r test
+
+      # Pre-publish package validation — runs on every PR + every push to main.
+      # Catches cross-package peer-range drift and package.json export shape
+      # bugs before they reach a publish tag. Only runs on one node version
+      # in the matrix to avoid quadrupling install work.
+      - name: Pre-publish consumer install check
+        if: matrix.node-version == 24
+        run: bash .github/scripts/verify-consumer-install.sh
+
+      - name: publint (package.json shape)
+        if: matrix.node-version == 24
+        run: |
+          for pkg in sdk computer-use providers/anthropic providers/bedrock providers/http providers/lmstudio providers/ollama providers/openai providers/openrouter; do
+            echo "::group::publint packages/$pkg"
+            npx -y publint@latest packages/$pkg
+            echo "::endgroup::"
+          done
+
+      - name: Are the types wrong? (type resolution)
+        if: matrix.node-version == 24
+        run: |
+          # attw needs the packed tarballs; reuse the ones from verify-consumer-install
+          # by packing once into a stable location here.
+          rm -rf /tmp/attw-pack && mkdir -p /tmp/attw-pack
+          for pkg in sdk computer-use anthropic bedrock http lmstudio ollama openai openrouter; do
+            pnpm --filter "@namzu/$pkg" pack --pack-destination /tmp/attw-pack >/dev/null
+          done
+          for tarball in /tmp/attw-pack/*.tgz; do
+            echo "::group::attw $(basename $tarball)"
+            npx -y @arethetypeswrong/cli@latest --pack "$tarball" --ignore-rules cjs-resolves-to-esm
+            echo "::endgroup::"
+          done
