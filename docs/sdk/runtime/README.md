@@ -1,5 +1,5 @@
 ---
-title: SDK Runtime
+title: Runtime
 description: Reference map for the runtime building blocks exposed by @namzu/sdk.
 last_updated: 2026-04-18
 status: current
@@ -25,7 +25,7 @@ The SDK exports a broad runtime surface, but the pieces follow a consistent shap
 | Retrieval | `DefaultKnowledgeBase`, `DefaultRetriever`, `createRAGTool` | Retrieval-augmented context |
 | Plugins and registries | `PluginRegistry`, `ToolRegistry`, `AgentRegistry`, `PluginLifecycleManager` | Extensibility and catalog-style registration |
 | Connectors and MCP | `ConnectorRegistry`, `ConnectorManager`, `MCPClient`, `MCPToolDiscovery`, `MCPConnectorBridge`, `MCPServer` | External system integration and MCP interoperability |
-| Telemetry and bridges | `TelemetryProvider`, `initTelemetry`, `mapRunToStreamEvent`, A2A helpers | Observability and protocol adaptation |
+| Wire bridges | `mapRunToStreamEvent`, A2A helpers | Observability ships from [`@namzu/telemetry`](https://www.npmjs.com/package/@namzu/telemetry) as of 0.4.0 |
 | Plugin runtime | `PluginLifecycleManager`, `discoverPlugins`, `loadPluginManifest`, `PluginResolver` | Namespaced extensions, hook execution, and plugin-managed MCP tools |
 
 ## 2. Agent Families

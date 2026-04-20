@@ -1,5 +1,5 @@
 ---
-title: SDK Overview
+title: Overview
 description: Overview of the public surfaces exported by @namzu/sdk and how they fit together.
 last_updated: 2026-04-18
 status: current
@@ -26,7 +26,7 @@ The SDK package is the place to start if you want to run agents without binding 
 | Retrieval | `TextChunker`, `DefaultRetriever`, `DefaultKnowledgeBase`, `createRAGTool` |
 | Desktop integration point | `createComputerUseTool`, `ComputerUseHost` types |
 | Connectors and MCP | `ConnectorRegistry`, `ConnectorManager`, `MCPClient`, `MCPToolDiscovery`, `MCPConnectorBridge` |
-| Observability and wire bridges | `TelemetryProvider`, `initTelemetry`, `mapRunToStreamEvent`, A2A helpers |
+| Wire bridges | `mapRunToStreamEvent`, A2A helpers (telemetry ships from [`@namzu/telemetry`](https://www.npmjs.com/package/@namzu/telemetry) as of 0.4.0) |
 
 ## 2. What Does Not Live in the SDK
 
