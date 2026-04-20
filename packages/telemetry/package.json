@@ -1,6 +1,6 @@
 {
   "name": "@namzu/telemetry",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "OpenTelemetry exporter pipeline for @namzu/sdk — OTLP traces + metrics, resource attributes, platform metrics. Extracted from @namzu/sdk so consumers who never emit telemetry don't transitively install the OTEL Node SDK.",
   "license": "FSL-1.1-MIT",
   "type": "module",
@@ -27,7 +27,9 @@
   },
   "typesVersions": {
     "*": {
-      "attributes": ["./dist/attributes.d.ts"]
+      "attributes": [
+        "./dist/attributes.d.ts"
+      ]
     }
   },
   "files": [
