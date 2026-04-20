@@ -1,6 +1,6 @@
 {
   "name": "@namzu/lmstudio",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "LM Studio LLM provider for @namzu/sdk via the official @lmstudio/sdk. Local GUI-based model management, chat, and streaming with tool-use support.",
   "license": "FSL-1.1-MIT",
   "type": "module",

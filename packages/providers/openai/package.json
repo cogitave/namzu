@@ -1,6 +1,6 @@
 {
   "name": "@namzu/openai",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "OpenAI LLM provider for @namzu/sdk via the official `openai` npm SDK. Chat Completions API with streaming + tool-use.",
   "license": "FSL-1.1-MIT",
   "type": "module",
