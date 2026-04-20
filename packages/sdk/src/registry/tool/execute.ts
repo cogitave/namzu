@@ -1,7 +1,7 @@
 import { SpanStatusCode } from '@opentelemetry/api'
 import { zodToJsonSchema } from 'zod-to-json-schema'
-import { getTracer } from '../../provider/telemetry/setup.js'
 import { GENAI, NAMZU, toolSpanName } from '../../telemetry/attributes.js'
+import { getTracer } from '../../telemetry/runtime-accessors.js'
 import type {
 	LLMToolSchema,
 	ToolAvailability,
