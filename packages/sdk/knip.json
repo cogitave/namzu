@@ -7,8 +7,5 @@
 	"project": [
 		"src/**/*.ts"
 	],
-	"ignore": [
-		"src/tools/builtins/__tests__/structuredOutput.example.ts"
-	],
 	"ignoreExportsUsedInFile": true
 }
