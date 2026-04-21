@@ -61,7 +61,9 @@ export { extractFinalResponse } from './utils/conversation.js'
 export { resolveTaskModel } from './router/task-router.js'
 export { drainQuery, query } from './runtime/query/index.js'
 export { ContextCache } from './runtime/query/context-cache.js'
-export { CheckpointManager } from './runtime/query/checkpoint.js'
+export { CheckpointManager, projectEmergencyToCheckpoint } from './runtime/query/checkpoint.js'
+export { prepareReplayState } from './runtime/query/replay/prepare.js'
+export { listCheckpoints } from './runtime/query/replay/list.js'
 export { DecisionParser, FallbackResolver } from './runtime/decision/index.js'
 export {
 	buildLimitConfig,
@@ -338,6 +340,7 @@ export {
 	PluginMCPServerConfigSchema,
 } from './types/plugin/index.js'
 export { EmergencySaveConfigSchema } from './types/run/emergency.js'
+export { MutationNotApplicableError } from './types/run/replay.js'
 export {
 	assertSandboxEnvironment,
 	assertSandboxStatus,
