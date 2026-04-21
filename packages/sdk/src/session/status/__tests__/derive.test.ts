@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { RunStatus } from '../../../types/run/status.js'
+import type { ActorRef } from '../../../types/session/actor.js'
 import type {
 	ProjectId,
 	SessionId,
@@ -7,8 +8,8 @@ import type {
 	ThreadId,
 	UserId,
 } from '../../../types/session/ids.js'
-import type { ActorRef } from '../actor.js'
-import { type Session, type SessionStatus, deriveStatus } from '../session.js'
+import type { Session, SessionStatus } from '../../hierarchy/session.js'
+import { deriveStatus } from '../derive.js'
 
 const tenant = 'tnt_a' as TenantId
 const project = 'prj_a' as ProjectId
