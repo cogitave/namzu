@@ -8,8 +8,19 @@ import type {
 	IterationCheckpoint,
 } from '../../types/hitl/index.js'
 import type { AssistantMessage } from '../../types/message/index.js'
+import type { CheckpointListEntry } from '../../types/run/replay.js'
 import { buildToolResultHashes } from '../../utils/hash.js'
 import { generateCheckpointId } from '../../utils/id.js'
+
+function toCheckpointListEntry(cp: IterationCheckpoint): CheckpointListEntry {
+	return {
+		id: cp.id,
+		runId: cp.runId,
+		iteration: cp.iteration,
+		createdAt: cp.createdAt,
+		messageCount: cp.messages.length,
+	}
+}
 
 export class CheckpointManager {
 	private store: RunDiskStore
@@ -58,6 +69,17 @@ export class CheckpointManager {
 
 	async list(): Promise<IterationCheckpoint[]> {
 		return this.store.listCheckpoints()
+	}
+
+	/**
+	 * Listing projection used by the public `listCheckpoints` API. Returns
+	 * only the fields a consumer needs to pick a fork point for
+	 * {@link import('./replay/index.js').replay} — not the full checkpoint
+	 * payload. See ses_005-deterministic-replay design §3.1.
+	 */
+	async listEntries(): Promise<CheckpointListEntry[]> {
+		const checkpoints = await this.store.listCheckpoints()
+		return checkpoints.map(toCheckpointListEntry)
 	}
 
 	async prune(keepLast: number): Promise<void> {
