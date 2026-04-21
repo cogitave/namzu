@@ -2,6 +2,7 @@ import type { AgentStatus, CostInfo, TokenUsage } from '../common/index.js'
 import type { RunId } from '../ids/index.js'
 import type { Message } from '../message/index.js'
 import type { AgentRunConfig } from './config.js'
+import type { ReplayAttribution } from './replay.js'
 import type { StopReason } from './stop-reason.js'
 
 export interface RunStateMetadata {
@@ -41,6 +42,12 @@ export interface Run {
 	parentRunId?: RunId
 
 	depth?: number
+
+	/**
+	 * Present when this run was produced by {@link replay}. `undefined` for
+	 * original runs. See `ses_005-deterministic-replay` for the primitive.
+	 */
+	replayOf?: ReplayAttribution
 }
 
 /**
