@@ -23,11 +23,6 @@ export * from './types/common/index.js'
 export * from './types/tool/index.js'
 export * from './types/permission/index.js'
 export * from './types/run/index.js'
-// Domain `RunStatus` (session-hierarchy.md §4.6 state machine). Re-exported
-// explicitly because `types/run/index.js` intentionally skips `status.js` to
-// avoid colliding with the deprecated wire alias in `contracts/api.ts`
-// (renamed to `WireRunStatus` in 0.2.0 — Phase 9 Known Delta #2).
-export type { RunStatus } from './types/run/status.js'
 export * from './types/provider/index.js'
 export * from './types/agent/index.js'
 export * from './types/decision/index.js'

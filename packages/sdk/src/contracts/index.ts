@@ -29,8 +29,6 @@ export type {
 	ApiError,
 } from './api.js'
 
-export type { ProjectId, RunId, MessageId, SessionId } from './ids.js'
-
 export {
 	ProjectIdSchema,
 	RunIdSchema,

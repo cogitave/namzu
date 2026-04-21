@@ -1,7 +1,7 @@
 import type { AgentCapabilities, AgentType } from '../types/agent/base.js'
+import type { ProjectId, RunId, SessionId } from '../types/ids/index.js'
 import type { MessageRole } from '../types/message/index.js'
 import type { StopReason } from '../types/run/events.js'
-import type { ProjectId, RunId, SessionId } from './ids.js'
 
 export type { MessageRole, StopReason, AgentType, AgentCapabilities }
 
