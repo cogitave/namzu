@@ -1,36 +1,38 @@
 ---
 title: Run Identities
 description: Required IDs for agent runs in @namzu/sdk, how to generate them, and how to decide when to reuse or rotate them.
-last_updated: 2026-04-18
+last_updated: 2026-04-21
 status: current
 related_packages: ["@namzu/sdk"]
 ---
 
 # Run Identities
 
-The SDK requires explicit runtime identities. This is not bookkeeping for its own sake; these IDs are what let the runtime keep session lineage, tenant isolation, persistence, and multi-run reasoning coherent.
+The SDK requires explicit runtime identities. This is not bookkeeping for its own sake; these IDs are what let the runtime keep the five-layer hierarchy, tenant isolation, persistence, and multi-run reasoning coherent.
 
-## 1. The Three Required IDs
+## 1. The Four Required IDs
 
-For `ReactiveAgent.run()` in current public runtime usage, these three fields matter most:
+For `ReactiveAgent.run()` and the kernel spawn path, four fields matter most:
 
 | Field | What it represents | Typical lifetime |
 | --- | --- | --- |
-| `projectId` | Long-lived goal or project scope | Reused across many sessions and runs |
-| `sessionId` | One immediate working session inside a project | Reused across one interactive session or task burst |
 | `tenantId` | Isolation boundary between organizations, users, or workspaces | Reused across all work for the same tenant |
+| `projectId` | Long-lived folder-bound goal scope | Reused across many threads, sessions, and runs |
+| `threadId` | Topic- or objective-level container; A2A-connection surface | Reused across many sessions for one line-of-work |
+| `sessionId` | One immediate working session inside a thread | Reused across one interactive session or task burst |
 
-If any of these is missing, `ReactiveAgent` throws before starting the run.
+If any of these is missing, the runtime throws before starting the run.
 
 ## 2. Why the SDK Requires Them
 
 These IDs drive real behavior:
 
 - `tenantId` protects isolation boundaries
-- `projectId` gives the runtime a durable project scope
+- `projectId` gives the runtime a durable project scope, bound to a folder in local mode
+- `threadId` is the scope an A2A connection attaches to (see [A2A Threading](../sessions/a2a-threading.md))
 - `sessionId` groups immediate run activity under one active session
 
-Without them, state and persistence would collapse into anonymous runs, which breaks session-aware architecture.
+Without them, state and persistence would collapse into anonymous runs, which breaks the hierarchy-aware architecture.
 
 ## 3. ID Helpers You Can Use Today
 
@@ -39,14 +41,16 @@ The SDK exports generator helpers so applications do not need to handcraft ID st
 ```ts
 import {
   generateProjectId,
+  generateThreadId,
   generateSessionId,
   generateTenantId,
   generateRunId,
 } from '@namzu/sdk'
 
-const projectId = generateProjectId()
-const sessionId = generateSessionId()
 const tenantId = generateTenantId()
+const projectId = generateProjectId()
+const threadId = generateThreadId()
+const sessionId = generateSessionId()
 const runId = generateRunId()
 ```
 
@@ -54,9 +58,10 @@ const runId = generateRunId()
 
 | Helper | Prefix emitted | Use it for |
 | --- | --- | --- |
-| `generateProjectId()` | `prj_` | Project scope |
-| `generateSessionId()` | `ses_` | Session scope |
 | `generateTenantId()` | `tnt_` | Tenant scope |
+| `generateProjectId()` | `prj_` | Project scope (folder-bound) |
+| `generateThreadId()` | `thd_` | Thread scope (topic/objective) |
+| `generateSessionId()` | `ses_` | Session scope |
 | `generateRunId()` | `run_` | Run records |
 | `generateMessageId()` | `msg_` | Message records |
 | `generateTaskId()` | `task_` | Task records |
@@ -70,17 +75,20 @@ The runtime usually handles deeper IDs such as `runId` internally, but the helpe
 Use this rule of thumb:
 
 - keep `tenantId` stable for one tenant
-- keep `projectId` stable for one long-lived goal or project
+- keep `projectId` stable for one folder-bound goal or repository
+- keep `threadId` stable while working on the same topic or objective
 - keep `sessionId` stable while a user is continuing the same active working session
-- create a new `sessionId` when you intentionally start a fresh session under the same project
+- create a new `threadId` when the topic changes (new objective, new line-of-work)
+- create a new `sessionId` when you intentionally start a fresh session under the same thread
 
-That means a typical application might map them like this:
+A typical application maps them like this:
 
 | App concept | Namzu field |
 | --- | --- |
 | organization or workspace | `tenantId` |
-| issue, project, repo task, or long-running assistant goal | `projectId` |
-| current chat tab, active coding session, or temporary execution thread | `sessionId` |
+| repository, workspace folder, long-running assistant goal | `projectId` |
+| issue, ticket, objective, line-of-work | `threadId` |
+| current chat tab, active coding session, temporary execution thread | `sessionId` |
 
 ## 6. Minimal Example
 
@@ -91,6 +99,7 @@ import {
   generateProjectId,
   generateSessionId,
   generateTenantId,
+  generateThreadId,
 } from '@namzu/sdk'
 
 const agent = new ReactiveAgent({
@@ -115,19 +124,20 @@ const result = await agent.run(
     timeoutMs: 60_000,
     tenantId: generateTenantId(),
     projectId: generateProjectId(),
+    threadId: generateThreadId(),
     sessionId: generateSessionId(),
   },
 )
 ```
 
-## 7. Migration Note: `threadId`
+## 7. Why Thread, Not Just Project
 
-You may still see references to `threadId` in code or migration comments. That exists only as a compatibility window:
+If you are coming from OpenAI Assistants, LangGraph, or another framework, you may not have seen a Thread layer before. Most frameworks collapse Project and Thread into one. Namzu separates them because the **Thread is where A2A connections attach**:
 
-- `projectId` is the current long-lived project scope
-- `threadId` is deprecated
+- **Project** is folder-bound. Shared as a folder or workspace URL.
+- **Thread** is path-independent. Shared as a topic surface that external agents can join without seeing every Thread in the Project.
 
-For new public integrations, use `projectId`, `sessionId`, and `tenantId`.
+See [A2A Threading](../sessions/a2a-threading.md) for the full rationale. If your application has no A2A component today, a "default" Thread per Project works fine as a formality — but the layer is there when you need it.
 
 ## 8. Common Mistakes
 
@@ -136,6 +146,7 @@ For new public integrations, use `projectId`, `sessionId`, and `tenantId`.
 | generating a new `projectId` on every single message | breaks long-lived project grouping |
 | reusing one `sessionId` forever | collapses separate active sessions into one lineage |
 | using one `tenantId` for every user or customer | removes meaningful isolation boundaries |
+| treating `threadId` as disposable or optional | loses the topic-level continuity that A2A and hand-off rely on |
 | hardcoding raw strings without validation | makes ID drift and debugging harder |
 
 ## 9. App-Level Recommendation
@@ -143,7 +154,8 @@ For new public integrations, use `projectId`, `sessionId`, and `tenantId`.
 If your application already has durable IDs, map them once and keep them stable:
 
 - map your workspace or org ID to `tenantId`
-- map your project or issue ID to `projectId`
+- map your repository or folder ID to `projectId`
+- map your issue, ticket, or objective ID to `threadId`
 - map your active chat/session UI instance to `sessionId`
 
 Only use generator helpers when you do not already have a durable identity model.
@@ -151,6 +163,7 @@ Only use generator helpers when you do not already have a durable identity model
 ## Related
 
 - [SDK Quickstart](../quickstart.md)
+- [A2A Threading](../sessions/a2a-threading.md)
 - [Run Configuration](./configuration.md)
 - [Provider Registry](../provider-integration/registry.md)
 - [ID Utilities Source](https://github.com/cogitave/namzu/blob/main/packages/sdk/src/utils/id.ts)

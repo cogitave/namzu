@@ -1,0 +1,16 @@
+{
+  "title": "Providers",
+  "pages": [
+    "index",
+    "selection-guide",
+    "---Hosted---",
+    "anthropic",
+    "openai",
+    "bedrock",
+    "openrouter",
+    "---Self-hosted---",
+    "ollama",
+    "lmstudio",
+    "http"
+  ]
+}

@@ -1,85 +1,95 @@
 ---
-title: Sessions, Workspaces, and Retention
-description: Understand the project-session-sub-session model, session stores, workspaces, handoff, and archival surfaces exposed by @namzu/sdk.
-last_updated: 2026-04-18
+title: Sessions, Threads, Workspaces, and Retention
+description: Understand the project-thread-session-subsession-run hierarchy, session stores, workspaces, handoff, and archival surfaces exposed by @namzu/sdk.
+last_updated: 2026-04-21
 status: current
 related_packages: ["@namzu/sdk"]
 ---
 
-# Sessions, Workspaces, and Retention
+# Sessions, Threads, Workspaces, and Retention
 
-The SDK does not treat a run as the only stateful concept. It also exposes a tenant-scoped session hierarchy for durable work, delegation, workspaces, and archival. This is one of the most important internal patterns in Namzu, and it is intentionally public because orchestration code needs it directly.
+The SDK does not treat a run as the only stateful concept. It exposes a tenant-scoped hierarchy for durable work, delegation, workspaces, and archival. This is one of the most important internal patterns in Namzu, and it is intentionally public because orchestration code needs it directly.
 
 ## 1. The Entity Model
 
-The public hierarchy is:
+The public hierarchy is five layers:
 
 1. `Project`
-2. `Session`
-3. `SubSession`
+2. `Thread`
+3. `Session`
+4. `SubSession` (recursively a Session under another Session)
+5. `Run`
 
 Each level solves a different problem:
 
 | Entity | Role |
 | --- | --- |
-| `Project` | long-lived scope for shared limits, knowledge bases, memory, and retention policy |
-| `Session` | active work unit owned by one actor at a time |
-| `SubSession` | delegation or intervention edge between a parent session and a child session |
+| `Project` | Folder-bound long-lived scope for shared limits, knowledge bases, memory, and retention policy. Shared between collaborators. |
+| `Thread` | Topic- or objective-level container inside a Project. Path-independent. The layer that A2A connections attach to. See [A2A Threading](./a2a-threading.md). |
+| `Session` | Active work unit owned by one actor at a time, under a Thread. |
+| `SubSession` | A Session spawned by another Session's agent via delegation. Structurally just a Session with `parentSessionId` set. |
+| `Run` | One atomic agent invocation under a Session — bounded iterations, terminal status. |
 
 Three identity rules are important:
 
 - `tenantId` is the isolation boundary
-- `projectId` is the long-lived goal scope
+- `projectId` is the long-lived goal scope (folder-bound in local mode)
+- `threadId` is the topic-level A2A-connection surface
 - `sessionId` is the concrete execution or collaboration unit
 
 ## 2. Start with a Session Store
 
-The easiest way to understand the model is to create a project and session explicitly:
+The easiest way to understand the model is to create a project, thread, and session explicitly:
 
 ```ts
 import {
   InMemorySessionStore,
+  InMemoryThreadStore,
   generateTenantId,
 } from '@namzu/sdk'
 
-const store = new InMemorySessionStore()
+const sessionStore = new InMemorySessionStore()
+const threadStore = new InMemoryThreadStore()
 const tenantId = generateTenantId()
 
-const project = await store.createProject(
-  {
-    tenantId,
-    name: 'Docs Workspace',
-  },
+const project = await sessionStore.createProject(
+  { tenantId, name: 'Docs Workspace' },
   tenantId,
 )
 
-const session = await store.createSession(
+const thread = await threadStore.createThread(
+  { projectId: project.id, title: 'Document the public SDK' },
+  tenantId,
+)
+
+const session = await sessionStore.createSession(
   {
+    threadId: thread.id,
     projectId: project.id,
     currentActor: null,
   },
   tenantId,
 )
 
-await store.appendMessage(
+await sessionStore.appendMessage(
   session.id,
   { role: 'user', content: 'Document the public SDK.' },
   tenantId,
 )
 
-const drill = await store.drill(session.id, tenantId)
+const drill = await sessionStore.drill(session.id, tenantId)
 
-console.log(project.id)
-console.log(session.id)
+console.log(project.id, thread.id, session.id)
 console.log(drill?.ancestry)
 console.log(drill?.children)
 ```
 
 This example demonstrates the core design:
 
-- the store generates IDs
+- the stores generate IDs
 - every accessor takes `tenantId`
 - messages are stored against a session, not a generic thread string
+- a Thread groups many Sessions together without owning their message streams
 
 ## 3. `InMemorySessionStore` vs `DiskSessionStore`
 
@@ -93,7 +103,7 @@ The two main public store implementations serve different needs:
 `DiskSessionStore` is filesystem-backed and intentionally conservative:
 
 - writes are atomic
-- project and session records live in a predictable directory tree
+- project, thread, and session records live in a predictable directory tree
 - tenant checks happen on record payloads, not path guessing
 - missing resources return `null` or an empty collection rather than silent fallback
 
@@ -185,11 +195,12 @@ The design intent is important:
 | treating `sessionId` as a disposable run ID | sessions are durable lifecycle objects, not just one provider call |
 | deleting a session that still has attached sub-sessions | the store rejects this; callers must clean up children first |
 | assuming tenant isolation is implied by file paths | tenant checks are explicit and enforced in the store contracts |
-| using `threadId` as the canonical long-term identifier | `projectId` is the forward-looking identity; `threadId` is a migration-window alias |
+| skipping the Thread layer and creating Sessions directly under a Project | Threads are where A2A connections attach; skipping them gives up enterprise-sharing semantics |
 | binding workspace lifetime directly to every session by default | the SDK keeps workspace provisioning explicit and separate |
 
 ## Related
 
+- [A2A Threading](./a2a-threading.md) — how enterprise project sharing and thread-level A2A connection work together
 - [Run Identities](../runtime/identities.md)
 - [Agents and Orchestration](../agents/README.md)
 - [Low-Level Runtime](../runtime/low-level.md)

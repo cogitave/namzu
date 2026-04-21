@@ -1,0 +1,19 @@
+{
+  "title": "Architecture",
+  "pages": [
+    "index",
+    "source-tree",
+    "folder-reference",
+    "---Folder Taxonomy---",
+    "foundation-folders",
+    "execution-folders",
+    "session-and-store-folders",
+    "integration-folders",
+    "---Behavior---",
+    "runtime-pipeline",
+    "state-and-persistence",
+    "pattern-language",
+    "extensions",
+    "safety"
+  ]
+}
