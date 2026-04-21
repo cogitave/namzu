@@ -8,7 +8,9 @@ import type {
 	IterationCheckpoint,
 } from '../../types/hitl/index.js'
 import type { AssistantMessage } from '../../types/message/index.js'
+import type { EmergencySaveData } from '../../types/run/emergency.js'
 import type { CheckpointListEntry } from '../../types/run/replay.js'
+import { ZERO_COST } from '../../utils/cost.js'
 import { buildToolResultHashes } from '../../utils/hash.js'
 import { generateCheckpointId } from '../../utils/id.js'
 
@@ -19,6 +21,36 @@ function toCheckpointListEntry(cp: IterationCheckpoint): CheckpointListEntry {
 		iteration: cp.iteration,
 		createdAt: cp.createdAt,
 		messageCount: cp.messages.length,
+	}
+}
+
+/**
+ * Project an {@link EmergencySaveData} dump to an {@link IterationCheckpoint}
+ * shape so `replay({ fromCheckpoint: 'emergency' })` can consume it through
+ * the same restore path as any other checkpoint.
+ *
+ * The projection is lossy: `costInfo`, `guardState.elapsedMs`,
+ * `toolResultHashes`, `branchStack`, and `activeNode` are not captured at
+ * emergency-save time and default to zero/empty values. The synthetic
+ * checkpoint id is derived deterministically from the emergency save id so
+ * re-projecting the same dump yields the same {@link CheckpointId}.
+ *
+ * See ses_005-deterministic-replay design §2 + §5.2.
+ */
+export function projectEmergencyToCheckpoint(dump: EmergencySaveData): IterationCheckpoint {
+	const emergencySuffix = dump.id.replace(/^esave_/, '')
+	return {
+		id: `cp_emergency_${emergencySuffix}` as CheckpointId,
+		runId: dump.runId,
+		iteration: dump.currentIteration,
+		messages: dump.messages,
+		tokenUsage: dump.tokenUsage,
+		costInfo: { ...ZERO_COST },
+		guardState: {
+			iterationCount: dump.currentIteration,
+			elapsedMs: Math.max(0, dump.savedAt - dump.startedAt),
+		},
+		createdAt: dump.savedAt,
 	}
 }
 
