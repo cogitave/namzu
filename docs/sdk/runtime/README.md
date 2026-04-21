@@ -18,6 +18,7 @@ The SDK exports a broad runtime surface, but the pieces follow a consistent shap
 | Agents | `ReactiveAgent`, `PipelineAgent`, `RouterAgent`, `SupervisorAgent` | Different execution patterns over the same runtime |
 | Low-level kernel | `query`, `drainQuery` | Direct control over event streaming, verification, sandboxing, and runtime-only features |
 | Lifecycle | `AgentManager`, `RunPersistence`, `EmergencySaveManager`, `PlanManager` | Run orchestration, persistence, and review hooks |
+| Replay (v1) | `listCheckpoints`, `prepareReplayState`, `MutationNotApplicableError` | Fork an existing run from a checkpoint, optionally mutating the fork point — see [Replay](./replay.md) |
 | Stores | `RunDiskStore`, `DiskTaskStore`, conversation and memory stores | Local durability for runtime data |
 | Session hierarchy | `InMemorySessionStore`, `DiskSessionStore`, handoff, summary, workspace, retention exports | Tenant-scoped project and delegation state |
 | Sandboxing | `LocalSandboxProvider`, `SandboxProviderFactory` | Isolated command execution |
