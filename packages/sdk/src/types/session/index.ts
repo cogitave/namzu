@@ -25,3 +25,5 @@ export type {
 	CreateSessionParams,
 	CreateSubSessionParams,
 } from './store.js'
+
+export type { SessionMessage } from './messages.js'
