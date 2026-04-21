@@ -3,7 +3,6 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import {
 	PLUGIN_MANIFEST_FILENAME,
-	PLUGIN_NAME_PATTERN,
 	PROJECT_PLUGIN_DIR,
 	USER_PLUGIN_DIR,
 } from '../constants/plugin/index.js'
@@ -51,21 +50,6 @@ export async function loadPluginManifest(pluginDir: string): Promise<PluginManif
 	const raw = await readFile(manifestPath, 'utf-8')
 	const parsed: unknown = JSON.parse(raw)
 	return PluginManifestSchema.parse(parsed)
-}
-
-/**
- * Validates that the plugin name matches the directory name
- * and conforms to the plugin name pattern.
- */
-export function validatePluginName(name: string, dirName: string): void {
-	if (!PLUGIN_NAME_PATTERN.test(name)) {
-		throw new Error(
-			`Plugin name "${name}" is invalid. Must be lowercase alphanumeric with hyphens (pattern: ${PLUGIN_NAME_PATTERN.source})`,
-		)
-	}
-	if (name !== dirName) {
-		throw new Error(`Plugin name "${name}" must match directory name "${dirName}"`)
-	}
 }
 
 /**

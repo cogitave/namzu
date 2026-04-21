@@ -19,7 +19,7 @@ export type ThreadStatus = 'open' | 'archived'
 
 /**
  * Topic-level container sitting between {@link ProjectId Project} and
- * {@link import('./ids.js').SessionId Session} in the five-layer hierarchy
+ * {@link import('../session/ids.js').SessionId Session} in the five-layer hierarchy
  * (Project → Thread → Session → SubSession → Run).
  *
  * A Thread groups together many Sessions that address the same coherent

@@ -8,12 +8,8 @@
 // return the no-op defaults and every span/meter write is silently
 // discarded — standard OTEL library behavior.
 
-import { type Meter, type Tracer, metrics, trace } from '@opentelemetry/api'
+import { type Tracer, trace } from '@opentelemetry/api'
 
 export function getTracer(): Tracer {
 	return trace.getTracer('namzu')
-}
-
-export function getMeter(): Meter {
-	return metrics.getMeter('namzu')
 }

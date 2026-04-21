@@ -13,15 +13,6 @@ export type LimitCheckResult =
 	| { type: 'warning'; reason: StopReason }
 	| { type: 'hard_stop'; reason: StopReason }
 
-export function checkLimits(
-	config: LimitCheckerConfig,
-	state: LimitCheckerState,
-): StopReason | null {
-	const result = checkLimitsDetailed(config, state)
-	if (result.type === 'ok') return null
-	return result.reason
-}
-
 export function checkLimitsDetailed(
 	config: LimitCheckerConfig,
 	state: LimitCheckerState,

@@ -106,8 +106,8 @@ export class CheckpointManager {
 	/**
 	 * Listing projection used by the public `listCheckpoints` API. Returns
 	 * only the fields a consumer needs to pick a fork point for
-	 * {@link import('./replay/index.js').replay} — not the full checkpoint
-	 * payload. See ses_005-deterministic-replay design §3.1.
+	 * {@link import('./replay/prepare.js').prepareReplayState} — not the
+	 * full checkpoint payload. See ses_005-deterministic-replay design §3.1.
 	 */
 	async listEntries(): Promise<CheckpointListEntry[]> {
 		const checkpoints = await this.store.listCheckpoints()

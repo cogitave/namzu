@@ -99,11 +99,6 @@ export interface RunContext {
  */
 const migrationPromises = new Map<string, Promise<FilesystemMigrationResult>>()
 
-/** Testing hook — clears the first-call guard cache. */
-export function __resetMigrationGuardForTests(): void {
-	migrationPromises.clear()
-}
-
 export class RunContextFactory {
 	/**
 	 * Run the boot-time filesystem migration for `rootDir` at most once per

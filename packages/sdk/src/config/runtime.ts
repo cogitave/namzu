@@ -51,8 +51,6 @@ export const PromptCacheConfigSchema = z.object({
 	strategy: z.enum(['auto', 'disabled']).default('auto'),
 })
 
-export type PromptCacheConfig = z.infer<typeof PromptCacheConfigSchema>
-
 export const PluginRuntimeConfigSchema = z.object({
 	enabled: z.boolean().default(false),
 	autoDiscovery: z.boolean().default(true),
