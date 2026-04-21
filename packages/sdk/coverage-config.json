@@ -9,6 +9,7 @@
 			"manager",
 			"plugin",
 			"provider",
+			"registry",
 			"runtime",
 			"session",
 			"store",
@@ -22,7 +23,6 @@
 			"gateway",
 			"persona",
 			"rag",
-			"registry",
 			"router",
 			"run",
 			"sandbox",
@@ -45,6 +45,6 @@
 		"bus":      { "line": 94, "branch": 91 },
 		"connector":{ "line": 0, "branch": 0 },
 		"rag":      { "line": 0, "branch": 0 },
-		"registry": { "line": 0, "branch": 0 }
+		"registry": { "line": 93, "branch": 90 }
 	}
 }
