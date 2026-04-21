@@ -48,6 +48,26 @@ jobs:
       - name: Test
         run: pnpm -r test
 
+      # SDK coverage gate (ses_006-test-coverage-sprint).
+      # Runs on one node version only — coverage output is identical across
+      # matrix entries, so gating on all four would waste CI time and
+      # produce confusing duplicate failures. The gate has two layers:
+      #   1. Per-module coverage floors defending named invariants.
+      #   2. Structural test-presence rule ensuring every src/ folder is
+      #      classified (required | baselineExempt | exempt).
+      # Both are non-bypassable by design (no SKIP_* env var).
+      - name: SDK coverage (produce summary)
+        if: matrix.node-version == 24
+        run: pnpm --filter @namzu/sdk test:coverage
+
+      - name: SDK coverage floor gate
+        if: matrix.node-version == 24
+        run: node .github/scripts/check-sdk-module-coverage.mjs
+
+      - name: SDK test-presence gate
+        if: matrix.node-version == 24
+        run: node .github/scripts/check-sdk-test-presence.mjs
+
       # Pre-publish package validation — runs on every PR + every push to main.
       # Catches cross-package peer-range drift and package.json export shape
       # bugs before they reach a publish tag. Only runs on one node version
