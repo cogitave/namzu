@@ -56,6 +56,15 @@ jobs:
         if: matrix.node-version == 24
         run: bash .github/scripts/verify-consumer-install.sh
 
+      # Public-surface regression guard (ses_011-sdk-public-surface).
+      # Compares `Object.keys(@namzu/sdk)` against a committed baseline.
+      # Catches silent drops that .d.ts diffs miss (runtime-only symbols,
+      # error classes, zod schemas). Intentional widenings update the
+      # baseline in the same commit.
+      - name: Public-surface regression check
+        if: matrix.node-version == 24
+        run: node .github/scripts/verify-public-surface.mjs
+
       - name: publint (package.json shape)
         if: matrix.node-version == 24
         run: |
