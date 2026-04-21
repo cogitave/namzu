@@ -1,13 +1,5 @@
-import type { TenantId } from '../../types/ids/index.js'
+// Compatibility shim — the canonical home moved to `types/tenant/entity.ts`.
+// Scheduled for deletion in ses_010 commit 8 once all direct-file consumers
+// are rewritten. See `docs.local/sessions/ses_010-sdk-type-layering/`.
 
-/**
- * Tenancy boundary for everything in the hierarchy.
- *
- * Intentionally thin — naming, billing, SSO, and quotas live outside the SDK
- * (session-hierarchy.md §4.1 Convention #17). No API surface crosses
- * {@link TenantId}.
- */
-export interface Tenant {
-	id: TenantId
-	createdAt: Date
-}
+export type { Tenant } from '../../types/tenant/entity.js'

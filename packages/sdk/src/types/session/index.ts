@@ -27,3 +27,5 @@ export type {
 } from './store.js'
 
 export type { SessionMessage } from './messages.js'
+
+export type { ActorRef, SystemRoleId } from './actor.js'

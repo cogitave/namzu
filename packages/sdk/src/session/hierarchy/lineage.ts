@@ -1,15 +1,5 @@
-import type { SessionId } from '../../types/ids/index.js'
+// Compatibility shim — the canonical home moved to `types/run/lineage.ts`.
+// Scheduled for deletion in ses_010 commit 8 once all direct-file consumers
+// are rewritten. See `docs.local/sessions/ses_010-sdk-type-layering/`.
 
-/**
- * Parent/root linkage carried on every sub-session event.
- *
- * Per session-hierarchy.md §10.4 every `RunEvent` emitted from a sub-session
- * carries a {@link Lineage} so consumers can reconstruct the delegation tree
- * without walking the store. `depth` is 0 at the root session and grows by 1
- * per delegation level.
- */
-export interface Lineage {
-	parentSessionId: SessionId
-	rootSessionId: SessionId
-	depth: number
-}
+export type { Lineage } from '../../types/run/lineage.js'
