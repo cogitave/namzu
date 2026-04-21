@@ -29,3 +29,14 @@ export type {
 export type { SessionMessage } from './messages.js'
 
 export type { ActorRef, SystemRoleId } from './actor.js'
+
+export type { Session, SessionStatus } from './entity.js'
+
+export type {
+	CompletionMode,
+	DeliverableRef,
+	FailureMode,
+	SubSession,
+	SubSessionKind,
+	SubSessionStatus,
+} from './sub-session.js'
