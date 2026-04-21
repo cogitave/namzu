@@ -1,5 +1,5 @@
 import { RUN_STATUS_TO_A2A, TERMINAL_STATES } from '../../constants/a2a/index.js'
-import type { Run, RunConfig, WireRunStatus } from '../../contracts/index.js'
+import type { RunConfig, WireRun, WireRunStatus } from '../../contracts/index.js'
 import type {
 	A2AArtifact,
 	A2AMessage,
@@ -19,7 +19,7 @@ export function runStatusToA2AState(status: WireRunStatus): A2ATaskState {
 	return RUN_STATUS_TO_A2A[status]
 }
 
-function buildTaskStatus(run: Run): A2ATaskStatus {
+function buildTaskStatus(run: WireRun): A2ATaskStatus {
 	const state = runStatusToA2AState(run.status)
 	const timestamp = run.completed_at ?? run.started_at ?? run.created_at
 
@@ -32,7 +32,7 @@ function buildTaskStatus(run: Run): A2ATaskStatus {
 	return { state, message, timestamp }
 }
 
-function buildArtifacts(run: Run): A2AArtifact[] | undefined {
+function buildArtifacts(run: WireRun): A2AArtifact[] | undefined {
 	if (!run.result) return undefined
 
 	return [
@@ -54,7 +54,7 @@ function buildArtifacts(run: Run): A2AArtifact[] | undefined {
 	]
 }
 
-export function runToA2ATask(run: Run, messages?: readonly Message[]): A2ATask {
+export function runToA2ATask(run: WireRun, messages?: readonly Message[]): A2ATask {
 	return {
 		id: run.id,
 		contextId: run.project_id ?? undefined,

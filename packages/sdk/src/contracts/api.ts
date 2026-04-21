@@ -65,7 +65,7 @@ export type WireRunStatus =
 // identifier even if the domain type is later renamed.
 export type RunStopReason = StopReason
 
-export interface Run {
+export interface WireRun {
 	id: RunId
 	project_id: ProjectId | null
 	session_id?: SessionId

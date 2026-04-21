@@ -1,7 +1,7 @@
 import { appendFile, mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { CheckpointId, IterationCheckpoint } from '../../types/hitl/index.js'
-import type { AgentRun, RunEvent, RunStoreConfig } from '../../types/run/index.js'
+import type { Run, RunEvent, RunStoreConfig } from '../../types/run/index.js'
 import { type Logger, getRootLogger } from '../../utils/logger.js'
 
 export class RunDiskStore {
@@ -44,7 +44,7 @@ export class RunDiskStore {
 		await appendFile(join(dir, 'transcript.jsonl'), line, 'utf-8')
 	}
 
-	async writeRunMeta(run: AgentRun): Promise<void> {
+	async writeRunMeta(run: Run): Promise<void> {
 		const dir = this.requireInit()
 
 		const meta: Record<string, unknown> = {
@@ -65,7 +65,7 @@ export class RunDiskStore {
 		await atomicWriteJson(join(dir, 'run.json'), meta)
 	}
 
-	async writeMessages(run: AgentRun): Promise<void> {
+	async writeMessages(run: Run): Promise<void> {
 		const dir = this.requireInit()
 		await atomicWriteJson(join(dir, 'messages.json'), run.messages)
 	}
@@ -151,7 +151,7 @@ export class RunDiskStore {
 		}
 	}
 
-	async addToIndex(run: AgentRun): Promise<void> {
+	async addToIndex(run: Run): Promise<void> {
 		if (run.parentRunId) return
 
 		const prev = this.indexLock

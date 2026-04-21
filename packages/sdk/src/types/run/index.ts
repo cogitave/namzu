@@ -1,6 +1,6 @@
 export * from './stop-reason.js'
 export * from './config.js'
-export * from './state.js'
+export * from './entity.js'
 // Note: `./status.js` is intentionally NOT re-exported via `export *` from
 // this barrel — the domain `RunStatus` type (session-hierarchy.md §4.6)
 // shares its name with the deprecated wire alias `RunStatus` in

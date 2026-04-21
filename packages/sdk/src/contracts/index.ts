@@ -14,7 +14,7 @@ export type {
 	CreateMessageRequest,
 	WireRunStatus,
 	RunStopReason,
-	Run,
+	WireRun,
 	RunHierarchyNode,
 	ApiPermissionMode,
 	RunConfig,

@@ -27,7 +27,7 @@ import { type Message, createSystemMessage } from '../../types/message/index.js'
 import type { AgentPersona } from '../../types/persona/index.js'
 import type { LLMProvider } from '../../types/provider/index.js'
 import type { TaskRouterConfig } from '../../types/router/index.js'
-import type { AgentRun, AgentRunConfig, RunEvent, RunEventListener } from '../../types/run/index.js'
+import type { AgentRunConfig, Run, RunEvent, RunEventListener } from '../../types/run/index.js'
 import type { Sandbox, SandboxProvider } from '../../types/sandbox/index.js'
 import type { ProjectId, ThreadId } from '../../types/session/ids.js'
 import type { Skill } from '../../types/skills/index.js'
@@ -136,7 +136,7 @@ export interface QueryParams {
 	invocationState?: InvocationState
 }
 
-export async function* query(params: QueryParams): AsyncGenerator<RunEvent, AgentRun> {
+export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run> {
 	// Boot-time filesystem migration (session-hierarchy.md §13.4.1). First
 	// call per process per root actually runs; subsequent calls short-circuit
 	// via the in-memory guard in `context.ts`. Kept here rather than inside
@@ -335,7 +335,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Agen
 
 	const tracer = getTracer()
 
-	return yield* (async function* (): AsyncGenerator<RunEvent, AgentRun> {
+	return yield* (async function* (): AsyncGenerator<RunEvent, Run> {
 		const rootSpan = tracer.startSpan(agentRunSpanName(params.agentName))
 		rootSpan.setAttributes({
 			[NAMZU.RUN_ID]: ctx.runMgr.id,
@@ -515,7 +515,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Agen
 export async function drainQuery(
 	params: Omit<QueryParams, 'resumeHandler'> & { resumeHandler?: ResumeHandler },
 	listener?: RunEventListener,
-): Promise<AgentRun> {
+): Promise<Run> {
 	const fullParams: QueryParams = {
 		...params,
 		resumeHandler: params.resumeHandler ?? autoApproveHandler,

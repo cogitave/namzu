@@ -1,4 +1,4 @@
-import type { AgentRun, RunEvent, RunEventListener } from '../types/run/index.js'
+import type { Run, RunEvent, RunEventListener } from '../types/run/index.js'
 import { formatCost } from '../utils/cost.js'
 import { type Logger, getRootLogger } from '../utils/logger.js'
 
@@ -13,7 +13,7 @@ function formatDuration(ms: number): string {
 
 export interface RunReporter {
 	listener: RunEventListener
-	summary(run: AgentRun): void
+	summary(run: Run): void
 }
 
 export function createRunReporter(parentLogger?: Logger): RunReporter {
@@ -229,7 +229,7 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 		}
 	}
 
-	function summary(run: AgentRun): void {
+	function summary(run: Run): void {
 		const elapsed = (run.endedAt ?? Date.now()) - run.startedAt
 		const { tokenUsage, costInfo, currentIteration, stopReason } = run
 

@@ -3,7 +3,7 @@ import type { PlanManager } from '../../manager/plan/lifecycle.js'
 import type { RunPersistence } from '../../manager/run/persistence.js'
 import type { ActivityStore } from '../../store/activity/memory.js'
 import { GENAI, NAMZU } from '../../telemetry/attributes.js'
-import type { AgentRun, RunEvent } from '../../types/run/index.js'
+import type { Run, RunEvent } from '../../types/run/index.js'
 import { toErrorMessage } from '../../utils/error.js'
 import type { Logger } from '../../utils/logger.js'
 import type { EmitEvent } from './events.js'
@@ -87,7 +87,7 @@ export class ResultAssembler {
 		})
 	}
 
-	async finalize(): Promise<AgentRun> {
+	async finalize(): Promise<Run> {
 		await this.config.runMgr.persist()
 		return this.config.runMgr.getRun()
 	}

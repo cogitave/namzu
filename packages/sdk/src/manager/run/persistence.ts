@@ -4,14 +4,14 @@ import { type CostInfo, type TokenUsage, accumulateTokenUsage } from '../../type
 import type { RunId, SessionId, TenantId } from '../../types/ids/index.js'
 import type { AssistantMessage, Message } from '../../types/message/index.js'
 import type { EmergencySaveData } from '../../types/run/emergency.js'
-import type { AgentRun, RunPersistenceConfig, StopReason } from '../../types/run/index.js'
+import type { Run, RunPersistenceConfig, StopReason } from '../../types/run/index.js'
 import type { ProjectId, ThreadId } from '../../types/session/ids.js'
 import { type ModelPricing, ZERO_COST, accumulateCost } from '../../utils/cost.js'
 import { generateEmergencySaveId } from '../../utils/id.js'
 import type { Logger } from '../../utils/logger.js'
 
 export class RunPersistence {
-	private run: AgentRun
+	private run: Run
 	private runStore: RunDiskStore
 	private pricing?: ModelPricing
 	private log: Logger
@@ -96,11 +96,11 @@ export class RunPersistence {
 		return this.run.currentIteration
 	}
 
-	getRun(): Readonly<AgentRun> {
+	getRun(): Readonly<Run> {
 		return this.run
 	}
 
-	getSession(): Readonly<AgentRun> {
+	getSession(): Readonly<Run> {
 		return this.run
 	}
 
