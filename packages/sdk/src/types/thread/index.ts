@@ -3,3 +3,4 @@
 // import via `../types/thread/index.js`.
 
 export type { ThreadStore, CreateThreadParams } from './store.js'
+export type { Thread, ThreadStatus } from './entity.js'

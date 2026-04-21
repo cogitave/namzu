@@ -1,41 +1,5 @@
-import type { KnowledgeBaseRef, MemoryStoreRef, TenantId, VaultRef } from '../../types/ids/index.js'
-import type { ProjectId } from '../../types/session/ids.js'
-import type { RetentionPolicy } from '../retention/policy.js'
+// Compatibility shim — the canonical home moved to `types/project/entity.ts`.
+// Scheduled for deletion in ses_010 commit 8 once all direct-file consumers
+// are rewritten. See `docs.local/sessions/ses_010-sdk-type-layering/`.
 
-/**
- * Per-project configuration. Defaults per session-hierarchy.md §3 / §4.2 /
- * §8.2 are applied at instantiation time (not encoded here) so the type
- * stays declarative:
- *   - maxDelegationDepth: 4
- *   - maxDelegationWidth: 8
- *   - maxInterventionDepth: 10
- *   - sharedDeliverables: false
- *
- * `retentionPolicy` replaces the Phase 1 `RetentionPolicyRef = unknown`
- * placeholder with the real {@link RetentionPolicy} shape (§12.3). Absent
- * (deny-by-default per Convention #5) means archival is fully disabled for
- * the project; explicit configuration is required.
- */
-export interface ProjectConfig {
-	maxDelegationDepth: number
-	maxDelegationWidth: number
-	maxInterventionDepth: number
-	sharedMemoryStores?: readonly MemoryStoreRef[]
-	sharedVaults?: readonly VaultRef[]
-	sharedKnowledgeBases?: readonly KnowledgeBaseRef[]
-	sharedDeliverables?: boolean
-	retentionPolicy?: RetentionPolicy
-}
-
-/**
- * Long-lived goal scope that owns shared memory, vaults, knowledge bases,
- * and deliverables across sessions. See session-hierarchy.md §4.2.
- */
-export interface Project {
-	id: ProjectId
-	tenantId: TenantId
-	name: string
-	config: ProjectConfig
-	createdAt: Date
-	updatedAt: Date
-}
+export type { Project, ProjectConfig } from '../../types/project/entity.js'
