@@ -6,6 +6,7 @@
 			"bridge",
 			"bus",
 			"compaction",
+			"connector",
 			"manager",
 			"plugin",
 			"provider",
@@ -19,7 +20,6 @@
 		"baselineExempt": [
 			"advisory",
 			"config",
-			"connector",
 			"execution",
 			"gateway",
 			"persona",
@@ -43,7 +43,7 @@
 		"advisory": { "line": 0, "branch": 0 },
 		"bridge":   { "line": 96, "branch": 95 },
 		"bus":      { "line": 94, "branch": 91 },
-		"connector":{ "line": 0, "branch": 0 },
+		"connector":{ "line": 47, "branch": 84 },
 		"rag":      { "line": 92, "branch": 92 },
 		"registry": { "line": 93, "branch": 90 }
 	}
