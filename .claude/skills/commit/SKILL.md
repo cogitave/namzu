@@ -67,6 +67,37 @@ Prepares and creates a git commit on this repository with the correct author ide
 
    If no in-progress session exists, this step is a no-op.
 
+5.5. **Optional mid-session Codex check — hint, not a hard gate.** If the commit about to land is *large* or *scope-expanding*, consider an adversarial Codex pass on the staged diff before finalizing the commit message. Purpose: catch drift between the ratified `design.md` plan and what actually got built, while it is still cheap to amend.
+
+   Trigger heuristics (any one is enough):
+   - Diff touches **≥ 20 files** or **≥ 500 LOC**.
+   - Diff introduces a **new public export** (new symbol in the root barrel, new file under `packages/*/src/`, new bucket in the public-surface split, new wire field, new CLI flag).
+   - Diff is a **rename / relocation across feature folders** (e.g. `session/hierarchy/` → `types/session/` in ses_010, or an equivalent structural move).
+   - Diff **deviates from `implementation-plan.md`** in a way the agent is about to flag as a `**Deviation:**` supplement in step 5.
+   - Diff **ships a new convention** or touches `docs.local/conventions/`.
+
+   If none of these apply, the baseline per-commit progress supplement (step 5) is enough — no Codex call.
+
+   When triggered, invoke `codex-check` via the `codex:codex-rescue` plugin with a commit-focused prompt:
+
+   <prompts>
+     - "Attack this staged diff. Does it match what `<session>/design.md §<section>` called for?"
+     - "What scope has silently grown beyond the commit subject line?"
+     - "What public-surface change would a consumer notice that the diff does not flag?"
+     - "Is there a symbol renamed or moved here that breaks a documented import path?"
+   </prompts>
+
+   Triage: concrete blocker → fix staged files before committing; generic praise → discard; minor concern → note in the commit body as a follow-up. Record the round in this session's `progress.md` under the pre-commit supplement:
+
+   ```md
+   ### YYYY-MM-DD HH:MM — Commit <N> — mid-session Codex check
+   - Trigger: [file count / LOC / scope-expansion reason]
+   - Critiques: [count, short titles]
+   - Actions: [fixed in-place / deferred / dismissed as noise]
+   ```
+
+   Pre-freeze Codex check (in `freeze-session` skill step 0) is the final gate and is MANDATORY; this mid-commit check is a cheaper earlier-signal opportunity, not a replacement.
+
 6. Write the commit message in Conventional Commits form:
 
    <format>
@@ -119,3 +150,4 @@ Prepares and creates a git commit on this repository with the correct author ide
 - Confirmation that author identity is correct.
 - Progress log entry (if an in-progress session exists) — always, per step 5.
 - Docs-debt queue line (if public surface was touched) — enqueued in the progress entry.
+- Mid-session Codex check outcome (if step 5.5 triggered) — cross-linked from the progress entry.
