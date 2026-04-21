@@ -1,5 +1,5 @@
-import type { ActorRef } from '../../session/hierarchy/actor.js'
-import type { WorkspaceBackendKind } from '../../session/workspace/ref.js'
+import type { ActorRef } from '../../types/session/actor.js'
+import type { WorkspaceBackendKind } from '../../types/workspace/ref.js'
 import type { TokenUsage } from '../common/index.js'
 import type { RunId, SessionId, TaskId, TenantId } from '../ids/index.js'
 import type { Message } from '../message/index.js'

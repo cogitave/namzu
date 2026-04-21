@@ -22,9 +22,9 @@
 import { mkdir, readFile, readdir, rename, rm, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { StaleThreadError, TenantIsolationError } from '../../session/errors.js'
-import type { Thread, ThreadStatus } from '../../session/hierarchy/thread.js'
 import type { TenantId } from '../../types/ids/index.js'
 import type { ProjectId, ThreadId } from '../../types/session/ids.js'
+import type { Thread, ThreadStatus } from '../../types/thread/entity.js'
 import type { CreateThreadParams, ThreadStore } from '../../types/thread/store.js'
 import { generateThreadId } from '../../utils/id.js'
 

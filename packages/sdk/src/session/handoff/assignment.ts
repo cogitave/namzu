@@ -9,8 +9,8 @@
  */
 
 import type { SessionId, TenantId } from '../../types/ids/index.js'
+import type { ActorRef } from '../../types/session/actor.js'
 import type { HandoffId, ProjectId, ThreadId, WorkspaceId } from '../../types/session/ids.js'
-import type { ActorRef } from '../hierarchy/actor.js'
 
 /**
  * Handoff mode discriminator. `single` transfers ownership of the source

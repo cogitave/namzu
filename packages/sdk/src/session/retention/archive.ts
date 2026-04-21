@@ -28,8 +28,8 @@
 import type { SessionId, SubSessionId, TenantId } from '../../types/ids/index.js'
 import type { WorkspaceId } from '../../types/session/ids.js'
 import type { SessionStore } from '../../types/session/store.js'
-import type { SubSession, SubSessionStatus } from '../hierarchy/sub-session.js'
-import type { WorkspaceRef } from '../workspace/ref.js'
+import type { SubSession, SubSessionStatus } from '../../types/session/sub-session.js'
+import type { WorkspaceRef } from '../../types/workspace/ref.js'
 import type { WorkspaceBackendRegistry } from '../workspace/registry.js'
 import type { ArchiveBackend, SubSessionTombstone } from './backend.js'
 

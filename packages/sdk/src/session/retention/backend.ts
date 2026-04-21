@@ -12,12 +12,12 @@
  * `SessionStore` is the Store it mutates.
  */
 
-import type { SessionMessage } from '../../store/session/messages.js'
 import type { SessionId, SubSessionId, TenantId } from '../../types/ids/index.js'
+import type { ArchiveBackendRef } from '../../types/retention/archive-backend-ref.js'
 import type { SummaryId } from '../../types/session/ids.js'
-import type { SessionSummaryRef } from '../summary/ref.js'
-import type { WorkspaceRef } from '../workspace/ref.js'
-import type { ArchiveBackendRef } from './archive-backend-ref.js'
+import type { SessionMessage } from '../../types/session/messages.js'
+import type { SessionSummaryRef } from '../../types/summary/ref.js'
+import type { WorkspaceRef } from '../../types/workspace/ref.js'
 
 /**
  * Output of a successful {@link ArchiveBackend.store} call. `archiveRef` is

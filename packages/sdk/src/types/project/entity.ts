@@ -1,5 +1,5 @@
+import type { RetentionPolicy } from '../../types/retention/policy.js'
 import type { KnowledgeBaseRef, MemoryStoreRef, TenantId, VaultRef } from '../ids/index.js'
-import type { RetentionPolicy } from '../retention/policy.js'
 import type { ProjectId } from '../session/ids.js'
 
 /**

@@ -5,8 +5,6 @@ import {
 	DefaultCapacityValidator,
 	DelegationCapacityExceeded,
 } from '../../../session/handoff/capacity.js'
-import type { ActorRef } from '../../../session/hierarchy/actor.js'
-import type { DeliverableRef } from '../../../session/summary/deliverable.js'
 import { SessionSummaryMaterializer } from '../../../session/summary/materialize.js'
 import { WorkspaceBackendRegistry } from '../../../session/workspace/registry.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
@@ -24,7 +22,9 @@ import type { AgentTaskContext, SendMessageOptions } from '../../../types/agent/
 import type { AgentId, SessionId, TenantId, UserId } from '../../../types/ids/index.js'
 import { createAssistantMessage } from '../../../types/message/index.js'
 import type { RunEvent } from '../../../types/run/events.js'
+import type { ActorRef } from '../../../types/session/actor.js'
 import type { SummaryId, ThreadId } from '../../../types/session/ids.js'
+import type { DeliverableRef } from '../../../types/summary/deliverable.js'
 import { ZERO_COST } from '../../../utils/cost.js'
 import { ThreadManager } from '../../thread/lifecycle.js'
 import { AgentManager } from '../lifecycle.js'

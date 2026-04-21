@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { ThreadClosedError, ThreadNotEmptyError } from '../../../session/errors.js'
-import type { ActorRef } from '../../../session/hierarchy/actor.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
 import { InMemoryThreadStore } from '../../../store/thread/memory.js'
 import type { AgentId, TenantId, UserId } from '../../../types/ids/index.js'
+import type { ActorRef } from '../../../types/session/actor.js'
 import type { ThreadId } from '../../../types/session/ids.js'
 import { ThreadManager } from '../lifecycle.js'
 

@@ -20,13 +20,16 @@ import type {
 	SummaryId,
 	ThreadId,
 } from '../../../types/session/ids.js'
+import type {
+	DeliverableRef,
+	SessionSummaryDeliverable,
+} from '../../../types/summary/deliverable.js'
 import {
 	ArtifactRefCycleError,
 	type InterventionChainLoader,
 	InterventionDepthExceeded,
 	validatePrevArtifactChain,
 } from '../../intervention/prev-artifact.js'
-import type { DeliverableRef, SessionSummaryDeliverable } from '../../summary/deliverable.js'
 import { DEFAULT_TENANT, agentActor, userActor } from './_fixtures.js'
 
 const TEST_THREAD_ID = 'thd_test' as ThreadId

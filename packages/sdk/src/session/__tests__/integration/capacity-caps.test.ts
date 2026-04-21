@@ -11,8 +11,8 @@
  */
 
 import { describe, expect, it } from 'vitest'
+import type { ActorRef } from '../../../types/session/actor.js'
 import { DelegationCapacityExceeded } from '../../handoff/capacity.js'
-import type { ActorRef } from '../../hierarchy/actor.js'
 import {
 	DEFAULT_TENANT,
 	agentActor,

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import type { ActorRef } from '../../../session/hierarchy/actor.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
 import { InMemoryThreadStore } from '../../../store/thread/memory.js'
 import type { AgentId, SessionId, TenantId, UserId } from '../../../types/ids/index.js'
+import type { ActorRef } from '../../../types/session/actor.js'
 import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
 import { DefaultCapacityValidator, DelegationCapacityExceeded } from '../capacity.js'
 

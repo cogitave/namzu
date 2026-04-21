@@ -13,6 +13,7 @@
 import { execFile } from 'node:child_process'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
+import type { GitWorktreeBackendMeta, WorkspaceRef } from '../../types/workspace/ref.js'
 import { generateWorkspaceId } from '../../utils/id.js'
 import type { Logger } from '../../utils/logger.js'
 import { WorkspaceBackendError } from '../errors.js'
@@ -22,7 +23,6 @@ import type {
 	WorkspaceBackendDriver,
 	WorkspaceInspection,
 } from './driver.js'
-import type { GitWorktreeBackendMeta, WorkspaceRef } from './ref.js'
 
 const execFileAsync = promisify(execFile)
 

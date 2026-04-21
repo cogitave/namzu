@@ -9,7 +9,7 @@
  * later phase (Convention #10: provider abstraction).
  */
 
-import type { WorkspaceBackendKind, WorkspaceRef } from './ref.js'
+import type { WorkspaceBackendKind, WorkspaceRef } from '../../types/workspace/ref.js'
 
 /**
  * Params for {@link WorkspaceBackendDriver.create}. `baseRef` selects the
@@ -57,4 +57,4 @@ export interface WorkspaceBackendDriver {
 	inspect(ref: WorkspaceRef): Promise<WorkspaceInspection>
 }
 
-export type { WorkspaceBackendKind } from './ref.js'
+export type { WorkspaceBackendKind } from '../../types/workspace/ref.js'

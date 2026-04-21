@@ -34,10 +34,10 @@ import type { AgentTaskContext, SendMessageOptions } from '../../../types/agent/
 import type { RunId, TenantId, UserId } from '../../../types/ids/index.js'
 import { createAssistantMessage } from '../../../types/message/index.js'
 import type { RunEvent } from '../../../types/run/events.js'
+import type { ActorRef } from '../../../types/session/actor.js'
 import type { SummaryId } from '../../../types/session/ids.js'
 import { ZERO_COST } from '../../../utils/cost.js'
 import { DefaultCapacityValidator } from '../../handoff/capacity.js'
-import type { ActorRef } from '../../hierarchy/actor.js'
 import { SessionSummaryMaterializer } from '../../summary/materialize.js'
 import { WorkspaceBackendRegistry } from '../../workspace/registry.js'
 

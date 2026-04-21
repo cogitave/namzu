@@ -41,10 +41,11 @@ import type { AgentDefinition } from '../../../types/agent/factory.js'
 import type { AgentTaskContext, SendMessageOptions } from '../../../types/agent/task.js'
 import type { RunId, TenantId, UserId } from '../../../types/ids/index.js'
 import { createAssistantMessage } from '../../../types/message/index.js'
+import type { ActorRef } from '../../../types/session/actor.js'
 import type { SummaryId } from '../../../types/session/ids.js'
+import type { WorkspaceRef } from '../../../types/workspace/ref.js'
 import { ZERO_COST } from '../../../utils/cost.js'
 import { DefaultCapacityValidator } from '../../handoff/capacity.js'
-import type { ActorRef } from '../../hierarchy/actor.js'
 import { SessionSummaryMaterializer } from '../../summary/materialize.js'
 import type {
 	BranchWorkspaceParams,
@@ -52,7 +53,6 @@ import type {
 	WorkspaceBackendDriver,
 	WorkspaceInspection,
 } from '../../workspace/driver.js'
-import type { WorkspaceRef } from '../../workspace/ref.js'
 import { WorkspaceBackendRegistry } from '../../workspace/registry.js'
 
 const tenant = 'tnt_alpha' as TenantId

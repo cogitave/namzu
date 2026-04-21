@@ -9,14 +9,13 @@
  */
 
 import { TenantIsolationError } from '../../session/errors.js'
-import type { Project } from '../../session/hierarchy/project.js'
-import type { Session } from '../../session/hierarchy/session.js'
-import type { SubSession } from '../../session/hierarchy/sub-session.js'
-import { SessionAlreadySummarizedError } from '../../session/summary/ref.js'
-import type { SessionSummaryRef } from '../../session/summary/ref.js'
+import { SessionAlreadySummarizedError } from '../../session/summary/errors.js'
 import type { MessageId, SessionId, TenantId } from '../../types/ids/index.js'
 import type { Message } from '../../types/message/index.js'
+import type { Project } from '../../types/project/entity.js'
+import type { Session } from '../../types/session/entity.js'
 import type { ProjectId, SubSessionId, ThreadId } from '../../types/session/ids.js'
+import type { SessionMessage } from '../../types/session/messages.js'
 import type {
 	CreateProjectParams,
 	CreateSessionParams,
@@ -24,6 +23,8 @@ import type {
 	SessionStore,
 	SessionView,
 } from '../../types/session/store.js'
+import type { SubSession } from '../../types/session/sub-session.js'
+import type { SessionSummaryRef } from '../../types/summary/ref.js'
 import {
 	generateMessageId,
 	generateProjectId,
@@ -32,7 +33,6 @@ import {
 } from '../../utils/id.js'
 import { getAncestry, getChildren, orderChildren } from './linkage.js'
 import type { LinkageView } from './linkage.js'
-import type { SessionMessage } from './messages.js'
 
 interface ProjectRecord {
 	tenantId: TenantId

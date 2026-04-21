@@ -29,11 +29,11 @@
 import { randomBytes } from 'node:crypto'
 import { mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { SessionMessage } from '../../store/session/messages.js'
 import type { SessionId, SubSessionId, TenantId } from '../../types/ids/index.js'
-import type { SessionSummaryRef } from '../summary/ref.js'
-import type { WorkspaceRef } from '../workspace/ref.js'
-import type { ArchiveBackendRef } from './archive-backend-ref.js'
+import type { ArchiveBackendRef } from '../../types/retention/archive-backend-ref.js'
+import type { SessionMessage } from '../../types/session/messages.js'
+import type { SessionSummaryRef } from '../../types/summary/ref.js'
+import type { WorkspaceRef } from '../../types/workspace/ref.js'
 import type { ArchiveBackend, ArchiveInput, ArchiveOutput } from './backend.js'
 
 /**

@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import { TenantIsolationError } from '../../../session/errors.js'
-import type { ActorRef } from '../../../session/hierarchy/actor.js'
-import type { SubSession } from '../../../session/hierarchy/sub-session.js'
 import type { AgentId, SessionId, TenantId, UserId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
+import type { ActorRef } from '../../../types/session/actor.js'
 import type { ThreadId } from '../../../types/session/ids.js'
+import type { SubSession } from '../../../types/session/sub-session.js'
 import { InMemorySessionStore } from '../memory.js'
 
 const TEST_THREAD_ID = 'thd_test' as ThreadId

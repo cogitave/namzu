@@ -19,7 +19,7 @@
  * has just introduced for this layer (Convention #0).
  */
 
-import type { Thread } from '../../session/hierarchy/thread.js'
+import type { Thread } from '../../types/thread/entity.js'
 import type { TenantId } from '../ids/index.js'
 import type { ProjectId, ThreadId } from '../session/ids.js'
 

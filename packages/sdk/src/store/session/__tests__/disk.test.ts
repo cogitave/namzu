@@ -4,9 +4,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { TenantIsolationError } from '../../../session/errors.js'
-import type { ActorRef } from '../../../session/hierarchy/actor.js'
 import type { AgentId, TenantId, UserId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
+import type { ActorRef } from '../../../types/session/actor.js'
 import { DiskSessionStore } from '../disk.js'
 
 const tenantA = 'tnt_alpha' as TenantId
@@ -389,9 +389,9 @@ describe('DiskSessionStore', () => {
 	})
 })
 
-import type { SessionSummaryRef } from '../../../session/summary/ref.js'
 // Import after use so tests are self-contained w.r.t. types we already use.
 import type { SessionId } from '../../../types/ids/index.js'
 import type { SummaryId, ThreadId } from '../../../types/session/ids.js'
+import type { SessionSummaryRef } from '../../../types/summary/ref.js'
 
 const TEST_THREAD_ID = 'thd_test' as ThreadId

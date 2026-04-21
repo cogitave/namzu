@@ -1,16 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import { TenantIsolationError } from '../../../session/errors.js'
-import type { ActorRef } from '../../../session/hierarchy/actor.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
 import type { AgentId, SessionId, TenantId, UserId } from '../../../types/ids/index.js'
+import type { ActorRef } from '../../../types/session/actor.js'
 import type { SummaryId, ThreadId } from '../../../types/session/ids.js'
-import type { DeliverableRef } from '../deliverable.js'
+import type { DeliverableRef } from '../../../types/summary/deliverable.js'
+import { AGENT_SUMMARY_MAX_CHARS } from '../../../types/summary/ref.js'
+import { AgentSummaryTooLongError, SessionAlreadySummarizedError } from '../errors.js'
 import { SessionSummaryMaterializer } from '../materialize.js'
-import {
-	AGENT_SUMMARY_MAX_CHARS,
-	AgentSummaryTooLongError,
-	SessionAlreadySummarizedError,
-} from '../ref.js'
 
 const TEST_THREAD_ID = 'thd_test' as ThreadId
 

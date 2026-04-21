@@ -25,11 +25,11 @@ import {
 	ThreadClosedError,
 	ThreadNotEmptyError,
 } from '../../session/errors.js'
-import type { Session, SessionStatus } from '../../session/hierarchy/session.js'
-import type { Thread } from '../../session/hierarchy/thread.js'
 import type { TenantId } from '../../types/ids/index.js'
+import type { Session, SessionStatus } from '../../types/session/entity.js'
 import type { ProjectId, ThreadId } from '../../types/session/ids.js'
 import type { SessionStore } from '../../types/session/store.js'
+import type { Thread } from '../../types/thread/entity.js'
 import type { CreateThreadParams, ThreadStore } from '../../types/thread/store.js'
 
 export interface ThreadManagerDeps {

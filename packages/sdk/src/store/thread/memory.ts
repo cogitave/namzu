@@ -9,9 +9,9 @@
  */
 
 import { StaleThreadError, TenantIsolationError } from '../../session/errors.js'
-import type { Thread } from '../../session/hierarchy/thread.js'
 import type { TenantId } from '../../types/ids/index.js'
 import type { ProjectId, ThreadId } from '../../types/session/ids.js'
+import type { Thread } from '../../types/thread/entity.js'
 import type { CreateThreadParams, ThreadStore } from '../../types/thread/store.js'
 import { generateThreadId } from '../../utils/id.js'
 

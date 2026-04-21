@@ -1,9 +1,11 @@
 // Sub-barrel for the retention/archival module (Convention #4).
-// Concrete types + manager live in sibling files.
+// Concrete shape types live under `types/retention/`; runtime machinery
+// (backend contract, manager, disk backend) lives in sibling files under
+// `session/retention/`.
 
-export type { ArchiveBackendRef } from './archive-backend-ref.js'
-export type { RetentionPolicy } from './policy.js'
-export { RETENTION_POLICY_DISABLED } from './policy.js'
+export type { ArchiveBackendRef } from '../../types/retention/archive-backend-ref.js'
+export type { RetentionPolicy } from '../../types/retention/policy.js'
+export { RETENTION_POLICY_DISABLED } from '../../types/retention/policy.js'
 export type { ArchiveBackend, ArchiveInput, ArchiveOutput, SubSessionTombstone } from './backend.js'
 export {
 	ArchivalManager,

@@ -19,18 +19,17 @@
  */
 
 import type { SessionId, TenantId } from '../../types/ids/index.js'
+import type { Session } from '../../types/session/entity.js'
 import type { SummaryId } from '../../types/session/ids.js'
 import type { SessionStore } from '../../types/session/store.js'
-import type { Session } from '../hierarchy/session.js'
-import type { DeliverableRef } from './deliverable.js'
+import type { DeliverableRef } from '../../types/summary/deliverable.js'
 import {
 	AGENT_SUMMARY_MAX_CHARS,
-	AgentSummaryTooLongError,
-	SessionAlreadySummarizedError,
 	type SessionSummaryKeyDecision,
 	type SessionSummaryOutcome,
 	type SessionSummaryRef,
-} from './ref.js'
+} from '../../types/summary/ref.js'
+import { AgentSummaryTooLongError, SessionAlreadySummarizedError } from './errors.js'
 
 /**
  * Dependencies for {@link SessionSummaryMaterializer}. The generator is

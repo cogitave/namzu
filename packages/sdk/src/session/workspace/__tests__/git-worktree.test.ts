@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import type { WorkspaceRef } from '../../../types/workspace/ref.js'
 import { WorkspaceBackendError } from '../../errors.js'
 import {
 	type ExecFile,
@@ -6,7 +7,6 @@ import {
 	GitWorktreeDriver,
 	parseWorktreeList,
 } from '../git-worktree.js'
-import type { WorkspaceRef } from '../ref.js'
 
 function stubLogger() {
 	return {

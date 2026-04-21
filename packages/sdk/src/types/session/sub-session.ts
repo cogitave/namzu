@@ -1,6 +1,6 @@
+import type { ArchiveBackendRef } from '../../types/retention/archive-backend-ref.js'
+import type { DeliverableRef } from '../../types/summary/deliverable.js'
 import type { SessionId } from '../ids/index.js'
-import type { ArchiveBackendRef } from '../retention/archive-backend-ref.js'
-import type { DeliverableRef } from '../summary/deliverable.js'
 import type { ActorRef } from './actor.js'
 import type { SubSessionId, SummaryId, WorkspaceId } from './ids.js'
 

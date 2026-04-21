@@ -33,19 +33,13 @@ import {
 } from 'node:fs/promises'
 import { join } from 'node:path'
 import { TenantIsolationError } from '../../session/errors.js'
-import type { Project } from '../../session/hierarchy/project.js'
-import type { Session } from '../../session/hierarchy/session.js'
-import type { SubSession } from '../../session/hierarchy/sub-session.js'
-import type { DeliverableRef } from '../../session/summary/deliverable.js'
-import { SessionAlreadySummarizedError } from '../../session/summary/ref.js'
-import type {
-	SessionSummaryKeyDecision,
-	SessionSummaryOutcome,
-	SessionSummaryRef,
-} from '../../session/summary/ref.js'
+import { SessionAlreadySummarizedError } from '../../session/summary/errors.js'
 import type { MessageId, SessionId, TenantId } from '../../types/ids/index.js'
 import type { Message } from '../../types/message/index.js'
+import type { Project } from '../../types/project/entity.js'
+import type { Session } from '../../types/session/entity.js'
 import type { ProjectId, SubSessionId, SummaryId, ThreadId } from '../../types/session/ids.js'
+import type { SessionMessage } from '../../types/session/messages.js'
 import type {
 	CreateProjectParams,
 	CreateSessionParams,
@@ -53,6 +47,13 @@ import type {
 	SessionStore,
 	SessionView,
 } from '../../types/session/store.js'
+import type { SubSession } from '../../types/session/sub-session.js'
+import type { DeliverableRef } from '../../types/summary/deliverable.js'
+import type {
+	SessionSummaryKeyDecision,
+	SessionSummaryOutcome,
+	SessionSummaryRef,
+} from '../../types/summary/ref.js'
 import {
 	generateMessageId,
 	generateProjectId,
@@ -61,7 +62,6 @@ import {
 } from '../../utils/id.js'
 import { getAncestry, getChildren, orderChildren } from './linkage.js'
 import type { LinkageView } from './linkage.js'
-import type { SessionMessage } from './messages.js'
 
 /**
  * Config for {@link DiskSessionStore}. `rootDir` is absolute; all files live
@@ -973,4 +973,4 @@ async function atomicWriteJson(filePath: string, value: unknown): Promise<void> 
 // line is a whole record. This matches pattern doc §13.4 persistence
 // (`messages.json[l]` as append-only event log).
 
-export type { SessionMessage } from './messages.js'
+export type { SessionMessage } from '../../types/session/messages.js'

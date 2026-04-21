@@ -8,8 +8,8 @@
  */
 
 import type { SessionId, TenantId } from '../types/ids/index.js'
+import type { SessionStatus } from '../types/session/entity.js'
 import type { ThreadId } from '../types/session/ids.js'
-import type { SessionStatus } from './hierarchy/session.js'
 import type { WorkspaceBackendKind } from './workspace/driver.js'
 
 /**

@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { SessionId } from '../../../types/ids/index.js'
 import type { DeliverableId, SubSessionId, SummaryId } from '../../../types/session/ids.js'
-import type { DeliverableRef, SessionSummaryDeliverable } from '../../summary/deliverable.js'
+import type {
+	DeliverableRef,
+	SessionSummaryDeliverable,
+} from '../../../types/summary/deliverable.js'
 import {
 	ArtifactRefCycleError,
 	type InterventionChainLoader,

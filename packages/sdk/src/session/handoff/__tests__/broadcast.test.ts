@@ -1,6 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { ThreadManager } from '../../../manager/thread/lifecycle.js'
-import type { ActorRef } from '../../../session/hierarchy/actor.js'
 import {
 	type ExecFile,
 	type ExecFileResult,
@@ -10,6 +9,7 @@ import { WorkspaceBackendRegistry } from '../../../session/workspace/registry.js
 import { InMemorySessionStore } from '../../../store/session/memory.js'
 import { InMemoryThreadStore } from '../../../store/thread/memory.js'
 import type { SessionId, TenantId, UserId } from '../../../types/ids/index.js'
+import type { ActorRef } from '../../../types/session/actor.js'
 import type { ProjectId } from '../../../types/session/ids.js'
 import { generateHandoffId } from '../../../utils/id.js'
 import type { HandoffAssignment } from '../assignment.js'

@@ -6,17 +6,17 @@
  * API — extensions land alongside their consumers.
  */
 
-import type { ActorRef } from '../../session/hierarchy/actor.js'
-import type { Project } from '../../session/hierarchy/project.js'
-import type { Session } from '../../session/hierarchy/session.js'
+import type { Project } from '../../types/project/entity.js'
+import type { ActorRef } from '../../types/session/actor.js'
+import type { Session } from '../../types/session/entity.js'
+import type { SessionMessage } from '../../types/session/messages.js'
 import type {
 	CompletionMode,
 	FailureMode,
 	SubSession,
 	SubSessionKind,
-} from '../../session/hierarchy/sub-session.js'
-import type { SessionSummaryRef } from '../../session/summary/ref.js'
-import type { SessionMessage } from '../../store/session/messages.js'
+} from '../../types/session/sub-session.js'
+import type { SessionSummaryRef } from '../../types/summary/ref.js'
 import type { MessageId, SessionId, TenantId } from '../ids/index.js'
 import type { Message } from '../message/index.js'
 import type { ProjectId, SubSessionId, SummaryId, ThreadId } from '../session/ids.js'

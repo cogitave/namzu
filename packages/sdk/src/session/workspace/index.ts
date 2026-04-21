@@ -1,13 +1,14 @@
 // Sub-barrel for the workspace module (Convention #4).
-// Concrete types + driver implementation live in sibling files; re-export
-// them here so other modules import via `../session/workspace/index.js`.
+// Shape types live under `types/workspace/`; runtime machinery (drivers,
+// registry, path-builder, git-worktree) lives in sibling files under
+// `session/workspace/`.
 
 export type {
-	WorkspaceRef,
-	WorkspaceBackendMeta,
-	WorkspaceBackendKind,
 	GitWorktreeBackendMeta,
-} from './ref.js'
+	WorkspaceBackendKind,
+	WorkspaceBackendMeta,
+	WorkspaceRef,
+} from '../../types/workspace/ref.js'
 
 export type {
 	WorkspaceBackendDriver,

@@ -2,15 +2,15 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ActorRef } from '../../../session/hierarchy/actor.js'
-import type { SubSession } from '../../../session/hierarchy/sub-session.js'
 import { type ExecFile, GitWorktreeDriver } from '../../../session/workspace/git-worktree.js'
-import type { WorkspaceRef } from '../../../session/workspace/ref.js'
 import { WorkspaceBackendRegistry } from '../../../session/workspace/registry.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
 import type { AgentId, TenantId, UserId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
+import type { ActorRef } from '../../../types/session/actor.js'
 import type { ThreadId, WorkspaceId } from '../../../types/session/ids.js'
+import type { SubSession } from '../../../types/session/sub-session.js'
+import type { WorkspaceRef } from '../../../types/workspace/ref.js'
 import {
 	ArchivalManager,
 	ArchiveNotConfiguredError,

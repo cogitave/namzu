@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Minor Changes
+
+- ses_010-sdk-type-layering: Type layering rationalised. All pure shapes (entities, store contracts, wire types, events) now live under `packages/sdk/src/types/`; feature folders under `session/`, `manager/`, `store/`, `agent/`, `provider/` contain runtime code only.
+
+  Public surface changes:
+
+  - `AgentRun` renamed to `Run`. `AgentRun` and `AgentSession` remain as `@deprecated` type aliases for the 0.4.x compatibility window; consumers importing either keep compiling. New code should use `Run`.
+  - The wire-side `Run` interface at `contracts/api.ts` renamed to `WireRun` — mirrors the existing `WireRunStatus` precedent. The root `@namzu/sdk` barrel now exports domain `Run` (from `types/run/`) and wire `WireRun` (from `contracts/`) with no same-symbol collision.
+  - Internal folder `packages/sdk/src/session/hierarchy/` removed. Only the `@namzu/sdk` root barrel (`.`) is a supported import surface; deep-imports were never supported and the path no longer exists.
+
+  No change to runtime behaviour. Every entity shape that used to live under `session/hierarchy/` (`Project`, `Thread`, `Session`, `SubSession`, `ActorRef`, `Lineage`, `Tenant`) continues to be exported from `@namzu/sdk` — only the internal folder structure moved.
+
 ## 0.4.1
 
 ### Patch Changes

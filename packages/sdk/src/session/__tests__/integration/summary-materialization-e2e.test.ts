@@ -19,8 +19,8 @@ import { describe, expect, it } from 'vitest'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
 import type { SessionId } from '../../../types/ids/index.js'
 import type { SummaryId, ThreadId } from '../../../types/session/ids.js'
+import { SessionAlreadySummarizedError } from '../../summary/errors.js'
 import { SessionSummaryMaterializer } from '../../summary/materialize.js'
-import { SessionAlreadySummarizedError } from '../../summary/ref.js'
 import { DEFAULT_TENANT, agentActor } from './_fixtures.js'
 
 const TEST_THREAD_ID = 'thd_test' as ThreadId

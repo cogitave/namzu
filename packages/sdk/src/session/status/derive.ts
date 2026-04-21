@@ -27,7 +27,7 @@
  */
 
 import type { RunStatus } from '../../types/run/status.js'
-import type { Session, SessionStatus } from '../hierarchy/session.js'
+import type { Session, SessionStatus } from '../../types/session/entity.js'
 
 export function deriveStatus(
 	session: Session,

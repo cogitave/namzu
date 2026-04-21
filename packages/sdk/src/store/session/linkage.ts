@@ -9,9 +9,9 @@
  */
 
 import { AncestryCycleError } from '../../session/errors.js'
-import type { SubSession } from '../../session/hierarchy/sub-session.js'
 import type { SessionId } from '../../types/ids/index.js'
 import type { SubSessionId } from '../../types/session/ids.js'
+import type { SubSession } from '../../types/session/sub-session.js'
 
 /**
  * Read shape required by the pure linkage helpers. Both in-memory and disk

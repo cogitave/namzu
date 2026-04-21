@@ -17,7 +17,7 @@
 
 import type { SessionId } from '../../types/ids/index.js'
 import type { SubSessionId } from '../../types/session/ids.js'
-import type { DeliverableRef } from '../summary/deliverable.js'
+import type { DeliverableRef } from '../../types/summary/deliverable.js'
 
 /**
  * Minimal record the validator needs to step ancestrally from one
