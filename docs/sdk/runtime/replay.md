@@ -54,12 +54,15 @@ const prepared = await prepareReplayState({
   mutate: mutations,
 })
 
-// Step 3 — hand the prepared state to your own query() call. You are
-// expected to bring the provider, tools, resume handler, and session
-// context — the same bundle you would use for a new run.
-const replayRun = await drainReplayRun({
+// Step 3 — hand the prepared state to your own query() call. Pass
+// `prepared.messages` as `messages` and DO NOT pass
+// `resumeFromCheckpoint` — the mutated history already encodes the
+// restored state plus any injected tool response, and the resume path
+// would reload the checkpoint's unmutated messages and silently drop
+// your mutation.
+const replayRun = await drainQuery({
   messages: prepared.messages,
-  resumeFromCheckpoint: prepared.sourceCheckpoint.id,
+  // NOT: resumeFromCheckpoint: prepared.sourceCheckpoint.id
   // ...your provider, tools, runConfig, sessionId, threadId, projectId,
   //    tenantId, agentId, agentName, resumeHandler, etc.
 })
@@ -68,6 +71,8 @@ const replayRun = await drainReplayRun({
 // tell a replay from an original.
 replayRun.replayOf = prepared.attribution
 ```
+
+**Why no `resumeFromCheckpoint`.** The query runtime's resume branch (`packages/sdk/src/runtime/query/index.ts`) exists for HITL-style mid-run resumption: it re-reads the stored checkpoint's messages into the run state, ignoring `params.messages`. For replay we want the *mutated* message history — which `prepareReplayState` already produced. Seed it via the normal `messages` input and skip the resume branch. A future 5b wrapper will hide this detail behind a single `replay()` entry.
 
 `prepareReplayState` is pure-read — it touches the source run's checkpoint files but never writes. Running it twice on the same inputs (modulo `replayedAt`) produces the same prepared state.
 
