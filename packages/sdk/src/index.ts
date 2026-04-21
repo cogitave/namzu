@@ -1,3 +1,9 @@
+// ses_011 public-surface split (2026-04-21). Types come from `public-types.ts`;
+// runtime wiring lands in commits 3 (public-runtime.ts) and 4 (public-tools.ts).
+// During the migration window, runtime is still routed through the per-module
+// `export * from './types/*/index.js'` lines below.
+export type * from './public-types.js'
+
 export { VERSION } from './version.js'
 export {
 	RuntimeConfigSchema,
@@ -6,11 +12,6 @@ export {
 	PluginRuntimeConfigSchema,
 	SandboxConfigSchema,
 	RUNTIME_DEFAULTS,
-} from './config/runtime.js'
-export type {
-	RuntimeConfig,
-	CompactionConfig,
-	PluginRuntimeConfig,
 } from './config/runtime.js'
 
 export * from './constants/index.js'
@@ -44,10 +45,8 @@ export * from './types/sandbox/index.js'
 export * from './types/structured-output/index.js'
 export * from './types/invocation/index.js'
 export * from './types/computer-use/index.js'
-// Session hierarchy types (Phase 9 — public API freeze for 0.2.0).
-// Types-only re-export; runtime primitives come via `./session/index.js`
-// and `./store/session/index.js` below.
-export type * from './types/session/index.js'
+// Session hierarchy types now flow through `public-types.ts` (see top).
+// Runtime primitives come via `./session/index.js` and `./store/session/index.js` below.
 
 export {
 	AdvisorRegistry,
