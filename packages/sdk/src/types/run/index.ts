@@ -13,3 +13,11 @@ export * from './events.js'
 export * from './metadata.js'
 export * from './emergency.js'
 export type { Lineage } from './lineage.js'
+export type {
+	SubsessionIdledEvent,
+	SubsessionLifecycleEvent,
+	SubsessionMessagedEvent,
+	SubsessionSpawnedEvent,
+} from './subsession-events.js'
+export { RUN_EVENT_SCHEMA_VERSION } from './schema-version.js'
+export type { RunEventSchemaVersion } from './schema-version.js'

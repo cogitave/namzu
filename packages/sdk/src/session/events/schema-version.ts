@@ -1,13 +1,6 @@
-/**
- * RunEvent envelope schema version. Bumped on breaking envelope change.
- *
- * - v1: pre-0.2.0 (implicit; untagged events are treated as v1 by consumers).
- * - v2: 0.2.0+ — adds `schemaVersion`, `lineage`, and sub-session lifecycle
- *   events.
- *
- * See session-hierarchy.md §10.1 (Event-schema evolution contract) and
- * §13.3.2 (`schemaVersion` back-compat).
- */
-export const RUN_EVENT_SCHEMA_VERSION = 2 as const
+// Compatibility shim — the canonical home moved to `types/run/schema-version.ts`.
+// Scheduled for deletion in ses_010 commit 8 once all direct-file consumers
+// are rewritten. See `docs.local/sessions/ses_010-sdk-type-layering/`.
 
-export type RunEventSchemaVersion = typeof RUN_EVENT_SCHEMA_VERSION
+export { RUN_EVENT_SCHEMA_VERSION } from '../../types/run/schema-version.js'
+export type { RunEventSchemaVersion } from '../../types/run/schema-version.js'

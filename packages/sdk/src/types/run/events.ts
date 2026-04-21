@@ -1,9 +1,3 @@
-import type {
-	SubsessionIdledEvent,
-	SubsessionMessagedEvent,
-	SubsessionSpawnedEvent,
-} from '../../session/events/index.js'
-import type { Lineage } from '../../session/hierarchy/lineage.js'
 import type { ActivityStatus, ActivityType } from '../activity/index.js'
 import type { BaseAgentResult } from '../agent/base.js'
 import type { CostInfo, TokenUsage } from '../common/index.js'
@@ -12,6 +6,12 @@ import type { ActivityId, PlanId, PluginId, RunId, SandboxId, TaskId } from '../
 import type { PlanStep } from '../plan/index.js'
 import type { PluginHookEvent, PluginHookResult } from '../plugin/index.js'
 import type { TaskStatus } from '../task/index.js'
+import type { Lineage } from './lineage.js'
+import type {
+	SubsessionIdledEvent,
+	SubsessionMessagedEvent,
+	SubsessionSpawnedEvent,
+} from './subsession-events.js'
 
 export type { StopReason } from './stop-reason.js'
 
