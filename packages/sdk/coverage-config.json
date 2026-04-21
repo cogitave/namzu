@@ -3,6 +3,7 @@
 	"modules": {
 		"required": [
 			"agents",
+			"bridge",
 			"bus",
 			"compaction",
 			"manager",
@@ -15,7 +16,6 @@
 		],
 		"baselineExempt": [
 			"advisory",
-			"bridge",
 			"config",
 			"connector",
 			"execution",
@@ -41,7 +41,7 @@
 	},
 	"coverageFloors": {
 		"advisory": { "line": 0, "branch": 0 },
-		"bridge":   { "line": 0, "branch": 0 },
+		"bridge":   { "line": 96, "branch": 95 },
 		"bus":      { "line": 94, "branch": 91 },
 		"connector":{ "line": 0, "branch": 0 },
 		"rag":      { "line": 0, "branch": 0 },
