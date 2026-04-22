@@ -232,6 +232,12 @@ export {
 	ProbeRegistry,
 } from './probe/index.js'
 
+export { wrapProviderWithProbes } from './provider/instrumentation.js'
+export type { ProviderInstrumentationOptions } from './provider/instrumentation.js'
+
+export { wrapVaultWithProbes } from './vault/instrumentation.js'
+export type { VaultInstrumentationOptions } from './vault/instrumentation.js'
+
 // ─── session runtime — explicit named lists, no `export *` ───────────────
 // See §1.5 + §4.2 of design.md. Types flow through public-types.ts.
 

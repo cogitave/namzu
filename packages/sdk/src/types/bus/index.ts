@@ -1,6 +1,8 @@
-import type { LockId, RunId } from '../ids/index.js'
+import type { CredentialId, LockId, RunId, SandboxId, TenantId } from '../ids/index.js'
 
 export type { LockId } from '../ids/index.js'
+
+export type ProviderCallId = `pcall_${string}`
 
 export type CircuitBreakerState = 'closed' | 'open' | 'half_open'
 
@@ -35,6 +37,15 @@ export type OwnershipClaimResult =
 	| { claimed: true; ownership: FileOwnership }
 	| { claimed: false; currentOwner: RunId; filePath: string }
 
+export interface ProviderCallUsage {
+	readonly inputTokens?: number
+	readonly outputTokens?: number
+	readonly totalTokens?: number
+	readonly costUsd?: number
+}
+
+export type SandboxDecisionAction = 'allow' | 'deny'
+
 export type AgentBusEvent =
 	| { type: 'lock_acquired'; lockId: LockId; filePath: string; owner: RunId }
 	| { type: 'lock_released'; lockId: LockId; filePath: string; owner: RunId }
@@ -49,5 +60,46 @@ export type AgentBusEvent =
 	| { type: 'breaker_half_open'; agentRunId: RunId }
 	| { type: 'breaker_probe_success'; agentRunId: RunId }
 	| { type: 'breaker_probe_failure'; agentRunId: RunId }
+	| {
+			type: 'provider_call_start'
+			providerId: string
+			model: string
+			callId: ProviderCallId
+			runId?: RunId
+	  }
+	| {
+			type: 'provider_call_completed'
+			providerId: string
+			model: string
+			callId: ProviderCallId
+			runId?: RunId
+			durationMs: number
+			usage?: ProviderCallUsage
+	  }
+	| {
+			type: 'provider_call_failed'
+			providerId: string
+			model: string
+			callId: ProviderCallId
+			runId?: RunId
+			durationMs: number
+			error: string
+	  }
+	| {
+			type: 'vault_lookup'
+			vaultId: string
+			credentialId?: CredentialId
+			tenantId?: TenantId
+			found: boolean
+			runId?: RunId
+	  }
+	| {
+			type: 'sandbox_decision'
+			sandboxId: SandboxId
+			action: SandboxDecisionAction
+			resource: string
+			ruleId?: string
+			runId?: RunId
+	  }
 
 export type AgentBusEventListener = (event: AgentBusEvent) => void

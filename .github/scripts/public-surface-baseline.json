@@ -385,6 +385,8 @@
   "toolResultToMCPToolResult",
   "validatePrevArtifactChain",
   "withSessionContext",
+  "wrapProviderWithProbes",
+  "wrapVaultWithProbes",
   "writeMarker",
   "zodErrorToApiError",
   "zodToMCPJsonSchema"
