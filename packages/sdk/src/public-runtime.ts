@@ -239,6 +239,24 @@ export type { ProviderInstrumentationOptions } from './provider/instrumentation.
 export { wrapVaultWithProbes } from './vault/instrumentation.js'
 export type { VaultInstrumentationOptions } from './vault/instrumentation.js'
 
+// ─── doctor (operator-facing health-check surface) ───────────────────────
+
+export {
+	builtInDoctorChecks,
+	createDoctorRegistry,
+	cwdWritableCheck,
+	doctor,
+	DoctorRegistry,
+	providersRegisteredCheck,
+	registerDoctorCheck,
+	runDoctor,
+	sandboxPlatformCheck,
+	telemetryInstalledCheck,
+	tmpdirWritableCheck,
+	vaultRegisteredCheck,
+} from './doctor/index.js'
+export type { RunDoctorOptions } from './doctor/index.js'
+
 // ─── session runtime — explicit named lists, no `export *` ───────────────
 // See §1.5 + §4.2 of design.md. Types flow through public-types.ts.
 
