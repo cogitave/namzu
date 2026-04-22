@@ -21,6 +21,12 @@ export type VetoHandler<K extends VetoableEventKind> = (
 	ctx: ProbeContext,
 ) => VetoDecision
 
+export interface VetoOutcome {
+	readonly action: 'allow' | 'deny'
+	readonly probeName?: string
+	readonly reason?: string
+}
+
 export interface ProbeOptions<K extends ProbeEventKind = ProbeEventKind> {
 	readonly where?: (event: ProbeEventOf<K>) => boolean
 	readonly priority?: number

@@ -162,6 +162,7 @@
   "PluginRuntimeConfigSchema",
   "ProbeNameCollisionError",
   "ProbeRegistry",
+  "ProbeVetoError",
   "ProjectIdSchema",
   "ProviderRegistry",
   "READ_TOOLS",

@@ -7,4 +7,5 @@ export type {
 	Unsubscribe,
 	VetoDecision,
 	VetoHandler,
+	VetoOutcome,
 } from './registry.js'

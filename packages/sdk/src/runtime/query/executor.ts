@@ -1,6 +1,9 @@
 import { extractFromToolCall, extractFromToolResult } from '../../compaction/extractor.js'
 import type { WorkingStateManager } from '../../compaction/manager.js'
 import type { PluginLifecycleManager } from '../../plugin/lifecycle.js'
+import { buildProbeContext } from '../../probe/context.js'
+import { ProbeVetoError } from '../../probe/errors.js'
+import { type ProbeRegistry, probe as defaultProbeRegistry } from '../../probe/registry.js'
 import type { ActivityStore } from '../../store/activity/memory.js'
 import type { RunId } from '../../types/ids/index.js'
 import type { InvocationState } from '../../types/invocation/index.js'
@@ -44,17 +47,20 @@ export class ToolExecutor {
 	private emitEvent: EmitEvent
 	private log: Logger
 	private workingStateManager?: WorkingStateManager
+	private probes: ProbeRegistry
 
 	constructor(
 		config: ToolExecutorConfig,
 		activityStore: ActivityStore,
 		emitEvent: EmitEvent,
 		log: Logger,
+		probes: ProbeRegistry = defaultProbeRegistry,
 	) {
 		this.config = config
 		this.activityStore = activityStore
 		this.emitEvent = emitEvent
 		this.log = log
+		this.probes = probes
 	}
 
 	setWorkingStateManager(manager: WorkingStateManager): void {
@@ -149,6 +155,34 @@ export class ToolExecutor {
 			toolName,
 			input,
 		})
+
+		const vetoOutcome = this.probes.queryVeto(
+			{
+				type: 'tool_executing',
+				runId: this.config.runId,
+				toolName,
+				input,
+			},
+			buildProbeContext({ runId: this.config.runId }),
+		)
+		if (vetoOutcome.action === 'deny') {
+			const probeName = vetoOutcome.probeName ?? 'unnamed'
+			const reason = vetoOutcome.reason ?? 'no reason provided'
+			const veto = new ProbeVetoError(probeName, reason, 'tool_executing')
+			this.log.warn('Tool call denied by probe', {
+				runId: this.config.runId,
+				tool: toolName,
+				probeName,
+				reason,
+			})
+			if (activity) {
+				this.activityStore.fail(activity.id, veto.message)
+			}
+			return {
+				toolCallId: toolCall.id,
+				output: `Error: ${veto.message}`,
+			}
+		}
 
 		if (this.workingStateManager) {
 			extractFromToolCall(this.workingStateManager, toolName, JSON.stringify(input))

@@ -230,6 +230,7 @@ export {
 	probe,
 	ProbeNameCollisionError,
 	ProbeRegistry,
+	ProbeVetoError,
 } from './probe/index.js'
 
 export { wrapProviderWithProbes } from './provider/instrumentation.js'
