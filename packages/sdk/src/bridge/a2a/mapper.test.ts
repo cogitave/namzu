@@ -281,8 +281,13 @@ describe('mapRunToA2AEvent — explicit null set', () => {
 })
 
 describe('mapSessionToA2AEvent (deprecated alias)', () => {
-	it('behaves identically to mapRunToA2AEvent', () => {
-		const event: RunEvent = { type: 'run_started', runId: RID }
-		expect(mapSessionToA2AEvent(event, 'ctx')).toEqual(mapRunToA2AEvent(event, 'ctx'))
+	it('is the same function reference as mapRunToA2AEvent', () => {
+		// toEqual against paired invocations races the ISO timestamp
+		// inside `statusEvent()` across a millisecond boundary; CI
+		// flaked once with 1 ms drift (see PR #11 Build & Test (22)
+		// 2026-04-22T11:13). Identity check is deterministic and
+		// asserts the deprecation shim strictly — not just a "similar
+		// output" check.
+		expect(mapSessionToA2AEvent).toBe(mapRunToA2AEvent)
 	})
 })

@@ -1,4 +1,4 @@
-export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
+export type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'silent'
 
 export type LogContext = Record<string, unknown>
 
@@ -7,6 +7,11 @@ const LOG_LEVELS: Record<LogLevel, number> = {
 	info: 1,
 	warn: 2,
 	error: 3,
+	// `silent` sits above every emit level so the `level < minLevelNum`
+	// guard in `log()` always short-circuits when configured. Used by
+	// test harnesses to suppress unmocked `getRootLogger()` stderr
+	// writes; see packages/sdk/src/test-setup.ts.
+	silent: 4,
 }
 
 export interface Logger {
