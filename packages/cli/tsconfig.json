@@ -6,7 +6,9 @@
 		"composite": true,
 		"declaration": true,
 		"declarationMap": true,
-		"sourceMap": true
+		"sourceMap": true,
+		"jsx": "react-jsx",
+		"jsxImportSource": "react"
 	},
 	"references": [{ "path": "../sdk" }],
 	"include": ["src/**/*"]

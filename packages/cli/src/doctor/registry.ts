@@ -20,6 +20,28 @@ export interface RunDoctorOptions {
 	readonly projectRoot?: string | null
 	readonly version?: string
 	readonly registry?: DoctorRegistry
+	/**
+	 * Fired immediately before a check's `run()` is invoked. The TUI uses
+	 * this to mark the row as 'running'. Throws are caught + logged + do
+	 * not affect the doctor run.
+	 */
+	readonly onCheckStart?: (check: DoctorCheck) => void
+	/**
+	 * Fired exactly once per check, after its record is built (whether
+	 * pass / fail / inconclusive / warn — including timeout-induced
+	 * inconclusive). Throws are caught + logged + do not affect the
+	 * doctor run. Defended against double-fire by the same `completed`
+	 * map that pins the record (ses_013 C4).
+	 */
+	readonly onCheckComplete?: (record: DoctorCheckRecord) => void
+	/**
+	 * Cooperative cancellation. When the signal aborts, in-flight checks
+	 * stop being awaited; their records become `inconclusive` with an
+	 * "aborted" message. Completed records are preserved. Caller
+	 * (typically the CLI bin) decides the exit code (sysexits 130 for
+	 * SIGINT). Library callers can synthesize their own AbortController.
+	 */
+	readonly signal?: AbortSignal
 }
 
 export class DoctorRegistry {
@@ -55,6 +77,7 @@ export class DoctorRegistry {
 		const ctx = buildContext(opts)
 		const perCheck = opts.perCheckTimeoutMs ?? DEFAULT_PER_CHECK_TIMEOUT_MS
 		const wall = opts.wallClockTimeoutMs ?? DEFAULT_WALL_CLOCK_TIMEOUT_MS
+		const signal = opts.signal
 
 		const filteredChecks = opts.categories
 			? this.list().filter((c) => opts.categories?.includes(c.category))
@@ -64,7 +87,28 @@ export class DoctorRegistry {
 		const completed: Map<string, DoctorCheckRecord> = new Map()
 		const wallTimer = sleep(wall).then(() => 'wall-timeout' as const)
 
+		// Fast-fail if already aborted before any check runs.
+		const abortPromise: Promise<'aborted'> = signal
+			? signal.aborted
+				? Promise.resolve('aborted')
+				: new Promise((resolve) => {
+						signal.addEventListener('abort', () => resolve('aborted'), { once: true })
+					})
+			: new Promise(() => {}) // never resolves
+
+		const recordCompletion = (record: DoctorCheckRecord): void => {
+			// Defend against double-fire: per-check timeout race vs the check
+			// resolving, or signal-abort racing the same id. First record wins.
+			if (completed.has(record.id)) return
+			completed.set(record.id, record)
+			// Fire onCheckComplete exactly once per id, isolated from the run.
+			this.invokeCallback('onCheckComplete', () => opts.onCheckComplete?.(record))
+		}
+
 		const inFlight = filteredChecks.map(async (check): Promise<void> => {
+			// onCheckStart fires before the check's run() is invoked. Isolated.
+			this.invokeCallback('onCheckStart', () => opts.onCheckStart?.(check))
+
 			const t0 = Date.now()
 			const checkPromise = (async (): Promise<DoctorCheckResult> => check.run(ctx))()
 			const timeoutPromise = sleep(perCheck).then(
@@ -81,11 +125,7 @@ export class DoctorRegistry {
 				this.log?.warn('doctor check threw', { id: check.id, message })
 				result = { status: 'fail', message: `check threw: ${message}` }
 			}
-			// Defend against double-fire: per-check timeout race vs the check
-			// itself resolving microseconds apart, or a future signal-abort
-			// path racing this same id. First record wins.
-			if (completed.has(check.id)) return
-			completed.set(check.id, {
+			recordCompletion({
 				id: check.id,
 				category: check.category,
 				status: result.status,
@@ -96,26 +136,39 @@ export class DoctorRegistry {
 		})
 
 		const allChecks = Promise.all(inFlight)
-		const raceWinner = await Promise.race([allChecks, wallTimer])
+		const raceWinner = await Promise.race([allChecks, wallTimer, abortPromise])
 
 		let records: DoctorCheckRecord[]
-		if (raceWinner === 'wall-timeout') {
+		if (raceWinner === 'wall-timeout' || raceWinner === 'aborted') {
+			const reason =
+				raceWinner === 'aborted'
+					? 'aborted by signal before this check completed'
+					: `wall-clock timeout (${wall}ms) reached before this check completed`
 			const unfinished = filteredChecks.filter((c) => !completed.has(c.id))
-			this.log?.warn('doctor wall-clock timeout', {
-				wall,
-				total: filteredChecks.length,
-				unfinished: unfinished.length,
-			})
+			this.log?.warn(
+				raceWinner === 'aborted' ? 'doctor aborted by signal' : 'doctor wall-clock timeout',
+				{
+					wall,
+					total: filteredChecks.length,
+					unfinished: unfinished.length,
+				},
+			)
 			records = filteredChecks.map((check): DoctorCheckRecord => {
 				const existing = completed.get(check.id)
 				if (existing) return existing
-				return {
+				const record: DoctorCheckRecord = {
 					id: check.id,
 					category: check.category,
 					status: 'inconclusive' as DoctorStatus,
-					message: `wall-clock timeout (${wall}ms) reached before this check completed`,
+					message: reason,
 					durationMs: Date.now() - startedAt,
 				}
+				// Fire onCheckComplete for unfinished checks too — TUI rows
+				// flip from 'running' to 'inconclusive' instead of staying
+				// stuck. recordCompletion handles double-fire defense if the
+				// inFlight promise eventually resolves.
+				recordCompletion(record)
+				return record
 			})
 		} else {
 			// All checks finished within wall-clock budget. Read from `completed`
@@ -137,6 +190,21 @@ export class DoctorRegistry {
 		}
 
 		return buildReport(records, opts.version ?? 'unknown')
+	}
+
+	/**
+	 * Invoke a consumer callback (onCheckStart / onCheckComplete) with
+	 * try/catch isolation. Per ses_013 C3: a throwing callback must not
+	 * affect the doctor run or the final DoctorReport. Logged but
+	 * swallowed.
+	 */
+	private invokeCallback(phase: 'onCheckStart' | 'onCheckComplete', fn: () => void): void {
+		try {
+			fn()
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error)
+			this.log?.warn('doctor callback threw', { phase, message })
+		}
 	}
 }
 
@@ -160,6 +228,9 @@ export function runDoctor(opts: RunDoctorOptions = {}): Promise<DoctorReport> {
 		env: opts.env,
 		projectRoot: opts.projectRoot,
 		version: opts.version,
+		onCheckStart: opts.onCheckStart,
+		onCheckComplete: opts.onCheckComplete,
+		signal: opts.signal,
 	})
 }
 
