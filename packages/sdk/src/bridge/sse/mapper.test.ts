@@ -411,8 +411,12 @@ describe('mapRunToStreamEvent — explicit null set', () => {
 })
 
 describe('mapSessionToStreamEvent (deprecated alias)', () => {
-	it('behaves identically to mapRunToStreamEvent', () => {
-		const event: RunEvent = { type: 'run_started', runId: RID }
-		expect(mapSessionToStreamEvent(event, RID)).toEqual(mapRunToStreamEvent(event, RID))
+	it('is the same function reference as mapRunToStreamEvent', () => {
+		// Identity check is deterministic. toEqual on paired calls
+		// would work here (SSE mapper doesn't touch the clock), but
+		// we mirror the a2a mapper test pattern for consistency —
+		// the deprecation shim is literal assignment, so identity is
+		// the strictest possible assertion.
+		expect(mapSessionToStreamEvent).toBe(mapRunToStreamEvent)
 	})
 })
