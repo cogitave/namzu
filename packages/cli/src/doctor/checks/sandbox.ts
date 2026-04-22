@@ -1,6 +1,6 @@
 import { constants, access } from 'node:fs/promises'
 
-import type { DoctorCheck, DoctorCheckResult } from '../../types/doctor/index.js'
+import type { DoctorCheck, DoctorCheckResult } from '@namzu/sdk'
 
 const DARWIN_SANDBOX_EXEC = '/usr/bin/sandbox-exec'
 

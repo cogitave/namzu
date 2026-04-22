@@ -27,6 +27,22 @@ importers:
         specifier: ^5.5.0
         version: 5.9.3
 
+  packages/cli:
+    dependencies:
+      '@namzu/sdk':
+        specifier: workspace:^
+        version: link:../sdk
+    devDependencies:
+      '@biomejs/biome':
+        specifier: ^1.9.4
+        version: 1.9.4
+      typescript:
+        specifier: ^5.5.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.0.0
+        version: 2.1.9(@types/node@22.19.17)
+
   packages/computer-use:
     devDependencies:
       '@biomejs/biome':

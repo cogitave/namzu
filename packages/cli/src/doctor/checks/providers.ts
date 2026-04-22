@@ -1,4 +1,4 @@
-import type { DoctorCheck, DoctorCheckResult } from '../../types/doctor/index.js'
+import type { DoctorCheck, DoctorCheckResult } from '@namzu/sdk'
 
 /**
  * Built-in provider probe is intentionally inconclusive in v1.

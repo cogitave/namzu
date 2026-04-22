@@ -12,8 +12,7 @@
     "lint:fix": "pnpm -r lint:fix",
     "test": "pnpm -r test",
     "typecheck": "tsc --build",
-    "namzu": "tsx packages/cli/src/index.ts",
-    "review": "tsx packages/cli/src/commands/review.ts",
+    "namzu": "tsx packages/cli/src/bin.ts",
     "api": "tsx packages/api/src/server.ts",
     "api:dev": "tsx watch packages/api/src/server.ts"
   },

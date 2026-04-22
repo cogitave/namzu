@@ -1,4 +1,4 @@
-import type { DoctorCheck } from '../../types/doctor/index.js'
+import type { DoctorCheck } from '@namzu/sdk'
 
 import { providersRegisteredCheck } from './providers.js'
 import { cwdWritableCheck, tmpdirWritableCheck } from './runtime.js'

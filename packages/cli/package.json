@@ -1,0 +1,49 @@
+{
+	"name": "@namzu/cli",
+	"version": "0.0.0",
+	"description": "Operator CLI for the Namzu agent platform — namzu doctor + future commands. Dual-purpose: standalone bin (`namzu doctor`) and library (`import { runDoctor } from '@namzu/cli'`).",
+	"keywords": ["namzu", "ai", "agent", "cli", "doctor"],
+	"license": "MIT",
+	"author": "Namzu Contributors",
+	"homepage": "https://namzu.ai",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/cogitave/namzu.git",
+		"directory": "packages/cli"
+	},
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"bin": {
+		"namzu": "./dist/bin.js"
+	},
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		},
+		"./package.json": "./package.json"
+	},
+	"files": ["dist", "README.md"],
+	"scripts": {
+		"build": "tsc --build",
+		"dev": "tsc --build --watch",
+		"typecheck": "tsc --noEmit",
+		"lint": "biome check src/",
+		"test": "vitest run"
+	},
+	"dependencies": {
+		"@namzu/sdk": "workspace:^"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^1.9.4",
+		"typescript": "^5.5.0",
+		"vitest": "^2.0.0"
+	},
+	"engines": {
+		"node": ">=20.0.0"
+	},
+	"publishConfig": {
+		"access": "public"
+	}
+}

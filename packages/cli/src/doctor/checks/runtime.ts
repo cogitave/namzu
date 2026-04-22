@@ -1,11 +1,7 @@
 import { constants, access } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 
-import type {
-	DoctorCheck,
-	DoctorCheckContext,
-	DoctorCheckResult,
-} from '../../types/doctor/index.js'
+import type { DoctorCheck, DoctorCheckContext, DoctorCheckResult } from '@namzu/sdk'
 
 export const cwdWritableCheck: DoctorCheck = {
 	id: 'runtime.cwd-writable',

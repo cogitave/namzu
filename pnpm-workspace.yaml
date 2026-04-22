@@ -8,4 +8,3 @@ packages:
   # (an `ignore` list pointing at packages missing from the checkout).
   - "!packages/agents"
   - "!packages/api"
-  - "!packages/cli"

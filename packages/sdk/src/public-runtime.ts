@@ -239,23 +239,10 @@ export type { ProviderInstrumentationOptions } from './provider/instrumentation.
 export { wrapVaultWithProbes } from './vault/instrumentation.js'
 export type { VaultInstrumentationOptions } from './vault/instrumentation.js'
 
-// ─── doctor (operator-facing health-check surface) ───────────────────────
-
-export {
-	builtInDoctorChecks,
-	createDoctorRegistry,
-	cwdWritableCheck,
-	doctor,
-	DoctorRegistry,
-	providersRegisteredCheck,
-	registerDoctorCheck,
-	runDoctor,
-	sandboxPlatformCheck,
-	telemetryInstalledCheck,
-	tmpdirWritableCheck,
-	vaultRegisteredCheck,
-} from './doctor/index.js'
-export type { RunDoctorOptions } from './doctor/index.js'
+// Doctor runtime moved to @namzu/cli in 0.5.0. SDK keeps only the
+// protocol types under `types/doctor/` (re-exported via public-types.ts)
+// + `LLMProvider.doctorCheck?()` hook on the provider interface.
+// Operators run `npx @namzu/cli doctor`; embedded usage lives there too.
 
 // ─── session runtime — explicit named lists, no `export *` ───────────────
 // See §1.5 + §4.2 of design.md. Types flow through public-types.ts.

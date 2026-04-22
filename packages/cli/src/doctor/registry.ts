@@ -5,8 +5,8 @@ import type {
 	DoctorCheckResult,
 	DoctorReport,
 	DoctorStatus,
-} from '../types/doctor/index.js'
-import type { Logger } from '../utils/logger.js'
+	Logger,
+} from '@namzu/sdk'
 
 const DEFAULT_PER_CHECK_TIMEOUT_MS = 5_000
 const DEFAULT_WALL_CLOCK_TIMEOUT_MS = 10_000
@@ -95,7 +95,10 @@ export class DoctorRegistry {
 
 		let records: DoctorCheckRecord[]
 		if (raceWinner === 'wall-timeout') {
-			this.log?.warn('doctor wall-clock timeout', { wall, total: filteredChecks.length })
+			this.log?.warn('doctor wall-clock timeout', {
+				wall,
+				total: filteredChecks.length,
+			})
 			records = filteredChecks.map((check) => ({
 				id: check.id,
 				category: check.category,

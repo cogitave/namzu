@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import type { DoctorCheck, DoctorCheckResult } from '../types/doctor/index.js'
+import type { DoctorCheck, DoctorCheckResult } from '@namzu/sdk'
 
 import { createDoctorRegistry, runDoctor } from './registry.js'
 
@@ -60,7 +60,13 @@ describe('runDoctor — aggregation + summary', () => {
 		reg.register(check('c', { status: 'inconclusive' }))
 		reg.register(check('d', { status: 'warn' }))
 		const report = await runDoctor({ registry: reg, version: '0.0.1' })
-		expect(report.summary).toEqual({ pass: 1, fail: 1, inconclusive: 1, warn: 1, total: 4 })
+		expect(report.summary).toEqual({
+			pass: 1,
+			fail: 1,
+			inconclusive: 1,
+			warn: 1,
+			total: 4,
+		})
 		expect(report.checks).toHaveLength(4)
 		expect(report.version).toBe('0.0.1')
 	})

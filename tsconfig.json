@@ -18,6 +18,7 @@
   },
   "references": [
     { "path": "./packages/sdk" },
+    { "path": "./packages/cli" },
     { "path": "./packages/telemetry" },
     { "path": "./packages/computer-use" },
     { "path": "./packages/providers/bedrock" },

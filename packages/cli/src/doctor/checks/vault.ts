@@ -1,4 +1,4 @@
-import type { DoctorCheck, DoctorCheckResult } from '../../types/doctor/index.js'
+import type { DoctorCheck, DoctorCheckResult } from '@namzu/sdk'
 
 /**
  * Built-in vault probe is intentionally inconclusive.
