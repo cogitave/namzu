@@ -1,6 +1,6 @@
-import type { RunId } from '../ids/index.js'
+import type { LockId, RunId } from '../ids/index.js'
 
-export type LockId = `lock_${string}`
+export type { LockId } from '../ids/index.js'
 
 export type CircuitBreakerState = 'closed' | 'open' | 'half_open'
 

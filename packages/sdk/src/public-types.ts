@@ -41,6 +41,9 @@ export type * from './types/structured-output/index.js'
 export type * from './types/invocation/index.js'
 export type * from './types/computer-use/index.js'
 export type * from './types/verification/index.js'
+export type * from './types/bus/index.js'
+export type * from './types/probe/index.js'
+export type * from './types/doctor/index.js'
 
 // Session-hierarchy type surface (ses_010 moved entities here).
 export type * from './types/session/index.js'
