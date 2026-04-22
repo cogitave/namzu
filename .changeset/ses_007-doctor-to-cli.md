@@ -1,6 +1,6 @@
 ---
-'@namzu/sdk': minor
-'@namzu/cli': minor
+'@namzu/sdk': patch
+'@namzu/cli': patch
 ---
 
 ses_007 Phase 5 — doctor runtime moved from `@namzu/sdk` to `@namzu/cli`. Architectural pivot: kernel = SDK (pure runtime primitives), operator surface = CLI (presentation + tooling).
