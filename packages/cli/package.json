@@ -1,8 +1,14 @@
 {
 	"name": "@namzu/cli",
-	"version": "0.0.0",
+	"version": "0.0.1",
 	"description": "Operator CLI for the Namzu agent platform — namzu doctor + future commands. Dual-purpose: standalone bin (`namzu doctor`) and library (`import { runDoctor } from '@namzu/cli'`).",
-	"keywords": ["namzu", "ai", "agent", "cli", "doctor"],
+	"keywords": [
+		"namzu",
+		"ai",
+		"agent",
+		"cli",
+		"doctor"
+	],
 	"license": "MIT",
 	"author": "Namzu Contributors",
 	"homepage": "https://namzu.ai",
@@ -24,7 +30,10 @@
 		},
 		"./package.json": "./package.json"
 	},
-	"files": ["dist", "README.md"],
+	"files": [
+		"dist",
+		"README.md"
+	],
 	"scripts": {
 		"build": "tsc --build",
 		"dev": "tsc --build --watch",
