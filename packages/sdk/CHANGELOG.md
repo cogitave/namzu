@@ -1,5 +1,98 @@
 # Changelog
 
+## 0.4.5
+
+### Patch Changes
+
+- aead3a8: Doctor registry runtime + 5 built-in checks — ses_007 Phase 4.
+
+  `runDoctor(opts?)` aggregates registered checks into a `DoctorReport` with per-check status + summary + sysexits exit code. `registerDoctorCheck(check)` is the programmatic registration entry point.
+
+  **New runtime exports (12 names):**
+
+  - `doctor` (singleton `DoctorRegistry`), `DoctorRegistry`, `createDoctorRegistry`
+  - `registerDoctorCheck(check)` — programmatic registration
+  - `runDoctor(opts?)` → `Promise<DoctorReport>`
+  - `builtInDoctorChecks` — readonly list of the six shipped checks
+  - Six individual built-in checks: `sandboxPlatformCheck`, `cwdWritableCheck`, `tmpdirWritableCheck`, `vaultRegisteredCheck`, `providersRegisteredCheck`, `telemetryInstalledCheck`
+
+  **LLMProvider interface gains optional `doctorCheck?(): Promise<DoctorCheckResult>`.** Non-breaking — existing providers don't need to implement it. Consumers wanting provider health probes register a custom check that walks `ProviderRegistry.getAll()` and calls `provider.doctorCheck?.()` per provider.
+
+  **Built-in checks ship intentionally conservative for v1.** `sandbox.platform` passes on darwin if `/usr/bin/sandbox-exec` is executable; inconclusive on linux (proc namespace probe deferred); warn on win32; inconclusive elsewhere. `runtime.cwd-writable` + `runtime.tmpdir-writable` are real `fs.access(W_OK)` probes. `telemetry.installed` dynamic-imports `@namzu/telemetry` (specifier-variable to evade TS resolution since SDK doesn't depend on telemetry); pass if installed, inconclusive if not. `vault.registered` + `providers.registered` are intentionally inconclusive with explicit "register your own check" guidance — vault and provider registries are module-private and aren't auto-discoverable from a standalone process.
+
+  **Failure isolation:** a thrown check is recorded as `fail` with the throw message; other checks still run. A check exceeding `perCheckTimeoutMs` (default 5000ms) becomes `inconclusive`. Wall-clock timeout (default 10000ms) marks not-yet-completed checks as `inconclusive`. Status set: `pass | fail | inconclusive | warn`. Only `fail` affects the exit code (1); `inconclusive` and `warn` are informational. Empty registry → exit 2 (no config).
+
+  **Embedded usage today, CLI command in the next patch.** Consumers can `import { runDoctor, registerDoctorCheck } from '@namzu/sdk'` and integrate the doctor in their own process where their checks have already executed. The standalone `namzu doctor` CLI command lands in the next patch (Phase 5).
+
+- 8f076e5: ses_007 Phase 5 — doctor runtime moved from `@namzu/sdk` to `@namzu/cli`. Architectural pivot: kernel = SDK (pure runtime primitives), operator surface = CLI (presentation + tooling).
+
+  ## Breaking changes — `@namzu/sdk`
+
+  The following 12 runtime exports have been **removed** from `@namzu/sdk`. They now live in `@namzu/cli`:
+
+  - `doctor` (singleton), `DoctorRegistry`, `createDoctorRegistry`
+  - `registerDoctorCheck`, `runDoctor`
+  - `builtInDoctorChecks`
+  - `sandboxPlatformCheck`, `cwdWritableCheck`, `tmpdirWritableCheck`
+  - `vaultRegisteredCheck`, `providersRegisteredCheck`, `telemetryInstalledCheck`
+
+  The `RunDoctorOptions` type has also been removed from `@namzu/sdk` exports.
+
+  **What stays in `@namzu/sdk`:**
+
+  - The protocol types — `DoctorCheck`, `DoctorCheckResult`, `DoctorCheckContext`, `DoctorCheckRecord`, `DoctorReport`, `DoctorStatus`, `DoctorCategory` — remain in `types/doctor/` so kernel components can implement custom checks against them.
+  - `LLMProvider.doctorCheck?(): Promise<DoctorCheckResult>` — the kernel hook that lets a provider expose its own healthcheck stays on the interface.
+
+  ## Migration
+
+  If you were calling the doctor in your own process:
+
+  ```diff
+  - import { runDoctor, registerDoctorCheck } from '@namzu/sdk'
+  + import { runDoctor, registerDoctorCheck } from '@namzu/cli'
+  ```
+
+  If you were running it from the command line:
+
+  ```bash
+  # Before — required a custom CLI bin or `pnpm dlx tsx packages/sdk/src/doctor/...`
+  # After:
+  pnpm dlx @namzu/cli doctor
+  # or, after install: namzu doctor
+  ```
+
+  Custom check authors continue to import the protocol types from `@namzu/sdk`:
+
+  ```ts
+  import type { DoctorCheck, DoctorCheckResult } from "@namzu/sdk";
+  import { registerDoctorCheck } from "@namzu/cli";
+
+  const myCheck: DoctorCheck = {
+    id: "app.db.reachable",
+    category: "custom",
+    run: async (): Promise<DoctorCheckResult> => {
+      // your probe
+    },
+  };
+  registerDoctorCheck(myCheck);
+  ```
+
+  ## New — `@namzu/cli` (initial public release)
+
+  `@namzu/cli` v0.1.0 ships as a public package for the first time. Dual-purpose:
+
+  - **Standalone bin** — `npx @namzu/cli doctor`, or after install: `namzu doctor`. Supports `--json`, `--verbose`, `--category <a,b,c>`, `--per-check-timeout <ms>`, `--wall-clock-timeout <ms>`. Sysexits-aligned exit codes (`0` ok, `1` fail, `2` no config, `70` internal error).
+  - **Library** — `import { runDoctor, registerDoctorCheck, builtInDoctorChecks } from '@namzu/cli'` for embedded usage where consumer code wants to invoke the doctor in its own process so app-registered checks are visible.
+
+  **What ships built-in:**
+
+  - `sandbox.platform` (darwin sandbox-exec presence + win32 warn + linux/other inconclusive)
+  - `runtime.cwd-writable` + `runtime.tmpdir-writable` (real `fs.access(W_OK)` probes)
+  - `telemetry.installed` (dynamic-import probe for `@namzu/telemetry`)
+  - `vault.registered` + `providers.registered` (intentionally inconclusive — consumers register their own walking their setup)
+
+  **Why patch-bump-equivalent:** `@namzu/sdk: minor` carries the breaking removal (pre-1.0 cadence); `@namzu/cli: minor` carries the new package's first feature release. Together they make the next release a coordinated cut.
+
 ## 0.4.4
 
 ### Patch Changes
