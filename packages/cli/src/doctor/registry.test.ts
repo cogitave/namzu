@@ -139,6 +139,106 @@ describe('runDoctor — failure isolation', () => {
 	})
 })
 
+describe('runDoctor — wall-clock timeout preserves completed records (ses_013 C5 fix)', () => {
+	it('fast pass + slow check exceeding wall budget → 1 pass + 1 inconclusive (NOT 2 inconclusive)', async () => {
+		const reg = createDoctorRegistry()
+		reg.register({
+			id: 'fast',
+			category: 'custom',
+			run: async () => ({ status: 'pass', message: 'instantly done' }),
+		})
+		reg.register({
+			id: 'slow',
+			category: 'custom',
+			run: () =>
+				new Promise<DoctorCheckResult>((resolve) =>
+					setTimeout(() => resolve({ status: 'pass' }), 200),
+				),
+		})
+		const report = await runDoctor({
+			registry: reg,
+			wallClockTimeoutMs: 50,
+			perCheckTimeoutMs: 1000,
+		})
+		expect(report.summary.total).toBe(2)
+		expect(report.summary.pass).toBe(1)
+		expect(report.summary.inconclusive).toBe(1)
+		const fast = report.checks.find((r) => r.id === 'fast')
+		const slow = report.checks.find((r) => r.id === 'slow')
+		expect(fast?.status).toBe('pass')
+		expect(fast?.message).toBe('instantly done')
+		expect(slow?.status).toBe('inconclusive')
+		expect(slow?.message).toMatch(/wall-clock timeout/)
+		expect(slow?.message).toMatch(/before this check completed/)
+	})
+
+	it('all checks finish before wall-clock budget → all preserved (no overwrite)', async () => {
+		const reg = createDoctorRegistry()
+		reg.register(check('a', { status: 'pass', message: 'first' }))
+		reg.register(check('b', { status: 'fail', message: 'second' }))
+		reg.register(check('c', { status: 'warn', message: 'third' }))
+		const report = await runDoctor({ registry: reg, wallClockTimeoutMs: 5_000 })
+		expect(report.summary.total).toBe(3)
+		expect(report.checks.find((r) => r.id === 'a')?.message).toBe('first')
+		expect(report.checks.find((r) => r.id === 'b')?.message).toBe('second')
+		expect(report.checks.find((r) => r.id === 'c')?.message).toBe('third')
+	})
+
+	it('mixed: 2 fast pass + 1 fast fail + 1 slow → preserves 3 + 1 inconclusive on wall timeout', async () => {
+		const reg = createDoctorRegistry()
+		reg.register(check('a', { status: 'pass' }))
+		reg.register(check('b', { status: 'pass' }))
+		reg.register(check('c', { status: 'fail', message: 'expected fail' }))
+		reg.register({
+			id: 'd',
+			category: 'custom',
+			run: () =>
+				new Promise<DoctorCheckResult>((resolve) =>
+					setTimeout(() => resolve({ status: 'pass' }), 300),
+				),
+		})
+		const report = await runDoctor({
+			registry: reg,
+			wallClockTimeoutMs: 50,
+			perCheckTimeoutMs: 1000,
+		})
+		expect(report.summary.pass).toBe(2)
+		expect(report.summary.fail).toBe(1)
+		expect(report.summary.inconclusive).toBe(1)
+		expect(report.summary.total).toBe(4)
+		// exit code respects: fail > 0 → 1 (not affected by inconclusive)
+		expect(report.exit).toBe(1)
+		expect(report.checks.find((r) => r.id === 'd')?.status).toBe('inconclusive')
+	})
+})
+
+describe('runDoctor — double-fire defense (ses_013 C4)', () => {
+	it('a check whose per-check timeout fires after the check resolved produces exactly one record', async () => {
+		// This timing is fragile by nature; the test asserts the contract
+		// "exactly one record per id" which holds regardless of which side
+		// of the race wins.
+		const reg = createDoctorRegistry()
+		reg.register({
+			id: 'racer',
+			category: 'custom',
+			run: () =>
+				new Promise<DoctorCheckResult>((resolve) =>
+					setTimeout(() => resolve({ status: 'pass' }), 25),
+				),
+		})
+		const report = await runDoctor({
+			registry: reg,
+			perCheckTimeoutMs: 25, // intentionally close to the check's 25ms
+			wallClockTimeoutMs: 1000,
+		})
+		expect(report.summary.total).toBe(1)
+		expect(report.checks).toHaveLength(1)
+		const racer = report.checks[0]
+		// Whichever side won, exactly ONE record exists (no duplicate).
+		expect(['pass', 'inconclusive']).toContain(racer?.status)
+	})
+})
+
 describe('runDoctor — category filter', () => {
 	it('only runs checks matching the requested category', async () => {
 		const reg = createDoctorRegistry()

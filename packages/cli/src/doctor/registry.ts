@@ -61,9 +61,10 @@ export class DoctorRegistry {
 			: this.list()
 
 		const startedAt = Date.now()
+		const completed: Map<string, DoctorCheckRecord> = new Map()
 		const wallTimer = sleep(wall).then(() => 'wall-timeout' as const)
 
-		const inFlight = filteredChecks.map(async (check): Promise<DoctorCheckRecord> => {
+		const inFlight = filteredChecks.map(async (check): Promise<void> => {
 			const t0 = Date.now()
 			const checkPromise = (async (): Promise<DoctorCheckResult> => check.run(ctx))()
 			const timeoutPromise = sleep(perCheck).then(
@@ -80,14 +81,18 @@ export class DoctorRegistry {
 				this.log?.warn('doctor check threw', { id: check.id, message })
 				result = { status: 'fail', message: `check threw: ${message}` }
 			}
-			return {
+			// Defend against double-fire: per-check timeout race vs the check
+			// itself resolving microseconds apart, or a future signal-abort
+			// path racing this same id. First record wins.
+			if (completed.has(check.id)) return
+			completed.set(check.id, {
 				id: check.id,
 				category: check.category,
 				status: result.status,
 				message: result.message,
 				remediation: result.remediation,
 				durationMs: result.durationMs ?? Date.now() - t0,
-			}
+			})
 		})
 
 		const allChecks = Promise.all(inFlight)
@@ -95,19 +100,40 @@ export class DoctorRegistry {
 
 		let records: DoctorCheckRecord[]
 		if (raceWinner === 'wall-timeout') {
+			const unfinished = filteredChecks.filter((c) => !completed.has(c.id))
 			this.log?.warn('doctor wall-clock timeout', {
 				wall,
 				total: filteredChecks.length,
+				unfinished: unfinished.length,
 			})
-			records = filteredChecks.map((check) => ({
-				id: check.id,
-				category: check.category,
-				status: 'inconclusive' as DoctorStatus,
-				message: `wall-clock timeout (${wall}ms) reached before all checks completed`,
-				durationMs: Date.now() - startedAt,
-			}))
+			records = filteredChecks.map((check): DoctorCheckRecord => {
+				const existing = completed.get(check.id)
+				if (existing) return existing
+				return {
+					id: check.id,
+					category: check.category,
+					status: 'inconclusive' as DoctorStatus,
+					message: `wall-clock timeout (${wall}ms) reached before this check completed`,
+					durationMs: Date.now() - startedAt,
+				}
+			})
 		} else {
-			records = raceWinner
+			// All checks finished within wall-clock budget. Read from `completed`
+			// in registration order so the report layout is deterministic.
+			records = filteredChecks.map((check): DoctorCheckRecord => {
+				const existing = completed.get(check.id)
+				if (existing) return existing
+				// Belt + suspenders: if an inFlight callback somehow finished
+				// without populating `completed` (shouldn't happen), surface as
+				// inconclusive rather than throwing.
+				return {
+					id: check.id,
+					category: check.category,
+					status: 'inconclusive' as DoctorStatus,
+					message: 'check resolved without producing a record (internal)',
+					durationMs: Date.now() - startedAt,
+				}
+			})
 		}
 
 		return buildReport(records, opts.version ?? 'unknown')
