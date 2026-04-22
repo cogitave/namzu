@@ -1,0 +1,50 @@
+{
+	"$comment": "Coverage gate config for @namzu/sdk. Consumed by .github/scripts/check-sdk-module-coverage.mjs and check-sdk-test-presence.mjs. Managed by ses_006-test-coverage-sprint; see docs.local/sessions/ses_006-test-coverage-sprint/design.md for rules.",
+	"modules": {
+		"required": [
+			"advisory",
+			"agents",
+			"bridge",
+			"bus",
+			"compaction",
+			"connector",
+			"manager",
+			"plugin",
+			"provider",
+			"rag",
+			"registry",
+			"runtime",
+			"session",
+			"store",
+			"tools"
+		],
+		"baselineExempt": [
+			"config",
+			"execution",
+			"gateway",
+			"persona",
+			"router",
+			"run",
+			"sandbox",
+			"skills",
+			"telemetry",
+			"utils",
+			"vault",
+			"verification"
+		],
+		"exempt": [
+			"__tests__",
+			"constants",
+			"contracts",
+			"types"
+		]
+	},
+	"coverageFloors": {
+		"advisory": { "line": 94, "branch": 91 },
+		"bridge":   { "line": 96, "branch": 95 },
+		"bus":      { "line": 94, "branch": 91 },
+		"connector":{ "line": 47, "branch": 84 },
+		"rag":      { "line": 92, "branch": 92 },
+		"registry": { "line": 93, "branch": 90 }
+	}
+}
