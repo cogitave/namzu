@@ -1,5 +1,7 @@
 import type { PlanEvent, PlanManager } from '../../manager/plan/lifecycle.js'
 import type { RunPersistence } from '../../manager/run/persistence.js'
+import { buildProbeContext } from '../../probe/context.js'
+import { type ProbeRegistry, probe as defaultProbeRegistry } from '../../probe/registry.js'
 import type { ActivityEvent, ActivityStore } from '../../store/activity/memory.js'
 import type { RunId } from '../../types/ids/index.js'
 import type { RunEvent } from '../../types/run/index.js'
@@ -10,12 +12,15 @@ export type EmitEvent = (event: RunEvent) => Promise<void>
 export class EventTranslator {
 	private pendingEvents: RunEvent[] = []
 	private runMgr: RunPersistence
+	private probes: ProbeRegistry
 
-	constructor(runMgr: RunPersistence) {
+	constructor(runMgr: RunPersistence, probeRegistry: ProbeRegistry = defaultProbeRegistry) {
 		this.runMgr = runMgr
+		this.probes = probeRegistry
 	}
 
 	readonly emitEvent: EmitEvent = async (event: RunEvent): Promise<void> => {
+		this.probes.dispatch(event, buildProbeContext({ runId: event.runId }))
 		this.pendingEvents.push(event)
 		await this.runMgr.getRunStore().appendEvent(event)
 	};

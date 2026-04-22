@@ -222,6 +222,16 @@ export {
 
 export { evaluateRule, VerificationGate } from './verification/index.js'
 
+// ─── probe (typed observation over AgentBus + RunEvent stream) ───────────
+
+export {
+	buildProbeContext,
+	createProbeRegistry,
+	probe,
+	ProbeNameCollisionError,
+	ProbeRegistry,
+} from './probe/index.js'
+
 // ─── session runtime — explicit named lists, no `export *` ───────────────
 // See §1.5 + §4.2 of design.md. Types flow through public-types.ts.
 

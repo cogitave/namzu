@@ -5,6 +5,8 @@ import {
 	DEFAULT_LOCK_TIMEOUT_MS,
 	DEFAULT_MAX_LOCKS_PER_AGENT,
 } from '../constants/bus/index.js'
+import { buildProbeContext } from '../probe/context.js'
+import { type ProbeRegistry, probe as defaultProbeRegistry } from '../probe/registry.js'
 import type { AgentBusEvent, AgentBusEventListener } from '../types/bus/index.js'
 import type { RunId } from '../types/ids/index.js'
 import type { Logger } from '../utils/logger.js'
@@ -39,10 +41,17 @@ export class AgentBus {
 	private readonly listeners: Set<AgentBusEventListener> = new Set()
 	private readonly log: Logger
 	private readonly config: AgentBusConfig
+	private readonly probes: ProbeRegistry
 
-	constructor(log: Logger, config: Partial<AgentBusConfig> = {}) {
+	constructor(
+		log: Logger,
+		config: Partial<AgentBusConfig> = {},
+		probeRegistry: ProbeRegistry = defaultProbeRegistry,
+	) {
 		this.config = { ...DEFAULT_AGENT_BUS_CONFIG, ...config }
 		this.log = log.child({ component: 'AgentBus' })
+		this.probes = probeRegistry
+		this.probes.setLogger(log)
 
 		const emitFn = (event: AgentBusEvent): void => this.emit(event)
 
@@ -70,16 +79,18 @@ export class AgentBus {
 	}
 
 	private emit(event: AgentBusEvent): void {
-		for (const listener of this.listeners) {
-			try {
-				listener(event)
-			} catch (error) {
-				this.log.error('event listener threw', {
-					eventType: event.type,
-					error: error instanceof Error ? error.message : String(error),
-				})
+		this.probes.dispatch(event, buildProbeContext(), () => {
+			for (const listener of this.listeners) {
+				try {
+					listener(event)
+				} catch (error) {
+					this.log.error('event listener threw', {
+						eventType: event.type,
+						error: error instanceof Error ? error.message : String(error),
+					})
+				}
 			}
-		}
+		})
 	}
 
 	cleanupAgent(runId: RunId): void {
