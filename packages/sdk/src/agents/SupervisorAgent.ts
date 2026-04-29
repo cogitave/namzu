@@ -102,6 +102,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 		const coordinatorToolDefs = buildCoordinatorTools({
 			gateway,
 			workingDirectory: input.workingDirectory,
+			runtimeContext: input.runtimeContext,
 			allowedAgentIds: config.agentIds,
 			taskStore: input.taskStore,
 			runId,
@@ -152,6 +153,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 				},
 				taskStore: input.taskStore,
 				runtimeToolOverrides: input.runtimeToolOverrides,
+				runtimeContext: input.runtimeContext,
 				taskGateway: gateway,
 				launchedTasks,
 				advisory: config.advisory,

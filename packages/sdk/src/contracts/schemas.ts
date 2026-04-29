@@ -8,7 +8,7 @@ export const RunConfigSchema = z
 	.object({
 		model: z.string().min(1).optional(),
 		temperature: z.number().min(0).max(2).optional(),
-		tokenBudget: z.number().int().positive().optional(),
+		tokenBudget: z.number().int().nonnegative().optional(),
 		maxResponseTokens: z.number().int().positive().optional(),
 		timeoutMs: z.number().int().positive().max(3_600_000).optional(),
 		permissionMode: z.enum(['plan', 'auto']).optional(),

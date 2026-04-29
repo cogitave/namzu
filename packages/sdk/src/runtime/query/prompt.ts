@@ -1,5 +1,6 @@
 import { FILESYSTEM_TOOLS } from '../../constants/tools/index.js'
 import { assembleSystemPrompt } from '../../persona/assembler.js'
+import type { AgentRuntimeContext } from '../../types/agent/base.js'
 import type { AgentContextLevel } from '../../types/agent/factory.js'
 import type { AgentPersona } from '../../types/persona/index.js'
 import type { Skill } from '../../types/skills/index.js'
@@ -23,15 +24,41 @@ export interface PromptBuilderConfig {
 
 	tools: ToolRegistryContract
 	allowedTools?: string[]
+	runtimeContext?: AgentRuntimeContext
 }
 
-function buildEnvContext(workingDirectory: string): string {
-	return `<env>
+function buildEnvContext(
+	workingDirectory: string,
+	runtimeContext?: AgentRuntimeContext,
+): string {
+	const lines = [`<env>
 Working directory: ${workingDirectory}
-Platform: ${process.platform}
-</env>
+Platform: ${process.platform}`]
 
-IMPORTANT: Always use absolute paths based on the working directory above. Before reading a file, use the glob tool to discover actual file paths — never guess or hallucinate paths.`
+	if (runtimeContext?.label) {
+		lines.push(`Runtime: ${runtimeContext.label}`)
+	}
+
+	if (runtimeContext?.outputDirectory) {
+		lines.push(`Output directory: ${runtimeContext.outputDirectory}`)
+	}
+
+	if (runtimeContext?.outputFileMarker) {
+		lines.push(`Output file marker: ${runtimeContext.outputFileMarker}`)
+	}
+
+	if (runtimeContext?.notes?.length) {
+		lines.push('Runtime notes:')
+		for (const note of runtimeContext.notes) {
+			lines.push(`- ${note}`)
+		}
+	}
+
+	lines.push(`</env>
+
+IMPORTANT: Always use absolute paths based on the working directory above. Before reading a file, use the glob tool to discover actual file paths — never guess or hallucinate paths.`)
+
+	return lines.join('\n')
 }
 
 function hasFilesystemTools(tools: ToolRegistryContract, allowedTools?: string[]): boolean {
@@ -71,12 +98,13 @@ export class PromptBuilder {
 			}
 		}
 
-		if (
-			contextLevel !== 'minimal' &&
-			workingDirectory &&
-			hasFilesystemTools(this.config.tools, this.config.allowedTools)
-		) {
-			parts.push(buildEnvContext(workingDirectory))
+		if (contextLevel !== 'minimal' && workingDirectory) {
+			const shouldIncludeEnv =
+				hasFilesystemTools(this.config.tools, this.config.allowedTools) ||
+				Boolean(this.config.runtimeContext)
+			if (shouldIncludeEnv) {
+				parts.push(buildEnvContext(workingDirectory, this.config.runtimeContext))
+			}
 		}
 
 		return parts.join('\n\n---\n\n')
@@ -120,12 +148,13 @@ export class PromptBuilder {
 			}
 		}
 
-		if (
-			contextLevel !== 'minimal' &&
-			workingDirectory &&
-			hasFilesystemTools(this.config.tools, this.config.allowedTools)
-		) {
-			dynamicParts.push(buildEnvContext(workingDirectory))
+		if (contextLevel !== 'minimal' && workingDirectory) {
+			const shouldIncludeEnv =
+				hasFilesystemTools(this.config.tools, this.config.allowedTools) ||
+				Boolean(this.config.runtimeContext)
+			if (shouldIncludeEnv) {
+				dynamicParts.push(buildEnvContext(workingDirectory, this.config.runtimeContext))
+			}
 		}
 
 		return {

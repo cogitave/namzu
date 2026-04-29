@@ -1,5 +1,5 @@
 import type { TaskId } from '../ids/index.js'
-import type { BaseAgentResult } from './base.js'
+import type { AgentRuntimeContext, BaseAgentResult } from './base.js'
 import type { AgentTaskState } from './task.js'
 
 export interface TaskHandle {
@@ -17,6 +17,8 @@ export interface CreateTaskOptions {
 	prompt: string
 
 	workingDirectory: string
+
+	runtimeContext?: AgentRuntimeContext
 
 	configOverrides?: Record<string, unknown>
 }

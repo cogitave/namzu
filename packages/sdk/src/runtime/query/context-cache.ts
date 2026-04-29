@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto'
+import type { AgentRuntimeContext } from '../../types/agent/base.js'
 import type { AgentContextLevel } from '../../types/agent/factory.js'
 import type { AgentPersona } from '../../types/persona/index.js'
 import type { ProjectId } from '../../types/session/ids.js'
@@ -18,6 +19,7 @@ export interface PromptCacheInput {
 	basePrompt?: string
 	tools: ToolRegistryContract
 	allowedTools?: string[]
+	runtimeContext?: AgentRuntimeContext
 }
 
 export class ContextCache {
@@ -48,6 +50,7 @@ export class ContextCache {
 			basePrompt: input.basePrompt,
 			tools: input.tools,
 			allowedTools: input.allowedTools,
+			runtimeContext: input.runtimeContext,
 		})
 
 		this.cachedPrompt = builder.build()
@@ -78,6 +81,7 @@ export class ContextCache {
 			basePrompt: input.basePrompt,
 			tools: input.tools,
 			allowedTools: input.allowedTools,
+			runtimeContext: input.runtimeContext,
 		})
 
 		const segments = builder.buildSegmented(contextLevel, workingDirectory)
@@ -124,6 +128,7 @@ export class ContextCache {
 			input.basePrompt ?? '',
 			...(input.skills?.map((s) => s.metadata.name) ?? []),
 			...(input.allowedTools ?? []),
+			JSON.stringify(input.runtimeContext ?? {}),
 		]
 
 		return createHash('sha256').update(parts.join('\0')).digest('hex').slice(0, 16)

@@ -62,6 +62,13 @@ export interface BaseAgentConfig {
 
 export type RuntimeToolOverrides = Record<string, ToolAvailability | 'disabled'>
 
+export interface AgentRuntimeContext {
+	label?: string
+	outputDirectory?: string
+	outputFileMarker?: string
+	notes?: readonly string[]
+}
+
 export interface AgentInput {
 	messages: Message[]
 	workingDirectory: string
@@ -70,6 +77,8 @@ export interface AgentInput {
 	taskStore?: TaskStore
 
 	runtimeToolOverrides?: RuntimeToolOverrides
+
+	runtimeContext?: AgentRuntimeContext
 }
 
 export interface BaseAgentResult {

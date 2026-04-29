@@ -14,7 +14,7 @@ import { buildAdvisoryTools } from '../../tools/advisory/index.js'
 import { SearchToolsTool } from '../../tools/builtins/search-tools.js'
 import { buildTaskTools } from '../../tools/task/index.js'
 import type { AdvisoryConfig } from '../../types/advisory/index.js'
-import type { RuntimeToolOverrides } from '../../types/agent/base.js'
+import type { AgentRuntimeContext, RuntimeToolOverrides } from '../../types/agent/base.js'
 import type { AgentContextLevel } from '../../types/agent/factory.js'
 import {
 	type CheckpointId,
@@ -107,6 +107,8 @@ export interface QueryParams {
 	taskStore?: TaskStore
 
 	runtimeToolOverrides?: RuntimeToolOverrides
+
+	runtimeContext?: AgentRuntimeContext
 
 	taskGateway?: import('../../types/agent/gateway.js').TaskGateway
 
@@ -251,6 +253,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		basePrompt: params.basePrompt,
 		tools: params.tools,
 		allowedTools: params.allowedTools,
+		runtimeContext: params.runtimeContext,
 	})
 
 	const guard = new GuardCoordinator({
@@ -368,6 +371,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				basePrompt: contextLevel === 'full' ? params.basePrompt : undefined,
 				tools: params.tools,
 				allowedTools: params.allowedTools,
+				runtimeContext: params.runtimeContext,
 			}
 
 			const segments: PromptSegments = params.contextCache

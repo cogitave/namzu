@@ -32,6 +32,8 @@ export async function runCompactionCheck(ctx: IterationContext): Promise<void> {
 
 	const estimatedTokens = estimateTokens(ctx)
 	const budget = ctx.runConfig.tokenBudget
+	if (budget <= 0) return
+
 	const usage = estimatedTokens / budget
 
 	if (usage < config.triggerThreshold) return

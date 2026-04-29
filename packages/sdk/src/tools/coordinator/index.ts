@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { PlanManager } from '../../manager/plan/lifecycle.js'
+import type { AgentRuntimeContext } from '../../types/agent/base.js'
 import type { TaskGateway } from '../../types/agent/gateway.js'
 import type { RunId, TaskId } from '../../types/ids/index.js'
 import type { TaskStore } from '../../types/task/index.js'
@@ -18,6 +19,7 @@ export type TaskLaunchedCallback = (
 export interface CoordinatorToolsOptions {
 	gateway: TaskGateway
 	workingDirectory: string
+	runtimeContext?: AgentRuntimeContext
 	allowedAgentIds: string[]
 
 	taskStore?: TaskStore
@@ -88,6 +90,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 				agentId: agent_id,
 				prompt,
 				workingDirectory: cwd,
+				runtimeContext: opts.runtimeContext,
 			})
 
 			if (onTaskLaunched) {

@@ -14,7 +14,7 @@ export class LocalTaskGateway implements TaskGateway {
 	private listener: RunEventListener | undefined
 	private trackedTaskIds: Set<TaskId> = new Set()
 
-	private parentInput?: Pick<AgentInput, 'taskStore' | 'runtimeToolOverrides'>
+	private parentInput?: Pick<AgentInput, 'taskStore' | 'runtimeToolOverrides' | 'runtimeContext'>
 
 	private completionListeners: Set<(handle: TaskHandle) => void> = new Set()
 
@@ -22,7 +22,7 @@ export class LocalTaskGateway implements TaskGateway {
 		agentManager: AgentManagerContract,
 		taskContext: AgentTaskContext,
 		listener?: RunEventListener,
-		parentInput?: Pick<AgentInput, 'taskStore' | 'runtimeToolOverrides'>,
+		parentInput?: Pick<AgentInput, 'taskStore' | 'runtimeToolOverrides' | 'runtimeContext'>,
 	) {
 		this.agentManager = agentManager
 		this.taskContext = taskContext
@@ -39,6 +39,7 @@ export class LocalTaskGateway implements TaskGateway {
 					workingDirectory: options.workingDirectory,
 					taskStore: this.parentInput?.taskStore,
 					runtimeToolOverrides: this.parentInput?.runtimeToolOverrides,
+					runtimeContext: options.runtimeContext ?? this.parentInput?.runtimeContext,
 				},
 				// Phase 6: spawn scope propagates from the gateway's task context.
 				// The caller built it at SupervisorAgent boundary (§12.1).
