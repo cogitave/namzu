@@ -9,8 +9,13 @@ import type { ActivityStore } from '../../../store/activity/memory.js'
 import { GENAI, NAMZU, agentIterationSpanName } from '../../../telemetry/attributes.js'
 import { getTracer } from '../../../telemetry/runtime-accessors.js'
 import type { ResumeHandler } from '../../../types/hitl/index.js'
+import type { ToolUseId } from '../../../types/ids/index.js'
 import { createAssistantMessage, createUserMessage } from '../../../types/message/index.js'
-import type { LLMProvider } from '../../../types/provider/index.js'
+import type {
+	ChatCompletionResponse,
+	LLMProvider,
+	StreamChunk,
+} from '../../../types/provider/index.js'
 import type { AgentRunConfig, RunEvent, StopReason } from '../../../types/run/index.js'
 import type { MessageStopReason } from '../../../types/run/stop-reason.js'
 import type { ToolRegistryContract } from '../../../types/tool/index.js'
@@ -55,9 +60,7 @@ export interface IterationConfig {
 /**
  * Map a provider's coarse `finishReason` plus the orchestrator's
  * `forceFinalize` flag onto the per-message {@link MessageStopReason}
- * union the v3 `message_completed` event surfaces. Phase 4 will refine
- * this once the orchestrator consumes the streaming path natively and
- * sees Anthropic's `stop_reason` directly.
+ * union the v3 `message_completed` event surfaces.
  */
 function synthesizeMessageStopReason(
 	finishReason: 'stop' | 'tool_calls' | 'length' | 'content_filter',
@@ -74,6 +77,229 @@ function synthesizeMessageStopReason(
 		default:
 			return 'end_turn'
 	}
+}
+
+interface StreamingTurnResult {
+	response: ChatCompletionResponse
+	messageId: import('../../../types/ids/index.js').MessageId
+}
+
+/**
+ * Consume a provider's streaming response and emit the v3 RunEvent
+ * lifecycle natively (message_started → text_delta* + tool_input_*
+ * → message_completed). Returns the aggregated `ChatCompletionResponse`
+ * for downstream code that still expects the legacy shape (assistant
+ * message construction, working-state extraction, telemetry attribute
+ * stamping).
+ *
+ * Per-delta `emitEvent` calls are followed by a `drainPending()`
+ * yield so SSE consumers see live progress instead of a burst at
+ * end-of-message. The bus's ephemeral filter (D1) ensures these
+ * deltas never hit transcript.jsonl.
+ *
+ * Edge cases (codex A3, A4, A5):
+ * - Stream ends without `finishReason` (anthropic-sdk-typescript#842
+ *   dropped message_stop): we still emit `message_completed` from a
+ *   finally-style fall-through path with `stopReason: 'refusal'`.
+ * - `tool_input_delta` with no `toolUseId` registered yet: we drop
+ *   the fragment and log a warning (proxies seen to misorder events).
+ * - `chunk.error`: we surface as a thrown error after emitting the
+ *   message_completed terminator so consumer cards still close.
+ */
+async function* streamProviderTurn(
+	provider: LLMProvider,
+	params: import('../../../types/provider/index.js').ChatCompletionParams,
+	emitEvent: EmitEvent,
+	drainPending: () => Generator<RunEvent>,
+	runId: import('../../../types/ids/index.js').RunId,
+	iteration: number,
+	forceFinalize: boolean,
+	log: Logger,
+): AsyncGenerator<RunEvent, StreamingTurnResult> {
+	const messageId = generateMessageId()
+	await emitEvent({ type: 'message_started', runId, iteration, messageId })
+	yield* drainPending()
+
+	let id = ''
+	const model = ''
+	let textBuf = ''
+	let finishReason: ChatCompletionResponse['finishReason'] = 'stop'
+	let usage: ChatCompletionResponse['usage'] = {
+		promptTokens: 0,
+		completionTokens: 0,
+		totalTokens: 0,
+		cachedTokens: 0,
+		cacheWriteTokens: 0,
+	}
+	const toolBuckets = new Map<
+		number,
+		{ id: string; name: string; argsBuf: string; started: boolean; completed: boolean }
+	>()
+	let streamError: string | undefined
+
+	const stream = provider.chatStream({ ...params, stream: true }) as AsyncIterable<StreamChunk>
+
+	try {
+		for await (const chunk of stream) {
+			if (chunk.error) {
+				streamError = chunk.error
+				break
+			}
+			if (!id && chunk.id) id = chunk.id
+
+			if (chunk.delta.content) {
+				textBuf += chunk.delta.content
+				await emitEvent({
+					type: 'text_delta',
+					runId,
+					iteration,
+					messageId,
+					text: chunk.delta.content,
+				})
+				yield* drainPending()
+			}
+
+			for (const tc of chunk.delta.toolCalls ?? []) {
+				let bucket = toolBuckets.get(tc.index)
+				if (!bucket) {
+					bucket = {
+						id: tc.id ?? '',
+						name: tc.function?.name ?? '',
+						argsBuf: '',
+						started: false,
+						completed: false,
+					}
+					toolBuckets.set(tc.index, bucket)
+				}
+				if (tc.id && !bucket.id) bucket.id = tc.id
+				if (tc.function?.name && !bucket.name) bucket.name = tc.function.name
+
+				if (!bucket.started && bucket.id && bucket.name) {
+					bucket.started = true
+					await emitEvent({
+						type: 'tool_input_started',
+						runId,
+						iteration,
+						messageId,
+						toolUseId: bucket.id as ToolUseId,
+						toolName: bucket.name,
+					})
+					yield* drainPending()
+				}
+
+				const fragment = tc.function?.arguments
+				if (fragment) {
+					if (!bucket.id) {
+						log.warn('tool_input_delta arrived before tool id was known; dropping fragment', {
+							runId,
+							index: tc.index,
+							length: fragment.length,
+						})
+					} else {
+						bucket.argsBuf += fragment
+						await emitEvent({
+							type: 'tool_input_delta',
+							runId,
+							toolUseId: bucket.id as ToolUseId,
+							partialJson: fragment,
+						})
+						yield* drainPending()
+					}
+				}
+			}
+
+			if (chunk.delta.toolCallEnd) {
+				const { index, id: endId } = chunk.delta.toolCallEnd
+				const bucket = toolBuckets.get(index)
+				if (bucket && !bucket.completed) {
+					bucket.completed = true
+					let parsed: unknown = {}
+					try {
+						parsed = bucket.argsBuf ? JSON.parse(bucket.argsBuf) : {}
+					} catch (err) {
+						log.warn('tool input JSON parse failed at content_block_stop', {
+							runId,
+							toolUseId: endId,
+							error: err instanceof Error ? err.message : String(err),
+						})
+					}
+					await emitEvent({
+						type: 'tool_input_completed',
+						runId,
+						toolUseId: endId as ToolUseId,
+						input: parsed,
+					})
+					yield* drainPending()
+				}
+			}
+
+			if (chunk.finishReason) finishReason = chunk.finishReason
+			if (chunk.usage) usage = chunk.usage
+		}
+	} catch (err) {
+		streamError = err instanceof Error ? err.message : String(err)
+	}
+
+	// Flush any tool buckets the provider failed to close (no toolCallEnd
+	// arrived — defensive against providers that don't yet emit it).
+	for (const bucket of toolBuckets.values()) {
+		if (bucket.started && !bucket.completed) {
+			bucket.completed = true
+			let parsed: unknown = {}
+			try {
+				parsed = bucket.argsBuf ? JSON.parse(bucket.argsBuf) : {}
+			} catch {
+				// leave parsed = {}
+			}
+			await emitEvent({
+				type: 'tool_input_completed',
+				runId,
+				toolUseId: bucket.id as ToolUseId,
+				input: parsed,
+			})
+			yield* drainPending()
+		}
+	}
+
+	const stopReason: MessageStopReason = streamError
+		? 'refusal'
+		: synthesizeMessageStopReason(finishReason, forceFinalize)
+
+	await emitEvent({
+		type: 'message_completed',
+		runId,
+		iteration,
+		messageId,
+		stopReason,
+		usage,
+		content: textBuf || undefined,
+	})
+	yield* drainPending()
+
+	if (streamError) {
+		throw new Error(`Provider stream error: ${streamError}`)
+	}
+
+	const toolCalls = [...toolBuckets.entries()]
+		.sort(([a], [b]) => a - b)
+		.map(([, b]) => ({
+			id: b.id,
+			type: 'function' as const,
+			function: { name: b.name, arguments: b.argsBuf },
+		}))
+
+	const response: ChatCompletionResponse = {
+		id: id || messageId,
+		model: model || params.model,
+		message: {
+			role: 'assistant',
+			content: textBuf.length > 0 ? textBuf : null,
+			toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+		},
+		finishReason,
+		usage,
+	}
+	return { response, messageId }
 }
 
 export class IterationOrchestrator {
@@ -240,14 +466,31 @@ export class IterationOrchestrator {
 						yield* this.ctx.drainPending()
 					}
 
-					const response = await this.ctx.provider.chat({
-						model,
-						messages,
-						tools: openAITools && openAITools.length > 0 ? openAITools : undefined,
-						temperature: runConfig.temperature,
-						maxTokens: runConfig.maxResponseTokens,
-						cacheControl: { type: 'auto' },
-					})
+					// Phase 4 (ses_001-tool-stream-events): consume the
+					// streaming response natively, emitting message and
+					// tool-input lifecycle events as deltas arrive. The
+					// helper yields RunEvents through drainPending() so SSE
+					// consumers see live progress; its return value is the
+					// aggregated `ChatCompletionResponse` for the legacy
+					// downstream paths (assistantMsg construction, working
+					// state extraction, telemetry attribute stamping).
+					const { response } = yield* streamProviderTurn(
+						this.ctx.provider,
+						{
+							model,
+							messages,
+							tools: openAITools && openAITools.length > 0 ? openAITools : undefined,
+							temperature: runConfig.temperature,
+							maxTokens: runConfig.maxResponseTokens,
+							cacheControl: { type: 'auto' },
+						},
+						this.ctx.emitEvent,
+						this.ctx.drainPending,
+						runMgr.id,
+						iterationNum,
+						forceFinalize,
+						this.ctx.log,
+					)
 
 					runMgr.accumulateUsage(response.usage)
 
@@ -293,29 +536,6 @@ export class IterationOrchestrator {
 							this.ctx.compactionConfig,
 						)
 					}
-
-					// Phase 4 will emit message_started → text_delta* →
-					// message_completed natively from the streaming path.
-					// Until then, synthesize the bracketing pair so v3
-					// consumers can observe message lifecycle without the
-					// per-delta granularity. `content` carries the
-					// aggregated text (codex A1).
-					const synthMessageId = generateMessageId()
-					await this.ctx.emitEvent({
-						type: 'message_started',
-						runId: runMgr.id,
-						iteration: iterationNum,
-						messageId: synthMessageId,
-					})
-					await this.ctx.emitEvent({
-						type: 'message_completed',
-						runId: runMgr.id,
-						iteration: iterationNum,
-						messageId: synthMessageId,
-						stopReason: synthesizeMessageStopReason(response.finishReason, forceFinalize),
-						usage: response.usage,
-						content: response.message.content ?? undefined,
-					})
 
 					yield* this.ctx.drainPending()
 
