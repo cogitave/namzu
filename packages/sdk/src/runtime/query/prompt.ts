@@ -27,13 +27,12 @@ export interface PromptBuilderConfig {
 	runtimeContext?: AgentRuntimeContext
 }
 
-function buildEnvContext(
-	workingDirectory: string,
-	runtimeContext?: AgentRuntimeContext,
-): string {
-	const lines = [`<env>
+function buildEnvContext(workingDirectory: string, runtimeContext?: AgentRuntimeContext): string {
+	const lines = [
+		`<env>
 Working directory: ${workingDirectory}
-Platform: ${process.platform}`]
+Platform: ${process.platform}`,
+	]
 
 	if (runtimeContext?.label) {
 		lines.push(`Runtime: ${runtimeContext.label}`)

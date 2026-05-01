@@ -164,6 +164,17 @@ const MAPPING: {
 	subsession_spawned: null,
 	subsession_messaged: null,
 	subsession_idled: null,
+
+	// v3 message + tool-input lifecycle (ses_001-tool-stream-events). The A2A
+	// bridge does not surface granular per-delta progress today — A2A's
+	// status-update model is coarse-grained — so these events are dropped at
+	// this layer. The SSE bridge does surface them.
+	message_started: null,
+	text_delta: null,
+	message_completed: null,
+	tool_input_started: null,
+	tool_input_delta: null,
+	tool_input_completed: null,
 }
 
 export function mapRunToA2AEvent(event: RunEvent, contextId?: string): A2AStreamEvent | null {

@@ -2,6 +2,16 @@ export type RunId = `run_${string}`
 export type MessageId = `msg_${string}`
 export type SessionId = `ses_${string}`
 export type ToolCallId = `call_${string}`
+/**
+ * Provider-issued tool-use identifier surfaced on the streaming event bus.
+ * Providers emit different prefixes (Anthropic: `toolu_*`, OpenAI: `call_*`,
+ * others vary), so this type intentionally stays unbranded — we accept the
+ * provider's verbatim string and use it solely as a correlation key across
+ * `tool_input_*`, `tool_executing`, and `tool_completed` events. Distinct
+ * from {@link ToolCallId} which is the OpenAI-format identifier carried in
+ * persisted assistant messages and replay records.
+ */
+export type ToolUseId = string
 export type ActivityId = `act_${string}`
 export type TaskId = `task_${string}`
 export type PlanId = `plan_${string}`

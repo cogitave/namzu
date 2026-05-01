@@ -2,18 +2,28 @@ import type { ActivityStatus, ActivityType } from '../activity/index.js'
 import type { BaseAgentResult } from '../agent/base.js'
 import type { CostInfo, TokenUsage } from '../common/index.js'
 import type { CheckpointId, ToolCallSummary } from '../hitl/index.js'
-import type { ActivityId, PlanId, PluginId, RunId, SandboxId, TaskId } from '../ids/index.js'
+import type {
+	ActivityId,
+	MessageId,
+	PlanId,
+	PluginId,
+	RunId,
+	SandboxId,
+	TaskId,
+	ToolUseId,
+} from '../ids/index.js'
 import type { PlanStep } from '../plan/index.js'
 import type { PluginHookEvent, PluginHookResult } from '../plugin/index.js'
 import type { TaskStatus } from '../task/index.js'
 import type { Lineage } from './lineage.js'
+import type { MessageStopReason } from './stop-reason.js'
 import type {
 	SubsessionIdledEvent,
 	SubsessionMessagedEvent,
 	SubsessionSpawnedEvent,
 } from './subsession-events.js'
 
-export type { StopReason } from './stop-reason.js'
+export type { MessageStopReason, StopReason } from './stop-reason.js'
 
 /**
  * Additive envelope fields present on every {@link RunEvent} variant.
@@ -25,7 +35,15 @@ export type { StopReason } from './stop-reason.js'
  * absent on root-session events.
  */
 interface RunEventEnvelope {
-	schemaVersion?: 2
+	/**
+	 * 0.2.0+ emitters stamp `2`; the v3 message + tool-input lifecycle variants
+	 * (added 2026-05; see ses_001-tool-stream-events) are scheduled to bump
+	 * this to `3` once the orchestrator switches to native streaming. The
+	 * union is `2 | 3` during the additive scaffolding phase so existing
+	 * emitters keep type-checking; phase 4 will narrow it to `3` and remove
+	 * `llm_response`.
+	 */
+	schemaVersion?: 2 | 3
 	lineage?: Lineage
 }
 
@@ -193,6 +211,55 @@ type CoreRunEvent =
 			durationMs: number
 	  }
 	| { type: 'sandbox_destroyed'; runId: RunId; sandboxId: SandboxId }
+	// ─────────────────────────────────────────────────────────────────────
+	// v3 message + tool-input lifecycle (additive 2026-05; see
+	// ses_001-tool-stream-events). These are not yet emitted by the
+	// iteration orchestrator — phase 4 of the migration switches the
+	// orchestrator to streaming consumption and removes `llm_response`.
+	// Until then these variants exist so consumers can be wired ahead of
+	// the producer-side cutover.
+	// ─────────────────────────────────────────────────────────────────────
+	| {
+			type: 'message_started'
+			runId: RunId
+			iteration: number
+			messageId: MessageId
+	  }
+	| {
+			type: 'text_delta'
+			runId: RunId
+			iteration: number
+			messageId: MessageId
+			text: string
+	  }
+	| {
+			type: 'message_completed'
+			runId: RunId
+			iteration: number
+			messageId: MessageId
+			stopReason: MessageStopReason
+			usage?: TokenUsage
+	  }
+	| {
+			type: 'tool_input_started'
+			runId: RunId
+			iteration: number
+			messageId: MessageId
+			toolUseId: ToolUseId
+			toolName: string
+	  }
+	| {
+			type: 'tool_input_delta'
+			runId: RunId
+			toolUseId: ToolUseId
+			partialJson: string
+	  }
+	| {
+			type: 'tool_input_completed'
+			runId: RunId
+			toolUseId: ToolUseId
+			input: unknown
+	  }
 
 /**
  * Discriminated union of all run-scoped events emitted by the kernel.
