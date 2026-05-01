@@ -60,13 +60,6 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				})
 				break
 
-			case 'llm_response':
-				log.info('LLM response received', {
-					runId: event.runId,
-					hasToolCalls: event.hasToolCalls,
-				})
-				break
-
 			case 'token_usage_updated':
 				log.info('Token usage updated', {
 					runId: event.runId,

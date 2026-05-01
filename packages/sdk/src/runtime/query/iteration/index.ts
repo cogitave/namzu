@@ -12,8 +12,10 @@ import type { ResumeHandler } from '../../../types/hitl/index.js'
 import { createAssistantMessage, createUserMessage } from '../../../types/message/index.js'
 import type { LLMProvider } from '../../../types/provider/index.js'
 import type { AgentRunConfig, RunEvent, StopReason } from '../../../types/run/index.js'
+import type { MessageStopReason } from '../../../types/run/stop-reason.js'
 import type { ToolRegistryContract } from '../../../types/tool/index.js'
 import { toErrorMessage } from '../../../utils/error.js'
+import { generateMessageId } from '../../../utils/id.js'
 import type { Logger } from '../../../utils/logger.js'
 import type { CheckpointManager } from '../checkpoint.js'
 import type { EmitEvent } from '../events.js'
@@ -48,6 +50,30 @@ export interface IterationConfig {
 	agentBus?: import('../../../bus/index.js').AgentBus
 	verificationGate?: import('../../../verification/gate.js').VerificationGate
 	pluginManager?: import('../../../plugin/lifecycle.js').PluginLifecycleManager
+}
+
+/**
+ * Map a provider's coarse `finishReason` plus the orchestrator's
+ * `forceFinalize` flag onto the per-message {@link MessageStopReason}
+ * union the v3 `message_completed` event surfaces. Phase 4 will refine
+ * this once the orchestrator consumes the streaming path natively and
+ * sees Anthropic's `stop_reason` directly.
+ */
+function synthesizeMessageStopReason(
+	finishReason: 'stop' | 'tool_calls' | 'length' | 'content_filter',
+	forceFinalize: boolean,
+): MessageStopReason {
+	if (forceFinalize) return 'forced_finalize'
+	switch (finishReason) {
+		case 'tool_calls':
+			return 'tool_use'
+		case 'length':
+			return 'max_tokens'
+		case 'content_filter':
+			return 'refusal'
+		default:
+			return 'end_turn'
+	}
 }
 
 export class IterationOrchestrator {
@@ -268,11 +294,27 @@ export class IterationOrchestrator {
 						)
 					}
 
+					// Phase 4 will emit message_started → text_delta* →
+					// message_completed natively from the streaming path.
+					// Until then, synthesize the bracketing pair so v3
+					// consumers can observe message lifecycle without the
+					// per-delta granularity. `content` carries the
+					// aggregated text (codex A1).
+					const synthMessageId = generateMessageId()
 					await this.ctx.emitEvent({
-						type: 'llm_response',
+						type: 'message_started',
 						runId: runMgr.id,
-						content: response.message.content,
-						hasToolCalls: forceFinalize ? false : !!response.message.toolCalls?.length,
+						iteration: iterationNum,
+						messageId: synthMessageId,
+					})
+					await this.ctx.emitEvent({
+						type: 'message_completed',
+						runId: runMgr.id,
+						iteration: iterationNum,
+						messageId: synthMessageId,
+						stopReason: synthesizeMessageStopReason(response.finishReason, forceFinalize),
+						usage: response.usage,
+						content: response.message.content ?? undefined,
 					})
 
 					yield* this.ctx.drainPending()
@@ -503,11 +545,21 @@ export class IterationOrchestrator {
 			const assistantMsg = createAssistantMessage(response.message.content)
 			this.ctx.runMgr.pushMessage(assistantMsg)
 
+			const finalMessageId = generateMessageId()
 			await this.ctx.emitEvent({
-				type: 'llm_response',
+				type: 'message_started',
 				runId: this.ctx.runMgr.id,
-				content: response.message.content,
-				hasToolCalls: false,
+				iteration: this.ctx.runMgr.currentIteration,
+				messageId: finalMessageId,
+			})
+			await this.ctx.emitEvent({
+				type: 'message_completed',
+				runId: this.ctx.runMgr.id,
+				iteration: this.ctx.runMgr.currentIteration,
+				messageId: finalMessageId,
+				stopReason: 'forced_finalize',
+				usage: response.usage,
+				content: response.message.content ?? undefined,
 			})
 		} catch (err) {
 			this.ctx.log.error('Failed to get final response', {

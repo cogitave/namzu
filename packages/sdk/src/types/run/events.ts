@@ -36,14 +36,12 @@ export type { MessageStopReason, StopReason } from './stop-reason.js'
  */
 interface RunEventEnvelope {
 	/**
-	 * 0.2.0+ emitters stamp `2`; the v3 message + tool-input lifecycle variants
-	 * (added 2026-05; see ses_001-tool-stream-events) are scheduled to bump
-	 * this to `3` once the orchestrator switches to native streaming. The
-	 * union is `2 | 3` during the additive scaffolding phase so existing
-	 * emitters keep type-checking; phase 4 will narrow it to `3` and remove
-	 * `llm_response`.
+	 * v3 envelope (ses_001-tool-stream-events, 2026-05-01). Removes
+	 * `llm_response`; adds message + tool-input lifecycle variants;
+	 * tightens `tool_executing` / `tool_completed` payloads. Emitters
+	 * stamp this from {@link RUN_EVENT_SCHEMA_VERSION}.
 	 */
-	schemaVersion?: 2 | 3
+	schemaVersion?: 3
 	lineage?: Lineage
 }
 
@@ -57,22 +55,19 @@ type CoreRunEvent =
 			hasToolCalls: boolean
 	  }
 	| {
-			type: 'llm_response'
-			runId: RunId
-			content: string | null
-			hasToolCalls: boolean
-	  }
-	| {
 			type: 'tool_executing'
 			runId: RunId
+			toolUseId: ToolUseId
 			toolName: string
 			input: unknown
 	  }
 	| {
 			type: 'tool_completed'
 			runId: RunId
+			toolUseId: ToolUseId
 			toolName: string
 			result: string
+			isError: boolean
 	  }
 	| {
 			type: 'tool_review_requested'
@@ -239,6 +234,15 @@ type CoreRunEvent =
 			messageId: MessageId
 			stopReason: MessageStopReason
 			usage?: TokenUsage
+			/**
+			 * Aggregated assistant text accumulated from `text_delta`
+			 * events for this message. Optional so consumers that
+			 * already concatenate deltas themselves don't have to pay
+			 * the duplication; consumers that only care about the
+			 * completed message (telemetry, A2A bridge, postmortem
+			 * tooling) can read this field directly.
+			 */
+			content?: string
 	  }
 	| {
 			type: 'tool_input_started'
@@ -277,3 +281,28 @@ export type RunEvent =
 	| SubsessionIdledEvent
 
 export type RunEventListener = (event: RunEvent) => void | Promise<void>
+
+/**
+ * Event types whose volume makes durable persistence wasteful.
+ *
+ * `text_delta` and `tool_input_delta` arrive at provider cadence (often
+ * 50–100 events per second), carry no information not derivable from the
+ * surrounding message/tool lifecycle events, and are not consulted by
+ * replay (`runtime/query/replay/prepare.ts` reads checkpoints, not the
+ * transcript). The kernel still dispatches them on the in-memory bus so
+ * SSE consumers can render live progress, but the disk store
+ * (`store/run/disk.ts:appendEvent`) skips them via this predicate.
+ *
+ * Keeping the predicate centralised — rather than threading an
+ * `ephemeral: true` field through every emit site — means new ephemeral
+ * variants are added by editing one Set and consumers don't have to
+ * inspect event shape to decide what to persist.
+ */
+const EPHEMERAL_EVENT_TYPES: ReadonlySet<RunEvent['type']> = new Set<RunEvent['type']>([
+	'text_delta',
+	'tool_input_delta',
+])
+
+export function isEphemeralEvent(event: RunEvent): boolean {
+	return EPHEMERAL_EVENT_TYPES.has(event.type)
+}

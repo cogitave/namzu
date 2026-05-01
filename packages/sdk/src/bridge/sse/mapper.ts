@@ -33,19 +33,11 @@ const MAPPING: {
 		transform: (e, runId) => ({ run_id: runId, iteration: e.iteration }),
 	},
 
-	llm_response: {
-		wire: 'message.delta',
-		transform: (e, runId) => ({
-			run_id: runId,
-			content: e.content ?? null,
-			has_tool_calls: !!e.hasToolCalls,
-		}),
-	},
-
 	tool_executing: {
 		wire: 'tool.executing',
 		transform: (e, runId) => ({
 			run_id: runId,
+			tool_use_id: e.toolUseId,
 			tool_name: e.toolName,
 			input: e.input,
 		}),
@@ -55,8 +47,10 @@ const MAPPING: {
 		wire: 'tool.completed',
 		transform: (e, runId) => ({
 			run_id: runId,
+			tool_use_id: e.toolUseId,
 			tool_name: e.toolName,
 			result: e.result,
+			is_error: e.isError,
 		}),
 	},
 

@@ -96,8 +96,15 @@ describe('mapRunToA2AEvent — mapped variants', () => {
 		}
 	})
 
-	it('llm_response with content → running + text part', () => {
-		const event: RunEvent = { type: 'llm_response', runId: RID, content: 'hi', hasToolCalls: false }
+	it('message_completed with content → running status + text part (codex M5)', () => {
+		const event: RunEvent = {
+			type: 'message_completed',
+			runId: RID,
+			iteration: 0,
+			messageId: 'msg_a' as `msg_${string}`,
+			stopReason: 'end_turn',
+			content: 'hi',
+		}
 		const a2a = mapRunToA2AEvent(event)
 		expect(isStatusEvent(a2a)).toBe(true)
 		if (isStatusEvent(a2a)) {
@@ -106,22 +113,37 @@ describe('mapRunToA2AEvent — mapped variants', () => {
 		}
 	})
 
-	it('llm_response with null content → null', () => {
-		const event: RunEvent = { type: 'llm_response', runId: RID, content: null, hasToolCalls: true }
+	it('message_completed without content → null (no aggregated text to surface)', () => {
+		const event: RunEvent = {
+			type: 'message_completed',
+			runId: RID,
+			iteration: 0,
+			messageId: 'msg_b' as `msg_${string}`,
+			stopReason: 'tool_use',
+		}
 		expect(mapRunToA2AEvent(event)).toBeNull()
 	})
 
-	it('llm_response with empty-string content → null (falsy)', () => {
-		const event: RunEvent = { type: 'llm_response', runId: RID, content: '', hasToolCalls: false }
+	it('message_completed with empty-string content → null (falsy)', () => {
+		const event: RunEvent = {
+			type: 'message_completed',
+			runId: RID,
+			iteration: 0,
+			messageId: 'msg_c' as `msg_${string}`,
+			stopReason: 'end_turn',
+			content: '',
+		}
 		expect(mapRunToA2AEvent(event)).toBeNull()
 	})
 
-	it('tool_completed → artifact with toolName metadata + timestamped id', () => {
+	it('tool_completed → artifact with toolName + toolUseId + isError metadata', () => {
 		const event: RunEvent = {
 			type: 'tool_completed',
 			runId: RID,
+			toolUseId: 'toolu_a',
 			toolName: 'read_file',
 			result: 'ok',
+			isError: false,
 		}
 		const a2a = mapRunToA2AEvent(event)
 		expect(isArtifactEvent(a2a)).toBe(true)
@@ -129,7 +151,11 @@ describe('mapRunToA2AEvent — mapped variants', () => {
 			expect(a2a.artifact.artifactId).toMatch(/^tool-read_file-\d+$/)
 			expect(a2a.artifact.name).toBe('read_file result')
 			expect(a2a.artifact.parts).toEqual([{ kind: 'text', text: 'ok' }])
-			expect(a2a.artifact.metadata).toEqual({ toolName: 'read_file' })
+			expect(a2a.artifact.metadata).toEqual({
+				toolName: 'read_file',
+				toolUseId: 'toolu_a',
+				isError: false,
+			})
 		}
 	})
 
@@ -212,7 +238,7 @@ describe('mapRunToA2AEvent — mapped variants', () => {
 describe('mapRunToA2AEvent — explicit null set', () => {
 	const nullEvents: RunEvent[] = [
 		{ type: 'iteration_completed', runId: RID, iteration: 1, hasToolCalls: false },
-		{ type: 'tool_executing', runId: RID, toolName: 'x', input: {} },
+		{ type: 'tool_executing', runId: RID, toolUseId: 'toolu_x', toolName: 'x', input: {} },
 		{ type: 'tool_review_completed', runId: RID, decision: 'approved' },
 		{
 			type: 'checkpoint_created',

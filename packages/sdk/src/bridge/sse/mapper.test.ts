@@ -67,39 +67,43 @@ describe('mapRunToStreamEvent — mapped variants', () => {
 		expect(b).toEqual({ wire: 'iteration.completed', data: { run_id: RID, iteration: 2 } })
 	})
 
-	it('llm_response → message.delta with content + has_tool_calls', () => {
-		const r = mapRunToStreamEvent(
-			{ type: 'llm_response', runId: RID, content: 'hi', hasToolCalls: false },
-			RID,
-		)
-		expect(r).toEqual({
-			wire: 'message.delta',
-			data: { run_id: RID, content: 'hi', has_tool_calls: false },
-		})
-	})
-
-	it('llm_response with null content → content: null', () => {
-		const r = mapRunToStreamEvent(
-			{ type: 'llm_response', runId: RID, content: null, hasToolCalls: true },
-			RID,
-		)
-		expect(r?.data).toMatchObject({ content: null, has_tool_calls: true })
-	})
-
-	it('tool_executing / tool_completed carry tool_name + input/result', () => {
+	it('tool_executing / tool_completed carry tool_use_id, tool_name, input/result, is_error', () => {
+		const TUID = 'toolu_x'
 		const exec = mapRunToStreamEvent(
-			{ type: 'tool_executing', runId: RID, toolName: 'read_file', input: { path: '/a' } },
+			{
+				type: 'tool_executing',
+				runId: RID,
+				toolUseId: TUID,
+				toolName: 'read_file',
+				input: { path: '/a' },
+			},
 			RID,
 		)
 		expect(exec?.wire).toBe('tool.executing')
-		expect(exec?.data).toMatchObject({ tool_name: 'read_file', input: { path: '/a' } })
+		expect(exec?.data).toMatchObject({
+			tool_use_id: TUID,
+			tool_name: 'read_file',
+			input: { path: '/a' },
+		})
 
 		const done = mapRunToStreamEvent(
-			{ type: 'tool_completed', runId: RID, toolName: 'read_file', result: 'ok' },
+			{
+				type: 'tool_completed',
+				runId: RID,
+				toolUseId: TUID,
+				toolName: 'read_file',
+				result: 'ok',
+				isError: false,
+			},
 			RID,
 		)
 		expect(done?.wire).toBe('tool.completed')
-		expect(done?.data).toMatchObject({ tool_name: 'read_file', result: 'ok' })
+		expect(done?.data).toMatchObject({
+			tool_use_id: TUID,
+			tool_name: 'read_file',
+			result: 'ok',
+			is_error: false,
+		})
 	})
 
 	it('tool_review_requested / tool_review_completed carry review fields', () => {

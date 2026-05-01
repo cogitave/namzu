@@ -66,20 +66,16 @@ const MAPPING: {
 			parts: [{ kind: 'text', text: `Iteration ${e.iteration} started` }],
 		}),
 
-	llm_response: (e, ctx) => {
-		if (!e.content) return null
-		return statusEvent(e.runId, 'running', false, ctx, {
-			role: 'agent',
-			parts: [{ kind: 'text', text: e.content }],
-		})
-	},
-
 	tool_completed: (e, ctx) =>
 		artifactEvent(e.runId, ctx, {
 			artifactId: `tool-${e.toolName}-${Date.now()}`,
 			name: `${e.toolName} result`,
 			parts: [{ kind: 'text', text: e.result }],
-			metadata: { toolName: e.toolName },
+			metadata: {
+				toolName: e.toolName,
+				toolUseId: e.toolUseId,
+				isError: e.isError,
+			},
 		}),
 
 	tool_review_requested: (e, ctx) => {
@@ -165,13 +161,20 @@ const MAPPING: {
 	subsession_messaged: null,
 	subsession_idled: null,
 
-	// v3 message + tool-input lifecycle (ses_001-tool-stream-events). The A2A
-	// bridge does not surface granular per-delta progress today — A2A's
-	// status-update model is coarse-grained — so these events are dropped at
-	// this layer. The SSE bridge does surface them.
+	// v3 message + tool-input lifecycle (ses_001-tool-stream-events). A2A's
+	// status-update model is coarse-grained, so per-delta events are dropped
+	// at this layer. `message_completed` carries the aggregated assistant
+	// content (codex A1) — A2A surfaces a single status event with the
+	// full text, replacing the per-iteration `llm_response` mapping.
 	message_started: null,
 	text_delta: null,
-	message_completed: null,
+	message_completed: (e, ctx) => {
+		if (!e.content) return null
+		return statusEvent(e.runId, 'running', false, ctx, {
+			role: 'agent',
+			parts: [{ kind: 'text', text: e.content }],
+		})
+	},
 	tool_input_started: null,
 	tool_input_delta: null,
 	tool_input_completed: null,
