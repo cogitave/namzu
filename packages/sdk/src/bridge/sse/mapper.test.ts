@@ -410,6 +410,130 @@ describe('mapRunToStreamEvent — explicit null set', () => {
 	})
 })
 
+describe('mapRunToStreamEvent — v3 message and tool-input lifecycle', () => {
+	const MID = 'msg_1' as `msg_${string}`
+	const TUID = 'toolu_a'
+
+	it('message_started → message.created', () => {
+		const r = mapRunToStreamEvent(
+			{ type: 'message_started', runId: RID, iteration: 0, messageId: MID },
+			RID,
+		)
+		expect(r?.wire).toBe('message.created')
+		expect(r?.data).toMatchObject({ run_id: RID, iteration: 0, message_id: MID })
+	})
+
+	it('text_delta → message.delta carries raw text fragment', () => {
+		const r = mapRunToStreamEvent(
+			{
+				type: 'text_delta',
+				runId: RID,
+				iteration: 0,
+				messageId: MID,
+				text: 'hel',
+			},
+			RID,
+		)
+		expect(r?.wire).toBe('message.delta')
+		expect(r?.data).toMatchObject({ message_id: MID, text: 'hel' })
+	})
+
+	it('message_completed → message.completed carries stop reason and usage', () => {
+		const usage = {
+			promptTokens: 10,
+			completionTokens: 5,
+			totalTokens: 15,
+			cachedTokens: 0,
+			cacheWriteTokens: 0,
+		}
+		const r = mapRunToStreamEvent(
+			{
+				type: 'message_completed',
+				runId: RID,
+				iteration: 0,
+				messageId: MID,
+				stopReason: 'end_turn',
+				usage,
+			},
+			RID,
+		)
+		expect(r?.wire).toBe('message.completed')
+		expect(r?.data).toMatchObject({
+			message_id: MID,
+			stop_reason: 'end_turn',
+			usage,
+		})
+	})
+
+	it('message_completed without usage → usage: null (defensive against dropped message_stop)', () => {
+		const r = mapRunToStreamEvent(
+			{
+				type: 'message_completed',
+				runId: RID,
+				iteration: 0,
+				messageId: MID,
+				stopReason: 'tool_use',
+			},
+			RID,
+		)
+		expect(r?.data).toMatchObject({ usage: null })
+	})
+
+	it('tool_input_started → tool.input_started carries toolUseId + toolName', () => {
+		const r = mapRunToStreamEvent(
+			{
+				type: 'tool_input_started',
+				runId: RID,
+				iteration: 0,
+				messageId: MID,
+				toolUseId: TUID,
+				toolName: 'Read',
+			},
+			RID,
+		)
+		expect(r?.wire).toBe('tool.input_started')
+		expect(r?.data).toMatchObject({
+			tool_use_id: TUID,
+			tool_name: 'Read',
+			message_id: MID,
+		})
+	})
+
+	it('tool_input_delta → tool.input_delta carries raw partial JSON fragment', () => {
+		const r = mapRunToStreamEvent(
+			{
+				type: 'tool_input_delta',
+				runId: RID,
+				toolUseId: TUID,
+				partialJson: '{"file_path":"',
+			},
+			RID,
+		)
+		expect(r?.wire).toBe('tool.input_delta')
+		expect(r?.data).toMatchObject({
+			tool_use_id: TUID,
+			partial_json: '{"file_path":"',
+		})
+	})
+
+	it('tool_input_completed → tool.input_completed carries parsed input object', () => {
+		const r = mapRunToStreamEvent(
+			{
+				type: 'tool_input_completed',
+				runId: RID,
+				toolUseId: TUID,
+				input: { file_path: '/etc/passwd' },
+			},
+			RID,
+		)
+		expect(r?.wire).toBe('tool.input_completed')
+		expect(r?.data).toMatchObject({
+			tool_use_id: TUID,
+			input: { file_path: '/etc/passwd' },
+		})
+	})
+})
+
 describe('mapSessionToStreamEvent (deprecated alias)', () => {
 	it('is the same function reference as mapRunToStreamEvent', () => {
 		// Identity check is deterministic. toEqual on paired calls
