@@ -1,5 +1,6 @@
 import { CHARS_PER_TOKEN } from '../constants/limits.js'
 import { assembleSystemPrompt } from '../persona/assembler.js'
+import { collect } from '../provider/collect.js'
 import type { AdvisorDefinition } from '../types/advisory/config.js'
 import type { AdvisoryRequest, AdvisoryResult } from '../types/advisory/result.js'
 import type { CostInfo, TokenUsage } from '../types/common/index.js'
@@ -51,13 +52,15 @@ export class AdvisoryExecutor {
 			urgency: request.urgency,
 		})
 
-		const response = await advisor.provider.chat({
-			model: advisor.model,
-			messages,
-			temperature: advisor.temperature,
-			maxTokens: advisor.maxResponseTokens,
-			toolChoice: 'none',
-		})
+		const response = await collect(
+			advisor.provider.chatStream({
+				model: advisor.model,
+				messages,
+				temperature: advisor.temperature,
+				maxTokens: advisor.maxResponseTokens,
+				toolChoice: 'none',
+			}),
+		)
 
 		const durationMs = Date.now() - startMs
 

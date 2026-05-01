@@ -1,4 +1,5 @@
 import type { CompactionConfig } from '../config/runtime.js'
+import { collect } from '../provider/collect.js'
 import type { Message } from '../types/message/index.js'
 import type { LLMProvider } from '../types/provider/interface.js'
 import type { WorkingStateManager } from './manager.js'
@@ -74,12 +75,14 @@ export async function buildVerifiedSummary(
 		},
 	]
 
-	const response = await provider.chat({
-		model: '',
-		messages: verificationMessages,
-		maxTokens: config.llmVerificationMaxTokens,
-		temperature: 0,
-	})
+	const response = await collect(
+		provider.chatStream({
+			model: '',
+			messages: verificationMessages,
+			maxTokens: config.llmVerificationMaxTokens,
+			temperature: 0,
+		}),
+	)
 
 	const responseText = response.message.content?.trim() ?? ''
 

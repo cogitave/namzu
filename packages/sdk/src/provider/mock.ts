@@ -50,13 +50,9 @@ export class MockLLMProvider implements LLMProvider {
 		}
 	}
 
-	async chat(params: ChatCompletionParams): Promise<ChatCompletionResponse> {
-		await this.delay()
-		return this.normalizeResponse(params, this.responseText)
-	}
-
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
-		const response = await this.chat(params)
+		await this.delay()
+		const response = this.normalizeResponse(params, this.responseText)
 		const content = response.message.content ?? ''
 		const chunkSize = 8
 

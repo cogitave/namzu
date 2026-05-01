@@ -60,13 +60,6 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				})
 				break
 
-			case 'llm_response':
-				log.info('LLM response received', {
-					runId: event.runId,
-					hasToolCalls: event.hasToolCalls,
-				})
-				break
-
 			case 'token_usage_updated':
 				log.info('Token usage updated', {
 					runId: event.runId,
@@ -99,6 +92,16 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 			case 'checkpoint_created':
 			case 'run_paused':
 			case 'run_resuming':
+			// v3 message + tool-input lifecycle (ses_001-tool-stream-events).
+			// The reporter is a debug log surface; per-delta lines would be
+			// too noisy. Phase 4 may add structured logging at the
+			// message_completed boundary if signal proves useful.
+			case 'message_started':
+			case 'text_delta':
+			case 'message_completed':
+			case 'tool_input_started':
+			case 'tool_input_delta':
+			case 'tool_input_completed':
 				break
 
 			case 'agent_pending':

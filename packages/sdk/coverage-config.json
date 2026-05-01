@@ -10,12 +10,14 @@
 			"connector",
 			"manager",
 			"plugin",
+			"probe",
 			"provider",
 			"rag",
 			"registry",
 			"runtime",
 			"session",
 			"store",
+			"streaming",
 			"tools"
 		],
 		"baselineExempt": [

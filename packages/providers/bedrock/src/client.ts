@@ -12,7 +12,6 @@ import type {
 	Tool,
 	ToolConfiguration,
 	ToolResultContentBlock,
-	ToolUseBlock,
 } from '@aws-sdk/client-bedrock-runtime'
 import type {
 	ChatCompletionParams,
@@ -220,38 +219,6 @@ function mapStopReason(reason?: string): NamzuFinishReason {
 	}
 }
 
-function extractResponseContent(content?: ContentBlock[]): {
-	text: string | null
-	toolCalls: ChatCompletionResponse['message']['toolCalls']
-} {
-	if (!content || content.length === 0) return { text: null, toolCalls: undefined }
-
-	let text: string | null = null
-	const toolCalls: NonNullable<ChatCompletionResponse['message']['toolCalls']> = []
-
-	for (const block of content) {
-		if ('text' in block && block.text) {
-			text = (text ?? '') + block.text
-		}
-		if ('toolUse' in block && block.toolUse) {
-			const tu = block.toolUse as ToolUseBlock
-			toolCalls.push({
-				id: tu.toolUseId ?? `tool-${Date.now()}`,
-				type: 'function',
-				function: {
-					name: tu.name ?? '',
-					arguments: JSON.stringify(tu.input ?? {}),
-				},
-			})
-		}
-	}
-
-	return {
-		text,
-		toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-	}
-}
-
 export class BedrockProvider implements LLMProvider {
 	readonly id = 'bedrock'
 	readonly name = 'AWS Bedrock'
@@ -277,48 +244,6 @@ export class BedrockProvider implements LLMProvider {
 		}
 
 		this.client = new BedrockRuntimeClient(clientConfig)
-	}
-
-	async chat(params: ChatCompletionParams): Promise<ChatCompletionResponse> {
-		const system = extractSystemBlocks(params.messages)
-		const messages = toBedrockMessages(params.messages)
-		const toolConfig = toBedrockToolConfig(params)
-
-		const inferenceConfig: Record<string, unknown> = {}
-		if (params.maxTokens !== undefined) inferenceConfig.maxTokens = params.maxTokens
-		if (params.temperature !== undefined) inferenceConfig.temperature = params.temperature
-		if (params.topP !== undefined) inferenceConfig.topP = params.topP
-		if (params.stop) inferenceConfig.stopSequences = params.stop
-
-		const command = new ConverseCommand({
-			modelId: params.model,
-			system: system.length > 0 ? system : undefined,
-			messages,
-			toolConfig,
-			inferenceConfig,
-		})
-
-		const response = await this.client.send(command, {
-			requestTimeout: this.config.timeout ?? 120_000,
-		})
-
-		const { text, toolCalls } = extractResponseContent(response.output?.message?.content)
-		const usage = parseUsage(response.usage as RawBedrockUsage | undefined)
-		const finishReason = mapStopReason(response.stopReason)
-
-		const requestId = response.$metadata.requestId ?? `bedrock-${Date.now()}`
-
-		return {
-			id: requestId,
-			model: params.model,
-			message: {
-				role: 'assistant',
-				content: text,
-				toolCalls,
-			},
-			finishReason,
-			usage,
-		}
 	}
 
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {

@@ -258,14 +258,14 @@ describe('AgentManager.sendMessage — Phase 6 SubSession spawn', () => {
 			expect(spawned.lineage.parentSessionId).toBe(harness.parentSession.id)
 			expect(spawned.lineage.rootSessionId).toBe(harness.parentSession.id)
 			expect(spawned.lineage.depth).toBe(1)
-			expect(spawned.schemaVersion).toBe(2)
+			expect(spawned.schemaVersion).toBe(3)
 		}
 
 		const idled = events.find((e) => e.type === 'subsession_idled')
 		expect(idled).toBeDefined()
 		if (idled && 'lineage' in idled) {
 			expect(idled.lineage.depth).toBe(1)
-			expect(idled.schemaVersion).toBe(2)
+			expect(idled.schemaVersion).toBe(3)
 		}
 	})
 

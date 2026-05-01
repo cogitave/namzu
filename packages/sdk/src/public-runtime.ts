@@ -235,6 +235,7 @@ export {
 
 export { wrapProviderWithProbes } from './provider/instrumentation.js'
 export type { ProviderInstrumentationOptions } from './provider/instrumentation.js'
+export { collect } from './provider/collect.js'
 
 export { wrapVaultWithProbes } from './vault/instrumentation.js'
 export type { VaultInstrumentationOptions } from './vault/instrumentation.js'

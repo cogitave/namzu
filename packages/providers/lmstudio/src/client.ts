@@ -92,23 +92,6 @@ export class LMStudioProvider implements LLMProvider {
 		return model
 	}
 
-	async chat(params: ChatCompletionParams): Promise<ChatCompletionResponse> {
-		const modelId = this.resolveModel(params)
-		const model = await this.client.llm.model(modelId)
-		const result = await model.respond(toLMStudioChat(params.messages))
-
-		return {
-			id: randomUUID(),
-			model: modelId,
-			message: {
-				role: 'assistant',
-				content: result.content ?? null,
-			},
-			finishReason: mapStopReason(result.stats.stopReason),
-			usage: mapUsage(result.stats),
-		}
-	}
-
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
 		const modelId = this.resolveModel(params)
 		const model = await this.client.llm.model(modelId)

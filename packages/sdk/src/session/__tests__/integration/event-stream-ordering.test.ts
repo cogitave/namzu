@@ -2,7 +2,7 @@
  * Integration — event stream ordering + lineage + schemaVersion envelope.
  *
  * Covers roadmap §5 invariants:
- *   - §10.1 schemaVersion: 2 on every sub-session RunEvent
+ *   - §10.1 schemaVersion: 3 on every sub-session RunEvent
  *   - §10.3 tree-scoped monotonic ordering by (rootSessionId, eventId)
  *   - §10.3 depth filter ('self' vs 'tree') at subscribe time
  *   - §10.4 lineage stamped on every sub-session event with parent + root + depth
@@ -32,7 +32,7 @@ import {
 } from './_fixtures.js'
 
 describe('Integration — event stream ordering + lineage + schemaVersion', () => {
-	it('every sub-session RunEvent carries schemaVersion: 2', async () => {
+	it('every sub-session RunEvent carries schemaVersion: 3', async () => {
 		const harness = buildHarness()
 		const { project, thread, session, actor } = await seedActiveParent(harness)
 		harness.registry.register(buildDefinition(buildAgent('worker')))
@@ -59,7 +59,7 @@ describe('Integration — event stream ordering + lineage + schemaVersion', () =
 		)
 		await harness.manager.waitForCompletion(task.taskId)
 
-		// Every sub-session lifecycle event is stamped with schemaVersion: 2.
+		// Every sub-session lifecycle event is stamped with schemaVersion: 3.
 		const subSessionEvents = captured.filter(
 			(e) =>
 				e.type === 'subsession_spawned' ||
@@ -68,7 +68,7 @@ describe('Integration — event stream ordering + lineage + schemaVersion', () =
 		)
 		expect(subSessionEvents.length).toBeGreaterThan(0)
 		for (const ev of subSessionEvents) {
-			expect(ev.schemaVersion).toBe(2)
+			expect(ev.schemaVersion).toBe(3)
 		}
 	})
 
@@ -348,9 +348,9 @@ describe('Integration — event stream ordering + lineage + schemaVersion', () =
 		expect(outerDepths.every((d) => d === 1)).toBe(true)
 	})
 
-	it('run_started and other core RunEvents also carry schemaVersion: 2 when stamped by the child listener wrapper', async () => {
+	it('run_started and other core RunEvents also carry schemaVersion: 3 when stamped by the child listener wrapper', async () => {
 		// The listener wrapper in `manager/agent/lifecycle.ts#wrapChildListener`
-		// stamps `schemaVersion: 2` + `lineage` on EVERY event emitted inside
+		// stamps `schemaVersion: 3` + `lineage` on EVERY event emitted inside
 		// the child's run. Core events that pass through the wrapped listener
 		// therefore inherit the envelope even though they have no lineage in
 		// their own type definition.
@@ -404,7 +404,7 @@ describe('Integration — event stream ordering + lineage + schemaVersion', () =
 		const runStarted = captured.find((e) => e.type === 'run_started')
 		expect(runStarted).toBeDefined()
 		if (runStarted && 'schemaVersion' in runStarted) {
-			expect(runStarted.schemaVersion).toBe(2)
+			expect(runStarted.schemaVersion).toBe(3)
 		}
 	})
 })

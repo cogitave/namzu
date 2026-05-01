@@ -153,54 +153,6 @@ export class OpenAIProvider implements LLMProvider {
 		return model
 	}
 
-	async chat(params: ChatCompletionParams): Promise<ChatCompletionResponse> {
-		const model = this.resolveModel(params)
-
-		const response = await this.client.chat.completions.create({
-			model,
-			messages: toOpenAIMessages(params.messages),
-			stream: false,
-			tools: toOpenAITools(params),
-			tool_choice: formatToolChoice(params.toolChoice),
-			parallel_tool_calls: params.parallelToolCalls,
-			temperature: params.temperature,
-			max_tokens: params.maxTokens,
-			top_p: params.topP,
-			frequency_penalty: params.frequencyPenalty,
-			presence_penalty: params.presencePenalty,
-			stop: params.stop,
-			response_format: params.responseFormat,
-		})
-
-		const choice = response.choices[0]
-		if (!choice) {
-			throw new Error('OpenAI returned empty choices')
-		}
-
-		const toolCalls = choice.message.tool_calls
-			?.filter((tc): tc is Extract<typeof tc, { type: 'function' }> => tc.type === 'function')
-			.map((tc) => ({
-				id: tc.id,
-				type: 'function' as const,
-				function: {
-					name: tc.function.name,
-					arguments: tc.function.arguments,
-				},
-			}))
-
-		return {
-			id: response.id,
-			model: response.model,
-			message: {
-				role: 'assistant',
-				content: choice.message.content,
-				toolCalls: toolCalls && toolCalls.length > 0 ? toolCalls : undefined,
-			},
-			finishReason: mapFinishReason(choice.finish_reason),
-			usage: parseUsage(response.usage),
-		}
-	}
-
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
 		const model = this.resolveModel(params)
 

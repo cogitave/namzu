@@ -190,48 +190,6 @@ function mapStopReason(reason?: string | null): NamzuFinishReason {
 }
 
 // --------------------------------------------------------------------------------------
-// Response content extraction
-// --------------------------------------------------------------------------------------
-
-interface RawAnthropicResponseBlock {
-	type: string
-	text?: string
-	id?: string
-	name?: string
-	input?: unknown
-}
-
-function extractResponseContent(content?: RawAnthropicResponseBlock[]): {
-	text: string | null
-	toolCalls: ChatCompletionResponse['message']['toolCalls']
-} {
-	if (!content || content.length === 0) return { text: null, toolCalls: undefined }
-
-	let text: string | null = null
-	const toolCalls: NonNullable<ChatCompletionResponse['message']['toolCalls']> = []
-
-	for (const block of content) {
-		if (block.type === 'text' && typeof block.text === 'string') {
-			text = (text ?? '') + block.text
-		} else if (block.type === 'tool_use') {
-			toolCalls.push({
-				id: block.id ?? `tool-${Date.now()}`,
-				type: 'function',
-				function: {
-					name: block.name ?? '',
-					arguments: JSON.stringify(block.input ?? {}),
-				},
-			})
-		}
-	}
-
-	return {
-		text,
-		toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-	}
-}
-
-// --------------------------------------------------------------------------------------
 // Stream event types
 // --------------------------------------------------------------------------------------
 
@@ -324,32 +282,6 @@ export class AnthropicProvider implements LLMProvider {
 			body: Record<string, unknown>,
 		) => Promise<unknown>
 		return create.call(this.client.messages, body)
-	}
-
-	async chat(params: ChatCompletionParams): Promise<ChatCompletionResponse> {
-		const createParams = this.buildCreateParams(params, false)
-
-		const response = (await this.createRaw(createParams)) as {
-			id?: string
-			model?: string
-			content: RawAnthropicResponseBlock[]
-			stop_reason?: string | null
-			usage?: RawAnthropicUsage
-		}
-
-		const { text, toolCalls } = extractResponseContent(response.content)
-
-		return {
-			id: response.id ?? `anthropic-${Date.now()}`,
-			model: response.model ?? this.resolveModel(params),
-			message: {
-				role: 'assistant',
-				content: text,
-				toolCalls,
-			},
-			finishReason: mapStopReason(response.stop_reason),
-			usage: parseUsage(response.usage),
-		}
 	}
 
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {

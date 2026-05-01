@@ -67,39 +67,43 @@ describe('mapRunToStreamEvent — mapped variants', () => {
 		expect(b).toEqual({ wire: 'iteration.completed', data: { run_id: RID, iteration: 2 } })
 	})
 
-	it('llm_response → message.delta with content + has_tool_calls', () => {
-		const r = mapRunToStreamEvent(
-			{ type: 'llm_response', runId: RID, content: 'hi', hasToolCalls: false },
-			RID,
-		)
-		expect(r).toEqual({
-			wire: 'message.delta',
-			data: { run_id: RID, content: 'hi', has_tool_calls: false },
-		})
-	})
-
-	it('llm_response with null content → content: null', () => {
-		const r = mapRunToStreamEvent(
-			{ type: 'llm_response', runId: RID, content: null, hasToolCalls: true },
-			RID,
-		)
-		expect(r?.data).toMatchObject({ content: null, has_tool_calls: true })
-	})
-
-	it('tool_executing / tool_completed carry tool_name + input/result', () => {
+	it('tool_executing / tool_completed carry tool_use_id, tool_name, input/result, is_error', () => {
+		const TUID = 'toolu_x'
 		const exec = mapRunToStreamEvent(
-			{ type: 'tool_executing', runId: RID, toolName: 'read_file', input: { path: '/a' } },
+			{
+				type: 'tool_executing',
+				runId: RID,
+				toolUseId: TUID,
+				toolName: 'read_file',
+				input: { path: '/a' },
+			},
 			RID,
 		)
 		expect(exec?.wire).toBe('tool.executing')
-		expect(exec?.data).toMatchObject({ tool_name: 'read_file', input: { path: '/a' } })
+		expect(exec?.data).toMatchObject({
+			tool_use_id: TUID,
+			tool_name: 'read_file',
+			input: { path: '/a' },
+		})
 
 		const done = mapRunToStreamEvent(
-			{ type: 'tool_completed', runId: RID, toolName: 'read_file', result: 'ok' },
+			{
+				type: 'tool_completed',
+				runId: RID,
+				toolUseId: TUID,
+				toolName: 'read_file',
+				result: 'ok',
+				isError: false,
+			},
 			RID,
 		)
 		expect(done?.wire).toBe('tool.completed')
-		expect(done?.data).toMatchObject({ tool_name: 'read_file', result: 'ok' })
+		expect(done?.data).toMatchObject({
+			tool_use_id: TUID,
+			tool_name: 'read_file',
+			result: 'ok',
+			is_error: false,
+		})
 	})
 
 	it('tool_review_requested / tool_review_completed carry review fields', () => {
@@ -407,6 +411,130 @@ describe('mapRunToStreamEvent — explicit null set', () => {
 		[{ type: 'run_failed' as const, runId: RID, error: 'boom' }],
 	])('%o returns null', (event) => {
 		expect(mapRunToStreamEvent(event, RID)).toBeNull()
+	})
+})
+
+describe('mapRunToStreamEvent — v3 message and tool-input lifecycle', () => {
+	const MID = 'msg_1' as `msg_${string}`
+	const TUID = 'toolu_a'
+
+	it('message_started → message.created', () => {
+		const r = mapRunToStreamEvent(
+			{ type: 'message_started', runId: RID, iteration: 0, messageId: MID },
+			RID,
+		)
+		expect(r?.wire).toBe('message.created')
+		expect(r?.data).toMatchObject({ run_id: RID, iteration: 0, message_id: MID })
+	})
+
+	it('text_delta → message.delta carries raw text fragment', () => {
+		const r = mapRunToStreamEvent(
+			{
+				type: 'text_delta',
+				runId: RID,
+				iteration: 0,
+				messageId: MID,
+				text: 'hel',
+			},
+			RID,
+		)
+		expect(r?.wire).toBe('message.delta')
+		expect(r?.data).toMatchObject({ message_id: MID, text: 'hel' })
+	})
+
+	it('message_completed → message.completed carries stop reason and usage', () => {
+		const usage = {
+			promptTokens: 10,
+			completionTokens: 5,
+			totalTokens: 15,
+			cachedTokens: 0,
+			cacheWriteTokens: 0,
+		}
+		const r = mapRunToStreamEvent(
+			{
+				type: 'message_completed',
+				runId: RID,
+				iteration: 0,
+				messageId: MID,
+				stopReason: 'end_turn',
+				usage,
+			},
+			RID,
+		)
+		expect(r?.wire).toBe('message.completed')
+		expect(r?.data).toMatchObject({
+			message_id: MID,
+			stop_reason: 'end_turn',
+			usage,
+		})
+	})
+
+	it('message_completed without usage → usage: null (defensive against dropped message_stop)', () => {
+		const r = mapRunToStreamEvent(
+			{
+				type: 'message_completed',
+				runId: RID,
+				iteration: 0,
+				messageId: MID,
+				stopReason: 'tool_use',
+			},
+			RID,
+		)
+		expect(r?.data).toMatchObject({ usage: null })
+	})
+
+	it('tool_input_started → tool.input_started carries toolUseId + toolName', () => {
+		const r = mapRunToStreamEvent(
+			{
+				type: 'tool_input_started',
+				runId: RID,
+				iteration: 0,
+				messageId: MID,
+				toolUseId: TUID,
+				toolName: 'Read',
+			},
+			RID,
+		)
+		expect(r?.wire).toBe('tool.input_started')
+		expect(r?.data).toMatchObject({
+			tool_use_id: TUID,
+			tool_name: 'Read',
+			message_id: MID,
+		})
+	})
+
+	it('tool_input_delta → tool.input_delta carries raw partial JSON fragment', () => {
+		const r = mapRunToStreamEvent(
+			{
+				type: 'tool_input_delta',
+				runId: RID,
+				toolUseId: TUID,
+				partialJson: '{"file_path":"',
+			},
+			RID,
+		)
+		expect(r?.wire).toBe('tool.input_delta')
+		expect(r?.data).toMatchObject({
+			tool_use_id: TUID,
+			partial_json: '{"file_path":"',
+		})
+	})
+
+	it('tool_input_completed → tool.input_completed carries parsed input object', () => {
+		const r = mapRunToStreamEvent(
+			{
+				type: 'tool_input_completed',
+				runId: RID,
+				toolUseId: TUID,
+				input: { file_path: '/etc/passwd' },
+			},
+			RID,
+		)
+		expect(r?.wire).toBe('tool.input_completed')
+		expect(r?.data).toMatchObject({
+			tool_use_id: TUID,
+			input: { file_path: '/etc/passwd' },
+		})
 	})
 })
 

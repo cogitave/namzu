@@ -145,6 +145,13 @@ export type StreamEventType =
 	| 'tool.executing'
 	| 'tool.completed'
 	| 'tool.error'
+	// v3 tool input lifecycle (ses_001-tool-stream-events). Additive; phase 4
+	// of the migration removes `tool.error` and folds the boolean into
+	// `tool.completed`. Until then both surfaces are wire-supported so
+	// adapters can roll forward independently.
+	| 'tool.input_started'
+	| 'tool.input_delta'
+	| 'tool.input_completed'
 	| 'token.usage'
 	| 'message.created'
 	| 'message.delta'

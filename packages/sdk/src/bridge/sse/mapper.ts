@@ -33,19 +33,11 @@ const MAPPING: {
 		transform: (e, runId) => ({ run_id: runId, iteration: e.iteration }),
 	},
 
-	llm_response: {
-		wire: 'message.delta',
-		transform: (e, runId) => ({
-			run_id: runId,
-			content: e.content ?? null,
-			has_tool_calls: !!e.hasToolCalls,
-		}),
-	},
-
 	tool_executing: {
 		wire: 'tool.executing',
 		transform: (e, runId) => ({
 			run_id: runId,
+			tool_use_id: e.toolUseId,
 			tool_name: e.toolName,
 			input: e.input,
 		}),
@@ -55,8 +47,10 @@ const MAPPING: {
 		wire: 'tool.completed',
 		transform: (e, runId) => ({
 			run_id: runId,
+			tool_use_id: e.toolUseId,
 			tool_name: e.toolName,
 			result: e.result,
+			is_error: e.isError,
 		}),
 	},
 
@@ -279,6 +273,69 @@ const MAPPING: {
 	subsession_spawned: null,
 	subsession_messaged: null,
 	subsession_idled: null,
+
+	// v3 message + tool-input lifecycle (ses_001-tool-stream-events). Additive
+	// today; the orchestrator does not yet emit these. Phase 4 of the
+	// migration switches the orchestrator over and removes `llm_response`
+	// from this map.
+	message_started: {
+		wire: 'message.created',
+		transform: (e, runId) => ({
+			run_id: runId,
+			iteration: e.iteration,
+			message_id: e.messageId,
+		}),
+	},
+
+	text_delta: {
+		wire: 'message.delta',
+		transform: (e, runId) => ({
+			run_id: runId,
+			iteration: e.iteration,
+			message_id: e.messageId,
+			text: e.text,
+		}),
+	},
+
+	message_completed: {
+		wire: 'message.completed',
+		transform: (e, runId) => ({
+			run_id: runId,
+			iteration: e.iteration,
+			message_id: e.messageId,
+			stop_reason: e.stopReason,
+			usage: e.usage ?? null,
+		}),
+	},
+
+	tool_input_started: {
+		wire: 'tool.input_started',
+		transform: (e, runId) => ({
+			run_id: runId,
+			iteration: e.iteration,
+			message_id: e.messageId,
+			tool_use_id: e.toolUseId,
+			tool_name: e.toolName,
+		}),
+	},
+
+	tool_input_delta: {
+		wire: 'tool.input_delta',
+		transform: (e, runId) => ({
+			run_id: runId,
+			tool_use_id: e.toolUseId,
+			partial_json: e.partialJson,
+		}),
+	},
+
+	tool_input_completed: {
+		wire: 'tool.input_completed',
+		transform: (e, runId) => ({
+			run_id: runId,
+			tool_use_id: e.toolUseId,
+			input: e.input,
+		}),
+	},
 }
 
 export function mapRunToStreamEvent(event: RunEvent, runId: RunId): MappedStreamEvent | null {

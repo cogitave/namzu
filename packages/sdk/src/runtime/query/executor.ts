@@ -126,10 +126,27 @@ export class ToolExecutor {
 		try {
 			input = JSON.parse(toolCall.function.arguments)
 		} catch {
-			return {
-				toolCallId: toolCall.id,
-				output: `Error: Invalid JSON in tool arguments for "${toolName}"`,
-			}
+			// Codex M2: malformed JSON args used to return without ever
+			// emitting tool_executing or tool_completed, leaving UI cards
+			// orphaned in `streaming_input`. Emit the executing→completed
+			// terminal pair so the card lifecycle closes.
+			const message = `Error: Invalid JSON in tool arguments for "${toolName}"`
+			await this.emitEvent({
+				type: 'tool_executing',
+				runId: this.config.runId,
+				toolUseId: toolCall.id,
+				toolName,
+				input: {},
+			})
+			await this.emitEvent({
+				type: 'tool_completed',
+				runId: this.config.runId,
+				toolUseId: toolCall.id,
+				toolName,
+				result: message,
+				isError: true,
+			})
+			return { toolCallId: toolCall.id, output: message }
 		}
 
 		const preOutcome = await this.runPreToolHook(toolName, input)
@@ -152,6 +169,7 @@ export class ToolExecutor {
 		await this.emitEvent({
 			type: 'tool_executing',
 			runId: this.config.runId,
+			toolUseId: toolCall.id,
 			toolName,
 			input,
 		})
@@ -160,6 +178,7 @@ export class ToolExecutor {
 			{
 				type: 'tool_executing',
 				runId: this.config.runId,
+				toolUseId: toolCall.id,
 				toolName,
 				input,
 			},
@@ -178,6 +197,16 @@ export class ToolExecutor {
 			if (activity) {
 				this.activityStore.fail(activity.id, veto.message)
 			}
+			// Codex M1: probe veto used to skip tool_completed entirely.
+			// Emit the terminal event with isError so UI cards finalize.
+			await this.emitEvent({
+				type: 'tool_completed',
+				runId: this.config.runId,
+				toolUseId: toolCall.id,
+				toolName,
+				result: `Error: ${veto.message}`,
+				isError: true,
+			})
 			return {
 				toolCallId: toolCall.id,
 				output: `Error: ${veto.message}`,
@@ -189,7 +218,22 @@ export class ToolExecutor {
 		}
 
 		const startMs = Date.now()
-		const result = await this.config.tools.execute(toolName, input, toolContext)
+		// Codex M4: an unhandled throw from `tools.execute(...)` used to
+		// propagate up to `result.ts` as `run_failed` without emitting a
+		// terminal `tool_completed`, leaving UI cards stuck in `executing`.
+		// Wrap so any throw materialises as an error result.
+		let result: { success: boolean; output: string; error?: string }
+		try {
+			result = await this.config.tools.execute(toolName, input, toolContext)
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err)
+			this.log.warn('Tool execution threw', {
+				runId: this.config.runId,
+				tool: toolName,
+				error: message,
+			})
+			result = { success: false, output: '', error: message }
+		}
 		const durationMs = Date.now() - startMs
 
 		const rawOutput = result.success
@@ -236,8 +280,10 @@ export class ToolExecutor {
 		await this.emitEvent({
 			type: 'tool_completed',
 			runId: this.config.runId,
+			toolUseId: toolCall.id,
 			toolName,
 			result: output,
+			isError: effectiveIsError,
 		})
 
 		return { toolCallId: toolCall.id, output }
@@ -351,14 +397,17 @@ export class ToolExecutor {
 		await this.emitEvent({
 			type: 'tool_executing',
 			runId: this.config.runId,
+			toolUseId: toolCallId,
 			toolName,
 			input,
 		})
 		await this.emitEvent({
 			type: 'tool_completed',
 			runId: this.config.runId,
+			toolUseId: toolCallId,
 			toolName,
 			result: outcome.output,
+			isError: outcome.kind === 'error',
 		})
 		return { toolCallId, output: outcome.output }
 	}

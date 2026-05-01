@@ -182,12 +182,12 @@ describe('E2E — SubSession spawn → kernel summary → parent drill', () => {
 			expect(spawned.lineage.parentSessionId).toBe(parentSession.id)
 			expect(spawned.lineage.rootSessionId).toBe(parentSession.id)
 			expect(spawned.lineage.depth).toBe(1)
-			expect(spawned.schemaVersion).toBe(2)
+			expect(spawned.schemaVersion).toBe(3)
 		}
 		if (idled && 'lineage' in idled && 'schemaVersion' in idled) {
 			expect(idled.lineage.rootSessionId).toBe(parentSession.id)
 			expect(idled.lineage.depth).toBe(1)
-			expect(idled.schemaVersion).toBe(2)
+			expect(idled.schemaVersion).toBe(3)
 		}
 
 		// --- Summary materialized by kernel ---
