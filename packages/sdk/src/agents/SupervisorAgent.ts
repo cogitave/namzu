@@ -158,6 +158,12 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 				launchedTasks,
 				advisory: config.advisory,
 				invocationState: childInvocationState,
+				// HITL surface: forward optional review-time hooks so hosts can
+				// run "Ask before acting" supervisors instead of the default
+				// auto-approve. drainQuery falls back to autoApproveHandler
+				// when resumeHandler is omitted (= same behaviour as before).
+				...(config.resumeHandler ? { resumeHandler: config.resumeHandler } : {}),
+				...(config.verificationGate ? { verificationGate: config.verificationGate } : {}),
 			},
 			listener,
 		)
