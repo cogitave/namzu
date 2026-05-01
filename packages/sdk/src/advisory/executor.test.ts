@@ -41,12 +41,21 @@ import type {
 	ChatCompletionParams,
 	ChatCompletionResponse,
 	LLMProvider,
+	StreamChunk,
 } from '../types/provider/index.js'
 
 import { type AdvisoryCallContext, AdvisoryExecutor } from './executor.js'
 
+/**
+ * Builds a minimal mock provider for advisory tests. Phase 2 of
+ * ses_001-tool-stream-events removed `chat()` from `LLMProvider`, so
+ * the test stubs `chatStream` and `AdvisoryExecutor` consumes via
+ * `collect()`. The mock returns a single chunk with the legacy text +
+ * usage so the aggregated response shape matches what `chat()` would
+ * have returned.
+ */
 function mockProvider(response: Partial<ChatCompletionResponse> = {}): LLMProvider {
-	const chat = vi.fn<(p: ChatCompletionParams) => Promise<ChatCompletionResponse>>(async () => ({
+	const merged: ChatCompletionResponse = {
 		id: 'resp_1',
 		model: 'm',
 		message: { role: 'assistant', content: 'advice text' },
@@ -59,13 +68,26 @@ function mockProvider(response: Partial<ChatCompletionResponse> = {}): LLMProvid
 		},
 		finishReason: 'stop',
 		...response,
-	}))
+	}
+	const chatStream = vi.fn<(p: ChatCompletionParams) => AsyncIterable<StreamChunk>>(() => {
+		const chunks: StreamChunk[] = [
+			{ id: merged.id, delta: { content: merged.message.content ?? '' } },
+			{
+				id: merged.id,
+				delta: {},
+				finishReason: merged.finishReason,
+				usage: merged.usage,
+			},
+		]
+		return (async function* () {
+			for (const c of chunks) yield c
+		})()
+	})
 	return {
 		id: 'mock',
 		name: 'Mock',
-		chat,
-		chatStream: vi.fn(),
-	} as unknown as LLMProvider
+		chatStream,
+	}
 }
 
 function advisor(overrides: Partial<AdvisorDefinition> = {}): AdvisorDefinition {
@@ -94,7 +116,7 @@ describe('AdvisoryExecutor — consult happy path', () => {
 		const e = new AdvisoryExecutor()
 		const a = advisor({ provider, systemPrompt: 'You are Adv.' })
 		await e.consult(a, req, ctx())
-		const call = vi.mocked(provider.chat).mock.calls[0]?.[0] as ChatCompletionParams
+		const call = vi.mocked(provider.chatStream).mock.calls[0]?.[0] as ChatCompletionParams
 		expect(call.model).toBe('m')
 		expect(call.toolChoice).toBe('none')
 		const roles = call.messages.map((m) => m.role)
@@ -140,7 +162,7 @@ describe('AdvisoryExecutor — buildSystemPrompt', () => {
 		const provider = mockProvider()
 		const e = new AdvisoryExecutor()
 		await e.consult(advisor({ provider, systemPrompt: 'FIXED PROMPT' }), req, ctx())
-		const call = vi.mocked(provider.chat).mock.calls[0]?.[0] as ChatCompletionParams
+		const call = vi.mocked(provider.chatStream).mock.calls[0]?.[0] as ChatCompletionParams
 		expect(call.messages[0]?.content).toBe('FIXED PROMPT')
 	})
 
@@ -152,7 +174,7 @@ describe('AdvisoryExecutor — buildSystemPrompt', () => {
 			req,
 			ctx(),
 		)
-		const call = vi.mocked(provider.chat).mock.calls[0]?.[0] as ChatCompletionParams
+		const call = vi.mocked(provider.chatStream).mock.calls[0]?.[0] as ChatCompletionParams
 		const systemContent = call.messages[0]?.content ?? ''
 		expect(systemContent).toContain('Architect')
 		expect(systemContent).toContain('security, performance')
@@ -163,7 +185,7 @@ describe('AdvisoryExecutor — buildSystemPrompt', () => {
 		const provider = mockProvider()
 		const e = new AdvisoryExecutor()
 		await e.consult(advisor({ provider, name: 'Adv' }), req, ctx())
-		const call = vi.mocked(provider.chat).mock.calls[0]?.[0] as ChatCompletionParams
+		const call = vi.mocked(provider.chatStream).mock.calls[0]?.[0] as ChatCompletionParams
 		const systemContent = call.messages[0]?.content ?? ''
 		expect(systemContent).not.toContain('domains of expertise')
 	})
@@ -178,7 +200,7 @@ describe('AdvisoryExecutor — buildContext', () => {
 			{ question: 'q', includeContext: false },
 			ctx({ workingStateSummary: 'should be ignored' }),
 		)
-		const call = vi.mocked(provider.chat).mock.calls[0]?.[0] as ChatCompletionParams
+		const call = vi.mocked(provider.chatStream).mock.calls[0]?.[0] as ChatCompletionParams
 		// Only system + user(question)
 		expect(call.messages).toHaveLength(2)
 	})
@@ -201,7 +223,7 @@ describe('AdvisoryExecutor — buildContext', () => {
 				},
 			],
 		})
-		const call = vi.mocked(provider.chat).mock.calls[0]?.[0] as ChatCompletionParams
+		const call = vi.mocked(provider.chatStream).mock.calls[0]?.[0] as ChatCompletionParams
 		const contextMsg = call.messages[1]?.content ?? ''
 		expect(contextMsg).toContain('Working State')
 		expect(contextMsg).toContain('state summary here')
@@ -217,7 +239,7 @@ describe('AdvisoryExecutor — buildContext', () => {
 		]
 		const e = new AdvisoryExecutor()
 		await e.consult(advisor({ provider }), req, ctx({ messages }))
-		const call = vi.mocked(provider.chat).mock.calls[0]?.[0] as ChatCompletionParams
+		const call = vi.mocked(provider.chatStream).mock.calls[0]?.[0] as ChatCompletionParams
 		const contextMsg = call.messages[1]?.content ?? ''
 		expect(contextMsg).toContain('Conversation Context')
 		expect(contextMsg).toContain('[user]: hi')
@@ -233,7 +255,7 @@ describe('AdvisoryExecutor — buildContext', () => {
 		const e = new AdvisoryExecutor()
 		// maxContextTokens=5 → 5*4=20 char budget; only 'recent' (6 chars) fits.
 		await e.consult(advisor({ provider, maxContextTokens: 5 }), req, ctx({ messages }))
-		const call = vi.mocked(provider.chat).mock.calls[0]?.[0] as ChatCompletionParams
+		const call = vi.mocked(provider.chatStream).mock.calls[0]?.[0] as ChatCompletionParams
 		const contextMsg = call.messages[1]?.content ?? ''
 		expect(contextMsg).toContain('recent')
 		expect(contextMsg).not.toContain('a'.repeat(100))
@@ -243,7 +265,7 @@ describe('AdvisoryExecutor — buildContext', () => {
 		const provider = mockProvider()
 		const e = new AdvisoryExecutor()
 		await e.consult(advisor({ provider }), req, ctx())
-		const call = vi.mocked(provider.chat).mock.calls[0]?.[0] as ChatCompletionParams
+		const call = vi.mocked(provider.chatStream).mock.calls[0]?.[0] as ChatCompletionParams
 		expect(call.messages).toHaveLength(2)
 	})
 })
@@ -265,7 +287,7 @@ describe('AdvisoryExecutor — tool calls in context', () => {
 				],
 			}),
 		)
-		const call = vi.mocked(provider.chat).mock.calls[0]?.[0] as ChatCompletionParams
+		const call = vi.mocked(provider.chatStream).mock.calls[0]?.[0] as ChatCompletionParams
 		const contextMsg = call.messages[1]?.content ?? ''
 		expect(contextMsg).toContain('[assistant]: (tool calls)')
 	})

@@ -1,6 +1,5 @@
 import type {
 	ChatCompletionParams,
-	ChatCompletionResponse,
 	LLMProvider,
 	ModelInfo,
 	StreamChunk,
@@ -135,65 +134,6 @@ export class OpenRouterProvider implements LLMProvider {
 		}
 
 		return body
-	}
-
-	async chat(params: ChatCompletionParams): Promise<ChatCompletionResponse> {
-		const body = this.buildRequestBody(params, false)
-
-		const response = await fetch(`${this.baseUrl}/chat/completions`, {
-			method: 'POST',
-			headers: this.getHeaders(),
-			body: JSON.stringify(body),
-			signal: AbortSignal.timeout(this.config.timeout ?? 120_000),
-		})
-
-		if (!response.ok) {
-			const errorBody = await response.text()
-			throw new Error(`OpenRouter API error (${response.status}): ${errorBody}`)
-		}
-
-		const data = (await response.json()) as {
-			id: string
-			model: string
-			choices: Array<{
-				message: {
-					role: string
-					content: string | null
-					tool_calls?: Array<{
-						id: string
-						type: string
-						function: { name: string; arguments: string }
-					}>
-				}
-				finish_reason: string
-			}>
-			usage?: RawUsage
-		}
-
-		const choice = data.choices[0]
-		if (!choice) {
-			throw new Error('OpenRouter returned empty choices')
-		}
-
-		const usage = parseUsage(data.usage)
-
-		const result: ChatCompletionResponse = {
-			id: data.id,
-			model: data.model,
-			message: {
-				role: 'assistant',
-				content: choice.message.content,
-				toolCalls: choice.message.tool_calls?.map((tc) => ({
-					id: tc.id,
-					type: 'function' as const,
-					function: tc.function,
-				})),
-			},
-			finishReason: choice.finish_reason as ChatCompletionResponse['finishReason'],
-			usage,
-		}
-
-		return result
 	}
 
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {

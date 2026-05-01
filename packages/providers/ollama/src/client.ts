@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type {
 	ChatCompletionParams,
-	ChatCompletionResponse,
 	LLMProvider,
 	ModelInfo,
 	StreamChunk,
@@ -71,33 +70,6 @@ export class OllamaProvider implements LLMProvider {
 			)
 		}
 		return model
-	}
-
-	async chat(params: ChatCompletionParams): Promise<ChatCompletionResponse> {
-		const model = this.resolveModel(params)
-		const messages = toOllamaMessages(params.messages)
-		const options = this.buildOptions(params)
-
-		const resp = await this.client.chat({
-			model,
-			messages,
-			stream: false,
-			...(Object.keys(options).length > 0 ? { options } : {}),
-		})
-
-		const id = randomUUID()
-		const usage = buildUsage(resp)
-
-		return {
-			id,
-			model: resp.model,
-			message: {
-				role: 'assistant',
-				content: resp.message.content ?? null,
-			},
-			finishReason: 'stop',
-			usage,
-		}
 	}
 
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {

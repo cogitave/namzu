@@ -1,4 +1,5 @@
 import { EMPTY_TOKEN_USAGE } from '../constants/limits.js'
+import { collect } from '../provider/collect.js'
 import { FallbackResolver } from '../runtime/decision/fallback.js'
 import { DecisionParser } from '../runtime/decision/parser.js'
 import type {
@@ -176,12 +177,14 @@ export class RouterAgent extends AbstractAgent<RouterAgentConfig, RouterAgentRes
 
 		for (let attempt = 0; attempt < maxRetries; attempt++) {
 			try {
-				const response = await config.provider.chat({
-					model: config.model,
-					messages: [createSystemMessage(prompt), createUserMessage(userContent)],
-					temperature: 0,
-					maxTokens: 200,
-				})
+				const response = await collect(
+					config.provider.chatStream({
+						model: config.model,
+						messages: [createSystemMessage(prompt), createUserMessage(userContent)],
+						temperature: 0,
+						maxTokens: 200,
+					}),
+				)
 
 				const parseResult = parser.parse(response.message.content)
 

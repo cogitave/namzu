@@ -5,6 +5,7 @@ import type { WorkingStateManager } from '../../../compaction/manager.js'
 import type { CompactionConfig } from '../../../config/runtime.js'
 import type { PlanManager } from '../../../manager/plan/lifecycle.js'
 import type { RunPersistence } from '../../../manager/run/persistence.js'
+import { collect } from '../../../provider/collect.js'
 import type { ActivityStore } from '../../../store/activity/memory.js'
 import { GENAI, NAMZU, agentIterationSpanName } from '../../../telemetry/attributes.js'
 import { getTracer } from '../../../telemetry/runtime-accessors.js'
@@ -752,13 +753,15 @@ export class IterationOrchestrator {
 				),
 			]
 
-			const response = await this.ctx.provider.chat({
-				model,
-				messages: finalMessages,
-				temperature: this.ctx.runConfig.temperature,
-				maxTokens: this.ctx.runConfig.maxResponseTokens,
-				cacheControl: { type: 'auto' },
-			})
+			const response = await collect(
+				this.ctx.provider.chatStream({
+					model,
+					messages: finalMessages,
+					temperature: this.ctx.runConfig.temperature,
+					maxTokens: this.ctx.runConfig.maxResponseTokens,
+					cacheControl: { type: 'auto' },
+				}),
+			)
 
 			this.ctx.runMgr.accumulateUsage(response.usage)
 
