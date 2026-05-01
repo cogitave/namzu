@@ -1,12 +1,12 @@
 ---
-'@namzu/sdk': major
-'@namzu/anthropic': major
-'@namzu/openai': major
-'@namzu/bedrock': major
-'@namzu/openrouter': major
-'@namzu/http': major
-'@namzu/ollama': major
-'@namzu/lmstudio': major
+'@namzu/sdk': minor
+'@namzu/anthropic': minor
+'@namzu/openai': minor
+'@namzu/bedrock': minor
+'@namzu/openrouter': minor
+'@namzu/http': minor
+'@namzu/ollama': minor
+'@namzu/lmstudio': minor
 ---
 
 RunEvent v3 + streaming-only `LLMProvider` (ses_001-tool-stream-events).
