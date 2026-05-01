@@ -1,6 +1,6 @@
 {
   "name": "@namzu/ollama",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Ollama LLM provider for @namzu/sdk. Local-first LLM support — run Llama, Mistral, Phi, and 100+ open models on your own hardware.",
   "license": "FSL-1.1-MIT",
   "type": "module",

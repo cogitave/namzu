@@ -1,5 +1,12 @@
 # @namzu/cli
 
+## 0.0.2
+
+### Patch Changes
+
+- Updated dependencies [2749d32]
+  - @namzu/sdk@0.5.0
+
 ## 0.0.1
 
 ### Patch Changes

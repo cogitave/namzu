@@ -1,6 +1,6 @@
 {
   "name": "@namzu/openrouter",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "OpenRouter LLM provider for @namzu/sdk. Access to 200+ models (Claude, GPT-4, Llama, Mixtral) via OpenRouter's unified API.",
   "license": "FSL-1.1-MIT",
   "type": "module",
