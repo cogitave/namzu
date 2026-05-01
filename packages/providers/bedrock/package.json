@@ -1,6 +1,6 @@
 {
   "name": "@namzu/bedrock",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "AWS Bedrock LLM provider for @namzu/sdk. Provides Converse API (chat + streaming) with full tool-use support.",
   "license": "FSL-1.1-MIT",
   "type": "module",

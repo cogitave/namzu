@@ -1,6 +1,6 @@
 {
   "name": "@namzu/http",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "Zero-dependency LLM provider for any OpenAI- or Anthropic-compatible HTTP endpoint. Use with vLLM, TGI, llama-server, Groq, DeepInfra, Together.ai, or any custom inference server.",
   "license": "FSL-1.1-MIT",
   "type": "module",
