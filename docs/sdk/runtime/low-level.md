@@ -1,7 +1,7 @@
 ---
 title: Low-Level Runtime
-description: Use query() and drainQuery() directly in @namzu/sdk when you need verification gates, sandbox providers, plugin wiring, event streaming, or query-only runtime controls.
-last_updated: 2026-04-18
+description: Use query() and drainQuery() directly in @namzu/sdk when you need sandbox providers, plugin wiring, event streaming, or other query-only runtime controls.
+last_updated: 2026-05-02
 status: current
 related_packages: ["@namzu/sdk", "@namzu/openai"]
 ---
@@ -14,13 +14,12 @@ related_packages: ["@namzu/sdk", "@namzu/openai"]
 
 Use the low-level runtime when you need:
 
-- `verificationGate` policy before tool execution
 - a `sandboxProvider` that injects a real sandbox into tool context
 - direct `RunEvent` streaming
 - plugin manager, task router, agent bus, or compaction wiring
 - custom resume-handler behavior for HITL review or checkpoints
 
-If you only need messages, tools, provider, IDs, and a final result, stay with `ReactiveAgent.run()`.
+If you only need messages, tools, provider, IDs, and a final result, stay with `ReactiveAgent.run()`. `verificationGate` is also accepted directly on `ReactiveAgentConfig` and `SupervisorAgentConfig`, so a policy gate alone does not require dropping below the high-level surface.
 
 ## 2. `ReactiveAgent.run()` vs `drainQuery()`
 
@@ -172,7 +171,6 @@ Use this pattern when a transport layer or UI needs every incremental event as i
 
 | Field | Purpose |
 | --- | --- |
-| `verificationGate` | Rule-based allow, deny, or review decisions before tool execution |
 | `sandboxProvider` | Create a sandbox for the run and inject it into tool context |
 | `pluginManager` | Run plugin hooks and plugin-contributed runtime behavior |
 | `taskRouter` | Task-specific model routing |
@@ -181,6 +179,8 @@ Use this pattern when a transport layer or UI needs every incremental event as i
 | `contextCache` | Prompt cache and context reuse controls |
 
 That is the main reason this page exists: these are real public runtime features, but they are lower-level than the first-run agent API.
+
+`verificationGate` is intentionally **not** in this table — it is exposed on both `ReactiveAgentConfig` and `SupervisorAgentConfig` and forwarded into `drainQuery` automatically. It still appears in the `drainQuery()` example above because the low-level surface accepts it too; just don't read that as "you have to drop here to use it."
 
 ## 7. Resume Handlers and HITL
 
@@ -203,19 +203,19 @@ Use `autoApproveHandler` only when the runtime should continue automatically.
 
 ## 8. Verification and Sandbox Boundaries
 
-Two low-level runtime fields are easy to confuse:
+Two runtime fields are easy to confuse:
 
-| Field | Role |
-| --- | --- |
-| `verificationGate` | Decide whether a tool call should proceed |
-| `sandboxProvider` | Constrain what sandbox-aware tools can do if the call proceeds |
+| Field | Role | Where exposed |
+| --- | --- | --- |
+| `verificationGate` | Decide whether a tool call should proceed | `ReactiveAgentConfig`, `SupervisorAgentConfig`, and `QueryParams` |
+| `sandboxProvider` | Constrain what sandbox-aware tools can do if the call proceeds | `QueryParams` only (low-level) |
 
 This separation matters operationally:
 
 - verification is policy
 - sandboxing is containment
 
-Both are lower-level runtime concerns, which is why they are wired through `query()` and `drainQuery()` instead of `defineTool()` alone.
+Verification is wired through agent config so a policy gate is a one-line addition; sandbox providers stay at the `query()` / `drainQuery()` layer because they touch tool-context injection that the high-level wrapper doesn't expose.
 
 ## 9. Event Streaming and SSE Mapping
 
