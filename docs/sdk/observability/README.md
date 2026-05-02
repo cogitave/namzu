@@ -65,7 +65,7 @@ const telemetry = await registerTelemetry({
 })
 
 const metrics = createPlatformMetrics()
-metrics.recordToolCall('read_file', true)
+metrics.recordToolCall('Read', true)
 
 // ... application work ...
 
@@ -134,7 +134,7 @@ call order is not under your control.
 const metrics = createPlatformMetrics()
 
 metrics.recordTokenUsage('gpt-4o-mini', 1200, 240)
-metrics.recordToolCall('grep', true)
+metrics.recordToolCall('Grep', true)
 metrics.recordRunDuration('completed', 3.2)
 metrics.recordLLMLatency('gpt-4o-mini', 0.84)
 ```

@@ -1,63 +1,62 @@
 ---
 title: Built-In Tools
 description: Reference for the built-in tools exported by @namzu/sdk, including their purpose, safety shape, and common usage patterns.
-last_updated: 2026-04-18
+last_updated: 2026-05-02
 status: current
 related_packages: ["@namzu/sdk", "@namzu/computer-use"]
 ---
 
 # Built-In Tools
 
-The SDK ships a practical built-in tool set for local agent workflows. These tools are important because they are the default capability surface many integrations start with.
+The SDK ships a practical built-in tool set for local agent workflows. Tool **names mirror Claude Code's canonical table verbatim** (`Bash`, `Read`, `Write`, `Edit`, `Glob`, `Grep`) so Claude's pretrained agentic instincts apply for free — no system-prompt argument needed to explain what `Read` or `Bash` does.
 
 ## 1. What `getBuiltinTools()` Returns
 
 `getBuiltinTools()` returns this core set:
 
-- `ReadFileTool`
-- `WriteFileTool`
-- `EditTool`
 - `BashTool`
+- `EditTool`
 - `GlobTool`
 - `GrepTool`
-- `LsTool`
-- `SearchToolsTool`
+- `ReadFileTool`
+- `WriteFileTool`
 
 It does not include:
 
-- `createStructuredOutputTool()` because that requires a schema per use case
-- `createComputerUseTool()` because that requires a `ComputerUseHost`
+- `LsTool` — Claude Code's canonical table has no `LS`; directory listing is `Bash` + `Glob`. Still exported for hosts that explicitly want it.
+- `SearchToolsTool` — no Claude analogue. Still exported for hosts that explicitly want it.
+- `createStructuredOutputTool()` — requires a schema per use case.
+- `createComputerUseTool()` — requires a `ComputerUseHost`.
 
 ## 2. Built-In Tool Matrix
 
 | Tool | Tool name | Category | Permissions | Read-only | Typical use |
 | --- | --- | --- | --- | --- | --- |
-| `ReadFileTool` | `read_file` | `filesystem` | `file_read` | Yes | Inspect file contents with optional line slicing |
-| `WriteFileTool` | `write_file` | `filesystem` | `file_write` | No | Create or overwrite files |
-| `EditTool` | `edit` | `filesystem` | `file_write` | No | Apply exact-string replacements |
-| `BashTool` | `bash` | `shell` | `shell_execute` | No | Run shell commands |
-| `GlobTool` | `glob` | `filesystem` | `file_read` | Yes | Find files by pattern |
-| `GrepTool` | `grep` | `analysis` | `file_read` | Yes | Search file contents by regex |
-| `LsTool` | `ls` | `filesystem` | `file_read` | Yes | List directory contents |
-| `SearchToolsTool` | `search_tools` | `analysis` | none | Yes | Activate deferred tools by query |
+| `BashTool` | `Bash` | `shell` | `shell_execute` | No | Run shell commands |
+| `ReadFileTool` | `Read` | `filesystem` | `file_read` | Yes | Inspect file contents with optional line slicing |
+| `WriteFileTool` | `Write` | `filesystem` | `file_write` | No | Create or overwrite files |
+| `EditTool` | `Edit` | `filesystem` | `file_write` | No | Apply exact-string replacements |
+| `GlobTool` | `Glob` | `filesystem` | `file_read` | Yes | Find files by pattern |
+| `GrepTool` | `Grep` | `analysis` | `file_read` | Yes | Search file contents by regex |
+| `LsTool` | `Ls` | `filesystem` | `file_read` | Yes | List directory contents (off-canonical, opt-in) |
+| `SearchToolsTool` | `search_tools` | `analysis` | none | Yes | Activate deferred tools by query (off-canonical, opt-in) |
 
 ## 3. Path Resolution Rules
 
-Most filesystem-oriented built-ins resolve paths relative to `workingDirectory`:
+Filesystem-oriented built-ins resolve paths relative to `workingDirectory`:
 
-- `read_file`
-- `write_file`
-- `edit`
-- `glob`
-- `grep`
-- `ls`
-- `bash`
+- `Read`
+- `Write`
+- `Edit`
+- `Glob`
+- `Grep`
+- `Bash`
 
 That means the choice of `workingDirectory` in `AgentInput` is a real execution decision, not a cosmetic field.
 
 ## 4. Tool-by-Tool Notes
 
-### 4.1 `read_file`
+### 4.1 `Read`
 
 Purpose:
 
@@ -69,7 +68,7 @@ Notes:
 - returns numbered lines for easier downstream reasoning
 - uses sandbox file reads when a sandbox is available
 
-### 4.2 `write_file`
+### 4.2 `Write`
 
 Purpose:
 
@@ -82,7 +81,7 @@ Notes:
 - not concurrency-safe
 - sandbox-aware when a sandbox is present
 
-### 4.3 `edit`
+### 4.3 `Edit`
 
 Purpose:
 
@@ -94,7 +93,7 @@ Notes:
 - fails if `old_string` is not unique unless `replace_all` is `true`
 - useful for targeted edits without rewriting entire files
 
-### 4.4 `bash`
+### 4.4 `Bash`
 
 Purpose:
 
@@ -106,7 +105,7 @@ Notes:
 - sandbox execution is used when a sandbox exists
 - command output is returned as `STDOUT` and `STDERR` sections
 
-### 4.5 `glob`
+### 4.5 `Glob`
 
 Purpose:
 
@@ -117,7 +116,7 @@ Notes:
 - auto-expands simple patterns into recursive search
 - caps result count to keep output manageable
 
-### 4.6 `grep`
+### 4.6 `Grep`
 
 Purpose:
 
@@ -129,7 +128,7 @@ Notes:
 - supports context lines
 - returns file path plus line number style output
 
-### 4.7 `ls`
+### 4.7 `Ls` (off-canonical)
 
 Purpose:
 
@@ -137,11 +136,11 @@ Purpose:
 
 Notes:
 
-- supports recursive listing
-- supports hidden files and depth limits
+- not in `getBuiltinTools()` defaults — Claude Code's canonical table has no `LS` (directory listing is `Bash` + `Glob`). Hosts that genuinely want it can register the export explicitly.
+- supports recursive listing, hidden files, and depth limits
 - formats file sizes for readability
 
-### 4.8 `search_tools`
+### 4.8 `search_tools` (off-canonical)
 
 Purpose:
 
@@ -149,6 +148,7 @@ Purpose:
 
 Notes:
 
+- not in `getBuiltinTools()` defaults — no Claude Code analogue. Available via direct export.
 - depends on `toolRegistry` being present in tool context
 - keeps the active tool surface smaller until needed
 
@@ -161,7 +161,7 @@ const tools = new ToolRegistry()
 tools.register(getBuiltinTools())
 ```
 
-You can also mix availability states:
+You can also mix availability states and opt into the off-canonical extras:
 
 ```ts
 import {
@@ -209,11 +209,9 @@ This tool is documented in more detail in the computer-use section because it de
 A practical conservative default for coding or workspace agents is:
 
 1. `ReadFileTool`
-2. `LsTool`
-3. `GlobTool`
-4. `GrepTool`
-5. `SearchToolsTool`
-6. defer `EditTool`, `WriteFileTool`, and `BashTool`
+2. `GlobTool`
+3. `GrepTool`
+4. defer `EditTool`, `WriteFileTool`, and `BashTool`
 
 That setup gives the agent strong discovery capability before granting stronger mutation tools.
 

@@ -172,7 +172,7 @@ const card = buildAgentCard(
     name: 'Docs Agent',
     description: 'Answers repository documentation questions.',
     version: '1.0.0',
-    tools: ['read_file', 'grep'],
+    tools: ['Read', 'Grep'],
     capabilities: {
       supportsStreaming: true,
     },

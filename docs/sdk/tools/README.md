@@ -83,7 +83,7 @@ const tools = new ToolRegistry()
 tools.register(ReadFileTool)
 tools.register(WriteFileTool, 'deferred')
 
-tools.activate(['write_file'])
+tools.activate(['Write'])
 ```
 
 The registry tracks three availability states:

@@ -142,13 +142,12 @@ These are more relevant for supervisors, orchestration layers, or manager-driven
 
 `workingDirectory` affects several built-in tools directly:
 
-- `read_file`
-- `write_file`
-- `edit`
-- `ls`
-- `glob`
-- `grep`
-- `bash`
+- `Read`
+- `Write`
+- `Edit`
+- `Glob`
+- `Grep`
+- `Bash`
 
 ## 9. Runtime Defaults at the SDK Level
 
