@@ -61,16 +61,6 @@ importers:
         specifier: ^2.0.0
         version: 2.1.9(@types/node@22.19.17)
 
-  packages/contracts:
-    dependencies:
-      zod:
-        specifier: ^3.23.0
-        version: 3.25.76
-    devDependencies:
-      typescript:
-        specifier: ^5.5.0
-        version: 5.9.3
-
   packages/providers/anthropic:
     dependencies:
       '@anthropic-ai/sdk':
@@ -207,6 +197,24 @@ importers:
       '@namzu/sdk':
         specifier: workspace:^
         version: link:../../sdk
+      '@types/node':
+        specifier: ^22.19.17
+        version: 22.19.17
+      typescript:
+        specifier: ^5.5.0
+        version: 5.9.3
+      vitest:
+        specifier: ^2.0.0
+        version: 2.1.9(@types/node@22.19.17)
+
+  packages/sandbox:
+    devDependencies:
+      '@biomejs/biome':
+        specifier: ^1.9.4
+        version: 1.9.4
+      '@namzu/sdk':
+        specifier: workspace:^
+        version: link:../sdk
       '@types/node':
         specifier: ^22.19.17
         version: 22.19.17
