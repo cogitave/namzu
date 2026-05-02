@@ -2,8 +2,6 @@ import { z } from 'zod'
 
 import type { AgentRuntimeContext } from '../../types/agent/base.js'
 import type { TaskGateway } from '../../types/agent/gateway.js'
-import type { RunId } from '../../types/ids/index.js'
-import type { TaskStore } from '../../types/task/index.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
 
@@ -36,15 +34,11 @@ export interface AgentToolOptions {
 	runtimeContext?: AgentRuntimeContext
 	allowedAgentIds: string[]
 
-	taskStore?: TaskStore
-
-	runId?: RunId
-
 	onTaskLaunched?: TaskLaunchedCallback
 }
 
 export function buildAgentTool(opts: AgentToolOptions): ToolDefinition {
-	const { gateway, allowedAgentIds: agentIds, taskStore, runId, onTaskLaunched } = opts
+	const { gateway, allowedAgentIds: agentIds, onTaskLaunched } = opts
 	const cwd = opts.workingDirectory
 
 	const subagentTypeEnum =
@@ -66,19 +60,6 @@ export function buildAgentTool(opts: AgentToolOptions): ToolDefinition {
 		destructive: false,
 		concurrencySafe: true,
 		async execute({ description, prompt, subagent_type }) {
-			let planTaskId: string | undefined
-
-			if (taskStore && runId) {
-				const planTask = await taskStore.create({
-					runId,
-					subject: description,
-					activeForm: description,
-					owner: subagent_type,
-				})
-				await taskStore.update(planTask.id, { status: 'in_progress' })
-				planTaskId = planTask.id
-			}
-
 			const handle = await gateway.createTask({
 				agentId: subagent_type,
 				prompt,
@@ -89,7 +70,6 @@ export function buildAgentTool(opts: AgentToolOptions): ToolDefinition {
 			onTaskLaunched?.(handle.taskId, {
 				agentId: subagent_type,
 				description,
-				planTaskId,
 			})
 
 			const completed = await gateway.waitForTask(handle.taskId)
@@ -114,12 +94,6 @@ export function buildAgentTool(opts: AgentToolOptions): ToolDefinition {
 			const runStatus = completed.result?.status
 			const succeeded =
 				completed.state === 'completed' && (runStatus === undefined || runStatus === 'completed')
-
-			if (taskStore && planTaskId && succeeded) {
-				await taskStore.update(planTaskId as `task_${string}`, {
-					status: 'completed',
-				})
-			}
 
 			const resultText =
 				typeof completed.result?.result === 'string'

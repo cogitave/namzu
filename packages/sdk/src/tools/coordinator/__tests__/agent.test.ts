@@ -148,4 +148,25 @@ describe('buildAgentTool', () => {
 		expect(result.success).toBe(false)
 		expect(result.error).toContain('failed')
 	})
+
+	it("does not accept a taskStore or runId — plan-task lifecycle is the parent's job", () => {
+		// Compile-time pin: AgentToolOptions must NOT include `taskStore`
+		// or `runId`. The Agent tool used to manage a per-call plan task
+		// internally and Codex caught a leak: when the subagent failed,
+		// the plan task stayed `'in_progress'` forever because
+		// `TaskStatus` has no `'failed'` value to flip to. Drop the
+		// integration entirely; if a host wants to track delegations as
+		// plan tasks, it does so via `TaskCreate` / `TaskUpdate` on its
+		// own side, where it owns the status semantics. This test
+		// freezes that decision.
+		const allowedOpts: Parameters<typeof buildAgentTool>[0] = {
+			gateway: fakeGateway(launched, launched),
+			workingDirectory: '/tmp/test',
+			allowedAgentIds: ['sales-strategy'],
+			runtimeContext: undefined,
+			onTaskLaunched: undefined,
+		}
+		expect('taskStore' in allowedOpts).toBe(false)
+		expect('runId' in allowedOpts).toBe(false)
+	})
 })
