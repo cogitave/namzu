@@ -93,7 +93,7 @@ const gate = new VerificationGate(
     allowReadOnlyTools: true,
     denyDangerousPatterns: true,
     rules: [
-      { type: 'deny_by_name', toolNames: ['write_file'] },
+      { type: 'deny_by_name', toolNames: ['Write'] },
       { type: 'allow_by_category', categories: ['analysis'] },
     ],
   },
@@ -106,16 +106,16 @@ The important boundary is:
 - verification decides whether the call should proceed
 - sandboxing decides what the call can do if it proceeds
 
-Today, high-level agent helpers such as `ReactiveAgent.run()` do not expose `verificationGate` directly. If you want to turn this on in a real run, wire the config through `query()` or `drainQuery()` as shown in [Low-Level Runtime](../runtime/low-level.md).
+High-level agent helpers (`ReactiveAgent.run()`, `SupervisorAgent.run()`) accept `verificationGate` directly via their config — both forward it through to `drainQuery`. Hosts that just need a sane default can pass the exported `defaultSandboxedGateConfig()` or `defaultSandboxedShellGateConfig()` preset.
 
 ## 7. Sandbox Boundary
 
 Several built-in tools are sandbox-aware:
 
-- `read_file`
-- `write_file`
-- `edit`
-- `bash`
+- `Read`
+- `Write`
+- `Edit`
+- `Bash`
 
 When a sandbox is present in `ToolContext`, those tools route through sandbox APIs instead of touching the host environment directly.
 
