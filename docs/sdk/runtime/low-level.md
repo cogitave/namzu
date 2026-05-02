@@ -26,7 +26,7 @@ If you only need messages, tools, provider, IDs, and a final result, stay with `
 
 | Surface | Best for | Notable limits |
 | --- | --- | --- |
-| `ReactiveAgent.run()` | Standard app integrations and quickstarts | Does not expose query-only runtime fields such as `verificationGate` or `sandboxProvider` |
+| `ReactiveAgent.run()` | Standard app integrations and quickstarts | Does not expose query-only runtime fields such as `sandboxProvider` (note: `verificationGate` IS exposed on `ReactiveAgentConfig` and forwarded into `drainQuery`) |
 | `drainQuery()` | Low-level runtime control with a final `AgentRun` result | You supply more runtime wiring yourself |
 | `query()` | Full async-generator control over every emitted event | You manage iteration over the generator directly |
 
@@ -102,7 +102,7 @@ console.log(run.result)
 This example shows the main low-level boundary:
 
 - `runConfig` still carries model, budget, and permission settings
-- query-only fields such as `verificationGate` and `sandboxProvider` live beside that config
+- query-only fields such as `sandboxProvider`, `pluginManager`, and `agentBus` live beside that config; `verificationGate` is also accepted here but is *also* exposed on `ReactiveAgentConfig` and `SupervisorAgentConfig`, so dropping to `drainQuery` is not required just to enable a policy gate
 - `drainQuery()` still returns the same final `AgentRun` shape that high-level agent flows assemble
 
 ## 4. What `drainQuery()` Gives You
@@ -235,7 +235,7 @@ That means stream transport code usually needs both:
 
 | Mistake | Why it breaks |
 | --- | --- |
-| assuming `ReactiveAgent.run()` exposes every runtime field | query-only controls such as `verificationGate` and `sandboxProvider` are lower-level |
+| assuming `ReactiveAgent.run()` exposes every runtime field | query-only controls such as `sandboxProvider`, `pluginManager`, and `agentBus` are lower-level (note: `verificationGate` IS on `ReactiveAgentConfig`) |
 | forgetting `resumeHandler` when calling `query()` | `query()` requires it directly, unlike `drainQuery()` |
 | skipping `workingDirectory` | filesystem tools and path layout lose their stable base path |
 | treating `mapRunToStreamEvent()` as the final result channel | completion still comes from generator completion or `drainQuery()` |

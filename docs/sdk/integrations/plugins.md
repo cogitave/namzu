@@ -154,8 +154,8 @@ export const hooks = [
   {
     event: 'pre_tool_use',
     async handler(context) {
-      if (context.toolName === 'bash') {
-        return { action: 'skip', reason: 'bash disabled in this environment' }
+      if (context.toolName === 'Bash') {
+        return { action: 'skip', reason: 'Bash disabled in this environment' }
       }
 
       return { action: 'continue' }
