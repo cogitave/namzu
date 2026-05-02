@@ -220,7 +220,12 @@ export {
 	FileLockManager,
 } from './bus/index.js'
 
-export { evaluateRule, VerificationGate } from './verification/index.js'
+export {
+	defaultSandboxedGateConfig,
+	defaultSandboxedShellGateConfig,
+	evaluateRule,
+	VerificationGate,
+} from './verification/index.js'
 
 // ─── probe (typed observation over AgentBus + RunEvent stream) ───────────
 
