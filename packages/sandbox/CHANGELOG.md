@@ -1,0 +1,2 @@
+# @namzu/sandbox
+
