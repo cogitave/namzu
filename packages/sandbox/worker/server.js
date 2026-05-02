@@ -81,10 +81,44 @@ function writeEvent(res, event) {
 
 function resolveWithinWorkspace(p, base) {
 	const resolved = path.resolve(base, p)
-	if (!resolved.startsWith(`${path.resolve(base)}${path.sep}`) && resolved !== path.resolve(base)) {
+	const baseResolved = path.resolve(base)
+	if (!resolved.startsWith(`${baseResolved}${path.sep}`) && resolved !== baseResolved) {
 		throw new Error('path escapes the workspace')
 	}
 	return resolved
+}
+
+/**
+ * After lexical resolution proves the requested path doesn't ESCAPE
+ * `/workspace` via `..`, we still have to defend against symlinks
+ * inside the workspace pointing OUTSIDE it (e.g. `/workspace/leak ->
+ * /etc/passwd`). The lexical check only inspects the string; the
+ * actual `fs.readFile` follows symlinks. Resolve via `realpath` and
+ * verify the resolved target is still inside the workspace before
+ * touching the file.
+ *
+ * For writes the parent directory's realpath is what matters — the
+ * file itself may not exist yet, so realpath the parent and
+ * reconstruct the final path. If the parent contains a symlink
+ * jumping out of the workspace, this rejects the write.
+ */
+async function realpathWithinWorkspace(target, base) {
+	const baseReal = await fs.realpath(path.resolve(base))
+	let real
+	try {
+		real = await fs.realpath(target)
+	} catch (err) {
+		if (err && err.code === 'ENOENT') {
+			const parentReal = await fs.realpath(path.dirname(target))
+			real = path.join(parentReal, path.basename(target))
+		} else {
+			throw err
+		}
+	}
+	if (!real.startsWith(`${baseReal}${path.sep}`) && real !== baseReal) {
+		throw new Error('symlink escapes the workspace')
+	}
+	return real
 }
 
 async function handleExecute(req, res) {
@@ -204,7 +238,8 @@ async function handleReadFile(req, res) {
 	}
 	try {
 		const target = resolveWithinWorkspace(body.path, WORKSPACE_ROOT)
-		const buf = await fs.readFile(target)
+		const real = await realpathWithinWorkspace(target, WORKSPACE_ROOT)
+		const buf = await fs.readFile(real)
 		const encoding = body.encoding === 'base64' ? 'base64' : 'utf8'
 		writeJson(res, 200, {
 			ok: true,
@@ -232,11 +267,16 @@ async function handleWriteFile(req, res) {
 	try {
 		const target = resolveWithinWorkspace(body.path, WORKSPACE_ROOT)
 		await fs.mkdir(path.dirname(target), { recursive: true })
+		const real = await realpathWithinWorkspace(target, WORKSPACE_ROOT)
 		const buf =
 			body.encoding === 'base64'
 				? Buffer.from(String(body.content), 'base64')
 				: Buffer.from(String(body.content), 'utf8')
-		await fs.writeFile(target, buf)
+		// flag 'wx' rejects existing symlinks pointing out of the workspace
+		// only when the target doesn't exist; for existing files we already
+		// confirmed via realpath that they resolve inside /workspace, so a
+		// plain writeFile is safe.
+		await fs.writeFile(real, buf)
 		writeJson(res, 200, { ok: true, bytesWritten: buf.length })
 	} catch (err) {
 		writeJson(res, 400, { ok: false, error: err.message })
