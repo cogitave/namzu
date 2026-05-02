@@ -77,53 +77,81 @@ async function spawnDockerSandbox(
 	const id = generateSandboxId()
 	const docker = config.dockerBinary ?? DEFAULT_DOCKER_BINARY
 	const network = config.network ?? 'none'
-
-	const hostWorkspace = await mkdtemp(join(tmpdir(), `namzu-sandbox-${id}-`))
-	await mkdir(hostWorkspace, { recursive: true })
-
-	const hostPort = await reservePort()
 	const containerName = `namzu-sandbox-${id}`
 
-	const args: string[] = [
-		'run',
-		'--detach',
-		'--rm',
-		'--name',
-		containerName,
-		'--network',
-		network,
-		'--publish',
-		`127.0.0.1:${hostPort}:${WORKER_PORT_INSIDE_CONTAINER}`,
-		'--volume',
-		`${hostWorkspace}:/workspace`,
-	]
+	// Track resources so any failure path can clean them up. Codex
+	// stop-time review caught that the original create path leaked
+	// `hostWorkspace` and possibly a running container if `docker
+	// run` succeeded but `/healthz` polling timed out.
+	let hostWorkspace: string | undefined
+	let containerStarted = false
 
-	if (options.memoryLimitMb && options.memoryLimitMb > 0) {
-		args.push('--memory', `${options.memoryLimitMb}m`)
-	}
-	if (options.maxProcesses && options.maxProcesses > 0) {
-		args.push('--pids-limit', String(options.maxProcesses))
+	async function cleanupOnFailure() {
+		if (containerStarted) {
+			await runOnceQuiet(docker, ['rm', '-f', containerName])
+		}
+		if (hostWorkspace) {
+			await rm(hostWorkspace, { recursive: true, force: true })
+		}
 	}
 
-	for (const [key, value] of Object.entries(options.env ?? {})) {
-		args.push('--env', `${key}=${value}`)
+	let hostPort: number
+	let baseUrl: string
+
+	try {
+		hostWorkspace = await mkdtemp(join(tmpdir(), `namzu-sandbox-${id}-`))
+		await mkdir(hostWorkspace, { recursive: true })
+
+		// Let Docker pick the host port instead of pre-reserving one
+		// in this process. The reservePort()-then-publish-fixed-port
+		// pattern had a TOCTOU window: the OS could hand the port to
+		// another process between our `server.close()` and Docker's
+		// `bind()`. Letting Docker pick (`--publish-all`) and reading
+		// the mapping back via `docker inspect` removes the race.
+		const args: string[] = [
+			'run',
+			'--detach',
+			'--rm',
+			'--name',
+			containerName,
+			'--network',
+			network,
+			'--publish',
+			`127.0.0.1::${WORKER_PORT_INSIDE_CONTAINER}`,
+			'--volume',
+			`${hostWorkspace}:/workspace`,
+		]
+
+		if (options.memoryLimitMb && options.memoryLimitMb > 0) {
+			args.push('--memory', `${options.memoryLimitMb}m`)
+		}
+		if (options.maxProcesses && options.maxProcesses > 0) {
+			args.push('--pids-limit', String(options.maxProcesses))
+		}
+
+		for (const [key, value] of Object.entries(options.env ?? {})) {
+			args.push('--env', `${key}=${value}`)
+		}
+
+		args.push(config.image)
+
+		await runOnce(docker, args)
+		containerStarted = true
+
+		hostPort = await readMappedPort(docker, containerName)
+		baseUrl = `http://127.0.0.1:${hostPort}`
+
+		await waitForWorkerReady(
+			hostPort,
+			config.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS,
+			config.readyPollIntervalMs ?? DEFAULT_READY_POLL_MS,
+		)
+	} catch (err) {
+		await cleanupOnFailure()
+		throw err
 	}
 
-	args.push(config.image)
-
-	await runOnce(docker, args)
-
-	let status: SandboxStatus = 'creating'
-
-	await waitForWorkerReady(
-		hostPort,
-		config.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS,
-		config.readyPollIntervalMs ?? DEFAULT_READY_POLL_MS,
-	)
-
-	status = 'ready'
-
-	const baseUrl = `http://127.0.0.1:${hostPort}`
+	let status: SandboxStatus = 'ready'
 
 	return {
 		id,
@@ -181,9 +209,35 @@ async function spawnDockerSandbox(
 		async destroy(): Promise<void> {
 			status = 'destroyed'
 			await runOnceQuiet(docker, ['rm', '-f', containerName])
-			await rm(hostWorkspace, { recursive: true, force: true })
+			if (hostWorkspace) {
+				await rm(hostWorkspace, { recursive: true, force: true })
+			}
 		},
 	}
+}
+
+/**
+ * Ask Docker which host port it bound to the worker port. Used
+ * instead of the pre-reserve-then-publish pattern (which had a
+ * TOCTOU race window between this process closing the listening
+ * socket and Docker's bind picking the same port — another
+ * process could grab it in the meantime). Letting Docker
+ * allocate and reading the mapping back is race-free.
+ */
+async function readMappedPort(docker: string, containerName: string): Promise<number> {
+	const inspectOutput = await runOnce(docker, [
+		'inspect',
+		'--format',
+		`{{(index (index .NetworkSettings.Ports "${WORKER_PORT_INSIDE_CONTAINER}/tcp") 0).HostPort}}`,
+		containerName,
+	])
+	const port = Number(inspectOutput.trim())
+	if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+		throw new Error(
+			`docker inspect returned no usable host port mapping for ${containerName}: '${inspectOutput}'`,
+		)
+	}
+	return port
 }
 
 async function execViaWorker(
@@ -277,25 +331,6 @@ function detectEnvironment(): SandboxEnvironment {
 function generateSandboxId(): SandboxId {
 	const random = Math.random().toString(36).slice(2, 10)
 	return `sandbox_${Date.now().toString(36)}_${random}` as SandboxId
-}
-
-async function reservePort(): Promise<number> {
-	const { createServer } = await import('node:net')
-	return await new Promise<number>((resolve, reject) => {
-		const server = createServer()
-		server.unref()
-		server.on('error', reject)
-		server.listen(0, '127.0.0.1', () => {
-			const address = server.address()
-			if (!address || typeof address === 'string') {
-				server.close()
-				reject(new Error('failed to reserve port'))
-				return
-			}
-			const port = address.port
-			server.close(() => resolve(port))
-		})
-	})
 }
 
 async function waitForWorkerReady(port: number, timeoutMs: number, pollMs: number): Promise<void> {
