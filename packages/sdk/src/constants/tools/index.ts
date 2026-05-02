@@ -31,4 +31,4 @@ export const DANGEROUS_PATTERNS = [
 	/\beval\s+["'`$]/,
 ]
 
-export const FILESYSTEM_TOOLS = new Set(['glob', 'read_file', 'write_file', 'bash'])
+export const FILESYSTEM_TOOLS = new Set(['Glob', 'Read', 'Write', 'Bash'])

@@ -36,7 +36,7 @@ function extractGlobBaseDirectory(pattern: string): {
 }
 
 export const GlobTool = defineTool({
-	name: 'glob',
+	name: 'Glob',
 	description: 'Searches for files using a glob pattern. Returns matching file paths.',
 	inputSchema,
 	category: 'filesystem',

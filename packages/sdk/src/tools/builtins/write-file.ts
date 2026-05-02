@@ -9,7 +9,7 @@ const inputSchema = z.object({
 })
 
 export const WriteFileTool = defineTool({
-	name: 'write_file',
+	name: 'Write',
 	description:
 		'Writes content to a file. Creates the file if it does not exist, overwrites if it does. Creates intermediate directories as needed.',
 	inputSchema,

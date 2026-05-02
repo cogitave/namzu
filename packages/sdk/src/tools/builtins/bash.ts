@@ -20,7 +20,7 @@ function isDangerousCommand(command: string): boolean {
 }
 
 export const BashTool = defineTool({
-	name: 'bash',
+	name: 'Bash',
 	description:
 		'Executes a bash command and returns stdout/stderr output. Command timeout is configurable.',
 	inputSchema,
