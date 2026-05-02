@@ -17,11 +17,11 @@ Every run has two distinct inputs:
 | Input object | Owns |
 | --- | --- |
 | `AgentInput` | messages, working directory, abort signal, task store, runtime tool overrides |
-| `ReactiveAgentConfig` | provider, tools, model, budgets, IDs, persona, skills, advisory config |
+| `ReactiveAgentConfig` | provider, tools, model, budgets, IDs, persona, skills, advisory config, optional `verificationGate` |
 
 This distinction matters because the SDK separates per-invocation message state from runtime policy and dependencies.
 
-It also matters because some low-level runtime fields are intentionally not exposed on `ReactiveAgentConfig` today. If you need `verificationGate`, `sandboxProvider`, `pluginManager`, `taskRouter`, `agentBus`, or `compactionConfig`, use [Low-Level Runtime](./low-level.md).
+It also matters because some low-level runtime fields are intentionally not exposed on `ReactiveAgentConfig` today. If you need `sandboxProvider`, `pluginManager`, `taskRouter`, `agentBus`, or `compactionConfig`, use [Low-Level Runtime](./low-level.md). `verificationGate` is exposed on `ReactiveAgentConfig` directly (mirrors `SupervisorAgentConfig`); pass it there for a sane policy gate without dropping to `drainQuery`.
 
 ## 2. Minimal `ReactiveAgent.run()` Shape
 
