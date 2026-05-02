@@ -46,6 +46,7 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 				basePrompt: config.basePrompt,
 				provider: config.provider,
 				tools: config.tools,
+				...(config.verificationGate ? { verificationGate: config.verificationGate } : {}),
 				runConfig: {
 					model: config.model,
 					tokenBudget: config.tokenBudget,
