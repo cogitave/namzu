@@ -94,7 +94,28 @@ export function buildAgentTool(opts: AgentToolOptions): ToolDefinition {
 
 			const completed = await gateway.waitForTask(handle.taskId)
 
-			if (taskStore && planTaskId && completed.state === 'completed') {
+			// Two layers can disagree on whether the subagent succeeded:
+			//
+			// 1. `TaskHandle.state` — the gateway's terminal task state.
+			//    Some gateways (e.g. vandal's) explicitly map
+			//    `result.status !== 'completed'` to `state = 'failed'`,
+			//    others (e.g. SDK's `LocalTaskGateway`) just forward
+			//    whatever the AgentManager set, which does not always
+			//    reflect run-level failure.
+			// 2. `BaseAgentResult.status` — the run's own status. The
+			//    canonical source of truth for whether the agent actually
+			//    finished its work; `lastError` carries the failure
+			//    message when set.
+			//
+			// Treat the subagent as successful only when BOTH agree.
+			// Reporting a failed subagent as successful would silently
+			// hand the parent garbage output and make debugging
+			// impossible, which is what Codex flagged on the first cut.
+			const runStatus = completed.result?.status
+			const succeeded =
+				completed.state === 'completed' && (runStatus === undefined || runStatus === 'completed')
+
+			if (taskStore && planTaskId && succeeded) {
 				await taskStore.update(planTaskId as `task_${string}`, {
 					status: 'completed',
 				})
@@ -103,17 +124,25 @@ export function buildAgentTool(opts: AgentToolOptions): ToolDefinition {
 			const resultText =
 				typeof completed.result?.result === 'string'
 					? completed.result.result
-					: JSON.stringify(completed.result?.result ?? null)
+					: completed.result?.result !== undefined
+						? JSON.stringify(completed.result.result)
+						: ''
 
-			if (completed.state !== 'completed') {
+			if (!succeeded) {
+				const failureLabel =
+					completed.state !== 'completed' ? completed.state : (runStatus ?? 'failed')
+				const detail =
+					completed.result?.lastError ?? resultText ?? '(subagent provided no failure detail)'
 				return {
 					success: false,
 					output: '',
-					error: `Subagent ${subagent_type} ${completed.state}: ${resultText || '(no result)'}`,
+					error: `Subagent ${subagent_type} ${failureLabel}: ${detail}`,
 					data: {
 						task_id: handle.taskId,
 						subagent_type,
 						state: completed.state,
+						status: runStatus,
+						lastError: completed.result?.lastError,
 					},
 				}
 			}
@@ -125,6 +154,7 @@ export function buildAgentTool(opts: AgentToolOptions): ToolDefinition {
 					task_id: handle.taskId,
 					subagent_type,
 					state: completed.state,
+					status: runStatus,
 				},
 			}
 		},
