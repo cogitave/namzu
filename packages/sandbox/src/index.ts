@@ -66,7 +66,9 @@
  * `aws.amazon.com/blogs/aws/firecracker-lightweight-virtualization-for-serverless-computing`.
  */
 
-import type { Sandbox, SandboxProvider } from '@namzu/sdk'
+import type { Sandbox, SandboxCreateConfig, SandboxProvider } from '@namzu/sdk'
+
+import { buildDockerBackend } from './backends/docker/index.js'
 
 // ---------------------------------------------------------------------------
 // Backend strategy
@@ -336,8 +338,47 @@ export interface SandboxProviderConfig {
  * {@link SandboxBackendNotImplementedError} so consumers get a
  * clear signal during the staged rollout.
  */
-export function createSandboxProvider(_config: SandboxProviderConfig): SandboxProvider {
-	throw new SandboxBackendNotImplementedError(describeBackend(_config.backend))
+export function createSandboxProvider(config: SandboxProviderConfig): SandboxProvider {
+	const backendConfig = config.backend
+	const backend = pickBackend(backendConfig)
+	const id = `namzu-${backend.tier}-${backend.name}`
+	const name = `@namzu/sandbox: ${describeBackend(backendConfig)}`
+	return {
+		id,
+		name,
+		environment: 'basic',
+		async create(perCall?: SandboxCreateConfig): Promise<Sandbox> {
+			return await backend.create({
+				workingDirectory: perCall?.workingDirectory ?? '/workspace',
+				...(config.defaultEgress !== undefined ? { egress: config.defaultEgress } : {}),
+				...(perCall?.timeoutMs !== undefined
+					? { timeoutMs: perCall.timeoutMs }
+					: config.defaultTimeoutMs !== undefined
+						? { timeoutMs: config.defaultTimeoutMs }
+						: {}),
+				...(perCall?.memoryLimitMb !== undefined
+					? { memoryLimitMb: perCall.memoryLimitMb }
+					: config.defaultMemoryLimitMb !== undefined
+						? { memoryLimitMb: config.defaultMemoryLimitMb }
+						: {}),
+				...(perCall?.maxProcesses !== undefined
+					? { maxProcesses: perCall.maxProcesses }
+					: config.defaultMaxProcesses !== undefined
+						? { maxProcesses: config.defaultMaxProcesses }
+						: {}),
+				...(perCall?.env !== undefined ? { env: perCall.env } : {}),
+			})
+		},
+	}
+}
+
+function pickBackend(config: SandboxBackendConfig): SandboxBackend {
+	if (config.tier === 'container' && (config.runtime ?? 'docker') === 'docker') {
+		return buildDockerBackend({
+			image: config.image,
+		})
+	}
+	throw new SandboxBackendNotImplementedError(describeBackend(config))
 }
 
 /**
