@@ -48,11 +48,36 @@ export interface DockerBackendInternalConfig {
 	readonly network?: 'none' | 'bridge' | string
 	readonly readyPollIntervalMs?: number
 	readonly readyTimeoutMs?: number
+	/**
+	 * Path inside the container that the host workspace bind-mounts
+	 * onto. Defaults to `/workspace` to match the worker image; hosts
+	 * that need a different convention (e.g. Vandal mirrors Anthropic
+	 * Managed Agents' `/mnt/session` so model training-time intuition
+	 * about where to write deliverables matches the local runtime
+	 * without prompt-side steering) override this. The same path is
+	 * forwarded to the in-container worker via the
+	 * `NAMZU_SANDBOX_WORKSPACE` env var so the worker's own resolver
+	 * agrees with the bind mount.
+	 */
+	readonly workspaceMount?: string
+	/**
+	 * Docker runtime to launch the container under. Default `runc`
+	 * (vanilla Docker namespaces, what Docker Desktop ships). Linux
+	 * production deployments that have registered gVisor on the host
+	 * daemon can pass `runsc` to upgrade to a userspace-kernel trust
+	 * boundary — same primitive Modal Labs and OpenAI Code Interpreter
+	 * ship. Hosts can also pass a custom runtime name registered in
+	 * `daemon.json`. macOS Docker Desktop has no `runsc` runtime, so
+	 * the default `runc` is the only option there; that's documented
+	 * as the local-dev tier in the package README.
+	 */
+	readonly runtime?: 'runc' | 'runsc' | string
 }
 
 const DEFAULT_DOCKER_BINARY = 'docker'
 const DEFAULT_READY_POLL_MS = 100
 const DEFAULT_READY_TIMEOUT_MS = 30_000
+const DEFAULT_WORKSPACE_MOUNT = '/workspace'
 const WORKER_PORT_INSIDE_CONTAINER = 2024
 
 /**
@@ -77,6 +102,8 @@ async function spawnDockerSandbox(
 	const id = generateSandboxId()
 	const docker = config.dockerBinary ?? DEFAULT_DOCKER_BINARY
 	const network = config.network ?? 'none'
+	const workspaceMount = config.workspaceMount ?? DEFAULT_WORKSPACE_MOUNT
+	const runtime = config.runtime
 	const containerName = `namzu-sandbox-${id}`
 
 	// Track resources so any failure path can clean them up. Codex
@@ -119,8 +146,17 @@ async function spawnDockerSandbox(
 			'--publish',
 			`127.0.0.1::${WORKER_PORT_INSIDE_CONTAINER}`,
 			'--volume',
-			`${hostWorkspace}:/workspace`,
+			`${hostWorkspace}:${workspaceMount}`,
+			// Forward the in-container workspace path to the worker so
+			// its own resolver agrees with the bind mount when the host
+			// overrides the default `/workspace`.
+			'--env',
+			`NAMZU_SANDBOX_WORKSPACE=${workspaceMount}`,
 		]
+
+		if (runtime) {
+			args.push('--runtime', runtime)
+		}
 
 		if (options.memoryLimitMb && options.memoryLimitMb > 0) {
 			args.push('--memory', `${options.memoryLimitMb}m`)
@@ -158,7 +194,7 @@ async function spawnDockerSandbox(
 		get status(): SandboxStatus {
 			return status
 		},
-		rootDir: '/workspace',
+		rootDir: workspaceMount,
 		environment: detectEnvironment(),
 
 		async exec(
