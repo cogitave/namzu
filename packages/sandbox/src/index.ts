@@ -203,6 +203,20 @@ export interface ContainerBackendConfig {
 	 * separately by `EgressPolicy`.
 	 */
 	readonly network?: 'none' | 'bridge' | string
+	/**
+	 * Optional `--label key=value` pairs applied to the spawned
+	 * container. Hosts use this to make the container findable from
+	 * out-of-band cleanup paths (reaper jobs, monitoring filters)
+	 * via `docker ps --filter label=...`. Keys with `=` or empty
+	 * names are rejected at construction; values are passed verbatim
+	 * to the docker CLI argv (no shell interpolation — `spawn` argv
+	 * not a shell pipeline). Default unset (no extra labels).
+	 *
+	 * Convention for namzu hosts: namespace your keys
+	 * (`vandal.sandbox=true`, `vandal.task-id=<id>`, …) to avoid
+	 * collisions with Docker / orchestrator labels.
+	 */
+	readonly labels?: Readonly<Record<string, string>>
 }
 
 /**
@@ -465,6 +479,7 @@ function pickBackend(config: SandboxProviderConfig): SandboxBackend {
 				? { hostReachability: backend.hostReachability }
 				: {}),
 			...(backend.network !== undefined ? { network: backend.network } : {}),
+			...(backend.labels !== undefined ? { labels: backend.labels } : {}),
 		})
 	}
 	if (backend.tier === 'container' && backend.runtime === 'runsc') {
@@ -479,6 +494,7 @@ function pickBackend(config: SandboxProviderConfig): SandboxBackend {
 				? { hostReachability: backend.hostReachability }
 				: {}),
 			...(backend.network !== undefined ? { network: backend.network } : {}),
+			...(backend.labels !== undefined ? { labels: backend.labels } : {}),
 		})
 	}
 	throw new SandboxBackendNotImplementedError(describeBackend(backend))

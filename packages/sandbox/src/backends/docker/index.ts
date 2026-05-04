@@ -99,6 +99,15 @@ export interface DockerBackendInternalConfig {
 	 *    sandbox). The shared bridge name comes from `config.network`.
 	 */
 	readonly hostReachability?: 'host-port' | 'container-network'
+	/**
+	 * Optional `--label key=value` pairs applied to the spawned
+	 * container at `docker run` time. Used by hosts that need to
+	 * find their containers from out-of-band code paths (reaper jobs,
+	 * monitoring filters) via `docker ps --filter label=…`. Keys
+	 * containing `=` or empty names throw at spawn time — the docker
+	 * CLI accepts them but the resulting label split is ambiguous.
+	 */
+	readonly labels?: Readonly<Record<string, string>>
 }
 
 const DEFAULT_DOCKER_BINARY = 'docker'
@@ -169,6 +178,23 @@ async function spawnDockerSandbox(
 			'--network',
 			network,
 		]
+
+		// `--label key=value` flags. Validate first — an empty key or
+		// a key containing `=` would silently produce a malformed
+		// label that downstream `docker ps --filter label=…` queries
+		// could not match reliably. Throw before the spawn so misuse
+		// surfaces during construction, not as a mysterious "container
+		// has no labels" later.
+		if (config.labels) {
+			for (const [key, value] of Object.entries(config.labels)) {
+				if (!key || key.includes('=')) {
+					throw new Error(
+						`docker label key ${JSON.stringify(key)} is invalid (empty or contains '=')`,
+					)
+				}
+				args.push('--label', `${key}=${value}`)
+			}
+		}
 
 		args.push(...renderLayoutMountArgs(resolvedLayout))
 		// Forward only the workspace root so the worker's lexical

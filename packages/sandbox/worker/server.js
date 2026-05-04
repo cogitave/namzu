@@ -46,6 +46,19 @@ const WORKSPACE_ROOT = process.env.NAMZU_SANDBOX_WORKSPACE || '/workspace'
 const MAX_BODY_BYTES = Number(process.env.NAMZU_SANDBOX_MAX_BODY_BYTES || 8 * 1024 * 1024)
 const DEFAULT_MAX_OUTPUT_BYTES = 1024 * 1024
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000
+// Idle timeout: if the worker sees no `/execute`, `/read-file`, or
+// `/write-file` request for this many ms, it `process.exit(0)`s. The
+// container is spawned `--rm` so the daemon collects the corpse
+// automatically; that's the cheap layer-2 defense against orphaned
+// sandboxes when the Vandal-side TTL or the supervisor's `finally`
+// block both fail. `0` disables.
+//
+// Default 5 min: the Cowork supervisor's median tool-call → tool-call
+// gap is well under a minute, so 5 min is a comfortable buffer that
+// still bounds runaway lifetime to a single-digit-minute scale. Hosts
+// that run longer interactive turns (heavy data-prep, slow LLMs)
+// override via env.
+const IDLE_TIMEOUT_MS = Number(process.env.NAMZU_SANDBOX_IDLE_TIMEOUT_MS ?? 5 * 60 * 1000)
 
 function readBody(req) {
 	return new Promise((resolve, reject) => {
@@ -319,6 +332,31 @@ async function handleWriteFile(req, res) {
 	}
 }
 
+// Idle-exit timer. Reset on every "real work" request (`/execute`,
+// `/read-file`, `/write-file`); `/healthz` is deliberately NOT a
+// reset — heartbeat liveness pings should not extend a sandbox that's
+// otherwise idle. When the timer fires, exit cleanly so the
+// container's `--rm` flag triggers daemon-side cleanup. `0` disables
+// the layer entirely (testing, hosts that don't want it).
+let idleTimer
+function resetIdleTimer() {
+	if (!IDLE_TIMEOUT_MS || IDLE_TIMEOUT_MS <= 0) return
+	if (idleTimer) clearTimeout(idleTimer)
+	idleTimer = setTimeout(() => {
+		console.log(
+			`[namzu-sandbox-worker] idle for ${IDLE_TIMEOUT_MS}ms — exiting (container --rm cleans up)`,
+		)
+		// Exit code 0: this is intentional shutdown, not a crash. The
+		// host's docker logs see a clean exit; the `--rm` flag (set by
+		// `@namzu/sandbox` when spawning) collects the container body.
+		process.exit(0)
+	}, IDLE_TIMEOUT_MS)
+	// `unref()` so this timer doesn't keep the event loop alive on its
+	// own — process exits naturally if everything else (HTTP server,
+	// pending children) settles first.
+	idleTimer.unref?.()
+}
+
 const server = http.createServer(async (req, res) => {
 	try {
 		if (req.method === 'GET' && req.url === '/healthz') {
@@ -326,14 +364,17 @@ const server = http.createServer(async (req, res) => {
 			return
 		}
 		if (req.method === 'POST' && req.url === '/execute') {
+			resetIdleTimer()
 			await handleExecute(req, res)
 			return
 		}
 		if (req.method === 'POST' && req.url === '/read-file') {
+			resetIdleTimer()
 			await handleReadFile(req, res)
 			return
 		}
 		if (req.method === 'POST' && req.url === '/write-file') {
+			resetIdleTimer()
 			await handleWriteFile(req, res)
 			return
 		}
@@ -385,5 +426,11 @@ process.on('uncaughtException', (err) => {
 // exec talks to the container at all).
 const BIND = process.env.NAMZU_SANDBOX_BIND || '0.0.0.0'
 server.listen(PORT, BIND, () => {
-	console.log(`[namzu-sandbox-worker] listening on ${BIND}:${PORT} workspace=${WORKSPACE_ROOT}`)
+	console.log(
+		`[namzu-sandbox-worker] listening on ${BIND}:${PORT} workspace=${WORKSPACE_ROOT} idleTimeoutMs=${IDLE_TIMEOUT_MS}`,
+	)
+	// Arm the idle timer at boot. If the host never sends a single
+	// `/execute` (e.g. supervisor hangs before its first tool call),
+	// the sandbox still bounds its own lifetime.
+	resetIdleTimer()
 })
