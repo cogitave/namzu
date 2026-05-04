@@ -112,7 +112,13 @@ RUN pip3 install --break-system-packages --no-cache-dir \
 # generation; markdown-it / dompurify for safe markdown rendering;
 # puppeteer skips its own Chromium since we pinned the system one.
 
-RUN npm install -g --omit=optional --no-audit --no-fund \
+# `--force` because node:22-bookworm-slim already ships a
+# `markdown-it` binary at /usr/local/bin/markdown-it (corepack /
+# distro convenience pre-install), and `npm install -g` refuses to
+# overwrite a pre-existing bin without it. The collision was a
+# build-blocker on a clean rebuild — Vandal sandbox image build
+# surfaced it first.
+RUN npm install -g --force --omit=optional --no-audit --no-fund \
     @mermaid-js/mermaid-cli@11.4.0 \
     xlsx@0.18.5 \
     docx@9.0.2 \
