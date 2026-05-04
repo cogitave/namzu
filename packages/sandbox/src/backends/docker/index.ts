@@ -131,12 +131,16 @@ async function spawnDockerSandbox(
 	// run` succeeded but `/healthz` polling timed out.
 	let hostWorkspace: string | undefined
 	let containerStarted = false
+	// Host-managed bind sources (provided by the SDK consumer) are
+	// NOT cleaned up on failure — the consumer's lifecycle owns the
+	// directory. Only auto-allocated tmpdir workspaces get rm'd.
+	const hostManagedBind = options.hostWorkspaceDir !== undefined
 
 	async function cleanupOnFailure() {
 		if (containerStarted) {
 			await runOnceQuiet(docker, ['rm', '-f', containerName])
 		}
-		if (hostWorkspace) {
+		if (hostWorkspace && !hostManagedBind) {
 			await rm(hostWorkspace, { recursive: true, force: true })
 		}
 	}
@@ -145,8 +149,26 @@ async function spawnDockerSandbox(
 	let baseUrl: string
 
 	try {
-		hostWorkspace = await mkdtemp(join(tmpdir(), `namzu-sandbox-${id}-`))
-		await mkdir(hostWorkspace, { recursive: true })
+		// Two paths for the host-side workspace bind source:
+		//   1. SDK consumer supplies an explicit `hostWorkspaceDir`
+		//      (e.g. Vandal's per-task `/var/lib/vandal/sessions/<taskId>`).
+		//      The consumer owns the dir lifecycle — backend doesn't
+		//      mkdir/rm it.
+		//   2. No path supplied → mkdtemp under the OS tmpdir; backend
+		//      cleans it up on failure or on `destroy()`.
+		// Path #1 is required when the consumer is itself a container
+		// asking the host's Docker daemon to spawn a sibling: the
+		// daemon resolves bind sources against the host filesystem,
+		// not the consumer container's filesystem, so a dir under
+		// `tmpdir()` of the consumer container is unreachable. Codex
+		// flagged this as the named-volume-sub-path blocker.
+		if (options.hostWorkspaceDir) {
+			hostWorkspace = options.hostWorkspaceDir
+			await mkdir(hostWorkspace, { recursive: true })
+		} else {
+			hostWorkspace = await mkdtemp(join(tmpdir(), `namzu-sandbox-${id}-`))
+			await mkdir(hostWorkspace, { recursive: true })
+		}
 
 		// Let Docker pick the host port instead of pre-reserving one
 		// in this process. The reservePort()-then-publish-fixed-port
