@@ -274,20 +274,49 @@ async function* streamProviderTurn(
 	// tool_use block: the upstream model ran out of completion tokens
 	// before it could close the JSON literal, so the buffered
 	// `argsBuf` ends with something like `"content":"…some prefix` —
-	// not parseable. Leaving `parsed = {}` here means
-	// `ChatCompletionResponse.toolCalls[].function.arguments` is
-	// `"{}"` (valid JSON) instead of the truncated buffer, which is
-	// what the executor sees next.
+	// not parseable.
+	//
+	// Two cases coalesce here:
+	//   1. The buffer parses cleanly (the provider just forgot to emit
+	//      `content_block_stop` but the args are intact) — keep parsed.
+	//   2. The buffer is truncated mid-literal — `parsed = {}` is the
+	//      safe fallback so the executor's `JSON.parse(arguments)`
+	//      succeeds and downstream consumers don't crash. The PRICE
+	//      we used to pay was the model getting back a generic
+	//      "<field> is required" Zod error and not realising its
+	//      previous tool call was truncated server-side, so it would
+	//      retry with the SAME long input and hit the same cutoff in
+	//      a loop. Detect the truncation case and emit the parsed
+	//      input under a sentinel marker the executor recognises;
+	//      the executor surfaces a specific "your tool call was cut
+	//      off by max_tokens — retry with shorter input or split into
+	//      smaller calls" message that the model can act on.
 	for (const bucket of toolBuckets.values()) {
 		if (bucket.started && !bucket.completed) {
 			bucket.completed = true
 			let parsed: unknown = {}
-			try {
-				parsed = bucket.argsBuf ? JSON.parse(bucket.argsBuf) : {}
-			} catch {
-				// leave parsed = {}
+			let truncated = false
+			if (bucket.argsBuf) {
+				try {
+					parsed = JSON.parse(bucket.argsBuf)
+				} catch {
+					// argsBuf had content but didn't parse — almost
+					// certainly the max_tokens-mid-literal cutoff. Mark
+					// the bucket so the executor can return a model-
+					// readable hint instead of a generic Zod error.
+					truncated = true
+					parsed = { __namzuTruncated: true, partialBuffer: bucket.argsBuf.slice(0, 200) }
+				}
 			}
 			bucket.parsed = parsed
+			if (truncated) {
+				log.warn('tool input truncated by upstream cutoff (no toolCallEnd, argsBuf unparsable)', {
+					runId,
+					toolUseId: bucket.id,
+					toolName: bucket.name,
+					bufferLength: bucket.argsBuf.length,
+				})
+			}
 			await emitEvent({
 				type: 'tool_input_completed',
 				runId,

@@ -7,7 +7,12 @@ import { defineTool } from '../defineTool.js'
 const execAsync = promisify(exec)
 
 const inputSchema = z.object({
-	command: z.string().describe('The bash command to execute'),
+	command: z
+		.string()
+		.min(1)
+		.describe(
+			'The bash command to execute. Required, non-empty. Single command per call (use `&&` / `;` chaining for compound commands). Avoid heredocs that span more than a few hundred bytes — large content should be written via the Write tool, not piped into bash.',
+		),
 	timeout: z
 		.preprocess((v) => (typeof v === 'string' ? Number(v) : v), z.number().default(30_000))
 		.describe('Command timeout in milliseconds. Default: 30000'),
@@ -22,7 +27,7 @@ function isDangerousCommand(command: string): boolean {
 export const BashTool = defineTool({
 	name: 'Bash',
 	description:
-		'Executes a bash command and returns stdout/stderr output. Command timeout is configurable.',
+		'Executes a bash command and returns stdout/stderr output. Command timeout is configurable. The `command` parameter is required — never call this tool with empty arguments. For very long content (e.g. building a large file), prefer the Write tool over a heredoc to avoid hitting the output token limit mid-stream.',
 	inputSchema,
 	category: 'shell',
 	permissions: ['shell_execute'],

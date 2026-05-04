@@ -248,14 +248,71 @@ export class ToolRegistry extends ManagedRegistry<ToolDefinition> {
 				}
 			}
 
+			// Truncation sentinel — the iteration loop's post-stream
+			// flush stamps this on tool calls whose args were cut off
+			// mid-`input_json_delta` (Anthropic max_tokens-mid-literal
+			// cutoff is the canonical case). Short-circuit to a model-
+			// readable error so the model can retry with shorter input
+			// instead of receiving a generic Zod failure that suggests
+			// it called the tool incorrectly.
+			if (
+				rawInput &&
+				typeof rawInput === 'object' &&
+				(rawInput as Record<string, unknown>).__namzuTruncated === true
+			) {
+				const partial = String(
+					(rawInput as Record<string, unknown>).partialBuffer ?? '',
+				).slice(0, 80)
+				const truncMsg = `Tool "${toolName}" call was cut off by the model's output token limit (the JSON arguments stopped mid-stream). The tool was NOT executed. Retry with shorter input — for a Write tool, split the content into multiple smaller calls; for any tool, reduce the size of arguments. Partial buffer for context: ${partial}…`
+				this.log.warn(`Tool input truncated by upstream cutoff: ${toolName}`, {
+					bufferPreview: partial,
+				})
+				span.setAttributes({
+					[NAMZU.TOOL_SUCCESS]: false,
+					[NAMZU.TOOL_ERROR]: 'truncated-upstream',
+				})
+				span.setStatus({ code: SpanStatusCode.ERROR, message: 'truncated-upstream' })
+				span.end()
+				return {
+					success: false,
+					output: '',
+					error: truncMsg,
+				}
+			}
+
 			const parseResult = tool.inputSchema.safeParse(rawInput)
 			if (!parseResult.success) {
 				const errorMessage = parseResult.error.issues
 					.map((i) => `${i.path.join('.')}: ${i.message}`)
 					.join('; ')
 
+				// Distinguish "model sent an empty/no-arg call" from
+				// "model sent partial args" — the first is most often a
+				// streaming hiccup or a definition-test ping (Anthropic
+				// occasionally pings tool surfaces with `{}` while the
+				// schema is still loading), the second is a genuine
+				// programming mistake by the model. The model self-
+				// corrects MUCH more reliably when the error tells it
+				// (a) which fields are required, (b) their types, and
+				// (c) a minimal example call. Without these hints the
+				// downstream UI just shows a red "Failed" row and the
+				// model rarely retries with the right args.
+				const isEmptyInput =
+					rawInput === null ||
+					rawInput === undefined ||
+					(typeof rawInput === 'object' &&
+						!Array.isArray(rawInput) &&
+						Object.keys(rawInput as Record<string, unknown>).length === 0)
+
+				const requiredHint = describeRequiredInput(tool.inputSchema)
+
+				const enrichedMessage = isEmptyInput
+					? `Tool "${toolName}" was called with no arguments. ${requiredHint} Retry the call with the required parameters populated.`
+					: `Validation failed for "${toolName}": ${errorMessage}. ${requiredHint}`
+
 				this.log.error(`Tool input validation failed: ${toolName}`, {
 					errors: errorMessage,
+					empty: isEmptyInput,
 				})
 
 				span.setAttributes({
@@ -268,7 +325,7 @@ export class ToolRegistry extends ManagedRegistry<ToolDefinition> {
 				return {
 					success: false,
 					output: '',
-					error: `Invalid input for tool "${toolName}": ${errorMessage}`,
+					error: enrichedMessage,
 				}
 			}
 
@@ -317,5 +374,38 @@ export class ToolRegistry extends ManagedRegistry<ToolDefinition> {
 	private getByAvailability(states: ToolAvailability[], filter?: string[]): ToolDefinition[] {
 		const candidates = filter ? filter.map((n) => this.getOrThrow(n)) : this.getAll()
 		return candidates.filter((t) => states.includes(this.getAvailability(t.name)))
+	}
+}
+
+/**
+ * Build a one-sentence "Required: <field>: <type>, <field>: <type>"
+ * hint from a Zod schema, used to enrich tool-input validation
+ * errors so the model can self-correct without round-tripping the
+ * full JSON schema again. Walks the schema's JSON-Schema rendering
+ * (already a dependency for tool registration) so we don't have to
+ * branch over Zod's internal type tree.
+ *
+ * Returns a fallback string for opaque/non-object schemas — the
+ * caller still ships the raw Zod issues separately, so the hint
+ * here is bonus context, not the only signal.
+ */
+function describeRequiredInput(schema: { _def?: unknown }): string {
+	try {
+		const json = zodToJsonSchema(schema as never) as {
+			properties?: Record<string, { type?: string; description?: string }>
+			required?: string[]
+		}
+		const required = json.required ?? []
+		if (required.length === 0) return 'No required parameters known.'
+		const props = json.properties ?? {}
+		const lines = required.map((name) => {
+			const def = props[name] ?? {}
+			const type = def.type ?? 'value'
+			const desc = def.description ? ` — ${def.description}` : ''
+			return `${name}: ${type}${desc}`
+		})
+		return `Required: ${lines.join(', ')}.`
+	} catch {
+		return 'Could not introspect required parameters.'
 	}
 }
