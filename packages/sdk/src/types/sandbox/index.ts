@@ -93,6 +93,16 @@ export interface SandboxCreateConfig {
 	readonly timeoutMs?: number
 	readonly memoryLimitMb?: number
 	readonly maxProcesses?: number
+	/**
+	 * Optional host-side directory the backend should bind into the
+	 * container as the workspace. When unset, container backends
+	 * mkdtemp under the OS tmpdir and own the cleanup. When set, the
+	 * SDK consumer owns the dir lifecycle. Required when the consumer
+	 * is itself a container (e.g. Vandal's app container) asking the
+	 * host's Docker daemon to spawn a sibling — the daemon resolves
+	 * bind sources against the host filesystem, not the consumer's.
+	 */
+	readonly hostWorkspaceDir?: string
 }
 
 // ---------------------------------------------------------------------------

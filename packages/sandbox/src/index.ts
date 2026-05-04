@@ -155,6 +155,33 @@ export interface ContainerBackendConfig {
 	readonly tier: 'container'
 	readonly runtime?: 'docker' | 'runsc'
 	readonly image: string
+	/**
+	 * Path inside the spawned container that the host workspace
+	 * bind-mounts onto. Default `/workspace`. Hosts that mirror
+	 * Anthropic Managed Agents' `/mnt/session/` convention so the
+	 * model's training-time intuition lines up with the local
+	 * runtime override this — typically to `/mnt/session`.
+	 */
+	readonly workspaceMount?: string
+	/**
+	 * How the SDK consumer reaches the in-container worker. Default
+	 * `'host-port'` — the original loopback host-port flow, works
+	 * when the consumer runs ON the docker host. Set
+	 * `'container-network'` when the consumer is itself a container
+	 * spawning siblings via the host's Docker daemon: the worker is
+	 * reachable at `http://<containerName>:2024` over the docker
+	 * bridge named in `network`.
+	 */
+	readonly hostReachability?: 'host-port' | 'container-network'
+	/**
+	 * Docker network the spawned container attaches to. Default
+	 * `'none'` (no inbound or outbound network). Set to a docker
+	 * bridge name when `hostReachability='container-network'` so the
+	 * SDK consumer (also on that bridge) can reach the worker by
+	 * container DNS name. Egress from the sandbox is governed
+	 * separately by `EgressPolicy`.
+	 */
+	readonly network?: 'none' | 'bridge' | string
 }
 
 /**
@@ -291,6 +318,22 @@ export interface SandboxBackendOptions {
 	readonly memoryLimitMb?: number
 	readonly maxProcesses?: number
 	readonly env?: Record<string, string>
+	/**
+	 * Optional host-side directory the backend should bind into the
+	 * container as the workspace. When unset, container backends
+	 * mkdtemp under the OS tmpdir and own the cleanup. When set, the
+	 * SDK consumer owns the dir — the backend will not mkdir/rm it
+	 * beyond best-effort `mkdir -p`. Required when the consumer is
+	 * itself a container asking the host's Docker daemon to spawn a
+	 * sibling: the daemon resolves bind sources against the host
+	 * filesystem, not the consumer container's filesystem, so the
+	 * tmpdir-under-the-consumer path would be unreachable. Hosts
+	 * that mount a per-task host-path bind (e.g.
+	 * `/var/lib/vandal/sessions/<taskId>`) into both their own app
+	 * container and the spawned sandbox container pass that same
+	 * host path here.
+	 */
+	readonly hostWorkspaceDir?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -367,6 +410,9 @@ export function createSandboxProvider(config: SandboxProviderConfig): SandboxPro
 						? { maxProcesses: config.defaultMaxProcesses }
 						: {}),
 				...(perCall?.env !== undefined ? { env: perCall.env } : {}),
+				...(perCall?.hostWorkspaceDir !== undefined
+					? { hostWorkspaceDir: perCall.hostWorkspaceDir }
+					: {}),
 			})
 		},
 	}
@@ -376,6 +422,26 @@ function pickBackend(config: SandboxBackendConfig): SandboxBackend {
 	if (config.tier === 'container' && (config.runtime ?? 'docker') === 'docker') {
 		return buildDockerBackend({
 			image: config.image,
+			...(config.workspaceMount !== undefined
+				? { workspaceMount: config.workspaceMount }
+				: {}),
+			...(config.hostReachability !== undefined
+				? { hostReachability: config.hostReachability }
+				: {}),
+			...(config.network !== undefined ? { network: config.network } : {}),
+		})
+	}
+	if (config.tier === 'container' && config.runtime === 'runsc') {
+		return buildDockerBackend({
+			image: config.image,
+			runtime: 'runsc',
+			...(config.workspaceMount !== undefined
+				? { workspaceMount: config.workspaceMount }
+				: {}),
+			...(config.hostReachability !== undefined
+				? { hostReachability: config.hostReachability }
+				: {}),
+			...(config.network !== undefined ? { network: config.network } : {}),
 		})
 	}
 	throw new SandboxBackendNotImplementedError(describeBackend(config))
