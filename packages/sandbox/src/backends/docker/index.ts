@@ -72,6 +72,24 @@ export interface DockerBackendInternalConfig {
 	 * as the local-dev tier in the package README.
 	 */
 	readonly runtime?: 'runc' | 'runsc' | string
+	/**
+	 * How the SDK consumer reaches the in-container worker:
+	 *
+	 *  - `'host-port'` (default): publish the worker port on the
+	 *    host loopback (`127.0.0.1::<random>`) and connect by host
+	 *    port. Works when the SDK runs ON the docker host (CLI,
+	 *    direct dev). Backward-compatible — the original behaviour.
+	 *
+	 *  - `'container-network'`: skip `--publish` entirely, attach
+	 *    the spawned container to a shared docker bridge that the
+	 *    SDK consumer is also on, and connect by container DNS name
+	 *    (`http://<containerName>:2024`). Required when the SDK
+	 *    runs INSIDE a container (e.g. Vandal's app container
+	 *    spawning sibling sandbox containers via the host's Docker
+	 *    daemon — `127.0.0.1` inside the app is the app, not the
+	 *    sandbox). The shared bridge name comes from `config.network`.
+	 */
+	readonly hostReachability?: 'host-port' | 'container-network'
 }
 
 const DEFAULT_DOCKER_BINARY = 'docker'
@@ -104,6 +122,7 @@ async function spawnDockerSandbox(
 	const network = config.network ?? 'none'
 	const workspaceMount = config.workspaceMount ?? DEFAULT_WORKSPACE_MOUNT
 	const runtime = config.runtime
+	const hostReachability = config.hostReachability ?? 'host-port'
 	const containerName = `namzu-sandbox-${id}`
 
 	// Track resources so any failure path can clean them up. Codex
@@ -143,8 +162,6 @@ async function spawnDockerSandbox(
 			containerName,
 			'--network',
 			network,
-			'--publish',
-			`127.0.0.1::${WORKER_PORT_INSIDE_CONTAINER}`,
 			'--volume',
 			`${hostWorkspace}:${workspaceMount}`,
 			// Forward the in-container workspace path to the worker so
@@ -153,6 +170,15 @@ async function spawnDockerSandbox(
 			'--env',
 			`NAMZU_SANDBOX_WORKSPACE=${workspaceMount}`,
 		]
+
+		// Only publish a host port when the consumer is going to reach
+		// the worker through the docker host's loopback (CLI / direct
+		// dev). For `container-network` reachability we leave the port
+		// unpublished — sibling containers reach the worker by its DNS
+		// name on the shared bridge, no host port required.
+		if (hostReachability === 'host-port') {
+			args.push('--publish', `127.0.0.1::${WORKER_PORT_INSIDE_CONTAINER}`)
+		}
 
 		if (runtime) {
 			args.push('--runtime', runtime)
@@ -174,14 +200,25 @@ async function spawnDockerSandbox(
 		await runOnce(docker, args)
 		containerStarted = true
 
-		hostPort = await readMappedPort(docker, containerName)
-		baseUrl = `http://127.0.0.1:${hostPort}`
-
-		await waitForWorkerReady(
-			hostPort,
-			config.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS,
-			config.readyPollIntervalMs ?? DEFAULT_READY_POLL_MS,
-		)
+		if (hostReachability === 'host-port') {
+			hostPort = await readMappedPort(docker, containerName)
+			baseUrl = `http://127.0.0.1:${hostPort}`
+			await waitForWorkerReady(
+				baseUrl,
+				config.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS,
+				config.readyPollIntervalMs ?? DEFAULT_READY_POLL_MS,
+			)
+		} else {
+			// container-network: connect by container DNS name on the
+			// shared bridge. No host port to read; the SDK consumer is
+			// itself a container on the same bridge.
+			baseUrl = `http://${containerName}:${WORKER_PORT_INSIDE_CONTAINER}`
+			await waitForWorkerReady(
+				baseUrl,
+				config.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS,
+				config.readyPollIntervalMs ?? DEFAULT_READY_POLL_MS,
+			)
+		}
 	} catch (err) {
 		await cleanupOnFailure()
 		throw err
@@ -369,12 +406,16 @@ function generateSandboxId(): SandboxId {
 	return `sandbox_${Date.now().toString(36)}_${random}` as SandboxId
 }
 
-async function waitForWorkerReady(port: number, timeoutMs: number, pollMs: number): Promise<void> {
+async function waitForWorkerReady(
+	baseUrl: string,
+	timeoutMs: number,
+	pollMs: number,
+): Promise<void> {
 	const deadline = Date.now() + timeoutMs
 	let lastError: unknown
 	while (Date.now() < deadline) {
 		try {
-			const res = await fetch(`http://127.0.0.1:${port}/healthz`)
+			const res = await fetch(`${baseUrl}/healthz`)
 			if (res.ok) return
 			lastError = new Error(`healthz HTTP ${res.status}`)
 		} catch (err) {

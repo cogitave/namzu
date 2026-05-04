@@ -303,6 +303,18 @@ const server = http.createServer(async (req, res) => {
 	writeJson(res, 404, { error: 'not_found' })
 })
 
-server.listen(PORT, '127.0.0.1', () => {
-	console.log(`[namzu-sandbox-worker] listening on 127.0.0.1:${PORT} workspace=${WORKSPACE_ROOT}`)
+// Bind address picks `0.0.0.0` by default so a sibling container
+// (the Vandal app talking to a sandbox spawned via docker.sock on
+// the same host) can reach the worker over a docker bridge network.
+// Overridable via `NAMZU_SANDBOX_BIND` for the dev case where the
+// SDK consumer runs on the docker host itself and prefers loopback.
+//
+// Trust note: the container is the trust boundary. Listening on
+// `0.0.0.0` only matters at the network layer — the docker network
+// the worker is attached to is per-deployment policy (a bridge with
+// no internet egress, or a `network=none` mode where only docker
+// exec talks to the container at all).
+const BIND = process.env.NAMZU_SANDBOX_BIND || '0.0.0.0'
+server.listen(PORT, BIND, () => {
+	console.log(`[namzu-sandbox-worker] listening on ${BIND}:${PORT} workspace=${WORKSPACE_ROOT}`)
 })
