@@ -1,6 +1,6 @@
 {
   "name": "@namzu/sandbox",
-  "version": "0.0.0",
+  "version": "1.0.0",
   "description": "Pluggable sandbox provider for @namzu/sdk. Process-level isolation (bubblewrap on Linux, Seatbelt on macOS, via @anthropic-ai/sandbox-runtime) for developer dev loops; container-level isolation (HTTP worker + JWT-authenticated egress proxy) for multi-tenant production. Backend selected at construction time; the SDK consumes both through the same SandboxProvider interface.",
   "license": "FSL-1.1-MIT",
   "type": "module",
@@ -43,7 +43,7 @@
     "prepublishOnly": "pnpm lint && pnpm typecheck && pnpm build"
   },
   "peerDependencies": {
-    "@namzu/sdk": ">=0.1.6 <1.0.0"
+    "@namzu/sdk": ">=1.0.0"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",

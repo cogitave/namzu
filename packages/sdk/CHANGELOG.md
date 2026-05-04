@@ -1,5 +1,140 @@
 # Changelog
 
+## 1.0.0
+
+### Major Changes
+
+- df09910: fix(sdk)!: drop plan-task lifecycle from `buildAgentTool`
+
+  `buildAgentTool` used to auto-create a plan task in the supplied
+  `taskStore` and flip it to `'in_progress'` before invoking the
+  subagent. On success it flipped to `'completed'`, but on failure
+  the plan task was left stuck in `'in_progress'` forever — the
+  `TaskStatus` enum has no `'failed'` value to transition to, so
+  there was no honest way to close it from inside the tool.
+
+  Removed `taskStore` and `runId` from `AgentToolOptions` entirely.
+  The `Agent` tool's job is "invoke a subagent and return the
+  result"; plan-task tracking is the parent's responsibility via
+  `TaskCreate` / `TaskUpdate`, where the host owns the status
+  semantics. This avoids the leak class entirely instead of
+  patching it.
+
+  Breaking change for any consumer that was relying on the auto-
+  plan-task behaviour. Migrate by creating the plan task on the
+  host side before calling `Agent`, and updating it on the host
+  side once the tool result is in hand.
+
+- ea21863: feat(sdk)!: rename builtin tools to Claude Code canonical names
+
+  **Breaking change.** Builtin tool names now mirror Claude Code's canonical
+  tool table verbatim (per `code.claude.com/docs/en/tools-reference`):
+
+  - `bash` → `Bash`
+  - `edit` → `Edit`
+  - `glob` → `Glob`
+  - `grep` → `Grep`
+  - `read_file` → `Read`
+  - `write_file` → `Write`
+
+  `LsTool` and `SearchToolsTool` are still exported but **removed from the
+  default `getBuiltinTools()` set**. Claude Code's training distribution
+  does not include `LS` (directory listing is `Bash` + `Glob`) and has no
+  `search_tools` analogue at all. Including them in the defaults gave the
+  model two tools that looked right but degraded alignment. Hosts that
+  genuinely want either can register them explicitly.
+
+  Why this is breaking and worth it: Namzu is a peer to Claude Code's
+  native agentic surface, not a wrapper around the Anthropic Beta Agents
+  API. Mirroring the canonical names verbatim means Claude's pretrained
+  agentic instincts apply for free — no system-prompt argument needed to
+  explain what `Read` or `Bash` does. Idiosyncratic snake_case names threw
+  that alignment away on every call.
+
+  **Migration:** consumers that hard-code tool-name strings in their
+  prompt overlays, friendly-label maps, or per-tool deny rules need to
+  update them to the new PascalCase names. The runtime registry contracts
+  (register / get / has) are unchanged; only the literal string names of
+  the builtin tools moved.
+
+### Minor Changes
+
+- 542f057: feat(sdk): canonical `Agent` tool for synchronous subagent delegation
+
+  Adds `buildAgentTool({ gateway, workingDirectory, allowedAgentIds, ... })`
+  that builds a single tool named `Agent` with the input shape
+  `{ description, prompt, subagent_type }`. This mirrors Claude Code's
+  training distribution verbatim (per `code.claude.com/docs/en/sub-agents`):
+  the parent's tool call BLOCKS on `gateway.waitForTask(handle.taskId)`,
+  the subagent runs in its own context window, and the subagent's final
+  text comes back as the tool result.
+
+  Why this matters: the existing `buildCoordinatorTools` shipped a
+  non-blocking `create_task` / `continue_task` / `cancel_task` trio that
+  returned immediately and surfaced subagent completion via a
+  `<task-notification>` callback. That pattern is useful for fire-and-
+  forget multi-task fan-out but is **not** what Claude was trained on.
+  Models calling the async coordinator tools waste tokens reasoning
+  about whether the task completed yet; with the canonical `Agent`
+  tool, the model just receives the result and continues. Free
+  alignment, no system-prompt argument needed.
+
+  Both surfaces remain available — the coordinator trio is the right
+  choice for genuine work-queue surfaces, the `Agent` tool is the
+  right choice when the host wants Claude Code parity.
+
+- 265150b: feat(sdk): default sandboxed verification gate preset + expanded brick-pattern denylist
+
+  Ship `defaultSandboxedGateConfig()` and `defaultSandboxedShellGateConfig()` from `@namzu/sdk` so
+  hosts running an agent inside an isolated workspace don't have to hand-roll a `VerificationRule[]`
+  just to keep in-sandbox file mutation from triggering a review prompt on every call. The first
+  preset auto-allows read-only tools and `category: 'filesystem' | 'analysis' | 'custom'`; the
+  second extends auto-allow to `category: 'shell'` for hosts with real OS-level isolation. Both
+  keep the dangerous-patterns hard-deny in place.
+
+  `DANGEROUS_PATTERNS` (consumed by the `deny_dangerous_patterns` rule) gains entries for `sudo`,
+  `su -`, world-writable `chmod 777 /`, `curl|sh` / `wget|sh` exfil-then-exec pipes, outbound
+  `ssh user@host`, and raw dynamic `eval`. The list is still high-signal, not exhaustive — the
+  README in `verification/presets.ts` is explicit that the sandbox itself is the safety boundary
+  and the patterns only catch blatant attempts.
+
+- a71422a: feat(sdk): ReactiveAgent forwards verificationGate to drainQuery
+
+  Adds an optional `verificationGate?: VerificationGateConfig` field on
+  `ReactiveAgentConfig` and forwards it through `ReactiveAgent.run()` into
+  `drainQuery`, mirroring the existing `SupervisorAgentConfig.verificationGate`
+  plumbing. Without this, child agents running under `ReactiveAgent` could not
+  opt into the same capability-aware deny/allow rules the supervisor already
+  uses — the only path was `drainQuery`'s `autoApproveHandler` default, which
+  approves every tool call silently. Hosts that want defense-in-depth at the
+  child level (deny dangerous shell patterns, restrict by category) can now
+  pass the same preset they pass to the supervisor.
+
+### Patch Changes
+
+- 140bcc0: fix(sdk): Agent tool no longer reports failed subagents as successful
+
+  `buildAgentTool` was treating `gateway.waitForTask(handle.taskId)`'s
+  returned `state === 'completed'` as proof of success and ignoring
+  the underlying `BaseAgentResult.status`. That was wrong: some
+  gateways (the SDK's `LocalTaskGateway` for one) forward
+  `task.state` directly from the agent manager without re-deriving it
+  from the run's `status`, so a subagent run with `status: 'failed'`
+  plus a non-empty `lastError` could surface as `state: 'completed'`
+  and fool the parent into receiving `success: true` with garbage
+  output.
+
+  The check now requires BOTH layers to agree before reporting
+  success: gateway state must be `'completed'` AND the run's
+  `BaseAgentResult.status` (when present) must be `'completed'`. On
+  failure the tool surfaces `lastError` and the disagreement state in
+  both `error` and `data` so the parent can debug.
+
+  Adds three pinned cases in
+  `packages/sdk/src/tools/coordinator/__tests__/agent.test.ts`
+  covering: both-agree-success, run-status-failed-but-state-completed
+  (the regression case), and gateway-state-failed.
+
 ## 0.6.0
 
 ### Minor Changes

@@ -1,6 +1,6 @@
 {
   "name": "@namzu/openrouter",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "description": "OpenRouter LLM provider for @namzu/sdk. Access to 200+ models (Claude, GPT-4, Llama, Mixtral) via OpenRouter's unified API.",
   "license": "FSL-1.1-MIT",
   "type": "module",
@@ -45,7 +45,7 @@
   },
   "dependencies": {},
   "peerDependencies": {
-    "@namzu/sdk": ">=0.1.6 <1.0.0"
+    "@namzu/sdk": ">=1.0.0"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",

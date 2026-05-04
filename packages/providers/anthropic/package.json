@@ -1,6 +1,6 @@
 {
   "name": "@namzu/anthropic",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "description": "Anthropic LLM provider for @namzu/sdk via the official @anthropic-ai/sdk. Messages API with streaming, tool-use, and extended thinking support.",
   "license": "FSL-1.1-MIT",
   "type": "module",
@@ -47,7 +47,7 @@
     "@anthropic-ai/sdk": "^0.89.0"
   },
   "peerDependencies": {
-    "@namzu/sdk": ">=0.1.6 <1.0.0"
+    "@namzu/sdk": ">=1.0.0"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
