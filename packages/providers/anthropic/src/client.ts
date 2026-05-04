@@ -294,7 +294,54 @@ export class AnthropicProvider implements LLMProvider {
 		// fragments can reference the right tool call.
 		const activeTools = new Map<number, { id: string; name: string }>()
 
-		for await (const event of stream) {
+		// Anthropic Messages API streams over SSE. Live debugging surfaced
+		// runs where the upstream SSE went silent for > 1 hour without
+		// returning a `message_stop` or throwing — `for await (event of
+		// stream)` blocks forever, and the SDK's overall request `timeout`
+		// option is per-call, not per-event.
+		//
+		// Treat sustained silence as a transport error so the higher
+		// layers' existing terminal markers fire naturally:
+		//   provider yields error → SDK iteration catches →
+		//   `ResultAssembler.handleError` emits `run_failed` →
+		//   `supervisor.run()` rejects → outer runtime settles status to
+		//   'terminated'. We are not adding a watchdog at the supervisor
+		//   level; we are making the provider correctly recognize a
+		//   stalled HTTP/2 SSE as a failure, which is the boundary where
+		//   the network condition is observable.
+		//
+		// On timeout we also call `iter.return()` so the underlying
+		// HTTP/2 connection is released instead of leaking until the OS
+		// times it out — Codex's audit flagged the bare-timer version
+		// as correct-but-leaky.
+		const STREAM_IDLE_TIMEOUT_MS = 90_000
+		const iter = (stream as AsyncIterable<StreamEvent>)[Symbol.asyncIterator]()
+		const nextWithIdleTimeout = async (): Promise<IteratorResult<StreamEvent>> => {
+			let timer: ReturnType<typeof setTimeout> | undefined
+			try {
+				return await Promise.race([
+					iter.next(),
+					new Promise<IteratorResult<StreamEvent>>((_, reject) => {
+						timer = setTimeout(() => {
+							reject(
+								new Error(
+									`Anthropic stream idle for ${Math.round(STREAM_IDLE_TIMEOUT_MS / 1000)}s — aborting so the run lifecycle can emit run_failed.`,
+								),
+							)
+						}, STREAM_IDLE_TIMEOUT_MS)
+					}),
+				])
+			} finally {
+				if (timer !== undefined) clearTimeout(timer)
+			}
+		}
+
+		try {
+			for (;;) {
+				const result = await nextWithIdleTimeout()
+				if (result.done) break
+				const event = result.value
+				{
 			try {
 				switch (event.type) {
 					case 'message_start': {
@@ -405,6 +452,15 @@ export class AnthropicProvider implements LLMProvider {
 					error: `Stream event error: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
 				}
 			}
+			}
+		}
+		} finally {
+			// Always release the underlying HTTP/2 connection — both on
+			// idle-timeout rejection (bubbling up) and on normal stream
+			// end (`message_stop` returned out of the loop). Leaving
+			// the SSE connection open until OS-level timeout was the
+			// gap Codex called out.
+			await iter.return?.().catch(() => undefined)
 		}
 	}
 
