@@ -134,7 +134,30 @@ async function* streamProviderTurn(
 	}
 	const toolBuckets = new Map<
 		number,
-		{ id: string; name: string; argsBuf: string; started: boolean; completed: boolean }
+		{
+			id: string
+			name: string
+			argsBuf: string
+			started: boolean
+			completed: boolean
+			/**
+			 * Parsed input. `null` while the bucket is still streaming or
+			 * when the buffered JSON could not be parsed (e.g. the model
+			 * hit `max_tokens` mid-`input_json_delta` and the SSE stream
+			 * ended without closing the JSON literal). The synthesized
+			 * `ChatCompletionResponse.toolCalls[].function.arguments` is
+			 * derived from this — never from the raw buffer — so the
+			 * downstream executor (`runtime/query/executor.ts`) never has
+			 * to re-parse a truncated string. A truncated tool call is
+			 * surfaced as `arguments: "{}"` so the executor's
+			 * `JSON.parse` succeeds and the tool runs against the empty
+			 * object, which the tool's own zod schema then rejects with
+			 * a clear "<field> is required" error rather than the
+			 * generic "Invalid JSON in tool arguments" Codex M2 fix
+			 * intercept.
+			 */
+			parsed: unknown | null
+		}
 	>()
 	let streamError: string | undefined
 
@@ -169,6 +192,7 @@ async function* streamProviderTurn(
 						argsBuf: '',
 						started: false,
 						completed: false,
+						parsed: null,
 					}
 					toolBuckets.set(tc.index, bucket)
 				}
@@ -224,6 +248,7 @@ async function* streamProviderTurn(
 							error: err instanceof Error ? err.message : String(err),
 						})
 					}
+					bucket.parsed = parsed
 					await emitEvent({
 						type: 'tool_input_completed',
 						runId,
@@ -242,7 +267,17 @@ async function* streamProviderTurn(
 	}
 
 	// Flush any tool buckets the provider failed to close (no toolCallEnd
-	// arrived — defensive against providers that don't yet emit it).
+	// arrived — defensive against providers that don't yet emit it, and
+	// the load-bearing path when the provider stream ends with
+	// `stop_reason: "max_tokens"` mid-`input_json_delta`. In that case
+	// Anthropic's SSE never sends `content_block_stop` for the open
+	// tool_use block: the upstream model ran out of completion tokens
+	// before it could close the JSON literal, so the buffered
+	// `argsBuf` ends with something like `"content":"…some prefix` —
+	// not parseable. Leaving `parsed = {}` here means
+	// `ChatCompletionResponse.toolCalls[].function.arguments` is
+	// `"{}"` (valid JSON) instead of the truncated buffer, which is
+	// what the executor sees next.
 	for (const bucket of toolBuckets.values()) {
 		if (bucket.started && !bucket.completed) {
 			bucket.completed = true
@@ -252,6 +287,7 @@ async function* streamProviderTurn(
 			} catch {
 				// leave parsed = {}
 			}
+			bucket.parsed = parsed
 			await emitEvent({
 				type: 'tool_input_completed',
 				runId,
@@ -281,12 +317,26 @@ async function* streamProviderTurn(
 		throw new Error(`Provider stream error: ${streamError}`)
 	}
 
+	// `arguments` MUST be valid JSON for the executor's `JSON.parse`
+	// (`runtime/query/executor.ts:executeSingle`) to succeed. We
+	// always serialise from the bucket's `parsed` object (filled by
+	// either the `toolCallEnd` branch above or the post-stream flush
+	// loop) instead of re-emitting `argsBuf`. When the provider
+	// stream truncated mid-input (Anthropic `stop_reason: "max_tokens"`),
+	// `parsed` is `{}` — the executor still parses cleanly and the
+	// tool's input zod schema rejects the empty payload with a
+	// readable per-field error, instead of the executor's generic
+	// "Invalid JSON in tool arguments" intercept that left the model
+	// with no actionable signal.
 	const toolCalls = [...toolBuckets.entries()]
 		.sort(([a], [b]) => a - b)
 		.map(([, b]) => ({
 			id: b.id,
 			type: 'function' as const,
-			function: { name: b.name, arguments: b.argsBuf },
+			function: {
+				name: b.name,
+				arguments: JSON.stringify(b.parsed ?? {}),
+			},
 		}))
 
 	const response: ChatCompletionResponse = {

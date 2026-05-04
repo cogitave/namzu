@@ -135,23 +135,59 @@ async function handleExecute(req, res) {
 		return
 	}
 
-	const cwd = body.cwd ? resolveWithinWorkspace(body.cwd, WORKSPACE_ROOT) : WORKSPACE_ROOT
+	// Resolve `cwd` and pre-create it BEFORE we commit to the streaming
+	// 200 NDJSON response: both calls can throw (`resolveWithinWorkspace`
+	// rejects a host path that escapes the container workspace, and
+	// `fs.mkdir` can fail for permission / EROFS / ENOSPC). Without this
+	// guard the rejection bubbles out of the http callback, becomes an
+	// unhandled promise rejection, and on Node ≥ 15 with the default
+	// `unhandledRejection: throw` policy it terminates the worker
+	// process. The container exits 1 (`--rm` GCs it), the host's next
+	// `fetch` gets `UND_ERR_SOCKET` ("other side closed") and reports
+	// it as the bare "fetch failed" the cowork transcripts surfaced —
+	// every subsequent tool call in the same supervisor.run() then
+	// hits the same dead DNS name and looks like a sandbox-runtime bug
+	// when the trigger was a single bad input on a single endpoint.
+	let cwd
+	try {
+		cwd = body.cwd ? resolveWithinWorkspace(body.cwd, WORKSPACE_ROOT) : WORKSPACE_ROOT
+	} catch (err) {
+		writeJson(res, 400, { error: 'invalid_cwd', message: err.message })
+		return
+	}
 	const timeoutMs = Number(body.timeoutMs) || DEFAULT_TIMEOUT_MS
 	const maxOutputBytes = Number(body.maxOutputBytes) || DEFAULT_MAX_OUTPUT_BYTES
 	const start = Date.now()
 
-	await fs.mkdir(cwd, { recursive: true })
+	try {
+		await fs.mkdir(cwd, { recursive: true })
+	} catch (err) {
+		writeJson(res, 400, { error: 'mkdir_failed', message: err.message })
+		return
+	}
 
 	res.writeHead(200, {
 		'content-type': 'application/x-ndjson; charset=utf-8',
 		'cache-control': 'no-store',
 	})
 
-	const child = spawn(body.command, Array.isArray(body.args) ? body.args : [], {
-		cwd,
-		env: { ...process.env, ...(body.env || {}) },
-		stdio: [body.stdin === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
-	})
+	let child
+	try {
+		child = spawn(body.command, Array.isArray(body.args) ? body.args : [], {
+			cwd,
+			env: { ...process.env, ...(body.env || {}) },
+			stdio: [body.stdin === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
+		})
+	} catch (err) {
+		// `spawn` throws synchronously for pathologies like an empty
+		// command name or an env that contains a `=` in its key.
+		// Headers are already on the wire (NDJSON 200), so we cannot
+		// downgrade to 400 — emit a terminal `error` event and end
+		// the stream like the `child.on('error', …)` path below.
+		writeEvent(res, { type: 'error', error: err.message })
+		res.end()
+		return
+	}
 
 	if (body.stdin !== undefined && child.stdin) {
 		child.stdin.end(String(body.stdin))
@@ -284,23 +320,56 @@ async function handleWriteFile(req, res) {
 }
 
 const server = http.createServer(async (req, res) => {
-	if (req.method === 'GET' && req.url === '/healthz') {
-		writeJson(res, 200, { ok: true })
-		return
+	try {
+		if (req.method === 'GET' && req.url === '/healthz') {
+			writeJson(res, 200, { ok: true })
+			return
+		}
+		if (req.method === 'POST' && req.url === '/execute') {
+			await handleExecute(req, res)
+			return
+		}
+		if (req.method === 'POST' && req.url === '/read-file') {
+			await handleReadFile(req, res)
+			return
+		}
+		if (req.method === 'POST' && req.url === '/write-file') {
+			await handleWriteFile(req, res)
+			return
+		}
+		writeJson(res, 404, { error: 'not_found' })
+	} catch (err) {
+		// Last-line-of-defence: ANY async path that throws past the
+		// per-handler try/catch must not be allowed to crash the
+		// worker. The container is single-tenant per task; a process
+		// exit kills every in-flight supervisor + child agent that
+		// shared the cached sandbox handle, and they all fail with
+		// the misleading bare `fetch failed`. Respond if the headers
+		// are still inflight; otherwise log and drop — the host will
+		// see a socket close on that one request and retry whatever
+		// it was doing, but the next request lands on a still-alive
+		// worker.
+		console.error('[namzu-sandbox-worker] uncaught handler error:', err && err.stack ? err.stack : err)
+		try {
+			if (!res.headersSent) {
+				writeJson(res, 500, { error: 'internal', message: err && err.message ? err.message : String(err) })
+			} else {
+				try { res.end() } catch {}
+			}
+		} catch {}
 	}
-	if (req.method === 'POST' && req.url === '/execute') {
-		await handleExecute(req, res)
-		return
-	}
-	if (req.method === 'POST' && req.url === '/read-file') {
-		await handleReadFile(req, res)
-		return
-	}
-	if (req.method === 'POST' && req.url === '/write-file') {
-		await handleWriteFile(req, res)
-		return
-	}
-	writeJson(res, 404, { error: 'not_found' })
+})
+
+// Defence-in-depth process-level handlers: log loudly if something
+// slips past every try/catch, but DO NOT exit the worker. The
+// Anthropic-side retry path treats a single 500 / 502 as transient,
+// while a process exit produces the catastrophic "every subsequent
+// tool call fetch fails because the container is gone" pattern.
+process.on('unhandledRejection', (err) => {
+	console.error('[namzu-sandbox-worker] unhandledRejection:', err && err.stack ? err.stack : err)
+})
+process.on('uncaughtException', (err) => {
+	console.error('[namzu-sandbox-worker] uncaughtException:', err && err.stack ? err.stack : err)
 })
 
 // Bind address picks `0.0.0.0` by default so a sibling container

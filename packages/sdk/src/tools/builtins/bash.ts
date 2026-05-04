@@ -39,11 +39,26 @@ export const BashTool = defineTool({
 			}
 		}
 
-		// Sandbox-aware: route through sandbox.exec() when available
+		// Sandbox-aware: route through sandbox.exec() when available.
+		//
+		// `context.workingDirectory` is the HOST-side workspace path the
+		// SDK consumer chose for the run (Vandal: `/var/lib/vandal/sessions/<task>`),
+		// which is meaningless inside the sandbox container. Forwarding
+		// it as `cwd` would either land on a path that doesn't exist
+		// (and the worker would `mkdir -p` it inside the container,
+		// silently divorcing the model's filesystem view from where its
+		// deliverables actually need to land) or, in the case of the
+		// `container:docker` worker, fail the workspace-confinement
+		// guard outright. The right behaviour is to let the worker
+		// fall through to its own default (`NAMZU_SANDBOX_WORKSPACE`
+		// → the per-task mount root the host configured at provider
+		// construction time). Tools that need a sub-cwd inside the
+		// sandbox can be added later as an explicit
+		// `SandboxExecOptions.workspaceRelativeCwd` field; the bash
+		// builtin doesn't have that requirement today.
 		if (context.sandbox) {
 			const result = await context.sandbox.exec('/bin/sh', ['-c', input.command], {
 				timeout: input.timeout,
-				cwd: context.workingDirectory,
 				env: context.env,
 			})
 

@@ -258,15 +258,30 @@ async function spawnDockerSandbox(
 
 		async writeFile(path: string, content: string | Buffer): Promise<void> {
 			const buf = Buffer.isBuffer(content) ? content : Buffer.from(content, 'utf8')
-			const res = await fetch(`${baseUrl}/write-file`, {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({
-					path,
-					content: buf.toString('base64'),
-					encoding: 'base64',
-				}),
-			})
+			let res: Response
+			try {
+				res = await fetch(`${baseUrl}/write-file`, {
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({
+						path,
+						content: buf.toString('base64'),
+						encoding: 'base64',
+					}),
+				})
+			} catch (err) {
+				const cause = err instanceof Error ? err.cause : undefined
+				const causeMsg =
+					cause instanceof Error
+						? `${cause.message}${(cause as Error & { code?: string }).code ? ` (${(cause as Error & { code?: string }).code})` : ''}`
+						: cause
+							? String(cause)
+							: 'unknown'
+				throw new Error(
+					`namzu-sandbox /write-file fetch failed (baseUrl=${baseUrl}, path=${path}): ${err instanceof Error ? err.message : String(err)} — cause: ${causeMsg}`,
+					{ cause: err },
+				)
+			}
 			if (!res.ok) {
 				throw new Error(`write-file failed: HTTP ${res.status} ${await res.text()}`)
 			}
@@ -330,17 +345,36 @@ async function execViaWorker(
 	opts: SandboxExecOptions | undefined,
 ): Promise<SandboxExecResult> {
 	const start = Date.now()
-	const res = await fetch(`${baseUrl}/execute`, {
-		method: 'POST',
-		headers: { 'content-type': 'application/json' },
-		body: JSON.stringify({
-			command,
-			args: argv ?? [],
-			cwd: opts?.cwd,
-			env: opts?.env,
-			timeoutMs: opts?.timeout,
-		}),
-	})
+	let res: Response
+	try {
+		res = await fetch(`${baseUrl}/execute`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({
+				command,
+				args: argv ?? [],
+				cwd: opts?.cwd,
+				env: opts?.env,
+				timeoutMs: opts?.timeout,
+			}),
+		})
+	} catch (err) {
+		// Surface the underlying transport error (DNS, ECONNREFUSED,
+		// socket-hangup, …) instead of the generic "fetch failed" the
+		// undici client throws. Without `cause`, ops cannot tell whether
+		// the worker died, the bridge dropped, or something else.
+		const cause = err instanceof Error ? err.cause : undefined
+		const causeMsg =
+			cause instanceof Error
+				? `${cause.message}${(cause as Error & { code?: string }).code ? ` (${(cause as Error & { code?: string }).code})` : ''}`
+				: cause
+					? String(cause)
+					: 'unknown'
+		throw new Error(
+			`namzu-sandbox /execute fetch failed (baseUrl=${baseUrl}): ${err instanceof Error ? err.message : String(err)} — cause: ${causeMsg}`,
+			{ cause: err },
+		)
+	}
 	if (!res.ok || !res.body) {
 		throw new Error(`execute failed: HTTP ${res.status} ${await res.text()}`)
 	}
