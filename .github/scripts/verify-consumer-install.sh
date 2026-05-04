@@ -41,6 +41,7 @@ trap cleanup EXIT
 echo "=== Packing publishable Namzu packages ==="
 PUBLISHABLE=(
   sdk
+  sandbox
   telemetry
   computer-use
   providers/anthropic
@@ -69,10 +70,12 @@ echo "=== Consumer install dry-run (SDK + each dependent) ==="
 cd "$CONSUMER_DIR"
 npm init -y >/dev/null
 
-# All dependents of SDK: 7 providers + computer-use. They all declare SDK in
-# peerDependencies at ">=0.1.6 <1.0.0"; the install will fail with ERESOLVE
-# if any of the bumped versions falls outside that range.
-DEPENDENTS=(anthropic bedrock computer-use http lmstudio ollama openai openrouter)
+# All dependents of SDK: 7 providers + computer-use + sandbox. They all
+# declare SDK in peerDependencies at ">=0.1.6 <1.0.0"; the install will
+# fail with ERESOLVE if any of the bumped versions falls outside that
+# range. `sandbox` was added in ses_005 alongside the multi-mount layout
+# work — its peer-range drift would block Vandal-side migration.
+DEPENDENTS=(anthropic bedrock computer-use http lmstudio ollama openai openrouter sandbox)
 
 for dep in "${DEPENDENTS[@]}"; do
   echo ""
@@ -89,7 +92,82 @@ for dep in "${DEPENDENTS[@]}"; do
 done
 
 echo ""
-echo "✅ Consumer install verified for all 8 SDK-dependent packages"
+echo "✅ Consumer install verified for all 9 SDK-dependent packages"
+
+# ---------------------------------------------------------------------------
+# @namzu/sandbox public-surface fixture (ses_005-sandbox-multi-mount-layout).
+# ---------------------------------------------------------------------------
+#
+# Vandal Cowork imports `SANDBOX_DEFAULT_OUTPUTS_PATH` and the
+# `ContainerSandboxLayout` type by name from `@namzu/sandbox` (and via the
+# SDK root barrel). The package.json `exports` map only exposes `"."`;
+# subpath imports like `@namzu/sandbox/dist/index.js` would bypass the
+# guarded surface and `@namzu/sdk/constants/sandbox` would fail outright.
+# This assertion verifies the packed tarball's shape matches the workspace
+# build by importing the public path from a clean install and checking
+# every constant comes back with the documented value.
+
+echo ""
+echo "=== @namzu/sandbox public-surface fixture ==="
+
+SANDBOX_TARBALL=$(ls "$PACK_DIR"/namzu-sandbox-*.tgz | head -1)
+test -f "$SANDBOX_TARBALL" || { echo "    ✗ Missing sandbox tarball in $PACK_DIR"; exit 1; }
+
+rm -rf node_modules package-lock.json
+npm install --no-fund --no-audit --silent "$SDK_TARBALL" "$SANDBOX_TARBALL"
+
+cat > assert-sandbox-public-surface.mjs <<'EOF'
+import * as sandbox from '@namzu/sandbox'
+import * as sdk from '@namzu/sdk'
+
+const expected = {
+  SANDBOX_DEFAULT_OUTPUTS_PATH: '/mnt/user-data/outputs',
+  SANDBOX_DEFAULT_UPLOADS_PATH: '/mnt/user-data/uploads',
+  SANDBOX_DEFAULT_TOOL_RESULTS_PATH: '/mnt/user-data/tool_results',
+  SANDBOX_DEFAULT_TRANSCRIPTS_PATH: '/mnt/transcripts',
+  SANDBOX_DEFAULT_SKILLS_PARENT: '/mnt/skills',
+}
+
+const failures = []
+for (const [name, value] of Object.entries(expected)) {
+  if (sandbox[name] !== value) {
+    failures.push(`@namzu/sandbox.${name} = ${JSON.stringify(sandbox[name])}, expected ${JSON.stringify(value)}`)
+  }
+  if (sdk[name] !== value) {
+    failures.push(`@namzu/sdk.${name} = ${JSON.stringify(sdk[name])}, expected ${JSON.stringify(value)}`)
+  }
+}
+
+// Runtime classes / functions exported from @namzu/sandbox.
+const expectedRuntime = ['createSandboxProvider', 'ContainerSandboxLayoutValidationError', 'serializeSandboxError', 'SandboxBackendNotImplementedError']
+for (const name of expectedRuntime) {
+  if (sandbox[name] === undefined) {
+    failures.push(`@namzu/sandbox.${name} is undefined`)
+  }
+}
+
+// `serializeSandboxError` smoke: a layout-validation error survives JSON
+// round-trip with reasons preserved. Catches a shape regression in the
+// packed tarball that the workspace tests would not see.
+const err = new sandbox.ContainerSandboxLayoutValidationError(['x', 'y'])
+const wire = JSON.parse(JSON.stringify(sandbox.serializeSandboxError(err)))
+if (wire.name !== 'ContainerSandboxLayoutValidationError') {
+  failures.push(`serialized name = ${wire.name}, expected ContainerSandboxLayoutValidationError`)
+}
+if (!Array.isArray(wire.reasons) || wire.reasons.length !== 2) {
+  failures.push(`serialized reasons = ${JSON.stringify(wire.reasons)}, expected 2-item array`)
+}
+
+if (failures.length > 0) {
+  console.error('✗ @namzu/sandbox public-surface check failed:')
+  for (const f of failures) console.error('  - ' + f)
+  process.exit(1)
+}
+
+console.log('✅ @namzu/sandbox public surface intact: 5 constants + ' + expectedRuntime.length + ' runtime exports + serializeSandboxError JSON round-trip')
+EOF
+
+node assert-sandbox-public-surface.mjs
 
 # ---------------------------------------------------------------------------
 # @namzu/telemetry two-assertion fixture (ses_004-sdk-dependency-diet §5.1).

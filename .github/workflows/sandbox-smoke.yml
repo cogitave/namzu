@@ -1,0 +1,85 @@
+name: Sandbox smoke
+
+# Docker integration smoke tests for `@namzu/sandbox`. Builds the
+# reference worker image (`packages/sandbox/worker/Dockerfile`) and
+# exercises the leaf-permission contract from
+# `src/backends/docker/__tests__/leaf-permissions.smoke.test.ts`.
+#
+# Why a dedicated workflow rather than the main CI: docker builds
+# are heavy (Debian Bookworm + LibreOffice + Chromium + Python data
+# stack) and only pay for themselves when the sandbox package or
+# Dockerfile changes. The path filter restricts the trigger to
+# changes that could affect the smoke surface; everything else
+# stays on the lighter `ci.yml` matrix.
+#
+# `process.env.CI === 'true'` flips the smoke test from
+# self-skipping to fail-fast — see the docstring at the top of
+# `leaf-permissions.smoke.test.ts`.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'packages/sandbox/**'
+      - 'packages/sdk/src/types/sandbox/**'
+      - 'packages/sdk/src/constants/sandbox/**'
+      - '.github/workflows/sandbox-smoke.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'packages/sandbox/**'
+      - 'packages/sdk/src/types/sandbox/**'
+      - 'packages/sdk/src/constants/sandbox/**'
+      - '.github/workflows/sandbox-smoke.yml'
+
+concurrency:
+  group: sandbox-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Docker smoke
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - uses: pnpm/action-setup@v5
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build SDK + sandbox
+        run: |
+          pnpm --filter @namzu/sdk build
+          pnpm --filter @namzu/sandbox build
+
+      - name: Verify docker is reachable
+        run: docker version --format '{{.Server.Version}}'
+
+      - name: Build reference sandbox image
+        # The Dockerfile under packages/sandbox/worker is the
+        # default reference image consumers spawn. Building it here
+        # exercises the same leaf-permission strategy that the
+        # smoke test then verifies: parent dirs root-owned 0555,
+        # leaves not pre-created.
+        run: |
+          docker build \
+            --tag namzu-sandbox-worker:smoke \
+            --file packages/sandbox/worker/Dockerfile \
+            packages/sandbox
+
+      - name: Smoke test
+        env:
+          CI: 'true'
+          NAMZU_SANDBOX_SMOKE_IMAGE: namzu-sandbox-worker:smoke
+        run: pnpm sandbox:smoke

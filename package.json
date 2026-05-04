@@ -11,6 +11,7 @@
     "lint": "pnpm -r lint",
     "lint:fix": "pnpm -r lint:fix",
     "test": "pnpm -r test",
+    "sandbox:smoke": "pnpm --filter @namzu/sandbox test:smoke",
     "typecheck": "tsc --build",
     "namzu": "tsx packages/cli/src/bin.ts",
     "api": "tsx packages/api/src/server.ts",

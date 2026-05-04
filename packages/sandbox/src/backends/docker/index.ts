@@ -22,44 +22,53 @@
  */
 
 import { spawn } from 'node:child_process'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 
-import type {
-	Sandbox,
-	SandboxEnvironment,
-	SandboxExecOptions,
-	SandboxExecResult,
-	SandboxId,
-	SandboxStatus,
+import {
+	type ContainerSandboxLayout,
+	type ResolvedContainerSandboxLayout,
+	SANDBOX_DEFAULT_OUTPUTS_PATH,
+	SANDBOX_DEFAULT_SKILLS_PARENT,
+	SANDBOX_DEFAULT_TOOL_RESULTS_PATH,
+	SANDBOX_DEFAULT_TRANSCRIPTS_PATH,
+	SANDBOX_DEFAULT_UPLOADS_PATH,
+	type Sandbox,
+	type SandboxEnvironment,
+	type SandboxExecOptions,
+	type SandboxExecResult,
+	type SandboxId,
+	type SandboxStatus,
 } from '@namzu/sdk'
 
-import type { SandboxBackend, SandboxBackendOptions } from '../../index.js'
+import {
+	ContainerSandboxLayoutValidationError,
+	type SandboxBackend,
+	type SandboxBackendOptions,
+} from '../../index.js'
 
 /**
  * Backend-specific tuning. Most hosts use the defaults; advanced
  * deployments override `image` to point at their own pre-built
  * image, or pin `dockerBinary` for non-standard installs.
+ *
+ * The container's mount layout is baked in at provider construction
+ * via {@link DockerBackendInternalConfig.layout} — every `create()`
+ * call inherits the same layout. This is by design: per-task hosts
+ * call `createSandboxProvider` once per task, with that task's
+ * layout. There is no per-call layout argument, so the SDK runtime
+ * cannot accidentally call a docker provider without one.
  */
 export interface DockerBackendInternalConfig {
 	readonly image: string
+	/**
+	 * Pre-resolved layout. Construction-time `resolveLayout` validates
+	 * and applies defaults; the docker backend renders mount flags
+	 * directly from this without re-validating.
+	 */
+	readonly layout: ResolvedContainerSandboxLayout
 	readonly dockerBinary?: string
 	readonly network?: 'none' | 'bridge' | string
 	readonly readyPollIntervalMs?: number
 	readonly readyTimeoutMs?: number
-	/**
-	 * Path inside the container that the host workspace bind-mounts
-	 * onto. Defaults to `/workspace` to match the worker image; hosts
-	 * that need a different convention (e.g. Vandal mirrors Anthropic
-	 * Managed Agents' `/mnt/session` so model training-time intuition
-	 * about where to write deliverables matches the local runtime
-	 * without prompt-side steering) override this. The same path is
-	 * forwarded to the in-container worker via the
-	 * `NAMZU_SANDBOX_WORKSPACE` env var so the worker's own resolver
-	 * agrees with the bind mount.
-	 */
-	readonly workspaceMount?: string
 	/**
 	 * Docker runtime to launch the container under. Default `runc`
 	 * (vanilla Docker namespaces, what Docker Desktop ships). Linux
@@ -95,7 +104,6 @@ export interface DockerBackendInternalConfig {
 const DEFAULT_DOCKER_BINARY = 'docker'
 const DEFAULT_READY_POLL_MS = 100
 const DEFAULT_READY_TIMEOUT_MS = 30_000
-const DEFAULT_WORKSPACE_MOUNT = '/workspace'
 const WORKER_PORT_INSIDE_CONTAINER = 2024
 
 /**
@@ -107,7 +115,7 @@ export function buildDockerBackend(config: DockerBackendInternalConfig): Sandbox
 	return {
 		tier: 'container',
 		name: 'docker',
-		async create(options) {
+		async create(options: SandboxBackendOptions) {
 			return await spawnDockerSandbox(config, options)
 		},
 	}
@@ -117,59 +125,35 @@ async function spawnDockerSandbox(
 	config: DockerBackendInternalConfig,
 	options: SandboxBackendOptions,
 ): Promise<Sandbox> {
+	const resolvedLayout = config.layout
 	const id = generateSandboxId()
 	const docker = config.dockerBinary ?? DEFAULT_DOCKER_BINARY
 	const network = config.network ?? 'none'
-	const workspaceMount = config.workspaceMount ?? DEFAULT_WORKSPACE_MOUNT
 	const runtime = config.runtime
 	const hostReachability = config.hostReachability ?? 'host-port'
 	const containerName = `namzu-sandbox-${id}`
 
-	// Track resources so any failure path can clean them up. Codex
-	// stop-time review caught that the original create path leaked
-	// `hostWorkspace` and possibly a running container if `docker
-	// run` succeeded but `/healthz` polling timed out.
-	let hostWorkspace: string | undefined
+	// All bind sources come from the consumer-supplied layout. The
+	// backend never allocates host directories and never removes them
+	// — that pre-existing single-mount mkdtemp path was the source of
+	// the EACCES bug in sibling-container setups (the consumer owns
+	// the host filesystem, the spawned backend can't reach it from
+	// inside its own container's mount namespace). Clean break.
 	let containerStarted = false
-	// Host-managed bind sources (provided by the SDK consumer) are
-	// NOT cleaned up on failure — the consumer's lifecycle owns the
-	// directory. Only auto-allocated tmpdir workspaces get rm'd.
-	const hostManagedBind = options.hostWorkspaceDir !== undefined
 
 	async function cleanupOnFailure() {
 		if (containerStarted) {
 			await runOnceQuiet(docker, ['rm', '-f', containerName])
 		}
-		if (hostWorkspace && !hostManagedBind) {
-			await rm(hostWorkspace, { recursive: true, force: true })
-		}
 	}
 
 	let hostPort: number
 	let baseUrl: string
+	// `outputs` is required by validation, so its containerPath is
+	// always available — the worker uses it as its workspace root.
+	const rootDir = resolvedLayout.outputs.containerPath
 
 	try {
-		// Two paths for the host-side workspace bind source:
-		//   1. SDK consumer supplies an explicit `hostWorkspaceDir`
-		//      (e.g. Vandal's per-task `/var/lib/vandal/sessions/<taskId>`).
-		//      The consumer owns the dir lifecycle — backend doesn't
-		//      mkdir/rm it.
-		//   2. No path supplied → mkdtemp under the OS tmpdir; backend
-		//      cleans it up on failure or on `destroy()`.
-		// Path #1 is required when the consumer is itself a container
-		// asking the host's Docker daemon to spawn a sibling: the
-		// daemon resolves bind sources against the host filesystem,
-		// not the consumer container's filesystem, so a dir under
-		// `tmpdir()` of the consumer container is unreachable. Codex
-		// flagged this as the named-volume-sub-path blocker.
-		if (options.hostWorkspaceDir) {
-			hostWorkspace = options.hostWorkspaceDir
-			await mkdir(hostWorkspace, { recursive: true })
-		} else {
-			hostWorkspace = await mkdtemp(join(tmpdir(), `namzu-sandbox-${id}-`))
-			await mkdir(hostWorkspace, { recursive: true })
-		}
-
 		// Let Docker pick the host port instead of pre-reserving one
 		// in this process. The reservePort()-then-publish-fixed-port
 		// pattern had a TOCTOU window: the OS could hand the port to
@@ -184,14 +168,17 @@ async function spawnDockerSandbox(
 			containerName,
 			'--network',
 			network,
-			'--volume',
-			`${hostWorkspace}:${workspaceMount}`,
-			// Forward the in-container workspace path to the worker so
-			// its own resolver agrees with the bind mount when the host
-			// overrides the default `/workspace`.
-			'--env',
-			`NAMZU_SANDBOX_WORKSPACE=${workspaceMount}`,
 		]
+
+		args.push(...renderLayoutMountArgs(resolvedLayout))
+		// Forward only the workspace root so the worker's lexical
+		// resolver agrees with the bind target. The full layout used
+		// to ride along as `NAMZU_SANDBOX_LAYOUT`, but the worker
+		// never branched on it; the manifest's only consumer was a
+		// log line. A skill loader that needs the manifest will
+		// write it to a bind path the worker reads at startup —
+		// avoids env-size limits, keeps the wire shape minimal.
+		args.push('--env', `NAMZU_SANDBOX_WORKSPACE=${rootDir}`)
 
 		// Only publish a host port when the consumer is going to reach
 		// the worker through the docker host's loopback (CLI / direct
@@ -253,7 +240,7 @@ async function spawnDockerSandbox(
 		get status(): SandboxStatus {
 			return status
 		},
-		rootDir: workspaceMount,
+		rootDir,
 		environment: detectEnvironment(),
 
 		async exec(
@@ -304,9 +291,10 @@ async function spawnDockerSandbox(
 		async destroy(): Promise<void> {
 			status = 'destroyed'
 			await runOnceQuiet(docker, ['rm', '-f', containerName])
-			if (hostWorkspace) {
-				await rm(hostWorkspace, { recursive: true, force: true })
-			}
+			// Backend never allocates host paths — every bind source
+			// comes from the consumer-supplied layout. Container
+			// teardown is sufficient; the consumer's own lifecycle
+			// owns each `hostPath`.
 		},
 	}
 }
@@ -479,11 +467,191 @@ function runOnceQuiet(binary: string, args: string[]): Promise<void> {
 	})
 }
 
-// `mkdir`, `mkdtemp`, `rm`, `readFile`, `writeFile`, `tmpdir` are
-// imported above for completeness even though `readFile` /
-// `writeFile` aren't used in this trimmed first-cut — leaving the
-// import wire ready for the egress-proxy bind-mount work in P3.2
-// (it will write a small `egress-config.json` into the workspace
-// the worker reads at startup).
-void readFile
-void writeFile
+/**
+ * Skill IDs are user-controlled strings that end up in the in-
+ * container path (`/mnt/skills/<id>`) and on a `--volume` flag the
+ * shell does not see (we use `spawn` argv, not a shell pipeline). So
+ * the regex doesn't have to defend against shell metacharacters — it
+ * exists to keep paths legible (no whitespace, no `..`, no slashes
+ * to escape the `/mnt/skills` prefix). The set is the same shape git
+ * accepts for ref names: alphanumerics, `_`, `-`, `.`. Letting `.`
+ * through enables `pdf-tools.v2`-style versioning; rejecting `..`
+ * specifically guards path traversal even though Docker's bind
+ * resolution doesn't follow it.
+ */
+const SKILL_ID_REGEX = /^[a-zA-Z0-9_.-]+$/
+
+/**
+ * Validate and resolve a {@link ContainerSandboxLayout}. Returns a
+ * {@link ResolvedContainerSandboxLayout} with every container path
+ * filled in; throws {@link ContainerSandboxLayoutValidationError}
+ * collecting every violation in one pass.
+ *
+ * Called once at provider construction (`createSandboxProvider`).
+ * Validation surfaces synchronously during host wiring; nothing
+ * downstream re-validates per `provider.create()` call.
+ *
+ * Exported for tests so the validation rules are pinned by golden-
+ * value assertions rather than only exercised through the spawn path.
+ */
+export function resolveLayout(layout: ContainerSandboxLayout): ResolvedContainerSandboxLayout {
+	const reasons: string[] = []
+
+	// Outputs is required — without it the model has no place to
+	// persist work past container teardown, and the worker has no
+	// rooted workspace for its path resolver. The SDK type marks
+	// outputs required too, but the public type can be circumvented
+	// with `as` casts; runtime check is the contract.
+	if (!layout.outputs) {
+		reasons.push(
+			'`outputs` is required (deliverables surface). Pass `layout.outputs.source = { type: "hostDir", hostPath: "..." }`.',
+		)
+	}
+
+	// Skill IDs: regex + substring `..` reject + duplicate check.
+	// Run even if `outputs` is missing so the consumer sees every
+	// problem in one pass — fix-then-rerun loops at this layer are
+	// cheap to avoid.
+	//
+	// Why the substring `..` reject on top of the regex: the regex
+	// `[a-zA-Z0-9_.-]` legitimately allows `.` (so ids like
+	// `pdf-tools.v2` work), but `..` (or any embedded `..` like
+	// `foo..bar`) is a path-traversal segment that, when
+	// interpolated into the default container path
+	// `/mnt/skills/<id>`, lifts the bind out of the skills parent.
+	// Reject any `..` substring outright — there is no legitimate
+	// skill-id shape with consecutive dots.
+	const skillIds = new Set<string>()
+	if (layout.skills) {
+		for (const skill of layout.skills) {
+			if (!SKILL_ID_REGEX.test(skill.id)) {
+				reasons.push(
+					`skill id ${JSON.stringify(skill.id)} contains characters outside [a-zA-Z0-9_.-]`,
+				)
+			} else if (skill.id.includes('..')) {
+				reasons.push(
+					`skill id ${JSON.stringify(skill.id)} contains a path-traversal segment ('..')`,
+				)
+			} else if (skillIds.has(skill.id)) {
+				reasons.push(`duplicate skill id ${JSON.stringify(skill.id)}`)
+			} else {
+				skillIds.add(skill.id)
+			}
+		}
+	}
+
+	// Resolve container paths now (before duplicate check) so
+	// duplicate detection sees the actual mount targets, including
+	// defaults applied when `containerPath` is omitted. Defaults
+	// come from `@namzu/sdk`'s exported constants so a Vandal prompt
+	// template generator and the backend agree on a single source of
+	// truth.
+	const resolvedOutputs = layout.outputs
+		? {
+				source: layout.outputs.source,
+				containerPath: layout.outputs.containerPath ?? SANDBOX_DEFAULT_OUTPUTS_PATH,
+			}
+		: undefined
+	const resolvedUploads = layout.uploads
+		? {
+				source: layout.uploads.source,
+				containerPath: layout.uploads.containerPath ?? SANDBOX_DEFAULT_UPLOADS_PATH,
+			}
+		: undefined
+	const resolvedToolResults = layout.toolResults
+		? {
+				source: layout.toolResults.source,
+				containerPath: layout.toolResults.containerPath ?? SANDBOX_DEFAULT_TOOL_RESULTS_PATH,
+			}
+		: undefined
+	const resolvedTranscripts = layout.transcripts
+		? {
+				source: layout.transcripts.source,
+				containerPath: layout.transcripts.containerPath ?? SANDBOX_DEFAULT_TRANSCRIPTS_PATH,
+			}
+		: undefined
+	const resolvedSkills = layout.skills?.map((s) => ({
+		id: s.id,
+		source: s.source,
+		containerPath: s.containerPath ?? `${SANDBOX_DEFAULT_SKILLS_PARENT}/${s.id}`,
+	}))
+
+	// Duplicate `containerPath` detection across every mount. Two
+	// binds at the same path is a Docker error at the daemon level,
+	// but the daemon's error surfaces inside the container creation
+	// failure mode — much later, with less context. Catch it here.
+	const containerPathOwners = new Map<string, string>()
+	function track(label: string, p: string | undefined) {
+		if (!p) return
+		const prior = containerPathOwners.get(p)
+		if (prior) {
+			reasons.push(
+				`duplicate containerPath ${JSON.stringify(p)} declared by both ${prior} and ${label}`,
+			)
+		} else {
+			containerPathOwners.set(p, label)
+		}
+	}
+	track('outputs', resolvedOutputs?.containerPath)
+	track('uploads', resolvedUploads?.containerPath)
+	track('toolResults', resolvedToolResults?.containerPath)
+	track('transcripts', resolvedTranscripts?.containerPath)
+	if (resolvedSkills) {
+		for (const skill of resolvedSkills) {
+			track(`skill:${skill.id}`, skill.containerPath)
+		}
+	}
+
+	if (reasons.length > 0) {
+		throw new ContainerSandboxLayoutValidationError(reasons)
+	}
+
+	// `outputs` presence was checked above; the non-null assertion is
+	// safe because the validation throws on missing.
+	const resolved: ResolvedContainerSandboxLayout = {
+		// biome-ignore lint/style/noNonNullAssertion: validation enforces presence
+		outputs: resolvedOutputs!,
+		...(resolvedUploads ? { uploads: resolvedUploads } : {}),
+		...(resolvedToolResults ? { toolResults: resolvedToolResults } : {}),
+		...(resolvedTranscripts ? { transcripts: resolvedTranscripts } : {}),
+		...(resolvedSkills && resolvedSkills.length > 0 ? { skills: resolvedSkills } : {}),
+	}
+	return resolved
+}
+
+/**
+ * Render `--volume` flags for a {@link ResolvedContainerSandboxLayout}. Order
+ * is stable (outputs rw, uploads ro, toolResults ro, skills ro,
+ * transcripts ro) so the test golden values stay deterministic.
+ *
+ * Today every `ContainerSandboxMountSource` is `{ type: 'hostDir', hostPath }`.
+ * When future variants land (squashfs / managed volumes), this
+ * function gains a discriminator switch; the single-variant union
+ * keeps tomorrow's exhaustiveness check honest by giving us a
+ * `type` field to switch on without renaming the call sites.
+ */
+export function renderLayoutMountArgs(layout: ResolvedContainerSandboxLayout): string[] {
+	const args: string[] = []
+	args.push('--volume', `${layout.outputs.source.hostPath}:${layout.outputs.containerPath}:rw`)
+	if (layout.uploads) {
+		args.push('--volume', `${layout.uploads.source.hostPath}:${layout.uploads.containerPath}:ro`)
+	}
+	if (layout.toolResults) {
+		args.push(
+			'--volume',
+			`${layout.toolResults.source.hostPath}:${layout.toolResults.containerPath}:ro`,
+		)
+	}
+	if (layout.skills) {
+		for (const skill of layout.skills) {
+			args.push('--volume', `${skill.source.hostPath}:${skill.containerPath}:ro`)
+		}
+	}
+	if (layout.transcripts) {
+		args.push(
+			'--volume',
+			`${layout.transcripts.source.hostPath}:${layout.transcripts.containerPath}:ro`,
+		)
+	}
+	return args
+}

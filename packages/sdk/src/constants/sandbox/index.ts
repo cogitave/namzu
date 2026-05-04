@@ -29,3 +29,31 @@ export const SANDBOX_SAFE_ENV_KEYS = new Set([
 	'LC_ALL',
 	'LC_CTYPE',
 ])
+
+// ---------------------------------------------------------------------------
+// ContainerSandboxLayout default container paths
+// ---------------------------------------------------------------------------
+//
+// Mirrors the taxonomy Anthropic's container architecture exposes to
+// the model (Claude container blueprint, Code Interpreter, "skills").
+// Exported so prompt-template consumers can write
+// `Outputs go to ${SANDBOX_DEFAULT_OUTPUTS_PATH}` instead of
+// hard-coding the string in two places that drift.
+
+/** Default container path for the deliverables (RW) bind. */
+export const SANDBOX_DEFAULT_OUTPUTS_PATH = '/mnt/user-data/outputs'
+
+/** Default container path for user-uploaded files (RO). */
+export const SANDBOX_DEFAULT_UPLOADS_PATH = '/mnt/user-data/uploads'
+
+/** Default container path for cached tool fetches (RO). */
+export const SANDBOX_DEFAULT_TOOL_RESULTS_PATH = '/mnt/user-data/tool_results'
+
+/** Default container path for prior-conversation transcripts (RO). */
+export const SANDBOX_DEFAULT_TRANSCRIPTS_PATH = '/mnt/transcripts'
+
+/**
+ * Default parent path under which each skill bundle binds.
+ * Per-skill default is `${SANDBOX_DEFAULT_SKILLS_PARENT}/<skill-id>`.
+ */
+export const SANDBOX_DEFAULT_SKILLS_PARENT = '/mnt/skills'

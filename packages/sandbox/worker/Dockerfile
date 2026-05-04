@@ -156,6 +156,20 @@ RUN python3 -c "import openpyxl, docx, pptx, pypdf, reportlab, PIL, \
 RUN groupadd --system --gid 1001 namzu \
     && useradd --system --uid 1001 --gid namzu --create-home namzu \
     && mkdir -p /workspace \
+    # Anthropic-style multi-mount layout: pre-create only the PARENT
+    # directories (`/mnt/user-data`, `/mnt/skills`). The leaf paths
+    # (`outputs/`, `uploads/`, `tool_results/`, `transcripts/`,
+    # `<skill-id>/`) are intentionally NOT pre-created. When a bind
+    # is attached, Docker creates the leaf path as the bind target.
+    # When a bind is NOT attached, the leaf path simply does not
+    # exist — the model gets an honest ENOENT instead of a writable
+    # empty dir that looks "mounted but the user uploaded nothing".
+    # Parents are kept as 0555 root-owned so the model cannot
+    # accidentally `mkdir /mnt/user-data/outputs` and write into a
+    # tmpfs-backed dir that vanishes with the container.
+    && mkdir -p /mnt/user-data /mnt/skills \
+    && chown root:root /mnt /mnt/user-data /mnt/skills \
+    && chmod 0555 /mnt /mnt/user-data /mnt/skills \
     && chown -R namzu:namzu /workspace
 
 WORKDIR /workspace

@@ -39,6 +39,7 @@
     "lint:fix": "biome check --write src/",
     "format": "biome format --write src/",
     "test": "vitest run --passWithNoTests",
+    "test:smoke": "vitest run --passWithNoTests src/**/*.smoke.test.ts",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "pnpm lint && pnpm typecheck && pnpm build"
   },

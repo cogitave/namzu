@@ -66,9 +66,38 @@
  * `aws.amazon.com/blogs/aws/firecracker-lightweight-virtualization-for-serverless-computing`.
  */
 
-import type { Sandbox, SandboxCreateConfig, SandboxProvider } from '@namzu/sdk'
+import type {
+	ContainerSandboxLayout,
+	Sandbox,
+	SandboxCreateConfig,
+	SandboxProvider,
+} from '@namzu/sdk'
 
-import { buildDockerBackend } from './backends/docker/index.js'
+import { buildDockerBackend, resolveLayout } from './backends/docker/index.js'
+
+// Re-export the layout types so consumers of `@namzu/sandbox` can
+// import them without also depending on `@namzu/sdk`. The canonical
+// home of the types is the SDK; this is a convenience pass-through.
+export type {
+	ContainerSandboxLayout,
+	ContainerSandboxLayoutMount,
+	ContainerSandboxMountSource,
+	ContainerSandboxSkillMount,
+	ResolvedContainerSandboxLayout,
+} from '@namzu/sdk'
+
+// Re-export the default container-path constants the prompt-template
+// generator side wants to import without also depending on
+// `@namzu/sdk` directly. Single source of truth: a Vandal prompt
+// saying "write outputs to `/mnt/user-data/outputs`" imports
+// `SANDBOX_DEFAULT_OUTPUTS_PATH` instead of hard-coding the string.
+export {
+	SANDBOX_DEFAULT_OUTPUTS_PATH,
+	SANDBOX_DEFAULT_SKILLS_PARENT,
+	SANDBOX_DEFAULT_TOOL_RESULTS_PATH,
+	SANDBOX_DEFAULT_TRANSCRIPTS_PATH,
+	SANDBOX_DEFAULT_UPLOADS_PATH,
+} from '@namzu/sdk'
 
 // ---------------------------------------------------------------------------
 // Backend strategy
@@ -155,14 +184,6 @@ export interface ContainerBackendConfig {
 	readonly tier: 'container'
 	readonly runtime?: 'docker' | 'runsc'
 	readonly image: string
-	/**
-	 * Path inside the spawned container that the host workspace
-	 * bind-mounts onto. Default `/workspace`. Hosts that mirror
-	 * Anthropic Managed Agents' `/mnt/session/` convention so the
-	 * model's training-time intuition lines up with the local
-	 * runtime override this — typically to `/mnt/session`.
-	 */
-	readonly workspaceMount?: string
 	/**
 	 * How the SDK consumer reaches the in-container worker. Default
 	 * `'host-port'` — the original loopback host-port flow, works
@@ -276,6 +297,15 @@ export type EgressPolicy =
  *  - cleaning up host resources on `destroy()` (process-level
  *    cleanup, container teardown, microVM stop+delete, etc.).
  *
+ * Tier-specific concepts (bind-mount layout for container, microVM
+ * volume id, process-tier seccomp profile) are NOT carried on
+ * `SandboxBackendOptions`. They are baked into the backend at
+ * construction time via the tier-specific config (see
+ * {@link SandboxProviderConfig.layout} for the container tier). This
+ * keeps `provider.create()` symmetric across tiers and prevents the
+ * SDK runtime from accidentally calling a container backend without
+ * a layout — the binding is at construction, not per-call.
+ *
  * The backend does NOT see the agent or its tools — the SDK
  * composes them at the runtime layer. Backends are pure isolation
  * primitives.
@@ -288,8 +318,8 @@ export interface SandboxBackend {
 }
 
 /**
- * Options handed to a backend's `create()`. Covers the host-
- * provided knobs every backend needs:
+ * Per-call options handed to a backend's `create()`. Tier-agnostic
+ * host knobs only:
  *
  *  - `workingDirectory` — the per-task root where the sandbox is
  *    rooted (e.g. `/tmp/<tenant>/<run>/`). Backends bind-mount or
@@ -304,12 +334,12 @@ export interface SandboxBackend {
  *    `HTTP_PROXY` / `HTTPS_PROXY` to the egress proxy when one
  *    is in play.
  *
- * Identity-aware fields (tenantId / runId / agentId) are
- * deliberately NOT in this shape. The SDK runtime does not
- * propagate them through `provider.create` calls today, so adding
- * them to the contract would be a lie. Hosts that need per-tenant
- * sandbox config bake the tenant into the closure that constructs
- * the provider — see the `EgressPolicy` resolver shape.
+ * `layout` is **not** here — see the type-level note on
+ * {@link SandboxBackend}. Identity-aware fields (tenantId / runId /
+ * agentId) are deliberately NOT in this shape either; hosts that
+ * need per-tenant sandbox config bake the tenant into the closure
+ * that constructs the provider — see the `EgressPolicy` resolver
+ * shape.
  */
 export interface SandboxBackendOptions {
 	readonly workingDirectory: string
@@ -318,22 +348,6 @@ export interface SandboxBackendOptions {
 	readonly memoryLimitMb?: number
 	readonly maxProcesses?: number
 	readonly env?: Record<string, string>
-	/**
-	 * Optional host-side directory the backend should bind into the
-	 * container as the workspace. When unset, container backends
-	 * mkdtemp under the OS tmpdir and own the cleanup. When set, the
-	 * SDK consumer owns the dir — the backend will not mkdir/rm it
-	 * beyond best-effort `mkdir -p`. Required when the consumer is
-	 * itself a container asking the host's Docker daemon to spawn a
-	 * sibling: the daemon resolves bind sources against the host
-	 * filesystem, not the consumer container's filesystem, so the
-	 * tmpdir-under-the-consumer path would be unreachable. Hosts
-	 * that mount a per-task host-path bind (e.g.
-	 * `/var/lib/vandal/sessions/<taskId>`) into both their own app
-	 * container and the spawned sandbox container pass that same
-	 * host path here.
-	 */
-	readonly hostWorkspaceDir?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -345,9 +359,27 @@ export interface SandboxBackendOptions {
  * a tier-specific backend config (process / container / microvm /
  * passthrough) and supplies cross-tier defaults that
  * `provider.create()` calls can override.
+ *
+ * Container-tier backends require a per-task
+ * {@link ContainerSandboxLayout} captured at construction time (see
+ * the discriminated union). The layout is per-task — different
+ * `hostPath`s for different runs — so hosts call
+ * `createSandboxProvider` once per task with the task-specific
+ * layout baked in. The `Sandbox` instance returned by
+ * `provider.create()` then inherits that layout. This is the only
+ * path: there is no per-call layout argument that could be silently
+ * omitted by the SDK runtime.
  */
-export interface SandboxProviderConfig {
-	readonly backend: SandboxBackendConfig
+export type SandboxProviderConfig =
+	| (SandboxProviderConfigBase & {
+			readonly backend: ContainerBackendConfig
+			readonly layout: ContainerSandboxLayout
+	  })
+	| (SandboxProviderConfigBase & {
+			readonly backend: ProcessBackendConfig | MicroVMBackendConfig | PassthroughBackendConfig
+	  })
+
+interface SandboxProviderConfigBase {
 	readonly defaultEgress?: EgressPolicy
 	readonly defaultTimeoutMs?: number
 	readonly defaultMemoryLimitMb?: number
@@ -382,10 +414,9 @@ export interface SandboxProviderConfig {
  * clear signal during the staged rollout.
  */
 export function createSandboxProvider(config: SandboxProviderConfig): SandboxProvider {
-	const backendConfig = config.backend
-	const backend = pickBackend(backendConfig)
+	const backend = pickBackend(config)
 	const id = `namzu-${backend.tier}-${backend.name}`
-	const name = `@namzu/sandbox: ${describeBackend(backendConfig)}`
+	const name = `@namzu/sandbox: ${describeBackend(config.backend)}`
 	return {
 		id,
 		name,
@@ -410,41 +441,47 @@ export function createSandboxProvider(config: SandboxProviderConfig): SandboxPro
 						? { maxProcesses: config.defaultMaxProcesses }
 						: {}),
 				...(perCall?.env !== undefined ? { env: perCall.env } : {}),
-				...(perCall?.hostWorkspaceDir !== undefined
-					? { hostWorkspaceDir: perCall.hostWorkspaceDir }
-					: {}),
 			})
 		},
 	}
 }
 
-function pickBackend(config: SandboxBackendConfig): SandboxBackend {
-	if (config.tier === 'container' && (config.runtime ?? 'docker') === 'docker') {
+function pickBackend(config: SandboxProviderConfig): SandboxBackend {
+	const backend = config.backend
+	if (backend.tier === 'container' && (backend.runtime ?? 'docker') === 'docker') {
+		// `layout` is required for container-tier backends by the
+		// discriminated union — narrow safely without a non-null
+		// assertion.
+		const layout = (config as Extract<SandboxProviderConfig, { layout: ContainerSandboxLayout }>)
+			.layout
+		// Resolve once at construction. Validation throws synchronously
+		// here, before the provider is returned, so any layout error
+		// surfaces during host wiring rather than mid-run.
+		const resolved = resolveLayout(layout)
 		return buildDockerBackend({
-			image: config.image,
-			...(config.workspaceMount !== undefined
-				? { workspaceMount: config.workspaceMount }
+			image: backend.image,
+			layout: resolved,
+			...(backend.hostReachability !== undefined
+				? { hostReachability: backend.hostReachability }
 				: {}),
-			...(config.hostReachability !== undefined
-				? { hostReachability: config.hostReachability }
-				: {}),
-			...(config.network !== undefined ? { network: config.network } : {}),
+			...(backend.network !== undefined ? { network: backend.network } : {}),
 		})
 	}
-	if (config.tier === 'container' && config.runtime === 'runsc') {
+	if (backend.tier === 'container' && backend.runtime === 'runsc') {
+		const layout = (config as Extract<SandboxProviderConfig, { layout: ContainerSandboxLayout }>)
+			.layout
+		const resolved = resolveLayout(layout)
 		return buildDockerBackend({
-			image: config.image,
+			image: backend.image,
+			layout: resolved,
 			runtime: 'runsc',
-			...(config.workspaceMount !== undefined
-				? { workspaceMount: config.workspaceMount }
+			...(backend.hostReachability !== undefined
+				? { hostReachability: backend.hostReachability }
 				: {}),
-			...(config.hostReachability !== undefined
-				? { hostReachability: config.hostReachability }
-				: {}),
-			...(config.network !== undefined ? { network: config.network } : {}),
+			...(backend.network !== undefined ? { network: backend.network } : {}),
 		})
 	}
-	throw new SandboxBackendNotImplementedError(describeBackend(config))
+	throw new SandboxBackendNotImplementedError(describeBackend(backend))
 }
 
 /**
@@ -479,5 +516,179 @@ export class SandboxBackendNotImplementedError extends Error {
 		super(
 			`Sandbox backend '${backend}' is not implemented yet. Track progress in vendor/namzu/docs.local/sessions/ses_004-native-agentic-runtime-and-sandbox.`,
 		)
+	}
+}
+
+/**
+ * Thrown when a {@link ContainerSandboxLayout} fails validation:
+ * missing required `outputs` mount, malformed skill id, duplicate
+ * skill id, duplicate `containerPath` across mounts. The `reasons`
+ * array carries one entry per violation so consumers can surface
+ * every problem in one round-trip rather than fix-then-rerun.
+ *
+ * **Transport caveat.** `JSON.stringify(err)` works because
+ * `toJSON()` returns a plain object with `reasons` preserved. But
+ * `structuredClone(err)` on the Error object itself drops the
+ * subclass name and any non-enumerable fields. For transport
+ * boundaries (postMessage, worker IPC, log shippers) call
+ * {@link serializeSandboxError} which returns a plain object that
+ * is `structuredClone`-safe and `JSON.stringify`-safe in one shape.
+ */
+export class ContainerSandboxLayoutValidationError extends Error {
+	override readonly name = 'ContainerSandboxLayoutValidationError'
+
+	constructor(
+		public readonly reasons: readonly string[],
+		options?: { cause?: unknown },
+	) {
+		super(
+			`Invalid ContainerSandboxLayout: ${reasons.join('; ')}`,
+			options?.cause !== undefined ? { cause: options.cause } : undefined,
+		)
+	}
+
+	toJSON(): {
+		name: string
+		message: string
+		reasons: readonly string[]
+		cause?: unknown
+	} {
+		return {
+			name: this.name,
+			message: this.message,
+			reasons: this.reasons,
+			...(this.cause !== undefined ? { cause: this.cause } : {}),
+		}
+	}
+}
+
+/**
+ * Transport-safe serialisation for any error this package raises
+ * (and any nested `cause` chain). Returns a plain object with
+ * `name`, `message`, optional `stack`, optional `cause`
+ * (recursively serialised into the same envelope shape), and — for
+ * {@link ContainerSandboxLayoutValidationError} — the `reasons`
+ * array. The result is **uniformly safe** through
+ * `structuredClone`, `postMessage`, and `JSON.stringify`:
+ *
+ *  - No function / Symbol / BigInt / non-finite-number values
+ *    leak into the envelope; non-Error causes (and non-Error
+ *    inputs) are converted to a typed envelope by
+ *    {@link serializeNonErrorCause}.
+ *  - Cycles (`a.cause = a`, `a.cause = b; b.cause = a`) are
+ *    detected via a `WeakSet` and replaced with a
+ *    `{ name: 'CircularReference', message: '[circular]' }`
+ *    sentinel — no stack overflow, no `JSON.stringify` throw.
+ *  - Deep chains are walked in full (no arbitrary depth cap); the
+ *    cycle guard, not depth, is what bounds the recursion.
+ *
+ * Why this helper exists: `Error` subclasses don't survive any
+ * structured-clone-like channel — `structuredClone(err)` drops the
+ * subclass name and non-enumerable fields, `postMessage` follows
+ * the same rules, and most log shippers serialise via JSON which
+ * calls the unhelpful default `toJSON`. Vandal's supervisor
+ * architecture crosses every one of those boundaries; explicit
+ * serialisation keeps the `reasons[]` discoverable downstream.
+ *
+ * Use:
+ * ```ts
+ * try { ... }
+ * catch (err) {
+ *   logger.error(serializeSandboxError(err))
+ *   parent.postMessage(serializeSandboxError(err))
+ * }
+ * ```
+ */
+export interface SerializedSandboxError {
+	readonly name: string
+	readonly message: string
+	readonly stack?: string
+	readonly reasons?: readonly string[]
+	/**
+	 * Recursively serialised cause envelope. Always the same shape;
+	 * non-Error causes go through {@link serializeNonErrorCause}
+	 * before they reach this slot, so values that `JSON.stringify`
+	 * or `structuredClone` would choke on (Function, Symbol,
+	 * BigInt, NaN, ±Infinity, undefined) never appear here.
+	 */
+	readonly cause?: SerializedSandboxError
+}
+
+/**
+ * Convert a non-Error `cause` value into a typed envelope that is
+ * safe through every transport channel. Categorises the input by
+ * runtime type so the receiver can tell e.g. "this was a Symbol"
+ * apart from "this was a string" without inspecting the message
+ * format.
+ */
+function serializeNonErrorCause(value: unknown): SerializedSandboxError {
+	if (value === null) return { name: 'NonError', message: 'null' }
+	if (value === undefined) return { name: 'NonError', message: 'undefined' }
+	if (typeof value === 'function') return { name: 'Function', message: '[function]' }
+	if (typeof value === 'symbol') return { name: 'Symbol', message: value.toString() }
+	if (typeof value === 'bigint') return { name: 'BigInt', message: value.toString() }
+	if (typeof value === 'number' && !Number.isFinite(value)) {
+		return { name: 'NonFiniteNumber', message: String(value) }
+	}
+	if (typeof value === 'string') return { name: 'NonError', message: value }
+	if (typeof value === 'number' || typeof value === 'boolean') {
+		return { name: 'NonError', message: String(value) }
+	}
+	// Plain objects / arrays — JSON-stringify with a fallback so
+	// values that contain non-JSON-safe leaves (Symbol-keyed props,
+	// BigInt, …) still produce a printable message.
+	return { name: 'NonError', message: safeStringify(value) }
+}
+
+export function serializeSandboxError(err: unknown): SerializedSandboxError {
+	return serializeWithGuard(err, new WeakSet())
+}
+
+function serializeWithGuard(err: unknown, seen: WeakSet<object>): SerializedSandboxError {
+	// Non-Error inputs go through the typed-envelope path. Primitive
+	// values can't participate in a cycle so the WeakSet is a no-op
+	// for them; object inputs (plain objects, arrays) DO need the
+	// cycle guard before `safeStringify` is reached.
+	if (!(err instanceof Error)) {
+		if (typeof err === 'object' && err !== null) {
+			if (seen.has(err)) return { name: 'CircularReference', message: '[circular]' }
+			seen.add(err)
+		}
+		return serializeNonErrorCause(err)
+	}
+
+	if (seen.has(err)) {
+		return { name: 'CircularReference', message: '[circular]' }
+	}
+	seen.add(err)
+
+	const out: {
+		name: string
+		message: string
+		stack?: string
+		reasons?: readonly string[]
+		cause?: SerializedSandboxError
+	} = {
+		name: err.name,
+		message: err.message,
+	}
+	if (err.stack !== undefined) out.stack = err.stack
+	if (err instanceof ContainerSandboxLayoutValidationError) {
+		out.reasons = err.reasons
+	}
+	// Walk the cause chain. The same `seen` set is threaded through
+	// the recursion so a cycle detected at any depth replaces the
+	// offending node with the sentinel rather than blowing the stack.
+	if ('cause' in err && err.cause !== undefined) {
+		out.cause = serializeWithGuard(err.cause, seen)
+	}
+	return out
+}
+
+function safeStringify(value: unknown): string {
+	try {
+		return JSON.stringify(value)
+	} catch {
+		return String(value)
 	}
 }

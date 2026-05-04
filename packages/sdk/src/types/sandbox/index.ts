@@ -84,6 +84,116 @@ export interface Sandbox {
 }
 
 // ---------------------------------------------------------------------------
+// Container sandbox layout — multi-mount taxonomy (container-tier specific)
+// ---------------------------------------------------------------------------
+//
+// Why the `Container` prefix on these types: the layout shape encodes
+// container-tier semantics (bind-mount sources, `/mnt/...` container
+// paths, RW outputs surface). MicroVM tiers (e2b, fly-machines,
+// firecracker-containerd) carry layout-equivalent state that does
+// not map onto bind-mount flags — managed snapshots, attached
+// volumes, registry-pulled rootfs. Naming the public type
+// `SandboxLayout` would either (a) make every future microVM adapter
+// pretend its volume model fits a bind-mount shape, or (b) force a
+// breaking rename when we add `MicroVMSandboxLayout` later. Naming
+// it `ContainerSandboxLayout` from day one keeps the scope explicit
+// and leaves room for `MicroVMSandboxLayout` (or whatever the right
+// abstraction turns out to be) to land additively.
+
+/**
+ * Source of a container mount's data on the host side. Tagged union
+ * with one variant today (`hostDir`); the discriminator stays so
+ * future container-tier sources (squashfs skill bundles, managed
+ * volumes attached to a container backend) land as additive minor
+ * bumps.
+ */
+export type ContainerSandboxMountSource = { readonly type: 'hostDir'; readonly hostPath: string }
+
+/**
+ * One container mount carrying a packaged skill bundle. The default
+ * `containerPath` is `/mnt/skills/<id>`.
+ */
+export interface ContainerSandboxSkillMount {
+	readonly id: string
+	readonly source: ContainerSandboxMountSource
+	readonly containerPath?: string
+}
+
+/**
+ * One container mount: source + optional in-container path. Building
+ * block of {@link ContainerSandboxLayout}.
+ */
+export interface ContainerSandboxLayoutMount {
+	readonly source: ContainerSandboxMountSource
+	readonly containerPath?: string
+}
+
+/**
+ * Declarative multi-mount taxonomy for a CONTAINER sandbox. Mirrors
+ * the layout Anthropic's container architecture exposes to the model
+ * (Claude container blueprint, Code Interpreter, "skills"):
+ *
+ *  - `outputs` — RW bind. Deliverables surface the user actually
+ *    consumes after the run. Default container path
+ *    `/mnt/user-data/outputs`. **Required** for container backends:
+ *    without it the model has no place to persist work past the
+ *    container's lifetime.
+ *
+ *  - `uploads` — RO bind. Files the user attached to the
+ *    conversation. Default container path `/mnt/user-data/uploads`.
+ *
+ *  - `toolResults` — RO bind. Cached fetches / search results
+ *    surfaced from prior tool calls. Default container path
+ *    `/mnt/user-data/tool_results`.
+ *
+ *  - `skills` — RO list, one per skill bundle. Container path
+ *    defaults to `/mnt/skills/<id>` per entry.
+ *
+ *  - `transcripts` — RO bind. Prior conversation transcripts the
+ *    model can reference. Default container path `/mnt/transcripts`.
+ *
+ * **Scratchpad is intentionally absent.** The container-internal RW
+ * area (`/home/<imageUser>` by reference Dockerfile convention) is
+ * an image-bake responsibility — there is no public knob to declare
+ * it because no backend bind-mounts it. Putting it in the layout
+ * type would advertise a switch the runtime cannot honour.
+ *
+ * `outputs.containerPath` becomes the workspace root the worker
+ * resolves against.
+ *
+ * The `Container` prefix is load-bearing: this shape is specific to
+ * the container tier. MicroVM and process tiers will carry their
+ * own layout types (e.g. `MicroVMSandboxLayout`) when their
+ * adapters land.
+ */
+export interface ContainerSandboxLayout {
+	readonly outputs: ContainerSandboxLayoutMount
+	readonly uploads?: ContainerSandboxLayoutMount
+	readonly toolResults?: ContainerSandboxLayoutMount
+	readonly skills?: readonly ContainerSandboxSkillMount[]
+	readonly transcripts?: ContainerSandboxLayoutMount
+}
+
+/**
+ * Same shape as {@link ContainerSandboxLayout}, but every container
+ * path is resolved (no defaults left implicit). Backends produce
+ * this internally and pass it to the mount-flag renderer. Exported
+ * so advanced consumers (test harnesses, prompt template generators)
+ * can inspect the post-default layout the model actually sees.
+ */
+export interface ResolvedContainerSandboxLayout {
+	readonly outputs: { readonly source: ContainerSandboxMountSource; readonly containerPath: string }
+	readonly uploads?: { readonly source: ContainerSandboxMountSource; readonly containerPath: string }
+	readonly toolResults?: { readonly source: ContainerSandboxMountSource; readonly containerPath: string }
+	readonly skills?: readonly {
+		readonly id: string
+		readonly source: ContainerSandboxMountSource
+		readonly containerPath: string
+	}[]
+	readonly transcripts?: { readonly source: ContainerSandboxMountSource; readonly containerPath: string }
+}
+
+// ---------------------------------------------------------------------------
 // Sandbox create config
 // ---------------------------------------------------------------------------
 
@@ -93,17 +203,23 @@ export interface SandboxCreateConfig {
 	readonly timeoutMs?: number
 	readonly memoryLimitMb?: number
 	readonly maxProcesses?: number
-	/**
-	 * Optional host-side directory the backend should bind into the
-	 * container as the workspace. When unset, container backends
-	 * mkdtemp under the OS tmpdir and own the cleanup. When set, the
-	 * SDK consumer owns the dir lifecycle. Required when the consumer
-	 * is itself a container (e.g. Vandal's app container) asking the
-	 * host's Docker daemon to spawn a sibling — the daemon resolves
-	 * bind sources against the host filesystem, not the consumer's.
-	 */
-	readonly hostWorkspaceDir?: string
 }
+
+/**
+ * Tier-specific layout types ({@link ContainerSandboxLayout}, future
+ * `MicroVMSandboxLayout`, etc.) are intentionally NOT fields on
+ * {@link SandboxCreateConfig}. The layout is per-task — different
+ * `hostPath`s for different runs — but it is supplied at
+ * **provider construction**, not at `provider.create()`. See
+ * `@namzu/sandbox`'s `createSandboxProvider({ backend, layout })`.
+ * Putting layout on `SandboxCreateConfig` would let the SDK runtime
+ * (`drainQuery`) call `provider.create()` without it and trigger a
+ * runtime validation failure that the type system cannot catch — a
+ * trap Codex flagged in the second review round. Hosts spawning a
+ * sandbox per task construct one provider per task too; the same
+ * closure that knows the per-task `hostPath`s is the one that calls
+ * `createSandboxProvider`.
+ */
 
 // ---------------------------------------------------------------------------
 // SandboxProvider interface — mirrors LLMProvider
