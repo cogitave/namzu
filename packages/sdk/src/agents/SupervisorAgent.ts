@@ -164,6 +164,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 				// when resumeHandler is omitted (= same behaviour as before).
 				...(config.resumeHandler ? { resumeHandler: config.resumeHandler } : {}),
 				...(config.verificationGate ? { verificationGate: config.verificationGate } : {}),
+				...(config.sandboxProvider ? { sandboxProvider: config.sandboxProvider } : {}),
 			},
 			listener,
 		)

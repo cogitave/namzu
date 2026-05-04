@@ -2,6 +2,7 @@ import type { AdvisoryConfig } from '../advisory/index.js'
 import type { ResumeHandler } from '../hitl/index.js'
 import type { LLMProvider } from '../provider/index.js'
 import type { TaskRouterConfig } from '../router/index.js'
+import type { SandboxProvider } from '../sandbox/index.js'
 import type { VerificationGateConfig } from '../verification/index.js'
 import type { BaseAgentConfig, BaseAgentResult } from './base.js'
 import type { AgentFactoryOptions } from './factory.js'
@@ -52,6 +53,16 @@ export interface SupervisorAgentConfig extends BaseAgentConfig {
 	 * non-deterministic cases.
 	 */
 	verificationGate?: VerificationGateConfig
+
+	/**
+	 * Optional ephemeral sandbox provider. When set, drainQuery creates
+	 * a sandbox via `provider.create()` before the supervisor's own
+	 * iteration loop and routes filesystem / shell tool calls through
+	 * it. Multi-agent hosts thread the SAME provider instance into
+	 * every child `ReactiveAgentConfig.sandboxProvider` so supervisor
+	 * + children share one ephemeral container per task.
+	 */
+	sandboxProvider?: SandboxProvider
 }
 
 export interface AgentTaskResult {
