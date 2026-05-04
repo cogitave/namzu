@@ -352,9 +352,29 @@ export class AnthropicProvider implements LLMProvider {
 						}
 						break
 					}
-					case 'content_block_stop':
-						// Aggregation is consumer-side — nothing to emit.
+					case 'content_block_stop': {
+						// For tool_use blocks we MUST emit a `toolCallEnd`
+						// signal so the consumer-side aggregator (sdk
+						// runtime/query/iteration) can flush the buffered
+						// `argsBuf` and JSON.parse it into the tool input.
+						// Without this signal the executor sees an empty
+						// `arguments` string and rejects the call with
+						// `Error: Invalid JSON in tool arguments for "<tool>"`
+						// — exactly the failure the live cowork test
+						// surfaced (Bash + Write both blank-input failed).
+						const idx = event.index ?? 0
+						const active = activeTools.get(idx)
+						if (active) {
+							yield {
+								id: messageId,
+								delta: {
+									toolCallEnd: { index: idx, id: active.id },
+								},
+							}
+							activeTools.delete(idx)
+						}
 						break
+					}
 					case 'message_delta': {
 						if (event.delta?.stop_reason) {
 							yield {
