@@ -140,7 +140,16 @@ RUN python3 -c "import openpyxl, docx, pptx, pypdf, reportlab, PIL, \
     && pandoc --version | head -1 \
     && chromium --version \
     && tesseract --version 2>&1 | head -1 \
-    && node -e "require('xlsx'); require('docx'); require('pptxgenjs'); require('pdf-lib'); console.log('node deps OK')"
+    # `node -e` does NOT resolve globally installed npm packages by
+    # default — only project-local `node_modules` and `NODE_PATH`.
+    # Bare `node -e "require('xlsx')"` fails with MODULE_NOT_FOUND
+    # despite the global install above. Setting NODE_PATH to
+    # `$(npm root -g)` lets the sanity check see the global packages
+    # we just installed; the worker's actual server.js sets
+    # `NODE_PATH` itself in its launcher (or uses absolute imports
+    # under /opt/namzu-sandbox/node_modules), so this only affects
+    # this build-time check.
+    && NODE_PATH="$(npm root -g)" node -e "require('xlsx'); require('docx'); require('pptxgenjs'); require('pdf-lib'); console.log('node deps OK')"
 
 # ─── Workspace + non-root user ─────────────────────────────────
 
