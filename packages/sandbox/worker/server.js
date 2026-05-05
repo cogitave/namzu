@@ -44,7 +44,7 @@ const path = require('node:path')
 const PORT = Number(process.env.NAMZU_SANDBOX_PORT || 2024)
 const WORKSPACE_ROOT = process.env.NAMZU_SANDBOX_WORKSPACE || '/workspace'
 const MAX_BODY_BYTES = Number(process.env.NAMZU_SANDBOX_MAX_BODY_BYTES || 8 * 1024 * 1024)
-const DEFAULT_MAX_OUTPUT_BYTES = 1024 * 1024
+const DEFAULT_MAX_OUTPUT_BYTES = 100 * 1024 * 1024
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000
 // Idle timeout: if the worker sees no `/execute`, `/read-file`, or
 // `/write-file` request for this many ms, it `process.exit(0)`s. The

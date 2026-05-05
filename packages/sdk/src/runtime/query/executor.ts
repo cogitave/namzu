@@ -238,7 +238,7 @@ export class ToolExecutor {
 
 		const rawOutput = result.success
 			? result.output
-			: `Error: ${result.error ?? 'Tool execution failed'}`
+			: formatFailedToolOutput(result.output, result.error)
 
 		let output = result.success ? this.maybeCompress(toolName, rawOutput) : rawOutput
 
@@ -429,4 +429,10 @@ export class ToolExecutor {
 		}
 		return compressed
 	}
+}
+
+function formatFailedToolOutput(output: string | undefined, error: string | undefined): string {
+	const errorText = `Error: ${error ?? 'Tool execution failed'}`
+	if (!output || output.trim().length === 0) return errorText
+	return `${output}\n\n${errorText}`
 }

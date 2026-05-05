@@ -18,7 +18,10 @@ function makeLogger(): Logger {
 		error: vi.fn(),
 		debug: vi.fn(),
 	}
-	return { ...stub, child: vi.fn(() => ({ ...stub, child: vi.fn() })) } as unknown as Logger
+	return {
+		...stub,
+		child: vi.fn(() => ({ ...stub, child: vi.fn() })),
+	} as unknown as Logger
 }
 
 function makeToolRegistry(execute: ToolRegistryContract['execute']): ToolRegistryContract {
@@ -93,6 +96,42 @@ describe('ToolExecutor plugin hooks', () => {
 		expect(batch.results[0]?.output).toBe('ok')
 	})
 
+	it('preserves tool stdout/stderr when a tool exits unsuccessfully', async () => {
+		const tools = makeToolRegistry(
+			vi.fn(async () => ({
+				success: false,
+				output: 'STDOUT:\npartial result\n\nSTDERR:\nboom',
+				error: 'Command exited with code 1',
+			})),
+		)
+		const exec = new ToolExecutor(
+			{
+				tools,
+				runId: mockRunId,
+				workingDirectory: '/tmp',
+				permissionMode: 'auto',
+				env: {},
+				abortSignal: new AbortController().signal,
+			},
+			activityStore,
+			emitEvent,
+			makeLogger(),
+		)
+
+		const batch = await exec.executeBatch(buildResponse('Bash', { command: 'false' }))
+		expect(batch.results[0]?.output).toContain('STDOUT:\npartial result')
+		expect(batch.results[0]?.output).toContain('STDERR:\nboom')
+		expect(batch.results[0]?.output).toContain('Error: Command exited with code 1')
+
+		const completed = emitted.find((e) => e.type === 'tool_completed')
+		expect(completed).toMatchObject({
+			type: 'tool_completed',
+			toolName: 'Bash',
+			result: expect.stringContaining('STDOUT:\npartial result'),
+			isError: true,
+		})
+	})
+
 	it('replaces input on pre_tool_use modify', async () => {
 		const executeMock = vi.fn(async () => ({ success: true, output: 'ok' }))
 		const tools = makeToolRegistry(executeMock)
@@ -120,7 +159,10 @@ describe('ToolExecutor plugin hooks', () => {
 	})
 
 	it('skips registry execution and synthesizes output on pre_tool_use skip', async () => {
-		const executeMock = vi.fn(async () => ({ success: true, output: 'should-not-run' }))
+		const executeMock = vi.fn(async () => ({
+			success: true,
+			output: 'should-not-run',
+		}))
 		const tools = makeToolRegistry(executeMock)
 		const pluginManager = makePluginManager(async (event) =>
 			event === 'pre_tool_use'
@@ -223,7 +265,10 @@ describe('ToolExecutor plugin hooks', () => {
 	})
 
 	it('carries modified input into synthetic skip outcome (modify -> skip chain)', async () => {
-		const executeMock = vi.fn(async () => ({ success: true, output: 'should-not-run' }))
+		const executeMock = vi.fn(async () => ({
+			success: true,
+			output: 'should-not-run',
+		}))
 		const tools = makeToolRegistry(executeMock)
 		const { PluginLifecycleManager } = await import('../../../plugin/lifecycle.js')
 		const realManager = new PluginLifecycleManager({

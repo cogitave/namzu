@@ -5,6 +5,14 @@ import { DANGEROUS_PATTERNS } from '../../constants/tools/index.js'
 import { defineTool } from '../defineTool.js'
 
 const execAsync = promisify(exec)
+const DEFAULT_BASH_TIMEOUT_MS = readPositiveIntEnv(
+	'NAMZU_BASH_TIMEOUT_MS',
+	readPositiveIntEnv('VANDAL_NAMZU_TIMEOUT_MS', 60 * 60 * 1000),
+)
+const DEFAULT_BASH_MAX_BUFFER_BYTES = readPositiveIntEnv(
+	'NAMZU_BASH_MAX_BUFFER_BYTES',
+	100 * 1024 * 1024,
+)
 
 const inputSchema = z.object({
 	command: z
@@ -14,8 +22,11 @@ const inputSchema = z.object({
 			'The bash command to execute. Required, non-empty. Single command per call (use `&&` / `;` chaining for compound commands). Avoid heredocs that span more than a few hundred bytes — large content should be written via the Write tool, not piped into bash.',
 		),
 	timeout: z
-		.preprocess((v) => (typeof v === 'string' ? Number(v) : v), z.number().default(30_000))
-		.describe('Command timeout in milliseconds. Default: 30000'),
+		.preprocess(
+			(v) => (typeof v === 'string' ? Number(v) : v),
+			z.number().default(DEFAULT_BASH_TIMEOUT_MS),
+		)
+		.describe(`Command timeout in milliseconds. Default: ${DEFAULT_BASH_TIMEOUT_MS}`),
 })
 
 type BashInput = z.infer<typeof inputSchema>
@@ -94,7 +105,7 @@ export const BashTool = defineTool({
 			cwd: context.workingDirectory,
 			timeout: input.timeout,
 			env: { ...process.env, ...context.env },
-			maxBuffer: 1024 * 1024 * 10,
+			maxBuffer: DEFAULT_BASH_MAX_BUFFER_BYTES,
 		})
 
 		const output = [stdout ? `STDOUT:\n${stdout}` : '', stderr ? `STDERR:\n${stderr}` : '']
@@ -108,3 +119,10 @@ export const BashTool = defineTool({
 		}
 	},
 })
+
+function readPositiveIntEnv(key: string, fallback: number): number {
+	const value = process.env[key]?.trim()
+	if (!value) return fallback
+	const parsed = Number(value)
+	return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback
+}
