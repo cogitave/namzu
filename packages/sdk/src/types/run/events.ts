@@ -263,6 +263,12 @@ type CoreRunEvent =
 			runId: RunId
 			toolUseId: ToolUseId
 			input: unknown
+			/**
+			 * True when the provider stream ended before the tool JSON
+			 * arguments closed. `input` stays a sanitized object so public
+			 * consumers never receive internal recovery sentinels.
+			 */
+			inputTruncated?: boolean
 	  }
 
 /**

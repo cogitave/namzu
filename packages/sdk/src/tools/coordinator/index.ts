@@ -46,13 +46,19 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 
 	const createTask = defineTool({
 		name: 'create_task',
-		description: `Launch a task on a specialized agent. NON-BLOCKING: returns immediately. You will receive a <task-notification> message when the agent finishes. Available agents: ${agentIds.join(', ')}. The agent cannot see your conversation — include ALL necessary context in the prompt. To launch multiple tasks in parallel, call this tool multiple times in a single response. After launching, briefly tell the user what you launched and end your turn — do NOT predict or fabricate results.`,
+		description: `Launch a task on a specialized agent. NON-BLOCKING: returns immediately. You will receive a <task-notification> message when the agent finishes. Available agents: ${agentIds.join(', ')}. Keep arguments compact: pass a short assignment, not full documents, long markdown, or large JSON. For large context, write/read shared workspace files and pass filenames or references. To launch multiple tasks in parallel, call this tool multiple times in a single response. After launching, briefly tell the user what you launched and end your turn — do NOT predict or fabricate results.`,
 		inputSchema: z.object({
 			agent_id: agentIdEnum.describe('Which agent to run'),
 			prompt: z
 				.string()
-				.describe('Self-contained task description with all context the agent needs'),
-			description: z.string().describe('Short summary for tracking (shown to user)'),
+				.max(4000)
+				.describe(
+					'Compact self-contained assignment for the agent. Maximum 4000 characters. Do not paste full documents or large generated content; use workspace file references for that.',
+				),
+			description: z
+				.string()
+				.max(180)
+				.describe('Short summary for tracking, shown to the user. Maximum 180 characters.'),
 			plan_task_id: z
 				.string()
 				.optional()

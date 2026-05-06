@@ -9,6 +9,14 @@ export interface ToolCall {
 		name: string
 		arguments: string
 	}
+	/**
+	 * Runtime-only execution annotations. This is intentionally separate
+	 * from `function.arguments`: tool arguments remain the model-authored
+	 * JSON payload, while provider/runtime recovery state lives here.
+	 */
+	metadata?: {
+		inputTruncated?: boolean
+	}
 }
 
 export interface BaseMessage {

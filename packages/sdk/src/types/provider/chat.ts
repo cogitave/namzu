@@ -1,5 +1,5 @@
 import type { TokenUsage } from '../common/index.js'
-import type { Message } from '../message/index.js'
+import type { Message, ToolCall } from '../message/index.js'
 import type { LLMToolSchema } from '../tool/index.js'
 
 export type ToolChoice =
@@ -48,14 +48,7 @@ export interface ChatCompletionResponse {
 	message: {
 		role: 'assistant'
 		content: string | null
-		toolCalls?: Array<{
-			id: string
-			type: 'function'
-			function: {
-				name: string
-				arguments: string
-			}
-		}>
+		toolCalls?: ToolCall[]
 	}
 	finishReason: 'stop' | 'tool_calls' | 'length' | 'content_filter'
 	usage: TokenUsage

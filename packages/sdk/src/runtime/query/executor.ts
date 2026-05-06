@@ -7,7 +7,7 @@ import { type ProbeRegistry, probe as defaultProbeRegistry } from '../../probe/r
 import type { ActivityStore } from '../../store/activity/memory.js'
 import type { RunId } from '../../types/ids/index.js'
 import type { InvocationState } from '../../types/invocation/index.js'
-import { type Message, createToolMessage } from '../../types/message/index.js'
+import { type Message, type ToolCall, createToolMessage } from '../../types/message/index.js'
 import type { PermissionMode } from '../../types/permission/index.js'
 import type { PluginHookResult } from '../../types/plugin/index.js'
 import type { ChatCompletionResponse } from '../../types/provider/index.js'
@@ -113,14 +113,31 @@ export class ToolExecutor {
 	}
 
 	private async executeSingle(
-		toolCall: {
-			id: string
-			type: string
-			function: { name: string; arguments: string }
-		},
+		toolCall: ToolCall,
 		toolContext: ToolContext,
 	): Promise<{ toolCallId: string; output: string }> {
 		const toolName = toolCall.function.name
+
+		if (toolCall.metadata?.inputTruncated === true) {
+			const message = truncatedToolInputMessage(toolName)
+			await this.emitEvent({
+				type: 'tool_executing',
+				runId: this.config.runId,
+				toolUseId: toolCall.id,
+				toolName,
+				input: {},
+			})
+			await this.emitEvent({
+				type: 'tool_completed',
+				runId: this.config.runId,
+				toolUseId: toolCall.id,
+				toolName,
+				result: message,
+				isError: true,
+			})
+			return { toolCallId: toolCall.id, output: message }
+		}
+
 		let input: unknown
 
 		try {
@@ -435,4 +452,8 @@ function formatFailedToolOutput(output: string | undefined, error: string | unde
 	const errorText = `Error: ${error ?? 'Tool execution failed'}`
 	if (!output || output.trim().length === 0) return errorText
 	return `${output}\n\n${errorText}`
+}
+
+function truncatedToolInputMessage(toolName: string): string {
+	return `Error: Tool "${toolName}" call was cut off while the model was streaming JSON arguments. The tool was NOT executed. Retry with a much shorter input; for large content, write it to a shared workspace file and pass a filename or reference instead of embedding the content in the tool call.`
 }

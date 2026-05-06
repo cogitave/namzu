@@ -63,7 +63,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     graphviz \
         chromium chromium-driver libnss3 libatk-bridge2.0-0 libxss1 \
         libxshmfence1 libgbm1 libasound2 \
-    python3 python3-pip python3-venv python3-dev \
+    python3 python-is-python3 python3-pip python3-venv python3-dev \
         libopenblas-dev liblapack-dev gfortran \
         libfreetype6-dev libpng-dev libjpeg-dev libtiff-dev libwebp-dev \
         libxml2-dev libxslt1-dev \
@@ -132,7 +132,9 @@ RUN npm install -g --force --omit=optional --no-audit --no-fund \
 # Fail the build if any critical pre-install is missing or broken.
 # Quicker to catch here than to discover at task time.
 
-RUN python3 -c "import openpyxl, docx, pptx, pypdf, reportlab, PIL, \
+RUN python --version \
+    && pip --version \
+    && python3 -c "import openpyxl, docx, pptx, pypdf, reportlab, PIL, \
     pdfplumber, pytesseract, jinja2, markdown, bs4, qrcode, weasyprint, \
     pandas, numpy, pyarrow, duckdb, matplotlib, plotly, sklearn, ortools, \
     requests, httpx; print('python deps OK')" \

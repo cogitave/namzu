@@ -248,38 +248,6 @@ export class ToolRegistry extends ManagedRegistry<ToolDefinition> {
 				}
 			}
 
-			// Truncation sentinel — the iteration loop's post-stream
-			// flush stamps this on tool calls whose args were cut off
-			// mid-`input_json_delta` (Anthropic max_tokens-mid-literal
-			// cutoff is the canonical case). Short-circuit to a model-
-			// readable error so the model can retry with shorter input
-			// instead of receiving a generic Zod failure that suggests
-			// it called the tool incorrectly.
-			if (
-				rawInput &&
-				typeof rawInput === 'object' &&
-				(rawInput as Record<string, unknown>).__namzuTruncated === true
-			) {
-				const partial = String(
-					(rawInput as Record<string, unknown>).partialBuffer ?? '',
-				).slice(0, 80)
-				const truncMsg = `Tool "${toolName}" call was cut off by the model's output token limit (the JSON arguments stopped mid-stream). The tool was NOT executed. Retry with shorter input — for a Write tool, split the content into multiple smaller calls; for any tool, reduce the size of arguments. Partial buffer for context: ${partial}…`
-				this.log.warn(`Tool input truncated by upstream cutoff: ${toolName}`, {
-					bufferPreview: partial,
-				})
-				span.setAttributes({
-					[NAMZU.TOOL_SUCCESS]: false,
-					[NAMZU.TOOL_ERROR]: 'truncated-upstream',
-				})
-				span.setStatus({ code: SpanStatusCode.ERROR, message: 'truncated-upstream' })
-				span.end()
-				return {
-					success: false,
-					output: '',
-					error: truncMsg,
-				}
-			}
-
 			const parseResult = tool.inputSchema.safeParse(rawInput)
 			if (!parseResult.success) {
 				const errorMessage = parseResult.error.issues

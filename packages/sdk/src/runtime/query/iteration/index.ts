@@ -104,8 +104,11 @@ interface StreamingTurnResult {
  *   finally-style fall-through path with `stopReason: 'refusal'`.
  * - `tool_input_delta` with no `toolUseId` registered yet: we drop
  *   the fragment and log a warning (proxies seen to misorder events).
- * - `chunk.error`: we surface as a thrown error after emitting the
- *   message_completed terminator so consumer cards still close.
+ * - `chunk.error`: when no tool input is recoverable, we surface as
+ *   a thrown error after emitting the message_completed terminator so
+ *   consumer cards still close. If a tool-use block was already open,
+ *   we instead synthesize a tool call with runtime truncation metadata
+ *   so the executor can return a model-readable retry hint.
  */
 async function* streamProviderTurn(
 	provider: LLMProvider,
@@ -141,22 +144,18 @@ async function* streamProviderTurn(
 			started: boolean
 			completed: boolean
 			/**
-			 * Parsed input. `null` while the bucket is still streaming or
-			 * when the buffered JSON could not be parsed (e.g. the model
-			 * hit `max_tokens` mid-`input_json_delta` and the SSE stream
-			 * ended without closing the JSON literal). The synthesized
+			 * Parsed input. `null` while the bucket is still streaming.
+			 * The synthesized
 			 * `ChatCompletionResponse.toolCalls[].function.arguments` is
 			 * derived from this — never from the raw buffer — so the
 			 * downstream executor (`runtime/query/executor.ts`) never has
 			 * to re-parse a truncated string. A truncated tool call is
-			 * surfaced as `arguments: "{}"` so the executor's
-			 * `JSON.parse` succeeds and the tool runs against the empty
-			 * object, which the tool's own zod schema then rejects with
-			 * a clear "<field> is required" error rather than the
-			 * generic "Invalid JSON in tool arguments" Codex M2 fix
-			 * intercept.
+			 * surfaced as `arguments: "{}"` plus `metadata.inputTruncated`
+			 * so tool args remain clean while the executor can still
+			 * return a specific retry hint.
 			 */
 			parsed: unknown | null
+			inputTruncated: boolean
 		}
 	>()
 	let streamError: string | undefined
@@ -193,6 +192,7 @@ async function* streamProviderTurn(
 						started: false,
 						completed: false,
 						parsed: null,
+						inputTruncated: false,
 					}
 					toolBuckets.set(tc.index, bucket)
 				}
@@ -242,6 +242,7 @@ async function* streamProviderTurn(
 					try {
 						parsed = bucket.argsBuf ? JSON.parse(bucket.argsBuf) : {}
 					} catch (err) {
+						bucket.inputTruncated = true
 						log.warn('tool input JSON parse failed at content_block_stop', {
 							runId,
 							toolUseId: endId,
@@ -254,6 +255,7 @@ async function* streamProviderTurn(
 						runId,
 						toolUseId: endId as ToolUseId,
 						input: parsed,
+						...(bucket.inputTruncated ? { inputTruncated: true } : {}),
 					})
 					yield* drainPending()
 				}
@@ -286,11 +288,11 @@ async function* streamProviderTurn(
 	//      "<field> is required" Zod error and not realising its
 	//      previous tool call was truncated server-side, so it would
 	//      retry with the SAME long input and hit the same cutoff in
-	//      a loop. Detect the truncation case and emit the parsed
-	//      input under a sentinel marker the executor recognises;
-	//      the executor surfaces a specific "your tool call was cut
-	//      off by max_tokens — retry with shorter input or split into
-	//      smaller calls" message that the model can act on.
+	//      a loop. Detect the truncation case and mark the tool call
+	//      with runtime metadata; the executor surfaces a specific
+	//      "your tool call was cut off by max_tokens — retry with
+	//      shorter input or split into smaller calls" message that the
+	//      model can act on.
 	for (const bucket of toolBuckets.values()) {
 		if (bucket.started && !bucket.completed) {
 			bucket.completed = true
@@ -305,10 +307,11 @@ async function* streamProviderTurn(
 					// the bucket so the executor can return a model-
 					// readable hint instead of a generic Zod error.
 					truncated = true
-					parsed = { __namzuTruncated: true, partialBuffer: bucket.argsBuf.slice(0, 200) }
+					parsed = {}
 				}
 			}
 			bucket.parsed = parsed
+			bucket.inputTruncated = truncated
 			if (truncated) {
 				log.warn('tool input truncated by upstream cutoff (no toolCallEnd, argsBuf unparsable)', {
 					runId,
@@ -322,14 +325,52 @@ async function* streamProviderTurn(
 				runId,
 				toolUseId: bucket.id as ToolUseId,
 				input: parsed,
+				...(truncated ? { inputTruncated: true } : {}),
 			})
 			yield* drainPending()
 		}
 	}
 
+	// `arguments` MUST be valid JSON for the executor's `JSON.parse`
+	// (`runtime/query/executor.ts:executeSingle`) to succeed. We
+	// always serialise from the bucket's `parsed` object (filled by
+	// either the `toolCallEnd` branch above or the post-stream flush
+	// loop) instead of re-emitting `argsBuf`. When the provider
+	// stream truncated mid-input, `metadata.inputTruncated` carries that
+	// state; the executor parses cleanly and returns a specific
+	// model-readable retry hint instead of the generic "Invalid JSON in
+	// tool arguments" intercept.
+	const toolCalls = [...toolBuckets.entries()]
+		.sort(([a], [b]) => a - b)
+		.map(([, b]) => ({
+			id: b.id,
+			type: 'function' as const,
+			function: {
+				name: b.name,
+				arguments: JSON.stringify(b.parsed ?? {}),
+			},
+			...(b.inputTruncated ? { metadata: { inputTruncated: true } } : {}),
+		}))
+
+	const recoveredToolInputFromStreamError =
+		streamError !== undefined && toolCalls.some((tc) => tc.id && tc.function.name)
+	const effectiveFinishReason: ChatCompletionResponse['finishReason'] =
+		recoveredToolInputFromStreamError ? 'tool_calls' : finishReason
+
+	if (recoveredToolInputFromStreamError) {
+		log.warn('provider stream failed after tool input; surfacing tool call to executor', {
+			runId,
+			iteration,
+			error: streamError,
+			toolCallCount: toolCalls.length,
+		})
+	}
+
 	const stopReason: MessageStopReason = streamError
-		? 'refusal'
-		: synthesizeMessageStopReason(finishReason, forceFinalize)
+		? recoveredToolInputFromStreamError
+			? 'tool_use'
+			: 'refusal'
+		: synthesizeMessageStopReason(effectiveFinishReason, forceFinalize)
 
 	await emitEvent({
 		type: 'message_completed',
@@ -342,31 +383,9 @@ async function* streamProviderTurn(
 	})
 	yield* drainPending()
 
-	if (streamError) {
+	if (streamError && !recoveredToolInputFromStreamError) {
 		throw new Error(`Provider stream error: ${streamError}`)
 	}
-
-	// `arguments` MUST be valid JSON for the executor's `JSON.parse`
-	// (`runtime/query/executor.ts:executeSingle`) to succeed. We
-	// always serialise from the bucket's `parsed` object (filled by
-	// either the `toolCallEnd` branch above or the post-stream flush
-	// loop) instead of re-emitting `argsBuf`. When the provider
-	// stream truncated mid-input (Anthropic `stop_reason: "max_tokens"`),
-	// `parsed` is `{}` — the executor still parses cleanly and the
-	// tool's input zod schema rejects the empty payload with a
-	// readable per-field error, instead of the executor's generic
-	// "Invalid JSON in tool arguments" intercept that left the model
-	// with no actionable signal.
-	const toolCalls = [...toolBuckets.entries()]
-		.sort(([a], [b]) => a - b)
-		.map(([, b]) => ({
-			id: b.id,
-			type: 'function' as const,
-			function: {
-				name: b.name,
-				arguments: JSON.stringify(b.parsed ?? {}),
-			},
-		}))
 
 	const response: ChatCompletionResponse = {
 		id: id || messageId,
@@ -376,7 +395,7 @@ async function* streamProviderTurn(
 			content: textBuf.length > 0 ? textBuf : null,
 			toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
 		},
-		finishReason,
+		finishReason: effectiveFinishReason,
 		usage,
 	}
 	return { response, messageId }

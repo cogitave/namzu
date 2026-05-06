@@ -303,7 +303,8 @@ describe('ToolRegistry — execute', () => {
 		)
 		const result = await r.execute('strict', { required: 123 }, makeContext())
 		expect(result.success).toBe(false)
-		expect(result.error).toMatch(/Invalid input/)
+		expect(result.error).toMatch(/Validation failed for "strict"/)
+		expect(result.error).toContain('Expected string, received number')
 	})
 
 	it('wraps thrown errors in the execute function', async () => {
