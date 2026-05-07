@@ -113,7 +113,11 @@ export {
 	ManagedRegistry,
 	PluginRegistry,
 	Registry,
+	ToolCatalog,
 	ToolRegistry,
+	createToolCatalogFromRegistry,
+	loadingFromAvailability,
+	toolDefinitionToCatalogEntry,
 } from './registry/index.js'
 
 export {

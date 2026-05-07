@@ -4,6 +4,13 @@ export type { ManagedRegistryConfig } from './ManagedRegistry.js'
 
 export { ToolRegistry } from './tool/execute.js'
 export type { ToolExecutionResult } from './tool/execute.js'
+export {
+	ToolCatalog,
+	createToolCatalogFromRegistry,
+	loadingFromAvailability,
+	toolDefinitionToCatalogEntry,
+} from './toolset/catalog.js'
+export type { ToolCatalogFromRegistryOptions, ToolCatalogSearchOptions } from './toolset/catalog.js'
 
 export { ConnectorRegistry } from './connector/definitions.js'
 export { ScopedConnectorRegistry } from './connector/scoped.js'
