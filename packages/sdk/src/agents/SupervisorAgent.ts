@@ -1,26 +1,29 @@
-import { EMPTY_TOKEN_USAGE } from '../constants/limits.js'
-import { LocalTaskGateway } from '../gateway/local.js'
-import { ToolRegistry } from '../registry/tool/execute.js'
-import { drainQuery } from '../runtime/query/index.js'
-import type { LaunchedTaskMeta } from '../runtime/query/iteration/phases/context.js'
-import { buildCoordinatorTools } from '../tools/coordinator/index.js'
-import type { TaskGateway } from '../types/agent/gateway.js'
+import { EMPTY_TOKEN_USAGE } from '../constants/limits.js';
+import { LocalTaskGateway } from '../gateway/local.js';
+import { ToolRegistry } from '../registry/tool/execute.js';
+import { drainQuery } from '../runtime/query/index.js';
+import type { LaunchedTaskMeta } from '../runtime/query/iteration/phases/context.js';
+import { buildCoordinatorTools } from '../tools/coordinator/index.js';
+import type { TaskGateway } from '../types/agent/gateway.js';
 import type {
 	AgentInput,
 	AgentMetadata,
 	SupervisorAgentConfig,
 	SupervisorAgentResult,
-} from '../types/agent/index.js'
-import type { AgentTaskContext } from '../types/agent/task.js'
-import type { AgentId, TaskId } from '../types/ids/index.js'
-import { deriveChildState } from '../types/invocation/index.js'
-import type { RunEventListener } from '../types/run/index.js'
-import type { ActorRef } from '../types/session/actor.js'
-import { ZERO_COST } from '../utils/cost.js'
-import { AbstractAgent } from './AbstractAgent.js'
+} from '../types/agent/index.js';
+import type { AgentTaskContext } from '../types/agent/task.js';
+import type { AgentId, TaskId } from '../types/ids/index.js';
+import { deriveChildState } from '../types/invocation/index.js';
+import type { RunEventListener } from '../types/run/index.js';
+import type { ActorRef } from '../types/session/actor.js';
+import { ZERO_COST } from '../utils/cost.js';
+import { AbstractAgent } from './AbstractAgent.js';
 
-export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, SupervisorAgentResult> {
-	readonly type = 'supervisor' as const
+export class SupervisorAgent extends AbstractAgent<
+	SupervisorAgentConfig,
+	SupervisorAgentResult
+> {
+	readonly type = 'supervisor' as const;
 
 	constructor(metadata: Omit<AgentMetadata, 'type' | 'capabilities'>) {
 		super({
@@ -32,7 +35,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 				supportsConcurrency: true,
 				supportsSubAgents: true,
 			},
-		})
+		});
 	}
 
 	async run(
@@ -40,28 +43,33 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 		config: SupervisorAgentConfig,
 		listener?: RunEventListener,
 	): Promise<SupervisorAgentResult> {
-		const startTime = Date.now()
-		const runId = this.createRunId()
+		const startTime = Date.now();
+		const runId = this.createRunId();
 
-		if (!config.sessionId || !config.threadId || !config.projectId || !config.tenantId) {
+		if (
+			!config.sessionId ||
+			!config.threadId ||
+			!config.projectId ||
+			!config.tenantId
+		) {
 			throw new Error(
 				'SupervisorAgent requires sessionId, threadId, projectId, and tenantId in config (session-hierarchy.md §12.1).',
-			)
+			);
 		}
-		const sessionId = config.sessionId
-		const threadId = config.threadId
-		const projectId = config.projectId
-		const tenantId = config.tenantId
+		const sessionId = config.sessionId;
+		const threadId = config.threadId;
+		const projectId = config.projectId;
+		const tenantId = config.tenantId;
 
 		const parentActor: ActorRef = {
 			kind: 'agent',
 			agentId: this.metadata.id as AgentId,
 			tenantId,
-		}
+		};
 
-		let gateway: TaskGateway
+		let gateway: TaskGateway;
 		if (config.gateway) {
-			gateway = config.gateway
+			gateway = config.gateway;
 		} else if (config.agentManager) {
 			const mergedFactoryOptions = config.factoryOptions
 				? {
@@ -72,7 +80,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 					? ({
 							taskRouter: config.taskRouter,
 						} as import('../types/agent/index.js').AgentFactoryOptions)
-					: undefined
+					: undefined;
 
 			const taskContext: AgentTaskContext = {
 				parentRunId: runId,
@@ -89,15 +97,24 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 				sessionId,
 				projectId,
 				parentActor,
-			}
-			gateway = new LocalTaskGateway(config.agentManager, taskContext, listener, input)
+			};
+			gateway = new LocalTaskGateway(
+				config.agentManager,
+				taskContext,
+				listener,
+				input,
+			);
 		} else {
-			throw new Error("SupervisorAgentConfig requires either 'gateway' or 'agentManager'")
+			throw new Error(
+				"SupervisorAgentConfig requires either 'gateway' or 'agentManager'",
+			);
 		}
 
-		const launchedTasks = new Map<TaskId, LaunchedTaskMeta>()
+		const launchedTasks = new Map<TaskId, LaunchedTaskMeta>();
 
-		let planManagerRef: import('../manager/plan/lifecycle.js').PlanManager | undefined
+		let planManagerRef:
+			| import('../manager/plan/lifecycle.js').PlanManager
+			| undefined;
 
 		const coordinatorToolDefs = buildCoordinatorTools({
 			gateway,
@@ -108,19 +125,24 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 			runId,
 			getPlanManager: () => planManagerRef,
 			onTaskLaunched: (agentTaskId, meta) => {
-				launchedTasks.set(agentTaskId, meta)
+				launchedTasks.set(agentTaskId, meta);
 			},
-		})
+		});
 
-		const tools = new ToolRegistry()
+		const tools = new ToolRegistry();
+		if (config.tools) {
+			for (const tool of config.tools.getAll()) {
+				tools.register(tool, config.tools.getAvailability(tool.name));
+			}
+		}
 		for (const tool of coordinatorToolDefs) {
-			tools.register(tool)
+			tools.register(tool);
 		}
 
 		const childInvocationState = deriveChildState(
 			config.invocationState ?? { tenantId },
 			this.metadata.id,
-		)
+		);
 
 		const run = await drainQuery(
 			{
@@ -149,7 +171,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 				depth: config.depth,
 				contextLevel: 'full',
 				onContextCreated: ({ planManager }) => {
-					planManagerRef = planManager
+					planManagerRef = planManager;
 				},
 				taskStore: input.taskStore,
 				runtimeToolOverrides: input.runtimeToolOverrides,
@@ -162,14 +184,20 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 				// run "Ask before acting" supervisors instead of the default
 				// auto-approve. drainQuery falls back to autoApproveHandler
 				// when resumeHandler is omitted (= same behaviour as before).
-				...(config.resumeHandler ? { resumeHandler: config.resumeHandler } : {}),
-				...(config.verificationGate ? { verificationGate: config.verificationGate } : {}),
-				...(config.sandboxProvider ? { sandboxProvider: config.sandboxProvider } : {}),
+				...(config.resumeHandler
+					? { resumeHandler: config.resumeHandler }
+					: {}),
+				...(config.verificationGate
+					? { verificationGate: config.verificationGate }
+					: {}),
+				...(config.sandboxProvider
+					? { sandboxProvider: config.sandboxProvider }
+					: {}),
 			},
 			listener,
-		)
+		);
 
-		const taskHandles = gateway.listTasks()
+		const taskHandles = gateway.listTasks();
 		const taskResults = taskHandles.map((handle, index) => ({
 			agentId: handle.agentId,
 			result: handle.result ?? {
@@ -182,9 +210,11 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 				messages: [],
 			},
 			taskIndex: index,
-		}))
+		}));
 
-		const completedTasks = taskResults.filter((t) => t.result.status === 'completed').length
+		const completedTasks = taskResults.filter(
+			(t) => t.result.status === 'completed',
+		).length;
 
 		return {
 			runId: run.id,
@@ -200,6 +230,6 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 			taskResults,
 			completedTasks,
 			totalTasks: taskResults.length,
-		}
+		};
 	}
 }
