@@ -205,6 +205,7 @@ async function spawnDockerSandbox(
 		// write it to a bind path the worker reads at startup —
 		// avoids env-size limits, keeps the wire shape minimal.
 		args.push('--env', `NAMZU_SANDBOX_WORKSPACE=${rootDir}`)
+		args.push('--env', `NAMZU_SANDBOX_READ_ROOTS=${renderLayoutReadRootsEnv(resolvedLayout)}`)
 
 		// Only publish a host port when the consumer is going to reach
 		// the worker through the docker host's loopback (CLI / direct
@@ -714,4 +715,15 @@ export function renderLayoutMountArgs(layout: ResolvedContainerSandboxLayout): s
 		)
 	}
 	return args
+}
+
+export function renderLayoutReadRootsEnv(layout: ResolvedContainerSandboxLayout): string {
+	const roots = [
+		layout.outputs.containerPath,
+		layout.uploads?.containerPath,
+		layout.toolResults?.containerPath,
+		layout.transcripts?.containerPath,
+		...(layout.skills?.map((skill) => skill.containerPath) ?? []),
+	].filter((root): root is string => Boolean(root))
+	return Array.from(new Set(roots)).join(':')
 }

@@ -43,6 +43,11 @@ const path = require('node:path')
 
 const PORT = Number(process.env.NAMZU_SANDBOX_PORT || 2024)
 const WORKSPACE_ROOT = process.env.NAMZU_SANDBOX_WORKSPACE || '/workspace'
+const READ_ROOTS = normalizeRoots(
+	[WORKSPACE_ROOT, ...(process.env.NAMZU_SANDBOX_READ_ROOTS || '').split(path.delimiter)].filter(
+		Boolean,
+	),
+)
 const MAX_BODY_BYTES = Number(process.env.NAMZU_SANDBOX_MAX_BODY_BYTES || 8 * 1024 * 1024)
 const DEFAULT_MAX_OUTPUT_BYTES = 100 * 1024 * 1024
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000
@@ -99,6 +104,39 @@ function resolveWithinWorkspace(p, base) {
 		throw new Error('path escapes the workspace')
 	}
 	return resolved
+}
+
+function normalizeRoots(roots) {
+	const seen = new Set()
+	const normalized = []
+	for (const root of roots) {
+		const trimmed = String(root || '').trim()
+		if (!trimmed) continue
+		const resolved = path.resolve(trimmed)
+		if (seen.has(resolved)) continue
+		seen.add(resolved)
+		normalized.push(resolved)
+	}
+	return normalized
+}
+
+function isWithinRoot(resolved, root) {
+	return resolved === root || resolved.startsWith(`${root}${path.sep}`)
+}
+
+function resolveReadablePath(p) {
+	if (!path.isAbsolute(p)) {
+		return {
+			target: resolveWithinWorkspace(p, WORKSPACE_ROOT),
+			root: path.resolve(WORKSPACE_ROOT),
+		}
+	}
+	const target = path.resolve(p)
+	const root = READ_ROOTS.find((candidate) => isWithinRoot(target, candidate))
+	if (!root) {
+		throw new Error('path escapes the workspace')
+	}
+	return { target, root }
 }
 
 /**
@@ -286,8 +324,8 @@ async function handleReadFile(req, res) {
 		return
 	}
 	try {
-		const target = resolveWithinWorkspace(body.path, WORKSPACE_ROOT)
-		const real = await realpathWithinWorkspace(target, WORKSPACE_ROOT)
+		const { target, root } = resolveReadablePath(body.path)
+		const real = await realpathWithinWorkspace(target, root)
 		const buf = await fs.readFile(real)
 		const encoding = body.encoding === 'base64' ? 'base64' : 'utf8'
 		writeJson(res, 200, {

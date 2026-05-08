@@ -29,7 +29,11 @@ import { describe, expect, it } from 'vitest'
 
 import type { ContainerSandboxLayout } from '@namzu/sdk'
 
-import { renderLayoutMountArgs, resolveLayout } from './backends/docker/index.js'
+import {
+	renderLayoutMountArgs,
+	renderLayoutReadRootsEnv,
+	resolveLayout,
+} from './backends/docker/index.js'
 import {
 	ContainerSandboxLayoutValidationError,
 	SandboxBackendNotImplementedError,
@@ -641,6 +645,25 @@ describe('renderLayoutMountArgs', () => {
 			},
 		})
 		expect(args).toEqual(['--volume', '/h/o:/mnt/user-data/outputs:rw'])
+	})
+
+	it('emits read roots for outputs plus read-only mounts', () => {
+		const env = renderLayoutReadRootsEnv({
+			outputs: {
+				source: { type: 'hostDir', hostPath: '/h/o' },
+				containerPath: '/mnt/user-data/outputs',
+			},
+			uploads: {
+				source: { type: 'hostDir', hostPath: '/h/u' },
+				containerPath: '/mnt/user-data/uploads',
+			},
+			transcripts: {
+				source: { type: 'hostDir', hostPath: '/h/ts' },
+				containerPath: '/mnt/transcripts',
+			},
+		})
+
+		expect(env).toBe('/mnt/user-data/outputs:/mnt/user-data/uploads:/mnt/transcripts')
 	})
 })
 
