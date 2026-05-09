@@ -41,6 +41,7 @@ const azuriteAvailable = await probeAzurite()
 
 if (!azuriteAvailable) {
 	const endpoint = CONN.match(/BlobEndpoint=([^;]+)/)?.[1] ?? '<unconfigured>'
+	// biome-ignore lint/suspicious/noConsole: intentional skip diagnostic for CI logs
 	console.warn(
 		`[@namzu/files/azure-blob] SKIP integration suite: blob endpoint not reachable at ${endpoint}. Start Azurite (e.g. \`docker compose up -d azurite\` from the Vandal repo) or set AZURE_STORAGE_CONNECTION_STRING to a real account to run the real assertions.`,
 	)
