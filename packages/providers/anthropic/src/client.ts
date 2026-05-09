@@ -341,119 +341,117 @@ export class AnthropicProvider implements LLMProvider {
 				const result = await nextWithIdleTimeout()
 				if (result.done) break
 				const event = result.value
-				{
-			try {
-				switch (event.type) {
-					case 'message_start': {
-						if (event.message?.id) messageId = event.message.id
-						if (event.message?.usage) {
-							yield {
-								id: messageId,
-								delta: {},
-								usage: parseUsage(event.message.usage),
+				try {
+					switch (event.type) {
+						case 'message_start': {
+							if (event.message?.id) messageId = event.message.id
+							if (event.message?.usage) {
+								yield {
+									id: messageId,
+									delta: {},
+									usage: parseUsage(event.message.usage),
+								}
 							}
+							break
 						}
-						break
-					}
-					case 'content_block_start': {
-						const idx = event.index ?? 0
-						const block = event.content_block
-						if (block?.type === 'tool_use') {
-							const toolId = block.id ?? `tool-${Date.now()}`
-							activeTools.set(idx, { id: toolId, name: block.name ?? '' })
-							yield {
-								id: messageId,
-								delta: {
-									toolCalls: [
-										{
-											index: idx,
-											id: toolId,
-											type: 'function',
-											function: { name: block.name ?? '' },
-										},
-									],
-								},
+						case 'content_block_start': {
+							const idx = event.index ?? 0
+							const block = event.content_block
+							if (block?.type === 'tool_use') {
+								const toolId = block.id ?? `tool-${Date.now()}`
+								activeTools.set(idx, { id: toolId, name: block.name ?? '' })
+								yield {
+									id: messageId,
+									delta: {
+										toolCalls: [
+											{
+												index: idx,
+												id: toolId,
+												type: 'function',
+												function: { name: block.name ?? '' },
+											},
+										],
+									},
+								}
 							}
+							break
 						}
-						break
-					}
-					case 'content_block_delta': {
-						const idx = event.index ?? 0
-						const delta = event.delta
-						if (delta?.type === 'text_delta' && delta.text) {
-							yield { id: messageId, delta: { content: delta.text } }
-						} else if (delta?.type === 'input_json_delta' && delta.partial_json !== undefined) {
+						case 'content_block_delta': {
+							const idx = event.index ?? 0
+							const delta = event.delta
+							if (delta?.type === 'text_delta' && delta.text) {
+								yield { id: messageId, delta: { content: delta.text } }
+							} else if (delta?.type === 'input_json_delta' && delta.partial_json !== undefined) {
+								const active = activeTools.get(idx)
+								yield {
+									id: messageId,
+									delta: {
+										toolCalls: [
+											{
+												index: idx,
+												id: active?.id,
+												function: { arguments: delta.partial_json },
+											},
+										],
+									},
+								}
+							}
+							break
+						}
+						case 'content_block_stop': {
+							// For tool_use blocks we MUST emit a `toolCallEnd`
+							// signal so the consumer-side aggregator (sdk
+							// runtime/query/iteration) can flush the buffered
+							// `argsBuf` and JSON.parse it into the tool input.
+							// Without this signal the executor sees an empty
+							// `arguments` string and rejects the call with
+							// `Error: Invalid JSON in tool arguments for "<tool>"`
+							// — exactly the failure the live cowork test
+							// surfaced (Bash + Write both blank-input failed).
+							const idx = event.index ?? 0
 							const active = activeTools.get(idx)
-							yield {
-								id: messageId,
-								delta: {
-									toolCalls: [
-										{
-											index: idx,
-											id: active?.id,
-											function: { arguments: delta.partial_json },
-										},
-									],
-								},
+							if (active) {
+								yield {
+									id: messageId,
+									delta: {
+										toolCallEnd: { index: idx, id: active.id },
+									},
+								}
+								activeTools.delete(idx)
 							}
+							break
 						}
-						break
-					}
-					case 'content_block_stop': {
-						// For tool_use blocks we MUST emit a `toolCallEnd`
-						// signal so the consumer-side aggregator (sdk
-						// runtime/query/iteration) can flush the buffered
-						// `argsBuf` and JSON.parse it into the tool input.
-						// Without this signal the executor sees an empty
-						// `arguments` string and rejects the call with
-						// `Error: Invalid JSON in tool arguments for "<tool>"`
-						// — exactly the failure the live cowork test
-						// surfaced (Bash + Write both blank-input failed).
-						const idx = event.index ?? 0
-						const active = activeTools.get(idx)
-						if (active) {
-							yield {
-								id: messageId,
-								delta: {
-									toolCallEnd: { index: idx, id: active.id },
-								},
+						case 'message_delta': {
+							if (event.delta?.stop_reason) {
+								yield {
+									id: messageId,
+									delta: {},
+									finishReason: mapStopReason(event.delta.stop_reason),
+									usage: event.usage ? parseUsage(event.usage) : undefined,
+								}
+							} else if (event.usage) {
+								yield {
+									id: messageId,
+									delta: {},
+									usage: parseUsage(event.usage),
+								}
 							}
-							activeTools.delete(idx)
+							break
 						}
-						break
+						case 'message_stop':
+							return
+						default:
+							// Ignore unknown / ping / opaque events.
+							break
 					}
-					case 'message_delta': {
-						if (event.delta?.stop_reason) {
-							yield {
-								id: messageId,
-								delta: {},
-								finishReason: mapStopReason(event.delta.stop_reason),
-								usage: event.usage ? parseUsage(event.usage) : undefined,
-							}
-						} else if (event.usage) {
-							yield {
-								id: messageId,
-								delta: {},
-								usage: parseUsage(event.usage),
-							}
-						}
-						break
+				} catch (parseErr) {
+					yield {
+						id: messageId,
+						delta: {},
+						error: `Stream event error: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
 					}
-					case 'message_stop':
-						return
-					default:
-						// Ignore unknown / ping / opaque events.
-						break
-				}
-			} catch (parseErr) {
-				yield {
-					id: messageId,
-					delta: {},
-					error: `Stream event error: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
 				}
 			}
-			}
-		}
 		} finally {
 			// Always release the underlying HTTP/2 connection — both on
 			// idle-timeout rejection (bubbling up) and on normal stream
