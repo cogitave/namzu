@@ -64,7 +64,18 @@ export class AzureBlobStore implements BlobStore {
 
 	async ensureContainer(): Promise<void> {
 		if (!this.#ensurePromise) {
-			this.#ensurePromise = this.#container.createIfNotExists().then(() => undefined)
+			// Drop the cached promise on rejection so subsequent puts can
+			// retry; otherwise a transient network failure on the first
+			// `createIfNotExists` would stick a rejected promise in the
+			// cache and every following put would fail without ever
+			// retrying the existence check.
+			this.#ensurePromise = this.#container
+				.createIfNotExists()
+				.then(() => undefined)
+				.catch((err) => {
+					this.#ensurePromise = undefined
+					throw err
+				})
 		}
 		return this.#ensurePromise
 	}
