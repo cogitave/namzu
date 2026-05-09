@@ -44,9 +44,16 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "node --test dist/**/*.test.js"
+    "test": "vitest run --passWithNoTests",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check src/"
   },
   "sideEffects": false,
   "license": "MIT",
-  "devDependencies": {}
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@types/node": "^22.19.17",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  }
 }
