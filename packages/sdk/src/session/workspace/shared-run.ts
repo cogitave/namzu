@@ -138,16 +138,12 @@ export class SharedRunWorkspace {
 		const now = this.nowIso()
 		await this.writeManifest((manifest) => ({
 			...manifest,
-			plans: upsertBy(
-				manifest.plans,
-				(plan) => plan.id,
-				{
-					id,
-					briefPath,
-					status: input.status ?? 'seeded',
-					updatedAt: now,
-				},
-			),
+			plans: upsertBy(manifest.plans, (plan) => plan.id, {
+				id,
+				briefPath,
+				status: input.status ?? 'seeded',
+				updatedAt: now,
+			}),
 		}))
 		return briefPath
 	}
@@ -164,17 +160,13 @@ export class SharedRunWorkspace {
 		const now = this.nowIso()
 		await this.writeManifest((manifest) => ({
 			...manifest,
-			agents: upsertBy(
-				manifest.agents,
-				(record) => `${record.agentId}:${record.taskId ?? ''}`,
-				{
-					agentId: input.agentId,
-					...(input.taskId ? { taskId: input.taskId } : {}),
-					workPath,
-					status: input.status ?? 'assigned',
-					updatedAt: now,
-				},
-			),
+			agents: upsertBy(manifest.agents, (record) => `${record.agentId}:${record.taskId ?? ''}`, {
+				agentId: input.agentId,
+				...(input.taskId ? { taskId: input.taskId } : {}),
+				workPath,
+				status: input.status ?? 'assigned',
+				updatedAt: now,
+			}),
 		}))
 		return workPath
 	}

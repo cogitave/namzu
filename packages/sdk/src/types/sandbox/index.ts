@@ -183,14 +183,23 @@ export interface ContainerSandboxLayout {
  */
 export interface ResolvedContainerSandboxLayout {
 	readonly outputs: { readonly source: ContainerSandboxMountSource; readonly containerPath: string }
-	readonly uploads?: { readonly source: ContainerSandboxMountSource; readonly containerPath: string }
-	readonly toolResults?: { readonly source: ContainerSandboxMountSource; readonly containerPath: string }
+	readonly uploads?: {
+		readonly source: ContainerSandboxMountSource
+		readonly containerPath: string
+	}
+	readonly toolResults?: {
+		readonly source: ContainerSandboxMountSource
+		readonly containerPath: string
+	}
 	readonly skills?: readonly {
 		readonly id: string
 		readonly source: ContainerSandboxMountSource
 		readonly containerPath: string
 	}[]
-	readonly transcripts?: { readonly source: ContainerSandboxMountSource; readonly containerPath: string }
+	readonly transcripts?: {
+		readonly source: ContainerSandboxMountSource
+		readonly containerPath: string
+	}
 }
 
 // ---------------------------------------------------------------------------

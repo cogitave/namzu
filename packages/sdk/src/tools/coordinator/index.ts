@@ -54,9 +54,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 				.describe(
 					'Self-contained assignment for the agent. For large generated content, prefer workspace file references so provider output-token limits do not cut off the tool call.',
 				),
-			description: z
-				.string()
-				.describe('Short summary for tracking, shown to the user.'),
+			description: z.string().describe('Short summary for tracking, shown to the user.'),
 			plan_task_id: z
 				.string()
 				.optional()
