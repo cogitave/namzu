@@ -9,6 +9,34 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./inmem": {
+      "types": "./dist/inmem/index.d.ts",
+      "import": "./dist/inmem/index.js"
+    },
+    "./local": {
+      "types": "./dist/local/index.d.ts",
+      "import": "./dist/local/index.js"
+    },
+    "./postgres": {
+      "types": "./dist/postgres/index.d.ts",
+      "import": "./dist/postgres/index.js"
+    },
+    "./s3": {
+      "types": "./dist/s3/index.d.ts",
+      "import": "./dist/s3/index.js"
+    },
+    "./azure-blob": {
+      "types": "./dist/azure-blob/index.d.ts",
+      "import": "./dist/azure-blob/index.js"
+    },
+    "./gcs": {
+      "types": "./dist/gcs/index.d.ts",
+      "import": "./dist/gcs/index.js"
+    },
+    "./http": {
+      "types": "./dist/http/index.d.ts",
+      "import": "./dist/http/index.js"
     }
   },
   "files": [

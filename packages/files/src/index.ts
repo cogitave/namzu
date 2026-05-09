@@ -1,6 +1,6 @@
-export type NamzuFileId = string
+export type FileId = string
 
-export type NamzuFileScopeType =
+export type FileScopeType =
 	| 'tenant'
 	| 'project'
 	| 'thread'
@@ -12,127 +12,121 @@ export type NamzuFileScopeType =
 	| 'workspace'
 	| 'draft'
 
-export type NamzuFileRole =
-	| 'context'
-	| 'input'
-	| 'output'
-	| 'artifact'
-	| 'doc'
-	| 'memory'
-	| 'attachment'
+export type FileRole = 'context' | 'input' | 'output' | 'artifact' | 'doc' | 'memory' | 'attachment'
 
-export type NamzuFileSource =
+export type FileSource =
 	| 'user_upload'
 	| 'text_document'
 	| 'runtime_output'
 	| 'generated_artifact'
 	| 'external_provider'
 
-export type NamzuStorageProvider =
+export type StorageProviderId =
 	| 'memory'
 	| 'local-fs'
 	| 'postgres-bytea'
 	| 's3'
 	| 'azure-blob'
+	| 'gcs'
 	| 'anthropic-files'
 	| (string & {})
 
-export interface NamzuStorageRef {
-	readonly provider: NamzuStorageProvider
+export interface StorageRef {
+	readonly provider: StorageProviderId
 	readonly key: string
 	readonly etag?: string
 	readonly sizeBytes?: number
 	readonly downloadable?: boolean
 }
 
-export interface NamzuFileScope {
-	readonly type: NamzuFileScopeType
+export interface FileScope {
+	readonly type: FileScopeType
 	readonly id: string
 }
 
-export interface NamzuFileRecord {
-	readonly id: NamzuFileId
+export interface FileRecord {
+	readonly id: FileId
 	readonly ownerId: string
 	readonly filename: string
 	readonly mimeType: string
 	readonly sizeBytes: number
 	readonly sha256?: string
-	readonly source: NamzuFileSource
-	readonly storage: NamzuStorageRef
+	readonly source: FileSource
+	readonly storage: StorageRef
 	readonly createdAt: Date
 	readonly updatedAt: Date
 }
 
-export interface NamzuFileLink {
-	readonly fileId: NamzuFileId
-	readonly scope: NamzuFileScope
-	readonly role: NamzuFileRole
+export interface FileLink {
+	readonly fileId: FileId
+	readonly scope: FileScope
+	readonly role: FileRole
 	readonly createdAt: Date
 }
 
-export interface NamzuFileTextDocument {
-	readonly fileId: NamzuFileId
+export interface TextDocument {
+	readonly fileId: FileId
 	readonly content: string
 	readonly estimatedTokenCount?: number
 	readonly extractionStatus: 'pending' | 'ready' | 'failed'
 	readonly updatedAt: Date
 }
 
-export interface NamzuFileCreateInput {
-	readonly id?: NamzuFileId
+export interface FileCreateInput {
+	readonly id?: FileId
 	readonly ownerId: string
 	readonly filename: string
 	readonly mimeType: string
 	readonly sizeBytes: number
 	readonly sha256?: string
-	readonly source: NamzuFileSource
-	readonly storage: NamzuStorageRef
-	readonly links?: readonly Omit<NamzuFileLink, 'fileId' | 'createdAt'>[]
-	readonly textDocument?: Omit<NamzuFileTextDocument, 'fileId' | 'updatedAt'>
+	readonly source: FileSource
+	readonly storage: StorageRef
+	readonly links?: readonly Omit<FileLink, 'fileId' | 'createdAt'>[]
+	readonly textDocument?: Omit<TextDocument, 'fileId' | 'updatedAt'>
 }
 
-export interface NamzuFileListInput {
-	readonly scope: NamzuFileScope
-	readonly roles?: readonly NamzuFileRole[]
+export interface FileListInput {
+	readonly scope: FileScope
+	readonly roles?: readonly FileRole[]
 	readonly ownerId?: string
 }
 
-export interface NamzuBlobPutInput {
+export interface BlobPutInput {
 	readonly key?: string
 	readonly bytes: Uint8Array
 	readonly mimeType?: string
 	readonly filename?: string
 }
 
-export interface NamzuBlob {
-	readonly storage: NamzuStorageRef
+export interface BlobRecord {
+	readonly storage: StorageRef
 	readonly bytes: Uint8Array
 }
 
-export interface NamzuBlobStore {
-	put(input: NamzuBlobPutInput): Promise<NamzuStorageRef>
-	get(storage: NamzuStorageRef): Promise<NamzuBlob | null>
-	delete(storage: NamzuStorageRef): Promise<void>
-	head(storage: NamzuStorageRef): Promise<NamzuStorageRef | null>
+export interface BlobStore {
+	put(input: BlobPutInput): Promise<StorageRef>
+	get(storage: StorageRef): Promise<BlobRecord | null>
+	delete(storage: StorageRef): Promise<void>
+	head(storage: StorageRef): Promise<StorageRef | null>
 }
 
-export interface NamzuFileRegistry {
-	create(input: NamzuFileCreateInput): Promise<NamzuFileRecord>
-	link(input: Omit<NamzuFileLink, 'createdAt'>): Promise<NamzuFileLink>
-	unlink(input: Omit<NamzuFileLink, 'createdAt'>): Promise<void>
-	list(input: NamzuFileListInput): Promise<NamzuFileRecord[]>
-	get(fileId: NamzuFileId): Promise<NamzuFileRecord | null>
-	getTextDocument(fileId: NamzuFileId): Promise<NamzuFileTextDocument | null>
+export interface FileRegistry {
+	create(input: FileCreateInput): Promise<FileRecord>
+	link(input: Omit<FileLink, 'createdAt'>): Promise<FileLink>
+	unlink(input: Omit<FileLink, 'createdAt'>): Promise<void>
+	list(input: FileListInput): Promise<FileRecord[]>
+	get(fileId: FileId): Promise<FileRecord | null>
+	getTextDocument(fileId: FileId): Promise<TextDocument | null>
 }
 
-export interface NamzuFilesChangedEvent {
-	readonly scope: NamzuFileScope
-	readonly roles?: readonly NamzuFileRole[]
+export interface FilesChangedEvent {
+	readonly scope: FileScope
+	readonly roles?: readonly FileRole[]
 	readonly revision?: number
 }
 
-export interface NamzuFileEventSink {
-	filesChanged(event: NamzuFilesChangedEvent): Promise<void>
+export interface FileEventSink {
+	filesChanged(event: FilesChangedEvent): Promise<void>
 }
 
 export function isSafeRelativePath(path: string): boolean {
