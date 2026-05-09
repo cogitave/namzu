@@ -118,7 +118,7 @@ describe('ToolExecutor plugin hooks', () => {
 			makeLogger(),
 		)
 
-		const batch = await exec.executeBatch(buildResponse('Bash', { command: 'false' }))
+		const batch = await exec.executeBatch(buildResponse('bash', { command: 'false' }))
 		expect(batch.results[0]?.output).toContain('STDOUT:\npartial result')
 		expect(batch.results[0]?.output).toContain('STDERR:\nboom')
 		expect(batch.results[0]?.output).toContain('Error: Command exited with code 1')
@@ -126,7 +126,7 @@ describe('ToolExecutor plugin hooks', () => {
 		const completed = emitted.find((e) => e.type === 'tool_completed')
 		expect(completed).toMatchObject({
 			type: 'tool_completed',
-			toolName: 'Bash',
+			toolName: 'bash',
 			result: expect.stringContaining('STDOUT:\npartial result'),
 			isError: true,
 		})

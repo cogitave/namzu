@@ -18,7 +18,7 @@ const inputSchema = z.object({
 })
 
 export const WriteFileTool = defineTool({
-	name: 'Write',
+	name: 'write',
 	description:
 		'Writes content to a file. Creates the file if it does not exist, overwrites if it does. Creates intermediate directories as needed. Both `path` and `content` are required — never call this tool with empty arguments. For long content, prefer multiple smaller writes over one large write so the call cannot be cut off by an output token limit.',
 	inputSchema,

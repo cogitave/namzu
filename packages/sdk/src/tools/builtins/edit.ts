@@ -18,7 +18,7 @@ const inputSchema = z.object({
 type EditInput = z.infer<typeof inputSchema>
 
 export const EditTool = defineTool({
-	name: 'Edit',
+	name: 'edit',
 	description:
 		'Makes targeted edits to a file using exact string find-and-replace. The old_string must be unique in the file unless replace_all is true. Preserves file formatting and indentation.',
 	inputSchema,

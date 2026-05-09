@@ -57,7 +57,7 @@ describe('collect()', () => {
 					id: 'm',
 					delta: {
 						toolCalls: [
-							{ index: 0, id: 'toolu_a', function: { name: 'Read' } },
+							{ index: 0, id: 'toolu_a', function: { name: 'read' } },
 							{ index: 1, id: 'toolu_b', function: { name: 'WebSearch' } },
 						],
 					},
@@ -84,7 +84,7 @@ describe('collect()', () => {
 			{
 				id: 'toolu_a',
 				type: 'function',
-				function: { name: 'Read', arguments: '{"file_path":"/a"}' },
+				function: { name: 'read', arguments: '{"file_path":"/a"}' },
 			},
 			{
 				id: 'toolu_b',

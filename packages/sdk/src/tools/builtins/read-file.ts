@@ -15,7 +15,7 @@ const inputSchema = z.object({
 })
 
 export const ReadFileTool = defineTool({
-	name: 'Read',
+	name: 'read',
 	description:
 		'Reads a file and returns its contents with line numbers. Supports offset and limit parameters for large files.',
 	inputSchema,

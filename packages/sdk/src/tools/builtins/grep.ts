@@ -40,7 +40,7 @@ function isBinaryContent(buffer: Buffer): boolean {
 }
 
 export const GrepTool = defineTool({
-	name: 'Grep',
+	name: 'grep',
 	description:
 		'Searches file contents using a regular expression. Returns matching lines with file paths, line numbers, and optional context lines. Skips binary files.',
 	inputSchema,

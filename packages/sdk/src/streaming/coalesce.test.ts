@@ -98,7 +98,7 @@ describe('coalesce()', () => {
 				iteration: 0,
 				messageId: MID,
 				toolUseId: TUID,
-				toolName: 'Read',
+				toolName: 'read',
 			},
 			{ type: 'text_delta', runId: RID, iteration: 0, messageId: MID, text: 'c' },
 		]

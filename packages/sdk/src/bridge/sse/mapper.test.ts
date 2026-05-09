@@ -491,14 +491,14 @@ describe('mapRunToStreamEvent — v3 message and tool-input lifecycle', () => {
 				iteration: 0,
 				messageId: MID,
 				toolUseId: TUID,
-				toolName: 'Read',
+				toolName: 'read',
 			},
 			RID,
 		)
 		expect(r?.wire).toBe('tool.input_started')
 		expect(r?.data).toMatchObject({
 			tool_use_id: TUID,
-			tool_name: 'Read',
+			tool_name: 'read',
 			message_id: MID,
 		})
 	})
