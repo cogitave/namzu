@@ -17,6 +17,7 @@
     "rootDir": "./src"
   },
   "references": [
+    { "path": "./packages/files" },
     { "path": "./packages/sdk" },
     { "path": "./packages/cli" },
     { "path": "./packages/telemetry" },

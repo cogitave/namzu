@@ -25,7 +25,7 @@ describe('PromptBuilder runtime context', () => {
 				label: 'test runtime',
 				outputDirectory: 'outputs/',
 				outputFileMarker: 'OUTPUT_FILE: <filename> - <description>',
-				notes: ['Mirror generated files after the turn.'],
+				notes: ['Register generated files after the turn.'],
 			},
 		}).build('full', '/tmp/work')
 
@@ -33,6 +33,6 @@ describe('PromptBuilder runtime context', () => {
 		expect(prompt).toContain('Working directory: /tmp/work')
 		expect(prompt).toContain('Output directory: outputs/')
 		expect(prompt).toContain('OUTPUT_FILE: <filename> - <description>')
-		expect(prompt).toContain('Mirror generated files after the turn.')
+		expect(prompt).toContain('Register generated files after the turn.')
 	})
 })

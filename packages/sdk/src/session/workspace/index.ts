@@ -24,3 +24,9 @@ export { WorkspaceBackendRegistry } from './registry.js'
 
 export { GitWorktreeDriver, parseWorktreeList } from './git-worktree.js'
 export type { ExecFile, ExecFileResult, GitWorktreeDriverConfig } from './git-worktree.js'
+
+export { SharedRunWorkspace } from './shared-run.js'
+export type {
+	RegisterSharedRunPlanInput,
+	SharedRunWorkspaceConfig,
+} from './shared-run.js'

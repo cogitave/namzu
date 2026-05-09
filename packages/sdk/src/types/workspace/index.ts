@@ -10,3 +10,12 @@ export type {
 	WorkspaceBackendMeta,
 	WorkspaceRef,
 } from './ref.js'
+
+export type {
+	SharedRunWorkspaceAgentRecord,
+	SharedRunWorkspaceManifest,
+	SharedRunWorkspacePaths,
+	SharedRunWorkspacePlan,
+	SharedRunWorkspaceRefs,
+	SharedRunWorkspaceSource,
+} from './shared-run.js'

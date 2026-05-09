@@ -263,6 +263,7 @@ export {
 	DefaultPathBuilder,
 	GitWorktreeDriver,
 	parseWorktreeList,
+	SharedRunWorkspace,
 	WorkspaceBackendRegistry,
 } from './session/workspace/index.js'
 

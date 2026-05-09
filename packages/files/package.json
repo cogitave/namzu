@@ -1,0 +1,24 @@
+{
+  "name": "@namzu/files",
+  "version": "0.1.0",
+  "description": "Provider-agnostic file registry contracts for Namzu runtimes.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node --test dist/**/*.test.js"
+  },
+  "sideEffects": false,
+  "license": "MIT",
+  "devDependencies": {}
+}

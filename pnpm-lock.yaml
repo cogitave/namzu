@@ -61,6 +61,8 @@ importers:
         specifier: ^2.0.0
         version: 2.1.9(@types/node@22.19.17)
 
+  packages/files: {}
+
   packages/providers/anthropic:
     dependencies:
       '@anthropic-ai/sdk':

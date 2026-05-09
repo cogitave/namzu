@@ -45,6 +45,7 @@ export type * from './types/verification/index.js'
 export type * from './types/bus/index.js'
 export type * from './types/probe/index.js'
 export type * from './types/doctor/index.js'
+export type * from './types/workspace/index.js'
 
 // Session-hierarchy type surface (ses_010 moved entities here).
 export type * from './types/session/index.js'
@@ -118,6 +119,11 @@ export type { DefineToolOptions } from './tools/defineTool.js'
 export type { AdvisoryToolsOptions } from './tools/advisory/index.js'
 
 export type { CoordinatorToolsOptions, TaskLaunchedCallback } from './tools/coordinator/index.js'
+
+export type {
+	RegisterSharedRunPlanInput,
+	SharedRunWorkspaceConfig,
+} from './session/workspace/index.js'
 
 export type {
 	ConnectorManagerConfig,
