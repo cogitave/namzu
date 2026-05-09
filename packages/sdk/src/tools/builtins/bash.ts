@@ -19,7 +19,7 @@ const inputSchema = z.object({
 		.string()
 		.min(1)
 		.describe(
-			'The bash command to execute. Required, non-empty. Single command per call (use `&&` / `;` chaining for compound commands). Avoid heredocs that span more than a few hundred bytes — large content should be written via the Write tool, not piped into bash.',
+			'The bash command to execute. Required, non-empty. Single command per call (use `&&` / `;` chaining for compound commands). Avoid heredocs that span more than a few hundred bytes — large content should be written via the write tool, not piped into bash.',
 		),
 	timeout: z
 		.preprocess(
@@ -38,7 +38,7 @@ function isDangerousCommand(command: string): boolean {
 export const BashTool = defineTool({
 	name: 'bash',
 	description:
-		'Executes a bash command and returns stdout/stderr output. Command timeout is configurable. The `command` parameter is required — never call this tool with empty arguments. For very long content (e.g. building a large file), prefer the Write tool over a heredoc to avoid hitting the output token limit mid-stream.',
+		'Executes a bash command and returns stdout/stderr output. Command timeout is configurable. The `command` parameter is required — never call this tool with empty arguments. For very long content (e.g. building a large file), prefer the write tool over a heredoc to avoid hitting the output token limit mid-stream.',
 	inputSchema,
 	category: 'shell',
 	permissions: ['shell_execute'],
