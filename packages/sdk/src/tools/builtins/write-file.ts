@@ -20,7 +20,7 @@ const inputSchema = z.object({
 export const WriteFileTool = defineTool({
 	name: 'write',
 	description:
-		'Writes content to a file. Creates the file if it does not exist, overwrites if it does. Creates intermediate directories as needed. Both `path` and `content` are required — never call this tool with empty arguments. For long content, prefer multiple smaller writes over one large write so the call cannot be cut off by an output token limit.',
+		'Writes content to a file. Use this tool ONLY to create a NEW file or to perform a deliberate full rewrite. To change a file that already exists, prefer the `edit` tool — it does targeted find-and-replace, preserves the rest of the file byte-for-byte, and means a partial fix never throws away the work the previous step produced. `write` overwrites the whole file, so an interrupted or imperfect call discards everything already on disk. Creates the file if it does not exist, overwrites if it does. Creates intermediate directories as needed. Both `path` and `content` are required — never call this tool with empty arguments. For long content, prefer multiple smaller writes over one large write so the call cannot be cut off by an output token limit.',
 	inputSchema,
 	category: 'filesystem',
 	permissions: ['file_write'],

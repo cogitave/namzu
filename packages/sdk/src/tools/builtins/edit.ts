@@ -20,7 +20,7 @@ type EditInput = z.infer<typeof inputSchema>
 export const EditTool = defineTool({
 	name: 'edit',
 	description:
-		'Makes targeted edits to a file using exact string find-and-replace. The old_string must be unique in the file unless replace_all is true. Preserves file formatting and indentation.',
+		'Makes targeted edits to a file using exact string find-and-replace. THIS IS THE PREFERRED WAY TO MODIFY AN EXISTING FILE — never reach for `write` to change a file that already exists, because `write` overwrites the whole body and discards earlier work on partial failure. `edit` keeps the rest of the file byte-for-byte intact and is recoverable: if a single edit fails (old_string ambiguous, broader restructuring needed), follow up with another `edit` instead of re-emitting the entire file via `write`. The old_string must be unique in the file unless replace_all is true. Preserves file formatting and indentation.',
 	inputSchema,
 	category: 'filesystem',
 	permissions: ['file_write'],
