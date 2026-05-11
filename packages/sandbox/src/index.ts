@@ -73,6 +73,7 @@ import type {
 	SandboxProvider,
 } from '@namzu/sdk'
 
+import { buildAciStandbyPoolBackend } from './backends/aci-standby-pool/index.js'
 import { buildDockerBackend, resolveLayout } from './backends/docker/index.js'
 
 // Re-export the layout types so consumers of `@namzu/sandbox` can
@@ -142,8 +143,50 @@ export type SandboxTier = 'process' | 'container' | 'microvm' | 'passthrough'
 export type SandboxBackendConfig =
 	| ProcessBackendConfig
 	| ContainerBackendConfig
+	| ACIStandbyPoolBackendConfig
 	| MicroVMBackendConfig
 	| PassthroughBackendConfig
+
+/**
+ * Azure Container Instances Standby Pool backend. Container tier,
+ * managed-microvm-ish: every claim is a fresh ACI container group
+ * pre-warmed in an Azure-managed standby pool (`Microsoft.StandbyPool`).
+ * ~1.5 s claim latency vs ~10-30 s for cold ACI spawn. Trust boundary
+ * = Microsoft's ACI isolation host (gVisor-equivalent depending on
+ * SKU; AMD SEV-SNP TEE when the pool is created with sku=Confidential).
+ *
+ * No host filesystem — workspace mounts ride `azureFileShare` sources
+ * (the host provisions a per-task Azure Files share upstream and
+ * threads it into the layout). Auth via a caller-supplied
+ * `getArmToken()` callback so the sandbox package stays free of
+ * Azure SDK dependencies; the host runtime owns Managed Identity /
+ * AzureCLI / federated credential picking.
+ *
+ * Use this when (a) running on Azure Container Apps and you cannot
+ * mount the docker socket, (b) you want per-task container
+ * isolation without operating a Firecracker host yourself, and
+ * (c) sub-2-second claim latency is acceptable.
+ */
+export interface ACIStandbyPoolBackendConfig {
+	readonly tier: 'container'
+	readonly runtime: 'aci-standby-pool'
+	readonly subscriptionId: string
+	readonly resourceGroup: string
+	readonly location: string
+	readonly standbyPoolResourceId: string
+	readonly containerGroupProfileResourceId: string
+	readonly containerGroupProfileRevision?: number
+	/**
+	 * Async callback returning a fresh ARM bearer token (audience
+	 * `https://management.azure.com/`). Invoked on every ARM call.
+	 */
+	readonly getArmToken: () => Promise<string>
+	readonly subnetId?: string
+	readonly readyPollIntervalMs?: number
+	readonly readyTimeoutMs?: number
+	readonly workerPort?: number
+	readonly armApiVersion?: string
+}
 
 /**
  * `process` tier. Auto-detects the platform's native primitive
@@ -480,6 +523,38 @@ function pickBackend(config: SandboxProviderConfig): SandboxBackend {
 				: {}),
 			...(backend.network !== undefined ? { network: backend.network } : {}),
 			...(backend.labels !== undefined ? { labels: backend.labels } : {}),
+		})
+	}
+	if (
+		backend.tier === 'container' &&
+		(backend as unknown as { runtime?: string }).runtime === 'aci-standby-pool'
+	) {
+		const aciBackend = backend as unknown as ACIStandbyPoolBackendConfig
+		const layout = (config as Extract<SandboxProviderConfig, { layout: ContainerSandboxLayout }>)
+			.layout
+		const resolved = resolveLayout(layout)
+		return buildAciStandbyPoolBackend({
+			subscriptionId: aciBackend.subscriptionId,
+			resourceGroup: aciBackend.resourceGroup,
+			location: aciBackend.location,
+			standbyPoolResourceId: aciBackend.standbyPoolResourceId,
+			containerGroupProfileResourceId: aciBackend.containerGroupProfileResourceId,
+			...(aciBackend.containerGroupProfileRevision !== undefined
+				? { containerGroupProfileRevision: aciBackend.containerGroupProfileRevision }
+				: {}),
+			layout: resolved,
+			getArmToken: aciBackend.getArmToken,
+			...(aciBackend.subnetId !== undefined ? { subnetId: aciBackend.subnetId } : {}),
+			...(aciBackend.readyPollIntervalMs !== undefined
+				? { readyPollIntervalMs: aciBackend.readyPollIntervalMs }
+				: {}),
+			...(aciBackend.readyTimeoutMs !== undefined
+				? { readyTimeoutMs: aciBackend.readyTimeoutMs }
+				: {}),
+			...(aciBackend.workerPort !== undefined ? { workerPort: aciBackend.workerPort } : {}),
+			...(aciBackend.armApiVersion !== undefined
+				? { armApiVersion: aciBackend.armApiVersion }
+				: {}),
 		})
 	}
 	if (backend.tier === 'container' && backend.runtime === 'runsc') {
