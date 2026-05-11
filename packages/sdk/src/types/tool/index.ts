@@ -11,6 +11,18 @@ export interface ToolRegistryRef {
 	getAvailability(name: string): ToolAvailability
 }
 
+/**
+ * Tracks which files the agent has read in the current run.
+ * Write tool consults this to enforce the "read before overwrite" invariant
+ * (Claude Code parity): an existing file must be read first or the write fails.
+ * Keys are the resolved path used by the tool — sandbox-relative when a sandbox
+ * is active, absolute (`workingDirectory`-resolved) otherwise.
+ */
+export interface FileReadTracker {
+	recordRead(key: string): void
+	hasRead(key: string): boolean
+}
+
 export interface ToolContext {
 	runId: RunId
 	workingDirectory: string
@@ -27,6 +39,7 @@ export interface ToolContext {
 
 	toolRegistry?: ToolRegistryRef
 	sandbox?: Sandbox
+	fileReadTracker?: FileReadTracker
 }
 
 export interface ToolResult {

@@ -24,6 +24,7 @@ export { GlobTool } from './tools/builtins/glob.js'
 export { GrepTool } from './tools/builtins/grep.js'
 export { LsTool } from './tools/builtins/ls.js'
 export { SearchToolsTool } from './tools/builtins/search-tools.js'
+export { VerifyOutputsTool } from './tools/builtins/verify-outputs.js'
 export {
 	createStructuredOutputTool,
 	STRUCTURED_OUTPUT_TOOL_NAME,

@@ -13,7 +13,12 @@ import type { PluginHookResult } from '../../types/plugin/index.js'
 import type { ChatCompletionResponse } from '../../types/provider/index.js'
 import type { RunEvent } from '../../types/run/index.js'
 import type { Sandbox } from '../../types/sandbox/index.js'
-import type { ToolContext, ToolRegistryContract, ToolResult } from '../../types/tool/index.js'
+import type {
+	FileReadTracker,
+	ToolContext,
+	ToolRegistryContract,
+	ToolResult,
+} from '../../types/tool/index.js'
 import type { Logger } from '../../utils/logger.js'
 import { compressShellOutput } from '../../utils/shell-compress.js'
 
@@ -48,6 +53,13 @@ export class ToolExecutor {
 	private log: Logger
 	private workingStateManager?: WorkingStateManager
 	private probes: ProbeRegistry
+	private readonly readPaths: Set<string> = new Set()
+	private readonly fileReadTracker: FileReadTracker = {
+		recordRead: (key: string) => {
+			this.readPaths.add(key)
+		},
+		hasRead: (key: string) => this.readPaths.has(key),
+	}
 
 	constructor(
 		config: ToolExecutorConfig,
@@ -109,6 +121,7 @@ export class ToolExecutor {
 			invocationState: this.config.invocationState,
 			toolRegistry: this.config.tools,
 			sandbox: this.config.sandbox,
+			fileReadTracker: this.fileReadTracker,
 		}
 	}
 

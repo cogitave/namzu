@@ -38,6 +38,8 @@ export const ReadFileTool = defineTool({
 
 			const numberedLines = selectedLines.map((line, i) => `${start + i}\t${line}`).join('\n')
 
+			context.fileReadTracker?.recordRead(input.path)
+
 			return {
 				success: true,
 				output: numberedLines,
@@ -59,6 +61,8 @@ export const ReadFileTool = defineTool({
 		const selectedLines = lines.slice(start, end)
 
 		const numberedLines = selectedLines.map((line, i) => `${start + i}\t${line}`).join('\n')
+
+		context.fileReadTracker?.recordRead(filePath)
 
 		return {
 			success: true,

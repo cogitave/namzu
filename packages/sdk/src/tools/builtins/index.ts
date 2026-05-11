@@ -6,6 +6,7 @@ export { GlobTool } from './glob.js'
 export { GrepTool } from './grep.js'
 export { LsTool } from './ls.js'
 export { SearchToolsTool } from './search-tools.js'
+export { VerifyOutputsTool } from './verify-outputs.js'
 export { createStructuredOutputTool, STRUCTURED_OUTPUT_TOOL_NAME } from './structuredOutput.js'
 export { createComputerUseTool, COMPUTER_USE_TOOL_NAME } from './computer-use.js'
 
@@ -15,6 +16,7 @@ import { EditTool } from './edit.js'
 import { GlobTool } from './glob.js'
 import { GrepTool } from './grep.js'
 import { ReadFileTool } from './read-file.js'
+import { VerifyOutputsTool } from './verify-outputs.js'
 import { WriteFileTool } from './write-file.js'
 // Note: createStructuredOutputTool is not included in getBuiltinTools()
 // because it requires a schema parameter and is created per-use case.
@@ -28,5 +30,13 @@ import { WriteFileTool } from './write-file.js'
 // genuinely want them can still register them explicitly.
 
 export function getBuiltinTools(): ToolDefinition[] {
-	return [BashTool, EditTool, GlobTool, GrepTool, ReadFileTool, WriteFileTool]
+	return [
+		BashTool,
+		EditTool,
+		GlobTool,
+		GrepTool,
+		ReadFileTool,
+		VerifyOutputsTool,
+		WriteFileTool,
+	]
 }
