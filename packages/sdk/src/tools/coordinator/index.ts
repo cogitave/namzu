@@ -165,7 +165,63 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 		},
 	})
 
-	const tools: ToolDefinition[] = [createTask, continueTask, cancelTask]
+	const agentTaskList = defineTool({
+		name: 'agent_task_list',
+		description:
+			"Inspect the live state of every agent task launched on this gateway via create_task: returns each task's id, agent, state (pending/running/completed/failed/canceled), and timing. Distinct from the plan-task store's `task_list` (which lists planning tasks): this tool lists running/completed worker invocations. Use it BEFORE declaring multi-worker work done — confirm every launched task reached `completed`, none still `running` or `failed`. Read-only and safe to call repeatedly.",
+		inputSchema: z.object({
+			state: z
+				.enum(['pending', 'running', 'completed', 'failed', 'canceled'])
+				.optional()
+				.describe('Filter by terminal/non-terminal state. Omit to list every task.'),
+		}),
+		category: 'custom',
+		permissions: [],
+		readOnly: true,
+		destructive: false,
+		concurrencySafe: true,
+		async execute({ state }) {
+			const handles = gateway.listTasks()
+			const filtered = state ? handles.filter((h) => h.state === state) : handles
+			const items = filtered.map((h) => {
+				const runStatus = h.result?.status
+				const lastError = h.result?.lastError ?? undefined
+				return {
+					task_id: h.taskId,
+					agent_id: h.agentId,
+					state: h.state,
+					run_status: runStatus,
+					created_at: new Date(h.createdAt).toISOString(),
+					completed_at: h.completedAt ? new Date(h.completedAt).toISOString() : null,
+					duration_ms: h.completedAt ? h.completedAt - h.createdAt : null,
+					last_error: lastError,
+				}
+			})
+			const summary = {
+				total: handles.length,
+				running: handles.filter((h) => h.state === 'running').length,
+				completed: handles.filter((h) => h.state === 'completed').length,
+				failed: handles.filter((h) => h.state === 'failed').length,
+				canceled: handles.filter((h) => h.state === 'canceled').length,
+			}
+			const lines = items.length
+				? items.map(
+						(i) =>
+							`- ${i.task_id} → ${i.agent_id} [${i.state}${i.run_status && i.run_status !== i.state ? ` / ${i.run_status}` : ''}]${
+								i.duration_ms !== null ? ` (${Math.round(i.duration_ms / 1000)}s)` : ''
+							}${i.last_error ? ` — error: ${i.last_error.slice(0, 200)}` : ''}`,
+					)
+				: ['(no tasks launched yet)']
+			const header = `Tasks: ${summary.total} total — ${summary.running} running, ${summary.completed} completed, ${summary.failed} failed, ${summary.canceled} canceled`
+			return {
+				success: true,
+				output: [header, '', ...lines].join('\n'),
+				data: { items, summary },
+			}
+		},
+	})
+
+	const tools: ToolDefinition[] = [createTask, continueTask, cancelTask, agentTaskList]
 
 	if (getPlanManager) {
 		const approvePlan = defineTool({
