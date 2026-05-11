@@ -131,6 +131,18 @@ export type ContainerSandboxMountSource =
 			 */
 			readonly storageAccountKey: string
 	  }
+	| {
+			/**
+			 * No external mount — the image itself provides the directory.
+			 * Used by managed-warm-pool backends (ACI Standby Pool) whose
+			 * claim semantics forbid per-task volume overrides. The
+			 * container's own ephemeral filesystem carries the run; the
+			 * host walks deliverables out via the worker's HTTP API
+			 * before destroy and persists them somewhere durable
+			 * (e.g. blob storage).
+			 */
+			readonly type: 'inImage'
+	  }
 
 /**
  * One container mount carrying a packaged skill bundle. The default

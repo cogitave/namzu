@@ -130,21 +130,41 @@ interface AzureFileShareSource {
 	readonly storageAccountKey: string
 }
 
-function requireAzureFileShare(
+/**
+ * Interpret one mount source. ACI accepts two source variants:
+ *   - `azureFileShare` → emit an ACI `volume.azureFile` + matching `volumeMount`.
+ *   - `inImage` → emit NOTHING; the container's own filesystem carries the path.
+ *
+ * Standby-Pool-warm flows MUST use `inImage` because Standby Pool's
+ * claim-time API rejects every `volumes[]` override (the volume set
+ * is profile-baked across all warm instances). Cold-spawn ACI flows
+ * can use either.
+ *
+ * The `hostDir` variant is for docker backends and is rejected here.
+ */
+function interpretSource(
 	source: ContainerSandboxMountSource,
 	label: string,
-): AzureFileShareSource {
-	if (source.type !== 'azureFileShare') {
-		throw new Error(
-			`aci-standby-pool backend cannot consume mount source type ${JSON.stringify(source.type)} for ${label}; ` +
-				`expected 'azureFileShare'. The hostDir variant belongs to the docker backend.`,
-		)
+):
+	| { kind: 'azureFile'; source: AzureFileShareSource }
+	| { kind: 'inImage' } {
+	if (source.type === 'azureFileShare') {
+		return {
+			kind: 'azureFile',
+			source: {
+				storageAccountName: source.storageAccountName,
+				shareName: source.shareName,
+				storageAccountKey: source.storageAccountKey,
+			},
+		}
 	}
-	return {
-		storageAccountName: source.storageAccountName,
-		shareName: source.shareName,
-		storageAccountKey: source.storageAccountKey,
+	if (source.type === 'inImage') {
+		return { kind: 'inImage' }
 	}
+	throw new Error(
+		`aci-standby-pool backend cannot consume mount source type ${JSON.stringify(source.type)} for ${label}; ` +
+			`expected 'azureFileShare' or 'inImage'. The hostDir variant belongs to the docker backend.`,
+	)
 }
 
 interface BuiltVolumes {
@@ -176,7 +196,11 @@ function buildAzureFileVolumesFromLayout(
 		label: string,
 		readOnly: boolean,
 	): void {
-		const source = requireAzureFileShare(mount.source, label)
+		const interpreted = interpretSource(mount.source, label)
+		// `inImage` is a no-op — the image's own filesystem provides
+		// the path. The Standby-Pool-warm flow lives on this branch.
+		if (interpreted.kind === 'inImage') return
+		const source = interpreted.source
 		const name = `vol-${label}-${counter++}`
 		volumes.push({
 			name,
@@ -272,7 +296,7 @@ interface ArmContainerGroup {
 
 async function spawnAciSandbox(
 	config: ACIStandbyPoolBackendInternalConfig,
-	options: SandboxBackendOptions,
+	_options: SandboxBackendOptions,
 ): Promise<Sandbox> {
 	const id = generateSandboxId()
 	const cgName = `vandal-task-${id.replace(/[^a-z0-9-]/gi, '').toLowerCase().slice(0, 50)}`
@@ -282,44 +306,37 @@ async function spawnAciSandbox(
 
 	const { volumes, volumeMounts } = buildAzureFileVolumesFromLayout(config.layout)
 
-	const containerProps: Record<string, unknown> = {
-		volumeMounts,
-	}
-	const envOverrides: Array<{ name: string; value: string }> = []
-	for (const [key, value] of Object.entries(options.env ?? {})) {
-		envOverrides.push({ name: key, value })
-	}
-	envOverrides.push({
-		name: 'NAMZU_SANDBOX_WORKSPACE',
-		value: config.layout.outputs.containerPath,
-	})
-	if (envOverrides.length > 0) {
-		containerProps.environmentVariables = envOverrides
-	}
-
-	const containers = [
-		{
-			name: 'vandal-task-worker',
-			properties: containerProps,
+	// Standby Pool's claim API rejects every property override that
+	// is NOT a `configMap`. The empty / no-mount cases (every source
+	// is `inImage`) MUST therefore omit `containers`, `volumes`, and
+	// `volumeMounts` entirely from the PUT body — even an empty
+	// array trips the BadRequest "ContainerGroup properties other
+	// than config map are not allowed" check. The fields land only
+	// when something real needs to ride through (e.g. cold-spawn ACI
+	// with per-task azureFileShare mounts, future flow).
+	const properties: Record<string, unknown> = {
+		containerGroupProfile: {
+			id: config.containerGroupProfileResourceId,
+			revision: config.containerGroupProfileRevision ?? 1,
 		},
-	]
+		standbyPoolProfile: {
+			id: config.standbyPoolResourceId,
+		},
+		...(config.subnetId ? { subnetIds: [{ id: config.subnetId }] } : {}),
+	}
+	if (volumes.length > 0) {
+		properties.volumes = volumes
+		properties.containers = [
+			{
+				name: 'vandal-task-worker',
+				properties: { volumeMounts },
+			},
+		]
+	}
 
 	const body: Record<string, unknown> = {
 		location: config.location,
-		properties: {
-			containerGroupProfile: {
-				id: config.containerGroupProfileResourceId,
-				revision: config.containerGroupProfileRevision ?? 1,
-			},
-			standbyPoolProfile: {
-				id: config.standbyPoolResourceId,
-			},
-			containers,
-			volumes,
-			...(config.subnetId
-				? { subnetIds: [{ id: config.subnetId }] }
-				: {}),
-		},
+		properties,
 	}
 
 	let claimed: ArmContainerGroup | undefined
