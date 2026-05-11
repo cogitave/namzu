@@ -10,7 +10,14 @@ import type {
 } from '@namzu/sdk'
 import type { AnthropicConfig } from './types.js'
 
-const DEFAULT_MAX_TOKENS = 4096
+// Floor for `max_tokens` when neither the request nor the provider
+// config supplied one. Anthropic's API requires the field, so we cannot
+// truly omit it — but 4096 (the original SDK example default) is far
+// below what Sonnet 4.6 / Opus 4.7 natively emit, and would silently
+// clip 20k-word documents. 64k is the canonical "long output" budget
+// these models advertise; the model still stops at its own native
+// ceiling, so passing 64k just means "don't bound below the model".
+const DEFAULT_MAX_TOKENS = 64_000
 const DEFAULT_TIMEOUT_MS = 120_000
 
 // --------------------------------------------------------------------------------------
