@@ -429,11 +429,15 @@ async function spawnAciSandbox(
 
 		async destroy(): Promise<void> {
 			status = 'destroyed'
-			try {
-				await armCall(armUrl, 'DELETE', config.getArmToken)
-			} catch {
-				// Best-effort. Pool refill keeps the pool topped up.
-			}
+			// ARM DELETE — let failures propagate. The Vandal-side
+			// lifecycle wraps this in its own try/catch with logging,
+			// so a silently swallowed error here means orphan ACI
+			// container groups pile up under the resource group with
+			// no observability handle. The Standby Pool's refill keeps
+			// the WARM side topped up; that has nothing to do with
+			// cleaning up a CLAIMED instance, which is exclusively the
+			// claimer's responsibility.
+			await armCall(armUrl, 'DELETE', config.getArmToken)
 		},
 	}
 }
