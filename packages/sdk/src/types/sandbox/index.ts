@@ -69,6 +69,21 @@ export interface SandboxExecOptions {
 }
 
 // ---------------------------------------------------------------------------
+// File listing — used by hosts that drain agent-produced files out
+// of the sandbox before destroy (walk-and-pull deliverables flow).
+// ---------------------------------------------------------------------------
+
+/**
+ * One regular file inside the sandbox filesystem. Backends return
+ * absolute paths so the caller can pass each path straight back to
+ * {@link Sandbox.readFile} without re-anchoring.
+ */
+export interface SandboxFileEntry {
+	readonly path: string
+	readonly size: number
+}
+
+// ---------------------------------------------------------------------------
 // Sandbox interface — the core abstraction
 // ---------------------------------------------------------------------------
 
@@ -80,6 +95,26 @@ export interface Sandbox {
 	exec(command: string, args?: string[], opts?: SandboxExecOptions): Promise<SandboxExecResult>
 	writeFile(path: string, content: string | Buffer): Promise<void>
 	readFile(path: string): Promise<Buffer>
+	/**
+	 * Recursively enumerate regular files under `rootPath`. Directories,
+	 * symlinks, sockets, and other non-regular entries are skipped.
+	 * Returns absolute paths so the caller can feed each into
+	 * {@link readFile} directly.
+	 *
+	 * Used by hosts that drain agent-produced deliverables out of the
+	 * sandbox before {@link destroy} (object-store-first persistence
+	 * pattern; the sandbox's own filesystem is ephemeral).
+	 *
+	 * Implementations:
+	 *  - Local / process-tier backends: `fs.readdir` recursively.
+	 *  - Container-tier backends: `exec('find', [rootPath, '-type', 'f', …])`
+	 *    against the worker, output parsed line-by-line.
+	 *
+	 * Implementations SHOULD return an empty array if `rootPath` does
+	 * not exist (the agent may not have written anything yet). They
+	 * MAY throw for other I/O failures.
+	 */
+	listFiles(rootPath: string): Promise<readonly SandboxFileEntry[]>
 	destroy(): Promise<void>
 }
 

@@ -4,8 +4,10 @@ import {
 	readFile as fsReadFile,
 	writeFile as fsWriteFile,
 	mkdir,
+	readdir,
 	rename,
 	rm,
+	stat,
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
@@ -24,6 +26,7 @@ import type {
 	SandboxEnvironment,
 	SandboxExecOptions,
 	SandboxExecResult,
+	SandboxFileEntry,
 	SandboxProvider,
 	SandboxStatus,
 } from '../../types/sandbox/index.js'
@@ -300,6 +303,36 @@ class LocalSandbox implements Sandbox {
 
 		const resolved = assertInsideSandbox(this.rootDir, path)
 		return fsReadFile(resolved)
+	}
+
+	async listFiles(rootPath: string): Promise<readonly SandboxFileEntry[]> {
+		if (this._status === 'destroyed') {
+			throw new Error(`Sandbox ${this.id} is destroyed`)
+		}
+
+		const resolved = assertInsideSandbox(this.rootDir, rootPath)
+		const root = await stat(resolved).catch(() => null)
+		if (!root || !root.isDirectory()) return []
+
+		const entries: SandboxFileEntry[] = []
+		const stack: string[] = [resolved]
+		while (stack.length > 0) {
+			const dir = stack.pop()
+			if (!dir) break
+			const dirents = await readdir(dir, { withFileTypes: true }).catch(() => [])
+			for (const ent of dirents) {
+				const full = join(dir, ent.name)
+				if (ent.isDirectory()) {
+					stack.push(full)
+					continue
+				}
+				if (!ent.isFile()) continue
+				const info = await stat(full).catch(() => null)
+				if (!info) continue
+				entries.push({ path: full, size: info.size })
+			}
+		}
+		return entries
 	}
 
 	async destroy(): Promise<void> {

@@ -43,6 +43,7 @@ import type {
 	SandboxEnvironment,
 	SandboxExecOptions,
 	SandboxExecResult,
+	SandboxFileEntry,
 	SandboxId,
 	SandboxStatus,
 } from '@namzu/sdk'
@@ -422,6 +423,10 @@ async function spawnAciSandbox(
 			return Buffer.from(json.content, 'base64')
 		},
 
+		async listFiles(rootPath: string): Promise<readonly SandboxFileEntry[]> {
+			return await listFilesViaWorker(baseUrl, rootPath)
+		},
+
 		async destroy(): Promise<void> {
 			status = 'destroyed'
 			try {
@@ -541,4 +546,38 @@ async function execViaWorker(
 		timedOut,
 		durationMs: Date.now() - start,
 	} as SandboxExecResult
+}
+
+/**
+ * Recursively list regular files under `rootPath` by shelling out to
+ * the worker's `find` (GNU find on the Debian-based reference image).
+ * `-printf` emits one `<path>\t<size>` line per file; any other
+ * non-zero exit (notably `find: '<root>': No such file or directory`)
+ * is mapped to "empty listing" because the agent legitimately may not
+ * have produced anything in `rootPath` yet.
+ */
+async function listFilesViaWorker(
+	baseUrl: string,
+	rootPath: string,
+): Promise<readonly SandboxFileEntry[]> {
+	const result = await execViaWorker(
+		baseUrl,
+		'find',
+		[rootPath, '-type', 'f', '-printf', '%p\t%s\n'],
+		undefined,
+	)
+	if (result.exitCode !== 0) {
+		return []
+	}
+	const entries: SandboxFileEntry[] = []
+	for (const rawLine of result.stdout.split('\n')) {
+		if (!rawLine) continue
+		const tab = rawLine.indexOf('\t')
+		if (tab < 0) continue
+		const path = rawLine.slice(0, tab)
+		const size = Number.parseInt(rawLine.slice(tab + 1), 10)
+		if (!path || !Number.isFinite(size)) continue
+		entries.push({ path, size })
+	}
+	return entries
 }

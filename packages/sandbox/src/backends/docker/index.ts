@@ -37,6 +37,7 @@ import {
 	type SandboxEnvironment,
 	type SandboxExecOptions,
 	type SandboxExecResult,
+	type SandboxFileEntry,
 	type SandboxId,
 	type SandboxStatus,
 } from '@namzu/sdk'
@@ -333,6 +334,10 @@ async function spawnDockerSandbox(
 			return Buffer.from(json.content, 'base64')
 		},
 
+		async listFiles(rootPath: string): Promise<readonly SandboxFileEntry[]> {
+			return await listFilesViaWorker(baseUrl, rootPath)
+		},
+
 		async destroy(): Promise<void> {
 			status = 'destroyed'
 			await runOnceQuiet(docker, ['rm', '-f', containerName])
@@ -466,6 +471,45 @@ async function execViaWorker(
 		timedOut,
 		durationMs: Date.now() - start,
 	}
+}
+
+/**
+ * Recursively list regular files under `rootPath` by shelling out to
+ * the worker's `find` (GNU find on the Debian-based reference image).
+ * `-printf` emits one `<path>\t<size>` line per file; any other
+ * non-zero exit (notably `find: '<root>': No such file or directory`)
+ * is mapped to "empty listing" because the agent legitimately may not
+ * have produced anything in `rootPath` yet.
+ */
+async function listFilesViaWorker(
+	baseUrl: string,
+	rootPath: string,
+): Promise<readonly SandboxFileEntry[]> {
+	const result = await execViaWorker(
+		baseUrl,
+		'find',
+		[rootPath, '-type', 'f', '-printf', '%p\t%s\n'],
+		undefined,
+	)
+	if (result.exitCode !== 0) {
+		// `find` returns non-zero when the root is missing — that just
+		// means "no outputs yet". Other failures (permission errors,
+		// the rare case `find` itself is missing) also fall through to
+		// the empty listing rather than blowing up the caller's drain
+		// flow; the deliverables collector treats absence as "done".
+		return []
+	}
+	const entries: SandboxFileEntry[] = []
+	for (const rawLine of result.stdout.split('\n')) {
+		if (!rawLine) continue
+		const tab = rawLine.indexOf('\t')
+		if (tab < 0) continue
+		const path = rawLine.slice(0, tab)
+		const size = Number.parseInt(rawLine.slice(tab + 1), 10)
+		if (!path || !Number.isFinite(size)) continue
+		entries.push({ path, size })
+	}
+	return entries
 }
 
 function detectEnvironment(): SandboxEnvironment {
