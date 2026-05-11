@@ -48,6 +48,17 @@ const READ_ROOTS = normalizeRoots(
 		Boolean,
 	),
 )
+// Writable roots: WORKSPACE_ROOT is always writable; NAMZU_SANDBOX_WRITE_ROOTS
+// adds extra RW mounts (e.g. `/mnt/user-data/outputs`, `/mnt/user-data/scratch`)
+// so the agent's `write`/`append` tools can land in the sibling mounts the
+// host chose, not just inside `/workspace`. This must be a strict subset of
+// READ_ROOTS or read-only mounts (uploads, skills) would silently become
+// writable.
+const WRITE_ROOTS = normalizeRoots(
+	[WORKSPACE_ROOT, ...(process.env.NAMZU_SANDBOX_WRITE_ROOTS || '').split(path.delimiter)].filter(
+		Boolean,
+	),
+)
 const MAX_BODY_BYTES = Number(process.env.NAMZU_SANDBOX_MAX_BODY_BYTES || 8 * 1024 * 1024)
 const DEFAULT_MAX_OUTPUT_BYTES = 100 * 1024 * 1024
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000
@@ -125,6 +136,14 @@ function isWithinRoot(resolved, root) {
 }
 
 function resolveReadablePath(p) {
+	return resolveAgainstRoots(p, READ_ROOTS)
+}
+
+function resolveWritablePath(p) {
+	return resolveAgainstRoots(p, WRITE_ROOTS)
+}
+
+function resolveAgainstRoots(p, roots) {
 	if (!path.isAbsolute(p)) {
 		return {
 			target: resolveWithinWorkspace(p, WORKSPACE_ROOT),
@@ -132,7 +151,7 @@ function resolveReadablePath(p) {
 		}
 	}
 	const target = path.resolve(p)
-	const root = READ_ROOTS.find((candidate) => isWithinRoot(target, candidate))
+	const root = roots.find((candidate) => isWithinRoot(target, candidate))
 	if (!root) {
 		throw new Error('path escapes the workspace')
 	}
@@ -352,17 +371,17 @@ async function handleWriteFile(req, res) {
 		return
 	}
 	try {
-		const target = resolveWithinWorkspace(body.path, WORKSPACE_ROOT)
+		const { target, root } = resolveWritablePath(body.path)
 		await fs.mkdir(path.dirname(target), { recursive: true })
-		const real = await realpathWithinWorkspace(target, WORKSPACE_ROOT)
+		const real = await realpathWithinWorkspace(target, root)
 		const buf =
 			body.encoding === 'base64'
 				? Buffer.from(String(body.content), 'base64')
 				: Buffer.from(String(body.content), 'utf8')
 		// flag 'wx' rejects existing symlinks pointing out of the workspace
 		// only when the target doesn't exist; for existing files we already
-		// confirmed via realpath that they resolve inside /workspace, so a
-		// plain writeFile is safe.
+		// confirmed via realpath that they resolve inside one of WRITE_ROOTS,
+		// so a plain writeFile is safe.
 		await fs.writeFile(real, buf)
 		writeJson(res, 200, { ok: true, bytesWritten: buf.length })
 	} catch (err) {

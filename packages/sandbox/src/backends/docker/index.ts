@@ -27,6 +27,7 @@ import {
 	type ContainerSandboxLayout,
 	type ResolvedContainerSandboxLayout,
 	SANDBOX_DEFAULT_OUTPUTS_PATH,
+	SANDBOX_DEFAULT_SCRATCH_PATH,
 	SANDBOX_DEFAULT_SKILLS_PARENT,
 	SANDBOX_DEFAULT_TOOL_RESULTS_PATH,
 	SANDBOX_DEFAULT_TRANSCRIPTS_PATH,
@@ -206,6 +207,7 @@ async function spawnDockerSandbox(
 		// avoids env-size limits, keeps the wire shape minimal.
 		args.push('--env', `NAMZU_SANDBOX_WORKSPACE=${rootDir}`)
 		args.push('--env', `NAMZU_SANDBOX_READ_ROOTS=${renderLayoutReadRootsEnv(resolvedLayout)}`)
+		args.push('--env', `NAMZU_SANDBOX_WRITE_ROOTS=${renderLayoutWriteRootsEnv(resolvedLayout)}`)
 
 		// Only publish a host port when the consumer is going to reach
 		// the worker through the docker host's loopback (CLI / direct
@@ -619,6 +621,12 @@ export function resolveLayout(layout: ContainerSandboxLayout): ResolvedContainer
 				containerPath: layout.uploads.containerPath ?? SANDBOX_DEFAULT_UPLOADS_PATH,
 			}
 		: undefined
+	const resolvedScratch = layout.scratch
+		? {
+				source: layout.scratch.source,
+				containerPath: layout.scratch.containerPath ?? SANDBOX_DEFAULT_SCRATCH_PATH,
+			}
+		: undefined
 	const resolvedToolResults = layout.toolResults
 		? {
 				source: layout.toolResults.source,
@@ -655,6 +663,7 @@ export function resolveLayout(layout: ContainerSandboxLayout): ResolvedContainer
 	}
 	track('outputs', resolvedOutputs?.containerPath)
 	track('uploads', resolvedUploads?.containerPath)
+	track('scratch', resolvedScratch?.containerPath)
 	track('toolResults', resolvedToolResults?.containerPath)
 	track('transcripts', resolvedTranscripts?.containerPath)
 	if (resolvedSkills) {
@@ -673,6 +682,7 @@ export function resolveLayout(layout: ContainerSandboxLayout): ResolvedContainer
 		// biome-ignore lint/style/noNonNullAssertion: validation enforces presence
 		outputs: resolvedOutputs!,
 		...(resolvedUploads ? { uploads: resolvedUploads } : {}),
+		...(resolvedScratch ? { scratch: resolvedScratch } : {}),
 		...(resolvedToolResults ? { toolResults: resolvedToolResults } : {}),
 		...(resolvedTranscripts ? { transcripts: resolvedTranscripts } : {}),
 		...(resolvedSkills && resolvedSkills.length > 0 ? { skills: resolvedSkills } : {}),
@@ -696,6 +706,13 @@ export function renderLayoutMountArgs(layout: ResolvedContainerSandboxLayout): s
 	args.push('--volume', `${layout.outputs.source.hostPath}:${layout.outputs.containerPath}:rw`)
 	if (layout.uploads) {
 		args.push('--volume', `${layout.uploads.source.hostPath}:${layout.uploads.containerPath}:ro`)
+	}
+	if (layout.scratch) {
+		// Scratch is RW so the agent can read its own intermediate
+		// drafts back. It is NOT visible to the deliverables collector
+		// because the host directory it binds is a sibling of, not a
+		// child of, the outputs hostPath.
+		args.push('--volume', `${layout.scratch.source.hostPath}:${layout.scratch.containerPath}:rw`)
 	}
 	if (layout.toolResults) {
 		args.push(
@@ -721,9 +738,24 @@ export function renderLayoutReadRootsEnv(layout: ResolvedContainerSandboxLayout)
 	const roots = [
 		layout.outputs.containerPath,
 		layout.uploads?.containerPath,
+		layout.scratch?.containerPath,
 		layout.toolResults?.containerPath,
 		layout.transcripts?.containerPath,
 		...(layout.skills?.map((skill) => skill.containerPath) ?? []),
+	].filter((root): root is string => Boolean(root))
+	return Array.from(new Set(roots)).join(':')
+}
+
+/**
+ * Writable container roots. Only the RW mounts go here — uploads,
+ * tool-results, transcripts, and skills are read-only and must stay
+ * out of WRITE_ROOTS or the agent's `write`/`append` could clobber
+ * source files the host considers immutable.
+ */
+export function renderLayoutWriteRootsEnv(layout: ResolvedContainerSandboxLayout): string {
+	const roots = [
+		layout.outputs.containerPath,
+		layout.scratch?.containerPath,
 	].filter((root): root is string => Boolean(root))
 	return Array.from(new Set(roots)).join(':')
 }
