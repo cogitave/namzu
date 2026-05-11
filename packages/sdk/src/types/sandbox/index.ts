@@ -169,6 +169,16 @@ export interface ContainerSandboxLayoutMount {
 export interface ContainerSandboxLayout {
 	readonly outputs: ContainerSandboxLayoutMount
 	readonly uploads?: ContainerSandboxLayoutMount
+	/**
+	 * Working/scratch space for the agent. Sibling mount to `outputs`,
+	 * not a child of it: the deliverables collector / output watcher
+	 * scans `outputs` only, so anything the agent writes under
+	 * `scratch` is invisible to the user by construction. Mirrors the
+	 * Anthropic Cowork pattern (`/home/claude` as scratch vs.
+	 * `/mnt/user-data/outputs` as the user-visible deliverables area).
+	 * Hosts that don't need a separate scratch mount may omit this.
+	 */
+	readonly scratch?: ContainerSandboxLayoutMount
 	readonly toolResults?: ContainerSandboxLayoutMount
 	readonly skills?: readonly ContainerSandboxSkillMount[]
 	readonly transcripts?: ContainerSandboxLayoutMount
@@ -184,6 +194,10 @@ export interface ContainerSandboxLayout {
 export interface ResolvedContainerSandboxLayout {
 	readonly outputs: { readonly source: ContainerSandboxMountSource; readonly containerPath: string }
 	readonly uploads?: {
+		readonly source: ContainerSandboxMountSource
+		readonly containerPath: string
+	}
+	readonly scratch?: {
 		readonly source: ContainerSandboxMountSource
 		readonly containerPath: string
 	}

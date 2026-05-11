@@ -57,6 +57,7 @@ export class SharedRunWorkspace {
 			manifestPath: this.runtimePath('manifest.json'),
 			sourceInventoryPath: this.runtimePath('sources', 'inventory.md'),
 			supervisorBriefPath: this.runtimePath('00_supervisor_brief.md'),
+			taskContextPath: this.runtimePath('01_task_context.md'),
 			agentsPath: this.runtimePath('agents'),
 		}
 	}
@@ -126,6 +127,65 @@ export class SharedRunWorkspace {
 			sources: [...sources],
 		}))
 		return this.runtimePath('sources', 'inventory.md')
+	}
+
+	/**
+	 * Write the canonical task-context file (`_work/01_task_context.md`).
+	 * This is the single place the original user request lives in full; child
+	 * workers read this path instead of receiving the request inline in their
+	 * prompts.
+	 */
+	async writeTaskContext(text: string): Promise<string> {
+		const relativePath = ['01_task_context.md']
+		await mkdir(dirnameFor(this.hostPath(...relativePath)), { recursive: true })
+		await writeFile(this.hostPath(...relativePath), ensureTrailingNewline(text), 'utf8')
+		return this.runtimePath(...relativePath)
+	}
+
+	/**
+	 * Write a per-worker brief at `agents/<agentId>/<taskId>/00_brief.md`.
+	 * Returns the runtime-visible path. Pair with `registerAgentWork` so the
+	 * agent record and the brief sit under the same scratch directory.
+	 */
+	async writeAgentBrief(input: {
+		agentId: string
+		taskId?: string
+		briefText: string
+	}): Promise<string> {
+		const taskPart = input.taskId ?? 'pending'
+		const relativePath = ['agents', input.agentId, taskPart, '00_brief.md']
+		await mkdir(dirnameFor(this.hostPath(...relativePath)), { recursive: true })
+		await writeFile(
+			this.hostPath(...relativePath),
+			ensureTrailingNewline(input.briefText),
+			'utf8',
+		)
+		return this.runtimePath(...relativePath)
+	}
+
+	/**
+	 * Append a section to an existing per-worker brief, creating the file if
+	 * it doesn't yet exist. Use for follow-up turns / continue flows so the
+	 * brief stays authoritative across resumes — workers re-reading the brief
+	 * on every entry will see the latest assignment delta, not just the seed
+	 * text from initial dispatch.
+	 */
+	async appendAgentBrief(input: {
+		agentId: string
+		taskId?: string
+		sectionText: string
+	}): Promise<string> {
+		const taskPart = input.taskId ?? 'pending'
+		const relativePath = ['agents', input.agentId, taskPart, '00_brief.md']
+		await mkdir(dirnameFor(this.hostPath(...relativePath)), { recursive: true })
+		const target = this.hostPath(...relativePath)
+		const existing = await readFile(target, 'utf8').catch(() => '')
+		const trimmedExisting = existing.replace(/\n*$/, '')
+		const next = trimmedExisting
+			? `${trimmedExisting}\n\n${ensureTrailingNewline(input.sectionText)}`
+			: ensureTrailingNewline(input.sectionText)
+		await writeFile(target, next, 'utf8')
+		return this.runtimePath(...relativePath)
 	}
 
 	async seedSupervisorBrief(input: RegisterSharedRunPlanInput): Promise<string> {

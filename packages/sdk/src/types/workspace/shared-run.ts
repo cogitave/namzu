@@ -46,5 +46,12 @@ export interface SharedRunWorkspaceRefs {
 	manifestPath: string
 	sourceInventoryPath: string
 	supervisorBriefPath: string
+	/**
+	 * Path to the canonical, full-fidelity user task description for this run.
+	 * Workers read this instead of receiving the user's request text inline in
+	 * every child prompt — keeps child prompts compact and lets the request
+	 * grow without bloating per-worker handoffs.
+	 */
+	taskContextPath: string
 	agentsPath: string
 }

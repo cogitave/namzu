@@ -46,6 +46,15 @@ export const SANDBOX_DEFAULT_OUTPUTS_PATH = '/mnt/user-data/outputs'
 /** Default container path for user-uploaded files (RO). */
 export const SANDBOX_DEFAULT_UPLOADS_PATH = '/mnt/user-data/uploads'
 
+/**
+ * Default container path for the agent's working/scratch space (RW).
+ * Sibling mount to {@link SANDBOX_DEFAULT_OUTPUTS_PATH} — anything
+ * written here is invisible to the deliverables collector by design,
+ * mirroring the Anthropic Cowork pattern (`/home/claude` scratch vs.
+ * `/mnt/user-data/outputs` user-visible).
+ */
+export const SANDBOX_DEFAULT_SCRATCH_PATH = '/mnt/user-data/scratch'
+
 /** Default container path for cached tool fetches (RO). */
 export const SANDBOX_DEFAULT_TOOL_RESULTS_PATH = '/mnt/user-data/tool_results'
 
