@@ -25,6 +25,7 @@ import { spawn } from 'node:child_process'
 
 import {
 	type ContainerSandboxLayout,
+	type ContainerSandboxLayoutMount,
 	type ResolvedContainerSandboxLayout,
 	SANDBOX_DEFAULT_OUTPUTS_PATH,
 	SANDBOX_DEFAULT_SCRATCH_PATH,
@@ -701,35 +702,57 @@ export function resolveLayout(layout: ContainerSandboxLayout): ResolvedContainer
  * keeps tomorrow's exhaustiveness check honest by giving us a
  * `type` field to switch on without renaming the call sites.
  */
+/**
+ * Narrow a {@link ContainerSandboxMountSource} to the `hostDir`
+ * variant for backends that only know how to bind-mount from a host
+ * filesystem path (docker, podman, plain Firecracker virtio-fs). Any
+ * other variant (e.g. `azureFileShare` consumed by the ACI backend)
+ * is a hard configuration mismatch — throw at spawn time rather than
+ * render a malformed `--volume` flag the daemon would reject with a
+ * confusing message.
+ */
+function requireHostDir(
+	source: ContainerSandboxLayoutMount['source'],
+	label: string,
+): { readonly hostPath: string } {
+	if (source.type !== 'hostDir') {
+		throw new Error(
+			`docker backend cannot consume mount source type ${JSON.stringify(source.type)} for ${label}; ` +
+				`expected 'hostDir'. The non-hostDir variants (e.g. 'azureFileShare') belong to managed-container backends.`,
+		)
+	}
+	return source
+}
+
 export function renderLayoutMountArgs(layout: ResolvedContainerSandboxLayout): string[] {
 	const args: string[] = []
-	args.push('--volume', `${layout.outputs.source.hostPath}:${layout.outputs.containerPath}:rw`)
+	const outputs = requireHostDir(layout.outputs.source, 'outputs')
+	args.push('--volume', `${outputs.hostPath}:${layout.outputs.containerPath}:rw`)
 	if (layout.uploads) {
-		args.push('--volume', `${layout.uploads.source.hostPath}:${layout.uploads.containerPath}:ro`)
+		const uploads = requireHostDir(layout.uploads.source, 'uploads')
+		args.push('--volume', `${uploads.hostPath}:${layout.uploads.containerPath}:ro`)
 	}
 	if (layout.scratch) {
 		// Scratch is RW so the agent can read its own intermediate
 		// drafts back. It is NOT visible to the deliverables collector
 		// because the host directory it binds is a sibling of, not a
 		// child of, the outputs hostPath.
-		args.push('--volume', `${layout.scratch.source.hostPath}:${layout.scratch.containerPath}:rw`)
+		const scratch = requireHostDir(layout.scratch.source, 'scratch')
+		args.push('--volume', `${scratch.hostPath}:${layout.scratch.containerPath}:rw`)
 	}
 	if (layout.toolResults) {
-		args.push(
-			'--volume',
-			`${layout.toolResults.source.hostPath}:${layout.toolResults.containerPath}:ro`,
-		)
+		const toolResults = requireHostDir(layout.toolResults.source, 'toolResults')
+		args.push('--volume', `${toolResults.hostPath}:${layout.toolResults.containerPath}:ro`)
 	}
 	if (layout.skills) {
 		for (const skill of layout.skills) {
-			args.push('--volume', `${skill.source.hostPath}:${skill.containerPath}:ro`)
+			const skillSrc = requireHostDir(skill.source, `skill ${skill.id}`)
+			args.push('--volume', `${skillSrc.hostPath}:${skill.containerPath}:ro`)
 		}
 	}
 	if (layout.transcripts) {
-		args.push(
-			'--volume',
-			`${layout.transcripts.source.hostPath}:${layout.transcripts.containerPath}:ro`,
-		)
+		const transcripts = requireHostDir(layout.transcripts.source, 'transcripts')
+		args.push('--volume', `${transcripts.hostPath}:${layout.transcripts.containerPath}:ro`)
 	}
 	return args
 }

@@ -101,13 +101,36 @@ export interface Sandbox {
 // abstraction turns out to be) to land additively.
 
 /**
- * Source of a container mount's data on the host side. Tagged union
- * with one variant today (`hostDir`); the discriminator stays so
- * future container-tier sources (squashfs skill bundles, managed
- * volumes attached to a container backend) land as additive minor
- * bumps.
+ * Source of a container mount's data on the host side. Tagged union;
+ * the discriminator lets a backend reject sources it can't honour
+ * instead of guessing. Each variant is interpreted by exactly one
+ * class of backend:
+ *
+ *  - `hostDir` — bind-mount from a path on the host filesystem.
+ *    Docker / Podman / containerd / Firecracker virtio-fs all
+ *    consume this. Local-dev tier and self-host VM tier.
+ *
+ *  - `azureFileShare` — mount an Azure Files SMB share into the
+ *    container. Used by managed Azure Container Instances (incl.
+ *    Standby Pool) which have no host filesystem to bind from; the
+ *    Vandal-side host provisions a per-task share before claim and
+ *    the ACI backend translates this variant to ACI's `volume +
+ *    azureFile` shape.
  */
-export type ContainerSandboxMountSource = { readonly type: 'hostDir'; readonly hostPath: string }
+export type ContainerSandboxMountSource =
+	| { readonly type: 'hostDir'; readonly hostPath: string }
+	| {
+			readonly type: 'azureFileShare'
+			readonly storageAccountName: string
+			readonly shareName: string
+			/**
+			 * Per-share access key. ACI accepts the storage account key
+			 * inline on the volume definition. Hosts that want a tighter
+			 * surface can issue a per-share SAS upstream; the backend
+			 * accepts the key here verbatim — it never reads from env.
+			 */
+			readonly storageAccountKey: string
+	  }
 
 /**
  * One container mount carrying a packaged skill bundle. The default
