@@ -59,7 +59,7 @@ export function buildAgentTool(opts: AgentToolOptions): ToolDefinition {
 		readOnly: false,
 		destructive: false,
 		concurrencySafe: true,
-		async execute({ description, prompt, subagent_type }) {
+		async execute({ description, prompt, subagent_type }, context) {
 			const handle = await gateway.createTask({
 				agentId: subagent_type,
 				prompt,
@@ -70,6 +70,12 @@ export function buildAgentTool(opts: AgentToolOptions): ToolDefinition {
 			onTaskLaunched?.(handle.taskId, {
 				agentId: subagent_type,
 				description,
+				// Same canonical-envelope plumbing as coordinator/index.ts
+				// (ses_009-task-notification-envelope). For Agent-tool path
+				// the subagent run is awaited synchronously below, so this
+				// id is only used if a probe / hook unexpectedly forks the
+				// completion to the background notification channel.
+				originalToolUseId: context.toolUseId,
 			})
 
 			const completed = await gateway.waitForTask(handle.taskId)

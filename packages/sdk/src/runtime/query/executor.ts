@@ -95,10 +95,15 @@ export class ToolExecutor {
 			tools: toolCalls.map((tc) => tc.function.name),
 		})
 
-		const toolContext = this.buildToolContext()
+		// One context per call so each execution can see its own
+		// `toolUseId`. The base context is built once; we spread + add
+		// per-call to keep allocations cheap.
+		const baseContext = this.buildToolContext()
 
 		const results = await Promise.all(
-			toolCalls.map((toolCall) => this.executeSingle(toolCall, toolContext)),
+			toolCalls.map((toolCall) =>
+				this.executeSingle(toolCall, { ...baseContext, toolUseId: toolCall.id }),
+			),
 		)
 
 		const messages: Message[] = results.map((r) => createToolMessage(r.output, r.toolCallId))

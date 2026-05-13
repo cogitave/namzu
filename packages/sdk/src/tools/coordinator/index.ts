@@ -13,6 +13,13 @@ export type TaskLaunchedCallback = (
 		agentId: string
 		description: string
 		planTaskId?: string
+		/**
+		 * The assistant `tool_use_id` that dispatched this task.
+		 * Threaded from `ToolContext.toolUseId` so the runtime can
+		 * later emit a canonical `tool_result` content block bound
+		 * to the same id when the background task completes.
+		 */
+		originalToolUseId?: string
 	},
 ) => void
 
@@ -67,7 +74,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 		readOnly: false,
 		destructive: false,
 		concurrencySafe: true,
-		async execute({ agent_id, prompt, description, plan_task_id }) {
+		async execute({ agent_id, prompt, description, plan_task_id }, context) {
 			let resolvedPlanTaskId = plan_task_id
 
 			if (taskStore) {
@@ -100,6 +107,11 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 					agentId: agent_id,
 					description,
 					planTaskId: resolvedPlanTaskId,
+					// Thread the dispatching tool_use_id into the meta so
+					// the iteration loop can emit a canonical tool_result
+					// content block when the background task completes
+					// (see ses_009-task-notification-envelope).
+					originalToolUseId: context.toolUseId,
 				})
 			}
 

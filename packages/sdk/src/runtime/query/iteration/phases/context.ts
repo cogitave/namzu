@@ -22,6 +22,16 @@ export interface LaunchedTaskMeta {
 	readonly agentId: string
 	readonly description: string
 	readonly planTaskId?: string
+	/**
+	 * The `tool_use_id` of the assistant `create_task` block that
+	 * spawned this background task. Required to emit the canonical
+	 * `tool_result` content block when the task completes — without
+	 * it we'd fall back to the legacy synthetic-user-message inject
+	 * (see ses_009-task-notification-envelope). Optional because
+	 * older call paths that don't thread `ToolContext.toolUseId`
+	 * still publish the meta without it.
+	 */
+	readonly originalToolUseId?: string
 }
 
 export interface IterationContext {

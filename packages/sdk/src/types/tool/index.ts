@@ -40,6 +40,16 @@ export interface ToolContext {
 	toolRegistry?: ToolRegistryRef
 	sandbox?: Sandbox
 	fileReadTracker?: FileReadTracker
+
+	/**
+	 * The `tool_use_id` of the assistant block that triggered this
+	 * execution. Tools that spawn background work (e.g. coordinator
+	 * `create_task`) thread this id into their tracking metadata so
+	 * a later, asynchronous completion can be replied back as a
+	 * canonical `tool_result` content block bound to the same id.
+	 * Optional because not every executor path provides it yet.
+	 */
+	toolUseId?: string
 }
 
 export interface ToolResult {
