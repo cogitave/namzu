@@ -16,17 +16,6 @@ import {
 	createToolMessage,
 	createUserMessage,
 } from '../../../types/message/index.js'
-
-/**
- * XML entity escape for the legacy `<task-notification>` fallback
- * envelope. Without this an agent-produced description or result
- * containing `<`, `>`, `&`, or even a literal `</task-notification>`
- * would break the wrapping element and the parser would misread
- * the payload. The canonical `tool_result` path doesn't need it.
- */
-function xmlEscape(value: string): string {
-	return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-}
 import type {
 	ChatCompletionResponse,
 	LLMProvider,
@@ -804,12 +793,14 @@ export class IterationOrchestrator {
 	 *
 	 * Drains every pending task completion in one pass and emits each
 	 * as a `tool`-role message bound to the originating `tool_use_id`
-	 * (Anthropic's standard `tool_result` content block wire). When
-	 * the original tool_use_id wasn't captured at dispatch time
-	 * (older hook-spawned tasks, replay runs, etc.) we fall back to
-	 * the legacy XML-in-user-message envelope so behaviour stays
-	 * unchanged for those callers — but with XML-escaped fields so
-	 * agent output can't break the wrapping element.
+	 * (Anthropic's standard `tool_result` content block wire).
+	 *
+	 * The dispatch chain (`ToolContext.toolUseId` →
+	 * `coordinator.onTaskLaunched` → `LaunchedTaskMeta.originalToolUseId`)
+	 * is the ONLY supported path. If a completion shows up without a
+	 * captured tool_use_id, we throw — that's an upstream bug, not a
+	 * runtime fallback. (We're pre-prod; loud errors beat a silent
+	 * envelope downgrade that quietly poisons transcripts.)
 	 *
 	 * Coalescing N drops into one drain replaces the previous
 	 * one-at-a-time pattern which forced a separate orchestrator
@@ -835,41 +826,23 @@ export class IterationOrchestrator {
 			}
 
 			this.ctx.launchedTasks.delete(handle.taskId)
-			const remainingTasks = this.ctx.launchedTasks.size
 
-			if (meta?.originalToolUseId) {
-				// Canonical envelope: a tool-role message carrying the
-				// completion payload and bound to the dispatching
-				// tool_use_id. Provider adapters serialise this into the
-				// Anthropic-spec `tool_result` content block.
-				this.ctx.runMgr.pushMessage(createToolMessage(resultText, meta.originalToolUseId))
-			} else {
-				// Legacy fallback. Only reachable when an upstream caller
-				// didn't thread `ToolContext.toolUseId` (older code paths,
-				// hooks that fabricate tasks outside the tool dispatcher).
-				// XML-escape agent-produced text so a stray `<` or `</…>`
-				// inside description / result can't tear the envelope.
-				const notification = [
-					'<task-notification>',
-					`  <task-id>${xmlEscape(handle.taskId)}</task-id>`,
-					`  <agent-id>${xmlEscape(handle.agentId)}</agent-id>`,
-					`  <status>${xmlEscape(handle.state)}</status>`,
-					`  <description>${xmlEscape(meta?.description ?? 'agent task')}</description>`,
-					`  <result>${xmlEscape(resultText)}</result>`,
-					`  <remaining-tasks>${remainingTasks}</remaining-tasks>`,
-					'</task-notification>',
-				].join('\n')
-
-				this.ctx.runMgr.pushMessage(createUserMessage(notification))
+			if (!meta?.originalToolUseId) {
+				throw new Error(
+					`Task ${handle.taskId} completed without a captured originalToolUseId. ` +
+						`The dispatch chain must thread ToolContext.toolUseId from the ` +
+						`executor into onTaskLaunched meta — see ` +
+						`ses_009-task-notification-envelope.`,
+				)
 			}
+
+			this.ctx.runMgr.pushMessage(createToolMessage(resultText, meta.originalToolUseId))
 
 			this.ctx.log.info('Task notification injected', {
 				taskId: handle.taskId,
 				agentId: handle.agentId,
 				state: handle.state,
 				planTaskId: meta?.planTaskId,
-				envelope: meta?.originalToolUseId ? 'tool_result' : 'legacy_user_xml',
-				remainingTasks,
 				remainingNotifications: this.ctx.pendingNotifications.length,
 			})
 		}
