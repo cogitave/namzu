@@ -690,6 +690,54 @@ export class IterationOrchestrator {
 						const hasContent =
 							response.message.content !== null && response.message.content.length > 0
 
+						// Auto-continuation on `stop_reason: max_tokens`. The
+						// model hit its per-call output cap mid-text (NOT
+						// mid-tool-use — that path is handled separately
+						// below via `inputTruncated`). Push a synthetic
+						// "continue" user message and let the loop fire
+						// another turn. The provider receives the partial
+						// assistant content + the continue prompt and
+						// resumes from where it left off, mirroring the
+						// Claude.ai "Continue" affordance.
+						//
+						// Guards:
+						//   - `hasContent` so we don't loop forever on an
+						//     empty cutoff (Anthropic occasionally emits
+						//     `stop_reason: max_tokens` with no content
+						//     when an injected pre-fill blocks the model).
+						//   - `!forceFinalize` so the forced-finalize path
+						//     never auto-continues — that path is invoked
+						//     specifically to extract a closing summary.
+						//   - max_iterations bounds the loop in any case.
+						if (
+							!forceFinalize &&
+							response.finishReason === 'length' &&
+							hasContent
+						) {
+							this.ctx.log.info(
+								'LLM hit max_tokens mid-text — auto-continuing',
+								{
+									runId: runMgr.id,
+									iteration: iterationNum,
+									completionTokens: response.usage.completionTokens,
+								},
+							)
+							runMgr.pushMessage(
+								createUserMessage(
+									'Continue exactly where you left off. Do not repeat content you already wrote — pick up at the next token.',
+								),
+							)
+							await this.ctx.emitEvent({
+								type: 'iteration_completed',
+								runId: runMgr.id,
+								iteration: iterationNum,
+								hasToolCalls: false,
+							})
+							yield* this.ctx.drainPending()
+							iterSpan.end()
+							continue
+						}
+
 						if (!hasContent && !forceFinalize) {
 							this.ctx.log.warn('Empty completion detected — requesting final summary', {
 								iteration: iterationNum,
