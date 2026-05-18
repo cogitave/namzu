@@ -186,6 +186,14 @@ export interface ACIStandbyPoolBackendConfig {
 	readonly readyTimeoutMs?: number
 	readonly workerPort?: number
 	readonly armApiVersion?: string
+	/**
+	 * Prefix for the ACI container group name and the inner worker
+	 * container. Combined with a generated sandbox id and
+	 * sanitised to ARM's allowed character set. Default
+	 * `namzu-task`; consumers (e.g. Vandal) override to brand
+	 * their own deployments.
+	 */
+	readonly containerNamePrefix?: string
 }
 
 /**
@@ -554,6 +562,9 @@ function pickBackend(config: SandboxProviderConfig): SandboxBackend {
 			...(aciBackend.workerPort !== undefined ? { workerPort: aciBackend.workerPort } : {}),
 			...(aciBackend.armApiVersion !== undefined
 				? { armApiVersion: aciBackend.armApiVersion }
+				: {}),
+			...(aciBackend.containerNamePrefix !== undefined
+				? { containerNamePrefix: aciBackend.containerNamePrefix }
 				: {}),
 		})
 	}
