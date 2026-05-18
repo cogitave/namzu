@@ -13,4 +13,4 @@
  * surfacing the trailing continuation chunk.
  */
 export const AUTO_CONTINUATION_USER_MESSAGE =
-  'Continue exactly where you left off. Do not repeat content you already wrote — pick up at the next token.'
+	'Continue exactly where you left off. Do not repeat content you already wrote — pick up at the next token.'

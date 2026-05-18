@@ -191,10 +191,7 @@ export class RunPersistence {
 				if (msg.content !== null) chunks.push(msg.content)
 				continue
 			}
-			if (
-				msg.role === 'user' &&
-				msg.content === AUTO_CONTINUATION_USER_MESSAGE
-			) {
+			if (msg.role === 'user' && msg.content === AUTO_CONTINUATION_USER_MESSAGE) {
 				// Synthetic continuation prompt — skip and keep
 				// collecting the partial that preceded it.
 				continue

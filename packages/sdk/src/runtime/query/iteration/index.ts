@@ -23,12 +23,12 @@ import type {
 } from '../../../types/provider/index.js'
 import type { AgentRunConfig, RunEvent, StopReason } from '../../../types/run/index.js'
 import type { MessageStopReason } from '../../../types/run/stop-reason.js'
-import { AUTO_CONTINUATION_USER_MESSAGE } from '../continuation.js'
 import type { ToolRegistryContract } from '../../../types/tool/index.js'
 import { toErrorMessage } from '../../../utils/error.js'
 import { generateMessageId } from '../../../utils/id.js'
 import type { Logger } from '../../../utils/logger.js'
 import type { CheckpointManager } from '../checkpoint.js'
+import { AUTO_CONTINUATION_USER_MESSAGE } from '../continuation.js'
 import type { EmitEvent } from '../events.js'
 import type { ToolExecutor } from '../executor.js'
 import type { GuardCoordinator } from '../guard.js'
@@ -710,19 +710,12 @@ export class IterationOrchestrator {
 						//     never auto-continues — that path is invoked
 						//     specifically to extract a closing summary.
 						//   - max_iterations bounds the loop in any case.
-						if (
-							!forceFinalize &&
-							response.finishReason === 'length' &&
-							hasContent
-						) {
-							this.ctx.log.info(
-								'LLM hit max_tokens mid-text — auto-continuing',
-								{
-									runId: runMgr.id,
-									iteration: iterationNum,
-									completionTokens: response.usage.completionTokens,
-								},
-							)
+						if (!forceFinalize && response.finishReason === 'length' && hasContent) {
+							this.ctx.log.info('LLM hit max_tokens mid-text — auto-continuing', {
+								runId: runMgr.id,
+								iteration: iterationNum,
+								completionTokens: response.usage.completionTokens,
+							})
 							runMgr.pushMessage(createUserMessage(AUTO_CONTINUATION_USER_MESSAGE))
 							await this.ctx.emitEvent({
 								type: 'iteration_completed',
@@ -874,10 +867,7 @@ export class IterationOrchestrator {
 
 			if (!meta?.originalToolUseId) {
 				throw new Error(
-					`Task ${handle.taskId} completed without a captured originalToolUseId. ` +
-						`The dispatch chain must thread ToolContext.toolUseId from the ` +
-						`executor into onTaskLaunched meta — see ` +
-						`ses_009-task-notification-envelope.`,
+					`Task ${handle.taskId} completed without a captured originalToolUseId. The dispatch chain must thread ToolContext.toolUseId from the executor into onTaskLaunched meta — see ses_009-task-notification-envelope.`,
 				)
 			}
 
