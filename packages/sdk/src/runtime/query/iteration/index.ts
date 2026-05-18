@@ -23,6 +23,7 @@ import type {
 } from '../../../types/provider/index.js'
 import type { AgentRunConfig, RunEvent, StopReason } from '../../../types/run/index.js'
 import type { MessageStopReason } from '../../../types/run/stop-reason.js'
+import { AUTO_CONTINUATION_USER_MESSAGE } from '../continuation.js'
 import type { ToolRegistryContract } from '../../../types/tool/index.js'
 import { toErrorMessage } from '../../../utils/error.js'
 import { generateMessageId } from '../../../utils/id.js'
@@ -722,11 +723,7 @@ export class IterationOrchestrator {
 									completionTokens: response.usage.completionTokens,
 								},
 							)
-							runMgr.pushMessage(
-								createUserMessage(
-									'Continue exactly where you left off. Do not repeat content you already wrote — pick up at the next token.',
-								),
-							)
+							runMgr.pushMessage(createUserMessage(AUTO_CONTINUATION_USER_MESSAGE))
 							await this.ctx.emitEvent({
 								type: 'iteration_completed',
 								runId: runMgr.id,

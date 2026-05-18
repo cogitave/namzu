@@ -1,8 +1,9 @@
 import { EMPTY_TOKEN_USAGE } from '../../constants/limits.js'
+import { AUTO_CONTINUATION_USER_MESSAGE } from '../../runtime/query/continuation.js'
 import { RunDiskStore } from '../../store/run/disk.js'
 import { type CostInfo, type TokenUsage, accumulateTokenUsage } from '../../types/common/index.js'
 import type { RunId, SessionId, TenantId } from '../../types/ids/index.js'
-import type { AssistantMessage, Message } from '../../types/message/index.js'
+import type { Message } from '../../types/message/index.js'
 import type { EmergencySaveData } from '../../types/run/emergency.js'
 import type { Run, RunPersistenceConfig, StopReason } from '../../types/run/index.js'
 import type { ProjectId, ThreadId } from '../../types/session/ids.js'
@@ -169,12 +170,42 @@ export class RunPersistence {
 	}
 
 	private resolveResult(): void {
-		const lastAssistant = [...this.run.messages]
-			.reverse()
-			.find((m): m is AssistantMessage => m.role === 'assistant' && m.content !== null)
+		// Walk the tail of the message log to assemble the final
+		// assistant output. The iteration loop's auto-continuation
+		// path (see `runtime/query/iteration/index.ts`) inserts a
+		// synthetic user prompt — exactly equal to
+		// `AUTO_CONTINUATION_USER_MESSAGE` — between two assistant
+		// messages whenever a turn ended with
+		// `stop_reason: max_tokens` mid-text. Treat that synthetic
+		// user as transparent: keep collecting assistant content past
+		// it so the run's persisted `result` carries the full
+		// multi-turn output, not just the trailing continuation
+		// chunk. Stops at the first non-assistant, non-marker
+		// message (e.g. the real user prompt that started the run,
+		// or a tool message between turns).
+		const chunks: string[] = []
+		for (let i = this.run.messages.length - 1; i >= 0; i--) {
+			const msg = this.run.messages[i]
+			if (!msg) continue
+			if (msg.role === 'assistant') {
+				if (msg.content !== null) chunks.push(msg.content)
+				continue
+			}
+			if (
+				msg.role === 'user' &&
+				msg.content === AUTO_CONTINUATION_USER_MESSAGE
+			) {
+				// Synthetic continuation prompt — skip and keep
+				// collecting the partial that preceded it.
+				continue
+			}
+			break
+		}
 
-		if (lastAssistant?.content) {
-			this.run.result = lastAssistant.content
+		if (chunks.length > 0) {
+			// chunks were collected newest-first; reverse so the
+			// assembled string is chronological.
+			this.run.result = chunks.reverse().join('')
 		}
 	}
 
