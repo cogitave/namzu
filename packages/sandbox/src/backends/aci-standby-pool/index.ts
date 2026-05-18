@@ -100,6 +100,14 @@ export interface ACIStandbyPoolBackendInternalConfig {
 	 */
 	readonly workerPort?: number
 	readonly armApiVersion?: string
+	/**
+	 * Prefix for the ACI container group name and the inner worker
+	 * container. Defaults to a Namzu-branded label; consumers (e.g.
+	 * Vandal) override via env / config to brand their own
+	 * deployments. The runtime appends a sandbox id suffix; the
+	 * combined name is sanitised to ARM's allowed character set.
+	 */
+	readonly containerNamePrefix?: string
 }
 
 const DEFAULT_READY_POLL_MS = 500
@@ -107,6 +115,7 @@ const DEFAULT_READY_TIMEOUT_MS = 60_000
 const DEFAULT_WORKER_PORT = 2024
 const DEFAULT_ARM_API_VERSION = '2024-05-01-preview'
 const ARM_BASE = 'https://management.azure.com'
+const DEFAULT_CONTAINER_NAME_PREFIX = 'namzu-task'
 
 /**
  * Build a {@link SandboxBackend} backed by Azure Container Instances
@@ -300,7 +309,8 @@ async function spawnAciSandbox(
 	_options: SandboxBackendOptions,
 ): Promise<Sandbox> {
 	const id = generateSandboxId()
-	const cgName = `vandal-task-${id.replace(/[^a-z0-9-]/gi, '').toLowerCase().slice(0, 50)}`
+	const prefix = config.containerNamePrefix ?? DEFAULT_CONTAINER_NAME_PREFIX
+	const cgName = `${prefix}-${id.replace(/[^a-z0-9-]/gi, '').toLowerCase().slice(0, 50)}`
 	const apiVersion = config.armApiVersion ?? DEFAULT_ARM_API_VERSION
 	const workerPort = config.workerPort ?? DEFAULT_WORKER_PORT
 	const armUrl = `${ARM_BASE}/subscriptions/${config.subscriptionId}/resourceGroups/${config.resourceGroup}/providers/Microsoft.ContainerInstance/containerGroups/${cgName}?api-version=${apiVersion}`
@@ -329,7 +339,7 @@ async function spawnAciSandbox(
 		properties.volumes = volumes
 		properties.containers = [
 			{
-				name: 'vandal-task-worker',
+				name: `${prefix}-worker`,
 				properties: { volumeMounts },
 			},
 		]

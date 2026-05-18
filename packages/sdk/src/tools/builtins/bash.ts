@@ -5,9 +5,15 @@ import { DANGEROUS_PATTERNS } from '../../constants/tools/index.js'
 import { defineTool } from '../defineTool.js'
 
 const execAsync = promisify(exec)
+// Namzu owns its own bash timeout knob — `NAMZU_BASH_TIMEOUT_MS`.
+// The Vandal fallback (`VANDAL_NAMZU_TIMEOUT_MS`) lived here as a
+// historical bridge while Namzu was carved out of the Vandal repo,
+// but Namzu shouldn't read a consumer's env name. Consumers can
+// still alias their own var to `NAMZU_BASH_TIMEOUT_MS` at deploy
+// time if they want a unified knob.
 const DEFAULT_BASH_TIMEOUT_MS = readPositiveIntEnv(
 	'NAMZU_BASH_TIMEOUT_MS',
-	readPositiveIntEnv('VANDAL_NAMZU_TIMEOUT_MS', 60 * 60 * 1000),
+	60 * 60 * 1000,
 )
 const DEFAULT_BASH_MAX_BUFFER_BYTES = readPositiveIntEnv(
 	'NAMZU_BASH_MAX_BUFFER_BYTES',

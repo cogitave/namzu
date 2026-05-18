@@ -6,13 +6,13 @@ import { BlobServiceClient, type ContainerClient, RestError } from '@azure/stora
 import type { BlobPutInput, BlobRecord, BlobStore, StorageRef } from '../index.js'
 import { isSafeRelativePath } from '../index.js'
 
-const DEFAULT_CONTAINER = 'vandal-files'
+const DEFAULT_CONTAINER = 'namzu-files'
 const PROVIDER = 'azure-blob' as const
 
 export interface AzureBlobStoreOptions {
 	/** Azure Storage connection string. Required. */
 	readonly connectionString: string
-	/** Container name; created on first use if missing. Default: 'vandal-files'. */
+	/** Container name; created on first use if missing. Default: 'namzu-files'. Consumers (e.g. Vandal) override to brand their own deployments. */
 	readonly container?: string
 	/** Optional key prefix (e.g. 'tenant-id/'); prepended to every key. */
 	readonly keyPrefix?: string
