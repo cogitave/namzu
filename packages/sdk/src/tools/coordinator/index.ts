@@ -45,15 +45,21 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 		taskStore,
 		runId,
 		getPlanManager,
-		onTaskLaunched,
+		// `onTaskLaunched` was the entry point for the old
+		// non-blocking + envelope-injection flow. create_task is now
+		// blocking, so the callback is no longer wired here.
+		// Intentionally not destructured to keep the unused-binding
+		// lint clean; callers can still pass it for backwards
+		// compatibility (Agent tool consumes it from its own path).
 	} = opts
 	const cwd = opts.workingDirectory
+	void opts.onTaskLaunched
 
 	const agentIdEnum = agentIds.length > 0 ? z.enum(agentIds as [string, ...string[]]) : z.string()
 
 	const createTask = defineTool({
 		name: 'create_task',
-		description: `Launch a task on a specialized agent. NON-BLOCKING: returns immediately. You will receive a <task-notification> message when the agent finishes. Available agents: ${agentIds.join(', ')}. Prefer compact assignments when possible; for large context, write/read shared workspace files and pass filenames or references. To launch multiple tasks in parallel, call this tool multiple times in a single response. After launching, briefly tell the user what you launched and end your turn — do NOT predict or fabricate results.`,
+		description: `Launch a task on a specialized agent and await its result. BLOCKING: returns the agent's final output as this call's tool_result. Available agents: ${agentIds.join(', ')}. Prefer compact assignments; for large context, write/read shared workspace files and pass filenames or references. To launch multiple tasks in parallel, call this tool multiple times in a single assistant turn — the runtime executes every tool_use block from one response concurrently and delivers all tool_results together, so 'fan out 8 specialists' is one assistant message with 8 create_task blocks.`,
 		inputSchema: z.object({
 			agent_id: agentIdEnum.describe('Which agent to run'),
 			prompt: z
@@ -74,7 +80,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 		readOnly: false,
 		destructive: false,
 		concurrencySafe: true,
-		async execute({ agent_id, prompt, description, plan_task_id }, context) {
+		async execute({ agent_id, prompt, description, plan_task_id }, _context) {
 			let resolvedPlanTaskId = plan_task_id
 
 			if (taskStore) {
@@ -102,27 +108,36 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 				runtimeContext: opts.runtimeContext,
 			})
 
-			if (onTaskLaunched) {
-				onTaskLaunched(handle.taskId, {
-					agentId: agent_id,
-					description,
-					planTaskId: resolvedPlanTaskId,
-					// Thread the dispatching tool_use_id into the meta so
-					// the iteration loop can emit a canonical tool_result
-					// content block when the background task completes
-					// (see ses_009-task-notification-envelope).
-					originalToolUseId: context.toolUseId,
+			// Industrial-standard Anthropic tool pattern: tool returns
+			// its real result as the tool_result for the dispatching
+			// tool_use. Parallel fan-out happens at the executor layer
+			// — when the supervisor emits N create_task blocks in one
+			// assistant turn, the runtime runs them with Promise.all
+			// and delivers all N tool_results together. No async
+			// envelope injection, no second tool_result for the same
+			// tool_use_id (which Anthropic rejects with 400).
+			const completed = await gateway.waitForTask(handle.taskId)
+			const success = completed.state === 'completed'
+			const resultText =
+				completed.result?.result ??
+				completed.result?.lastError ??
+				`Task finished with state: ${completed.state}`
+
+			if (resolvedPlanTaskId && taskStore) {
+				await taskStore.update(resolvedPlanTaskId as `task_${string}`, {
+					status: 'completed',
+					description: success ? undefined : `Failed: ${resultText.substring(0, 200)}`,
 				})
 			}
 
 			return {
-				success: true,
-				output: `Task launched: ${handle.taskId} → ${agent_id} ("${description}"). You will receive a task-notification when it completes.`,
+				success,
+				output: resultText,
 				data: {
 					task_id: handle.taskId,
 					agent_id,
 					description,
-					state: 'running',
+					state: completed.state,
 					plan_task_id: resolvedPlanTaskId,
 				},
 			}
