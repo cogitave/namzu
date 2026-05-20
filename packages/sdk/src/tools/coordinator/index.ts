@@ -147,11 +147,9 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 	const continueTask = defineTool({
 		name: 'continue_task',
 		description:
-			'Send a follow-up message to a previously completed task. NON-BLOCKING: the agent resumes in the background with full prior context. You will receive a task-notification when it finishes. Only use this with a task_id from a previous create_task or task-notification.',
+			"Send a follow-up message to a previously completed task and await the agent's next reply. BLOCKING: returns the agent's new output as this call's tool_result, the same shape as create_task. Only use this with a task_id from a previous create_task. To run multiple follow-ups in parallel, call this tool multiple times in a single assistant turn.",
 		inputSchema: z.object({
-			task_id: z
-				.string()
-				.describe('Agent task ID from a previous create_task or task-notification'),
+			task_id: z.string().describe('Agent task ID from a previous create_task'),
 			message: z.string().describe('Follow-up instruction for the agent'),
 		}),
 		category: 'custom',
@@ -161,11 +159,22 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 		concurrencySafe: true,
 		async execute({ task_id, message }) {
 			await gateway.continueTask(task_id as TaskId, message)
-
+			// Mirror create_task's blocking pattern: await the new
+			// completion and return the agent's output inline. The
+			// previous non-blocking shape ('You will receive a
+			// task-notification…') relied on a global
+			// onTaskCompleted listener that the iteration loop
+			// no longer registers (envelope path is dead).
+			const completed = await gateway.waitForTask(task_id as TaskId)
+			const success = completed.state === 'completed'
+			const resultText =
+				completed.result?.result ??
+				completed.result?.lastError ??
+				`Task finished with state: ${completed.state}`
 			return {
-				success: true,
-				output: `Follow-up sent to ${task_id}. You will receive a task-notification when it finishes.`,
-				data: { task_id, state: 'running' },
+				success,
+				output: resultText,
+				data: { task_id, state: completed.state },
 			}
 		},
 	})
