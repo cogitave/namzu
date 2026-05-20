@@ -880,8 +880,7 @@ export class IterationOrchestrator {
 		if (this.ctx.pendingNotifications.length === 0) return
 		const handles = this.ctx.pendingNotifications.splice(0)
 
-		for (let i = 0; i < handles.length; i += 1) {
-			const handle = handles[i]!
+		for (const handle of handles) {
 			const meta = this.ctx.launchedTasks.get(handle.taskId)
 			const resultText =
 				handle.result?.result ??
@@ -899,12 +898,14 @@ export class IterationOrchestrator {
 			this.ctx.launchedTasks.delete(handle.taskId)
 
 			// `remaining-tasks` = inflight workers still pending after this
-			// one drains. `pendingNotifications` was already spliced empty
-			// above, so we count launchedTasks (workers we dispatched and
-			// haven't yet delivered) PLUS the remaining handles queued in
-			// this drain batch (already removed from pendingNotifications
-			// but not yet emitted to the supervisor).
-			const remainingTasks = this.ctx.launchedTasks.size + (handles.length - 1 - i)
+			// one drains. `launchedTasks` is the single source of truth:
+			// it holds every dispatched worker that has NOT yet been
+			// drained + delete()'d. The drain batch entries are still
+			// inside launchedTasks until each iteration's delete() above
+			// removes them, so reading the size right after that delete
+			// gives the honest count. Adding `handles.length - 1 - i`
+			// here used to double-count this same queue.
+			const remainingTasks = this.ctx.launchedTasks.size
 			const envelope =
 				`<task-notification>\n` +
 				`<task-id>${xmlEscape(handle.taskId)}</task-id>\n` +
