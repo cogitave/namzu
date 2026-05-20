@@ -63,6 +63,35 @@ export interface IterationConfig {
 }
 
 /**
+ * Escape the five XML metacharacters so an interpolated value cannot
+ * break out of a tag. Used for the simple identifier fields in the
+ * `<task-notification>` envelope (taskId, agentId, status) — values
+ * here are controlled enums / opaque ids in practice, but escaping
+ * keeps the envelope robust against any future producer that lets a
+ * `<` or `&` leak in.
+ */
+function xmlEscape(value: string): string {
+	return value
+		.replace(/&/g, '&amp;')
+		.replace(/</g, '&lt;')
+		.replace(/>/g, '&gt;')
+		.replace(/"/g, '&quot;')
+		.replace(/'/g, '&apos;')
+}
+
+/**
+ * Wrap free-form worker output in a CDATA section. CDATA preserves
+ * the raw text — code, markdown angle brackets, ampersands — so the
+ * supervisor sees what the worker actually produced instead of an
+ * escape-encoded approximation. The only termination CDATA forbids
+ * is the literal `]]>` sequence; we split-and-rejoin around it to
+ * keep the section well-formed regardless of payload.
+ */
+function cdataWrap(value: string): string {
+	return `<![CDATA[${value.replace(/]]>/g, ']]]]><![CDATA[>')}]]>`
+}
+
+/**
  * Map a provider's coarse `finishReason` plus the orchestrator's
  * `forceFinalize` flag onto the per-message {@link MessageStopReason}
  * union the v3 `message_completed` event surfaces.
@@ -851,7 +880,8 @@ export class IterationOrchestrator {
 		if (this.ctx.pendingNotifications.length === 0) return
 		const handles = this.ctx.pendingNotifications.splice(0)
 
-		for (const handle of handles) {
+		for (let i = 0; i < handles.length; i += 1) {
+			const handle = handles[i]!
 			const meta = this.ctx.launchedTasks.get(handle.taskId)
 			const resultText =
 				handle.result?.result ??
@@ -868,14 +898,20 @@ export class IterationOrchestrator {
 
 			this.ctx.launchedTasks.delete(handle.taskId)
 
-			const remaining = this.ctx.pendingNotifications.length
+			// `remaining-tasks` = inflight workers still pending after this
+			// one drains. `pendingNotifications` was already spliced empty
+			// above, so we count launchedTasks (workers we dispatched and
+			// haven't yet delivered) PLUS the remaining handles queued in
+			// this drain batch (already removed from pendingNotifications
+			// but not yet emitted to the supervisor).
+			const remainingTasks = this.ctx.launchedTasks.size + (handles.length - 1 - i)
 			const envelope =
 				`<task-notification>\n` +
-				`<task-id>${handle.taskId}</task-id>\n` +
-				`<agent-id>${handle.agentId}</agent-id>\n` +
-				`<status>${handle.state}</status>\n` +
-				`<result>${resultText}</result>\n` +
-				`<remaining-tasks>${remaining}</remaining-tasks>\n` +
+				`<task-id>${xmlEscape(handle.taskId)}</task-id>\n` +
+				`<agent-id>${xmlEscape(handle.agentId)}</agent-id>\n` +
+				`<status>${xmlEscape(handle.state)}</status>\n` +
+				`<result>${cdataWrap(resultText)}</result>\n` +
+				`<remaining-tasks>${remainingTasks}</remaining-tasks>\n` +
 				`</task-notification>`
 
 			this.ctx.runMgr.pushMessage(createUserMessage(envelope))
@@ -885,7 +921,7 @@ export class IterationOrchestrator {
 				agentId: handle.agentId,
 				state: handle.state,
 				planTaskId: meta?.planTaskId,
-				remainingNotifications: remaining,
+				remainingNotifications: remainingTasks,
 			})
 		}
 	}
