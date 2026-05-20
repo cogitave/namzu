@@ -30,7 +30,7 @@ type Result = {
 export const VerifyOutputsTool = defineTool({
 	name: 'verify_outputs',
 	description:
-		"Verify that a set of expected output files actually exist on disk and are non-empty. Use this BEFORE declaring multi-worker work done — pass every deliverable path the workers were supposed to produce. Returns a per-path report (exists, size_bytes, ok) plus an overall pass/fail summary. If any path fails, follow up with the responsible worker via `continue_task` — do NOT paper over a missing file in prose.",
+		"Verify that a set of expected output files actually exist on disk and are non-empty. Use this BEFORE declaring multi-worker work done — pass every deliverable path the workers were supposed to produce. Returns a per-path report (exists, size_bytes, ok) plus an overall pass/fail summary. If any path fails, spawn a fresh `create_task` on the responsible specialist with a brief that names the missing path and the prior worker's output location — do NOT paper over a missing file in prose.",
 	inputSchema,
 	category: 'filesystem',
 	permissions: ['file_read'],
