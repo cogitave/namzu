@@ -13,7 +13,6 @@ import type { ResumeHandler } from '../../../types/hitl/index.js'
 import type { ToolUseId } from '../../../types/ids/index.js'
 import {
 	createAssistantMessage,
-	createToolMessage,
 	createUserMessage,
 } from '../../../types/message/index.js'
 import type {
@@ -829,16 +828,20 @@ export class IterationOrchestrator {
 	/**
 	 * Canonical async completion delivery (ses_009-task-notification-envelope).
 	 *
-	 * Drains every pending task completion in one pass and emits each
-	 * as a `tool`-role message bound to the originating `tool_use_id`
-	 * (Anthropic's standard `tool_result` content block wire).
+	 * Drains every pending task completion in one pass and emits each as
+	 * a plain USER text message wrapped in the `<task-notification>`
+	 * envelope the supervisor prompt expects.
 	 *
-	 * The dispatch chain (`ToolContext.toolUseId` →
-	 * `coordinator.onTaskLaunched` → `LaunchedTaskMeta.originalToolUseId`)
-	 * is the ONLY supported path. If a completion shows up without a
-	 * captured tool_use_id, we throw — that's an upstream bug, not a
-	 * runtime fallback. (We're pre-prod; loud errors beat a silent
-	 * envelope downgrade that quietly poisons transcripts.)
+	 * Why not a `tool_result` block bound to the dispatching tool_use_id:
+	 * `create_task` is documented as NON-BLOCKING and returns
+	 * "Task launched: …" immediately. That immediate return is already
+	 * recorded as the canonical tool_result for that tool_use, so a
+	 * second tool_result for the SAME tool_use_id — emitted later, after
+	 * intervening assistant turns — is rejected by Anthropic with
+	 * `messages.<n>.content.0: unexpected tool_use_id found in
+	 * tool_result blocks` because the immediately-prior assistant
+	 * message no longer carries the matching tool_use. Wrapping as a
+	 * user text envelope sidesteps the pairing rule entirely.
 	 *
 	 * Coalescing N drops into one drain replaces the previous
 	 * one-at-a-time pattern which forced a separate orchestrator
@@ -865,20 +868,24 @@ export class IterationOrchestrator {
 
 			this.ctx.launchedTasks.delete(handle.taskId)
 
-			if (!meta?.originalToolUseId) {
-				throw new Error(
-					`Task ${handle.taskId} completed without a captured originalToolUseId. The dispatch chain must thread ToolContext.toolUseId from the executor into onTaskLaunched meta — see ses_009-task-notification-envelope.`,
-				)
-			}
+			const remaining = this.ctx.pendingNotifications.length
+			const envelope =
+				`<task-notification>\n` +
+				`<task-id>${handle.taskId}</task-id>\n` +
+				`<agent-id>${handle.agentId}</agent-id>\n` +
+				`<status>${handle.state}</status>\n` +
+				`<result>${resultText}</result>\n` +
+				`<remaining-tasks>${remaining}</remaining-tasks>\n` +
+				`</task-notification>`
 
-			this.ctx.runMgr.pushMessage(createToolMessage(resultText, meta.originalToolUseId))
+			this.ctx.runMgr.pushMessage(createUserMessage(envelope))
 
 			this.ctx.log.info('Task notification injected', {
 				taskId: handle.taskId,
 				agentId: handle.agentId,
 				state: handle.state,
 				planTaskId: meta?.planTaskId,
-				remainingNotifications: this.ctx.pendingNotifications.length,
+				remainingNotifications: remaining,
 			})
 		}
 	}
