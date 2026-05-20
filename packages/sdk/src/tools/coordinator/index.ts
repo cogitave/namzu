@@ -257,7 +257,19 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 		},
 	})
 
-	const tools: ToolDefinition[] = [createTask, continueTask, cancelTask, agentTaskList]
+	// `continue_task` was a follow-up channel for a still-alive worker
+	// task. With `create_task` now blocking + tool_result returning
+	// the worker's final output, every worker reaches a terminal
+	// state by the time the supervisor wants to follow up — and the
+	// agent manager rejects `continue` on terminal tasks. The
+	// industrial pattern is to issue a fresh `create_task` that
+	// references the prior worker's output path, so we drop
+	// `continue_task` from the registered surface entirely. The
+	// definition stays in this file for now in case a future
+	// non-default gateway (one that keeps the worker process alive
+	// for follow-ups) wants to re-register it.
+	void continueTask
+	const tools: ToolDefinition[] = [createTask, cancelTask, agentTaskList]
 
 	if (getPlanManager) {
 		const approvePlan = defineTool({
