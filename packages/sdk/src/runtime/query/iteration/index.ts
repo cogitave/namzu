@@ -485,17 +485,19 @@ export class IterationOrchestrator {
 		const { model } = runConfig
 		const tracer = getTracer()
 
+		// Worker-completion delivery used to fan out through a global
+		// onTaskCompleted listener that pushed handles onto
+		// `pendingNotifications`; the iteration loop then drained
+		// them as <task-notification> envelopes. Both `create_task`
+		// and the `Agent` tool are now blocking and return their
+		// worker output as the dispatching tool_use's canonical
+		// tool_result, so the listener path would only DUPLICATE
+		// every completion (once as tool_result, once as injected
+		// envelope user-message). Leaving the binding out closes
+		// the duplicate notification surface entirely; the dormant
+		// drain stays as a no-op until a follow-up tears it out.
 		let unsubscribeTaskListener: (() => void) | undefined
-		if (this.ctx.taskGateway) {
-			unsubscribeTaskListener = this.ctx.taskGateway.onTaskCompleted((handle) => {
-				this.ctx.pendingNotifications.push(handle)
-				this.ctx.log.debug('Task completion queued for notification', {
-					taskId: handle.taskId,
-					agentId: handle.agentId,
-					state: handle.state,
-				})
-			})
-		}
+		void unsubscribeTaskListener
 
 		try {
 			const planSignal = yield* runPlanGate(this.ctx)
