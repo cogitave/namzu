@@ -40,6 +40,17 @@ describe('WriteFileTool — read-before-overwrite invariant', () => {
 		expect(tracker.hasRead(join(dir, 'fresh.txt'))).toBe(true)
 	})
 
+	it('accepts newStr as the canonical create/write content alias', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'namzu-write-'))
+		const tracker = makeTracker()
+		const ctx = makeContext(dir, tracker)
+
+		const result = await WriteFileTool.execute({ path: 'fresh.txt', newStr: 'hello' }, ctx)
+
+		expect(result.success).toBe(true)
+		expect(readFileSync(join(dir, 'fresh.txt'), 'utf-8')).toBe('hello')
+	})
+
 	it('refuses to overwrite an existing file the agent has not read', async () => {
 		const dir = mkdtempSync(join(tmpdir(), 'namzu-write-'))
 		writeFileSync(join(dir, 'pre-existing.txt'), 'original')

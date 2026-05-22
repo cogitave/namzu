@@ -19,6 +19,7 @@ import type { AnthropicConfig } from './types.js'
 // ceiling, so passing 64k just means "don't bound below the model".
 const DEFAULT_MAX_TOKENS = 64_000
 const DEFAULT_TIMEOUT_MS = 120_000
+const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 0
 
 // --------------------------------------------------------------------------------------
 // Message translation: @namzu/sdk → Anthropic Messages API
@@ -301,29 +302,21 @@ export class AnthropicProvider implements LLMProvider {
 		// fragments can reference the right tool call.
 		const activeTools = new Map<number, { id: string; name: string }>()
 
-		// Anthropic Messages API streams over SSE. Live debugging surfaced
-		// runs where the upstream SSE went silent for > 1 hour without
-		// returning a `message_stop` or throwing — `for await (event of
-		// stream)` blocks forever, and the SDK's overall request `timeout`
-		// option is per-call, not per-event.
-		//
-		// Treat sustained silence as a transport error so the higher
-		// layers' existing terminal markers fire naturally:
-		//   provider yields error → SDK iteration catches →
-		//   `ResultAssembler.handleError` emits `run_failed` →
-		//   `supervisor.run()` rejects → outer runtime settles status to
-		//   'terminated'. We are not adding a watchdog at the supervisor
-		//   level; we are making the provider correctly recognize a
-		//   stalled HTTP/2 SSE as a failure, which is the boundary where
-		//   the network condition is observable.
-		//
-		// On timeout we also call `iter.return()` so the underlying
-		// HTTP/2 connection is released instead of leaking until the OS
-		// times it out — Codex's audit flagged the bare-timer version
-		// as correct-but-leaky.
-		const STREAM_IDLE_TIMEOUT_MS = 90_000
+		// Anthropic Messages API streams over SSE. Do not impose a
+		// provider-local 90s idle cutoff by default: long reasoning or
+		// long tool-argument generation can legitimately pause between
+		// SSE events, and cutting it here turns a healthy Messages API
+		// run into a false "tool input truncated" failure. Deployments
+		// that still need a per-event watchdog can opt in via
+		// `streamIdleTimeoutMs`; otherwise the request timeout and caller
+		// AbortSignal own lifecycle cancellation.
+		const streamIdleTimeoutMs =
+			this.config.streamIdleTimeoutMs ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS
 		const iter = (stream as AsyncIterable<StreamEvent>)[Symbol.asyncIterator]()
 		const nextWithIdleTimeout = async (): Promise<IteratorResult<StreamEvent>> => {
+			if (!Number.isFinite(streamIdleTimeoutMs) || streamIdleTimeoutMs <= 0) {
+				return iter.next()
+			}
 			let timer: ReturnType<typeof setTimeout> | undefined
 			try {
 				return await Promise.race([
@@ -332,10 +325,10 @@ export class AnthropicProvider implements LLMProvider {
 						timer = setTimeout(() => {
 							reject(
 								new Error(
-									`Anthropic stream idle for ${Math.round(STREAM_IDLE_TIMEOUT_MS / 1000)}s — aborting so the run lifecycle can emit run_failed.`,
+									`Anthropic stream idle for ${Math.round(streamIdleTimeoutMs / 1000)}s — aborting so the run lifecycle can emit run_failed.`,
 								),
 							)
-						}, STREAM_IDLE_TIMEOUT_MS)
+						}, streamIdleTimeoutMs)
 					}),
 				])
 			} finally {

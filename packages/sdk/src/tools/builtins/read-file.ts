@@ -5,6 +5,12 @@ import { defineTool } from '../defineTool.js'
 
 const inputSchema = z.object({
 	path: z.string().describe('Path to the file to read (absolute or relative)'),
+	readRange: z
+		.tuple([z.coerce.number().int().min(1), z.coerce.number().int().min(1)])
+		.optional()
+		.describe(
+			'Optional 1-indexed inclusive line range, e.g. [10, 40]. When provided it takes precedence over offset/limit.',
+		),
 	offset: z.coerce
 		.number()
 		.int()
@@ -17,7 +23,7 @@ const inputSchema = z.object({
 export const ReadFileTool = defineTool({
 	name: 'read',
 	description:
-		'Reads a file and returns its contents with line numbers. Supports offset and limit parameters for large files.',
+		'Reads a file and returns its contents with line numbers. Supports readRange ([start,end], 1-indexed inclusive) or offset/limit for large files.',
 	inputSchema,
 	category: 'filesystem',
 	permissions: ['file_read'],
@@ -32,11 +38,10 @@ export const ReadFileTool = defineTool({
 			const content = buffer.toString('utf-8')
 			const lines = content.split('\n')
 
-			const start = Math.max(0, input.offset ?? 0)
-			const end = input.limit ? start + input.limit : lines.length
+			const { start, end } = resolveReadWindow(input, lines.length)
 			const selectedLines = lines.slice(start, end)
 
-			const numberedLines = selectedLines.map((line, i) => `${start + i}\t${line}`).join('\n')
+			const numberedLines = selectedLines.map((line, i) => `${start + i + 1}\t${line}`).join('\n')
 
 			context.fileReadTracker?.recordRead(input.path)
 
@@ -56,11 +61,10 @@ export const ReadFileTool = defineTool({
 		const content = await readFile(filePath, 'utf-8')
 		const lines = content.split('\n')
 
-		const start = Math.max(0, input.offset ?? 0)
-		const end = input.limit ? start + input.limit : lines.length
+		const { start, end } = resolveReadWindow(input, lines.length)
 		const selectedLines = lines.slice(start, end)
 
-		const numberedLines = selectedLines.map((line, i) => `${start + i}\t${line}`).join('\n')
+		const numberedLines = selectedLines.map((line, i) => `${start + i + 1}\t${line}`).join('\n')
 
 		context.fileReadTracker?.recordRead(filePath)
 
@@ -75,3 +79,18 @@ export const ReadFileTool = defineTool({
 		}
 	},
 })
+
+function resolveReadWindow(
+	input: z.infer<typeof inputSchema>,
+	totalLines: number,
+): { start: number; end: number } {
+	if (input.readRange) {
+		const [first, last] = input.readRange
+		const start = Math.max(0, first - 1)
+		const end = Math.min(totalLines, Math.max(start, last))
+		return { start, end }
+	}
+	const start = Math.max(0, input.offset ?? 0)
+	const end = input.limit ? start + input.limit : totalLines
+	return { start, end }
+}

@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import { dirname, join, normalize, relative, sep } from 'node:path'
 import { posix } from 'node:path'
 import type {
@@ -34,6 +34,7 @@ export interface RegisterSharedRunPlanInput {
 export class SharedRunWorkspace {
 	readonly hostRoot: string
 	readonly runtimeRoot: string
+	private manifestWriteQueue: Promise<void> = Promise.resolve()
 
 	private constructor(private readonly config: Required<SharedRunWorkspaceConfig>) {
 		this.hostRoot = config.hostRoot
@@ -55,6 +56,7 @@ export class SharedRunWorkspace {
 		return {
 			rootPath: this.runtimePath(),
 			manifestPath: this.runtimePath('manifest.json'),
+			sharedContextPath: this.runtimePath('02_shared_context.md'),
 			sourceInventoryPath: this.runtimePath('sources', 'inventory.md'),
 			supervisorBriefPath: this.runtimePath('00_supervisor_brief.md'),
 			taskContextPath: this.runtimePath('01_task_context.md'),
@@ -89,13 +91,22 @@ export class SharedRunWorkspace {
 	async writeManifest(
 		update: (manifest: SharedRunWorkspaceManifest) => SharedRunWorkspaceManifest,
 	): Promise<SharedRunWorkspaceManifest> {
-		const current = await this.readManifest().catch(() => this.initialManifest())
-		const next = update({
-			...current,
-			updatedAt: this.nowIso(),
-		})
-		await writeFile(this.hostPath('manifest.json'), `${JSON.stringify(next, null, 2)}\n`, 'utf8')
-		return next
+		const operation = this.manifestWriteQueue
+			.catch(() => undefined)
+			.then(async () => {
+				const current = await this.readManifest().catch(() => this.initialManifest())
+				const next = update({
+					...current,
+					updatedAt: this.nowIso(),
+				})
+				await writeJsonAtomic(this.hostPath('manifest.json'), next)
+				return next
+			})
+		this.manifestWriteQueue = operation.then(
+			() => undefined,
+			() => undefined,
+		)
+		return operation
 	}
 
 	async writeSourceInventory(sources: readonly SharedRunWorkspaceSource[]): Promise<string> {
@@ -137,6 +148,19 @@ export class SharedRunWorkspace {
 	 */
 	async writeTaskContext(text: string): Promise<string> {
 		const relativePath = ['01_task_context.md']
+		await mkdir(dirnameFor(this.hostPath(...relativePath)), { recursive: true })
+		await writeFile(this.hostPath(...relativePath), ensureTrailingNewline(text), 'utf8')
+		return this.runtimePath(...relativePath)
+	}
+
+	/**
+	 * Write the shared coordination packet (`_work/02_shared_context.md`).
+	 * This is intentionally smaller and more operational than the task context:
+	 * workers read it first, then open the full task context or source inventory
+	 * only when their assignment needs raw wording or source-file details.
+	 */
+	async writeSharedContext(text: string): Promise<string> {
+		const relativePath = ['02_shared_context.md']
 		await mkdir(dirnameFor(this.hostPath(...relativePath)), { recursive: true })
 		await writeFile(this.hostPath(...relativePath), ensureTrailingNewline(text), 'utf8')
 		return this.runtimePath(...relativePath)
@@ -242,6 +266,7 @@ export class SharedRunWorkspace {
 			paths: {
 				root: this.runtimePath(),
 				manifest: this.runtimePath('manifest.json'),
+				sharedContext: this.runtimePath('02_shared_context.md'),
 				sources: this.runtimePath('sources'),
 				plans: this.runtimePath('plans'),
 				agents: this.runtimePath('agents'),
@@ -271,6 +296,12 @@ function trimTrailingSlash(value: string): string {
 
 function ensureTrailingNewline(value: string): string {
 	return value.endsWith('\n') ? value : `${value}\n`
+}
+
+async function writeJsonAtomic(path: string, value: unknown): Promise<void> {
+	const tmpPath = `${path}.${process.pid}.${Date.now()}.tmp`
+	await writeFile(tmpPath, `${JSON.stringify(value, null, 2)}\n`, 'utf8')
+	await rename(tmpPath, path)
 }
 
 function dirnameFor(path: string): string {

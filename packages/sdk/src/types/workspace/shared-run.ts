@@ -1,6 +1,7 @@
 export interface SharedRunWorkspacePaths {
 	root: string
 	manifest: string
+	sharedContext: string
 	sources: string
 	plans: string
 	agents: string
@@ -44,6 +45,13 @@ export interface SharedRunWorkspaceManifest {
 export interface SharedRunWorkspaceRefs {
 	rootPath: string
 	manifestPath: string
+	/**
+	 * Path to the shared coordination packet for this run. Workers read this
+	 * before the larger task context or source inventory so common runtime
+	 * instructions, source summaries, and workspace paths are not rediscovered
+	 * independently by every specialist.
+	 */
+	sharedContextPath: string
 	sourceInventoryPath: string
 	supervisorBriefPath: string
 	/**

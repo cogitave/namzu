@@ -15,9 +15,15 @@ export interface AnthropicConfig {
 	baseURL?: string
 	/** Request timeout in ms. */
 	timeout?: number
+	/**
+	 * Optional per-event stream idle watchdog in ms. Disabled by default.
+	 * Use only for deployments that need to fail a stalled SSE connection
+	 * independently from the request timeout.
+	 */
+	streamIdleTimeoutMs?: number
 	/** Custom headers appended to every request. */
 	defaultHeaders?: Record<string, string>
-	/** Default max_tokens (Anthropic requires this field). Default: 4096. */
+	/** Default max_tokens (Anthropic requires this field). Default: 64000. */
 	maxTokens?: number
 }
 

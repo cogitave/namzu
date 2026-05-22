@@ -20,12 +20,16 @@ describe('SharedRunWorkspace', () => {
 		expect(manifest.paths).toMatchObject({
 			root: '/mnt/user-data/outputs/_work',
 			manifest: '/mnt/user-data/outputs/_work/manifest.json',
+			sharedContext: '/mnt/user-data/outputs/_work/02_shared_context.md',
 			sources: '/mnt/user-data/outputs/_work/sources',
 			plans: '/mnt/user-data/outputs/_work/plans',
 			agents: '/mnt/user-data/outputs/_work/agents',
 		})
 		expect(workspace.refs().supervisorBriefPath).toBe(
 			'/mnt/user-data/outputs/_work/00_supervisor_brief.md',
+		)
+		expect(workspace.refs().sharedContextPath).toBe(
+			'/mnt/user-data/outputs/_work/02_shared_context.md',
 		)
 	})
 
@@ -62,6 +66,38 @@ describe('SharedRunWorkspace', () => {
 		expect(manifest.sources).toHaveLength(1)
 		expect(manifest.plans[0]?.status).toBe('seeded')
 		expect(manifest.agents[0]?.workPath).toBe(agentPath)
+	})
+
+	it('preserves every agent record when workers register concurrently', async () => {
+		const hostRoot = await mkdtemp(join(tmpdir(), 'namzu-shared-workspace-'))
+		const workspace = await SharedRunWorkspace.create({
+			hostRoot,
+			runtimeRoot: '/mnt/user-data/outputs/_work',
+		})
+
+		await Promise.all(
+			Array.from({ length: 9 }, (_, index) =>
+				workspace.registerAgentWork({
+					agentId: `agent-${index + 1}`,
+					taskId: `task_${index + 1}`,
+					status: 'running',
+				}),
+			),
+		)
+
+		const manifest = await workspace.readManifest()
+		expect(manifest.agents).toHaveLength(9)
+		expect(manifest.agents.map((agent) => agent.agentId).sort()).toEqual([
+			'agent-1',
+			'agent-2',
+			'agent-3',
+			'agent-4',
+			'agent-5',
+			'agent-6',
+			'agent-7',
+			'agent-8',
+			'agent-9',
+		])
 	})
 
 	it('writes and appends per-worker briefs without losing earlier sections', async () => {
@@ -119,6 +155,20 @@ describe('SharedRunWorkspace', () => {
 		// Trailing newline added by the writer is OK; user content must not be truncated.
 		expect(content.length).toBeGreaterThanOrEqual(big.length)
 		expect(content).toContain('A'.repeat(40_000))
+	})
+
+	it('writeSharedContext stores the shared coordination packet under 02_shared_context.md', async () => {
+		const hostRoot = await mkdtemp(join(tmpdir(), 'namzu-shared-workspace-'))
+		const workspace = await SharedRunWorkspace.create({
+			hostRoot,
+			runtimeRoot: '/mnt/user-data/outputs/_work',
+		})
+
+		const path = await workspace.writeSharedContext('# Shared Context\n\nRead this first.')
+		expect(path).toBe('/mnt/user-data/outputs/_work/02_shared_context.md')
+		expect(workspace.refs().sharedContextPath).toBe(path)
+		const content = await readFile(join(hostRoot, '02_shared_context.md'), 'utf8')
+		expect(content).toContain('Read this first.')
 	})
 
 	it('rejects host paths that escape the shared workspace root', async () => {

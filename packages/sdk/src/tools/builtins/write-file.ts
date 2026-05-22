@@ -13,15 +13,26 @@ const inputSchema = z.object({
 		),
 	content: z
 		.string()
+		.optional()
 		.describe(
-			'Full file body to write. Required (use "" only for an intentionally empty file). The file is fully overwritten — pass the COMPLETE intended content, not a diff. If the intended body risks being cut off by the per-call output token limit, write a smaller opening section here, then use `append` to extend the file section by section; do NOT try to chain multiple `write` calls, since each one overwrites the previous.',
+			'Full file body to write. Required (use "" only for an intentionally empty file). The file is fully overwritten — pass the COMPLETE intended content for this bounded chunk, not a diff. Self-budget content under 12000 characters before calling; if the intended body is longer, write a smaller opening section here, then use `append` to extend the file section by section. Do NOT try to chain multiple `write` calls, since each one overwrites the previous.',
 		),
+	newStr: z
+		.string()
+		.optional()
+		.describe(
+			'Alias for content. Useful for hosts that expose create/write operations as newStr. Self-budget this payload under 12000 characters before calling.',
+		),
+}).refine((value) => typeof value.content === 'string' || typeof value.newStr === 'string', {
+	message: 'Either content or newStr is required.',
 })
+
+type WriteInput = z.infer<typeof inputSchema>
 
 export const WriteFileTool = defineTool({
 	name: 'write',
 	description:
-		'Writes a file to the local filesystem. Overwrites the existing file at the path if there is one.\n\n- If the file already exists, you must use the `read` tool on it first in this conversation, or this call will fail.\n- Prefer the `edit` tool for modifying existing files — it only sends the diff and preserves the rest of the file byte-for-byte.\n- Use `write` to create a new file or to perform a deliberate full rewrite of a file you have already read.\n- For long content, write a smaller opening section, then use `append` to extend the file section by section. Do not chain multiple `write` calls — each one overwrites the previous.',
+		'Writes a file to the local filesystem. Overwrites the existing file at the path if there is one.\n\n- If the file already exists, you must use the `read` tool on it first in this conversation, or this call will fail.\n- Prefer the `edit` tool for modifying existing files — it only sends the diff and preserves the rest of the file byte-for-byte.\n- Use `write` to create a new file or to perform a deliberate full rewrite of a file you have already read.\n- Self-budget content/newStr under 12000 characters before emitting the tool call. For long content, write a smaller opening section, then use `append` to extend the file section by section. Do not chain multiple `write` calls — each one overwrites the previous.',
 	inputSchema,
 	category: 'filesystem',
 	permissions: ['file_write'],
@@ -29,7 +40,8 @@ export const WriteFileTool = defineTool({
 	destructive: true,
 	concurrencySafe: false,
 
-	async execute(input, context) {
+	async execute(input: WriteInput, context) {
+		const content = input.content ?? input.newStr ?? ''
 		// Sandbox-aware: route through sandbox.writeFile() when available
 		if (context.sandbox) {
 			const sandboxExists = await sandboxFileExists(context, input.path)
@@ -37,12 +49,12 @@ export const WriteFileTool = defineTool({
 				const guard = enforceReadBeforeOverwrite(context, input.path)
 				if (guard) return guard
 			}
-			await context.sandbox.writeFile(input.path, input.content)
+			await context.sandbox.writeFile(input.path, content)
 			context.fileReadTracker?.recordRead(input.path)
 			return {
 				success: true,
-				output: `File written successfully: ${input.path} (${input.content.length} chars) [sandboxed]`,
-				data: { path: input.path, size: input.content.length, sandboxed: true },
+				output: `File written successfully: ${input.path} (${content.length} chars) [sandboxed]`,
+				data: { path: input.path, size: content.length, sandboxed: true },
 			}
 		}
 
@@ -55,13 +67,13 @@ export const WriteFileTool = defineTool({
 		}
 
 		await mkdir(dirname(filePath), { recursive: true })
-		await writeFile(filePath, input.content, 'utf-8')
+		await writeFile(filePath, content, 'utf-8')
 		context.fileReadTracker?.recordRead(filePath)
 
 		return {
 			success: true,
-			output: `File written successfully: ${filePath} (${input.content.length} chars)`,
-			data: { path: filePath, size: input.content.length },
+			output: `File written successfully: ${filePath} (${content.length} chars)`,
+			data: { path: filePath, size: content.length },
 		}
 	},
 })

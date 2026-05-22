@@ -13,14 +13,14 @@ const inputSchema = z.object({
 	content: z
 		.string()
 		.describe(
-			'Text to append to the file. The content is written verbatim — include a leading newline if you want a paragraph break before this chunk.',
+			'Text to append to the file. Self-budget content under 12000 characters before calling. The content is written verbatim — include a leading newline if you want a paragraph break before this chunk.',
 		),
 })
 
 export const AppendFileTool = defineTool({
 	name: 'append',
 	description:
-		'Append text to a file (creating it if it does not exist). Use this when a single `write` call would risk hitting the model output token limit mid-stream — write the opening section with `write`, then call `append` repeatedly to extend the file section by section. Each `append` call resets the per-call output budget, so a 20k-word document is just a handful of `append` calls in a loop. The file is never overwritten; content is added at the end. For modifying existing text inside a file, use `edit` instead.',
+		'Append text to a file (creating it if it does not exist). Use this when a single `write` call would risk hitting the model output token limit mid-stream — write the opening section with `write`, then call `append` repeatedly to extend the file section by section. Self-budget each content payload under 12000 characters before emitting the tool call. Each `append` call resets the per-call output budget, so a 20k-word document is built as many bounded appends. The file is never overwritten; content is added at the end. For modifying existing text inside a file, use `edit` instead.',
 	inputSchema,
 	category: 'filesystem',
 	permissions: ['file_write'],
