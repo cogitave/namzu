@@ -69,8 +69,8 @@ export interface SandboxExecOptions {
 }
 
 // ---------------------------------------------------------------------------
-// File listing — used by hosts that drain agent-produced files out
-// of the sandbox before destroy (walk-and-pull deliverables flow).
+// File listing — used by hosts that drain agent-produced output files
+// out of the sandbox before destroy (walk-and-pull outputs flow).
 // ---------------------------------------------------------------------------
 
 /**
@@ -101,7 +101,7 @@ export interface Sandbox {
 	 * Returns absolute paths so the caller can feed each into
 	 * {@link readFile} directly.
 	 *
-	 * Used by hosts that drain agent-produced deliverables out of the
+	 * Used by hosts that drain agent-produced output files out of the
 	 * sandbox before {@link destroy} (object-store-first persistence
 	 * pattern; the sandbox's own filesystem is ephemeral).
 	 *
@@ -172,7 +172,7 @@ export type ContainerSandboxMountSource =
 			 * Used by managed-warm-pool backends (ACI Standby Pool) whose
 			 * claim semantics forbid per-task volume overrides. The
 			 * container's own ephemeral filesystem carries the run; the
-			 * host walks deliverables out via the worker's HTTP API
+			 * host walks output files out via the worker's HTTP API
 			 * before destroy and persists them somewhere durable
 			 * (e.g. blob storage).
 			 */
@@ -203,8 +203,8 @@ export interface ContainerSandboxLayoutMount {
  * the layout Anthropic's container architecture exposes to the model
  * (Claude container blueprint, Code Interpreter, "skills"):
  *
- *  - `outputs` — RW bind. Deliverables surface the user actually
- *    consumes after the run. Default container path
+ *  - `outputs` — RW bind. User-visible output surface that the
+ *    user consumes after the run. Default container path
  *    `/mnt/user-data/outputs`. **Required** for container backends:
  *    without it the model has no place to persist work past the
  *    container's lifetime.
@@ -241,11 +241,11 @@ export interface ContainerSandboxLayout {
 	readonly uploads?: ContainerSandboxLayoutMount
 	/**
 	 * Working/scratch space for the agent. Sibling mount to `outputs`,
-	 * not a child of it: the deliverables collector / output watcher
+	 * not a child of it: the output collector / output watcher
 	 * scans `outputs` only, so anything the agent writes under
 	 * `scratch` is invisible to the user by construction. Mirrors the
 	 * Anthropic Cowork pattern (`/home/claude` as scratch vs.
-	 * `/mnt/user-data/outputs` as the user-visible deliverables area).
+	 * `/mnt/user-data/outputs` as the user-visible output area).
 	 * Hosts that don't need a separate scratch mount may omit this.
 	 */
 	readonly scratch?: ContainerSandboxLayoutMount

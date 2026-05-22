@@ -40,7 +40,7 @@ export const SANDBOX_SAFE_ENV_KEYS = new Set([
 // `Outputs go to ${SANDBOX_DEFAULT_OUTPUTS_PATH}` instead of
 // hard-coding the string in two places that drift.
 
-/** Default container path for the deliverables (RW) bind. */
+/** Default container path for the user-visible outputs (RW) bind. */
 export const SANDBOX_DEFAULT_OUTPUTS_PATH = '/mnt/user-data/outputs'
 
 /** Default container path for user-uploaded files (RO). */
@@ -49,7 +49,7 @@ export const SANDBOX_DEFAULT_UPLOADS_PATH = '/mnt/user-data/uploads'
 /**
  * Default container path for the agent's working/scratch space (RW).
  * Sibling mount to {@link SANDBOX_DEFAULT_OUTPUTS_PATH} — anything
- * written here is invisible to the deliverables collector by design,
+ * written here is invisible to the output collector by design,
  * mirroring the Anthropic Cowork pattern (`/home/claude` scratch vs.
  * `/mnt/user-data/outputs` user-visible).
  */
