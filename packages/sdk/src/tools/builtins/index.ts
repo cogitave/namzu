@@ -1,5 +1,6 @@
 export { ReadFileTool } from './read-file.js'
 export { WriteFileTool } from './write-file.js'
+export { AppendFileTool } from './append-file.js'
 export { EditTool } from './edit.js'
 export { BashTool } from './bash.js'
 export { GlobTool } from './glob.js'
@@ -13,6 +14,7 @@ export { createComputerUseTool, COMPUTER_USE_TOOL_NAME } from './computer-use.js
 import type { ToolDefinition } from '../../types/tool/index.js'
 import { BashTool } from './bash.js'
 import { EditTool } from './edit.js'
+import { AppendFileTool } from './append-file.js'
 import { GlobTool } from './glob.js'
 import { GrepTool } from './grep.js'
 import { ReadFileTool } from './read-file.js'
@@ -38,5 +40,6 @@ export function getBuiltinTools(): ToolDefinition[] {
 		ReadFileTool,
 		VerifyOutputsTool,
 		WriteFileTool,
+		AppendFileTool,
 	]
 }

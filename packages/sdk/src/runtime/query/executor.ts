@@ -473,5 +473,5 @@ function formatFailedToolOutput(output: string | undefined, error: string | unde
 }
 
 function truncatedToolInputMessage(toolName: string): string {
-	return `Error: Tool "${toolName}" call was cut off while the model was streaming JSON arguments. The tool was NOT executed. Retry with a much shorter input; for large content, write it to a shared workspace file and pass a filename or reference instead of embedding the content in the tool call.`
+	return `Error: Tool "${toolName}" call was cut off while the model was streaming JSON arguments. The tool was NOT executed. Retry with a much shorter input. For long files, create a short opening with write, then extend it with append in section-sized chunks; for delegated work, pass a shared workspace filename/reference instead of embedding the content in the tool call.`
 }

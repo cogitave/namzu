@@ -14,14 +14,14 @@ const inputSchema = z.object({
 	content: z
 		.string()
 		.describe(
-			'Full file body to write. Required (use "" only for an intentionally empty file). The file is fully overwritten — pass the COMPLETE intended content, not a diff. If the intended body risks being cut off by the per-call output token limit, write a smaller opening section here, then use `edit` to extend the file section by section; do NOT try to chain multiple `write` calls, since each one overwrites the previous.',
+			'Full file body to write. Required (use "" only for an intentionally empty file). The file is fully overwritten — pass the COMPLETE intended content, not a diff. If the intended body risks being cut off by the per-call output token limit, write a smaller opening section here, then use `append` to extend the file section by section; do NOT try to chain multiple `write` calls, since each one overwrites the previous.',
 		),
 })
 
 export const WriteFileTool = defineTool({
 	name: 'write',
 	description:
-		'Writes a file to the local filesystem. Overwrites the existing file at the path if there is one.\n\n- If the file already exists, you must use the `read` tool on it first in this conversation, or this call will fail.\n- Prefer the `edit` tool for modifying existing files — it only sends the diff and preserves the rest of the file byte-for-byte.\n- Use `write` to create a new file or to perform a deliberate full rewrite of a file you have already read.\n- For long content, write a smaller opening section, then use `edit` to extend the file section by section. Do not chain multiple `write` calls — each one overwrites the previous.',
+		'Writes a file to the local filesystem. Overwrites the existing file at the path if there is one.\n\n- If the file already exists, you must use the `read` tool on it first in this conversation, or this call will fail.\n- Prefer the `edit` tool for modifying existing files — it only sends the diff and preserves the rest of the file byte-for-byte.\n- Use `write` to create a new file or to perform a deliberate full rewrite of a file you have already read.\n- For long content, write a smaller opening section, then use `append` to extend the file section by section. Do not chain multiple `write` calls — each one overwrites the previous.',
 	inputSchema,
 	category: 'filesystem',
 	permissions: ['file_write'],

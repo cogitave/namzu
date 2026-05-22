@@ -149,5 +149,8 @@ describe('query stream recovery', () => {
 		expect(completedTool?.type === 'tool_completed' ? completedTool.result : '').toContain(
 			'call was cut off',
 		)
+		expect(completedTool?.type === 'tool_completed' ? completedTool.result : '').toContain(
+			'extend it with append',
+		)
 	})
 })
