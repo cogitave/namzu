@@ -21,17 +21,20 @@ import {
 	type ProviderId,
 	writePreferences,
 } from '../integrations/providers/index.js'
+import { Composer } from './Composer.js'
+import { PermissionOverlay } from './PermissionOverlay.js'
+import { Picker } from './Picker.js'
+import { StatusBar } from './StatusBar.js'
+import { Transcript } from './Transcript.js'
 import {
 	type AgentSession,
+	type PermissionDecision,
+	type PermissionRequest,
 	createAgentSession,
 	probeAgentSession,
 } from './agent.js'
-import { Composer } from './Composer.js'
-import { Picker } from './Picker.js'
-import { runSlash, type SlashContext } from './slashCommands.js'
-import { StatusBar } from './StatusBar.js'
+import { type SlashContext, runSlash } from './slashCommands.js'
 import { theme } from './theme.js'
-import { Transcript } from './Transcript.js'
 import type { TranscriptMessage, TuiContext } from './types.js'
 
 export interface AppProps {
@@ -49,7 +52,10 @@ export function App({ ctx }: AppProps) {
 	const [session, setSession] = useState<AgentSession | null>(null)
 	const [detected, setDetected] = useState<readonly DetectedProvider[]>([])
 	const [currentProvider, setCurrentProvider] = useState<ProviderId | null>(null)
+	const [permission, setPermission] = useState<PermissionRequest | null>(null)
 	const exitArmedRef = useRef<boolean>(false)
+	const abortRef = useRef<AbortController | null>(null)
+	const permissionResolveRef = useRef<((d: PermissionDecision) => void) | null>(null)
 	const idRef = useRef<number>(0)
 	const nextId = useCallback(() => {
 		idRef.current += 1
@@ -66,9 +72,7 @@ export function App({ ctx }: AppProps) {
 	)
 
 	const appendToMessage = useCallback((id: string, delta: string) => {
-		setMessages((prev) =>
-			prev.map((m) => (m.id === id ? { ...m, content: m.content + delta } : m)),
-		)
+		setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, content: m.content + delta } : m)))
 	}, [])
 
 	const finalizeMessage = useCallback((id: string, finalContent?: string) => {
@@ -135,13 +139,31 @@ export function App({ ctx }: AppProps) {
 		modelSummary: session?.modelSummary ?? null,
 	}
 
+	// Resolve a pending permission prompt with the user's decision and tear
+	// down the overlay. No-op if nothing is pending.
+	const resolvePermission = useCallback((decision: PermissionDecision) => {
+		const resolve = permissionResolveRef.current
+		permissionResolveRef.current = null
+		setPermission(null)
+		if (resolve) resolve(decision)
+	}, [])
+
+	// Bridge passed into session.send(): the agent calls this before a
+	// non-read-only tool batch; it parks until the user presses y/n/a.
+	const onPermission = useCallback(
+		(req: PermissionRequest) =>
+			new Promise<PermissionDecision>((resolve) => {
+				permissionResolveRef.current = resolve
+				setPermission(req)
+				setState('awaiting-permission')
+			}),
+		[],
+	)
+
 	const runTurn = useCallback(
 		async (text: string) => {
 			if (!session || !session.hasProvider) {
-				pushMessage(
-					'system',
-					session?.errorHint ?? 'Agent is not ready yet — give it a moment.',
-				)
+				pushMessage('system', session?.errorHint ?? 'Agent is not ready yet — give it a moment.')
 				return
 			}
 			const priorForSdk: Message[] = messages
@@ -169,8 +191,13 @@ export function App({ ctx }: AppProps) {
 					assistantId = null
 				}
 			}
+			const ac = new AbortController()
+			abortRef.current = ac
 			try {
-				for await (const event of session.send(priorForSdk)) {
+				for await (const event of session.send(priorForSdk, {
+					signal: ac.signal,
+					onPermission,
+				})) {
 					switch (event.kind) {
 						case 'delta':
 							setState('thinking')
@@ -200,10 +227,13 @@ export function App({ ctx }: AppProps) {
 				closeAssistant()
 				pushMessage('system', `Error: ${err instanceof Error ? err.message : String(err)}`)
 			} finally {
+				abortRef.current = null
+				permissionResolveRef.current = null
+				setPermission(null)
 				setState('idle')
 			}
 		},
-		[appendToMessage, finalizeMessage, messages, pushMessage, session],
+		[appendToMessage, finalizeMessage, messages, onPermission, pushMessage, session],
 	)
 
 	const handleSubmit = useCallback(
@@ -265,7 +295,26 @@ export function App({ ctx }: AppProps) {
 
 	useInput(
 		(input, key) => {
+			// A pending permission prompt owns the keyboard: y/n/a decide it.
+			if (permissionResolveRef.current) {
+				const ch = input.toLowerCase()
+				if (key.ctrl && (input === 'c' || input === '\x03')) {
+					resolvePermission({ kind: 'reject', feedback: 'User interrupted.' })
+					abortRef.current?.abort()
+					return
+				}
+				if (ch === 'y' || key.return) resolvePermission({ kind: 'approve' })
+				else if (ch === 'a') resolvePermission({ kind: 'approve-all' })
+				else if (ch === 'n' || key.escape) resolvePermission({ kind: 'reject' })
+				return
+			}
 			if (key.ctrl && (input === 'c' || input === '\x03')) {
+				// A turn is running → first Ctrl+C interrupts it, not exits.
+				if (abortRef.current) {
+					abortRef.current.abort()
+					pushMessage('system', 'Interrupted.')
+					return
+				}
 				if (exitArmedRef.current) {
 					exit()
 					return
@@ -296,13 +345,17 @@ export function App({ ctx }: AppProps) {
 						<TranscriptFrame>
 							<Transcript messages={messages} state={state} />
 						</TranscriptFrame>
-						<ComposerFrame focus={state === 'idle' && phase === 'ready'}>
-							<Composer
-								disabled={state !== 'idle' || phase !== 'ready'}
-								onSubmit={handleSubmit}
-								history={history}
-							/>
-						</ComposerFrame>
+						{permission ? (
+							<PermissionOverlay toolCalls={permission.toolCalls} />
+						) : (
+							<ComposerFrame focus={state === 'idle' && phase === 'ready'}>
+								<Composer
+									disabled={state !== 'idle' || phase !== 'ready'}
+									onSubmit={handleSubmit}
+									history={history}
+								/>
+							</ComposerFrame>
+						)}
 					</>
 				)}
 				<Box paddingTop={1}>
@@ -340,12 +393,7 @@ function Banner({
 
 function TranscriptFrame({ children }: { readonly children: React.ReactNode }) {
 	return (
-		<Box
-			flexDirection="column"
-			borderStyle="round"
-			borderColor={theme.border.default}
-			paddingX={1}
-		>
+		<Box flexDirection="column" borderStyle="round" borderColor={theme.border.default} paddingX={1}>
 			{children}
 		</Box>
 	)
@@ -378,6 +426,7 @@ function hintForPhase(
 	if (phase === 'probing') return 'discovering providers…'
 	if (phase === 'picker') return '↑↓ navigate · enter accept · esc cancel'
 	if (phase === 'unhealthy') return 'Ctrl+C ×2 to exit'
+	if (state === 'awaiting-permission') return 'y approve · n reject · a approve all'
 	if (state !== 'idle') return 'agent is working — Ctrl+C to interrupt'
 	return '/help · /model · /quit · Ctrl+C ×2 to exit'
 }

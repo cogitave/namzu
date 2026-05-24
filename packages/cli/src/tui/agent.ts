@@ -22,16 +22,18 @@
  */
 
 import {
+	type HITLResumeDecision,
 	type LLMProvider,
 	type Message,
 	type ProjectId,
 	ProviderRegistry,
+	type ResumeHandler,
 	type RunEvent,
 	type SessionId,
 	type TenantId,
 	type ThreadId,
+	type ToolCallSummary,
 	ToolRegistry,
-	autoApproveHandler,
 	getBuiltinTools,
 	query,
 } from '@namzu/sdk'
@@ -49,7 +51,11 @@ import {
 
 export type AgentEvent =
 	| { readonly kind: 'delta'; readonly text: string }
-	| { readonly kind: 'tool-start'; readonly toolName: string; readonly summary: string }
+	| {
+			readonly kind: 'tool-start'
+			readonly toolName: string
+			readonly summary: string
+	  }
 	| {
 			readonly kind: 'tool-end'
 			readonly toolName: string
@@ -59,13 +65,44 @@ export type AgentEvent =
 	| { readonly kind: 'done'; readonly finishReason?: string }
 	| { readonly kind: 'error'; readonly message: string }
 
+/** A single tool the model wants to run, surfaced to the user for approval. */
+export interface PermissionToolCall {
+	readonly id: string
+	readonly name: string
+	readonly summary: string
+	readonly isDestructive: boolean
+	/** Optional multi-line preview (e.g. content to write, edit diff). */
+	readonly preview?: readonly string[]
+}
+
+export interface PermissionRequest {
+	readonly toolCalls: readonly PermissionToolCall[]
+}
+
+export type PermissionDecision =
+	| { readonly kind: 'approve' }
+	| { readonly kind: 'approve-all' }
+	| { readonly kind: 'reject'; readonly feedback?: string }
+
+export type PermissionFn = (req: PermissionRequest) => Promise<PermissionDecision>
+
+export interface SendOptions {
+	readonly signal?: AbortSignal
+	/**
+	 * Called before a batch of non-read-only tools runs. Resolves with the
+	 * user's decision. When omitted, every tool batch is auto-approved
+	 * (non-interactive behavior).
+	 */
+	readonly onPermission?: PermissionFn
+}
+
 export interface AgentSession {
 	readonly hasProvider: boolean
 	readonly providerSummary: string | null
 	readonly modelSummary: string | null
 	readonly toolNames: readonly string[]
 	readonly errorHint: string | null
-	send(messages: readonly Message[], signal?: AbortSignal): AsyncIterable<AgentEvent>
+	send(messages: readonly Message[], opts?: SendOptions): AsyncIterable<AgentEvent>
 }
 
 export interface AgentSessionContext {
@@ -158,13 +195,16 @@ export async function createAgentSession(
 	}
 	const registry = buildToolRegistry()
 	const scope = mintScope()
+	// Persists across turns: once the user picks "approve all", later tool
+	// batches in this session run without prompting.
+	const approval = { all: false }
 	return {
 		hasProvider: true,
 		providerSummary: entry.label,
 		modelSummary: model,
 		toolNames: registry.listNames(),
 		errorHint: null,
-		send: (messages, signal) => runTurn(provider, model, registry, scope, messages, signal),
+		send: (messages, opts) => runTurn(provider, model, registry, scope, approval, messages, opts),
 	}
 }
 
@@ -238,9 +278,11 @@ async function* runTurn(
 	model: string,
 	tools: ToolRegistry,
 	scope: RunScope,
+	approval: { all: boolean },
 	messages: readonly Message[],
-	signal: AbortSignal | undefined,
+	opts: SendOptions | undefined,
 ): AsyncIterable<AgentEvent> {
+	const signal = opts?.signal
 	try {
 		const events = query({
 			provider,
@@ -257,7 +299,7 @@ async function* runTurn(
 			agentName: 'namzu',
 			messages: [...messages],
 			workingDirectory: process.cwd(),
-			resumeHandler: autoApproveHandler,
+			resumeHandler: makeResumeHandler(approval, opts?.onPermission),
 			signal,
 			...scope,
 		})
@@ -270,8 +312,69 @@ async function* runTurn(
 			if (mapped) yield mapped
 		}
 	} catch (err) {
-		yield { kind: 'error', message: err instanceof Error ? err.message : String(err) }
+		yield {
+			kind: 'error',
+			message: err instanceof Error ? err.message : String(err),
+		}
 	}
+}
+
+/**
+ * Bridge the SDK's HITL `tool_review` request to the TUI's permission
+ * callback. Read-only batches (nothing destructive) run silently; batches
+ * with a destructive call prompt the user unless they've already chosen
+ * "approve all" for the session. Plans and iteration checkpoints are
+ * auto-continued (the TUI doesn't use plan mode).
+ */
+export function makeResumeHandler(
+	approval: { all: boolean },
+	onPermission: PermissionFn | undefined,
+): ResumeHandler {
+	return async (request): Promise<HITLResumeDecision> => {
+		if (request.type !== 'tool_review') {
+			return request.type === 'plan_approval' ? { action: 'approve_plan' } : { action: 'continue' }
+		}
+		if (!onPermission || approval.all || !batchNeedsPrompt(request.toolCalls)) {
+			return { action: 'approve_tools' }
+		}
+		const decision = await onPermission({
+			toolCalls: request.toolCalls.map((tc) => ({
+				id: tc.id,
+				name: tc.name,
+				summary: summarizeToolInput(tc.input),
+				isDestructive: tc.isDestructive,
+				preview: previewToolInput(tc.name, tc.input),
+			})),
+		})
+		switch (decision.kind) {
+			case 'approve':
+				return { action: 'approve_tools' }
+			case 'approve-all':
+				approval.all = true
+				return { action: 'approve_tools' }
+			case 'reject':
+				return {
+					action: 'reject_tools',
+					feedback: decision.feedback ?? 'User declined to run the proposed tool(s).',
+				}
+		}
+	}
+}
+
+/**
+ * Tools known to only observe, never mutate. Anything NOT in this set
+ * prompts for approval (safe-by-default: unknown and future tools — e.g.
+ * bridged clawtool tools — are treated as needing consent). Matched
+ * case-insensitively so `Read`/`read` both count.
+ */
+const READ_ONLY_TOOLS = new Set(['read', 'glob', 'grep', 'ls', 'verify_outputs'])
+
+/**
+ * A batch needs explicit approval when any call mutates state: flagged
+ * destructive by the SDK, or simply not on the read-only allowlist.
+ */
+export function batchNeedsPrompt(toolCalls: readonly ToolCallSummary[]): boolean {
+	return toolCalls.some((tc) => tc.isDestructive || !READ_ONLY_TOOLS.has(tc.name.toLowerCase()))
 }
 
 /**
@@ -321,6 +424,40 @@ function summarizeToolInput(input: unknown): string {
 function truncate(value: string, max: number): string {
 	const oneLine = value.replace(/\s+/g, ' ')
 	return oneLine.length > max ? `${oneLine.slice(0, max - 1)}…` : oneLine
+}
+
+/**
+ * Multi-line preview of a mutating tool's effect, shown in the permission
+ * overlay so the user approves with sight of what changes. `write` shows
+ * the leading content lines; `edit` shows a minimal -old / +new diff;
+ * everything else has no preview (the one-line summary suffices). Pure —
+ * unit-tested.
+ */
+export function previewToolInput(toolName: string, input: unknown): readonly string[] | undefined {
+	if (!input || typeof input !== 'object') return undefined
+	const obj = input as Record<string, unknown>
+	const str = (k: string) => (typeof obj[k] === 'string' ? (obj[k] as string) : undefined)
+	const name = toolName.toLowerCase()
+	if (name === 'write') {
+		const content = str('content')
+		if (content !== undefined) return previewLines(content, 8)
+	}
+	if (name === 'edit') {
+		const oldStr = str('old_string') ?? str('oldStr')
+		const newStr = str('new_string') ?? str('newStr')
+		const lines: string[] = []
+		if (oldStr) for (const l of previewLines(oldStr, 4)) lines.push(`- ${l}`)
+		if (newStr) for (const l of previewLines(newStr, 4)) lines.push(`+ ${l}`)
+		if (lines.length > 0) return lines
+	}
+	return undefined
+}
+
+function previewLines(value: string, max: number): string[] {
+	const lines = value.split('\n')
+	const head = lines.slice(0, max).map((l) => truncate(l, 100))
+	if (lines.length > max) head.push(`… (+${lines.length - max} more lines)`)
+	return head
 }
 
 function emptySession(errorHint: string): AgentSession {
