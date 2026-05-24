@@ -38,6 +38,7 @@ import {
 	query,
 } from '@namzu/sdk'
 
+import { loadClawtoolToolDefinitions } from '../integrations/clawtool/tooling.js'
 import {
 	type DetectedProvider,
 	PROVIDER_REGISTRY,
@@ -194,6 +195,11 @@ export async function createAgentSession(
 		)
 	}
 	const registry = buildToolRegistry()
+	// Best-effort: fold in clawtool's tool catalog when its daemon is
+	// reachable, skipping any tool that duplicates a builtin. Never fatal —
+	// if clawtool is absent/down/slow the session runs on builtins alone.
+	const clawtoolTools = await loadClawtoolToolDefinitions({ skipNames: registry.listNames() })
+	if (clawtoolTools.length > 0) registry.register(clawtoolTools)
 	const scope = mintScope()
 	// Persists across turns: once the user picks "approve all", later tool
 	// batches in this session run without prompting.

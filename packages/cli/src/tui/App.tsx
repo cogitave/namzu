@@ -92,7 +92,7 @@ export function App({ ctx }: AppProps) {
 				setPhase('ready')
 				pushMessage(
 					'system',
-					`Connected to ${s.providerSummary}${s.modelSummary ? ` · ${s.modelSummary}` : ''}`,
+					`Connected to ${s.providerSummary}${s.modelSummary ? ` · ${s.modelSummary}` : ''} · ${s.toolNames.length} tools`,
 				)
 			} else {
 				setPhase('unhealthy')
