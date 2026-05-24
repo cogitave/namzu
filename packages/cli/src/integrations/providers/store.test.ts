@@ -96,6 +96,26 @@ describe('writeProfiles', () => {
 	})
 })
 
+describe('concurrent writes', () => {
+	it('two simultaneous writeProfiles calls do not collide on the temp file', async () => {
+		const home = tmpHome()
+		// Fire two writes in parallel. Each carries a different profile set
+		// so we can tell which one won the final rename — the important
+		// guarantee is that NEITHER throws (no temp-path collision) and
+		// the final on-disk state is exactly one of the two valid inputs
+		// (no half-written, no merged garbage).
+		const a = anthropic({ name: 'one' })
+		const b = openai({ name: 'two' })
+		await Promise.all([
+			Promise.resolve().then(() => writeProfiles([a], home)),
+			Promise.resolve().then(() => writeProfiles([b], home)),
+		])
+		const final = readProfiles(home)
+		expect(final.length).toBe(1)
+		expect(['one', 'two']).toContain(final[0]?.name)
+	})
+})
+
 describe('assertInvariants', () => {
 	it('passes for an empty store', () => {
 		expect(() => assertInvariants([])).not.toThrow()
