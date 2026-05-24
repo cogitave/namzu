@@ -19,12 +19,6 @@ function stubHandler(milestone: string, what: string): CommandHandler {
 	}
 }
 
-export const toolsCommand: CommandDef = {
-	name: 'tools',
-	description: 'Inspect and run tools via the clawtool tool layer (M1)',
-	handler: stubHandler('M1', 'the clawtool client and tools subcommands'),
-}
-
 export const providersCommand: CommandDef = {
 	name: 'providers',
 	description: 'Manage LLM provider profiles (M2)',
@@ -43,9 +37,4 @@ export const serveCommand: CommandDef = {
 	handler: stubHandler('M7', 'the daemon gateway'),
 }
 
-export const stubCommands: readonly CommandDef[] = [
-	toolsCommand,
-	providersCommand,
-	skillsCommand,
-	serveCommand,
-]
+export const stubCommands: readonly CommandDef[] = [providersCommand, skillsCommand, serveCommand]
