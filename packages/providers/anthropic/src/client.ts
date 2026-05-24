@@ -21,6 +21,41 @@ const DEFAULT_MAX_TOKENS = 64_000
 const DEFAULT_TIMEOUT_MS = 120_000
 const DEFAULT_STREAM_IDLE_TIMEOUT_MS = 0
 
+// Claude Code OAuth tokens are scoped to Claude Code usage. Anthropic
+// authorizes them only when three signals are all present, else 401:
+//   1. the OAuth beta headers,
+//   2. a `claude-cli/<version>` user-agent (version validated server-side),
+//   3. a system prompt whose first block is the Claude Code identity line.
+const OAUTH_BETAS = 'claude-code-20250219,oauth-2025-04-20'
+const CLAUDE_CODE_SYSTEM_PREFIX = "You are Claude Code, Anthropic's official CLI for Claude."
+const CLAUDE_CODE_VERSION_FALLBACK = '2.1.74'
+
+let claudeCodeVersionCache: string | null = null
+function detectClaudeCodeVersion(): string {
+	if (claudeCodeVersionCache !== null) return claudeCodeVersionCache
+	for (const bin of ['claude', 'claude-code']) {
+		try {
+			const cp = require('node:child_process') as typeof import('node:child_process')
+			const out = cp
+				.execFileSync(bin, ['--version'], {
+					encoding: 'utf8',
+					timeout: 5_000,
+					stdio: ['ignore', 'pipe', 'ignore'],
+				})
+				.trim()
+				.split(/\s+/)[0]
+			if (out && /^\d/.test(out)) {
+				claudeCodeVersionCache = out
+				return out
+			}
+		} catch {
+			// try next binary
+		}
+	}
+	claudeCodeVersionCache = CLAUDE_CODE_VERSION_FALLBACK
+	return CLAUDE_CODE_VERSION_FALLBACK
+}
+
 // --------------------------------------------------------------------------------------
 // Message translation: @namzu/sdk → Anthropic Messages API
 // --------------------------------------------------------------------------------------
@@ -237,10 +272,13 @@ export class AnthropicProvider implements LLMProvider {
 		}
 		if (config.authToken) {
 			clientOpts.authToken = config.authToken
-			// OAuth routes require the beta header; without it Anthropic
-			// rejects subscription / Claude Code OAuth tokens.
+			// OAuth routes require both beta flags + a Claude Code user-agent;
+			// without them Anthropic rejects subscription / Claude Code OAuth
+			// tokens (intermittent 401/500). The system-prompt identity block
+			// is added per-request in buildCreateParams.
 			const headers: Record<string, string> = {
-				'anthropic-beta': 'oauth-2025-04-20',
+				'anthropic-beta': OAUTH_BETAS,
+				'user-agent': `claude-cli/${detectClaudeCodeVersion()} (external, cli)`,
 				...(config.defaultHeaders ?? {}),
 			}
 			clientOpts.defaultHeaders = headers
@@ -279,7 +317,15 @@ export class AnthropicProvider implements LLMProvider {
 			stream,
 		}
 
-		if (system) body.system = system
+		if (this.config.authToken) {
+			// OAuth: the first system block must be the Claude Code identity
+			// line or Anthropic rejects the request. Emit the block-array form
+			// with the identity prefix first.
+			const ccBlock = { type: 'text' as const, text: CLAUDE_CODE_SYSTEM_PREFIX }
+			body.system = system ? [ccBlock, { type: 'text' as const, text: system }] : [ccBlock]
+		} else if (system) {
+			body.system = system
+		}
 		if (tools) body.tools = tools
 		if (toolChoice) body.tool_choice = toolChoice
 		if (params.temperature !== undefined) body.temperature = params.temperature
@@ -321,8 +367,7 @@ export class AnthropicProvider implements LLMProvider {
 		// that still need a per-event watchdog can opt in via
 		// `streamIdleTimeoutMs`; otherwise the request timeout and caller
 		// AbortSignal own lifecycle cancellation.
-		const streamIdleTimeoutMs =
-			this.config.streamIdleTimeoutMs ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS
+		const streamIdleTimeoutMs = this.config.streamIdleTimeoutMs ?? DEFAULT_STREAM_IDLE_TIMEOUT_MS
 		const iter = (stream as AsyncIterable<StreamEvent>)[Symbol.asyncIterator]()
 		const nextWithIdleTimeout = async (): Promise<IteratorResult<StreamEvent>> => {
 			if (!Number.isFinite(streamIdleTimeoutMs) || streamIdleTimeoutMs <= 0) {

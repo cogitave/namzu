@@ -56,8 +56,13 @@ describe('@namzu/anthropic', () => {
 			expect(provider.name).toBe('Anthropic')
 		})
 
-		it('throws when constructed without an apiKey', () => {
-			expect(() => new AnthropicProvider({} as any)).toThrow(/apiKey is required/)
+		it('throws when constructed without an apiKey or authToken', () => {
+			expect(() => new AnthropicProvider({} as any)).toThrow(/apiKey.*or.*authToken.*required/)
+		})
+
+		it('accepts an authToken instead of an apiKey (OAuth path)', () => {
+			const provider = new AnthropicProvider({ authToken: 'cc-oauth-token' })
+			expect(provider.id).toBe('anthropic')
 		})
 
 		it('creates via ProviderRegistry.create with the registered type', () => {
