@@ -1,77 +1,97 @@
 /**
- * Thin agent session for the M3 TUI.
+ * TUI agent session — clawtool-backed.
  *
- * Goes directly to `provider.chatStream()` (per-delta tokens) rather than
- * the full `@namzu/sdk` `query()` orchestrator — query() is the tool-aware
- * iteration loop which lands in M3 Phase D (tool dispatch + permission).
- * For Phase C we just need "user types → model streams reply". That's
- * `chatStream()` directly.
+ * As of ses_005, every dispatch goes through clawtool's
+ * `POST /v1/send_message` against the user's saved default instance.
+ * Credentials, OAuth flows, and bridge wiring live in clawtool; namzu
+ * only needs the preference (which instance, with what context).
  *
- * The session is **stateless across turns**: the TUI owns the message
- * history and passes the full array on every `send()`. Provider hydration
- * happens once at construction; if no profile is configured we return an
- * `EmptyAgentSession` whose `send()` yields a single error event so the
- * UI can render an actionable "configure first" hint.
+ * The previous direct `provider.chatStream()` path (ses_004 Phase C)
+ * was removed — it duplicated clawtool's credential layer. Raw-API
+ * fallback (when the user has only their own API key and no host CLI
+ * wired) is a future escape hatch via the existing M2
+ * `~/.namzu/providers.json` store; ses_005 does not implement that
+ * fallback to keep the surface tight.
  */
 
-import { registerAnthropic } from '@namzu/anthropic'
-import { ProviderRegistry } from '@namzu/sdk'
-import type { Message } from '@namzu/sdk'
-
 import {
-	type ProviderProfile,
-	findDefault,
-	readProfiles,
-	resolveApiKey,
-} from '../integrations/providers/index.js'
-
-let providersRegistered = false
-
-function ensureProvidersRegistered(): void {
-	if (providersRegistered) return
-	registerAnthropic()
-	providersRegistered = true
-}
+	type Agent,
+	type DispatchEvent,
+	type Preferences,
+	listAgents,
+	readPreferences,
+	sendMessage,
+} from '../integrations/clawtool/index.js'
 
 export type AgentEvent =
 	| { readonly kind: 'delta'; readonly text: string }
 	| { readonly kind: 'done'; readonly finishReason?: string }
 	| { readonly kind: 'error'; readonly message: string }
 
+export interface AgentSessionContext {
+	readonly preferences: Preferences | null
+	readonly availableAgents: readonly Agent[]
+}
+
 export interface AgentSession {
 	readonly hasProvider: boolean
 	readonly providerSummary: string | null
 	readonly modelSummary: string | null
 	readonly errorHint: string | null
-	send(messages: readonly Message[], abort?: AbortSignal): AsyncIterable<AgentEvent>
+	send(userMessage: string, signal?: AbortSignal): AsyncIterable<AgentEvent>
 }
 
-export function createAgentSession(): AgentSession {
-	const profiles = readProfiles()
-	const profile = findDefault(profiles) ?? profiles[0] ?? null
-	if (!profile) {
-		return emptySession(
-			'No provider configured. Run `namzu providers add <name> --type anthropic --api-key sk-ant-... --default`.',
-		)
+/**
+ * Probe the environment (preferences file + clawtool agents) and return
+ * the data the TUI needs to decide between "go straight to chat" and
+ * "show the picker first". Cheap — single HTTP call (or zero, if
+ * clawtool isn't running yet and preferences already exist).
+ */
+export async function probeAgentSession(): Promise<AgentSessionContext> {
+	const preferences = readPreferences()
+	let availableAgents: readonly Agent[] = []
+	try {
+		availableAgents = await listAgents()
+	} catch {
+		availableAgents = []
 	}
-	if (profile.type !== 'anthropic') {
-		return emptySession(
-			`Provider type "${profile.type}" is not wired in M3 yet — only "anthropic" lands in Phase C. Other providers (openai, openrouter, ollama, …) are M3 follow-up work.`,
-		)
+	return { preferences, availableAgents }
+}
+
+export function createAgentSession(prefs: Preferences | null): AgentSession {
+	if (!prefs) {
+		return emptySession('No preferences set — run the first-run picker (or restart namzu).')
 	}
-	const apiKey = resolveApiKey(profile)
-	if (!apiKey) {
-		return emptySession(
-			`Default profile "${profile.name}" has no API key. Set ANTHROPIC_API_KEY in your environment or run \`namzu providers add ${profile.name} --type anthropic --api-key sk-ant-... --default\`.`,
-		)
+	return {
+		hasProvider: true,
+		providerSummary: prefs.default,
+		modelSummary: prefs.active.length > 1 ? `+ ${prefs.active.length - 1} active subagents` : null,
+		errorHint: null,
+		send: (userMessage: string, signal?: AbortSignal) =>
+			streamTurn(prefs.default, userMessage, signal),
 	}
-	const model = profile.model ?? null
-	if (!model) {
-		return emptySession(
-			`Default profile "${profile.name}" has no \`model\` set. Use e.g. \`--model claude-opus-4-5\` when adding the profile, or edit ~/.namzu/providers.json.`,
-		)
+}
+
+async function* streamTurn(
+	instance: string,
+	prompt: string,
+	signal: AbortSignal | undefined,
+): AsyncIterable<AgentEvent> {
+	const stream = sendMessage({ instance, prompt, signal })
+	for await (const event of stream) {
+		yield mapDispatchEvent(event)
 	}
-	return buildLiveSession(profile, apiKey, model)
+}
+
+function mapDispatchEvent(event: DispatchEvent): AgentEvent {
+	switch (event.kind) {
+		case 'delta':
+			return { kind: 'delta', text: event.text }
+		case 'done':
+			return { kind: 'done' }
+		case 'error':
+			return { kind: 'error', message: event.message }
+	}
 }
 
 function emptySession(errorHint: string): AgentSession {
@@ -80,54 +100,8 @@ function emptySession(errorHint: string): AgentSession {
 		providerSummary: null,
 		modelSummary: null,
 		errorHint,
-		async *send() {
-			yield { kind: 'error', message: errorHint }
-		},
-	}
-}
-
-function buildLiveSession(profile: ProviderProfile, apiKey: string, model: string): AgentSession {
-	ensureProvidersRegistered()
-	const anthropicProfile = profile as Extract<ProviderProfile, { type: 'anthropic' }>
-	const { provider } = ProviderRegistry.create({
-		type: 'anthropic',
-		apiKey,
-		baseURL: anthropicProfile.baseUrl,
-		model,
-	})
-	return {
-		hasProvider: true,
-		providerSummary: `${profile.name} (${profile.type})`,
-		modelSummary: model,
-		errorHint: null,
-		async *send(messages, abort) {
-			try {
-				const stream = provider.chatStream({
-					model,
-					messages: [...messages],
-					maxTokens: 4096,
-				})
-				for await (const chunk of stream) {
-					if (abort?.aborted) {
-						yield { kind: 'error', message: 'aborted' }
-						return
-					}
-					if (chunk.error) {
-						yield { kind: 'error', message: chunk.error }
-						return
-					}
-					if (chunk.delta.content) {
-						yield { kind: 'delta', text: chunk.delta.content }
-					}
-					if (chunk.finishReason) {
-						yield { kind: 'done', finishReason: chunk.finishReason }
-						return
-					}
-				}
-				yield { kind: 'done' }
-			} catch (err) {
-				yield { kind: 'error', message: err instanceof Error ? err.message : String(err) }
-			}
+		send: async function* () {
+			yield { kind: 'error' as const, message: errorHint }
 		},
 	}
 }

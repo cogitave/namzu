@@ -1,8 +1,7 @@
 /**
- * Multi-line text input at the bottom of the TUI. Ink's `useInput` covers
- * everything we need in M3 (single-line edits, Enter to submit, backspace,
- * Esc to clear, history nav) without adding another dep. Vim mode, paste,
- * autocomplete come in later sessions if user UX needs them.
+ * Single-line composer with input history. Ink `useInput` covers all
+ * keys we need; no extra `ink-text-input` dep. Enter submits, Esc clears,
+ * Up/Down browse history, Backspace deletes.
  */
 
 import { Box, Text, useInput } from 'ink'
@@ -59,7 +58,6 @@ export function Composer({ disabled = false, onSubmit, history }: ComposerProps)
 				setValue(history[history.length - 1 - next] ?? '')
 				return
 			}
-			// Ignore other meta keys; only append printable input.
 			if (key.ctrl || key.meta) return
 			if (input.length === 0) return
 			setValue((v) => v + input)
@@ -67,13 +65,15 @@ export function Composer({ disabled = false, onSubmit, history }: ComposerProps)
 		{ isActive: true },
 	)
 
-	const prompt = disabled ? '… ' : '> '
+	const promptGlyph = disabled ? '…' : '›'
 	return (
 		<Box>
-			<Text color={theme.accent.user}>{prompt}</Text>
+			<Text color={disabled ? theme.text.muted : theme.accent.user} bold>
+				{promptGlyph}{' '}
+			</Text>
 			<Text color={disabled ? theme.text.muted : theme.text.primary}>
 				{value}
-				<Text color={theme.border.focus}>▏</Text>
+				{disabled ? null : <Text color={theme.border.focus}>▏</Text>}
 			</Text>
 		</Box>
 	)

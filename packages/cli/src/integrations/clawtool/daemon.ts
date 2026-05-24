@@ -55,8 +55,11 @@ export async function ensureDaemon(opts: EnsureDaemonOptions = {}): Promise<Daem
 	const autoStart = opts.autoStart ?? true
 
 	// 1. If the user supplied both endpoint and token, trust them — no
-	//    discovery, no spawn. Power-user escape hatch (e.g. remote daemon).
-	if (opts.endpoint && opts.token) {
+	//    discovery, no spawn. Power-user escape hatch (e.g. remote daemon
+	//    or test harness). An explicit empty-string token is honored so
+	//    callers can address a `--no-auth` remote daemon without needing
+	//    a synthetic placeholder; only `undefined` triggers discovery.
+	if (opts.endpoint !== undefined && opts.token !== undefined) {
 		return { baseUrl: normalizeUrl(opts.endpoint), token: opts.token }
 	}
 

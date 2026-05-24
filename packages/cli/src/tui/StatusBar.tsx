@@ -1,9 +1,9 @@
 /**
- * One-line bottom status: cwd · provider · model · agent state.
+ * One-line status footer.
  *
- * Kept dumb in M3 — just renders what App passes down. M4 will surface
- * token usage + cost when the SDK's `token_usage_updated` events get
- * threaded through.
+ * Layout: `cwd · provider · model · state    hint` (provider/model elided
+ * when null). A `│` divider separates the metadata cluster from the hint
+ * so the eye can find the help-text without parsing the whole line.
  */
 
 import { Box, Text } from 'ink'
@@ -20,14 +20,47 @@ export interface StatusBarProps {
 
 export function StatusBar({ cwd, provider, model, state, hint }: StatusBarProps) {
 	const segments: string[] = [shortenCwd(cwd)]
-	if (provider) segments.push(`${provider}${model ? ` · ${model}` : ''}`)
-	segments.push(state)
+	if (provider) segments.push(provider)
+	if (model) segments.push(model)
+	const stateLabel = stateGlyph(state)
 	return (
 		<Box>
-			<Text color={theme.text.muted}>{segments.join('  ·  ')}</Text>
-			{hint ? <Text color={theme.text.secondary}>{`   ${hint}`}</Text> : null}
+			<Text color={theme.text.muted}>{segments.join(' · ')}</Text>
+			<Text color={theme.text.muted}> │ </Text>
+			<Text color={colorForState(state)}>{stateLabel}</Text>
+			{hint ? (
+				<>
+					<Text color={theme.text.muted}> │ </Text>
+					<Text color={theme.text.secondary}>{hint}</Text>
+				</>
+			) : null}
 		</Box>
 	)
+}
+
+function stateGlyph(state: StatusBarProps['state']): string {
+	switch (state) {
+		case 'idle':
+			return '● idle'
+		case 'thinking':
+			return '◐ thinking'
+		case 'tool':
+			return '◑ tool'
+		case 'awaiting-permission':
+			return '◓ approve?'
+	}
+}
+
+function colorForState(state: StatusBarProps['state']): string {
+	switch (state) {
+		case 'idle':
+			return theme.status.ok
+		case 'thinking':
+			return theme.accent.system
+		case 'tool':
+		case 'awaiting-permission':
+			return theme.status.warn
+	}
 }
 
 function shortenCwd(cwd: string): string {

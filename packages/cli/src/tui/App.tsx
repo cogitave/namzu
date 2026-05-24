@@ -1,15 +1,26 @@
 /**
- * TUI root. Composes Transcript + Composer + StatusBar and drives the
- * agent loop (M3 Phase C). State at App-level: messages, history,
- * agent-state, agent session. Smaller subtrees stay pure.
+ * TUI root. Composes the banner, transcript, composer, status bar, and
+ * the first-run agent picker overlay. State at App-level: messages,
+ * input history, agent-state, agent session, picker visibility.
+ *
+ * Session lifecycle:
+ *   1. Mount → `probeAgentSession()` (reads ~/.namzu/preferences.json
+ *      and GET /v1/agents).
+ *   2. If preferences exist → `createAgentSession(prefs)` → ready.
+ *   3. If preferences absent but clawtool has callable agents → show
+ *      <Picker/>. User submission writes preferences + builds session.
+ *   4. If neither → show explanatory system message; user can run
+ *      `clawtool agents claim …` from another terminal, then restart.
  */
 
-import type { Message } from '@namzu/sdk'
 import { Box, Text, useApp, useInput } from 'ink'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { type AgentSession, createAgentSession } from './agent.js'
+import type { Agent, Preferences } from '../integrations/clawtool/index.js'
+import { writePreferences } from '../integrations/clawtool/index.js'
+import { type AgentSession, createAgentSession, probeAgentSession } from './agent.js'
 import { Composer } from './Composer.js'
+import { Picker } from './Picker.js'
 import { runSlash, type SlashContext } from './slashCommands.js'
 import { StatusBar } from './StatusBar.js'
 import { theme } from './theme.js'
@@ -20,12 +31,16 @@ export interface AppProps {
 	readonly ctx: TuiContext
 }
 
+type LifecyclePhase = 'probing' | 'picker' | 'ready' | 'unhealthy'
+
 export function App({ ctx }: AppProps) {
 	const { exit } = useApp()
 	const [messages, setMessages] = useState<readonly TranscriptMessage[]>([])
 	const [history, setHistory] = useState<readonly string[]>([])
 	const [state, setState] = useState<'idle' | 'thinking' | 'tool' | 'awaiting-permission'>('idle')
+	const [phase, setPhase] = useState<LifecyclePhase>('probing')
 	const [session, setSession] = useState<AgentSession | null>(null)
+	const [agents, setAgents] = useState<readonly Agent[]>([])
 	const exitArmedRef = useRef<boolean>(false)
 	const idRef = useRef<number>(0)
 	const nextId = useCallback(() => {
@@ -51,38 +66,64 @@ export function App({ ctx }: AppProps) {
 	const finalizeMessage = useCallback((id: string, finalContent?: string) => {
 		setMessages((prev) =>
 			prev.map((m) =>
-				m.id === id
-					? { ...m, content: finalContent ?? m.content, pending: false }
-					: m,
+				m.id === id ? { ...m, content: finalContent ?? m.content, pending: false } : m,
 			),
 		)
 	}, [])
 
-	// Bootstrap the agent session on first render. `createAgentSession()` is
-	// sync but we still call it inside an effect to avoid blocking the very
-	// first paint.
-	useEffect(() => {
-		try {
-			const s = createAgentSession()
+	const hydrateSession = useCallback(
+		(prefs: Preferences) => {
+			const s = createAgentSession(prefs)
 			setSession(s)
-			if (!s.hasProvider && s.errorHint) {
-				pushMessage('system', s.errorHint)
-			} else {
-				pushMessage(
-					'system',
-					`Connected to ${s.providerSummary}${s.modelSummary ? ` · ${s.modelSummary}` : ''}.`,
-				)
-			}
-		} catch (err) {
+			setPhase('ready')
 			pushMessage(
 				'system',
-				`Failed to start agent: ${err instanceof Error ? err.message : String(err)}`,
+				`Connected via clawtool. Default: ${s.providerSummary}${s.modelSummary ? ` · ${s.modelSummary}` : ''}`,
 			)
+		},
+		[pushMessage],
+	)
+
+	// Probe on mount.
+	useEffect(() => {
+		let cancelled = false
+		void (async () => {
+			try {
+				const ctxProbe = await probeAgentSession()
+				if (cancelled) return
+				setAgents(ctxProbe.availableAgents)
+				if (ctxProbe.preferences) {
+					hydrateSession(ctxProbe.preferences)
+					return
+				}
+				const callable = ctxProbe.availableAgents.some((a) => a.callable)
+				if (callable) {
+					setPhase('picker')
+					return
+				}
+				setPhase('unhealthy')
+				pushMessage(
+					'system',
+					ctxProbe.availableAgents.length === 0
+						? 'No clawtool agents discovered. Make sure clawtool is installed and `clawtool daemon start` is reachable. Then restart namzu.'
+						: 'clawtool reports no callable agents. Wire one with `clawtool agents claim claude` (or codex / gemini / opencode), then restart namzu.',
+				)
+			} catch (err) {
+				if (cancelled) return
+				setPhase('unhealthy')
+				pushMessage(
+					'system',
+					`Failed to probe clawtool: ${err instanceof Error ? err.message : String(err)}`,
+				)
+			}
+		})()
+		return () => {
+			cancelled = true
 		}
-	}, [pushMessage])
+	}, [hydrateSession, pushMessage])
 
 	const slashCtx: SlashContext = {
-		availableTools: [], // wired in Phase D
+		availableTools: [],
 		providerSummary: session?.providerSummary ?? null,
 		modelSummary: session?.modelSummary ?? null,
 	}
@@ -96,21 +137,11 @@ export function App({ ctx }: AppProps) {
 				)
 				return
 			}
-			// Build the SDK message array from the transcript snapshot at the
-			// time of submission. `messages` is the closure value (last render);
-			// pushMessage queues a state update that lands on the next render,
-			// so it isn't visible to this snapshot — that's why we append the
-			// new user message explicitly to the SDK payload.
-			const priorForSdk: Message[] = messages
-				.filter((m) => (m.role === 'user' || m.role === 'assistant') && !m.pending)
-				.map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content, timestamp: Date.now() }))
-			priorForSdk.push({ role: 'user', content: text, timestamp: Date.now() })
-
 			pushMessage('user', text)
 			const assistantId = pushMessage('assistant', '', true)
 			setState('thinking')
 			try {
-				for await (const event of session.send(priorForSdk)) {
+				for await (const event of session.send(text)) {
 					if (event.kind === 'delta') {
 						appendToMessage(assistantId, event.text)
 					} else if (event.kind === 'done') {
@@ -130,7 +161,7 @@ export function App({ ctx }: AppProps) {
 				setState('idle')
 			}
 		},
-		[appendToMessage, finalizeMessage, messages, pushMessage, session],
+		[appendToMessage, finalizeMessage, pushMessage, session],
 	)
 
 	const handleSubmit = useCallback(
@@ -157,8 +188,36 @@ export function App({ ctx }: AppProps) {
 		[exit, pushMessage, runTurn, slashCtx],
 	)
 
-	// Ctrl+C: first press arms exit + warns; second press exits. Ink's
-	// `useInput` reports Ctrl+C as the literal `\x03` char with `key.ctrl`.
+	const handlePickerSubmit = useCallback(
+		(selection: { default: string; active: readonly string[] }) => {
+			const prefs: Preferences = {
+				version: 1,
+				default: selection.default,
+				active: selection.active,
+			}
+			try {
+				writePreferences(prefs)
+			} catch (err) {
+				pushMessage(
+					'system',
+					`Could not save preferences: ${err instanceof Error ? err.message : String(err)}`,
+				)
+				return
+			}
+			hydrateSession(prefs)
+		},
+		[hydrateSession, pushMessage],
+	)
+
+	const handlePickerCancel = useCallback(() => {
+		setPhase('unhealthy')
+		pushMessage(
+			'system',
+			'Picker cancelled. Restart namzu when you want to choose an agent (or run `clawtool agents claim …`).',
+		)
+	}, [pushMessage])
+
+	// Ctrl+C: first press arms exit + warns; second press exits.
 	useInput(
 		(input, key) => {
 			if (key.ctrl && (input === 'c' || input === '\x03')) {
@@ -173,39 +232,106 @@ export function App({ ctx }: AppProps) {
 				}, 2000)
 			}
 		},
-		{ isActive: true },
+		{ isActive: phase !== 'picker' },
 	)
 
 	return (
-		<Box flexDirection="column" paddingX={1}>
-			<Box flexDirection="column" paddingTop={1}>
-				<Text color={theme.accent.system} bold>
-					namzu {ctx.version}
-				</Text>
-			</Box>
-			<Box flexDirection="column" paddingTop={1}>
-				<Transcript messages={messages} />
-			</Box>
-			<Box flexDirection="column" paddingTop={1}>
-				<Composer
-					disabled={state !== 'idle'}
-					onSubmit={handleSubmit}
-					history={history}
-				/>
+		<Box flexDirection="column">
+			<Banner version={ctx.version} session={session} />
+			<Box flexDirection="column" paddingX={1}>
+				{phase === 'picker' ? (
+					<Picker
+						agents={agents}
+						onSubmit={handlePickerSubmit}
+						onCancel={handlePickerCancel}
+					/>
+				) : (
+					<>
+						<TranscriptFrame>
+							<Transcript messages={messages} state={state} />
+						</TranscriptFrame>
+						<ComposerFrame focus={state === 'idle' && phase === 'ready'}>
+							<Composer
+								disabled={state !== 'idle' || phase !== 'ready'}
+								onSubmit={handleSubmit}
+								history={history}
+							/>
+						</ComposerFrame>
+					</>
+				)}
 				<Box paddingTop={1}>
 					<StatusBar
 						cwd={ctx.cwd}
 						provider={session?.providerSummary ?? null}
 						model={session?.modelSummary ?? null}
 						state={state}
-						hint={
-							state === 'idle'
-								? '/help · /quit · Ctrl+C ×2 to exit'
-								: 'agent is working — Ctrl+C to interrupt'
-						}
+						hint={hintForPhase(phase, state)}
 					/>
 				</Box>
 			</Box>
 		</Box>
 	)
+}
+
+function Banner({
+	version,
+	session,
+}: {
+	readonly version: string
+	readonly session: AgentSession | null
+}) {
+	const tag = session?.providerSummary ? ` · ${session.providerSummary}` : ''
+	return (
+		<Box paddingX={1} paddingTop={1} paddingBottom={1}>
+			<Text color={theme.accent.system} bold>
+				▲ namzu
+			</Text>
+			<Text color={theme.text.muted}> {version}</Text>
+			<Text color={theme.text.secondary}>{tag}</Text>
+		</Box>
+	)
+}
+
+function TranscriptFrame({ children }: { readonly children: React.ReactNode }) {
+	return (
+		<Box
+			flexDirection="column"
+			borderStyle="round"
+			borderColor={theme.border.default}
+			paddingX={1}
+		>
+			{children}
+		</Box>
+	)
+}
+
+function ComposerFrame({
+	focus,
+	children,
+}: {
+	readonly focus: boolean
+	readonly children: React.ReactNode
+}) {
+	return (
+		<Box
+			flexDirection="column"
+			borderStyle="round"
+			borderColor={focus ? theme.border.focus : theme.border.default}
+			paddingX={1}
+			marginTop={1}
+		>
+			{children}
+		</Box>
+	)
+}
+
+function hintForPhase(
+	phase: LifecyclePhase,
+	state: 'idle' | 'thinking' | 'tool' | 'awaiting-permission',
+): string {
+	if (phase === 'probing') return 'probing clawtool…'
+	if (phase === 'picker') return '↑↓ navigate · space toggle · d set default · enter accept'
+	if (phase === 'unhealthy') return 'Ctrl+C ×2 to exit'
+	if (state !== 'idle') return 'agent is working — Ctrl+C to interrupt'
+	return '/help · /quit · Ctrl+C ×2 to exit'
 }
