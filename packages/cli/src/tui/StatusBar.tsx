@@ -16,12 +16,14 @@ export interface StatusBarProps {
 	readonly model: string | null
 	readonly state: 'idle' | 'thinking' | 'tool' | 'awaiting-permission'
 	readonly hint?: string
+	readonly usage?: { totalTokens: number; costUsd: number } | null
 }
 
-export function StatusBar({ cwd, provider, model, state, hint }: StatusBarProps) {
+export function StatusBar({ cwd, provider, model, state, hint, usage }: StatusBarProps) {
 	const segments: string[] = [shortenCwd(cwd)]
 	if (provider) segments.push(provider)
 	if (model) segments.push(model)
+	if (usage && usage.totalTokens > 0) segments.push(formatUsage(usage))
 	const stateLabel = stateGlyph(state)
 	return (
 		<Box>
@@ -61,6 +63,14 @@ function colorForState(state: StatusBarProps['state']): string {
 		case 'awaiting-permission':
 			return theme.status.warn
 	}
+}
+
+function formatUsage(usage: { totalTokens: number; costUsd: number }): string {
+	const tok =
+		usage.totalTokens >= 1000
+			? `${(usage.totalTokens / 1000).toFixed(1)}k tok`
+			: `${usage.totalTokens} tok`
+	return usage.costUsd > 0 ? `${tok} · $${usage.costUsd.toFixed(2)}` : tok
 }
 
 function shortenCwd(cwd: string): string {

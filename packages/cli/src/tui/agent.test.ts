@@ -103,6 +103,17 @@ describe('toAgentEvent', () => {
 		).toEqual({ kind: 'error', message: 'boom' })
 	})
 
+	it('maps token_usage_updated to a usage event', () => {
+		expect(
+			toAgentEvent({
+				type: 'token_usage_updated',
+				usage: { totalTokens: 1234 },
+				cost: { totalCost: 0.0456 },
+				...env,
+			} as unknown as RunEvent),
+		).toEqual({ kind: 'usage', totalTokens: 1234, costUsd: 0.0456 })
+	})
+
 	it('returns null for events the chat surface ignores', () => {
 		expect(
 			toAgentEvent({
@@ -113,7 +124,7 @@ describe('toAgentEvent', () => {
 		).toBeNull()
 		expect(
 			toAgentEvent({
-				type: 'token_usage_updated',
+				type: 'checkpoint_created',
 				...env,
 			} as unknown as RunEvent),
 		).toBeNull()

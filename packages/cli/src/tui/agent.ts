@@ -50,6 +50,7 @@ import {
 	readPreferences,
 } from '../integrations/providers/index.js'
 import { composeMemoryPrompt, readMemory } from '../memory/store.js'
+import { REMEMBER_TOOL_NAME, buildRememberTool } from '../memory/tool.js'
 
 export type AgentEvent =
 	| { readonly kind: 'delta'; readonly text: string }
@@ -64,6 +65,7 @@ export type AgentEvent =
 			readonly isError: boolean
 			readonly summary: string
 	  }
+	| { readonly kind: 'usage'; readonly totalTokens: number; readonly costUsd: number }
 	| { readonly kind: 'done'; readonly finishReason?: string }
 	| { readonly kind: 'error'; readonly message: string }
 
@@ -169,6 +171,7 @@ async function ensureRegistered(id: ProviderId): Promise<void> {
 function buildToolRegistry(): ToolRegistry {
 	const registry = new ToolRegistry()
 	registry.register(getBuiltinTools())
+	registry.register([buildRememberTool()])
 	return registry
 }
 
@@ -389,7 +392,15 @@ export function makeResumeHandler(
  * bridged clawtool tools — are treated as needing consent). Matched
  * case-insensitively so `Read`/`read` both count.
  */
-const READ_ONLY_TOOLS = new Set(['read', 'glob', 'grep', 'ls', 'verify_outputs'])
+const READ_ONLY_TOOLS = new Set([
+	'read',
+	'glob',
+	'grep',
+	'ls',
+	'verify_outputs',
+	// Safe self-write to the user's own memory file — never prompt for it.
+	REMEMBER_TOOL_NAME,
+])
 
 /**
  * A batch needs explicit approval when any call mutates state: flagged
@@ -420,6 +431,12 @@ export function toAgentEvent(event: RunEvent): AgentEvent | null {
 				toolName: event.toolName,
 				isError: event.isError,
 				summary: truncate(event.result.trim(), 200),
+			}
+		case 'token_usage_updated':
+			return {
+				kind: 'usage',
+				totalTokens: event.usage.totalTokens,
+				costUsd: event.cost.totalCost,
 			}
 		case 'run_completed':
 			return { kind: 'done' }

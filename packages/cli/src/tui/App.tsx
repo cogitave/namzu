@@ -58,6 +58,7 @@ export function App({ ctx }: AppProps) {
 	const [activeSkills, setActiveSkills] = useState<ReadonlyArray<{ name: string; body: string }>>(
 		[],
 	)
+	const [usage, setUsage] = useState<{ totalTokens: number; costUsd: number } | null>(null)
 	const exitArmedRef = useRef<boolean>(false)
 	const abortRef = useRef<AbortController | null>(null)
 	const permissionResolveRef = useRef<((d: PermissionDecision) => void) | null>(null)
@@ -219,6 +220,9 @@ export function App({ ctx }: AppProps) {
 								pushMessage('system', `${event.toolName} failed: ${event.summary}`)
 							}
 							setState('thinking')
+							break
+						case 'usage':
+							setUsage({ totalTokens: event.totalTokens, costUsd: event.costUsd })
 							break
 						case 'done':
 							closeAssistant()
@@ -427,6 +431,7 @@ export function App({ ctx }: AppProps) {
 						model={session?.modelSummary ?? null}
 						state={state}
 						hint={hintForPhase(phase, state)}
+						usage={usage}
 					/>
 				</Box>
 			</Box>
