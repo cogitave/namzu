@@ -19,12 +19,6 @@ function stubHandler(milestone: string, what: string): CommandHandler {
 	}
 }
 
-export const providersCommand: CommandDef = {
-	name: 'providers',
-	description: 'Manage LLM provider profiles (M2)',
-	handler: stubHandler('M2', 'provider profile management'),
-}
-
 export const skillsCommand: CommandDef = {
 	name: 'skills',
 	description: 'Manage agentskills.io-compatible skills (M5)',
@@ -37,4 +31,4 @@ export const serveCommand: CommandDef = {
 	handler: stubHandler('M7', 'the daemon gateway'),
 }
 
-export const stubCommands: readonly CommandDef[] = [providersCommand, skillsCommand, serveCommand]
+export const stubCommands: readonly CommandDef[] = [skillsCommand, serveCommand]

@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url'
 import { Command, CommanderError } from 'commander'
 
 import { doctorCommand } from './commands/doctor.js'
+import { providersCommand } from './commands/providers.js'
 import { registerAll } from './commands/registry.js'
 import { stubCommands } from './commands/stubs.js'
 import { toolsCommand } from './commands/tools.js'
@@ -84,7 +85,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		return ctx
 	}
 
-	registerAll(program, [doctorCommand, toolsCommand, ...stubCommands], {
+	registerAll(program, [doctorCommand, toolsCommand, providersCommand, ...stubCommands], {
 		getContext,
 		setExitCode,
 	})

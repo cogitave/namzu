@@ -68,25 +68,25 @@ describe('runCli', () => {
 	})
 
 	it('stub commands print a structured marker and exit 0', async () => {
-		const code = await invoke(['providers'])
+		const code = await invoke(['skills'])
 		expect(code).toBe(0)
-		expect(stdout).toContain('M2')
-		expect(stdout).toContain('provider')
+		expect(stdout).toContain('M5')
+		expect(stdout).toContain('skills')
 	})
 
 	it('--format json renders stubs as JSON', async () => {
-		const code = await invoke(['--format', 'json', 'providers'])
+		const code = await invoke(['--format', 'json', 'skills'])
 		expect(code).toBe(0)
 		const parsed = JSON.parse(stdout) as { stub: boolean; milestone: string }
 		expect(parsed.stub).toBe(true)
-		expect(parsed.milestone).toBe('M2')
+		expect(parsed.milestone).toBe('M5')
 	})
 
 	it('--format yaml renders stubs as YAML', async () => {
-		const code = await invoke(['--format', 'yaml', 'providers'])
+		const code = await invoke(['--format', 'yaml', 'serve'])
 		expect(code).toBe(0)
 		expect(stdout).toContain('stub: true')
-		expect(stdout).toContain('milestone: M2')
+		expect(stdout).toContain('milestone: M7')
 	})
 
 	it('doctor command pass-through preserves --help routing to the doctor', async () => {
