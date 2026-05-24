@@ -69,9 +69,9 @@ export function App({ ctx }: AppProps) {
 	}, [])
 
 	const pushMessage = useCallback(
-		(role: TranscriptMessage['role'], content: string, pending = false) => {
+		(role: TranscriptMessage['role'], content: string, pending = false, glyph?: string) => {
 			const id = nextId()
-			setMessages((prev) => [...prev, { id, role, content, pending }])
+			setMessages((prev) => [...prev, { id, role, content, pending, glyph }])
 			return id
 		},
 		[nextId],
@@ -213,11 +213,13 @@ export function App({ ctx }: AppProps) {
 						case 'tool-start':
 							closeAssistant()
 							setState('tool')
-							pushMessage('tool', `${event.toolName} › ${event.summary}`)
+							pushMessage('tool', `${event.toolName} › ${event.summary}`, false, toolGlyph(event.toolName))
 							break
 						case 'tool-end':
 							if (event.isError) {
 								pushMessage('system', `${event.toolName} failed: ${event.summary}`)
+							} else if (event.summary.length > 0) {
+								pushMessage('tool', event.summary, false, '↳')
 							}
 							setState('thinking')
 							break
@@ -486,6 +488,22 @@ function ComposerFrame({
 			{children}
 		</Box>
 	)
+}
+
+// Per-tool gutter icon so tool activity is scannable (opencode-style).
+// clawtool tools are matched on their base name after the `clawtool_` prefix.
+function toolGlyph(toolName: string): string {
+	const name = toolName.toLowerCase().replace(/^clawtool_/, '')
+	if (name === 'bash' || name.startsWith('bash')) return '$'
+	if (name === 'read' || name === 'ls') return '→'
+	if (name === 'write') return '←'
+	if (name === 'edit' || name === 'append') return '✎'
+	if (name === 'glob' || name === 'grep') return '✱'
+	if (name === 'remember') return '✶'
+	if (name.includes('websearch') || name.includes('search')) return '◈'
+	if (name.includes('webfetch') || name.includes('browser') || name.includes('fetch')) return '%'
+	if (name.includes('commit') || name.includes('git')) return '⎇'
+	return '⚙'
 }
 
 function hintForPhase(

@@ -47,7 +47,7 @@ function MessageRow({
 	readonly message: TranscriptMessage
 	readonly spinner: string
 }) {
-	const glyph = message.pending ? spinner : glyphForRole(message.role)
+	const glyph = message.pending ? spinner : (message.glyph ?? glyphForRole(message.role))
 	return (
 		<Box flexDirection="row" marginBottom={1}>
 			<Box width={2} flexShrink={0}>

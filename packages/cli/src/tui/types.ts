@@ -11,6 +11,8 @@ export interface TranscriptMessage {
 	readonly role: MessageRole
 	readonly content: string
 	readonly pending?: boolean
+	/** Overrides the role's default gutter glyph (e.g. a per-tool icon). */
+	readonly glyph?: string
 }
 
 export interface TuiContext {
