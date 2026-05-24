@@ -11,6 +11,8 @@ export type SlashAction =
 	| { kind: 'exit' }
 	| { kind: 'clear' }
 	| { kind: 'repick' }
+	| { kind: 'remember'; text: string }
+	| { kind: 'show-memory' }
 	| { kind: 'none' }
 
 export interface SlashContext {
@@ -66,15 +68,30 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'tools',
-		description: 'List tools currently registered (from the clawtool plugin).',
+		description: 'List tools the agent can call (builtins + clawtool).',
 		action: (ctx) => ({
 			kind: 'message',
 			role: 'system',
 			content:
 				ctx.availableTools.length === 0
-					? 'No tools registered. Is `clawtool` installed and on your PATH?'
+					? 'No tools registered yet — the agent session may still be connecting.'
 					: `Registered tools (${ctx.availableTools.length}):\n  ${ctx.availableTools.join('\n  ')}`,
 		}),
+	},
+	{
+		name: 'remember',
+		description: 'Save a fact to durable memory: /remember <text>.',
+		action: (_ctx, args) => {
+			const text = args.join(' ').trim()
+			return text.length === 0
+				? { kind: 'message', role: 'system', content: 'Usage: /remember <something to remember>' }
+				: { kind: 'remember', text }
+		},
+	},
+	{
+		name: 'memory',
+		description: 'Show what namzu remembers (USER.md + MEMORY.md).',
+		action: () => ({ kind: 'show-memory' }),
 	},
 	{
 		name: 'provider',

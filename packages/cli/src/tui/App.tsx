@@ -21,6 +21,7 @@ import {
 	type ProviderId,
 	writePreferences,
 } from '../integrations/providers/index.js'
+import { appendMemory, composeMemoryPrompt, readMemory } from '../memory/store.js'
 import { Composer } from './Composer.js'
 import { PermissionOverlay } from './PermissionOverlay.js'
 import { Picker } from './Picker.js'
@@ -254,6 +255,25 @@ export function App({ ctx }: AppProps) {
 					case 'repick':
 						setPhase('picker')
 						return
+					case 'remember':
+						try {
+							appendMemory(slash.text)
+							pushMessage('system', `Remembered: ${slash.text}`)
+						} catch (err) {
+							pushMessage(
+								'system',
+								`Could not save memory: ${err instanceof Error ? err.message : String(err)}`,
+							)
+						}
+						return
+					case 'show-memory': {
+						const mem = composeMemoryPrompt(readMemory())
+						pushMessage(
+							'system',
+							mem ?? 'Nothing remembered yet. Use /remember <text>, or edit ~/.namzu/MEMORY.md.',
+						)
+						return
+					}
 					case 'none':
 						return
 				}

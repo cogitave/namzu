@@ -49,6 +49,7 @@ import {
 	isAnthropicOAuthToken,
 	readPreferences,
 } from '../integrations/providers/index.js'
+import { composeMemoryPrompt, readMemory } from '../memory/store.js'
 
 export type AgentEvent =
 	| { readonly kind: 'delta'; readonly text: string }
@@ -210,7 +211,11 @@ export async function createAgentSession(
 		modelSummary: model,
 		toolNames: registry.listNames(),
 		errorHint: null,
-		send: (messages, opts) => runTurn(provider, model, registry, scope, approval, messages, opts),
+		send: (messages, opts) => {
+			// Read memory fresh each turn so `/remember` takes effect next turn.
+			const systemPrompt = composeMemoryPrompt(readMemory()) ?? undefined
+			return runTurn(provider, model, registry, scope, approval, systemPrompt, messages, opts)
+		},
 	}
 }
 
@@ -285,6 +290,7 @@ async function* runTurn(
 	tools: ToolRegistry,
 	scope: RunScope,
 	approval: { all: boolean },
+	systemPrompt: string | undefined,
 	messages: readonly Message[],
 	opts: SendOptions | undefined,
 ): AsyncIterable<AgentEvent> {
@@ -303,6 +309,7 @@ async function* runTurn(
 			},
 			agentId: 'namzu',
 			agentName: 'namzu',
+			...(systemPrompt ? { systemPrompt } : {}),
 			messages: [...messages],
 			workingDirectory: process.cwd(),
 			resumeHandler: makeResumeHandler(approval, opts?.onPermission),
