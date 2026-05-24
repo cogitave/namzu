@@ -29,6 +29,9 @@ importers:
 
   packages/cli:
     dependencies:
+      '@namzu/anthropic':
+        specifier: workspace:*
+        version: link:../providers/anthropic
       '@namzu/sdk':
         specifier: workspace:^
         version: link:../sdk
