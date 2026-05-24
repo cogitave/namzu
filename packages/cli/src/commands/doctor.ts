@@ -3,6 +3,7 @@ import type { DoctorCategory, DoctorCheckRecord, DoctorReport, DoctorStatus } fr
 import { builtInDoctorChecks } from '../doctor/checks/index.js'
 import { type RunDoctorOptions, createDoctorRegistry, runDoctor } from '../doctor/registry.js'
 import { EXIT_INTERNAL_ERROR } from '../exit-codes.js'
+import type { CommandDef } from './types.js'
 
 const VALID_CATEGORIES: readonly DoctorCategory[] = [
 	'sandbox',
@@ -222,4 +223,15 @@ export async function runDoctorCommand(args: readonly string[]): Promise<number>
 	}
 
 	return report.exit
+}
+
+/**
+ * CommandDef adapter for the global registry. Preserves the legacy
+ * `runDoctorCommand(args)` signature by forwarding raw arguments unparsed.
+ */
+export const doctorCommand: CommandDef = {
+	name: 'doctor',
+	description: 'Run health checks against the local Namzu environment',
+	passThrough: true,
+	handler: async ({ rawArgs }) => runDoctorCommand(rawArgs),
 }

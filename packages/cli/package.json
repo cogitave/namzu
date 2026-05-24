@@ -42,7 +42,9 @@
 		"test": "vitest run"
 	},
 	"dependencies": {
-		"@namzu/sdk": "workspace:^"
+		"@namzu/sdk": "workspace:^",
+		"commander": "^14.0.3",
+		"yaml": "^2.9.0"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^1.9.4",

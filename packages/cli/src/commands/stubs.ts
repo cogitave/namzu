@@ -1,0 +1,58 @@
+/**
+ * Stub commands that advertise the future surface of the CLI.
+ *
+ * Each stub corresponds to a milestone in the M0→M7 plan and exits 0 after
+ * printing a structured marker. The implementations themselves land in
+ * their respective milestone sessions (see docs.local/sessions/).
+ */
+
+import type { CommandDef, CommandHandler } from './types.js'
+
+function stubHandler(milestone: string, what: string): CommandHandler {
+	return async ({ ctx }) => {
+		ctx.formatter.print({
+			stub: true,
+			milestone,
+			message: `${milestone} will implement ${what}.`,
+		})
+		return 0
+	}
+}
+
+export const chatCommand: CommandDef = {
+	name: 'chat',
+	description: 'Open an interactive REPL with the agent (M3)',
+	handler: stubHandler('M3', 'the interactive REPL'),
+}
+
+export const toolsCommand: CommandDef = {
+	name: 'tools',
+	description: 'Inspect and run tools via the clawtool tool layer (M1)',
+	handler: stubHandler('M1', 'the clawtool client and tools subcommands'),
+}
+
+export const providersCommand: CommandDef = {
+	name: 'providers',
+	description: 'Manage LLM provider profiles (M2)',
+	handler: stubHandler('M2', 'provider profile management'),
+}
+
+export const skillsCommand: CommandDef = {
+	name: 'skills',
+	description: 'Manage agentskills.io-compatible skills (M5)',
+	handler: stubHandler('M5', 'the skills subsystem'),
+}
+
+export const serveCommand: CommandDef = {
+	name: 'serve',
+	description: 'Run the namzu agent gateway daemon (M7)',
+	handler: stubHandler('M7', 'the daemon gateway'),
+}
+
+export const stubCommands: readonly CommandDef[] = [
+	chatCommand,
+	toolsCommand,
+	providersCommand,
+	skillsCommand,
+	serveCommand,
+]
