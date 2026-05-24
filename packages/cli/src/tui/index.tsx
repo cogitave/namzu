@@ -3,6 +3,7 @@
  * user exits. Called by `cli.ts`'s default action (no subcommand).
  */
 
+import { configureLogger } from '@namzu/sdk'
 import { render } from 'ink'
 import React from 'react'
 
@@ -10,6 +11,10 @@ import { App } from './App.js'
 import type { TuiContext } from './types.js'
 
 export async function launchTui(ctx: TuiContext): Promise<void> {
+	// The SDK agent loop logs to stdout/stderr; Ink owns the terminal, so
+	// any stray log line corrupts the rendered frame. Silence the SDK
+	// logger for the lifetime of the TUI.
+	configureLogger({ level: 'silent' })
 	const instance = render(React.createElement(App, { ctx }), {
 		stdout: process.stdout,
 		stderr: process.stderr,

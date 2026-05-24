@@ -130,7 +130,7 @@ export function App({ ctx }: AppProps) {
 	}, [hydrateSession, pushMessage])
 
 	const slashCtx: SlashContext = {
-		availableTools: [],
+		availableTools: session?.toolNames ?? [],
 		providerSummary: session?.providerSummary ?? null,
 		modelSummary: session?.modelSummary ?? null,
 	}
@@ -154,21 +154,50 @@ export function App({ ctx }: AppProps) {
 			priorForSdk.push({ role: 'user', content: text, timestamp: Date.now() })
 
 			pushMessage('user', text)
-			const assistantId = pushMessage('assistant', '', true)
 			setState('thinking')
+			// The model interleaves text → tool → text across iterations.
+			// Track the current assistant bubble and finalize it at each tool
+			// boundary so later text renders below the tool line, in order.
+			let assistantId: string | null = null
+			const ensureAssistant = () => {
+				if (!assistantId) assistantId = pushMessage('assistant', '', true)
+				return assistantId
+			}
+			const closeAssistant = () => {
+				if (assistantId) {
+					finalizeMessage(assistantId)
+					assistantId = null
+				}
+			}
 			try {
 				for await (const event of session.send(priorForSdk)) {
-					if (event.kind === 'delta') {
-						appendToMessage(assistantId, event.text)
-					} else if (event.kind === 'done') {
-						finalizeMessage(assistantId)
-					} else if (event.kind === 'error') {
-						finalizeMessage(assistantId)
-						pushMessage('system', `Error: ${event.message}`)
+					switch (event.kind) {
+						case 'delta':
+							setState('thinking')
+							appendToMessage(ensureAssistant(), event.text)
+							break
+						case 'tool-start':
+							closeAssistant()
+							setState('tool')
+							pushMessage('tool', `${event.toolName} › ${event.summary}`)
+							break
+						case 'tool-end':
+							if (event.isError) {
+								pushMessage('system', `${event.toolName} failed: ${event.summary}`)
+							}
+							setState('thinking')
+							break
+						case 'done':
+							closeAssistant()
+							break
+						case 'error':
+							closeAssistant()
+							pushMessage('system', `Error: ${event.message}`)
+							break
 					}
 				}
 			} catch (err) {
-				finalizeMessage(assistantId)
+				closeAssistant()
 				pushMessage('system', `Error: ${err instanceof Error ? err.message : String(err)}`)
 			} finally {
 				setState('idle')

@@ -4,7 +4,7 @@
  * the React/Ink layer.
  */
 
-export type MessageRole = 'user' | 'assistant' | 'system'
+export type MessageRole = 'user' | 'assistant' | 'system' | 'tool'
 
 export interface TranscriptMessage {
 	readonly id: string

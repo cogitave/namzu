@@ -16,6 +16,7 @@ export interface SemanticColors {
 		readonly user: string
 		readonly assistant: string
 		readonly system: string
+		readonly tool: string
 	}
 	readonly status: {
 		readonly ok: string
@@ -38,6 +39,7 @@ export const theme: SemanticColors = {
 		user: 'cyan',
 		assistant: 'green',
 		system: 'yellow',
+		tool: 'magenta',
 	},
 	status: {
 		ok: 'green',

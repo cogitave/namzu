@@ -86,6 +86,8 @@ function colorForRole(role: TranscriptMessage['role']): string {
 			return theme.accent.assistant
 		case 'system':
 			return theme.accent.system
+		case 'tool':
+			return theme.accent.tool
 	}
 }
 
@@ -97,6 +99,8 @@ function glyphForRole(role: TranscriptMessage['role']): string {
 			return '◆'
 		case 'system':
 			return '⚠'
+		case 'tool':
+			return '⚙'
 	}
 }
 
@@ -108,5 +112,7 @@ function labelForRole(role: TranscriptMessage['role']): string {
 			return 'namzu'
 		case 'system':
 			return 'system'
+		case 'tool':
+			return 'tool'
 	}
 }
