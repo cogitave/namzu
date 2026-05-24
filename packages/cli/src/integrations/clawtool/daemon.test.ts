@@ -1,11 +1,11 @@
 /**
- * Unit tests for `ensureDaemon`. We test every path that does NOT require
- * spawning a real subprocess (state-file read, health-poll over mocked
- * fetch, override pass-through, autoStart=false short-circuit). The actual
- * spawn → external `clawtool daemon start` path is exercised by the live
- * end-to-end smoke (see ses_002 progress entry "Live end-to-end smoke"),
- * not by this file — automating it cleanly requires a CI fixture that
- * we'll add when we wire integration tests in a later session.
+ * Unit tests for `ensureDaemon`. We test every path that does NOT
+ * require spawning a real subprocess (state-file read, health-poll over
+ * mocked fetch, override pass-through, autoStart=false short-circuit).
+ * The actual spawn → external `clawtool daemon start` path is exercised
+ * by live end-to-end smoke against a real clawtool daemon; automating
+ * it cleanly requires a CI fixture that will land when we wire
+ * integration tests.
  */
 
 import { mkdtempSync, writeFileSync } from 'node:fs'

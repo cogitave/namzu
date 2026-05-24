@@ -32,6 +32,15 @@ importers:
       '@namzu/anthropic':
         specifier: workspace:*
         version: link:../providers/anthropic
+      '@namzu/ollama':
+        specifier: workspace:*
+        version: link:../providers/ollama
+      '@namzu/openai':
+        specifier: workspace:*
+        version: link:../providers/openai
+      '@namzu/openrouter':
+        specifier: workspace:*
+        version: link:../providers/openrouter
       '@namzu/sdk':
         specifier: workspace:^
         version: link:../sdk
@@ -44,6 +53,9 @@ importers:
       react:
         specifier: ^19.2.6
         version: 19.2.6
+      smol-toml:
+        specifier: ^1.6.1
+        version: 1.6.1
       yaml:
         specifier: ^2.9.0
         version: 2.9.0

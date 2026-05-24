@@ -1,24 +1,31 @@
 /**
  * TUI root. Composes the banner, transcript, composer, status bar, and
- * the first-run agent picker overlay. State at App-level: messages,
- * input history, agent-state, agent session, picker visibility.
+ * the first-run provider picker overlay.
  *
  * Session lifecycle:
- *   1. Mount → `probeAgentSession()` (reads ~/.namzu/preferences.json
- *      and GET /v1/agents).
- *   2. If preferences exist → `createAgentSession(prefs)` → ready.
- *   3. If preferences absent but clawtool has callable agents → show
- *      <Picker/>. User submission writes preferences + builds session.
- *   4. If neither → show explanatory system message; user can run
- *      `clawtool agents claim …` from another terminal, then restart.
+ *   1. Mount → probeAgentSession() (readPreferences + discoverProviders).
+ *   2. If a v2 preferences file exists → createAgentSession(prefs, detected) → ready.
+ *   3. If preferences missing OR v1 (legacy) → show <Picker/>.
+ *      After picker submit, writePreferences + hydrate session.
+ *   4. If discovery returned zero providers → show <Picker/> in
+ *      empty-state mode (explains where to put credentials).
  */
 
+import type { Message } from '@namzu/sdk'
 import { Box, Text, useApp, useInput } from 'ink'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import type { Agent, Preferences } from '../integrations/clawtool/index.js'
-import { writePreferences } from '../integrations/clawtool/index.js'
-import { type AgentSession, createAgentSession, probeAgentSession } from './agent.js'
+import {
+	type DetectedProvider,
+	type Preferences,
+	type ProviderId,
+	writePreferences,
+} from '../integrations/providers/index.js'
+import {
+	type AgentSession,
+	createAgentSession,
+	probeAgentSession,
+} from './agent.js'
 import { Composer } from './Composer.js'
 import { Picker } from './Picker.js'
 import { runSlash, type SlashContext } from './slashCommands.js'
@@ -40,7 +47,8 @@ export function App({ ctx }: AppProps) {
 	const [state, setState] = useState<'idle' | 'thinking' | 'tool' | 'awaiting-permission'>('idle')
 	const [phase, setPhase] = useState<LifecyclePhase>('probing')
 	const [session, setSession] = useState<AgentSession | null>(null)
-	const [agents, setAgents] = useState<readonly Agent[]>([])
+	const [detected, setDetected] = useState<readonly DetectedProvider[]>([])
+	const [currentProvider, setCurrentProvider] = useState<ProviderId | null>(null)
 	const exitArmedRef = useRef<boolean>(false)
 	const idRef = useRef<number>(0)
 	const nextId = useCallback(() => {
@@ -72,48 +80,47 @@ export function App({ ctx }: AppProps) {
 	}, [])
 
 	const hydrateSession = useCallback(
-		(prefs: Preferences) => {
-			const s = createAgentSession(prefs)
+		async (prefs: Preferences, detectedNow: readonly DetectedProvider[]) => {
+			const s = await createAgentSession(prefs, detectedNow)
 			setSession(s)
-			setPhase('ready')
-			pushMessage(
-				'system',
-				`Connected via clawtool. Default: ${s.providerSummary}${s.modelSummary ? ` · ${s.modelSummary}` : ''}`,
-			)
+			setCurrentProvider(prefs.provider)
+			if (s.hasProvider) {
+				setPhase('ready')
+				pushMessage(
+					'system',
+					`Connected to ${s.providerSummary}${s.modelSummary ? ` · ${s.modelSummary}` : ''}`,
+				)
+			} else {
+				setPhase('unhealthy')
+				if (s.errorHint) pushMessage('system', s.errorHint)
+			}
 		},
 		[pushMessage],
 	)
 
-	// Probe on mount.
 	useEffect(() => {
 		let cancelled = false
 		void (async () => {
 			try {
-				const ctxProbe = await probeAgentSession()
+				const probe = await probeAgentSession()
 				if (cancelled) return
-				setAgents(ctxProbe.availableAgents)
-				if (ctxProbe.preferences) {
-					hydrateSession(ctxProbe.preferences)
-					return
-				}
-				const callable = ctxProbe.availableAgents.some((a) => a.callable)
-				if (callable) {
+				setDetected(probe.detected)
+				if (probe.needsRepickReason) {
+					pushMessage('system', probe.needsRepickReason)
 					setPhase('picker')
 					return
 				}
-				setPhase('unhealthy')
-				pushMessage(
-					'system',
-					ctxProbe.availableAgents.length === 0
-						? 'No clawtool agents discovered. Make sure clawtool is installed and `clawtool daemon start` is reachable. Then restart namzu.'
-						: 'clawtool reports no callable agents. Wire one with `clawtool agents claim claude` (or codex / gemini / opencode), then restart namzu.',
-				)
+				if (probe.preferences) {
+					await hydrateSession(probe.preferences, probe.detected)
+					return
+				}
+				setPhase('picker')
 			} catch (err) {
 				if (cancelled) return
 				setPhase('unhealthy')
 				pushMessage(
 					'system',
-					`Failed to probe clawtool: ${err instanceof Error ? err.message : String(err)}`,
+					`Failed to probe agents: ${err instanceof Error ? err.message : String(err)}`,
 				)
 			}
 		})()
@@ -137,11 +144,20 @@ export function App({ ctx }: AppProps) {
 				)
 				return
 			}
+			const priorForSdk: Message[] = messages
+				.filter((m) => (m.role === 'user' || m.role === 'assistant') && !m.pending)
+				.map((m) => ({
+					role: m.role as 'user' | 'assistant',
+					content: m.content,
+					timestamp: Date.now(),
+				}))
+			priorForSdk.push({ role: 'user', content: text, timestamp: Date.now() })
+
 			pushMessage('user', text)
 			const assistantId = pushMessage('assistant', '', true)
 			setState('thinking')
 			try {
-				for await (const event of session.send(text)) {
+				for await (const event of session.send(priorForSdk)) {
 					if (event.kind === 'delta') {
 						appendToMessage(assistantId, event.text)
 					} else if (event.kind === 'done') {
@@ -153,15 +169,12 @@ export function App({ ctx }: AppProps) {
 				}
 			} catch (err) {
 				finalizeMessage(assistantId)
-				pushMessage(
-					'system',
-					`Error: ${err instanceof Error ? err.message : String(err)}`,
-				)
+				pushMessage('system', `Error: ${err instanceof Error ? err.message : String(err)}`)
 			} finally {
 				setState('idle')
 			}
 		},
-		[appendToMessage, finalizeMessage, pushMessage, session],
+		[appendToMessage, finalizeMessage, messages, pushMessage, session],
 	)
 
 	const handleSubmit = useCallback(
@@ -179,6 +192,9 @@ export function App({ ctx }: AppProps) {
 					case 'exit':
 						exit()
 						return
+					case 'repick':
+						setPhase('picker')
+						return
 					case 'none':
 						return
 				}
@@ -189,11 +205,12 @@ export function App({ ctx }: AppProps) {
 	)
 
 	const handlePickerSubmit = useCallback(
-		(selection: { default: string; active: readonly string[] }) => {
+		(selection: { provider: string; model?: string }) => {
 			const prefs: Preferences = {
-				version: 1,
-				default: selection.default,
-				active: selection.active,
+				version: 2,
+				provider: selection.provider as ProviderId,
+				model: selection.model,
+				subagents: { active: [] },
 			}
 			try {
 				writePreferences(prefs)
@@ -204,20 +221,19 @@ export function App({ ctx }: AppProps) {
 				)
 				return
 			}
-			hydrateSession(prefs)
+			void hydrateSession(prefs, detected)
 		},
-		[hydrateSession, pushMessage],
+		[detected, hydrateSession, pushMessage],
 	)
 
 	const handlePickerCancel = useCallback(() => {
 		setPhase('unhealthy')
 		pushMessage(
 			'system',
-			'Picker cancelled. Restart namzu when you want to choose an agent (or run `clawtool agents claim …`).',
+			'Picker cancelled. Set an LLM credential (ANTHROPIC_API_KEY / OPENAI_API_KEY / OPENROUTER_API_KEY / start Ollama) and restart namzu.',
 		)
 	}, [pushMessage])
 
-	// Ctrl+C: first press arms exit + warns; second press exits.
 	useInput(
 		(input, key) => {
 			if (key.ctrl && (input === 'c' || input === '\x03')) {
@@ -241,7 +257,8 @@ export function App({ ctx }: AppProps) {
 			<Box flexDirection="column" paddingX={1}>
 				{phase === 'picker' ? (
 					<Picker
-						agents={agents}
+						detected={detected}
+						currentProvider={currentProvider}
 						onSubmit={handlePickerSubmit}
 						onCancel={handlePickerCancel}
 					/>
@@ -329,9 +346,9 @@ function hintForPhase(
 	phase: LifecyclePhase,
 	state: 'idle' | 'thinking' | 'tool' | 'awaiting-permission',
 ): string {
-	if (phase === 'probing') return 'probing clawtool…'
-	if (phase === 'picker') return '↑↓ navigate · space toggle · d set default · enter accept'
+	if (phase === 'probing') return 'discovering providers…'
+	if (phase === 'picker') return '↑↓ navigate · enter accept · esc cancel'
 	if (phase === 'unhealthy') return 'Ctrl+C ×2 to exit'
 	if (state !== 'idle') return 'agent is working — Ctrl+C to interrupt'
-	return '/help · /quit · Ctrl+C ×2 to exit'
+	return '/help · /model · /quit · Ctrl+C ×2 to exit'
 }

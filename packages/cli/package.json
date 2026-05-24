@@ -43,10 +43,14 @@
 	},
 	"dependencies": {
 		"@namzu/anthropic": "workspace:*",
+		"@namzu/ollama": "workspace:*",
+		"@namzu/openai": "workspace:*",
+		"@namzu/openrouter": "workspace:*",
 		"@namzu/sdk": "workspace:^",
 		"commander": "^14.0.3",
 		"ink": "^7.0.3",
 		"react": "^19.2.6",
+		"smol-toml": "^1.6.1",
 		"yaml": "^2.9.0"
 	},
 	"devDependencies": {

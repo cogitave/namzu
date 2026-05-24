@@ -10,6 +10,7 @@ export type SlashAction =
 	| { kind: 'message'; role: 'system'; content: string }
 	| { kind: 'exit' }
 	| { kind: 'clear' }
+	| { kind: 'repick' }
 	| { kind: 'none' }
 
 export interface SlashContext {
@@ -83,15 +84,14 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
 			role: 'system',
 			content:
 				ctx.providerSummary === null
-					? 'No provider configured. Run `namzu providers add <name> --type … --api-key … --default`.'
+					? 'No provider configured. Run /model to pick one, or set an LLM env var (ANTHROPIC_API_KEY / OPENAI_API_KEY / OPENROUTER_API_KEY) and restart namzu.'
 					: `Provider: ${ctx.providerSummary}${ctx.modelSummary ? `\nModel: ${ctx.modelSummary}` : ''}`,
 		}),
 	},
 	{
 		name: 'model',
-		description: 'Alias of /provider for now (model picker lands in M4).',
-		action: (ctx) =>
-			SLASH_COMMANDS.find((c) => c.name === 'provider')?.action(ctx, []) ?? { kind: 'none' },
+		description: 'Re-open the provider picker to switch the primary provider.',
+		action: () => ({ kind: 'repick' }),
 	},
 ]
 

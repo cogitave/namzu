@@ -9,8 +9,8 @@
  * shapes. We do **best-effort normalization**: extract any `text` /
  * `content` string fields as visible deltas; collapse `error` lines into
  * error events; everything else (tool_use, tool_result, ping, message
- * envelopes) is silently consumed in this session — tool-call surfacing
- * lands in ses_006 (tool permission overlay).
+ * envelopes) is silently consumed for now — tool-call surfacing lands
+ * with the tool permission overlay.
  */
 
 import { type EnsureDaemonOptions, ensureDaemon } from './daemon.js'
@@ -132,7 +132,8 @@ function parseFrame(line: string): DispatchEvent | null {
 	}
 	// Best-effort text extraction across known frame shapes (text_delta,
 	// content_block_delta, message_start, etc.). Tool-call / tool-result
-	// frames are silently dropped in M3-polish; ses_006 wires them.
+	// frames are silently dropped here; the tool permission overlay
+	// will surface them when it lands.
 	const text = extractText(frame)
 	if (text !== null && text.length > 0) {
 		return { kind: 'delta', text }

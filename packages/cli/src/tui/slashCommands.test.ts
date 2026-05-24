@@ -99,9 +99,7 @@ describe('runSlash', () => {
 		}
 	})
 
-	it('/model is an alias of /provider for now', () => {
-		const a = runSlash('/provider', ctxWithTools)
-		const b = runSlash('/model', ctxWithTools)
-		expect(b).toEqual(a)
+	it('/model re-opens the picker (repick action)', () => {
+		expect(runSlash('/model', ctxWithTools)).toEqual({ kind: 'repick' })
 	})
 })

@@ -20,14 +20,6 @@ export {
 	type ClawtoolProxyTool,
 	type CreateClawtoolPluginOptions,
 } from './plugin.js'
-export {
-	type Preferences,
-	PreferencesError,
-	PREFERENCES_FILE_VERSION,
-	preferencesPath,
-	readPreferences,
-	writePreferences,
-} from './preferences.js'
 export { readDaemonState } from './state.js'
 export type {
 	DaemonEndpoint,

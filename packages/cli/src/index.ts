@@ -26,7 +26,7 @@ export {
 
 export { runDoctorCommand } from './commands/doctor.js'
 
-// Shell + extension surface introduced in M0 (ses_001-cli-bootstrap).
+// Shell + extension surface for the CLI.
 export { runCli, type RunCliOptions } from './cli.js'
 export type {
 	CommandContext,
