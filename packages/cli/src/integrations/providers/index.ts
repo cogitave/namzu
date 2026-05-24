@@ -5,6 +5,11 @@ export {
 	discoverProviders,
 	findDetected,
 } from './discover.js'
+export {
+	type ClaudeCodeOAuthCredential,
+	isAnthropicOAuthToken,
+	readClaudeCodeKeychainCredential,
+} from './keychain.js'
 export { maskSecret } from './mask.js'
 export {
 	type Preferences,

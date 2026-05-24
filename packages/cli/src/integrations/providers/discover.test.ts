@@ -11,12 +11,17 @@ function tmpHome(): string {
 	return home
 }
 
+// Every test must opt out of host-ambient sources (Keychain, network
+// probes) so the suite stays hermetic regardless of who runs it. The
+// keychain code path is covered by a focused unit test below.
+const HERMETIC = { skipProbes: true, skipKeychain: true } as const
+
 describe('discoverProviders — env-var scan', () => {
 	it('picks anthropic from ANTHROPIC_API_KEY', async () => {
 		const list = await discoverProviders({
+			...HERMETIC,
 			env: { ANTHROPIC_API_KEY: 'sk-ant-test' },
 			home: tmpHome(),
-			skipProbes: true,
 		})
 		const anthropic = findDetected(list, 'anthropic')
 		expect(anthropic).not.toBeNull()
@@ -29,9 +34,9 @@ describe('discoverProviders — env-var scan', () => {
 
 	it('falls back to CLAUDE_CODE_OAUTH_TOKEN if no anthropic key set', async () => {
 		const list = await discoverProviders({
+			...HERMETIC,
 			env: { CLAUDE_CODE_OAUTH_TOKEN: 'oauth-tok' },
 			home: tmpHome(),
-			skipProbes: true,
 		})
 		const anthropic = findDetected(list, 'anthropic')
 		expect(anthropic?.apiKey).toBe('oauth-tok')
@@ -40,20 +45,20 @@ describe('discoverProviders — env-var scan', () => {
 		}
 	})
 
-	it('returns empty list when no env + no secrets + no probes', async () => {
+	it('returns empty list when no env + no secrets + no probes + no keychain', async () => {
 		const list = await discoverProviders({
+			...HERMETIC,
 			env: {},
 			home: tmpHome(),
-			skipProbes: true,
 		})
 		expect(list).toHaveLength(0)
 	})
 
 	it('detects multiple providers in one scan', async () => {
 		const list = await discoverProviders({
+			...HERMETIC,
 			env: { ANTHROPIC_API_KEY: 'a', OPENAI_API_KEY: 'o' },
 			home: tmpHome(),
-			skipProbes: true,
 		})
 		expect(findDetected(list, 'anthropic')).not.toBeNull()
 		expect(findDetected(list, 'openai')).not.toBeNull()
@@ -67,7 +72,7 @@ describe('discoverProviders — clawtool secrets.toml', () => {
 			join(home, '.config', 'clawtool', 'secrets.toml'),
 			'[secrets.work]\nANTHROPIC_API_KEY = "sk-from-toml"\n',
 		)
-		const list = await discoverProviders({ env: {}, home, skipProbes: true })
+		const list = await discoverProviders({ ...HERMETIC, env: {}, home })
 		const anthropic = findDetected(list, 'anthropic')
 		expect(anthropic?.apiKey).toBe('sk-from-toml')
 		if (anthropic?.source.kind === 'secrets-toml') {
@@ -83,9 +88,9 @@ describe('discoverProviders — clawtool secrets.toml', () => {
 			'[secrets.work]\nANTHROPIC_API_KEY = "from-toml"\n',
 		)
 		const list = await discoverProviders({
+			...HERMETIC,
 			env: { ANTHROPIC_API_KEY: 'from-env' },
 			home,
-			skipProbes: true,
 		})
 		const anthropic = findDetected(list, 'anthropic')
 		expect(anthropic?.apiKey).toBe('from-env')
@@ -98,6 +103,7 @@ describe('discoverProviders — local probes', () => {
 	it('detects ollama when its probe URL is reachable', async () => {
 		const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(new Response('', { status: 200 }))
 		const list = await discoverProviders({
+			skipKeychain: true,
 			env: {},
 			home: tmpHome(),
 			fetch: fetchMock,
@@ -110,6 +116,7 @@ describe('discoverProviders — local probes', () => {
 	it('does not include ollama when its probe fails', async () => {
 		const fetchMock = vi.fn<typeof fetch>().mockRejectedValue(new Error('ECONNREFUSED'))
 		const list = await discoverProviders({
+			skipKeychain: true,
 			env: {},
 			home: tmpHome(),
 			fetch: fetchMock,
@@ -121,9 +128,9 @@ describe('discoverProviders — local probes', () => {
 describe('discoverProviders — http provider', () => {
 	it('is never auto-discovered (no envVars, no probe)', async () => {
 		const list = await discoverProviders({
+			...HERMETIC,
 			env: {},
 			home: tmpHome(),
-			skipProbes: true,
 		})
 		expect(findDetected(list, 'http')).toBeNull()
 	})

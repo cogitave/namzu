@@ -227,17 +227,28 @@ export class AnthropicProvider implements LLMProvider {
 	private config: AnthropicConfig
 
 	constructor(config: AnthropicConfig) {
-		if (!config.apiKey) {
-			throw new Error('AnthropicProvider: apiKey is required')
+		if (!config.apiKey && !config.authToken) {
+			throw new Error('AnthropicProvider: either `apiKey` or `authToken` is required')
 		}
 		this.config = config
 
 		const clientOpts: Record<string, unknown> = {
-			apiKey: config.apiKey,
 			timeout: config.timeout ?? DEFAULT_TIMEOUT_MS,
 		}
+		if (config.authToken) {
+			clientOpts.authToken = config.authToken
+			// OAuth routes require the beta header; without it Anthropic
+			// rejects subscription / Claude Code OAuth tokens.
+			const headers: Record<string, string> = {
+				'anthropic-beta': 'oauth-2025-04-20',
+				...(config.defaultHeaders ?? {}),
+			}
+			clientOpts.defaultHeaders = headers
+		} else {
+			clientOpts.apiKey = config.apiKey
+			if (config.defaultHeaders) clientOpts.defaultHeaders = config.defaultHeaders
+		}
 		if (config.baseURL) clientOpts.baseURL = config.baseURL
-		if (config.defaultHeaders) clientOpts.defaultHeaders = config.defaultHeaders
 
 		this.client = new Anthropic(clientOpts)
 	}

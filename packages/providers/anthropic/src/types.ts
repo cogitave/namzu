@@ -8,7 +8,11 @@
  */
 
 export interface AnthropicConfig {
-	apiKey: string
+	/**
+	 * Console API key (`sk-ant-api-*`). Mutually exclusive with `authToken`.
+	 * Exactly one of `apiKey` / `authToken` must be set.
+	 */
+	apiKey?: string
 	/** Default model. Can be overridden per-call. */
 	model?: string
 	/** Override base URL (e.g. for AWS Bedrock Anthropic or Google Vertex endpoints — though use @namzu/bedrock for those). */
@@ -25,6 +29,14 @@ export interface AnthropicConfig {
 	defaultHeaders?: Record<string, string>
 	/** Default max_tokens (Anthropic requires this field). Default: 64000. */
 	maxTokens?: number
+	/**
+	 * Bearer-style OAuth access token (mutually exclusive with `apiKey`).
+	 * Use when the credential is an Anthropic OAuth or Claude Code OAuth
+	 * token rather than an `sk-ant-api-*` console key. The underlying SDK
+	 * routes the value as `Authorization: Bearer <token>` instead of
+	 * `x-api-key`.
+	 */
+	authToken?: string
 }
 
 export interface AnthropicProviderConfig extends AnthropicConfig {

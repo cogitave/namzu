@@ -14,6 +14,7 @@
  * picker can render immediately and refine if discovery completes later.
  */
 
+import { readClaudeCodeKeychainCredential } from './keychain.js'
 import { PROVIDER_REGISTRY, type ProviderId, type ProviderRegistryEntry } from './registry.js'
 import { readClawtoolSecrets } from './secrets.js'
 
@@ -21,6 +22,7 @@ export type DetectionSource =
 	| { readonly kind: 'env'; readonly envName: string }
 	| { readonly kind: 'secrets-toml'; readonly envName: string; readonly scope: string }
 	| { readonly kind: 'probe'; readonly url: string }
+	| { readonly kind: 'keychain'; readonly service: string }
 
 export interface DetectedProvider {
 	readonly entry: ProviderRegistryEntry
@@ -45,6 +47,8 @@ export interface DiscoverOptions {
 	readonly probeTimeoutMs?: number
 	/** Skip network probes entirely (tests, offline mode). */
 	readonly skipProbes?: boolean
+	/** Skip the macOS Keychain read (tests, non-darwin runs). */
+	readonly skipKeychain?: boolean
 }
 
 const DEFAULT_PROBE_TIMEOUT_MS = 500
@@ -55,6 +59,11 @@ export async function discoverProviders(
 	const env = opts.env ?? process.env
 	const secrets = readClawtoolSecrets(opts.home)
 	const detected: DetectedProvider[] = []
+
+	// macOS-only: read Claude Code's OAuth credential from the login
+	// Keychain once. Only anthropic consumes it, but we scan up front so
+	// the loop body stays uniform.
+	const claudeKeychain = opts.skipKeychain ? null : readClaudeCodeKeychainCredential()
 
 	for (const id of Object.keys(PROVIDER_REGISTRY) as readonly ProviderId[]) {
 		const entry = PROVIDER_REGISTRY[id]
@@ -72,6 +81,10 @@ export async function discoverProviders(
 				if (apiKey === undefined) apiKey = cand.value
 				sources.push({ kind: 'secrets-toml', envName: cand.envName, scope: cand.scope })
 			}
+		}
+		if (id === 'anthropic' && claudeKeychain) {
+			if (apiKey === undefined) apiKey = claudeKeychain.accessToken
+			sources.push({ kind: 'keychain', service: 'Claude Code-credentials' })
 		}
 		if (sources.length === 0 && entry.probeUrl && !opts.skipProbes) {
 			const reachable = await probe(entry.probeUrl, opts)

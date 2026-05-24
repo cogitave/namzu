@@ -158,10 +158,12 @@ function ProviderRow({
 function describeSource(d: DetectedProvider): string {
 	switch (d.source.kind) {
 		case 'env':
-			return `via ${d.source.envName}`
+			return `env · ${d.source.envName}`
 		case 'secrets-toml':
-			return `via clawtool [secrets.${d.source.scope}] · ${d.source.envName}`
+			return `clawtool · [${d.source.scope}]`
 		case 'probe':
-			return `local · ${d.source.url}`
+			return `local · ${d.source.url.replace(/^https?:\/\//, '')}`
+		case 'keychain':
+			return `keychain · ${d.source.service}`
 	}
 }

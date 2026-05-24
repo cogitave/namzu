@@ -24,6 +24,7 @@ import {
 	type ProviderId,
 	discoverProviders,
 	findDetected,
+	isAnthropicOAuthToken,
 	readPreferences,
 } from '../integrations/providers/index.js'
 
@@ -138,9 +139,11 @@ function constructProvider(
 ): LLMProvider {
 	switch (id) {
 		case 'anthropic': {
+			const token = det?.apiKey ?? ''
+			const isOAuth = token.length > 0 && isAnthropicOAuthToken(token)
 			const { provider } = ProviderRegistry.create({
 				type: 'anthropic',
-				apiKey: det?.apiKey ?? '',
+				...(isOAuth ? { authToken: token } : { apiKey: token }),
 				baseURL: det?.baseUrl,
 				model,
 			})
