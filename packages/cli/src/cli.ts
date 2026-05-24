@@ -90,14 +90,21 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		setExitCode,
 	})
 
-	// Default behavior when `namzu` is invoked with no subcommand: print a
-	// placeholder pointing at the in-flight TUI milestone (M3). The TUI is
-	// namzu's primary user surface — like claude-code / gemini-cli / opencode
-	// / hermes-agent, the bare binary opens the agent UI. Until M3 ships, we
-	// honor the promise with a one-line marker rather than dump help text
-	// (which would suggest the CLI is "command-first" — it isn't).
-	program.action(() => {
-		process.stdout.write('namzu — TUI coming in M3. For utility subcommands run `namzu --help`.\n')
+	// Default behavior when `namzu` is invoked with no subcommand: launch
+	// the TUI (M3). When stdout is not a TTY (tests, pipes, CI), print a
+	// one-line marker instead so the binary stays scriptable and our test
+	// suite does not try to render Ink against a non-tty stream.
+	program.action(async () => {
+		if (process.stdout.isTTY) {
+			const { launchTui } = await import('./tui/index.js')
+			await launchTui({ cwd: process.cwd(), version: CLI_VERSION })
+			const code = await Promise.resolve(0)
+			setExitCode(code)
+			return
+		}
+		process.stdout.write(
+			'namzu — interactive TUI requires a terminal. For utility subcommands run `namzu --help`.\n',
+		)
 	})
 
 	try {

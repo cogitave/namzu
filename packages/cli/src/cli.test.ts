@@ -45,10 +45,10 @@ describe('runCli', () => {
 		expect(stdout).not.toContain('chat')
 	})
 
-	it('no args prints the TUI placeholder and exits 0 (M3 will replace this with the actual TUI launch)', async () => {
+	it('no args without a TTY prints a fallback marker and exits 0 (tests run without a TTY)', async () => {
 		const code = await invoke([])
 		expect(code).toBe(0)
-		expect(stdout).toContain('TUI coming in M3')
+		expect(stdout).toContain('TUI requires a terminal')
 		expect(stdout).toContain('namzu --help')
 	})
 
