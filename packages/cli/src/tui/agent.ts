@@ -96,6 +96,11 @@ export interface SendOptions {
 	 * (non-interactive behavior).
 	 */
 	readonly onPermission?: PermissionFn
+	/**
+	 * Extra system context to inject for this turn (e.g. active skills),
+	 * merged after the persistent memory block.
+	 */
+	readonly extraSystem?: string
 }
 
 export interface AgentSession {
@@ -212,8 +217,12 @@ export async function createAgentSession(
 		toolNames: registry.listNames(),
 		errorHint: null,
 		send: (messages, opts) => {
-			// Read memory fresh each turn so `/remember` takes effect next turn.
-			const systemPrompt = composeMemoryPrompt(readMemory()) ?? undefined
+			// Read memory fresh each turn so `/remember` takes effect next turn,
+			// then append any per-turn extra context (active skills).
+			const memoryPrompt = composeMemoryPrompt(readMemory())
+			const systemPrompt =
+				[memoryPrompt, opts?.extraSystem].filter((s): s is string => Boolean(s)).join('\n\n') ||
+				undefined
 			return runTurn(provider, model, registry, scope, approval, systemPrompt, messages, opts)
 		},
 	}

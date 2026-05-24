@@ -22,6 +22,7 @@ import {
 	writePreferences,
 } from '../integrations/providers/index.js'
 import { appendMemory, composeMemoryPrompt, readMemory } from '../memory/store.js'
+import { composeSkillsPrompt, discoverSkills, loadSkillBody } from '../skills/store.js'
 import { Composer } from './Composer.js'
 import { PermissionOverlay } from './PermissionOverlay.js'
 import { Picker } from './Picker.js'
@@ -54,6 +55,9 @@ export function App({ ctx }: AppProps) {
 	const [detected, setDetected] = useState<readonly DetectedProvider[]>([])
 	const [currentProvider, setCurrentProvider] = useState<ProviderId | null>(null)
 	const [permission, setPermission] = useState<PermissionRequest | null>(null)
+	const [activeSkills, setActiveSkills] = useState<ReadonlyArray<{ name: string; body: string }>>(
+		[],
+	)
 	const exitArmedRef = useRef<boolean>(false)
 	const abortRef = useRef<AbortController | null>(null)
 	const permissionResolveRef = useRef<((d: PermissionDecision) => void) | null>(null)
@@ -198,6 +202,7 @@ export function App({ ctx }: AppProps) {
 				for await (const event of session.send(priorForSdk, {
 					signal: ac.signal,
 					onPermission,
+					extraSystem: composeSkillsPrompt(activeSkills) ?? undefined,
 				})) {
 					switch (event.kind) {
 						case 'delta':
@@ -234,7 +239,7 @@ export function App({ ctx }: AppProps) {
 				setState('idle')
 			}
 		},
-		[appendToMessage, finalizeMessage, messages, onPermission, pushMessage, session],
+		[activeSkills, appendToMessage, finalizeMessage, messages, onPermission, pushMessage, session],
 	)
 
 	const handleSubmit = useCallback(
@@ -274,13 +279,50 @@ export function App({ ctx }: AppProps) {
 						)
 						return
 					}
+					case 'list-skills': {
+						const skills = discoverSkills()
+						if (skills.length === 0) {
+							pushMessage(
+								'system',
+								'No skills found. Add one at ~/.namzu/skills/<name>/SKILL.md or ./skills/<name>/SKILL.md.',
+							)
+							return
+						}
+						const activeNames = new Set(activeSkills.map((s) => s.name))
+						const lines = skills.map(
+							(s) => `${activeNames.has(s.name) ? '● ' : '○ '}${s.name} — ${s.description}`,
+						)
+						pushMessage('system', `Skills (● active):\n  ${lines.join('\n  ')}`)
+						return
+					}
+					case 'load-skill': {
+						const info = discoverSkills().find((s) => s.name === slash.name)
+						if (!info) {
+							pushMessage('system', `No skill named "${slash.name}". See /skills.`)
+							return
+						}
+						try {
+							const body = loadSkillBody(info)
+							setActiveSkills((prev) => [
+								...prev.filter((s) => s.name !== info.name),
+								{ name: info.name, body },
+							])
+							pushMessage('system', `Activated skill: ${info.name}`)
+						} catch (err) {
+							pushMessage(
+								'system',
+								`Could not load skill "${slash.name}": ${err instanceof Error ? err.message : String(err)}`,
+							)
+						}
+						return
+					}
 					case 'none':
 						return
 				}
 			}
 			void runTurn(value)
 		},
-		[exit, pushMessage, runTurn, slashCtx],
+		[activeSkills, exit, pushMessage, runTurn, slashCtx],
 	)
 
 	const handlePickerSubmit = useCallback(

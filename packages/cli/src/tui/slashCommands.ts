@@ -13,6 +13,8 @@ export type SlashAction =
 	| { kind: 'repick' }
 	| { kind: 'remember'; text: string }
 	| { kind: 'show-memory' }
+	| { kind: 'list-skills' }
+	| { kind: 'load-skill'; name: string }
 	| { kind: 'none' }
 
 export interface SlashContext {
@@ -92,6 +94,21 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
 		name: 'memory',
 		description: 'Show what namzu remembers (USER.md + MEMORY.md).',
 		action: () => ({ kind: 'show-memory' }),
+	},
+	{
+		name: 'skills',
+		description: 'List available skills (~/.namzu/skills + ./skills).',
+		action: () => ({ kind: 'list-skills' }),
+	},
+	{
+		name: 'skill',
+		description: 'Activate a skill for this session: /skill <name>.',
+		action: (_ctx, args) => {
+			const name = args.join(' ').trim()
+			return name.length === 0
+				? { kind: 'message', role: 'system', content: 'Usage: /skill <name> (see /skills)' }
+				: { kind: 'load-skill', name }
+		},
 	},
 	{
 		name: 'provider',
