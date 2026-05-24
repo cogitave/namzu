@@ -19,12 +19,6 @@ function stubHandler(milestone: string, what: string): CommandHandler {
 	}
 }
 
-export const chatCommand: CommandDef = {
-	name: 'chat',
-	description: 'Open an interactive REPL with the agent (M3)',
-	handler: stubHandler('M3', 'the interactive REPL'),
-}
-
 export const toolsCommand: CommandDef = {
 	name: 'tools',
 	description: 'Inspect and run tools via the clawtool tool layer (M1)',
@@ -50,7 +44,6 @@ export const serveCommand: CommandDef = {
 }
 
 export const stubCommands: readonly CommandDef[] = [
-	chatCommand,
 	toolsCommand,
 	providersCommand,
 	skillsCommand,

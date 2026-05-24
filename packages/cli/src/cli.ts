@@ -34,7 +34,9 @@ function readPackageVersion(): string {
 	try {
 		const here = dirname(fileURLToPath(import.meta.url))
 		const pkgPath = join(here, '..', 'package.json')
-		const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as { version?: unknown }
+		const pkg = JSON.parse(readFileSync(pkgPath, 'utf8')) as {
+			version?: unknown
+		}
 		return typeof pkg.version === 'string' ? pkg.version : '0.0.0'
 	} catch {
 		return '0.0.0'
@@ -81,7 +83,20 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		return ctx
 	}
 
-	registerAll(program, [doctorCommand, ...stubCommands], { getContext, setExitCode })
+	registerAll(program, [doctorCommand, ...stubCommands], {
+		getContext,
+		setExitCode,
+	})
+
+	// Default behavior when `namzu` is invoked with no subcommand: print a
+	// placeholder pointing at the in-flight TUI milestone (M3). The TUI is
+	// namzu's primary user surface — like claude-code / gemini-cli / opencode
+	// / hermes-agent, the bare binary opens the agent UI. Until M3 ships, we
+	// honor the promise with a one-line marker rather than dump help text
+	// (which would suggest the CLI is "command-first" — it isn't).
+	program.action(() => {
+		process.stdout.write('namzu — TUI coming in M3. For utility subcommands run `namzu --help`.\n')
+	})
 
 	try {
 		await program.parseAsync(opts.argv as string[], { from: 'node' })

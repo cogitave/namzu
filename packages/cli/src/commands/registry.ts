@@ -19,7 +19,10 @@ export function registerCommand(program: Command, def: CommandDef, opts: Registe
 			.passThroughOptions(true)
 			.argument('[args...]')
 			.action(async (args: string[] | undefined) => {
-				const code = await def.handler({ ctx: opts.getContext(), rawArgs: args ?? [] })
+				const code = await def.handler({
+					ctx: opts.getContext(),
+					rawArgs: args ?? [],
+				})
 				opts.setExitCode(code)
 			})
 	} else {

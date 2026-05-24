@@ -92,7 +92,9 @@ export class DoctorRegistry {
 			? signal.aborted
 				? Promise.resolve('aborted')
 				: new Promise((resolve) => {
-						signal.addEventListener('abort', () => resolve('aborted'), { once: true })
+						signal.addEventListener('abort', () => resolve('aborted'), {
+							once: true,
+						})
 					})
 			: new Promise(() => {}) // never resolves
 

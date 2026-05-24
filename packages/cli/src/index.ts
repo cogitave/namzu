@@ -34,7 +34,11 @@ export type {
 	CommandHandler,
 	CommandHandlerArgs,
 } from './commands/types.js'
-export { registerAll, registerCommand, type RegisterOptions } from './commands/registry.js'
+export {
+	registerAll,
+	registerCommand,
+	type RegisterOptions,
+} from './commands/registry.js'
 export {
 	createFormatter,
 	type FormatName,

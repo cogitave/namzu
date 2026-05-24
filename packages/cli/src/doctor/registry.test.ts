@@ -177,7 +177,10 @@ describe('runDoctor — wall-clock timeout preserves completed records (ses_013 
 		reg.register(check('a', { status: 'pass', message: 'first' }))
 		reg.register(check('b', { status: 'fail', message: 'second' }))
 		reg.register(check('c', { status: 'warn', message: 'third' }))
-		const report = await runDoctor({ registry: reg, wallClockTimeoutMs: 5_000 })
+		const report = await runDoctor({
+			registry: reg,
+			wallClockTimeoutMs: 5_000,
+		})
 		expect(report.summary.total).toBe(3)
 		expect(report.checks.find((r) => r.id === 'a')?.message).toBe('first')
 		expect(report.checks.find((r) => r.id === 'b')?.message).toBe('second')

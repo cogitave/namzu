@@ -17,7 +17,10 @@ export class YamlFormatter implements Formatter {
 	}
 
 	error(payload: { message: string; details?: unknown }): void {
-		const out: Record<string, unknown> = { level: 'error', message: payload.message }
+		const out: Record<string, unknown> = {
+			level: 'error',
+			message: payload.message,
+		}
 		if (payload.details !== undefined) out.details = payload.details
 		process.stderr.write(yamlStringify(out))
 	}

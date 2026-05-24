@@ -36,11 +36,20 @@ describe('runCli', () => {
 		// Commander prints help to stdout.
 		expect(stdout).toContain('namzu')
 		expect(stdout).toContain('doctor')
-		expect(stdout).toContain('chat')
 		expect(stdout).toContain('tools')
 		expect(stdout).toContain('providers')
 		expect(stdout).toContain('skills')
 		expect(stdout).toContain('serve')
+		// `chat` was a misread of the product shape — the TUI IS the chat,
+		// not a separate subcommand. `chat` must not appear in help.
+		expect(stdout).not.toContain('chat')
+	})
+
+	it('no args prints the TUI placeholder and exits 0 (M3 will replace this with the actual TUI launch)', async () => {
+		const code = await invoke([])
+		expect(code).toBe(0)
+		expect(stdout).toContain('TUI coming in M3')
+		expect(stdout).toContain('namzu --help')
 	})
 
 	it('--version returns 0 and prints a version string', async () => {
@@ -52,14 +61,17 @@ describe('runCli', () => {
 	it('unknown command returns sysexits EX_USAGE (64)', async () => {
 		const code = await invoke(['definitely-not-a-command'])
 		expect(code).toBe(64)
-		expect(stderr).toContain('definitely-not-a-command')
+		// Commander chooses between "unknown command" and "too many arguments"
+		// depending on whether a default action is registered. Either wording
+		// is acceptable — the contract is the sysexit code, not the message.
+		expect(stderr).toMatch(/unknown command|too many arguments/)
 	})
 
 	it('stub commands print a structured marker and exit 0', async () => {
-		const code = await invoke(['chat'])
+		const code = await invoke(['tools'])
 		expect(code).toBe(0)
-		expect(stdout).toContain('M3')
-		expect(stdout).toContain('interactive REPL')
+		expect(stdout).toContain('M1')
+		expect(stdout).toContain('clawtool')
 	})
 
 	it('--format json renders stubs as JSON', async () => {

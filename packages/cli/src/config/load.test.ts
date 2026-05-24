@@ -37,7 +37,11 @@ describe('loadConfig cascade', () => {
 		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
 		mkdirSync(join(home, '.namzu'), { recursive: true })
 		writeFileSync(join(home, '.namzu', 'config.yaml'), 'format: yaml\n')
-		const cfg = loadConfig({ home, cwd: tmpdir(), env: { NAMZU_FORMAT: 'text' } })
+		const cfg = loadConfig({
+			home,
+			cwd: tmpdir(),
+			env: { NAMZU_FORMAT: 'text' },
+		})
 		expect(cfg.format).toBe('text')
 	})
 
