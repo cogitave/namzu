@@ -27,6 +27,7 @@ Ignored and unpublished workspace areas are intentionally excluded from this doc
 | Section | Purpose |
 | --- | --- |
 | [Getting Started](./getting-started.md) | Choose packages, install them, and make the first successful call |
+| [CLI](./cli/README.md) | Run the `namzu` terminal agent — TUI, credential discovery, tools, memory, skills |
 | [SDK Overview](./sdk/README.md) | Understand what lives in `@namzu/sdk` and how its parts fit together |
 | [SDK Runtime](./sdk/runtime/README.md) | Runtime map plus IDs, configuration, and low-level execution entrypoints |
 | [SDK Agents](./sdk/agents/README.md) | Agent classes, orchestration, and delegation boundaries |

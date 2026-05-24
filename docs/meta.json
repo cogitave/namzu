@@ -1,4 +1,4 @@
 {
   "title": "Namzu",
-  "pages": ["index", "getting-started", "sdk", "providers", "computer-use"]
+  "pages": ["index", "getting-started", "cli", "sdk", "providers", "computer-use"]
 }
