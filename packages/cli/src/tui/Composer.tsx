@@ -65,16 +65,25 @@ export function Composer({ disabled = false, onSubmit, history }: ComposerProps)
 		{ isActive: true },
 	)
 
-	const promptGlyph = disabled ? '…' : '›'
+	const promptGlyph = disabled ? '…' : '>'
+	const showPlaceholder = !disabled && value.length === 0
 	return (
-		<Box>
-			<Text color={disabled ? theme.text.muted : theme.accent.user} bold>
-				{promptGlyph}{' '}
-			</Text>
-			<Text color={disabled ? theme.text.muted : theme.text.primary}>
-				{value}
-				{disabled ? null : <Text color={theme.border.focus}>▏</Text>}
-			</Text>
+		<Box paddingX={1}>
+			<Box width={2} flexShrink={0}>
+				<Text color={disabled ? theme.text.muted : theme.accent.user} bold>
+					{promptGlyph}
+				</Text>
+			</Box>
+			<Box flexGrow={1}>
+				{showPlaceholder ? (
+					<Text color={theme.text.muted}>Type a message… (/help for commands)</Text>
+				) : (
+					<Text color={disabled ? theme.text.muted : theme.text.primary} wrap="wrap">
+						{value}
+						{disabled ? null : <Text color={theme.border.focus}>▏</Text>}
+					</Text>
+				)}
+			</Box>
 		</Box>
 	)
 }

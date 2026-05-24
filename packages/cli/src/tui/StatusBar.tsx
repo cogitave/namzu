@@ -6,7 +6,7 @@
  * so the eye can find the help-text without parsing the whole line.
  */
 
-import { Box, Text } from 'ink'
+import { Text } from 'ink'
 
 import { theme } from './theme.js'
 
@@ -25,8 +25,11 @@ export function StatusBar({ cwd, provider, model, state, hint, usage }: StatusBa
 	if (model) segments.push(model)
 	if (usage && usage.totalTokens > 0) segments.push(formatUsage(usage))
 	const stateLabel = stateGlyph(state)
+	// A single Text with `truncate-end` keeps the footer to exactly one line
+	// on narrow terminals (it shrinks with an ellipsis instead of wrapping),
+	// while nested Text spans preserve per-segment color.
 	return (
-		<Box>
+		<Text wrap="truncate-end">
 			<Text color={theme.text.muted}>{segments.join(' · ')}</Text>
 			<Text color={theme.text.muted}> │ </Text>
 			<Text color={colorForState(state)}>{stateLabel}</Text>
@@ -36,7 +39,7 @@ export function StatusBar({ cwd, provider, model, state, hint, usage }: StatusBa
 					<Text color={theme.text.secondary}>{hint}</Text>
 				</>
 			) : null}
-		</Box>
+		</Text>
 	)
 }
 

@@ -1,7 +1,9 @@
 /**
- * Conversation transcript. Each message renders as a single block with
- * a role glyph + colored label + content. A pending assistant message
- * shows a braille spinner that animates while `state === 'thinking'`.
+ * Conversation transcript. Borderless and edge-to-edge: each message is a
+ * two-column row — a fixed glyph gutter plus the content — so wrapped
+ * lines hang-indent under the text and the role reads from the glyph +
+ * color alone (no separate label line). A pending assistant message shows
+ * a braille spinner in the gutter while the agent works.
  */
 
 import { Box, Text } from 'ink'
@@ -24,7 +26,7 @@ export function Transcript({ messages, state }: TranscriptProps) {
 		return (
 			<Box flexDirection="column" paddingY={1}>
 				<Text color={theme.text.muted}>
-					Welcome to namzu. Type a message, or `/help` for commands.
+					Type a message to begin · <Text color={theme.text.secondary}>/help</Text> for commands
 				</Text>
 			</Box>
 		)
@@ -32,34 +34,33 @@ export function Transcript({ messages, state }: TranscriptProps) {
 	return (
 		<Box flexDirection="column">
 			{messages.map((m) => (
-				<MessageBubble key={m.id} message={m} spinner={spinner} />
+				<MessageRow key={m.id} message={m} spinner={spinner} />
 			))}
 		</Box>
 	)
 }
 
-function MessageBubble({
+function MessageRow({
 	message,
 	spinner,
 }: {
 	readonly message: TranscriptMessage
 	readonly spinner: string
 }) {
-	const glyph = glyphForRole(message.role)
-	const color = colorForRole(message.role)
-	const label = labelForRole(message.role)
-	const prefix = message.pending ? `${spinner} ` : ''
+	const glyph = message.pending ? spinner : glyphForRole(message.role)
 	return (
-		<Box flexDirection="column" paddingBottom={1}>
-			<Box>
-				<Text color={color} bold>
-					{glyph} {label}
+		<Box flexDirection="row" marginBottom={1}>
+			<Box width={2} flexShrink={0}>
+				<Text color={glyphColorForRole(message.role)} bold>
+					{glyph}
 				</Text>
 			</Box>
-			<Box>
-				<Text color={theme.text.primary}>
-					{prefix}
+			<Box flexGrow={1}>
+				<Text color={contentColorForRole(message.role)} wrap="wrap">
 					{message.content}
+					{message.pending && message.content.length === 0 ? (
+						<Text color={theme.text.muted}>…</Text>
+					) : null}
 				</Text>
 			</Box>
 		</Box>
@@ -78,41 +79,41 @@ function useSpinner(active: boolean): string {
 	return SPINNER_FRAMES[frame] ?? '⠋'
 }
 
-function colorForRole(role: TranscriptMessage['role']): string {
+function glyphForRole(role: TranscriptMessage['role']): string {
+	switch (role) {
+		case 'user':
+			return '>'
+		case 'assistant':
+			return '✦'
+		case 'system':
+			return '·'
+		case 'tool':
+			return '⚙'
+	}
+}
+
+function glyphColorForRole(role: TranscriptMessage['role']): string {
 	switch (role) {
 		case 'user':
 			return theme.accent.user
 		case 'assistant':
 			return theme.accent.assistant
 		case 'system':
-			return theme.accent.system
+			return theme.text.muted
 		case 'tool':
 			return theme.accent.tool
 	}
 }
 
-function glyphForRole(role: TranscriptMessage['role']): string {
+function contentColorForRole(role: TranscriptMessage['role']): string {
 	switch (role) {
 		case 'user':
-			return '▸'
+			return theme.text.primary
 		case 'assistant':
-			return '◆'
+			return theme.text.primary
 		case 'system':
-			return '⚠'
+			return theme.text.secondary
 		case 'tool':
-			return '⚙'
-	}
-}
-
-function labelForRole(role: TranscriptMessage['role']): string {
-	switch (role) {
-		case 'user':
-			return 'you'
-		case 'assistant':
-			return 'namzu'
-		case 'system':
-			return 'system'
-		case 'tool':
-			return 'tool'
+			return theme.text.secondary
 	}
 }

@@ -459,11 +459,8 @@ function Banner({
 }
 
 function TranscriptFrame({ children }: { readonly children: React.ReactNode }) {
-	return (
-		<Box flexDirection="column" borderStyle="round" borderColor={theme.border.default} paddingX={1}>
-			{children}
-		</Box>
-	)
+	// Borderless, edge-to-edge — the message glyph gutter provides structure.
+	return <Box flexDirection="column">{children}</Box>
 }
 
 function ComposerFrame({
@@ -473,12 +470,17 @@ function ComposerFrame({
 	readonly focus: boolean
 	readonly children: React.ReactNode
 }) {
+	// Input-field look: a rounded rule above and below the composer, no side
+	// borders, so the input reads as a field rather than a heavy box.
 	return (
 		<Box
 			flexDirection="column"
 			borderStyle="round"
+			borderTop={true}
+			borderBottom={true}
+			borderLeft={false}
+			borderRight={false}
 			borderColor={focus ? theme.border.focus : theme.border.default}
-			paddingX={1}
 			marginTop={1}
 		>
 			{children}
