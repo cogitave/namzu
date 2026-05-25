@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
-import { SLASH_COMMANDS, type SlashContext, parseSlash, runSlash } from './slashCommands.js'
+import {
+	SLASH_COMMANDS,
+	type SlashContext,
+	matchSlashCommands,
+	parseSlash,
+	runSlash,
+} from './slashCommands.js'
 
 const ctx: SlashContext = {
 	availableTools: [],
@@ -13,6 +19,33 @@ const ctxWithTools: SlashContext = {
 	providerSummary: 'anthropic-personal (anthropic)',
 	modelSummary: 'claude-opus-4-7',
 }
+
+describe('matchSlashCommands', () => {
+	it('returns all commands for a bare slash', () => {
+		expect(matchSlashCommands('/')).toEqual(SLASH_COMMANDS)
+	})
+
+	it('filters by name prefix (case-insensitive)', () => {
+		const names = matchSlashCommands('/me').map((c) => c.name)
+		expect(names).toContain('memory')
+		expect(names).not.toContain('help')
+		expect(matchSlashCommands('/MO').map((c) => c.name)).toContain('model')
+	})
+
+	it('returns [] once a space is typed (now entering arguments)', () => {
+		expect(matchSlashCommands('/model ')).toEqual([])
+		expect(matchSlashCommands('/skill foo')).toEqual([])
+	})
+
+	it('returns [] for non-slash input', () => {
+		expect(matchSlashCommands('hello')).toEqual([])
+		expect(matchSlashCommands('')).toEqual([])
+	})
+
+	it('returns [] when nothing matches the prefix', () => {
+		expect(matchSlashCommands('/zzz')).toEqual([])
+	})
+})
 
 describe('parseSlash', () => {
 	it('returns null for non-slash lines', () => {

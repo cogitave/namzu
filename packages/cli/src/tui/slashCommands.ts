@@ -34,6 +34,19 @@ export interface ParsedSlash {
 	readonly args: readonly string[]
 }
 
+/**
+ * Autocomplete matches for a composer value that is a command-in-progress
+ * (`/`, `/me`, `/mo…` — slash + a partial name, no space yet). Returns []
+ * once a space is typed (the user has moved on to arguments) or the value
+ * isn't a slash command, so the dropdown only shows while picking a name.
+ */
+export function matchSlashCommands(value: string): SlashCommand[] {
+	const m = /^\/([\w-]*)$/.exec(value)
+	if (!m) return []
+	const prefix = (m[1] ?? '').toLowerCase()
+	return SLASH_COMMANDS.filter((c) => c.name.startsWith(prefix))
+}
+
 /** Returns null when the line is not a slash command. */
 export function parseSlash(line: string): ParsedSlash | null {
 	const trimmed = line.trim()

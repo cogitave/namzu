@@ -1,12 +1,17 @@
 /**
- * Single-line composer with input history. Ink `useInput` covers all
- * keys we need; no extra `ink-text-input` dep. Enter submits, Esc clears,
- * Up/Down browse history, Backspace deletes.
+ * Single-line composer with input history and slash-command autocomplete.
+ * Ink `useInput` covers all keys we need; no extra `ink-text-input` dep.
+ *
+ * Keys: Enter submits (or runs the highlighted command while the
+ * autocomplete dropdown is open), Tab completes the highlighted command,
+ * Esc clears / closes the dropdown, ↑/↓ navigate the dropdown when open
+ * else browse history, Backspace deletes.
  */
 
 import { Box, Text, useInput } from 'ink'
 import { useCallback, useState } from 'react'
 
+import { matchSlashCommands } from './slashCommands.js'
 import { theme } from './theme.js'
 
 export interface ComposerProps {
@@ -15,22 +20,44 @@ export interface ComposerProps {
 	readonly history: readonly string[]
 }
 
+const MAX_SUGGESTIONS = 6
+
 export function Composer({ disabled = false, onSubmit, history }: ComposerProps) {
 	const [value, setValue] = useState<string>('')
 	const [historyIndex, setHistoryIndex] = useState<number>(-1)
+	const [selected, setSelected] = useState<number>(0)
+
+	const suggestions = matchSlashCommands(value).slice(0, MAX_SUGGESTIONS)
+	const showSuggestions = suggestions.length > 0
+	const selIdx = Math.min(selected, Math.max(0, suggestions.length - 1))
 
 	const reset = useCallback(() => {
 		setValue('')
 		setHistoryIndex(-1)
+		setSelected(0)
 	}, [])
 
 	useInput(
 		(input, key) => {
 			if (disabled) return
 			if (key.return) {
+				if (showSuggestions) {
+					// Run the highlighted command.
+					onSubmit(`/${suggestions[selIdx]?.name ?? ''}`)
+					reset()
+					return
+				}
 				if (value.trim().length === 0) return
 				onSubmit(value)
 				reset()
+				return
+			}
+			if (key.tab) {
+				if (showSuggestions) {
+					// Complete to the highlighted command, ready for arguments.
+					setValue(`/${suggestions[selIdx]?.name ?? ''} `)
+					setSelected(0)
+				}
 				return
 			}
 			if (key.escape) {
@@ -42,6 +69,10 @@ export function Composer({ disabled = false, onSubmit, history }: ComposerProps)
 				return
 			}
 			if (key.upArrow) {
+				if (showSuggestions) {
+					setSelected((i) => Math.max(0, i - 1))
+					return
+				}
 				if (history.length === 0) return
 				const next = Math.min(historyIndex + 1, history.length - 1)
 				setHistoryIndex(next)
@@ -49,6 +80,10 @@ export function Composer({ disabled = false, onSubmit, history }: ComposerProps)
 				return
 			}
 			if (key.downArrow) {
+				if (showSuggestions) {
+					setSelected((i) => Math.min(suggestions.length - 1, i + 1))
+					return
+				}
 				if (historyIndex <= 0) {
 					reset()
 					return
@@ -60,6 +95,7 @@ export function Composer({ disabled = false, onSubmit, history }: ComposerProps)
 			}
 			if (key.ctrl || key.meta) return
 			if (input.length === 0) return
+			setSelected(0)
 			setValue((v) => v + input)
 		},
 		{ isActive: true },
@@ -68,22 +104,41 @@ export function Composer({ disabled = false, onSubmit, history }: ComposerProps)
 	const promptGlyph = disabled ? '…' : '>'
 	const showPlaceholder = !disabled && value.length === 0
 	return (
-		<Box paddingX={1}>
-			<Box width={2} flexShrink={0}>
-				<Text color={disabled ? theme.text.muted : theme.accent.user} bold>
-					{promptGlyph}
-				</Text>
-			</Box>
-			<Box flexGrow={1}>
-				{showPlaceholder ? (
-					<Text color={theme.text.muted}>Type a message… (/help for commands)</Text>
-				) : (
-					<Text color={disabled ? theme.text.muted : theme.text.primary} wrap="wrap">
-						{value}
-						{disabled ? null : <Text color={theme.border.focus}>▏</Text>}
+		<Box flexDirection="column">
+			<Box paddingX={1}>
+				<Box width={2} flexShrink={0}>
+					<Text color={disabled ? theme.text.muted : theme.accent.user} bold>
+						{promptGlyph}
 					</Text>
-				)}
+				</Box>
+				<Box flexGrow={1}>
+					{showPlaceholder ? (
+						<Text color={theme.text.muted}>Type a message… (/help for commands)</Text>
+					) : (
+						<Text color={disabled ? theme.text.muted : theme.text.primary} wrap="wrap">
+							{value}
+							{disabled ? null : <Text color={theme.border.focus}>▏</Text>}
+						</Text>
+					)}
+				</Box>
 			</Box>
+			{showSuggestions ? (
+				<Box flexDirection="column" paddingX={1} paddingTop={1}>
+					{suggestions.map((cmd, i) => (
+						<Box key={cmd.name}>
+							<Box width={12} flexShrink={0}>
+								<Text
+									color={i === selIdx ? theme.accent.user : theme.text.secondary}
+									bold={i === selIdx}
+								>
+									{i === selIdx ? '› ' : '  '}/{cmd.name}
+								</Text>
+							</Box>
+							<Text color={theme.text.muted}>{cmd.description}</Text>
+						</Box>
+					))}
+				</Box>
+			) : null}
 		</Box>
 	)
 }
