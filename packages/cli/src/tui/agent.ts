@@ -355,6 +355,20 @@ function mintScope(): RunScope {
 	}
 }
 
+// Pre-execution safety gate: hard-deny catastrophic shell patterns
+// (`rm -rf /`, mkfs, `curl … | sh`, sudo, fork bombs — the SDK's narrow
+// DANGEROUS_PATTERNS list, which does NOT match e.g. `rm -rf node_modules`),
+// auto-allow read-only tools, and send everything else to the permission
+// prompt (`review` → our resumeHandler). The deny rule applies even in
+// --yolo mode, so bypass never lets the model brick the machine.
+const VERIFICATION_GATE = {
+	enabled: true,
+	allowReadOnlyTools: true,
+	denyDangerousPatterns: true,
+	logDecisions: false,
+	rules: [],
+}
+
 async function* runTurn(
 	provider: LLMProvider,
 	model: string,
@@ -372,6 +386,7 @@ async function* runTurn(
 			provider,
 			tools,
 			taskStore,
+			verificationGate: VERIFICATION_GATE,
 			runConfig: {
 				model,
 				timeoutMs: 600_000,
