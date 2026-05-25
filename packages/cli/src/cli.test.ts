@@ -83,10 +83,10 @@ describe('runCli', () => {
 	})
 
 	it('--format yaml renders stubs as YAML', async () => {
-		const code = await invoke(['--format', 'yaml', 'serve'])
+		const code = await invoke(['--format', 'yaml', 'skills'])
 		expect(code).toBe(0)
 		expect(stdout).toContain('stub: true')
-		expect(stdout).toContain('milestone: M7')
+		expect(stdout).toContain('milestone: M5')
 	})
 
 	it('doctor command pass-through preserves --help routing to the doctor', async () => {

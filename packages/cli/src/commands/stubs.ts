@@ -25,10 +25,4 @@ export const skillsCommand: CommandDef = {
 	handler: stubHandler('M5', 'the skills subsystem'),
 }
 
-export const serveCommand: CommandDef = {
-	name: 'serve',
-	description: 'Run the namzu agent gateway daemon (M7)',
-	handler: stubHandler('M7', 'the daemon gateway'),
-}
-
-export const stubCommands: readonly CommandDef[] = [skillsCommand, serveCommand]
+export const stubCommands: readonly CommandDef[] = [skillsCommand]
