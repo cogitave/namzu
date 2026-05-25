@@ -32,6 +32,7 @@ import {
 	registerPeer,
 	sendPeerMessage,
 } from '../integrations/clawtool/peers.js'
+import { checkUpdates } from '../integrations/updates.js'
 import { type ActiveTool, LiveActivity, formatElapsed } from './LiveActivity.js'
 import { expandFileMentions } from './mentions.js'
 import { Composer } from './Composer.js'
@@ -678,6 +679,19 @@ export function App({ ctx }: AppProps) {
 	useEffect(() => {
 		stateRef.current = state
 	}, [state])
+
+	// One-shot update check on launch: namzu (npm) + clawtool (`upgrade --check`).
+	// Best-effort; surfaces a single notice when something newer is out.
+	const updateCheckedRef = useRef(false)
+	useEffect(() => {
+		if (phase !== 'ready' || updateCheckedRef.current) return
+		updateCheckedRef.current = true
+		void checkUpdates(ctx.version).then((ups) => {
+			if (ups.length === 0) return
+			const lines = ups.map((u) => `  • ${u.name} ${u.current} → ${u.latest}  (${u.how})`)
+			pushMessage('system', `⬆ Update available:\n${lines.join('\n')}`)
+		})
+	}, [phase, ctx.version, pushMessage])
 
 	useEffect(() => {
 		const id = peerIdRef.current
