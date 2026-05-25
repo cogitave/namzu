@@ -19,6 +19,7 @@ import {
 	removeDaemonInfo,
 	writeDaemonInfo,
 } from './discovery.js'
+import { HostedSessionManager } from './hosted.js'
 import { SessionRegistry } from './registry.js'
 
 const HOST = '127.0.0.1'
@@ -49,10 +50,11 @@ export async function startDaemon(opts: StartDaemonOptions = {}): Promise<Runnin
 	}
 
 	const registry = new SessionRegistry()
+	const hosted = new HostedSessionManager()
 	const token = randomUUID()
 	const version = readCliVersion()
 
-	const server = createServer((req, res) => handle(req, res, registry, token))
+	const server = createServer((req, res) => handle(req, res, { registry, hosted, token }))
 	await listen(server, opts.port ?? 0)
 	const addr = server.address()
 	const port = typeof addr === 'object' && addr ? addr.port : 0
@@ -89,12 +91,14 @@ function listen(server: Server, port: number): Promise<void> {
 	})
 }
 
-async function handle(
-	req: IncomingMessage,
-	res: ServerResponse,
-	registry: SessionRegistry,
-	token: string,
-): Promise<void> {
+interface Deps {
+	readonly registry: SessionRegistry
+	readonly hosted: HostedSessionManager
+	readonly token: string
+}
+
+async function handle(req: IncomingMessage, res: ServerResponse, deps: Deps): Promise<void> {
+	const { registry, hosted, token } = deps
 	const url = new URL(req.url ?? '/', `http://${HOST}`)
 	const path = url.pathname
 	const method = req.method ?? 'GET'
@@ -114,6 +118,39 @@ async function handle(
 	const auth = req.headers.authorization
 	if (auth !== `Bearer ${token}`) {
 		return json(res, 401, { error: 'unauthorized' })
+	}
+
+	// --- daemon-hosted agent sessions (attach) ---
+	if (path === '/v1/hosted' && method === 'GET') {
+		return json(res, 200, { sessions: hosted.list() })
+	}
+	if (path === '/v1/hosted' && method === 'POST') {
+		const body = await readJson(req)
+		if (!body || typeof body.cwd !== 'string') {
+			return json(res, 400, { error: 'cwd is required' })
+		}
+		const v = hosted.create({
+			cwd: body.cwd,
+			title: typeof body.title === 'string' ? body.title : undefined,
+		})
+		return json(res, 201, v)
+	}
+	const hostedMsg = path.match(/^\/v1\/hosted\/([^/]+)\/message$/)
+	if (hostedMsg && method === 'POST') {
+		const id = hostedMsg[1] as string
+		const body = await readJson(req)
+		const text = typeof body?.text === 'string' ? body.text : ''
+		if (!hosted.get(id)) return json(res, 404, { error: 'not found' })
+		// Fire-and-forget: the turn streams into the log; the client polls events.
+		void hosted.runMessage(id, text)
+		return json(res, 202, { accepted: true })
+	}
+	const hostedEvents = path.match(/^\/v1\/hosted\/([^/]+)\/events$/)
+	if (hostedEvents && method === 'GET') {
+		const id = hostedEvents[1] as string
+		if (!hosted.get(id)) return json(res, 404, { error: 'not found' })
+		const since = Number.parseInt(url.searchParams.get('since') ?? '0', 10) || 0
+		return json(res, 200, hosted.eventsSince(id, since))
 	}
 
 	if (path === '/v1/sessions' && method === 'GET') {
