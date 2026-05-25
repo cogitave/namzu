@@ -22,6 +22,7 @@ import {
 	createClawtoolPlugin,
 	findBinary,
 } from '../integrations/clawtool/index.js'
+import { isExcludedClawtoolTool } from '../integrations/clawtool/tooling.js'
 import type { CommandContext, CommandDef } from './types.js'
 
 let cachedPlugin: ClawtoolPlugin | null = null
@@ -42,11 +43,15 @@ async function getPlugin(ctx: CommandContext): Promise<ClawtoolPlugin> {
 
 async function runLs(ctx: CommandContext): Promise<number> {
 	const plugin = await getPlugin(ctx)
+	// Mirror what the agent actually gets: drop the tools namzu excludes from
+	// the bridged catalog (e.g. clawtool's `.claude/agents` Agent* family), so
+	// `tools ls` doesn't advertise tools the model can't call.
+	const tools = plugin.tools.filter((t) => !isExcludedClawtoolTool(t.name))
 	ctx.formatter.print({
 		source: 'clawtool',
 		endpoint: plugin.endpoint.baseUrl,
-		count: plugin.tools.length,
-		tools: plugin.tools.map((t) => ({
+		count: tools.length,
+		tools: tools.map((t) => ({
 			name: t.name,
 			source: t.source,
 			description: t.description,

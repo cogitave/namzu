@@ -20,8 +20,10 @@
  *     reports true iff at least one tool is suspended.
  *   - `getAvailability(name)` returns 'active' as a default even for
  *     unknown names (this is non-obvious but is the current behavior).
- *   - `searchDeferred(q)` is a case-insensitive filter against name OR
- *     description of every DEFERRED tool.
+ *   - `searchDeferred(q)` filters DEFERRED tools: a useful whole query
+ *     matches name OR description (case-insensitive); a batched multi-term
+ *     query matches meaningful tokens against the NAME only. Generic/short
+ *     tokens (`clawtool`, `tool`, …) are ignored so they can't over-activate.
  *   - `assignTiers(mapping)` mutates `tool.tier` on existing tools;
  *     throws via `getOrThrow` on unknown name; throws if the tier id
  *     is not in `tierConfig.tiers`.
@@ -82,6 +84,15 @@ describe('ToolRegistry — register + availability', () => {
 		r.register([makeTool('a'), makeTool('b')], 'deferred')
 		expect(r.getAvailability('a')).toBe('deferred')
 		expect(r.getAvailability('b')).toBe('deferred')
+	})
+
+	it('register overloads: array w/o state defaults active, (id, tool) form, bad id throws', () => {
+		const r = new ToolRegistry()
+		r.register([makeTool('arr')])
+		expect(r.getAvailability('arr')).toBe('active')
+		r.register('byid', makeTool('byid'))
+		expect(r.get('byid')).toBeDefined()
+		expect(() => r.register('oops', 'not-a-tool' as never)).toThrow(/requires a ToolDefinition/)
 	})
 
 	it('getAvailability returns active for unknown names (current default)', () => {
@@ -179,6 +190,35 @@ describe('ToolRegistry — searchDeferred', () => {
 		expect(r.searchDeferred('beta').map((t) => t.name)).toEqual(['beta'])
 		expect(r.searchDeferred('does').map((t) => t.name)).toEqual(['alpha', 'beta'])
 		expect(r.searchDeferred('gamma')).toEqual([])
+	})
+
+	it('tokenizes a multi-term query so a batch of tool names each match', () => {
+		const r = new ToolRegistry()
+		r.register([makeTool('clawtool_A2aCard')], 'deferred')
+		r.register([makeTool('clawtool_PeerRegister')], 'deferred')
+		r.register([makeTool('clawtool_PeerList')], 'deferred')
+		r.register([makeTool('clawtool_Unrelated')], 'deferred')
+		// A whole-phrase substring match would find none of these.
+		expect(r.searchDeferred('A2aCard PeerRegister PeerList').map((t) => t.name)).toEqual([
+			'clawtool_A2aCard',
+			'clawtool_PeerRegister',
+			'clawtool_PeerList',
+		])
+		expect(r.searchDeferred('   ')).toEqual([])
+	})
+
+	it('does not over-activate on generic/shared tokens', () => {
+		const r = new ToolRegistry()
+		r.register([makeTool('clawtool_A2aCard', { description: 'peer card' })], 'deferred')
+		r.register([makeTool('clawtool_PeerList', { description: 'list peers' })], 'deferred')
+		r.register([makeTool('clawtool_WebSearch', { description: 'search the web' })], 'deferred')
+		// The shared "clawtool" prefix token must not drag in every tool.
+		expect(r.searchDeferred('clawtool WebSearch').map((t) => t.name)).toEqual([
+			'clawtool_WebSearch',
+		])
+		// A bare generic token identifies nothing — must not activate the catalog.
+		expect(r.searchDeferred('clawtool')).toEqual([])
+		expect(r.searchDeferred('tool')).toEqual([])
 	})
 })
 
@@ -318,6 +358,39 @@ describe('ToolRegistry — execute', () => {
 		expect(result.error).toContain('Expected string, received number')
 	})
 
+	it('empty-args validation lists required params with descriptions', async () => {
+		const r = new ToolRegistry()
+		r.register(
+			makeTool('needs', {
+				inputSchema: z.object({ q: z.string().describe('the query'), n: z.number() }),
+			}),
+		)
+		const result = await r.execute('needs', {}, makeContext())
+		expect(result.success).toBe(false)
+		expect(result.error).toMatch(/called with no arguments/)
+		expect(result.error).toContain('q: string — the query')
+		expect(result.error).toContain('n: number')
+	})
+
+	it('validation hint reports when there are no required params', async () => {
+		const r = new ToolRegistry()
+		r.register(makeTool('opt', { inputSchema: z.object({ k: z.string().optional() }) }))
+		const result = await r.execute('opt', { k: 123 }, makeContext())
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('No required parameters known.')
+	})
+
+	it('validation hint tolerates a schema it cannot introspect', async () => {
+		const r = new ToolRegistry()
+		const bogusSchema = {
+			safeParse: () => ({ success: false, error: { issues: [{ path: [], message: 'nope' }] } }),
+		}
+		r.register(makeTool('weird', { inputSchema: bogusSchema as never }))
+		const result = await r.execute('weird', { a: 1 }, makeContext())
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('Could not introspect required parameters.')
+	})
+
 	it('wraps thrown errors in the execute function', async () => {
 		const r = new ToolRegistry()
 		r.register(
@@ -330,6 +403,50 @@ describe('ToolRegistry — execute', () => {
 		const result = await r.execute('bad', {}, makeContext())
 		expect(result.success).toBe(false)
 		expect(result.error).toMatch(/execution failed: boom/)
+	})
+
+	it('wraps a non-Error throw', async () => {
+		const r = new ToolRegistry()
+		r.register(
+			makeTool('throws-string', {
+				async execute() {
+					throw 'plain string failure'
+				},
+			}),
+		)
+		const result = await r.execute('throws-string', {}, makeContext())
+		expect(result.success).toBe(false)
+		expect(result.error).toMatch(/execution failed/)
+	})
+
+	it('passes through a tool result that is unsuccessful with an error', async () => {
+		const r = new ToolRegistry()
+		r.register(
+			makeTool('soft-fail', {
+				async execute() {
+					return { success: false, output: '', error: 'soft failure' }
+				},
+			}),
+		)
+		const result = await r.execute('soft-fail', {}, makeContext())
+		expect(result.success).toBe(false)
+		expect(result.error).toBe('soft failure')
+	})
+
+	it('blocks a non-read-only tool in plan mode (no isReadOnly hint)', async () => {
+		const r = new ToolRegistry()
+		const execute = vi.fn(async () => ({ success: true, output: 'ok' }))
+		r.register(makeTool('mutate', { execute }))
+		const result = await r.execute(
+			'mutate',
+			{},
+			makeContext({
+				permissionContext: { mode: 'plan', runId: 'run_1', workingDirectory: '/tmp' },
+			}),
+		)
+		expect(result.success).toBe(false)
+		expect(result.error).toMatch(/plan mode/)
+		expect(execute).not.toHaveBeenCalled()
 	})
 
 	it('returns the tool result on happy path', async () => {

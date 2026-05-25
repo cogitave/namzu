@@ -16,6 +16,11 @@ import { ManagedRegistry } from '../ManagedRegistry.js'
 
 export type { ToolExecutionResult }
 
+// Tokens too generic to identify a tool by name — ignored when matching a
+// batched `search_tools` query so they can't activate the whole catalog
+// (every bridged tool name shares the `clawtool` prefix, for instance).
+const SEARCH_STOP_TOKENS = new Set(['clawtool', 'tool', 'tools', 'mcp', 'the', 'and', 'for', 'use'])
+
 export class ToolRegistry extends ManagedRegistry<ToolDefinition> {
 	private availability: Map<string, ToolAvailability> = new Map()
 	private tierConfig?: ToolTierConfig
@@ -114,10 +119,27 @@ export class ToolRegistry extends ManagedRegistry<ToolDefinition> {
 	}
 
 	searchDeferred(query: string): ToolDefinition[] {
-		const q = query.toLowerCase()
-		return this.getByAvailability(['deferred']).filter(
-			(t) => t.name.toLowerCase().includes(q) || t.description.toLowerCase().includes(q),
-		)
+		const q = query.toLowerCase().trim()
+		if (q.length === 0) return []
+		// Per-token matching exists only so a batched query naming several tools
+		// at once ("A2aCard PeerRegister PeerList") activates each. Restrict it
+		// to the tool NAME and drop short/generic tokens — matching tokens
+		// against descriptions (or letting a shared word like "clawtool"/"list"
+		// through) would activate the whole catalog and defeat deferral.
+		const tokens = q.split(/\s+/).filter((tok) => tok.length >= 3 && !SEARCH_STOP_TOKENS.has(tok))
+		// A bare generic token ("clawtool") identifies nothing specific — skip the
+		// broad whole-query match for it so it can't activate the whole catalog.
+		const wholeQueryUseful = q.length >= 3 && !SEARCH_STOP_TOKENS.has(q)
+		return this.getByAvailability(['deferred']).filter((t) => {
+			const name = t.name.toLowerCase()
+			// Whole-query match (single-term capability search) against name or
+			// description — the deliberate, narrow behaviour.
+			if (wholeQueryUseful && (name.includes(q) || t.description.toLowerCase().includes(q))) {
+				return true
+			}
+			// Batched multi-name query: any meaningful token, name only.
+			return tokens.some((tok) => name.includes(tok))
+		})
 	}
 
 	assignTiers(mapping: Record<string, string>): void {

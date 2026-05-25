@@ -10,6 +10,12 @@
 		"jsx": "react-jsx",
 		"jsxImportSource": "react"
 	},
-	"references": [{ "path": "../sdk" }],
+	"references": [
+		{ "path": "../sdk" },
+		{ "path": "../providers/anthropic" },
+		{ "path": "../providers/openai" },
+		{ "path": "../providers/openrouter" },
+		{ "path": "../providers/ollama" }
+	],
 	"include": ["src/**/*"]
 }
