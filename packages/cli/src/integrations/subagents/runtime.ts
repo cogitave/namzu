@@ -1,10 +1,11 @@
 /**
- * Sub-agent runtime: wires the SDK's native delegation so the model can spawn
- * a sub-agent via the canonical `Agent({ description, prompt, subagent_type })`
- * tool. The parent's tool call blocks until the child finishes and the child's
- * final text returns as the tool result — so a delegation surfaces in the
- * transcript as a normal `⏺ Agent(...)` call (the tree view of the child's
- * internal steps is a later layer that consumes the gateway's event stream).
+ * Sub-agent runtime: the model delegates work via an `Agent` tool that can
+ * DEFINE a specialist on the fly — pass a `role` (the persona / system prompt)
+ * and namzu spins up a fresh sub-agent with that role at runtime, no
+ * pre-registered definition needed. Omit `role` for a general-purpose one.
+ * The call blocks until the child finishes and its final text returns as the
+ * tool result, so a delegation surfaces in the transcript as a normal
+ * `⏺ Agent(...)` call.
  *
  * The runtime is fully self-contained: a dedicated in-memory session/thread
  * store backs the AgentManager, so sub-agent bookkeeping never touches the
@@ -39,7 +40,8 @@ import {
 	type UserId,
 	type VerificationGateConfig,
 	WorkspaceBackendRegistry,
-	buildAgentTool,
+	defineTool,
+	mcpJsonSchemaToZod,
 } from '@namzu/sdk'
 
 export const GENERAL_PURPOSE_SUBAGENT = 'general-purpose'
@@ -104,7 +106,14 @@ export async function createSubagentRuntime(
 	})
 
 	const registry = new AgentRegistry()
-	registry.register(buildGeneralPurposeDefinition(opts))
+	registry.register(
+		buildDefinition(
+			GENERAL_PURPOSE_SUBAGENT,
+			'A general-purpose sub-agent.',
+			SUBAGENT_PROMPT,
+			opts,
+		),
+	)
 
 	const threadManager = new ThreadManager({ threadStore, sessionStore: store })
 	const manager = new AgentManager(registry, undefined, {
@@ -129,32 +138,106 @@ export async function createSubagentRuntime(
 	}
 
 	const gateway = new LocalTaskGateway(manager, taskContext, opts.onEvent)
-	const agentTool = buildAgentTool({
-		gateway,
-		workingDirectory: opts.cwd,
-		allowedAgentIds: [GENERAL_PURPOSE_SUBAGENT],
+
+	// Dynamic `Agent` tool: the model passes an optional `role` (the persona /
+	// system prompt) and we register + spawn a fresh specialist for it at call
+	// time — no pre-defined agent file needed. Omit `role` → general-purpose.
+	let dynCounter = 0
+	const agentTool = defineTool({
+		name: 'Agent',
+		description:
+			'Delegate a self-contained task to a sub-agent and get its result back (BLOCKING). ' +
+			'Define the specialist inline with `role` — a system prompt describing who the sub-agent ' +
+			'is and how to behave (e.g. "You are a security auditor; flag vulnerabilities and rate severity"). ' +
+			'Omit `role` for a general-purpose sub-agent. The sub-agent runs in its own context with its own ' +
+			'tools and cannot see this conversation — put everything it needs in `prompt`. Call this multiple ' +
+			'times in one response to run specialists in parallel.',
+		inputSchema: mcpJsonSchemaToZod({
+			type: 'object',
+			properties: {
+				description: {
+					type: 'string',
+					description: 'Short label for tracking (shown to the user).',
+				},
+				prompt: {
+					type: 'string',
+					description: 'Self-contained task with all the context the sub-agent needs.',
+				},
+				role: {
+					type: 'string',
+					description:
+						'Optional persona / system prompt that defines this specialist sub-agent. Omit for general-purpose.',
+				},
+			},
+			required: ['description', 'prompt'],
+		}),
+		category: 'custom',
+		permissions: [],
+		readOnly: false,
+		destructive: false,
+		concurrencySafe: true,
+		async execute(input) {
+			const { prompt, role } = input as { prompt: string; role?: string }
+			let agentId = GENERAL_PURPOSE_SUBAGENT
+			const persona = typeof role === 'string' ? role.trim() : ''
+			if (persona.length > 0) {
+				agentId = `dyn-${++dynCounter}`
+				registry.register(buildDefinition(agentId, `Dynamic specialist: ${agentId}`, persona, opts))
+			}
+			const handle = await gateway.createTask({ agentId, prompt, workingDirectory: opts.cwd })
+			const completed = await gateway.waitForTask(handle.taskId)
+			const runStatus = completed.result?.status
+			const succeeded =
+				completed.state === 'completed' && (runStatus === undefined || runStatus === 'completed')
+			const resultText =
+				typeof completed.result?.result === 'string'
+					? completed.result.result
+					: completed.result?.result !== undefined
+						? JSON.stringify(completed.result.result)
+						: ''
+			if (!succeeded) {
+				return {
+					success: false,
+					output: '',
+					error: `Sub-agent ${agentId} ${completed.state}: ${completed.result?.lastError ?? resultText ?? '(no detail)'}`,
+				}
+			}
+			return { success: true, output: resultText || '(sub-agent returned no text)' }
+		},
 	})
 
 	return { gateway, agentTool, allowedAgentIds: [GENERAL_PURPOSE_SUBAGENT] }
 }
 
-function buildGeneralPurposeDefinition(opts: SubagentRuntimeOptions): AgentDefinition {
+/**
+ * Build an agent definition with the given id + persona (system prompt). Used
+ * for the static `general-purpose` agent and for each dynamically-defined
+ * specialist the model creates via the `Agent` tool's `role` argument.
+ */
+function buildDefinition(
+	id: string,
+	description: string,
+	systemPrompt: string,
+	opts: SubagentRuntimeOptions,
+): AgentDefinition {
 	const agent = new ReactiveAgent({
-		id: GENERAL_PURPOSE_SUBAGENT,
-		name: GENERAL_PURPOSE_SUBAGENT,
+		id,
+		name: id,
 		version: '1.0.0',
 		category: 'general',
-		description:
-			'A general-purpose sub-agent that completes a self-contained task and reports back.',
+		description,
 	})
+	// A specialist persona is layered on top of the anti-fabrication base so a
+	// dynamic role can't opt out of the "don't invent results" guardrails.
+	const prompt =
+		systemPrompt === SUBAGENT_PROMPT ? SUBAGENT_PROMPT : `${systemPrompt}\n\n${SUBAGENT_PROMPT}`
 	return {
 		info: {
-			id: GENERAL_PURPOSE_SUBAGENT,
-			name: GENERAL_PURPOSE_SUBAGENT,
+			id,
+			name: id,
 			version: '1.0.0',
 			category: 'general',
-			description:
-				'A general-purpose sub-agent that completes a self-contained task and reports back.',
+			description,
 			tools: [],
 			defaults: { model: opts.model, tokenBudget: 200_000 },
 		},
@@ -168,7 +251,7 @@ function buildGeneralPurposeDefinition(opts: SubagentRuntimeOptions): AgentDefin
 			maxIterations: 40,
 			provider: opts.buildProvider(),
 			tools: opts.buildTools(),
-			systemPrompt: SUBAGENT_PROMPT,
+			systemPrompt: prompt,
 			...(opts.verificationGate ? { verificationGate: opts.verificationGate } : {}),
 		}),
 	}
