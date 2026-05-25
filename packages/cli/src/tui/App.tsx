@@ -559,8 +559,9 @@ function Banner({
 				)}
 				<Box flexDirection="column">
 					<Text>
+						<Text color={theme.text.secondary}>Cogitave </Text>
 						<Text color={NAMZU_MARK_COLOR} bold>
-							namzu
+							Namzu
 						</Text>
 						<Text color={theme.text.muted}> v{version}</Text>
 					</Text>

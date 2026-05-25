@@ -36,17 +36,17 @@ export const NAMZU_MARK = '❀'
 export const NAMZU_MARK_COLOR = '#7de5c3'
 
 /**
- * Header icon — a 5-row diamond "bloom" that evokes the radial dot flower
- * of the namzu.ai SVG (a terminal can't draw the SVG itself). Shown to the
- * left of the name/version/cwd info block, Claude-Code-header style.
+ * Header mascot — namzu's little buddy: a bloom flower on top of a friendly
+ * rounded face (a nod to Claude Code's mascot, themed to the namzu.ai
+ * flower/teal identity since a terminal can't draw the SVG). Shown left of
+ * the name/version/cwd block.
  */
-export const NAMZU_ICON: readonly string[] = ['  ◆  ', ' ◆◆◆ ', '◆◆◆◆◆', ' ◆◆◆ ', '  ◆  ']
+export const NAMZU_ICON: readonly string[] = ['  ❀  ', '╭───╮', '│•◡•│', '╰───╯']
 
-/** Per-row icon colors (teal → bright green → teal), brightest in the middle. */
+/** Per-row colors: bloom + face in the namzu teal/green palette. */
 export const NAMZU_ICON_GRADIENT: readonly string[] = [
-	'#5eead4',
-	'#7de5c3',
 	'#a4edd5',
 	'#7de5c3',
 	'#5eead4',
+	'#7de5c3',
 ]
