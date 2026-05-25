@@ -94,3 +94,73 @@ export async function listDaemonSessions(): Promise<readonly SessionRecord[]> {
 export function daemonRunning(): boolean {
 	return liveDaemon() !== null
 }
+
+// --- daemon-hosted sessions (attach) ---
+
+export interface HostedSessionView {
+	readonly id: string
+	readonly title: string
+	readonly cwd: string
+	readonly state: string
+	readonly running: boolean
+	readonly seq: number
+}
+
+export async function listHostedSessions(): Promise<readonly HostedSessionView[]> {
+	const info = liveDaemon()
+	if (!info) return []
+	const res = await call(info, 'GET', '/v1/hosted')
+	if (!res || !res.ok) return []
+	try {
+		const body = (await res.json()) as { sessions?: HostedSessionView[] }
+		return Array.isArray(body.sessions) ? body.sessions : []
+	} catch {
+		return []
+	}
+}
+
+/** Create a daemon-hosted session; returns its id, or null if no daemon. */
+export async function createHostedSession(input: {
+	cwd: string
+	title?: string
+}): Promise<string | null> {
+	const info = liveDaemon()
+	if (!info) return null
+	const res = await call(info, 'POST', '/v1/hosted', input)
+	if (!res || !res.ok) return null
+	try {
+		const v = (await res.json()) as { id?: string }
+		return typeof v.id === 'string' ? v.id : null
+	} catch {
+		return null
+	}
+}
+
+export async function sendHostedMessage(id: string, text: string): Promise<boolean> {
+	const info = liveDaemon()
+	if (!info) return false
+	const res = await call(info, 'POST', `/v1/hosted/${encodeURIComponent(id)}/message`, { text })
+	return Boolean(res && res.ok)
+}
+
+/** One logged event from a hosted session (shape mirrors the daemon's). */
+export interface HostedLoggedEvent {
+	readonly seq: number
+	readonly event: unknown
+}
+
+/** Fetch events at/after `since`; returns the tail + the new seq + state. */
+export async function pollHostedEvents(
+	id: string,
+	since: number,
+): Promise<{ events: HostedLoggedEvent[]; seq: number; state: string } | null> {
+	const info = liveDaemon()
+	if (!info) return null
+	const res = await call(info, 'GET', `/v1/hosted/${encodeURIComponent(id)}/events?since=${since}`)
+	if (!res || !res.ok) return null
+	try {
+		return (await res.json()) as { events: HostedLoggedEvent[]; seq: number; state: string }
+	} catch {
+		return null
+	}
+}

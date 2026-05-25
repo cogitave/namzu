@@ -25,10 +25,14 @@ import { isTrusted, trustDir } from '../integrations/trust/store.js'
 import { appendMemory, composeMemoryPrompt, readMemory } from '../memory/store.js'
 import { composeSkillsPrompt, discoverSkills, loadSkillBody } from '../skills/store.js'
 import {
+	createHostedSession,
 	deregisterSession,
 	heartbeatSession,
 	listDaemonSessions,
+	listHostedSessions,
+	pollHostedEvents,
 	registerSession,
+	sendHostedMessage,
 } from '../daemon/client.js'
 import { type ActiveTool, LiveActivity, formatElapsed } from './LiveActivity.js'
 import { expandFileMentions } from './mentions.js'
@@ -56,6 +60,7 @@ import {
 	startConversation,
 } from '../integrations/sessions/store.js'
 import {
+	type AgentEvent,
 	type AgentSession,
 	type PermissionDecision,
 	type PermissionRequest,
@@ -95,6 +100,14 @@ export function App({ ctx }: AppProps) {
 		[],
 	)
 	const [usage, setUsage] = useState<{ totalTokens: number; costUsd: number } | null>(null)
+	// When set, the TUI is attached to a daemon-hosted session: input routes to
+	// the daemon and a poller streams its events into the transcript.
+	const [attachedTo, setAttachedTo] = useState<string | null>(null)
+	const attachSeqRef = useRef<number>(0)
+	const attachStateRef = useRef<{ assistantId: string | null; text: string }>({
+		assistantId: null,
+		text: '',
+	})
 	// Tools currently executing — rendered live (spinner + elapsed) below the
 	// transcript, then committed as static lines on completion.
 	const [activeTools, setActiveTools] = useState<readonly ActiveTool[]>([])
@@ -309,7 +322,14 @@ export function App({ ctx }: AppProps) {
 			const mine = s.pid === process.pid ? ' (this one)' : ''
 			return `${glyph[s.state] ?? '●'} ${s.title} — ${cwd} · ${s.state} · ${rel(s.lastSeen)}${mine}`
 		})
-		pushMessage('system', `namzu sessions (${sessions.length}):\n${lines.join('\n')}`)
+		// Daemon-hosted sessions you can `/attach <id>` into.
+		const hosted = await listHostedSessions()
+		const hostedLines = hosted.map(
+			(h) => `${glyph[h.state] ?? '●'} ${h.id} — ${h.title} · ${h.state}${h.running ? ' (running)' : ''}`,
+		)
+		const parts = [`namzu sessions (${sessions.length}):`, ...lines]
+		if (hosted.length > 0) parts.push('', `hosted — /attach <id>:`, ...hostedLines)
+		pushMessage('system', parts.join('\n'))
 	}, [pushMessage])
 
 	// Load the chosen conversation into the transcript and continue in it.
@@ -360,6 +380,90 @@ export function App({ ctx }: AppProps) {
 		[],
 	)
 
+	// Render one agent event onto the transcript. Shared by the local turn loop
+	// and the daemon-attach poller, so both paths produce identical output.
+	// `st` carries the streaming-assistant bubble id + accumulated text across
+	// events within a turn/stream.
+	const applyEvent = useCallback(
+		(event: AgentEvent, st: { assistantId: string | null; text: string }) => {
+			const ensureAssistant = () => {
+				if (!st.assistantId) st.assistantId = pushMessage('assistant', '', true)
+				return st.assistantId
+			}
+			const closeAssistant = () => {
+				if (st.assistantId) {
+					finalizeMessage(st.assistantId)
+					st.assistantId = null
+				}
+			}
+			switch (event.kind) {
+				case 'delta':
+					setState('thinking')
+					st.text += event.text
+					appendToMessage(ensureAssistant(), event.text)
+					break
+				case 'tool-start': {
+					closeAssistant()
+					setState('tool')
+					const tool: RunningTool = {
+						id: event.toolUseId,
+						toolName: event.toolName,
+						label: formatToolCall(event.toolName, event.summary),
+						startedAt: Date.now(),
+						detail: event.detail,
+					}
+					activeToolsRef.current = [...activeToolsRef.current, tool]
+					setActiveTools(activeToolsRef.current)
+					break
+				}
+				case 'tool-end': {
+					const running = activeToolsRef.current
+					let i = running.findIndex((t) => t.id === event.toolUseId)
+					if (i < 0) i = running.length > 0 ? 0 : -1
+					const done = i >= 0 ? running[i] : undefined
+					if (i >= 0) {
+						activeToolsRef.current = [...running.slice(0, i), ...running.slice(i + 1)]
+						setActiveTools(activeToolsRef.current)
+					}
+					pushMessage(
+						'tool',
+						done?.label ?? formatToolCall(event.toolName, event.summary),
+						false,
+						event.isError ? '✗' : '✓',
+						done?.detail,
+						event.isError ? theme.status.error : theme.status.ok,
+						done ? formatElapsed(Date.now() - done.startedAt) : undefined,
+					)
+					if (event.isError || event.summary.length > 0 || (event.detail?.length ?? 0) > 0) {
+						pushMessage(
+							'tool',
+							event.isError ? `failed: ${event.summary}` : event.summary,
+							false,
+							'⎿',
+							event.detail,
+						)
+					}
+					setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
+					break
+				}
+				case 'usage':
+					setUsage({ totalTokens: event.totalTokens, costUsd: event.costUsd })
+					break
+				case 'task':
+					pushMessage('tool', event.subject, false, event.status === 'completed' ? '☑' : '☐')
+					break
+				case 'done':
+					closeAssistant()
+					break
+				case 'error':
+					closeAssistant()
+					if (event.message !== 'aborted') pushMessage('system', `Error: ${event.message}`)
+					break
+			}
+		},
+		[appendToMessage, finalizeMessage, pushMessage],
+	)
+
 	const runTurn = useCallback(
 		async (text: string, images?: readonly ImageAttachment[]) => {
 			if (!session || !session.hasProvider) {
@@ -398,23 +502,11 @@ export function App({ ctx }: AppProps) {
 				metaParts.length > 0 ? metaParts.join(' · ') : undefined,
 			)
 			setState('thinking')
-			// The model interleaves text → tool → text across iterations.
-			// Track the current assistant bubble and finalize it at each tool
-			// boundary so later text renders below the tool line, in order.
-			let assistantId: string | null = null
-			const ensureAssistant = () => {
-				if (!assistantId) assistantId = pushMessage('assistant', '', true)
-				return assistantId
-			}
-			const closeAssistant = () => {
-				if (assistantId) {
-					finalizeMessage(assistantId)
-					assistantId = null
-				}
-			}
+			// The model interleaves text → tool → text across iterations; `applyEvent`
+			// (shared with the daemon-attach poller) renders each one in order.
+			const st = { assistantId: null as string | null, text: '' }
 			const ac = new AbortController()
 			abortRef.current = ac
-			let assistantText = ''
 			try {
 				for await (const event of session.send(priorForSdk, {
 					signal: ac.signal,
@@ -423,84 +515,10 @@ export function App({ ctx }: AppProps) {
 					onPermission: ctx.skipPermissions ? undefined : onPermission,
 					extraSystem: composeSkillsPrompt(activeSkills) ?? undefined,
 				})) {
-					switch (event.kind) {
-						case 'delta':
-							setState('thinking')
-							assistantText += event.text
-							appendToMessage(ensureAssistant(), event.text)
-							break
-						case 'tool-start': {
-							closeAssistant()
-							setState('tool')
-							// Don't print the call line yet — show it live (spinner +
-							// ticking timer) until it completes, then commit it.
-							const tool: RunningTool = {
-								// Track by the SDK's stable tool-use id, so parallel tool
-								// calls (even same-named) are matched exactly on completion.
-								id: event.toolUseId,
-								toolName: event.toolName,
-								label: formatToolCall(event.toolName, event.summary),
-								startedAt: Date.now(),
-								detail: event.detail,
-							}
-							activeToolsRef.current = [...activeToolsRef.current, tool]
-							setActiveTools(activeToolsRef.current)
-							break
-						}
-						case 'tool-end': {
-							// Match the running tool by its tool-use id (exact); fall back to
-							// the oldest only if the id is somehow absent. Commit it as a
-							// static line with a ✓/✗ status glyph + elapsed time.
-							const running = activeToolsRef.current
-							let i = running.findIndex((t) => t.id === event.toolUseId)
-							if (i < 0) i = running.length > 0 ? 0 : -1
-							const done = i >= 0 ? running[i] : undefined
-							if (i >= 0) {
-								activeToolsRef.current = [...running.slice(0, i), ...running.slice(i + 1)]
-								setActiveTools(activeToolsRef.current)
-							}
-							pushMessage(
-								'tool',
-								done?.label ?? formatToolCall(event.toolName, event.summary),
-								false,
-								event.isError ? '✗' : '✓',
-								done?.detail,
-								event.isError ? theme.status.error : theme.status.ok,
-								done ? formatElapsed(Date.now() - done.startedAt) : undefined,
-							)
-							if (event.isError || event.summary.length > 0 || (event.detail?.length ?? 0) > 0) {
-								pushMessage(
-									'tool',
-									event.isError ? `failed: ${event.summary}` : event.summary,
-									false,
-									'⎿',
-									event.detail,
-								)
-							}
-							setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
-							break
-						}
-						case 'usage':
-							setUsage({ totalTokens: event.totalTokens, costUsd: event.costUsd })
-							break
-						case 'task':
-							pushMessage('tool', event.subject, false, event.status === 'completed' ? '☑' : '☐')
-							break
-						case 'done':
-							closeAssistant()
-							break
-						case 'error':
-							closeAssistant()
-							// 'aborted' is a user interrupt — the "Interrupted." line already
-							// covers it; don't add a redundant "Error: aborted".
-							if (event.message !== 'aborted') {
-								pushMessage('system', `Error: ${event.message}`)
-							}
-							break
-					}
+					applyEvent(event, st)
 				}
 			} catch (err) {
-				closeAssistant()
+				if (st.assistantId) finalizeMessage(st.assistantId)
 				pushMessage('system', `Error: ${err instanceof Error ? err.message : String(err)}`)
 			} finally {
 				abortRef.current = null
@@ -514,13 +532,84 @@ export function App({ ctx }: AppProps) {
 				const scope = scopeRef.current
 				if (sessions && scope) {
 					const turn: Message[] = [createUserMessage(text)]
-					if (assistantText.trim().length > 0) turn.push(createAssistantMessage(assistantText))
+					if (st.text.trim().length > 0) turn.push(createAssistantMessage(st.text))
 					void appendMessages(sessions, scope.sessionId, turn).catch(() => {})
 				}
 			}
 		},
-		[activeSkills, appendToMessage, ctx.cwd, ctx.skipPermissions, finalizeMessage, messages, onPermission, pushMessage, session],
+		[activeSkills, applyEvent, ctx.cwd, ctx.skipPermissions, finalizeMessage, messages, onPermission, pushMessage, session],
 	)
+
+	// Begin attaching to a daemon-hosted session: reset the view + the poll
+	// cursor, then the poller effect streams its events in.
+	const beginAttach = useCallback(
+		(id: string) => {
+			attachSeqRef.current = 0
+			attachStateRef.current = { assistantId: null, text: '' }
+			setMessages([])
+			resetTranscript()
+			setAttachedTo(id)
+			pushMessage('system', `Attached to hosted session ${id}. /detach to leave.`)
+		},
+		[pushMessage, resetTranscript],
+	)
+
+	const doDispatch = useCallback(
+		async (task: string) => {
+			const id = await createHostedSession({ cwd: ctx.cwd, title: task.slice(0, 60) })
+			if (!id) {
+				pushMessage('system', 'No daemon running. Start one with `namzu serve`, then retry /dispatch.')
+				return
+			}
+			beginAttach(id)
+			pushMessage('user', task)
+			await sendHostedMessage(id, task)
+		},
+		[beginAttach, ctx.cwd, pushMessage],
+	)
+
+	const doAttach = useCallback(
+		async (id: string) => {
+			const hosted = await listHostedSessions()
+			if (!hosted.some((h) => h.id === id)) {
+				pushMessage('system', `No hosted session "${id}". List them with /agents.`)
+				return
+			}
+			beginAttach(id)
+		},
+		[beginAttach, pushMessage],
+	)
+
+	const doDetach = useCallback(() => {
+		setAttachedTo(null)
+		setState('idle')
+		pushMessage('system', 'Detached — back to the local session.')
+	}, [pushMessage])
+
+	// Poll the attached hosted session: fetch new events since the cursor and
+	// render each through the shared `applyEvent`, so attach output matches a
+	// local turn exactly.
+	useEffect(() => {
+		if (!attachedTo) return
+		let stopped = false
+		const tick = async () => {
+			const res = await pollHostedEvents(attachedTo, attachSeqRef.current)
+			if (stopped || !res) return
+			for (const { event } of res.events) applyEvent(event as AgentEvent, attachStateRef.current)
+			attachSeqRef.current = res.seq
+			setState(
+				res.state === 'thinking' || res.state === 'tool'
+					? (res.state as 'thinking' | 'tool')
+					: 'idle',
+			)
+		}
+		const timer = setInterval(() => void tick(), 600)
+		void tick()
+		return () => {
+			stopped = true
+			clearInterval(timer)
+		}
+	}, [attachedTo, applyEvent])
 
 	const handleSubmit = useCallback(
 		(value: string, images?: readonly ImageAttachment[]) => {
@@ -603,9 +692,25 @@ export function App({ ctx }: AppProps) {
 					case 'list-agents':
 						void doListAgents()
 						return
+					case 'dispatch':
+						void doDispatch(slash.task)
+						return
+					case 'attach':
+						void doAttach(slash.id)
+						return
+					case 'detach':
+						doDetach()
+						return
 					case 'none':
 						return
 				}
+			}
+			// Attached to a hosted session → input goes to the daemon; the poller
+			// renders the reply. (Images aren't carried over attach yet.)
+			if (attachedTo) {
+				pushMessage('user', value)
+				void sendHostedMessage(attachedTo, value)
+				return
 			}
 			// A turn is in flight → queue the message; it auto-sends when idle.
 			// (Queued messages are text-only; pasted images aren't carried.)
@@ -615,7 +720,7 @@ export function App({ ctx }: AppProps) {
 			}
 			void runTurn(value, images)
 		},
-		[activeSkills, doListAgents, doResume, exit, pushMessage, runTurn, slashCtx, state],
+		[activeSkills, attachedTo, doAttach, doDetach, doDispatch, doListAgents, doResume, exit, pushMessage, runTurn, slashCtx, state],
 	)
 
 	// Drain the queue: when a turn settles (idle) and nothing is running,

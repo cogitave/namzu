@@ -17,6 +17,9 @@ export type SlashAction =
 	| { kind: 'load-skill'; name: string }
 	| { kind: 'resume' }
 	| { kind: 'list-agents' }
+	| { kind: 'dispatch'; task: string }
+	| { kind: 'attach'; id: string }
+	| { kind: 'detach' }
 	| { kind: 'none' }
 
 export interface SlashContext {
@@ -119,6 +122,39 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
 		name: 'agents',
 		description: 'List namzu sessions running across your terminals (needs `namzu serve`)',
 		action: () => ({ kind: 'list-agents' }),
+	},
+	{
+		name: 'dispatch',
+		description: 'Run a task in a daemon-hosted session and attach to it (needs `namzu serve`)',
+		action: (_ctx, args) => {
+			const task = args.join(' ').trim()
+			return task.length === 0
+				? {
+						kind: 'message',
+						role: 'system',
+						content: 'Usage: /dispatch <task to run in the background>',
+					}
+				: { kind: 'dispatch', task }
+		},
+	},
+	{
+		name: 'attach',
+		description: 'Attach to a daemon-hosted session by id (see /agents)',
+		action: (_ctx, args) => {
+			const id = (args[0] ?? '').trim()
+			return id.length === 0
+				? {
+						kind: 'message',
+						role: 'system',
+						content: 'Usage: /attach <session-id> (list ids with /agents)',
+					}
+				: { kind: 'attach', id }
+		},
+	},
+	{
+		name: 'detach',
+		description: 'Detach from the hosted session and return to the local session',
+		action: () => ({ kind: 'detach' }),
 	},
 	{
 		name: 'resume',
