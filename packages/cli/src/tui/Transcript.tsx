@@ -9,6 +9,7 @@
 import { Box, Text } from 'ink'
 import { useEffect, useState } from 'react'
 
+import { Markdown } from './Markdown.js'
 import { theme } from './theme.js'
 import type { TranscriptMessage } from './types.js'
 
@@ -56,12 +57,16 @@ function MessageRow({
 				</Text>
 			</Box>
 			<Box flexGrow={1}>
-				<Text color={contentColorForRole(message.role)} wrap="wrap">
-					{message.content}
-					{message.pending && message.content.length === 0 ? (
-						<Text color={theme.text.muted}>…</Text>
-					) : null}
-				</Text>
+				{message.role === 'assistant' && message.content.length > 0 ? (
+					<Markdown text={message.content} color={contentColorForRole(message.role)} />
+				) : (
+					<Text color={contentColorForRole(message.role)} wrap="wrap">
+						{message.content}
+						{message.pending && message.content.length === 0 ? (
+							<Text color={theme.text.muted}>…</Text>
+						) : null}
+					</Text>
+				)}
 			</Box>
 		</Box>
 	)
