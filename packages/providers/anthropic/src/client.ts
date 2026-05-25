@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import Anthropic from '@anthropic-ai/sdk'
 import type {
 	ChatCompletionParams,
@@ -35,13 +36,11 @@ function detectClaudeCodeVersion(): string {
 	if (claudeCodeVersionCache !== null) return claudeCodeVersionCache
 	for (const bin of ['claude', 'claude-code']) {
 		try {
-			const cp = require('node:child_process') as typeof import('node:child_process')
-			const out = cp
-				.execFileSync(bin, ['--version'], {
-					encoding: 'utf8',
-					timeout: 5_000,
-					stdio: ['ignore', 'pipe', 'ignore'],
-				})
+			const out = execFileSync(bin, ['--version'], {
+				encoding: 'utf8',
+				timeout: 5_000,
+				stdio: ['ignore', 'pipe', 'ignore'],
+			})
 				.trim()
 				.split(/\s+/)[0]
 			if (out && /^\d/.test(out)) {
