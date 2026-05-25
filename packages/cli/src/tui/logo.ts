@@ -41,7 +41,7 @@ export const NAMZU_MARK_COLOR = '#7de5c3'
  * flower/teal identity since a terminal can't draw the SVG). Shown left of
  * the name/version/cwd block.
  */
-export const NAMZU_ICON: readonly string[] = ['  ❀  ', '╭───╮', '│•◡•│', '╰───╯']
+export const NAMZU_ICON: readonly string[] = [' ❀ ', '┌┴┐', '│◉│', '└┬┘']
 
-/** Per-row colors: bloom + face in the namzu teal/green palette. */
+/** Per-row colors: bloom + body in the namzu teal/green palette. */
 export const NAMZU_ICON_GRADIENT: readonly string[] = ['#a4edd5', '#7de5c3', '#5eead4', '#7de5c3']
