@@ -20,10 +20,9 @@ Every session registers the SDK builtins, which run natively in-process:
 | `read` | Read a file (line-range aware). |
 | `write` | Write a file. |
 | `edit` | Replace text in a file. |
-| `append` | Append to a file. |
 | `glob` | Match files by pattern. |
 | `grep` | Search file contents. |
-| `verify_outputs` | Validate produced outputs. |
+| `remember` | Save a durable fact to long-term memory. |
 
 ## The clawtool bridge
 

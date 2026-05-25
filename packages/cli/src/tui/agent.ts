@@ -168,11 +168,22 @@ async function ensureRegistered(id: ProviderId): Promise<void> {
 	registered.add(id)
 }
 
+// Builtins we don't expose: `append` (write/edit cover it) and
+// `verify_outputs` — neither is part of the recognizable Claude-Code tool
+// surface, and showing them just adds noise to `/tools`.
+const EXCLUDED_BUILTINS = new Set(['append', 'verify_outputs'])
+
 function buildToolRegistry(): ToolRegistry {
 	const registry = new ToolRegistry()
-	registry.register(getBuiltinTools())
+	registry.register(getBuiltinTools().filter((t) => !EXCLUDED_BUILTINS.has(t.name)))
 	registry.register([buildRememberTool()])
 	return registry
+}
+
+/** clawtool tools are opt-in (token cost) — enable with NAMZU_CLAWTOOL_TOOLS=1. */
+export function clawtoolToolsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+	const v = env.NAMZU_CLAWTOOL_TOOLS
+	return v === '1' || v === 'true'
 }
 
 export async function createAgentSession(
@@ -204,11 +215,15 @@ export async function createAgentSession(
 		)
 	}
 	const registry = buildToolRegistry()
-	// Best-effort: fold in clawtool's tool catalog when its daemon is
-	// reachable, skipping any tool that duplicates a builtin. Never fatal —
-	// if clawtool is absent/down/slow the session runs on builtins alone.
-	const clawtoolTools = await loadClawtoolToolDefinitions({ skipNames: registry.listNames() })
-	if (clawtoolTools.length > 0) registry.register(clawtoolTools)
+	// clawtool's catalog (~70 tools) is powerful but every tool's schema is
+	// re-sent in the system prompt on every iteration — loading all of them
+	// can balloon a single turn past 100k tokens. So it's OPT-IN: set
+	// NAMZU_CLAWTOOL_TOOLS=1 to fold it in. Default is the lean builtin set,
+	// which keeps per-message token cost low (the claude-code/gemini default).
+	if (clawtoolToolsEnabled()) {
+		const clawtoolTools = await loadClawtoolToolDefinitions({ skipNames: registry.listNames() })
+		if (clawtoolTools.length > 0) registry.register(clawtoolTools)
+	}
 	const scope = mintScope()
 	// Persists across turns: once the user picks "approve all", later tool
 	// batches in this session run without prompting.

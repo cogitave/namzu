@@ -420,8 +420,19 @@ export function App({ ctx }: AppProps) {
 		{ isActive: phase !== 'picker' },
 	)
 
+	// Fill the viewport so the dark background covers the whole screen, not
+	// just the lines with content (Ink's render-background paints every row of
+	// the box's computed height). minHeight = terminal rows keeps it black
+	// edge-to-edge while content is short; native scrollback still works as
+	// the transcript grows past the viewport.
+	const viewportRows = Math.max(1, (process.stdout.rows ?? 24) - 1)
 	return (
-		<Box flexDirection="column" width="100%" backgroundColor={theme.background}>
+		<Box
+			flexDirection="column"
+			width="100%"
+			minHeight={viewportRows}
+			backgroundColor={theme.background}
+		>
 			<Banner version={ctx.version} session={session} bypass={ctx.skipPermissions === true} />
 			<Box flexDirection="column" paddingX={1}>
 				{phase === 'trust' ? (
