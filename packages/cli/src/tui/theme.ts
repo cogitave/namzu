@@ -1,9 +1,10 @@
 /**
- * Theme tokens for the TUI — a single, fully-dark palette tuned for a
- * black canvas (the root fills with `background` and the screen is cleared
- * on launch). Curated hex colors (GitHub-dark-leaning) give a consistent,
- * premium look across terminals rather than depending on the user's 16
- * ANSI colors. A theme registry/picker is a follow-up.
+ * Theme tokens for the TUI — a single dark palette. We inherit the
+ * terminal's own background (like claude-code / gemini-cli) rather than
+ * painting one, and only theme the foreground; curated hex colors
+ * (GitHub-dark-leaning) give a consistent, premium look on dark terminals.
+ * `background` is kept for reference / a future light theme but is not
+ * forced onto the canvas. A theme registry/picker is a follow-up.
  */
 
 export interface SemanticColors {
