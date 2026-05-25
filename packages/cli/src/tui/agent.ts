@@ -22,6 +22,7 @@
  */
 
 import {
+	DiskMemoryStore,
 	DiskTaskStore,
 	type HITLResumeDecision,
 	type LLMProvider,
@@ -38,6 +39,7 @@ import {
 	type ThreadId,
 	type ToolCallSummary,
 	ToolRegistry,
+	buildMemoryTools,
 	getBuiltinTools,
 	query,
 } from '@namzu/sdk'
@@ -55,7 +57,6 @@ import {
 	readPreferences,
 } from '../integrations/providers/index.js'
 import { composeMemoryPrompt, readMemory } from '../memory/store.js'
-import { REMEMBER_TOOL_NAME, buildRememberTool } from '../memory/tool.js'
 
 export type AgentEvent =
 	| { readonly kind: 'delta'; readonly text: string }
@@ -199,7 +200,11 @@ const NAMZU_IDENTITY = [
 function buildToolRegistry(): ToolRegistry {
 	const registry = new ToolRegistry()
 	registry.register(getBuiltinTools().filter((t) => !EXCLUDED_BUILTINS.has(t.name)))
-	registry.register([buildRememberTool()])
+	// SDK memory: the agent gets search_memory / read_memory / save_memory over
+	// a structured store at ~/.namzu/memory (separate from the user-curated
+	// MEMORY.md that's injected into the prompt).
+	const memoryStore = new DiskMemoryStore({ baseDir: join(process.cwd(), '.namzu') })
+	registry.register(buildMemoryTools(memoryStore, memoryStore.getIndex()))
 	// `search_tools` lets the model load deferred (clawtool) tools on demand.
 	registry.register([SearchToolsTool])
 	return registry
@@ -454,8 +459,13 @@ const READ_ONLY_TOOLS = new Set([
 	'grep',
 	'ls',
 	'verify_outputs',
-	// Safe self-write to the user's own memory file — never prompt for it.
-	REMEMBER_TOOL_NAME,
+	// Memory + task tools touch only the agent's own ~/.namzu state — safe, no prompt.
+	'search_memory',
+	'read_memory',
+	'save_memory',
+	'task_create',
+	'task_update',
+	'task_list',
 ])
 
 /**
