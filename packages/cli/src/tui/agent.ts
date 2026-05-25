@@ -52,8 +52,10 @@ import {
 	type Preferences,
 	type ProviderId,
 	discoverProviders,
+	ensureFreshAnthropicToken,
 	findDetected,
 	isAnthropicOAuthToken,
+	readClaudeCodeKeychainCredential,
 	readPreferences,
 } from '../integrations/providers/index.js'
 import { composeMemoryPrompt, readMemory } from '../memory/store.js'
@@ -239,6 +241,34 @@ export async function createAgentSession(
 			`Failed to construct ${entry.label}: ${err instanceof Error ? err.message : String(err)}`,
 		)
 	}
+	// Claude Code OAuth access tokens are short-lived (~8h). They rarely lapse
+	// *during* a turn, but they do between turns — an idle session that sends
+	// again hours later would otherwise 401. So before each turn (see `send`)
+	// we re-read the Keychain (Claude Code may have rotated it) and refresh a
+	// stale token, rebuilding the client only when the token actually changed.
+	// Gated on `det.oauth` so env / secrets credentials are never touched.
+	const keychainRefresh = prefs.provider === 'anthropic' && Boolean(det?.oauth)
+	let currentToken = det?.apiKey
+	const refreshTokenIfNeeded = async (): Promise<void> => {
+		if (!keychainRefresh) return
+		const cred = readClaudeCodeKeychainCredential()
+		if (!cred) return
+		const fresh = await ensureFreshAnthropicToken(cred.accessToken, {
+			refreshToken: cred.refreshToken,
+			expiresAt: cred.expiresAt,
+		})
+		if (fresh === currentToken) return
+		currentToken = fresh
+		try {
+			provider = constructProvider(
+				'anthropic',
+				{ ...(det as DetectedProvider), apiKey: fresh },
+				model,
+			)
+		} catch {
+			// Keep the previous client; the turn may still 401 but won't crash.
+		}
+	}
 	const registry = buildToolRegistry()
 	// clawtool's catalog (~70 tools) is registered DEFERRED: each costs only a
 	// name line in the prompt (no JSON schema), so it never balloons a turn —
@@ -266,7 +296,10 @@ export async function createAgentSession(
 		toolNames: activeToolNames,
 		deferredToolCount,
 		errorHint: null,
-		send: (messages, opts) => {
+		send: async function* (messages, opts) {
+			// Renew a lapsed OAuth token before the turn runs (no-op for valid
+			// tokens and non-keychain credentials).
+			await refreshTokenIfNeeded()
 			// namzu identity first (so it establishes who the agent is even when
 			// the Anthropic OAuth path prepends the required Claude Code prefix),
 			// then memory read fresh each turn, then per-turn extra (active skills).
@@ -275,7 +308,7 @@ export async function createAgentSession(
 				[NAMZU_IDENTITY, memoryPrompt, opts?.extraSystem]
 					.filter((s): s is string => Boolean(s))
 					.join('\n\n') || undefined
-			return runTurn(
+			yield* runTurn(
 				provider,
 				model,
 				registry,

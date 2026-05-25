@@ -12,6 +12,11 @@ export {
 } from './keychain.js'
 export { maskSecret } from './mask.js'
 export {
+	ensureFreshAnthropicToken,
+	type OAuthMetadata,
+	refreshClaudeCodeToken,
+} from './oauth.js'
+export {
 	type Preferences,
 	PREFERENCES_FILE_VERSION,
 	PreferencesError,

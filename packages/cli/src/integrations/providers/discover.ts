@@ -32,6 +32,12 @@ export interface DetectedProvider {
 	readonly apiKey?: string
 	/** Resolved base URL (overrides the registry default if set). */
 	readonly baseUrl?: string
+	/**
+	 * OAuth refresh metadata, present only when `apiKey` is an OAuth access
+	 * token carrying a refresh token + expiry (the Claude Code Keychain). Lets
+	 * the session layer renew a lapsed token instead of failing with a 401.
+	 */
+	readonly oauth?: { readonly refreshToken?: string; readonly expiresAt?: number }
 	/** Other sources that also satisfy this provider — informational. */
 	readonly alternatives: readonly DetectionSource[]
 }
@@ -69,6 +75,7 @@ export async function discoverProviders(
 		const entry = PROVIDER_REGISTRY[id]
 		const sources: DetectionSource[] = []
 		let apiKey: string | undefined
+		let oauth: DetectedProvider['oauth']
 		for (const envName of entry.envVars) {
 			const v = env[envName]
 			if (v && v.length > 0) {
@@ -85,6 +92,14 @@ export async function discoverProviders(
 		if (id === 'anthropic' && claudeKeychain) {
 			if (apiKey === undefined) apiKey = claudeKeychain.accessToken
 			sources.push({ kind: 'keychain', service: 'Claude Code-credentials' })
+			// Only carry refresh metadata when the Keychain token is the one we'll
+			// actually use (an env/secrets token has no refresh path).
+			if (apiKey === claudeKeychain.accessToken) {
+				oauth = {
+					refreshToken: claudeKeychain.refreshToken,
+					expiresAt: claudeKeychain.expiresAt,
+				}
+			}
 		}
 		if (sources.length === 0 && entry.probeUrl && !opts.skipProbes) {
 			const reachable = await probe(entry.probeUrl, opts)
@@ -98,6 +113,7 @@ export async function discoverProviders(
 				source: sources[0] as DetectionSource,
 				apiKey,
 				baseUrl: entry.defaultBaseUrl,
+				...(oauth ? { oauth } : {}),
 				alternatives: sources.slice(1),
 			})
 			continue
