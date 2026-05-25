@@ -435,7 +435,9 @@ export function App({ ctx }: AppProps) {
 							// Don't print the call line yet — show it live (spinner +
 							// ticking timer) until it completes, then commit it.
 							const tool: RunningTool = {
-								id: nextId(),
+								// Track by the SDK's stable tool-use id, so parallel tool
+								// calls (even same-named) are matched exactly on completion.
+								id: event.toolUseId,
 								toolName: event.toolName,
 								label: formatToolCall(event.toolName, event.summary),
 								startedAt: Date.now(),
@@ -446,10 +448,11 @@ export function App({ ctx }: AppProps) {
 							break
 						}
 						case 'tool-end': {
-							// Match the oldest running tool of this name (FIFO), commit it
-							// as a static line with a ✓/✗ status glyph + elapsed time.
+							// Match the running tool by its tool-use id (exact); fall back to
+							// the oldest only if the id is somehow absent. Commit it as a
+							// static line with a ✓/✗ status glyph + elapsed time.
 							const running = activeToolsRef.current
-							let i = running.findIndex((t) => t.toolName === event.toolName)
+							let i = running.findIndex((t) => t.id === event.toolUseId)
 							if (i < 0) i = running.length > 0 ? 0 : -1
 							const done = i >= 0 ? running[i] : undefined
 							if (i >= 0) {

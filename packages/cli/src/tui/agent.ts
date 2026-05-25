@@ -66,6 +66,8 @@ export type AgentEvent =
 	| { readonly kind: 'delta'; readonly text: string }
 	| {
 			readonly kind: 'tool-start'
+			/** SDK tool-use id — stable across this call's start/end (for tracking). */
+			readonly toolUseId: string
 			readonly toolName: string
 			readonly summary: string
 			/** Diff / content preview shown (collapsible) under the call. */
@@ -73,6 +75,7 @@ export type AgentEvent =
 	  }
 	| {
 			readonly kind: 'tool-end'
+			readonly toolUseId: string
 			readonly toolName: string
 			readonly isError: boolean
 			readonly summary: string
@@ -199,7 +202,13 @@ const NAMZU_IDENTITY = [
 	'Your name is namzu. When asked who or what you are, identify yourself as namzu —',
 	'not Claude or Claude Code — even though you may be powered by an underlying model',
 	'from Anthropic or another provider.',
-].join(' ')
+	'',
+	'CRITICAL — never fabricate. Only claim to have done something if you actually did it through a tool call in THIS turn:',
+	'- Never say you ran a command, wrote/edited a file, delegated to a sub-agent, or researched something unless the corresponding tool call actually ran and returned.',
+	'- Never invent file paths, command output, URLs, research findings, or results. If you announce an action ("running…", "delegating…"), you MUST immediately make the tool call — do not narrate an action and then skip it.',
+	'- If a capability or tool is unavailable (e.g. no web access, a tool is missing, a sub-agent failed), say so plainly and stop — do not improvise a fake result.',
+	'- When you delegate with the `Agent` tool, report only what the sub-agent actually returned in its tool result; if it wrote files, verify with a tool before claiming paths.',
+].join('\n')
 
 function buildToolRegistry(): ToolRegistry {
 	const registry = new ToolRegistry()
@@ -297,7 +306,15 @@ export async function createAgentSession(
 					det ? { ...det, apiKey: currentToken ?? det.apiKey } : det,
 					model,
 				),
-			buildTools: () => buildToolRegistry(),
+			buildTools: () => {
+				// Sub-agents get the same working set as the parent — builtins +
+				// memory + search_tools, plus clawtool's catalog (deferred) so they
+				// can load research / peer-dispatch tools on demand. Without this a
+				// sub-agent has no way to do real work beyond local files.
+				const r = buildToolRegistry()
+				if (clawtoolTools.length > 0) r.register(clawtoolTools, 'deferred')
+				return r
+			},
 			verificationGate: VERIFICATION_GATE,
 			onEvent: (e) => {
 				if (e.type === 'tool_executing') {
@@ -614,6 +631,7 @@ export function toAgentEvent(event: RunEvent): AgentEvent | null {
 		case 'tool_executing':
 			return {
 				kind: 'tool-start',
+				toolUseId: event.toolUseId,
 				toolName: event.toolName,
 				summary: summarizeToolInput(event.input),
 				detail: toolStartDetail(event.toolName, event.input),
@@ -621,6 +639,7 @@ export function toAgentEvent(event: RunEvent): AgentEvent | null {
 		case 'tool_completed':
 			return {
 				kind: 'tool-end',
+				toolUseId: event.toolUseId,
 				toolName: event.toolName,
 				isError: event.isError,
 				summary: firstLine(event.result),

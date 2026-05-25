@@ -52,7 +52,12 @@ export function buildAgentTool(opts: AgentToolOptions): ToolDefinition {
 			prompt: z
 				.string()
 				.describe('Self-contained task description with all context the subagent needs'),
-			subagent_type: subagentTypeEnum.describe('Which subagent to run'),
+			subagent_type:
+				agentIds.length === 1
+					? subagentTypeEnum
+							.optional()
+							.describe(`Which subagent to run (defaults to the only one: ${agentIds[0]})`)
+					: subagentTypeEnum.describe('Which subagent to run'),
 		}),
 		category: 'custom',
 		permissions: [],
@@ -60,15 +65,25 @@ export function buildAgentTool(opts: AgentToolOptions): ToolDefinition {
 		destructive: false,
 		concurrencySafe: true,
 		async execute({ description, prompt, subagent_type }, context) {
+			// With a single registered subagent the type is optional — default to
+			// it so the model can't trip the "subagent_type required" validation.
+			const agentId = subagent_type ?? (agentIds.length === 1 ? agentIds[0] : undefined)
+			if (!agentId) {
+				return {
+					success: false,
+					output: '',
+					error: `subagent_type is required — choose one of: ${agentIds.join(', ')}`,
+				}
+			}
 			const handle = await gateway.createTask({
-				agentId: subagent_type,
+				agentId,
 				prompt,
 				workingDirectory: cwd,
 				runtimeContext: opts.runtimeContext,
 			})
 
 			onTaskLaunched?.(handle.taskId, {
-				agentId: subagent_type,
+				agentId,
 				description,
 				// Same canonical-envelope plumbing as coordinator/index.ts
 				// (ses_009-task-notification-envelope). For Agent-tool path
@@ -116,10 +131,10 @@ export function buildAgentTool(opts: AgentToolOptions): ToolDefinition {
 				return {
 					success: false,
 					output: '',
-					error: `Subagent ${subagent_type} ${failureLabel}: ${detail}`,
+					error: `Subagent ${agentId} ${failureLabel}: ${detail}`,
 					data: {
 						task_id: handle.taskId,
-						subagent_type,
+						subagent_type: agentId,
 						state: completed.state,
 						status: runStatus,
 						lastError: completed.result?.lastError,
@@ -132,7 +147,7 @@ export function buildAgentTool(opts: AgentToolOptions): ToolDefinition {
 				output: resultText || '(subagent returned no text)',
 				data: {
 					task_id: handle.taskId,
-					subagent_type,
+					subagent_type: agentId,
 					state: completed.state,
 					status: runStatus,
 				},

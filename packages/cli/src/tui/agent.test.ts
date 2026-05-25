@@ -51,6 +51,7 @@ describe('toAgentEvent', () => {
 		} as unknown as RunEvent
 		expect(toAgentEvent(ev)).toEqual({
 			kind: 'tool-start',
+			toolUseId,
 			toolName: 'bash',
 			summary: 'ls -la /tmp',
 		})
@@ -66,6 +67,7 @@ describe('toAgentEvent', () => {
 		} as unknown as RunEvent
 		expect(toAgentEvent(ev)).toEqual({
 			kind: 'tool-start',
+			toolUseId,
 			toolName: 'read',
 			summary: '/etc/hosts',
 		})
@@ -82,6 +84,7 @@ describe('toAgentEvent', () => {
 		} as unknown as RunEvent
 		expect(toAgentEvent(ev)).toEqual({
 			kind: 'tool-end',
+			toolUseId,
 			toolName: 'bash',
 			isError: false,
 			summary: 'multi',
