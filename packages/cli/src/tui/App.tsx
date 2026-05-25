@@ -37,13 +37,25 @@ import { PermissionOverlay } from './PermissionOverlay.js'
 import { Picker } from './Picker.js'
 import { StatusBar } from './StatusBar.js'
 import { Transcript } from './Transcript.js'
+import { createAssistantMessage, createUserMessage } from '@namzu/sdk'
+import {
+	type CliSessions,
+	type RecentConversation,
+	appendMessages,
+	listRecent,
+	loadConversation,
+	openSessions,
+	startConversation,
+} from '../integrations/sessions/store.js'
 import {
 	type AgentSession,
 	type PermissionDecision,
 	type PermissionRequest,
+	type RunScope,
 	createAgentSession,
 	probeAgentSession,
 } from './agent.js'
+import { ResumePicker } from './ResumePicker.js'
 import { type SlashContext, runSlash } from './slashCommands.js'
 import { theme } from './theme.js'
 import type { TranscriptMessage, TuiContext } from './types.js'
@@ -52,7 +64,7 @@ export interface AppProps {
 	readonly ctx: TuiContext
 }
 
-type LifecyclePhase = 'trust' | 'probing' | 'picker' | 'ready' | 'unhealthy'
+type LifecyclePhase = 'trust' | 'probing' | 'picker' | 'ready' | 'unhealthy' | 'resume'
 
 export function App({ ctx }: AppProps) {
 	const { exit } = useApp()
@@ -71,9 +83,16 @@ export function App({ ctx }: AppProps) {
 	const [expanded, setExpanded] = useState<boolean>(false)
 	// Messages typed while a turn is running — auto-sent when it settles.
 	const [queued, setQueued] = useState<readonly string[]>([])
+	const [resumeList, setResumeList] = useState<readonly RecentConversation[]>([])
+	const [selectedResume, setSelectedResume] = useState<number>(0)
 	const exitArmedRef = useRef<boolean>(false)
 	const abortRef = useRef<AbortController | null>(null)
 	const permissionResolveRef = useRef<((d: PermissionDecision) => void) | null>(null)
+	// SDK-backed conversation persistence (DiskSessionStore). `scopeRef` carries
+	// the active session id used by query() — mutated in place on /resume so new
+	// turns attribute to the resumed conversation.
+	const sessionsRef = useRef<CliSessions | null>(null)
+	const scopeRef = useRef<RunScope | null>(null)
 	const idRef = useRef<number>(0)
 	const nextId = useCallback(() => {
 		idRef.current += 1
@@ -107,9 +126,30 @@ export function App({ ctx }: AppProps) {
 		)
 	}, [])
 
+	// Open the SDK session store + start a fresh conversation once. Best-effort:
+	// on failure persistence is simply unavailable and the chat still works.
+	const ensureSessions = useCallback(async (): Promise<RunScope | undefined> => {
+		if (scopeRef.current) return scopeRef.current
+		try {
+			const sessions = await openSessions(ctx.cwd)
+			const sessionId = await startConversation(sessions)
+			sessionsRef.current = sessions
+			scopeRef.current = {
+				sessionId,
+				threadId: sessions.threadId,
+				projectId: sessions.projectId,
+				tenantId: sessions.tenantId,
+			}
+			return scopeRef.current
+		} catch {
+			return undefined
+		}
+	}, [ctx.cwd])
+
 	const hydrateSession = useCallback(
 		async (prefs: Preferences, detectedNow: readonly DetectedProvider[]) => {
-			const s = await createAgentSession(prefs, detectedNow)
+			const scope = await ensureSessions()
+			const s = await createAgentSession(prefs, detectedNow, scope)
 			setSession(s)
 			setCurrentProvider(prefs.provider)
 			if (s.hasProvider) {
@@ -174,6 +214,55 @@ export function App({ ctx }: AppProps) {
 		modelSummary: session?.modelSummary ?? null,
 	}
 
+	// `/resume`: open the picker with this folder's recent conversations.
+	const doResume = useCallback(async () => {
+		const sessions = sessionsRef.current ?? (await ensureSessions(), sessionsRef.current)
+		if (!sessions) {
+			pushMessage('system', 'Conversation history is unavailable in this folder.')
+			return
+		}
+		try {
+			const recent = await listRecent(sessions)
+			// Don't offer the active (empty/just-started) conversation.
+			const others = recent.filter((c) => c.id !== scopeRef.current?.sessionId)
+			if (others.length === 0) {
+				pushMessage('system', 'No past conversations to resume in this folder yet.')
+				return
+			}
+			setResumeList(others)
+			setSelectedResume(0)
+			setPhase('resume')
+		} catch (err) {
+			pushMessage('system', `Could not list conversations: ${err instanceof Error ? err.message : String(err)}`)
+		}
+	}, [ensureSessions, pushMessage])
+
+	// Load the chosen conversation into the transcript and continue in it.
+	const resumeConversation = useCallback(
+		async (conv: RecentConversation) => {
+			const sessions = sessionsRef.current
+			const scope = scopeRef.current
+			setPhase('ready')
+			if (!sessions || !scope) return
+			try {
+				const msgs = await loadConversation(sessions, conv.id)
+				const restored: TranscriptMessage[] = msgs
+					.filter((m) => m.role === 'user' || m.role === 'assistant')
+					.map((m) => ({
+						id: nextId(),
+						role: m.role as 'user' | 'assistant',
+						content: typeof m.content === 'string' ? m.content : '',
+					}))
+				setMessages(restored)
+				scope.sessionId = conv.id // new turns now attribute to the resumed session
+				pushMessage('system', `Resumed: ${conv.title}`)
+			} catch (err) {
+				pushMessage('system', `Could not resume: ${err instanceof Error ? err.message : String(err)}`)
+			}
+		},
+		[nextId, pushMessage],
+	)
+
 	// Resolve a pending permission prompt with the user's decision and tear
 	// down the overlay. No-op if nothing is pending.
 	const resolvePermission = useCallback((decision: PermissionDecision) => {
@@ -228,6 +317,7 @@ export function App({ ctx }: AppProps) {
 			}
 			const ac = new AbortController()
 			abortRef.current = ac
+			let assistantText = ''
 			try {
 				for await (const event of session.send(priorForSdk, {
 					signal: ac.signal,
@@ -239,6 +329,7 @@ export function App({ ctx }: AppProps) {
 					switch (event.kind) {
 						case 'delta':
 							setState('thinking')
+							assistantText += event.text
 							appendToMessage(ensureAssistant(), event.text)
 							break
 						case 'tool-start':
@@ -284,9 +375,18 @@ export function App({ ctx }: AppProps) {
 				permissionResolveRef.current = null
 				setPermission(null)
 				setState('idle')
+				// Persist the turn to the SDK session store (best-effort) so it can
+				// be resumed later. User message + the assistant's reply text.
+				const sessions = sessionsRef.current
+				const scope = scopeRef.current
+				if (sessions && scope) {
+					const turn: Message[] = [createUserMessage(text)]
+					if (assistantText.trim().length > 0) turn.push(createAssistantMessage(assistantText))
+					void appendMessages(sessions, scope.sessionId, turn).catch(() => {})
+				}
 			}
 		},
-		[activeSkills, appendToMessage, finalizeMessage, messages, onPermission, pushMessage, session],
+		[activeSkills, appendToMessage, ctx.skipPermissions, finalizeMessage, messages, onPermission, pushMessage, session],
 	)
 
 	const handleSubmit = useCallback(
@@ -363,6 +463,9 @@ export function App({ ctx }: AppProps) {
 						}
 						return
 					}
+					case 'resume':
+						void doResume()
+						return
 					case 'none':
 						return
 				}
@@ -374,7 +477,7 @@ export function App({ ctx }: AppProps) {
 			}
 			void runTurn(value)
 		},
-		[activeSkills, exit, pushMessage, runTurn, slashCtx, state],
+		[activeSkills, doResume, exit, pushMessage, runTurn, slashCtx, state],
 	)
 
 	// Drain the queue: when a turn settles (idle) and nothing is running,
@@ -418,6 +521,16 @@ export function App({ ctx }: AppProps) {
 
 	useInput(
 		(input, key) => {
+			// Resume picker owns the keyboard while open.
+			if (phase === 'resume') {
+				if (key.upArrow) setSelectedResume((i) => Math.max(0, i - 1))
+				else if (key.downArrow) setSelectedResume((i) => Math.min(resumeList.length - 1, i + 1))
+				else if (key.return) {
+					const conv = resumeList[selectedResume]
+					if (conv) void resumeConversation(conv)
+				} else if (key.escape || (key.ctrl && input === 'c')) setPhase('ready')
+				return
+			}
 			// Trust gate owns the keyboard until the folder is trusted or we exit.
 			if (phase === 'trust') {
 				const ch = input.toLowerCase()
@@ -478,6 +591,8 @@ export function App({ ctx }: AppProps) {
 			<Box flexDirection="column" paddingX={1}>
 				{phase === 'trust' ? (
 					<TrustPrompt cwd={ctx.cwd} />
+				) : phase === 'resume' ? (
+					<ResumePicker conversations={resumeList} selected={selectedResume} />
 				) : phase === 'picker' ? (
 					<Picker
 						detected={detected}
@@ -625,6 +740,7 @@ function hintForPhase(
 	state: 'idle' | 'thinking' | 'tool' | 'awaiting-permission',
 ): string {
 	if (phase === 'trust') return 'y trust this folder · n exit'
+	if (phase === 'resume') return '↑↓ navigate · enter resume · esc cancel'
 	if (phase === 'probing') return 'discovering providers…'
 	if (phase === 'picker') return '↑↓ navigate · enter accept · esc cancel'
 	if (phase === 'unhealthy') return 'Ctrl+C ×2 to exit'

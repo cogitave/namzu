@@ -203,6 +203,7 @@ function buildToolRegistry(): ToolRegistry {
 export async function createAgentSession(
 	prefs: Preferences,
 	detected: readonly DetectedProvider[],
+	scope: RunScope = mintScope(),
 ): Promise<AgentSession> {
 	const entry = PROVIDER_REGISTRY[prefs.provider]
 	if (!entry) {
@@ -237,7 +238,6 @@ export async function createAgentSession(
 	if (clawtoolTools.length > 0) registry.register(clawtoolTools, 'deferred')
 	const activeToolNames = registry.getCallableTools().map((t) => t.name)
 	const deferredToolCount = clawtoolTools.length
-	const scope = mintScope()
 	// Persists across turns: once the user picks "approve all", later tool
 	// batches in this session run without prompting.
 	const approval = { all: false }
@@ -309,8 +309,8 @@ function constructProvider(
 	}
 }
 
-interface RunScope {
-	readonly sessionId: SessionId
+export interface RunScope {
+	sessionId: SessionId
 	readonly threadId: ThreadId
 	readonly projectId: ProjectId
 	readonly tenantId: TenantId

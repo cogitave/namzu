@@ -15,6 +15,7 @@ export type SlashAction =
 	| { kind: 'show-memory' }
 	| { kind: 'list-skills' }
 	| { kind: 'load-skill'; name: string }
+	| { kind: 'resume' }
 	| { kind: 'none' }
 
 export interface SlashContext {
@@ -112,6 +113,11 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
 		name: 'skills',
 		description: 'List available skills (~/.namzu/skills + ./skills).',
 		action: () => ({ kind: 'list-skills' }),
+	},
+	{
+		name: 'resume',
+		description: 'Resume a past conversation in this folder.',
+		action: () => ({ kind: 'resume' }),
 	},
 	{
 		name: 'skill',
