@@ -44,9 +44,4 @@ export const NAMZU_MARK_COLOR = '#7de5c3'
 export const NAMZU_ICON: readonly string[] = ['  ❀  ', '╭───╮', '│•◡•│', '╰───╯']
 
 /** Per-row colors: bloom + face in the namzu teal/green palette. */
-export const NAMZU_ICON_GRADIENT: readonly string[] = [
-	'#a4edd5',
-	'#7de5c3',
-	'#5eead4',
-	'#7de5c3',
-]
+export const NAMZU_ICON_GRADIENT: readonly string[] = ['#a4edd5', '#7de5c3', '#5eead4', '#7de5c3']
