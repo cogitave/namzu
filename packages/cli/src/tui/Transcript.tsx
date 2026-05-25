@@ -109,7 +109,7 @@ function DetailBlock({
 	return (
 		<Box flexDirection="column" paddingLeft={2}>
 			{shown.map((line, i) => (
-				<Text key={`d-${i}`} color={detailLineColor(line)}>
+				<Text key={`d-${i}`} color={detailLineColor(line)} wrap="wrap">
 					{line.length > 0 ? line : ' '}
 				</Text>
 			))}

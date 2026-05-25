@@ -366,7 +366,11 @@ export function App({ ctx }: AppProps) {
 							break
 						case 'error':
 							closeAssistant()
-							pushMessage('system', `Error: ${event.message}`)
+							// 'aborted' is a user interrupt — the "Interrupted." line already
+							// covers it; don't add a redundant "Error: aborted".
+							if (event.message !== 'aborted') {
+								pushMessage('system', `Error: ${event.message}`)
+							}
 							break
 					}
 				}
@@ -563,6 +567,11 @@ export function App({ ctx }: AppProps) {
 				// A turn is running → first Ctrl+C interrupts it, not exits.
 				if (abortRef.current) {
 					abortRef.current.abort()
+					// Drop the ref now so a second Ctrl+C arms exit instead of
+					// re-aborting (which spammed "Interrupted." lines), and clear any
+					// queued messages — interrupting means stop, not "run the next one".
+					abortRef.current = null
+					setQueued([])
 					pushMessage('system', 'Interrupted.')
 					return
 				}
