@@ -1,5 +1,367 @@
 # Changelog
 
+## 1.0.0
+
+### Major Changes
+
+- df09910: fix(sdk)!: drop plan-task lifecycle from `buildAgentTool`
+
+  `buildAgentTool` used to auto-create a plan task in the supplied
+  `taskStore` and flip it to `'in_progress'` before invoking the
+  subagent. On success it flipped to `'completed'`, but on failure
+  the plan task was left stuck in `'in_progress'` forever — the
+  `TaskStatus` enum has no `'failed'` value to transition to, so
+  there was no honest way to close it from inside the tool.
+
+  Removed `taskStore` and `runId` from `AgentToolOptions` entirely.
+  The `Agent` tool's job is "invoke a subagent and return the
+  result"; plan-task tracking is the parent's responsibility via
+  `TaskCreate` / `TaskUpdate`, where the host owns the status
+  semantics. This avoids the leak class entirely instead of
+  patching it.
+
+  Breaking change for any consumer that was relying on the auto-
+  plan-task behaviour. Migrate by creating the plan task on the
+  host side before calling `Agent`, and updating it on the host
+  side once the tool result is in hand.
+
+- ea21863: feat(sdk)!: rename builtin tools to Claude Code canonical names
+
+  **Breaking change.** Builtin tool names now mirror Claude Code's canonical
+  tool table verbatim (per `code.claude.com/docs/en/tools-reference`):
+
+  - `bash` → `Bash`
+  - `edit` → `Edit`
+  - `glob` → `Glob`
+  - `grep` → `Grep`
+  - `read_file` → `Read`
+  - `write_file` → `Write`
+
+  `LsTool` and `SearchToolsTool` are still exported but **removed from the
+  default `getBuiltinTools()` set**. Claude Code's training distribution
+  does not include `LS` (directory listing is `Bash` + `Glob`) and has no
+  `search_tools` analogue at all. Including them in the defaults gave the
+  model two tools that looked right but degraded alignment. Hosts that
+  genuinely want either can register them explicitly.
+
+  Why this is breaking and worth it: Namzu is a peer to Claude Code's
+  native agentic surface, not a wrapper around the Anthropic Beta Agents
+  API. Mirroring the canonical names verbatim means Claude's pretrained
+  agentic instincts apply for free — no system-prompt argument needed to
+  explain what `Read` or `Bash` does. Idiosyncratic snake_case names threw
+  that alignment away on every call.
+
+  **Migration:** consumers that hard-code tool-name strings in their
+  prompt overlays, friendly-label maps, or per-tool deny rules need to
+  update them to the new PascalCase names. The runtime registry contracts
+  (register / get / has) are unchanged; only the literal string names of
+  the builtin tools moved.
+
+- 8fd9349: feat(sandbox)!: Anthropic-style multi-mount container sandbox layout
+
+  Adds a declarative `ContainerSandboxLayout` shape that maps onto
+  Anthropic's container architecture (Claude container blueprint,
+  Code Interpreter, "skills"). The `Container` prefix is load-bearing
+  — this layout is specific to the container tier; future microVM /
+  process tiers will carry their own layout types when their adapters
+  land. Layout is supplied at provider construction — not per
+  `provider.create()` call — so the type system catches missing-layout
+  mistakes at compile time:
+
+  ```ts
+  import {
+    createSandboxProvider,
+    SANDBOX_DEFAULT_OUTPUTS_PATH, // re-exported from @namzu/sdk
+  } from "@namzu/sandbox";
+
+  const provider = createSandboxProvider({
+    backend: { tier: "container", image: "namzu-worker:latest" },
+    layout: {
+      outputs: {
+        source: {
+          type: "hostDir",
+          hostPath: "/var/lib/vandal/sessions/<task>/outputs",
+        },
+      },
+      uploads: {
+        source: {
+          type: "hostDir",
+          hostPath: "/var/lib/vandal/sessions/<task>/uploads",
+        },
+      },
+      skills: [
+        {
+          id: "pdf-tools",
+          source: { type: "hostDir", hostPath: "/opt/skills/pdf-tools" },
+        },
+      ],
+    },
+  });
+  ```
+
+  Each mount carries a discriminated `ContainerSandboxMountSource`.
+  The single variant today is `{ type: 'hostDir'; hostPath: string }`;
+  future variants (squashfs skill bundles, managed volumes attached
+  to a container backend) land additively as minor bumps without
+  reshaping the consumer call site.
+
+  Layout fields and their defaults:
+
+  - `outputs` — RW. Default `/mnt/user-data/outputs`. **Required**.
+  - `uploads` — RO. Default `/mnt/user-data/uploads`.
+  - `toolResults` — RO. Default `/mnt/user-data/tool_results`.
+  - `skills` — RO list, default `/mnt/skills/<id>` per entry.
+  - `transcripts` — RO. Default `/mnt/transcripts`.
+
+  The defaults are exported as constants from `@namzu/sdk`'s root
+  barrel (`SANDBOX_DEFAULT_OUTPUTS_PATH`,
+  `SANDBOX_DEFAULT_UPLOADS_PATH`, `SANDBOX_DEFAULT_TOOL_RESULTS_PATH`,
+  `SANDBOX_DEFAULT_TRANSCRIPTS_PATH`, `SANDBOX_DEFAULT_SKILLS_PARENT`)
+  and re-exported from `@namzu/sandbox`, so prompt-template generators
+  and the backend agree on a single source of truth. Both import
+  paths (`@namzu/sdk` and `@namzu/sandbox`) are pinned by tests.
+
+  There is intentionally **no `scratchpad` field**: the
+  container-internal RW area (`/home/<imageUser>`) is image-bake
+  responsibility, not a runtime knob.
+
+  **Validation** runs synchronously inside `createSandboxProvider` and
+  collects every violation in one
+  `ContainerSandboxLayoutValidationError.reasons[]`:
+
+  - `outputs` must be present.
+  - Skill IDs match `/^[a-zA-Z0-9_.-]+$/`, and `id.includes('..')` is
+    rejected (path-traversal guard — covers `..`, `foo..bar`,
+    `..foo`, `foo..`). Isolated dots (`pdf-tools.v2`) pass.
+  - Skill IDs are unique.
+  - Resolved `containerPath`s are unique across every mount slot.
+
+  **Error transport.** `ContainerSandboxLayoutValidationError`
+  carries a `cause` field (Error native), `toJSON()` keeps `reasons`
+  (and `cause` when set), and a new helper
+  `serializeSandboxError(err: unknown): SerializedSandboxError`
+  returns a plain object that survives `structuredClone`,
+  `postMessage`, and `JSON.stringify` round-trips uniformly. The
+  helper is **cycle-safe** — a `WeakSet`-threaded recursion detects
+  self-cycles (`a.cause = a`), two-node cycles (`a.cause = b;
+b.cause = a`), and longer loops, replacing the offending node with
+  a `{ name: 'CircularReference', message: '[circular]' }` sentinel
+  rather than overflowing the stack. The helper is also
+  **transport-safe** — non-Error causes (Function, Symbol, BigInt,
+  NaN, ±Infinity, undefined, null, primitives, plain objects) are
+  converted to a typed envelope by `serializeNonErrorCause` BEFORE
+  they enter the wire shape, so values that `JSON.stringify` drops
+  silently or `structuredClone` throws on never appear.
+  `SerializedSandboxError.cause` is strictly typed
+  `SerializedSandboxError | undefined`. Use the helper at any
+  worker / IPC / log-shipper boundary; cloning the Error subclass
+  itself is not supported.
+
+  **Breaking changes** — the legacy single-mount paradigm is removed:
+
+  - `SandboxCreateConfig.hostWorkspaceDir` is removed. Pass the host
+    path on `layout.outputs.source.hostPath` at provider construction.
+  - `ContainerBackendConfig.workspaceMount` is removed. Pass the
+    in-container path on `layout.outputs.containerPath`.
+  - `SandboxProviderConfig` is now a discriminated union: the
+    container variant requires `layout: ContainerSandboxLayout`, the
+    other variants do not carry the field. Constructing a docker
+    provider without a layout fails at compile time.
+  - `SandboxCreateConfig.layout` does NOT exist; layout is
+    factory-baked. The SDK runtime cannot accidentally call a
+    container provider without a layout.
+  - The docker backend no longer allocates host directories
+    (`mkdtemp`) or removes them on `destroy()`. Every bind source is
+    consumer-owned. This also fixes an `EACCES: permission denied,
+mkdir '/Users'` crash that hit sibling-container deployments
+    (Vandal Cowork).
+  - The worker no longer reads `NAMZU_SANDBOX_LAYOUT` (it never
+    branched on the env, only logged it; size grew with the skill
+    list). Only `NAMZU_SANDBOX_WORKSPACE` is forwarded today.
+
+  The reference Dockerfile pre-creates **only the parent directories**
+  `/mnt`, `/mnt/user-data`, `/mnt/skills` — root-owned, mode 0555.
+  Leaf paths (`outputs/`, `uploads/`, `tool_results/`, `transcripts/`,
+  `<skill-id>/`) are intentionally NOT pre-created. When a bind is
+  attached the docker daemon creates the leaf as the bind target;
+  when not attached, the leaf does not exist — the model gets ENOENT
+  instead of an empty writable dir that looks "mounted but uploaded
+  nothing".
+
+  `pnpm sandbox:smoke` (alias for `pnpm --filter @namzu/sandbox
+test:smoke`) runs an opt-in docker integration test exercising the
+  leaf-permission contract against a real docker daemon. Excluded
+  from the default `pnpm test`; gated by a dedicated
+  `.github/workflows/sandbox-smoke.yml` workflow that builds the
+  reference image and runs the smoke test on PR / push when the
+  sandbox surface changes. On CI (`process.env.CI === 'true'`), the
+  smoke test fails fast if docker / the image are absent rather than
+  silently skipping.
+
+  `@namzu/sdk` exports `ContainerSandboxLayout`,
+  `ContainerSandboxLayoutMount`, `ContainerSandboxMountSource`,
+  `ContainerSandboxSkillMount`, `ResolvedContainerSandboxLayout`,
+  and the five `SANDBOX_DEFAULT_*_PATH` constants from its root
+  barrel. `@namzu/sandbox` re-exports those names plus
+  `ContainerSandboxLayoutValidationError`, `serializeSandboxError`,
+  and the `SerializedSandboxError` shape. The packed-tarball shape
+  is verified by `.github/scripts/verify-consumer-install.sh`'s
+  `@namzu/sandbox public-surface fixture`, which installs the
+  package from a tarball into a clean project and asserts every
+  documented constant + runtime export comes back via both
+  `@namzu/sandbox` and `@namzu/sdk` import paths. `@namzu/sandbox`
+  is also added to `ci.yml`'s `publint` and ATTW (Are The Types
+  Wrong) gates.
+
+### Minor Changes
+
+- 542f057: feat(sdk): canonical `Agent` tool for synchronous subagent delegation
+
+  Adds `buildAgentTool({ gateway, workingDirectory, allowedAgentIds, ... })`
+  that builds a single tool named `Agent` with the input shape
+  `{ description, prompt, subagent_type }`. This mirrors Claude Code's
+  training distribution verbatim (per `code.claude.com/docs/en/sub-agents`):
+  the parent's tool call BLOCKS on `gateway.waitForTask(handle.taskId)`,
+  the subagent runs in its own context window, and the subagent's final
+  text comes back as the tool result.
+
+  Why this matters: the existing `buildCoordinatorTools` shipped a
+  non-blocking `create_task` / `continue_task` / `cancel_task` trio that
+  returned immediately and surfaced subagent completion via a
+  `<task-notification>` callback. That pattern is useful for fire-and-
+  forget multi-task fan-out but is **not** what Claude was trained on.
+  Models calling the async coordinator tools waste tokens reasoning
+  about whether the task completed yet; with the canonical `Agent`
+  tool, the model just receives the result and continues. Free
+  alignment, no system-prompt argument needed.
+
+  Both surfaces remain available — the coordinator trio is the right
+  choice for genuine work-queue surfaces, the `Agent` tool is the
+  right choice when the host wants Claude Code parity.
+
+- 265150b: feat(sdk): default sandboxed verification gate preset + expanded brick-pattern denylist
+
+  Ship `defaultSandboxedGateConfig()` and `defaultSandboxedShellGateConfig()` from `@namzu/sdk` so
+  hosts running an agent inside an isolated workspace don't have to hand-roll a `VerificationRule[]`
+  just to keep in-sandbox file mutation from triggering a review prompt on every call. The first
+  preset auto-allows read-only tools and `category: 'filesystem' | 'analysis' | 'custom'`; the
+  second extends auto-allow to `category: 'shell'` for hosts with real OS-level isolation. Both
+  keep the dangerous-patterns hard-deny in place.
+
+  `DANGEROUS_PATTERNS` (consumed by the `deny_dangerous_patterns` rule) gains entries for `sudo`,
+  `su -`, world-writable `chmod 777 /`, `curl|sh` / `wget|sh` exfil-then-exec pipes, outbound
+  `ssh user@host`, and raw dynamic `eval`. The list is still high-signal, not exhaustive — the
+  README in `verification/presets.ts` is explicit that the sandbox itself is the safety boundary
+  and the patterns only catch blatant attempts.
+
+- 52af97e: **Paste images into the conversation (vision input).**
+
+  A user message can now carry image attachments. `@namzu/sdk` adds an optional `attachments` field to user messages (`ImageAttachment { data, mediaType }`, additive — text messages are unchanged), and the Anthropic provider sends them as image content blocks so the model can see them. In the CLI, press `Ctrl+V` to paste an image from the clipboard — it shows as an `⎘ Image #N` chip in the composer and is sent to the model as vision input when you submit.
+
+- a71422a: feat(sdk): ReactiveAgent forwards verificationGate to drainQuery
+
+  Adds an optional `verificationGate?: VerificationGateConfig` field on
+  `ReactiveAgentConfig` and forwards it through `ReactiveAgent.run()` into
+  `drainQuery`, mirroring the existing `SupervisorAgentConfig.verificationGate`
+  plumbing. Without this, child agents running under `ReactiveAgent` could not
+  opt into the same capability-aware deny/allow rules the supervisor already
+  uses — the only path was `drainQuery`'s `autoApproveHandler` default, which
+  approves every tool call silently. Hosts that want defense-in-depth at the
+  child level (deny dangerous shell patterns, restrict by category) can now
+  pass the same preset they pass to the supervisor.
+
+- d6b5bc1: **Remove the legacy `append` file tool.** `AppendFileTool` is gone — it was already excluded from `getBuiltinTools()` (Claude Code's tool distribution has no `Append`), and appending is canonical `edit` with `insertLine: "end"`. The export is removed from the public surface; hosts that relied on it should switch to `edit`. namzu's CLI no longer needs to filter `append` out of its tool set.
+- 63b4885: feat(sdk): forward sandboxProvider through reactive/supervisor agents
+
+  `ReactiveAgentConfig` and `SupervisorAgentConfig` gain an optional
+  `sandboxProvider?: SandboxProvider` field. When set, the agent's
+  `runConfig` builder forwards the provider into `drainQuery`'s
+  `sandboxProvider` slot, so the supervisor — and every child
+  specialist run that inherits the supervisor's run config — gets
+  the same per-task ephemeral container.
+
+  Without this plumbing, a host that wires `sandboxProvider` only on
+  the supervisor sees the field silently dropped before child
+  specialists are spawned, and each child runs without a sandbox.
+  The forwarding closes that gap so multi-agent hosts can pass a
+  single per-task provider instance and have supervisor + every
+  child share one container.
+
+  Pure additive change — `SupervisorAgent` / `ReactiveAgent`
+  constructors that don't pass `sandboxProvider` behave exactly as
+  before.
+
+- d86b161: **namzu can now delegate to sub-agents.**
+
+  The CLI wires the SDK's native delegation: the model gets the canonical `Agent({ description, prompt, subagent_type })` tool and can hand a self-contained task to a fresh `general-purpose` sub-agent that runs in its own context window with its own tools, then returns its result. Delegations show in the transcript as a normal `Agent(...)` tool call with a live spinner and result.
+
+  To support this from a host, `@namzu/sdk` now exports `ThreadManager` and `InMemoryThreadStore` from its public runtime surface (alongside the already-public `AgentManager`, `AgentRegistry`, `ReactiveAgent`, `LocalTaskGateway`, `buildAgentTool`, and the session/summary/capacity/workspace primitives) so a consumer can stand up an `AgentManager` end to end.
+
+### Patch Changes
+
+- 140bcc0: fix(sdk): Agent tool no longer reports failed subagents as successful
+
+  `buildAgentTool` was treating `gateway.waitForTask(handle.taskId)`'s
+  returned `state === 'completed'` as proof of success and ignoring
+  the underlying `BaseAgentResult.status`. That was wrong: some
+  gateways (the SDK's `LocalTaskGateway` for one) forward
+  `task.state` directly from the agent manager without re-deriving it
+  from the run's `status`, so a subagent run with `status: 'failed'`
+  plus a non-empty `lastError` could surface as `state: 'completed'`
+  and fool the parent into receiving `success: true` with garbage
+  output.
+
+  The check now requires BOTH layers to agree before reporting
+  success: gateway state must be `'completed'` AND the run's
+  `BaseAgentResult.status` (when present) must be `'completed'`. On
+  failure the tool surfaces `lastError` and the disagreement state in
+  both `error` and `data` so the parent can debug.
+
+  Adds three pinned cases in
+  `packages/sdk/src/tools/coordinator/__tests__/agent.test.ts`
+  covering: both-agree-success, run-status-failed-but-state-completed
+  (the regression case), and gateway-state-failed.
+
+- 38c4b62: Harden two paths flagged by an adversarial review: `ToolRegistry.searchDeferred` no longer over-activates deferred tools — batched-query tokens match the tool name only (not descriptions) and short/generic tokens like `clawtool` are ignored, so a common word can't activate the whole catalog. The dynamic `Agent` sub-agent now unregisters its per-call `dyn-N` definition in a `finally`, so long sessions don't leak persona registrations on success, failure, or throw.
+- a1c6694: **Fix a race when multiple file-mutating tools run in one turn.**
+
+  The tool executor ran every tool call in a batch with `Promise.all`, ignoring each tool's `concurrencySafe` flag. Several `edit`/`write` calls to the same file in one assistant turn therefore raced on read→modify→write — each read the same starting content and the last writer clobbered the others, even though every call reported success. The executor now honors `concurrencySafe`: read-only tools (ls/grep/glob/…) still run in parallel, but concurrency-unsafe tools (edit/write/append/bash) are serialized within the batch, so same-file edits apply one-after-another.
+
+- 63e44f7: Worker `handleExecute` no longer crashes the per-task container when a
+  single request body is rejected by `resolveWithinWorkspace` (e.g. a host
+  path forwarded as `cwd`) or by the workspace `mkdir`. Each fallible step
+  now returns a typed `400` (or a terminal NDJSON `error` event for
+  post-headers failures) and the worker stays alive for the next call —
+  prior behaviour was an unhandled rejection on the `http.createServer`
+  callback, which on Node ≥ 15 exits the process and gives every
+  subsequent SDK call the bare `fetch failed` from `UND_ERR_SOCKET`.
+
+  The docker backend's host-side `execViaWorker` and `writeFile` fetches
+  now surface `error.cause.code` / `cause.message` instead of the
+  stripped `fetch failed`. The bash builtin no longer forwards
+  `context.workingDirectory` (a host-side path that has no meaning
+  inside the sandbox container) as `cwd`; tools that need a sub-cwd
+  inside the sandbox can be added later via an explicit
+  `SandboxExecOptions` field.
+
+  The SDK's iteration aggregator now derives
+  `ChatCompletionResponse.toolCalls[i].function.arguments` from each
+  bucket's parsed input rather than the raw `argsBuf` buffer. When a
+  provider stream truncates with `stop_reason: "max_tokens"` mid-
+  `input_json_delta`, downstream `JSON.parse` in
+  `runtime/query/executor.ts:executeSingle` no longer rejects with the
+  generic "Invalid JSON in tool arguments" — the tool runs against the
+  empty parsed object and the input zod schema produces a readable
+  "<field> is required" error instead.
+
+- 38c4b62: Fix `search_tools` failing to load deferred tools when the model names several at once. `ToolRegistry.searchDeferred` matched the entire query as a single substring, so a batched query like `"A2aCard PeerRegister PeerList"` matched no tool and activated nothing — the subsequent call then failed with "deferred and cannot be executed". The query is now tokenized: a tool matches if its name or description contains the whole phrase OR any single term, so a batch activates each named tool.
+- 6b74cd0: **Sub-agents do real work, and tool tracking is keyed on the SDK's tool-use id.**
+
+  - Sub-agents now get the same tool set as the parent — builtins, memory, and clawtool's catalog (deferred, incl. web search/fetch and peer dispatch) — so a delegated research/work task can actually use tools instead of answering from memory alone.
+  - The transcript's live tool tracking now matches each call by the SDK's stable `toolUseId` rather than by name/order, so parallel tool calls (even same-named) are attributed correctly.
+  - Stronger anti-fabrication instruction for both the main agent and sub-agents: never claim to have run a tool, written a file, or produced a result without actually doing it; if a capability is unavailable, say so instead of inventing output.
+  - `@namzu/sdk`: the `Agent` tool's `subagent_type` is now optional when only one sub-agent is registered (defaults to it), so the model can't trip a "subagent_type required" validation error on the common single-sub-agent setup.
+
 ## 0.6.0
 
 ### Minor Changes
