@@ -188,10 +188,10 @@ async function ensureRegistered(id: ProviderId): Promise<void> {
 	registered.add(id)
 }
 
-// Builtins we don't expose: `append` (write/edit cover it) and
-// `verify_outputs` — neither is part of the recognizable Claude-Code tool
-// surface, and showing them just adds noise to `/tools`.
-const EXCLUDED_BUILTINS = new Set(['append', 'verify_outputs'])
+// Builtins we don't expose: `verify_outputs` — not part of the recognizable
+// Claude-Code tool surface, just noise in `/tools`. (`append` was removed
+// from the SDK entirely; `edit` with insertLine:"end" covers it.)
+const EXCLUDED_BUILTINS = new Set(['verify_outputs'])
 
 // namzu's own identity. Injected as system context so the agent presents as
 // namzu — not Claude/Claude Code — even on the Anthropic OAuth path, which

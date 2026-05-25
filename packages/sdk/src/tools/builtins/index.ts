@@ -1,6 +1,5 @@
 export { ReadFileTool } from './read-file.js'
 export { WriteFileTool } from './write-file.js'
-export { AppendFileTool } from './append-file.js'
 export { EditTool } from './edit.js'
 export { BashTool } from './bash.js'
 export { GlobTool } from './glob.js'
@@ -22,24 +21,15 @@ import { WriteFileTool } from './write-file.js'
 // Note: createStructuredOutputTool is not included in getBuiltinTools()
 // because it requires a schema parameter and is created per-use case.
 //
-// `LsTool`, `SearchToolsTool`, and the legacy `AppendFileTool` are still exported for direct use but
-// are NOT in the default builtin set. Claude Code's training distribution
-// (per `code.claude.com/docs/en/tools-reference`) does NOT include `LS`
-// or `Append` — directory listing is canonical `Bash` + `Glob`, and
-// file extension is canonical `edit` with `insertLine: "end"`.
-// `search_tools` has no Claude analogue at all. Including these in
-// the defaults gives the model tools that look right but degrade
-// alignment. Hosts that genuinely want them can still register them
-// explicitly.
+// `LsTool` and `SearchToolsTool` are still exported for direct use but are
+// NOT in the default builtin set. Claude Code's training distribution (per
+// `code.claude.com/docs/en/tools-reference`) does NOT include `LS` —
+// directory listing is canonical `Bash` + `Glob`. `search_tools` has no
+// Claude analogue at all. Including these in the defaults gives the model
+// tools that look right but degrade alignment. File extension is canonical
+// `edit` with `insertLine: "end"` — the legacy `Append` tool is gone.
+// Hosts that genuinely want LS/search can still register them explicitly.
 
 export function getBuiltinTools(): ToolDefinition[] {
-	return [
-		BashTool,
-		EditTool,
-		GlobTool,
-		GrepTool,
-		ReadFileTool,
-		VerifyOutputsTool,
-		WriteFileTool,
-	]
+	return [BashTool, EditTool, GlobTool, GrepTool, ReadFileTool, VerifyOutputsTool, WriteFileTool]
 }
