@@ -34,3 +34,19 @@ export const NAMZU_LOGO_MIN_WIDTH = 48
  */
 export const NAMZU_MARK = '❀'
 export const NAMZU_MARK_COLOR = '#7de5c3'
+
+/**
+ * Header icon — a 5-row diamond "bloom" that evokes the radial dot flower
+ * of the namzu.ai SVG (a terminal can't draw the SVG itself). Shown to the
+ * left of the name/version/cwd info block, Claude-Code-header style.
+ */
+export const NAMZU_ICON: readonly string[] = ['  ◆  ', ' ◆◆◆ ', '◆◆◆◆◆', ' ◆◆◆ ', '  ◆  ']
+
+/** Per-row icon colors (teal → bright green → teal), brightest in the middle. */
+export const NAMZU_ICON_GRADIENT: readonly string[] = [
+	'#5eead4',
+	'#7de5c3',
+	'#a4edd5',
+	'#7de5c3',
+	'#5eead4',
+]

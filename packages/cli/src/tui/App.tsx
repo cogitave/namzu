@@ -27,8 +27,8 @@ import { composeSkillsPrompt, discoverSkills, loadSkillBody } from '../skills/st
 import { Composer } from './Composer.js'
 import { TrustPrompt } from './TrustPrompt.js'
 import {
-	NAMZU_LOGO,
-	NAMZU_LOGO_GRADIENT,
+	NAMZU_ICON,
+	NAMZU_ICON_GRADIENT,
 	NAMZU_LOGO_MIN_WIDTH,
 	NAMZU_MARK,
 	NAMZU_MARK_COLOR,
@@ -469,7 +469,12 @@ export function App({ ctx }: AppProps) {
 	// a filled bg left mismatched patches around bordered areas, so we don't.
 	return (
 		<Box flexDirection="column">
-			<Banner version={ctx.version} session={session} bypass={ctx.skipPermissions === true} />
+			<Banner
+				version={ctx.version}
+				session={session}
+				bypass={ctx.skipPermissions === true}
+				cwd={ctx.cwd}
+			/>
 			<Box flexDirection="column" paddingX={1}>
 				{phase === 'trust' ? (
 					<TrustPrompt cwd={ctx.cwd} />
@@ -525,37 +530,45 @@ function Banner({
 	version,
 	session,
 	bypass,
+	cwd,
 }: {
 	readonly version: string
 	readonly session: AgentSession | null
 	readonly bypass: boolean
+	readonly cwd: string
 }) {
 	const cols = process.stdout.columns ?? 80
 	const wide = cols >= NAMZU_LOGO_MIN_WIDTH
 	const provider = session?.providerSummary
+	const model = session?.modelSummary
+	const home = process.env.HOME
+	const prettyCwd = home && cwd.startsWith(home) ? `~${cwd.slice(home.length)}` : cwd
 	return (
 		<Box flexDirection="column" paddingX={1} paddingTop={1} paddingBottom={1}>
-			{wide ? (
-				<Box flexDirection="column">
-					<Text color={NAMZU_MARK_COLOR}>{NAMZU_MARK}</Text>
-					{NAMZU_LOGO.map((line, i) => (
-						<Text key={`logo-${i}`} color={NAMZU_LOGO_GRADIENT[i]}>
-							{line}
-						</Text>
-					))}
-				</Box>
-			) : (
-				<Text>
+			<Box flexDirection="row">
+				{wide ? (
+					<Box flexDirection="column" marginRight={2}>
+						{NAMZU_ICON.map((line, i) => (
+							<Text key={`icon-${i}`} color={NAMZU_ICON_GRADIENT[i]}>
+								{line}
+							</Text>
+						))}
+					</Box>
+				) : (
 					<Text color={NAMZU_MARK_COLOR}>{NAMZU_MARK} </Text>
-					<Text color={theme.accent.assistant} bold>
-						namzu
+				)}
+				<Box flexDirection="column">
+					<Text>
+						<Text color={NAMZU_MARK_COLOR} bold>
+							namzu
+						</Text>
+						<Text color={theme.text.muted}> v{version}</Text>
 					</Text>
-				</Text>
-			)}
-			<Box marginTop={wide ? 1 : 0}>
-				<Text color={theme.text.secondary}>the agent that lives in your terminal</Text>
-				<Text color={theme.text.muted}> · v{version}</Text>
-				{provider ? <Text color={theme.text.muted}> · {provider}</Text> : null}
+					<Text color={theme.text.secondary}>
+						{provider ? `${provider}${model ? ` · ${model}` : ''}` : 'the agent in your terminal'}
+					</Text>
+					<Text color={theme.text.muted}>{prettyCwd}</Text>
+				</Box>
 			</Box>
 			{bypass ? (
 				<Box marginTop={1}>
