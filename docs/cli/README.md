@@ -11,8 +11,10 @@ related_packages: ["@namzu/cli", "@namzu/sdk", "@namzu/anthropic", "@namzu/opena
 `namzu` is the terminal face of Namzu: an interactive agent in the spirit of Claude Code / Gemini CLI / opencode, built on `@namzu/sdk`. Run `namzu` with no arguments and it launches a TUI — there is no `chat` subcommand.
 
 ```bash
-namzu            # launch the interactive TUI
-namzu --help     # utility subcommands (doctor, providers, …)
+namzu                      # launch the interactive TUI
+namzu run "fix the build"  # headless one-shot — prints the reply (for scripts/CI)
+echo "..." | namzu run     # prompt from stdin; add --format json for {"text": "..."}
+namzu --help               # utility subcommands (doctor, providers, run, …)
 ```
 
 ## What it does

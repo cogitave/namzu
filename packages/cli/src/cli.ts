@@ -16,6 +16,7 @@ import { Command, CommanderError } from 'commander'
 import { doctorCommand } from './commands/doctor.js'
 import { providersCommand } from './commands/providers.js'
 import { registerAll } from './commands/registry.js'
+import { runCommand } from './commands/run.js'
 import { stubCommands } from './commands/stubs.js'
 import { toolsCommand } from './commands/tools.js'
 import type { CommandContext } from './commands/types.js'
@@ -90,10 +91,14 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		return ctx
 	}
 
-	registerAll(program, [doctorCommand, toolsCommand, providersCommand, ...stubCommands], {
-		getContext,
-		setExitCode,
-	})
+	registerAll(
+		program,
+		[doctorCommand, toolsCommand, providersCommand, runCommand, ...stubCommands],
+		{
+			getContext,
+			setExitCode,
+		},
+	)
 
 	// Default behavior when `namzu` is invoked with no subcommand: launch
 	// the TUI (M3). When stdout is not a TTY (tests, pipes, CI), print a
