@@ -69,6 +69,8 @@ export function App({ ctx }: AppProps) {
 	)
 	const [usage, setUsage] = useState<{ totalTokens: number; costUsd: number } | null>(null)
 	const [expanded, setExpanded] = useState<boolean>(false)
+	// Messages typed while a turn is running — auto-sent when it settles.
+	const [queued, setQueued] = useState<readonly string[]>([])
 	const exitArmedRef = useRef<boolean>(false)
 	const abortRef = useRef<AbortController | null>(null)
 	const permissionResolveRef = useRef<((d: PermissionDecision) => void) | null>(null)
@@ -365,10 +367,24 @@ export function App({ ctx }: AppProps) {
 						return
 				}
 			}
+			// A turn is in flight → queue the message; it auto-sends when idle.
+			if (state !== 'idle') {
+				setQueued((q) => [...q, value])
+				return
+			}
 			void runTurn(value)
 		},
-		[activeSkills, exit, pushMessage, runTurn, slashCtx],
+		[activeSkills, exit, pushMessage, runTurn, slashCtx, state],
 	)
+
+	// Drain the queue: when a turn settles (idle) and nothing is running,
+	// send the next queued message automatically.
+	useEffect(() => {
+		if (state !== 'idle' || phase !== 'ready' || queued.length === 0 || abortRef.current) return
+		const [next, ...rest] = queued
+		setQueued(rest)
+		if (next !== undefined) void runTurn(next)
+	}, [state, phase, queued, runTurn])
 
 	const handlePickerSubmit = useCallback(
 		(selection: { provider: string; model?: string }) => {
@@ -473,8 +489,16 @@ export function App({ ctx }: AppProps) {
 							<PermissionOverlay toolCalls={permission.toolCalls} />
 						) : (
 							<ComposerFrame focus={state === 'idle' && phase === 'ready'}>
+								{queued.length > 0 ? (
+									<Box paddingX={1}>
+										<Text color={theme.text.muted}>
+											⏎ {queued.length} message{queued.length > 1 ? 's' : ''} queued — sending when
+											ready
+										</Text>
+									</Box>
+								) : null}
 								<Composer
-									disabled={state !== 'idle' || phase !== 'ready'}
+									disabled={phase !== 'ready' || state === 'awaiting-permission'}
 									onSubmit={handleSubmit}
 									history={history}
 								/>
