@@ -25,15 +25,12 @@ import { isTrusted, trustDir } from '../integrations/trust/store.js'
 import { appendMemory, composeMemoryPrompt, readMemory } from '../memory/store.js'
 import { composeSkillsPrompt, discoverSkills, loadSkillBody } from '../skills/store.js'
 import {
-	createHostedSession,
-	deregisterSession,
-	heartbeatSession,
-	listDaemonSessions,
-	listHostedSessions,
-	pollHostedEvents,
-	registerSession,
-	sendHostedMessage,
-} from '../daemon/client.js'
+	deregisterPeer,
+	heartbeatPeer,
+	listPeers,
+	registerPeer,
+	sendPeerMessage,
+} from '../integrations/clawtool/peers.js'
 import { type ActiveTool, LiveActivity, formatElapsed } from './LiveActivity.js'
 import { expandFileMentions } from './mentions.js'
 import { Composer } from './Composer.js'
@@ -100,14 +97,6 @@ export function App({ ctx }: AppProps) {
 		[],
 	)
 	const [usage, setUsage] = useState<{ totalTokens: number; costUsd: number } | null>(null)
-	// When set, the TUI is attached to a daemon-hosted session: input routes to
-	// the daemon and a poller streams its events into the transcript.
-	const [attachedTo, setAttachedTo] = useState<string | null>(null)
-	const attachSeqRef = useRef<number>(0)
-	const attachStateRef = useRef<{ assistantId: string | null; text: string }>({
-		assistantId: null,
-		text: '',
-	})
 	// Tools currently executing — rendered live (spinner + elapsed) below the
 	// transcript, then committed as static lines on completion.
 	const [activeTools, setActiveTools] = useState<readonly ActiveTool[]>([])
@@ -134,9 +123,9 @@ export function App({ ctx }: AppProps) {
 	const sessionsRef = useRef<CliSessions | null>(null)
 	const scopeRef = useRef<RunScope | null>(null)
 	const idRef = useRef<number>(0)
-	// Daemon presence: this session's id in `namzu serve`'s registry (null when
-	// no daemon is running). Lets an agent-view in another terminal see us.
-	const daemonIdRef = useRef<string | null>(null)
+	// This session's clawtool BIAM peer id (null when no clawtool daemon).
+	// Registering as a peer lets other terminals/agents see + message us.
+	const peerIdRef = useRef<string | null>(null)
 	const nextId = useCallback(() => {
 		idRef.current += 1
 		return `m${idRef.current}`
@@ -292,44 +281,24 @@ export function App({ ctx }: AppProps) {
 		}
 	}, [ensureSessions, pushMessage])
 
-	// `/agents`: list namzu sessions the daemon knows about (across terminals).
+	// `/agents`: list every agent peer clawtool knows about — across terminals
+	// and (via clawtool's mDNS) the LAN. clawtool's BIAM registry is the single
+	// source of truth; namzu just renders it.
 	const doListAgents = useCallback(async () => {
-		const sessions = await listDaemonSessions()
-		if (sessions.length === 0) {
+		const peers = await listPeers()
+		if (peers.length === 0) {
 			pushMessage(
 				'system',
-				'No namzu sessions registered. Start the daemon with `namzu serve`, then other namzu windows will appear here.',
+				'No agent peers found. Is clawtool running? Other namzu / claude / codex / gemini windows register here automatically.',
 			)
 			return
 		}
-		const now = Date.now()
-		const rel = (ms: number): string => {
-			const s = Math.round((now - ms) / 1000)
-			if (s < 60) return `${s}s ago`
-			if (s < 3600) return `${Math.round(s / 60)}m ago`
-			return `${Math.round(s / 3600)}h ago`
-		}
-		const glyph: Record<string, string> = {
-			idle: '●',
-			thinking: '◐',
-			tool: '◑',
-			'awaiting-permission': '◓',
-			exited: '·',
-		}
-		const lines = sessions.map((s) => {
-			const home = process.env.HOME
-			const cwd = home && s.cwd.startsWith(home) ? `~${s.cwd.slice(home.length)}` : s.cwd
-			const mine = s.pid === process.pid ? ' (this one)' : ''
-			return `${glyph[s.state] ?? '●'} ${s.title} — ${cwd} · ${s.state} · ${rel(s.lastSeen)}${mine}`
+		const lines = peers.map((p) => {
+			const mine = p.peer_id === peerIdRef.current ? ' (this one)' : ''
+			const where = p.path ? ` · ${p.path}` : ''
+			return `● ${p.display_name} [${p.backend}]${where}${mine}`
 		})
-		// Daemon-hosted sessions you can `/attach <id>` into.
-		const hosted = await listHostedSessions()
-		const hostedLines = hosted.map(
-			(h) => `${glyph[h.state] ?? '●'} ${h.id} — ${h.title} · ${h.state}${h.running ? ' (running)' : ''}`,
-		)
-		const parts = [`namzu sessions (${sessions.length}):`, ...lines]
-		if (hosted.length > 0) parts.push('', `hosted — /attach <id>:`, ...hostedLines)
-		pushMessage('system', parts.join('\n'))
+		pushMessage('system', `agent peers (${peers.length}):\n${lines.join('\n')}`)
 	}, [pushMessage])
 
 	// Load the chosen conversation into the transcript and continue in it.
@@ -540,76 +509,32 @@ export function App({ ctx }: AppProps) {
 		[activeSkills, applyEvent, ctx.cwd, ctx.skipPermissions, finalizeMessage, messages, onPermission, pushMessage, session],
 	)
 
-	// Begin attaching to a daemon-hosted session: reset the view + the poll
-	// cursor, then the poller effect streams its events in.
-	const beginAttach = useCallback(
-		(id: string) => {
-			attachSeqRef.current = 0
-			attachStateRef.current = { assistantId: null, text: '' }
-			setMessages([])
-			resetTranscript()
-			setAttachedTo(id)
-			pushMessage('system', `Attached to hosted session ${id}. /detach to leave.`)
-		},
-		[pushMessage, resetTranscript],
-	)
-
-	const doDispatch = useCallback(
-		async (task: string) => {
-			const id = await createHostedSession({ cwd: ctx.cwd, title: task.slice(0, 60) })
-			if (!id) {
-				pushMessage('system', 'No daemon running. Start one with `namzu serve`, then retry /dispatch.')
-				return
-			}
-			beginAttach(id)
-			pushMessage('user', task)
-			await sendHostedMessage(id, task)
-		},
-		[beginAttach, ctx.cwd, pushMessage],
-	)
-
-	const doAttach = useCallback(
-		async (id: string) => {
-			const hosted = await listHostedSessions()
-			if (!hosted.some((h) => h.id === id)) {
-				pushMessage('system', `No hosted session "${id}". List them with /agents.`)
-				return
-			}
-			beginAttach(id)
-		},
-		[beginAttach, pushMessage],
-	)
-
-	const doDetach = useCallback(() => {
-		setAttachedTo(null)
-		setState('idle')
-		pushMessage('system', 'Detached — back to the local session.')
-	}, [pushMessage])
-
-	// Poll the attached hosted session: fetch new events since the cursor and
-	// render each through the shared `applyEvent`, so attach output matches a
-	// local turn exactly.
-	useEffect(() => {
-		if (!attachedTo) return
-		let stopped = false
-		const tick = async () => {
-			const res = await pollHostedEvents(attachedTo, attachSeqRef.current)
-			if (stopped || !res) return
-			for (const { event } of res.events) applyEvent(event as AgentEvent, attachStateRef.current)
-			attachSeqRef.current = res.seq
-			setState(
-				res.state === 'thinking' || res.state === 'tool'
-					? (res.state as 'thinking' | 'tool')
-					: 'idle',
+	// Send a message to another agent peer's BIAM inbox (cross-terminal /
+	// cross-agent). Pick the peer by a substring of its display name or id.
+	const doSendPeer = useCallback(
+		async (query: string, text: string) => {
+			const peers = await listPeers()
+			const match = peers.find(
+				(p) =>
+					p.peer_id !== peerIdRef.current &&
+					(p.peer_id === query ||
+						p.display_name.toLowerCase().includes(query.toLowerCase()) ||
+						p.backend.toLowerCase() === query.toLowerCase()),
 			)
-		}
-		const timer = setInterval(() => void tick(), 600)
-		void tick()
-		return () => {
-			stopped = true
-			clearInterval(timer)
-		}
-	}, [attachedTo, applyEvent])
+			if (!match) {
+				pushMessage('system', `No peer matching "${query}". See /agents.`)
+				return
+			}
+			const ok = await sendPeerMessage(match.peer_id, text)
+			pushMessage(
+				'system',
+				ok
+					? `Sent to ${match.display_name} [${match.backend}]: ${text}`
+					: `Could not reach ${match.display_name}.`,
+			)
+		},
+		[pushMessage],
+	)
 
 	const handleSubmit = useCallback(
 		(value: string, images?: readonly ImageAttachment[]) => {
@@ -692,25 +617,12 @@ export function App({ ctx }: AppProps) {
 					case 'list-agents':
 						void doListAgents()
 						return
-					case 'dispatch':
-						void doDispatch(slash.task)
-						return
-					case 'attach':
-						void doAttach(slash.id)
-						return
-					case 'detach':
-						doDetach()
+					case 'send-peer':
+						void doSendPeer(slash.peer, slash.text)
 						return
 					case 'none':
 						return
 				}
-			}
-			// Attached to a hosted session → input goes to the daemon; the poller
-			// renders the reply. (Images aren't carried over attach yet.)
-			if (attachedTo) {
-				pushMessage('user', value)
-				void sendHostedMessage(attachedTo, value)
-				return
 			}
 			// A turn is in flight → queue the message; it auto-sends when idle.
 			// (Queued messages are text-only; pasted images aren't carried.)
@@ -720,7 +632,7 @@ export function App({ ctx }: AppProps) {
 			}
 			void runTurn(value, images)
 		},
-		[activeSkills, attachedTo, doAttach, doDetach, doDispatch, doListAgents, doResume, exit, pushMessage, runTurn, slashCtx, state],
+		[activeSkills, doListAgents, doResume, doSendPeer, exit, pushMessage, runTurn, slashCtx, state],
 	)
 
 	// Drain the queue: when a turn settles (idle) and nothing is running,
@@ -732,33 +644,37 @@ export function App({ ctx }: AppProps) {
 		if (next !== undefined) void runTurn(next)
 	}, [state, phase, queued, runTurn])
 
-	// Daemon presence (best-effort, no-op without `namzu serve`): register once
-	// ready, heartbeat the state, and deregister on unmount. The daemon also
-	// prunes by dead pid, so a missed deregister self-heals.
+	// BIAM presence (best-effort, no-op without clawtool): register once ready
+	// as a peer in clawtool's registry, heartbeat, and deregister on unmount.
+	// `registerPeer` ensures clawtool's daemon, so the user never starts it by
+	// hand. clawtool also prunes stale peers, so a missed deregister self-heals.
 	useEffect(() => {
-		if (phase !== 'ready' || daemonIdRef.current) return
+		if (phase !== 'ready' || peerIdRef.current) return
 		const home = process.env.HOME
 		const title = home && ctx.cwd.startsWith(home) ? `~${ctx.cwd.slice(home.length)}` : ctx.cwd
 		let cancelled = false
-		void registerSession({ cwd: ctx.cwd, title, model: session?.modelSummary ?? null }).then(
-			(id) => {
-				if (!cancelled) daemonIdRef.current = id
-			},
-		)
+		void registerPeer({
+			display_name: `namzu ${title}`,
+			backend: 'namzu',
+			path: ctx.cwd,
+			pid: process.pid,
+		}).then((id) => {
+			if (!cancelled) peerIdRef.current = id
+		})
 		return () => {
 			cancelled = true
 		}
-	}, [phase, ctx.cwd, session])
+	}, [phase, ctx.cwd])
 
 	useEffect(() => {
-		const id = daemonIdRef.current
-		if (id) void heartbeatSession(id, { state })
+		const id = peerIdRef.current
+		if (id) void heartbeatPeer(id)
 	}, [state])
 
 	useEffect(
 		() => () => {
-			const id = daemonIdRef.current
-			if (id) void deregisterSession(id)
+			const id = peerIdRef.current
+			if (id) void deregisterPeer(id)
 		},
 		[],
 	)

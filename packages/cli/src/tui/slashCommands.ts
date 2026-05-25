@@ -17,9 +17,7 @@ export type SlashAction =
 	| { kind: 'load-skill'; name: string }
 	| { kind: 'resume' }
 	| { kind: 'list-agents' }
-	| { kind: 'dispatch'; task: string }
-	| { kind: 'attach'; id: string }
-	| { kind: 'detach' }
+	| { kind: 'send-peer'; peer: string; text: string }
 	| { kind: 'none' }
 
 export interface SlashContext {
@@ -124,37 +122,19 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
 		action: () => ({ kind: 'list-agents' }),
 	},
 	{
-		name: 'dispatch',
-		description: 'Run a task in a daemon-hosted session and attach to it (needs `namzu serve`)',
+		name: 'msg',
+		description: 'Message another agent peer: /msg <peer> <text> (peers via /agents)',
 		action: (_ctx, args) => {
-			const task = args.join(' ').trim()
-			return task.length === 0
+			const peer = (args[0] ?? '').trim()
+			const text = args.slice(1).join(' ').trim()
+			return peer.length === 0 || text.length === 0
 				? {
 						kind: 'message',
 						role: 'system',
-						content: 'Usage: /dispatch <task to run in the background>',
+						content: 'Usage: /msg <peer-name-or-id> <text> (list peers with /agents)',
 					}
-				: { kind: 'dispatch', task }
+				: { kind: 'send-peer', peer, text }
 		},
-	},
-	{
-		name: 'attach',
-		description: 'Attach to a daemon-hosted session by id (see /agents)',
-		action: (_ctx, args) => {
-			const id = (args[0] ?? '').trim()
-			return id.length === 0
-				? {
-						kind: 'message',
-						role: 'system',
-						content: 'Usage: /attach <session-id> (list ids with /agents)',
-					}
-				: { kind: 'attach', id }
-		},
-	},
-	{
-		name: 'detach',
-		description: 'Detach from the hosted session and return to the local session',
-		action: () => ({ kind: 'detach' }),
 	},
 	{
 		name: 'resume',

@@ -17,7 +17,6 @@ import { doctorCommand } from './commands/doctor.js'
 import { providersCommand } from './commands/providers.js'
 import { registerAll } from './commands/registry.js'
 import { runCommand } from './commands/run.js'
-import { serveCommand } from './commands/serve.js'
 import { stubCommands } from './commands/stubs.js'
 import { toolsCommand } from './commands/tools.js'
 import type { CommandContext } from './commands/types.js'
@@ -94,7 +93,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 
 	registerAll(
 		program,
-		[doctorCommand, toolsCommand, providersCommand, runCommand, serveCommand, ...stubCommands],
+		[doctorCommand, toolsCommand, providersCommand, runCommand, ...stubCommands],
 		{
 			getContext,
 			setExitCode,
