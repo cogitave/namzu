@@ -757,26 +757,64 @@ export function toolStartDetail(toolName: string, input: unknown): readonly stri
 	return undefined
 }
 
+/** Parse a string as a JSON object, or null. clawtool/MCP tools return JSON. */
+function parseJsonObject(s: string): Record<string, unknown> | null {
+	const t = s.trim()
+	if (!(t.startsWith('{') || t.startsWith('['))) return null
+	try {
+		const v = JSON.parse(t)
+		return typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : null
+	} catch {
+		return null
+	}
+}
+
+/** Pretty-print JSON tool output; otherwise return the raw text as lines. */
+function resultToLines(result: string): string[] {
+	const obj = parseJsonObject(result)
+	if (obj) {
+		// Many tools wrap their payload in {output|result|content|text}: show
+		// that inline rather than the JSON envelope, which reads far cleaner.
+		const inner = obj.output ?? obj.result ?? obj.content ?? obj.text
+		if (typeof inner === 'string' && inner.trim().length > 0) return clampLines(inner.trim())
+		return clampLines(JSON.stringify(obj, null, 2))
+	}
+	return clampLines(result.trim())
+}
+
 /**
  * Output shown under a tool RESULT (`⎿`). For `edit`/`write` the diff was
  * already shown at call time, so the result stays a one-line confirmation;
- * every other tool (read/bash/grep/…) shows its captured output here.
+ * every other tool (read/bash/grep/…) shows its captured output here — JSON
+ * results are pretty-printed / unwrapped so they don't read as a raw blob.
  */
 export function toolEndDetail(toolName: string, result: string): readonly string[] | undefined {
 	const name = toolName.toLowerCase().replace(/^clawtool_/, '')
 	if (name === 'edit' || name === 'write') return undefined
-	const trimmed = result.trim()
-	if (trimmed.length === 0) return undefined
-	const lines = clampLines(trimmed)
+	if (result.trim().length === 0) return undefined
+	const lines = resultToLines(result)
 	// A single short line is already the summary — no need to repeat it.
 	return lines.length <= 1 ? undefined : lines
 }
 
+/** Concise one-line summary of a tool result for the `⎿` line. */
 function firstLine(result: string): string {
+	const obj = parseJsonObject(result)
+	if (obj) {
+		const inner = obj.output ?? obj.result ?? obj.message ?? obj.text
+		if (typeof inner === 'string' && inner.trim().length > 0) {
+			return truncate(inner.trim().split('\n')[0] ?? '', 120)
+		}
+		if (obj.success === false && typeof obj.error === 'string') return truncate(obj.error, 120)
+		// Bare object with no obvious payload: summarize by its keys.
+		const keys = Object.keys(obj)
+		return keys.length > 0
+			? `{ ${keys.slice(0, 6).join(', ')}${keys.length > 6 ? ', …' : ''} }`
+			: '{}'
+	}
 	const trimmed = result.trim()
 	const nl = trimmed.indexOf('\n')
-	const head = nl === -1 ? trimmed : trimmed.slice(0, nl)
-	return truncate(head, 120)
+	return truncate(nl === -1 ? trimmed : trimmed.slice(0, nl), 120)
 }
 
 function emptySession(errorHint: string): AgentSession {
