@@ -769,17 +769,35 @@ function parseJsonObject(s: string): Record<string, unknown> | null {
 	}
 }
 
+/**
+ * Strip the bash tool's `STDOUT:` / `STDERR:` section labels so command output
+ * reads as plain text (the ✗ glyph already signals a non-zero exit). Other
+ * text passes through unchanged.
+ */
+function cleanToolText(s: string): string {
+	if (!/^STDOUT:|(?:^|\n)STDERR:/.test(s)) return s
+	return s
+		.replace(/^STDOUT:\n?/, '')
+		.replace(/\n{0,2}STDERR:\n?/, '\n')
+		.trim()
+}
+
+/** Unwrap a tool's payload string from its JSON envelope, if any. */
+function payloadString(result: string): string | null {
+	const obj = parseJsonObject(result)
+	if (!obj) return null
+	const inner = obj.output ?? obj.result ?? obj.content ?? obj.text
+	if (typeof inner === 'string' && inner.trim().length > 0) return cleanToolText(inner.trim())
+	return null
+}
+
 /** Pretty-print JSON tool output; otherwise return the raw text as lines. */
 function resultToLines(result: string): string[] {
+	const payload = payloadString(result)
+	if (payload !== null) return clampLines(payload)
 	const obj = parseJsonObject(result)
-	if (obj) {
-		// Many tools wrap their payload in {output|result|content|text}: show
-		// that inline rather than the JSON envelope, which reads far cleaner.
-		const inner = obj.output ?? obj.result ?? obj.content ?? obj.text
-		if (typeof inner === 'string' && inner.trim().length > 0) return clampLines(inner.trim())
-		return clampLines(JSON.stringify(obj, null, 2))
-	}
-	return clampLines(result.trim())
+	if (obj) return clampLines(JSON.stringify(obj, null, 2))
+	return clampLines(cleanToolText(result.trim()))
 }
 
 /**
@@ -799,22 +817,20 @@ export function toolEndDetail(toolName: string, result: string): readonly string
 
 /** Concise one-line summary of a tool result for the `⎿` line. */
 function firstLine(result: string): string {
+	const payload = payloadString(result)
+	if (payload !== null) {
+		return truncate(payload.split('\n').find((l) => l.trim().length > 0) ?? '', 120)
+	}
 	const obj = parseJsonObject(result)
 	if (obj) {
-		const inner = obj.output ?? obj.result ?? obj.message ?? obj.text
-		if (typeof inner === 'string' && inner.trim().length > 0) {
-			return truncate(inner.trim().split('\n')[0] ?? '', 120)
-		}
 		if (obj.success === false && typeof obj.error === 'string') return truncate(obj.error, 120)
-		// Bare object with no obvious payload: summarize by its keys.
 		const keys = Object.keys(obj)
 		return keys.length > 0
 			? `{ ${keys.slice(0, 6).join(', ')}${keys.length > 6 ? ', …' : ''} }`
 			: '{}'
 	}
-	const trimmed = result.trim()
-	const nl = trimmed.indexOf('\n')
-	return truncate(nl === -1 ? trimmed : trimmed.slice(0, nl), 120)
+	const cleaned = cleanToolText(result.trim())
+	return truncate(cleaned.split('\n').find((l) => l.trim().length > 0) ?? '', 120)
 }
 
 function emptySession(errorHint: string): AgentSession {

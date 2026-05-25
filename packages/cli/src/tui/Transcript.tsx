@@ -161,15 +161,30 @@ function DetailBlock({
 }) {
 	const shown = expanded ? lines : lines.slice(0, COLLAPSE_LINES)
 	const hidden = lines.length - shown.length
+	// A dim left rule (`▏`) under the gutter frames the output as a block,
+	// the way Claude Code / Warp set tool output apart from the prose.
+	const Rule = () => (
+		<Box width={2} flexShrink={0}>
+			<Text color={theme.text.muted}>▏</Text>
+		</Box>
+	)
 	return (
-		<Box flexDirection="column" paddingLeft={2}>
+		<Box flexDirection="column" paddingLeft={1}>
 			{shown.map((line, i) => (
-				<Text key={`d-${i}`} color={detailLineColor(line)} wrap="wrap">
-					{line.length > 0 ? line : ' '}
-				</Text>
+				<Box key={`d-${i}`} flexDirection="row">
+					<Rule />
+					<Box flexGrow={1}>
+						<Text color={detailLineColor(line)} wrap="wrap">
+							{line.length > 0 ? line : ' '}
+						</Text>
+					</Box>
+				</Box>
 			))}
 			{hidden > 0 ? (
-				<Text color={theme.text.muted}>… +{hidden} lines (ctrl+o to expand)</Text>
+				<Box flexDirection="row">
+					<Rule />
+					<Text color={theme.text.muted}>… +{hidden} lines (ctrl+o to expand)</Text>
+				</Box>
 			) : null}
 		</Box>
 	)
