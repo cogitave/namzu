@@ -15,6 +15,8 @@ export interface InlineSpan {
 	readonly bold?: boolean
 	readonly italic?: boolean
 	readonly code?: boolean
+	/** Present for `[text](url)` links — the destination URL. */
+	readonly link?: string
 }
 
 export type MdBlock =
@@ -90,7 +92,8 @@ export function parseMarkdown(src: string): MdBlock[] {
 	return blocks
 }
 
-const INLINE = /(`[^`]+`)|(\*\*[^*]+\*\*)|(__[^_]+__)|(\*[^*]+\*)|(_[^_]+_)/
+const INLINE = /(`[^`]+`)|(\[[^\]]+\]\([^)]+\))|(\*\*[^*]+\*\*)|(__[^_]+__)|(\*[^*]+\*)|(_[^_]+_)/
+const LINK = /^\[([^\]]+)\]\(([^)]+)\)$/
 
 /** Parse a single line of text into styled inline spans. */
 export function parseInline(text: string): InlineSpan[] {
@@ -106,8 +109,11 @@ export function parseInline(text: string): InlineSpan[] {
 			spans.push({ text: rest.slice(0, match.index) })
 		}
 		const token = match[0]
+		const linkMatch = LINK.exec(token)
 		if (token.startsWith('`')) {
 			spans.push({ text: token.slice(1, -1), code: true })
+		} else if (linkMatch) {
+			spans.push({ text: linkMatch[1] ?? '', link: linkMatch[2] ?? '' })
 		} else if (token.startsWith('**') || token.startsWith('__')) {
 			spans.push({ text: token.slice(2, -2), bold: true })
 		} else {

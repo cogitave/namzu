@@ -105,17 +105,34 @@ function BlockView({
 function Inline({ spans, color }: { readonly spans: readonly InlineSpan[]; readonly color: string }) {
 	return (
 		<>
-			{spans.map((span, i) =>
-				span.code ? (
-					<Text key={`s-${i}`} color={CODE_COLOR}>
-						{span.text}
-					</Text>
-				) : (
+			{spans.map((span, i) => {
+				if (span.code) {
+					return (
+						<Text key={`s-${i}`} color={CODE_COLOR}>
+							{span.text}
+						</Text>
+					)
+				}
+				if (span.link) {
+					// Link text in accent + underline; the URL trails dim unless it's
+					// identical to the text (e.g. a bare URL link).
+					return (
+						<Text key={`s-${i}`}>
+							<Text color={theme.accent.user} underline>
+								{span.text}
+							</Text>
+							{span.link !== span.text ? (
+								<Text color={theme.text.muted}> ({span.link})</Text>
+							) : null}
+						</Text>
+					)
+				}
+				return (
 					<Text key={`s-${i}`} color={color} bold={span.bold} italic={span.italic}>
 						{span.text}
 					</Text>
-				),
-			)}
+				)
+			})}
 		</>
 	)
 }

@@ -70,4 +70,12 @@ describe('parseInline', () => {
 	it('does not parse markers inside inline code', () => {
 		expect(parseInline('`a*b*c`')).toEqual([{ text: 'a*b*c', code: true }])
 	})
+
+	it('parses a [text](url) link', () => {
+		expect(parseInline('see [the docs](https://x.dev/a) now')).toEqual([
+			{ text: 'see ' },
+			{ text: 'the docs', link: 'https://x.dev/a' },
+			{ text: ' now' },
+		])
+	})
 })
