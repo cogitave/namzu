@@ -392,8 +392,11 @@ export function App({ ctx }: AppProps) {
 				}
 				case 'tool-end': {
 					const running = activeToolsRef.current
-					let i = running.findIndex((t) => t.id === event.toolUseId)
-					if (i < 0) i = running.length > 0 ? 0 : -1
+					// Match strictly by toolUseId. Never fall back to "the first
+					// active tool" — under parallel calls that mis-attributes a
+					// result to the wrong call. If no id matches, render the
+					// completion on its own (label from the end event itself).
+					const i = running.findIndex((t) => t.id === event.toolUseId)
 					const done = i >= 0 ? running[i] : undefined
 					if (i >= 0) {
 						activeToolsRef.current = [...running.slice(0, i), ...running.slice(i + 1)]
