@@ -358,6 +358,9 @@ export function App({ ctx }: AppProps) {
 						case 'usage':
 							setUsage({ totalTokens: event.totalTokens, costUsd: event.costUsd })
 							break
+						case 'task':
+							pushMessage('tool', event.subject, false, event.status === 'completed' ? '☑' : '☐')
+							break
 						case 'done':
 							closeAssistant()
 							break

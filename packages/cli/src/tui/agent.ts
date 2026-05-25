@@ -22,6 +22,7 @@
  */
 
 import {
+	DiskTaskStore,
 	type HITLResumeDecision,
 	type LLMProvider,
 	type Message,
@@ -29,8 +30,10 @@ import {
 	ProviderRegistry,
 	type ResumeHandler,
 	type RunEvent,
+	type RunId,
 	SearchToolsTool,
 	type SessionId,
+	type TaskStore,
 	type TenantId,
 	type ThreadId,
 	type ToolCallSummary,
@@ -39,6 +42,7 @@ import {
 	query,
 } from '@namzu/sdk'
 
+import { join } from 'node:path'
 import { loadClawtoolToolDefinitions } from '../integrations/clawtool/tooling.js'
 import {
 	type DetectedProvider,
@@ -71,6 +75,7 @@ export type AgentEvent =
 			readonly detail?: readonly string[]
 	  }
 	| { readonly kind: 'usage'; readonly totalTokens: number; readonly costUsd: number }
+	| { readonly kind: 'task'; readonly subject: string; readonly status: string }
 	| { readonly kind: 'done'; readonly finishReason?: string }
 	| { readonly kind: 'error'; readonly message: string }
 
@@ -238,6 +243,14 @@ export async function createAgentSession(
 	if (clawtoolTools.length > 0) registry.register(clawtoolTools, 'deferred')
 	const activeToolNames = registry.getCallableTools().map((t) => t.name)
 	const deferredToolCount = clawtoolTools.length
+	// Task store → query auto-registers create_task / update_task / list_tasks
+	// and emits task_created/task_updated, so the agent can track a plan for the
+	// current request (Claude-Code todo style). Tasks are run-scoped.
+	const taskStore: TaskStore = new DiskTaskStore({
+		baseDir: join(process.cwd(), '.namzu'),
+		defaultRunId: 'run_namzu-cli' as RunId,
+		tenantId: scope.tenantId,
+	})
 	// Persists across turns: once the user picks "approve all", later tool
 	// batches in this session run without prompting.
 	const approval = { all: false }
@@ -257,7 +270,17 @@ export async function createAgentSession(
 				[NAMZU_IDENTITY, memoryPrompt, opts?.extraSystem]
 					.filter((s): s is string => Boolean(s))
 					.join('\n\n') || undefined
-			return runTurn(provider, model, registry, scope, approval, systemPrompt, messages, opts)
+			return runTurn(
+				provider,
+				model,
+				registry,
+				scope,
+				approval,
+				taskStore,
+				systemPrompt,
+				messages,
+				opts,
+			)
 		},
 	}
 }
@@ -333,6 +356,7 @@ async function* runTurn(
 	tools: ToolRegistry,
 	scope: RunScope,
 	approval: { all: boolean },
+	taskStore: TaskStore,
 	systemPrompt: string | undefined,
 	messages: readonly Message[],
 	opts: SendOptions | undefined,
@@ -342,6 +366,7 @@ async function* runTurn(
 		const events = query({
 			provider,
 			tools,
+			taskStore,
 			runConfig: {
 				model,
 				timeoutMs: 600_000,
@@ -471,6 +496,14 @@ export function toAgentEvent(event: RunEvent): AgentEvent | null {
 				totalTokens: event.usage.totalTokens,
 				costUsd: event.cost.totalCost,
 			}
+		case 'task_created':
+			return { kind: 'task', subject: event.subject, status: event.status }
+		case 'task_updated':
+			// Only surface completions — skip pending/in-progress churn so the
+			// transcript shows "todo added" then "todo done", not every flip.
+			return event.status === 'completed'
+				? { kind: 'task', subject: event.subject, status: event.status }
+				: null
 		case 'run_completed':
 			return { kind: 'done' }
 		case 'run_failed':
