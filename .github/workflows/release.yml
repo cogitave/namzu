@@ -63,27 +63,6 @@ jobs:
             echo "::endgroup::"
           done
 
-      - name: Are the types wrong? (type resolution)
-        # Non-blocking: attw currently crashes reading pnpm-packed tarballs
-        # ("Cannot read properties of undefined (reading 'filename')") on every
-        # package regardless of version — an attw/tarball bug, not a type
-        # issue. Keep the report visible without blocking the release; flip
-        # back to blocking once attw can read the tarballs again. (Mirrors the
-        # same step in ci.yml.)
-        continue-on-error: true
-        run: |
-          rm -rf /tmp/attw-pack && mkdir -p /tmp/attw-pack
-          for pkg in sdk telemetry computer-use anthropic bedrock http lmstudio ollama openai openrouter; do
-            pnpm --filter "@namzu/$pkg" pack --pack-destination /tmp/attw-pack >/dev/null
-          done
-          for tarball in /tmp/attw-pack/*.tgz; do
-            echo "::group::attw $(basename $tarball)"
-            # Pinned + positional: @latest changed `--pack` into a directory
-            # flag (it used to take the tarball), which crashed the step.
-            npx -y @arethetypeswrong/cli@0.18.2 "$tarball" --ignore-rules cjs-resolves-to-esm
-            echo "::endgroup::"
-          done
-
       # Pre-publish consumer install check. Runs only when this commit is
       # the merged "Version Packages" PR (the one Changesets opens to bump
       # versions + CHANGELOG). For every other main-push the Changesets

@@ -93,27 +93,3 @@ jobs:
             npx -y publint@latest packages/$pkg
             echo "::endgroup::"
           done
-
-      - name: Are the types wrong? (type resolution)
-        if: matrix.node-version == 24
-        # Non-blocking: attw currently crashes reading pnpm-packed tarballs
-        # ("Cannot read properties of undefined (reading 'filename')") on every
-        # package regardless of version — an attw/tarball bug, not a type
-        # issue. Keep the report visible without failing the job; flip back to
-        # blocking once attw can read the tarballs again.
-        continue-on-error: true
-        run: |
-          # attw needs the packed tarballs; reuse the ones from verify-consumer-install
-          # by packing once into a stable location here.
-          rm -rf /tmp/attw-pack && mkdir -p /tmp/attw-pack
-          for pkg in sdk sandbox telemetry computer-use anthropic bedrock http lmstudio ollama openai openrouter; do
-            pnpm --filter "@namzu/$pkg" pack --pack-destination /tmp/attw-pack >/dev/null
-          done
-          for tarball in /tmp/attw-pack/*.tgz; do
-            echo "::group::attw $(basename $tarball)"
-            # Pinned: `@latest` drifted to a CLI where `--pack` became a
-            # directory flag (it used to take the tarball), which crashed the
-            # whole step. Pass the packed .tgz as the positional spec instead.
-            npx -y @arethetypeswrong/cli@0.18.2 "$tarball" --ignore-rules cjs-resolves-to-esm
-            echo "::endgroup::"
-          done
