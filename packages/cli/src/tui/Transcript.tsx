@@ -6,7 +6,8 @@
  * a braille spinner in the gutter while the agent works.
  */
 
-import { Box, Text } from 'ink'
+import { Box, Static, Text } from 'ink'
+import type { ReactNode } from 'react'
 import { useEffect, useState } from 'react'
 
 import { Markdown } from './Markdown.js'
@@ -14,39 +15,91 @@ import { theme } from './theme.js'
 import type { TranscriptMessage } from './types.js'
 
 export interface TranscriptProps {
+	/** Finalized messages — rendered once via <Static> (printed to scrollback). */
 	readonly messages: readonly TranscriptMessage[]
+	/** The in-progress streaming message, re-rendered live below the static log. */
+	readonly pending: TranscriptMessage | null
 	readonly state: 'idle' | 'thinking' | 'tool' | 'awaiting-permission'
 	/** When true, collapsed tool diffs/output are shown in full (Ctrl+O). */
 	readonly expanded: boolean
+	/** Bump to reset the static log (e.g. /clear, /resume). */
+	readonly resetKey: number
+	/**
+	 * Header (banner) printed once as the first <Static> row. It must live
+	 * inside <Static> — Ink writes static output to scrollback *above* the
+	 * live region, so a banner kept in the live tree would be pushed down as
+	 * the transcript grows. As the first static row it pins to the top.
+	 */
+	readonly header?: ReactNode
 }
 
 const COLLAPSE_LINES = 6
 
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'] as const
 
-export function Transcript({ messages, state, expanded }: TranscriptProps) {
+type StaticRow =
+	| { readonly kind: 'header' }
+	| {
+			readonly kind: 'message'
+			readonly message: TranscriptMessage
+			readonly prev: TranscriptMessage | undefined
+	  }
+
+export function Transcript({
+	messages,
+	pending,
+	state,
+	expanded,
+	resetKey,
+	header,
+}: TranscriptProps) {
 	const spinner = useSpinner(state !== 'idle')
 
-	if (messages.length === 0) {
-		return (
-			<Box flexDirection="column" paddingY={1}>
-				<Text color={theme.text.muted}>
-					Type a message to begin · <Text color={theme.text.secondary}>/help</Text> for commands
-				</Text>
-			</Box>
-		)
-	}
+	// The banner is row 0 so it prints to the very top of scrollback; messages
+	// follow it. <Static> renders each row exactly once and never re-renders it,
+	// keeping memory + per-frame work bounded (the whole transcript was
+	// previously re-rendered on every spinner tick / token, which OOM'd long
+	// sessions) and removing flicker.
+	const rows: StaticRow[] = [
+		...(header ? [{ kind: 'header' as const }] : []),
+		...messages.map((message, i) => ({
+			kind: 'message' as const,
+			message,
+			prev: messages[i - 1],
+		})),
+	]
 	return (
 		<Box flexDirection="column">
-			{messages.map((m, i) => (
+			<Static key={resetKey} items={rows}>
+				{(row) =>
+					row.kind === 'header' ? (
+						<Box key="header">{header}</Box>
+					) : (
+						<MessageRow
+							key={row.message.id}
+							message={row.message}
+							prev={row.prev}
+							spinner=""
+							expanded={expanded}
+						/>
+					)
+				}
+			</Static>
+			{pending ? (
 				<MessageRow
-					key={m.id}
-					message={m}
-					prev={messages[i - 1]}
+					message={pending}
+					prev={messages[messages.length - 1]}
 					spinner={spinner}
 					expanded={expanded}
 				/>
-			))}
+			) : null}
+			{messages.length === 0 && !pending ? (
+				<Box paddingY={1}>
+					<Text color={theme.text.muted}>
+						Type a message to begin · <Text color={theme.text.secondary}>/help</Text> for commands
+					</Text>
+				</Box>
+			) : null}
 		</Box>
 	)
 }

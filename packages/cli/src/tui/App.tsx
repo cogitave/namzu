@@ -81,6 +81,8 @@ export function App({ ctx }: AppProps) {
 	)
 	const [usage, setUsage] = useState<{ totalTokens: number; costUsd: number } | null>(null)
 	const [expanded, setExpanded] = useState<boolean>(false)
+	// Bumped to reset the <Static> transcript log (on /clear and /resume).
+	const [resetKey, setResetKey] = useState<number>(0)
 	// Messages typed while a turn is running — auto-sent when it settles.
 	const [queued, setQueued] = useState<readonly string[]>([])
 	const [resumeList, setResumeList] = useState<readonly RecentConversation[]>([])
@@ -97,6 +99,13 @@ export function App({ ctx }: AppProps) {
 	const nextId = useCallback(() => {
 		idRef.current += 1
 		return `m${idRef.current}`
+	}, [])
+
+	// Reset the transcript view: clear the terminal + remount <Static> so its
+	// already-printed lines don't linger above fresh content (/clear, /resume).
+	const resetTranscript = useCallback(() => {
+		if (process.stdout.isTTY) process.stdout.write('\x1b[2J\x1b[3J\x1b[H')
+		setResetKey((k) => k + 1)
 	}, [])
 
 	const pushMessage = useCallback(
@@ -253,6 +262,7 @@ export function App({ ctx }: AppProps) {
 						role: m.role as 'user' | 'assistant',
 						content: typeof m.content === 'string' ? m.content : '',
 					}))
+				resetTranscript()
 				setMessages(restored)
 				scope.sessionId = conv.id // new turns now attribute to the resumed session
 				pushMessage('system', `Resumed: ${conv.title}`)
@@ -407,6 +417,7 @@ export function App({ ctx }: AppProps) {
 						return
 					case 'clear':
 						setMessages([])
+						resetTranscript()
 						return
 					case 'exit':
 						exit()
@@ -594,12 +605,19 @@ export function App({ ctx }: AppProps) {
 	// a filled bg left mismatched patches around bordered areas, so we don't.
 	return (
 		<Box flexDirection="column">
-			<Banner
-				version={ctx.version}
-				session={session}
-				bypass={ctx.skipPermissions === true}
-				cwd={ctx.cwd}
-			/>
+			{/* Before the chat is ready (trust / picker / probing) the banner
+			    lives in the live region. Once ready it moves into the <Static>
+			    transcript as row 0, so it prints once to the top of scrollback
+			    and messages flow beneath it (a live-region banner would be
+			    pushed down as static output accumulates above it). */}
+			{phase !== 'ready' ? (
+				<Banner
+					version={ctx.version}
+					session={session}
+					bypass={ctx.skipPermissions === true}
+					cwd={ctx.cwd}
+				/>
+			) : null}
 			<Box flexDirection="column" paddingX={1}>
 				{phase === 'trust' ? (
 					<TrustPrompt cwd={ctx.cwd} />
@@ -615,7 +633,23 @@ export function App({ ctx }: AppProps) {
 				) : (
 					<>
 						<TranscriptFrame>
-							<Transcript messages={messages} state={state} expanded={expanded} />
+							<Transcript
+								messages={messages.filter((m) => !m.pending)}
+								pending={messages.find((m) => m.pending) ?? null}
+								state={state}
+								expanded={expanded}
+								resetKey={resetKey}
+								header={
+									phase === 'ready' ? (
+										<Banner
+											version={ctx.version}
+											session={session}
+											bypass={ctx.skipPermissions === true}
+											cwd={ctx.cwd}
+										/>
+									) : undefined
+								}
+							/>
 						</TranscriptFrame>
 						{permission ? (
 							<PermissionOverlay toolCalls={permission.toolCalls} />
