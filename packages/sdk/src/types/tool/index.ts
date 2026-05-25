@@ -38,6 +38,7 @@ export interface ToolContext {
 	invocationState?: InvocationState
 
 	toolRegistry?: ToolRegistryRef
+	allowedTools?: readonly string[]
 	sandbox?: Sandbox
 	fileReadTracker?: FileReadTracker
 

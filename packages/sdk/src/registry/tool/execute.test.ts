@@ -227,10 +227,21 @@ describe('ToolRegistry — toPromptSection + toLLMTools', () => {
 		r.register(makeTool('a'))
 		r.register([makeTool('b')], 'deferred')
 		const s = r.toPromptSection()
+		expect(s).toContain('<tool_runtime_contract>')
+		expect(s).toContain('runtime tools parameter')
 		expect(s).toContain('<available_tools>')
 		expect(s).toContain('- a: a tool')
 		expect(s).toContain('<deferred_tools>')
+		expect(s).toContain('Deferred tools are discoverable')
 		expect(s).toContain('- b')
+	})
+
+	it('toPromptSection references search_tools only when it is active', () => {
+		const r = new ToolRegistry()
+		r.register(makeTool('search_tools'))
+		r.register([makeTool('b')], 'deferred')
+		const s = r.toPromptSection()
+		expect(s).toContain('Use search_tools to load these before use')
 	})
 
 	it('toLLMTools: converts active + suspended tools', () => {

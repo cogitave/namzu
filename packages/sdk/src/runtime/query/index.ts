@@ -224,6 +224,8 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		}
 	}
 
+	const effectiveAllowedTools = withDeferredDiscoveryTool(params.tools, params.allowedTools)
+
 	const toolExecutor = ToolingBootstrap.init(
 		{
 			tools: params.tools,
@@ -232,6 +234,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			permissionMode: ctx.permissionMode,
 			env: params.runConfig.env ?? {},
 			abortSignal: ctx.abortController.signal,
+			allowedTools: effectiveAllowedTools,
 			invocationState: params.invocationState,
 			pluginManager: params.pluginManager,
 		},
@@ -252,7 +255,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		skills: params.skills,
 		basePrompt: params.basePrompt,
 		tools: params.tools,
-		allowedTools: params.allowedTools,
+		allowedTools: effectiveAllowedTools,
 		runtimeContext: params.runtimeContext,
 	})
 
@@ -312,7 +315,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			provider: params.provider,
 			runConfig: params.runConfig,
 			tools: params.tools,
-			allowedTools: params.allowedTools,
+			allowedTools: effectiveAllowedTools,
 			taskGateway: params.taskGateway,
 			taskStore: params.taskStore,
 			launchedTasks: params.launchedTasks,
@@ -370,7 +373,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				skills: params.skills,
 				basePrompt: contextLevel === 'full' ? params.basePrompt : undefined,
 				tools: params.tools,
-				allowedTools: params.allowedTools,
+				allowedTools: effectiveAllowedTools,
 				runtimeContext: params.runtimeContext,
 			}
 
@@ -535,4 +538,22 @@ export async function drainQuery(
 	}
 
 	return result.value
+}
+
+function withDeferredDiscoveryTool(
+	tools: ToolRegistryContract,
+	allowedTools?: string[],
+): string[] | undefined {
+	if (!allowedTools) return undefined
+	if (allowedTools.includes(SearchToolsTool.name)) return allowedTools
+
+	const allowedHasDeferred = allowedTools.some(
+		(name) => tools.has(name) && tools.getAvailability(name) === 'deferred',
+	)
+	if (!allowedHasDeferred) return allowedTools
+
+	if (!tools.has(SearchToolsTool.name)) return allowedTools
+	if (tools.getAvailability(SearchToolsTool.name) !== 'active') return allowedTools
+
+	return [...allowedTools, SearchToolsTool.name]
 }

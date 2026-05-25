@@ -31,6 +31,7 @@ export interface ToolExecutorConfig {
 	permissionMode: PermissionMode
 	env: Record<string, string>
 	abortSignal: AbortSignal
+	allowedTools?: readonly string[]
 	sandbox?: Sandbox
 	invocationState?: InvocationState
 	pluginManager?: PluginLifecycleManager
@@ -125,6 +126,7 @@ export class ToolExecutor {
 			},
 			invocationState: this.config.invocationState,
 			toolRegistry: this.config.tools,
+			allowedTools: this.config.allowedTools,
 			sandbox: this.config.sandbox,
 			fileReadTracker: this.fileReadTracker,
 		}
@@ -473,5 +475,5 @@ function formatFailedToolOutput(output: string | undefined, error: string | unde
 }
 
 function truncatedToolInputMessage(toolName: string): string {
-	return `Error: Tool "${toolName}" call was cut off while the model was streaming JSON arguments. The tool was NOT executed. Retry with a much shorter input. Self-budget any content/newStr payload under 12000 characters before calling file tools. For long files, create a short opening with write, then extend it with append or edit in bounded section chunks; for delegated work, pass a shared workspace filename/reference instead of embedding the content in the tool call.`
+	return `Error: Tool "${toolName}" call was cut off while the model was streaming JSON arguments. The tool was NOT executed. Retry with a much shorter input. Self-budget any content/newStr payload under 12000 characters before calling file tools. For long files, create a short opening with write, then extend it with edit using insertLine: "end" in bounded section chunks; for delegated work, pass a shared workspace filename/reference instead of embedding the content in the tool call.`
 }

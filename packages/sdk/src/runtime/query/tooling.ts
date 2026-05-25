@@ -17,6 +17,7 @@ export interface ToolingBootstrapConfig {
 	permissionMode: PermissionMode
 	env: Record<string, string>
 	abortSignal: AbortSignal
+	allowedTools?: readonly string[]
 	invocationState?: InvocationState
 	pluginManager?: PluginLifecycleManager
 }
@@ -36,6 +37,7 @@ export class ToolingBootstrap {
 				permissionMode: config.permissionMode,
 				env: config.env,
 				abortSignal: config.abortSignal,
+				allowedTools: config.allowedTools,
 				invocationState: config.invocationState,
 				pluginManager: config.pluginManager,
 			},
