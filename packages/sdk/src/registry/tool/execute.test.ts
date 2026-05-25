@@ -20,8 +20,10 @@
  *     reports true iff at least one tool is suspended.
  *   - `getAvailability(name)` returns 'active' as a default even for
  *     unknown names (this is non-obvious but is the current behavior).
- *   - `searchDeferred(q)` is a case-insensitive filter against name OR
- *     description of every DEFERRED tool.
+ *   - `searchDeferred(q)` filters DEFERRED tools: a useful whole query
+ *     matches name OR description (case-insensitive); a batched multi-term
+ *     query matches meaningful tokens against the NAME only. Generic/short
+ *     tokens (`clawtool`, `tool`, …) are ignored so they can't over-activate.
  *   - `assignTiers(mapping)` mutates `tool.tier` on existing tools;
  *     throws via `getOrThrow` on unknown name; throws if the tier id
  *     is not in `tierConfig.tiers`.
@@ -194,6 +196,20 @@ describe('ToolRegistry — searchDeferred', () => {
 			'clawtool_PeerList',
 		])
 		expect(r.searchDeferred('   ')).toEqual([])
+	})
+
+	it('does not over-activate on generic/shared tokens', () => {
+		const r = new ToolRegistry()
+		r.register([makeTool('clawtool_A2aCard', { description: 'peer card' })], 'deferred')
+		r.register([makeTool('clawtool_PeerList', { description: 'list peers' })], 'deferred')
+		r.register([makeTool('clawtool_WebSearch', { description: 'search the web' })], 'deferred')
+		// The shared "clawtool" prefix token must not drag in every tool.
+		expect(r.searchDeferred('clawtool WebSearch').map((t) => t.name)).toEqual([
+			'clawtool_WebSearch',
+		])
+		// A bare generic token identifies nothing — must not activate the catalog.
+		expect(r.searchDeferred('clawtool')).toEqual([])
+		expect(r.searchDeferred('tool')).toEqual([])
 	})
 })
 

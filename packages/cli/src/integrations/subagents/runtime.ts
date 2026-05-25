@@ -180,29 +180,37 @@ export async function createSubagentRuntime(
 			const { prompt, role } = input as { prompt: string; role?: string }
 			let agentId = GENERAL_PURPOSE_SUBAGENT
 			const persona = typeof role === 'string' ? role.trim() : ''
-			if (persona.length > 0) {
+			const dynamic = persona.length > 0
+			if (dynamic) {
 				agentId = `dyn-${++dynCounter}`
 				registry.register(buildDefinition(agentId, `Dynamic specialist: ${agentId}`, persona, opts))
 			}
-			const handle = await gateway.createTask({ agentId, prompt, workingDirectory: opts.cwd })
-			const completed = await gateway.waitForTask(handle.taskId)
-			const runStatus = completed.result?.status
-			const succeeded =
-				completed.state === 'completed' && (runStatus === undefined || runStatus === 'completed')
-			const resultText =
-				typeof completed.result?.result === 'string'
-					? completed.result.result
-					: completed.result?.result !== undefined
-						? JSON.stringify(completed.result.result)
-						: ''
-			if (!succeeded) {
-				return {
-					success: false,
-					output: '',
-					error: `Sub-agent ${agentId} ${completed.state}: ${completed.result?.lastError ?? resultText ?? '(no detail)'}`,
+			try {
+				const handle = await gateway.createTask({ agentId, prompt, workingDirectory: opts.cwd })
+				const completed = await gateway.waitForTask(handle.taskId)
+				const runStatus = completed.result?.status
+				const succeeded =
+					completed.state === 'completed' && (runStatus === undefined || runStatus === 'completed')
+				const resultText =
+					typeof completed.result?.result === 'string'
+						? completed.result.result
+						: completed.result?.result !== undefined
+							? JSON.stringify(completed.result.result)
+							: ''
+				if (!succeeded) {
+					return {
+						success: false,
+						output: '',
+						error: `Sub-agent ${agentId} ${completed.state}: ${completed.result?.lastError ?? resultText ?? '(no detail)'}`,
+					}
 				}
+				return { success: true, output: resultText || '(sub-agent returned no text)' }
+			} finally {
+				// A per-call dynamic specialist is single-use — drop its definition
+				// (and retained persona string) so long sessions don't leak `dyn-N`
+				// registrations whether the task succeeded, failed, or threw.
+				if (dynamic) registry.unregister(agentId)
 			}
-			return { success: true, output: resultText || '(sub-agent returned no text)' }
 		},
 	})
 
