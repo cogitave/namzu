@@ -16,6 +16,7 @@ export type SlashAction =
 	| { kind: 'list-skills' }
 	| { kind: 'load-skill'; name: string }
 	| { kind: 'resume' }
+	| { kind: 'list-agents' }
 	| { kind: 'none' }
 
 export interface SlashContext {
@@ -113,6 +114,11 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
 		name: 'skills',
 		description: 'List available skills (~/.namzu/skills + ./skills).',
 		action: () => ({ kind: 'list-skills' }),
+	},
+	{
+		name: 'agents',
+		description: 'List namzu sessions running across your terminals (needs `namzu serve`)',
+		action: () => ({ kind: 'list-agents' }),
 	},
 	{
 		name: 'resume',

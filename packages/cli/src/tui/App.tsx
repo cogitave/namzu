@@ -24,6 +24,12 @@ import {
 import { isTrusted, trustDir } from '../integrations/trust/store.js'
 import { appendMemory, composeMemoryPrompt, readMemory } from '../memory/store.js'
 import { composeSkillsPrompt, discoverSkills, loadSkillBody } from '../skills/store.js'
+import {
+	deregisterSession,
+	heartbeatSession,
+	listDaemonSessions,
+	registerSession,
+} from '../daemon/client.js'
 import { type ActiveTool, LiveActivity, formatElapsed } from './LiveActivity.js'
 import { expandFileMentions } from './mentions.js'
 import { Composer } from './Composer.js'
@@ -115,6 +121,9 @@ export function App({ ctx }: AppProps) {
 	const sessionsRef = useRef<CliSessions | null>(null)
 	const scopeRef = useRef<RunScope | null>(null)
 	const idRef = useRef<number>(0)
+	// Daemon presence: this session's id in `namzu serve`'s registry (null when
+	// no daemon is running). Lets an agent-view in another terminal see us.
+	const daemonIdRef = useRef<string | null>(null)
 	const nextId = useCallback(() => {
 		idRef.current += 1
 		return `m${idRef.current}`
@@ -269,6 +278,39 @@ export function App({ ctx }: AppProps) {
 			pushMessage('system', `Could not list conversations: ${err instanceof Error ? err.message : String(err)}`)
 		}
 	}, [ensureSessions, pushMessage])
+
+	// `/agents`: list namzu sessions the daemon knows about (across terminals).
+	const doListAgents = useCallback(async () => {
+		const sessions = await listDaemonSessions()
+		if (sessions.length === 0) {
+			pushMessage(
+				'system',
+				'No namzu sessions registered. Start the daemon with `namzu serve`, then other namzu windows will appear here.',
+			)
+			return
+		}
+		const now = Date.now()
+		const rel = (ms: number): string => {
+			const s = Math.round((now - ms) / 1000)
+			if (s < 60) return `${s}s ago`
+			if (s < 3600) return `${Math.round(s / 60)}m ago`
+			return `${Math.round(s / 3600)}h ago`
+		}
+		const glyph: Record<string, string> = {
+			idle: '●',
+			thinking: '◐',
+			tool: '◑',
+			'awaiting-permission': '◓',
+			exited: '·',
+		}
+		const lines = sessions.map((s) => {
+			const home = process.env.HOME
+			const cwd = home && s.cwd.startsWith(home) ? `~${s.cwd.slice(home.length)}` : s.cwd
+			const mine = s.pid === process.pid ? ' (this one)' : ''
+			return `${glyph[s.state] ?? '●'} ${s.title} — ${cwd} · ${s.state} · ${rel(s.lastSeen)}${mine}`
+		})
+		pushMessage('system', `namzu sessions (${sessions.length}):\n${lines.join('\n')}`)
+	}, [pushMessage])
 
 	// Load the chosen conversation into the transcript and continue in it.
 	const resumeConversation = useCallback(
@@ -555,6 +597,9 @@ export function App({ ctx }: AppProps) {
 					case 'resume':
 						void doResume()
 						return
+					case 'list-agents':
+						void doListAgents()
+						return
 					case 'none':
 						return
 				}
@@ -567,7 +612,7 @@ export function App({ ctx }: AppProps) {
 			}
 			void runTurn(value, images)
 		},
-		[activeSkills, doResume, exit, pushMessage, runTurn, slashCtx, state],
+		[activeSkills, doListAgents, doResume, exit, pushMessage, runTurn, slashCtx, state],
 	)
 
 	// Drain the queue: when a turn settles (idle) and nothing is running,
@@ -578,6 +623,37 @@ export function App({ ctx }: AppProps) {
 		setQueued(rest)
 		if (next !== undefined) void runTurn(next)
 	}, [state, phase, queued, runTurn])
+
+	// Daemon presence (best-effort, no-op without `namzu serve`): register once
+	// ready, heartbeat the state, and deregister on unmount. The daemon also
+	// prunes by dead pid, so a missed deregister self-heals.
+	useEffect(() => {
+		if (phase !== 'ready' || daemonIdRef.current) return
+		const home = process.env.HOME
+		const title = home && ctx.cwd.startsWith(home) ? `~${ctx.cwd.slice(home.length)}` : ctx.cwd
+		let cancelled = false
+		void registerSession({ cwd: ctx.cwd, title, model: session?.modelSummary ?? null }).then(
+			(id) => {
+				if (!cancelled) daemonIdRef.current = id
+			},
+		)
+		return () => {
+			cancelled = true
+		}
+	}, [phase, ctx.cwd, session])
+
+	useEffect(() => {
+		const id = daemonIdRef.current
+		if (id) void heartbeatSession(id, { state })
+	}, [state])
+
+	useEffect(
+		() => () => {
+			const id = daemonIdRef.current
+			if (id) void deregisterSession(id)
+		},
+		[],
+	)
 
 	const handlePickerSubmit = useCallback(
 		(selection: { provider: string; model?: string }) => {
