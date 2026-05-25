@@ -114,10 +114,16 @@ export class ToolRegistry extends ManagedRegistry<ToolDefinition> {
 	}
 
 	searchDeferred(query: string): ToolDefinition[] {
-		const q = query.toLowerCase()
-		return this.getByAvailability(['deferred']).filter(
-			(t) => t.name.toLowerCase().includes(q) || t.description.toLowerCase().includes(q),
-		)
+		const q = query.toLowerCase().trim()
+		if (q.length === 0) return []
+		// Tokenize so a batched query naming several tools at once
+		// ("A2aCard PeerRegister PeerList") activates each one — matching the
+		// whole phrase as a single substring would find none of them.
+		const tokens = q.split(/\s+/)
+		return this.getByAvailability(['deferred']).filter((t) => {
+			const haystack = `${t.name} ${t.description}`.toLowerCase()
+			return haystack.includes(q) || tokens.some((tok) => haystack.includes(tok))
+		})
 	}
 
 	assignTiers(mapping: Record<string, string>): void {

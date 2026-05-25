@@ -180,6 +180,21 @@ describe('ToolRegistry — searchDeferred', () => {
 		expect(r.searchDeferred('does').map((t) => t.name)).toEqual(['alpha', 'beta'])
 		expect(r.searchDeferred('gamma')).toEqual([])
 	})
+
+	it('tokenizes a multi-term query so a batch of tool names each match', () => {
+		const r = new ToolRegistry()
+		r.register([makeTool('clawtool_A2aCard')], 'deferred')
+		r.register([makeTool('clawtool_PeerRegister')], 'deferred')
+		r.register([makeTool('clawtool_PeerList')], 'deferred')
+		r.register([makeTool('clawtool_Unrelated')], 'deferred')
+		// A whole-phrase substring match would find none of these.
+		expect(r.searchDeferred('A2aCard PeerRegister PeerList').map((t) => t.name)).toEqual([
+			'clawtool_A2aCard',
+			'clawtool_PeerRegister',
+			'clawtool_PeerList',
+		])
+		expect(r.searchDeferred('   ')).toEqual([])
+	})
 })
 
 describe('ToolRegistry — tier mutation + guidance', () => {
