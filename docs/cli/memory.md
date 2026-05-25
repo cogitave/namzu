@@ -41,7 +41,11 @@ In a later session:
 
 ## Scope and format
 
-- Memory is **user-global** (`~/.namzu/`), shared across every project you run namzu in.
-- The files are plain markdown — bullets in `MEMORY.md`, free-form prose or sections in `USER.md`. Keep them concise; everything is injected on every turn.
+- The injected files are **user-global** (`~/.namzu/`), shared across every project you run namzu in.
+- They're plain markdown — bullets in `MEMORY.md`, free-form prose or sections in `USER.md`. Keep them concise; everything is injected on every turn.
 
-Session-history search, `/recall`, and agent self-curation (the agent writing its own memory mid-run) are planned extensions.
+## Agent memory (structured)
+
+Separately from the always-injected files above, the agent has its own **structured memory** it manages on demand via tools — `save_memory`, `search_memory`, and `read_memory` — backed by the SDK's store at `.namzu/memory`. namzu uses these to record and recall notes itself during a task (rather than everything living in the always-on prompt). You don't drive these directly; the `/remember` + `MEMORY.md`/`USER.md` flow above is the user-facing memory.
+
+`/recall` over past conversations is covered by [`/resume`](./tui.md#sessions--resume).
