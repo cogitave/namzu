@@ -29,6 +29,16 @@ const DEFAULT_LOAD_TIMEOUT_MS = 5_000
 export const CLAWTOOL_TOOL_PREFIX = 'clawtool_'
 
 /**
+ * clawtool tools namzu never bridges (bare lowercased names). The `Agent*`
+ * family is clawtool's on-disk `.claude/agents/*.md` persona manager — a
+ * Claude-Code construct that writes into Claude Code's directory and is
+ * redundant with (and confusing alongside) namzu's own in-memory dynamic
+ * sub-agents. namzu owns sub-agent definition + dispatch natively, so these
+ * are dropped before they reach the model.
+ */
+const EXCLUDED_CLAWTOOL_TOOLS = new Set(['agentnew', 'agentlist', 'agentdetect'])
+
+/**
  * Convert one clawtool proxy tool into an SDK `ToolDefinition`. Pure.
  * Bridged tools are flagged destructive (clawtool's MCP descriptors carry
  * no read-only hint, so they're treated as needing consent) and run by
@@ -73,7 +83,12 @@ export async function loadClawtoolToolDefinitions(
 	const skip = new Set(skipNames.map((n) => n.toLowerCase()))
 	try {
 		const plugin = await withTimeout(createClawtoolPlugin(pluginOpts), timeoutMs)
-		return plugin.tools.filter((t) => !skip.has(t.name.toLowerCase())).map(clawtoolToolToDefinition)
+		return plugin.tools
+			.filter((t) => {
+				const bare = t.name.toLowerCase()
+				return !skip.has(bare) && !EXCLUDED_CLAWTOOL_TOOLS.has(bare)
+			})
+			.map(clawtoolToolToDefinition)
 	} catch {
 		return []
 	}
