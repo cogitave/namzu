@@ -105,6 +105,9 @@ jobs:
           done
           for tarball in /tmp/attw-pack/*.tgz; do
             echo "::group::attw $(basename $tarball)"
-            npx -y @arethetypeswrong/cli@latest --pack "$tarball" --ignore-rules cjs-resolves-to-esm
+            # Pinned: `@latest` drifted to a CLI where `--pack` became a
+            # directory flag (it used to take the tarball), which crashed the
+            # whole step. Pass the packed .tgz as the positional spec instead.
+            npx -y @arethetypeswrong/cli@0.18.2 "$tarball" --ignore-rules cjs-resolves-to-esm
             echo "::endgroup::"
           done
