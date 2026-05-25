@@ -2,6 +2,18 @@ export type MessageRole = 'system' | 'user' | 'assistant' | 'tool'
 
 export type CacheHint = 'cache' | 'ephemeral' | 'none'
 
+/**
+ * An image attached to a user message (vision input). Additive: providers
+ * that support vision (e.g. Anthropic) emit it as an image content block
+ * alongside the text; providers that don't simply ignore it.
+ */
+export interface ImageAttachment {
+	/** Base64-encoded image bytes (no `data:` URI prefix). */
+	readonly data: string
+	/** IANA media type, e.g. `image/png`, `image/jpeg`, `image/webp`. */
+	readonly mediaType: string
+}
+
 export interface ToolCall {
 	id: string
 	type: 'function'
@@ -34,6 +46,8 @@ export interface SystemMessage extends BaseMessage {
 export interface UserMessage extends BaseMessage {
 	role: 'user'
 	content: string
+	/** Optional image attachments (vision input). */
+	attachments?: readonly ImageAttachment[]
 }
 
 export interface AssistantMessage extends BaseMessage {
@@ -59,8 +73,16 @@ export function createSystemMessage(content: string, cacheHint?: CacheHint): Sys
 	}
 }
 
-export function createUserMessage(content: string): UserMessage {
-	return { role: 'user', content, timestamp: Date.now() }
+export function createUserMessage(
+	content: string,
+	attachments?: readonly ImageAttachment[],
+): UserMessage {
+	return {
+		role: 'user',
+		content,
+		timestamp: Date.now(),
+		...(attachments && attachments.length > 0 ? { attachments } : {}),
+	}
 }
 
 export function createAssistantMessage(

@@ -78,7 +78,22 @@ interface AnthropicToolResultBlock {
 	content: string
 }
 
-type AnthropicContentBlock = AnthropicTextBlock | AnthropicToolUseBlock | AnthropicToolResultBlock
+interface AnthropicImageBlock {
+	type: 'image'
+	source: { type: 'base64'; media_type: string; data: string }
+}
+
+/** Shape of an SDK `ImageAttachment` (read structurally to avoid coupling). */
+interface AttachmentLike {
+	readonly data: string
+	readonly mediaType: string
+}
+
+type AnthropicContentBlock =
+	| AnthropicTextBlock
+	| AnthropicToolUseBlock
+	| AnthropicToolResultBlock
+	| AnthropicImageBlock
 
 interface AnthropicMessageParam {
 	role: 'user' | 'assistant'
@@ -146,6 +161,21 @@ function toAnthropicMessages(messages: ChatCompletionParams['messages']): Anthro
 		}
 
 		const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
+		// User message with image attachments → multimodal content blocks
+		// (text first, then each image as a base64 image block).
+		const attachments = (msg as { attachments?: readonly AttachmentLike[] }).attachments
+		if (msg.role === 'user' && attachments && attachments.length > 0) {
+			const blocks: AnthropicContentBlock[] = []
+			if (content.length > 0) blocks.push({ type: 'text', text: content })
+			for (const att of attachments) {
+				blocks.push({
+					type: 'image',
+					source: { type: 'base64', media_type: att.mediaType, data: att.data },
+				})
+			}
+			out.push({ role: 'user', content: blocks })
+			continue
+		}
 		out.push({
 			role: msg.role === 'assistant' ? 'assistant' : 'user',
 			content,

@@ -11,7 +11,7 @@
  *      empty-state mode (explains where to put credentials).
  */
 
-import type { Message } from '@namzu/sdk'
+import type { ImageAttachment, Message } from '@namzu/sdk'
 import { Box, Text, useApp, useInput } from 'ink'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
@@ -319,7 +319,7 @@ export function App({ ctx }: AppProps) {
 	)
 
 	const runTurn = useCallback(
-		async (text: string) => {
+		async (text: string, images?: readonly ImageAttachment[]) => {
 			if (!session || !session.hasProvider) {
 				pushMessage('system', session?.errorHint ?? 'Agent is not ready yet — give it a moment.')
 				return
@@ -334,8 +334,18 @@ export function App({ ctx }: AppProps) {
 					content: m.content,
 					timestamp: Date.now(),
 				}))
-			priorForSdk.push({ role: 'user', content: sendText, timestamp: Date.now() })
+			priorForSdk.push({
+				role: 'user',
+				content: sendText,
+				timestamp: Date.now(),
+				...(images && images.length > 0 ? { attachments: images } : {}),
+			})
 
+			const metaParts: string[] = []
+			if (attached.length > 0)
+				metaParts.push(`${attached.length} file${attached.length > 1 ? 's' : ''} attached`)
+			if (images && images.length > 0)
+				metaParts.push(`${images.length} image${images.length > 1 ? 's' : ''}`)
 			pushMessage(
 				'user',
 				text,
@@ -343,9 +353,7 @@ export function App({ ctx }: AppProps) {
 				undefined,
 				undefined,
 				undefined,
-				attached.length > 0
-					? `${attached.length} file${attached.length > 1 ? 's' : ''} attached`
-					: undefined,
+				metaParts.length > 0 ? metaParts.join(' · ') : undefined,
 			)
 			setState('thinking')
 			// The model interleaves text → tool → text across iterations.
@@ -470,7 +478,7 @@ export function App({ ctx }: AppProps) {
 	)
 
 	const handleSubmit = useCallback(
-		(value: string) => {
+		(value: string, images?: readonly ImageAttachment[]) => {
 			setHistory((prev) => [...prev, value])
 			const slash = runSlash(value, slashCtx)
 			if (slash) {
@@ -552,11 +560,12 @@ export function App({ ctx }: AppProps) {
 				}
 			}
 			// A turn is in flight → queue the message; it auto-sends when idle.
+			// (Queued messages are text-only; pasted images aren't carried.)
 			if (state !== 'idle') {
 				setQueued((q) => [...q, value])
 				return
 			}
-			void runTurn(value)
+			void runTurn(value, images)
 		},
 		[activeSkills, doResume, exit, pushMessage, runTurn, slashCtx, state],
 	)
@@ -883,5 +892,5 @@ function hintForPhase(
 	if (phase === 'unhealthy') return 'Ctrl+C ×2 to exit'
 	if (state === 'awaiting-permission') return 'y approve · n reject · a approve all'
 	if (state !== 'idle') return 'agent is working — esc to interrupt'
-	return '/help · /model · /quit · @file to attach · Ctrl+C ×2 to exit'
+	return '/help · @file / Ctrl+V to attach · Ctrl+C ×2 to exit'
 }

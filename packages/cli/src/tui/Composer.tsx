@@ -8,15 +8,17 @@
  * else browse history, Backspace deletes.
  */
 
+import type { ImageAttachment } from '@namzu/sdk'
 import { Box, Text, useInput } from 'ink'
 import { useCallback, useState } from 'react'
 
+import { readClipboardImage } from '../integrations/clipboard/image.js'
 import { matchSlashCommands } from './slashCommands.js'
 import { theme } from './theme.js'
 
 export interface ComposerProps {
 	readonly disabled?: boolean
-	readonly onSubmit: (value: string) => void
+	readonly onSubmit: (value: string, images?: readonly ImageAttachment[]) => void
 	readonly history: readonly string[]
 }
 
@@ -31,6 +33,9 @@ export function Composer({ disabled = false, onSubmit, history }: ComposerProps)
 	// Large pastes are held as attachments (shown as chips) instead of being
 	// dumped into the input, then folded into the message on submit.
 	const [pastes, setPastes] = useState<readonly string[]>([])
+	// Images pasted from the clipboard (Ctrl+V), shown as chips and sent as
+	// vision attachments on submit.
+	const [images, setImages] = useState<readonly ImageAttachment[]>([])
 
 	const suggestions = matchSlashCommands(value).slice(0, MAX_SUGGESTIONS)
 	const showSuggestions = suggestions.length > 0
@@ -41,6 +46,7 @@ export function Composer({ disabled = false, onSubmit, history }: ComposerProps)
 		setHistoryIndex(-1)
 		setSelected(0)
 		setPastes([])
+		setImages([])
 	}, [])
 
 	useInput(
@@ -54,8 +60,8 @@ export function Composer({ disabled = false, onSubmit, history }: ComposerProps)
 					return
 				}
 				const message = [value, ...pastes].map((s) => s.trim()).filter(Boolean).join('\n\n')
-				if (message.length === 0) return
-				onSubmit(message)
+				if (message.length === 0 && images.length === 0) return
+				onSubmit(message, images.length > 0 ? images : undefined)
 				reset()
 				return
 			}
@@ -72,7 +78,12 @@ export function Composer({ disabled = false, onSubmit, history }: ComposerProps)
 				return
 			}
 			if (key.backspace || key.delete) {
-				// Backspace on an empty line removes the last pasted attachment.
+				// Backspace on an empty line removes the last attachment (image first,
+				// then pasted text).
+				if (value.length === 0 && images.length > 0) {
+					setImages((p) => p.slice(0, -1))
+					return
+				}
 				if (value.length === 0 && pastes.length > 0) {
 					setPastes((p) => p.slice(0, -1))
 					return
@@ -105,6 +116,12 @@ export function Composer({ disabled = false, onSubmit, history }: ComposerProps)
 				setValue(history[history.length - 1 - next] ?? '')
 				return
 			}
+			// Ctrl+V: pull an image off the clipboard and hold it as an attachment.
+			if (key.ctrl && input === 'v') {
+				const img = readClipboardImage()
+				if (img) setImages((p) => [...p, img])
+				return
+			}
 			if (key.ctrl || key.meta) return
 			if (input.length === 0) return
 			// A multi-line or large chunk arriving in one keypress is a paste —
@@ -123,8 +140,13 @@ export function Composer({ disabled = false, onSubmit, history }: ComposerProps)
 	const showPlaceholder = !disabled && value.length === 0
 	return (
 		<Box flexDirection="column">
-			{pastes.length > 0 ? (
+			{pastes.length > 0 || images.length > 0 ? (
 				<Box flexDirection="column" paddingX={1} paddingBottom={1}>
+					{images.map((img, i) => (
+						<Text key={`img-${i}`} color={theme.accent.tool}>
+							⎘ Image #{i + 1} ({Math.round((img.data.length * 3) / 4 / 1024)} KB)
+						</Text>
+					))}
 					{pastes.map((p, i) => (
 						<Text key={`paste-${i}`} color={theme.text.secondary}>
 							⎘ Pasted text #{i + 1} (+{p.split('\n').length} lines)
