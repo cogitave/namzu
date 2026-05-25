@@ -24,6 +24,7 @@ import {
 import { appendMemory, composeMemoryPrompt, readMemory } from '../memory/store.js'
 import { composeSkillsPrompt, discoverSkills, loadSkillBody } from '../skills/store.js'
 import { Composer } from './Composer.js'
+import { NAMZU_LOGO, NAMZU_LOGO_GRADIENT, NAMZU_LOGO_MIN_WIDTH } from './logo.js'
 import { PermissionOverlay } from './PermissionOverlay.js'
 import { Picker } from './Picker.js'
 import { StatusBar } from './StatusBar.js'
@@ -448,14 +449,29 @@ function Banner({
 	readonly version: string
 	readonly session: AgentSession | null
 }) {
-	const tag = session?.providerSummary ? ` · ${session.providerSummary}` : ''
+	const cols = process.stdout.columns ?? 80
+	const wide = cols >= NAMZU_LOGO_MIN_WIDTH
+	const provider = session?.providerSummary
 	return (
-		<Box paddingX={1} paddingTop={1} paddingBottom={1}>
-			<Text color={theme.accent.system} bold>
-				▲ namzu
-			</Text>
-			<Text color={theme.text.muted}> {version}</Text>
-			<Text color={theme.text.secondary}>{tag}</Text>
+		<Box flexDirection="column" paddingX={1} paddingTop={1} paddingBottom={1}>
+			{wide ? (
+				<Box flexDirection="column">
+					{NAMZU_LOGO.map((line, i) => (
+						<Text key={`logo-${i}`} color={NAMZU_LOGO_GRADIENT[i]}>
+							{line}
+						</Text>
+					))}
+				</Box>
+			) : (
+				<Text color={theme.accent.assistant} bold>
+					▲ namzu
+				</Text>
+			)}
+			<Box marginTop={wide ? 1 : 0}>
+				<Text color={theme.text.secondary}>the agent that lives in your terminal</Text>
+				<Text color={theme.text.muted}> · v{version}</Text>
+				{provider ? <Text color={theme.text.muted}> · {provider}</Text> : null}
+			</Box>
 		</Box>
 	)
 }
