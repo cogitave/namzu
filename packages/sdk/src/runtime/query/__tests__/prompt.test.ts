@@ -35,4 +35,53 @@ describe('PromptBuilder runtime context', () => {
 		expect(prompt).toContain('OUTPUT_FILE: <filename> - <description>')
 		expect(prompt).toContain('Register generated files after the turn.')
 	})
+
+	it('discloses available skills even when the host supplies a systemPrompt', () => {
+		const prompt = new PromptBuilder({
+			systemPrompt: 'You are a project assistant.',
+			tools: makeToolRegistry(),
+			skills: [
+				{
+					metadata: {
+						name: 'project-documents',
+						description: 'Draft and edit project documents from grounded inputs.',
+					},
+					dirPath: '/repo/.agents/skills/project-documents',
+				},
+			],
+		}).build('full', '/tmp/work')
+
+		expect(prompt).toContain('You are a project assistant.')
+		expect(prompt).toContain('## Available Skills')
+		expect(prompt).toContain('project-documents')
+		expect(prompt).toContain('Draft and edit project documents')
+		expect(prompt).not.toContain('## Loaded Skills')
+	})
+
+	it('includes loaded skill bodies with systemPrompt while preserving the metadata catalogue', () => {
+		const prompt = new PromptBuilder({
+			systemPrompt: 'You are a cowork supervisor.',
+			tools: makeToolRegistry(),
+			skills: [
+				{
+					metadata: {
+						name: 'long-form-files',
+						description: 'Create long files with bounded edit chunks.',
+						license: 'MIT',
+						compatibility: 'Requires file tools',
+						allowedTools: 'read write edit',
+					},
+					body: 'Use skeleton-first writes and bounded edit chunks.',
+					dirPath: '/repo/.agents/skills/long-form-files',
+				},
+			],
+		}).build('full', '/tmp/work')
+
+		expect(prompt).toContain('## Available Skills')
+		expect(prompt).toContain('license: MIT')
+		expect(prompt).toContain('compatibility: Requires file tools')
+		expect(prompt).toContain('allowed-tools: read write edit')
+		expect(prompt).toContain('## Loaded Skills')
+		expect(prompt).toContain('Use skeleton-first writes')
+	})
 })

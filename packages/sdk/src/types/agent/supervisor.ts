@@ -3,6 +3,7 @@ import type { ResumeHandler } from '../hitl/index.js'
 import type { LLMProvider } from '../provider/index.js'
 import type { TaskRouterConfig } from '../router/index.js'
 import type { SandboxProvider } from '../sandbox/index.js'
+import type { Skill } from '../skills/index.js'
 import type { ToolRegistryContract } from '../tool/index.js'
 import type { VerificationGateConfig } from '../verification/index.js'
 import type { BaseAgentConfig, BaseAgentResult } from './base.js'
@@ -20,6 +21,8 @@ export interface SupervisorAgentConfig extends BaseAgentConfig {
 	tools?: ToolRegistryContract
 
 	systemPrompt: string
+
+	skills?: Skill[]
 
 	maxDepth?: number
 

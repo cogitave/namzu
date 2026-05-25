@@ -149,6 +149,9 @@ export class ToolRegistry extends ManagedRegistry<ToolDefinition> {
 		const deferred = this.getByAvailability(['deferred'], toolNames)
 
 		const parts: string[] = []
+		const contractNote = `<tool_runtime_contract>
+Executable tool names, descriptions, and JSON input schemas are attached through the runtime tools parameter. Treat that runtime schema as authoritative; this prompt section is a discoverability summary only.
+</tool_runtime_contract>`
 
 		if (active.length > 0) {
 			const entries = active.map((t) => `- ${t.name}: ${t.description}`).join('\n')
@@ -157,13 +160,17 @@ export class ToolRegistry extends ManagedRegistry<ToolDefinition> {
 
 		if (deferred.length > 0) {
 			const entries = deferred.map((t) => `- ${t.name}`).join('\n')
+			const deferredIntro =
+				this.has('search_tools') && this.getAvailability('search_tools') === 'active'
+					? 'Use search_tools to load these before use:'
+					: 'Deferred tools are discoverable but not executable until the runtime activates them:'
 			parts.push(
-				`<deferred_tools>\nUse search_tools to load these before use:\n${entries}\n</deferred_tools>`,
+				`<deferred_tools>\n${deferredIntro}\n${entries}\n</deferred_tools>`,
 			)
 		}
 
 		if (parts.length === 0) return ''
-		return parts.join('\n\n')
+		return [contractNote, ...parts].join('\n\n')
 	}
 
 	toLLMTools(toolNames?: string[]): LLMToolSchema[] {

@@ -23,14 +23,9 @@ export function assembleSystemPrompt(persona: AgentPersona, skills?: Skill[]): s
 		}
 	}
 
-	if (skills && skills.length > 0) {
-		const loadedSkills = skills.filter((s) => s.body)
-		if (loadedSkills.length > 0) {
-			const skillSections = loadedSkills.map(
-				(s) => `### ${s.metadata.name}\n**Skill directory:** \`${s.dirPath}\`\n\n${s.body}`,
-			)
-			sections.push(`## Skills\n\n${skillSections.join('\n\n')}`)
-		}
+	const skillsSection = renderSkillsSection(skills)
+	if (skillsSection) {
+		sections.push(skillsSection)
 	}
 
 	if (persona.reflexes?.outputDiscipline) {
@@ -43,6 +38,34 @@ export function assembleSystemPrompt(persona: AgentPersona, skills?: Skill[]): s
 
 	if (persona.sessionContext) {
 		sections.push(`## Session Context\n${persona.sessionContext.trim()}`)
+	}
+
+	return sections.join('\n\n')
+}
+
+export function renderSkillsSection(skills?: Skill[]): string | null {
+	if (!skills || skills.length === 0) return null
+
+	const available = skills
+		.map((s) => {
+			const details = [`description: ${s.metadata.description.trim()}`]
+			if (s.metadata.compatibility) details.push(`compatibility: ${s.metadata.compatibility}`)
+			if (s.metadata.license) details.push(`license: ${s.metadata.license}`)
+			if (s.metadata.allowedTools) details.push(`allowed-tools: ${s.metadata.allowedTools}`)
+			return `- ${s.metadata.name} (${details.join('; ')})\n  directory: ${s.dirPath}`
+		})
+		.join('\n')
+
+	const loadedSkills = skills.filter((s) => s.body)
+	const sections = [
+		`## Available Skills\nThese Agent Skills are available through progressive disclosure. Use a skill only when the task matches its description. If a skill is not already loaded below, activate/read its SKILL.md from the listed directory when the runtime provides filesystem or skill-loading access.\n\n${available}`,
+	]
+
+	if (loadedSkills.length > 0) {
+		const skillSections = loadedSkills.map(
+			(s) => `### ${s.metadata.name}\n**Skill directory:** \`${s.dirPath}\`\n\n${s.body}`,
+		)
+		sections.push(`## Loaded Skills\n\n${skillSections.join('\n\n')}`)
 	}
 
 	return sections.join('\n\n')

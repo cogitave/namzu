@@ -130,6 +130,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 		const run = await drainQuery(
 			{
 				systemPrompt: config.systemPrompt,
+				skills: config.skills,
 				provider: config.provider,
 				tools,
 				runConfig: {

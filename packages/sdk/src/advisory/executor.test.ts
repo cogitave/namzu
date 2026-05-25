@@ -21,7 +21,8 @@
  *   - `buildContext`:
  *     - Returns [] when `request.includeContext === false`.
  *     - Includes workingStateSummary when present.
- *     - Includes toolCatalog names when present + non-empty.
+ *     - Includes a runtime tool summary when a toolCatalog is present
+ *       + non-empty; executable schemas remain runtime-owned.
  *     - Includes truncated conversation context (most-recent-first
  *       walk, bounded by `advisor.maxContextTokens * CHARS_PER_TOKEN`).
  *     - Returns [] when no context parts were assembled.
@@ -205,7 +206,7 @@ describe('AdvisoryExecutor — buildContext', () => {
 		expect(call.messages).toHaveLength(2)
 	})
 
-	it('includes workingStateSummary + toolCatalog names when present', async () => {
+	it('includes workingStateSummary + runtime tool summary when present', async () => {
 		const provider = mockProvider()
 		const e = new AdvisoryExecutor()
 		await e.consult(advisor({ provider }), req, {
@@ -227,8 +228,10 @@ describe('AdvisoryExecutor — buildContext', () => {
 		const contextMsg = call.messages[1]?.content ?? ''
 		expect(contextMsg).toContain('Working State')
 		expect(contextMsg).toContain('state summary here')
-		expect(contextMsg).toContain('Available Tools')
-		expect(contextMsg).toContain('read_file, write_file')
+		expect(contextMsg).toContain('Runtime Tool Summary')
+		expect(contextMsg).toContain('executable schemas remain owned by the runtime tool catalogue')
+		expect(contextMsg).toContain('- read_file: read')
+		expect(contextMsg).toContain('- write_file: write')
 	})
 
 	it('includes conversation context (no truncation when no maxContextTokens)', async () => {

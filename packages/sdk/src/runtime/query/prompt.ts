@@ -1,5 +1,5 @@
 import { FILESYSTEM_TOOLS } from '../../constants/tools/index.js'
-import { assembleSystemPrompt } from '../../persona/assembler.js'
+import { assembleSystemPrompt, renderSkillsSection } from '../../persona/assembler.js'
 import type { AgentRuntimeContext } from '../../types/agent/base.js'
 import type { AgentContextLevel } from '../../types/agent/factory.js'
 import type { AgentPersona } from '../../types/persona/index.js'
@@ -83,6 +83,14 @@ export class PromptBuilder {
 			parts.push(this.config.systemPrompt)
 		} else if (this.config.persona) {
 			parts.push(assembleSystemPrompt(this.config.persona, this.config.skills))
+		} else {
+			const skillSection = renderSkillsSection(this.config.skills)
+			if (skillSection) parts.push(skillSection)
+		}
+
+		if (this.config.systemPrompt) {
+			const skillSection = renderSkillsSection(this.config.skills)
+			if (skillSection) parts.push(skillSection)
 		}
 
 		if (contextLevel !== 'minimal') {
@@ -133,6 +141,14 @@ export class PromptBuilder {
 			if (this.config.persona.sessionContext) {
 				dynamicParts.push(`## Session Context\n${this.config.persona.sessionContext.trim()}`)
 			}
+		} else {
+			const skillSection = renderSkillsSection(this.config.skills)
+			if (skillSection) staticParts.push(skillSection)
+		}
+
+		if (this.config.systemPrompt) {
+			const skillSection = renderSkillsSection(this.config.skills)
+			if (skillSection) staticParts.push(skillSection)
 		}
 
 		if (contextLevel !== 'minimal') {

@@ -119,8 +119,17 @@ export class AdvisoryExecutor {
 		}
 
 		if (callCtx.toolCatalog && callCtx.toolCatalog.length > 0) {
-			const toolNames = callCtx.toolCatalog.map((t) => t.function.name)
-			contextParts.push(`## Available Tools\n${toolNames.join(', ')}`)
+			const toolLines = callCtx.toolCatalog.map((tool) => {
+				const description = tool.function.description?.trim()
+				return description ? `- ${tool.function.name}: ${description}` : `- ${tool.function.name}`
+			})
+			contextParts.push(
+				[
+					'## Runtime Tool Summary',
+					'These tools are available to the executor. Their executable schemas remain owned by the runtime tool catalogue; use this as advisory context only.',
+					toolLines.join('\n'),
+				].join('\n'),
+			)
 		}
 
 		const messagesToInclude = this.truncateMessages(callCtx.messages, advisor.maxContextTokens)

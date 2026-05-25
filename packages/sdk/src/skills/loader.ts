@@ -41,14 +41,29 @@ function parseSkillMd(raw: string, dirPath: string): ParsedSkillMd {
 function parseFlatYaml(raw: string, dirPath: string): SkillMetadata {
 	const lines = raw.split('\n')
 	const kv: Record<string, string> = {}
+	const metadata: Record<string, string> = {}
+	let section: 'metadata' | undefined
 
 	for (const line of lines) {
+		if (!line.trim() || line.trimStart().startsWith('#')) continue
+
+		if (/^\s/.test(line)) {
+			if (section !== 'metadata') continue
+			const colonIdx = line.indexOf(':')
+			if (colonIdx === -1) continue
+			const key = line.slice(0, colonIdx).trim()
+			const value = normalizeYamlScalar(line.slice(colonIdx + 1).trim())
+			if (key && value) metadata[key] = value
+			continue
+		}
+
 		const colonIdx = line.indexOf(':')
 		if (colonIdx === -1) continue
 		const key = line.slice(0, colonIdx).trim()
-		const value = line.slice(colonIdx + 1).trim()
+		const value = normalizeYamlScalar(line.slice(colonIdx + 1).trim())
 
-		kv[key] = value.replace(/^["']|["']$/g, '')
+		section = key === 'metadata' ? 'metadata' : undefined
+		if (value) kv[key] = value
 	}
 
 	if (!kv.name) {
@@ -61,19 +76,35 @@ function parseFlatYaml(raw: string, dirPath: string): SkillMetadata {
 	validateSkillName(kv.name, dirPath)
 	validateDescription(kv.description, dirPath)
 
-	const metadata: SkillMetadata = {
+	const skillMetadata: SkillMetadata = {
 		name: kv.name,
 		description: kv.description,
+	}
+
+	if (kv.license) {
+		skillMetadata.license = kv.license
 	}
 
 	if (kv.compatibility) {
 		if (kv.compatibility.length > 500) {
 			throw new Error(`SKILL.md at "${dirPath}": compatibility exceeds 500 characters`)
 		}
-		metadata.compatibility = kv.compatibility
+		skillMetadata.compatibility = kv.compatibility
 	}
 
-	return metadata
+	if (kv['allowed-tools']) {
+		skillMetadata.allowedTools = kv['allowed-tools']
+	}
+
+	if (Object.keys(metadata).length > 0) {
+		skillMetadata.metadata = metadata
+	}
+
+	return skillMetadata
+}
+
+function normalizeYamlScalar(value: string): string {
+	return value.replace(/^["']|["']$/g, '').trim()
 }
 
 const SKILL_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
@@ -164,5 +195,5 @@ export async function discoverSkills(parentDir: string): Promise<string[]> {
 		logger.debug('Skills directory not found', { parentDir })
 	}
 
-	return dirs
+	return dirs.sort()
 }

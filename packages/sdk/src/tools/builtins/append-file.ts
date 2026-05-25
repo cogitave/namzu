@@ -20,7 +20,7 @@ const inputSchema = z.object({
 export const AppendFileTool = defineTool({
 	name: 'append',
 	description:
-		'Append text to a file (creating it if it does not exist). Use this when a single `write` call would risk hitting the model output token limit mid-stream — write the opening section with `write`, then call `append` repeatedly to extend the file section by section. Self-budget each content payload under 12000 characters before emitting the tool call. Each `append` call resets the per-call output budget, so a 20k-word document is built as many bounded appends. The file is never overwritten; content is added at the end. For modifying existing text inside a file, use `edit` instead.',
+		'Legacy append-only file helper. This tool is intentionally not part of the default builtin toolset; prefer `edit` with insertLine: "end" for file extension and targeted section-by-section document construction. Register this tool explicitly only for hosts that require append-only semantics. Self-budget each content payload under 12000 characters before emitting the tool call. The file is never overwritten; content is added at the end. For modifying existing text inside a file, use `edit` instead.',
 	inputSchema,
 	category: 'filesystem',
 	permissions: ['file_write'],
