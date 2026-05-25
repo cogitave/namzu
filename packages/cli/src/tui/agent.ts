@@ -369,6 +369,28 @@ const VERIFICATION_GATE = {
 	rules: [],
 }
 
+// Automatic context compression for long, tool-heavy turns: the structured
+// strategy summarizes old tool results / notes once the message buffer
+// crosses the trigger threshold of the token budget, keeping the most
+// recent messages verbatim. A no-op for short turns; a safety net against
+// unbounded context growth on long ones.
+const COMPACTION_CONFIG = {
+	strategy: 'structured' as const,
+	triggerThreshold: 0.7,
+	resetThreshold: 0.4,
+	keepRecentMessages: 6,
+	maxToolResults: 30,
+	maxListSize: 25,
+	llmVerification: false,
+	llmVerificationMaxTokens: 2048,
+	richStateThreshold: 15,
+	convoTextBudget: 12_000,
+	maxSentencesPerTurn: 5,
+	maxCharsPerNote: 500,
+	maxCharsPerRequirement: 300,
+	maxCharsPerTask: 400,
+}
+
 async function* runTurn(
 	provider: LLMProvider,
 	model: string,
@@ -387,6 +409,7 @@ async function* runTurn(
 			tools,
 			taskStore,
 			verificationGate: VERIFICATION_GATE,
+			compactionConfig: COMPACTION_CONFIG,
 			runConfig: {
 				model,
 				timeoutMs: 600_000,
