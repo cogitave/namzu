@@ -25,6 +25,7 @@ import { isTrusted, trustDir } from '../integrations/trust/store.js'
 import { appendMemory, composeMemoryPrompt, readMemory } from '../memory/store.js'
 import { composeSkillsPrompt, discoverSkills, loadSkillBody } from '../skills/store.js'
 import { type ActiveTool, LiveActivity, formatElapsed } from './LiveActivity.js'
+import { expandFileMentions } from './mentions.js'
 import { Composer } from './Composer.js'
 import { TrustPrompt } from './TrustPrompt.js'
 import {
@@ -323,6 +324,9 @@ export function App({ ctx }: AppProps) {
 				pushMessage('system', session?.errorHint ?? 'Agent is not ready yet — give it a moment.')
 				return
 			}
+			// `@path` mentions: the visible message keeps the readable token, but
+			// the model receives the file contents inlined.
+			const { sendText, attached } = expandFileMentions(text, ctx.cwd)
 			const priorForSdk: Message[] = messages
 				.filter((m) => (m.role === 'user' || m.role === 'assistant') && !m.pending)
 				.map((m) => ({
@@ -330,9 +334,19 @@ export function App({ ctx }: AppProps) {
 					content: m.content,
 					timestamp: Date.now(),
 				}))
-			priorForSdk.push({ role: 'user', content: text, timestamp: Date.now() })
+			priorForSdk.push({ role: 'user', content: sendText, timestamp: Date.now() })
 
-			pushMessage('user', text)
+			pushMessage(
+				'user',
+				text,
+				false,
+				undefined,
+				undefined,
+				undefined,
+				attached.length > 0
+					? `${attached.length} file${attached.length > 1 ? 's' : ''} attached`
+					: undefined,
+			)
 			setState('thinking')
 			// The model interleaves text → tool → text across iterations.
 			// Track the current assistant bubble and finalize it at each tool
@@ -452,7 +466,7 @@ export function App({ ctx }: AppProps) {
 				}
 			}
 		},
-		[activeSkills, appendToMessage, ctx.skipPermissions, finalizeMessage, messages, onPermission, pushMessage, session],
+		[activeSkills, appendToMessage, ctx.cwd, ctx.skipPermissions, finalizeMessage, messages, onPermission, pushMessage, session],
 	)
 
 	const handleSubmit = useCallback(
@@ -616,6 +630,15 @@ export function App({ ctx }: AppProps) {
 				if (ch === 'y' || key.return) resolvePermission({ kind: 'approve' })
 				else if (ch === 'a') resolvePermission({ kind: 'approve-all' })
 				else if (ch === 'n' || key.escape) resolvePermission({ kind: 'reject' })
+				return
+			}
+			// Esc interrupts a running turn (Ctrl+C stays reserved for exit). Mirrors
+			// the Ctrl+C interrupt path: abort, drop the queue, one "Interrupted." line.
+			if (key.escape && abortRef.current) {
+				abortRef.current.abort()
+				abortRef.current = null
+				setQueued([])
+				pushMessage('system', 'Interrupted.')
 				return
 			}
 			// Ctrl+O toggles expansion of collapsed tool diffs / output.
@@ -859,6 +882,6 @@ function hintForPhase(
 	if (phase === 'picker') return '↑↓ navigate · enter accept · esc cancel'
 	if (phase === 'unhealthy') return 'Ctrl+C ×2 to exit'
 	if (state === 'awaiting-permission') return 'y approve · n reject · a approve all'
-	if (state !== 'idle') return 'agent is working — Ctrl+C to interrupt'
-	return '/help · /model · /quit · Ctrl+C ×2 to exit'
+	if (state !== 'idle') return 'agent is working — esc to interrupt'
+	return '/help · /model · /quit · @file to attach · Ctrl+C ×2 to exit'
 }
