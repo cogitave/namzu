@@ -36,7 +36,12 @@ export const CLAWTOOL_TOOL_PREFIX = 'clawtool_'
  * sub-agents. namzu owns sub-agent definition + dispatch natively, so these
  * are dropped before they reach the model.
  */
-const EXCLUDED_CLAWTOOL_TOOLS = new Set(['agentnew', 'agentlist', 'agentdetect'])
+export const EXCLUDED_CLAWTOOL_TOOLS = new Set(['agentnew', 'agentlist', 'agentdetect'])
+
+/** Whether a bridged clawtool tool (by its bare name) is excluded from namzu. */
+export function isExcludedClawtoolTool(bareName: string): boolean {
+	return EXCLUDED_CLAWTOOL_TOOLS.has(bareName.toLowerCase())
+}
 
 /**
  * Convert one clawtool proxy tool into an SDK `ToolDefinition`. Pure.
