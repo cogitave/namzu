@@ -8,19 +8,27 @@ export const NAMZU_MARK = '❀'
 export const NAMZU_MARK_COLOR = '#7de5c3'
 
 /**
- * Header wordmark — a compact ASCII "namzu" (figlet "Small" style). Every
- * letter is x-height, so three rows are enough to read it and it stays short
- * enough to sit beside the name/version/cwd block without dwarfing it. Each
- * row is the same width, so the block stays rectangular and aligned.
+ * Header wordmark — "NAMZU" in a solid filled-block pixel font (thick `█`
+ * strokes, not thin line-art, so it reads as a chunky logo rather than an
+ * outline). Five rows, every row the same width so the block stays
+ * rectangular and aligned beside the name/version/cwd column.
  */
 export const NAMZU_WORDMARK: readonly string[] = [
-	' _ _    __ _   _ __   ____  _  _ ',
-	"| ' \\  / _` | | '  \\ |_  / | || |",
-	'|_||_| \\__,_| |_|_|_| /__|  \\_,_|',
+	'█   █   ███   █   █  █████  █   █',
+	'██  █  █   █  ██ ██     █   █   █',
+	'█ █ █  █████  █ █ █    █    █   █',
+	'█  ██  █   █  █   █   █     █   █',
+	'█   █  █   █  █   █  █████   ███ ',
 ]
 
 /** Per-row teal→green gradient, matching the namzu.ai bloom palette. */
-export const NAMZU_WORDMARK_GRADIENT: readonly string[] = ['#a4edd5', '#5eead4', '#2dd4bf']
+export const NAMZU_WORDMARK_GRADIENT: readonly string[] = [
+	'#a4edd5',
+	'#7de5c3',
+	'#5eead4',
+	'#34d399',
+	'#2dd4bf',
+]
 
 /**
  * Minimum terminal columns to show the wordmark beside the text block; below

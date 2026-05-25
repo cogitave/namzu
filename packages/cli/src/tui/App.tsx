@@ -718,7 +718,8 @@ function Banner({
 				) : (
 					<Text color={NAMZU_MARK_COLOR}>{NAMZU_MARK} </Text>
 				)}
-				<Box flexDirection="column">
+				{/* Center the meta column against the 5-row wordmark. */}
+				<Box flexDirection="column" marginTop={wide ? 1 : 0}>
 					<Text>
 						<Text color={theme.text.secondary}>Cogitave</Text>
 						{/* Wide layout already spells "namzu" in the wordmark, so the
