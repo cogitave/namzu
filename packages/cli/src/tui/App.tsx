@@ -101,7 +101,7 @@ export function App({ ctx }: AppProps) {
 				setPhase('ready')
 				pushMessage(
 					'system',
-					`Connected to ${s.providerSummary}${s.modelSummary ? ` · ${s.modelSummary}` : ''} · ${s.toolNames.length} tools`,
+					`Connected to ${s.providerSummary}${s.modelSummary ? ` · ${s.modelSummary}` : ''} · ${s.toolNames.length} tools${s.deferredToolCount > 0 ? ` (+${s.deferredToolCount} on demand)` : ''}`,
 				)
 			} else {
 				setPhase('unhealthy')

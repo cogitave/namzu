@@ -29,6 +29,7 @@ import {
 	ProviderRegistry,
 	type ResumeHandler,
 	type RunEvent,
+	SearchToolsTool,
 	type SessionId,
 	type TenantId,
 	type ThreadId,
@@ -110,6 +111,8 @@ export interface AgentSession {
 	readonly providerSummary: string | null
 	readonly modelSummary: string | null
 	readonly toolNames: readonly string[]
+	/** Count of clawtool tools registered deferred (loadable via search_tools). */
+	readonly deferredToolCount: number
 	readonly errorHint: string | null
 	send(messages: readonly Message[], opts?: SendOptions): AsyncIterable<AgentEvent>
 }
@@ -173,17 +176,24 @@ async function ensureRegistered(id: ProviderId): Promise<void> {
 // surface, and showing them just adds noise to `/tools`.
 const EXCLUDED_BUILTINS = new Set(['append', 'verify_outputs'])
 
+// namzu's own identity. Injected as system context so the agent presents as
+// namzu — not Claude/Claude Code — even on the Anthropic OAuth path, which
+// requires a "You are Claude Code" prefix block for the token to authorize.
+const NAMZU_IDENTITY = [
+	"You are namzu, an AI coding agent that runs in the user's terminal via the namzu CLI.",
+	'You are built on the @namzu/sdk and act through tools (bash, read, write, edit, glob, grep).',
+	'Your name is namzu. When asked who or what you are, identify yourself as namzu —',
+	'not Claude or Claude Code — even though you may be powered by an underlying model',
+	'from Anthropic or another provider.',
+].join(' ')
+
 function buildToolRegistry(): ToolRegistry {
 	const registry = new ToolRegistry()
 	registry.register(getBuiltinTools().filter((t) => !EXCLUDED_BUILTINS.has(t.name)))
 	registry.register([buildRememberTool()])
+	// `search_tools` lets the model load deferred (clawtool) tools on demand.
+	registry.register([SearchToolsTool])
 	return registry
-}
-
-/** clawtool tools are opt-in (token cost) — enable with NAMZU_CLAWTOOL_TOOLS=1. */
-export function clawtoolToolsEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-	const v = env.NAMZU_CLAWTOOL_TOOLS
-	return v === '1' || v === 'true'
 }
 
 export async function createAgentSession(
@@ -215,15 +225,14 @@ export async function createAgentSession(
 		)
 	}
 	const registry = buildToolRegistry()
-	// clawtool's catalog (~70 tools) is powerful but every tool's schema is
-	// re-sent in the system prompt on every iteration — loading all of them
-	// can balloon a single turn past 100k tokens. So it's OPT-IN: set
-	// NAMZU_CLAWTOOL_TOOLS=1 to fold it in. Default is the lean builtin set,
-	// which keeps per-message token cost low (the claude-code/gemini default).
-	if (clawtoolToolsEnabled()) {
-		const clawtoolTools = await loadClawtoolToolDefinitions({ skipNames: registry.listNames() })
-		if (clawtoolTools.length > 0) registry.register(clawtoolTools)
-	}
+	// clawtool's catalog (~70 tools) is registered DEFERRED: each costs only a
+	// name line in the prompt (no JSON schema), so it never balloons a turn —
+	// the model loads what it needs via `search_tools`. Best-effort: absent /
+	// down / slow clawtool just yields zero deferred tools, non-fatal.
+	const clawtoolTools = await loadClawtoolToolDefinitions({ skipNames: registry.listNames() })
+	if (clawtoolTools.length > 0) registry.register(clawtoolTools, 'deferred')
+	const activeToolNames = registry.getCallableTools().map((t) => t.name)
+	const deferredToolCount = clawtoolTools.length
 	const scope = mintScope()
 	// Persists across turns: once the user picks "approve all", later tool
 	// batches in this session run without prompting.
@@ -232,15 +241,18 @@ export async function createAgentSession(
 		hasProvider: true,
 		providerSummary: entry.label,
 		modelSummary: model,
-		toolNames: registry.listNames(),
+		toolNames: activeToolNames,
+		deferredToolCount,
 		errorHint: null,
 		send: (messages, opts) => {
-			// Read memory fresh each turn so `/remember` takes effect next turn,
-			// then append any per-turn extra context (active skills).
+			// namzu identity first (so it establishes who the agent is even when
+			// the Anthropic OAuth path prepends the required Claude Code prefix),
+			// then memory read fresh each turn, then per-turn extra (active skills).
 			const memoryPrompt = composeMemoryPrompt(readMemory())
 			const systemPrompt =
-				[memoryPrompt, opts?.extraSystem].filter((s): s is string => Boolean(s)).join('\n\n') ||
-				undefined
+				[NAMZU_IDENTITY, memoryPrompt, opts?.extraSystem]
+					.filter((s): s is string => Boolean(s))
+					.join('\n\n') || undefined
 			return runTurn(provider, model, registry, scope, approval, systemPrompt, messages, opts)
 		},
 	}
@@ -520,6 +532,7 @@ function emptySession(errorHint: string): AgentSession {
 		providerSummary: null,
 		modelSummary: null,
 		toolNames: [],
+		deferredToolCount: 0,
 		errorHint,
 		send: async function* () {
 			yield { kind: 'error' as const, message: errorHint }
