@@ -100,11 +100,33 @@ export class ToolExecutor {
 		// per-call to keep allocations cheap.
 		const baseContext = this.buildToolContext()
 
-		const results = await Promise.all(
-			toolCalls.map((toolCall) =>
-				this.executeSingle(toolCall, { ...baseContext, toolUseId: toolCall.id }),
-			),
-		)
+		// Respect each tool's `concurrencySafe` flag. Read-only tools
+		// (ls/grep/glob/…) run in parallel; tools that mutate shared state
+		// (edit/write/append/bash — `concurrencySafe: false`) are serialized in
+		// a single chain, so e.g. several `edit` calls to the SAME file in one
+		// turn apply one-after-another instead of racing read→modify→write
+		// (which let the last writer clobber the rest). Results are written by
+		// index to preserve the original tool-call order.
+		const results: Array<{ toolCallId: string; output: string }> = new Array(toolCalls.length)
+		const parallel: Promise<void>[] = []
+		let serial: Promise<void> = Promise.resolve()
+		toolCalls.forEach((toolCall, i) => {
+			const ctx = { ...baseContext, toolUseId: toolCall.id }
+			const run = async () => {
+				results[i] = await this.executeSingle(toolCall, ctx)
+			}
+			let input: unknown = {}
+			try {
+				input = JSON.parse(toolCall.function.arguments || '{}')
+			} catch {
+				// non-JSON args → treat as unsafe (serialize), the conservative path
+			}
+			const safe =
+				this.config.tools.get(toolCall.function.name)?.isConcurrencySafe?.(input) === true
+			if (safe) parallel.push(run())
+			else serial = serial.then(run)
+		})
+		await Promise.all([...parallel, serial])
 
 		const messages: Message[] = results.map((r) => createToolMessage(r.output, r.toolCallId))
 
