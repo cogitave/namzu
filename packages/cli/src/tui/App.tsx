@@ -26,6 +26,7 @@ import { appendMemory, composeMemoryPrompt, readMemory } from '../memory/store.j
 import { composeSkillsPrompt, discoverSkills, loadSkillBody } from '../skills/store.js'
 import {
 	deregisterPeer,
+	drainInbox,
 	heartbeatPeer,
 	listPeers,
 	registerPeer,
@@ -126,6 +127,9 @@ export function App({ ctx }: AppProps) {
 	// This session's clawtool BIAM peer id (null when no clawtool daemon).
 	// Registering as a peer lets other terminals/agents see + message us.
 	const peerIdRef = useRef<string | null>(null)
+	// Mirror of `state` for callbacks/pollers that need the current value
+	// without re-subscribing (the inbox poller decides whether namzu is free).
+	const stateRef = useRef(state)
 	const nextId = useCallback(() => {
 		idRef.current += 1
 		return `m${idRef.current}`
@@ -434,7 +438,7 @@ export function App({ ctx }: AppProps) {
 	)
 
 	const runTurn = useCallback(
-		async (text: string, images?: readonly ImageAttachment[]) => {
+		async (text: string, images?: readonly ImageAttachment[], replyTo?: string) => {
 			if (!session || !session.hasProvider) {
 				pushMessage('system', session?.errorHint ?? 'Agent is not ready yet — give it a moment.')
 				return
@@ -504,6 +508,11 @@ export function App({ ctx }: AppProps) {
 					if (st.text.trim().length > 0) turn.push(createAssistantMessage(st.text))
 					void appendMessages(sessions, scope.sessionId, turn).catch(() => {})
 				}
+				// If this turn answered an inbound peer message, send the reply back
+				// to that peer's inbox — closing the BIAM loop (agent↔agent).
+				if (replyTo && st.text.trim().length > 0) {
+					void sendPeerMessage(replyTo, st.text.trim(), { from: peerIdRef.current ?? undefined })
+				}
 			}
 		},
 		[activeSkills, applyEvent, ctx.cwd, ctx.skipPermissions, finalizeMessage, messages, onPermission, pushMessage, session],
@@ -525,7 +534,7 @@ export function App({ ctx }: AppProps) {
 				pushMessage('system', `No peer matching "${query}". See /agents.`)
 				return
 			}
-			const ok = await sendPeerMessage(match.peer_id, text)
+			const ok = await sendPeerMessage(match.peer_id, text, { from: peerIdRef.current ?? undefined })
 			pushMessage(
 				'system',
 				ok
@@ -667,9 +676,42 @@ export function App({ ctx }: AppProps) {
 	}, [phase, ctx.cwd])
 
 	useEffect(() => {
+		stateRef.current = state
+	}, [state])
+
+	useEffect(() => {
 		const id = peerIdRef.current
 		if (id) void heartbeatPeer(id)
 	}, [state])
+
+	// Inbound BIAM: drain our peer inbox so clawtool / another agent can talk
+	// TO namzu. Each message is surfaced; when namzu is free it answers and the
+	// reply goes back to the sender (closing the agent↔agent loop).
+	useEffect(() => {
+		if (phase !== 'ready') return
+		let stopped = false
+		const tick = async () => {
+			const id = peerIdRef.current
+			if (stopped || !id) return
+			const msgs = await drainInbox(id)
+			let answered = stateRef.current !== 'idle' || Boolean(abortRef.current)
+			for (const m of msgs) {
+				const text = m.text?.trim()
+				if (!text) continue
+				pushMessage('system', `📨 ${m.from_peer}: ${text}`)
+				// Answer the first message while free; reply routes back via replyTo.
+				if (!answered) {
+					answered = true
+					void runTurn(text, undefined, m.from_peer)
+				}
+			}
+		}
+		const timer = setInterval(() => void tick(), 2000)
+		return () => {
+			stopped = true
+			clearInterval(timer)
+		}
+	}, [phase, pushMessage, runTurn])
 
 	useEffect(
 		() => () => {

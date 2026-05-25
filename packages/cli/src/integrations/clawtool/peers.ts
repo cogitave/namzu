@@ -128,19 +128,63 @@ export async function listPeers(opts: EnsureDaemonOptions = {}): Promise<readonl
 	}
 }
 
-/** Send a message to another peer's BIAM inbox. */
+/** A message in a peer's BIAM inbox (clawtool `a2a.Message`). */
+export interface InboxMessage {
+	readonly id: string
+	readonly type?: string
+	readonly from_peer: string
+	readonly to_peer?: string
+	readonly text: string
+	readonly correlation_id?: string
+	readonly timestamp?: string
+}
+
+/**
+ * Drain this peer's inbox — returns + clears pending messages other agents
+ * sent to us. namzu polls this so clawtool / another agent can talk TO it,
+ * not just be listed. (`peek` leaves messages in place; default drains.)
+ */
+export async function drainInbox(
+	peerId: string,
+	opts: EnsureDaemonOptions & { peek?: boolean } = {},
+): Promise<readonly InboxMessage[]> {
+	const ep = await endpoint(opts)
+	if (!ep) return []
+	const fetchFn = opts.fetch ?? globalThis.fetch
+	try {
+		const url = new URL(`/v1/peers/${encodeURIComponent(peerId)}/messages`, ep.baseUrl)
+		if (opts.peek) url.searchParams.set('peek', '1')
+		const res = await fetchFn(url.toString(), {
+			method: 'GET',
+			headers: authHeaders(ep.token, false),
+		})
+		if (!res.ok) return []
+		const data = (await res.json()) as { messages?: InboxMessage[] }
+		return Array.isArray(data.messages) ? data.messages : []
+	} catch {
+		return []
+	}
+}
+
+/**
+ * Send a message to another peer's BIAM inbox. `from` is our own peer id so
+ * the recipient knows who sent it (and can reply) — clawtool stamps it as the
+ * message's `from_peer`.
+ */
 export async function sendPeerMessage(
 	peerId: string,
 	text: string,
-	opts: EnsureDaemonOptions = {},
+	opts: EnsureDaemonOptions & { from?: string } = {},
 ): Promise<boolean> {
 	const ep = await endpoint(opts)
 	if (!ep) return false
 	const fetchFn = opts.fetch ?? globalThis.fetch
+	const body: Record<string, unknown> = { text }
+	if (opts.from) body.from_peer = opts.from
 	try {
 		const res = await fetchFn(
 			new URL(`/v1/peers/${encodeURIComponent(peerId)}/messages`, ep.baseUrl).toString(),
-			{ method: 'POST', headers: authHeaders(ep.token, true), body: JSON.stringify({ text }) },
+			{ method: 'POST', headers: authHeaders(ep.token, true), body: JSON.stringify(body) },
 		)
 		return res.ok
 	} catch {
