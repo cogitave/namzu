@@ -282,6 +282,11 @@ export async function createAgentSession(
 	// delegate a self-contained task to a fresh sub-agent (own context window).
 	// Best-effort — if the runtime can't stand up, the chat still works.
 	let subagentGateway: TaskGateway | undefined
+	// Buffer of the in-flight sub-agent's tool steps. The gateway streams the
+	// child's events here while the parent's `Agent` tool call blocks; runTurn
+	// drains it onto the `Agent` result as a `├─/└─` tree. Scoped per `Agent`
+	// call (cleared when one starts).
+	const childSteps: string[] = []
 	try {
 		const sub = await createSubagentRuntime({
 			cwd: process.cwd(),
@@ -294,6 +299,11 @@ export async function createAgentSession(
 				),
 			buildTools: () => buildToolRegistry(),
 			verificationGate: VERIFICATION_GATE,
+			onEvent: (e) => {
+				if (e.type === 'tool_executing') {
+					childSteps.push(`${e.toolName}(${summarizeToolInput(e.input)})`)
+				}
+			},
 		})
 		registry.register([sub.agentTool])
 		subagentGateway = sub.gateway
@@ -343,6 +353,7 @@ export async function createAgentSession(
 				messages,
 				opts,
 				subagentGateway,
+				childSteps,
 			)
 		},
 	}
@@ -460,6 +471,7 @@ async function* runTurn(
 	messages: readonly Message[],
 	opts: SendOptions | undefined,
 	taskGateway: TaskGateway | undefined,
+	childSteps: string[],
 ): AsyncIterable<AgentEvent> {
 	const signal = opts?.signal
 	try {
@@ -493,7 +505,23 @@ async function* runTurn(
 				return
 			}
 			const mapped = toAgentEvent(event)
-			if (mapped) yield mapped
+			if (!mapped) continue
+			// On an `Agent` delegation finishing, attach the sub-agent's tool
+			// steps (collected via the gateway while the call blocked) as a
+			// `├─/└─` tree under its result, then reset for the next delegation.
+			// (Don't clear on tool_executing: the parent's events can be buffered
+			// and pulled only after the child already ran, which would wipe it.)
+			if (
+				event.type === 'tool_completed' &&
+				event.toolName === 'Agent' &&
+				childSteps.length > 0 &&
+				mapped.kind === 'tool-end'
+			) {
+				yield { ...mapped, detail: [...(mapped.detail ?? []), ...asTree(childSteps)] }
+				childSteps.length = 0
+				continue
+			}
+			yield mapped
 		}
 	} catch (err) {
 		yield {
@@ -619,6 +647,11 @@ export function toAgentEvent(event: RunEvent): AgentEvent | null {
 		default:
 			return null
 	}
+}
+
+/** Render a sub-agent's tool steps as a `├─/└─` tree for the Agent result. */
+function asTree(steps: readonly string[]): string[] {
+	return steps.map((s, i) => `${i === steps.length - 1 ? '└─' : '├─'} ${s}`)
 }
 
 /** Short, human-readable one-liner for a tool call (e.g. `ls -la`, path). */
