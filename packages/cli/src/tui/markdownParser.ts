@@ -29,10 +29,26 @@ export type MdBlock =
 			readonly text: string
 	  }
 	| { readonly type: 'code'; readonly lang?: string; readonly lines: readonly string[] }
+	| {
+			readonly type: 'table'
+			readonly headers: readonly string[]
+			readonly rows: readonly string[][]
+	  }
 
 const FENCE = /^```(\w*)\s*$/
 const HEADING = /^(#{1,6})\s+(.+?)\s*#*$/
 const BULLET = /^(\s*)([-*+]|\d+[.)])\s+(.+)$/
+const TABLE_ROW = /^\s*\|.*\|\s*$/
+const TABLE_SEP = /^\s*\|?[\s:|-]*-[\s:|-]*\|?\s*$/
+
+/** Split a `| a | b |` row into trimmed cells. */
+function tableCells(line: string): string[] {
+	return line
+		.trim()
+		.replace(/^\||\|$/g, '')
+		.split('|')
+		.map((c) => c.trim())
+}
 
 /** Parse markdown source into a flat list of block elements. */
 export function parseMarkdown(src: string): MdBlock[] {
@@ -61,6 +77,20 @@ export function parseMarkdown(src: string): MdBlock[] {
 			}
 			// `i` now points at the closing fence (or end); the for-loop ++ skips it.
 			blocks.push({ type: 'code', lang, lines: codeLines })
+			continue
+		}
+		// Table: a `| … |` header row immediately followed by a `|---|` separator.
+		if (TABLE_ROW.test(line) && i + 1 < lines.length && TABLE_SEP.test(lines[i + 1] ?? '')) {
+			flushPara()
+			const headers = tableCells(line)
+			i += 2 // skip header + separator
+			const rows: string[][] = []
+			while (i < lines.length && TABLE_ROW.test(lines[i] ?? '')) {
+				rows.push(tableCells(lines[i] ?? ''))
+				i++
+			}
+			i-- // for-loop ++ will re-advance past the last consumed row
+			blocks.push({ type: 'table', headers, rows })
 			continue
 		}
 		const heading = HEADING.exec(line)

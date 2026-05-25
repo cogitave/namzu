@@ -79,3 +79,24 @@ describe('parseInline', () => {
 		])
 	})
 })
+
+describe('parseMarkdown tables', () => {
+	it('parses a pipe table with header + separator + rows', () => {
+		const blocks = parseMarkdown('| A | B |\n|---|---|\n| 1 | 2 |\n| 3 | 4 |')
+		expect(blocks).toEqual([
+			{
+				type: 'table',
+				headers: ['A', 'B'],
+				rows: [
+					['1', '2'],
+					['3', '4'],
+				],
+			},
+		])
+	})
+
+	it('does not treat a lone pipe line without a separator as a table', () => {
+		const blocks = parseMarkdown('| not | a table |\njust text')
+		expect(blocks[0]?.type).toBe('paragraph')
+	})
+})

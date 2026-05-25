@@ -70,6 +70,12 @@ function BlockView({
 				</Box>
 			)
 		}
+		case 'table':
+			return (
+				<Box marginTop={gap}>
+					<TableView headers={block.headers} rows={block.rows} color={color} />
+				</Box>
+			)
 		case 'code':
 			return (
 				<Box
@@ -100,6 +106,53 @@ function BlockView({
 				</Box>
 			)
 	}
+}
+
+const TABLE_MAX_COL = 32
+
+/** Render a markdown table as an aligned grid (header bold + dim rule). */
+function TableView({
+	headers,
+	rows,
+	color,
+}: {
+	readonly headers: readonly string[]
+	readonly rows: readonly string[][]
+	readonly color: string
+}) {
+	const cols = headers.length
+	const widths: number[] = []
+	for (let c = 0; c < cols; c++) {
+		let w = (headers[c] ?? '').length
+		for (const row of rows) w = Math.max(w, (row[c] ?? '').length)
+		widths[c] = Math.min(Math.max(w, 1), TABLE_MAX_COL)
+	}
+	const pad = (s: string, w: number) => (s.length >= w ? s.slice(0, w) : s + ' '.repeat(w - s.length))
+	return (
+		<Box flexDirection="column">
+			<Box>
+				{headers.map((h, c) => (
+					<Text key={`h-${c}`} bold color={color}>
+						{pad(h, widths[c] ?? 1)}
+						{c < cols - 1 ? '  ' : ''}
+					</Text>
+				))}
+			</Box>
+			<Text color={theme.border.default}>
+				{widths.map((w) => '─'.repeat(w)).join('  ')}
+			</Text>
+			{rows.map((row, r) => (
+				<Box key={`r-${r}`}>
+					{widths.map((w, c) => (
+						<Text key={`c-${c}`} color={color}>
+							{pad(row[c] ?? '', w)}
+							{c < cols - 1 ? '  ' : ''}
+						</Text>
+					))}
+				</Box>
+			))}
+		</Box>
+	)
 }
 
 function Inline({ spans, color }: { readonly spans: readonly InlineSpan[]; readonly color: string }) {
