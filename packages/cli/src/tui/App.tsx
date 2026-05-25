@@ -27,11 +27,11 @@ import { composeSkillsPrompt, discoverSkills, loadSkillBody } from '../skills/st
 import { Composer } from './Composer.js'
 import { TrustPrompt } from './TrustPrompt.js'
 import {
-	NAMZU_ICON,
-	NAMZU_ICON_GRADIENT,
-	NAMZU_LOGO_MIN_WIDTH,
 	NAMZU_MARK,
 	NAMZU_MARK_COLOR,
+	NAMZU_WORDMARK,
+	NAMZU_WORDMARK_GRADIENT,
+	NAMZU_WORDMARK_MIN_WIDTH,
 } from './logo.js'
 import { PermissionOverlay } from './PermissionOverlay.js'
 import { Picker } from './Picker.js'
@@ -699,7 +699,7 @@ function Banner({
 	readonly cwd: string
 }) {
 	const cols = process.stdout.columns ?? 80
-	const wide = cols >= NAMZU_LOGO_MIN_WIDTH
+	const wide = cols >= NAMZU_WORDMARK_MIN_WIDTH
 	const provider = session?.providerSummary
 	const model = session?.modelSummary
 	const home = process.env.HOME
@@ -709,8 +709,8 @@ function Banner({
 			<Box flexDirection="row">
 				{wide ? (
 					<Box flexDirection="column" marginRight={2}>
-						{NAMZU_ICON.map((line, i) => (
-							<Text key={`icon-${i}`} color={NAMZU_ICON_GRADIENT[i]}>
+						{NAMZU_WORDMARK.map((line, i) => (
+							<Text key={`wm-${i}`} color={NAMZU_WORDMARK_GRADIENT[i]} bold>
 								{line}
 							</Text>
 						))}
@@ -720,10 +720,15 @@ function Banner({
 				)}
 				<Box flexDirection="column">
 					<Text>
-						<Text color={theme.text.secondary}>Cogitave </Text>
-						<Text color={NAMZU_MARK_COLOR} bold>
-							Namzu
-						</Text>
+						<Text color={theme.text.secondary}>Cogitave</Text>
+						{/* Wide layout already spells "namzu" in the wordmark, so the
+						    text avoids repeating it; the compact fallback keeps it. */}
+						{wide ? null : (
+							<Text color={NAMZU_MARK_COLOR} bold>
+								{' '}
+								Namzu
+							</Text>
+						)}
 						<Text color={theme.text.muted}> v{version}</Text>
 					</Text>
 					<Text color={theme.text.secondary}>
