@@ -18,4 +18,6 @@ export interface TranscriptMessage {
 export interface TuiContext {
 	readonly cwd: string
 	readonly version: string
+	/** When true, tools run without the approval prompt (--dangerously-skip-permissions / --yolo). */
+	readonly skipPermissions?: boolean
 }

@@ -21,9 +21,11 @@ import {
 	type ProviderId,
 	writePreferences,
 } from '../integrations/providers/index.js'
+import { isTrusted, trustDir } from '../integrations/trust/store.js'
 import { appendMemory, composeMemoryPrompt, readMemory } from '../memory/store.js'
 import { composeSkillsPrompt, discoverSkills, loadSkillBody } from '../skills/store.js'
 import { Composer } from './Composer.js'
+import { TrustPrompt } from './TrustPrompt.js'
 import { NAMZU_LOGO, NAMZU_LOGO_GRADIENT, NAMZU_LOGO_MIN_WIDTH } from './logo.js'
 import { PermissionOverlay } from './PermissionOverlay.js'
 import { Picker } from './Picker.js'
@@ -44,7 +46,7 @@ export interface AppProps {
 	readonly ctx: TuiContext
 }
 
-type LifecyclePhase = 'probing' | 'picker' | 'ready' | 'unhealthy'
+type LifecyclePhase = 'trust' | 'probing' | 'picker' | 'ready' | 'unhealthy'
 
 export function App({ ctx }: AppProps) {
 	const { exit } = useApp()
@@ -109,36 +111,47 @@ export function App({ ctx }: AppProps) {
 		[pushMessage],
 	)
 
-	useEffect(() => {
-		let cancelled = false
-		void (async () => {
-			try {
-				const probe = await probeAgentSession()
-				if (cancelled) return
-				setDetected(probe.detected)
-				if (probe.needsRepickReason) {
-					pushMessage('system', probe.needsRepickReason)
-					setPhase('picker')
-					return
-				}
-				if (probe.preferences) {
-					await hydrateSession(probe.preferences, probe.detected)
-					return
-				}
+	const runProbe = useCallback(async () => {
+		try {
+			const probe = await probeAgentSession()
+			setDetected(probe.detected)
+			if (probe.needsRepickReason) {
+				pushMessage('system', probe.needsRepickReason)
 				setPhase('picker')
-			} catch (err) {
-				if (cancelled) return
-				setPhase('unhealthy')
-				pushMessage(
-					'system',
-					`Failed to probe agents: ${err instanceof Error ? err.message : String(err)}`,
-				)
+				return
 			}
-		})()
-		return () => {
-			cancelled = true
+			if (probe.preferences) {
+				await hydrateSession(probe.preferences, probe.detected)
+				return
+			}
+			setPhase('picker')
+		} catch (err) {
+			setPhase('unhealthy')
+			pushMessage(
+				'system',
+				`Failed to probe agents: ${err instanceof Error ? err.message : String(err)}`,
+			)
 		}
 	}, [hydrateSession, pushMessage])
+
+	// Trust gate runs first: don't touch the folder until the user trusts it.
+	useEffect(() => {
+		if (isTrusted(ctx.cwd)) {
+			void runProbe()
+		} else {
+			setPhase('trust')
+		}
+	}, [ctx.cwd, runProbe])
+
+	const acceptTrust = useCallback(() => {
+		try {
+			trustDir(ctx.cwd)
+		} catch {
+			// Non-fatal: proceed for this session even if persisting failed.
+		}
+		setPhase('probing')
+		void runProbe()
+	}, [ctx.cwd, runProbe])
 
 	const slashCtx: SlashContext = {
 		availableTools: session?.toolNames ?? [],
@@ -203,7 +216,9 @@ export function App({ ctx }: AppProps) {
 			try {
 				for await (const event of session.send(priorForSdk, {
 					signal: ac.signal,
-					onPermission,
+					// Bypass mode (--dangerously-skip-permissions / --yolo): omit the
+					// permission callback so every tool batch auto-approves.
+					onPermission: ctx.skipPermissions ? undefined : onPermission,
 					extraSystem: composeSkillsPrompt(activeSkills) ?? undefined,
 				})) {
 					switch (event.kind) {
@@ -214,13 +229,13 @@ export function App({ ctx }: AppProps) {
 						case 'tool-start':
 							closeAssistant()
 							setState('tool')
-							pushMessage('tool', `${event.toolName} › ${event.summary}`, false, toolGlyph(event.toolName))
+							pushMessage('tool', formatToolCall(event.toolName, event.summary), false, '⏺')
 							break
 						case 'tool-end':
 							if (event.isError) {
-								pushMessage('system', `${event.toolName} failed: ${event.summary}`)
+								pushMessage('tool', event.summary, false, '⎿')
 							} else if (event.summary.length > 0) {
-								pushMessage('tool', event.summary, false, '↳')
+								pushMessage('tool', event.summary, false, '⎿')
 							}
 							setState('thinking')
 							break
@@ -364,6 +379,13 @@ export function App({ ctx }: AppProps) {
 
 	useInput(
 		(input, key) => {
+			// Trust gate owns the keyboard until the folder is trusted or we exit.
+			if (phase === 'trust') {
+				const ch = input.toLowerCase()
+				if (ch === 'y' || key.return) acceptTrust()
+				else if (ch === 'n' || key.escape || (key.ctrl && input === 'c')) exit()
+				return
+			}
 			// A pending permission prompt owns the keyboard: y/n/a decide it.
 			if (permissionResolveRef.current) {
 				const ch = input.toLowerCase()
@@ -399,10 +421,12 @@ export function App({ ctx }: AppProps) {
 	)
 
 	return (
-		<Box flexDirection="column">
-			<Banner version={ctx.version} session={session} />
+		<Box flexDirection="column" width="100%" backgroundColor={theme.background}>
+			<Banner version={ctx.version} session={session} bypass={ctx.skipPermissions === true} />
 			<Box flexDirection="column" paddingX={1}>
-				{phase === 'picker' ? (
+				{phase === 'trust' ? (
+					<TrustPrompt cwd={ctx.cwd} />
+				) : phase === 'picker' ? (
 					<Picker
 						detected={detected}
 						currentProvider={currentProvider}
@@ -445,9 +469,11 @@ export function App({ ctx }: AppProps) {
 function Banner({
 	version,
 	session,
+	bypass,
 }: {
 	readonly version: string
 	readonly session: AgentSession | null
+	readonly bypass: boolean
 }) {
 	const cols = process.stdout.columns ?? 80
 	const wide = cols >= NAMZU_LOGO_MIN_WIDTH
@@ -472,6 +498,13 @@ function Banner({
 				<Text color={theme.text.muted}> · v{version}</Text>
 				{provider ? <Text color={theme.text.muted}> · {provider}</Text> : null}
 			</Box>
+			{bypass ? (
+				<Box marginTop={1}>
+					<Text color={theme.status.error} bold>
+						⚠ bypass permissions — tools run without asking
+					</Text>
+				</Box>
+			) : null}
 		</Box>
 	)
 }
@@ -506,26 +539,19 @@ function ComposerFrame({
 	)
 }
 
-// Per-tool gutter icon so tool activity is scannable (opencode-style).
-// clawtool tools are matched on their base name after the `clawtool_` prefix.
-function toolGlyph(toolName: string): string {
-	const name = toolName.toLowerCase().replace(/^clawtool_/, '')
-	if (name === 'bash' || name.startsWith('bash')) return '$'
-	if (name === 'read' || name === 'ls') return '→'
-	if (name === 'write') return '←'
-	if (name === 'edit' || name === 'append') return '✎'
-	if (name === 'glob' || name === 'grep') return '✱'
-	if (name === 'remember') return '✶'
-	if (name.includes('websearch') || name.includes('search')) return '◈'
-	if (name.includes('webfetch') || name.includes('browser') || name.includes('fetch')) return '%'
-	if (name.includes('commit') || name.includes('git')) return '⎇'
-	return '⚙'
+// Claude-Code-style tool call label: `Bash(ls -la)`, `Read(file.ts)`.
+// The `clawtool_` prefix is stripped and the name title-cased.
+function formatToolCall(toolName: string, summary: string): string {
+	const base = toolName.replace(/^clawtool_/, '')
+	const display = base.length > 0 ? base[0]?.toUpperCase() + base.slice(1) : base
+	return summary.length > 0 ? `${display}(${summary})` : display
 }
 
 function hintForPhase(
 	phase: LifecyclePhase,
 	state: 'idle' | 'thinking' | 'tool' | 'awaiting-permission',
 ): string {
+	if (phase === 'trust') return 'y trust this folder · n exit'
 	if (phase === 'probing') return 'discovering providers…'
 	if (phase === 'picker') return '↑↓ navigate · enter accept · esc cancel'
 	if (phase === 'unhealthy') return 'Ctrl+C ×2 to exit'

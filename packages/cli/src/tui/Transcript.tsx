@@ -34,8 +34,8 @@ export function Transcript({ messages, state }: TranscriptProps) {
 	}
 	return (
 		<Box flexDirection="column">
-			{messages.map((m) => (
-				<MessageRow key={m.id} message={m} spinner={spinner} />
+			{messages.map((m, i) => (
+				<MessageRow key={m.id} message={m} prev={messages[i - 1]} spinner={spinner} />
 			))}
 		</Box>
 	)
@@ -43,16 +43,23 @@ export function Transcript({ messages, state }: TranscriptProps) {
 
 function MessageRow({
 	message,
+	prev,
 	spinner,
 }: {
 	readonly message: TranscriptMessage
+	readonly prev: TranscriptMessage | undefined
 	readonly spinner: string
 }) {
 	const glyph = message.pending ? spinner : (message.glyph ?? glyphForRole(message.role))
+	// The `⎿` tool-result gutter is rendered dim so the call line leads.
+	const glyphColor = glyph === '⎿' ? theme.text.muted : glyphColorForRole(message.role)
+	// One blank line before each entry, except the first and `⎿` result rows,
+	// which hug the `⏺` tool call above them (Claude-Code-style grouping).
+	const gap = !prev || message.glyph === '⎿' ? 0 : 1
 	return (
-		<Box flexDirection="row" marginBottom={1}>
+		<Box flexDirection="row" marginTop={gap}>
 			<Box width={2} flexShrink={0}>
-				<Text color={glyphColorForRole(message.role)} bold>
+				<Text color={glyphColor} bold>
 					{glyph}
 				</Text>
 			</Box>

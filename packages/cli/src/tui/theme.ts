@@ -1,12 +1,14 @@
 /**
- * Minimal theme tokens for the M3 TUI.
- *
- * Single theme (dark-terminal-friendly) for M3. A `ThemeProvider` + picker
- * is a follow-up — gemini-cli ships 1 theme + lets users pick; opencode
- * ships 35. We start with one and add a registry when there's a second.
+ * Theme tokens for the TUI — a single, fully-dark palette tuned for a
+ * black canvas (the root fills with `background` and the screen is cleared
+ * on launch). Curated hex colors (GitHub-dark-leaning) give a consistent,
+ * premium look across terminals rather than depending on the user's 16
+ * ANSI colors. A theme registry/picker is a follow-up.
  */
 
 export interface SemanticColors {
+	/** Canvas background — the whole UI sits on this. */
+	readonly background: string
 	readonly text: {
 		readonly primary: string
 		readonly secondary: string
@@ -30,24 +32,25 @@ export interface SemanticColors {
 }
 
 export const theme: SemanticColors = {
+	background: '#000000',
 	text: {
-		primary: 'white',
-		secondary: 'gray',
-		muted: 'blackBright',
+		primary: '#e6edf3',
+		secondary: '#8b949e',
+		muted: '#56606b',
 	},
 	accent: {
-		user: 'cyan',
-		assistant: 'green',
-		system: 'yellow',
-		tool: 'magenta',
+		user: '#56d4dd',
+		assistant: '#7ee787',
+		system: '#e3b341',
+		tool: '#bc8cff',
 	},
 	status: {
-		ok: 'green',
-		warn: 'yellow',
-		error: 'red',
+		ok: '#7ee787',
+		warn: '#e3b341',
+		error: '#ff7b72',
 	},
 	border: {
-		default: 'gray',
-		focus: 'cyan',
+		default: '#30363d',
+		focus: '#56d4dd',
 	},
 }

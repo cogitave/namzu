@@ -62,6 +62,11 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		.version(CLI_VERSION, '-V, --version', 'Print version and exit')
 		.option('-f, --format <type>', 'Output format: text, json, yaml')
 		.option('-q, --quiet', 'Suppress non-essential output')
+		.option(
+			'--dangerously-skip-permissions',
+			'Run tools without asking for approval (no permission prompts). Only use in a sandbox or a folder you fully trust.',
+		)
+		.option('--yolo', 'Alias of --dangerously-skip-permissions.')
 		// Required by Commander 14 so subcommands (doctor) can opt into
 		// passThroughOptions for unparsed argument forwarding.
 		.enablePositionalOptions(true)
@@ -96,8 +101,10 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 	// suite does not try to render Ink against a non-tty stream.
 	program.action(async () => {
 		if (process.stdout.isTTY) {
+			const launchOpts = program.opts<{ dangerouslySkipPermissions?: boolean; yolo?: boolean }>()
+			const skipPermissions = Boolean(launchOpts.dangerouslySkipPermissions || launchOpts.yolo)
 			const { launchTui } = await import('./tui/index.js')
-			await launchTui({ cwd: process.cwd(), version: CLI_VERSION })
+			await launchTui({ cwd: process.cwd(), version: CLI_VERSION, skipPermissions })
 			const code = await Promise.resolve(0)
 			setExitCode(code)
 			return
