@@ -13,6 +13,8 @@ export interface TranscriptMessage {
 	readonly pending?: boolean
 	/** Overrides the role's default gutter glyph (e.g. a per-tool icon). */
 	readonly glyph?: string
+	/** Collapsible body under the line (tool diff / output); see Ctrl+O. */
+	readonly detail?: readonly string[]
 }
 
 export interface TuiContext {

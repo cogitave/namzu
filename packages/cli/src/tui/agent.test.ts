@@ -17,6 +17,8 @@ import {
 	makeResumeHandler,
 	previewToolInput,
 	toAgentEvent,
+	toolEndDetail,
+	toolStartDetail,
 } from './agent.js'
 
 const runId = 'run_x' as RunId
@@ -69,12 +71,12 @@ describe('toAgentEvent', () => {
 		})
 	})
 
-	it('maps tool_completed to tool-end and collapses whitespace', () => {
+	it('maps tool_completed to tool-end with a first-line summary + detail lines', () => {
 		const ev = {
 			type: 'tool_completed',
 			toolUseId,
 			toolName: 'bash',
-			result: '  multi\n  line  ',
+			result: 'multi\n  line  ',
 			isError: false,
 			...env,
 		} as unknown as RunEvent
@@ -82,7 +84,8 @@ describe('toAgentEvent', () => {
 			kind: 'tool-end',
 			toolName: 'bash',
 			isError: false,
-			summary: 'multi line',
+			summary: 'multi',
+			detail: ['multi', '  line'],
 		})
 	})
 
@@ -247,5 +250,38 @@ describe('makeResumeHandler', () => {
 				summary: {},
 			} as unknown as HITLDecisionRequest),
 		).toEqual({ action: 'continue' })
+	})
+})
+
+describe('toolStartDetail', () => {
+	it('builds a -old/+new diff for edit', () => {
+		expect(toolStartDetail('edit', { path: '/x', old_string: 'a\nb', new_string: 'a\nc' })).toEqual(
+			['- a', '- b', '+ a', '+ c'],
+		)
+	})
+
+	it('returns the content lines for write', () => {
+		expect(toolStartDetail('write', { path: '/x', content: 'one\ntwo' })).toEqual(['one', 'two'])
+	})
+
+	it('returns undefined for non-mutating tools', () => {
+		expect(toolStartDetail('bash', { command: 'ls' })).toBeUndefined()
+		expect(toolStartDetail('read', { file_path: '/x' })).toBeUndefined()
+	})
+})
+
+describe('toolEndDetail', () => {
+	it('returns output lines for read/bash', () => {
+		expect(toolEndDetail('bash', 'line1\nline2')).toEqual(['line1', 'line2'])
+	})
+
+	it('returns undefined for edit/write (diff already shown at call time)', () => {
+		expect(toolEndDetail('edit', 'Updated /x')).toBeUndefined()
+		expect(toolEndDetail('write', 'Wrote /x')).toBeUndefined()
+	})
+
+	it('returns undefined for single-line or empty results', () => {
+		expect(toolEndDetail('bash', 'ok')).toBeUndefined()
+		expect(toolEndDetail('bash', '   ')).toBeUndefined()
 	})
 })

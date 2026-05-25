@@ -16,11 +16,15 @@ import type { TranscriptMessage } from './types.js'
 export interface TranscriptProps {
 	readonly messages: readonly TranscriptMessage[]
 	readonly state: 'idle' | 'thinking' | 'tool' | 'awaiting-permission'
+	/** When true, collapsed tool diffs/output are shown in full (Ctrl+O). */
+	readonly expanded: boolean
 }
+
+const COLLAPSE_LINES = 6
 
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'] as const
 
-export function Transcript({ messages, state }: TranscriptProps) {
+export function Transcript({ messages, state, expanded }: TranscriptProps) {
 	const spinner = useSpinner(state !== 'idle')
 
 	if (messages.length === 0) {
@@ -35,7 +39,13 @@ export function Transcript({ messages, state }: TranscriptProps) {
 	return (
 		<Box flexDirection="column">
 			{messages.map((m, i) => (
-				<MessageRow key={m.id} message={m} prev={messages[i - 1]} spinner={spinner} />
+				<MessageRow
+					key={m.id}
+					message={m}
+					prev={messages[i - 1]}
+					spinner={spinner}
+					expanded={expanded}
+				/>
 			))}
 		</Box>
 	)
@@ -45,10 +55,12 @@ function MessageRow({
 	message,
 	prev,
 	spinner,
+	expanded,
 }: {
 	readonly message: TranscriptMessage
 	readonly prev: TranscriptMessage | undefined
 	readonly spinner: string
+	readonly expanded: boolean
 }) {
 	const glyph = message.pending ? spinner : (message.glyph ?? glyphForRole(message.role))
 	// The `⎿` tool-result gutter is rendered dim so the call line leads.
@@ -57,26 +69,61 @@ function MessageRow({
 	// which hug the `⏺` tool call above them (Claude-Code-style grouping).
 	const gap = !prev || message.glyph === '⎿' ? 0 : 1
 	return (
-		<Box flexDirection="row" marginTop={gap}>
-			<Box width={2} flexShrink={0}>
-				<Text color={glyphColor} bold>
-					{glyph}
-				</Text>
-			</Box>
-			<Box flexGrow={1}>
-				{message.role === 'assistant' && message.content.length > 0 ? (
-					<Markdown text={message.content} color={contentColorForRole(message.role)} />
-				) : (
-					<Text color={contentColorForRole(message.role)} wrap="wrap">
-						{message.content}
-						{message.pending && message.content.length === 0 ? (
-							<Text color={theme.text.muted}>…</Text>
-						) : null}
+		<Box flexDirection="column" marginTop={gap}>
+			<Box flexDirection="row">
+				<Box width={2} flexShrink={0}>
+					<Text color={glyphColor} bold>
+						{glyph}
 					</Text>
-				)}
+				</Box>
+				<Box flexGrow={1}>
+					{message.role === 'assistant' && message.content.length > 0 ? (
+						<Markdown text={message.content} color={contentColorForRole(message.role)} />
+					) : (
+						<Text color={contentColorForRole(message.role)} wrap="wrap">
+							{message.content}
+							{message.pending && message.content.length === 0 ? (
+								<Text color={theme.text.muted}>…</Text>
+							) : null}
+						</Text>
+					)}
+				</Box>
 			</Box>
+			{message.detail && message.detail.length > 0 ? (
+				<DetailBlock lines={message.detail} expanded={expanded} />
+			) : null}
 		</Box>
 	)
+}
+
+/** Collapsible tool diff / output, aligned under the content gutter. */
+function DetailBlock({
+	lines,
+	expanded,
+}: {
+	readonly lines: readonly string[]
+	readonly expanded: boolean
+}) {
+	const shown = expanded ? lines : lines.slice(0, COLLAPSE_LINES)
+	const hidden = lines.length - shown.length
+	return (
+		<Box flexDirection="column" paddingLeft={2}>
+			{shown.map((line, i) => (
+				<Text key={`d-${i}`} color={detailLineColor(line)}>
+					{line.length > 0 ? line : ' '}
+				</Text>
+			))}
+			{hidden > 0 ? (
+				<Text color={theme.text.muted}>… +{hidden} lines (ctrl+o to expand)</Text>
+			) : null}
+		</Box>
+	)
+}
+
+function detailLineColor(line: string): string {
+	if (line.startsWith('+')) return theme.status.ok
+	if (line.startsWith('-')) return theme.status.error
+	return theme.text.muted
 }
 
 function useSpinner(active: boolean): string {

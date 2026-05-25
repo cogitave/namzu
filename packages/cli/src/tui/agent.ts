@@ -59,12 +59,16 @@ export type AgentEvent =
 			readonly kind: 'tool-start'
 			readonly toolName: string
 			readonly summary: string
+			/** Diff / content preview shown (collapsible) under the call. */
+			readonly detail?: readonly string[]
 	  }
 	| {
 			readonly kind: 'tool-end'
 			readonly toolName: string
 			readonly isError: boolean
 			readonly summary: string
+			/** Output lines shown (collapsible) under the result. */
+			readonly detail?: readonly string[]
 	  }
 	| { readonly kind: 'usage'; readonly totalTokens: number; readonly costUsd: number }
 	| { readonly kind: 'done'; readonly finishReason?: string }
@@ -451,13 +455,15 @@ export function toAgentEvent(event: RunEvent): AgentEvent | null {
 				kind: 'tool-start',
 				toolName: event.toolName,
 				summary: summarizeToolInput(event.input),
+				detail: toolStartDetail(event.toolName, event.input),
 			}
 		case 'tool_completed':
 			return {
 				kind: 'tool-end',
 				toolName: event.toolName,
 				isError: event.isError,
-				summary: truncate(event.result.trim(), 200),
+				summary: firstLine(event.result),
+				detail: toolEndDetail(event.toolName, event.result),
 			}
 		case 'token_usage_updated':
 			return {
@@ -524,6 +530,60 @@ function previewLines(value: string, max: number): string[] {
 	const head = lines.slice(0, max).map((l) => truncate(l, 100))
 	if (lines.length > max) head.push(`… (+${lines.length - max} more lines)`)
 	return head
+}
+
+const MAX_DETAIL_LINES = 200
+
+function clampLines(value: string): string[] {
+	const lines = value.replace(/\s+$/, '').split('\n')
+	return lines.length > MAX_DETAIL_LINES ? lines.slice(0, MAX_DETAIL_LINES) : lines
+}
+
+/**
+ * Diff / content shown under a tool CALL (`⏺`): an `edit` renders a
+ * `- old` / `+ new` diff, a `write` renders the content. Other tools show
+ * nothing at call time (their output appears under the result instead).
+ */
+export function toolStartDetail(toolName: string, input: unknown): readonly string[] | undefined {
+	if (!input || typeof input !== 'object') return undefined
+	const obj = input as Record<string, unknown>
+	const str = (k: string) => (typeof obj[k] === 'string' ? (obj[k] as string) : undefined)
+	const name = toolName.toLowerCase().replace(/^clawtool_/, '')
+	if (name === 'write') {
+		const content = str('content')
+		return content !== undefined ? clampLines(content) : undefined
+	}
+	if (name === 'edit') {
+		const oldStr = str('old_string') ?? str('oldStr')
+		const newStr = str('new_string') ?? str('newStr')
+		const lines: string[] = []
+		if (oldStr) for (const l of clampLines(oldStr)) lines.push(`- ${l}`)
+		if (newStr) for (const l of clampLines(newStr)) lines.push(`+ ${l}`)
+		return lines.length > 0 ? lines : undefined
+	}
+	return undefined
+}
+
+/**
+ * Output shown under a tool RESULT (`⎿`). For `edit`/`write` the diff was
+ * already shown at call time, so the result stays a one-line confirmation;
+ * every other tool (read/bash/grep/…) shows its captured output here.
+ */
+export function toolEndDetail(toolName: string, result: string): readonly string[] | undefined {
+	const name = toolName.toLowerCase().replace(/^clawtool_/, '')
+	if (name === 'edit' || name === 'write') return undefined
+	const trimmed = result.trim()
+	if (trimmed.length === 0) return undefined
+	const lines = clampLines(trimmed)
+	// A single short line is already the summary — no need to repeat it.
+	return lines.length <= 1 ? undefined : lines
+}
+
+function firstLine(result: string): string {
+	const trimmed = result.trim()
+	const nl = trimmed.indexOf('\n')
+	const head = nl === -1 ? trimmed : trimmed.slice(0, nl)
+	return truncate(head, 120)
 }
 
 function emptySession(errorHint: string): AgentSession {

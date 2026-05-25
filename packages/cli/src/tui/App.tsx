@@ -62,6 +62,7 @@ export function App({ ctx }: AppProps) {
 		[],
 	)
 	const [usage, setUsage] = useState<{ totalTokens: number; costUsd: number } | null>(null)
+	const [expanded, setExpanded] = useState<boolean>(false)
 	const exitArmedRef = useRef<boolean>(false)
 	const abortRef = useRef<AbortController | null>(null)
 	const permissionResolveRef = useRef<((d: PermissionDecision) => void) | null>(null)
@@ -72,9 +73,15 @@ export function App({ ctx }: AppProps) {
 	}, [])
 
 	const pushMessage = useCallback(
-		(role: TranscriptMessage['role'], content: string, pending = false, glyph?: string) => {
+		(
+			role: TranscriptMessage['role'],
+			content: string,
+			pending = false,
+			glyph?: string,
+			detail?: readonly string[],
+		) => {
 			const id = nextId()
-			setMessages((prev) => [...prev, { id, role, content, pending, glyph }])
+			setMessages((prev) => [...prev, { id, role, content, pending, glyph, detail }])
 			return id
 		},
 		[nextId],
@@ -229,13 +236,23 @@ export function App({ ctx }: AppProps) {
 						case 'tool-start':
 							closeAssistant()
 							setState('tool')
-							pushMessage('tool', formatToolCall(event.toolName, event.summary), false, '⏺')
+							pushMessage(
+								'tool',
+								formatToolCall(event.toolName, event.summary),
+								false,
+								'⏺',
+								event.detail,
+							)
 							break
 						case 'tool-end':
-							if (event.isError) {
-								pushMessage('tool', event.summary, false, '⎿')
-							} else if (event.summary.length > 0) {
-								pushMessage('tool', event.summary, false, '⎿')
+							if (event.isError || event.summary.length > 0 || (event.detail?.length ?? 0) > 0) {
+								pushMessage(
+									'tool',
+									event.isError ? `failed: ${event.summary}` : event.summary,
+									false,
+									'⎿',
+									event.detail,
+								)
 							}
 							setState('thinking')
 							break
@@ -399,6 +416,11 @@ export function App({ ctx }: AppProps) {
 				else if (ch === 'n' || key.escape) resolvePermission({ kind: 'reject' })
 				return
 			}
+			// Ctrl+O toggles expansion of collapsed tool diffs / output.
+			if (key.ctrl && input === 'o') {
+				setExpanded((e) => !e)
+				return
+			}
 			if (key.ctrl && (input === 'c' || input === '\x03')) {
 				// A turn is running → first Ctrl+C interrupts it, not exits.
 				if (abortRef.current) {
@@ -439,7 +461,7 @@ export function App({ ctx }: AppProps) {
 				) : (
 					<>
 						<TranscriptFrame>
-							<Transcript messages={messages} state={state} />
+							<Transcript messages={messages} state={state} expanded={expanded} />
 						</TranscriptFrame>
 						{permission ? (
 							<PermissionOverlay toolCalls={permission.toolCalls} />
