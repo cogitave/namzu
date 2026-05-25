@@ -117,7 +117,8 @@ function MessageRow({
 }) {
 	const glyph = message.pending ? spinner : (message.glyph ?? glyphForRole(message.role))
 	// The `⎿` tool-result gutter is rendered dim so the call line leads.
-	const glyphColor = glyph === '⎿' ? theme.text.muted : glyphColorForRole(message.role)
+	const glyphColor =
+		message.glyphColor ?? (glyph === '⎿' ? theme.text.muted : glyphColorForRole(message.role))
 	// One blank line before each entry, except the first and `⎿` result rows,
 	// which hug the `⏺` tool call above them (Claude-Code-style grouping).
 	const gap = !prev || message.glyph === '⎿' ? 0 : 1
@@ -135,6 +136,7 @@ function MessageRow({
 					) : (
 						<Text color={contentColorForRole(message.role)} wrap="wrap">
 							{message.content}
+							{message.meta ? <Text color={theme.text.muted}> · {message.meta}</Text> : null}
 							{message.pending && message.content.length === 0 ? (
 								<Text color={theme.text.muted}>…</Text>
 							) : null}

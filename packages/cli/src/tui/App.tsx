@@ -24,6 +24,7 @@ import {
 import { isTrusted, trustDir } from '../integrations/trust/store.js'
 import { appendMemory, composeMemoryPrompt, readMemory } from '../memory/store.js'
 import { composeSkillsPrompt, discoverSkills, loadSkillBody } from '../skills/store.js'
+import { type ActiveTool, LiveActivity, formatElapsed } from './LiveActivity.js'
 import { Composer } from './Composer.js'
 import { TrustPrompt } from './TrustPrompt.js'
 import {
@@ -66,6 +67,13 @@ export interface AppProps {
 
 type LifecyclePhase = 'trust' | 'probing' | 'picker' | 'ready' | 'unhealthy' | 'resume'
 
+/** A running tool tracked internally: the live row's fields plus what we need
+ *  to commit it on completion (the tool name for matching, the call-time diff). */
+type RunningTool = ActiveTool & {
+	readonly toolName: string
+	readonly detail?: readonly string[]
+}
+
 export function App({ ctx }: AppProps) {
 	const { exit } = useApp()
 	const [messages, setMessages] = useState<readonly TranscriptMessage[]>([])
@@ -80,6 +88,9 @@ export function App({ ctx }: AppProps) {
 		[],
 	)
 	const [usage, setUsage] = useState<{ totalTokens: number; costUsd: number } | null>(null)
+	// Tools currently executing — rendered live (spinner + elapsed) below the
+	// transcript, then committed as static lines on completion.
+	const [activeTools, setActiveTools] = useState<readonly ActiveTool[]>([])
 	const [expanded, setExpanded] = useState<boolean>(false)
 	// Bumped to reset the <Static> transcript log (on /clear and /resume).
 	const [resetKey, setResetKey] = useState<number>(0)
@@ -89,6 +100,13 @@ export function App({ ctx }: AppProps) {
 	const [selectedResume, setSelectedResume] = useState<number>(0)
 	const exitArmedRef = useRef<boolean>(false)
 	const abortRef = useRef<AbortController | null>(null)
+	// Source of truth for in-flight tools (the event loop runs across renders, so
+	// a ref avoids stale state); `activeTools` mirrors it for rendering.
+	const activeToolsRef = useRef<readonly RunningTool[]>([])
+	const clearActiveTools = useCallback(() => {
+		activeToolsRef.current = []
+		setActiveTools([])
+	}, [])
 	const permissionResolveRef = useRef<((d: PermissionDecision) => void) | null>(null)
 	// SDK-backed conversation persistence (DiskSessionStore). `scopeRef` carries
 	// the active session id used by query() — mutated in place on /resume so new
@@ -115,9 +133,14 @@ export function App({ ctx }: AppProps) {
 			pending = false,
 			glyph?: string,
 			detail?: readonly string[],
+			glyphColor?: string,
+			meta?: string,
 		) => {
 			const id = nextId()
-			setMessages((prev) => [...prev, { id, role, content, pending, glyph, detail }])
+			setMessages((prev) => [
+				...prev,
+				{ id, role, content, pending, glyph, detail, glyphColor, meta },
+			])
 			return id
 		},
 		[nextId],
@@ -342,18 +365,42 @@ export function App({ ctx }: AppProps) {
 							assistantText += event.text
 							appendToMessage(ensureAssistant(), event.text)
 							break
-						case 'tool-start':
+						case 'tool-start': {
 							closeAssistant()
 							setState('tool')
+							// Don't print the call line yet — show it live (spinner +
+							// ticking timer) until it completes, then commit it.
+							const tool: RunningTool = {
+								id: nextId(),
+								toolName: event.toolName,
+								label: formatToolCall(event.toolName, event.summary),
+								startedAt: Date.now(),
+								detail: event.detail,
+							}
+							activeToolsRef.current = [...activeToolsRef.current, tool]
+							setActiveTools(activeToolsRef.current)
+							break
+						}
+						case 'tool-end': {
+							// Match the oldest running tool of this name (FIFO), commit it
+							// as a static line with a ✓/✗ status glyph + elapsed time.
+							const running = activeToolsRef.current
+							let i = running.findIndex((t) => t.toolName === event.toolName)
+							if (i < 0) i = running.length > 0 ? 0 : -1
+							const done = i >= 0 ? running[i] : undefined
+							if (i >= 0) {
+								activeToolsRef.current = [...running.slice(0, i), ...running.slice(i + 1)]
+								setActiveTools(activeToolsRef.current)
+							}
 							pushMessage(
 								'tool',
-								formatToolCall(event.toolName, event.summary),
+								done?.label ?? formatToolCall(event.toolName, event.summary),
 								false,
-								'⏺',
-								event.detail,
+								event.isError ? '✗' : '✓',
+								done?.detail,
+								event.isError ? theme.status.error : theme.status.ok,
+								done ? formatElapsed(Date.now() - done.startedAt) : undefined,
 							)
-							break
-						case 'tool-end':
 							if (event.isError || event.summary.length > 0 || (event.detail?.length ?? 0) > 0) {
 								pushMessage(
 									'tool',
@@ -363,8 +410,9 @@ export function App({ ctx }: AppProps) {
 									event.detail,
 								)
 							}
-							setState('thinking')
+							setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
 							break
+						}
 						case 'usage':
 							setUsage({ totalTokens: event.totalTokens, costUsd: event.costUsd })
 							break
@@ -391,6 +439,7 @@ export function App({ ctx }: AppProps) {
 				abortRef.current = null
 				permissionResolveRef.current = null
 				setPermission(null)
+				clearActiveTools()
 				setState('idle')
 				// Persist the turn to the SDK session store (best-effort) so it can
 				// be resumed later. User message + the assistant's reply text.
@@ -651,6 +700,10 @@ export function App({ ctx }: AppProps) {
 								}
 							/>
 						</TranscriptFrame>
+						<LiveActivity
+							activeTools={activeTools}
+							thinking={state === 'thinking' && !messages.some((m) => m.pending)}
+						/>
 						{permission ? (
 							<PermissionOverlay toolCalls={permission.toolCalls} />
 						) : (
@@ -680,6 +733,7 @@ export function App({ ctx }: AppProps) {
 						state={state}
 						hint={hintForPhase(phase, state)}
 						usage={usage}
+						contextWindow={contextWindowFor(session?.modelSummary ?? null)}
 					/>
 				</Box>
 			</Box>
@@ -752,6 +806,14 @@ function Banner({
 function TranscriptFrame({ children }: { readonly children: React.ReactNode }) {
 	// Borderless, edge-to-edge — the message glyph gutter provides structure.
 	return <Box flexDirection="column">{children}</Box>
+}
+
+/** Approximate context window (tokens) per model, for the status gauge. The
+ *  `[1m]` long-context variants get 1M; everything else defaults to 200k. */
+function contextWindowFor(model: string | null): number {
+	if (!model) return 200_000
+	if (model.includes('[1m]') || model.includes('-1m')) return 1_000_000
+	return 200_000
 }
 
 function ComposerFrame({

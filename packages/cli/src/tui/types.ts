@@ -13,6 +13,10 @@ export interface TranscriptMessage {
 	readonly pending?: boolean
 	/** Overrides the role's default gutter glyph (e.g. a per-tool icon). */
 	readonly glyph?: string
+	/** Overrides the glyph color (e.g. red for a failed tool). */
+	readonly glyphColor?: string
+	/** Dim suffix after the content (e.g. a tool's elapsed time). */
+	readonly meta?: string
 	/** Collapsible body under the line (tool diff / output); see Ctrl+O. */
 	readonly detail?: readonly string[]
 }
