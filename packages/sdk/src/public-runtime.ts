@@ -133,7 +133,10 @@ export {
 	EmergencySaveManager,
 	PlanManager,
 	RunPersistence,
+	ThreadManager,
 } from './manager/index.js'
+
+export { InMemoryThreadStore } from './store/thread/memory.js'
 
 export { LocalTaskGateway } from './gateway/local.js'
 

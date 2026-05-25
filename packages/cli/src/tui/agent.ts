@@ -34,6 +34,7 @@ import {
 	type RunId,
 	SearchToolsTool,
 	type SessionId,
+	type TaskGateway,
 	type TaskStore,
 	type TenantId,
 	type ThreadId,
@@ -58,6 +59,7 @@ import {
 	readClaudeCodeKeychainCredential,
 	readPreferences,
 } from '../integrations/providers/index.js'
+import { createSubagentRuntime } from '../integrations/subagents/runtime.js'
 import { composeMemoryPrompt, readMemory } from '../memory/store.js'
 
 export type AgentEvent =
@@ -276,6 +278,28 @@ export async function createAgentSession(
 	// down / slow clawtool just yields zero deferred tools, non-fatal.
 	const clawtoolTools = await loadClawtoolToolDefinitions({ skipNames: registry.listNames() })
 	if (clawtoolTools.length > 0) registry.register(clawtoolTools, 'deferred')
+	// Native sub-agents: register the canonical `Agent` tool so the model can
+	// delegate a self-contained task to a fresh sub-agent (own context window).
+	// Best-effort — if the runtime can't stand up, the chat still works.
+	let subagentGateway: TaskGateway | undefined
+	try {
+		const sub = await createSubagentRuntime({
+			cwd: process.cwd(),
+			model,
+			buildProvider: () =>
+				constructProvider(
+					prefs.provider,
+					det ? { ...det, apiKey: currentToken ?? det.apiKey } : det,
+					model,
+				),
+			buildTools: () => buildToolRegistry(),
+			verificationGate: VERIFICATION_GATE,
+		})
+		registry.register([sub.agentTool])
+		subagentGateway = sub.gateway
+	} catch {
+		// Sub-agents unavailable this session — non-fatal.
+	}
 	const activeToolNames = registry.getCallableTools().map((t) => t.name)
 	const deferredToolCount = clawtoolTools.length
 	// Task store → query auto-registers create_task / update_task / list_tasks
@@ -318,6 +342,7 @@ export async function createAgentSession(
 				systemPrompt,
 				messages,
 				opts,
+				subagentGateway,
 			)
 		},
 	}
@@ -434,6 +459,7 @@ async function* runTurn(
 	systemPrompt: string | undefined,
 	messages: readonly Message[],
 	opts: SendOptions | undefined,
+	taskGateway: TaskGateway | undefined,
 ): AsyncIterable<AgentEvent> {
 	const signal = opts?.signal
 	try {
@@ -441,6 +467,7 @@ async function* runTurn(
 			provider,
 			tools,
 			taskStore,
+			...(taskGateway ? { taskGateway } : {}),
 			verificationGate: VERIFICATION_GATE,
 			compactionConfig: COMPACTION_CONFIG,
 			runConfig: {
