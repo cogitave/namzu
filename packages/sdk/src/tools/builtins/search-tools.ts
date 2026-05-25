@@ -27,9 +27,7 @@ export const SearchToolsTool = defineTool({
 		}
 
 		const allowed =
-			context.allowedTools && context.allowedTools.length > 0
-				? new Set(context.allowedTools)
-				: null
+			context.allowedTools && context.allowedTools.length > 0 ? new Set(context.allowedTools) : null
 		const matches = context.toolRegistry
 			.searchDeferred(input.query)
 			.filter((tool) => !allowed || allowed.has(tool.name))

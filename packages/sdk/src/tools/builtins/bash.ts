@@ -11,10 +11,7 @@ const execAsync = promisify(exec)
 // but Namzu shouldn't read a consumer's env name. Consumers can
 // still alias their own var to `NAMZU_BASH_TIMEOUT_MS` at deploy
 // time if they want a unified knob.
-const DEFAULT_BASH_TIMEOUT_MS = readPositiveIntEnv(
-	'NAMZU_BASH_TIMEOUT_MS',
-	60 * 60 * 1000,
-)
+const DEFAULT_BASH_TIMEOUT_MS = readPositiveIntEnv('NAMZU_BASH_TIMEOUT_MS', 60 * 60 * 1000)
 const DEFAULT_BASH_MAX_BUFFER_BYTES = readPositiveIntEnv(
 	'NAMZU_BASH_MAX_BUFFER_BYTES',
 	100 * 1024 * 1024,

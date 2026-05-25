@@ -179,11 +179,7 @@ export class SharedRunWorkspace {
 		const taskPart = input.taskId ?? 'pending'
 		const relativePath = ['agents', input.agentId, taskPart, '00_brief.md']
 		await mkdir(dirnameFor(this.hostPath(...relativePath)), { recursive: true })
-		await writeFile(
-			this.hostPath(...relativePath),
-			ensureTrailingNewline(input.briefText),
-			'utf8',
-		)
+		await writeFile(this.hostPath(...relativePath), ensureTrailingNewline(input.briefText), 'utf8')
 		return this.runtimePath(...relativePath)
 	}
 

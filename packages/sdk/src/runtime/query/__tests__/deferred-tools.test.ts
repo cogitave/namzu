@@ -99,8 +99,7 @@ describe('query deferred tool discovery', () => {
 		expect(tools.getAvailability(SearchToolsTool.name)).toBe('active')
 		expect(tools.getAvailability('generate_document')).toBe('deferred')
 
-		const toolNames =
-			provider.lastParams?.tools?.map((tool) => tool.function.name).sort() ?? []
+		const toolNames = provider.lastParams?.tools?.map((tool) => tool.function.name).sort() ?? []
 		expect(toolNames).toEqual([SearchToolsTool.name])
 
 		const systemPrompt = (provider.lastParams?.messages ?? [])
@@ -146,8 +145,7 @@ describe('query deferred tool discovery', () => {
 		expect(run.status).toBe('completed')
 		expect(tools.getAvailability('generate_document')).toBe('deferred')
 
-		const toolNames =
-			provider.lastParams?.tools?.map((tool) => tool.function.name).sort() ?? []
+		const toolNames = provider.lastParams?.tools?.map((tool) => tool.function.name).sort() ?? []
 		expect(toolNames).toEqual([SearchToolsTool.name])
 
 		const systemPrompt = (provider.lastParams?.messages ?? [])

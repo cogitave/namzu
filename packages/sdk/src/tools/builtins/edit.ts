@@ -13,11 +13,15 @@ const inputSchema = z
 		oldStr: z
 			.string()
 			.optional()
-			.describe('Alias for old_string. Used by hosts that expose text replacement as oldStr/newStr.'),
+			.describe(
+				'Alias for old_string. Used by hosts that expose text replacement as oldStr/newStr.',
+			),
 		new_string: z
 			.string()
 			.optional()
-			.describe('The replacement string. Self-budget this payload under 12000 characters before calling.'),
+			.describe(
+				'The replacement string. Self-budget this payload under 12000 characters before calling.',
+			),
 		newStr: z
 			.string()
 			.optional()

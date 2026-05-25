@@ -11,10 +11,7 @@ import { GENAI, NAMZU, agentIterationSpanName } from '../../../telemetry/attribu
 import { getTracer } from '../../../telemetry/runtime-accessors.js'
 import type { ResumeHandler } from '../../../types/hitl/index.js'
 import type { ToolUseId } from '../../../types/ids/index.js'
-import {
-	createAssistantMessage,
-	createUserMessage,
-} from '../../../types/message/index.js'
+import { createAssistantMessage, createUserMessage } from '../../../types/message/index.js'
 import type {
 	ChatCompletionResponse,
 	LLMProvider,
@@ -909,13 +906,11 @@ export class IterationOrchestrator {
 			// here used to double-count this same queue.
 			const remainingTasks = this.ctx.launchedTasks.size
 			const envelope =
-				`<task-notification>\n` +
-				`<task-id>${xmlEscape(handle.taskId)}</task-id>\n` +
+				`<task-notification>\n<task-id>${xmlEscape(handle.taskId)}</task-id>\n` +
 				`<agent-id>${xmlEscape(handle.agentId)}</agent-id>\n` +
 				`<status>${xmlEscape(handle.state)}</status>\n` +
 				`<result>${cdataWrap(resultText)}</result>\n` +
-				`<remaining-tasks>${remainingTasks}</remaining-tasks>\n` +
-				`</task-notification>`
+				`<remaining-tasks>${remainingTasks}</remaining-tasks>\n</task-notification>`
 
 			this.ctx.runMgr.pushMessage(createUserMessage(envelope))
 

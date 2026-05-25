@@ -4,28 +4,30 @@ import { z } from 'zod'
 import type { ToolContext } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
 
-const inputSchema = z.object({
-	path: z
-		.string()
-		.min(1)
-		.describe(
-			'Relative path to the file to write (e.g. "outputs/report.md"). Required. Must be a non-empty string.',
-		),
-	content: z
-		.string()
-		.optional()
-		.describe(
-			'Full file body to write. Required (use "" only for an intentionally empty file). The file is fully overwritten — pass the COMPLETE intended content for this bounded chunk, not a diff. Self-budget content under 12000 characters before calling; if the intended body is longer, write a smaller opening section here, then use `edit` with insertLine: "end" to extend the file section by section. Do NOT try to chain multiple `write` calls, since each one overwrites the previous.',
-		),
-	newStr: z
-		.string()
-		.optional()
-		.describe(
-			'Alias for content. Useful for hosts that expose create/write operations as newStr. Self-budget this payload under 12000 characters before calling.',
-		),
-}).refine((value) => typeof value.content === 'string' || typeof value.newStr === 'string', {
-	message: 'Either content or newStr is required.',
-})
+const inputSchema = z
+	.object({
+		path: z
+			.string()
+			.min(1)
+			.describe(
+				'Relative path to the file to write (e.g. "outputs/report.md"). Required. Must be a non-empty string.',
+			),
+		content: z
+			.string()
+			.optional()
+			.describe(
+				'Full file body to write. Required (use "" only for an intentionally empty file). The file is fully overwritten — pass the COMPLETE intended content for this bounded chunk, not a diff. Self-budget content under 12000 characters before calling; if the intended body is longer, write a smaller opening section here, then use `edit` with insertLine: "end" to extend the file section by section. Do NOT try to chain multiple `write` calls, since each one overwrites the previous.',
+			),
+		newStr: z
+			.string()
+			.optional()
+			.describe(
+				'Alias for content. Useful for hosts that expose create/write operations as newStr. Self-budget this payload under 12000 characters before calling.',
+			),
+	})
+	.refine((value) => typeof value.content === 'string' || typeof value.newStr === 'string', {
+		message: 'Either content or newStr is required.',
+	})
 
 type WriteInput = z.infer<typeof inputSchema>
 

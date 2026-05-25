@@ -21,15 +21,12 @@ describe('VerifyOutputsTool', () => {
 		writeFileSync(join(dir, 'a.md'), 'hello world')
 		writeFileSync(join(dir, 'b.txt'), 'x'.repeat(500))
 
-		const result = await VerifyOutputsTool.execute(
-			{ paths: ['a.md', 'b.txt'] },
-			makeContext(dir),
-		)
+		const result = await VerifyOutputsTool.execute({ paths: ['a.md', 'b.txt'] }, makeContext(dir))
 
 		expect(result.success).toBe(true)
 		expect(result.output).toMatch(/2\/2 passed/)
-		expect(result.output).toMatch(/OK   a\.md/)
-		expect(result.output).toMatch(/OK   b\.txt/)
+		expect(result.output).toMatch(/OK {3}a\.md/)
+		expect(result.output).toMatch(/OK {3}b\.txt/)
 	})
 
 	it('flags missing files as FAIL with summary', async () => {
@@ -59,7 +56,7 @@ describe('VerifyOutputsTool', () => {
 
 		expect(result.success).toBe(false)
 		expect(result.output).toMatch(/FAIL tiny\.md — size 1B < min 1000B/)
-		expect(result.output).toMatch(/OK   big\.md/)
+		expect(result.output).toMatch(/OK {3}big\.md/)
 	})
 
 	it('rejects directories that match a path', async () => {

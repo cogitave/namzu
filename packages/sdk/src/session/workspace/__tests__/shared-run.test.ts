@@ -119,7 +119,8 @@ describe('SharedRunWorkspace', () => {
 		const appended = await workspace.appendAgentBrief({
 			agentId: 'solution-architecture',
 			taskId: 'task_abc',
-			sectionText: '## Follow-up 2026-05-10T18:00:00.000Z\n\n### Follow-up message\n\nAdd a risks subsection.',
+			sectionText:
+				'## Follow-up 2026-05-10T18:00:00.000Z\n\n### Follow-up message\n\nAdd a risks subsection.',
 		})
 		expect(appended).toBe(briefPath)
 

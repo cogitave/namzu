@@ -164,9 +164,7 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 				this.has('search_tools') && this.getAvailability('search_tools') === 'active'
 					? 'Use search_tools to load these before use:'
 					: 'Deferred tools are discoverable but not executable until the runtime activates them:'
-			parts.push(
-				`<deferred_tools>\n${deferredIntro}\n${entries}\n</deferred_tools>`,
-			)
+			parts.push(`<deferred_tools>\n${deferredIntro}\n${entries}\n</deferred_tools>`)
 		}
 
 		if (parts.length === 0) return ''

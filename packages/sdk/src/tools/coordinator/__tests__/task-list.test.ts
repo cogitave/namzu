@@ -93,9 +93,27 @@ function findAgentTaskList(gateway: TaskGateway) {
 describe('coordinator agent_task_list tool', () => {
 	it('lists every task with state, agent, and timing', async () => {
 		const gateway = gatewayWith([
-			handle({ id: 'task_a', agentId: 'solution-architecture', state: 'completed', createdAt: 0, completedAt: 5000 }),
-			handle({ id: 'task_b', agentId: 'enterprise-architecture', state: 'running', createdAt: 1000 }),
-			handle({ id: 'task_c', agentId: 'solution-architecture', state: 'failed', createdAt: 2000, completedAt: 4000, lastError: 'bash exit 1' }),
+			handle({
+				id: 'task_a',
+				agentId: 'solution-architecture',
+				state: 'completed',
+				createdAt: 0,
+				completedAt: 5000,
+			}),
+			handle({
+				id: 'task_b',
+				agentId: 'enterprise-architecture',
+				state: 'running',
+				createdAt: 1000,
+			}),
+			handle({
+				id: 'task_c',
+				agentId: 'solution-architecture',
+				state: 'failed',
+				createdAt: 2000,
+				completedAt: 4000,
+				lastError: 'bash exit 1',
+			}),
 		])
 
 		const tool = findAgentTaskList(gateway)
@@ -114,8 +132,19 @@ describe('coordinator agent_task_list tool', () => {
 
 	it('filters by state', async () => {
 		const gateway = gatewayWith([
-			handle({ id: 'task_a', agentId: 'solution-architecture', state: 'completed', createdAt: 0, completedAt: 5000 }),
-			handle({ id: 'task_b', agentId: 'enterprise-architecture', state: 'running', createdAt: 1000 }),
+			handle({
+				id: 'task_a',
+				agentId: 'solution-architecture',
+				state: 'completed',
+				createdAt: 0,
+				completedAt: 5000,
+			}),
+			handle({
+				id: 'task_b',
+				agentId: 'enterprise-architecture',
+				state: 'running',
+				createdAt: 1000,
+			}),
 		])
 
 		const tool = findAgentTaskList(gateway)

@@ -761,8 +761,7 @@ function requireHostDir(
 ): { readonly hostPath: string } {
 	if (source.type !== 'hostDir') {
 		throw new Error(
-			`docker backend cannot consume mount source type ${JSON.stringify(source.type)} for ${label}; ` +
-				`expected 'hostDir'. The non-hostDir variants (e.g. 'azureFileShare') belong to managed-container backends.`,
+			`docker backend cannot consume mount source type ${JSON.stringify(source.type)} for ${label}; expected 'hostDir'. The non-hostDir variants (e.g. 'azureFileShare') belong to managed-container backends.`,
 		)
 	}
 	return source
@@ -820,9 +819,8 @@ export function renderLayoutReadRootsEnv(layout: ResolvedContainerSandboxLayout)
  * source files the host considers immutable.
  */
 export function renderLayoutWriteRootsEnv(layout: ResolvedContainerSandboxLayout): string {
-	const roots = [
-		layout.outputs.containerPath,
-		layout.scratch?.containerPath,
-	].filter((root): root is string => Boolean(root))
+	const roots = [layout.outputs.containerPath, layout.scratch?.containerPath].filter(
+		(root): root is string => Boolean(root),
+	)
 	return Array.from(new Set(roots)).join(':')
 }

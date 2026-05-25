@@ -155,9 +155,7 @@ interface AzureFileShareSource {
 function interpretSource(
 	source: ContainerSandboxMountSource,
 	label: string,
-):
-	| { kind: 'azureFile'; source: AzureFileShareSource }
-	| { kind: 'inImage' } {
+): { kind: 'azureFile'; source: AzureFileShareSource } | { kind: 'inImage' } {
 	if (source.type === 'azureFileShare') {
 		return {
 			kind: 'azureFile',
@@ -172,8 +170,7 @@ function interpretSource(
 		return { kind: 'inImage' }
 	}
 	throw new Error(
-		`aci-standby-pool backend cannot consume mount source type ${JSON.stringify(source.type)} for ${label}; ` +
-			`expected 'azureFileShare' or 'inImage'. The hostDir variant belongs to the docker backend.`,
+		`aci-standby-pool backend cannot consume mount source type ${JSON.stringify(source.type)} for ${label}; expected 'azureFileShare' or 'inImage'. The hostDir variant belongs to the docker backend.`,
 	)
 }
 
@@ -194,9 +191,7 @@ interface BuiltVolumes {
 	}>
 }
 
-function buildAzureFileVolumesFromLayout(
-	layout: ResolvedContainerSandboxLayout,
-): BuiltVolumes {
+function buildAzureFileVolumesFromLayout(layout: ResolvedContainerSandboxLayout): BuiltVolumes {
 	const volumes: BuiltVolumes['volumes'] = []
 	const volumeMounts: BuiltVolumes['volumeMounts'] = []
 	let counter = 0
@@ -235,11 +230,7 @@ function buildAzureFileVolumesFromLayout(
 	if (layout.transcripts) add(layout.transcripts, 'transcripts', true)
 	if (layout.skills) {
 		for (const skill of layout.skills) {
-			add(
-				{ source: skill.source, containerPath: skill.containerPath },
-				`skill-${skill.id}`,
-				true,
-			)
+			add({ source: skill.source, containerPath: skill.containerPath }, `skill-${skill.id}`, true)
 		}
 	}
 
@@ -310,7 +301,10 @@ async function spawnAciSandbox(
 ): Promise<Sandbox> {
 	const id = generateSandboxId()
 	const prefix = config.containerNamePrefix ?? DEFAULT_CONTAINER_NAME_PREFIX
-	const cgName = `${prefix}-${id.replace(/[^a-z0-9-]/gi, '').toLowerCase().slice(0, 50)}`
+	const cgName = `${prefix}-${id
+		.replace(/[^a-z0-9-]/gi, '')
+		.toLowerCase()
+		.slice(0, 50)}`
 	const apiVersion = config.armApiVersion ?? DEFAULT_ARM_API_VERSION
 	const workerPort = config.workerPort ?? DEFAULT_WORKER_PORT
 	const armUrl = `${ARM_BASE}/subscriptions/${config.subscriptionId}/resourceGroups/${config.resourceGroup}/providers/Microsoft.ContainerInstance/containerGroups/${cgName}?api-version=${apiVersion}`
@@ -465,7 +459,7 @@ async function pollForRunningIp(
 		const ip = cg?.properties?.ipAddress?.ip
 		if (state === 'Succeeded' && ip) return ip
 		if (state === 'Failed') {
-			throw new Error(`aci-standby-pool: container group provisioning failed`)
+			throw new Error('aci-standby-pool: container group provisioning failed')
 		}
 		await new Promise((r) => setTimeout(r, pollIntervalMs))
 	}
