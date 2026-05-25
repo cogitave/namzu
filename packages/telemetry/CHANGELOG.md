@@ -1,5 +1,27 @@
 # @namzu/telemetry
 
+## 1.0.0
+
+### Patch Changes
+
+- Updated dependencies [542f057]
+- Updated dependencies [df09910]
+- Updated dependencies [140bcc0]
+- Updated dependencies [ea21863]
+- Updated dependencies [38c4b62]
+- Updated dependencies [265150b]
+- Updated dependencies [a1c6694]
+- Updated dependencies [52af97e]
+- Updated dependencies [a71422a]
+- Updated dependencies [d6b5bc1]
+- Updated dependencies [8fd9349]
+- Updated dependencies [63e44f7]
+- Updated dependencies [63b4885]
+- Updated dependencies [38c4b62]
+- Updated dependencies [6b74cd0]
+- Updated dependencies [d86b161]
+  - @namzu/sdk@1.0.0
+
 ## 0.1.1
 
 ### Patch Changes

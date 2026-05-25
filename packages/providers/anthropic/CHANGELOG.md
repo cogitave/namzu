@@ -1,5 +1,69 @@
 # Changelog
 
+## 1.0.0
+
+### Minor Changes
+
+- 229ff8b: **Auto-pick Claude Code's macOS Keychain OAuth token; OAuth-aware Anthropic provider; tighter picker UX.**
+
+  Hotfix landing two coupled pieces — namzu now starts cleanly on a host where claude-code is already signed in, without asking the user to export anything.
+
+  **Credentials side (`@namzu/cli`):**
+
+  - New: macOS Keychain reader. Reads the `Claude Code-credentials` generic-password entry from the login Keychain and extracts the `claudeAiOauth.accessToken` JSON field. Pattern ported from Nous Research's hermes-agent (`agent/anthropic_adapter.py:_read_claude_code_credentials_from_keychain`). Non-throwing — every failure path (non-Darwin, security command missing, entry absent, payload malformed) returns null so the discoverer treats it as "no source" rather than crashing.
+  - Discoverer extended: after env vars and clawtool `secrets.toml`, anthropic also accepts the Keychain credential. Detection source is reported as `keychain · Claude Code-credentials` in the picker, so the user can see where their token came from.
+  - Token-shape detector: `isAnthropicOAuthToken(value)` identifies OAuth tokens by prefix (`cc-`, `sk-ant-oat`, `eyJ`) vs console API keys (`sk-ant-api`). Drives the apiKey-vs-authToken decision when constructing the Anthropic provider.
+
+  **Provider side (`@namzu/anthropic`):**
+
+  - `AnthropicConfig.apiKey` is now optional, mutually exclusive with the new `authToken` field. Exactly one must be set; the constructor throws if neither is.
+  - When `authToken` is supplied, the underlying `@anthropic-ai/sdk` client is constructed with `authToken: <token>` (Bearer auth) and the `anthropic-beta: oauth-2025-04-20` header is injected so Anthropic's OAuth routes accept the request. User-supplied `defaultHeaders` merge on top.
+  - API-key path unchanged — existing `apiKey` callers see no behavior change.
+
+  **Picker UX:**
+
+  - Width capped at 72 chars; previously stretched to the full terminal and looked uncomfortable on wide screens.
+  - Empty-state copy tightened — concrete `export ANTHROPIC_API_KEY=…` lines instead of a long paragraph; explicit mention that on macOS a signed-in claude-code is auto-detected via the Keychain.
+  - Source labels condensed (`env · ANTHROPIC_API_KEY`, `keychain · Claude Code-credentials`, `clawtool · [work]`, `local · localhost:11434/api/tags`).
+
+  **Tests:** 5 new keychain unit cases (token-shape detection) plus existing discover tests updated to opt out of host-ambient sources (`skipKeychain: true`) so the suite stays hermetic on any laptop. Total 165/165 (was 160).
+
+  **Live verification:** on this machine, `namzu` now auto-detects the Claude Code OAuth credential from the Keychain, picker shows `Anthropic (Claude)  keychain · Claude Code-credentials  ← current` after first pick, and `provider.chatStream()` constructs through the Bearer-auth path with the required beta header.
+
+- 52af97e: **Paste images into the conversation (vision input).**
+
+  A user message can now carry image attachments. `@namzu/sdk` adds an optional `attachments` field to user messages (`ImageAttachment { data, mediaType }`, additive — text messages are unchanged), and the Anthropic provider sends them as image content blocks so the model can see them. In the CLI, press `Ctrl+V` to paste an image from the clipboard — it shows as an `⎘ Image #N` chip in the composer and is sent to the model as vision input when you submit.
+
+### Patch Changes
+
+- 2cf78ed: **Complete the Claude Code OAuth identity so tokens actually authorize.**
+
+  A valid (non-expired) Claude Code OAuth token was still rejected with `401 Invalid authentication credentials` because Anthropic authorizes OAuth-scoped tokens only when the request carries the full Claude Code identity, not just Bearer auth. When `authToken` is set, the provider now sends:
+
+  - `anthropic-beta: claude-code-20250219,oauth-2025-04-20` (both flags, was only the second).
+  - `user-agent: claude-cli/<version> (external, cli)` — version detected from the installed `claude` binary, with a static fallback (Anthropic validates the version server-side).
+  - A leading system block `"You are Claude Code, Anthropic's official CLI for Claude."` — required as the first `system` element on OAuth requests.
+
+  All three apply only on the `authToken` path; the `apiKey` (console key, `x-api-key`) path is unchanged. Verified end-to-end against the live Anthropic API.
+
+- Updated dependencies [542f057]
+- Updated dependencies [df09910]
+- Updated dependencies [140bcc0]
+- Updated dependencies [ea21863]
+- Updated dependencies [38c4b62]
+- Updated dependencies [265150b]
+- Updated dependencies [a1c6694]
+- Updated dependencies [52af97e]
+- Updated dependencies [a71422a]
+- Updated dependencies [d6b5bc1]
+- Updated dependencies [8fd9349]
+- Updated dependencies [63e44f7]
+- Updated dependencies [63b4885]
+- Updated dependencies [38c4b62]
+- Updated dependencies [6b74cd0]
+- Updated dependencies [d86b161]
+  - @namzu/sdk@1.0.0
+
 ## 0.2.0
 
 ### Minor Changes

@@ -1,6 +1,6 @@
 {
   "name": "@namzu/http",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "description": "Zero-dependency LLM provider for any OpenAI- or Anthropic-compatible HTTP endpoint. Use with vLLM, TGI, llama-server, Groq, DeepInfra, Together.ai, or any custom inference server.",
   "license": "FSL-1.1-MIT",
   "type": "module",
@@ -45,7 +45,7 @@
   },
   "dependencies": {},
   "peerDependencies": {
-    "@namzu/sdk": ">=0.1.6 <1.0.0"
+    "@namzu/sdk": ">=1.0.0"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",

@@ -1,6 +1,6 @@
 {
   "name": "@namzu/openai",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "description": "OpenAI LLM provider for @namzu/sdk via the official `openai` npm SDK. Chat Completions API with streaming + tool-use.",
   "license": "FSL-1.1-MIT",
   "type": "module",
@@ -47,7 +47,7 @@
     "openai": "^6.0.0"
   },
   "peerDependencies": {
-    "@namzu/sdk": ">=0.1.6 <1.0.0"
+    "@namzu/sdk": ">=1.0.0"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
