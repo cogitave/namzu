@@ -26,3 +26,11 @@ export const NAMZU_LOGO_GRADIENT: readonly string[] = [
 
 /** Minimum terminal columns required to show the full logo without wrapping. */
 export const NAMZU_LOGO_MIN_WIDTH = 48
+
+/**
+ * Brand mark — a terminal homage to the namzu bloom icon (the radial
+ * teal/green flower from namzu.ai). A terminal can't render the SVG, so we
+ * use a flower glyph in the icon's signature green above the wordmark.
+ */
+export const NAMZU_MARK = '❀'
+export const NAMZU_MARK_COLOR = '#7de5c3'

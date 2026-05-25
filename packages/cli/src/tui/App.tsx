@@ -26,7 +26,13 @@ import { appendMemory, composeMemoryPrompt, readMemory } from '../memory/store.j
 import { composeSkillsPrompt, discoverSkills, loadSkillBody } from '../skills/store.js'
 import { Composer } from './Composer.js'
 import { TrustPrompt } from './TrustPrompt.js'
-import { NAMZU_LOGO, NAMZU_LOGO_GRADIENT, NAMZU_LOGO_MIN_WIDTH } from './logo.js'
+import {
+	NAMZU_LOGO,
+	NAMZU_LOGO_GRADIENT,
+	NAMZU_LOGO_MIN_WIDTH,
+	NAMZU_MARK,
+	NAMZU_MARK_COLOR,
+} from './logo.js'
 import { PermissionOverlay } from './PermissionOverlay.js'
 import { Picker } from './Picker.js'
 import { StatusBar } from './StatusBar.js'
@@ -507,6 +513,7 @@ function Banner({
 		<Box flexDirection="column" paddingX={1} paddingTop={1} paddingBottom={1}>
 			{wide ? (
 				<Box flexDirection="column">
+					<Text color={NAMZU_MARK_COLOR}>{NAMZU_MARK}</Text>
 					{NAMZU_LOGO.map((line, i) => (
 						<Text key={`logo-${i}`} color={NAMZU_LOGO_GRADIENT[i]}>
 							{line}
@@ -514,8 +521,11 @@ function Banner({
 					))}
 				</Box>
 			) : (
-				<Text color={theme.accent.assistant} bold>
-					▲ namzu
+				<Text>
+					<Text color={NAMZU_MARK_COLOR}>{NAMZU_MARK} </Text>
+					<Text color={theme.accent.assistant} bold>
+						namzu
+					</Text>
 				</Text>
 			)}
 			<Box marginTop={wide ? 1 : 0}>

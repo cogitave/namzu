@@ -21,11 +21,16 @@ export interface ComposerProps {
 }
 
 const MAX_SUGGESTIONS = 6
+// A single keypress longer than this (with no newline) is treated as a paste.
+const PASTE_THRESHOLD = 80
 
 export function Composer({ disabled = false, onSubmit, history }: ComposerProps) {
 	const [value, setValue] = useState<string>('')
 	const [historyIndex, setHistoryIndex] = useState<number>(-1)
 	const [selected, setSelected] = useState<number>(0)
+	// Large pastes are held as attachments (shown as chips) instead of being
+	// dumped into the input, then folded into the message on submit.
+	const [pastes, setPastes] = useState<readonly string[]>([])
 
 	const suggestions = matchSlashCommands(value).slice(0, MAX_SUGGESTIONS)
 	const showSuggestions = suggestions.length > 0
@@ -35,6 +40,7 @@ export function Composer({ disabled = false, onSubmit, history }: ComposerProps)
 		setValue('')
 		setHistoryIndex(-1)
 		setSelected(0)
+		setPastes([])
 	}, [])
 
 	useInput(
@@ -47,8 +53,9 @@ export function Composer({ disabled = false, onSubmit, history }: ComposerProps)
 					reset()
 					return
 				}
-				if (value.trim().length === 0) return
-				onSubmit(value)
+				const message = [value, ...pastes].map((s) => s.trim()).filter(Boolean).join('\n\n')
+				if (message.length === 0) return
+				onSubmit(message)
 				reset()
 				return
 			}
@@ -65,6 +72,11 @@ export function Composer({ disabled = false, onSubmit, history }: ComposerProps)
 				return
 			}
 			if (key.backspace || key.delete) {
+				// Backspace on an empty line removes the last pasted attachment.
+				if (value.length === 0 && pastes.length > 0) {
+					setPastes((p) => p.slice(0, -1))
+					return
+				}
 				setValue((v) => v.slice(0, -1))
 				return
 			}
@@ -95,6 +107,12 @@ export function Composer({ disabled = false, onSubmit, history }: ComposerProps)
 			}
 			if (key.ctrl || key.meta) return
 			if (input.length === 0) return
+			// A multi-line or large chunk arriving in one keypress is a paste —
+			// hold it as an attachment chip instead of flooding the input.
+			if (input.includes('\n') || input.length > PASTE_THRESHOLD) {
+				setPastes((p) => [...p, input])
+				return
+			}
 			setSelected(0)
 			setValue((v) => v + input)
 		},
@@ -105,6 +123,15 @@ export function Composer({ disabled = false, onSubmit, history }: ComposerProps)
 	const showPlaceholder = !disabled && value.length === 0
 	return (
 		<Box flexDirection="column">
+			{pastes.length > 0 ? (
+				<Box flexDirection="column" paddingX={1} paddingBottom={1}>
+					{pastes.map((p, i) => (
+						<Text key={`paste-${i}`} color={theme.text.secondary}>
+							⎘ Pasted text #{i + 1} (+{p.split('\n').length} lines)
+						</Text>
+					))}
+				</Box>
+			) : null}
 			<Box paddingX={1}>
 				<Box width={2} flexShrink={0}>
 					<Text color={disabled ? theme.text.muted : theme.accent.user} bold>
