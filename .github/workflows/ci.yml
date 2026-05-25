@@ -96,6 +96,12 @@ jobs:
 
       - name: Are the types wrong? (type resolution)
         if: matrix.node-version == 24
+        # Non-blocking: attw currently crashes reading pnpm-packed tarballs
+        # ("Cannot read properties of undefined (reading 'filename')") on every
+        # package regardless of version — an attw/tarball bug, not a type
+        # issue. Keep the report visible without failing the job; flip back to
+        # blocking once attw can read the tarballs again.
+        continue-on-error: true
         run: |
           # attw needs the packed tarballs; reuse the ones from verify-consumer-install
           # by packing once into a stable location here.
