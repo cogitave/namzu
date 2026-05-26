@@ -355,94 +355,105 @@ async function spawnAciSandbox(
 
 	const initialIp = claimed?.properties?.ipAddress?.ip
 	let ip = initialIp
-	if (!ip) {
-		ip = await pollForRunningIp(
-			armUrl,
-			config.getArmToken,
-			config.readyPollIntervalMs ?? DEFAULT_READY_POLL_MS,
+	try {
+		if (!ip) {
+			ip = await pollForRunningIp(
+				armUrl,
+				config.getArmToken,
+				config.readyPollIntervalMs ?? DEFAULT_READY_POLL_MS,
+				config.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS,
+			)
+		}
+
+		const baseUrl = `http://${ip}:${workerPort}`
+		await waitForWorkerReady(
+			baseUrl,
 			config.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS,
+			config.readyPollIntervalMs ?? DEFAULT_READY_POLL_MS,
 		)
-	}
 
-	const baseUrl = `http://${ip}:${workerPort}`
-	await waitForWorkerReady(
-		baseUrl,
-		config.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS,
-		config.readyPollIntervalMs ?? DEFAULT_READY_POLL_MS,
-	)
+		let status: SandboxStatus = 'ready'
+		const rootDir = config.layout.outputs.containerPath
 
-	let status: SandboxStatus = 'ready'
-	const rootDir = config.layout.outputs.containerPath
+		return {
+			id,
+			get status(): SandboxStatus {
+				return status
+			},
+			rootDir,
+			environment: detectEnvironment(),
 
-	return {
-		id,
-		get status(): SandboxStatus {
-			return status
-		},
-		rootDir,
-		environment: detectEnvironment(),
+			async exec(
+				command: string,
+				argv?: string[],
+				opts?: SandboxExecOptions,
+			): Promise<SandboxExecResult> {
+				status = 'busy'
+				try {
+					return await execViaWorker(baseUrl, command, argv, opts)
+				} finally {
+					status = 'ready'
+				}
+			},
 
-		async exec(
-			command: string,
-			argv?: string[],
-			opts?: SandboxExecOptions,
-		): Promise<SandboxExecResult> {
-			status = 'busy'
-			try {
-				return await execViaWorker(baseUrl, command, argv, opts)
-			} finally {
-				status = 'ready'
-			}
-		},
+			async writeFile(path: string, content: string | Buffer): Promise<void> {
+				const buf = Buffer.isBuffer(content) ? content : Buffer.from(content, 'utf8')
+				const res = await fetch(`${baseUrl}/write-file`, {
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({
+						path,
+						content: buf.toString('base64'),
+						encoding: 'base64',
+					}),
+				})
+				if (!res.ok) {
+					throw new Error(`write-file failed: HTTP ${res.status} ${await res.text()}`)
+				}
+			},
 
-		async writeFile(path: string, content: string | Buffer): Promise<void> {
-			const buf = Buffer.isBuffer(content) ? content : Buffer.from(content, 'utf8')
-			const res = await fetch(`${baseUrl}/write-file`, {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({
-					path,
-					content: buf.toString('base64'),
-					encoding: 'base64',
-				}),
-			})
-			if (!res.ok) {
-				throw new Error(`write-file failed: HTTP ${res.status} ${await res.text()}`)
-			}
-		},
+			async readFile(path: string): Promise<Buffer> {
+				const res = await fetch(`${baseUrl}/read-file`, {
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({ path, encoding: 'base64' }),
+				})
+				if (!res.ok) {
+					throw new Error(`read-file failed: HTTP ${res.status} ${await res.text()}`)
+				}
+				const json = (await res.json()) as { ok: boolean; content?: string; error?: string }
+				if (!json.ok || typeof json.content !== 'string') {
+					throw new Error(json.error ?? 'read-file: no content')
+				}
+				return Buffer.from(json.content, 'base64')
+			},
 
-		async readFile(path: string): Promise<Buffer> {
-			const res = await fetch(`${baseUrl}/read-file`, {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ path, encoding: 'base64' }),
-			})
-			if (!res.ok) {
-				throw new Error(`read-file failed: HTTP ${res.status} ${await res.text()}`)
-			}
-			const json = (await res.json()) as { ok: boolean; content?: string; error?: string }
-			if (!json.ok || typeof json.content !== 'string') {
-				throw new Error(json.error ?? 'read-file: no content')
-			}
-			return Buffer.from(json.content, 'base64')
-		},
+			async listFiles(rootPath: string): Promise<readonly SandboxFileEntry[]> {
+				return await listFilesViaWorker(baseUrl, rootPath)
+			},
 
-		async listFiles(rootPath: string): Promise<readonly SandboxFileEntry[]> {
-			return await listFilesViaWorker(baseUrl, rootPath)
-		},
-
-		async destroy(): Promise<void> {
-			status = 'destroyed'
-			// ARM DELETE — let failures propagate. The Vandal-side
-			// lifecycle wraps this in its own try/catch with logging,
-			// so a silently swallowed error here means orphan ACI
-			// container groups pile up under the resource group with
-			// no observability handle. The Standby Pool's refill keeps
-			// the WARM side topped up; that has nothing to do with
-			// cleaning up a CLAIMED instance, which is exclusively the
-			// claimer's responsibility.
+			async destroy(): Promise<void> {
+				status = 'destroyed'
+				// ARM DELETE — let failures propagate. The Vandal-side
+				// lifecycle wraps this in its own try/catch with logging,
+				// so a silently swallowed error here means orphan ACI
+				// container groups pile up under the resource group with
+				// no observability handle. The Standby Pool's refill keeps
+				// the WARM side topped up; that has nothing to do with
+				// cleaning up a CLAIMED instance, which is exclusively the
+				// claimer's responsibility.
+				await armCall(armUrl, 'DELETE', config.getArmToken)
+			},
+		}
+	} catch (err) {
+		try {
 			await armCall(armUrl, 'DELETE', config.getArmToken)
-		},
+		} catch {
+			// Preserve the readiness failure as the primary error; the
+			// caller cannot use a Sandbox handle yet, so best-effort ARM
+			// cleanup is the only reliable orphan-prevention hook here.
+		}
+		throw err
 	}
 }
 

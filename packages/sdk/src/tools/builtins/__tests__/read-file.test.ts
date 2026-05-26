@@ -28,4 +28,16 @@ describe('ReadFileTool', () => {
 		expect(result.success).toBe(true)
 		expect(result.output).toBe('2\ttwo\n3\tthree')
 	})
+
+	it('guides binary Office documents through extractor tooling', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'namzu-read-'))
+		writeFileSync(join(dir, 'transcript.docx'), Buffer.from('PK\x03\x04binary-docx'))
+
+		const result = await ReadFileTool.execute({ path: 'transcript.docx' }, makeContext(dir))
+
+		expect(result.success).toBe(false)
+		expect(result.output).toContain('DOCX document package')
+		expect(result.output).toContain('python-docx')
+		expect(result.data).toMatchObject({ binary: true })
+	})
 })
