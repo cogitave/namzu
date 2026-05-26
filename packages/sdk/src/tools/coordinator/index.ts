@@ -38,6 +38,44 @@ export interface CoordinatorToolsOptions {
 	onTaskLaunched?: TaskLaunchedCallback
 }
 
+const approvePlanStepSchema = z.object({
+	description: z.string().describe('What this step does'),
+	agent_id: z
+		.string()
+		.optional()
+		.describe('Which agent handles this (omit for orchestrator-owned steps)'),
+	depends_on: z.array(z.string()).optional().describe('Step descriptions this depends on'),
+})
+
+function normalizeApprovePlanSteps(value: unknown): unknown {
+	if (typeof value !== 'string') return value
+
+	const trimmed = value.trim()
+	if (!trimmed) return []
+
+	if (trimmed.startsWith('[')) {
+		try {
+			return JSON.parse(trimmed)
+		} catch {
+			// Fall through to plain-text line parsing.
+		}
+	}
+
+	const lines = trimmed
+		.split(/\r?\n+/)
+		.map((line) =>
+			line
+				.trim()
+				.replace(/^(?:[-*•]|\d+[.)])\s*/, '')
+				.trim(),
+		)
+		.filter(Boolean)
+
+	return (lines.length ? lines : [trimmed]).map((description) => ({
+		description,
+	}))
+}
+
 export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefinition[] {
 	const {
 		gateway,
@@ -282,19 +320,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 					.describe('Short title for the plan (e.g. "TypeScript Security & Performance Review")'),
 				summary: z.string().describe('1-3 sentence summary of what you plan to do'),
 				steps: z
-					.array(
-						z.object({
-							description: z.string().describe('What this step does'),
-							agent_id: z
-								.string()
-								.optional()
-								.describe('Which agent handles this (omit for orchestrator-owned steps)'),
-							depends_on: z
-								.array(z.string())
-								.optional()
-								.describe('Step descriptions this depends on'),
-						}),
-					)
+					.preprocess(normalizeApprovePlanSteps, z.array(approvePlanStepSchema))
 					.describe('Ordered list of planned steps'),
 			}),
 			category: 'custom',
