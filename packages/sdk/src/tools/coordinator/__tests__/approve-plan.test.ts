@@ -45,7 +45,8 @@ describe('coordinator approve_plan tool', () => {
 
 		expect(parsed.success).toBe(true)
 		if (!parsed.success) return
-		expect(parsed.data.steps).toEqual([
+		const data = parsed.data as { steps: Array<{ description: string }> }
+		expect(data.steps).toEqual([
 			{ description: 'Extract uploaded DOCX files' },
 			{ description: 'Launch architecture worker' },
 		])
