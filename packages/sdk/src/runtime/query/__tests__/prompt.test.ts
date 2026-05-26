@@ -43,18 +43,18 @@ describe('PromptBuilder runtime context', () => {
 			skills: [
 				{
 					metadata: {
-						name: 'project-documents',
-						description: 'Draft and edit project documents from grounded inputs.',
+						name: 'delivery-briefing',
+						description: 'Draft and edit delivery briefings from grounded inputs.',
 					},
-					dirPath: '/repo/.agents/skills/project-documents',
+					dirPath: '/repo/.agents/skills/delivery-briefing',
 				},
 			],
 		}).build('full', '/tmp/work')
 
 		expect(prompt).toContain('You are a project assistant.')
 		expect(prompt).toContain('## Available Skills')
-		expect(prompt).toContain('project-documents')
-		expect(prompt).toContain('Draft and edit project documents')
+		expect(prompt).toContain('delivery-briefing')
+		expect(prompt).toContain('Draft and edit delivery briefings')
 		expect(prompt).not.toContain('## Loaded Skills')
 	})
 
@@ -65,14 +65,14 @@ describe('PromptBuilder runtime context', () => {
 			skills: [
 				{
 					metadata: {
-						name: 'long-form-files',
-						description: 'Create long files with bounded edit chunks.',
+						name: 'structured-file-authoring',
+						description: 'Create structured files with bounded edit chunks.',
 						license: 'MIT',
 						compatibility: 'Requires file tools',
 						allowedTools: 'read write edit',
 					},
 					body: 'Use skeleton-first writes and bounded edit chunks.',
-					dirPath: '/repo/.agents/skills/long-form-files',
+					dirPath: '/repo/.agents/skills/structured-file-authoring',
 				},
 			],
 		}).build('full', '/tmp/work')

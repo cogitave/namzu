@@ -16,11 +16,11 @@ describe('Agent Skills loader', () => {
 		const root = await mkdtemp(join(tmpdir(), 'namzu-skills-'))
 		const dir = await writeSkill(
 			root,
-			'project-documents',
+			'delivery-briefing',
 			[
 				'---',
-				'name: project-documents',
-				'description: Draft and edit grounded project documents.',
+				'name: delivery-briefing',
+				'description: Draft and edit grounded delivery briefings.',
 				'license: MIT',
 				'compatibility: Requires filesystem tools',
 				'allowed-tools: read write edit',
@@ -36,8 +36,8 @@ describe('Agent Skills loader', () => {
 		const result = await loadSkill(dir, 'metadata')
 
 		expect(result.skill.metadata).toEqual({
-			name: 'project-documents',
-			description: 'Draft and edit grounded project documents.',
+			name: 'delivery-briefing',
+			description: 'Draft and edit grounded delivery briefings.',
 			license: 'MIT',
 			compatibility: 'Requires filesystem tools',
 			allowedTools: 'read write edit',
@@ -53,11 +53,11 @@ describe('Agent Skills loader', () => {
 		const root = await mkdtemp(join(tmpdir(), 'namzu-skills-'))
 		const dir = await writeSkill(
 			root,
-			'long-form-files',
+			'structured-file-authoring',
 			[
 				'---',
-				'name: long-form-files',
-				'description: Create long files with bounded edit chunks.',
+				'name: structured-file-authoring',
+				'description: Create structured files with bounded edit chunks.',
 				'---',
 				'Use skeleton-first writes.',
 				'',
