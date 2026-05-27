@@ -48,17 +48,29 @@ export function renderSkillsSection(skills?: Skill[]): string | null {
 
 	const available = skills
 		.map((s) => {
-			const details = [`description: ${s.metadata.description.trim()}`]
-			if (s.metadata.compatibility) details.push(`compatibility: ${s.metadata.compatibility}`)
-			if (s.metadata.license) details.push(`license: ${s.metadata.license}`)
-			if (s.metadata.allowedTools) details.push(`allowed-tools: ${s.metadata.allowedTools}`)
-			return `- ${s.metadata.name} (${details.join('; ')})\n  directory: ${s.dirPath}`
+			const lines = [
+				'<skill>',
+				`<name>${s.metadata.name}</name>`,
+				`<description>${s.metadata.description.trim()}</description>`,
+				`<location>${s.dirPath}/SKILL.md</location>`,
+			]
+			if (s.metadata.compatibility) {
+				lines.push(`<compatibility>${s.metadata.compatibility}</compatibility>`)
+			}
+			if (s.metadata.license) {
+				lines.push(`<license>${s.metadata.license}</license>`)
+			}
+			if (s.metadata.allowedTools) {
+				lines.push(`<allowed_tools>${s.metadata.allowedTools}</allowed_tools>`)
+			}
+			lines.push('</skill>')
+			return lines.join('\n')
 		})
 		.join('\n')
 
 	const loadedSkills = skills.filter((s) => s.body)
 	const sections = [
-		`## Available Skills\nThese Agent Skills are available through progressive disclosure. Use a skill only when the task matches its description. If a skill is not already loaded below, activate/read its SKILL.md from the listed directory when the runtime provides filesystem or skill-loading access.\n\n${available}`,
+		`## Available Skills\nThe following block is a manifest, not the full skill content. Skill metadata is always visible; SKILL.md bodies are loaded only when the user's task matches the skill description.\n\n<available_skills>\n${available}\n</available_skills>\n\nSkill usage protocol:\n- Plain questions do not require a skill.\n- When a matching skill is already listed under Loaded Skills, apply its loaded instructions.\n- When a matching skill is not loaded and the runtime exposes filesystem or skill-loading tools, read the SKILL.md at its <location> before writing code, creating files, running shell commands for that workflow, or calling mutation tools guided by the skill.\n- Do not claim to have read a SKILL.md until its content is actually present in the prompt or returned by a tool.\n- Tool schemas and runtime permissions remain authoritative; skills provide guidance, not hidden tools.`,
 	]
 
 	if (loadedSkills.length > 0) {

@@ -53,8 +53,11 @@ describe('PromptBuilder runtime context', () => {
 
 		expect(prompt).toContain('You are a project assistant.')
 		expect(prompt).toContain('## Available Skills')
+		expect(prompt).toContain('<available_skills>')
 		expect(prompt).toContain('delivery-briefing')
 		expect(prompt).toContain('Draft and edit delivery briefings')
+		expect(prompt).toContain('<location>/repo/.agents/skills/delivery-briefing/SKILL.md</location>')
+		expect(prompt).toContain('The following block is a manifest')
 		expect(prompt).not.toContain('## Loaded Skills')
 	})
 
@@ -78,9 +81,10 @@ describe('PromptBuilder runtime context', () => {
 		}).build('full', '/tmp/work')
 
 		expect(prompt).toContain('## Available Skills')
-		expect(prompt).toContain('license: MIT')
-		expect(prompt).toContain('compatibility: Requires file tools')
-		expect(prompt).toContain('allowed-tools: read write edit')
+		expect(prompt).toContain('<license>MIT</license>')
+		expect(prompt).toContain('<compatibility>Requires file tools</compatibility>')
+		expect(prompt).toContain('<allowed_tools>read write edit</allowed_tools>')
+		expect(prompt).toContain('read the SKILL.md at its <location> before writing code')
 		expect(prompt).toContain('## Loaded Skills')
 		expect(prompt).toContain('Use skeleton-first writes')
 	})
