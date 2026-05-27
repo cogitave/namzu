@@ -295,6 +295,7 @@ function ensureTrailingNewline(value: string): string {
 }
 
 async function writeJsonAtomic(path: string, value: unknown): Promise<void> {
+	await mkdir(dirnameFor(path), { recursive: true })
 	const tmpPath = `${path}.${process.pid}.${Date.now()}.tmp`
 	await writeFile(tmpPath, `${JSON.stringify(value, null, 2)}\n`, 'utf8')
 	await rename(tmpPath, path)
