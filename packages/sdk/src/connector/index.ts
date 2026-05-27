@@ -34,6 +34,7 @@ export type {
 
 export { StdioTransport } from './mcp/stdio.js'
 export { HttpSseTransport } from './mcp/http-sse.js'
+export { StreamableHttpTransport } from './mcp/streamable-http.js'
 
 export { MCPClient } from './mcp/client.js'
 

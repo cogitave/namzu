@@ -6,7 +6,9 @@ import type {
 	ConnectorInstance,
 } from './definition.js'
 
-export type MCPTransportType = 'stdio' | 'http-sse'
+export type MCPStreamableHttpTransportType = 'streamable_http' | 'streamable-http'
+
+export type MCPTransportType = 'stdio' | 'http-sse' | MCPStreamableHttpTransportType
 
 export interface MCPTransportConfigBase {
 	type: MCPTransportType
@@ -27,7 +29,17 @@ export interface MCPHttpSseTransportConfig extends MCPTransportConfigBase {
 	timeoutMs?: number
 }
 
-export type MCPTransportUnion = MCPStdioTransportConfig | MCPHttpSseTransportConfig
+export interface MCPStreamableHttpTransportConfig extends MCPTransportConfigBase {
+	type: MCPStreamableHttpTransportType
+	url: string
+	headers?: Record<string, string>
+	timeoutMs?: number
+}
+
+export type MCPTransportUnion =
+	| MCPStdioTransportConfig
+	| MCPHttpSseTransportConfig
+	| MCPStreamableHttpTransportConfig
 
 export interface MCPJsonRpcError {
 	code: number

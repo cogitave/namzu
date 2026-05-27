@@ -19,6 +19,7 @@ import { generateMCPClientId } from '../../utils/id.js'
 import { type Logger, getRootLogger } from '../../utils/logger.js'
 import { HttpSseTransport } from './http-sse.js'
 import { StdioTransport } from './stdio.js'
+import { StreamableHttpTransport } from './streamable-http.js'
 
 import { MCP_PROTOCOL_VERSION } from '../../constants/mcp/index.js'
 import { VERSION } from '../../version.js'
@@ -175,6 +176,9 @@ export class MCPClient {
 				return new StdioTransport(config)
 			case 'http-sse':
 				return new HttpSseTransport(config)
+			case 'streamable_http':
+			case 'streamable-http':
+				return new StreamableHttpTransport(config)
 			default:
 				throw new Error(`Unsupported MCP transport type: ${(config as MCPTransportUnion).type}`)
 		}

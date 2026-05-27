@@ -194,6 +194,7 @@ export {
 	RemoteExecutionContext,
 	ScopedConnectorRegistry,
 	StdioTransport,
+	StreamableHttpTransport,
 	TenantConnectorManager,
 	toolDefinitionToMCPTool,
 	toolResultToMCPToolResult,

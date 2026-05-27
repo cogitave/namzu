@@ -1,5 +1,6 @@
 export { StdioTransport } from './stdio.js'
 export { HttpSseTransport } from './http-sse.js'
+export { StreamableHttpTransport } from './streamable-http.js'
 
 export { MCPClient } from './client.js'
 
