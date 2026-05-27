@@ -45,7 +45,7 @@ export class StreamableHttpTransport implements MCPTransport {
 		try {
 			const response = await fetch(this.config.url, {
 				method: 'POST',
-				headers: this.buildHeaders(message),
+				headers: this.buildHeaders(),
 				body: JSON.stringify(message),
 				signal: controller.signal,
 			})
@@ -82,24 +82,15 @@ export class StreamableHttpTransport implements MCPTransport {
 		return this.connected
 	}
 
-	private buildHeaders(message: MCPJsonRpcMessage): Record<string, string> {
+	private buildHeaders(): Record<string, string> {
 		const headers: Record<string, string> = {
 			'Content-Type': 'application/json',
 			Accept: 'application/json, text/event-stream',
 			...this.config.headers,
 		}
 
-		if (message.method) {
-			headers['Mcp-Method'] = message.method
-		}
 		if (this.sessionId) {
 			headers['Mcp-Session-Id'] = this.sessionId
-		}
-
-		const toolName =
-			message.params && typeof message.params.name === 'string' ? message.params.name : undefined
-		if (toolName && (message.method === 'tools/call' || message.method === 'prompts/get')) {
-			headers['Mcp-Name'] = toolName
 		}
 
 		return headers

@@ -79,7 +79,7 @@ describe('Streamable HTTP MCP transport', () => {
 		expect(listTools.headers['Mcp-Session-Id']).toBe('sid_123')
 	})
 
-	it('supports the streamable-http alias and sends tool-name hint headers', async () => {
+	it('supports the streamable-http alias without non-standard hint headers', async () => {
 		const fetchMock = vi.fn<typeof fetch>()
 		fetchMock
 			.mockResolvedValueOnce(
@@ -120,8 +120,11 @@ describe('Streamable HTTP MCP transport', () => {
 		expect(result.content).toEqual([{ type: 'text', text: 'ok' }])
 		const callTool = requestAt(fetchMock, 2)
 		expect(callTool.body.method).toBe('tools/call')
-		expect(callTool.headers['Mcp-Session-Id']).toBe('sid_alias')
-		expect(callTool.headers['Mcp-Name']).toBe('create_issue')
+		expect(callTool.headers).toEqual({
+			'Content-Type': 'application/json',
+			Accept: 'application/json, text/event-stream',
+			'Mcp-Session-Id': 'sid_alias',
+		})
 	})
 })
 
