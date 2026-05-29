@@ -31,6 +31,8 @@ export interface CliSessions {
 	readonly projectId: ProjectId
 	readonly threadId: ThreadId
 	readonly tenantId: TenantId
+	/** Absolute path of the cwd's `.namzu` root (where pointers live). */
+	readonly root: string
 }
 
 export interface RecentConversation {
@@ -66,7 +68,40 @@ export async function openSessions(cwd: string): Promise<CliSessions> {
 		mkdirSync(root, { recursive: true })
 		writeFileSync(pointerPath, `${JSON.stringify({ projectId }, null, 2)}\n`, { mode: 0o600 })
 	}
-	return { store, projectId, threadId: THREAD, tenantId: TENANT }
+	return { store, projectId, threadId: THREAD, tenantId: TENANT, root }
+}
+
+// Maps an embedder's own session key (e.g. the clawtool desktop's uuid) to a
+// namzu conversation id, so reopening that session resumes the same
+// transcript. Kept as a small JSON pointer beside cli.json.
+const DESKTOP_MAP = 'desktop-sessions.json'
+
+function readDesktopMap(root: string): Record<string, string> {
+	try {
+		const raw = JSON.parse(readFileSync(join(root, DESKTOP_MAP), 'utf8'))
+		return raw && typeof raw === 'object' ? (raw as Record<string, string>) : {}
+	} catch {
+		return {}
+	}
+}
+
+/**
+ * Resolve (creating if needed) the namzu conversation bound to an embedder's
+ * session key. The mapping persists so a later turn / a history load with the
+ * same key reuses the same conversation. Falls back to a fresh conversation if
+ * the mapped id was wiped.
+ */
+export async function resolveConversation(s: CliSessions, key: string): Promise<SessionId> {
+	const map = readDesktopMap(s.root)
+	const existing = map[key]
+	if (existing && (await s.store.getSession(existing as SessionId, s.tenantId))) {
+		return existing as SessionId
+	}
+	const id = await startConversation(s)
+	map[key] = id
+	mkdirSync(s.root, { recursive: true })
+	writeFileSync(join(s.root, DESKTOP_MAP), `${JSON.stringify(map, null, 2)}\n`, { mode: 0o600 })
+	return id
 }
 
 /** Start a fresh conversation; returns its session id. */
