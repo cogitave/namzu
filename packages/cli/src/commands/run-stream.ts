@@ -43,21 +43,55 @@ function defaultPrefs(detected: readonly DetectedProvider[]): Preferences | null
 	return first ? { version: 2, provider: first.entry.id, subagents: { active: [] } } : null
 }
 
-/** Pull `--session <key>` out of rawArgs; return the key + the remaining (prompt) args. */
-function extractSessionFlag(rawArgs: readonly string[]): { key: string | null; rest: string[] } {
-	const rest: string[] = []
-	let key: string | null = null
-	for (let i = 0; i < rawArgs.length; i++) {
-		const a = rawArgs[i]
-		if (a === '--session' && i + 1 < rawArgs.length) {
-			key = rawArgs[++i]
-		} else if (a.startsWith('--session=')) {
-			key = a.slice('--session='.length)
-		} else {
-			rest.push(a)
+/**
+ * Parsed run-stream flags. A host UI (the clawtool desktop's Namzu tab) drives
+ * which namzu persona answers (--instance), with which model (--model) and
+ * skills (--skills a,b,c), bound to a persisted conversation (--session).
+ * Everything else is the prompt.
+ */
+interface RunStreamFlags {
+	session: string | null
+	model: string | null
+	instance: string | null
+	skills: string[]
+	rest: string[]
+}
+
+function parseRunStreamFlags(rawArgs: readonly string[]): RunStreamFlags {
+	const out: RunStreamFlags = { session: null, model: null, instance: null, skills: [], rest: [] }
+	const take = (a: string, name: string, set: (v: string) => void, i: { v: number }): boolean => {
+		if (a === `--${name}` && i.v + 1 < rawArgs.length) {
+			set(rawArgs[++i.v])
+			return true
 		}
+		if (a.startsWith(`--${name}=`)) {
+			set(a.slice(name.length + 3))
+			return true
+		}
+		return false
 	}
-	return { key: key?.trim() || null, rest }
+	for (const idx = { v: 0 }; idx.v < rawArgs.length; idx.v++) {
+		const a = rawArgs[idx.v]
+		if (take(a, 'session', (v) => (out.session = v.trim() || null), idx)) continue
+		if (take(a, 'model', (v) => (out.model = v.trim() || null), idx)) continue
+		if (take(a, 'instance', (v) => (out.instance = v.trim() || null), idx)) continue
+		if (
+			take(
+				a,
+				'skills',
+				(v) => {
+					out.skills = v
+						.split(',')
+						.map((s) => s.trim())
+						.filter(Boolean)
+				},
+				idx,
+			)
+		)
+			continue
+		out.rest.push(a)
+	}
+	return out
 }
 
 /** Parse stdin as a prior Message[]; tolerate the UI's {role,content} shape. */
@@ -97,8 +131,9 @@ export const runStreamCommand: CommandDef = {
 			return 0
 		}
 
-		const { key: sessionKey, rest } = extractSessionFlag(rawArgs)
-		const prompt = rest.join(' ').trim()
+		const flags = parseRunStreamFlags(rawArgs)
+		const sessionKey = flags.session
+		const prompt = flags.rest.join(' ').trim()
 		if (!prompt) return fail('no prompt — pass it as an argument')
 
 		// Resolve the persisted conversation (if a session key was given) so we
@@ -123,22 +158,43 @@ export const runStreamCommand: CommandDef = {
 		configureLogger({ level: 'silent' })
 		const { probeAgentSession, createAgentSession } = await import('../tui/agent.js')
 		const probe = await probeAgentSession()
-		const prefs = probe.preferences ?? defaultPrefs(probe.detected)
+		let prefs = probe.preferences ?? defaultPrefs(probe.detected)
 		if (!prefs) {
 			return fail(
 				'no LLM provider available — set a credential (e.g. ANTHROPIC_API_KEY) or run `namzu` to pick one',
 			)
 		}
+		// --model overrides the persona's default model for this run.
+		if (flags.model) prefs = { ...prefs, model: flags.model }
 
 		const session = await createAgentSession(prefs, probe.detected)
 		if (!session.hasProvider) return fail(session.errorHint ?? 'agent is not ready')
+
+		// --skills <a,b,c>: load the named skills' bodies and inject them as the
+		// turn's extra system context (the same channel the TUI's /skill uses).
+		let extraSystem: string | undefined
+		if (flags.skills.length > 0) {
+			try {
+				const { discoverSkills, loadSkillBody, composeSkillsPrompt } = await import(
+					'../skills/store.js'
+				)
+				const all = discoverSkills({ cwd: process.cwd() })
+				const wanted = new Set(flags.skills)
+				const active = all
+					.filter((s) => wanted.has(s.name))
+					.map((s) => ({ name: s.name, body: loadSkillBody(s) }))
+				extraSystem = composeSkillsPrompt(active) ?? undefined
+			} catch {
+				// skills unavailable — run without them rather than fail the turn.
+			}
+		}
 
 		const userMessage: Message = { role: 'user', content: prompt, timestamp: Date.now() } as Message
 		const messages: Message[] = [...prior, userMessage]
 
 		let assistantText = ''
 		try {
-			for await (const event of session.send(messages)) {
+			for await (const event of session.send(messages, extraSystem ? { extraSystem } : undefined)) {
 				if (event.kind === 'delta') assistantText += event.text
 				write(event)
 			}
@@ -172,7 +228,7 @@ export const historyCommand: CommandDef = {
 	description: "Print a session's persisted messages as JSON (for host UIs)",
 	passThrough: true,
 	handler: async ({ rawArgs }) => {
-		const { key } = extractSessionFlag(rawArgs)
+		const key = parseRunStreamFlags(rawArgs).session
 		if (!key) {
 			process.stdout.write('[]\n')
 			return 0
@@ -197,6 +253,30 @@ export const historyCommand: CommandDef = {
 			process.stdout.write('[]\n')
 			return 0
 		}
+	},
+}
+
+// skills-json — read-only skill discovery for a host UI (the Namzu tab's skill
+// chips). Prints the cwd-resolved skills as a JSON array of {name, description,
+// source}. Distinct from the milestone-owned `skills` management command; this
+// is the thin enumeration the desktop polls. Empty array on any failure.
+export const skillsJSONCommand: CommandDef = {
+	name: 'skills-json',
+	description: 'Print discovered skills as JSON (for host UIs)',
+	passThrough: true,
+	handler: async () => {
+		try {
+			const { discoverSkills } = await import('../skills/store.js')
+			const skills = discoverSkills({ cwd: process.cwd() }).map((s) => ({
+				name: s.name,
+				description: s.description,
+				source: s.source,
+			}))
+			process.stdout.write(`${JSON.stringify(skills)}\n`)
+		} catch {
+			process.stdout.write('[]\n')
+		}
+		return 0
 	},
 }
 
