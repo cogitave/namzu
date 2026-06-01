@@ -437,6 +437,11 @@ export async function listProviderModels(
 	det: DetectedProvider,
 ): Promise<Array<{ id: string; name: string }>> {
 	try {
+		// constructProvider calls ProviderRegistry.create, which throws
+		// "Unsupported provider type" until the vendor package has registered
+		// itself. The run path registers lazily via ensureRegistered; the
+		// host-UI listing path must do the same or every provider returns [].
+		await ensureRegistered(id)
 		const provider = constructProvider(id, det, det.entry.defaultModel)
 		if (typeof provider.listModels !== 'function') return []
 		const timeout = new Promise<never>((_, reject) =>
