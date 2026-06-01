@@ -22,7 +22,7 @@
 
 import { configureLogger, type Message } from '@namzu/sdk'
 
-import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
+import type { DetectedProvider, Preferences, ProviderId } from '../integrations/providers/index.js'
 import {
 	appendMessages,
 	loadConversation,
@@ -52,13 +52,21 @@ function defaultPrefs(detected: readonly DetectedProvider[]): Preferences | null
 interface RunStreamFlags {
 	session: string | null
 	model: string | null
+	provider: string | null
 	instance: string | null
 	skills: string[]
 	rest: string[]
 }
 
 function parseRunStreamFlags(rawArgs: readonly string[]): RunStreamFlags {
-	const out: RunStreamFlags = { session: null, model: null, instance: null, skills: [], rest: [] }
+	const out: RunStreamFlags = {
+		session: null,
+		model: null,
+		provider: null,
+		instance: null,
+		skills: [],
+		rest: [],
+	}
 	const take = (a: string, name: string, set: (v: string) => void, i: { v: number }): boolean => {
 		if (a === `--${name}` && i.v + 1 < rawArgs.length) {
 			set(rawArgs[++i.v])
@@ -74,6 +82,7 @@ function parseRunStreamFlags(rawArgs: readonly string[]): RunStreamFlags {
 		const a = rawArgs[idx.v]
 		if (take(a, 'session', (v) => (out.session = v.trim() || null), idx)) continue
 		if (take(a, 'model', (v) => (out.model = v.trim() || null), idx)) continue
+		if (take(a, 'provider', (v) => (out.provider = v.trim() || null), idx)) continue
 		if (take(a, 'instance', (v) => (out.instance = v.trim() || null), idx)) continue
 		if (
 			take(
@@ -164,7 +173,9 @@ export const runStreamCommand: CommandDef = {
 				'no LLM provider available — set a credential (e.g. ANTHROPIC_API_KEY) or run `namzu` to pick one',
 			)
 		}
-		// --model overrides the persona's default model for this run.
+		// --provider/--model override the persona's configured provider+model for
+		// this run, so the Namzu tab's picks win over ~/.namzu/preferences.json.
+		if (flags.provider) prefs = { ...prefs, provider: flags.provider as ProviderId }
 		if (flags.model) prefs = { ...prefs, model: flags.model }
 
 		const session = await createAgentSession(prefs, probe.detected)
@@ -273,6 +284,53 @@ export const skillsJSONCommand: CommandDef = {
 				source: s.source,
 			}))
 			process.stdout.write(`${JSON.stringify(skills)}\n`)
+		} catch {
+			process.stdout.write('[]\n')
+		}
+		return 0
+	},
+}
+
+// providers-json — read-only provider+model discovery for a host UI (the Namzu
+// tab's provider/model pickers). Emits every PROVIDER_REGISTRY entry with
+// detection state + a best-effort live model list. Distinct from the `providers`
+// profile-management command. Empty models[] → the host falls back to a
+// free-text model field seeded with `default`. Never throws.
+export const providersJSONCommand: CommandDef = {
+	name: 'providers-json',
+	description: 'Print providers + per-provider models as JSON (for host UIs)',
+	passThrough: true,
+	handler: async () => {
+		try {
+			const { configureLogger } = await import('@namzu/sdk')
+			configureLogger({ level: 'silent' })
+			const { PROVIDER_REGISTRY, ALL_PROVIDER_IDS, findDetected } = await import(
+				'../integrations/providers/index.js'
+			)
+			const { probeAgentSession, listProviderModels } = await import('../tui/agent.js')
+			const probe = await probeAgentSession()
+			const out: Array<{
+				provider: string
+				label: string
+				detected: boolean
+				default: string
+				models: Array<{ id: string; name: string }>
+			}> = []
+			for (const id of ALL_PROVIDER_IDS) {
+				const entry = PROVIDER_REGISTRY[id]
+				const det = findDetected(probe.detected, id) ?? null
+				const models = det ? await listProviderModels(id, det).catch(() => []) : []
+				out.push({
+					provider: id,
+					label: entry.label,
+					detected: Boolean(det),
+					default: entry.defaultModel,
+					models,
+				})
+			}
+			// Detected providers first, so the picker defaults to a usable one.
+			out.sort((a, b) => Number(b.detected) - Number(a.detected))
+			process.stdout.write(`${JSON.stringify(out)}\n`)
 		} catch {
 			process.stdout.write('[]\n')
 		}

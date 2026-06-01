@@ -424,6 +424,31 @@ function constructProvider(
 	}
 }
 
+/**
+ * Best-effort live model list for a detected provider, for host-UI pickers (the
+ * desktop Namzu tab). Instantiates the provider (only anthropic/openai/
+ * openrouter/ollama are wired in constructProvider — others throw) and calls
+ * its optional listModels(). Returns [] on any failure so a picker degrades to
+ * free-text + the provider's defaultModel. Wrapped in a 3s race so a wedged
+ * local provider (Ollama) or a slow catalog (OpenRouter) can't stall the UI.
+ */
+export async function listProviderModels(
+	id: ProviderId,
+	det: DetectedProvider,
+): Promise<Array<{ id: string; name: string }>> {
+	try {
+		const provider = constructProvider(id, det, det.entry.defaultModel)
+		if (typeof provider.listModels !== 'function') return []
+		const timeout = new Promise<never>((_, reject) =>
+			setTimeout(() => reject(new Error('listModels timeout')), 3000),
+		)
+		const models = await Promise.race([provider.listModels(), timeout])
+		return models.map((m) => ({ id: m.id, name: m.name || m.id }))
+	} catch {
+		return []
+	}
+}
+
 export interface RunScope {
 	sessionId: SessionId
 	readonly threadId: ThreadId
