@@ -370,9 +370,13 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 					}
 				}
 
+				// Rejection guidance follows the FEEDBACK, not a baked-in
+				// revise loop: the old unconditional "revise … and call
+				// approve_plan again" contradicted stop-style feedback, so a
+				// user rejecting a plan got another plan instead of a halt.
 				return {
 					success: false,
-					output: `Plan rejected. User feedback: ${response.feedback ?? 'No feedback provided'}. Revise your plan based on this feedback and call approve_plan again, or ask the user for clarification.`,
+					output: `Plan rejected. User feedback: ${response.feedback ?? 'No feedback provided'}. Follow this feedback: if it requests changes, revise your plan and call approve_plan again; if it asks you to stop, acknowledge briefly and end your turn. If no feedback was provided, ask the user how to proceed before planning again.`,
 					data: { approved: false, feedback: response.feedback },
 				}
 			},

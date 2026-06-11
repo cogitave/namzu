@@ -116,15 +116,20 @@ describe('coordinator approve_plan tool', () => {
 		})
 	})
 
-	it('keeps the rejection output carrying the feedback verbatim', async () => {
+	it('keeps the rejection output carrying the feedback verbatim with follow-the-feedback guidance', async () => {
 		const result = await executeApprovePlan({
 			approved: false,
 			feedback: 'Wrong scope — focus on invoices only',
 		})
 
 		expect(result.success).toBe(false)
+		// Guidance must FOLLOW the feedback rather than bake in a revise
+		// loop — stop-style feedback ("do not plan again") and a trailing
+		// "revise and call approve_plan again" are contradictory
+		// instructions, and the model kept generating plans after a
+		// rejection meant to halt.
 		expect(result.output).toBe(
-			'Plan rejected. User feedback: Wrong scope — focus on invoices only. Revise your plan based on this feedback and call approve_plan again, or ask the user for clarification.',
+			'Plan rejected. User feedback: Wrong scope — focus on invoices only. Follow this feedback: if it requests changes, revise your plan and call approve_plan again; if it asks you to stop, acknowledge briefly and end your turn. If no feedback was provided, ask the user how to proceed before planning again.',
 		)
 		expect(result.data).toEqual({
 			approved: false,
