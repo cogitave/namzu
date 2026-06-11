@@ -125,6 +125,10 @@ export async function* handleHITLDecision(
 		case 'approve_tools':
 		case 'modify_tools':
 		case 'reject_tools':
+		// 'answer_question' can only arrive misdirected at an iteration
+		// checkpoint (answers are consumed inside the ask_user_question
+		// tool's own park); treat it as a plain continue.
+		case 'answer_question':
 			return 'continue'
 		default: {
 			const _exhaustive: never = decision

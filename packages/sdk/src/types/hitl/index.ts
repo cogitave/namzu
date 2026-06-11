@@ -12,6 +12,22 @@ export type HITLResumeDecision =
 	| { action: 'approve_tools' }
 	| { action: 'modify_tools'; modifications: ToolModification[] }
 	| { action: 'reject_tools'; feedback: string }
+	| {
+			action: 'answer_question'
+			selectedOptionIds: string[]
+			freeText?: string
+			/**
+			 * Echo of `UserQuestionData.questionId` — the misdirection
+			 * guard. The park/resolve registry on hosts is typically
+			 * keyed by run, so a stale client can answer question N
+			 * after question N+1 re-parked under the same run. When
+			 * present and it does not match the asking tool's own
+			 * questionId, the tool treats the decision as unanswered
+			 * instead of fabricating a selection against the wrong
+			 * question.
+			 */
+			questionId?: string
+	  }
 	| { action: 'pause'; reason: string }
 	| { action: 'abort'; reason: string }
 
@@ -24,6 +40,7 @@ export type HITLDecisionRequest =
 			checkpointId: CheckpointId
 			summary: CheckpointSummary
 	  }
+	| { type: 'user_question'; runId: RunId; checkpointId: CheckpointId; question: UserQuestionData }
 
 export type ResumeHandler = (request: HITLDecisionRequest) => Promise<HITLResumeDecision>
 
@@ -38,6 +55,29 @@ export interface ToolModification {
 	toolCallId: string
 	action: 'approve' | 'deny' | 'modify'
 	modifiedInput?: unknown
+}
+
+export interface UserQuestionOption {
+	id: string
+	label: string
+	description?: string
+}
+
+/**
+ * A model-authored question for the user, parked through the
+ * `ResumeHandler` exactly like a plan approval. `questionId` equals
+ * the asking `tool_use_id` so the host can mint stable, mergeable
+ * activity ids per question and so answers can be matched back to
+ * the question that asked them (see
+ * `HITLResumeDecision['answer_question'].questionId`).
+ */
+export interface UserQuestionData {
+	questionId: string
+	question: string
+	header?: string
+	options: UserQuestionOption[]
+	multiSelect: boolean
+	allowFreeText: boolean
 }
 
 export interface PlanApprovalData {
@@ -108,6 +148,17 @@ export function autoApproveHandler(request: HITLDecisionRequest): Promise<HITLRe
 			return Promise.resolve({ action: 'approve_tools' })
 		case 'iteration_checkpoint':
 			return Promise.resolve({ action: 'continue' })
+		case 'user_question':
+			// Headless runs must never deadlock on a question and must
+			// never fabricate a user choice: answer with an explicit
+			// no-selection sentinel so the asking tool renders "the user
+			// did not answer" rather than consent.
+			return Promise.resolve({
+				action: 'answer_question',
+				selectedOptionIds: [],
+				freeText: 'No user is available to answer. Proceed using your best judgment.',
+				questionId: request.question.questionId,
+			})
 		default: {
 			const _exhaustive: never = request
 			throw new Error(`Unhandled HITL request type: ${(_exhaustive as HITLDecisionRequest).type}`)

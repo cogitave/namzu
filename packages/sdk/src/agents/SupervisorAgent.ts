@@ -110,6 +110,10 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 			onTaskLaunched: (agentTaskId, meta) => {
 				launchedTasks.set(agentTaskId, meta)
 			},
+			// With a resume handler present the coordinator surface gains
+			// ask_user_question — the model can park the run on a question
+			// routed through the same HITL channel as plan approvals.
+			...(config.resumeHandler ? { resumeHandler: config.resumeHandler } : {}),
 		})
 
 		const tools = new ToolRegistry()
