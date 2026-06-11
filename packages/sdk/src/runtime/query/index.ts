@@ -187,7 +187,15 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		})
 
 		if (decision.action === 'approve_plan') {
-			return { approved: true }
+			// Optional approve-with-edits channel: the host may attach
+			// feedback to an approval. `PlanApprovalResponse.feedback`
+			// already exists on the type; threading it through lets the
+			// coordinator's approve_plan tool surface the user's edits in
+			// the same tool_result that unblocks the park. Bare approvals
+			// stay byte-identical (`{ approved: true }`).
+			return decision.feedback
+				? { approved: true, feedback: decision.feedback }
+				: { approved: true }
 		}
 		if (decision.action === 'reject_plan') {
 			return { approved: false, feedback: decision.feedback }

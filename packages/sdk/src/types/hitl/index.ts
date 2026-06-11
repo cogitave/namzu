@@ -7,7 +7,7 @@ export type { CheckpointId }
 
 export type HITLResumeDecision =
 	| { action: 'continue' }
-	| { action: 'approve_plan' }
+	| { action: 'approve_plan'; feedback?: string }
 	| { action: 'reject_plan'; feedback: string }
 	| { action: 'approve_tools' }
 	| { action: 'modify_tools'; modifications: ToolModification[] }

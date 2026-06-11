@@ -356,10 +356,16 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 
 				if (response.approved) {
 					pm.startExecution()
+					// Approve-with-edits: when the user attached feedback to an
+					// approval, embed it in the model-visible output so the
+					// supervisor applies the edits during execution. A bare
+					// approve keeps the historical output byte-identical.
+					const output = response.feedback
+						? `Plan approved by user with required edits — apply them during execution:\n${response.feedback}\nProceed with execution — launch workers via create_task.`
+						: 'Plan approved by user. Proceed with execution — launch workers via create_task.'
 					return {
 						success: true,
-						output:
-							'Plan approved by user. Proceed with execution — launch workers via create_task.',
+						output,
 						data: { approved: true, feedback: response.feedback },
 					}
 				}
