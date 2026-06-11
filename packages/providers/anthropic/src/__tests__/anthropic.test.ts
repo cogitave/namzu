@@ -1,4 +1,5 @@
 import { DuplicateProviderError, ProviderRegistry } from '@namzu/sdk'
+import type { ChatCompletionParams, LLMToolSchema } from '@namzu/sdk'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { AnthropicProvider } from '../client.js'
 import { ANTHROPIC_CAPABILITIES, registerAnthropic } from '../index.js'
@@ -122,6 +123,166 @@ describe('@namzu/anthropic', () => {
 			}
 
 			await expect(drain()).rejects.toThrow(/stream idle/)
+		})
+	})
+})
+
+describe('AnthropicProvider — buildCreateParams', () => {
+	const buildParams = (
+		provider: AnthropicProvider,
+		params: ChatCompletionParams,
+		stream = false,
+	): Record<string, any> =>
+		(provider as any).buildCreateParams(params, stream) as Record<string, any>
+
+	const makeProvider = () =>
+		new AnthropicProvider({ apiKey: 'test-key', model: 'claude-sonnet-4-5-20250929' })
+
+	const tools: LLMToolSchema[] = [
+		{
+			type: 'function',
+			function: { name: 'alpha', description: 'first', parameters: { type: 'object' } },
+		},
+		{
+			type: 'function',
+			function: { name: 'beta', description: 'second', parameters: { type: 'object' } },
+		},
+	]
+
+	describe('tool_choice mapping', () => {
+		it("maps 'none' to the first-class {type:'none'} while KEEPING the tools param", () => {
+			const body = buildParams(makeProvider(), {
+				model: 'claude-sonnet-4-5-20250929',
+				messages: [{ role: 'user', content: 'hi' }],
+				tools,
+				toolChoice: 'none',
+			})
+			expect(body.tool_choice).toEqual({ type: 'none' })
+			expect(body.tools).toHaveLength(2)
+		})
+
+		it("maps 'auto' → auto, 'required' → any, and function → tool", () => {
+			const base = {
+				model: 'claude-sonnet-4-5-20250929',
+				messages: [{ role: 'user' as const, content: 'hi' }],
+				tools,
+			}
+			expect(buildParams(makeProvider(), { ...base, toolChoice: 'auto' }).tool_choice).toEqual({
+				type: 'auto',
+			})
+			expect(buildParams(makeProvider(), { ...base, toolChoice: 'required' }).tool_choice).toEqual({
+				type: 'any',
+			})
+			expect(
+				buildParams(makeProvider(), {
+					...base,
+					toolChoice: { type: 'function', function: { name: 'alpha' } },
+				}).tool_choice,
+			).toEqual({ type: 'tool', name: 'alpha' })
+		})
+
+		it('omits tool_choice entirely when no tools are present', () => {
+			const body = buildParams(makeProvider(), {
+				model: 'claude-sonnet-4-5-20250929',
+				messages: [{ role: 'user', content: 'hi' }],
+				toolChoice: 'none',
+			})
+			expect(body.tools).toBeUndefined()
+			expect(body.tool_choice).toBeUndefined()
+		})
+
+		it('maps parallelToolCalls:false to disable_parallel_tool_use on tool_choice', () => {
+			const body = buildParams(makeProvider(), {
+				model: 'claude-sonnet-4-5-20250929',
+				messages: [{ role: 'user', content: 'hi' }],
+				tools,
+				parallelToolCalls: false,
+			})
+			expect(body.tool_choice).toEqual({ type: 'auto', disable_parallel_tool_use: true })
+		})
+	})
+
+	describe('prompt caching', () => {
+		const cachedParams = (): ChatCompletionParams => ({
+			model: 'claude-sonnet-4-5-20250929',
+			messages: [
+				{ role: 'system', content: 'STATIC PREFIX', cacheHint: 'cache' },
+				{ role: 'system', content: 'DYNAMIC SEGMENT', cacheHint: 'ephemeral' },
+				{ role: 'user', content: 'hello' },
+			],
+			tools,
+			cacheControl: { type: 'auto' },
+		})
+
+		it('emits zero cache_control blocks when cacheControl is not requested', () => {
+			const params = cachedParams()
+			params.cacheControl = undefined
+			const body = buildParams(makeProvider(), params)
+			expect(JSON.stringify(body)).not.toContain('cache_control')
+			// System still arrives as cacheHint-preserving blocks.
+			expect(body.system).toEqual([
+				{ type: 'text', text: 'STATIC PREFIX' },
+				{ type: 'text', text: 'DYNAMIC SEGMENT' },
+			])
+		})
+
+		it('preserves system segment boundaries and marks only the cache-tagged block', () => {
+			const body = buildParams(makeProvider(), cachedParams())
+			expect(body.system).toEqual([
+				{ type: 'text', text: 'STATIC PREFIX', cache_control: { type: 'ephemeral' } },
+				{ type: 'text', text: 'DYNAMIC SEGMENT' },
+			])
+		})
+
+		it('marks the tools-array tail and the last message block', () => {
+			const body = buildParams(makeProvider(), cachedParams())
+			const bodyTools = body.tools as Record<string, unknown>[]
+			expect(bodyTools[0]?.cache_control).toBeUndefined()
+			expect(bodyTools[1]?.cache_control).toEqual({ type: 'ephemeral' })
+
+			const messages = body.messages as Array<{ content: unknown }>
+			expect(messages[messages.length - 1]?.content).toEqual([
+				{ type: 'text', text: 'hello', cache_control: { type: 'ephemeral' } },
+			])
+		})
+
+		it('places the final breakpoint on the last tool_result block of a tool turn', () => {
+			const params = cachedParams()
+			params.messages = [
+				{ role: 'system', content: 'STATIC PREFIX', cacheHint: 'cache' },
+				{ role: 'user', content: 'run the tool' },
+				{
+					role: 'assistant',
+					content: null,
+					toolCalls: [
+						{ id: 'tu_1', type: 'function', function: { name: 'alpha', arguments: '{}' } },
+					],
+				},
+				{ role: 'tool', content: 'tool says hi', toolCallId: 'tu_1' },
+			]
+			const body = buildParams(makeProvider(), params)
+			const messages = body.messages as Array<{ content: unknown }>
+			expect(messages[messages.length - 1]?.content).toEqual([
+				{
+					type: 'tool_result',
+					tool_use_id: 'tu_1',
+					content: 'tool says hi',
+					cache_control: { type: 'ephemeral' },
+				},
+			])
+		})
+
+		it('keeps the Claude Code identity block FIRST on the OAuth path', () => {
+			const provider = new AnthropicProvider({ authToken: 'cc-oauth-token' })
+			const body = buildParams(provider, cachedParams())
+			const system = body.system as Array<{ text: string; cache_control?: unknown }>
+			expect(system[0]?.text).toMatch(/^You are Claude Code/)
+			expect(system[0]?.cache_control).toBeUndefined()
+			expect(system[1]).toEqual({
+				type: 'text',
+				text: 'STATIC PREFIX',
+				cache_control: { type: 'ephemeral' },
+			})
 		})
 	})
 })

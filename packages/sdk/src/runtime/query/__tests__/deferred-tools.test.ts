@@ -159,10 +159,12 @@ describe('query deferred tool discovery', () => {
 	it('does not let search_tools reveal or activate deferred tools outside allowedTools', async () => {
 		const tools = new ToolRegistry()
 		registerDeferredDocumentTool(tools)
-		registerDeferredDocumentTool(tools, 'dangerous_delete_document')
+		registerDeferredDocumentTool(tools, 'dangerous_purge_document')
 
+		// 'dangerous' matches only the out-of-allowlist tool ('delete'-style
+		// CRUD verbs are stop tokens and never match anything by themselves).
 		const result = await SearchToolsTool.execute(
-			{ query: 'delete' },
+			{ query: 'dangerous' },
 			{
 				runId: 'run_deferred_allowed_tools' as RunId,
 				workingDirectory: '/tmp',
@@ -175,9 +177,54 @@ describe('query deferred tool discovery', () => {
 		)
 
 		expect(result.success).toBe(true)
-		expect(result.output).toContain('No deferred tools matching "delete"')
-		expect(result.output).not.toContain('dangerous_delete_document')
+		expect(result.output).toContain('No deferred tools matching "dangerous"')
+		expect(result.output).not.toContain('dangerous_purge_document')
 		expect(tools.getAvailability('generate_document')).toBe('deferred')
-		expect(tools.getAvailability('dangerous_delete_document')).toBe('deferred')
+		expect(tools.getAvailability('dangerous_purge_document')).toBe('deferred')
+	})
+
+	it('activates only the top-5 ranked matches and reports near-misses without activating', async () => {
+		const tools = new ToolRegistry()
+		// Eight deferred tools that all match "invoice" equally by name; the
+		// alphabetical tie-break makes the top-5 cut deterministic.
+		const names = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'].map((s) => `invoice_${s}`)
+		for (const name of names) {
+			tools.register(
+				{
+					name,
+					description: `Billing helper ${name.slice(-1)}.`,
+					inputSchema: z.object({ id: z.string() }),
+					execute: async () => ({ success: true, output: 'ok' }),
+				},
+				'deferred',
+			)
+		}
+
+		const result = await SearchToolsTool.execute(
+			{ query: 'invoice' },
+			{
+				runId: 'run_deferred_top_k' as RunId,
+				workingDirectory: '/tmp',
+				abortSignal: new AbortController().signal,
+				env: {},
+				log: () => undefined,
+				toolRegistry: tools,
+			},
+		)
+
+		expect(result.success).toBe(true)
+		expect(result.output).toContain('Activated 5 tool(s)')
+		expect(result.output).toContain('NOT loaded')
+		expect(result.data).toMatchObject({
+			activated: ['invoice_a', 'invoice_b', 'invoice_c', 'invoice_d', 'invoice_e'],
+			count: 5,
+			nearMisses: ['invoice_f', 'invoice_g', 'invoice_h'],
+		})
+		for (const name of ['invoice_a', 'invoice_b', 'invoice_c', 'invoice_d', 'invoice_e']) {
+			expect(tools.getAvailability(name)).toBe('active')
+		}
+		for (const name of ['invoice_f', 'invoice_g', 'invoice_h']) {
+			expect(tools.getAvailability(name)).toBe('deferred')
+		}
 	})
 })

@@ -20,18 +20,21 @@
  *     reports true iff at least one tool is suspended.
  *   - `getAvailability(name)` returns 'active' as a default even for
  *     unknown names (this is non-obvious but is the current behavior).
- *   - `searchDeferred(q)` filters DEFERRED tools: a useful whole query
- *     matches name OR description (case-insensitive); a batched multi-term
- *     query matches meaningful tokens against the NAME only. Generic/short
- *     tokens (`clawtool`, `tool`, …) are ignored so they can't over-activate.
+ *   - `searchDeferred(q)` is a RANKED weighted search over DEFERRED tools:
+ *     per meaningful term (≥3 chars, not a stop token) the score is
+ *     exact-name 12 / name-substring 8 / description 5 / argument-name 3;
+ *     results sort score-descending with name ties broken alphabetically.
+ *     Generic/short tokens (`clawtool`, `tool`, CRUD verbs like `list`,
+ *     `read`, …) are stopped so they can't over-activate the catalog.
  *   - `assignTiers(mapping)` mutates `tool.tier` on existing tools;
  *     throws via `getOrThrow` on unknown name; throws if the tier id
  *     is not in `tierConfig.tiers`.
  *   - `toTierGuidance` returns null without a guidanceTemplate; calls
  *     the template with every defined tier otherwise.
  *   - `toPromptSection`: returns '' when no active or deferred tools;
- *     otherwise produces `<available_tools>` + `<deferred_tools>`
- *     fragments.
+ *     otherwise produces `<available_tools>` (name-only — descriptions
+ *     already ride the runtime tools param) + `<deferred_tools>` (name +
+ *     first-sentence hint ≤100 chars) fragments.
  *   - `toLLMTools`: converts active + suspended tools (filtered by
  *     `toolNames` if provided) into LLM tool schemas via
  *     `zodToJsonSchema`. When `tierConfig.labelInDescription` is true,
@@ -198,13 +201,57 @@ describe('ToolRegistry — searchDeferred', () => {
 		r.register([makeTool('clawtool_PeerRegister')], 'deferred')
 		r.register([makeTool('clawtool_PeerList')], 'deferred')
 		r.register([makeTool('clawtool_Unrelated')], 'deferred')
-		// A whole-phrase substring match would find none of these.
+		// A whole-phrase substring match would find none of these. Equal
+		// scores tie-break alphabetically by name (deterministic ranking).
 		expect(r.searchDeferred('A2aCard PeerRegister PeerList').map((t) => t.name)).toEqual([
 			'clawtool_A2aCard',
-			'clawtool_PeerRegister',
 			'clawtool_PeerList',
+			'clawtool_PeerRegister',
 		])
 		expect(r.searchDeferred('   ')).toEqual([])
+	})
+
+	it('ranks exact name above name substring above description-only matches', () => {
+		const r = new ToolRegistry()
+		r.register([makeTool('release_notes', { description: 'Write deploy notes.' })], 'deferred')
+		r.register([makeTool('deploy_preview', { description: 'Stage a preview build.' })], 'deferred')
+		r.register([makeTool('deploy', { description: 'Ship the current build.' })], 'deferred')
+		expect(r.searchDeferred('deploy').map((t) => t.name)).toEqual([
+			'deploy', // exact name → 12
+			'deploy_preview', // name substring → 8
+			'release_notes', // description only → 5
+		])
+	})
+
+	it('indexes argument names so a parameter term can locate a tool', () => {
+		const r = new ToolRegistry()
+		r.register(
+			[
+				makeTool('send_invoice', {
+					inputSchema: z.object({ customerEmail: z.string(), amount: z.number() }),
+				}),
+			],
+			'deferred',
+		)
+		r.register([makeTool('send_reminder')], 'deferred')
+		expect(r.searchDeferred('customerEmail').map((t) => t.name)).toEqual(['send_invoice'])
+	})
+
+	it('stops generic CRUD verbs so they cannot activate catalog slices', () => {
+		const r = new ToolRegistry()
+		r.register(
+			[makeTool('list_deals', { description: 'List the deals in an account.' })],
+			'deferred',
+		)
+		r.register([makeTool('list_workflows', { description: 'List workflows.' })], 'deferred')
+		r.register([makeTool('read_document', { description: 'Read a document body.' })], 'deferred')
+		// Bare CRUD verbs identify nothing.
+		expect(r.searchDeferred('list')).toEqual([])
+		expect(r.searchDeferred('read')).toEqual([])
+		expect(r.searchDeferred('create update delete')).toEqual([])
+		// The non-generic remainder carries the query.
+		expect(r.searchDeferred('list deals').map((t) => t.name)).toEqual(['list_deals'])
+		expect(r.searchDeferred('read document').map((t) => t.name)).toEqual(['read_document'])
 	})
 
 	it('does not over-activate on generic/shared tokens', () => {
@@ -270,10 +317,38 @@ describe('ToolRegistry — toPromptSection + toLLMTools', () => {
 		expect(s).toContain('<tool_runtime_contract>')
 		expect(s).toContain('runtime tools parameter')
 		expect(s).toContain('<available_tools>')
-		expect(s).toContain('- a: a tool')
+		// Active entries are NAME-ONLY: the description already rides the
+		// runtime tools param every request — repeating it double-bills.
+		expect(s).toContain('- a\n')
+		expect(s).not.toContain('- a: a tool')
 		expect(s).toContain('<deferred_tools>')
 		expect(s).toContain('Deferred tools are discoverable')
-		expect(s).toContain('- b')
+		// Deferred entries carry a one-line hint — their schema is off the
+		// wire, so the hint is the model's only capability signal.
+		expect(s).toContain('- b: b tool')
+	})
+
+	it('toPromptSection truncates deferred hints to the first sentence, capped at 100 chars', () => {
+		const r = new ToolRegistry()
+		r.register(
+			[
+				makeTool('two_sentences', {
+					description: 'Reads the document. Second sentence that must not appear.',
+				}),
+				makeTool('long_sentence', {
+					description: `${'x'.repeat(150)} end`,
+				}),
+			],
+			'deferred',
+		)
+		const s = r.toPromptSection()
+		expect(s).toContain('- two_sentences: Reads the document.')
+		expect(s).not.toContain('Second sentence')
+		const longLine = s.split('\n').find((line) => line.startsWith('- long_sentence:'))
+		expect(longLine).toBeDefined()
+		const hint = (longLine ?? '').replace('- long_sentence: ', '')
+		expect(hint.length).toBeLessThanOrEqual(100)
+		expect(hint.endsWith('…')).toBe(true)
 	})
 
 	it('toPromptSection references search_tools only when it is active', () => {

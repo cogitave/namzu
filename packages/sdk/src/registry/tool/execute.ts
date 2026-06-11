@@ -19,7 +19,35 @@ export type { ToolExecutionResult }
 // Tokens too generic to identify a tool by name — ignored when matching a
 // batched `search_tools` query so they can't activate the whole catalog
 // (every bridged tool name shares the `clawtool` prefix, for instance).
-const SEARCH_STOP_TOKENS = new Set(['clawtool', 'tool', 'tools', 'mcp', 'the', 'and', 'for', 'use'])
+// Generic CRUD verbs are stopped too: a query like "list deals" must rank
+// by "deals", not token-match every `list_*` tool in the deferred catalog.
+const SEARCH_STOP_TOKENS = new Set([
+	'clawtool',
+	'tool',
+	'tools',
+	'mcp',
+	'the',
+	'and',
+	'for',
+	'use',
+	'list',
+	'read',
+	'create',
+	'update',
+	'get',
+	'find',
+	'delete',
+	'search',
+])
+
+// Weighted-scoring weights mirroring ToolCatalog.searchTools (the richer,
+// otherwise-unused catalog scorer): exact name 12, name substring 8,
+// description 5 — extended here with argument-name indexing (3), following
+// Anthropic's tool-search practice of searching argument names too.
+const SEARCH_WEIGHT_NAME_EXACT = 12
+const SEARCH_WEIGHT_NAME_PARTIAL = 8
+const SEARCH_WEIGHT_DESCRIPTION = 5
+const SEARCH_WEIGHT_ARGUMENT = 3
 
 export class ToolRegistry extends ManagedRegistry<ToolDefinition> {
 	private availability: Map<string, ToolAvailability> = new Map()
@@ -118,28 +146,58 @@ export class ToolRegistry extends ManagedRegistry<ToolDefinition> {
 		return this.availability.get(name) ?? 'active'
 	}
 
+	/**
+	 * Ranked lexical search over DEFERRED tools, score-descending (ties broken
+	 * by name) so callers can cap activation at a top-k. Each meaningful query
+	 * term (≥3 chars, not a stop token) is scored against the tool name
+	 * (exact/substring), description, and argument names; only tools with a
+	 * positive score are returned. Description matching is safe here precisely
+	 * because the result is RANKED — the `search_tools` builtin activates only
+	 * the top slice, so a shared word can no longer drag in the whole catalog.
+	 *
+	 * PARKED (phase 5 of the tool-loading plan): an embedding-backed semantic
+	 * upgrade was evaluated and deliberately NOT built — at ≤~35 deferred
+	 * in-house tools with distinct names, weighted lexical scoring sits inside
+	 * the literature's safe zone, and a weak retriever underperforms no
+	 * retriever at all. Revisit only when (a) the deferred catalog grows past
+	 * ~75-100 tools (realistic driver: connector-MCP growth), or (b) telemetry
+	 * shows a search_tools miss-rate above ~10%. Sticky activation is also
+	 * deliberate: activating inserts the schema into the tools array at its
+	 * registry position (a one-time prompt-cache prefix bust); re-defer/TTL
+	 * would churn that prefix repeatedly and is rejected.
+	 */
 	searchDeferred(query: string): ToolDefinition[] {
 		const q = query.toLowerCase().trim()
 		if (q.length === 0) return []
-		// Per-token matching exists only so a batched query naming several tools
-		// at once ("A2aCard PeerRegister PeerList") activates each. Restrict it
-		// to the tool NAME and drop short/generic tokens — matching tokens
-		// against descriptions (or letting a shared word like "clawtool"/"list"
-		// through) would activate the whole catalog and defeat deferral.
-		const tokens = q.split(/\s+/).filter((tok) => tok.length >= 3 && !SEARCH_STOP_TOKENS.has(tok))
-		// A bare generic token ("clawtool") identifies nothing specific — skip the
-		// broad whole-query match for it so it can't activate the whole catalog.
-		const wholeQueryUseful = q.length >= 3 && !SEARCH_STOP_TOKENS.has(q)
-		return this.getByAvailability(['deferred']).filter((t) => {
-			const name = t.name.toLowerCase()
-			// Whole-query match (single-term capability search) against name or
-			// description — the deliberate, narrow behaviour.
-			if (wholeQueryUseful && (name.includes(q) || t.description.toLowerCase().includes(q))) {
-				return true
+		const terms = q.split(/\s+/).filter((tok) => tok.length >= 3 && !SEARCH_STOP_TOKENS.has(tok))
+		if (terms.length === 0) return []
+
+		const scored: Array<{ tool: ToolDefinition; score: number }> = []
+		for (const tool of this.getByAvailability(['deferred'])) {
+			const name = tool.name.toLowerCase()
+			const description = tool.description.toLowerCase()
+			const argumentNames = listArgumentNames(tool)
+			let score = 0
+			for (const term of terms) {
+				if (name === term) {
+					score += SEARCH_WEIGHT_NAME_EXACT
+				} else if (name.includes(term)) {
+					score += SEARCH_WEIGHT_NAME_PARTIAL
+				}
+				if (description.includes(term)) {
+					score += SEARCH_WEIGHT_DESCRIPTION
+				}
+				if (argumentNames.some((arg) => arg.includes(term))) {
+					score += SEARCH_WEIGHT_ARGUMENT
+				}
 			}
-			// Batched multi-name query: any meaningful token, name only.
-			return tokens.some((tok) => name.includes(tok))
-		})
+			if (score > 0) {
+				scored.push({ tool, score })
+			}
+		}
+
+		scored.sort((a, b) => b.score - a.score || a.tool.name.localeCompare(b.tool.name))
+		return scored.map((entry) => entry.tool)
 	}
 
 	assignTiers(mapping: Record<string, string>): void {
@@ -176,12 +234,24 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 </tool_runtime_contract>`
 
 		if (active.length > 0) {
-			const entries = active.map((t) => `- ${t.name}: ${t.description}`).join('\n')
+			// Name-only: every active tool's full description + JSON schema
+			// already rides the runtime tools parameter on each request —
+			// repeating descriptions here double-bills the same tokens.
+			const entries = active.map((t) => `- ${t.name}`).join('\n')
 			parts.push(`<available_tools>\n${entries}\n</available_tools>`)
 		}
 
 		if (deferred.length > 0) {
-			const entries = deferred.map((t) => `- ${t.name}`).join('\n')
+			// Name + one-line hint: deferred schemas stay off the wire, so the
+			// hint is the model's only signal of what a deferred tool does. A
+			// bare name list caused a real discovery failure in production
+			// (the agent never found read_document behind search_tools).
+			const entries = deferred
+				.map((t) => {
+					const hint = toolDiscoveryHint(t.description)
+					return hint.length > 0 ? `- ${t.name}: ${hint}` : `- ${t.name}`
+				})
+				.join('\n')
 			const deferredIntro =
 				this.has('search_tools') && this.getAvailability('search_tools') === 'active'
 					? 'Use search_tools to load these before use:'
@@ -369,6 +439,39 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 	private getByAvailability(states: ToolAvailability[], filter?: string[]): ToolDefinition[] {
 		const candidates = filter ? filter.map((n) => this.getOrThrow(n)) : this.getAll()
 		return candidates.filter((t) => states.includes(this.getAvailability(t.name)))
+	}
+}
+
+/**
+ * One-line discoverability hint for a deferred tool: the first sentence of
+ * its description, capped at ~100 chars. Used for the `<deferred_tools>`
+ * prompt listing and for `search_tools` near-miss suggestions, where the
+ * full description would re-import the token weight deferral avoids.
+ */
+export function toolDiscoveryHint(description: string, maxLength = 100): string {
+	const normalized = description.trim().replace(/\s+/g, ' ')
+	if (normalized.length === 0) return ''
+	const sentenceMatch = normalized.match(/^.*?[.!?](?=\s|$)/)
+	const sentence = sentenceMatch ? sentenceMatch[0] : normalized
+	if (sentence.length <= maxLength) return sentence
+	return `${sentence.slice(0, maxLength - 1).trimEnd()}…`
+}
+
+/**
+ * Lower-cased argument (property) names of a tool's input schema, used by
+ * `searchDeferred` ranking. Walks the JSON-Schema rendering (already a
+ * registration dependency) instead of Zod internals; opaque schemas simply
+ * contribute no argument matches.
+ */
+function listArgumentNames(tool: ToolDefinition): string[] {
+	try {
+		const json = zodToJsonSchema(tool.inputSchema, {
+			target: 'jsonSchema7',
+			$refStrategy: 'none',
+		}) as { properties?: Record<string, unknown> }
+		return Object.keys(json.properties ?? {}).map((key) => key.toLowerCase())
+	} catch {
+		return []
 	}
 }
 

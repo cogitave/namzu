@@ -59,9 +59,19 @@ function detectClaudeCodeVersion(): string {
 // Message translation: @namzu/sdk → Anthropic Messages API
 // --------------------------------------------------------------------------------------
 
+/**
+ * Anthropic prompt-cache breakpoint marker. A `cache_control` on a block
+ * caches everything up to and including that block in the fixed render
+ * order tools → system → messages (max 4 breakpoints per request).
+ */
+interface AnthropicCacheControl {
+	type: 'ephemeral'
+}
+
 interface AnthropicTextBlock {
 	type: 'text'
 	text: string
+	cache_control?: AnthropicCacheControl
 }
 
 interface AnthropicToolUseBlock {
@@ -69,17 +79,27 @@ interface AnthropicToolUseBlock {
 	id: string
 	name: string
 	input: unknown
+	cache_control?: AnthropicCacheControl
 }
 
 interface AnthropicToolResultBlock {
 	type: 'tool_result'
 	tool_use_id: string
 	content: string
+	cache_control?: AnthropicCacheControl
 }
 
 interface AnthropicImageBlock {
 	type: 'image'
 	source: { type: 'base64'; media_type: string; data: string }
+	cache_control?: AnthropicCacheControl
+}
+
+interface AnthropicToolParam {
+	name: string
+	description: string
+	input_schema: unknown
+	cache_control?: AnthropicCacheControl
 }
 
 /** Shape of an SDK `ImageAttachment` (read structurally to avoid coupling). */
@@ -99,14 +119,32 @@ interface AnthropicMessageParam {
 	content: string | AnthropicContentBlock[]
 }
 
-function extractSystem(messages: ChatCompletionParams['messages']): string | undefined {
-	const parts: string[] = []
+/**
+ * System messages become a block array (one block per SystemMessage) so the
+ * runtime's `cacheHint` segment boundaries survive into the request: the
+ * PromptBuilder tags the static segment `'cache'` and the per-run dynamic
+ * segment `'ephemeral'`. When caching is enabled, the LAST `'cache'`-tagged
+ * block carries the `cache_control` breakpoint — everything up to it
+ * (tools + static system) is cached; dynamic blocks after it are not.
+ */
+function extractSystem(
+	messages: ChatCompletionParams['messages'],
+	cachingEnabled: boolean,
+): AnthropicTextBlock[] | undefined {
+	const blocks: AnthropicTextBlock[] = []
+	let lastCacheTagged: AnthropicTextBlock | undefined
 	for (const msg of messages) {
-		if (msg.role === 'system' && typeof msg.content === 'string') {
-			parts.push(msg.content)
+		if (msg.role === 'system' && typeof msg.content === 'string' && msg.content.length > 0) {
+			const block: AnthropicTextBlock = { type: 'text', text: msg.content }
+			blocks.push(block)
+			if (msg.cacheHint === 'cache') lastCacheTagged = block
 		}
 	}
-	return parts.length > 0 ? parts.join('\n\n') : undefined
+	if (blocks.length === 0) return undefined
+	if (cachingEnabled && lastCacheTagged) {
+		lastCacheTagged.cache_control = { type: 'ephemeral' }
+	}
+	return blocks
 }
 
 function toAnthropicMessages(messages: ChatCompletionParams['messages']): AnthropicMessageParam[] {
@@ -185,26 +223,67 @@ function toAnthropicMessages(messages: ChatCompletionParams['messages']): Anthro
 	return out
 }
 
-function toAnthropicTools(params: ChatCompletionParams): unknown[] | undefined {
+function toAnthropicTools(
+	params: ChatCompletionParams,
+	cachingEnabled: boolean,
+): AnthropicToolParam[] | undefined {
 	if (!params.tools || params.tools.length === 0) return undefined
-	return params.tools.map((t) => ({
+	const tools: AnthropicToolParam[] = params.tools.map((t) => ({
 		name: t.function.name,
 		description: t.function.description ?? '',
 		input_schema: t.function.parameters ?? { type: 'object' },
 	}))
+	if (cachingEnabled) {
+		// Breakpoint on the tools-array tail: tools render at position 0 of
+		// the cache prefix, so this caches every tool schema even when the
+		// system/message breakpoints downstream get invalidated.
+		const tail = tools[tools.length - 1]
+		if (tail) tail.cache_control = { type: 'ephemeral' }
+	}
+	return tools
 }
 
-function toAnthropicToolChoice(tc?: ToolChoice): unknown {
-	if (tc === undefined) return undefined
-	if (tc === 'auto') return { type: 'auto' }
-	if (tc === 'required') return { type: 'any' }
-	// 'none' — Anthropic has no direct equivalent. Map to auto (omitting tools at call-site
-	// is the proper way to forbid tool use); we leave it as auto here for safety.
-	if (tc === 'none') return { type: 'auto' }
+function toAnthropicToolChoice(tc?: ToolChoice, parallelToolCalls?: boolean): unknown {
+	// Anthropic expresses "no parallel tool calls" as a field ON tool_choice,
+	// not a top-level param. Only auto/any/tool accept it ('none' fires no
+	// tools, so the field is meaningless there).
+	const disable = parallelToolCalls === false ? { disable_parallel_tool_use: true } : undefined
+	if (tc === undefined) {
+		return disable ? { type: 'auto', ...disable } : undefined
+	}
+	if (tc === 'auto') return { type: 'auto', ...disable }
+	if (tc === 'required') return { type: 'any', ...disable }
+	// 'none' is first-class on the Messages API ("prevents Claude from using
+	// any tools"). Mapping it this way — instead of omitting the tools param —
+	// keeps the tools+system cache prefix intact and avoids a 400 when the
+	// conversation history still carries tool_use/tool_result blocks.
+	if (tc === 'none') return { type: 'none' }
 	if (typeof tc === 'object' && tc.type === 'function') {
-		return { type: 'tool', name: tc.function.name }
+		return { type: 'tool', name: tc.function.name, ...disable }
 	}
 	return undefined
+}
+
+/**
+ * Final cache breakpoint: the last content block of the last non-empty
+ * message. Caches the whole conversation prefix so the next iteration
+ * (which only appends messages) reads the prior history at cache rates.
+ */
+function applyMessageCacheBreakpoint(messages: AnthropicMessageParam[]): void {
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const msg = messages[i]
+		if (!msg) continue
+		if (typeof msg.content === 'string') {
+			if (msg.content.length === 0) continue
+			msg.content = [{ type: 'text', text: msg.content, cache_control: { type: 'ephemeral' } }]
+			return
+		}
+		if (msg.content.length > 0) {
+			const last = msg.content[msg.content.length - 1]
+			if (last) last.cache_control = { type: 'ephemeral' }
+			return
+		}
+	}
 }
 
 // --------------------------------------------------------------------------------------
@@ -334,10 +413,17 @@ export class AnthropicProvider implements LLMProvider {
 		params: ChatCompletionParams,
 		stream: boolean,
 	): Record<string, unknown> {
-		const system = extractSystem(params.messages)
+		// The runtime requests caching via `params.cacheControl` on every
+		// iteration. Honoring it costs three of the four allowed breakpoints:
+		// tools tail + static-system tail + last message block (render order
+		// is tools → system → messages, so each later breakpoint covers all
+		// earlier sections too).
+		const cachingEnabled = params.cacheControl !== undefined
+		const system = extractSystem(params.messages, cachingEnabled)
 		const messages = toAnthropicMessages(params.messages)
-		const tools = toAnthropicTools(params)
-		const toolChoice = toAnthropicToolChoice(params.toolChoice)
+		if (cachingEnabled) applyMessageCacheBreakpoint(messages)
+		const tools = toAnthropicTools(params, cachingEnabled)
+		const toolChoice = toAnthropicToolChoice(params.toolChoice, params.parallelToolCalls)
 
 		const body: Record<string, unknown> = {
 			model: this.resolveModel(params),
@@ -349,14 +435,18 @@ export class AnthropicProvider implements LLMProvider {
 		if (this.config.authToken) {
 			// OAuth: the first system block must be the Claude Code identity
 			// line or Anthropic rejects the request. Emit the block-array form
-			// with the identity prefix first.
-			const ccBlock = { type: 'text' as const, text: CLAUDE_CODE_SYSTEM_PREFIX }
-			body.system = system ? [ccBlock, { type: 'text' as const, text: system }] : [ccBlock]
+			// with the identity prefix first; cache breakpoints (if any) stay
+			// on the tagged blocks behind it, so the ordering survives.
+			const ccBlock: AnthropicTextBlock = { type: 'text', text: CLAUDE_CODE_SYSTEM_PREFIX }
+			body.system = system ? [ccBlock, ...system] : [ccBlock]
 		} else if (system) {
 			body.system = system
 		}
 		if (tools) body.tools = tools
-		if (toolChoice) body.tool_choice = toolChoice
+		// tool_choice is only legal alongside tools (the API rejects it
+		// otherwise) — this also drops a parallelToolCalls-derived choice on
+		// tool-less requests.
+		if (tools && toolChoice) body.tool_choice = toolChoice
 		if (params.temperature !== undefined) body.temperature = params.temperature
 		if (params.topP !== undefined) body.top_p = params.topP
 		if (params.topK !== undefined) body.top_k = params.topK

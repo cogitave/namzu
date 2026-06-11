@@ -574,9 +574,13 @@ export class IterationOrchestrator {
 
 					await runCompactionCheck(this.ctx)
 
-					const openAITools = forceFinalize
-						? undefined
-						: this.ctx.tools.toLLMTools(this.ctx.allowedTools)
+					// Cache discipline: keep the tools param byte-stable even on the
+					// forced-final iteration and forbid tool use via tool_choice
+					// 'none' instead. Dropping the tools array would invalidate the
+					// entire prompt-cache prefix (tools render at position 0) and
+					// risks a 400 because the history still carries
+					// tool_use/tool_result blocks.
+					const openAITools = this.ctx.tools.toLLMTools(this.ctx.allowedTools)
 
 					const messages = forceFinalize
 						? [
@@ -610,7 +614,8 @@ export class IterationOrchestrator {
 						{
 							model,
 							messages,
-							tools: openAITools && openAITools.length > 0 ? openAITools : undefined,
+							tools: openAITools.length > 0 ? openAITools : undefined,
+							toolChoice: forceFinalize && openAITools.length > 0 ? 'none' : undefined,
 							temperature: runConfig.temperature,
 							maxTokens: runConfig.maxResponseTokens,
 							cacheControl: { type: 'auto' },
@@ -948,10 +953,16 @@ export class IterationOrchestrator {
 				),
 			]
 
+			// Same cache discipline as the forced-final iteration: keep the
+			// tools param identical to prior iterations (cache prefix intact,
+			// no 400 on tool blocks in history) and forbid use via tool_choice.
+			const finalTools = this.ctx.tools.toLLMTools(this.ctx.allowedTools)
 			const response = await collect(
 				this.ctx.provider.chatStream({
 					model,
 					messages: finalMessages,
+					tools: finalTools.length > 0 ? finalTools : undefined,
+					toolChoice: finalTools.length > 0 ? 'none' : undefined,
 					temperature: this.ctx.runConfig.temperature,
 					maxTokens: this.ctx.runConfig.maxResponseTokens,
 					cacheControl: { type: 'auto' },

@@ -1,9 +1,21 @@
 import { z } from 'zod'
+import { toolDiscoveryHint } from '../../registry/tool/execute.js'
 import { defineTool } from '../defineTool.js'
 
 const inputSchema = z.object({
 	query: z.string().describe('Tool name or capability keyword to search for'),
 })
+
+// Activate only the best-ranked matches. Top-5 is the literature's sweet
+// spot (retrieval at k=5 matches oracle toolsets) and bounds how much
+// schema weight a single search can add to every subsequent iteration —
+// each activation also busts the prompt-cache prefix once.
+const ACTIVATION_TOP_K = 5
+
+// Near-misses are reported name+hint WITHOUT activating, so a retrieval
+// miss becomes one cheap re-query instead of a dead end (the fixed-top-k
+// hard-tail failure mode: the right tool ranked 6th-10th).
+const NEAR_MISS_LIMIT = 5
 
 export const SearchToolsTool = defineTool({
 	name: 'search_tools',
@@ -28,27 +40,46 @@ export const SearchToolsTool = defineTool({
 
 		const allowed =
 			context.allowedTools && context.allowedTools.length > 0 ? new Set(context.allowedTools) : null
-		const matches = context.toolRegistry
+		// `searchDeferred` returns a ranked list (score-descending), so slicing
+		// the head is a true top-k activation, not an arbitrary subset.
+		const ranked = context.toolRegistry
 			.searchDeferred(input.query)
 			.filter((tool) => !allowed || allowed.has(tool.name))
 
-		if (matches.length === 0) {
+		if (ranked.length === 0) {
 			return {
 				success: true,
 				output: `No deferred tools matching "${input.query}". All matching tools are already active.`,
 			}
 		}
 
-		context.toolRegistry.activate(matches.map((t) => t.name))
+		const activated = ranked.slice(0, ACTIVATION_TOP_K)
+		const nearMisses = ranked.slice(ACTIVATION_TOP_K, ACTIVATION_TOP_K + NEAR_MISS_LIMIT)
 
-		const descriptions = matches.map((t) => `- ${t.name}: ${t.description}`).join('\n')
+		context.toolRegistry.activate(activated.map((t) => t.name))
+
+		const descriptions = activated.map((t) => `- ${t.name}: ${t.description}`).join('\n')
+		const sections = [`Activated ${activated.length} tool(s):\n${descriptions}`]
+
+		if (nearMisses.length > 0) {
+			const hints = nearMisses
+				.map((t) => {
+					const hint = toolDiscoveryHint(t.description)
+					return hint.length > 0 ? `- ${t.name}: ${hint}` : `- ${t.name}`
+				})
+				.join('\n')
+			sections.push(
+				`Also matched but NOT loaded (search again with a more specific query, e.g. the tool name, to load one of these):\n${hints}`,
+			)
+		}
 
 		return {
 			success: true,
-			output: `Activated ${matches.length} tool(s):\n${descriptions}`,
+			output: sections.join('\n\n'),
 			data: {
-				activated: matches.map((t) => t.name),
-				count: matches.length,
+				activated: activated.map((t) => t.name),
+				count: activated.length,
+				nearMisses: nearMisses.map((t) => t.name),
 			},
 		}
 	},
