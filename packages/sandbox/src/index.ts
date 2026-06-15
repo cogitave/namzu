@@ -75,6 +75,7 @@ import type {
 
 import { buildAciStandbyPoolBackend } from './backends/aci-standby-pool/index.js'
 import { buildDockerBackend, resolveLayout } from './backends/docker/index.js'
+import { buildFirecrackerBackend } from './backends/firecracker/index.js'
 
 // Re-export the layout types so consumers of `@namzu/sandbox` can
 // import them without also depending on `@namzu/sdk`. The canonical
@@ -99,6 +100,20 @@ export {
 	SANDBOX_DEFAULT_TRANSCRIPTS_PATH,
 	SANDBOX_DEFAULT_UPLOADS_PATH,
 } from '@namzu/sdk'
+
+// Firecracker (owned Azure platform) public surface. The Vandal-side
+// `firecracker-lifecycle.ts` imports the agent-handle shape + the
+// transport so it can mint the orchestrator handle and run the vsock
+// heartbeat probe without reaching into `backends/`.
+export type {
+	FirecrackerBackendInternalConfig,
+	OrchestratorTokenProvider,
+} from './backends/firecracker/index.js'
+export {
+	type SandboxAgentHandle,
+	type VsockTransportOptions,
+	VsockAgentTransport,
+} from './backends/firecracker/transport.js'
 
 // ---------------------------------------------------------------------------
 // Backend strategy
@@ -313,6 +328,29 @@ export type MicroVMBackendConfig =
 			readonly firecrackerBinary: string
 			readonly kernelImage: string
 			readonly rootfsImage: string
+			/**
+			 * The owned-platform seam (ses_051). When these are present the
+			 * `self-hosted` arm targets the OWNED Azure Firecracker
+			 * orchestrator (`backends/firecracker/`), not a local
+			 * `firecracker-containerd`: `orchestratorEndpoint` is the
+			 * control-plane base URL, `getToken` mints a bearer for it
+			 * (the ACI `getArmToken` closure pattern, so this package keeps
+			 * zero Azure-SDK deps), and `template` selects the golden
+			 * snapshot revision to CoW-resume.
+			 *
+			 * The legacy local-`firecracker-containerd` shape
+			 * (`firecrackerBinary`/`kernelImage`/`rootfsImage` only) is
+			 * still NOT implemented and throws
+			 * {@link SandboxBackendNotImplementedError}; supplying
+			 * `orchestratorEndpoint` is what routes to the owned backend.
+			 */
+			readonly orchestratorEndpoint?: string
+			readonly getToken?: () => Promise<string>
+			readonly template?: string
+			/** Fixed guest AF_VSOCK port the in-VM agent listens on. */
+			readonly agentVsockPort?: number
+			readonly readyTimeoutMs?: number
+			readonly readyPollIntervalMs?: number
 	  }
 
 /**
@@ -581,6 +619,29 @@ function pickBackend(config: SandboxProviderConfig): SandboxBackend {
 				: {}),
 			...(backend.network !== undefined ? { network: backend.network } : {}),
 			...(backend.labels !== undefined ? { labels: backend.labels } : {}),
+		})
+	}
+	// `microvm:self-hosted` targeting the OWNED Azure Firecracker
+	// orchestrator (ses_051). The presence of `orchestratorEndpoint` +
+	// `getToken` distinguishes the owned-platform shape from the legacy
+	// local `firecracker-containerd` shape (still unimplemented → throws
+	// below). No layout: FC is a remote-copy backend (archive-sync over
+	// vsock, like ACI), so it carries no host bind-mount layout.
+	if (
+		backend.tier === 'microvm' &&
+		backend.service === 'self-hosted' &&
+		backend.orchestratorEndpoint !== undefined &&
+		backend.getToken !== undefined
+	) {
+		return buildFirecrackerBackend({
+			orchestratorEndpoint: backend.orchestratorEndpoint,
+			getToken: backend.getToken,
+			...(backend.template !== undefined ? { template: backend.template } : {}),
+			...(backend.agentVsockPort !== undefined ? { agentVsockPort: backend.agentVsockPort } : {}),
+			...(backend.readyTimeoutMs !== undefined ? { readyTimeoutMs: backend.readyTimeoutMs } : {}),
+			...(backend.readyPollIntervalMs !== undefined
+				? { readyPollIntervalMs: backend.readyPollIntervalMs }
+				: {}),
 		})
 	}
 	throw new SandboxBackendNotImplementedError(describeBackend(backend))
