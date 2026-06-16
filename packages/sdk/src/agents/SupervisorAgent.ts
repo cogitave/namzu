@@ -4,20 +4,62 @@ import { ToolRegistry } from '../registry/tool/execute.js'
 import { drainQuery } from '../runtime/query/index.js'
 import type { LaunchedTaskMeta } from '../runtime/query/iteration/phases/context.js'
 import { buildCoordinatorTools } from '../tools/coordinator/index.js'
-import type { TaskGateway } from '../types/agent/gateway.js'
+import type { TaskGateway, TaskHandle } from '../types/agent/gateway.js'
 import type {
 	AgentInput,
 	AgentMetadata,
+	AgentTaskResult,
 	SupervisorAgentConfig,
 	SupervisorAgentResult,
 } from '../types/agent/index.js'
 import type { AgentTaskContext } from '../types/agent/task.js'
-import type { AgentId, TaskId } from '../types/ids/index.js'
+import type { AgentId, RunId, TaskId } from '../types/ids/index.js'
 import { deriveChildState } from '../types/invocation/index.js'
 import type { RunEventListener } from '../types/run/index.js'
 import type { ActorRef } from '../types/session/actor.js'
 import { ZERO_COST } from '../utils/cost.js'
 import { AbstractAgent } from './AbstractAgent.js'
+
+/**
+ * Build the authoritative per-task ledger from the gateway's task handles.
+ *
+ * A handle carries a `result` only when its worker actually produced one. A
+ * handle with NO result never produced a verifiable outcome, so it MUST NOT be
+ * synthesized as a success: the synthesized status is always the terminal
+ * `'failed'`, regardless of the handle's reported `state` (which may itself be
+ * `'completed'`).
+ *
+ * The earlier implementation cast `handle.state` onto the synthesized result's
+ * status, letting a worker that ended without a result count toward
+ * `completedTasks`. That produced fabricated "done" workers with empty outputs
+ * (cowork task 02c5cf2b): the supervisor reported "3 workers done, 40KB
+ * reports" when the workers never started. Real workers (those with a present
+ * `result`) are unaffected — their `result` is preserved verbatim.
+ */
+export function synthesizeTaskResults(
+	taskHandles: readonly TaskHandle[],
+	runId: RunId,
+	now: number = Date.now(),
+): AgentTaskResult[] {
+	return taskHandles.map((handle, index) => ({
+		agentId: handle.agentId,
+		result: handle.result ?? {
+			runId,
+			status: 'failed' as const,
+			usage: { ...EMPTY_TOKEN_USAGE },
+			cost: { ...ZERO_COST },
+			iterations: 0,
+			durationMs: now - handle.createdAt,
+			messages: [],
+		},
+		taskIndex: index,
+	}))
+}
+
+/** Count only the task results that genuinely completed. */
+export function countCompletedTasks(taskResults: readonly AgentTaskResult[]): number {
+	return taskResults.filter((t) => t.result.status === 'completed').length
+}
 
 export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, SupervisorAgentResult> {
 	readonly type = 'supervisor' as const
@@ -180,21 +222,9 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 		)
 
 		const taskHandles = gateway.listTasks()
-		const taskResults = taskHandles.map((handle, index) => ({
-			agentId: handle.agentId,
-			result: handle.result ?? {
-				runId,
-				status: handle.state as 'completed' | 'failed' | 'cancelled',
-				usage: { ...EMPTY_TOKEN_USAGE },
-				cost: { ...ZERO_COST },
-				iterations: 0,
-				durationMs: Date.now() - handle.createdAt,
-				messages: [],
-			},
-			taskIndex: index,
-		}))
+		const taskResults = synthesizeTaskResults(taskHandles, runId)
 
-		const completedTasks = taskResults.filter((t) => t.result.status === 'completed').length
+		const completedTasks = countCompletedTasks(taskResults)
 
 		return {
 			runId: run.id,
