@@ -368,6 +368,25 @@ export type MicroVMBackendConfig =
 				readonly key: string | Buffer
 				readonly servername?: string
 			}
+			/**
+			 * CONTROL-plane mTLS client material. When present, the orchestrator
+			 * control-plane calls (create/destroy POSTs to `orchestratorEndpoint`)
+			 * dial over mTLS — presenting this client cert and pinning this CA —
+			 * instead of plain `fetch`. Secures the control plane when
+			 * `orchestratorEndpoint` is an `https://` URL reached over the PUBLIC
+			 * internet (the non-VNet-integrated caller→FC-host hop), where the
+			 * shared-secret bearer alone would be exposed. The bearer is STILL sent
+			 * (defense in depth). Same `{ca,cert,key,servername}` shape + the same
+			 * consumer-injected dependency boundary as `mtls` (the one fleet CA
+			 * secures both planes). Absent → plain `fetch` control plane (the
+			 * single-host VSOCK default, unchanged).
+			 */
+			readonly controlPlaneMtls?: {
+				readonly ca: string | Buffer
+				readonly cert: string | Buffer
+				readonly key: string | Buffer
+				readonly servername?: string
+			}
 	  }
 
 /**
@@ -660,6 +679,9 @@ function pickBackend(config: SandboxProviderConfig): SandboxBackend {
 				? { readyPollIntervalMs: backend.readyPollIntervalMs }
 				: {}),
 			...(backend.mtls !== undefined ? { mtls: backend.mtls } : {}),
+			...(backend.controlPlaneMtls !== undefined
+				? { controlPlaneMtls: backend.controlPlaneMtls }
+				: {}),
 		})
 	}
 	throw new SandboxBackendNotImplementedError(describeBackend(backend))

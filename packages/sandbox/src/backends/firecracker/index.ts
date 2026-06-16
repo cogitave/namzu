@@ -44,6 +44,8 @@
  * long-running sandbox survives token rotation.
  */
 
+import https from 'node:https'
+
 import type {
 	Sandbox,
 	SandboxEnvironment,
@@ -93,6 +95,23 @@ export interface FirecrackerBackendInternalConfig {
 	 * free. Absent for the single-host VSOCK default (the live proofs).
 	 */
 	readonly mtls?: MtlsClientMaterial
+	/**
+	 * CONTROL-plane mTLS client material. When present, the orchestrator
+	 * control-plane calls (`POST /sandboxes`, `DELETE /sandboxes/{id}:delete`,
+	 * `GET /capacity`) dial over mTLS — presenting this client cert and
+	 * verifying the orchestrator's server cert against this CA — INSTEAD of the
+	 * plain `fetch`. This secures the control plane when `orchestratorEndpoint`
+	 * is reached over the PUBLIC internet (the `ca-vandal-app` → FC-host hop is
+	 * not VNet-integrated), where the shared-secret bearer alone would be
+	 * exposed. The bearer is STILL sent (defense in depth on top of mTLS).
+	 *
+	 * Reuses the SAME `{ca,cert,key,servername}` shape as the relay's `mtls`
+	 * material — one fleet CA secures both planes. The consumer's runtime
+	 * injects the bytes (mirrors `getToken` / `mtls`); the package never reads
+	 * them from disk. Absent → the control plane stays plain `fetch` (the
+	 * single-host DEFAULT, byte-for-byte unchanged).
+	 */
+	readonly controlPlaneMtls?: MtlsClientMaterial
 }
 
 const DEFAULT_AGENT_VSOCK_PORT = 1024
@@ -142,26 +161,40 @@ interface OrchestratorCreateResponse {
 	readonly rootDir: string
 }
 
+/** A transport-agnostic view of the orchestrator response the dispatch needs. */
+interface OrchestratorRawResponse {
+	readonly status: number
+	readonly contentType: string
+	readonly text: () => Promise<string>
+}
+
 async function orchestratorCall<T>(
 	endpoint: string,
 	pathSuffix: string,
 	method: 'POST' | 'DELETE',
 	getToken: OrchestratorTokenProvider,
 	body?: unknown,
+	mtls?: MtlsClientMaterial,
 ): Promise<T | undefined> {
 	const token = await getToken()
 	const url = `${endpoint.replace(/\/+$/, '')}${pathSuffix}`
-	const init: RequestInit = {
-		method,
-		headers: {
-			Authorization: `Bearer ${token}`,
-			'content-type': 'application/json',
-		},
+	const payload = body !== undefined ? JSON.stringify(body) : undefined
+	const headers: Record<string, string> = {
+		Authorization: `Bearer ${token}`,
+		'content-type': 'application/json',
 	}
-	if (body !== undefined) init.body = JSON.stringify(body)
-	let res: Response
+
+	let res: OrchestratorRawResponse
 	try {
-		res = await fetch(url, init)
+		// When CONTROL-plane mTLS material is injected the call dials over a
+		// node:https request presenting the client cert + pinning the server CA
+		// (the public-internet hop). Without it the EXISTING plain `fetch` path
+		// runs unchanged (the single-host default). node:https is used rather
+		// than fetch+undici-dispatcher because the package declares no undici
+		// dependency — node:https is always importable and needs nothing added.
+		res = mtls
+			? await httpsOrchestratorRequest(url, method, headers, payload, mtls)
+			: await fetchOrchestratorRequest(url, method, headers, payload)
 	} catch (err) {
 		const cause = err instanceof Error ? err.cause : undefined
 		throw new Error(
@@ -171,15 +204,81 @@ async function orchestratorCall<T>(
 			{ cause: err },
 		)
 	}
-	if (!res.ok) {
+	if (res.status < 200 || res.status >= 300) {
 		throw new Error(
 			`firecracker orchestrator ${method} ${url} → ${res.status}: ${await res.text()}`,
 		)
 	}
 	if (res.status === 204) return undefined
-	const ct = res.headers.get('content-type') ?? ''
-	if (ct.includes('application/json')) return (await res.json()) as T
+	if (res.contentType.includes('application/json')) return JSON.parse(await res.text()) as T
 	return undefined
+}
+
+/** The plain-`fetch` control-plane path — the single-host DEFAULT, unchanged. */
+async function fetchOrchestratorRequest(
+	url: string,
+	method: 'POST' | 'DELETE',
+	headers: Record<string, string>,
+	payload: string | undefined,
+): Promise<OrchestratorRawResponse> {
+	const init: RequestInit = { method, headers }
+	if (payload !== undefined) init.body = payload
+	const res = await fetch(url, init)
+	return {
+		status: res.status,
+		contentType: res.headers.get('content-type') ?? '',
+		text: () => res.text(),
+	}
+}
+
+/**
+ * The mTLS control-plane path: a node:https request presenting the injected
+ * client cert and verifying the orchestrator's server cert against the injected
+ * CA (`rejectUnauthorized: true`). Used only when `controlPlaneMtls` is present;
+ * the plain-`fetch` path above stays the default for single-host.
+ */
+function httpsOrchestratorRequest(
+	url: string,
+	method: 'POST' | 'DELETE',
+	headers: Record<string, string>,
+	payload: string | undefined,
+	mtls: MtlsClientMaterial,
+): Promise<OrchestratorRawResponse> {
+	const target = new URL(url)
+	return new Promise<OrchestratorRawResponse>((resolve, reject) => {
+		const req = https.request(
+			{
+				protocol: target.protocol,
+				hostname: target.hostname,
+				port: target.port !== '' ? Number(target.port) : 443,
+				path: `${target.pathname}${target.search}`,
+				method,
+				headers,
+				ca: mtls.ca,
+				cert: mtls.cert,
+				key: mtls.key,
+				rejectUnauthorized: true,
+				minVersion: 'TLSv1.3',
+				...(mtls.servername !== undefined ? { servername: mtls.servername } : {}),
+			},
+			(res) => {
+				const chunks: Buffer[] = []
+				res.on('data', (chunk: Buffer) => chunks.push(chunk))
+				res.on('end', () => {
+					const ct = res.headers['content-type']
+					resolve({
+						status: res.statusCode ?? 0,
+						contentType: Array.isArray(ct) ? (ct[0] ?? '') : (ct ?? ''),
+						text: async () => Buffer.concat(chunks).toString('utf8'),
+					})
+				})
+				res.on('error', reject)
+			},
+		)
+		req.on('error', reject)
+		if (payload !== undefined) req.write(payload)
+		req.end()
+	})
 }
 
 // ---------------------------------------------------------------------------
@@ -209,6 +308,7 @@ async function spawnFirecrackerSandbox(
 			'POST',
 			config.getToken,
 			createBody,
+			config.controlPlaneMtls,
 		)
 	} catch (err) {
 		throw new Error(
@@ -243,6 +343,8 @@ async function spawnFirecrackerSandbox(
 			`/sandboxes/${encodeURIComponent(id)}:delete`,
 			'DELETE',
 			config.getToken,
+			undefined,
+			config.controlPlaneMtls,
 		)
 	}
 
