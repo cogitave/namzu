@@ -54,6 +54,7 @@
  */
 
 import net from 'node:net'
+import tls from 'node:tls'
 
 import type { SandboxExecResult } from '@namzu/sdk'
 import {
@@ -81,10 +82,67 @@ import {
  *    agent listens on (the fixed contract port baked into the golden
  *    rootfs). The dialer connects to `udsPath` then issues the
  *    `CONNECT <port>` handshake.
+ *  - `mtls`  — a per-FC-host mTLS RELAY daemon reachable over the
+ *    network at `host:port` (the owning host's private VNet IP + the
+ *    bridge port). The dialer `tls.connect`s the relay presenting the
+ *    fleet client cert, verifies the relay's server cert
+ *    (`rejectUnauthorized: true`), then writes a single routing
+ *    preamble line `SANDBOX <sandboxId>\n`. The relay terminates mTLS,
+ *    resolves `sandboxId` to the host-local jailed `v.sock`, dials it,
+ *    and issues the guest `CONNECT 1024` handshake ITSELF — so the
+ *    caller does NOT write the `CONNECT` line. After the preamble the
+ *    relay is a verbatim byte pump, so the IDENTICAL 8-hex/NDJSON
+ *    framing + heartbeat + retry runs unchanged over the TLS socket
+ *    (`tls.TLSSocket` is a `net.Socket`). The container-app NEVER sees
+ *    a host-local `udsPath`; the cert material is injected by the
+ *    Vandal host layer, never returned by the orchestrator.
  */
 export type SandboxAgentHandle =
 	| { readonly kind: 'unix'; readonly path: string }
 	| { readonly kind: 'vsock'; readonly udsPath: string; readonly port: number }
+	| {
+			readonly kind: 'mtls'
+			readonly host: string
+			readonly port: number
+			readonly sandboxId: string
+			readonly tls: {
+				readonly ca: string | Buffer
+				readonly cert: string | Buffer
+				readonly key: string | Buffer
+				readonly servername?: string
+			}
+	  }
+
+/**
+ * The mTLS cert material the consumer injects onto a wire `mtls` handle (the
+ * `tls` block of the transport handle). Read from the consumer's runtime (the
+ * Vandal host layer's `VANDAL_SANDBOX_FC_TLS_*`), NEVER returned by the
+ * orchestrator — the leak-prevention boundary.
+ */
+export interface MtlsClientMaterial {
+	readonly ca: string | Buffer
+	readonly cert: string | Buffer
+	readonly key: string | Buffer
+	readonly servername?: string
+}
+
+/**
+ * The WIRE shape of an agent handle as the orchestrator returns it. Identical
+ * to {@link SandboxAgentHandle} EXCEPT the `mtls` arm omits the `tls` cert
+ * block: the orchestrator returns only host/port/sandboxId, and the consumer
+ * (Vandal host layer) merges the cert material in (see `normalizeHandle`)
+ * before constructing the transport. The `unix`/`vsock` arms are unchanged
+ * (they carry no cert material).
+ */
+export type WireSandboxAgentHandle =
+	| { readonly kind: 'unix'; readonly path: string }
+	| { readonly kind: 'vsock'; readonly udsPath: string; readonly port: number }
+	| {
+			readonly kind: 'mtls'
+			readonly host: string
+			readonly port: number
+			readonly sandboxId: string
+	  }
 
 // ---------------------------------------------------------------------------
 // Request envelope — the one method dimension on top of the shared wire
@@ -219,8 +277,10 @@ export class VsockAgentTransport {
 	}
 
 	private connectOnce(): Promise<net.Socket> {
+		const handle = this.handle
+		if (handle.kind === 'mtls') return this.connectOnceMtls(handle)
 		return new Promise<net.Socket>((resolve, reject) => {
-			const path = this.handle.kind === 'unix' ? this.handle.path : this.handle.udsPath
+			const path = handle.kind === 'unix' ? handle.path : handle.udsPath
 			const socket = net.connect({ path })
 			let settled = false
 			const timer = setTimeout(() => {
@@ -242,7 +302,7 @@ export class VsockAgentTransport {
 			socket.once('error', fail)
 
 			socket.once('connect', () => {
-				if (this.handle.kind === 'unix') {
+				if (handle.kind === 'unix') {
 					if (settled) return
 					settled = true
 					clearTimeout(timer)
@@ -253,7 +313,7 @@ export class VsockAgentTransport {
 				// vsock: issue the firecracker hybrid-vsock CONNECT handshake
 				// and wait for the `OK <hostport>` ack line before handing the
 				// socket up for framed traffic.
-				const port = this.handle.port
+				const port = handle.port
 				socket.write(`CONNECT ${port}\n`)
 				const ackReader = new LineReader()
 				const onData = (chunk: Buffer) => {
@@ -275,6 +335,89 @@ export class VsockAgentTransport {
 					resolve(socket)
 				}
 				socket.on('data', onData)
+			})
+		})
+	}
+
+	/**
+	 * Dial the per-FC-host mTLS relay for an `mtls` handle.
+	 *
+	 * This is a pure TRANSPORT substitution for the `net.connect` arms:
+	 * it `tls.connect`s the relay (presenting the fleet client cert and
+	 * verifying the relay's server cert, `rejectUnauthorized: true`),
+	 * asserts `socket.authorized`, then writes the single routing
+	 * preamble line `SANDBOX <sandboxId>\n`. It does NOT write the guest
+	 * `CONNECT 1024` line — the relay issues that host-side toward the
+	 * jailed `v.sock`. The relay does NOT send an ack line: after the
+	 * preamble it is a verbatim byte pump, so the caller hands the
+	 * post-preamble socket straight up to the IDENTICAL framing loop the
+	 * unix/vsock arms use (a `tls.TLSSocket` IS a `net.Socket`). The
+	 * connect-retry budget, idle timeout, and the "fresh connection per
+	 * request" resume-survival invariant are inherited unchanged.
+	 *
+	 * INTEGRATE CONTRACT (must match the relay, Track B): NO ack line.
+	 * The relay reads `SANDBOX <id>\n`, then bridges; it writes nothing
+	 * back until the agent does. If the relay is ever changed to emit an
+	 * `OK` ack first, this arm must await that line (mirroring the vsock
+	 * CONNECT-ack path) before resolving — today it does not.
+	 */
+	private connectOnceMtls(
+		handle: Extract<SandboxAgentHandle, { kind: 'mtls' }>,
+	): Promise<net.Socket> {
+		return new Promise<net.Socket>((resolve, reject) => {
+			const socket = tls.connect({
+				host: handle.host,
+				port: handle.port,
+				ca: handle.tls.ca,
+				cert: handle.tls.cert,
+				key: handle.tls.key,
+				servername: handle.tls.servername,
+				rejectUnauthorized: true,
+				minVersion: 'TLSv1.3',
+			})
+			let settled = false
+			const timer = setTimeout(() => {
+				if (settled) return
+				settled = true
+				socket.destroy()
+				reject(new Error(`connect/handshake timed out after ${this.connectTimeoutMs}ms`))
+			}, this.connectTimeoutMs)
+			timer.unref()
+
+			const fail = (err: Error) => {
+				if (settled) return
+				settled = true
+				clearTimeout(timer)
+				socket.destroy()
+				reject(err)
+			}
+
+			socket.once('error', fail)
+
+			// `secureConnect` fires only after the cert chain is verified
+			// (rejectUnauthorized rejects a bad/missing-CA server via 'error'
+			// before this). Belt-and-suspenders: assert `authorized` too.
+			socket.once('secureConnect', () => {
+				if (settled) return
+				if (!socket.authorized) {
+					fail(
+						new Error(
+							`mtls transport: relay server cert not authorized: ${
+								socket.authorizationError ?? 'unknown'
+							}`,
+						),
+					)
+					return
+				}
+				settled = true
+				clearTimeout(timer)
+				socket.removeListener('error', fail)
+				// Routing preamble — the host-relay analogue of the vsock
+				// `CONNECT <port>` line. The relay consumes it, resolves the
+				// jailed v.sock, and issues the guest CONNECT itself; the
+				// caller writes NOTHING further until the framing loop.
+				socket.write(`SANDBOX ${handle.sandboxId}\n`)
+				resolve(socket)
 			})
 		})
 	}
@@ -509,7 +652,14 @@ function delay(ms: number): Promise<void> {
 }
 
 function describeHandle(handle: SandboxAgentHandle): string {
-	return handle.kind === 'unix' ? `unix:${handle.path}` : `vsock:${handle.udsPath}#${handle.port}`
+	switch (handle.kind) {
+		case 'unix':
+			return `unix:${handle.path}`
+		case 'vsock':
+			return `vsock:${handle.udsPath}#${handle.port}`
+		case 'mtls':
+			return `mtls:${handle.host}:${handle.port}/${handle.sandboxId}`
+	}
 }
 
 // Internal framing helpers exported for the transport unit tests so the

@@ -55,7 +55,12 @@ import type {
 } from '@namzu/sdk'
 
 import type { SandboxBackend, SandboxBackendOptions } from '../../index.js'
-import type { SandboxAgentHandle, VsockTransportOptions } from './transport.js'
+import type {
+	MtlsClientMaterial,
+	SandboxAgentHandle,
+	VsockTransportOptions,
+	WireSandboxAgentHandle,
+} from './transport.js'
 import { VsockAgentTransport } from './transport.js'
 
 /**
@@ -79,6 +84,15 @@ export interface FirecrackerBackendInternalConfig {
 	readonly readyPollIntervalMs?: number
 	/** Transport tuning forwarded to {@link VsockAgentTransport}. */
 	readonly transport?: VsockTransportOptions
+	/**
+	 * NETWORK-mode mTLS client material (ses_051 P4). When present AND the
+	 * orchestrator returns an `mtls` agent handle, this CA/cert/key is MERGED
+	 * onto the handle's `tls` block before the transport dials the per-host
+	 * relay. The consumer's runtime injects it (mirrors `getToken`); this
+	 * package never reads it from disk or fetches it, so it stays Azure-SDK
+	 * free. Absent for the single-host VSOCK default (the live proofs).
+	 */
+	readonly mtls?: MtlsClientMaterial
 }
 
 const DEFAULT_AGENT_VSOCK_PORT = 1024
@@ -124,7 +138,7 @@ interface OrchestratorCreateRequest {
  */
 interface OrchestratorCreateResponse {
 	readonly sandboxId: string
-	readonly agent: SandboxAgentHandle
+	readonly agent: WireSandboxAgentHandle
 	readonly rootDir: string
 }
 
@@ -210,9 +224,17 @@ async function spawnFirecrackerSandbox(
 
 	const id = created.sandboxId as SandboxId
 	const rootDir = created.rootDir
-	// If the handle is a vsock handle missing an explicit port, fill in
-	// the contract port the agent is baked to listen on.
-	const handle = normalizeHandle(created.agent, config.agentVsockPort ?? DEFAULT_AGENT_VSOCK_PORT)
+	// Normalise the orchestrator handle: fill the contract vsock port when a
+	// vsock handle omits it, and MERGE the consumer-injected mTLS material onto
+	// a network (`mtls`) handle so the transport can dial the relay. The
+	// orchestrator returns an `mtls` handle WITHOUT cert material (host/port/
+	// sandboxId only); the certs are injected here from `config.mtls`, never
+	// shipped by the control plane.
+	const handle = normalizeHandle(
+		created.agent,
+		config.agentVsockPort ?? DEFAULT_AGENT_VSOCK_PORT,
+		config.mtls,
+	)
 	const transport = new VsockAgentTransport(handle, config.transport ?? {})
 
 	const destroy = async (): Promise<void> => {
@@ -333,7 +355,44 @@ function resolveEgressAllowlist(options: SandboxBackendOptions): readonly string
 	return undefined
 }
 
-function normalizeHandle(handle: SandboxAgentHandle, contractPort: number): SandboxAgentHandle {
+/**
+ * Turn the orchestrator's WIRE handle into the transport handle the dialer
+ * uses. Two transforms:
+ *
+ *  - `vsock` with a missing/<=0 port → fill the contract port.
+ *  - `mtls` → MERGE the consumer-injected `mtls` cert material onto the
+ *    wire handle (which carries only host/port/sandboxId). The orchestrator
+ *    never ships cert material; without an injected `mtls` block a network
+ *    handle cannot dial, so this throws loud rather than constructing a
+ *    transport that would fail at connect time.
+ *
+ * `unix` + already-correct `vsock` handles pass through untouched.
+ */
+export function normalizeHandle(
+	handle: WireSandboxAgentHandle,
+	contractPort: number,
+	mtls: MtlsClientMaterial | undefined,
+): SandboxAgentHandle {
+	if (handle.kind === 'mtls') {
+		if (!mtls) {
+			throw new Error(
+				'firecracker: orchestrator returned an mtls agent handle but no client cert material was injected ' +
+					'(the Vandal host layer must supply VANDAL_SANDBOX_FC_TLS_CA/_CERT/_KEY in network mode)',
+			)
+		}
+		return {
+			kind: 'mtls',
+			host: handle.host,
+			port: handle.port,
+			sandboxId: handle.sandboxId,
+			tls: {
+				ca: mtls.ca,
+				cert: mtls.cert,
+				key: mtls.key,
+				...(mtls.servername !== undefined ? { servername: mtls.servername } : {}),
+			},
+		}
+	}
 	if (handle.kind === 'vsock' && (!handle.port || handle.port <= 0)) {
 		return { kind: 'vsock', udsPath: handle.udsPath, port: contractPort }
 	}

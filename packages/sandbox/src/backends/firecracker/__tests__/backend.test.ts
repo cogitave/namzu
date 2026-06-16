@@ -18,8 +18,15 @@ import { join } from 'node:path'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { buildFirecrackerBackend } from '../index.js'
-import type { SandboxAgentHandle } from '../transport.js'
+import { buildFirecrackerBackend, normalizeHandle } from '../index.js'
+import type { WireSandboxAgentHandle } from '../transport.js'
+import {
+	CA_CRT,
+	CLIENT_CRT,
+	CLIENT_KEY,
+	type RelayHandle,
+	startMtlsRelay,
+} from './fixtures/mtls-pki.js'
 
 const require_ = createRequire(import.meta.url)
 
@@ -30,6 +37,7 @@ interface AgentModule {
 let workDir: string
 let sockPath: string
 let server: Server | undefined
+let relay: RelayHandle | undefined
 let agent: AgentModule
 const realFetch = globalThis.fetch
 let realPath: string | undefined
@@ -46,6 +54,10 @@ beforeEach(() => {
 afterEach(async () => {
 	globalThis.fetch = realFetch
 	process.env.PATH = realPath
+	if (relay) {
+		await new Promise<void>((r) => relay?.server.close(() => r()))
+		relay = undefined
+	}
 	if (server) {
 		await new Promise<void>((r) => server?.close(() => r()))
 		server = undefined
@@ -66,7 +78,7 @@ function startAgent(): Promise<Server> {
  * the loopback unix socket; `:delete` returns 204. Records calls so the
  * test can assert the create body + destroy round-trip.
  */
-function stubOrchestrator(handle: SandboxAgentHandle): {
+function stubOrchestrator(handle: WireSandboxAgentHandle): {
 	calls: Array<{ url: string; method: string; body?: unknown }>
 } {
 	const calls: Array<{ url: string; method: string; body?: unknown }> = []
@@ -228,5 +240,133 @@ describe('buildFirecrackerBackend (loopback agent)', () => {
 		const sandbox = await backend.create({ workingDirectory: workDir })
 		expect(sandbox.status).toBe('ready')
 		await sandbox.destroy()
+	})
+})
+
+// ---------------------------------------------------------------------------
+// Cert-injection seam (ses_051 P4 Track C) — the orchestrator returns a WIRE
+// `mtls` handle (host/port/sandboxId, NO certs); the consumer injects the
+// client CA/cert/key via `config.mtls`, which `normalizeHandle` MERGES onto
+// the handle before the transport dials the relay. Certs NEVER transit the
+// control plane.
+// ---------------------------------------------------------------------------
+
+describe('normalizeHandle (mtls cert injection)', () => {
+	const WIRE_MTLS = {
+		kind: 'mtls',
+		host: '10.60.1.7',
+		port: 8443,
+		sandboxId: 'sb-net',
+	} as const satisfies WireSandboxAgentHandle
+
+	it('merges the injected cert material onto a wire mtls handle', () => {
+		const handle = normalizeHandle(WIRE_MTLS, 1024, {
+			ca: CA_CRT,
+			cert: CLIENT_CRT,
+			key: CLIENT_KEY,
+			servername: 'sandbox.fc.internal',
+		})
+		expect(handle).toEqual({
+			kind: 'mtls',
+			host: '10.60.1.7',
+			port: 8443,
+			sandboxId: 'sb-net',
+			tls: {
+				ca: CA_CRT,
+				cert: CLIENT_CRT,
+				key: CLIENT_KEY,
+				servername: 'sandbox.fc.internal',
+			},
+		})
+	})
+
+	it('throws when an mtls handle arrives with NO injected cert material', () => {
+		// A network-mode backend that cannot present a client cert would be
+		// rejected by the relay — fail loud at handle-normalization instead.
+		expect(() => normalizeHandle(WIRE_MTLS, 1024, undefined)).toThrow(
+			/no client cert material was injected/,
+		)
+	})
+
+	it('leaves vsock + unix handles untouched (cert material is ignored)', () => {
+		expect(normalizeHandle({ kind: 'unix', path: '/tmp/a.sock' }, 1024, undefined)).toEqual({
+			kind: 'unix',
+			path: '/tmp/a.sock',
+		})
+		// A vsock handle with a 0 port still normalizes to the contract port.
+		expect(
+			normalizeHandle({ kind: 'vsock', udsPath: '/v.sock', port: 0 }, 1024, {
+				ca: CA_CRT,
+				cert: CLIENT_CRT,
+				key: CLIENT_KEY,
+			}),
+		).toEqual({ kind: 'vsock', udsPath: '/v.sock', port: 1024 })
+	})
+})
+
+describe('buildFirecrackerBackend (network mode over a loopback mTLS relay)', () => {
+	it('injects the client cert + round-trips exec/file-IO through the relay', async () => {
+		// The agent on a unix socket; a loopback mTLS relay in front of it.
+		server = await startAgent()
+		relay = await startMtlsRelay(sockPath)
+		// The orchestrator returns a WIRE mtls handle (NO cert material) whose
+		// host:port point at the relay; the relay resolves the sandboxId.
+		const { calls } = stubOrchestrator({
+			kind: 'mtls',
+			host: '127.0.0.1',
+			port: relay.port,
+			sandboxId: 'sb-net',
+		})
+
+		const backend = buildFirecrackerBackend({
+			orchestratorEndpoint: 'https://orchestrator.test/',
+			getToken: async () => 'tok',
+			readyTimeoutMs: 5_000,
+			readyPollIntervalMs: 50,
+			// The CONSUMER-injected client material — never returned by the
+			// orchestrator. Merged onto the handle's `tls` block.
+			mtls: {
+				ca: CA_CRT,
+				cert: CLIENT_CRT,
+				key: CLIENT_KEY,
+				servername: 'sandbox.fc.internal',
+			},
+		})
+
+		const sandbox = await backend.create({ workingDirectory: workDir })
+		expect(sandbox.status).toBe('ready')
+
+		// The dialer wrote the `SANDBOX <id>` routing preamble (the relay's key).
+		expect(await relay.preamble()).toBe('sb-net')
+
+		// Full exec + file-IO round-trip over the mTLS tunnel.
+		const r = await sandbox.exec('/bin/sh', ['-c', 'echo hello-mtls'])
+		expect(r.stdout).toContain('hello-mtls')
+		await sandbox.writeFile('out/r.txt', 'via-relay')
+		expect((await sandbox.readFile('out/r.txt')).toString('utf8')).toBe('via-relay')
+
+		await sandbox.destroy()
+		expect(calls.some((c) => c.method === 'DELETE')).toBe(true)
+	})
+
+	it('rejects a create when the orchestrator returns mtls but no cert material is injected', async () => {
+		server = await startAgent()
+		relay = await startMtlsRelay(sockPath)
+		stubOrchestrator({
+			kind: 'mtls',
+			host: '127.0.0.1',
+			port: relay.port,
+			sandboxId: 'sb-net',
+		})
+		const backend = buildFirecrackerBackend({
+			orchestratorEndpoint: 'https://orchestrator.test/',
+			getToken: async () => 'tok',
+			readyTimeoutMs: 2_000,
+			readyPollIntervalMs: 50,
+			// No `mtls` material → normalizeHandle must throw at create time.
+		})
+		await expect(backend.create({ workingDirectory: workDir })).rejects.toThrow(
+			/no client cert material was injected/,
+		)
 	})
 })

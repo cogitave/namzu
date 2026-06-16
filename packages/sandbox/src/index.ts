@@ -351,6 +351,23 @@ export type MicroVMBackendConfig =
 			readonly agentVsockPort?: number
 			readonly readyTimeoutMs?: number
 			readonly readyPollIntervalMs?: number
+			/**
+			 * NETWORK-mode mTLS client material (ses_051 P4 client-proxy
+			 * bridge). When present, the orchestrator returns an `mtls` agent
+			 * handle (host/port/sandboxId, NO cert material) and this CA/cert/key
+			 * is MERGED onto that handle before the transport dials the per-host
+			 * relay over mTLS. Injected by the consumer's runtime (the Vandal
+			 * host layer reads it from `VANDAL_SANDBOX_FC_TLS_*`), NEVER fetched
+			 * inside this package — same dependency boundary as `getToken`, so
+			 * `@namzu/sandbox` stays Azure-SDK-free. Absent for the single-host
+			 * VSOCK default (the live proofs).
+			 */
+			readonly mtls?: {
+				readonly ca: string | Buffer
+				readonly cert: string | Buffer
+				readonly key: string | Buffer
+				readonly servername?: string
+			}
 	  }
 
 /**
@@ -642,6 +659,7 @@ function pickBackend(config: SandboxProviderConfig): SandboxBackend {
 			...(backend.readyPollIntervalMs !== undefined
 				? { readyPollIntervalMs: backend.readyPollIntervalMs }
 				: {}),
+			...(backend.mtls !== undefined ? { mtls: backend.mtls } : {}),
 		})
 	}
 	throw new SandboxBackendNotImplementedError(describeBackend(backend))
