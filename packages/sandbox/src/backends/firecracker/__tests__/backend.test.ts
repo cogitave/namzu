@@ -241,6 +241,52 @@ describe('buildFirecrackerBackend (loopback agent)', () => {
 		expect(sandbox.status).toBe('ready')
 		await sandbox.destroy()
 	})
+
+	it('carries agentSnapshot in the create body when the backend config sets it', async () => {
+		// OPEN-2 — the per-agent snapshot ref is a first-class, provider-agnostic
+		// field on the create contract (sibling to `template`). When set it must
+		// reach the orchestrator POST body verbatim.
+		server = await startAgent()
+		const { calls } = stubOrchestrator({ kind: 'unix', path: sockPath })
+		const backend = buildFirecrackerBackend({
+			orchestratorEndpoint: 'https://orchestrator.test/',
+			getToken: async () => 'tok',
+			template: 'golden-rev-7',
+			agentSnapshot: { orgId: 'org1', agentId: 'agent9', version: '3' },
+			readyTimeoutMs: 3_000,
+			readyPollIntervalMs: 50,
+		})
+		const sandbox = await backend.create({ workingDirectory: workDir })
+		const createCall = calls.find((c) => c.method === 'POST')
+		expect(createCall?.body).toMatchObject({
+			template: 'golden-rev-7',
+			agentSnapshot: { orgId: 'org1', agentId: 'agent9', version: '3' },
+		})
+		await sandbox.destroy()
+	})
+
+	it('OMITS agentSnapshot from the create body when absent (byte-identical generic path)', async () => {
+		// DORMANT contract: absent ⇒ the POST body must NOT carry an
+		// `agentSnapshot` key at all (a JSON `undefined` would not serialise, but
+		// the conditional spread must drop the key entirely so the body is
+		// byte-identical to the pre-field generic create).
+		server = await startAgent()
+		const { calls } = stubOrchestrator({ kind: 'unix', path: sockPath })
+		const backend = buildFirecrackerBackend({
+			orchestratorEndpoint: 'https://orchestrator.test/',
+			getToken: async () => 'tok',
+			template: 'golden-rev-7',
+			readyTimeoutMs: 3_000,
+			readyPollIntervalMs: 50,
+		})
+		const sandbox = await backend.create({ workingDirectory: workDir })
+		const createCall = calls.find((c) => c.method === 'POST')
+		expect(createCall?.body).toEqual({ template: 'golden-rev-7' })
+		expect(Object.prototype.hasOwnProperty.call(createCall?.body ?? {}, 'agentSnapshot')).toBe(
+			false,
+		)
+		await sandbox.destroy()
+	})
 })
 
 // ---------------------------------------------------------------------------

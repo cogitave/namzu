@@ -56,7 +56,7 @@ import type {
 	SandboxStatus,
 } from '@namzu/sdk'
 
-import type { SandboxBackend, SandboxBackendOptions } from '../../index.js'
+import type { AgentSnapshotRef, SandboxBackend, SandboxBackendOptions } from '../../index.js'
 import type {
 	MtlsClientMaterial,
 	SandboxAgentHandle,
@@ -80,6 +80,15 @@ export interface FirecrackerBackendInternalConfig {
 	readonly getToken: OrchestratorTokenProvider
 	/** Golden template / snapshot revision id to resume from. */
 	readonly template?: string
+	/**
+	 * Per-agent captured snapshot to resume INSTEAD of a fresh golden boot
+	 * (layered on its base golden). Optional + additive: absent ⇒ the
+	 * orchestrator create body is byte-identical and the generic golden-resume
+	 * path is unchanged. The orchestrator honors it (routing the claim to a
+	 * per-agent resume) only when its own per-agent flag is on; it is the WIRE
+	 * carrier the host's per-agent trigger path sets. See {@link AgentSnapshotRef}.
+	 */
+	readonly agentSnapshot?: AgentSnapshotRef
 	/** Fixed guest AF_VSOCK port the agent listens on (contract port). */
 	readonly agentVsockPort?: number
 	readonly readyTimeoutMs?: number
@@ -148,6 +157,15 @@ interface OrchestratorCreateRequest {
 	 * forwards the resolved hostnames; it does not own the firewall.
 	 */
 	readonly egressAllowlist?: readonly string[]
+	/**
+	 * Per-agent captured snapshot to resume (layered on the base golden).
+	 * Optional + additive: omitted from the POST body when undefined (the
+	 * spread below drops it), so a generic create is byte-identical to the
+	 * pre-field wire shape. The orchestrator routes the claim to a per-agent
+	 * resume only when present AND its own per-agent flag is on; otherwise it
+	 * ignores it and runs the generic golden claim. See {@link AgentSnapshotRef}.
+	 */
+	readonly agentSnapshot?: AgentSnapshotRef
 }
 
 /**
@@ -292,6 +310,7 @@ async function spawnFirecrackerSandbox(
 	const endpoint = config.orchestratorEndpoint
 	const createBody: OrchestratorCreateRequest = {
 		...(config.template !== undefined ? { template: config.template } : {}),
+		...(config.agentSnapshot !== undefined ? { agentSnapshot: config.agentSnapshot } : {}),
 		...(options.memoryLimitMb !== undefined ? { memoryLimitMb: options.memoryLimitMb } : {}),
 		...(options.maxProcesses !== undefined ? { maxProcesses: options.maxProcesses } : {}),
 		...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),

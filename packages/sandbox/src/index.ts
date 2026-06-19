@@ -347,6 +347,17 @@ export type MicroVMBackendConfig =
 			readonly orchestratorEndpoint?: string
 			readonly getToken?: () => Promise<string>
 			readonly template?: string
+			/**
+			 * Resume this per-agent captured snapshot (layered on its base
+			 * golden) INSTEAD of a fresh golden boot. Tier-agnostic, additive,
+			 * optional: the backend that supports it (the owned firecracker
+			 * backend) honors it; others ignore it. Absent ⇒ the create body is
+			 * byte-identical and the generic golden-resume hot path is unchanged
+			 * (the field is only ever set by the host's per-agent trigger path).
+			 * Sibling to `template` (base-golden selector) — see
+			 * {@link AgentSnapshotRef}.
+			 */
+			readonly agentSnapshot?: AgentSnapshotRef
 			/** Fixed guest AF_VSOCK port the in-VM agent listens on. */
 			readonly agentVsockPort?: number
 			readonly readyTimeoutMs?: number
@@ -388,6 +399,27 @@ export type MicroVMBackendConfig =
 				readonly servername?: string
 			}
 	  }
+
+/**
+ * A reference to a per-agent captured snapshot, layered on top of a base
+ * golden revision. Provider-AGNOSTIC: this is a sandbox-spec concept, a
+ * sibling to {@link MicroVMBackendConfig}'s `template` (which selects a
+ * base golden), not a provider-specific shape — hence no provider prefix
+ * in the name. A microVM backend that supports per-agent resume (the owned
+ * Firecracker backend) honors it by resuming this agent's captured diff
+ * INSTEAD of a fresh golden boot; backends that do not support it ignore it.
+ *
+ * The triple identifies exactly one captured snapshot: the owning tenant
+ * (`orgId`), the agent registry row (`agentId`), and the registry version
+ * (`version`, a decimal string so the whole triple is a set of path
+ * segments). The host constructs this server-side from its own registry;
+ * `@namzu/sandbox` only forwards it.
+ */
+export interface AgentSnapshotRef {
+	readonly orgId: string
+	readonly agentId: string
+	readonly version: string
+}
 
 /**
  * `passthrough` tier. No isolation — runs commands directly in
@@ -673,6 +705,7 @@ function pickBackend(config: SandboxProviderConfig): SandboxBackend {
 			orchestratorEndpoint: backend.orchestratorEndpoint,
 			getToken: backend.getToken,
 			...(backend.template !== undefined ? { template: backend.template } : {}),
+			...(backend.agentSnapshot !== undefined ? { agentSnapshot: backend.agentSnapshot } : {}),
 			...(backend.agentVsockPort !== undefined ? { agentVsockPort: backend.agentVsockPort } : {}),
 			...(backend.readyTimeoutMs !== undefined ? { readyTimeoutMs: backend.readyTimeoutMs } : {}),
 			...(backend.readyPollIntervalMs !== undefined
