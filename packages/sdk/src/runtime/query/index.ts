@@ -16,6 +16,7 @@ import { buildTaskTools } from '../../tools/task/index.js'
 import type { AdvisoryConfig } from '../../types/advisory/index.js'
 import type { AgentRuntimeContext, RuntimeToolOverrides } from '../../types/agent/base.js'
 import type { AgentContextLevel } from '../../types/agent/factory.js'
+import type { WorkingMemoryProvider } from '../../types/agent/working-memory.js'
 import {
 	type CheckpointId,
 	type ResumeHandler,
@@ -126,6 +127,15 @@ export interface QueryParams {
 	advisory?: AdvisoryConfig
 
 	compactionConfig?: CompactionConfig
+
+	/**
+	 * Optional neutral working-memory seam. When set, the iteration loop
+	 * re-renders the provider's string into a single pinned leading system
+	 * message every turn (the primacy-edge, compaction-preserved slot).
+	 * Absent ⇒ `refreshWorkingMemory` early-returns and the run path is
+	 * byte-identical.
+	 */
+	workingMemoryProvider?: WorkingMemoryProvider
 
 	agentBus?: import('../../bus/index.js').AgentBus
 
@@ -330,6 +340,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			advisoryCtx,
 			compactionConfig: params.compactionConfig,
 			workingStateManager,
+			workingMemoryProvider: params.workingMemoryProvider,
 			agentBus: params.agentBus,
 			verificationGate: verificationGate,
 			pluginManager: params.pluginManager,

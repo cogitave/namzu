@@ -48,6 +48,11 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 				tools: config.tools,
 				...(config.verificationGate ? { verificationGate: config.verificationGate } : {}),
 				...(config.sandboxProvider ? { sandboxProvider: config.sandboxProvider } : {}),
+				// Working-memory / compaction seam (optional; absent => unchanged run path).
+				...(config.compactionConfig ? { compactionConfig: config.compactionConfig } : {}),
+				...(config.workingMemoryProvider
+					? { workingMemoryProvider: config.workingMemoryProvider }
+					: {}),
 				runConfig: {
 					model: config.model,
 					tokenBudget: config.tokenBudget,

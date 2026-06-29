@@ -1,3 +1,4 @@
+import type { CompactionConfig } from '../../config/runtime.js'
 import type { AdvisoryConfig } from '../advisory/index.js'
 import type { AgentPersona } from '../persona/index.js'
 import type { LLMProvider } from '../provider/index.js'
@@ -6,6 +7,7 @@ import type { Skill } from '../skills/index.js'
 import type { ToolRegistryContract } from '../tool/index.js'
 import type { VerificationGateConfig } from '../verification/index.js'
 import type { BaseAgentConfig, BaseAgentResult } from './base.js'
+import type { WorkingMemoryProvider } from './working-memory.js'
 
 export interface ReactiveAgentConfig extends BaseAgentConfig {
 	systemPrompt?: string
@@ -42,6 +44,21 @@ export interface ReactiveAgentConfig extends BaseAgentConfig {
 	 * on top of the provider keeps the underlying container alive.
 	 */
 	sandboxProvider?: SandboxProvider
+
+	/**
+	 * Optional structured-compaction config. Omitted ⇒ byte-identical run path
+	 * (no `WorkingStateManager`, compaction early-returns). Mirrors the field
+	 * on `SupervisorAgentConfig` so a child specialist can share the
+	 * supervisor's compaction settings.
+	 */
+	compactionConfig?: CompactionConfig
+
+	/**
+	 * Optional neutral working-memory seam — same contract as the field on
+	 * `SupervisorAgentConfig`. Absent ⇒ no block injected. A child specialist
+	 * sharing the supervisor's output dir passes the same provider.
+	 */
+	workingMemoryProvider?: WorkingMemoryProvider
 }
 
 export interface ReactiveAgentResult extends BaseAgentResult {

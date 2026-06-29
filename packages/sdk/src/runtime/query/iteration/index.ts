@@ -9,6 +9,7 @@ import { collect } from '../../../provider/collect.js'
 import type { ActivityStore } from '../../../store/activity/memory.js'
 import { GENAI, NAMZU, agentIterationSpanName } from '../../../telemetry/attributes.js'
 import { getTracer } from '../../../telemetry/runtime-accessors.js'
+import type { WorkingMemoryProvider } from '../../../types/agent/working-memory.js'
 import type { ResumeHandler } from '../../../types/hitl/index.js'
 import type { ToolUseId } from '../../../types/ids/index.js'
 import { createAssistantMessage, createUserMessage } from '../../../types/message/index.js'
@@ -35,6 +36,7 @@ import { runCompactionCheck } from './phases/compaction.js'
 import type { IterationContext } from './phases/index.js'
 import { runPlanGate } from './phases/plan.js'
 import { runToolReview } from './phases/tool-review.js'
+import { refreshWorkingMemory } from './phases/working-memory.js'
 
 export type { IterationContext } from './phases/index.js'
 export type { PhaseSignal } from './phases/index.js'
@@ -53,6 +55,7 @@ export interface IterationConfig {
 	>
 	compactionConfig?: CompactionConfig
 	workingStateManager?: WorkingStateManager
+	workingMemoryProvider?: WorkingMemoryProvider
 	advisoryCtx?: AdvisoryContext
 	agentBus?: import('../../../bus/index.js').AgentBus
 	verificationGate?: import('../../../verification/gate.js').VerificationGate
@@ -470,6 +473,7 @@ export class IterationOrchestrator {
 			launchedTasks: config.launchedTasks ?? new Map(),
 			compactionConfig: config.compactionConfig,
 			workingStateManager: config.workingStateManager,
+			workingMemoryProvider: config.workingMemoryProvider,
 			advisoryCtx: config.advisoryCtx,
 			agentBus: config.agentBus,
 			verificationGate: config.verificationGate,
@@ -572,6 +576,10 @@ export class IterationOrchestrator {
 						await this.injectOneTaskNotification()
 					}
 
+					// Re-pin the working-memory block from ground truth at the primacy
+					// edge BEFORE compaction runs (so the refreshed slot is what
+					// compaction preserves). No-op when no provider is configured.
+					await refreshWorkingMemory(this.ctx)
 					await runCompactionCheck(this.ctx)
 
 					// Cache discipline: keep the tools param byte-stable even on the

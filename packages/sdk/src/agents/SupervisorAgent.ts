@@ -217,6 +217,12 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 				...(config.resumeHandler ? { resumeHandler: config.resumeHandler } : {}),
 				...(config.verificationGate ? { verificationGate: config.verificationGate } : {}),
 				...(config.sandboxProvider ? { sandboxProvider: config.sandboxProvider } : {}),
+				// Working-memory / compaction seam (optional; absent => unchanged
+				// run path, byte-identical for every existing consumer).
+				...(config.compactionConfig ? { compactionConfig: config.compactionConfig } : {}),
+				...(config.workingMemoryProvider
+					? { workingMemoryProvider: config.workingMemoryProvider }
+					: {}),
 			},
 			listener,
 		)

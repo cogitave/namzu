@@ -1,3 +1,4 @@
+import type { CompactionConfig } from '../../config/runtime.js'
 import type { AdvisoryConfig } from '../advisory/index.js'
 import type { ResumeHandler } from '../hitl/index.js'
 import type { LLMProvider } from '../provider/index.js'
@@ -10,6 +11,7 @@ import type { BaseAgentConfig, BaseAgentResult } from './base.js'
 import type { AgentFactoryOptions } from './factory.js'
 import type { TaskGateway } from './gateway.js'
 import type { AgentManagerContract } from './manager.js'
+import type { WorkingMemoryProvider } from './working-memory.js'
 
 export interface SupervisorAgentConfig extends BaseAgentConfig {
 	provider: LLMProvider
@@ -68,6 +70,24 @@ export interface SupervisorAgentConfig extends BaseAgentConfig {
 	 * + children share one ephemeral container per task.
 	 */
 	sandboxProvider?: SandboxProvider
+
+	/**
+	 * Optional structured-compaction config. When omitted, `query()` never
+	 * builds a `WorkingStateManager` and compaction early-returns — the run
+	 * path is byte-identical to a non-compacting run. Hosts opt in (e.g. with
+	 * a `contextWindowTokens`) to keep a long single run alive instead of
+	 * silently truncating.
+	 */
+	compactionConfig?: CompactionConfig
+
+	/**
+	 * Optional neutral working-memory seam. When set, the SDK re-renders the
+	 * provider's string into a single pinned leading system message every
+	 * iteration (the primacy-edge, compaction-preserved slot). Absent ⇒ no
+	 * block is ever injected. The SDK only positions the string; the host owns
+	 * its content and trust framing.
+	 */
+	workingMemoryProvider?: WorkingMemoryProvider
 }
 
 export interface AgentTaskResult {

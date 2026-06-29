@@ -6,6 +6,7 @@ import type { PlanManager } from '../../../../manager/plan/lifecycle.js'
 import type { RunPersistence } from '../../../../manager/run/persistence.js'
 import type { ActivityStore } from '../../../../store/activity/memory.js'
 import type { TaskGateway, TaskHandle } from '../../../../types/agent/gateway.js'
+import type { WorkingMemoryProvider } from '../../../../types/agent/working-memory.js'
 import type { HITLResumeDecision, ResumeHandler } from '../../../../types/hitl/index.js'
 import type { TaskId } from '../../../../types/ids/index.js'
 import type { LLMProvider } from '../../../../types/provider/index.js'
@@ -62,6 +63,8 @@ export interface IterationContext {
 	readonly compactionConfig?: CompactionConfig
 
 	readonly workingStateManager?: WorkingStateManager
+
+	readonly workingMemoryProvider?: WorkingMemoryProvider
 
 	readonly advisoryCtx?: AdvisoryContext
 

@@ -18,6 +18,15 @@ export const TaskRouterConfigSchema = z
 
 export const CompactionConfigSchema = z.object({
 	strategy: z.enum(['structured', 'sliding-window', 'disabled']).default('structured'),
+	/**
+	 * Optional model context-window size (tokens) the compaction trigger
+	 * measures the CURRENT window against. NO default: when omitted the
+	 * trigger falls back to the run-level cumulative `tokenBudget` exactly as
+	 * before, so existing consumers are byte-identical. Hosts that keep
+	 * `tokenBudget` unlimited (0) set this so compaction fires on
+	 * window-pressure instead of being a silent no-op.
+	 */
+	contextWindowTokens: z.number().positive().optional(),
 	triggerThreshold: z.number().min(0).max(1).default(0.7),
 	resetThreshold: z.number().min(0).max(1).default(0.4),
 	keepRecentMessages: z.number().positive().default(4),
