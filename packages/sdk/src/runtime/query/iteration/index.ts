@@ -880,6 +880,20 @@ export class IterationOrchestrator {
 					yield* this.ctx.drainPending()
 					iterSpan.end()
 				} catch (err) {
+					// A Stop that aborted the in-flight turn surfaces here as a
+					// thrown abort (the provider stream was raced against the run
+					// signal). Settle it as a CANCELLATION — mirroring the
+					// between-iteration cancel at the top of the loop — rather than
+					// recording it as an SDK failure (error span + failed activity)
+					// and re-throwing. The run then returns cleanly with a
+					// 'cancelled' stop reason instead of propagating an error.
+					if (this.ctx.abortController.signal.aborted) {
+						runMgr.setStopReason('cancelled')
+						runMgr.markCancelled()
+						iterSpan.end()
+						break
+					}
+
 					if (iterationActivity) {
 						this.ctx.activityStore.fail(iterationActivity.id, toErrorMessage(err))
 					}
