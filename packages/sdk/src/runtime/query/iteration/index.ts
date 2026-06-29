@@ -195,8 +195,35 @@ async function* streamProviderTurn(
 
 	const stream = provider.chatStream({ ...params, stream: true }) as AsyncIterable<StreamChunk>
 
+	// Drive the stream manually so each `.next()` can be RACED against the run
+	// abort: a Stop tears the in-flight model request down (the provider got
+	// `params.signal`), and we ALSO stop pulling within a tick even if a
+	// transport buffers or ignores the signal. The abort rejection propagates
+	// out of this generator so the run loop settles the turn as cancelled.
+	// `{ once: true }` keeps a multi-iteration run from leaking a listener/turn.
+	const it = stream[Symbol.asyncIterator]()
+	const signal = params.signal
+	let onAbort: (() => void) | undefined
+	const aborted: Promise<never> | undefined = signal
+		? new Promise<never>((_resolve, reject) => {
+				if (signal.aborted) {
+					reject(signal.reason)
+					return
+				}
+				onAbort = () => reject(signal.reason)
+				signal.addEventListener('abort', onAbort, { once: true })
+			})
+		: undefined
+
 	try {
-		for await (const chunk of stream) {
+		for (;;) {
+			const next = it.next()
+			// Neutralize the dangling loser so an eventual rejection of the
+			// un-awaited `next` is never an unhandled rejection.
+			if (aborted) next.catch(() => {})
+			const res = await (aborted ? Promise.race([next, aborted]) : next)
+			if (res.done) break
+			const chunk = res.value
 			if (chunk.error) {
 				streamError = chunk.error
 				break
@@ -298,7 +325,18 @@ async function* streamProviderTurn(
 			if (chunk.usage) usage = chunk.usage
 		}
 	} catch (err) {
+		// An abort tears the turn down: propagate it so the run loop settles the
+		// run as cancelled rather than recording a normal (errored) turn. Any
+		// other stream error is captured into the synthesized response as before.
+		if (signal?.aborted) throw err
 		streamError = err instanceof Error ? err.message : String(err)
+	} finally {
+		if (onAbort) signal?.removeEventListener('abort', onAbort)
+		// Release the underlying connection on every exit (natural end, error,
+		// or abort). `for await` did this implicitly on natural completion; the
+		// manual drive must do it explicitly. `.return()` on an already-finished
+		// provider generator is a no-op.
+		await it.return?.().catch(() => {})
 	}
 
 	// Flush any tool buckets the provider failed to close (no toolCallEnd
@@ -627,6 +665,10 @@ export class IterationOrchestrator {
 							temperature: runConfig.temperature,
 							maxTokens: runConfig.maxResponseTokens,
 							cacheControl: { type: 'auto' },
+							// Thread the run abort into the model call so a Stop tears the
+							// in-flight turn down (provider passes it to fetch; the consumer
+							// also races it). Inert when never aborted.
+							signal: this.ctx.abortController.signal,
 						},
 						this.ctx.emitEvent,
 						this.ctx.drainPending,
@@ -784,6 +826,16 @@ export class IterationOrchestrator {
 							hasToolCalls: false,
 						})
 						yield* this.ctx.drainPending()
+						// A Stop that lands AFTER the final turn streamed but before
+						// this break must settle the run as cancelled, not end_turn —
+						// otherwise the just-produced answer is recorded as a clean
+						// completion. Mirrors the between-iteration cancel at :511.
+						if (this.ctx.abortController.signal.aborted) {
+							runMgr.setStopReason('cancelled')
+							runMgr.markCancelled()
+							iterSpan.end()
+							break
+						}
 						runMgr.setStopReason('end_turn')
 						iterSpan.end()
 						break
@@ -974,6 +1026,9 @@ export class IterationOrchestrator {
 					temperature: this.ctx.runConfig.temperature,
 					maxTokens: this.ctx.runConfig.maxResponseTokens,
 					cacheControl: { type: 'auto' },
+					// Cancellable too: a Stop during the closing summary must not
+					// stream to completion.
+					signal: this.ctx.abortController.signal,
 				}),
 			)
 

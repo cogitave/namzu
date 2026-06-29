@@ -156,24 +156,31 @@ export class OpenAIProvider implements LLMProvider {
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
 		const model = this.resolveModel(params)
 
-		const stream = await this.client.chat.completions.create({
-			model,
-			messages: toOpenAIMessages(params.messages),
-			stream: true,
-			stream_options: { include_usage: true },
-			tools: toOpenAITools(params),
-			tool_choice: formatToolChoice(params.toolChoice),
-			parallel_tool_calls: params.parallelToolCalls,
-			temperature: params.temperature,
-			max_tokens: params.maxTokens,
-			top_p: params.topP,
-			frequency_penalty: params.frequencyPenalty,
-			presence_penalty: params.presencePenalty,
-			stop: params.stop,
-			response_format: params.responseFormat,
-		})
+		const stream = await this.client.chat.completions.create(
+			{
+				model,
+				messages: toOpenAIMessages(params.messages),
+				stream: true,
+				stream_options: { include_usage: true },
+				tools: toOpenAITools(params),
+				tool_choice: formatToolChoice(params.toolChoice),
+				parallel_tool_calls: params.parallelToolCalls,
+				temperature: params.temperature,
+				max_tokens: params.maxTokens,
+				top_p: params.topP,
+				frequency_penalty: params.frequencyPenalty,
+				presence_penalty: params.presencePenalty,
+				stop: params.stop,
+				response_format: params.responseFormat,
+			},
+			// Per-request abort: a Stop tears the in-flight SSE request down.
+			{ signal: params.signal },
+		)
 
 		for await (const chunk of stream) {
+			// Stop pulling promptly on abort; `for await` calls the stream's
+			// `.return()` on this throw, releasing the connection.
+			params.signal?.throwIfAborted()
 			try {
 				const choice = chunk.choices[0]
 				const delta = choice?.delta

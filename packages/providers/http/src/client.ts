@@ -318,8 +318,11 @@ export class HttpProvider implements LLMProvider {
 			: joinUrl(this.config.baseURL, '/chat/completions')
 	}
 
-	private timeoutSignal(): AbortSignal {
-		return AbortSignal.timeout(this.config.timeout ?? DEFAULT_TIMEOUT_MS)
+	private timeoutSignal(extra?: AbortSignal): AbortSignal {
+		const timeout = AbortSignal.timeout(this.config.timeout ?? DEFAULT_TIMEOUT_MS)
+		// Compose the caller abort with the request timeout so a Stop cancels the
+		// fetch. No caller signal ⇒ the exact prior timeout-only expression.
+		return extra ? AbortSignal.any([timeout, extra]) : timeout
 	}
 
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
@@ -333,7 +336,7 @@ export class HttpProvider implements LLMProvider {
 			method: 'POST',
 			headers: this.getHeaders(),
 			body: JSON.stringify(body),
-			signal: this.timeoutSignal(),
+			signal: this.timeoutSignal(params.signal),
 		})
 
 		if (!response.ok) {
@@ -346,9 +349,9 @@ export class HttpProvider implements LLMProvider {
 		}
 
 		if (this.dialect === 'anthropic') {
-			yield* this.streamAnthropic(response.body, url, response.status)
+			yield* this.streamAnthropic(response.body, url, response.status, params.signal)
 		} else {
-			yield* this.streamOpenAI(response.body, url, response.status)
+			yield* this.streamOpenAI(response.body, url, response.status, params.signal)
 		}
 	}
 
@@ -356,6 +359,7 @@ export class HttpProvider implements LLMProvider {
 		body: ReadableStream<Uint8Array>,
 		url: string,
 		status: number,
+		signal?: AbortSignal,
 	): AsyncIterable<StreamChunk> {
 		const reader = body.getReader()
 		const decoder = new TextDecoder()
@@ -364,6 +368,7 @@ export class HttpProvider implements LLMProvider {
 
 		try {
 			while (true) {
+				signal?.throwIfAborted()
 				const { done, value } = await reader.read()
 				if (done) break
 
@@ -446,6 +451,7 @@ export class HttpProvider implements LLMProvider {
 		body: ReadableStream<Uint8Array>,
 		url: string,
 		status: number,
+		signal?: AbortSignal,
 	): AsyncIterable<StreamChunk> {
 		const reader = body.getReader()
 		const decoder = new TextDecoder()
@@ -458,6 +464,7 @@ export class HttpProvider implements LLMProvider {
 
 		try {
 			while (true) {
+				signal?.throwIfAborted()
 				const { done, value } = await reader.read()
 				if (done) break
 

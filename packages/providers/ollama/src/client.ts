@@ -84,26 +84,42 @@ export class OllamaProvider implements LLMProvider {
 			...(Object.keys(options).length > 0 ? { options } : {}),
 		})
 
+		// Wire the caller abort to the iterator's real teardown: `stream.abort()`
+		// calls the underlying AbortController so the fetch is cancelled and the
+		// ollama server stops generating. A bare for-await `.return()` does NOT
+		// release the connection (the SDK's reader loop has no teardown), so
+		// without this a Stop leaves the model generating. No-op / byte-identical
+		// when the signal never aborts.
+		const signal = params.signal
+		const onAbort = () => stream.abort()
+		if (signal?.aborted) stream.abort()
+		else signal?.addEventListener('abort', onAbort, { once: true })
+
 		const id = randomUUID()
 
-		for await (const chunk of stream) {
-			const content = chunk.message?.content
-			if (content && content.length > 0) {
-				yield {
-					id,
-					delta: { content },
+		try {
+			for await (const chunk of stream) {
+				signal?.throwIfAborted()
+				const content = chunk.message?.content
+				if (content && content.length > 0) {
+					yield {
+						id,
+						delta: { content },
+					}
 				}
-			}
 
-			if (chunk.done === true) {
-				const usage = buildUsage(chunk)
-				yield {
-					id,
-					delta: {},
-					finishReason: 'stop',
-					usage,
+				if (chunk.done === true) {
+					const usage = buildUsage(chunk)
+					yield {
+						id,
+						delta: {},
+						finishReason: 'stop',
+						usage,
+					}
 				}
 			}
+		} finally {
+			signal?.removeEventListener('abort', onAbort)
 		}
 	}
 
