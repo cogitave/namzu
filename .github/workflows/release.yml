@@ -81,6 +81,12 @@ jobs:
           commit: "chore(release): version packages"
           title: "chore(release): version packages"
           createGithubReleases: true
+          # Scoped PAT (Contents + Pull requests: write, this repo only) so the
+          # action can OPEN the "Version Packages" PR. The org default GITHUB_TOKEN
+          # is read-only AND org policy forbids Actions from creating PRs, so the
+          # default token can version/commit/push but NOT open the PR — that was
+          # the release-pipeline breakage. Falls back to GITHUB_TOKEN when unset.
+          github-token: ${{ secrets.CHANGESETS_TOKEN || secrets.GITHUB_TOKEN }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
