@@ -145,6 +145,8 @@ export { LocalTaskGateway } from './gateway/local.js'
 
 export {
 	DuplicateProviderError,
+	LazyProviderLoadError,
+	LazyProviderSyncCreateError,
 	MOCK_CAPABILITIES,
 	MockLLMProvider,
 	PERMISSIVE_PROVIDER_CAPABILITIES,

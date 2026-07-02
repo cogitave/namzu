@@ -70,4 +70,40 @@ export interface RegisterOptions {
 	replace?: boolean
 }
 
+/**
+ * What a lazy loader must resolve to: a factory that constructs the
+ * provider, plus (optionally) the provider package's authoritative
+ * capability declaration resolved at load time.
+ *
+ * Designed so a host can map a dynamic import in one line:
+ *
+ * ```ts
+ * ProviderRegistry.registerLazy('anthropic', async () => {
+ *   const m = await import('@namzu/anthropic')
+ *   return { create: (c) => new m.AnthropicProvider(c), capabilities: m.ANTHROPIC_CAPABILITIES }
+ * })
+ * ```
+ */
+export interface LazyProviderModule<C = unknown> {
+	create: (config: C) => LLMProvider
+	/**
+	 * Authoritative type-level capabilities shipped by the loaded module.
+	 * When present, replaces any registration-time hint in the registry.
+	 */
+	capabilities?: ProviderCapabilities
+}
+
+export type LazyProviderLoader<C = unknown> = () => Promise<LazyProviderModule<C>>
+
+export interface RegisterLazyOptions extends RegisterOptions {
+	/**
+	 * Pre-load capability HINT so `ProviderRegistry.getCapabilities(type)`
+	 * can answer without triggering the loader. Precedence (weakest first):
+	 * this hint → the loaded module's `capabilities` → the constructed
+	 * instance's own `LLMProvider.capabilities` (what the query runtime
+	 * resolves via `resolveProviderCapabilities` and actually respects).
+	 */
+	capabilities?: ProviderCapabilities
+}
+
 export type LLMProviderConstructor<C = unknown> = new (config: C) => LLMProvider

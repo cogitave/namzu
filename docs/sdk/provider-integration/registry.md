@@ -1,7 +1,7 @@
 ---
 title: Provider Registry
 description: How provider packages register with ProviderRegistry, how to create providers safely, and how to hand them into agents.
-last_updated: 2026-04-18
+last_updated: 2026-07-02
 status: current
 related_packages: ["@namzu/sdk", "@namzu/openai", "@namzu/anthropic", "@namzu/bedrock", "@namzu/openrouter", "@namzu/http", "@namzu/ollama", "@namzu/lmstudio"]
 ---
@@ -87,8 +87,11 @@ That capability object is useful when your application wants to make decisions s
 | Method | Purpose |
 | --- | --- |
 | `register(type, ctor, capabilities, options?)` | Register a provider package manually |
-| `create(config)` | Create `{ provider, capabilities }` in one step |
-| `createProvider(config)` | Create only the provider instance |
+| `registerLazy(type, loader, options?)` | Register a loader without importing the provider implementation |
+| `create(config)` | Create `{ provider, capabilities }` in one step (eager registrations only) |
+| `createAsync(config)` | Async twin of `create()`; works for eager and lazy registrations |
+| `createProvider(config)` | Create only the provider instance (eager registrations only) |
+| `createProviderAsync(config)` | Async twin of `createProvider()`; loads lazy types on first use |
 | `getCapabilities(type)` | Read declared capabilities for a provider type |
 | `isSupported(type)` | Check if a provider type has been registered |
 | `listTypes()` | List currently registered provider types |
@@ -96,7 +99,42 @@ That capability object is useful when your application wants to make decisions s
 
 Most applications only need `register...()` plus `ProviderRegistry.create(...)`.
 
-## 6. Direct Provider Calls vs Agent Runtime
+## 6. Lazy Registration (`registerLazy`)
+
+`register...()` helpers import the provider client eagerly, so an app that registers all seven published providers bundles all seven client SDKs into every entrypoint. Hosts that must avoid that (server routes, edge bundles, serverless cold starts) register a **loader** instead:
+
+```ts
+import { ProviderRegistry } from '@namzu/sdk'
+
+ProviderRegistry.registerLazy(
+  'anthropic',
+  async () => {
+    const m = await import('@namzu/anthropic')
+    return { create: (config) => new m.AnthropicProvider(config), capabilities: m.ANTHROPIC_CAPABILITIES }
+  },
+  { capabilities: { supportsTools: true, supportsStreaming: true, supportsFunctionCalling: true } },
+)
+
+const { provider, capabilities } = await ProviderRegistry.createAsync({
+  type: 'anthropic',
+  apiKey: process.env.ANTHROPIC_API_KEY!,
+})
+```
+
+Semantics:
+
+- registration never invokes the loader; the first `createAsync()` for the type awaits it, validates the resolved `{ create }` module, and caches the factory
+- subsequent creates reuse the cache; concurrent first-creates share a single in-flight load
+- only success is cached — a rejected load surfaces as `LazyProviderLoadError` (with the original failure as `cause`) and the next `createAsync()` retries the loader
+- lazy types are only constructible through `createAsync()` / `createProviderAsync()`; the sync `create()` / `createProvider()` throws `LazyProviderSyncCreateError` deterministically, even after the loader has resolved
+
+Capability precedence (weakest first):
+
+1. `options.capabilities` — a pre-load hint so `getCapabilities(type)` can answer without loading (no hint ⇒ the permissive default, matching how `resolveProviderCapabilities` treats an undeclared provider)
+2. the loaded module's `capabilities` — replaces the hint once loaded
+3. the constructed instance's own `LLMProvider.capabilities` — the query runtime negotiates against the instance, so if it differs from the registry's answer, the instance wins where it matters
+
+## 7. Direct Provider Calls vs Agent Runtime
 
 Direct provider calls are useful for:
 
@@ -154,7 +192,7 @@ const result = await agent.run(
 console.log(result.result)
 ```
 
-## 7. Registration Lifetime
+## 8. Registration Lifetime
 
 The recommended application pattern is:
 
@@ -163,16 +201,18 @@ The recommended application pattern is:
 
 Do not call `register...()` before every request. Registration is process-level catalog setup, not per-run work.
 
-## 8. Common Errors
+## 9. Common Errors
 
 | Error | Meaning | Fix |
 | --- | --- | --- |
 | `Unsupported provider type` | The provider package was never registered | Call `registerOpenAI()` or the matching helper before `create()` |
 | `Provider type "x" is already registered` | The same provider was registered twice | Register once, or pass `{ replace: true }` intentionally |
+| `Provider type "x" is registered lazily` | Sync `create()`/`createProvider()` was called for a `registerLazy()` type | Use `createAsync()` / `createProviderAsync()` |
+| `Failed to load lazy provider "x"` | The lazy loader rejected or resolved an invalid module | Inspect `cause`; fix the import mapping — the next `createAsync()` retries |
 | provider-specific missing credential error | Required config such as `apiKey` was not supplied | Fix the package config before creating the provider |
 | missing model error on `chat()` | Neither provider config nor `chat()` params supplied a model | Set a default model in config or pass `model` per call |
 
-## 9. Optional Provider Methods
+## 10. Optional Provider Methods
 
 The `LLMProvider` contract always requires:
 
@@ -192,7 +232,7 @@ That makes the registry useful beyond agent runtime. You can use the same provid
 
 Read [Provider Operations](./operations.md) if you want concrete direct-call patterns for those optional methods.
 
-## 10. Related Decisions
+## 11. Related Decisions
 
 Use the registry layer when:
 

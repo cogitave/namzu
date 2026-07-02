@@ -16,5 +16,8 @@ export type {
 	ProviderCapabilities,
 	ProviderFactoryResult,
 	RegisterOptions,
+	LazyProviderModule,
+	LazyProviderLoader,
+	RegisterLazyOptions,
 	LLMProviderConstructor,
 } from './config.js'
