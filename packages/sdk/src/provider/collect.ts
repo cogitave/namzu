@@ -1,3 +1,4 @@
+import { mergeTokenUsage } from '../types/common/index.js'
 import type { ChatCompletionResponse } from '../types/provider/chat.js'
 import type { StreamChunk } from '../types/provider/stream.js'
 
@@ -60,7 +61,9 @@ export async function collect(stream: AsyncIterable<StreamChunk>): Promise<ChatC
 		}
 
 		if (chunk.finishReason) finishReason = chunk.finishReason
-		if (chunk.usage) usage = chunk.usage
+		// Merge (per-field max), not last-write-wins: a late frame that omits
+		// input/cache tokens must not zero the counts captured earlier in the stream.
+		if (chunk.usage) usage = mergeTokenUsage(usage, chunk.usage)
 	}
 
 	const toolCalls = [...toolBuckets.entries()]

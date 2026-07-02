@@ -43,6 +43,8 @@ import { RunContextFactory } from './context.js'
 import { EventTranslator } from './events.js'
 import { GuardCoordinator } from './guard.js'
 import { IterationOrchestrator } from './iteration/index.js'
+import { isCompactionMessage } from './iteration/phases/compaction.js'
+import { isWorkingMemoryMessage } from './iteration/phases/working-memory.js'
 import { applyLifecycleHookResults } from './plugin-hooks.js'
 import { PromptBuilder } from './prompt.js'
 import type { PromptSegments } from './prompt.js'
@@ -425,7 +427,18 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 
 				pushSystemMessages()
 				for (const msg of checkpoint.messages) {
-					if (msg.role === 'system') continue
+					if (msg.role === 'system') {
+						// Re-push the FRESH static/dynamic floor (done above) but PRESERVE
+						// the two system messages that carry irreplaceable run state: the
+						// `[COMPACTED CONTEXT]` summary is the only surviving record of the
+						// older history a compaction pass deleted, and the working-memory
+						// slot pins the produced-artifact ledger. Dropping every system
+						// message on restore silently lost both on resume.
+						if (isCompactionMessage(msg.content) || isWorkingMemoryMessage(msg.content)) {
+							ctx.runMgr.pushMessage(msg)
+						}
+						continue
+					}
 					ctx.runMgr.pushMessage(msg)
 				}
 			} else if (params.continuationMode) {
