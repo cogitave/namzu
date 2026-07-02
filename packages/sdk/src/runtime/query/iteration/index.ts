@@ -10,6 +10,7 @@ import type { ActivityStore } from '../../../store/activity/memory.js'
 import { GENAI, NAMZU, agentIterationSpanName } from '../../../telemetry/attributes.js'
 import { getTracer } from '../../../telemetry/runtime-accessors.js'
 import type { WorkingMemoryProvider } from '../../../types/agent/working-memory.js'
+import { mergeTokenUsage } from '../../../types/common/index.js'
 import type { ResumeHandler } from '../../../types/hitl/index.js'
 import type { ToolUseId } from '../../../types/ids/index.js'
 import { createAssistantMessage, createUserMessage } from '../../../types/message/index.js'
@@ -322,7 +323,10 @@ async function* streamProviderTurn(
 			}
 
 			if (chunk.finishReason) finishReason = chunk.finishReason
-			if (chunk.usage) usage = chunk.usage
+			// Merge (per-field max), not last-write-wins: a late usage frame that
+			// omits input/cache tokens must not zero the counts seen earlier in the
+			// stream, which would under-report this turn's accumulated usage.
+			if (chunk.usage) usage = mergeTokenUsage(usage, chunk.usage)
 		}
 	} catch (err) {
 		// An abort tears the turn down: propagate it so the run loop settles the

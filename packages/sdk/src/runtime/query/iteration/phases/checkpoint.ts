@@ -1,6 +1,11 @@
 import type { RunEvent } from '../../../../types/run/index.js'
 import { CheckpointManager } from '../../checkpoint.js'
-import { type IterationContext, type PhaseSignal, handleHITLDecision } from './context.js'
+import {
+	type IterationContext,
+	type PhaseSignal,
+	awaitDecisionOrAbort,
+	handleHITLDecision,
+} from './context.js'
 
 export async function* runIterationCheckpoint(
 	ctx: IterationContext,
@@ -17,7 +22,7 @@ export async function* runIterationCheckpoint(
 	yield* ctx.drainPending()
 
 	const summary = CheckpointManager.buildSummary(ctx.runMgr, iterationNum)
-	const iterDecision = await ctx.resumeHandler({
+	const iterDecision = await awaitDecisionOrAbort(ctx, {
 		type: 'iteration_checkpoint',
 		runId: ctx.runMgr.id,
 		checkpointId: iterCheckpoint.id,

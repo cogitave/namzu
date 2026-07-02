@@ -18,6 +18,7 @@
 
 import { describe, expect, it, vi } from 'vitest'
 
+import { findDanglingMessages } from '../../../../compaction/dangling.js'
 import { WorkingStateManager } from '../../../../compaction/manager.js'
 import { CompactionConfigSchema } from '../../../../config/runtime.js'
 import type { RunId } from '../../../../types/ids/index.js'
@@ -25,6 +26,7 @@ import {
 	type Message,
 	createAssistantMessage,
 	createSystemMessage,
+	createToolMessage,
 	createUserMessage,
 } from '../../../../types/message/index.js'
 import type { Logger } from '../../../../utils/logger.js'
@@ -170,5 +172,44 @@ describe('Layer-B compaction seam (ses_055 #104)', () => {
 		await refreshWorkingMemory(throwingCtx)
 		// Prior slot retained; run not broken.
 		expect(messages.some((m) => m.content?.startsWith(WORKING_MEMORY_HEADER))).toBe(true)
+	})
+
+	it('does NOT orphan a tool_result when the recent-window cut splits a tool pair (C1)', async () => {
+		// keepRecentMessages defaults to 4. Lay the transcript out so the NAIVE
+		// cut (length - 4 = index 5) lands right AFTER the assistant-with-toolCall
+		// (index 4) but BEFORE... no — exactly ON its tool result (index 5), which
+		// a naive slice would keep in the recent window while dropping the
+		// assistant into the summarized older set → an orphaned tool_result at the
+		// head of the recent window → Anthropic 400. The fix snaps keepStart
+		// forward past the complete pair.
+		const toolCall = {
+			id: 't1',
+			type: 'function' as const,
+			function: { name: 'read', arguments: '{}' },
+		}
+		const messages: Message[] = [
+			createSystemMessage(`STATIC SYSTEM PROMPT ${FILLER}`, 'cache'),
+			createUserMessage(`user 0 ${FILLER}`),
+			createAssistantMessage(`assistant 0 ${FILLER}`),
+			createUserMessage(`user 1 ${FILLER}`),
+			createAssistantMessage(`calling a tool ${FILLER}`, [toolCall]), // idx 4
+			createToolMessage(`tool result ${FILLER}`, 't1'), // idx 5 — naive recent[0]
+			createAssistantMessage(`assistant 2 ${FILLER}`),
+			createUserMessage(`user 3 ${FILLER}`),
+			createAssistantMessage(`assistant 3 ${FILLER}`),
+		]
+		const ctx = makeCtx({ messages, contextWindowTokens: 100 })
+
+		await runCompactionCheck(ctx)
+
+		// Compaction fired.
+		expect(messages.some((m) => m.content?.includes('[COMPACTED CONTEXT]'))).toBe(true)
+		// The surviving transcript has NO dangling tool pair — the tool result
+		// whose assistant was summarized away was moved into the older set too,
+		// so no orphaned tool_result remains to 400 the next provider turn.
+		expect(findDanglingMessages(messages).isValid).toBe(true)
+		// And a `tool` message never leads the recent window.
+		const firstNonSystem = messages.find((m) => m.role !== 'system')
+		expect(firstNonSystem?.role).not.toBe('tool')
 	})
 })
