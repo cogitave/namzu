@@ -77,6 +77,57 @@ export interface IterationContext {
 
 export type PhaseSignal = 'continue' | 'stop'
 
+/**
+ * Await a HITL `resumeHandler` decision, but RACE it against the run's abort
+ * signal. A Stop that arrives while the run is parked on a tool-review or
+ * iteration checkpoint used to do nothing until the host eventually answered
+ * (the park await was not cancellable). Racing the signal lets a Stop resolve
+ * the park immediately as an `abort` decision, which `handleHITLDecision`
+ * turns into `setStopReason('cancelled') + markCancelled + stop`. Fails closed:
+ * a resume-handler rejection also resolves to `abort` rather than hanging.
+ */
+export async function awaitDecisionOrAbort(
+	ctx: IterationContext,
+	request: Parameters<ResumeHandler>[0],
+): Promise<HITLResumeDecision> {
+	const signal = ctx.abortController?.signal
+	// No abort signal wired (e.g. a minimal test harness) → behave exactly as a
+	// direct resumeHandler await, no race. In production RunContextFactory always
+	// provides the controller, so the race below is live.
+	if (!signal) return ctx.resumeHandler(request)
+	const abortDecision: HITLResumeDecision = {
+		action: 'abort',
+		reason: 'run aborted while parked for HITL',
+	}
+	if (signal.aborted) return abortDecision
+	return new Promise<HITLResumeDecision>((resolve) => {
+		let settled = false
+		const onAbort = (): void => {
+			if (settled) return
+			settled = true
+			resolve(abortDecision)
+		}
+		signal.addEventListener('abort', onAbort, { once: true })
+		Promise.resolve(ctx.resumeHandler(request)).then(
+			(decision) => {
+				if (settled) return
+				settled = true
+				signal.removeEventListener('abort', onAbort)
+				resolve(decision)
+			},
+			(err) => {
+				if (settled) return
+				settled = true
+				signal.removeEventListener('abort', onAbort)
+				resolve({
+					action: 'abort',
+					reason: err instanceof Error ? err.message : 'resume handler failed',
+				})
+			},
+		)
+	})
+}
+
 export async function* handleHITLDecision(
 	ctx: IterationContext,
 	decision: HITLResumeDecision,

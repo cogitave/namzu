@@ -1,16 +1,16 @@
 import { readFile, rm } from 'node:fs/promises'
+import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { mkdtemp } from 'node:fs/promises'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { EditTool, WriteFileTool } from '../../../tools/builtins/index.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { LLMProvider, StreamChunk } from '../../../types/provider/index.js'
 import type { RunEvent } from '../../../types/run/index.js'
 import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
-import { EditTool, WriteFileTool } from '../../../tools/builtins/index.js'
 import { drainQuery } from '../index.js'
 
 const ZERO_USAGE = {
@@ -161,7 +161,10 @@ describe('query long-document tool flow', () => {
 
 		const final = await readFile(join(workingDirectory, 'outputs/long-document-flow.md'), 'utf-8')
 		const executingTools = events
-			.filter((event): event is Extract<RunEvent, { type: 'tool_executing' }> => event.type === 'tool_executing')
+			.filter(
+				(event): event is Extract<RunEvent, { type: 'tool_executing' }> =>
+					event.type === 'tool_executing',
+			)
 			.map((event) => event.toolName)
 
 		expect(run.status).toBe('completed')

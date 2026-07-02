@@ -267,6 +267,8 @@ export class BedrockProvider implements LLMProvider {
 
 		const response = await this.client.send(command, {
 			requestTimeout: this.config.timeout ?? 120_000,
+			// Per-request abort: a Stop tears the in-flight Converse stream down.
+			abortSignal: params.signal,
 		})
 
 		if (!response.stream) {
@@ -279,6 +281,9 @@ export class BedrockProvider implements LLMProvider {
 		let toolCallIndex = 0
 
 		for await (const event of response.stream as AsyncIterable<ConverseStreamOutput>) {
+			// Stop pulling promptly on abort; `for await` calls the stream's
+			// `.return()` on this throw, releasing the connection.
+			params.signal?.throwIfAborted()
 			try {
 				if ('contentBlockDelta' in event && event.contentBlockDelta?.delta) {
 					const delta = event.contentBlockDelta.delta

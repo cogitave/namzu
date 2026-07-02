@@ -20,7 +20,7 @@
  * `{"kind":"error",…}` line (exit 0) so the host surfaces them in-band.
  */
 
-import { configureLogger, type Message } from '@namzu/sdk'
+import { type Message, configureLogger } from '@namzu/sdk'
 
 import type { DetectedProvider, Preferences, ProviderId } from '../integrations/providers/index.js'
 import {
@@ -80,10 +80,50 @@ function parseRunStreamFlags(rawArgs: readonly string[]): RunStreamFlags {
 	}
 	for (const idx = { v: 0 }; idx.v < rawArgs.length; idx.v++) {
 		const a = rawArgs[idx.v]
-		if (take(a, 'session', (v) => (out.session = v.trim() || null), idx)) continue
-		if (take(a, 'model', (v) => (out.model = v.trim() || null), idx)) continue
-		if (take(a, 'provider', (v) => (out.provider = v.trim() || null), idx)) continue
-		if (take(a, 'instance', (v) => (out.instance = v.trim() || null), idx)) continue
+		if (
+			take(
+				a,
+				'session',
+				(v) => {
+					out.session = v.trim() || null
+				},
+				idx,
+			)
+		)
+			continue
+		if (
+			take(
+				a,
+				'model',
+				(v) => {
+					out.model = v.trim() || null
+				},
+				idx,
+			)
+		)
+			continue
+		if (
+			take(
+				a,
+				'provider',
+				(v) => {
+					out.provider = v.trim() || null
+				},
+				idx,
+			)
+		)
+			continue
+		if (
+			take(
+				a,
+				'instance',
+				(v) => {
+					out.instance = v.trim() || null
+				},
+				idx,
+			)
+		)
+			continue
 		if (
 			take(
 				a,

@@ -95,10 +95,19 @@ export class LMStudioProvider implements LLMProvider {
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
 		const modelId = this.resolveModel(params)
 		const model = await this.client.llm.model(modelId)
-		const prediction = model.respond(toLMStudioChat(params.messages))
+		// Pass the caller abort so the SDK sends the real server-side cancel
+		// (LLMPredictionOpts.signal → websocket cancel). `.return()` from the
+		// for-await alone does NOT cancel the prediction, so without this a Stop
+		// leaves the local model generating. No-op when the signal never aborts.
+		const prediction = model.respond(toLMStudioChat(params.messages), {
+			signal: params.signal,
+		})
 
 		const id = randomUUID()
 		for await (const fragment of prediction) {
+			// Cheap promptness check between fragments (the signal above is the
+			// real teardown).
+			params.signal?.throwIfAborted()
 			if (fragment.content) {
 				yield {
 					id,

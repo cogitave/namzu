@@ -139,11 +139,17 @@ export class OpenRouterProvider implements LLMProvider {
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
 		const body = this.buildRequestBody(params, true)
 
+		const timeout = AbortSignal.timeout(this.config.timeout ?? 120_000)
+		// Compose the caller abort with the request timeout so a Stop cancels the
+		// response body stream. When no caller signal is present this is the exact
+		// prior `AbortSignal.timeout(...)` expression (byte-identical).
+		const signal = params.signal ? AbortSignal.any([timeout, params.signal]) : timeout
+
 		const response = await fetch(`${this.baseUrl}/chat/completions`, {
 			method: 'POST',
 			headers: this.getHeaders(),
 			body: JSON.stringify(body),
-			signal: AbortSignal.timeout(this.config.timeout ?? 120_000),
+			signal,
 		})
 
 		if (!response.ok) {
@@ -161,6 +167,7 @@ export class OpenRouterProvider implements LLMProvider {
 
 		try {
 			while (true) {
+				params.signal?.throwIfAborted()
 				const { done, value } = await reader.read()
 				if (done) break
 

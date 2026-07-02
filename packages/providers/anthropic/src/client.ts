@@ -461,17 +461,25 @@ export class AnthropicProvider implements LLMProvider {
 	 * Casting via `unknown` keeps us out of `any` territory while acknowledging
 	 * that the translation layer bridges two type worlds.
 	 */
-	private createRaw(body: Record<string, unknown>): Promise<unknown> {
+	private createRaw(
+		body: Record<string, unknown>,
+		opts?: { signal?: AbortSignal },
+	): Promise<unknown> {
 		const create = this.client.messages.create as unknown as (
 			body: Record<string, unknown>,
+			options?: { signal?: AbortSignal },
 		) => Promise<unknown>
-		return create.call(this.client.messages, body)
+		// Pass the caller AbortSignal as the SDK's per-request RequestOptions so
+		// aborting it tears down the in-flight HTTP/2 SSE request (rejects with
+		// APIUserAbortError). A non-aborted signal is identical to omitting it.
+		return create.call(this.client.messages, body, { signal: opts?.signal })
 	}
 
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
 		const createParams = this.buildCreateParams(params, true)
+		const signal = params.signal
 
-		const stream = (await this.createRaw(createParams)) as AsyncIterable<StreamEvent>
+		const stream = (await this.createRaw(createParams, { signal })) as AsyncIterable<StreamEvent>
 
 		let messageId = ''
 		// Track active tool-use blocks by content_block index so input_json_delta
@@ -513,6 +521,9 @@ export class AnthropicProvider implements LLMProvider {
 
 		try {
 			for (;;) {
+				// Cheap between-chunk abort check: if a Stop fired, stop pulling
+				// (the runtime also races this, and the SDK request is aborted).
+				signal?.throwIfAborted()
 				const result = await nextWithIdleTimeout()
 				if (result.done) break
 				const event = result.value
