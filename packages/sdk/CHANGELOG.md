@@ -1,5 +1,91 @@
 # Changelog
 
+## 1.2.0
+
+### Minor Changes
+
+- cc6b5f3: Pluggable checkpoint persistence with cadence and growth controls.
+
+  Iteration checkpoints now flow through a new `CheckpointStore` interface
+  (`types/run/checkpoint-store.ts`) keyed by the full run scope
+  (`tenantId`/`projectId`/`sessionId`/`runId`) instead of a filesystem
+  path, so hosts can persist mid-turn resume state in a shared backend
+  (e.g. Postgres) that survives machine loss:
+
+  - `QueryParams.checkpointStore?` injects a store per run (mirrors the
+    existing `pathBuilder?` override); the disk layout under the run's
+    output directory remains the default via the new exported
+    `DiskCheckpointStore` conformance adapter over `RunDiskStore`.
+  - `RunPersistenceConfig.checkpointStore?` +
+    `RunPersistence.getCheckpointStore()`/`getRunScope()` expose the same
+    seam to embedded callers.
+  - The replay entry points (`listCheckpoints`, `prepareReplayState`)
+    accept an optional `checkpointStore` + `scope` pair; their
+    disk-addressed `baseDir` inputs are unchanged.
+  - `CheckpointManager` now takes `(store: CheckpointStore, scope:
+CheckpointRunScope)` — a breaking constructor change for direct
+    constructions; the query pipeline threads it automatically.
+
+  Growth control on the run config, byte-identical by default:
+
+  - `AgentRunConfig.checkpointEvery?` (default 1 = every tool-call
+    iteration, today's behavior) checkpoints iterations 1, 1+N, 1+2N, …
+    and skips the HITL `iteration_checkpoint` park on off-cadence
+    iterations.
+  - `AgentRunConfig.pruneKeepLast?` (default undefined = never prune)
+    prunes the run's checkpoint set down to the newest N after each
+    iteration-checkpoint create.
+
+- f1f000c: Provider capability negotiation — degradation is now loud, not silent.
+
+  `LLMProvider` gains an optional `readonly capabilities?:
+ProviderCapabilities` (with a new `supportsVision?` flag on the type)
+  declaring what the DRIVER actually does with a request. Providers that
+  declare nothing resolve to the exported
+  `PERMISSIVE_PROVIDER_CAPABILITIES` constant (assume everything works —
+  exactly the previous behavior), so third-party providers are
+  unaffected. `resolveProviderCapabilities(provider)` performs the
+  per-field permissive merge.
+
+  `query()` consults the resolved capabilities before tooling bootstrap:
+
+  - Tools registered against a `supportsTools: false` driver → a loud
+    `log.warn`, a new `capability_warning` run event, and every tool
+    surface stripped (no `<available_tools>` prompt section, no `tools`
+    request param) so the model is never told about tools it cannot
+    call.
+  - Image attachments on user messages against a `supportsVision: false`
+    driver → `log.warn` + a `capability_warning` run event so the host
+    can surface that the images never reach the model.
+  - New `QueryParams.strictCapabilities?: boolean` (default `false`)
+    throws on either mismatch instead of degrading.
+
+  `RunEvent` gains the additive `capability_warning` variant
+  (`capability: 'tools' | 'vision'`, `providerId`, `message`); the
+  SSE/A2A bridges intentionally do not map it to a wire event yet.
+
+### Patch Changes
+
+- 30c755d: Remove the dead task-notification busy-wait that could hang a run for minutes.
+
+  When the model ended its turn while the task gateway still listed a running
+  agent task, the iteration loop polled an internal `pendingNotifications`
+  queue every 250ms for up to `runConfig.timeoutMs` (120s default) — but
+  nothing has pushed onto that queue since the `onTaskCompleted` listener was
+  removed: every dispatch tool (`create_task`, `continue_task`, `Agent`) is
+  blocking and already returns the worker's output as the dispatching
+  tool_use's canonical `tool_result`. The wait always injected nothing, then
+  re-invoked the model with an unchanged conversation, so runs with an orphaned
+  task (an interrupted tool execution, a cancel race) sporadically stalled for
+  multiples of the timeout before finishing with the answer they already had.
+
+  The superseded `<task-notification>` envelope path is now fully torn out
+  (`waitAndInjectNotifications`, `injectOneTaskNotification`, the
+  `pendingNotifications` queue and its XML/CDATA helpers). End-of-turn
+  semantics with orphan running tasks are explicit: the run ends normally
+  (`end_turn`) and a warning is logged that the orphans have no delivery path.
+  Runs without orphan tasks are byte-identical.
+
 ## 1.1.0
 
 ### Minor Changes
