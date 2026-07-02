@@ -100,10 +100,7 @@ export async function runCompactionCheck(ctx: IterationContext): Promise<void> {
 	// call when there is no older history to summarize). Scoped to the new
 	// contextWindowTokens path so any existing consumer (tokenBudget-only) keeps
 	// its exact prior behavior — byte-identical (ses_055 verify).
-	if (
-		config.contextWindowTokens != null &&
-		olderMessages.length < MIN_OLDER_MESSAGES_TO_COMPACT
-	) {
+	if (config.contextWindowTokens != null && olderMessages.length < MIN_OLDER_MESSAGES_TO_COMPACT) {
 		ctx.log.debug('Skipping compaction — too few older messages', {
 			runId: ctx.runMgr.id,
 			olderMessages: olderMessages.length,
