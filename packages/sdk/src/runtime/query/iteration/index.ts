@@ -1,35 +1,13 @@
 import { SpanStatusCode } from '@opentelemetry/api'
-import type { AdvisoryContext } from '../../../advisory/context.js'
 import { extractFromAssistantMessage } from '../../../compaction/extractor.js'
-import type { WorkingStateManager } from '../../../compaction/manager.js'
-import type { CompactionConfig } from '../../../config/runtime.js'
-import type { PlanManager } from '../../../manager/plan/lifecycle.js'
-import type { RunPersistence } from '../../../manager/run/persistence.js'
+import { AUTO_CONTINUATION_USER_MESSAGE } from '../../../constants/continuation.js'
 import { collect } from '../../../provider/collect.js'
-import type { ActivityStore } from '../../../store/activity/memory.js'
 import { GENAI, NAMZU, agentIterationSpanName } from '../../../telemetry/attributes.js'
 import { getTracer } from '../../../telemetry/runtime-accessors.js'
-import type { WorkingMemoryProvider } from '../../../types/agent/working-memory.js'
-import { mergeTokenUsage } from '../../../types/common/index.js'
-import type { ResumeHandler } from '../../../types/hitl/index.js'
-import type { ToolUseId } from '../../../types/ids/index.js'
 import { createAssistantMessage, createUserMessage } from '../../../types/message/index.js'
-import type {
-	ChatCompletionResponse,
-	LLMProvider,
-	StreamChunk,
-} from '../../../types/provider/index.js'
-import type { AgentRunConfig, RunEvent, StopReason } from '../../../types/run/index.js'
-import type { MessageStopReason } from '../../../types/run/stop-reason.js'
-import type { ToolRegistryContract } from '../../../types/tool/index.js'
+import type { RunEvent, StopReason } from '../../../types/run/index.js'
 import { toErrorMessage } from '../../../utils/error.js'
 import { generateMessageId } from '../../../utils/id.js'
-import type { Logger } from '../../../utils/logger.js'
-import type { CheckpointManager } from '../checkpoint.js'
-import { AUTO_CONTINUATION_USER_MESSAGE } from '../continuation.js'
-import type { EmitEvent } from '../events.js'
-import type { ToolExecutor } from '../executor.js'
-import type { GuardCoordinator } from '../guard.js'
 import { applyLifecycleHookResults } from '../plugin-hooks.js'
 import { runAdvisoryPhase } from './phases/advisory.js'
 import { runIterationCheckpoint } from './phases/checkpoint.js'
@@ -38,489 +16,17 @@ import type { IterationContext } from './phases/index.js'
 import { runPlanGate } from './phases/plan.js'
 import { runToolReview } from './phases/tool-review.js'
 import { refreshWorkingMemory } from './phases/working-memory.js'
+import { streamProviderTurn } from './stream-turn.js'
 
 export type { IterationContext } from './phases/index.js'
 export type { PhaseSignal } from './phases/index.js'
 export type { ToolReviewOutcome } from './phases/index.js'
 
-export interface IterationConfig {
-	provider: LLMProvider
-	runConfig: AgentRunConfig
-	tools: ToolRegistryContract
-	allowedTools?: string[]
-	taskGateway?: import('../../../types/agent/gateway.js').TaskGateway
-	taskStore?: import('../../../types/task/index.js').TaskStore
-	launchedTasks?: Map<
-		import('../../../types/ids/index.js').TaskId,
-		import('./phases/context.js').LaunchedTaskMeta
-	>
-	compactionConfig?: CompactionConfig
-	workingStateManager?: WorkingStateManager
-	workingMemoryProvider?: WorkingMemoryProvider
-	advisoryCtx?: AdvisoryContext
-	agentBus?: import('../../../bus/index.js').AgentBus
-	verificationGate?: import('../../../verification/gate.js').VerificationGate
-	pluginManager?: import('../../../plugin/lifecycle.js').PluginLifecycleManager
-}
-
-/**
- * Escape the five XML metacharacters so an interpolated value cannot
- * break out of a tag. Used for the simple identifier fields in the
- * `<task-notification>` envelope (taskId, agentId, status) — values
- * here are controlled enums / opaque ids in practice, but escaping
- * keeps the envelope robust against any future producer that lets a
- * `<` or `&` leak in.
- */
-function xmlEscape(value: string): string {
-	return value
-		.replace(/&/g, '&amp;')
-		.replace(/</g, '&lt;')
-		.replace(/>/g, '&gt;')
-		.replace(/"/g, '&quot;')
-		.replace(/'/g, '&apos;')
-}
-
-/**
- * Wrap free-form worker output in a CDATA section. CDATA preserves
- * the raw text — code, markdown angle brackets, ampersands — so the
- * supervisor sees what the worker actually produced instead of an
- * escape-encoded approximation. The only termination CDATA forbids
- * is the literal `]]>` sequence; we split-and-rejoin around it to
- * keep the section well-formed regardless of payload.
- */
-function cdataWrap(value: string): string {
-	return `<![CDATA[${value.replace(/]]>/g, ']]]]><![CDATA[>')}]]>`
-}
-
-/**
- * Map a provider's coarse `finishReason` plus the orchestrator's
- * `forceFinalize` flag onto the per-message {@link MessageStopReason}
- * union the v3 `message_completed` event surfaces.
- */
-function synthesizeMessageStopReason(
-	finishReason: 'stop' | 'tool_calls' | 'length' | 'content_filter',
-	forceFinalize: boolean,
-): MessageStopReason {
-	if (forceFinalize) return 'forced_finalize'
-	switch (finishReason) {
-		case 'tool_calls':
-			return 'tool_use'
-		case 'length':
-			return 'max_tokens'
-		case 'content_filter':
-			return 'refusal'
-		default:
-			return 'end_turn'
-	}
-}
-
-interface StreamingTurnResult {
-	response: ChatCompletionResponse
-	messageId: import('../../../types/ids/index.js').MessageId
-}
-
-/**
- * Consume a provider's streaming response and emit the v3 RunEvent
- * lifecycle natively (message_started → text_delta* + tool_input_*
- * → message_completed). Returns the aggregated `ChatCompletionResponse`
- * for downstream code that still expects the legacy shape (assistant
- * message construction, working-state extraction, telemetry attribute
- * stamping).
- *
- * Per-delta `emitEvent` calls are followed by a `drainPending()`
- * yield so SSE consumers see live progress instead of a burst at
- * end-of-message. The bus's ephemeral filter (D1) ensures these
- * deltas never hit transcript.jsonl.
- *
- * Edge cases (codex A3, A4, A5):
- * - Stream ends without `finishReason` (anthropic-sdk-typescript#842
- *   dropped message_stop): we still emit `message_completed` from a
- *   finally-style fall-through path with `stopReason: 'refusal'`.
- * - `tool_input_delta` with no `toolUseId` registered yet: we drop
- *   the fragment and log a warning (proxies seen to misorder events).
- * - `chunk.error`: when no tool input is recoverable, we surface as
- *   a thrown error after emitting the message_completed terminator so
- *   consumer cards still close. If a tool-use block was already open,
- *   we instead synthesize a tool call with runtime truncation metadata
- *   so the executor can return a model-readable retry hint.
- */
-async function* streamProviderTurn(
-	provider: LLMProvider,
-	params: import('../../../types/provider/index.js').ChatCompletionParams,
-	emitEvent: EmitEvent,
-	drainPending: () => Generator<RunEvent>,
-	runId: import('../../../types/ids/index.js').RunId,
-	iteration: number,
-	forceFinalize: boolean,
-	log: Logger,
-): AsyncGenerator<RunEvent, StreamingTurnResult> {
-	const messageId = generateMessageId()
-	await emitEvent({ type: 'message_started', runId, iteration, messageId })
-	yield* drainPending()
-
-	let id = ''
-	const model = ''
-	let textBuf = ''
-	let finishReason: ChatCompletionResponse['finishReason'] = 'stop'
-	let usage: ChatCompletionResponse['usage'] = {
-		promptTokens: 0,
-		completionTokens: 0,
-		totalTokens: 0,
-		cachedTokens: 0,
-		cacheWriteTokens: 0,
-	}
-	const toolBuckets = new Map<
-		number,
-		{
-			id: string
-			name: string
-			argsBuf: string
-			started: boolean
-			completed: boolean
-			/**
-			 * Parsed input. `null` while the bucket is still streaming.
-			 * The synthesized
-			 * `ChatCompletionResponse.toolCalls[].function.arguments` is
-			 * derived from this — never from the raw buffer — so the
-			 * downstream executor (`runtime/query/executor.ts`) never has
-			 * to re-parse a truncated string. A truncated tool call is
-			 * surfaced as `arguments: "{}"` plus `metadata.inputTruncated`
-			 * so tool args remain clean while the executor can still
-			 * return a specific retry hint.
-			 */
-			parsed: unknown | null
-			inputTruncated: boolean
-		}
-	>()
-	let streamError: string | undefined
-
-	const stream = provider.chatStream({ ...params, stream: true }) as AsyncIterable<StreamChunk>
-
-	// Drive the stream manually so each `.next()` can be RACED against the run
-	// abort: a Stop tears the in-flight model request down (the provider got
-	// `params.signal`), and we ALSO stop pulling within a tick even if a
-	// transport buffers or ignores the signal. The abort rejection propagates
-	// out of this generator so the run loop settles the turn as cancelled.
-	// `{ once: true }` keeps a multi-iteration run from leaking a listener/turn.
-	const it = stream[Symbol.asyncIterator]()
-	const signal = params.signal
-	let onAbort: (() => void) | undefined
-	const aborted: Promise<never> | undefined = signal
-		? new Promise<never>((_resolve, reject) => {
-				if (signal.aborted) {
-					reject(signal.reason)
-					return
-				}
-				onAbort = () => reject(signal.reason)
-				signal.addEventListener('abort', onAbort, { once: true })
-			})
-		: undefined
-
-	try {
-		for (;;) {
-			const next = it.next()
-			// Neutralize the dangling loser so an eventual rejection of the
-			// un-awaited `next` is never an unhandled rejection.
-			if (aborted) next.catch(() => {})
-			const res = await (aborted ? Promise.race([next, aborted]) : next)
-			if (res.done) break
-			const chunk = res.value
-			if (chunk.error) {
-				streamError = chunk.error
-				break
-			}
-			if (!id && chunk.id) id = chunk.id
-
-			if (chunk.delta.content) {
-				textBuf += chunk.delta.content
-				await emitEvent({
-					type: 'text_delta',
-					runId,
-					iteration,
-					messageId,
-					text: chunk.delta.content,
-				})
-				yield* drainPending()
-			}
-
-			for (const tc of chunk.delta.toolCalls ?? []) {
-				let bucket = toolBuckets.get(tc.index)
-				if (!bucket) {
-					bucket = {
-						id: tc.id ?? '',
-						name: tc.function?.name ?? '',
-						argsBuf: '',
-						started: false,
-						completed: false,
-						parsed: null,
-						inputTruncated: false,
-					}
-					toolBuckets.set(tc.index, bucket)
-				}
-				if (tc.id && !bucket.id) bucket.id = tc.id
-				if (tc.function?.name && !bucket.name) bucket.name = tc.function.name
-
-				if (!bucket.started && bucket.id && bucket.name) {
-					bucket.started = true
-					await emitEvent({
-						type: 'tool_input_started',
-						runId,
-						iteration,
-						messageId,
-						toolUseId: bucket.id as ToolUseId,
-						toolName: bucket.name,
-					})
-					yield* drainPending()
-				}
-
-				const fragment = tc.function?.arguments
-				if (fragment) {
-					if (!bucket.id) {
-						log.warn('tool_input_delta arrived before tool id was known; dropping fragment', {
-							runId,
-							index: tc.index,
-							length: fragment.length,
-						})
-					} else {
-						bucket.argsBuf += fragment
-						await emitEvent({
-							type: 'tool_input_delta',
-							runId,
-							toolUseId: bucket.id as ToolUseId,
-							partialJson: fragment,
-						})
-						yield* drainPending()
-					}
-				}
-			}
-
-			if (chunk.delta.toolCallEnd) {
-				const { index, id: endId } = chunk.delta.toolCallEnd
-				const bucket = toolBuckets.get(index)
-				if (bucket && !bucket.completed) {
-					bucket.completed = true
-					let parsed: unknown = {}
-					try {
-						parsed = bucket.argsBuf ? JSON.parse(bucket.argsBuf) : {}
-					} catch (err) {
-						bucket.inputTruncated = true
-						log.warn('tool input JSON parse failed at content_block_stop', {
-							runId,
-							toolUseId: endId,
-							error: err instanceof Error ? err.message : String(err),
-						})
-					}
-					bucket.parsed = parsed
-					await emitEvent({
-						type: 'tool_input_completed',
-						runId,
-						toolUseId: endId as ToolUseId,
-						input: parsed,
-						...(bucket.inputTruncated ? { inputTruncated: true } : {}),
-					})
-					yield* drainPending()
-				}
-			}
-
-			if (chunk.finishReason) finishReason = chunk.finishReason
-			// Merge (per-field max), not last-write-wins: a late usage frame that
-			// omits input/cache tokens must not zero the counts seen earlier in the
-			// stream, which would under-report this turn's accumulated usage.
-			if (chunk.usage) usage = mergeTokenUsage(usage, chunk.usage)
-		}
-	} catch (err) {
-		// An abort tears the turn down: propagate it so the run loop settles the
-		// run as cancelled rather than recording a normal (errored) turn. Any
-		// other stream error is captured into the synthesized response as before.
-		if (signal?.aborted) throw err
-		streamError = err instanceof Error ? err.message : String(err)
-	} finally {
-		if (onAbort) signal?.removeEventListener('abort', onAbort)
-		// Release the underlying connection on every exit (natural end, error,
-		// or abort). `for await` did this implicitly on natural completion; the
-		// manual drive must do it explicitly. `.return()` on an already-finished
-		// provider generator is a no-op.
-		await it.return?.().catch(() => {})
-	}
-
-	// Flush any tool buckets the provider failed to close (no toolCallEnd
-	// arrived — defensive against providers that don't yet emit it, and
-	// the load-bearing path when the provider stream ends with
-	// `stop_reason: "max_tokens"` mid-`input_json_delta`. In that case
-	// Anthropic's SSE never sends `content_block_stop` for the open
-	// tool_use block: the upstream model ran out of completion tokens
-	// before it could close the JSON literal, so the buffered
-	// `argsBuf` ends with something like `"content":"…some prefix` —
-	// not parseable.
-	//
-	// Two cases coalesce here:
-	//   1. The buffer parses cleanly (the provider just forgot to emit
-	//      `content_block_stop` but the args are intact) — keep parsed.
-	//   2. The buffer is truncated mid-literal — `parsed = {}` is the
-	//      safe fallback so the executor's `JSON.parse(arguments)`
-	//      succeeds and downstream consumers don't crash. The PRICE
-	//      we used to pay was the model getting back a generic
-	//      "<field> is required" Zod error and not realising its
-	//      previous tool call was truncated server-side, so it would
-	//      retry with the SAME long input and hit the same cutoff in
-	//      a loop. Detect the truncation case and mark the tool call
-	//      with runtime metadata; the executor surfaces a specific
-	//      "your tool call was cut off by max_tokens — retry with
-	//      shorter input or split into smaller calls" message that the
-	//      model can act on.
-	for (const bucket of toolBuckets.values()) {
-		if (bucket.started && !bucket.completed) {
-			bucket.completed = true
-			let parsed: unknown = {}
-			let truncated = false
-			if (bucket.argsBuf) {
-				try {
-					parsed = JSON.parse(bucket.argsBuf)
-				} catch {
-					// argsBuf had content but didn't parse — almost
-					// certainly the max_tokens-mid-literal cutoff. Mark
-					// the bucket so the executor can return a model-
-					// readable hint instead of a generic Zod error.
-					truncated = true
-					parsed = {}
-				}
-			}
-			bucket.parsed = parsed
-			bucket.inputTruncated = truncated
-			if (truncated) {
-				log.warn('tool input truncated by upstream cutoff (no toolCallEnd, argsBuf unparsable)', {
-					runId,
-					toolUseId: bucket.id,
-					toolName: bucket.name,
-					bufferLength: bucket.argsBuf.length,
-				})
-			}
-			await emitEvent({
-				type: 'tool_input_completed',
-				runId,
-				toolUseId: bucket.id as ToolUseId,
-				input: parsed,
-				...(truncated ? { inputTruncated: true } : {}),
-			})
-			yield* drainPending()
-		}
-	}
-
-	// `arguments` MUST be valid JSON for the executor's `JSON.parse`
-	// (`runtime/query/executor.ts:executeSingle`) to succeed. We
-	// always serialise from the bucket's `parsed` object (filled by
-	// either the `toolCallEnd` branch above or the post-stream flush
-	// loop) instead of re-emitting `argsBuf`. When the provider
-	// stream truncated mid-input, `metadata.inputTruncated` carries that
-	// state; the executor parses cleanly and returns a specific
-	// model-readable retry hint instead of the generic "Invalid JSON in
-	// tool arguments" intercept.
-	const toolCalls = [...toolBuckets.entries()]
-		.sort(([a], [b]) => a - b)
-		.map(([, b]) => ({
-			id: b.id,
-			type: 'function' as const,
-			function: {
-				name: b.name,
-				arguments: JSON.stringify(b.parsed ?? {}),
-			},
-			...(b.inputTruncated ? { metadata: { inputTruncated: true } } : {}),
-		}))
-
-	const recoveredToolInputFromStreamError =
-		streamError !== undefined && toolCalls.some((tc) => tc.id && tc.function.name)
-	const effectiveFinishReason: ChatCompletionResponse['finishReason'] =
-		recoveredToolInputFromStreamError ? 'tool_calls' : finishReason
-
-	if (recoveredToolInputFromStreamError) {
-		log.warn('provider stream failed after tool input; surfacing tool call to executor', {
-			runId,
-			iteration,
-			error: streamError,
-			toolCallCount: toolCalls.length,
-		})
-	}
-
-	const stopReason: MessageStopReason = streamError
-		? recoveredToolInputFromStreamError
-			? 'tool_use'
-			: 'refusal'
-		: synthesizeMessageStopReason(effectiveFinishReason, forceFinalize)
-
-	await emitEvent({
-		type: 'message_completed',
-		runId,
-		iteration,
-		messageId,
-		stopReason,
-		usage,
-		content: textBuf || undefined,
-	})
-	yield* drainPending()
-
-	if (streamError && !recoveredToolInputFromStreamError) {
-		throw new Error(`Provider stream error: ${streamError}`)
-	}
-
-	const response: ChatCompletionResponse = {
-		id: id || messageId,
-		model: model || params.model,
-		message: {
-			role: 'assistant',
-			content: textBuf.length > 0 ? textBuf : null,
-			toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
-		},
-		finishReason: effectiveFinishReason,
-		usage,
-	}
-	return { response, messageId }
-}
-
 export class IterationOrchestrator {
 	private ctx: IterationContext
 
-	constructor(
-		config: IterationConfig,
-		runMgr: RunPersistence,
-		toolExecutor: ToolExecutor,
-		guard: GuardCoordinator,
-		activityStore: ActivityStore,
-		emitEvent: EmitEvent,
-		drainPending: () => Generator<RunEvent>,
-		abortController: AbortController,
-		log: Logger,
-		resumeHandler: ResumeHandler,
-		checkpointMgr: CheckpointManager,
-		planManager: PlanManager,
-	) {
-		this.ctx = {
-			provider: config.provider,
-			runConfig: config.runConfig,
-			tools: config.tools,
-			allowedTools: config.allowedTools,
-			runMgr,
-			toolExecutor,
-			guard,
-			activityStore,
-			emitEvent,
-			drainPending,
-			abortController,
-			log,
-			resumeHandler,
-			checkpointMgr,
-			planManager,
-			taskGateway: config.taskGateway,
-			taskStore: config.taskStore,
-			pendingNotifications: [],
-			launchedTasks: config.launchedTasks ?? new Map(),
-			compactionConfig: config.compactionConfig,
-			workingStateManager: config.workingStateManager,
-			workingMemoryProvider: config.workingMemoryProvider,
-			advisoryCtx: config.advisoryCtx,
-			agentBus: config.agentBus,
-			verificationGate: config.verificationGate,
-			pluginManager: config.pluginManager,
-		}
+	constructor(ctx: IterationContext) {
+		this.ctx = ctx
 	}
 
 	async *runLoop(): AsyncGenerator<RunEvent> {
@@ -528,301 +34,255 @@ export class IterationOrchestrator {
 		const { model } = runConfig
 		const tracer = getTracer()
 
-		// Worker-completion delivery used to fan out through a global
-		// onTaskCompleted listener that pushed handles onto
-		// `pendingNotifications`; the iteration loop then drained
-		// them as <task-notification> envelopes. Both `create_task`
-		// and the `Agent` tool are now blocking and return their
-		// worker output as the dispatching tool_use's canonical
-		// tool_result, so the listener path would only DUPLICATE
-		// every completion (once as tool_result, once as injected
-		// envelope user-message). Leaving the binding out closes
-		// the duplicate notification surface entirely; the dormant
-		// drain stays as a no-op until a follow-up tears it out.
-		let unsubscribeTaskListener: (() => void) | undefined
-		void unsubscribeTaskListener
+		const planSignal = yield* runPlanGate(this.ctx)
+		if (planSignal === 'stop') return
 
-		try {
-			const planSignal = yield* runPlanGate(this.ctx)
-			if (planSignal === 'stop') return
+		while (true) {
+			const guardResult = this.ctx.guard.beforeIteration(runMgr, this.ctx.abortController.signal)
 
-			while (true) {
-				const guardResult = this.ctx.guard.beforeIteration(runMgr, this.ctx.abortController.signal)
-
-				if (guardResult.shouldStop) {
-					if (guardResult.isCancelled) {
-						this.ctx.log.info('Run cancelled by signal', { runId: runMgr.id })
-						runMgr.setStopReason('cancelled')
-						runMgr.markCancelled()
-						break
-					}
-
-					const stopReason = guardResult.stopReason ?? 'end_turn'
-					this.ctx.log.info('Guard enforcing stop', {
-						runId: runMgr.id,
-						stopReason,
-						iteration: runMgr.currentIteration,
-						inputTokens: runMgr.tokenUsage.promptTokens,
-						outputTokens: runMgr.tokenUsage.completionTokens,
-					})
-					await this.requestFinalResponse(model, stopReason)
-					yield* this.ctx.drainPending()
-					runMgr.setStopReason(stopReason)
+			if (guardResult.shouldStop) {
+				if (guardResult.isCancelled) {
+					this.ctx.log.info('Run cancelled by signal', { runId: runMgr.id })
+					runMgr.setStopReason('cancelled')
+					runMgr.markCancelled()
 					break
 				}
 
-				const forceFinalize = guardResult.forceFinalize
-				const iterationNum = runMgr.incrementIteration()
-				this.ctx.log.debug('Iteration started', {
+				const stopReason = guardResult.stopReason ?? 'end_turn'
+				this.ctx.log.info('Guard enforcing stop', {
 					runId: runMgr.id,
-					iteration: iterationNum,
-					model,
-					forceFinalize,
-					messageCount: runMgr.messages.length,
+					stopReason,
+					iteration: runMgr.currentIteration,
+					inputTokens: runMgr.tokenUsage.promptTokens,
+					outputTokens: runMgr.tokenUsage.completionTokens,
 				})
+				await this.requestFinalResponse(model, stopReason)
+				yield* this.ctx.drainPending()
+				runMgr.setStopReason(stopReason)
+				break
+			}
 
-				const iterationActivity = this.ctx.activityStore.create({
-					type: 'llm_turn',
-					description: `LLM iteration ${iterationNum}`,
-				})
-				if (iterationActivity) {
-					this.ctx.activityStore.start(iterationActivity.id)
+			const forceFinalize = guardResult.forceFinalize
+			const iterationNum = runMgr.incrementIteration()
+			this.ctx.log.debug('Iteration started', {
+				runId: runMgr.id,
+				iteration: iterationNum,
+				model,
+				forceFinalize,
+				messageCount: runMgr.messages.length,
+			})
+
+			const iterationActivity = this.ctx.activityStore.create({
+				type: 'llm_turn',
+				description: `LLM iteration ${iterationNum}`,
+			})
+			if (iterationActivity) {
+				this.ctx.activityStore.start(iterationActivity.id)
+			}
+
+			const iterSpan = tracer.startSpan(agentIterationSpanName(iterationNum))
+			iterSpan.setAttributes({
+				[NAMZU.ITERATION]: iterationNum,
+				[NAMZU.RUN_ID]: runMgr.id,
+				[GENAI.REQUEST_MODEL]: model,
+			})
+
+			await this.ctx.emitEvent({
+				type: 'iteration_started',
+				runId: runMgr.id,
+				iteration: iterationNum,
+			})
+			yield* this.ctx.drainPending()
+
+			try {
+				if (this.ctx.pluginManager) {
+					const hookResults = await this.ctx.pluginManager.executeHooks(
+						'iteration_start',
+						{ runId: runMgr.id, iteration: iterationNum },
+						this.ctx.emitEvent,
+					)
+					applyLifecycleHookResults('iteration_start', hookResults)
+					yield* this.ctx.drainPending()
 				}
 
-				const iterSpan = tracer.startSpan(agentIterationSpanName(iterationNum))
-				iterSpan.setAttributes({
-					[NAMZU.ITERATION]: iterationNum,
-					[NAMZU.RUN_ID]: runMgr.id,
-					[GENAI.REQUEST_MODEL]: model,
+				// Re-pin the working-memory block from ground truth at the primacy
+				// edge BEFORE compaction runs (so the refreshed slot is what
+				// compaction preserves). No-op when no provider is configured.
+				await refreshWorkingMemory(this.ctx)
+				await runCompactionCheck(this.ctx)
+
+				// Cache discipline: keep the tools param byte-stable even on the
+				// forced-final iteration and forbid tool use via tool_choice
+				// 'none' instead. Dropping the tools array would invalidate the
+				// entire prompt-cache prefix (tools render at position 0) and
+				// risks a 400 because the history still carries
+				// tool_use/tool_result blocks.
+				const openAITools = this.ctx.tools.toLLMTools(this.ctx.allowedTools)
+
+				const messages = forceFinalize
+					? [
+							...runMgr.messages,
+							createUserMessage(
+								'[SYSTEM] You are approaching your resource limits. Provide your final, comprehensive response now based on everything you have gathered so far. Do not request any more tool calls.',
+							),
+						]
+					: runMgr.messages
+
+				if (this.ctx.pluginManager) {
+					const hookResults = await this.ctx.pluginManager.executeHooks(
+						'pre_llm_call',
+						{ runId: runMgr.id, iteration: iterationNum },
+						this.ctx.emitEvent,
+					)
+					applyLifecycleHookResults('pre_llm_call', hookResults)
+					yield* this.ctx.drainPending()
+				}
+
+				// Phase 4 (ses_001-tool-stream-events): consume the
+				// streaming response natively, emitting message and
+				// tool-input lifecycle events as deltas arrive. The
+				// helper yields RunEvents through drainPending() so SSE
+				// consumers see live progress; its return value is the
+				// aggregated `ChatCompletionResponse` for the legacy
+				// downstream paths (assistantMsg construction, working
+				// state extraction, telemetry attribute stamping).
+				const { response } = yield* streamProviderTurn(
+					this.ctx.provider,
+					{
+						model,
+						messages,
+						tools: openAITools.length > 0 ? openAITools : undefined,
+						toolChoice: forceFinalize && openAITools.length > 0 ? 'none' : undefined,
+						temperature: runConfig.temperature,
+						maxTokens: runConfig.maxResponseTokens,
+						cacheControl: { type: 'auto' },
+						// Thread the run abort into the model call so a Stop tears the
+						// in-flight turn down (provider passes it to fetch; the consumer
+						// also races it). Inert when never aborted.
+						signal: this.ctx.abortController.signal,
+					},
+					this.ctx.emitEvent,
+					this.ctx.drainPending,
+					runMgr.id,
+					iterationNum,
+					forceFinalize,
+					this.ctx.log,
+				)
+
+				runMgr.accumulateUsage(response.usage)
+
+				if (this.ctx.pluginManager) {
+					const hookResults = await this.ctx.pluginManager.executeHooks(
+						'post_llm_call',
+						{ runId: runMgr.id, iteration: iterationNum },
+						this.ctx.emitEvent,
+					)
+					applyLifecycleHookResults('post_llm_call', hookResults)
+					yield* this.ctx.drainPending()
+				}
+
+				this.ctx.log.debug('LLM response received', {
+					runId: runMgr.id,
+					iteration: iterationNum,
+					finishReason: response.finishReason,
+					hasContent: response.message.content !== null && response.message.content.length > 0,
+					toolCallCount: response.message.toolCalls?.length ?? 0,
+					promptTokens: response.usage.promptTokens,
+					completionTokens: response.usage.completionTokens,
+					totalTokens: runMgr.tokenUsage.totalTokens,
+					totalCost: runMgr.costInfo.totalCost,
 				})
 
 				await this.ctx.emitEvent({
-					type: 'iteration_started',
+					type: 'token_usage_updated',
 					runId: runMgr.id,
-					iteration: iterationNum,
+					usage: runMgr.tokenUsage,
+					cost: runMgr.costInfo,
 				})
+
+				const assistantMsg = createAssistantMessage(
+					response.message.content,
+					forceFinalize ? undefined : response.message.toolCalls,
+				)
+				runMgr.pushMessage(assistantMsg)
+
+				if (this.ctx.workingStateManager && this.ctx.compactionConfig && assistantMsg.content) {
+					extractFromAssistantMessage(
+						this.ctx.workingStateManager,
+						assistantMsg.content,
+						this.ctx.compactionConfig,
+					)
+				}
+
 				yield* this.ctx.drainPending()
 
-				try {
-					if (this.ctx.pluginManager) {
-						const hookResults = await this.ctx.pluginManager.executeHooks(
-							'iteration_start',
-							{ runId: runMgr.id, iteration: iterationNum },
-							this.ctx.emitEvent,
-						)
-						applyLifecycleHookResults('iteration_start', hookResults)
-						yield* this.ctx.drainPending()
-					}
+				iterSpan.setAttributes({
+					[GENAI.USAGE_INPUT_TOKENS]: response.usage.promptTokens,
+					[GENAI.USAGE_OUTPUT_TOKENS]: response.usage.completionTokens,
+				})
+				iterSpan.setStatus({ code: SpanStatusCode.OK })
 
-					if (this.ctx.pendingNotifications.length > 0) {
-						await this.injectOneTaskNotification()
-					}
-
-					// Re-pin the working-memory block from ground truth at the primacy
-					// edge BEFORE compaction runs (so the refreshed slot is what
-					// compaction preserves). No-op when no provider is configured.
-					await refreshWorkingMemory(this.ctx)
-					await runCompactionCheck(this.ctx)
-
-					// Cache discipline: keep the tools param byte-stable even on the
-					// forced-final iteration and forbid tool use via tool_choice
-					// 'none' instead. Dropping the tools array would invalidate the
-					// entire prompt-cache prefix (tools render at position 0) and
-					// risks a 400 because the history still carries
-					// tool_use/tool_result blocks.
-					const openAITools = this.ctx.tools.toLLMTools(this.ctx.allowedTools)
-
-					const messages = forceFinalize
-						? [
-								...runMgr.messages,
-								createUserMessage(
-									'[SYSTEM] You are approaching your resource limits. Provide your final, comprehensive response now based on everything you have gathered so far. Do not request any more tool calls.',
-								),
-							]
-						: runMgr.messages
-
-					if (this.ctx.pluginManager) {
-						const hookResults = await this.ctx.pluginManager.executeHooks(
-							'pre_llm_call',
-							{ runId: runMgr.id, iteration: iterationNum },
-							this.ctx.emitEvent,
-						)
-						applyLifecycleHookResults('pre_llm_call', hookResults)
-						yield* this.ctx.drainPending()
-					}
-
-					// Phase 4 (ses_001-tool-stream-events): consume the
-					// streaming response natively, emitting message and
-					// tool-input lifecycle events as deltas arrive. The
-					// helper yields RunEvents through drainPending() so SSE
-					// consumers see live progress; its return value is the
-					// aggregated `ChatCompletionResponse` for the legacy
-					// downstream paths (assistantMsg construction, working
-					// state extraction, telemetry attribute stamping).
-					const { response } = yield* streamProviderTurn(
-						this.ctx.provider,
-						{
-							model,
-							messages,
-							tools: openAITools.length > 0 ? openAITools : undefined,
-							toolChoice: forceFinalize && openAITools.length > 0 ? 'none' : undefined,
-							temperature: runConfig.temperature,
-							maxTokens: runConfig.maxResponseTokens,
-							cacheControl: { type: 'auto' },
-							// Thread the run abort into the model call so a Stop tears the
-							// in-flight turn down (provider passes it to fetch; the consumer
-							// also races it). Inert when never aborted.
-							signal: this.ctx.abortController.signal,
-						},
-						this.ctx.emitEvent,
-						this.ctx.drainPending,
-						runMgr.id,
-						iterationNum,
-						forceFinalize,
-						this.ctx.log,
-					)
-
-					runMgr.accumulateUsage(response.usage)
-
-					if (this.ctx.pluginManager) {
-						const hookResults = await this.ctx.pluginManager.executeHooks(
-							'post_llm_call',
-							{ runId: runMgr.id, iteration: iterationNum },
-							this.ctx.emitEvent,
-						)
-						applyLifecycleHookResults('post_llm_call', hookResults)
-						yield* this.ctx.drainPending()
-					}
-
-					this.ctx.log.debug('LLM response received', {
-						runId: runMgr.id,
-						iteration: iterationNum,
-						finishReason: response.finishReason,
-						hasContent: response.message.content !== null && response.message.content.length > 0,
-						toolCallCount: response.message.toolCalls?.length ?? 0,
-						promptTokens: response.usage.promptTokens,
-						completionTokens: response.usage.completionTokens,
-						totalTokens: runMgr.tokenUsage.totalTokens,
-						totalCost: runMgr.costInfo.totalCost,
+				if (iterationActivity) {
+					this.ctx.activityStore.complete(iterationActivity.id, {
+						content: response.message.content,
+						hasToolCalls: forceFinalize ? false : !!response.message.toolCalls?.length,
 					})
+				}
 
-					await this.ctx.emitEvent({
-						type: 'token_usage_updated',
-						runId: runMgr.id,
-						usage: runMgr.tokenUsage,
-						cost: runMgr.costInfo,
-					})
-
-					const assistantMsg = createAssistantMessage(
-						response.message.content,
-						forceFinalize ? undefined : response.message.toolCalls,
-					)
-					runMgr.pushMessage(assistantMsg)
-
-					if (this.ctx.workingStateManager && this.ctx.compactionConfig && assistantMsg.content) {
-						extractFromAssistantMessage(
-							this.ctx.workingStateManager,
-							assistantMsg.content,
-							this.ctx.compactionConfig,
+				if (
+					forceFinalize ||
+					response.finishReason === 'stop' ||
+					!response.message.toolCalls ||
+					response.message.toolCalls.length === 0
+				) {
+					// Every task-dispatch tool (create_task, continue_task, Agent)
+					// is BLOCKING: the worker's output returns as the dispatching
+					// tool_use's canonical tool_result, so by the time the model
+					// ends its turn nothing launched by this run should still be
+					// in flight. A running task here is an orphan (interrupted
+					// tool execution, cancel race) with no delivery path back to
+					// the parent — the <task-notification> producer was removed
+					// in dc16d58, so waiting on the queue could only ever time
+					// out. Log the orphans honestly and end the turn normally.
+					if (!forceFinalize && this.hasRunningAgentTasks()) {
+						this.ctx.log.warn(
+							'LLM ended turn with agent tasks still running — ending run without waiting (orphan tasks have no delivery path)',
+							{
+								runId: runMgr.id,
+								iteration: iterationNum,
+							},
 						)
 					}
 
-					yield* this.ctx.drainPending()
+					const hasContent =
+						response.message.content !== null && response.message.content.length > 0
 
-					iterSpan.setAttributes({
-						[GENAI.USAGE_INPUT_TOKENS]: response.usage.promptTokens,
-						[GENAI.USAGE_OUTPUT_TOKENS]: response.usage.completionTokens,
-					})
-					iterSpan.setStatus({ code: SpanStatusCode.OK })
-
-					if (iterationActivity) {
-						this.ctx.activityStore.complete(iterationActivity.id, {
-							content: response.message.content,
-							hasToolCalls: forceFinalize ? false : !!response.message.toolCalls?.length,
+					// Auto-continuation on `stop_reason: max_tokens`. The
+					// model hit its per-call output cap mid-text (NOT
+					// mid-tool-use — that path is handled separately
+					// below via `inputTruncated`). Push a synthetic
+					// "continue" user message and let the loop fire
+					// another turn. The provider receives the partial
+					// assistant content + the continue prompt and
+					// resumes from where it left off, mirroring the
+					// Claude.ai "Continue" affordance.
+					//
+					// Guards:
+					//   - `hasContent` so we don't loop forever on an
+					//     empty cutoff (Anthropic occasionally emits
+					//     `stop_reason: max_tokens` with no content
+					//     when an injected pre-fill blocks the model).
+					//   - `!forceFinalize` so the forced-finalize path
+					//     never auto-continues — that path is invoked
+					//     specifically to extract a closing summary.
+					//   - max_iterations bounds the loop in any case.
+					if (!forceFinalize && response.finishReason === 'length' && hasContent) {
+						this.ctx.log.info('LLM hit max_tokens mid-text — auto-continuing', {
+							runId: runMgr.id,
+							iteration: iterationNum,
+							completionTokens: response.usage.completionTokens,
 						})
-					}
-
-					if (
-						forceFinalize ||
-						response.finishReason === 'stop' ||
-						!response.message.toolCalls ||
-						response.message.toolCalls.length === 0
-					) {
-						const hasRunningTasks = this.hasRunningAgentTasks()
-						const hasPendingNotifications = this.ctx.pendingNotifications.length > 0
-
-						if (!forceFinalize && (hasRunningTasks || hasPendingNotifications)) {
-							this.ctx.log.info(
-								'LLM ended turn but agent tasks still running — waiting for notifications',
-								{
-									runId: runMgr.id,
-									runningTasks: hasRunningTasks,
-									pendingNotifications: hasPendingNotifications,
-								},
-							)
-
-							await this.ctx.emitEvent({
-								type: 'iteration_completed',
-								runId: runMgr.id,
-								iteration: iterationNum,
-								hasToolCalls: false,
-							})
-							yield* this.ctx.drainPending()
-							iterSpan.end()
-
-							yield* this.waitAndInjectNotifications()
-							continue
-						}
-
-						const hasContent =
-							response.message.content !== null && response.message.content.length > 0
-
-						// Auto-continuation on `stop_reason: max_tokens`. The
-						// model hit its per-call output cap mid-text (NOT
-						// mid-tool-use — that path is handled separately
-						// below via `inputTruncated`). Push a synthetic
-						// "continue" user message and let the loop fire
-						// another turn. The provider receives the partial
-						// assistant content + the continue prompt and
-						// resumes from where it left off, mirroring the
-						// Claude.ai "Continue" affordance.
-						//
-						// Guards:
-						//   - `hasContent` so we don't loop forever on an
-						//     empty cutoff (Anthropic occasionally emits
-						//     `stop_reason: max_tokens` with no content
-						//     when an injected pre-fill blocks the model).
-						//   - `!forceFinalize` so the forced-finalize path
-						//     never auto-continues — that path is invoked
-						//     specifically to extract a closing summary.
-						//   - max_iterations bounds the loop in any case.
-						if (!forceFinalize && response.finishReason === 'length' && hasContent) {
-							this.ctx.log.info('LLM hit max_tokens mid-text — auto-continuing', {
-								runId: runMgr.id,
-								iteration: iterationNum,
-								completionTokens: response.usage.completionTokens,
-							})
-							runMgr.pushMessage(createUserMessage(AUTO_CONTINUATION_USER_MESSAGE))
-							await this.ctx.emitEvent({
-								type: 'iteration_completed',
-								runId: runMgr.id,
-								iteration: iterationNum,
-								hasToolCalls: false,
-							})
-							yield* this.ctx.drainPending()
-							iterSpan.end()
-							continue
-						}
-
-						if (!hasContent && !forceFinalize) {
-							this.ctx.log.warn('Empty completion detected — requesting final summary', {
-								iteration: iterationNum,
-								finishReason: response.finishReason,
-							})
-							await this.requestFinalResponse(model, 'end_turn')
-							yield* this.ctx.drainPending()
-						}
-
+						runMgr.pushMessage(createUserMessage(AUTO_CONTINUATION_USER_MESSAGE))
 						await this.ctx.emitEvent({
 							type: 'iteration_completed',
 							runId: runMgr.id,
@@ -830,48 +290,16 @@ export class IterationOrchestrator {
 							hasToolCalls: false,
 						})
 						yield* this.ctx.drainPending()
-						// A Stop that lands AFTER the final turn streamed but before
-						// this break must settle the run as cancelled, not end_turn —
-						// otherwise the just-produced answer is recorded as a clean
-						// completion. Mirrors the between-iteration cancel at :511.
-						if (this.ctx.abortController.signal.aborted) {
-							runMgr.setStopReason('cancelled')
-							runMgr.markCancelled()
-							iterSpan.end()
-							break
-						}
-						runMgr.setStopReason('end_turn')
-						iterSpan.end()
-						break
-					}
-
-					const reviewOutcome = yield* runToolReview(this.ctx, response, iterationNum)
-
-					if (reviewOutcome === 'stop') {
-						iterSpan.end()
-						return
-					}
-
-					if (reviewOutcome === 'rejected') {
 						iterSpan.end()
 						continue
 					}
 
-					const checkpointSignal = yield* runIterationCheckpoint(this.ctx, iterationNum)
-					if (checkpointSignal === 'stop') {
-						iterSpan.end()
-						return
-					}
-
-					await runAdvisoryPhase(this.ctx, iterationNum, response)
-
-					if (this.ctx.pluginManager) {
-						const hookResults = await this.ctx.pluginManager.executeHooks(
-							'iteration_end',
-							{ runId: runMgr.id, iteration: iterationNum },
-							this.ctx.emitEvent,
-						)
-						applyLifecycleHookResults('iteration_end', hookResults)
+					if (!hasContent && !forceFinalize) {
+						this.ctx.log.warn('Empty completion detected — requesting final summary', {
+							iteration: iterationNum,
+							finishReason: response.finishReason,
+						})
+						await this.requestFinalResponse(model, 'end_turn')
 						yield* this.ctx.drainPending()
 					}
 
@@ -879,40 +307,89 @@ export class IterationOrchestrator {
 						type: 'iteration_completed',
 						runId: runMgr.id,
 						iteration: iterationNum,
-						hasToolCalls: true,
+						hasToolCalls: false,
 					})
 					yield* this.ctx.drainPending()
-					iterSpan.end()
-				} catch (err) {
-					// A Stop that aborted the in-flight turn surfaces here as a
-					// thrown abort (the provider stream was raced against the run
-					// signal). Settle it as a CANCELLATION — mirroring the
-					// between-iteration cancel at the top of the loop — rather than
-					// recording it as an SDK failure (error span + failed activity)
-					// and re-throwing. The run then returns cleanly with a
-					// 'cancelled' stop reason instead of propagating an error.
+					// A Stop that lands AFTER the final turn streamed but before
+					// this break must settle the run as cancelled, not end_turn —
+					// otherwise the just-produced answer is recorded as a clean
+					// completion. Mirrors the between-iteration cancel at :511.
 					if (this.ctx.abortController.signal.aborted) {
 						runMgr.setStopReason('cancelled')
 						runMgr.markCancelled()
 						iterSpan.end()
 						break
 					}
-
-					if (iterationActivity) {
-						this.ctx.activityStore.fail(iterationActivity.id, toErrorMessage(err))
-					}
-
-					iterSpan.setStatus({
-						code: SpanStatusCode.ERROR,
-						message: toErrorMessage(err),
-					})
-					iterSpan.recordException(err instanceof Error ? err : new Error(String(err)))
+					runMgr.setStopReason('end_turn')
 					iterSpan.end()
-					throw err
+					break
 				}
+
+				const reviewOutcome = yield* runToolReview(this.ctx, response, iterationNum)
+
+				if (reviewOutcome === 'stop') {
+					iterSpan.end()
+					return
+				}
+
+				if (reviewOutcome === 'rejected') {
+					iterSpan.end()
+					continue
+				}
+
+				const checkpointSignal = yield* runIterationCheckpoint(this.ctx, iterationNum)
+				if (checkpointSignal === 'stop') {
+					iterSpan.end()
+					return
+				}
+
+				await runAdvisoryPhase(this.ctx, iterationNum, response)
+
+				if (this.ctx.pluginManager) {
+					const hookResults = await this.ctx.pluginManager.executeHooks(
+						'iteration_end',
+						{ runId: runMgr.id, iteration: iterationNum },
+						this.ctx.emitEvent,
+					)
+					applyLifecycleHookResults('iteration_end', hookResults)
+					yield* this.ctx.drainPending()
+				}
+
+				await this.ctx.emitEvent({
+					type: 'iteration_completed',
+					runId: runMgr.id,
+					iteration: iterationNum,
+					hasToolCalls: true,
+				})
+				yield* this.ctx.drainPending()
+				iterSpan.end()
+			} catch (err) {
+				// A Stop that aborted the in-flight turn surfaces here as a
+				// thrown abort (the provider stream was raced against the run
+				// signal). Settle it as a CANCELLATION — mirroring the
+				// between-iteration cancel at the top of the loop — rather than
+				// recording it as an SDK failure (error span + failed activity)
+				// and re-throwing. The run then returns cleanly with a
+				// 'cancelled' stop reason instead of propagating an error.
+				if (this.ctx.abortController.signal.aborted) {
+					runMgr.setStopReason('cancelled')
+					runMgr.markCancelled()
+					iterSpan.end()
+					break
+				}
+
+				if (iterationActivity) {
+					this.ctx.activityStore.fail(iterationActivity.id, toErrorMessage(err))
+				}
+
+				iterSpan.setStatus({
+					code: SpanStatusCode.ERROR,
+					message: toErrorMessage(err),
+				})
+				iterSpan.recordException(err instanceof Error ? err : new Error(String(err)))
+				iterSpan.end()
+				throw err
 			}
-		} finally {
-			unsubscribeTaskListener?.()
 		}
 	}
 
@@ -921,90 +398,6 @@ export class IterationOrchestrator {
 		return this.ctx.taskGateway
 			.listTasks()
 			.some((t) => t.state !== 'completed' && t.state !== 'failed' && t.state !== 'canceled')
-	}
-
-	private async *waitAndInjectNotifications(): AsyncGenerator<RunEvent> {
-		const deadline = Date.now() + (this.ctx.runConfig.timeoutMs ?? 120_000)
-		while (
-			this.ctx.pendingNotifications.length === 0 &&
-			Date.now() < deadline &&
-			!this.ctx.abortController.signal.aborted
-		) {
-			await new Promise((r) => setTimeout(r, 250))
-		}
-
-		await this.injectOneTaskNotification()
-	}
-
-	/**
-	 * Canonical async completion delivery (ses_009-task-notification-envelope).
-	 *
-	 * Drains every pending task completion in one pass and emits each as
-	 * a plain USER text message wrapped in the `<task-notification>`
-	 * envelope the supervisor prompt expects.
-	 *
-	 * Why not a `tool_result` block bound to the dispatching tool_use_id:
-	 * `create_task` is documented as NON-BLOCKING and returns
-	 * "Task launched: …" immediately. That immediate return is already
-	 * recorded as the canonical tool_result for that tool_use, so a
-	 * second tool_result for the SAME tool_use_id — emitted later, after
-	 * intervening assistant turns — is rejected by Anthropic with
-	 * `messages.<n>.content.0: unexpected tool_use_id found in
-	 * tool_result blocks` because the immediately-prior assistant
-	 * message no longer carries the matching tool_use. Wrapping as a
-	 * user text envelope sidesteps the pairing rule entirely.
-	 *
-	 * Coalescing N drops into one drain replaces the previous
-	 * one-at-a-time pattern which forced a separate orchestrator
-	 * iteration per completed task on wide fan-outs.
-	 */
-	private async injectOneTaskNotification(): Promise<void> {
-		if (this.ctx.pendingNotifications.length === 0) return
-		const handles = this.ctx.pendingNotifications.splice(0)
-
-		for (const handle of handles) {
-			const meta = this.ctx.launchedTasks.get(handle.taskId)
-			const resultText =
-				handle.result?.result ??
-				handle.result?.lastError ??
-				`Task finished with state: ${handle.state}`
-
-			if (meta?.planTaskId && this.ctx.taskStore) {
-				const success = handle.state === 'completed'
-				await this.ctx.taskStore.update(meta.planTaskId as `task_${string}`, {
-					status: 'completed',
-					description: success ? undefined : `Failed: ${resultText.substring(0, 200)}`,
-				})
-			}
-
-			this.ctx.launchedTasks.delete(handle.taskId)
-
-			// `remaining-tasks` = inflight workers still pending after this
-			// one drains. `launchedTasks` is the single source of truth:
-			// it holds every dispatched worker that has NOT yet been
-			// drained + delete()'d. The drain batch entries are still
-			// inside launchedTasks until each iteration's delete() above
-			// removes them, so reading the size right after that delete
-			// gives the honest count. Adding `handles.length - 1 - i`
-			// here used to double-count this same queue.
-			const remainingTasks = this.ctx.launchedTasks.size
-			const envelope =
-				`<task-notification>\n<task-id>${xmlEscape(handle.taskId)}</task-id>\n` +
-				`<agent-id>${xmlEscape(handle.agentId)}</agent-id>\n` +
-				`<status>${xmlEscape(handle.state)}</status>\n` +
-				`<result>${cdataWrap(resultText)}</result>\n` +
-				`<remaining-tasks>${remainingTasks}</remaining-tasks>\n</task-notification>`
-
-			this.ctx.runMgr.pushMessage(createUserMessage(envelope))
-
-			this.ctx.log.info('Task notification injected', {
-				taskId: handle.taskId,
-				agentId: handle.agentId,
-				state: handle.state,
-				planTaskId: meta?.planTaskId,
-				remainingNotifications: remainingTasks,
-			})
-		}
 	}
 
 	private async requestFinalResponse(model: string, reason: StopReason): Promise<void> {

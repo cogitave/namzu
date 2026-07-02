@@ -5,7 +5,7 @@ import type { CompactionConfig } from '../../../../config/runtime.js'
 import type { PlanManager } from '../../../../manager/plan/lifecycle.js'
 import type { RunPersistence } from '../../../../manager/run/persistence.js'
 import type { ActivityStore } from '../../../../store/activity/memory.js'
-import type { TaskGateway, TaskHandle } from '../../../../types/agent/gateway.js'
+import type { TaskGateway } from '../../../../types/agent/gateway.js'
 import type { WorkingMemoryProvider } from '../../../../types/agent/working-memory.js'
 import type { HITLResumeDecision, ResumeHandler } from '../../../../types/hitl/index.js'
 import type { TaskId } from '../../../../types/ids/index.js'
@@ -55,8 +55,6 @@ export interface IterationContext {
 	readonly taskGateway?: TaskGateway
 
 	readonly taskStore?: TaskStore
-
-	readonly pendingNotifications: TaskHandle[]
 
 	readonly launchedTasks: Map<TaskId, LaunchedTaskMeta>
 
