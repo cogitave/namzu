@@ -1,5 +1,5 @@
-import { type ProviderCapabilities, ProviderRegistry, type RegisterOptions } from '@namzu/sdk'
-import { OpenAIProvider } from './client.js'
+import { ProviderRegistry, type RegisterOptions } from '@namzu/sdk'
+import { OPENAI_CAPABILITIES, OpenAIProvider } from './client.js'
 import type { OpenAIProviderConfig } from './types.js'
 
 // Module augmentation: register openai's config type in the sdk's registry interface.
@@ -8,12 +8,6 @@ declare module '@namzu/sdk' {
 	interface ProviderConfigRegistry {
 		openai: OpenAIProviderConfig
 	}
-}
-
-export const OPENAI_CAPABILITIES: ProviderCapabilities = {
-	supportsTools: true,
-	supportsStreaming: true,
-	supportsFunctionCalling: true,
 }
 
 /**
@@ -28,5 +22,5 @@ export function registerOpenAI(options?: RegisterOptions): void {
 	ProviderRegistry.register('openai', OpenAIProvider, OPENAI_CAPABILITIES, options)
 }
 
-export { OpenAIProvider } from './client.js'
+export { OPENAI_CAPABILITIES, OpenAIProvider } from './client.js'
 export type { OpenAIConfig, OpenAIProviderConfig } from './types.js'

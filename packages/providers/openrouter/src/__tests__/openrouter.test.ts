@@ -44,7 +44,13 @@ describe('@namzu/openrouter', () => {
 				supportsTools: true,
 				supportsStreaming: true,
 				supportsFunctionCalling: true,
+				supportsVision: false,
 			})
+		})
+
+		it('is exposed on the provider instance for runtime negotiation', () => {
+			const provider = new OpenRouterProvider({ apiKey: 'test-key' })
+			expect(provider.capabilities).toEqual(OPENROUTER_CAPABILITIES)
 		})
 	})
 

@@ -1,5 +1,5 @@
-import { type ProviderCapabilities, ProviderRegistry, type RegisterOptions } from '@namzu/sdk'
-import { OllamaProvider } from './client.js'
+import { ProviderRegistry, type RegisterOptions } from '@namzu/sdk'
+import { OLLAMA_CAPABILITIES, OllamaProvider } from './client.js'
 import type { OllamaProviderConfig } from './types.js'
 
 // Module augmentation: register ollama's config type in the sdk's registry
@@ -9,12 +9,6 @@ declare module '@namzu/sdk' {
 	interface ProviderConfigRegistry {
 		ollama: OllamaProviderConfig
 	}
-}
-
-export const OLLAMA_CAPABILITIES: ProviderCapabilities = {
-	supportsTools: false,
-	supportsStreaming: true,
-	supportsFunctionCalling: false,
 }
 
 /**
@@ -29,5 +23,5 @@ export function registerOllama(options?: RegisterOptions): void {
 	ProviderRegistry.register('ollama', OllamaProvider, OLLAMA_CAPABILITIES, options)
 }
 
-export { OllamaProvider } from './client.js'
+export { OLLAMA_CAPABILITIES, OllamaProvider } from './client.js'
 export type { OllamaConfig, OllamaProviderConfig } from './types.js'

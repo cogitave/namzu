@@ -1,12 +1,23 @@
 import type { DoctorCheckResult } from '../doctor/index.js'
 
 import type { ChatCompletionParams } from './chat.js'
+import type { ProviderCapabilities } from './config.js'
 import type { ModelInfo } from './model.js'
 import type { StreamChunk } from './stream.js'
 
 export interface LLMProvider {
 	readonly id: string
 	readonly name: string
+
+	/**
+	 * Honest declaration of what this DRIVER does with the request
+	 * (tools passed through? attachments mapped?) — not what the vendor
+	 * API supports. Optional so third-party providers that predate the
+	 * field keep working: the runtime resolves an absent declaration to
+	 * {@link import('../../provider/capabilities.js').PERMISSIVE_PROVIDER_CAPABILITIES},
+	 * i.e. today's behavior (assume everything works, never warn).
+	 */
+	readonly capabilities?: ProviderCapabilities
 
 	/**
 	 * The single LLM entry point. Returns an async iterable of

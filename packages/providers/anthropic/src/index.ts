@@ -1,5 +1,5 @@
-import { type ProviderCapabilities, ProviderRegistry, type RegisterOptions } from '@namzu/sdk'
-import { AnthropicProvider } from './client.js'
+import { ProviderRegistry, type RegisterOptions } from '@namzu/sdk'
+import { ANTHROPIC_CAPABILITIES, AnthropicProvider } from './client.js'
 import type { AnthropicProviderConfig } from './types.js'
 
 // Module augmentation: register anthropic's config type in the sdk's registry interface.
@@ -8,12 +8,6 @@ declare module '@namzu/sdk' {
 	interface ProviderConfigRegistry {
 		anthropic: AnthropicProviderConfig
 	}
-}
-
-export const ANTHROPIC_CAPABILITIES: ProviderCapabilities = {
-	supportsTools: true,
-	supportsStreaming: true,
-	supportsFunctionCalling: true,
 }
 
 /**
@@ -28,5 +22,5 @@ export function registerAnthropic(options?: RegisterOptions): void {
 	ProviderRegistry.register('anthropic', AnthropicProvider, ANTHROPIC_CAPABILITIES, options)
 }
 
-export { AnthropicProvider } from './client.js'
+export { ANTHROPIC_CAPABILITIES, AnthropicProvider } from './client.js'
 export type { AnthropicConfig, AnthropicProviderConfig } from './types.js'

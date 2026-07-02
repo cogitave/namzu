@@ -35,10 +35,28 @@ export interface MockProviderConfig {
 	responseDelayMs?: number
 }
 
+/**
+ * What a provider DRIVER actually does with the request — not what the
+ * vendor API could theoretically support. A driver that never reads
+ * `params.tools` declares `supportsTools: false` even if the backing
+ * service has a tools endpoint; a driver that drops `attachments`
+ * declares `supportsVision: false` even for a multimodal model.
+ *
+ * The query runtime consults these before each run (see
+ * `resolveProviderCapabilities` in `provider/capabilities.ts`) so
+ * degradation is loud instead of silent.
+ */
 export interface ProviderCapabilities {
 	supportsTools: boolean
 	supportsStreaming: boolean
 	supportsFunctionCalling: boolean
+	/**
+	 * Whether the driver maps user-message image `attachments` into the
+	 * provider request. Optional for compatibility with pre-existing
+	 * declarations: absent ⇒ treated as vision-capable (permissive
+	 * default — the runtime only warns when a driver explicitly says no).
+	 */
+	supportsVision?: boolean
 	maxOutputTokens?: number
 }
 

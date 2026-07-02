@@ -3,17 +3,31 @@ import type {
 	ChatCompletionResponse,
 	LLMProvider,
 	ModelInfo,
+	ProviderCapabilities,
 	StreamChunk,
 	TokenUsage,
 	ToolChoice,
 } from '@namzu/sdk'
 import OpenAI from 'openai'
 import type {
+	ChatCompletionContentPart,
 	ChatCompletionMessageParam,
 	ChatCompletionTool,
 	ChatCompletionToolChoiceOption,
 } from 'openai/resources/chat/completions'
 import type { OpenAIConfig } from './types.js'
+
+/**
+ * Full capability set — this driver maps tools (`toOpenAITools`), streams
+ * natively, and maps user-message image `attachments` into `image_url`
+ * content parts with base64 data URIs (`toOpenAIMessages`).
+ */
+export const OPENAI_CAPABILITIES: ProviderCapabilities = {
+	supportsTools: true,
+	supportsStreaming: true,
+	supportsFunctionCalling: true,
+	supportsVision: true,
+}
 
 type OpenAIFinishReason = 'stop' | 'length' | 'tool_calls' | 'content_filter' | 'function_call'
 
@@ -70,7 +84,7 @@ function formatToolChoice(tc: ToolChoice | undefined): ChatCompletionToolChoiceO
 	return undefined
 }
 
-function toOpenAIMessages(
+export function toOpenAIMessages(
 	messages: ChatCompletionParams['messages'],
 ): ChatCompletionMessageParam[] {
 	return messages.map((msg): ChatCompletionMessageParam => {
@@ -78,6 +92,23 @@ function toOpenAIMessages(
 			return { role: 'system', content: msg.content }
 		}
 		if (msg.role === 'user') {
+			// User message with image attachments → multimodal content parts
+			// (text first, then each image as an `image_url` part carrying a
+			// base64 data URI). Mirrors the Anthropic driver's image-block
+			// mapping; plain text-only user messages keep the string form.
+			if (msg.attachments && msg.attachments.length > 0) {
+				const parts: ChatCompletionContentPart[] = []
+				if (msg.content.length > 0) {
+					parts.push({ type: 'text', text: msg.content })
+				}
+				for (const att of msg.attachments) {
+					parts.push({
+						type: 'image_url',
+						image_url: { url: `data:${att.mediaType};base64,${att.data}` },
+					})
+				}
+				return { role: 'user', content: parts }
+			}
 			return { role: 'user', content: msg.content }
 		}
 		if (msg.role === 'tool') {
@@ -121,6 +152,7 @@ function toOpenAITools(params: ChatCompletionParams): ChatCompletionTool[] | und
 export class OpenAIProvider implements LLMProvider {
 	readonly id = 'openai'
 	readonly name = 'OpenAI'
+	readonly capabilities = OPENAI_CAPABILITIES
 
 	private client: OpenAI
 	private defaultModel?: string

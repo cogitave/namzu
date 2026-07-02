@@ -225,6 +225,15 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				})
 				break
 
+			case 'capability_warning':
+				log.warn('Provider capability mismatch', {
+					runId: event.runId,
+					capability: event.capability,
+					providerId: event.providerId,
+					message: event.message,
+				})
+				break
+
 			default: {
 				const _exhaustive: never = event
 				throw new Error(`Unhandled run event type: ${(_exhaustive as RunEvent).type}`)

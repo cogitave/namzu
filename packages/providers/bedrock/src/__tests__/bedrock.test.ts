@@ -1,6 +1,6 @@
 import { DuplicateProviderError, ProviderRegistry } from '@namzu/sdk'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { BEDROCK_CAPABILITIES, registerBedrock } from '../index.js'
+import { BEDROCK_CAPABILITIES, BedrockProvider, registerBedrock } from '../index.js'
 
 // Ensure a clean slate between tests. The sdk pre-registers 'mock' on import
 // via its sideEffects whitelist; we only need to clear 'bedrock' to make
@@ -44,7 +44,13 @@ describe('@namzu/bedrock', () => {
 				supportsTools: true,
 				supportsStreaming: true,
 				supportsFunctionCalling: true,
+				supportsVision: false,
 			})
+		})
+
+		it('is exposed on the provider instance for runtime negotiation', () => {
+			const provider = new BedrockProvider({ region: 'us-east-1' })
+			expect(provider.capabilities).toEqual(BEDROCK_CAPABILITIES)
 		})
 	})
 })

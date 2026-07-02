@@ -158,7 +158,6 @@ function makePhaseContext(
 		emitEvent: async (event: RunEvent) => {
 			events.push(event)
 		},
-		// biome-ignore lint/correctness/useYield: drainPending is a no-op generator in this stub
 		drainPending: function* (): Generator<RunEvent> {},
 		resumeHandler: async () => ({ action: 'continue' as const }),
 	} as unknown as IterationContext

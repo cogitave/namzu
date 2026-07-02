@@ -1,6 +1,6 @@
 import { DuplicateProviderError, ProviderRegistry } from '@namzu/sdk'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { OLLAMA_CAPABILITIES, registerOllama } from '../index.js'
+import { OLLAMA_CAPABILITIES, OllamaProvider, registerOllama } from '../index.js'
 
 // Ensure a clean slate between tests. The sdk pre-registers 'mock' on import
 // via its sideEffects whitelist; we only need to clear 'ollama' to make
@@ -44,7 +44,13 @@ describe('@namzu/ollama', () => {
 				supportsTools: false,
 				supportsStreaming: true,
 				supportsFunctionCalling: false,
+				supportsVision: false,
 			})
+		})
+
+		it('is exposed on the provider instance for runtime negotiation', () => {
+			const provider = new OllamaProvider()
+			expect(provider.capabilities).toEqual(OLLAMA_CAPABILITIES)
 		})
 	})
 })

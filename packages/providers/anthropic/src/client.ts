@@ -5,6 +5,7 @@ import type {
 	ChatCompletionResponse,
 	LLMProvider,
 	ModelInfo,
+	ProviderCapabilities,
 	StreamChunk,
 	TokenUsage,
 	ToolChoice,
@@ -362,9 +363,22 @@ interface StreamEvent {
 // AnthropicProvider
 // --------------------------------------------------------------------------------------
 
+/**
+ * Full capability set — this driver maps tools (`toAnthropicTools`),
+ * streams natively, and maps user-message image `attachments` into
+ * base64 image content blocks (`toAnthropicMessages`).
+ */
+export const ANTHROPIC_CAPABILITIES: ProviderCapabilities = {
+	supportsTools: true,
+	supportsStreaming: true,
+	supportsFunctionCalling: true,
+	supportsVision: true,
+}
+
 export class AnthropicProvider implements LLMProvider {
 	readonly id = 'anthropic'
 	readonly name = 'Anthropic'
+	readonly capabilities = ANTHROPIC_CAPABILITIES
 
 	private client: Anthropic
 	private config: AnthropicConfig

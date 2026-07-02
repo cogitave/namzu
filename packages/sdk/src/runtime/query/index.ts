@@ -7,6 +7,7 @@ import {
 import { extractFromUserMessage } from '../../compaction/extractor.js'
 import { WorkingStateManager } from '../../compaction/manager.js'
 import type { CompactionConfig } from '../../config/runtime.js'
+import { resolveProviderCapabilities } from '../../provider/capabilities.js'
 import type { PathBuilder } from '../../session/workspace/path-builder.js'
 import { GENAI, NAMZU, agentRunSpanName } from '../../telemetry/attributes.js'
 import { getTracer } from '../../telemetry/runtime-accessors.js'
@@ -156,6 +157,18 @@ export interface QueryParams {
 	sandboxProvider?: SandboxProvider
 
 	invocationState?: InvocationState
+
+	/**
+	 * Capability-mismatch handling. Default `false`: when the request asks
+	 * for something the provider driver declared it cannot do (tools
+	 * registered against a `supportsTools: false` driver, image
+	 * attachments against a `supportsVision: false` driver), the runtime
+	 * warns loudly, emits a `capability_warning` run event, and degrades
+	 * explicitly (tool surfaces stripped from prompt + request;
+	 * attachments left unmapped by the driver). `true`: throw instead of
+	 * degrading.
+	 */
+	strictCapabilities?: boolean
 }
 
 export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run> {
@@ -253,7 +266,45 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		}
 	}
 
-	const effectiveAllowedTools = withDeferredDiscoveryTool(params.tools, params.allowedTools)
+	// ─── Provider capability negotiation (before tooling bootstrap) ────────
+	// Compare what the request asks for with what the DRIVER declared it
+	// does. Undeclared capabilities resolve permissively (today's behavior
+	// for third-party providers); declared gaps degrade loudly instead of
+	// silently.
+	const capabilities = resolveProviderCapabilities(params.provider)
+	const registeredToolCount = params.tools.listNames().length
+	const stripToolSurfaces = !capabilities.supportsTools && registeredToolCount > 0
+	const attachmentMessageCount = capabilities.supportsVision
+		? 0
+		: params.messages.filter(
+				(m) => m.role === 'user' && m.attachments !== undefined && m.attachments.length > 0,
+			).length
+
+	if (stripToolSurfaces) {
+		const message = `Provider '${params.provider.id}' declares supportsTools: false but ${registeredToolCount} tool(s) are registered — stripping all tool surfaces from the prompt and request so the model is never told about tools it cannot call. Pass strictCapabilities: true to fail instead, or use a tools-capable provider.`
+		if (params.strictCapabilities) {
+			throw new Error(message)
+		}
+		ctx.log.warn(`CAPABILITY MISMATCH: ${message}`, {
+			providerId: params.provider.id,
+			registeredToolCount,
+		})
+	}
+
+	if (attachmentMessageCount > 0) {
+		const message = `Provider '${params.provider.id}' declares supportsVision: false but ${attachmentMessageCount} user message(s) carry image attachments — the driver will not map them, so the model never sees the images. Pass strictCapabilities: true to fail instead, or use a vision-capable provider.`
+		if (params.strictCapabilities) {
+			throw new Error(message)
+		}
+		ctx.log.warn(`CAPABILITY MISMATCH: ${message}`, {
+			providerId: params.provider.id,
+			attachmentMessageCount,
+		})
+	}
+
+	const effectiveAllowedTools = stripToolSurfaces
+		? []
+		: withDeferredDiscoveryTool(params.tools, params.allowedTools)
 
 	const toolExecutor = ToolingBootstrap.init(
 		{
@@ -472,6 +523,30 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				systemPrompt: assembledPrompt,
 			})
 			yield* eventTranslator.drainPending()
+
+			// Surface capability degradation to the host as run events —
+			// explicit, not silent (the log.warn above fires at setup time;
+			// this is the machine-readable channel).
+			if (stripToolSurfaces) {
+				await eventTranslator.emitEvent({
+					type: 'capability_warning',
+					runId: ctx.runMgr.id,
+					capability: 'tools',
+					providerId: params.provider.id,
+					message: `Provider '${params.provider.id}' does not support tools — ${registeredToolCount} registered tool(s) were stripped from the prompt and request.`,
+				})
+				yield* eventTranslator.drainPending()
+			}
+			if (attachmentMessageCount > 0) {
+				await eventTranslator.emitEvent({
+					type: 'capability_warning',
+					runId: ctx.runMgr.id,
+					capability: 'vision',
+					providerId: params.provider.id,
+					message: `Provider '${params.provider.id}' does not support vision — image attachments on ${attachmentMessageCount} user message(s) will not reach the model.`,
+				})
+				yield* eventTranslator.drainPending()
+			}
 
 			if (params.pluginManager) {
 				const hookResults = await params.pluginManager.executeHooks(

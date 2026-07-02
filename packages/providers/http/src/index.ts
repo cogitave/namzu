@@ -1,5 +1,5 @@
-import { type ProviderCapabilities, ProviderRegistry, type RegisterOptions } from '@namzu/sdk'
-import { HttpProvider } from './client.js'
+import { ProviderRegistry, type RegisterOptions } from '@namzu/sdk'
+import { HTTP_CAPABILITIES, HttpProvider } from './client.js'
 import type { HttpProviderConfig } from './types.js'
 
 // Module augmentation: register http's config type in the sdk's registry interface.
@@ -8,12 +8,6 @@ declare module '@namzu/sdk' {
 	interface ProviderConfigRegistry {
 		http: HttpProviderConfig
 	}
-}
-
-export const HTTP_CAPABILITIES: ProviderCapabilities = {
-	supportsTools: true,
-	supportsStreaming: true,
-	supportsFunctionCalling: true,
 }
 
 /**
@@ -28,6 +22,6 @@ export function registerHttp(options?: RegisterOptions): void {
 	ProviderRegistry.register('http', HttpProvider, HTTP_CAPABILITIES, options)
 }
 
-export { HttpProvider } from './client.js'
+export { HTTP_CAPABILITIES, HttpProvider } from './client.js'
 export { DialectMismatchError } from './types.js'
 export type { HttpConfig, HttpDialect, HttpProviderConfig } from './types.js'

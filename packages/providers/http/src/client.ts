@@ -3,6 +3,7 @@ import type {
 	ChatCompletionResponse,
 	LLMProvider,
 	ModelInfo,
+	ProviderCapabilities,
 	StreamChunk,
 	TokenUsage,
 	ToolChoice,
@@ -279,9 +280,23 @@ function formatAnthropicRequest(
 // HttpProvider
 // --------------------------------------------------------------------------------------
 
+/**
+ * What this DRIVER does, not what the remote endpoint could do:
+ * tools pass through to the request body, but user-message image
+ * `attachments` are not mapped into content parts — `supportsVision`
+ * stays false until the message translation handles them.
+ */
+export const HTTP_CAPABILITIES: ProviderCapabilities = {
+	supportsTools: true,
+	supportsStreaming: true,
+	supportsFunctionCalling: true,
+	supportsVision: false,
+}
+
 export class HttpProvider implements LLMProvider {
 	readonly id = 'http'
 	readonly name = 'HTTP'
+	readonly capabilities = HTTP_CAPABILITIES
 
 	private config: HttpConfig
 	private dialect: HttpDialect
