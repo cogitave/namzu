@@ -1,5 +1,57 @@
 # @namzu/cli
 
+## 0.2.0
+
+### Minor Changes
+
+- 11e1a70: run-stream gains `--session <key>` and a new `history --session <key>` command:
+  bind a headless turn to a persisted conversation in the cwd's `.namzu` store
+  (keyed by an embedder's own session id), so prior turns load as context and
+  the turn is appended. `history` prints that conversation's `{role,content}[]`
+  as JSON. This lets a host UI (the clawtool desktop) resume a session's
+  transcript and keep multi-turn context across separate one-shot invocations.
+- 022b082: run-stream gains a `--provider` flag (override the persona's configured provider
+  for the turn, alongside --model). New `providers-json` command prints every
+  registry provider with its detection state, default model, and a best-effort
+  live model list (`{provider,label,detected,default,models[]}[]`) so a host UI can
+  build a dynamic provider/model picker instead of a hardcoded list. listModels is
+  probed per detected provider with a 3s race + free-text fallback. The listing
+  path registers the vendor package (ensureRegistered) before constructing the
+  provider, so a detected provider returns its real model catalog instead of an
+  empty list — without it ProviderRegistry.create throws "Unsupported provider
+  type" and the picker silently degrades to free-text for every provider.
+- 02f37e1: run-stream gains `--model`, `--instance`, and `--skills <a,b,c>` flags so a host
+  UI can drive which model answers, attribute the run to a named instance, and
+  load specific skills' bodies into the turn (via the same extra-system channel
+  the TUI's `/skill` uses). Adds a `skills-json` command that prints discovered
+  skills as `{name, description, source}[]` for a host's skill picker.
+- 1032736: Add `namzu run-stream` — a headless streaming one-shot that runs the same
+  agent as the TUI but emits one compact NDJSON line per `AgentEvent`
+  (delta / tool-start / tool-end / error / done) to stdout, instead of
+  buffering the final text like `run`. Prior conversation history is read
+  from stdin as a JSON `Message[]`. This lets a host process (e.g. a desktop
+  UI) line-scan stdout and render a turn live, with the host owning
+  persistence — the equivalent of the TUI driven from another runtime.
+
+### Patch Changes
+
+- Updated dependencies [ac85934]
+- Updated dependencies [999e4be]
+- Updated dependencies [9df35d1]
+- Updated dependencies [42f577e]
+- Updated dependencies [6c09394]
+- Updated dependencies [9a0c5ee]
+- Updated dependencies [0d1fb7b]
+- Updated dependencies [2c5dd7a]
+- Updated dependencies [271e6cf]
+- Updated dependencies [8c07556]
+- Updated dependencies [b776acf]
+  - @namzu/sdk@1.1.0
+  - @namzu/anthropic@1.1.0
+  - @namzu/openai@1.0.1
+  - @namzu/openrouter@1.0.1
+  - @namzu/ollama@1.0.1
+
 ## 0.1.0
 
 ### Minor Changes

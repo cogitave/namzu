@@ -1,5 +1,98 @@
 # @namzu/sandbox
 
+## 1.1.0
+
+### Minor Changes
+
+- ff1e013: Add an additive control-plane mTLS dial to the Firecracker backend.
+
+  `FirecrackerBackendInternalConfig` gains an optional `controlPlaneMtls`
+  (`{ ca; cert; key; servername? }`, the SAME shape as the relay's `mtls`). When
+  present, the orchestrator control-plane calls — `POST /sandboxes`,
+  `DELETE /sandboxes/{id}:delete` — dial over a `node:https` request that presents
+  the client cert and verifies the orchestrator's server cert against the injected
+  CA (`rejectUnauthorized: true`, `minVersion: TLSv1.3`), INSTEAD of the plain
+  global `fetch`. This secures the control plane when `orchestratorEndpoint` is an
+  `https://` URL reached over the PUBLIC internet (the non-VNet-integrated
+  caller→FC-host hop), where the shared-secret bearer alone would be exposed on
+  the wire.
+
+  The change is purely additive and opt-in: with no `controlPlaneMtls` injected,
+  the EXISTING plain-`fetch` control-plane path runs byte-for-byte unchanged (the
+  single-host live proofs + local dev). The shared-secret bearer is still sent in
+  both modes — mTLS is defense in depth on top, not a replacement. `node:https` is
+  used rather than a `fetch` + undici dispatcher because the package declares no
+  undici dependency; `node:https` is always importable and adds nothing. The cert
+  material is injected by the consumer's runtime (mirrors `getToken` and the relay
+  `mtls`), so the package still reads no keys from disk and stays Azure-SDK free.
+
+- 208d415: Add an `mtls` arm to the Firecracker agent transport for the cross-host
+  client-proxy bridge.
+
+  `SandboxAgentHandle` gains a third variant —
+  `{ kind: 'mtls'; host; port; sandboxId; tls: { ca; cert; key; servername? } }` —
+  alongside the existing `unix` and `vsock` arms. When the orchestrator runs on a
+  different host from the caller (the owned-fleet production path), the host-local
+  `v.sock` is unreachable over the network, so the dialer instead `tls.connect()`s
+  to a per-FC-host mTLS relay, writes a `SANDBOX <sandboxId>\n` preamble, and then
+  runs the IDENTICAL length-framed NDJSON loop. The relay terminates mTLS and
+  bridges to the jailed `v.sock` (issuing the guest `CONNECT 1024` handshake
+  itself), so one inbound mTLS connection maps to one fresh local `v.sock`
+  connect — preserving the resume-survival property of opening a fresh connection
+  per request.
+
+  The change is purely additive: the `unix` and `vsock` arms and all framing,
+  heartbeat, and reconnect-on-resume code are byte-for-byte unchanged (single-host
+  deployments keep using `vsock`). The TLS material is injected by the consumer
+  (never returned by the orchestrator), keeping the package free of any key
+  management.
+
+- 74a1198: Add the owned-Firecracker microVM backend (`microvm:self-hosted`) and its
+  host-side vsock transport.
+
+  The `MicroVMBackendConfig` `self-hosted` arm gains the owned-platform seam:
+  `orchestratorEndpoint` + `getToken` (the ACI `getArmToken` closure pattern, so
+  the package keeps zero Azure-SDK deps) route to a new `backends/firecracker/`
+  backend instead of throwing `SandboxBackendNotImplementedError`; `template`
+  selects the golden snapshot revision and `agentVsockPort` /
+  `readyTimeoutMs` / `readyPollIntervalMs` tune the agent dial. The legacy local
+  `firecracker-containerd` shape (the three image fields alone) still throws.
+
+  The backend is a sibling of `docker/` and `aci-standby-pool/` and a
+  remote-copy backend like ACI (workspace seeded by archive-sync over the control
+  channel, no host bind-mounts). It speaks the SAME NDJSON exec-stream + base64
+  file-IO wire as the docker/ACI HTTP worker — only the transport differs:
+
+  - One wire contract, factored into `backends/firecracker/protocol.ts`
+    (`ExecRequest`, the `stdout_delta`/`stderr_delta`/`result`/`error` `ExecEvent`
+    union, `ReadFileRequest`/`WriteFileRequest` + responses, the
+    `ExecResultAccumulator` and `parseExecLine` the docker loop inlines today).
+  - Two transports: HTTP for docker/ACI (UNCHANGED), and a NEW framed-over-vsock
+    transport for FC (`backends/firecracker/transport.ts`), because across an FC
+    snapshot resume a TCP control channel is dead-on-arrival while the vsock
+    LISTEN socket survives (FC `snapshot-support.md`). Node `fetch` cannot dial
+    AF_VSOCK, so the dialer, length-framing, heartbeat, and the
+    reconnect-on-resume hardening (per-attempt connect/handshake timeout + retry
+    budget to survive the FC #4713 `TRANSPORT_RESET`-not-delivered hang) are new.
+
+  New public exports from `@namzu/sandbox`: `VsockAgentTransport`,
+  `SandboxAgentHandle`, `VsockTransportOptions`, `FirecrackerBackendInternalConfig`,
+  `OrchestratorTokenProvider`. The in-VM agent source (`agent/agent.cjs`, a vsock
+  server reusing the worker spawn/jail + NDJSON shapes verbatim with the mandatory
+  pre-ready entropy reseed) ships in the repo as a golden-rootfs build input,
+  mirroring how `worker/server.js` is baked into the docker image — it is not a
+  published runtime dependency.
+
+### Patch Changes
+
+- 0d1fb7b: Harden file intake and ACI readiness failure handling.
+
+  The built-in read tool now guides Office and PDF packages through
+  extractor tooling instead of treating binary document containers as
+  UTF-8 text. The ACI Standby Pool backend now deletes a claimed
+  container group when IP or worker readiness polling fails before a
+  Sandbox handle is returned.
+
 ## 1.0.0
 
 ### Major Changes

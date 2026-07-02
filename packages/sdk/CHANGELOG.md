@@ -1,5 +1,172 @@
 # Changelog
 
+## 1.1.0
+
+### Minor Changes
+
+- ac85934: Add a model-authored `ask_user_question` HITL surface to the coordinator
+  toolset. `HITLDecisionRequest` gains a `user_question` variant carrying
+  `UserQuestionData` (questionId = the asking `tool_use_id`, question text,
+  optional header, 2-4 model-authored options, multiSelect, allowFreeText),
+  and `HITLResumeDecision` gains `answer_question` (selectedOptionIds,
+  optional freeText, optional questionId echo as a misdirection guard).
+  The tool registers only when `buildCoordinatorTools` receives BOTH a
+  `resumeHandler` and a `runId` (SupervisorAgent threads its configured
+  `resumeHandler` through automatically), parks the run through the same
+  ResumeHandler channel as plan approvals, and returns the user's answer
+  verbatim as the tool result — selections quote question and labels,
+  free text is rendered "in their own words", and an empty/misdirected/
+  mismatched answer yields an explicit "the user did not answer" sentinel
+  instead of fabricated consent. The tool is deliberately NOT
+  concurrency-safe so multiple questions in one assistant turn park
+  strictly one at a time against host run-keyed park registries.
+  Headless callers degrade safely: `autoApproveHandler` answers
+  `user_question` with the no-selection sentinel ("No user is available
+  to answer. Proceed using your best judgment."), so runs without an
+  interactive ResumeHandler never deadlock and never invent a choice.
+  Existing ResumeHandler implementations compile unchanged (additive
+  union widening); bare plan-approval and tool-review flows are
+  byte-identical.
+- 9df35d1: Make a Stop abort the IN-FLIGHT model turn, not only between turns.
+
+  `ChatCompletionParams` gains an optional `signal?: AbortSignal`. The query
+  runtime threads the run's abort signal into every provider call (the streaming
+  turn and the forced-final summary) and now drives the provider stream through a
+  MANUAL iterator that RACES each `next()` against the abort — so a cancellation
+  tears the turn down within a tick even if a transport buffers or ignores the
+  signal, with the abort propagating out of the generator so the run settles as
+  `cancelled`. The stream consumer cleans up on every exit (removes the abort
+  listener, calls `iterator.return()`), and the natural-completion break
+  re-checks the signal so a Stop that lands exactly as the turn finishes is
+  recorded as cancelled rather than a normal end-of-turn.
+
+  Every provider now honours the signal at the transport: Anthropic
+  (`messages.create({ signal })`), OpenAI (`create(..., { signal })`), Bedrock
+  (`send(..., { abortSignal })`), OpenRouter + HTTP (compose with the request
+  timeout via `AbortSignal.any`), Ollama (the returned iterator's `.abort()`),
+  and LM Studio (`respond(..., { signal })` → the SDK's websocket cancel) — each
+  plus a cheap per-chunk `signal.throwIfAborted()` for promptness.
+
+  Fully additive and inert when unset: a never-aborted signal is behaviourally
+  identical to omitting it, so existing callers and uncancelled runs are
+  byte-identical.
+
+- 6c09394: Add an optional feedback channel to plan approvals: `HITLResumeDecision`'s
+  `approve_plan` variant now carries `feedback?: string`, the plan-approval
+  resume handler forwards it as `PlanApprovalResponse.feedback`, and the
+  coordinator `approve_plan` tool embeds approve-with-edits feedback in the
+  model-visible tool result so the supervisor applies the user's edits
+  atomically with the approval. Bare approvals are byte-identical to before;
+  existing resume handlers compile and behave unchanged.
+- 8c07556: Tool-loading economics: honor prompt caching in the Anthropic provider and
+  make deferred-tool discovery ranked and bounded.
+
+  `@namzu/anthropic`:
+
+  - `cacheControl` on `ChatCompletionParams` is now honored (it was silently
+    dropped; `cache_read_input_tokens` was always 0). The provider emits up to
+    three `cache_control: {type:'ephemeral'}` breakpoints per request: the
+    tools-array tail, the last `'cache'`-tagged system block, and the last
+    message block (render order tools → system → messages).
+  - System messages are sent as a block array preserving `SystemMessage.cacheHint`
+    segment boundaries instead of being joined into one string. The OAuth
+    Claude Code identity block stays first.
+  - `toolChoice: 'none'` now maps to Anthropic's first-class
+    `tool_choice: {type:'none'}` instead of `{type:'auto'}`, and `tool_choice`
+    is only sent alongside a `tools` param.
+  - `parallelToolCalls: false` now maps to `disable_parallel_tool_use: true`
+    on the `tool_choice` (previously unmapped).
+
+  `@namzu/sdk`:
+
+  - The runtime keeps the tools param byte-stable on forced-final iterations
+    (resource-limit finalization) and forbids tool use via `toolChoice: 'none'`
+    instead of omitting `tools` — omitting busted the whole prompt-cache prefix
+    and risked a 400 with `tool_use`/`tool_result` blocks in history.
+  - `ToolRegistry.toPromptSection()` lists active tools name-only (their
+    descriptions and schemas already ride the runtime tools param every
+    request) and gives deferred tools a first-sentence hint (≤100 chars) so the
+    model can discover what a deferred name does before searching.
+  - `ToolRegistry.searchDeferred()` is now a ranked weighted search (exact
+    name 12, name substring 8, description 5, argument names 3 — the
+    `ToolCatalog.searchTools` weights) with generic CRUD verbs (`list`,
+    `read`, `create`, `update`, `get`, `find`, `delete`, `search`) added to the
+    stop-token set. `search_tools` activates only the top-5 ranked matches and
+    reports up to 5 near-misses as name+hint WITHOUT activating them, so a
+    retrieval miss becomes a cheap re-query instead of a dead end. The
+    `search_tools` input wire shape (`{query}`) is unchanged.
+
+### Patch Changes
+
+- 999e4be: Context-management correctness fixes (Vandal round-3 architecture audit).
+
+  - **Compaction no longer orphans tool pairs.** `runCompactionCheck` now snaps
+    the recent-window boundary through `findSafeTrimIndex` (previously wired only
+    to the unused `ConversationManager` strategy classes), so a compaction cut can
+    never leave a `tool_result` at the head of the recent window whose `tool_use`
+    was summarized away. That orphan otherwise makes the provider reject the very
+    next turn with a 400 — compaction killing the long run it exists to keep alive.
+  - **Resume preserves the compaction summary + working-memory slot.** The
+    checkpoint-restore path used to drop EVERY system message, silently losing the
+    `[COMPACTED CONTEXT]` block (the only record of the older history a pass
+    deleted) on `resumeFromCheckpoint`. It now re-pushes the fresh static/dynamic
+    floor but preserves the compaction summary and the pinned working-memory slot.
+  - **Within-turn usage is merged, not last-write-wins.** `mergeTokenUsage`
+    (per-field high-water mark) replaces `usage = chunk.usage` in `collect()` and
+    the iteration stream reducer, so a late usage frame that omits input/cache
+    tokens no longer zeroes the counts captured earlier in the stream.
+  - **HITL parks are cancellable.** `awaitDecisionOrAbort` races the tool-review
+    and iteration-checkpoint `resumeHandler` parks against the run's abort signal,
+    so a Stop that arrives while parked resolves the park as `abort` instead of
+    hanging until the host answers. Degrades to a plain await when no controller
+    is wired; fails closed to `abort` if the handler rejects.
+
+  All changes are internal correctness fixes; the provider/message wire contract
+  is unchanged and existing consumers stay behaviourally identical outside the
+  buggy edge cases above.
+
+- 42f577e: Recreate shared run workspace manifest directories before atomic writes.
+- 9a0c5ee: Plan-rejection guidance now follows the user's feedback instead of baking in
+  an unconditional revise loop. The old output told the supervisor to "revise
+  your plan ... and call approve_plan again" even when the feedback explicitly
+  asked it to stop, so a rejection meant to halt kept generating new plans.
+  The output now instructs: follow the feedback — revise and re-submit only if
+  changes were requested; acknowledge and end the turn if asked to stop; ask
+  the user how to proceed when no feedback was given.
+- 0d1fb7b: Harden file intake and ACI readiness failure handling.
+
+  The built-in read tool now guides Office and PDF packages through
+  extractor tooling instead of treating binary document containers as
+  UTF-8 text. The ACI Standby Pool backend now deletes a claimed
+  container group when IP or worker readiness polling fails before a
+  Sandbox handle is returned.
+
+- 2c5dd7a: The supervisor's task ledger no longer fabricates success for workers that
+  produced no result. Previously, when a task handle had no `result`, the
+  synthesized entry took its status from `handle.state` (cast to a terminal
+  type) — so a handle reporting `state: 'completed'` but carrying no result was
+  counted toward `completedTasks`. The supervisor then reported "workers done"
+  with empty outputs when the workers never actually produced anything.
+
+  An absent result is now always synthesized as a terminal `'failed'`, so it can
+  never count as a completed task. Handles that carry a real `result` are
+  preserved verbatim, so genuine workers are unaffected. The synthesis and tally
+  are extracted into `synthesizeTaskResults` / `countCompletedTasks` and covered
+  by unit tests.
+
+- 271e6cf: Accept plain-text `approve_plan` step lists and normalize them into canonical
+  step objects before execution. This keeps plan approval cards resilient when a
+  provider emits numbered prose instead of an array-shaped argument.
+- b776acf: Make the package-version read bundle-safe. `version.ts` read `../package.json`
+  via `createRequire(import.meta.url)` at module-init with no guard. esbuild leaves
+  `createRequire` calls as runtime requires and collapses the dist tree into a
+  single file, so in a bundle `../package.json` no longer resolves and the read
+  threw at import time — crashing the whole process on any code path that touches
+  the SDK runtime (`Cannot find module '../package.json'`). Wrap the read in
+  try/catch with a `0.0.0` fallback, mirroring the CLI's existing
+  `readPackageVersion`. Unbundled behaviour is unchanged (real version is read);
+  a bundled build degrades the cosmetic version string instead of crashing.
+
 ## 1.0.0
 
 ### Major Changes
