@@ -99,6 +99,7 @@ export {
 
 export {
 	ActivityStore,
+	DiskCheckpointStore,
 	DiskMemoryStore,
 	DiskTaskStore,
 	InMemoryMemoryIndex,

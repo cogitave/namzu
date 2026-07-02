@@ -2,6 +2,7 @@ export { InMemoryStore } from './InMemoryStore.js'
 export type { Identifiable, Timestamped } from './InMemoryStore.js'
 
 export { RunDiskStore } from './run/disk.js'
+export { DiskCheckpointStore } from './run/checkpoint-disk.js'
 
 export { ActivityStore } from './activity/memory.js'
 export type { ActivityEvent, ActivityEventListener } from './activity/memory.js'

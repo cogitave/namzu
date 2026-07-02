@@ -1,9 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import type { RunDiskStore } from '../../../store/run/disk.js'
 import type { CheckpointId, IterationCheckpoint } from '../../../types/hitl/index.js'
-import type { EmergencySaveId, RunId } from '../../../types/ids/index.js'
+import type { EmergencySaveId, RunId, SessionId, TenantId } from '../../../types/ids/index.js'
+import type { CheckpointRunScope, CheckpointStore } from '../../../types/run/checkpoint-store.js'
 import type { EmergencySaveData } from '../../../types/run/emergency.js'
+import type { ProjectId } from '../../../types/session/ids.js'
 import { CheckpointManager, projectEmergencyToCheckpoint } from '../checkpoint.js'
+
+const TEST_SCOPE: CheckpointRunScope = {
+	tenantId: 'tnt_test' as TenantId,
+	projectId: 'prj_test' as ProjectId,
+	sessionId: 'ses_test' as SessionId,
+	runId: 'run_test' as RunId,
+}
 
 function makeCheckpoint(overrides: Partial<IterationCheckpoint> = {}): IterationCheckpoint {
 	return {
@@ -30,10 +38,10 @@ function makeCheckpoint(overrides: Partial<IterationCheckpoint> = {}): Iteration
 	}
 }
 
-function makeStoreStub(checkpoints: IterationCheckpoint[]): RunDiskStore {
+function makeStoreStub(checkpoints: IterationCheckpoint[]): CheckpointStore {
 	return {
 		listCheckpoints: async () => checkpoints,
-	} as unknown as RunDiskStore
+	} as unknown as CheckpointStore
 }
 
 describe('CheckpointManager.listEntries', () => {
@@ -60,7 +68,7 @@ describe('CheckpointManager.listEntries', () => {
 			}),
 		])
 
-		const mgr = new CheckpointManager(store)
+		const mgr = new CheckpointManager(store, TEST_SCOPE)
 		const entries = await mgr.listEntries()
 
 		expect(entries).toHaveLength(2)
@@ -81,7 +89,7 @@ describe('CheckpointManager.listEntries', () => {
 	})
 
 	it('returns empty array when no checkpoints exist', async () => {
-		const mgr = new CheckpointManager(makeStoreStub([]))
+		const mgr = new CheckpointManager(makeStoreStub([]), TEST_SCOPE)
 		expect(await mgr.listEntries()).toEqual([])
 	})
 
@@ -93,6 +101,7 @@ describe('CheckpointManager.listEntries', () => {
 					branchStack: [{ agentId: 'a', decision: 'd', confidence: 1, timestamp: 0 }],
 				}),
 			]),
+			TEST_SCOPE,
 		)
 		const [entry] = await mgr.listEntries()
 		expect(entry).not.toHaveProperty('tokenUsage')

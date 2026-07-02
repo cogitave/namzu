@@ -28,6 +28,7 @@ import { type Message, createSystemMessage } from '../../types/message/index.js'
 import type { AgentPersona } from '../../types/persona/index.js'
 import type { LLMProvider } from '../../types/provider/index.js'
 import type { TaskRouterConfig } from '../../types/router/index.js'
+import type { CheckpointStore } from '../../types/run/checkpoint-store.js'
 import type { AgentRunConfig, Run, RunEvent, RunEventListener } from '../../types/run/index.js'
 import type { Sandbox, SandboxProvider } from '../../types/sandbox/index.js'
 import type { ProjectId, ThreadId } from '../../types/session/ids.js'
@@ -92,6 +93,15 @@ export interface QueryParams {
 	 * runs on this same entry point.
 	 */
 	pathBuilder?: PathBuilder
+
+	/**
+	 * Optional checkpoint persistence override. Absent ⇒ iteration
+	 * checkpoints go to the disk layout under the run's output directory
+	 * (today's behavior). A host injects a scope-keyed
+	 * {@link CheckpointStore} (e.g. Postgres-backed) so mid-turn resume
+	 * survives machines that lose their local disk.
+	 */
+	checkpointStore?: CheckpointStore
 
 	runId?: RunId
 
@@ -172,6 +182,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		projectId: params.projectId,
 		tenantId: params.tenantId,
 		pathBuilder: params.pathBuilder,
+		checkpointStore: params.checkpointStore,
 		runId: params.runId,
 		parentRunId: params.parentRunId,
 		depth: params.depth,
@@ -284,7 +295,10 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		maxIterations: params.runConfig.maxIterations,
 	})
 
-	const checkpointMgr = new CheckpointManager(ctx.runMgr.getRunStore())
+	const checkpointMgr = new CheckpointManager(
+		ctx.runMgr.getCheckpointStore(),
+		ctx.runMgr.getRunScope(),
+	)
 
 	const resultAssembler = new ResultAssembler({
 		runMgr: ctx.runMgr,

@@ -1,9 +1,11 @@
 import { AUTO_CONTINUATION_USER_MESSAGE } from '../../constants/continuation.js'
 import { EMPTY_TOKEN_USAGE } from '../../constants/limits.js'
+import { DiskCheckpointStore } from '../../store/run/checkpoint-disk.js'
 import { RunDiskStore } from '../../store/run/disk.js'
 import { type CostInfo, type TokenUsage, accumulateTokenUsage } from '../../types/common/index.js'
 import type { RunId, SessionId, TenantId } from '../../types/ids/index.js'
 import type { Message } from '../../types/message/index.js'
+import type { CheckpointRunScope, CheckpointStore } from '../../types/run/checkpoint-store.js'
 import type { EmergencySaveData } from '../../types/run/emergency.js'
 import type { Run, RunPersistenceConfig, StopReason } from '../../types/run/index.js'
 import type { ProjectId, ThreadId } from '../../types/session/ids.js'
@@ -14,6 +16,7 @@ import type { Logger } from '../../utils/logger.js'
 export class RunPersistence {
 	private run: Run
 	private runStore: RunDiskStore
+	private checkpointStore: CheckpointStore
 	private pricing?: ModelPricing
 	private log: Logger
 	private readonly _sessionId: SessionId
@@ -33,6 +36,15 @@ export class RunPersistence {
 			baseDir: config.outputDir,
 			logger: config.log,
 		})
+
+		// Checkpoints go through the injectable seam; the disk layout under
+		// `outputDir` (same tree the runStore writes to) stays the default.
+		this.checkpointStore =
+			config.checkpointStore ??
+			new DiskCheckpointStore({
+				baseDir: config.outputDir,
+				logger: config.log,
+			})
 
 		this.run = {
 			id: config.runId,
@@ -107,6 +119,27 @@ export class RunPersistence {
 
 	getRunStore(): RunDiskStore {
 		return this.runStore
+	}
+
+	/**
+	 * Checkpoint persistence for this run — the injected
+	 * {@link CheckpointStore} when the host provided one, otherwise the
+	 * disk default. Pair with {@link getRunScope} when constructing a
+	 * `CheckpointManager`.
+	 */
+	getCheckpointStore(): CheckpointStore {
+		return this.checkpointStore
+	}
+
+	/** Full five-layer scope key for this run's checkpoint operations. */
+	getRunScope(): CheckpointRunScope {
+		return {
+			tenantId: this._tenantId,
+			projectId: this._projectId,
+			sessionId: this._sessionId,
+			runId: this.run.id,
+			parentRunId: this.run.parentRunId,
+		}
 	}
 
 	getRunDir(): string | null {
