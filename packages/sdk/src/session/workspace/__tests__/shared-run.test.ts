@@ -148,7 +148,7 @@ describe('SharedRunWorkspace', () => {
 			runtimeRoot: '/mnt/user-data/outputs/_work',
 		})
 
-		const big = '# Task Context\n\n' + 'A'.repeat(40_000)
+		const big = `# Task Context\n\n${'A'.repeat(40_000)}`
 		const path = await workspace.writeTaskContext(big)
 		expect(path).toBe('/mnt/user-data/outputs/_work/01_task_context.md')
 		expect(workspace.refs().taskContextPath).toBe(path)

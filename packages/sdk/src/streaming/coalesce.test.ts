@@ -117,14 +117,14 @@ describe('coalesce()', () => {
 	})
 
 	it('emits new event after window expires', async () => {
-		const events: RunEvent[] = [
+		const events: [RunEvent, RunEvent] = [
 			{ type: 'text_delta', runId: RID, iteration: 0, messageId: MID, text: 'a' },
 			{ type: 'text_delta', runId: RID, iteration: 0, messageId: MID, text: 'b' },
 		]
 		const stream: AsyncIterable<RunEvent> = (async function* () {
-			yield events[0]!
+			yield events[0]
 			await new Promise((r) => setTimeout(r, 30))
-			yield events[1]!
+			yield events[1]
 		})()
 		const result = await drain(coalesce(stream, { windowMs: 16 }))
 		expect(result).toHaveLength(2)
