@@ -46,7 +46,13 @@ describe('@namzu/anthropic', () => {
 				supportsTools: true,
 				supportsStreaming: true,
 				supportsFunctionCalling: true,
+				supportsVision: true,
 			})
+		})
+
+		it('is exposed on the provider instance for runtime negotiation', () => {
+			const provider = new AnthropicProvider({ apiKey: 'test-key' })
+			expect(provider.capabilities).toEqual(ANTHROPIC_CAPABILITIES)
 		})
 	})
 

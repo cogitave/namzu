@@ -86,7 +86,13 @@ describe('@namzu/http — registration', () => {
 			supportsTools: true,
 			supportsStreaming: true,
 			supportsFunctionCalling: true,
+			supportsVision: false,
 		})
+	})
+
+	it('exposes capabilities on the provider instance for runtime negotiation', () => {
+		const provider = new HttpProvider({ baseURL: 'https://example.com/v1', apiKey: 'test' })
+		expect(provider.capabilities).toEqual(HTTP_CAPABILITIES)
 	})
 
 	it('ProviderRegistry.create({ type: "http", ... }) instantiates HttpProvider', () => {

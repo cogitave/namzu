@@ -4,9 +4,11 @@ import { RunDiskStore } from '../../../store/run/disk.js'
 import type { CheckpointId, IterationCheckpoint } from '../../../types/hitl/index.js'
 import type { RunId } from '../../../types/ids/index.js'
 import type { Message } from '../../../types/message/index.js'
+import type { CheckpointRunScope, CheckpointStore } from '../../../types/run/checkpoint-store.js'
 import type { Mutation, ReplayAttribution } from '../../../types/run/replay.js'
 import type { Logger } from '../../../utils/logger.js'
 import { projectEmergencyToCheckpoint } from '../checkpoint.js'
+import { requireScope } from './list.js'
 import { applyMutations } from './mutate.js'
 
 export type CheckpointSelector = CheckpointId | 'latest' | 'emergency'
@@ -27,6 +29,15 @@ export interface PrepareReplayInput {
 	 */
 	emergencyDir?: string
 	logger?: Logger
+	/**
+	 * Optional store override (host-injected, e.g. Postgres). When set,
+	 * `scope` is required and `baseDir` is ignored for checkpoint reads.
+	 * The `'emergency'` selector still reads the on-disk dump under
+	 * `emergencyDir` — emergency saves are process-local by nature.
+	 */
+	checkpointStore?: CheckpointStore
+	/** Run scope for `checkpointStore`. Required when it is set. */
+	scope?: CheckpointRunScope
 }
 
 export interface PreparedReplayState {
@@ -80,22 +91,44 @@ async function resolveCheckpoint(input: PrepareReplayInput): Promise<IterationCh
 	if (input.fromCheckpoint === 'emergency') {
 		return resolveEmergency(input)
 	}
-	const store = new RunDiskStore({ baseDir: input.baseDir, logger: input.logger })
-	await store.initRun(input.runId)
+
+	const reader = await bindCheckpointReader(input)
 
 	if (input.fromCheckpoint === 'latest') {
-		const all = await store.listCheckpoints()
+		const all = await reader.list()
 		if (all.length === 0) {
 			throw new Error(`No checkpoints found for run ${input.runId} in ${input.baseDir}`)
 		}
 		return [...all].sort((a, b) => b.iteration - a.iteration)[0] as IterationCheckpoint
 	}
 
-	const checkpoint = await store.readCheckpoint(input.fromCheckpoint)
+	const checkpoint = await reader.read(input.fromCheckpoint)
 	if (!checkpoint) {
 		throw new Error(`Checkpoint ${input.fromCheckpoint} not found for run ${input.runId}`)
 	}
 	return checkpoint
+}
+
+interface CheckpointReader {
+	list(): Promise<IterationCheckpoint[]>
+	read(id: CheckpointId): Promise<IterationCheckpoint | null>
+}
+
+async function bindCheckpointReader(input: PrepareReplayInput): Promise<CheckpointReader> {
+	if (input.checkpointStore) {
+		const store = input.checkpointStore
+		const scope = requireScope(input.scope, 'prepareReplayState')
+		return {
+			list: () => store.listCheckpoints(scope),
+			read: (id) => store.readCheckpoint(scope, id),
+		}
+	}
+	const store = new RunDiskStore({ baseDir: input.baseDir, logger: input.logger })
+	await store.initRun(input.runId)
+	return {
+		list: () => store.listCheckpoints(),
+		read: (id) => store.readCheckpoint(id),
+	}
 }
 
 async function resolveEmergency(input: PrepareReplayInput): Promise<IterationCheckpoint> {

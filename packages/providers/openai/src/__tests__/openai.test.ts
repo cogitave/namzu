@@ -1,5 +1,7 @@
 import { DuplicateProviderError, ProviderRegistry } from '@namzu/sdk'
+import type { ChatCompletionParams } from '@namzu/sdk'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { toOpenAIMessages } from '../client.js'
 import { OPENAI_CAPABILITIES, OpenAIProvider, registerOpenAI } from '../index.js'
 
 // Ensure a clean slate between tests. The sdk pre-registers 'mock' on import
@@ -44,7 +46,13 @@ describe('@namzu/openai', () => {
 				supportsTools: true,
 				supportsStreaming: true,
 				supportsFunctionCalling: true,
+				supportsVision: true,
 			})
+		})
+
+		it('is exposed on the provider instance for runtime negotiation', () => {
+			const provider = new OpenAIProvider({ apiKey: 'test-key' })
+			expect(provider.capabilities).toEqual(OPENAI_CAPABILITIES)
 		})
 	})
 
@@ -68,6 +76,52 @@ describe('@namzu/openai', () => {
 					apiKey: '',
 				}),
 			).toThrowError(/API key is required/)
+		})
+	})
+
+	describe('toOpenAIMessages image attachments', () => {
+		it('maps user-message attachments to image_url content parts with base64 data URIs', () => {
+			const messages: ChatCompletionParams['messages'] = [
+				{
+					role: 'user',
+					content: 'what is in this image?',
+					attachments: [
+						{ data: 'aGVsbG8=', mediaType: 'image/png' },
+						{ data: 'd29ybGQ=', mediaType: 'image/jpeg' },
+					],
+				},
+			]
+
+			const [mapped] = toOpenAIMessages(messages)
+			expect(mapped).toEqual({
+				role: 'user',
+				content: [
+					{ type: 'text', text: 'what is in this image?' },
+					{ type: 'image_url', image_url: { url: 'data:image/png;base64,aGVsbG8=' } },
+					{ type: 'image_url', image_url: { url: 'data:image/jpeg;base64,d29ybGQ=' } },
+				],
+			})
+		})
+
+		it('omits the text part when the user message is empty but keeps the images', () => {
+			const messages: ChatCompletionParams['messages'] = [
+				{
+					role: 'user',
+					content: '',
+					attachments: [{ data: 'aGVsbG8=', mediaType: 'image/webp' }],
+				},
+			]
+
+			const [mapped] = toOpenAIMessages(messages)
+			expect(mapped).toEqual({
+				role: 'user',
+				content: [{ type: 'image_url', image_url: { url: 'data:image/webp;base64,aGVsbG8=' } }],
+			})
+		})
+
+		it('keeps plain text-only user messages in string form (no content parts)', () => {
+			const messages: ChatCompletionParams['messages'] = [{ role: 'user', content: 'hello' }]
+			expect(toOpenAIMessages(messages)).toEqual([{ role: 'user', content: 'hello' }])
 		})
 	})
 })

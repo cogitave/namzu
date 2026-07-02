@@ -165,6 +165,11 @@ const MAPPING: {
 	run_completed: null,
 	run_failed: null,
 
+	// Not mapped to a wire event yet — hosts consume `capability_warning`
+	// from the RunEvent stream directly; promoting it to the SSE contract
+	// needs a StreamEventType addition first.
+	capability_warning: null,
+
 	agent_pending: {
 		wire: 'agent.pending',
 		transform: (e, runId) => ({

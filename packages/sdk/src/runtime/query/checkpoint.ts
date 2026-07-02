@@ -1,5 +1,4 @@
 import type { RunPersistence } from '../../manager/run/persistence.js'
-import type { RunDiskStore } from '../../store/run/disk.js'
 import type {
 	ActiveNodeInfo,
 	BranchStackEntry,
@@ -8,13 +7,19 @@ import type {
 	IterationCheckpoint,
 } from '../../types/hitl/index.js'
 import type { AssistantMessage } from '../../types/message/index.js'
+import type { CheckpointRunScope, CheckpointStore } from '../../types/run/checkpoint-store.js'
 import type { EmergencySaveData } from '../../types/run/emergency.js'
 import type { CheckpointListEntry } from '../../types/run/replay.js'
 import { ZERO_COST } from '../../utils/cost.js'
 import { buildToolResultHashes } from '../../utils/hash.js'
 import { generateCheckpointId } from '../../utils/id.js'
 
-function toCheckpointListEntry(cp: IterationCheckpoint): CheckpointListEntry {
+/**
+ * Projection from a full checkpoint payload to the public listing entry.
+ * Exported for the replay `listCheckpoints` entry point, which projects
+ * store results without constructing a `CheckpointManager`.
+ */
+export function toCheckpointListEntry(cp: IterationCheckpoint): CheckpointListEntry {
 	return {
 		id: cp.id,
 		runId: cp.runId,
@@ -55,10 +60,19 @@ export function projectEmergencyToCheckpoint(dump: EmergencySaveData): Iteration
 }
 
 export class CheckpointManager {
-	private store: RunDiskStore
+	private store: CheckpointStore
+	private scope: CheckpointRunScope
 
-	constructor(store: RunDiskStore) {
+	/**
+	 * @param store scope-keyed checkpoint persistence. The default query
+	 *   pipeline passes the run's disk-backed store
+	 *   ({@link import('../../store/run/checkpoint-disk.js').DiskCheckpointStore});
+	 *   hosts inject their own via `QueryParams.checkpointStore`.
+	 * @param scope the run every operation of this manager is keyed to.
+	 */
+	constructor(store: CheckpointStore, scope: CheckpointRunScope) {
 		this.store = store
+		this.scope = scope
 	}
 
 	async create(
@@ -87,12 +101,12 @@ export class CheckpointManager {
 			activeNode: extra?.activeNode,
 		}
 
-		await this.store.writeCheckpoint(checkpoint)
+		await this.store.writeCheckpoint(this.scope, checkpoint)
 		return checkpoint
 	}
 
 	async restore(checkpointId: CheckpointId): Promise<IterationCheckpoint> {
-		const checkpoint = await this.store.readCheckpoint(checkpointId)
+		const checkpoint = await this.store.readCheckpoint(this.scope, checkpointId)
 		if (!checkpoint) {
 			throw new Error(`Checkpoint not found: ${checkpointId}`)
 		}
@@ -100,7 +114,7 @@ export class CheckpointManager {
 	}
 
 	async list(): Promise<IterationCheckpoint[]> {
-		return this.store.listCheckpoints()
+		return this.store.listCheckpoints(this.scope)
 	}
 
 	/**
@@ -110,7 +124,7 @@ export class CheckpointManager {
 	 * full checkpoint payload. See ses_005-deterministic-replay design §3.1.
 	 */
 	async listEntries(): Promise<CheckpointListEntry[]> {
-		const checkpoints = await this.store.listCheckpoints()
+		const checkpoints = await this.store.listCheckpoints(this.scope)
 		return checkpoints.map(toCheckpointListEntry)
 	}
 
@@ -121,7 +135,7 @@ export class CheckpointManager {
 		const toDelete = all.sort((a, b) => a.createdAt - b.createdAt).slice(0, all.length - keepLast)
 
 		for (const cp of toDelete) {
-			await this.store.deleteCheckpoint(cp.id)
+			await this.store.deleteCheckpoint(this.scope, cp.id)
 		}
 	}
 

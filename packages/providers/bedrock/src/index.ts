@@ -1,5 +1,5 @@
-import { type ProviderCapabilities, ProviderRegistry, type RegisterOptions } from '@namzu/sdk'
-import { BedrockProvider } from './client.js'
+import { ProviderRegistry, type RegisterOptions } from '@namzu/sdk'
+import { BEDROCK_CAPABILITIES, BedrockProvider } from './client.js'
 import type { BedrockProviderConfig } from './types.js'
 
 // Module augmentation: register bedrock's config type in the sdk's registry interface.
@@ -8,12 +8,6 @@ declare module '@namzu/sdk' {
 	interface ProviderConfigRegistry {
 		bedrock: BedrockProviderConfig
 	}
-}
-
-export const BEDROCK_CAPABILITIES: ProviderCapabilities = {
-	supportsTools: true,
-	supportsStreaming: true,
-	supportsFunctionCalling: true,
 }
 
 /**
@@ -28,5 +22,5 @@ export function registerBedrock(options?: RegisterOptions): void {
 	ProviderRegistry.register('bedrock', BedrockProvider, BEDROCK_CAPABILITIES, options)
 }
 
-export { BedrockProvider } from './client.js'
+export { BEDROCK_CAPABILITIES, BedrockProvider } from './client.js'
 export type { BedrockConfig, BedrockProviderConfig } from './types.js'

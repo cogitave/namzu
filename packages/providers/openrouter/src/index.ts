@@ -1,5 +1,5 @@
-import { type ProviderCapabilities, ProviderRegistry, type RegisterOptions } from '@namzu/sdk'
-import { OpenRouterProvider } from './client.js'
+import { ProviderRegistry, type RegisterOptions } from '@namzu/sdk'
+import { OPENROUTER_CAPABILITIES, OpenRouterProvider } from './client.js'
 import type { OpenRouterProviderConfig } from './types.js'
 
 // Module augmentation: register openrouter's config type in the sdk's registry
@@ -9,12 +9,6 @@ declare module '@namzu/sdk' {
 	interface ProviderConfigRegistry {
 		openrouter: OpenRouterProviderConfig
 	}
-}
-
-export const OPENROUTER_CAPABILITIES: ProviderCapabilities = {
-	supportsTools: true,
-	supportsStreaming: true,
-	supportsFunctionCalling: true,
 }
 
 /**
@@ -29,5 +23,5 @@ export function registerOpenRouter(options?: RegisterOptions): void {
 	ProviderRegistry.register('openrouter', OpenRouterProvider, OPENROUTER_CAPABILITIES, options)
 }
 
-export { OpenRouterProvider } from './client.js'
+export { OPENROUTER_CAPABILITIES, OpenRouterProvider } from './client.js'
 export type { OpenRouterConfig, OpenRouterProviderConfig } from './types.js'

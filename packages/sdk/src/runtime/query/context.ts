@@ -15,6 +15,7 @@ import type { RunId, SessionId, TenantId } from '../../types/ids/index.js'
 import type { Message } from '../../types/message/index.js'
 import type { PermissionMode } from '../../types/permission/index.js'
 import type { LLMProvider } from '../../types/provider/index.js'
+import type { CheckpointStore } from '../../types/run/checkpoint-store.js'
 import type { AgentRunConfig } from '../../types/run/index.js'
 import type { ProjectId, ThreadId } from '../../types/session/ids.js'
 import type { ModelPricing } from '../../utils/cost.js'
@@ -54,6 +55,13 @@ export interface RunContextConfig {
 	tenantId: TenantId
 
 	pathBuilder?: PathBuilder
+
+	/**
+	 * Optional checkpoint persistence override, threaded through to
+	 * {@link RunPersistence}. Absent ⇒ disk default under the run's
+	 * output directory.
+	 */
+	checkpointStore?: CheckpointStore
 
 	/**
 	 * Optional injected migrator — tests pass a stub; production code relies
@@ -162,6 +170,7 @@ export class RunContextFactory {
 			projectId: config.projectId,
 			parentRunId: config.parentRunId,
 			depth: config.depth,
+			checkpointStore: config.checkpointStore,
 		})
 
 		const trackingConfig = resolveActivityTracking(permissionMode, config.enableActivityTracking)

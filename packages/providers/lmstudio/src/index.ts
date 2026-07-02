@@ -1,5 +1,5 @@
-import { type ProviderCapabilities, ProviderRegistry, type RegisterOptions } from '@namzu/sdk'
-import { LMStudioProvider } from './client.js'
+import { ProviderRegistry, type RegisterOptions } from '@namzu/sdk'
+import { LMSTUDIO_CAPABILITIES, LMStudioProvider } from './client.js'
 import type { LMStudioProviderConfig } from './types.js'
 
 // Module augmentation: register lmstudio's config type in the sdk's registry interface.
@@ -8,12 +8,6 @@ declare module '@namzu/sdk' {
 	interface ProviderConfigRegistry {
 		lmstudio: LMStudioProviderConfig
 	}
-}
-
-export const LMSTUDIO_CAPABILITIES: ProviderCapabilities = {
-	supportsTools: true,
-	supportsStreaming: true,
-	supportsFunctionCalling: true,
 }
 
 /**
@@ -28,5 +22,5 @@ export function registerLMStudio(options?: RegisterOptions): void {
 	ProviderRegistry.register('lmstudio', LMStudioProvider, LMSTUDIO_CAPABILITIES, options)
 }
 
-export { LMStudioProvider } from './client.js'
+export { LMSTUDIO_CAPABILITIES, LMStudioProvider } from './client.js'
 export type { LMStudioConfig, LMStudioProviderConfig } from './types.js'

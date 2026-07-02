@@ -99,6 +99,19 @@ type CoreRunEvent =
 	  }
 	| { type: 'run_completed'; runId: RunId; result: string }
 	| { type: 'run_failed'; runId: RunId; error: string }
+	// Additive 2026-07 (provider capability negotiation): emitted once per
+	// run when the request asks for something the provider DRIVER declared
+	// it cannot do — tools registered against a no-tools driver (tool
+	// surfaces stripped so the model is never told about uncallable
+	// tools), or image attachments against a no-vision driver (attachments
+	// dropped). Hosts surface these so degradation is visible, not silent.
+	| {
+			type: 'capability_warning'
+			runId: RunId
+			capability: 'tools' | 'vision'
+			providerId: string
+			message: string
+	  }
 	| {
 			type: 'token_usage_updated'
 			runId: RunId

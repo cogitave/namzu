@@ -2,6 +2,7 @@ import type {
 	ChatCompletionParams,
 	LLMProvider,
 	ModelInfo,
+	ProviderCapabilities,
 	StreamChunk,
 	TokenUsage,
 	ToolChoice,
@@ -46,9 +47,23 @@ function formatToolChoice(tc: ToolChoice): unknown {
 	return tc
 }
 
+/**
+ * What this DRIVER does, not what OpenRouter could do: tools pass
+ * through to the request body, but user-message image `attachments`
+ * are not mapped into content parts — `supportsVision` stays false
+ * until the message translation handles them.
+ */
+export const OPENROUTER_CAPABILITIES: ProviderCapabilities = {
+	supportsTools: true,
+	supportsStreaming: true,
+	supportsFunctionCalling: true,
+	supportsVision: false,
+}
+
 export class OpenRouterProvider implements LLMProvider {
 	readonly id = 'openrouter'
 	readonly name = 'OpenRouter'
+	readonly capabilities = OPENROUTER_CAPABILITIES
 
 	private config: OpenRouterConfig
 	private baseUrl: string

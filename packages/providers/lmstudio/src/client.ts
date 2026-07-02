@@ -5,6 +5,7 @@ import type {
 	ChatCompletionResponse,
 	LLMProvider,
 	ModelInfo,
+	ProviderCapabilities,
 	StreamChunk,
 	TokenUsage,
 } from '@namzu/sdk'
@@ -69,9 +70,24 @@ function normalizeBaseUrl(host: string | undefined): string | undefined {
 	return host.replace(/^http(s?):\/\//, 'ws$1://')
 }
 
+/**
+ * What this DRIVER does, not what LM Studio could do: `chatStream`
+ * never reads `params.tools` (tool messages are folded into user text
+ * with a `[tool-result]` marker) and `toLMStudioChat` maps text content
+ * only (image `attachments` are dropped). Flip these only alongside
+ * the corresponding mapping code.
+ */
+export const LMSTUDIO_CAPABILITIES: ProviderCapabilities = {
+	supportsTools: false,
+	supportsStreaming: true,
+	supportsFunctionCalling: false,
+	supportsVision: false,
+}
+
 export class LMStudioProvider implements LLMProvider {
 	readonly id = 'lmstudio'
 	readonly name = 'LM Studio'
+	readonly capabilities = LMSTUDIO_CAPABILITIES
 
 	private client: LMStudioClient
 	private defaultModel?: string

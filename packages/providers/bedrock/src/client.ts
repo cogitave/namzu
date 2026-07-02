@@ -18,6 +18,7 @@ import type {
 	ChatCompletionResponse,
 	LLMProvider,
 	ModelInfo,
+	ProviderCapabilities,
 	StreamChunk,
 	TokenUsage,
 	ToolChoice,
@@ -219,9 +220,23 @@ function mapStopReason(reason?: string): NamzuFinishReason {
 	}
 }
 
+/**
+ * What this DRIVER does, not what Bedrock could do: tools are mapped
+ * to the Converse toolConfig, but user-message image `attachments`
+ * are not mapped into image content blocks — `supportsVision` stays
+ * false until the message translation handles them.
+ */
+export const BEDROCK_CAPABILITIES: ProviderCapabilities = {
+	supportsTools: true,
+	supportsStreaming: true,
+	supportsFunctionCalling: true,
+	supportsVision: false,
+}
+
 export class BedrockProvider implements LLMProvider {
 	readonly id = 'bedrock'
 	readonly name = 'AWS Bedrock'
+	readonly capabilities = BEDROCK_CAPABILITIES
 
 	private client: BedrockRuntimeClient
 	private config: BedrockConfig

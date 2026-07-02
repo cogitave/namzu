@@ -3,11 +3,26 @@ import type {
 	ChatCompletionParams,
 	LLMProvider,
 	ModelInfo,
+	ProviderCapabilities,
 	StreamChunk,
 	TokenUsage,
 } from '@namzu/sdk'
 import { type ChatResponse, Ollama, type Message as OllamaMessage } from 'ollama'
 import type { OllamaConfig } from './types.js'
+
+/**
+ * What this DRIVER does, not what the Ollama server could do:
+ * `chatStream` never reads `params.tools` (no tool schemas reach the
+ * model) and `toOllamaMessages` maps text content only (image
+ * `attachments` are dropped). Flip these only alongside the
+ * corresponding mapping code.
+ */
+export const OLLAMA_CAPABILITIES: ProviderCapabilities = {
+	supportsTools: false,
+	supportsStreaming: true,
+	supportsFunctionCalling: false,
+	supportsVision: false,
+}
 
 const DEFAULT_HOST = 'http://localhost:11434'
 
@@ -40,6 +55,7 @@ function buildUsage(resp: Pick<ChatResponse, 'prompt_eval_count' | 'eval_count'>
 export class OllamaProvider implements LLMProvider {
 	readonly id = 'ollama'
 	readonly name = 'Ollama'
+	readonly capabilities = OLLAMA_CAPABILITIES
 
 	private client: Ollama
 	private config: OllamaConfig

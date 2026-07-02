@@ -1,5 +1,9 @@
 import { DuplicateProviderError, ProviderRegistry } from '@namzu/sdk'
 import { beforeEach, describe, expect, it } from 'vitest'
+// NOTE: no provider-instance capability test here — LMStudioClient dials the
+// local server eagerly on construction, which produces unhandled rejections in
+// CI. The class field `capabilities = LMSTUDIO_CAPABILITIES` is a one-liner
+// covered by the constant assertion below.
 import { LMSTUDIO_CAPABILITIES, registerLMStudio } from '../index.js'
 
 // Ensure a clean slate between tests. The sdk pre-registers 'mock' on import
@@ -40,10 +44,14 @@ describe('@namzu/lmstudio', () => {
 
 	describe('LMSTUDIO_CAPABILITIES', () => {
 		it('declares the expected capability flags', () => {
+			// Honest driver flags: chatStream folds tool messages into user
+			// text and never sends tool schemas, so tools are NOT supported
+			// by this driver even though LM Studio models can call tools.
 			expect(LMSTUDIO_CAPABILITIES).toEqual({
-				supportsTools: true,
+				supportsTools: false,
 				supportsStreaming: true,
-				supportsFunctionCalling: true,
+				supportsFunctionCalling: false,
+				supportsVision: false,
 			})
 		})
 	})

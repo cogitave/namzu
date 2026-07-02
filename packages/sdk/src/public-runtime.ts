@@ -99,6 +99,7 @@ export {
 
 export {
 	ActivityStore,
+	DiskCheckpointStore,
 	DiskMemoryStore,
 	DiskTaskStore,
 	InMemoryMemoryIndex,
@@ -146,8 +147,10 @@ export {
 	DuplicateProviderError,
 	MOCK_CAPABILITIES,
 	MockLLMProvider,
+	PERMISSIVE_PROVIDER_CAPABILITIES,
 	ProviderRegistry,
 	registerMock,
+	resolveProviderCapabilities,
 	UnknownProviderError,
 } from './provider/index.js'
 
@@ -248,6 +251,7 @@ export {
 
 export { wrapProviderWithProbes } from './provider/instrumentation.js'
 export type { ProviderInstrumentationOptions } from './provider/instrumentation.js'
+export type { ResolvedProviderCapabilities } from './provider/capabilities.js'
 export { collect } from './provider/collect.js'
 
 export { wrapVaultWithProbes } from './vault/instrumentation.js'

@@ -60,6 +60,9 @@ const MAPPING: {
 			parts: [{ kind: 'text', text: e.error }],
 		}),
 
+	// Capability degradation is host-facing diagnostics, not A2A task state.
+	capability_warning: null,
+
 	iteration_started: (e, ctx) =>
 		statusEvent(e.runId, 'running', false, ctx, {
 			role: 'agent',
