@@ -328,35 +328,33 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		? new VerificationGate(params.verificationGate, ctx.log)
 		: undefined
 
-	const iterationOrchestrator = new IterationOrchestrator(
-		{
-			provider: params.provider,
-			runConfig: params.runConfig,
-			tools: params.tools,
-			allowedTools: effectiveAllowedTools,
-			taskGateway: params.taskGateway,
-			taskStore: params.taskStore,
-			launchedTasks: params.launchedTasks,
-			advisoryCtx,
-			compactionConfig: params.compactionConfig,
-			workingStateManager,
-			workingMemoryProvider: params.workingMemoryProvider,
-			agentBus: params.agentBus,
-			verificationGate: verificationGate,
-			pluginManager: params.pluginManager,
-		},
-		ctx.runMgr,
+	const iterationOrchestrator = new IterationOrchestrator({
+		provider: params.provider,
+		runConfig: params.runConfig,
+		tools: params.tools,
+		allowedTools: effectiveAllowedTools,
+		runMgr: ctx.runMgr,
 		toolExecutor,
 		guard,
-		ctx.activityStore,
-		eventTranslator.emitEvent,
-		() => eventTranslator.drainPending(),
-		ctx.abortController,
-		ctx.log,
-		params.resumeHandler,
+		activityStore: ctx.activityStore,
+		emitEvent: eventTranslator.emitEvent,
+		drainPending: () => eventTranslator.drainPending(),
+		abortController: ctx.abortController,
+		log: ctx.log,
+		resumeHandler: params.resumeHandler,
 		checkpointMgr,
-		ctx.planManager,
-	)
+		planManager: ctx.planManager,
+		taskGateway: params.taskGateway,
+		taskStore: params.taskStore,
+		launchedTasks: params.launchedTasks ?? new Map(),
+		compactionConfig: params.compactionConfig,
+		workingStateManager,
+		workingMemoryProvider: params.workingMemoryProvider,
+		advisoryCtx,
+		agentBus: params.agentBus,
+		verificationGate,
+		pluginManager: params.pluginManager,
+	})
 
 	const tracer = getTracer()
 

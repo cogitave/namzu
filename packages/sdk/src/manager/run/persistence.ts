@@ -1,5 +1,5 @@
+import { AUTO_CONTINUATION_USER_MESSAGE } from '../../constants/continuation.js'
 import { EMPTY_TOKEN_USAGE } from '../../constants/limits.js'
-import { AUTO_CONTINUATION_USER_MESSAGE } from '../../runtime/query/continuation.js'
 import { RunDiskStore } from '../../store/run/disk.js'
 import { type CostInfo, type TokenUsage, accumulateTokenUsage } from '../../types/common/index.js'
 import type { RunId, SessionId, TenantId } from '../../types/ids/index.js'
