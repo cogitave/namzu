@@ -126,6 +126,27 @@ describe('WebhookConnector', () => {
 		expect((await c.execute('send', { payload: {} })).success).toBe(false)
 	})
 
+	it('healthCheck returns false when the HEAD fetch throws', async () => {
+		const c = new WebhookConnector()
+		await c.connect({ url: 'https://hook.example.com' })
+		fetchMock.mockRejectedValueOnce(new Error('network down'))
+		expect(await c.healthCheck()).toBe(false)
+	})
+
+	it('reads a text body when the response is not JSON', async () => {
+		const c = new WebhookConnector()
+		await c.connect({ url: 'https://hook.example.com' })
+		fetchMock.mockResolvedValueOnce(
+			makeResponse({
+				status: 200,
+				headers: { 'content-type': 'text/plain' },
+				body: 'plain-text-ack',
+			}),
+		)
+		const result = await c.execute('send', { payload: { k: 'v' } })
+		expect((result.output as { body: unknown }).body).toBe('plain-text-ack')
+	})
+
 	it('metadata.deliveredAt is a recent timestamp', async () => {
 		const before = Date.now()
 		const c = new WebhookConnector()

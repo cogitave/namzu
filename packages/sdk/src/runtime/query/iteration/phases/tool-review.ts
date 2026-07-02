@@ -2,7 +2,7 @@ import { createUserMessage } from '../../../../types/message/index.js'
 import type { ChatCompletionResponse } from '../../../../types/provider/index.js'
 import type { RunEvent } from '../../../../types/run/index.js'
 import type { VerificationGate } from '../../../../verification/index.js'
-import type { IterationContext } from './context.js'
+import { type IterationContext, awaitDecisionOrAbort } from './context.js'
 
 interface VerificationAwareContext extends IterationContext {
 	readonly verificationGate?: VerificationGate
@@ -94,7 +94,7 @@ export async function* runToolReview(
 	})
 	yield* ctx.drainPending()
 
-	const reviewDecision = await ctx.resumeHandler({
+	const reviewDecision = await awaitDecisionOrAbort(ctx, {
 		type: 'tool_review',
 		runId: ctx.runMgr.id,
 		checkpointId: reviewCheckpoint.id,

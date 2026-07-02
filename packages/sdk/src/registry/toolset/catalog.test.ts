@@ -81,6 +81,74 @@ describe('ToolCatalog', () => {
 		expect(catalog.toLLMTools().map((t) => t.function.name)).toEqual(['bash'])
 	})
 
+	it('scores and reports the matched facets: partial name, source text, toolset text', () => {
+		const catalog = new ToolCatalog()
+		catalog.registerSource({
+			id: 'host',
+			kind: 'host_tool',
+			name: 'GitHub',
+			description: 'repository automation',
+		})
+		catalog.registerToolset({
+			id: 'issues',
+			sourceId: 'host',
+			name: 'Issue toolset',
+			defaultPolicy: { enabled: true, loading: 'eager' },
+		})
+		catalog.registerTool({
+			name: 'create_issue',
+			description: 'open a ticket',
+			sourceId: 'host',
+			toolsetId: 'issues',
+			policy: { enabled: true, loading: 'eager' },
+		})
+
+		// 'issue' hits the tool NAME (create_issue, partial) AND the TOOLSET name.
+		const byIssue = catalog.searchTools('issue')
+		expect(byIssue).toHaveLength(1)
+		expect([...(byIssue[0]?.matched ?? [])].sort()).toEqual(['name', 'toolset'])
+
+		// 'github' hits only the SOURCE text.
+		const bySource = catalog.searchTools('github')
+		expect(bySource[0]?.matched).toEqual(['source'])
+
+		// An exact name match outscores a partial one.
+		const exact = catalog.searchTools('create_issue')
+		expect(exact[0]?.matched).toContain('name')
+		expect(exact[0]?.score ?? 0).toBeGreaterThan(byIssue[0]?.score ?? 0)
+	})
+
+	it('adds the preferred boost so a preferred tool outranks an equal match', () => {
+		const catalog = new ToolCatalog()
+		catalog.registerSource({ id: 'host', kind: 'host_tool', name: 'Host' })
+		catalog.registerToolset({
+			id: 'ts',
+			sourceId: 'host',
+			name: 'Tools',
+			defaultPolicy: { enabled: true, loading: 'eager' },
+		})
+		catalog.registerTool({
+			name: 'search_plain',
+			description: 'search things',
+			sourceId: 'host',
+			toolsetId: 'ts',
+			policy: { enabled: true, loading: 'eager' },
+		})
+		catalog.registerTool({
+			name: 'search_pref',
+			description: 'search things',
+			sourceId: 'host',
+			toolsetId: 'ts',
+			policy: { enabled: true, loading: 'eager', preferred: true },
+		})
+
+		const results = catalog.searchTools('search')
+		expect(results.map((r) => r.tool.name)).toEqual(['search_pref', 'search_plain'])
+		const pref = results.find((r) => r.tool.name === 'search_pref')?.score ?? 0
+		const plain = results.find((r) => r.tool.name === 'search_plain')?.score ?? 0
+		expect(pref - plain).toBe(1)
+	})
+
 	it('preserves registry availability as catalog loading policy', () => {
 		const registry = new ToolRegistry()
 		registry.register(makeTool('read_file'))

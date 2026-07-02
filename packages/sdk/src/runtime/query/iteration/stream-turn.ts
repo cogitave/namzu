@@ -1,3 +1,4 @@
+import { mergeTokenUsage } from '../../../types/common/index.js'
 import type { ToolUseId } from '../../../types/ids/index.js'
 import type {
 	ChatCompletionResponse,
@@ -241,7 +242,10 @@ export async function* streamProviderTurn(
 			}
 
 			if (chunk.finishReason) finishReason = chunk.finishReason
-			if (chunk.usage) usage = chunk.usage
+			// Merge (per-field max), not last-write-wins: a late usage frame that
+			// omits input/cache tokens must not zero the counts seen earlier in the
+			// stream, which would under-report this turn's accumulated usage.
+			if (chunk.usage) usage = mergeTokenUsage(usage, chunk.usage)
 		}
 	} catch (err) {
 		// An abort tears the turn down: propagate it so the run loop settles the

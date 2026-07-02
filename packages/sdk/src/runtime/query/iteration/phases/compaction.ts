@@ -1,3 +1,4 @@
+import { findSafeTrimIndex } from '../../../../compaction/dangling.js'
 import { serializeState } from '../../../../compaction/serializer.js'
 import { buildVerifiedSummary } from '../../../../compaction/verifier.js'
 import { CHARS_PER_TOKEN } from '../../../../constants/limits.js'
@@ -11,9 +12,11 @@ const COMPACTION_HEADER =
 /**
  * Identity check for a prior compaction summary in the leading floor. Used to
  * REPLACE one in place on the per-iteration (contextWindowTokens) path so at
- * most one `[COMPACTED CONTEXT]` block ever lives in the never-trimmed floor.
+ * most one `[COMPACTED CONTEXT]` block ever lives in the never-trimmed floor,
+ * and by the checkpoint-restore path to PRESERVE the summary across a resume
+ * (it is the only surviving record of the older history the run compacted away).
  */
-function isCompactionMessage(content: string | null | undefined): boolean {
+export function isCompactionMessage(content: string | null | undefined): boolean {
 	return typeof content === 'string' && content.startsWith(COMPACTION_HEADER)
 }
 
@@ -91,7 +94,18 @@ export async function runCompactionCheck(ctx: IterationContext): Promise<void> {
 	}
 	if (systemMessages.length === 0) return
 
-	const keepStart = messages.length - config.keepRecentMessages
+	// Tool-pair atomicity guard. A naive cut at `length - keepRecentMessages`
+	// can land BETWEEN an assistant-with-toolCalls (which would be dropped into
+	// `olderMessages`) and its `tool` results (kept in `recentMessages`),
+	// leaving orphaned `tool_result` blocks at the head of the recent window.
+	// The Anthropic provider then emits a `tool_result` with no matching
+	// `tool_use` and the API rejects the next turn with a 400 — so compaction,
+	// whose whole job is to keep a long run alive, instead kills it. Snap the
+	// boundary FORWARD to a safe point (existing `findSafeTrimIndex`, previously
+	// only wired to the unused ConversationManager strategy classes) so no pair
+	// is split. Any message this moves out of the recent window is already
+	// represented in the extracted WorkingState the summary is built from.
+	const keepStart = findSafeTrimIndex(messages, messages.length - config.keepRecentMessages)
 	const recentMessages = messages.slice(keepStart)
 	const olderMessages = messages.slice(systemMessages.length, keepStart)
 
