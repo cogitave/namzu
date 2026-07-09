@@ -1,13 +1,30 @@
+<!-- okf
+type: Index
+title: Namzu
+description: >-
+  An agent kernel for TypeScript — OS-level sandboxes, lifecycle, scheduling,
+  budgets, signals, memory, durability, MCP/A2A, provider abstraction. No UI,
+  no hosted service, no vendor favorites. FSL-1.1-MIT (converts to MIT after
+  two years per release).
+tags: [readme, index, typescript, agent-kernel]
+timestamp: 2026-07-09T00:00:00Z
+status: active
+diataxis: explanation
+-->
 <div align="center">
 
 <h1>Namzu</h1>
 
-**An open-source agent kernel for TypeScript. Nothing between you and your agents.**
+**The agent kernel for TypeScript. Nothing between you and your agents.**
 
 [![License: FSL-1.1-MIT](https://img.shields.io/badge/license-FSL--1.1--MIT-blue.svg)](./LICENSE.md)
 [![npm @namzu/sdk](https://img.shields.io/npm/v/@namzu/sdk.svg?label=%40namzu%2Fsdk)](https://www.npmjs.com/package/@namzu/sdk)
 [![Node >=20](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](https://nodejs.org)
 [![TypeScript 5.5+](https://img.shields.io/badge/typescript-5.5%2B-3178c6.svg)](https://www.typescriptlang.org)
+
+[Quick Start](#quick-start) · [What Namzu Is](#what-namzu-is) · [npm](https://www.npmjs.com/package/@namzu/sdk) · [Docs](./docs/) · [Contributing](#contributing)
+
+<sub>Fair Source licensing: [FSL-1.1-MIT](./LICENSE.md) — every published version converts to MIT two years after its release.</sub>
 
 </div>
 
@@ -25,7 +42,7 @@ Agent software should be layered like Unix. At the bottom: a **kernel** that iso
 
 ## What Namzu Is
 
-- **Process execution and isolation.** Tools run inside OS-level sandboxes: Seatbelt (SBPL) on macOS, mount + PID namespaces on Linux. Deny-default file I/O, scoped network, enforced resource limits. No Docker, no daemon, no sidecar.
+- **Process execution and isolation.** Tools run inside OS-level sandboxes: Seatbelt (SBPL) on macOS, mount + PID namespaces on Linux. Deny-default file I/O, scoped network, enforced resource limits. No Docker, no daemon, no sidecar in the kernel — and the opt-in [`@namzu/sandbox`](https://www.npmjs.com/package/@namzu/sandbox) package adds pluggable providers: process-level isolation (bubblewrap/Seatbelt via `@anthropic-ai/sandbox-runtime`) for dev loops, container-level isolation with a JWT-authenticated egress proxy for multi-tenant deployments.
 - **Agent lifecycle.** Parent/child spawn with depth tracking, budget splitting, causal trace linkage. A supervisor forks a subtree and gets results back, each child isolated from its siblings.
 - **Scheduling.** Per-run token, cost, wall-clock, and iteration budgets. Task router (cheap model for compaction, expensive for coding), tool tiering, limit checker.
 - **Signals.** `AbortController` tree spanning parent and children. `cancel(taskId)` and `cancelAll(parentRunId)` propagate. Runs pause, resume, and abort cleanly.
@@ -34,7 +51,7 @@ Agent software should be layered like Unix. At the bottom: a **kernel** that iso
 - **IPC.** Native A2A (Google agent-to-agent) and MCP (Anthropic Model Context Protocol) — both client and server, one SDK. An internal event bus with circuit breakers, file lock manager, and edit ownership tracking.
 - **Provider abstraction.** A narrow `LLMProvider` interface + a typed `ProviderRegistry`. Concrete vendors live in sibling packages (`@namzu/anthropic`, `@namzu/openai`, `@namzu/bedrock`, `@namzu/openrouter`, `@namzu/ollama`, `@namzu/lmstudio`, `@namzu/http`). BYOK everywhere, no hidden hot paths.
 - **Multi-tenant isolation from day one.** Connector registries, vaults, configs, and stores are tenant-scoped. Two organizations share a process without cross-contamination.
-- **Telemetry.** OpenTelemetry-native spans and metrics. Cost accounting (input tokens, output tokens, cached tokens, cache write tokens) flows from the provider into per-run, per-tenant rollups.
+- **Telemetry.** OpenTelemetry-native spans and metrics against the `@opentelemetry/api` peer; the OTLP exporter pipeline (traces + metrics, resource attributes, platform metrics) ships as the opt-in [`@namzu/telemetry`](https://www.npmjs.com/package/@namzu/telemetry) package. Cost accounting (input tokens, output tokens, cached tokens, cache write tokens) flows from the provider into per-run, per-tenant rollups.
 
 See [`packages/sdk/README.md`](./packages/sdk/README.md) for the complete subsystem map — 24 sections covering sandbox, bus, lifecycle, scheduling, runtime, memory, durability, HITL, personas, skills, advisory, connectors, prompt cache, vault, telemetry, plugins, gateway, agent patterns, and multi-tenancy.
 
@@ -54,19 +71,28 @@ The goal is not to be minimal — the kernel is plenty rich. The goal is to keep
 
 ## Monorepo at a Glance
 
-| Package                   | Purpose                                                              | Version         | Status        |
-|---------------------------|----------------------------------------------------------------------|-----------------|---------------|
-| `@namzu/sdk`              | The kernel — runtime, agents, tools, registry, stores, RAG, connectors | `0.1.7`         | published     |
-| `@namzu/computer-use`     | Subprocess-based `ComputerUseHost` (screenshot, mouse, keyboard)     | `0.1.0`         | published     |
-| `@namzu/anthropic`        | Anthropic Messages API provider                                      | `0.1.0`         | published   |
-| `@namzu/openai`           | OpenAI Chat Completions provider                                     | `0.1.0`         | published   |
-| `@namzu/bedrock`          | AWS Bedrock Converse provider                                        | `0.1.0`         | published   |
-| `@namzu/openrouter`       | OpenRouter aggregated-model provider                                 | `0.1.0`         | published   |
-| `@namzu/ollama`           | Local Ollama provider                                                | `0.1.0`         | published   |
-| `@namzu/lmstudio`         | LM Studio local-inference provider (WebSocket)                       | `0.1.0`         | published   |
-| `@namzu/http`             | Zero-dep generic HTTP provider (OpenAI- or Anthropic-compatible)     | `0.1.0`         | published   |
+| Package               | Purpose                                                                  | Version |
+|-----------------------|--------------------------------------------------------------------------|---------|
+| `@namzu/sdk`          | The kernel — runtime, agents, tools, registry, stores, RAG, connectors   | [![npm](https://img.shields.io/npm/v/@namzu/sdk.svg?label=)](https://www.npmjs.com/package/@namzu/sdk) |
+| `@namzu/computer-use` | Subprocess-based `ComputerUseHost` (screenshot, mouse, keyboard)         | [![npm](https://img.shields.io/npm/v/@namzu/computer-use.svg?label=)](https://www.npmjs.com/package/@namzu/computer-use) |
+| `@namzu/sandbox`      | Pluggable sandbox providers — process-level (bubblewrap/Seatbelt) and container-level (JWT-authenticated egress proxy) isolation | [![npm](https://img.shields.io/npm/v/@namzu/sandbox.svg?label=)](https://www.npmjs.com/package/@namzu/sandbox) |
+| `@namzu/telemetry`    | OTLP exporter pipeline — traces + metrics, resource attributes, platform metrics | [![npm](https://img.shields.io/npm/v/@namzu/telemetry.svg?label=)](https://www.npmjs.com/package/@namzu/telemetry) |
+| `@namzu/cli`          | Operator CLI (`namzu doctor` + future commands) — standalone bin and library | [![npm](https://img.shields.io/npm/v/@namzu/cli.svg?label=)](https://www.npmjs.com/package/@namzu/cli) |
+| `@namzu/files`        | Provider-agnostic file registry contracts                                | [![npm](https://img.shields.io/npm/v/@namzu/files.svg?label=)](https://www.npmjs.com/package/@namzu/files) |
+| `@namzu/anthropic`    | Anthropic Messages API provider                                          | [![npm](https://img.shields.io/npm/v/@namzu/anthropic.svg?label=)](https://www.npmjs.com/package/@namzu/anthropic) |
+| `@namzu/openai`       | OpenAI Chat Completions provider                                         | [![npm](https://img.shields.io/npm/v/@namzu/openai.svg?label=)](https://www.npmjs.com/package/@namzu/openai) |
+| `@namzu/bedrock`      | AWS Bedrock Converse provider                                            | [![npm](https://img.shields.io/npm/v/@namzu/bedrock.svg?label=)](https://www.npmjs.com/package/@namzu/bedrock) |
+| `@namzu/openrouter`   | OpenRouter aggregated-model provider                                     | [![npm](https://img.shields.io/npm/v/@namzu/openrouter.svg?label=)](https://www.npmjs.com/package/@namzu/openrouter) |
+| `@namzu/ollama`       | Local Ollama provider                                                    | [![npm](https://img.shields.io/npm/v/@namzu/ollama.svg?label=)](https://www.npmjs.com/package/@namzu/ollama) |
+| `@namzu/lmstudio`     | LM Studio local-inference provider (WebSocket)                           | [![npm](https://img.shields.io/npm/v/@namzu/lmstudio.svg?label=)](https://www.npmjs.com/package/@namzu/lmstudio) |
+| `@namzu/http`         | Zero-dep generic HTTP provider (OpenAI- or Anthropic-compatible)         | [![npm](https://img.shields.io/npm/v/@namzu/http.svg?label=)](https://www.npmjs.com/package/@namzu/http) |
 
-Unpublished packages are tracked, tested, and committed in the repo; first npm publication is the next batched step (see `packages/providers/PUBLISH_CHECKLIST.md`).
+<sub>Version cells are live badges from the npm registry, so the table cannot go stale.</sub>
+
+All thirteen packages are on npm, each release carrying npm provenance
+attestation (see [Release Flow](#release-flow)). `@namzu/cli` (0.2.x) and
+`@namzu/files` (0.1.x) are published early and still pre-1.0; everything else
+is at or past 1.0.
 
 ## Quick Start
 
@@ -124,30 +150,25 @@ Each provider package exports a `register<Vendor>()` helper and uses TypeScript 
 ```
 namzu/
 ├── packages/
-│   ├── sdk/                       @namzu/sdk           0.1.7   published
-│   ├── computer-use/              @namzu/computer-use  0.1.0   published
-│   ├── providers/
-│   │   ├── anthropic/             @namzu/anthropic     0.1.0   published
-│   │   ├── bedrock/               @namzu/bedrock       0.1.0   published
-│   │   ├── http/                  @namzu/http          0.1.0   published
-│   │   ├── lmstudio/              @namzu/lmstudio      0.1.0   published
-│   │   ├── ollama/                @namzu/ollama        0.1.0   published
-│   │   ├── openai/                @namzu/openai        0.1.0   published
-│   │   ├── openrouter/            @namzu/openrouter    0.1.0   published
-│   │   └── PUBLISH_CHECKLIST.md
-│   ├── contracts/                                              local-only (gitignored)
-│   ├── agents/                                                 local-only (gitignored)
-│   ├── api/                                                    local-only (gitignored)
-│   ├── cli/                                                    local-only (gitignored)
-│   └── docs/                                                   local-only (gitignored)
-├── docs/architecture/decisions/   public ADRs
-├── docs.local/                    detailed pattern + convention docs (gitignored)
-├── .github/workflows/             per-package release-*.yml + ci.yml
+│   ├── sdk/                       @namzu/sdk            the kernel
+│   ├── computer-use/              @namzu/computer-use   capability: desktop control
+│   ├── sandbox/                   @namzu/sandbox        capability: isolation providers
+│   ├── telemetry/                 @namzu/telemetry      capability: OTLP exporter pipeline
+│   ├── cli/                       @namzu/cli            user space: operator CLI
+│   ├── files/                     @namzu/files          contracts: file registry
+│   └── providers/                 the seven vendor drivers
+│       ├── anthropic/  bedrock/  http/  lmstudio/
+│       ├── ollama/  openai/  openrouter/
+│       └── PUBLISH_CHECKLIST.md
+├── docs/                          docs-site source: getting-started, per-package guides, migration
+├── .github/workflows/             ci.yml · release.yml (Changesets) · sandbox-smoke.yml
 ├── AGENTS.md  CLAUDE.md           AI-tool guidance
 └── LICENSE.md
 ```
 
-The five local-only packages (`contracts`, `agents`, `api`, `cli`, `docs`) exist on the maintainer's machine and are gitignored; they land on npm once their public APIs stabilise.
+Four further packages — `contracts`, `agents`, `api`, `docs` — plus the
+detailed pattern docs in `docs.local/` exist only on the maintainer's machine
+(gitignored); they land on npm once their public APIs stabilise.
 
 ## Architecture
 
@@ -155,7 +176,7 @@ The five local-only packages (`contracts`, `agents`, `api`, `cli`, `docs`) exist
 
 ```
                 ┌────────────────────────────────────────┐
-                │              @namzu/sdk                │
+                │               @namzu/sdk               │
                 │                                        │
                 │  • LLMProvider interface               │
                 │  • ProviderRegistry (register/create)  │
@@ -163,27 +184,36 @@ The five local-only packages (`contracts`, `agents`, `api`, `cli`, `docs`) exist
                 │  • runtime, agents, tools, personas    │
                 │  • sandbox, vault, plugins, RAG        │
                 └────────────────────────────────────────┘
-                    ▲                               ▲
-                    │ peerDependency                │ peerDependency
-                    │                               │
-    ┌───────────────┴──────────────────┐   ┌────────┴────────────┐
-    │      Provider packages           │   │ Capability packages │
-    │                                  │   │                     │
-    │  @namzu/anthropic  @namzu/openai │   │  @namzu/computer-use│
-    │  @namzu/bedrock    @namzu/openrouter                       │
-    │  @namzu/http       @namzu/ollama │   │                     │
-    │  @namzu/lmstudio                 │   │                     │
-    └──────────────────────────────────┘   └─────────────────────┘
+                       ▲                        ▲
+        peerDependency │         peerDependency │
+                       │                        │
+      ┌────────────────┴──┐        ┌────────────┴──────────┐
+      │ Provider packages │        │  Capability packages  │
+      │                   │        │                       │
+      │  @namzu/anthropic │        │  @namzu/computer-use  │
+      │  @namzu/openai    │        │  @namzu/sandbox       │
+      │  @namzu/bedrock   │        │  @namzu/telemetry     │
+      │  @namzu/openrouter│        │                       │
+      │  @namzu/ollama    │        │                       │
+      │  @namzu/lmstudio  │        │                       │
+      │  @namzu/http      │        │                       │
+      └───────────────────┘        └───────────────────────┘
 ```
 
-Concrete contract points (verified in source):
+Above the kernel sits user space: `@namzu/cli` — the operator CLI — consumes
+the SDK and providers as normal dependencies, exactly the layering the thesis
+prescribes. Beside the tree, `@namzu/files` is a standalone contracts package
+(no SDK dependency).
+
+Concrete contract points (verified in source and on npm):
 
 - `@namzu/sdk` exports the `LLMProvider` interface (`src/types/provider/`) and `ProviderRegistry` + `UnknownProviderError` / `DuplicateProviderError` (`src/provider/`). Both are re-exported from the root barrel.
-- Each provider package declares `"@namzu/sdk": "^1 || ^0.1.6"` under `peerDependencies` and exports a `register<Vendor>()` function calling `ProviderRegistry.register(type, Class, capabilities, options)`. Providers use `declare module '@namzu/sdk'` to extend `ProviderConfigRegistry` so `ProviderRegistry.create({ type, ... })` narrows to the correct config type.
+- Each published provider package declares `"@namzu/sdk": ">=1.0.0"` under `peerDependencies` and exports a `register<Vendor>()` function calling `ProviderRegistry.register(type, Class, capabilities, options)`. Providers use `declare module '@namzu/sdk'` to extend `ProviderConfigRegistry` so `ProviderRegistry.create({ type, ... })` narrows to the correct config type.
+- The capability packages follow the same discipline: `@namzu/computer-use`, `@namzu/sandbox`, and `@namzu/telemetry` each peer-declare `"@namzu/sdk": ">=1.0.0"`.
 - `@namzu/computer-use` is a capability package: a subprocess-based `ComputerUseHost` for the contract in `@namzu/sdk` (platform-native CLIs — `screencapture`/`osascript` on darwin, `xdotool`/`maim` on X11, `grim`/`wtype`/`ydotool` on Wayland, PowerShell on Windows).
 - Dependency direction is strictly downward: `@namzu/sdk` does not import any `@namzu/*` workspace package.
 
-**Note on SDK footprint.** Published `@namzu/sdk@0.1.7` still carries `zod`, `zod-to-json-schema`, and eight `@opentelemetry/*` runtime dependencies. ADR-0001 describes a leaner target for the provider-extraction boundary; that reduction is planned, not yet applied.
+**Note on SDK footprint.** npm lists no bundled `dependencies` for the published `@namzu/sdk@1.3.0` — its runtime needs are **peer-declared** (`zod` ^3.23.0, `zod-to-json-schema` ^3.23.0, `@opentelemetry/api` ^1.9.0), so your lockfile owns the versions. This is the per-vendor extraction boundary applied: vendor SDKs live in the provider packages, and the heavier OTLP exporter stack ships separately as `@namzu/telemetry`.
 
 ## Design Principles
 
@@ -197,39 +227,44 @@ Five choices shape every decision in this repo.
 
 ## Release Flow
 
-Every published package has its own release workflow in `.github/workflows/`, keyed off a tag prefix:
-
-| Tag prefix        | Workflow                       | Publishes             |
-|-------------------|--------------------------------|-----------------------|
-| `sdk-v*`          | `release-sdk.yml`              | `@namzu/sdk`          |
-| `computer-use-v*` | `release-computer-use.yml`     | `@namzu/computer-use` |
-| `anthropic-v*`    | `release-anthropic.yml`        | `@namzu/anthropic`    |
-| `bedrock-v*`      | `release-bedrock.yml`          | `@namzu/bedrock`      |
-| `http-v*`         | `release-http.yml`             | `@namzu/http`         |
-| `lmstudio-v*`     | `release-lmstudio.yml`         | `@namzu/lmstudio`     |
-| `ollama-v*`       | `release-ollama.yml`           | `@namzu/ollama`       |
-| `openai-v*`       | `release-openai.yml`           | `@namzu/openai`       |
-| `openrouter-v*`   | `release-openrouter.yml`       | `@namzu/openrouter`   |
-
-Publishing uses npm Trusted Publisher (OIDC) with `--provenance`. No `NPM_TOKEN` in the repo. Locally, release is driven by `pnpm release:<channel>` (`patch`, `minor`, `major`, `rc`, `beta`, `stable`, `dry`) inside each package — the script bumps the version, commits, tags, and pushes; the GitHub Action picks up the tag and publishes. First-time provider publication follows `packages/providers/PUBLISH_CHECKLIST.md`.
+Releases are driven by [Changesets](https://github.com/changesets/changesets):
+each PR carries its changeset, and merging to `main` triggers
+[`release.yml`](.github/workflows/release.yml), which runs the full validation
+gate (lint, typecheck, build, test, publint), versions the packages, publishes
+with npm provenance enabled (`NPM_CONFIG_PROVENANCE=true`), and cuts the
+matching GitHub releases. Every published version carries a verifiable SLSA
+build attestation linking the tarball to this repository and workflow — check
+the "Provenance" panel on any package's npm page. `ci.yml` is the per-push
+gate, and `sandbox-smoke.yml` additionally smoke-tests the sandbox provider.
 
 ## Project Status
 
-- **`@namzu/sdk@0.1.7`** — latest on npm. `ProviderRegistry` is the current API; the older `ProviderFactory` is no longer exported. `MockLLMProvider` is pre-registered under `'mock'`.
-- **`@namzu/computer-use@0.1.0`** — published.
-- **Seven provider packages at `0.1.0`** — implemented, tested, committed; **not yet on npm**. Batched publication is the next step.
-- **Five packages local-only** — gitignored, not part of the public release surface today.
+- **Thirteen packages are on npm** — the kernel at 1.3.x; `@namzu/computer-use`, `@namzu/sandbox`, `@namzu/telemetry`, and all seven providers at or past 1.0; `@namzu/cli` (0.2.x) and `@namzu/files` (0.1.x) published early, APIs still moving. `ProviderRegistry` is the current API; the older `ProviderFactory` is no longer exported. `MockLLMProvider` is pre-registered under `'mock'`.
+- **Four packages local-only** — `contracts`, `agents`, `api`, `docs` are gitignored, not part of the public release surface today.
 
-Roadmap direction (see [ADR-0001](docs/architecture/decisions/0001-per-vendor-provider-extraction.md) for the vendor-split rationale):
+Roadmap direction:
 
-- A `1.0.0` boundary for `@namzu/sdk` is discussed in ADR-0001 alongside the provider peer-range strategy (`"@namzu/sdk": "^1 || ^0.1.6"`). No date committed.
-- A future `@namzu/telemetry` package to host OpenTelemetry instrumentation as an opt-in dependency.
-- Eventual publication of currently-local packages as they stabilise.
+- Take `@namzu/cli` and `@namzu/files` to a stable 1.0.
+- Eventual publication of the currently-local packages as they stabilise.
+
+## The Cogitave family
+
+Namzu stands alone — it needs nothing from its siblings. It is also part of one
+product family, stated at its honest level:
+
+| Repo | Role | Honest relationship |
+|---|---|---|
+| **Namzu** (here) | the **agent kernel for TypeScript** — runs agents the way Unix runs processes | independent; usable today via npm |
+| [**Yuva**](https://github.com/cogitave/yuva) | the **home** — a from-scratch, agent-native sovereign OS / micro-VMM where the boot is the proof | a *literal* kernel that boots; Namzu is a kernel by analogy (a TypeScript runtime) — same word, two layers |
+| [**Cogi**](https://github.com/cogitave/cogi) *(private until the operator cut)* | the **mind** — Yuva's resident agent | Namzu is Cogi's *planned* action/skills layer — **deferred; no bridge exists today** |
+
+"What Namzu Is Not" above is the same discipline Yuva enforces at boot with
+machine-emitted honesty tokens — applied here to scope, in prose.
 
 ## Documentation
 
 - **[`packages/sdk/README.md`](./packages/sdk/README.md)** — the kernel's complete subsystem map. If you want to know what Namzu does, this is the single best document.
-- **`docs/architecture/decisions/`** — public ADRs. Today: [`0001-per-vendor-provider-extraction.md`](docs/architecture/decisions/0001-per-vendor-provider-extraction.md).
+- **[`docs/`](./docs/)** — the documentation-site source: [`getting-started.md`](./docs/getting-started.md), per-package guides (`sdk/`, `providers/`, `cli/`, `computer-use/`), and `migration/` notes.
 - **`AGENTS.md` / `CLAUDE.md`** — canonical guidance for AI tools (Claude, Codex, Cursor) operating inside the repo.
 - **`docs.local/`** — detailed pattern docs and conventions. Local-only.
 - **Per-package READMEs** — every package documents its own install, auth, and usage.
@@ -240,4 +275,4 @@ Issues and PRs welcome at [cogitave/namzu](https://github.com/cogitave/namzu). S
 
 ## License
 
-[FSL-1.1-MIT](./LICENSE.md). The Functional Source License converts to MIT two years after each release, so every published version of Namzu becomes MIT-licensed on its second anniversary.
+[FSL-1.1-MIT](./LICENSE.md) — Fair Source. The Functional Source License converts to MIT two years after each release, so every published version of Namzu becomes MIT-licensed on its second anniversary.
