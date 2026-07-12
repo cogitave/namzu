@@ -1,5 +1,10 @@
 import { SpanStatusCode } from '@opentelemetry/api'
 import { zodToJsonSchema } from 'zod-to-json-schema'
+import {
+	LEGACY_PLUGIN_NAMESPACE_SEPARATOR,
+	PLUGIN_NAMESPACE_SEPARATOR,
+} from '../../constants/plugin/index.js'
+import { TOOL_NAME_PATTERN } from '../../constants/tools/index.js'
 import { GENAI, NAMZU, toolSpanName } from '../../telemetry/attributes.js'
 import { getTracer } from '../../telemetry/runtime-accessors.js'
 import type {
@@ -12,13 +17,16 @@ import type {
 	ToolTierConfig,
 } from '../../types/tool/index.js'
 import { toErrorMessage } from '../../utils/error.js'
+import { escapeXmlText } from '../../utils/xml.js'
 import { ManagedRegistry } from '../ManagedRegistry.js'
+import { InvalidToolNameError, ToolNameKeyMismatchError } from './errors.js'
 
 export type { ToolExecutionResult }
 
 export class ToolRegistry extends ManagedRegistry<ToolDefinition> {
 	private availability: Map<string, ToolAvailability> = new Map()
 	private tierConfig?: ToolTierConfig
+	private legacyNamesSeen: Set<string> = new Set()
 
 	constructor(config?: ToolRegistryConfig) {
 		super({ componentName: 'ToolRegistry', idField: 'name', logger: config?.logger })
@@ -55,6 +63,17 @@ export class ToolRegistry extends ManagedRegistry<ToolDefinition> {
 	}
 
 	private registerOne(id: string, tool: ToolDefinition, state: ToolAvailability): void {
+		// The registry key IS the model-visible name: the model is shown `tool.name`
+		// and calls it back, and the call is looked up by key. Letting the two
+		// diverge — which the keyed overload allows — produces a tool the model can
+		// see but never invoke.
+		if (id !== tool.name) {
+			throw new ToolNameKeyMismatchError(id, tool.name)
+		}
+		if (!TOOL_NAME_PATTERN.test(tool.name)) {
+			throw new InvalidToolNameError(tool.name)
+		}
+
 		if (tool.tier && this.tierConfig) {
 			const validIds = this.tierConfig.tiers.map((t) => t.id)
 			if (!validIds.includes(tool.tier)) {
@@ -67,6 +86,42 @@ export class ToolRegistry extends ManagedRegistry<ToolDefinition> {
 		this.availability.set(id, state)
 	}
 
+	/**
+	 * Resolve a name coming from outside the registry (a model tool call, a
+	 * replayed history entry) to its registry key.
+	 *
+	 * Names composed before the namespace separator changed from `:` to `__` are
+	 * still resolvable: rewriting `:` → `__` is deterministic, stateless and
+	 * one-directional, so a persisted `plugin:tool` call still finds
+	 * `plugin__tool` without any alias map to keep in sync. The rewrite only
+	 * applies when the literal name is not itself registered.
+	 *
+	 * @deprecated The `:` form is legacy. Removal target: @namzu/sdk 0.6.0.
+	 */
+	private resolveName(name: string): string {
+		if (super.has(name)) return name
+		if (!name.includes(LEGACY_PLUGIN_NAMESPACE_SEPARATOR)) return name
+
+		const rewritten = name.replaceAll(LEGACY_PLUGIN_NAMESPACE_SEPARATOR, PLUGIN_NAMESPACE_SEPARATOR)
+		if (!super.has(rewritten)) return name
+
+		if (!this.legacyNamesSeen.has(name)) {
+			this.legacyNamesSeen.add(name)
+			this.log.warn(
+				`Tool "${name}" uses the legacy ":" namespace separator; resolved to "${rewritten}". Support for ":" will be removed in a future release.`,
+			)
+		}
+		return rewritten
+	}
+
+	override get(name: string): ToolDefinition | undefined {
+		return super.get(this.resolveName(name))
+	}
+
+	override has(name: string): boolean {
+		return super.has(this.resolveName(name))
+	}
+
 	override unregister(id: string): boolean {
 		this.availability.delete(id)
 		return super.unregister(id)
@@ -74,22 +129,25 @@ export class ToolRegistry extends ManagedRegistry<ToolDefinition> {
 
 	override clear(): void {
 		this.availability.clear()
+		this.legacyNamesSeen.clear()
 		super.clear()
 	}
 
 	activate(names: string[]): void {
 		for (const name of names) {
-			this.getOrThrow(name)
-			this.availability.set(name, 'active')
-			this.log.debug(`Tool activated: ${name}`)
+			const key = this.resolveName(name)
+			this.getOrThrow(key)
+			this.availability.set(key, 'active')
+			this.log.debug(`Tool activated: ${key}`)
 		}
 	}
 
 	defer(names: string[]): void {
 		for (const name of names) {
-			this.getOrThrow(name)
-			this.availability.set(name, 'deferred')
-			this.log.debug(`Tool deferred: ${name}`)
+			const key = this.resolveName(name)
+			this.getOrThrow(key)
+			this.availability.set(key, 'deferred')
+			this.log.debug(`Tool deferred: ${key}`)
 		}
 	}
 
@@ -110,7 +168,7 @@ export class ToolRegistry extends ManagedRegistry<ToolDefinition> {
 	}
 
 	getAvailability(name: string): ToolAvailability {
-		return this.availability.get(name) ?? 'active'
+		return this.availability.get(this.resolveName(name)) ?? 'active'
 	}
 
 	searchDeferred(query: string): ToolDefinition[] {
@@ -150,13 +208,19 @@ export class ToolRegistry extends ManagedRegistry<ToolDefinition> {
 
 		const parts: string[] = []
 
+		// Plugin and MCP tools carry attacker-influenced names and descriptions into
+		// the system prompt. Escape at render time only — the registry keys these
+		// names are drawn from stay untouched, so activation, tier guidance and
+		// allowedTools filtering still match on the real strings.
 		if (active.length > 0) {
-			const entries = active.map((t) => `- ${t.name}: ${t.description}`).join('\n')
+			const entries = active
+				.map((t) => `- ${escapeXmlText(t.name)}: ${escapeXmlText(t.description)}`)
+				.join('\n')
 			parts.push(`<available_tools>\n${entries}\n</available_tools>`)
 		}
 
 		if (deferred.length > 0) {
-			const entries = deferred.map((t) => `- ${t.name}`).join('\n')
+			const entries = deferred.map((t) => `- ${escapeXmlText(t.name)}`).join('\n')
 			parts.push(
 				`<deferred_tools>\nUse search_tools to load these before use:\n${entries}\n</deferred_tools>`,
 			)

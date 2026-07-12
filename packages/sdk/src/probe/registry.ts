@@ -8,6 +8,7 @@ import type {
 	Unsubscribe,
 	VetoDecision,
 	VetoHandler,
+	VetoOptions,
 	VetoOutcome,
 	VetoableEventKind,
 } from '../types/probe/index.js'
@@ -29,7 +30,11 @@ interface VetoEntry {
 	readonly priority: number
 	readonly handler: (event: ProbeEvent, ctx: ProbeContext) => VetoDecision
 	readonly where?: (event: ProbeEvent) => boolean
+	readonly onError: 'allow' | 'deny'
 }
+
+/** Reason attached to a deny that came from a throwing veto handler. */
+export const PROBE_ERROR_REASON = 'probe_error'
 
 function compareVeto(a: VetoEntry, b: VetoEntry): number {
 	if (a.priority !== b.priority) return a.priority - b.priority
@@ -148,7 +153,7 @@ export class ProbeRegistry {
 	veto<K extends VetoableEventKind>(
 		kind: K,
 		handler: VetoHandler<K>,
-		opts: ProbeOptions<K> = {},
+		opts: VetoOptions<K> = {},
 	): Unsubscribe {
 		if (opts.name !== undefined) {
 			const existing = this.byName.get(opts.name)
@@ -164,6 +169,7 @@ export class ProbeRegistry {
 			priority: opts.priority ?? 0,
 			handler: handler as (e: ProbeEvent, c: ProbeContext) => VetoDecision,
 			where: opts.where as ((event: ProbeEvent) => boolean) | undefined,
+			onError: opts.onError ?? 'deny',
 		}
 
 		let bucket = this.vetoByKind.get(kind)
@@ -181,6 +187,11 @@ export class ProbeRegistry {
 		}
 	}
 
+	/**
+	 * Ask every veto handler registered for this event kind whether the operation
+	 * may proceed. The first deny wins; a handler that throws denies unless it
+	 * registered with `{ onError: 'allow' }`.
+	 */
 	queryVeto<K extends VetoableEventKind>(event: ProbeEventOf<K>, ctx: ProbeContext): VetoOutcome {
 		const wide = event as unknown as ProbeEvent
 		const frozen = Object.isFrozen(wide) ? wide : Object.freeze(wide)
@@ -195,6 +206,15 @@ export class ProbeRegistry {
 				decision = entry.handler(frozen, ctx)
 			} catch (error) {
 				this.logThrow(entry.name ?? 'unnamed', frozen.type, error)
+				// A veto is an authorization decision, so a crashed handler fails
+				// CLOSED: it denies rather than silently waving the operation through.
+				if (entry.onError === 'deny' && firstDeny === undefined) {
+					firstDeny = {
+						action: 'deny',
+						probeName: entry.name,
+						reason: PROBE_ERROR_REASON,
+					}
+				}
 				continue
 			}
 			const normalized = normalizeDecision(decision)

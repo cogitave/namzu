@@ -6,6 +6,7 @@ import {
 	MAX_PERSONAS_PER_PLUGIN,
 	MAX_SKILLS_PER_PLUGIN,
 	MAX_TOOLS_PER_PLUGIN,
+	PLUGIN_COMPONENT_PATTERN,
 	PLUGIN_NAME_MAX_LENGTH,
 } from '../../constants/plugin/index.js'
 import type { PluginId, RunId } from '../ids/index.js'
@@ -147,6 +148,14 @@ export function assertPluginHookResult(result: PluginHookResult): asserts result
 export interface PluginHookDefinition {
 	readonly event: PluginHookEvent
 	readonly handler: (context: PluginHookContext) => Promise<PluginHookResult>
+	/**
+	 * What a throwing (or timing-out) handler resolves to. Defaults to `'error'`,
+	 * which blocks the operation the hook guards — the existing fail-closed
+	 * behavior. An observer-style hook that must never block a run can opt into
+	 * `'continue'`; its error is still logged and still reported on the
+	 * `plugin_hook_completed` event.
+	 */
+	readonly onError?: 'continue' | 'error'
 }
 
 // ---------------------------------------------------------------------------
@@ -178,7 +187,16 @@ export interface PluginManifest {
 }
 
 export const PluginMCPServerConfigSchema = z.object({
-	name: z.string().min(1),
+	// The server name becomes a component of every tool name the server
+	// contributes (`plugin__server__tool`), so it has to be a legal component:
+	// `[a-zA-Z0-9_-]`, and never containing the `__` separator itself.
+	name: z
+		.string()
+		.min(1)
+		.regex(PLUGIN_COMPONENT_PATTERN, 'MCP server name must match [a-zA-Z0-9_-]')
+		.refine((n) => !n.includes('__'), {
+			message: 'MCP server name must not contain "__" (the namespace separator)',
+		}),
 	command: z.string().min(1),
 	args: z.array(z.string()).optional(),
 	env: z.record(z.string()).optional(),

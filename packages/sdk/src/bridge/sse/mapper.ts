@@ -245,6 +245,7 @@ const MAPPING: {
 			plugin_id: e.pluginId,
 			hook_event: e.hookEvent,
 			result_action: e.result.action,
+			error: e.error,
 		}),
 	},
 

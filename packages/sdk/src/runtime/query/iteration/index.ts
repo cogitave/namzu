@@ -28,6 +28,7 @@ import type { AgentRunConfig, RetryConfig, RunEvent, StopReason } from '../../..
 import type { LLMToolSchema, ToolRegistryContract } from '../../../types/tool/index.js'
 import { toErrorMessage } from '../../../utils/error.js'
 import type { Logger } from '../../../utils/logger.js'
+import { escapeXmlText } from '../../../utils/xml.js'
 import type { CheckpointManager } from '../checkpoint.js'
 import type { EmitEvent } from '../events.js'
 import type { ToolExecutor } from '../executor.js'
@@ -589,13 +590,17 @@ export class IterationOrchestrator {
 		this.ctx.launchedTasks.delete(handle.taskId)
 		const remainingTasks = this.ctx.launchedTasks.size
 
+		// Every interpolated field is model- or tool-derived (the sub-agent's own
+		// final text, its last error, the launch-time description). Unescaped, a
+		// literal `</task-notification>` in that content forges a frame in the
+		// parent's transcript.
 		const notification = [
 			'<task-notification>',
-			`  <task-id>${handle.taskId}</task-id>`,
-			`  <agent-id>${handle.agentId}</agent-id>`,
-			`  <status>${handle.state}</status>`,
-			`  <description>${meta?.description ?? 'agent task'}</description>`,
-			`  <result>${resultText}</result>`,
+			`  <task-id>${escapeXmlText(handle.taskId)}</task-id>`,
+			`  <agent-id>${escapeXmlText(handle.agentId)}</agent-id>`,
+			`  <status>${escapeXmlText(handle.state)}</status>`,
+			`  <description>${escapeXmlText(meta?.description ?? 'agent task')}</description>`,
+			`  <result>${escapeXmlText(resultText)}</result>`,
 			`  <remaining-tasks>${remainingTasks}</remaining-tasks>`,
 			'</task-notification>',
 		].join('\n')

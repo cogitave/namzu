@@ -10,7 +10,7 @@ import type { Logger } from '../utils/logger.js'
 
 import { buildProbeContext } from './context.js'
 import { ProbeNameCollisionError } from './errors.js'
-import { createProbeRegistry } from './registry.js'
+import { PROBE_ERROR_REASON, createProbeRegistry } from './registry.js'
 
 function makeLogger(): Logger {
 	const self = {
@@ -388,7 +388,10 @@ describe('ProbeRegistry — veto API', () => {
 		expect(audit).toEqual(['high-priority-allow', 'mid-priority-deny', 'low-priority-deny'])
 	})
 
-	it('a throwing veto handler defaults to allow for that probe; aggregate unaffected', () => {
+	// ses_016: a throwing veto now DENIES by default (was: skipped, i.e. allowed).
+	// A veto is an authorization decision, so a crashed authorizer must not wave the
+	// operation through. Remaining handlers still run.
+	it('a throwing veto handler denies by default; remaining handlers still run', () => {
 		const reg = createProbeRegistry()
 		reg.setLogger(makeLogger())
 		const audit: string[] = []
@@ -413,8 +416,63 @@ describe('ProbeRegistry — veto API', () => {
 			{ type: 'tool_executing', runId: 'r' as never, toolName: 't', input: {} } as never,
 			buildProbeContext(),
 		)
+		expect(outcome.action).toBe('deny')
+		expect(outcome.probeName).toBe('bad')
+		expect(outcome.reason).toBe(PROBE_ERROR_REASON)
+		expect(audit).toEqual(['throw', 'allow'])
+	})
+
+	it('a throwing veto registered with onError:"allow" is skipped, not denied', () => {
+		const reg = createProbeRegistry()
+		reg.setLogger(makeLogger())
+		const audit: string[] = []
+		reg.veto(
+			'tool_executing',
+			() => {
+				audit.push('throw')
+				throw new Error('boom')
+			},
+			{ priority: 0, name: 'lenient', onError: 'allow' },
+		)
+		reg.veto(
+			'tool_executing',
+			() => {
+				audit.push('allow')
+				return 'allow'
+			},
+			{ priority: 5, name: 'good' },
+		)
+
+		const outcome = reg.queryVeto(
+			{ type: 'tool_executing', runId: 'r' as never, toolName: 't', input: {} } as never,
+			buildProbeContext(),
+		)
 		expect(outcome.action).toBe('allow')
 		expect(audit).toEqual(['throw', 'allow'])
+	})
+
+	it('an explicit deny outranks a later throw-induced deny (first deny wins)', () => {
+		const reg = createProbeRegistry()
+		reg.setLogger(makeLogger())
+		reg.veto('tool_executing', () => ({ action: 'deny', reason: 'policy' }), {
+			priority: 0,
+			name: 'explicit',
+		})
+		reg.veto(
+			'tool_executing',
+			() => {
+				throw new Error('boom')
+			},
+			{ priority: 5, name: 'crashy' },
+		)
+
+		const outcome = reg.queryVeto(
+			{ type: 'tool_executing', runId: 'r' as never, toolName: 't', input: {} } as never,
+			buildProbeContext(),
+		)
+		expect(outcome.action).toBe('deny')
+		expect(outcome.probeName).toBe('explicit')
+		expect(outcome.reason).toBe('policy')
 	})
 
 	it('observe-tier dispatch is independent — veto registration does not fire on dispatch', () => {

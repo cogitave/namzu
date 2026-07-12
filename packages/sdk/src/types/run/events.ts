@@ -177,6 +177,12 @@ type CoreRunEvent =
 			pluginId: PluginId
 			hookEvent: PluginHookEvent
 			result: PluginHookResult
+			/**
+			 * Set when the handler threw. Present even when the hook's `onError:
+			 * 'continue'` policy converted the throw into a `continue` result — a
+			 * crashed hook must not be indistinguishable from a clean one.
+			 */
+			error?: string
 	  }
 	| {
 			type: 'sandbox_created'

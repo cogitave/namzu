@@ -1,0 +1,5 @@
+---
+"@namzu/sdk": patch
+---
+
+Injection hygiene (ses_016): escape model-facing XML frames (task notifications, advisory results, tool catalogue and env sections of the system prompt) so tool descriptions and sub-agent output cannot forge framework tags. Veto probes now fail closed (a throwing handler denies unless it opts into `onError: 'allow'`), and plugin hooks gain an `onError: 'continue'` policy whose errors stay visible on `plugin_hook_completed`. Namespaced tool names are now provider-valid and injective by construction: the plugin namespace separator is `__`, components are validated (no `__` inside a component, so `read_file` stays legal), composed names are length-checked before the enable transaction mutates the registry, a failed enable marks the plugin `error`, and legacy `:` names still resolve through a deterministic deprecated rewrite. Plugin MCP `env` values support `${VAR}` / `${env:VAR}` interpolation with a `$${VAR}` literal escape, failing enable loudly on a missing variable.

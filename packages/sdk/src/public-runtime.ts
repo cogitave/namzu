@@ -112,18 +112,27 @@ export {
 
 export {
 	AgentRegistry,
+	InvalidToolNameError,
 	ManagedRegistry,
 	PluginRegistry,
 	Registry,
+	ToolNameKeyMismatchError,
 	ToolRegistry,
 } from './registry/index.js'
 
 export {
+	assertNameComponent,
+	composeToolName,
 	discoverAllPluginDirs,
 	discoverPlugins,
+	EnvInterpolationError,
+	EnvVarNotFoundError,
+	interpolateEnvVars,
 	loadPluginManifest,
+	PluginComponentNameError,
 	PluginLifecycleManager,
 	PluginResolver,
+	PluginToolNameTooLongError,
 } from './plugin/index.js'
 
 export {
@@ -232,6 +241,7 @@ export { evaluateRule, VerificationGate } from './verification/index.js'
 export {
 	buildProbeContext,
 	createProbeRegistry,
+	PROBE_ERROR_REASON,
 	probe,
 	ProbeNameCollisionError,
 	ProbeRegistry,

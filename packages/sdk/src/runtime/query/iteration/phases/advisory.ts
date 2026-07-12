@@ -3,6 +3,7 @@ import type { AdvisoryRequest, TriggerEvaluationState } from '../../../../types/
 import { createUserMessage } from '../../../../types/message/index.js'
 import type { ChatCompletionResponse } from '../../../../types/provider/index.js'
 import { toErrorMessage } from '../../../../utils/error.js'
+import { escapeXmlAttr, escapeXmlText } from '../../../../utils/xml.js'
 import type { IterationContext } from './context.js'
 
 function countToolCalls(ctx: IterationContext): number {
@@ -132,20 +133,23 @@ export async function runAdvisoryPhase(
 			}
 		}
 
+		// The advice/warnings/decisions are the advisor LLM's own output and the
+		// attributes carry configured-but-untrusted names, so both the text nodes
+		// and the attribute values are escaped before the frame reaches the run.
 		const sections: string[] = [
-			`<advisory-result advisor="${advisor.name}" trigger="${trigger.id}">`,
+			`<advisory-result advisor="${escapeXmlAttr(advisor.name)}" trigger="${escapeXmlAttr(trigger.id)}">`,
 		]
-		sections.push(executionResult.result.advice)
+		sections.push(escapeXmlText(executionResult.result.advice))
 
 		if (executionResult.result.warnings && executionResult.result.warnings.length > 0) {
 			sections.push(
-				`\nWarnings:\n${executionResult.result.warnings.map((w) => `- ${w}`).join('\n')}`,
+				`\nWarnings:\n${executionResult.result.warnings.map((w) => `- ${escapeXmlText(w)}`).join('\n')}`,
 			)
 		}
 
 		if (executionResult.result.decisions && executionResult.result.decisions.length > 0) {
 			sections.push(
-				`\nDecisions:\n${executionResult.result.decisions.map((d) => `- ${d}`).join('\n')}`,
+				`\nDecisions:\n${executionResult.result.decisions.map((d) => `- ${escapeXmlText(d)}`).join('\n')}`,
 			)
 		}
 

@@ -191,9 +191,13 @@ describe('PluginLifecycleManager enable() contribution types', () => {
 
 			expect(mockConnect).toHaveBeenCalledOnce()
 			expect(mockListTools).toHaveBeenCalledOnce()
+			// ses_016: composition is `plugin__server__tool` — the `:` separator and the
+			// `mcp__` infix are both gone. `:` is rejected by strict providers, and the
+			// infix is no longer needed for injectivity now that no component may
+			// contain `__`.
 			expect(toolRegistry.listNames()).toEqual([
-				'fs-plugin:mcp__fs__read_file',
-				'fs-plugin:mcp__fs__write_file',
+				'fs-plugin__fs__read_file',
+				'fs-plugin__fs__write_file',
 			])
 		})
 
@@ -217,7 +221,7 @@ describe('PluginLifecycleManager enable() contribution types', () => {
 			})
 
 			await mgr.enable(pluginId)
-			expect(toolRegistry.listNames()).toContain('net:mcp__srv__ping')
+			expect(toolRegistry.listNames()).toContain('net__srv__ping')
 
 			await mgr.disable(pluginId)
 			expect(mockDisconnect).toHaveBeenCalledOnce()

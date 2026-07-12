@@ -4,6 +4,7 @@ export type { ManagedRegistryConfig } from './ManagedRegistry.js'
 
 export { ToolRegistry } from './tool/execute.js'
 export type { ToolExecutionResult } from './tool/execute.js'
+export { InvalidToolNameError, ToolNameKeyMismatchError } from './tool/errors.js'
 
 export { ConnectorRegistry } from './connector/definitions.js'
 export { ScopedConnectorRegistry } from './connector/scoped.js'

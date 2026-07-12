@@ -4,6 +4,7 @@ import type { AgentContextLevel } from '../../types/agent/factory.js'
 import type { AgentPersona } from '../../types/persona/index.js'
 import type { Skill } from '../../types/skills/index.js'
 import type { ToolRegistryContract } from '../../types/tool/index.js'
+import { escapeXmlText } from '../../utils/xml.js'
 
 export interface PromptSegments {
 	/** Layers 1-6: basePrompt, persona identity/expertise/reflexes/skills/outputDiscipline. Stable within a run. */
@@ -27,8 +28,8 @@ export interface PromptBuilderConfig {
 
 function buildEnvContext(workingDirectory: string): string {
 	return `<env>
-Working directory: ${workingDirectory}
-Platform: ${process.platform}
+Working directory: ${escapeXmlText(workingDirectory)}
+Platform: ${escapeXmlText(process.platform)}
 </env>
 
 IMPORTANT: Always use absolute paths based on the working directory above. Before reading a file, use the glob tool to discover actual file paths — never guess or hallucinate paths.`
