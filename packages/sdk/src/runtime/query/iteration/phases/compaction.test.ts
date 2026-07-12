@@ -845,6 +845,37 @@ describe('the carry survives the store — checkpoint, restore, replay', () => {
 			expect.objectContaining({ type: 'string' }),
 		)
 	})
+
+	it('rejects a carry list whole when any entry is not a string, rather than keeping a partial one', async () => {
+		// A list like ['fact', 42] is evidence that whatever wrote the file disagreed
+		// with us about the shape. Keeping the entries we happen to recognise would
+		// carry a partial history that reads to the model as a complete one.
+		const priorSummary: SystemMessage = {
+			role: 'system',
+			content: `${COMPACTION_HEADER}\n\n${STATE_HEADER}\nstate`,
+			meta: { compaction: { carry: ['REAL_FACT', 42 as unknown as string] } },
+		}
+
+		const ctx = makeCtx(
+			[
+				{ role: 'system', content: 'system prompt' },
+				priorSummary,
+				...conversationTurns('one'),
+				...conversationTurns('two'),
+			],
+			{ llmVerification: true },
+			scriptedVerifier(['FRESH_FACT']),
+		)
+		await runCompactionCheck(ctx)
+
+		const summary = summaryMessageOf(ctx)
+		expect(summary?.meta?.compaction?.carry).toEqual(['FRESH_FACT'])
+		expect(summary?.content).not.toContain('REAL_FACT')
+		expect(ctx.log.warn).toHaveBeenCalledWith(
+			expect.stringContaining('malformed carry'),
+			expect.objectContaining({ type: 'array-with-non-string-entries' }),
+		)
+	})
 })
 
 /**

@@ -148,16 +148,19 @@ export const CARRY_ELISION_MARKER = '\n[... elided to fit the carry budget]'
 function carryEntriesOf(summary: SystemMessage, log: Logger): string[] {
 	const structured = summary.meta?.compaction?.carry
 	if (structured !== undefined) {
-		if (!Array.isArray(structured)) {
+		// Accept the list whole or not at all. A list with a non-string in it is
+		// evidence that whatever wrote the file disagreed with us about the shape,
+		// and keeping the entries we happen to recognise would carry a PARTIAL
+		// history that reads to the model as a complete one (pre-freeze R7 m3).
+		const valid =
+			Array.isArray(structured) && structured.every((entry) => typeof entry === 'string')
+		if (!valid) {
 			log.warn('Compaction summary carries a malformed carry list — ignoring it', {
-				type: typeof structured,
+				type: Array.isArray(structured) ? 'array-with-non-string-entries' : typeof structured,
 			})
 			return []
 		}
-		return structured
-			.filter((entry): entry is string => typeof entry === 'string')
-			.map((entry) => entry.trim())
-			.filter((entry) => entry.length > 0)
+		return structured.map((entry) => entry.trim()).filter((entry) => entry.length > 0)
 	}
 
 	const body = summary.content.slice(COMPACTION_HEADER.length).trim()

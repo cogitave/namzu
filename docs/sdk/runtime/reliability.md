@@ -12,6 +12,12 @@ A long agent run is a long sequence of network calls, and the interesting failur
 
 The short version: the loop retries what is worth retrying, compacts and reissues when the window overflows, keeps a truncated response from corrupting the history, and lets a cancel actually reach the socket.
 
+## 0. One Rule Above the Others
+
+Abort and deadline both have **priority over a concurrent response**. If a run is cancelled, or its budget runs out, a response the provider produces in that same moment is discarded — it is not pushed to the history, no tools run from it, and its tokens go unaccounted.
+
+That is deliberate, and it is worth stating plainly because it costs something: a stopped run can be billed for a response you never see. The alternative costs more. Cancellation is a stop signal, not a vote — a run that has been told to stop must not accept more work and act on it, and a run that is out of budget must not spend more of it. For an adapter that cannot honour an abort at all (Ollama's non-streaming path; see `supportsAbortSignal`), the request may still be in flight after the loop has moved on. The guarantee we make is the one we can keep: **the loop stops waiting.**
+
 ## 1. The Provider Error Taxonomy
 
 Every provider package normalizes its vendor errors into one `ProviderRequestError`. The runtime makes retry decisions purely off `kind`, so no provider-specific `instanceof` check leaks into the loop.
