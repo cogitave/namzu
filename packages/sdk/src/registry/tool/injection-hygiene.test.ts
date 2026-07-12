@@ -19,11 +19,14 @@
  *     - a `__`-composed name (`plugin__server__tool`) round-trips through
  *       `toLLMTools` unchanged — there is no alias layer.
  *
- *   W3 legacy — resolution accepts a name that still uses the pre-ses_016 `:`
- *   separator by rewriting `:` → `__` before lookup, so a replayed history that
- *   persisted `plugin:tool` still resolves. The rewrite is deterministic,
- *   stateless and one-directional (no map), applies only when the literal name
- *   is not itself registered, and warns once per distinct legacy name.
+ *   W3 canonical (ses_016 fix batch) — there is exactly ONE name per tool. The
+ *   pre-ses_016 `:` separator does NOT resolve: an aliased name reached the
+ *   registry AFTER the probe vetoes, the plugin `pre_tool_use` hooks and the
+ *   verification gate had already matched on the raw model-supplied string, so a
+ *   tool those layers denied under `x__y` was reachable under `x:y`. An unknown
+ *   name — legacy-shaped or not — produces a tool-level ERROR RESULT, never a
+ *   throw: a rejection here escaped the executor's `Promise.all` and aborted the
+ *   whole run.
  */
 
 import { describe, expect, it, vi } from 'vitest'
@@ -166,52 +169,44 @@ describe('tool name validation (W3)', () => {
 	})
 })
 
-describe('legacy ":" name resolution (W3)', () => {
-	it('resolves a persisted plugin:tool name to its plugin__tool key', async () => {
+describe('one canonical name — no legacy ":" resolution', () => {
+	it('does not resolve a legacy plugin:tool name to its plugin__tool key', () => {
 		const registry = new ToolRegistry({ logger: makeLogger() })
 		registry.register(makeTool('fs-plugin__read_file'))
 
-		expect(registry.has('fs-plugin:read_file')).toBe(true)
-		expect(registry.get('fs-plugin:read_file')?.name).toBe('fs-plugin__read_file')
-		expect(registry.getOrThrow('fs-plugin:read_file').name).toBe('fs-plugin__read_file')
+		// The `:` form is NOT an alias. Two names for one tool is the security hole
+		// this suite exists to keep closed: the probe vetoes, the plugin
+		// `pre_tool_use` hooks and the verification gate all match on the name the
+		// MODEL supplied, and only the registry ever resolved. A tool denied as
+		// `fs-plugin__read_file` was reachable as `fs-plugin:read_file`.
+		expect(registry.has('fs-plugin:read_file')).toBe(false)
+		expect(registry.get('fs-plugin:read_file')).toBeUndefined()
 		expect(registry.getAvailability('fs-plugin:read_file')).toBe('active')
+	})
+
+	it('returns a tool error — not a throw — when the model calls a legacy name', async () => {
+		const registry = new ToolRegistry({ logger: makeLogger() })
+		const tool = makeTool('fs-plugin__read_file')
+		const spy = vi.spyOn(tool, 'execute')
+		registry.register(tool)
 
 		const result = await registry.execute('fs-plugin:read_file', {}, {} as never)
-		expect(result.success).toBe(true)
-		expect(result.output).toBe('ran fs-plugin__read_file')
+
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('is not registered')
+		// The hint is a migration aid, not a resolution: the tool must not run.
+		expect(result.error).toContain('__')
+		expect(spy).not.toHaveBeenCalled()
 	})
 
-	it('resolves a legacy MCP name across every colon it carries', () => {
+	it('returns a tool error for any unknown name, with no separator hint', async () => {
 		const registry = new ToolRegistry({ logger: makeLogger() })
-		registry.register(makeTool('fs-plugin__fs__read_file'), 'deferred')
+		registry.register(makeTool('read_file'))
 
-		// Pre-ses_016 the MCP form was `plugin:mcp__server__tool`; the leading colon
-		// is the only thing that has to be rewritten for it to resolve.
-		registry.activate(['fs-plugin:fs__read_file'])
-		expect(registry.getAvailability('fs-plugin__fs__read_file')).toBe('active')
-	})
+		const result = await registry.execute('does_not_exist', {}, {} as never)
 
-	it('warns once per distinct legacy name', () => {
-		const log = makeLogger()
-		const registry = new ToolRegistry({ logger: log })
-		registry.register(makeTool('p__one'))
-		registry.register(makeTool('p__two'))
-
-		registry.get('p:one')
-		registry.get('p:one')
-		registry.get('p:two')
-
-		const warn = (log as unknown as { warn: ReturnType<typeof vi.fn> }).warn
-		const legacyWarnings = warn.mock.calls.filter((c) => String(c[0]).includes('legacy'))
-		expect(legacyWarnings).toHaveLength(2)
-	})
-
-	it('does not rewrite when the literal name is registered', () => {
-		const registry = new ToolRegistry({ logger: makeLogger() })
-		registry.register(makeTool('p__one'))
-
-		// An unknown name stays unknown — the shim only redirects to a key that exists.
-		expect(registry.has('p:missing')).toBe(false)
-		expect(registry.get('p:missing')).toBeUndefined()
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('"does_not_exist" is not registered')
+		expect(result.error).not.toContain('namespace separator')
 	})
 })

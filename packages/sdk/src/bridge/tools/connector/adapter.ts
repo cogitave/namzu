@@ -4,6 +4,7 @@ import type { ConnectorMethod } from '../../../types/connector/index.js'
 import type { ConnectorId, ConnectorInstanceId } from '../../../types/ids/index.js'
 import type { ToolContext, ToolDefinition, ToolResult } from '../../../types/tool/index.js'
 import { parseConnectorInstanceId } from '../../../utils/id.js'
+import { canonicalizeToolName } from '../../../utils/tool-name.js'
 
 export function connectorMethodToTool(
 	connectorId: ConnectorId,
@@ -11,7 +12,11 @@ export function connectorMethodToTool(
 	method: ConnectorMethod,
 	manager: ConnectorManager,
 ): ToolDefinition {
-	const toolName = `${connectorId}_${method.name}`
+	// A connector definition may come from anywhere and name its methods
+	// anything, so the registry key is canonicalized rather than validated. The
+	// method is still called under `method.name`, the only name the connector
+	// knows.
+	const toolName = canonicalizeToolName(`${connectorId}_${method.name}`)
 
 	return {
 		name: toolName,

@@ -6,6 +6,7 @@ import type {
 	MCPToolResult,
 } from '../../types/connector/index.js'
 import type { ToolContext, ToolDefinition, ToolResult } from '../../types/tool/index.js'
+import { canonicalizeToolName } from '../../utils/tool-name.js'
 import type { MCPClient } from './client.js'
 
 export function mcpJsonSchemaToZod(schema: MCPJsonSchema): z.ZodType {
@@ -62,7 +63,12 @@ export function mcpToolToToolDefinition(
 	serverName: string,
 ): ToolDefinition {
 	const inputSchema = mcpJsonSchemaToZod(tool.inputSchema)
-	const toolName = `mcp_${serverName}_${tool.name}`
+	// The server names its own tools and the MCP spec does not constrain them —
+	// `notion.search`, `db:query` and names past 64 characters all occur in the
+	// wild — so the registry key is canonicalized rather than validated. The tool
+	// is still invoked under `tool.name` below, which is the only name the server
+	// knows.
+	const toolName = canonicalizeToolName(`mcp_${serverName}_${tool.name}`)
 
 	return {
 		name: toolName,

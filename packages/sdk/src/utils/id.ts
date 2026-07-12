@@ -67,6 +67,28 @@ export function generateRunId(): RunId {
 	return generateId('run_')
 }
 
+/**
+ * A short unguessable token, minted once per run, that makes the framework's own
+ * XML frames unforgeable.
+ *
+ * The runtime wraps sub-agent results and advisory output in tags the model is
+ * told to trust. Content inside those frames is written by a sub-agent, an
+ * advisor LLM or an MCP server, so a payload containing a literal
+ * `</task-notification>` used to be able to close the frame early and have the
+ * rest of itself read as framework-authored instruction. Escaping the payload
+ * stops that, but corrupts content the model has to reproduce byte-exactly (code,
+ * paths). Naming the tags `<task-notification-{nonce}>` instead keeps the payload
+ * verbatim and makes the boundary the thing an attacker cannot reproduce: the
+ * nonce is generated per run and never appears in the model's input except on the
+ * framework's own tags.
+ *
+ * Random, not derived from the run id — the run id reaches the model in tool
+ * results and events, and a derivable nonce is a forgeable one.
+ */
+export function generateFrameNonce(): string {
+	return randomBytes(4).toString('hex')
+}
+
 export function generateMessageId(): MessageId {
 	return generateId('msg_')
 }

@@ -3,7 +3,7 @@ import type { AdvisoryRequest, TriggerEvaluationState } from '../../../../types/
 import { createUserMessage } from '../../../../types/message/index.js'
 import type { ChatCompletionResponse } from '../../../../types/provider/index.js'
 import { toErrorMessage } from '../../../../utils/error.js'
-import { escapeXmlAttr, escapeXmlText } from '../../../../utils/xml.js'
+import { escapeXmlAttr } from '../../../../utils/xml.js'
 import type { IterationContext } from './context.js'
 
 function countToolCalls(ctx: IterationContext): number {
@@ -133,27 +133,31 @@ export async function runAdvisoryPhase(
 			}
 		}
 
-		// The advice/warnings/decisions are the advisor LLM's own output and the
-		// attributes carry configured-but-untrusted names, so both the text nodes
-		// and the attribute values are escaped before the frame reaches the run.
+		// The frame tag carries the run's nonce, so the advisor cannot forge the
+		// boundary — an `</advisory-result>` in its advice closes nothing. The advice,
+		// warnings and decisions are therefore VERBATIM: they are an LLM's prose about
+		// code, full of `&&` and `<`, and escaping them fed the run entities that
+		// nothing downstream ever decodes. The attribute values stay escaped, because
+		// a quote in a configured advisor name would still break out of the attribute.
+		const nonce = ctx.frameNonce
 		const sections: string[] = [
-			`<advisory-result advisor="${escapeXmlAttr(advisor.name)}" trigger="${escapeXmlAttr(trigger.id)}">`,
+			`<advisory-result-${nonce} advisor="${escapeXmlAttr(advisor.name)}" trigger="${escapeXmlAttr(trigger.id)}">`,
 		]
-		sections.push(escapeXmlText(executionResult.result.advice))
+		sections.push(executionResult.result.advice)
 
 		if (executionResult.result.warnings && executionResult.result.warnings.length > 0) {
 			sections.push(
-				`\nWarnings:\n${executionResult.result.warnings.map((w) => `- ${escapeXmlText(w)}`).join('\n')}`,
+				`\nWarnings:\n${executionResult.result.warnings.map((w) => `- ${w}`).join('\n')}`,
 			)
 		}
 
 		if (executionResult.result.decisions && executionResult.result.decisions.length > 0) {
 			sections.push(
-				`\nDecisions:\n${executionResult.result.decisions.map((d) => `- ${escapeXmlText(d)}`).join('\n')}`,
+				`\nDecisions:\n${executionResult.result.decisions.map((d) => `- ${d}`).join('\n')}`,
 			)
 		}
 
-		sections.push('</advisory-result>')
+		sections.push(`</advisory-result-${nonce}>`)
 
 		ctx.runMgr.pushMessage(createUserMessage(sections.join('\n')))
 

@@ -18,7 +18,7 @@ import type { LLMProvider } from '../../types/provider/index.js'
 import type { AgentRunConfig } from '../../types/run/index.js'
 import type { ProjectId, ThreadId } from '../../types/session/ids.js'
 import type { ModelPricing } from '../../utils/cost.js'
-import { generateRunId } from '../../utils/id.js'
+import { generateFrameNonce, generateRunId } from '../../utils/id.js'
 import { type Logger, getRootLogger } from '../../utils/logger.js'
 
 /**
@@ -75,6 +75,11 @@ export interface RunContextConfig {
 /** Result of {@link RunContextFactory.build}. */
 export interface RunContext {
 	runId: RunId
+	/**
+	 * Per-run token that authenticates the framework's own XML frames to the model.
+	 * See {@link generateFrameNonce}.
+	 */
+	frameNonce: string
 	sessionId: SessionId
 	threadId: ThreadId
 	projectId: ProjectId
@@ -183,6 +188,7 @@ export class RunContextFactory {
 
 		return {
 			runId,
+			frameNonce: generateFrameNonce(),
 			sessionId: config.sessionId,
 			threadId: config.threadId,
 			projectId: config.projectId,

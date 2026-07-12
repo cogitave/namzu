@@ -64,10 +64,16 @@ export class ContextCache {
 		return this.computeConfigHash(input) !== this.cachedConfigHash
 	}
 
+	/**
+	 * `frameNonce` is deliberately absent from the cache key: it lands in the
+	 * dynamic segment, which is rebuilt on every call. Only the static segment is
+	 * cached, and a per-run token must never be cached into it.
+	 */
 	getSystemPromptSegmented(
 		input: PromptCacheInput,
 		contextLevel: AgentContextLevel = 'full',
 		workingDirectory?: string,
+		frameNonce?: string,
 	): PromptSegments {
 		const staticHash = this.computeStaticHash(input)
 
@@ -80,7 +86,7 @@ export class ContextCache {
 			allowedTools: input.allowedTools,
 		})
 
-		const segments = builder.buildSegmented(contextLevel, workingDirectory)
+		const segments = builder.buildSegmented(contextLevel, workingDirectory, frameNonce)
 
 		if (this.cachedStaticHash === staticHash && this.cachedStaticSegment !== undefined) {
 			return {

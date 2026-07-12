@@ -244,6 +244,22 @@ export type PluginLifecycleEvent =
 	| { type: 'plugin_disabled'; pluginId: PluginId; name: string }
 	| { type: 'plugin_uninstalled'; pluginId: PluginId; name: string }
 	| { type: 'plugin_error'; pluginId: PluginId; name: string; error: string }
+	/**
+	 * One tool advertised by a plugin's MCP server could not be registered — its
+	 * name collides with a tool already present, or plugin + server + tool cannot
+	 * compose within the provider's 64-character limit. The plugin still enables:
+	 * a single unusable remote tool must not cost the operator every other tool
+	 * the plugin contributes, and it is not something the operator can fix by
+	 * editing a manifest they do not own.
+	 */
+	| {
+			type: 'plugin_tool_skipped'
+			pluginId: PluginId
+			name: string
+			serverName: string
+			toolName: string
+			reason: string
+	  }
 	| {
 			type: 'plugin_hook_executed'
 			pluginId: PluginId

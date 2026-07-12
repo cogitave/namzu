@@ -1,9 +1,6 @@
 import { SpanStatusCode } from '@opentelemetry/api'
 import { zodToJsonSchema } from 'zod-to-json-schema'
-import {
-	LEGACY_PLUGIN_NAMESPACE_SEPARATOR,
-	PLUGIN_NAMESPACE_SEPARATOR,
-} from '../../constants/plugin/index.js'
+import { PLUGIN_NAMESPACE_SEPARATOR } from '../../constants/plugin/index.js'
 import { TOOL_NAME_PATTERN } from '../../constants/tools/index.js'
 import { GENAI, NAMZU, toolSpanName } from '../../telemetry/attributes.js'
 import { getTracer } from '../../telemetry/runtime-accessors.js'
@@ -23,10 +20,31 @@ import { InvalidToolNameError, ToolNameKeyMismatchError } from './errors.js'
 
 export type { ToolExecutionResult }
 
+/**
+ * The message returned when the model calls a name the registry does not hold.
+ *
+ * This is a tool-level error *result*, never a throw: models mistype and invent
+ * tool names, and one bad name in a batch must still let the other calls return
+ * and let the model correct itself. A rejection here escaped the executor's
+ * `Promise.all` and aborted the entire run.
+ *
+ * A `:` in the name earns an extra line, because that was the plugin namespace
+ * separator until it became `__`. The hint is a migration aid only — the name is
+ * NOT resolved. A tool reachable under two spellings is a security hole: the
+ * probe vetoes, the plugin `pre_tool_use` hooks and the verification gate all
+ * match on the name the model supplied, so an alias resolved further down in the
+ * registry would reach a tool those layers had just denied under its other name.
+ */
+function unknownToolMessage(toolName: string): string {
+	const hint = toolName.includes(':')
+		? ` Tool names are never namespaced with ":" — the plugin namespace separator is "${PLUGIN_NAMESPACE_SEPARATOR}". Call the tool by the exact name it was listed under.`
+		: ''
+	return `Tool "${toolName}" is not registered.${hint}`
+}
+
 export class ToolRegistry extends ManagedRegistry<ToolDefinition> {
 	private availability: Map<string, ToolAvailability> = new Map()
 	private tierConfig?: ToolTierConfig
-	private legacyNamesSeen: Set<string> = new Set()
 
 	constructor(config?: ToolRegistryConfig) {
 		super({ componentName: 'ToolRegistry', idField: 'name', logger: config?.logger })
@@ -86,42 +104,6 @@ export class ToolRegistry extends ManagedRegistry<ToolDefinition> {
 		this.availability.set(id, state)
 	}
 
-	/**
-	 * Resolve a name coming from outside the registry (a model tool call, a
-	 * replayed history entry) to its registry key.
-	 *
-	 * Names composed before the namespace separator changed from `:` to `__` are
-	 * still resolvable: rewriting `:` → `__` is deterministic, stateless and
-	 * one-directional, so a persisted `plugin:tool` call still finds
-	 * `plugin__tool` without any alias map to keep in sync. The rewrite only
-	 * applies when the literal name is not itself registered.
-	 *
-	 * @deprecated The `:` form is legacy. Removal target: @namzu/sdk 0.6.0.
-	 */
-	private resolveName(name: string): string {
-		if (super.has(name)) return name
-		if (!name.includes(LEGACY_PLUGIN_NAMESPACE_SEPARATOR)) return name
-
-		const rewritten = name.replaceAll(LEGACY_PLUGIN_NAMESPACE_SEPARATOR, PLUGIN_NAMESPACE_SEPARATOR)
-		if (!super.has(rewritten)) return name
-
-		if (!this.legacyNamesSeen.has(name)) {
-			this.legacyNamesSeen.add(name)
-			this.log.warn(
-				`Tool "${name}" uses the legacy ":" namespace separator; resolved to "${rewritten}". Support for ":" will be removed in a future release.`,
-			)
-		}
-		return rewritten
-	}
-
-	override get(name: string): ToolDefinition | undefined {
-		return super.get(this.resolveName(name))
-	}
-
-	override has(name: string): boolean {
-		return super.has(this.resolveName(name))
-	}
-
 	override unregister(id: string): boolean {
 		this.availability.delete(id)
 		return super.unregister(id)
@@ -129,25 +111,22 @@ export class ToolRegistry extends ManagedRegistry<ToolDefinition> {
 
 	override clear(): void {
 		this.availability.clear()
-		this.legacyNamesSeen.clear()
 		super.clear()
 	}
 
 	activate(names: string[]): void {
 		for (const name of names) {
-			const key = this.resolveName(name)
-			this.getOrThrow(key)
-			this.availability.set(key, 'active')
-			this.log.debug(`Tool activated: ${key}`)
+			this.getOrThrow(name)
+			this.availability.set(name, 'active')
+			this.log.debug(`Tool activated: ${name}`)
 		}
 	}
 
 	defer(names: string[]): void {
 		for (const name of names) {
-			const key = this.resolveName(name)
-			this.getOrThrow(key)
-			this.availability.set(key, 'deferred')
-			this.log.debug(`Tool deferred: ${key}`)
+			this.getOrThrow(name)
+			this.availability.set(name, 'deferred')
+			this.log.debug(`Tool deferred: ${name}`)
 		}
 	}
 
@@ -168,7 +147,7 @@ export class ToolRegistry extends ManagedRegistry<ToolDefinition> {
 	}
 
 	getAvailability(name: string): ToolAvailability {
-		return this.availability.get(this.resolveName(name)) ?? 'active'
+		return this.availability.get(name) ?? 'active'
 	}
 
 	searchDeferred(query: string): ToolDefinition[] {
@@ -272,7 +251,22 @@ export class ToolRegistry extends ManagedRegistry<ToolDefinition> {
 				[GENAI.TOOL_TYPE]: 'function',
 			})
 
-			const tool = this.getOrThrow(toolName)
+			const tool = this.get(toolName)
+			if (!tool) {
+				const msg = unknownToolMessage(toolName)
+				this.log.warn(msg)
+				span.setAttributes({
+					[NAMZU.TOOL_SUCCESS]: false,
+					[NAMZU.TOOL_ERROR]: msg,
+				})
+				span.setStatus({ code: SpanStatusCode.ERROR, message: msg })
+				span.end()
+				return {
+					success: false,
+					output: '',
+					error: msg,
+				}
+			}
 
 			const availability = this.getAvailability(toolName)
 			if (availability !== 'active') {

@@ -16,17 +16,22 @@ const INTERPOLATION_PATTERN = /\$\$\{([^}]*)\}|\$\{([^}]*)\}/g
  *
  * Applied only to MCP `env` values — never to `command` or `args`, which the
  * stdio transport logs verbatim at connect time.
+ *
+ * `envKey` names the entry being expanded. It appears in the error when the
+ * value is malformed; the value itself never does, because it is the one place a
+ * credential is guaranteed to be.
  */
 export function interpolateEnvVars(
 	value: string,
 	env: Readonly<Record<string, string | undefined>>,
+	envKey?: string,
 ): string {
 	return value.replace(INTERPOLATION_PATTERN, (_match, escaped: string, reference: string) => {
 		if (escaped !== undefined) return `\${${escaped}}`
 
 		const variableName = reference.startsWith('env:') ? reference.slice('env:'.length) : reference
 		if (variableName.length === 0) {
-			throw new EnvInterpolationError(value, 'empty variable name')
+			throw new EnvInterpolationError('empty variable name', envKey)
 		}
 
 		const resolved = env[variableName]

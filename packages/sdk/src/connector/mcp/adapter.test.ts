@@ -129,6 +129,49 @@ describe('mcpToolToToolDefinition', () => {
 		expect(tool.description).toBe('[MCP:serverA] search')
 	})
 
+	// ses_016 fix batch: the MCP spec does not constrain tool names, and the registry
+	// key must satisfy `^[a-zA-Z0-9_-]{1,64}$`. The name is therefore canonicalized
+	// rather than validated — a `notion.search` used to throw InvalidToolNameError out
+	// of ToolRegistry.register and take the whole connector attach with it.
+	it('canonicalizes a nonconforming remote tool name', () => {
+		const tool = mcpToolToToolDefinition(
+			{ name: 'notion.search', inputSchema: { type: 'object' } as MCPJsonSchema },
+			mockClient({ content: [], isError: false }),
+			'notion',
+		)
+		expect(tool.name).toBe('mcp_notion_notion_search')
+	})
+
+	it('invokes the server under its ORIGINAL name, not the canonicalized one', async () => {
+		const client = mockClient({ content: [{ type: 'text', text: 'ok' }], isError: false })
+		const tool = mcpToolToToolDefinition(
+			{ name: 'notion.search', inputSchema: { type: 'object' } as MCPJsonSchema },
+			client,
+			'notion',
+		)
+
+		await tool.execute({ q: 'x' } as never, {} as ToolContext)
+
+		// The server only knows `notion.search`. Renaming the registry key is invisible
+		// to it precisely because the original is captured in the execute closure.
+		expect(client.callTool).toHaveBeenCalledWith('notion.search', { q: 'x' })
+	})
+
+	it('shortens an over-long composed name deterministically', () => {
+		const remote = 'list_work_item_comments_for_iteration_with_expanded_relations_v2'
+		const build = (): ToolDefinition =>
+			mcpToolToToolDefinition(
+				{ name: remote, inputSchema: { type: 'object' } as MCPJsonSchema },
+				mockClient({ content: [], isError: false }),
+				'azure-devops',
+			)
+
+		const first = build().name
+		expect(first).toBe(build().name)
+		expect(first.length).toBeLessThanOrEqual(64)
+		expect(first).not.toContain('__')
+	})
+
 	it('reflects MCP annotations into tool flags', () => {
 		const tool = mcpToolToToolDefinition(
 			{

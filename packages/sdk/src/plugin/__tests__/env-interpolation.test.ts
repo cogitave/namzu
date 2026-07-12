@@ -139,6 +139,40 @@ describe('interpolateEnvVars (pure)', () => {
 		expect(() => interpolateEnvVars('${}', env)).toThrow(EnvInterpolationError)
 	})
 
+	// ses_016 fix batch: MCP `env` is exactly where credentials live, and this
+	// error's message is persisted onto the plugin registry record, emitted on
+	// `plugin_error` and written to the error log. Echoing the offending VALUE put
+	// a live token in all three.
+	it('never puts the offending value — the secret — in the message', () => {
+		const secret = 'Bearer sk-live-9fA0000000000000000000'
+		const value = `${secret} \${}`
+
+		try {
+			interpolateEnvVars(value, env, 'AUTHORIZATION')
+			expect.unreachable('interpolation should have thrown')
+		} catch (err) {
+			const error = err as EnvInterpolationError
+			expect(error).toBeInstanceOf(EnvInterpolationError)
+			expect(error.message).not.toContain(secret)
+			expect(error.message).not.toContain('sk-live')
+			// The env KEY is what names the broken line in the manifest.
+			expect(error.message).toContain('AUTHORIZATION')
+			expect(error.envKey).toBe('AUTHORIZATION')
+		}
+	})
+
+	it('names only the variable, never the value, when a reference is unset', () => {
+		const secret = 'sk-live-abc123'
+
+		try {
+			interpolateEnvVars(`${secret} \${MISSING}`, env, 'AUTHORIZATION')
+			expect.unreachable('interpolation should have thrown')
+		} catch (err) {
+			expect((err as Error).message).not.toContain(secret)
+			expect((err as Error).message).toContain('MISSING')
+		}
+	})
+
 	it('leaves a value with no references untouched', () => {
 		expect(interpolateEnvVars('plain', env)).toBe('plain')
 		expect(interpolateEnvVars('$NOT_BRACED', env)).toBe('$NOT_BRACED')

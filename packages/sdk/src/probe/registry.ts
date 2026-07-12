@@ -191,6 +191,12 @@ export class ProbeRegistry {
 	 * Ask every veto handler registered for this event kind whether the operation
 	 * may proceed. The first deny wins; a handler that throws denies unless it
 	 * registered with `{ onError: 'allow' }`.
+	 *
+	 * The `where` filter is evaluated inside the same try as the handler, because
+	 * it is half of the handler: a filter like `e => e.input.command.startsWith('rm')`
+	 * throws a TypeError on the first tool call whose input has no `command`, and
+	 * evaluating it outside the boundary let that throw escape queryVeto and abort
+	 * the run instead of producing the deny the fail-closed policy promises.
 	 */
 	queryVeto<K extends VetoableEventKind>(event: ProbeEventOf<K>, ctx: ProbeContext): VetoOutcome {
 		const wide = event as unknown as ProbeEvent
@@ -200,9 +206,9 @@ export class ProbeRegistry {
 
 		let firstDeny: VetoOutcome | undefined
 		for (const entry of bucket) {
-			if (entry.where && !entry.where(frozen)) continue
 			let decision: VetoDecision
 			try {
+				if (entry.where && !entry.where(frozen)) continue
 				decision = entry.handler(frozen, ctx)
 			} catch (error) {
 				this.logThrow(entry.name ?? 'unnamed', frozen.type, error)

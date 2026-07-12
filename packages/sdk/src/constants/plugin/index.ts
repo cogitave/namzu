@@ -15,14 +15,6 @@ export const PLUGIN_MANIFEST_FILENAME = 'plugin.json'
  */
 export const PLUGIN_NAMESPACE_SEPARATOR = '__'
 
-/**
- * The legacy separator, still accepted on lookup so that runs persisted before
- * the `__` change replay. Never used for composition.
- *
- * @deprecated Removal target: @namzu/sdk 0.6.0.
- */
-export const LEGACY_PLUGIN_NAMESPACE_SEPARATOR = ':'
-
 /** Plugin name validation */
 export const PLUGIN_NAME_MAX_LENGTH = 64
 export const PLUGIN_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/

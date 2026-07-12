@@ -311,6 +311,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			runConfig: params.runConfig,
 			tools: params.tools,
 			allowedTools: params.allowedTools,
+			frameNonce: ctx.frameNonce,
 			taskGateway: params.taskGateway,
 			taskStore: params.taskStore,
 			launchedTasks: params.launchedTasks,
@@ -376,8 +377,9 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 						cacheInput,
 						contextLevel,
 						params.workingDirectory,
+						ctx.frameNonce,
 					)
-				: promptBuilder.buildSegmented(contextLevel, params.workingDirectory)
+				: promptBuilder.buildSegmented(contextLevel, params.workingDirectory, ctx.frameNonce)
 
 			ctx.log.info('Prompt segments assembled', {
 				staticLength: segments.static.length,

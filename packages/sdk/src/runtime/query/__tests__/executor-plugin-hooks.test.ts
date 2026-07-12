@@ -279,7 +279,7 @@ describe('ToolExecutor plugin hooks', () => {
 		})
 	})
 
-	it('throws on pre_tool_use retry misuse', async () => {
+	it('reports pre_tool_use retry misuse as a tool error without aborting the run', async () => {
 		const tools = makeToolRegistry(vi.fn(async () => ({ success: true, output: 'ok' })))
 		const pluginManager = makePluginManager(async (event) =>
 			event === 'pre_tool_use' ? ([{ action: 'retry' }] as PluginHookResult[]) : [],
@@ -298,8 +298,14 @@ describe('ToolExecutor plugin hooks', () => {
 			emitEvent,
 			makeLogger(),
 		)
-		await expect(exec.executeBatch(buildResponse('echo', {}))).rejects.toThrow(
-			/unsupported action 'retry'/,
-		)
+
+		// A plugin returning an unsupported action is a plugin BUG, and a plugin bug
+		// must not brick the run (ses_016 fix batch): the misuse comes back as a tool
+		// error the model can react to, and is logged for the plugin's author. It used
+		// to reject out of `executeBatch`'s `Promise.all` and kill the whole run.
+		const batch = await exec.executeBatch(buildResponse('echo', {}))
+
+		expect(batch.results).toHaveLength(1)
+		expect(batch.results[0]?.output).toMatch(/unsupported action 'retry'/)
 	})
 })

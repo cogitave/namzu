@@ -18,6 +18,19 @@
  *     attached, and emits `plugin_error`. `error` is retryable — enable() accepts
  *     it as a starting state, since the fix for a bad manifest is to edit it and
  *     enable again, and an MCP server can fail to connect transiently.
+ *
+ * ses_016 fix batch — strictness applies only to names the MANIFEST AUTHOR owns:
+ *
+ *   - The plugin name and its MCP server aliases stay strictly validated: their
+ *     author can rename them, so a bad one is a loud error.
+ *   - A tool name supplied by the MCP SERVER is canonicalized, never fatal.
+ *     Nobody on this side can rename a tool inside someone else's server, so
+ *     `notion.search` and `db:query` are repaired rather than rejected — one
+ *     nonconforming remote name used to abort the entire plugin enable with a
+ *     remediation ("rename the tool") the operator could not perform.
+ *   - The two failures canonicalization cannot repair — an over-long composition
+ *     and a canonical name that collides — skip THAT ONE TOOL with a
+ *     `plugin_tool_skipped` event. Never a rollback.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -200,13 +213,14 @@ describe('enable() name validation', () => {
 		expect(state.current.status).toBe('error')
 	})
 
-	it('rejects an over-length MCP tool name and registers nothing for that server', async () => {
+	it('skips an over-length MCP tool name and still enables the plugin', async () => {
 		mockConnect.mockResolvedValue(undefined)
 		mockDisconnect.mockResolvedValue(undefined)
 		mockListTools.mockResolvedValue([
 			{ name: 'short', inputSchema: { type: 'object' } },
 			{ name: 'x'.repeat(60), inputSchema: { type: 'object' } },
 		])
+		const events: PluginLifecycleEvent[] = []
 		const { registry, state } = makePluginRegistry({
 			name: 'plugin-with-a-long-name',
 			version: '0.0.1',
@@ -219,14 +233,81 @@ describe('enable() name validation', () => {
 			toolRegistry,
 			log: makeLogger(),
 		})
+		mgr.on((e) => events.push(e))
 
-		await expect(mgr.enable(pluginId)).rejects.toThrow(PluginToolNameTooLongError)
+		await mgr.enable(pluginId)
 
-		// The server's tools are validated as a set before any of them is registered,
-		// so the legal `short` tool never lands either — no half-registered server.
-		expect(registered).toEqual([])
-		expect(state.current.status).toBe('error')
-		expect(state.current.error).toContain('64-character provider limit')
+		// The over-long name is the ONE failure canonicalization cannot repair, and
+		// the operator cannot rename a tool inside someone else's MCP server. So that
+		// one tool is dropped and the plugin still enables — failing the whole enable
+		// left them with a permanently un-enableable plugin and no remediation.
+		expect(registered).toEqual(['plugin-with-a-long-name__server__short'])
+		expect(state.current.status).toBe('enabled')
+
+		const skipped = events.find((e) => e.type === 'plugin_tool_skipped')
+		expect(skipped).toMatchObject({
+			serverName: 'server',
+			toolName: 'x'.repeat(60),
+		})
+		expect((skipped as { reason: string }).reason).toContain('64-character provider limit')
+	})
+
+	it('canonicalizes a nonconforming remote tool name instead of failing the enable', async () => {
+		mockConnect.mockResolvedValue(undefined)
+		mockListTools.mockResolvedValue([
+			{ name: 'notion.search', inputSchema: { type: 'object' } },
+			{ name: 'db:query', inputSchema: { type: 'object' } },
+		])
+		const { registry, state } = makePluginRegistry({
+			name: 'notion',
+			version: '0.0.1',
+			description: 't',
+			mcpServers: [{ name: 'srv', command: '/bin/true' }],
+		})
+		const { registry: toolRegistry, registered } = makeToolRegistry()
+		const mgr = new PluginLifecycleManager({
+			pluginRegistry: registry,
+			toolRegistry,
+			log: makeLogger(),
+		})
+
+		await mgr.enable(pluginId)
+
+		// The MCP spec does not constrain tool names, and `notion.search` / `db:query`
+		// are real. Strict validation made one of them fatal to the whole plugin.
+		expect(registered).toEqual(['notion__srv__notion_search', 'notion__srv__db_query'])
+		expect(state.current.status).toBe('enabled')
+	})
+
+	it('skips a remote tool whose canonical name collides, without rolling back', async () => {
+		mockConnect.mockResolvedValue(undefined)
+		mockListTools.mockResolvedValue([
+			{ name: 'a.b', inputSchema: { type: 'object' } },
+			// Canonicalizes to the same leaf as `a.b`.
+			{ name: 'a:b', inputSchema: { type: 'object' } },
+		])
+		const events: PluginLifecycleEvent[] = []
+		const { registry, state } = makePluginRegistry({
+			name: 'p',
+			version: '0.0.1',
+			description: 't',
+			mcpServers: [{ name: 'srv', command: '/bin/true' }],
+		})
+		const { registry: toolRegistry, registered } = makeToolRegistry()
+		const mgr = new PluginLifecycleManager({
+			pluginRegistry: registry,
+			toolRegistry,
+			log: makeLogger(),
+		})
+		mgr.on((e) => events.push(e))
+
+		await mgr.enable(pluginId)
+
+		expect(registered).toEqual(['p__srv__a_b'])
+		expect(state.current.status).toBe('enabled')
+		expect(events.find((e) => e.type === 'plugin_tool_skipped')).toMatchObject({
+			toolName: 'a:b',
+		})
 	})
 
 	it('emits plugin_error and leaves the plugin retryable after a failed enable', async () => {

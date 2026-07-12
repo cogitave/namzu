@@ -21,6 +21,7 @@ import type { ToolDefinition, ToolRegistryContract } from '../types/tool/index.j
 import { toErrorMessage } from '../utils/error.js'
 import { generatePluginId } from '../utils/id.js'
 import type { Logger } from '../utils/logger.js'
+import { canonicalizeToolName } from '../utils/tool-name.js'
 import { interpolateEnvVars } from './env.js'
 import { loadPluginManifest } from './loader.js'
 import { assertNameComponent, composeToolName } from './names.js'
@@ -175,7 +176,7 @@ export class PluginLifecycleManager {
 			// MCP tool names only exist once the server has been asked for them, so
 			// this pass validates after connect but still before it registers anything.
 			for (const serverConfig of manifest.mcpServers ?? []) {
-				await this.attachMCPServer(manifest.name, serverConfig, contributions)
+				await this.attachMCPServer(pluginId, manifest.name, serverConfig, contributions)
 			}
 		} catch (err) {
 			await this.rollbackContributions(pluginId, contributions)
@@ -258,6 +259,7 @@ export class PluginLifecycleManager {
 	}
 
 	private async attachMCPServer(
+		pluginId: PluginId,
 		pluginName: string,
 		config: PluginMCPServerConfig,
 		contributions: PluginContributionRecord,
@@ -280,17 +282,49 @@ export class PluginLifecycleManager {
 		await client.connect()
 		contributions.mcpClients.push(client)
 
-		// Compose and validate every name for this server before registering any of
-		// them, so one over-long tool name cannot leave the server half-registered.
+		// Compose every name for this server before registering any of them, so a
+		// name that cannot be used leaves the server half-registered with nothing.
 		const mcpTools = await client.listTools()
-		const planned = mcpTools.map((mcpTool) => {
-			const name = composeToolName(pluginName, [
-				{ role: 'mcp-server', value: config.name },
-				{ role: 'tool', value: mcpTool.name },
-			])
+		const planned: ToolDefinition[] = []
+		const taken = new Set<string>()
+
+		for (const mcpTool of mcpTools) {
+			// The plugin name and the server alias come from the manifest, whose
+			// author can rename them — those stay strictly validated above. The leaf
+			// is the SERVER's own name for its tool: nobody here can rename a tool
+			// inside someone else's MCP server, so it is canonicalized instead of
+			// rejected. The server is still called with `mcpTool.name`.
+			const leaf = canonicalizeToolName(mcpTool.name)
+
+			let name: string
+			try {
+				name = composeToolName(pluginName, [
+					{ role: 'mcp-server', value: config.name },
+					{ role: 'tool', value: leaf },
+				])
+			} catch (err) {
+				// Length is the one failure canonicalization cannot repair: plugin +
+				// server + leaf may exceed the provider limit with no component this
+				// side is allowed to shorten.
+				this.skipMCPTool(pluginId, pluginName, config.name, mcpTool.name, toErrorMessage(err))
+				continue
+			}
+
+			if (taken.has(name) || this.toolRegistry.has(name)) {
+				this.skipMCPTool(
+					pluginId,
+					pluginName,
+					config.name,
+					mcpTool.name,
+					`the composed name "${name}" is already registered`,
+				)
+				continue
+			}
+
 			const baseDef = mcpToolToToolDefinition(mcpTool, client, config.name)
-			return { ...baseDef, name } satisfies ToolDefinition
-		})
+			taken.add(name)
+			planned.push({ ...baseDef, name } satisfies ToolDefinition)
+		}
 
 		for (const tool of planned) {
 			this.toolRegistry.register(tool, 'deferred')
@@ -298,10 +332,38 @@ export class PluginLifecycleManager {
 		}
 	}
 
+	/**
+	 * Drop one unusable tool from an MCP server and keep going. Never a rollback:
+	 * the operator does not own the server's manifest and cannot act on a failure
+	 * here, so failing the whole enable would leave them with a permanently
+	 * un-enableable plugin and no remediation.
+	 */
+	private skipMCPTool(
+		pluginId: PluginId,
+		pluginName: string,
+		serverName: string,
+		toolName: string,
+		reason: string,
+	): void {
+		this.emit({
+			type: 'plugin_tool_skipped',
+			pluginId,
+			name: pluginName,
+			serverName,
+			toolName,
+			reason,
+		})
+		this.log.warn(`Plugin "${pluginName}": skipped MCP tool "${toolName}" — ${reason}`, {
+			pluginId,
+			serverName,
+			toolName,
+		})
+	}
+
 	private resolveMCPEnv(env: Readonly<Record<string, string>>): Record<string, string> {
 		const resolved: Record<string, string> = {}
 		for (const [key, value] of Object.entries(env)) {
-			resolved[key] = interpolateEnvVars(value, process.env)
+			resolved[key] = interpolateEnvVars(value, process.env, key)
 		}
 		return resolved
 	}

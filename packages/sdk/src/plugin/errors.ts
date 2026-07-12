@@ -65,10 +65,24 @@ export class EnvVarNotFoundError extends Error {
 	}
 }
 
-/** An MCP `env` value contains a malformed interpolation reference. */
+/**
+ * An MCP `env` value contains a malformed interpolation reference.
+ *
+ * The offending value is deliberately absent from the message. MCP `env` is
+ * exactly where credentials live, and this message is persisted on the plugin
+ * registry record, emitted on `plugin_error` and written to the error log — a
+ * value echoed here would land a live token in all three. The env key names the
+ * line in the manifest, which is all anyone needs to fix it.
+ */
 export class EnvInterpolationError extends Error {
-	constructor(value: string, detail: string) {
-		super(`Invalid interpolation in "${value}": ${detail}`)
+	readonly envKey?: string
+
+	constructor(detail: string, envKey?: string) {
+		const where = envKey ? `the plugin MCP env value for "${envKey}"` : 'a plugin MCP env value'
+		super(
+			`Invalid interpolation in ${where}: ${detail}. The value is withheld — it may be a secret.`,
+		)
 		this.name = 'EnvInterpolationError'
+		this.envKey = envKey
 	}
 }

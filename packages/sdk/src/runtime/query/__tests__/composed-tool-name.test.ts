@@ -9,13 +9,18 @@
  *   - `runToolReview` does not touch the name either — the executor is driven
  *     with `toolCall.function.name` verbatim (this suite drives the executor,
  *     which is the seam the review phase calls into).
- *   - A name persisted under the pre-ses_016 `:` separator still executes: the
- *     registry rewrites `:` → `__` on lookup, so a replayed history resolves.
+ *   - (ses_016 fix batch) A name using the pre-ses_016 `:` separator does NOT
+ *     execute. It is simply unknown, and an unknown name comes back as a
+ *     tool-level error result that leaves the rest of the batch — and the run —
+ *     intact. This is the privilege-escalation regression: the veto, the hook and
+ *     the gate match on the raw model-supplied name, so a registry that resolved
+ *     `x:y` to a denied `x__y` ran the tool the policy layer had just refused.
  */
 
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
+import { type ProbeRegistry, createProbeRegistry } from '../../../probe/registry.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
 import type { RunId } from '../../../types/ids/index.js'
@@ -62,7 +67,7 @@ function buildResponse(toolName: string, args: object): ChatCompletionResponse {
 	} as ChatCompletionResponse
 }
 
-function makeExecutor(registry: ToolRegistry): ToolExecutor {
+function makeExecutor(registry: ToolRegistry, probes?: ProbeRegistry): ToolExecutor {
 	const activityStore = new ActivityStore(runId, {
 		enabled: true,
 		trackToolCalls: true,
@@ -81,6 +86,7 @@ function makeExecutor(registry: ToolRegistry): ToolExecutor {
 		activityStore,
 		emitEvent,
 		makeLogger(),
+		probes ?? createProbeRegistry(),
 	)
 }
 
@@ -102,7 +108,7 @@ describe('composed tool name round-trip', () => {
 		expect(execute).toHaveBeenCalledWith({ path: '/etc/hosts' }, expect.any(Object))
 	})
 
-	it('executes a legacy ":"-separated name from a replayed history', async () => {
+	it('does not execute a legacy ":"-separated name', async () => {
 		const execute = vi.fn(async () => ({ success: true, output: 'file contents' }))
 		const registry = makeRegistry(execute)
 
@@ -110,23 +116,64 @@ describe('composed tool name round-trip', () => {
 			buildResponse('fs-plugin:fs__read_file', { path: '/etc/hosts' }),
 		)
 
+		expect(execute).not.toHaveBeenCalled()
+		expect(batch.results[0]?.output).toContain('is not registered')
+	})
+
+	it('answers an unknown tool name with an error result and keeps the batch alive', async () => {
+		const execute = vi.fn(async () => ({ success: true, output: 'file contents' }))
+		const registry = makeRegistry(execute)
+
+		const response = buildResponse(COMPOSED, { path: '/etc/hosts' })
+		// A batch the model emitted with one good call and one hallucinated name.
+		response.message.toolCalls?.push({
+			id: 'call_2',
+			type: 'function',
+			function: { name: 'does_not_exist', arguments: '{}' },
+		})
+
+		const batch = await makeExecutor(registry).executeBatch(response)
+
+		// The unknown name used to reject out of `Promise.all` and abort the run,
+		// taking the good call's result with it.
+		expect(batch.results).toHaveLength(2)
 		expect(batch.results[0]?.output).toBe('file contents')
+		expect(batch.results[1]?.output).toContain('"does_not_exist" is not registered')
 		expect(execute).toHaveBeenCalledOnce()
 	})
 
-	it('does not silently redirect a name that resolves to nothing', async () => {
-		const registry = makeRegistry(vi.fn(async () => ({ success: true, output: 'x' })))
+	it('does not let a legacy alias slip past a veto that denied the canonical name', async () => {
+		const execute = vi.fn(async () => ({ success: true, output: 'file contents' }))
+		const registry = makeRegistry(execute)
 
-		// Current behavior: an unknown name throws out of `ToolRegistry.execute` via
-		// `getOrThrow` (which sits outside the method's try/catch). Pinned here to
-		// show the legacy `:` shim does not convert an unknown name into SOME tool —
-		// it only redirects to a key that actually exists.
-		await expect(
-			makeExecutor(registry).executeBatch(buildResponse('does_not_exist', { path: '/x' })),
-		).rejects.toThrow(/Not found/)
+		const probes = createProbeRegistry()
+		const denied: string[] = []
+		probes.veto(
+			'tool_executing',
+			(event) => {
+				denied.push(event.toolName)
+				return { action: 'deny', reason: 'destructive' }
+			},
+			{ name: 'guard', where: (event) => event.toolName === COMPOSED },
+		)
 
-		await expect(
-			makeExecutor(registry).executeBatch(buildResponse('other:missing', { path: '/x' })),
-		).rejects.toThrow(/Not found/)
+		const executor = makeExecutor(registry, probes)
+
+		// The canonical name is denied, and the veto sees exactly the string the
+		// model sent.
+		const canonical = await executor.executeBatch(buildResponse(COMPOSED, { path: '/etc/hosts' }))
+		expect(canonical.results[0]?.output).toContain('destructive')
+		expect(execute).not.toHaveBeenCalled()
+		expect(denied).toEqual([COMPOSED])
+
+		// A prompt-injected model retries under the pre-ses_016 spelling. The veto's
+		// `where` does not match it — which is precisely why the registry must not
+		// resolve it either. It used to: the alias was decoded AFTER the veto ran, so
+		// the denied tool executed under its other name.
+		const alias = await executor.executeBatch(
+			buildResponse('fs-plugin:fs__read_file', { path: '/etc/hosts' }),
+		)
+		expect(execute).not.toHaveBeenCalled()
+		expect(alias.results[0]?.output).toContain('is not registered')
 	})
 })

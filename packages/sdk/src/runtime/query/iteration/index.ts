@@ -68,6 +68,8 @@ export interface IterationConfig {
 	runConfig: AgentRunConfig
 	tools: ToolRegistryContract
 	allowedTools?: string[]
+	/** Per-run token that authenticates the runtime's own frames. See {@link IterationContext.frameNonce}. */
+	frameNonce: string
 	taskGateway?: import('../../../types/agent/gateway.js').TaskGateway
 	taskStore?: import('../../../types/task/index.js').TaskStore
 	launchedTasks?: Map<
@@ -104,6 +106,7 @@ export class IterationOrchestrator {
 			runConfig: config.runConfig,
 			tools: config.tools,
 			allowedTools: config.allowedTools,
+			frameNonce: config.frameNonce,
 			runMgr,
 			toolExecutor,
 			guard,
@@ -590,19 +593,28 @@ export class IterationOrchestrator {
 		this.ctx.launchedTasks.delete(handle.taskId)
 		const remainingTasks = this.ctx.launchedTasks.size
 
-		// Every interpolated field is model- or tool-derived (the sub-agent's own
-		// final text, its last error, the launch-time description). Unescaped, a
-		// literal `</task-notification>` in that content forges a frame in the
-		// parent's transcript.
+		// The frame tag carries the run's nonce, so a sub-agent cannot forge the
+		// boundary: an emitted `</task-notification>` in its output closes nothing,
+		// because the real frame ends with `</task-notification-{nonce}>` and the
+		// system prompt tells the model that only nonced tags are the framework's.
+		//
+		// That is what lets `<result>` be VERBATIM. It is the sub-agent's own final
+		// text — routinely code — and the parent is expected to reproduce it
+		// byte-exactly. Escaping it handed the parent `a &amp;&amp; b` and
+		// `Array&lt;string&gt;` with nothing anywhere to undo it, and the parent
+		// wrote those entities straight into the files it created. The surrounding
+		// metadata stays escaped: it is framework-generated or model-supplied
+		// labelling, not content anyone has to reproduce.
+		const nonce = this.ctx.frameNonce
 		const notification = [
-			'<task-notification>',
+			`<task-notification-${nonce}>`,
 			`  <task-id>${escapeXmlText(handle.taskId)}</task-id>`,
 			`  <agent-id>${escapeXmlText(handle.agentId)}</agent-id>`,
 			`  <status>${escapeXmlText(handle.state)}</status>`,
 			`  <description>${escapeXmlText(meta?.description ?? 'agent task')}</description>`,
-			`  <result>${escapeXmlText(resultText)}</result>`,
+			`  <result>${resultText}</result>`,
 			`  <remaining-tasks>${remainingTasks}</remaining-tasks>`,
-			'</task-notification>',
+			`</task-notification-${nonce}>`,
 		].join('\n')
 
 		this.ctx.runMgr.pushMessage(createUserMessage(notification))

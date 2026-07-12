@@ -44,7 +44,11 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 
 	const createTask = defineTool({
 		name: 'create_task',
-		description: `Launch a task on a specialized agent. NON-BLOCKING: returns immediately. You will receive a <task-notification> message when the agent finishes. Available agents: ${agentIds.join(', ')}. The agent cannot see your conversation — include ALL necessary context in the prompt. To launch multiple tasks in parallel, call this tool multiple times in a single response. After launching, briefly tell the user what you launched and end your turn — do NOT predict or fabricate results.`,
+		// The frame's real tag name carries the run's nonce, which this description
+		// cannot know. It names the frame in prose instead of quoting a bare
+		// `<task-notification>` tag, which would teach the model to accept exactly
+		// the unauthenticated tag an injected sub-agent would try to forge.
+		description: `Launch a task on a specialized agent. NON-BLOCKING: returns immediately. You will receive a task notification message when the agent finishes. Available agents: ${agentIds.join(', ')}. The agent cannot see your conversation — include ALL necessary context in the prompt. To launch multiple tasks in parallel, call this tool multiple times in a single response. After launching, briefly tell the user what you launched and end your turn — do NOT predict or fabricate results.`,
 		inputSchema: z.object({
 			agent_id: agentIdEnum.describe('Which agent to run'),
 			prompt: z

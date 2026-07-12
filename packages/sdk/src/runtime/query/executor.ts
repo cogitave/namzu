@@ -3,17 +3,23 @@ import type { WorkingStateManager } from '../../compaction/manager.js'
 import type { PluginLifecycleManager } from '../../plugin/lifecycle.js'
 import { buildProbeContext } from '../../probe/context.js'
 import { ProbeVetoError } from '../../probe/errors.js'
-import { type ProbeRegistry, probe as defaultProbeRegistry } from '../../probe/registry.js'
+import {
+	PROBE_ERROR_REASON,
+	type ProbeRegistry,
+	probe as defaultProbeRegistry,
+} from '../../probe/registry.js'
 import type { ActivityStore } from '../../store/activity/memory.js'
 import type { RunId } from '../../types/ids/index.js'
 import type { InvocationState } from '../../types/invocation/index.js'
 import { type Message, createToolMessage } from '../../types/message/index.js'
 import type { PermissionMode } from '../../types/permission/index.js'
 import type { PluginHookResult } from '../../types/plugin/index.js'
+import type { VetoOutcome } from '../../types/probe/registry.js'
 import type { ChatCompletionResponse } from '../../types/provider/index.js'
 import type { RunEvent } from '../../types/run/index.js'
 import type { Sandbox } from '../../types/sandbox/index.js'
 import type { ToolContext, ToolRegistryContract, ToolResult } from '../../types/tool/index.js'
+import { toErrorMessage } from '../../utils/error.js'
 import type { Logger } from '../../utils/logger.js'
 import { compressShellOutput } from '../../utils/shell-compress.js'
 
@@ -86,12 +92,44 @@ export class ToolExecutor {
 		const toolContext = this.buildToolContext()
 
 		const results = await Promise.all(
-			toolCalls.map((toolCall) => this.executeSingle(toolCall, toolContext)),
+			toolCalls.map((toolCall) => this.executeSingleSafe(toolCall, toolContext)),
 		)
 
 		const messages: Message[] = results.map((r) => createToolMessage(r.output, r.toolCallId))
 
 		return { messages, results }
+	}
+
+	/**
+	 * Last line of defence around one tool call. Every expected failure — unknown
+	 * name, bad input, a throwing tool, a probe deny — already comes back as a
+	 * result rather than a rejection; this catches the unexpected ones, because a
+	 * single rejection inside the batch's `Promise.all` takes down the whole
+	 * iteration and, with it, the run. Every tool call the model makes must get an
+	 * answer it can react to.
+	 */
+	private async executeSingleSafe(
+		toolCall: {
+			id: string
+			type: string
+			function: { name: string; arguments: string }
+		},
+		toolContext: ToolContext,
+	): Promise<{ toolCallId: string; output: string }> {
+		try {
+			return await this.executeSingle(toolCall, toolContext)
+		} catch (err) {
+			const message = toErrorMessage(err)
+			this.log.error('Tool call failed outside the tool boundary', {
+				runId: this.config.runId,
+				tool: toolCall.function.name,
+				error: message,
+			})
+			return {
+				toolCallId: toolCall.id,
+				output: `Error: tool "${toolCall.function.name}" could not be executed: ${message}`,
+			}
+		}
 	}
 
 	private buildToolContext(): ToolContext {
@@ -109,6 +147,36 @@ export class ToolExecutor {
 			invocationState: this.config.invocationState,
 			toolRegistry: this.config.tools,
 			sandbox: this.config.sandbox,
+		}
+	}
+
+	/**
+	 * Ask the probe registry whether this call may proceed, failing CLOSED if the
+	 * registry itself throws.
+	 *
+	 * `queryVeto` already contains each handler and its filter, so a throw here
+	 * means the veto machinery is broken rather than one handler. Denying is the
+	 * only safe reading: an authorization layer that cannot answer must not be
+	 * taken for an allow, and it must not abort the run either.
+	 */
+	private queryToolVeto(toolName: string, input: unknown): VetoOutcome {
+		try {
+			return this.probes.queryVeto(
+				{
+					type: 'tool_executing',
+					runId: this.config.runId,
+					toolName,
+					input,
+				},
+				buildProbeContext({ runId: this.config.runId }),
+			)
+		} catch (err) {
+			this.log.error('Probe registry threw while querying vetoes — denying', {
+				runId: this.config.runId,
+				tool: toolName,
+				error: toErrorMessage(err),
+			})
+			return { action: 'deny', reason: PROBE_ERROR_REASON }
 		}
 	}
 
@@ -156,15 +224,7 @@ export class ToolExecutor {
 			input,
 		})
 
-		const vetoOutcome = this.probes.queryVeto(
-			{
-				type: 'tool_executing',
-				runId: this.config.runId,
-				toolName,
-				input,
-			},
-			buildProbeContext({ runId: this.config.runId }),
-		)
+		const vetoOutcome = this.queryToolVeto(toolName, input)
 		if (vetoOutcome.action === 'deny') {
 			const probeName = vetoOutcome.probeName ?? 'unnamed'
 			const reason = vetoOutcome.reason ?? 'no reason provided'

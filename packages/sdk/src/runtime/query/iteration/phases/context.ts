@@ -29,6 +29,16 @@ export interface IterationContext {
 	readonly runConfig: AgentRunConfig
 	readonly tools: ToolRegistryContract
 	readonly allowedTools?: string[]
+
+	/**
+	 * Per-run token stamped into the tag names of every frame the runtime pushes
+	 * into the conversation (`<task-notification-{nonce}>`, `<advisory-result-{nonce}>`).
+	 * The system prompt tells the model that only tags bearing it are
+	 * framework-authored, which is what lets the content inside a frame stay
+	 * verbatim: forging the boundary now requires guessing the nonce, so the
+	 * payload no longer has to be escaped to be safe.
+	 */
+	readonly frameNonce: string
 	readonly runMgr: RunPersistence
 	readonly toolExecutor: ToolExecutor
 	readonly guard: GuardCoordinator

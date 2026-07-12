@@ -475,6 +475,72 @@ describe('ProbeRegistry — veto API', () => {
 		expect(outcome.reason).toBe('policy')
 	})
 
+	// ses_016 fix batch: the `where` filter is HALF THE HANDLER, and it used to be
+	// evaluated outside the try that the fail-closed policy lives in. A filter like
+	// `e => e.input.command.startsWith('rm')` throws a TypeError on the first tool
+	// call whose input has no `command` — a `glob`, a `read_file` — and that throw
+	// escaped queryVeto and aborted the run instead of denying.
+	it('a throwing `where` predicate denies instead of crashing the run', () => {
+		const reg = createProbeRegistry()
+		reg.setLogger(makeLogger())
+		reg.veto('tool_executing', () => 'allow', {
+			name: 'bash-guard',
+			where: (event) => (event as { input: { command: string } }).input.command.startsWith('rm'),
+		})
+
+		const outcome = reg.queryVeto(
+			// A `glob` call: no `command` on the input, so the filter dereferences
+			// undefined.
+			{ type: 'tool_executing', runId: 'r' as never, toolName: 'glob', input: {} } as never,
+			buildProbeContext(),
+		)
+
+		expect(outcome.action).toBe('deny')
+		expect(outcome.probeName).toBe('bash-guard')
+		expect(outcome.reason).toBe(PROBE_ERROR_REASON)
+	})
+
+	it('a throwing `where` on an onError:"allow" veto is skipped, not denied', () => {
+		const reg = createProbeRegistry()
+		reg.setLogger(makeLogger())
+		reg.veto('tool_executing', () => 'deny', {
+			name: 'lenient',
+			onError: 'allow',
+			where: () => {
+				throw new Error('boom')
+			},
+		})
+
+		const outcome = reg.queryVeto(
+			{ type: 'tool_executing', runId: 'r' as never, toolName: 't', input: {} } as never,
+			buildProbeContext(),
+		)
+
+		expect(outcome.action).toBe('allow')
+	})
+
+	it('a non-matching `where` still skips the handler without denying', () => {
+		const reg = createProbeRegistry()
+		reg.setLogger(makeLogger())
+		const calls: string[] = []
+		reg.veto(
+			'tool_executing',
+			() => {
+				calls.push('ran')
+				return 'deny'
+			},
+			{ name: 'other-tool-only', where: (event) => event.toolName === 'bash' },
+		)
+
+		const outcome = reg.queryVeto(
+			{ type: 'tool_executing', runId: 'r' as never, toolName: 'glob', input: {} } as never,
+			buildProbeContext(),
+		)
+
+		expect(outcome.action).toBe('allow')
+		expect(calls).toEqual([])
+	})
+
 	it('observe-tier dispatch is independent — veto registration does not fire on dispatch', () => {
 		const reg = createProbeRegistry()
 		const vetoCalls: number[] = []
