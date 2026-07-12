@@ -1,6 +1,7 @@
 /**
  * Current-code invariants asserted (2026-07-12, ses_016 fix batch; revised
- * 2026-07-12 by the ses_015/016 pre-freeze fix, finding B3):
+ * 2026-07-12 by the ses_015/016 pre-freeze fix rounds, findings B3 and its
+ * follow-ups):
  *
  *   - `canonicalizeToolName` maps ANY string onto `^[a-zA-Z0-9_-]{1,64}$` and
  *     never throws. It exists for names we do not author: an MCP server or a
@@ -8,31 +9,43 @@
  *     70-character method name), and nobody on this side can rename a tool inside
  *     someone else's server. A remote name that fails validation used to abort an
  *     entire plugin enable.
- *   - **Repair is not lossy.** Any repair at all — a substituted character, a
- *     collapsed `__`, a truncation — appends `_<hash7>` of the ORIGINAL raw
- *     string. Sanitizing alone collapsed `a.b`, `a/b`, `a__b` and `a_b` onto one
- *     key, so two different remote tools claimed one registry name and whichever
- *     server was enumerated first won. MCP registration order is not stable across
- *     restarts, so a canonical name persisted in a run history could come back
- *     bound to a DIFFERENT remote tool. Distinct raw names now yield distinct
- *     canonical names.
+ *   - **The function is injective.** Its two outcomes live in disjoint spaces:
+ *     an untouched name (already valid, in budget, `__`-free, and NOT wearing the
+ *     reserved suffix shape) comes back as itself; anything else comes back as
+ *     `<base>_<hash7>` of the ORIGINAL raw string, which always wears that shape.
+ *     Two rounds of this were needed. Sanitizing alone collapsed `a.b`, `a/b`,
+ *     `a__b` and `a_b` onto one key. Adding the hash fixed that but left a second
+ *     hole: a repaired name is itself a legal name, so a server advertising the
+ *     literal `a_b_04la3gs` took the untouched path and landed on top of
+ *     `canonicalizeToolName('a.b')`. Reserving the suffix shape closes it —
+ *     distinct raw names can now collide only on a genuine 32-bit hash collision,
+ *     never through aliasing and never through arrival order.
+ *   - The reserved shape is `_[01][0-9a-z]{6}`, narrow by arithmetic rather than
+ *     by convention: a 32-bit hash rendered base36 and padded to seven digits
+ *     always opens with `0` or `1`. So `send_message` and `get_weather` do NOT
+ *     wear it and stay readable, while `tool_04la3gs` does and is repaired.
  *   - No `__` survives, anywhere — not in the base, and not at the seam where the
  *     hash suffix joins on. The double underscore is the plugin namespace
  *     separator; a canonicalized name carrying one would be indistinguishable from
  *     a composed `plugin__tool` and would break the injectivity every name-keyed
  *     layer (vetoes, hooks, the verification gate) depends on.
+ *   - `maxLength` is the budget the name ACTUALLY has, which for a plugin's MCP
+ *     leaf is what `plugin__server__` leaves of the 64. Budgeting the hash suffix
+ *     against the standalone 64 instead pushed a repaired leaf past the limit at
+ *     composition time and made a tool that used to fit disappear.
  *   - Determinism is the load-bearing property: the output is a pure function of
- *     the raw name, identical in every process and every release and independent
- *     of the order tools were registered in, so a canonicalized name persisted in
- *     a run history still resolves after a restart.
- *   - A name that is already valid and separator-free is returned unchanged, so
- *     the common case stays readable.
+ *     the raw name and the budget, identical in every process and every release
+ *     and independent of the order tools were registered in, so a canonicalized
+ *     name persisted in a run history still resolves after a restart.
  */
 
 import { describe, expect, it } from 'vitest'
 
 import { TOOL_NAME_PATTERN } from '../constants/tools/index.js'
 import { canonicalizeToolName } from './tool-name.js'
+
+/** The shape a repair produces — and the shape an untouched name never wears. */
+const RESERVED_SUFFIX = /_[01][0-9a-z]{6}$/
 
 describe('canonicalizeToolName', () => {
 	it('leaves an already-valid name untouched', () => {
@@ -55,7 +68,7 @@ describe('canonicalizeToolName', () => {
 		// as duplicates — so after a restart that enumerated them in a different
 		// order, the SAME persisted canonical name invoked a DIFFERENT remote tool.
 		const raws = ['a.b', 'a/b', 'a:b', 'a b', 'a__b', 'a___b', 'a-b']
-		const canonical = raws.map(canonicalizeToolName)
+		const canonical = raws.map((raw) => canonicalizeToolName(raw))
 
 		expect(new Set(canonical).size).toBe(raws.length)
 		for (const name of canonical) {
@@ -106,7 +119,7 @@ describe('canonicalizeToolName', () => {
 
 	it('produces a valid, distinct name for pathological input, and never throws', () => {
 		const raws = ['', '...', '???', ' ', '🙂', '__', '  ']
-		const canonical = raws.map(canonicalizeToolName)
+		const canonical = raws.map((raw) => canonicalizeToolName(raw))
 
 		for (const result of canonical) {
 			expect(TOOL_NAME_PATTERN.test(result)).toBe(true)
@@ -125,10 +138,140 @@ describe('canonicalizeToolName', () => {
 		// Restart stability: a registry rebuilt from a differently-ordered MCP
 		// enumeration must produce byte-identical keys.
 		const raws = ['notion.search', 'notion/search', 'notion:search', 'notion_search']
-		const forwards = raws.map(canonicalizeToolName)
-		const backwards = [...raws].reverse().map(canonicalizeToolName).reverse()
+		const forwards = raws.map((raw) => canonicalizeToolName(raw))
+		const backwards = [...raws]
+			.reverse()
+			.map((raw) => canonicalizeToolName(raw))
+			.reverse()
 
 		expect(forwards).toEqual(backwards)
 		expect(new Set(forwards).size).toBe(raws.length)
+	})
+})
+
+describe('canonicalizeToolName — the repaired space and the untouched space are disjoint', () => {
+	it("does not let a raw name squat on another name's repaired form", () => {
+		// The exact pair the pre-freeze review named. `a.b` repairs to `a_b_04la3gs`.
+		// A server is free to advertise a tool literally CALLED `a_b_04la3gs`, and
+		// that name is valid, so it used to pass through untouched and land on the
+		// other tool's key — whereupon the lifecycle kept whichever it saw first, and
+		// a restart that enumerated them the other way round retargeted a persisted
+		// call. The squatter wears the reserved shape, so it is repaired too.
+		const repaired = canonicalizeToolName('a.b')
+		const squatter = canonicalizeToolName('a_b_04la3gs')
+
+		expect(repaired).toBe('a_b_04la3gs')
+		expect(squatter).not.toBe(repaired)
+		expect(squatter).not.toBe('a_b_04la3gs')
+		expect(squatter).toMatch(/^a_b_04la3gs_[0-9a-z]{7}$/)
+	})
+
+	it('gives every repaired name the reserved shape, and no untouched name it', () => {
+		// The disjointness proof, mechanically. Whatever a raw name is, its canonical
+		// form either IS the raw name (and then it does not wear the shape) or wears
+		// the shape (and then it is not the raw name). A future change to the hash
+		// width that broke the `[01]` opening would break this and be caught here.
+		const raws = [
+			'read_file',
+			'send_message',
+			'notion.search',
+			'db:query',
+			'a__b',
+			'a_b',
+			'a_b_04la3gs',
+			'tool_1zzzzzz',
+			'x'.repeat(80),
+			'',
+			'🙂',
+		]
+
+		for (const raw of raws) {
+			const canonical = canonicalizeToolName(raw)
+			expect(TOOL_NAME_PATTERN.test(canonical)).toBe(true)
+			if (canonical === raw) {
+				expect(RESERVED_SUFFIX.test(canonical)).toBe(false)
+			} else {
+				expect(RESERVED_SUFFIX.test(canonical)).toBe(true)
+			}
+		}
+	})
+
+	it('pins the exact names the published docs promise', () => {
+		// `docs/migration/0.5.md`, `docs/sdk/integrations/plugins.md` and
+		// `connectors-and-mcp.md` print these verbatim. They shipped once with invented
+		// hashes, because nothing here held them to the real ones. Now something does.
+		expect(canonicalizeToolName('notion.search')).toBe('notion_search_1gn6nda')
+		expect(canonicalizeToolName('db:query')).toBe('db_query_0fa0aax')
+		expect(canonicalizeToolName('read_file')).toBe('read_file')
+		expect(canonicalizeToolName('mcp_notion_notion.search')).toBe(
+			'mcp_notion_notion_search_0q4lhlv',
+		)
+	})
+
+	it('keeps the reserved shape narrow enough to leave ordinary names readable', () => {
+		// The shape is `_` + a base36 digit that can only be 0 or 1 + six more. A word
+		// ending is not enough to trigger it, so the names real servers ship — which
+		// overwhelmingly end in a word — are still passed through as themselves.
+		expect(canonicalizeToolName('send_message')).toBe('send_message')
+		expect(canonicalizeToolName('get_weather')).toBe('get_weather')
+		expect(canonicalizeToolName('run_command')).toBe('run_command')
+		expect(canonicalizeToolName('create_context')).toBe('create_context')
+		expect(canonicalizeToolName('list_handlers')).toBe('list_handlers')
+	})
+})
+
+describe('canonicalizeToolName — budget', () => {
+	it('fits the name into the budget it is actually given, not the standalone 64', () => {
+		// A plugin's MCP leaf is composed into `plugin__server__leaf`, so its real
+		// budget is what the namespace leaves behind. Budgeting against 64 here made
+		// the composed name overflow and the tool vanish.
+		const leaf = canonicalizeToolName('x'.repeat(60), 31)
+
+		expect(leaf.length).toBeLessThanOrEqual(31)
+		expect(TOOL_NAME_PATTERN.test(leaf)).toBe(true)
+		expect(RESERVED_SUFFIX.test(leaf)).toBe(true)
+	})
+
+	it('keeps a leaf that fit before the hash suffix fitting inside its namespace', () => {
+		// The regression the suffix introduced: `plugin-with-a-long-name__server__`
+		// costs 33 characters, leaving 31. This leaf needs repair, and the old code
+		// sized the base against 64 — producing a 64-character leaf that composed to
+		// 97 and was dropped. It has to survive.
+		const prefix = 'plugin-with-a-long-name__server__'
+		const budget = 64 - prefix.length
+		const leaf = canonicalizeToolName('a.long.remote.method.name.that.needs.repair', budget)
+
+		expect(`${prefix}${leaf}`.length).toBeLessThanOrEqual(64)
+	})
+
+	it('stays injective under a tight budget', () => {
+		// Truncation is where injectivity is easiest to lose: these four share their
+		// first 40 characters and differ only past the cut. The hash is taken over the
+		// whole original, so the cut cannot merge them.
+		const stem = 'server.method.with.a.very.long.common.stem'
+		const raws = [`${stem}.one`, `${stem}.two`, `${stem}.three`, `${stem}.four`]
+		const canonical = raws.map((raw) => canonicalizeToolName(raw, 20))
+
+		expect(new Set(canonical).size).toBe(raws.length)
+		for (const name of canonical) {
+			expect(name.length).toBeLessThanOrEqual(20)
+			expect(TOOL_NAME_PATTERN.test(name)).toBe(true)
+			expect(name).not.toContain('__')
+		}
+	})
+
+	it('emits the minimal repaired name when no repaired name can fit, and still never throws', () => {
+		// Below nine characters there is no repaired name at all: one base character
+		// plus `_` plus seven hash digits is the floor. The caller's own length check
+		// is what rejects this — a throw here would take down the whole plugin enable
+		// over a tool nobody on this side is allowed to rename.
+		const leaf = canonicalizeToolName('notion.search', 4)
+
+		expect(leaf.length).toBe(9)
+		expect(TOOL_NAME_PATTERN.test(leaf)).toBe(true)
+	})
+
+	it('leaves a short valid name untouched even under a tight budget', () => {
+		expect(canonicalizeToolName('ok', 7)).toBe('ok')
 	})
 })

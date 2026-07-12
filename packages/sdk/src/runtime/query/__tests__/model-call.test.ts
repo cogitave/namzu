@@ -25,6 +25,18 @@
 //   resolve the call.
 // - An abort mid-flight rejects with kind 'aborted'; the signal is still
 //   forwarded to the provider so an abortable adapter tears the request down.
+//
+// Current-code invariants asserted (2026-07-12, pre-freeze round 3):
+// - A provider whose chat() throws SYNCHRONOUSLY is treated exactly like one that
+//   rejects: same classification, same retry decision — and, critically, the same
+//   teardown. The race's deadline timer and abort listener are installed before
+//   the call and released in a finally, so no attempt can leak either. A leaked
+//   deadline timer holds the full remaining run budget and keeps the process
+//   alive; retries multiplied them.
+// - The deadline is re-read immediately before the physical request is issued, so
+//   a clock that crosses during the onAttempt observer means no request goes out
+//   at all, rather than one issued into a spent budget and raced against a
+//   zero-delay timer.
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_RETRY_CONFIG } from '../../../config/runtime.js'
 import { ProviderRequestError } from '../../../provider/errors.js'
@@ -521,5 +533,120 @@ describe('attemptModelCall — onAttempt isolation', () => {
 		expect(res.finishReason).toBe('stop')
 		expect(seen).toEqual([1])
 		expect(log.warn).toHaveBeenCalledTimes(1)
+	})
+
+	it('does not issue a request when the deadline crosses during the observer', async () => {
+		vi.useFakeTimers({ now: 0 })
+		// The observer is host code and takes whatever time it takes. The deadline was
+		// live when the attempt loop checked it and is spent by the time the request
+		// would go out — so the request must not go out at all: it could only be
+		// raced against a zero-delay timer and thrown away, having cost a round trip
+		// and, on a provider that cannot be aborted, the tokens too.
+		const provider = makeProvider(async () => okResponse())
+
+		const promise = attemptModelCall({
+			provider,
+			params: { model: 'm', messages: [] },
+			retry: RETRY,
+			signal: new AbortController().signal,
+			deadlineAt: 1_000,
+			log: makeLogger(),
+			onAttempt: () => {
+				vi.setSystemTime(1_500)
+			},
+		})
+
+		await expect(promise).rejects.toMatchObject({ kind: 'network' })
+		expect(provider.calls).toHaveLength(0)
+	})
+})
+
+describe('attemptModelCall — a provider that throws synchronously', () => {
+	/**
+	 * `chat()` is typed to return a promise, but nothing stops a conforming adapter
+	 * from validating its params first and throwing before it ever gets there. The
+	 * race installed its deadline timer and abort listener BEFORE calling `chat()`,
+	 * and hung their teardown off the settle path — which a synchronous throw skips
+	 * entirely, because it rejects the promise from inside the executor. Every such
+	 * attempt leaked a live timer holding the full remaining run budget, and a live
+	 * abort listener, and retries multiplied them.
+	 */
+	function makeThrowingProvider(toThrow: unknown): { provider: LLMProvider; calls: () => number } {
+		let calls = 0
+		const provider: LLMProvider = {
+			id: 'fake',
+			name: 'Fake Provider',
+			// Deliberately NOT `async`: an async function converts a throw into a
+			// rejection, which is the path that already worked.
+			chat(): Promise<ChatCompletionResponse> {
+				calls++
+				throw toThrow
+			},
+			// biome-ignore lint/correctness/useYield: stub, never invoked in these tests
+			async *chatStream() {
+				throw new Error('not used')
+			},
+		}
+		return { provider, calls: () => calls }
+	}
+
+	it('classifies and retries it exactly as it would an async rejection', async () => {
+		const { provider, calls } = makeThrowingProvider(err('server'))
+
+		await expect(
+			attemptModelCall({
+				provider,
+				params: { model: 'm', messages: [] },
+				retry: { ...RETRY, baseDelayMs: 0 },
+				signal: new AbortController().signal,
+				deadlineAt: FAR_DEADLINE(),
+				log: makeLogger(),
+			}),
+		).rejects.toMatchObject({ kind: 'server' })
+
+		expect(calls()).toBe(3)
+	})
+
+	it('leaves no timer and no listener behind, on any attempt', async () => {
+		vi.useFakeTimers({ now: 0 })
+		const ctrl = new AbortController()
+		const added = vi.spyOn(ctrl.signal, 'addEventListener')
+		const removed = vi.spyOn(ctrl.signal, 'removeEventListener')
+		const { provider, calls } = makeThrowingProvider(err('server'))
+
+		await expect(
+			attemptModelCall({
+				provider,
+				params: { model: 'm', messages: [] },
+				retry: { ...RETRY, baseDelayMs: 0 },
+				signal: ctrl.signal,
+				deadlineAt: 10 * 60_000,
+				log: makeLogger(),
+			}),
+		).rejects.toMatchObject({ kind: 'server' })
+
+		expect(calls()).toBe(3)
+		// One deadline timer per attempt was installed, each holding the full run
+		// budget. None may survive the call — a leaked one keeps the process alive.
+		expect(vi.getTimerCount()).toBe(0)
+		expect(added).toHaveBeenCalledTimes(3)
+		expect(removed).toHaveBeenCalledTimes(3)
+	})
+
+	it('propagates a non-provider synchronous throw unretried', async () => {
+		const { provider, calls } = makeThrowingProvider(new TypeError('params.model is required'))
+
+		await expect(
+			attemptModelCall({
+				provider,
+				params: { model: 'm', messages: [] },
+				retry: RETRY,
+				signal: new AbortController().signal,
+				deadlineAt: FAR_DEADLINE(),
+				log: makeLogger(),
+			}),
+		).rejects.toThrow(TypeError)
+
+		expect(calls()).toBe(1)
 	})
 })

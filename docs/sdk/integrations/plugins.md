@@ -139,9 +139,20 @@ instead of rejected:
 ```ts
 import { canonicalizeToolName } from '@namzu/sdk'
 
-canonicalizeToolName('notion.search')  // 'notion_search'
-canonicalizeToolName('db:query')       // 'db_query'
+// A name that already conforms is passed through untouched.
+canonicalizeToolName('read_file')      // 'read_file'
+
+// A name that has to be repaired carries a hash of the ORIGINAL, so two remote
+// names can never collapse onto one key.
+canonicalizeToolName('notion.search')  // 'notion_search_1gn6nda'
+canonicalizeToolName('db:query')       // 'db_query_0fa0aax'
 ```
+
+Sanitizing alone would be lossy — `a.b`, `a/b` and `a__b` all sanitize to `a_b` —
+so a repaired name always carries a deterministic suffix taken over the raw input.
+That keeps the mapping injective: two different remote tools can never claim one
+registry key, which matters because MCP enumeration order is not stable across
+restarts and a shared key would let a persisted call land on a different tool.
 
 The mapping is deterministic and stable across restarts, and the remote server is
 still invoked under its original name. A single nonconforming remote tool name no
@@ -307,12 +318,22 @@ Every name for a server is composed **before** any of them is registered, so a
 name that cannot be used never leaves the server half-registered.
 
 The leaf name is canonicalized rather than validated, because it belongs to the
-remote server (see [Tool Naming](#3-tool-naming-and-namespacing)). Only one
-failure survives canonicalization: plugin + server + tool exceeding the
-64-character provider limit, with no component this side is allowed to shorten.
-That single tool is skipped with a `plugin_tool_skipped` lifecycle event — the
-plugin still enables, because one unusable remote tool must not cost the operator
-every other tool the plugin contributes.
+remote server (see [Tool Naming](#3-tool-naming-and-namespacing)). It is
+canonicalized against the budget the namespace leaves it — the 64 characters minus
+`plugin__server__` — so a long remote name is shortened to fit rather than
+dropped, and tools are planned in a stable order that does not depend on how the
+server happened to enumerate them.
+
+Two failures survive canonicalization, and each skips **that one tool** with a
+`plugin_tool_skipped` lifecycle event rather than failing the enable:
+
+- The plugin and server names alone leave no room for even a minimal repaired leaf
+  (nine characters), and no component this side is allowed to shorten.
+- The composed name collides with one already claimed — which now means the server
+  advertised the same raw name twice. The event names both tools.
+
+The plugin still enables in both cases, because one unusable remote tool must not
+cost the operator every other tool the plugin contributes.
 
 ## 9. What Plugin `mcpServers` Do Not Do
 

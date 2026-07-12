@@ -28,9 +28,21 @@
  *     `notion.search` and `db:query` are repaired rather than rejected — one
  *     nonconforming remote name used to abort the entire plugin enable with a
  *     remediation ("rename the tool") the operator could not perform.
- *   - The two failures canonicalization cannot repair — an over-long composition
- *     and a canonical name that collides — skip THAT ONE TOOL with a
- *     `plugin_tool_skipped` event. Never a rollback.
+ *   - The two failures canonicalization cannot repair — a name that cannot fit
+ *     even in its minimal repaired form, and a canonical name that collides —
+ *     skip THAT ONE TOOL with a `plugin_tool_skipped` event. Never a rollback.
+ *
+ * ses_015/016 pre-freeze round 3:
+ *
+ *   - The leaf is canonicalized against the budget the NAMESPACE leaves it
+ *     (`64 - len(plugin__server__)`), not the standalone 64. Sizing the hash
+ *     suffix against 64 pushed a repaired leaf past the limit at composition time
+ *     and made a tool that had always fit quietly disappear.
+ *   - Tools are planned in sorted RAW-name order. Nothing about the outcome — which
+ *     name a tool gets, which tool wins a collision, which one is dropped — may
+ *     depend on the order the server happened to enumerate them in, because that
+ *     order is not stable across restarts and a key that moves retargets a call
+ *     persisted in a run history. A collision names BOTH raw tools in its warning.
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -213,7 +225,7 @@ describe('enable() name validation', () => {
 		expect(state.current.status).toBe('error')
 	})
 
-	it('skips an over-length MCP tool name and still enables the plugin', async () => {
+	it('fits an over-length MCP tool name into what the namespace leaves it', async () => {
 		mockConnect.mockResolvedValue(undefined)
 		mockDisconnect.mockResolvedValue(undefined)
 		mockListTools.mockResolvedValue([
@@ -237,18 +249,55 @@ describe('enable() name validation', () => {
 
 		await mgr.enable(pluginId)
 
-		// The over-long name is the ONE failure canonicalization cannot repair, and
-		// the operator cannot rename a tool inside someone else's MCP server. So that
-		// one tool is dropped and the plugin still enables — failing the whole enable
-		// left them with a permanently un-enableable plugin and no remediation.
-		expect(registered).toEqual(['plugin-with-a-long-name__server__short'])
+		// `plugin-with-a-long-name__server__` costs 33 of the 64 characters, so the
+		// leaf is canonicalized against the 31 that remain — not against the
+		// standalone limit. Sizing it against 64 produced a leaf that composed to 97
+		// and made a tool that had always fit quietly disappear.
+		expect(registered).toHaveLength(2)
+		expect(registered).toContain('plugin-with-a-long-name__server__short')
+		for (const name of registered) {
+			expect(name.length).toBeLessThanOrEqual(64)
+		}
+		expect(state.current.status).toBe('enabled')
+		expect(events.find((e) => e.type === 'plugin_tool_skipped')).toBeUndefined()
+	})
+
+	it('skips a tool only when the namespace leaves no room for any repaired name', async () => {
+		// What the length skip is now for, and all it is for. The plugin and server
+		// names alone eat 57 characters, and the shortest repaired leaf there is —
+		// one character, `_`, seven hash digits — needs nine. Nothing on this side is
+		// allowed to shorten a name the manifest author owns, so that ONE tool is
+		// dropped and the plugin still enables. The leaf that needs no repair fits and
+		// registers.
+		const longPlugin = 'p'.repeat(50)
+		mockConnect.mockResolvedValue(undefined)
+		mockDisconnect.mockResolvedValue(undefined)
+		mockListTools.mockResolvedValue([
+			{ name: 'ok', inputSchema: { type: 'object' } },
+			{ name: 'needs.repair', inputSchema: { type: 'object' } },
+		])
+		const events: PluginLifecycleEvent[] = []
+		const { registry, state } = makePluginRegistry({
+			name: longPlugin,
+			version: '0.0.1',
+			description: 't',
+			mcpServers: [{ name: 'srv', command: '/bin/true' }],
+		})
+		const { registry: toolRegistry, registered } = makeToolRegistry()
+		const mgr = new PluginLifecycleManager({
+			pluginRegistry: registry,
+			toolRegistry,
+			log: makeLogger(),
+		})
+		mgr.on((e) => events.push(e))
+
+		await mgr.enable(pluginId)
+
+		expect(registered).toEqual([`${longPlugin}__srv__ok`])
 		expect(state.current.status).toBe('enabled')
 
 		const skipped = events.find((e) => e.type === 'plugin_tool_skipped')
-		expect(skipped).toMatchObject({
-			serverName: 'server',
-			toolName: 'x'.repeat(60),
-		})
+		expect(skipped).toMatchObject({ serverName: 'srv', toolName: 'needs.repair' })
 		expect((skipped as { reason: string }).reason).toContain('64-character provider limit')
 	})
 
@@ -277,10 +326,46 @@ describe('enable() name validation', () => {
 		// are real. Strict validation made one of them fatal to the whole plugin.
 		// A repaired leaf carries a hash of the original, so two remote names can
 		// never collapse onto one registry key (pre-freeze B3).
+		//
+		// The server enumerated `notion.search` first; the plugin processes tools in
+		// sorted RAW-name order, so `db:query` is planned first. That is the point —
+		// nothing about the outcome may depend on enumeration order, because the order
+		// is not stable across restarts.
 		expect(registered).toHaveLength(2)
-		expect(registered[0]).toMatch(/^notion__srv__notion_search_[a-z0-9]{7}$/)
-		expect(registered[1]).toMatch(/^notion__srv__db_query_[a-z0-9]{7}$/)
+		expect(registered[0]).toMatch(/^notion__srv__db_query_[a-z0-9]{7}$/)
+		expect(registered[1]).toMatch(/^notion__srv__notion_search_[a-z0-9]{7}$/)
 		expect(state.current.status).toBe('enabled')
+	})
+
+	it('plans the same names whichever order the server enumerates them in', async () => {
+		// Restart stability at the lifecycle level: reconnecting to the same server is
+		// not guaranteed to enumerate its tools in the same order, and a registry key
+		// that moved between reconnects would retarget a call persisted in a run
+		// history. Same SET in, same names out.
+		const tools = [
+			{ name: 'notion.search', inputSchema: { type: 'object' } },
+			{ name: 'db:query', inputSchema: { type: 'object' } },
+			{ name: 'read_file', inputSchema: { type: 'object' } },
+		]
+		const enable = async (order: typeof tools): Promise<string[]> => {
+			mockConnect.mockResolvedValue(undefined)
+			mockListTools.mockResolvedValue(order)
+			const { registry } = makePluginRegistry({
+				name: 'notion',
+				version: '0.0.1',
+				description: 't',
+				mcpServers: [{ name: 'srv', command: '/bin/true' }],
+			})
+			const { registry: toolRegistry, registered } = makeToolRegistry()
+			await new PluginLifecycleManager({
+				pluginRegistry: registry,
+				toolRegistry,
+				log: makeLogger(),
+			}).enable(pluginId)
+			return registered
+		}
+
+		expect(await enable(tools)).toEqual(await enable([...tools].reverse()))
 	})
 
 	it('registers BOTH tools whose sanitized names would have collapsed together', async () => {

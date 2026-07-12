@@ -90,7 +90,19 @@ function computeBackoffDelay(err: unknown, attempt: number, retry: RetryConfig):
  * catch's timeout branch (`Date.now() >= guard.deadlineAt` + retryable kind)
  * fires and the run stops as `timeout` rather than as a failure.
  *
- * Requires `deadlineAt > Date.now()`; callers check that before each attempt.
+ * The clock is re-read here, immediately before the request is issued. The caller
+ * checks the deadline too, but time passes between the two — `onAttempt` runs a
+ * host observer in between — and a request issued into an already-spent budget is
+ * a request nobody can use: it would be raced against a zero-delay timer and
+ * abandoned, having cost a round trip and, on a provider that cannot be aborted,
+ * the tokens too.
+ *
+ * Every timer and listener installed here is torn down in a `finally`, on every
+ * path out — including the one where a provider validates its params and throws
+ * SYNCHRONOUSLY from `chat()`. That throw is routed through the same settle path
+ * as any other rejection. When cleanup hung off `settle` alone it never ran on
+ * that path, and every such attempt leaked a live deadline timer and an abort
+ * listener that could hold the process open for the rest of the run budget.
  */
 function callWithinDeadline(
 	provider: LLMProvider,
@@ -98,11 +110,36 @@ function callWithinDeadline(
 	signal: AbortSignal,
 	deadlineAt: number,
 ): Promise<ChatCompletionResponse> {
+	const remaining = deadlineAt - Date.now()
+	if (remaining <= 0) {
+		return Promise.reject(
+			new ProviderRequestError('Run deadline elapsed before the request was issued', {
+				kind: 'network',
+				providerId: provider.id,
+			}),
+		)
+	}
+
+	let deadlineTimer: ReturnType<typeof setTimeout> | undefined
+	let abortTimer: ReturnType<typeof setTimeout> | undefined
+	let onAbort: (() => void) | undefined
+
+	const cleanup = (): void => {
+		if (deadlineTimer !== undefined) clearTimeout(deadlineTimer)
+		if (abortTimer !== undefined) clearTimeout(abortTimer)
+		if (onAbort !== undefined) signal.removeEventListener('abort', onAbort)
+	}
+
 	return new Promise<ChatCompletionResponse>((resolve, reject) => {
 		let settled = false
-		let abortTimer: ReturnType<typeof setTimeout> | undefined
 
-		const onAbort = (): void => {
+		const settle = (action: () => void): void => {
+			if (settled) return
+			settled = true
+			action()
+		}
+
+		onAbort = (): void => {
 			// An abort does not throw away work already done. The loop deliberately
 			// accounts usage and fires `post_llm_call` for a call that COMPLETED even
 			// though the run was cancelled in the meantime (ses_015 A4) — the tokens
@@ -124,16 +161,7 @@ function callWithinDeadline(
 			}, 0)
 		}
 
-		const settle = (action: () => void): void => {
-			if (settled) return
-			settled = true
-			clearTimeout(deadlineTimer)
-			if (abortTimer !== undefined) clearTimeout(abortTimer)
-			signal.removeEventListener('abort', onAbort)
-			action()
-		}
-
-		const deadlineTimer = setTimeout(() => {
+		deadlineTimer = setTimeout(() => {
 			settle(() => {
 				reject(
 					new ProviderRequestError(
@@ -142,15 +170,21 @@ function callWithinDeadline(
 					),
 				)
 			})
-		}, deadlineAt - Date.now())
+		}, remaining)
 
 		signal.addEventListener('abort', onAbort, { once: true })
 
-		provider.chat({ ...params, signal }).then(
-			(response) => settle(() => resolve(response)),
-			(err) => settle(() => reject(err)),
-		)
-	})
+		// `Promise.resolve().then(...)` rather than a bare call: a conforming adapter
+		// may validate its params and throw SYNCHRONOUSLY out of `chat()`, and that
+		// throw has to arrive as a rejection of THIS promise so it settles through the
+		// same path — and reaches the same cleanup — as every other failure.
+		Promise.resolve()
+			.then(() => provider.chat({ ...params, signal }))
+			.then(
+				(response) => settle(() => resolve(response)),
+				(err) => settle(() => reject(err)),
+			)
+	}).finally(cleanup)
 }
 
 export interface AttemptModelCallArgs {

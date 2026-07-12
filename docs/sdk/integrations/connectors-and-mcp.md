@@ -190,21 +190,32 @@ key is **canonicalized** rather than rejected:
 ```ts
 import { canonicalizeToolName } from '@namzu/sdk'
 
-canonicalizeToolName('mcp_notion_notion.search')  // 'mcp_notion_notion_search'
+canonicalizeToolName('mcp_notion_read_file')      // 'mcp_notion_read_file'
+canonicalizeToolName('mcp_notion_notion.search')  // 'mcp_notion_notion_search_0q4lhlv'
 ```
 
-Three properties matter in practice:
+Four properties matter in practice:
 
 - **Deterministic and stable.** One input yields one name in every process and
-  every release (an over-long name gets a truncated prefix plus a fixed hash
-  suffix), so a canonicalized name persisted in a run history still resolves
-  after a restart.
+  every release, so a canonicalized name persisted in a run history still resolves
+  after a restart — and it resolves to the same tool regardless of the order the
+  server enumerated its tools in.
+- **Injective.** A name that already conforms is passed through untouched; any
+  name that has to be repaired gets a fixed suffix hashing the *original* input.
+  Sanitizing alone is lossy (`a.b`, `a/b` and `a__b` all sanitize to `a_b`), so
+  without the suffix two different remote tools would claim one registry key and
+  whichever was enumerated first would win.
 - **The remote is still invoked under its original name.** The adapter captures
   it in the tool's `execute` closure. Renaming the registry key is invisible to
   the server on the other end.
 - **`__` collapses to `_`.** The doubled underscore is the plugin namespace
   separator, so a canonicalized name can never be mistaken for a composed
   `plugin__tool` name.
+
+`canonicalizeToolName` takes an optional second argument, the maximum length the
+name is allowed to occupy. It defaults to the provider limit of 64, which is right
+for a standalone registry key; the plugin runtime passes the smaller budget that
+survives its `plugin__server__` prefix.
 
 The same canonicalization applies to connector method names
 (`connectorMethodToTool`), for the same reason: a connector definition may come

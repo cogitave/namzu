@@ -2,7 +2,8 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { mcpToolToToolDefinition } from '../connector/mcp/adapter.js'
 import { MCPClient } from '../connector/mcp/client.js'
-import { HOOK_TIMEOUT_MS } from '../constants/plugin/index.js'
+import { HOOK_TIMEOUT_MS, PLUGIN_NAMESPACE_SEPARATOR } from '../constants/plugin/index.js'
+import { TOOL_NAME_MAX_LENGTH } from '../constants/tools/index.js'
 import type { PluginRegistry } from '../registry/plugin/index.js'
 import type { PluginId } from '../types/ids/index.js'
 import type {
@@ -286,15 +287,32 @@ export class PluginLifecycleManager {
 		// name that cannot be used leaves the server half-registered with nothing.
 		const mcpTools = await client.listTools()
 		const planned: ToolDefinition[] = []
-		const taken = new Set<string>()
+		const claimedBy = new Map<string, string>()
 
-		for (const mcpTool of mcpTools) {
+		// The leaf is not composed against the standalone 64-character limit — it is
+		// composed into `plugin__server__leaf`, so the space it actually has is what
+		// the namespace leaves behind. Canonicalizing against 64 instead let a
+		// repaired leaf compose past the limit and made a tool that used to fit
+		// disappear.
+		const leafBudget =
+			TOOL_NAME_MAX_LENGTH -
+			(pluginName.length + config.name.length + 2 * PLUGIN_NAMESPACE_SEPARATOR.length)
+
+		// A registry key must not depend on the order a server happened to enumerate
+		// its tools in: that order is not stable across restarts, so any decision
+		// taken here on arrival order (which tool claims a name, which one is dropped)
+		// could be decided differently after a reconnect, and a persisted call would
+		// land on a different remote tool. Sorting by the RAW name makes the outcome a
+		// pure function of the server's tool SET.
+		const ordered = [...mcpTools].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+
+		for (const mcpTool of ordered) {
 			// The plugin name and the server alias come from the manifest, whose
 			// author can rename them — those stay strictly validated above. The leaf
 			// is the SERVER's own name for its tool: nobody here can rename a tool
 			// inside someone else's MCP server, so it is canonicalized instead of
 			// rejected. The server is still called with `mcpTool.name`.
-			const leaf = canonicalizeToolName(mcpTool.name)
+			const leaf = canonicalizeToolName(mcpTool.name, leafBudget)
 
 			let name: string
 			try {
@@ -303,34 +321,38 @@ export class PluginLifecycleManager {
 					{ role: 'tool', value: leaf },
 				])
 			} catch (err) {
-				// Length is the one failure canonicalization cannot repair: plugin +
-				// server + leaf may exceed the provider limit with no component this
-				// side is allowed to shorten.
+				// Length is the one failure canonicalization cannot repair, and it is now
+				// the narrow case it should be: the plugin and server names alone eat so
+				// much of the 64 characters that not even a minimal repaired leaf fits.
+				// Nothing this side is allowed to shorten, so the tool is dropped rather
+				// than the plugin.
 				this.skipMCPTool(pluginId, pluginName, config.name, mcpTool.name, toErrorMessage(err))
 				continue
 			}
 
-			// Backstop, not a routine path. Canonicalization is a pure function of the
-			// raw name and appends a hash of it whenever it repairs anything, so two
-			// DIFFERENT remote names can no longer collapse onto one key (ses_015
-			// pre-freeze B3) — reaching here means the server advertised the same raw
-			// name twice, or a 32-bit hash collision. Either way the tool is skipped
-			// and reported: registration order is not stable across restarts, so
-			// silently keeping whichever arrived first would let a persisted canonical
-			// name invoke a different remote tool after a reconnect.
-			if (taken.has(name) || this.toolRegistry.has(name)) {
+			// Backstop, not a routine path. Canonicalization is injective — a repair
+			// carries a hash of the original and the reserved suffix shape keeps the
+			// repaired names apart from the untouched ones (ses_015 pre-freeze B3) — so
+			// reaching here means the server advertised the same raw name twice, or a
+			// 32-bit hash collision. Either way the tool is skipped and BOTH raw names
+			// are reported: silently keeping whichever arrived first would let a
+			// persisted canonical name invoke a different remote tool after a reconnect.
+			const claimant = claimedBy.get(name)
+			if (claimant !== undefined || this.toolRegistry.has(name)) {
 				this.skipMCPTool(
 					pluginId,
 					pluginName,
 					config.name,
 					mcpTool.name,
-					`the composed name "${name}" is already registered`,
+					claimant !== undefined
+						? `the composed name "${name}" is already claimed by this server's tool "${claimant}"`
+						: `the composed name "${name}" is already registered`,
 				)
 				continue
 			}
 
 			const baseDef = mcpToolToToolDefinition(mcpTool, client, config.name)
-			taken.add(name)
+			claimedBy.set(name, mcpTool.name)
 			planned.push({ ...baseDef, name } satisfies ToolDefinition)
 		}
 
