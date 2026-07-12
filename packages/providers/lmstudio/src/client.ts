@@ -8,6 +8,7 @@ import type {
 	StreamChunk,
 	TokenUsage,
 } from '@namzu/sdk'
+import { abortedError, contextOverflowError, toLMStudioProviderError } from './errors.js'
 import type { LMStudioConfig } from './types.js'
 
 type StopReason =
@@ -28,6 +29,20 @@ function mapStopReason(reason: string | undefined): ChatCompletionResponse['fini
 			return 'tool_calls'
 		default:
 			return 'stop'
+	}
+}
+
+/**
+ * LM Studio surfaces context exhaustion as a *successful* prediction with
+ * stopReason `contextLengthReached` (only under the `stopAtLimit` overflow
+ * policy). When it also produced no output, the input alone overflowed the
+ * window — surface that as a `context_overflow` so the runtime can compact and
+ * retry. A non-empty prediction that hit the limit is ordinary truncation and
+ * flows through as finishReason `'length'` (the runtime handles that today).
+ */
+function assertNoContextOverflow(reason: string | undefined, content: string | undefined): void {
+	if (reason === 'contextLengthReached' && (content ?? '').length === 0) {
+		throw contextOverflowError('LMStudioProvider: input exceeds the model context window')
 	}
 }
 
@@ -94,42 +109,65 @@ export class LMStudioProvider implements LLMProvider {
 
 	async chat(params: ChatCompletionParams): Promise<ChatCompletionResponse> {
 		const modelId = this.resolveModel(params)
-		const model = await this.client.llm.model(modelId)
-		const result = await model.respond(toLMStudioChat(params.messages))
+		if (params.signal?.aborted) {
+			throw abortedError('LMStudioProvider: request aborted before dispatch')
+		}
+		// Both model-load and prediction accept an AbortSignal; forward the run's
+		// signal so an in-flight call is actually cancelled (supportsAbortSignal: true).
+		const opts = params.signal ? { signal: params.signal } : undefined
 
-		return {
-			id: randomUUID(),
-			model: modelId,
-			message: {
-				role: 'assistant',
-				content: result.content ?? null,
-			},
-			finishReason: mapStopReason(result.stats.stopReason),
-			usage: mapUsage(result.stats),
+		try {
+			const model = await this.client.llm.model(modelId, opts)
+			const result = await model.respond(toLMStudioChat(params.messages), opts)
+
+			assertNoContextOverflow(result.stats.stopReason, result.content)
+
+			return {
+				id: randomUUID(),
+				model: modelId,
+				message: {
+					role: 'assistant',
+					content: result.content ?? null,
+				},
+				finishReason: mapStopReason(result.stats.stopReason),
+				usage: mapUsage(result.stats),
+			}
+		} catch (err) {
+			throw toLMStudioProviderError(err, params.signal)
 		}
 	}
 
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
 		const modelId = this.resolveModel(params)
-		const model = await this.client.llm.model(modelId)
-		const prediction = model.respond(toLMStudioChat(params.messages))
-
+		if (params.signal?.aborted) {
+			throw abortedError('LMStudioProvider: request aborted before dispatch')
+		}
+		const opts = params.signal ? { signal: params.signal } : undefined
 		const id = randomUUID()
-		for await (const fragment of prediction) {
-			if (fragment.content) {
-				yield {
-					id,
-					delta: { content: fragment.content },
+
+		try {
+			const model = await this.client.llm.model(modelId, opts)
+			const prediction = model.respond(toLMStudioChat(params.messages), opts)
+
+			for await (const fragment of prediction) {
+				if (fragment.content) {
+					yield {
+						id,
+						delta: { content: fragment.content },
+					}
 				}
 			}
-		}
 
-		const result = await prediction
-		yield {
-			id,
-			delta: {},
-			finishReason: mapStopReason(result.stats.stopReason),
-			usage: mapUsage(result.stats),
+			const result = await prediction
+			assertNoContextOverflow(result.stats.stopReason, result.content)
+			yield {
+				id,
+				delta: {},
+				finishReason: mapStopReason(result.stats.stopReason),
+				usage: mapUsage(result.stats),
+			}
+		} catch (err) {
+			throw toLMStudioProviderError(err, params.signal)
 		}
 	}
 

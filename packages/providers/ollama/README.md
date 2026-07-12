@@ -65,10 +65,19 @@ import { OLLAMA_CAPABILITIES } from '@namzu/ollama'
 //   supportsTools: false,            // varies by model — conservative default
 //   supportsStreaming: true,
 //   supportsFunctionCalling: false,
+//   supportsAbortSignal: false,      // see "Cancellation" below
 // }
 ```
 
 Ollama's tool-use support varies by model. The default is `false`; if you target a tool-capable model (e.g. `llama3.1`, `mistral-nemo`), pass `{ replace: true }` with custom capabilities, or consume tool output yourself at the call site.
+
+## Cancellation
+
+`supportsAbortSignal` is `false`. The official `ollama` client's non-streaming `chat()` exposes no `AbortSignal` path, so an in-flight, non-streaming request cannot be cancelled mid-flight — passing `params.signal` only rejects a request that is *already* aborted before dispatch, and otherwise cancellation takes effect at the next iteration boundary. The streaming path is cancellable: `chatStream()` forwards `params.signal` to the vendor iterator's `.abort()` on a best-effort basis.
+
+## Error handling
+
+`chat()` / `chatStream()` failures are normalized to `@namzu/sdk`'s `ProviderRequestError` with a runtime-classifiable `kind`. Notably, a stopped daemon (connection refused / socket error) surfaces as `kind: 'network'` (retryable) instead of an opaque failure; the vendor's HTTP status is mapped via `classifyHttpStatus` (e.g. `429 → 'throttle'`, `5xx → 'server'`). `finishReason` now reflects the vendor's `done_reason` (`'length'` is preserved rather than always reported as `'stop'`).
 
 ## Observability
 

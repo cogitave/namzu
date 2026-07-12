@@ -1,3 +1,4 @@
+import { ProviderRequestError, classifyHttpStatus } from '@namzu/sdk'
 import type {
 	ChatCompletionParams,
 	ChatCompletionResponse,
@@ -276,6 +277,134 @@ function formatAnthropicRequest(
 }
 
 // --------------------------------------------------------------------------------------
+// Transport error classification + signal composition
+// --------------------------------------------------------------------------------------
+
+/**
+ * Read a server-advised wait hint from response headers. `Retry-After`
+ * (seconds or an HTTP-date) is the standard; `x-ratelimit-reset*` values are
+ * normalized whether they arrive as an epoch (seconds or ms) or a plain
+ * seconds delta.
+ */
+function parseRetryAfterMs(headers: Headers): number | undefined {
+	const retryAfter = headers.get('retry-after')
+	if (retryAfter) {
+		const seconds = Number(retryAfter)
+		if (Number.isFinite(seconds)) return Math.max(0, Math.round(seconds * 1000))
+		const dateMs = Date.parse(retryAfter)
+		if (!Number.isNaN(dateMs)) return Math.max(0, dateMs - Date.now())
+	}
+	const reset =
+		headers.get('x-ratelimit-reset') ??
+		headers.get('x-ratelimit-reset-requests') ??
+		headers.get('x-ratelimit-reset-tokens')
+	if (reset) {
+		const n = Number(reset)
+		if (Number.isFinite(n) && n > 0) {
+			if (n > 1e12) return Math.max(0, Math.round(n - Date.now())) // epoch ms
+			if (n > 1e9) return Math.max(0, Math.round(n * 1000 - Date.now())) // epoch seconds
+			return Math.round(n * 1000) // seconds delta
+		}
+	}
+	return undefined
+}
+
+/**
+ * Context-window overflow arrives as an HTTP 400 with a body-level marker:
+ * OpenAI's `context_length_exceeded` error code, or Anthropic's
+ * "prompt is too long" message. We detect it here so the runtime can route it
+ * to reactive compaction rather than treating it as a terminal bad request.
+ */
+function isContextOverflowBody(body: string): boolean {
+	const b = body.toLowerCase()
+	return (
+		b.includes('context_length_exceeded') ||
+		b.includes('prompt is too long') ||
+		b.includes('maximum context length') ||
+		b.includes('context window') ||
+		b.includes('too many tokens')
+	)
+}
+
+function httpErrorFromResponse(
+	response: Response,
+	body: string,
+	url: string,
+	providerId: string,
+): ProviderRequestError {
+	const status = response.status
+	if (status === 400 && isContextOverflowBody(body)) {
+		return new ProviderRequestError(
+			`HttpProvider context overflow (${status}) from ${url}: ${body.slice(0, 200)}`,
+			{ kind: 'context_overflow', status, providerId },
+		)
+	}
+	return new ProviderRequestError(
+		`HttpProvider error (${status}) from ${url}: ${body.slice(0, 500)}`,
+		{
+			kind: classifyHttpStatus(status),
+			status,
+			retryAfterMs: parseRetryAfterMs(response.headers),
+			providerId,
+		},
+	)
+}
+
+/**
+ * Convert a thrown `fetch` rejection into a {@link ProviderRequestError}. A
+ * caller-initiated abort maps to `aborted` (terminal); the internal timeout
+ * firing and native connection failures map to `network` (retryable).
+ */
+function fetchErrorToProviderError(
+	err: unknown,
+	external: AbortSignal | undefined,
+	providerId: string,
+): ProviderRequestError {
+	if (external?.aborted || (err instanceof DOMException && err.name === 'AbortError')) {
+		return new ProviderRequestError('HttpProvider request aborted', {
+			kind: 'aborted',
+			providerId,
+			cause: err,
+		})
+	}
+	if (err instanceof DOMException && err.name === 'TimeoutError') {
+		return new ProviderRequestError('HttpProvider request timed out', {
+			kind: 'network',
+			providerId,
+			cause: err,
+		})
+	}
+	// Native fetch surfaces DNS/connection failures as TypeError('fetch failed').
+	if (err instanceof TypeError) {
+		return new ProviderRequestError(err.message, { kind: 'network', providerId, cause: err })
+	}
+	return new ProviderRequestError(err instanceof Error ? err.message : String(err), {
+		kind: 'unknown',
+		providerId,
+		cause: err,
+	})
+}
+
+/**
+ * Combine the internal timeout signal with an optional caller signal so the
+ * request aborts when either fires. Prefers `AbortSignal.any` and falls back to
+ * manual composition on Node engines (<20.3) that predate it.
+ */
+function combineAbortSignals(internal: AbortSignal, external?: AbortSignal): AbortSignal {
+	if (!external) return internal
+	if (typeof AbortSignal.any === 'function') {
+		return AbortSignal.any([internal, external])
+	}
+	const controller = new AbortController()
+	const forward = (s: AbortSignal) => controller.abort(s.reason)
+	if (internal.aborted) forward(internal)
+	else internal.addEventListener('abort', () => forward(internal), { once: true })
+	if (external.aborted) forward(external)
+	else external.addEventListener('abort', () => forward(external), { once: true })
+	return controller.signal
+}
+
+// --------------------------------------------------------------------------------------
 // HttpProvider
 // --------------------------------------------------------------------------------------
 
@@ -329,16 +458,21 @@ export class HttpProvider implements LLMProvider {
 				? formatAnthropicRequest(params, false, this.config.model)
 				: buildOpenAIBody(params, false, this.config.model)
 
-		const response = await fetch(url, {
-			method: 'POST',
-			headers: this.getHeaders(),
-			body: JSON.stringify(body),
-			signal: this.timeoutSignal(),
-		})
+		let response: Response
+		try {
+			response = await fetch(url, {
+				method: 'POST',
+				headers: this.getHeaders(),
+				body: JSON.stringify(body),
+				signal: combineAbortSignals(this.timeoutSignal(), params.signal),
+			})
+		} catch (err) {
+			throw fetchErrorToProviderError(err, params.signal, this.id)
+		}
 
 		if (!response.ok) {
 			const errorBody = await response.text()
-			throw new Error(`HttpProvider error (${response.status}) from ${url}: ${errorBody}`)
+			throw httpErrorFromResponse(response, errorBody, url, this.id)
 		}
 
 		const text = await response.text()
@@ -472,16 +606,21 @@ export class HttpProvider implements LLMProvider {
 				? formatAnthropicRequest(params, true, this.config.model)
 				: buildOpenAIBody(params, true, this.config.model)
 
-		const response = await fetch(url, {
-			method: 'POST',
-			headers: this.getHeaders(),
-			body: JSON.stringify(body),
-			signal: this.timeoutSignal(),
-		})
+		let response: Response
+		try {
+			response = await fetch(url, {
+				method: 'POST',
+				headers: this.getHeaders(),
+				body: JSON.stringify(body),
+				signal: combineAbortSignals(this.timeoutSignal(), params.signal),
+			})
+		} catch (err) {
+			throw fetchErrorToProviderError(err, params.signal, this.id)
+		}
 
 		if (!response.ok) {
 			const errorBody = await response.text()
-			throw new Error(`HttpProvider error (${response.status}) from ${url}: ${errorBody}`)
+			throw httpErrorFromResponse(response, errorBody, url, this.id)
 		}
 
 		if (!response.body) {

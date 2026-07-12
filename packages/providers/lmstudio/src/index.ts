@@ -14,6 +14,9 @@ export const LMSTUDIO_CAPABILITIES: ProviderCapabilities = {
 	supportsTools: true,
 	supportsStreaming: true,
 	supportsFunctionCalling: true,
+	// Both model-load and prediction accept an AbortSignal, so an in-flight
+	// request is genuinely cancellable. See ses_015 Phase B.
+	supportsAbortSignal: true,
 }
 
 /**

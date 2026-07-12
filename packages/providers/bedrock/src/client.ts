@@ -7,6 +7,8 @@ import type {
 	Message as BedrockMessage,
 	ContentBlock,
 	ConversationRole,
+	ConverseCommandOutput,
+	ConverseStreamCommandOutput,
 	ConverseStreamOutput,
 	SystemContentBlock,
 	Tool,
@@ -14,6 +16,7 @@ import type {
 	ToolResultContentBlock,
 	ToolUseBlock,
 } from '@aws-sdk/client-bedrock-runtime'
+import { ProviderRequestError, classifyHttpStatus } from '@namzu/sdk'
 import type {
 	ChatCompletionParams,
 	ChatCompletionResponse,
@@ -73,11 +76,19 @@ function toBedrockMessages(messages: ChatCompletionParams['messages']): BedrockM
 				content.push({ text: msg.content })
 			}
 			for (const tc of msg.toolCalls) {
+				// Defensive: the runtime sanitizes truncated tool-call args to '{}',
+				// but a malformed string must never blow up serialization here.
+				let parsedInput: unknown = {}
+				try {
+					parsedInput = JSON.parse(tc.function.arguments || '{}')
+				} catch {
+					parsedInput = {}
+				}
 				content.push({
 					toolUse: {
 						toolUseId: tc.id,
 						name: tc.function.name,
-						input: JSON.parse(tc.function.arguments || '{}'),
+						input: parsedInput as ToolUseBlock['input'],
 					},
 				})
 			}
@@ -252,6 +263,126 @@ function extractResponseContent(content?: ContentBlock[]): {
 	}
 }
 
+// --------------------------------------------------------------------------------------
+// Error classification — map AWS SDK exceptions onto the SDK's ProviderErrorKind
+// taxonomy so the runtime loop can decide retries without any AWS-specific knowledge.
+// --------------------------------------------------------------------------------------
+
+const NETWORK_ERROR_CODES = new Set([
+	'ECONNRESET',
+	'ECONNREFUSED',
+	'ENOTFOUND',
+	'EPIPE',
+	'ETIMEDOUT',
+	'EAI_AGAIN',
+	'EHOSTUNREACH',
+	'ENETUNREACH',
+])
+
+/**
+ * Bedrock Converse surfaces an oversized prompt as a `ValidationException`
+ * whose message reads "Input is too long for requested model." (with close
+ * variants that mention the model's context window / token budget). We key on
+ * that wording to route it to `context_overflow` — handled by reactive
+ * compaction — rather than a plain non-retryable `bad_request`.
+ */
+function isBedrockContextOverflow(message: string): boolean {
+	const m = message.toLowerCase()
+	return (
+		m.includes('too long') ||
+		m.includes('too many tokens') ||
+		m.includes('context window') ||
+		m.includes('maximum context') ||
+		(m.includes('exceeds') && m.includes('token'))
+	)
+}
+
+function isNetworkError(err: unknown): boolean {
+	if (!(err instanceof Error)) return false
+	if (err.name === 'TimeoutError' || err.name === 'RequestAbortedError') return true
+	const code = (err as { code?: string }).code
+	if (typeof code === 'string' && NETWORK_ERROR_CODES.has(code)) return true
+	return /econnreset|econnrefused|enotfound|etimedout|socket hang up|network error|request timed out/i.test(
+		err.message,
+	)
+}
+
+/**
+ * Convert any error thrown by `client.send(...)` into a {@link ProviderRequestError}
+ * carrying a classified {@link ProviderErrorKind}. Caller-initiated abort always
+ * wins; then we key on the AWS SDK exception's `name`, fall back to network
+ * detection, and finally to the `$metadata.httpStatusCode` if one is attached.
+ */
+function classifyBedrockError(
+	err: unknown,
+	providerId: string,
+	signal?: AbortSignal,
+): ProviderRequestError {
+	// Caller cancellation takes precedence over any vendor classification.
+	if (signal?.aborted || (err instanceof Error && err.name === 'AbortError')) {
+		return new ProviderRequestError('Bedrock request aborted', {
+			kind: 'aborted',
+			providerId,
+			cause: err,
+		})
+	}
+
+	const name = err instanceof Error ? err.name : ''
+	const message = err instanceof Error ? err.message : String(err)
+	const status = (err as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode
+
+	switch (name) {
+		case 'ThrottlingException':
+		case 'ServiceQuotaExceededException':
+			return new ProviderRequestError(message, { kind: 'throttle', status, providerId, cause: err })
+		case 'ServiceUnavailableException':
+		case 'InternalServerException':
+		case 'ModelErrorException':
+		case 'ModelNotReadyException':
+		case 'ModelStreamErrorException':
+		case 'ModelTimeoutException':
+			return new ProviderRequestError(message, { kind: 'server', status, providerId, cause: err })
+		case 'AccessDeniedException':
+		case 'UnrecognizedClientException':
+		case 'ExpiredTokenException':
+			return new ProviderRequestError(message, { kind: 'auth', status, providerId, cause: err })
+		case 'ValidationException':
+			return new ProviderRequestError(message, {
+				kind: isBedrockContextOverflow(message) ? 'context_overflow' : 'bad_request',
+				status,
+				providerId,
+				cause: err,
+			})
+		case 'ResourceNotFoundException':
+		case 'ConflictException':
+			return new ProviderRequestError(message, {
+				kind: 'bad_request',
+				status,
+				providerId,
+				cause: err,
+			})
+	}
+
+	if (isNetworkError(err)) {
+		return new ProviderRequestError(message, { kind: 'network', providerId, cause: err })
+	}
+
+	if (typeof status === 'number') {
+		return new ProviderRequestError(message, {
+			kind: classifyHttpStatus(status),
+			status,
+			providerId,
+			cause: err,
+		})
+	}
+
+	return new ProviderRequestError(message || 'Unknown Bedrock error', {
+		kind: 'unknown',
+		providerId,
+		cause: err,
+	})
+}
+
 export class BedrockProvider implements LLMProvider {
 	readonly id = 'bedrock'
 	readonly name = 'AWS Bedrock'
@@ -262,7 +393,11 @@ export class BedrockProvider implements LLMProvider {
 	constructor(config: BedrockConfig) {
 		this.config = config
 
-		const clientConfig: Record<string, unknown> = {}
+		// Cap the AWS SDK's own retry loop at a single physical attempt so
+		// namzu's runtime is the sole authority on retry count/backoff. Without
+		// this the vendor default (maxAttempts: 3) would multiply against
+		// namzu's retries and blow past the run deadline.
+		const clientConfig: Record<string, unknown> = { maxAttempts: 1 }
 
 		if (config.region) {
 			clientConfig.region = config.region
@@ -298,9 +433,15 @@ export class BedrockProvider implements LLMProvider {
 			inferenceConfig,
 		})
 
-		const response = await this.client.send(command, {
-			requestTimeout: this.config.timeout ?? 120_000,
-		})
+		let response: ConverseCommandOutput
+		try {
+			response = await this.client.send(command, {
+				requestTimeout: this.config.timeout ?? 120_000,
+				abortSignal: params.signal,
+			})
+		} catch (err) {
+			throw classifyBedrockError(err, this.id, params.signal)
+		}
 
 		const { text, toolCalls } = extractResponseContent(response.output?.message?.content)
 		const usage = parseUsage(response.usage as RawBedrockUsage | undefined)
@@ -340,9 +481,15 @@ export class BedrockProvider implements LLMProvider {
 			inferenceConfig,
 		})
 
-		const response = await this.client.send(command, {
-			requestTimeout: this.config.timeout ?? 120_000,
-		})
+		let response: ConverseStreamCommandOutput
+		try {
+			response = await this.client.send(command, {
+				requestTimeout: this.config.timeout ?? 120_000,
+				abortSignal: params.signal,
+			})
+		} catch (err) {
+			throw classifyBedrockError(err, this.id, params.signal)
+		}
 
 		if (!response.stream) {
 			throw new Error('Bedrock returned no stream body')

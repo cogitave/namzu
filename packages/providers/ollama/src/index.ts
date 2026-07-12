@@ -15,6 +15,10 @@ export const OLLAMA_CAPABILITIES: ProviderCapabilities = {
 	supportsTools: false,
 	supportsStreaming: true,
 	supportsFunctionCalling: false,
+	// The vendor SDK's non-streaming chat() has no signal path, so an in-flight
+	// request cannot be aborted; cancellation only takes effect at the next
+	// iteration boundary. See ses_015 Phase B and README "Cancellation".
+	supportsAbortSignal: false,
 }
 
 /**

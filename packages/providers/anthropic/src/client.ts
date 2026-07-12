@@ -1,4 +1,14 @@
-import Anthropic from '@anthropic-ai/sdk'
+import Anthropic, {
+	APIConnectionError,
+	APIError,
+	APIUserAbortError,
+	AuthenticationError,
+	BadRequestError,
+	InternalServerError,
+	PermissionDeniedError,
+	RateLimitError,
+} from '@anthropic-ai/sdk'
+import { ProviderRequestError, classifyHttpStatus } from '@namzu/sdk'
 import type {
 	ChatCompletionParams,
 	ChatCompletionResponse,
@@ -12,6 +22,133 @@ import type { AnthropicConfig } from './types.js'
 
 const DEFAULT_MAX_TOKENS = 4096
 const DEFAULT_TIMEOUT_MS = 120_000
+
+// --------------------------------------------------------------------------------------
+// Error mapping: @anthropic-ai/sdk error classes → ProviderRequestError taxonomy
+// --------------------------------------------------------------------------------------
+
+/**
+ * Derive a `retryAfterMs` from the response headers on a vendor error. Prefers
+ * the standard `Retry-After` (delta-seconds or an HTTP-date), then falls back to
+ * Anthropic's `anthropic-ratelimit-*-reset` headers, which carry the reset
+ * instant as an RFC 3339 timestamp.
+ */
+function readRetryAfterMs(headers: Headers | undefined): number | undefined {
+	if (!headers) return undefined
+
+	const retryAfter = headers.get('retry-after')
+	if (retryAfter) {
+		const asSeconds = Number(retryAfter)
+		if (Number.isFinite(asSeconds)) return Math.max(0, Math.round(asSeconds * 1000))
+		const asDate = Date.parse(retryAfter)
+		if (!Number.isNaN(asDate)) return Math.max(0, asDate - Date.now())
+	}
+
+	for (const name of [
+		'anthropic-ratelimit-tokens-reset',
+		'anthropic-ratelimit-input-tokens-reset',
+		'anthropic-ratelimit-output-tokens-reset',
+		'anthropic-ratelimit-requests-reset',
+	]) {
+		const reset = headers.get(name)
+		if (reset) {
+			const at = Date.parse(reset)
+			if (!Number.isNaN(at)) return Math.max(0, at - Date.now())
+		}
+	}
+
+	return undefined
+}
+
+/**
+ * Anthropic signals an over-long prompt as a 400 `invalid_request_error` whose
+ * message reads "prompt is too long: N tokens > M maximum". There is no
+ * dedicated error code, so we key on that message text — inspecting the
+ * structured body first, then the derived `Error.message` as a fallback.
+ */
+function isContextOverflow(err: BadRequestError): boolean {
+	const body = err.error as { error?: { message?: unknown } } | undefined
+	const bodyMessage = typeof body?.error?.message === 'string' ? body.error.message : ''
+	const haystack = `${bodyMessage} ${err.message}`.toLowerCase()
+	return (
+		haystack.includes('prompt is too long') ||
+		haystack.includes('too many tokens') ||
+		(haystack.includes('maximum') && haystack.includes('token')) ||
+		haystack.includes('context window') ||
+		haystack.includes('context length')
+	)
+}
+
+/**
+ * Translate any error thrown by the vendor SDK into a {@link ProviderRequestError}
+ * so the runtime loop can classify retries without knowing about Anthropic. The
+ * order matters: every branch except the last two tests an `APIError` subclass,
+ * and subclasses are checked before their `APIError` base.
+ */
+function mapAnthropicError(err: unknown, providerId: string): ProviderRequestError {
+	if (err instanceof APIUserAbortError) {
+		return new ProviderRequestError('Anthropic request was aborted', {
+			kind: 'aborted',
+			providerId,
+			cause: err,
+		})
+	}
+	// A DOMException abort that reached us before the SDK wrapped it.
+	if (err instanceof Error && err.name === 'AbortError') {
+		return new ProviderRequestError(err.message, { kind: 'aborted', providerId, cause: err })
+	}
+	if (err instanceof RateLimitError) {
+		return new ProviderRequestError(err.message, {
+			kind: 'throttle',
+			status: err.status,
+			retryAfterMs: readRetryAfterMs(err.headers),
+			providerId,
+			cause: err,
+		})
+	}
+	// Covers APIConnectionTimeoutError too (it is a subclass).
+	if (err instanceof APIConnectionError) {
+		return new ProviderRequestError(err.message, { kind: 'network', providerId, cause: err })
+	}
+	if (err instanceof AuthenticationError || err instanceof PermissionDeniedError) {
+		return new ProviderRequestError(err.message, {
+			kind: 'auth',
+			status: err.status,
+			providerId,
+			cause: err,
+		})
+	}
+	if (err instanceof BadRequestError) {
+		return new ProviderRequestError(err.message, {
+			kind: isContextOverflow(err) ? 'context_overflow' : 'bad_request',
+			status: err.status,
+			providerId,
+			cause: err,
+		})
+	}
+	if (err instanceof InternalServerError) {
+		return new ProviderRequestError(err.message, {
+			kind: 'server',
+			status: err.status,
+			retryAfterMs: readRetryAfterMs(err.headers),
+			providerId,
+			cause: err,
+		})
+	}
+	// Any remaining typed status error (404/409/422/…): classify by status.
+	if (err instanceof APIError) {
+		const status = typeof err.status === 'number' ? err.status : undefined
+		return new ProviderRequestError(err.message, {
+			kind: status === undefined ? 'unknown' : classifyHttpStatus(status),
+			status,
+			retryAfterMs: readRetryAfterMs(err.headers),
+			providerId,
+			cause: err,
+		})
+	}
+	const message = err instanceof Error ? err.message : String(err)
+	return new ProviderRequestError(message, { kind: 'unknown', providerId, cause: err })
+}
 
 // --------------------------------------------------------------------------------------
 // Message translation: @namzu/sdk → Anthropic Messages API
@@ -318,18 +455,30 @@ export class AnthropicProvider implements LLMProvider {
 	 * the request as an untyped object bag and narrow the response shape ourselves.
 	 * Casting via `unknown` keeps us out of `any` territory while acknowledging
 	 * that the translation layer bridges two type worlds.
+	 *
+	 * The caller's `signal` and `maxRetries: 0` are passed via the second
+	 * `RequestOptions` argument: `maxRetries: 0` disables the vendor SDK's own
+	 * retry loop so namzu's retry cap alone bounds the number of physical
+	 * attempts.
 	 */
-	private createRaw(body: Record<string, unknown>): Promise<unknown> {
+	private createRaw(body: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
 		const create = this.client.messages.create as unknown as (
 			body: Record<string, unknown>,
+			options: { signal?: AbortSignal; maxRetries: number },
 		) => Promise<unknown>
-		return create.call(this.client.messages, body)
+		return create.call(this.client.messages, body, { signal, maxRetries: 0 })
 	}
 
 	async chat(params: ChatCompletionParams): Promise<ChatCompletionResponse> {
 		const createParams = this.buildCreateParams(params, false)
 
-		const response = (await this.createRaw(createParams)) as {
+		let raw: unknown
+		try {
+			raw = await this.createRaw(createParams, params.signal)
+		} catch (err) {
+			throw mapAnthropicError(err, this.id)
+		}
+		const response = raw as {
 			id?: string
 			model?: string
 			content: RawAnthropicResponseBlock[]
@@ -355,7 +504,12 @@ export class AnthropicProvider implements LLMProvider {
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
 		const createParams = this.buildCreateParams(params, true)
 
-		const stream = (await this.createRaw(createParams)) as AsyncIterable<StreamEvent>
+		let stream: AsyncIterable<StreamEvent>
+		try {
+			stream = (await this.createRaw(createParams, params.signal)) as AsyncIterable<StreamEvent>
+		} catch (err) {
+			throw mapAnthropicError(err, this.id)
+		}
 
 		let messageId = ''
 		// Track active tool-use blocks by content_block index so input_json_delta

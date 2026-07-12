@@ -7,10 +7,28 @@ import type {
 	StreamChunk,
 	TokenUsage,
 } from '@namzu/sdk'
-import { type ChatResponse, Ollama, type Message as OllamaMessage } from 'ollama'
+import {
+	type AbortableAsyncIterator,
+	type ChatResponse,
+	Ollama,
+	type Message as OllamaMessage,
+} from 'ollama'
+import { abortedError, toOllamaProviderError } from './errors.js'
 import type { OllamaConfig } from './types.js'
 
 const DEFAULT_HOST = 'http://localhost:11434'
+
+/**
+ * Map Ollama's `done_reason` onto the SDK `finishReason`. The client previously
+ * hardcoded `'stop'` and discarded `done_reason`, so a length-truncated response
+ * was indistinguishable from a natural completion. Ollama emits no dedicated
+ * tool-call reason (and this provider does not surface tools), and it also uses
+ * `'load'`/`'unload'` for model-lifecycle responses — none of which map to a
+ * distinct SDK reason, so anything other than `'length'` resolves to `'stop'`.
+ */
+function mapDoneReason(doneReason: string | undefined): ChatCompletionResponse['finishReason'] {
+	return doneReason === 'length' ? 'length' : 'stop'
+}
 
 function resolveHost(config: OllamaConfig): string {
 	if (config.host) return config.host
@@ -75,15 +93,27 @@ export class OllamaProvider implements LLMProvider {
 
 	async chat(params: ChatCompletionParams): Promise<ChatCompletionResponse> {
 		const model = this.resolveModel(params)
+		// The vendor SDK's non-streaming chat() exposes no signal path, so an
+		// in-flight call cannot be aborted (supportsAbortSignal: false). Honor the
+		// signal at the call boundary at least, so a pre-aborted run does not fire a
+		// request that can no longer be cancelled.
+		if (params.signal?.aborted) {
+			throw abortedError('OllamaProvider: request aborted before dispatch')
+		}
 		const messages = toOllamaMessages(params.messages)
 		const options = this.buildOptions(params)
 
-		const resp = await this.client.chat({
-			model,
-			messages,
-			stream: false,
-			...(Object.keys(options).length > 0 ? { options } : {}),
-		})
+		let resp: ChatResponse
+		try {
+			resp = await this.client.chat({
+				model,
+				messages,
+				stream: false,
+				...(Object.keys(options).length > 0 ? { options } : {}),
+			})
+		} catch (err) {
+			throw toOllamaProviderError(err, params.signal)
+		}
 
 		const id = randomUUID()
 		const usage = buildUsage(resp)
@@ -95,43 +125,67 @@ export class OllamaProvider implements LLMProvider {
 				role: 'assistant',
 				content: resp.message.content ?? null,
 			},
-			finishReason: 'stop',
+			finishReason: mapDoneReason(resp.done_reason),
 			usage,
 		}
 	}
 
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
 		const model = this.resolveModel(params)
+		if (params.signal?.aborted) {
+			throw abortedError('OllamaProvider: request aborted before dispatch')
+		}
 		const messages = toOllamaMessages(params.messages)
 		const options = this.buildOptions(params)
 
-		const stream = await this.client.chat({
-			model,
-			messages,
-			stream: true,
-			...(Object.keys(options).length > 0 ? { options } : {}),
-		})
+		let stream: AbortableAsyncIterator<ChatResponse>
+		try {
+			stream = await this.client.chat({
+				model,
+				messages,
+				stream: true,
+				...(Object.keys(options).length > 0 ? { options } : {}),
+			})
+		} catch (err) {
+			throw toOllamaProviderError(err, params.signal)
+		}
+
+		// Unlike non-streaming chat(), the vendor streaming iterator exposes
+		// .abort(); forward params.signal to it best-effort. supportsAbortSignal
+		// stays false because the primary chat() path remains non-abortable.
+		const signal = params.signal
+		const onAbort = () => stream.abort()
+		if (signal) {
+			if (signal.aborted) stream.abort()
+			else signal.addEventListener('abort', onAbort, { once: true })
+		}
 
 		const id = randomUUID()
 
-		for await (const chunk of stream) {
-			const content = chunk.message?.content
-			if (content && content.length > 0) {
-				yield {
-					id,
-					delta: { content },
+		try {
+			for await (const chunk of stream) {
+				const content = chunk.message?.content
+				if (content && content.length > 0) {
+					yield {
+						id,
+						delta: { content },
+					}
 				}
-			}
 
-			if (chunk.done === true) {
-				const usage = buildUsage(chunk)
-				yield {
-					id,
-					delta: {},
-					finishReason: 'stop',
-					usage,
+				if (chunk.done === true) {
+					const usage = buildUsage(chunk)
+					yield {
+						id,
+						delta: {},
+						finishReason: mapDoneReason(chunk.done_reason),
+						usage,
+					}
 				}
 			}
+		} catch (err) {
+			throw toOllamaProviderError(err, signal)
+		} finally {
+			if (signal) signal.removeEventListener('abort', onAbort)
 		}
 	}
 

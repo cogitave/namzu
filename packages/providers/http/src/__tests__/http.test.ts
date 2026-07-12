@@ -1,4 +1,4 @@
-import { DuplicateProviderError, ProviderRegistry } from '@namzu/sdk'
+import { DuplicateProviderError, ProviderRegistry, ProviderRequestError } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { HttpProvider } from '../client.js'
 import { HTTP_CAPABILITIES, registerHttp } from '../index.js'
@@ -74,6 +74,7 @@ describe('@namzu/http — registration', () => {
 			supportsTools: true,
 			supportsStreaming: true,
 			supportsFunctionCalling: true,
+			supportsAbortSignal: true,
 		})
 	})
 
@@ -548,5 +549,215 @@ describe('@namzu/http — streaming', () => {
 				provider.chatStream({ model: 'm', messages: [{ role: 'user', content: 'hi' }] }),
 			),
 		).rejects.toThrowError(DialectMismatchError)
+	})
+})
+
+// ---------------------------------------------------------------------------
+// Transport error taxonomy + AbortSignal forwarding (ses_015 Phase B)
+//
+// Current-code invariants asserted (2026-07-12, ses_015 Phase B):
+//  - HttpProvider.chat() maps a non-2xx Response to ProviderRequestError with a
+//    classified `kind` (throttle/server/auth/bad_request/context_overflow) and
+//    the upstream `status` attached; DialectMismatchError is untouched.
+//  - 429 carries retryAfterMs derived from the `Retry-After` header.
+//  - A 400 whose body contains `context_length_exceeded` / "prompt is too long"
+//    is classified context_overflow; a plain 400 is bad_request.
+//  - A thrown fetch rejection maps: caller-signal / AbortError → 'aborted';
+//    TimeoutError and TypeError('fetch failed') → 'network'.
+//  - params.signal is composed with the internal timeout and forwarded on the
+//    fetch options object (aborting the caller signal aborts the request).
+// ---------------------------------------------------------------------------
+
+function mockErrorResponse(
+	body: string,
+	status: number,
+	headers: Record<string, string> = {},
+): Response {
+	return new Response(body, { status, headers })
+}
+
+describe('@namzu/http — transport error taxonomy', () => {
+	function newProvider(): HttpProvider {
+		return new HttpProvider({
+			baseURL: 'https://api.openai.com/v1',
+			apiKey: 'k',
+			dialect: 'openai',
+		})
+	}
+
+	async function chatExpectError(provider: HttpProvider): Promise<ProviderRequestError> {
+		try {
+			await provider.chat({ model: 'm', messages: [{ role: 'user', content: 'hi' }] })
+		} catch (err) {
+			return err as ProviderRequestError
+		}
+		throw new Error('expected chat() to throw')
+	}
+
+	it('429 → kind "throttle" with status and retryAfterMs from Retry-After header', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi
+				.fn()
+				.mockResolvedValue(mockErrorResponse('{"error":"slow down"}', 429, { 'retry-after': '2' })),
+		)
+		const err = await chatExpectError(newProvider())
+		expect(err).toBeInstanceOf(ProviderRequestError)
+		expect(err.kind).toBe('throttle')
+		expect(err.status).toBe(429)
+		expect(err.retryAfterMs).toBe(2000)
+		expect(err.providerId).toBe('http')
+	})
+
+	it('503 → kind "server"', async () => {
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(mockErrorResponse('upstream down', 503)))
+		const err = await chatExpectError(newProvider())
+		expect(err.kind).toBe('server')
+		expect(err.status).toBe(503)
+	})
+
+	it('401 → kind "auth"', async () => {
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(mockErrorResponse('bad key', 401)))
+		const err = await chatExpectError(newProvider())
+		expect(err.kind).toBe('auth')
+		expect(err.status).toBe(401)
+	})
+
+	it('400 with context_length_exceeded body → kind "context_overflow"', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi
+				.fn()
+				.mockResolvedValue(
+					mockErrorResponse(
+						'{"error":{"code":"context_length_exceeded","message":"maximum context length is 8192 tokens"}}',
+						400,
+					),
+				),
+		)
+		const err = await chatExpectError(newProvider())
+		expect(err.kind).toBe('context_overflow')
+		expect(err.status).toBe(400)
+	})
+
+	it('400 anthropic "prompt is too long" body → kind "context_overflow"', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi
+				.fn()
+				.mockResolvedValue(
+					mockErrorResponse(
+						'{"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 250000 tokens > 200000 maximum"}}',
+						400,
+					),
+				),
+		)
+		const err = await chatExpectError(newProvider())
+		expect(err.kind).toBe('context_overflow')
+	})
+
+	it('plain 400 (no overflow marker) → kind "bad_request"', async () => {
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValue(mockErrorResponse('malformed request', 400)))
+		const err = await chatExpectError(newProvider())
+		expect(err.kind).toBe('bad_request')
+		expect(err.status).toBe(400)
+	})
+
+	it('DOMException AbortError → kind "aborted"', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockRejectedValue(new DOMException('The operation was aborted', 'AbortError')),
+		)
+		const err = await chatExpectError(newProvider())
+		expect(err.kind).toBe('aborted')
+	})
+
+	it('caller signal already aborted → kind "aborted" (takes precedence)', async () => {
+		vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new DOMException('timeout', 'TimeoutError')))
+		const controller = new AbortController()
+		controller.abort()
+		try {
+			await newProvider().chat({
+				model: 'm',
+				messages: [{ role: 'user', content: 'hi' }],
+				signal: controller.signal,
+			})
+			throw new Error('expected throw')
+		} catch (e) {
+			expect((e as ProviderRequestError).kind).toBe('aborted')
+		}
+	})
+
+	it('DOMException TimeoutError → kind "network"', async () => {
+		vi.stubGlobal(
+			'fetch',
+			vi.fn().mockRejectedValue(new DOMException('The operation timed out', 'TimeoutError')),
+		)
+		const err = await chatExpectError(newProvider())
+		expect(err.kind).toBe('network')
+	})
+
+	it('TypeError("fetch failed") → kind "network"', async () => {
+		vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('fetch failed')))
+		const err = await chatExpectError(newProvider())
+		expect(err.kind).toBe('network')
+	})
+})
+
+describe('@namzu/http — AbortSignal forwarding', () => {
+	it('composes params.signal with the internal timeout and forwards it to fetch', async () => {
+		let captured: AbortSignal | undefined
+		const fetchMock = vi.fn().mockImplementation((_url: string, init: { signal?: AbortSignal }) => {
+			captured = init.signal
+			return Promise.resolve(
+				mockJsonResponse({
+					id: 'x',
+					model: 'm',
+					choices: [{ message: { role: 'assistant', content: 'hi' }, finish_reason: 'stop' }],
+				}),
+			)
+		})
+		vi.stubGlobal('fetch', fetchMock)
+
+		const controller = new AbortController()
+		const provider = new HttpProvider({
+			baseURL: 'https://api.openai.com/v1',
+			apiKey: 'k',
+			dialect: 'openai',
+		})
+
+		await provider.chat({
+			model: 'm',
+			messages: [{ role: 'user', content: 'hi' }],
+			signal: controller.signal,
+		})
+
+		expect(captured).toBeInstanceOf(AbortSignal)
+		expect(captured?.aborted).toBe(false)
+		// Aborting the caller signal must abort the composite forwarded to fetch.
+		controller.abort()
+		expect(captured?.aborted).toBe(true)
+	})
+
+	it('passes the internal timeout signal even when no caller signal is supplied', async () => {
+		let captured: AbortSignal | undefined
+		const fetchMock = vi.fn().mockImplementation((_url: string, init: { signal?: AbortSignal }) => {
+			captured = init.signal
+			return Promise.resolve(
+				mockJsonResponse({
+					id: 'x',
+					model: 'm',
+					choices: [{ message: { role: 'assistant', content: 'hi' }, finish_reason: 'stop' }],
+				}),
+			)
+		})
+		vi.stubGlobal('fetch', fetchMock)
+
+		await new HttpProvider({ baseURL: 'https://api.openai.com/v1', apiKey: 'k' }).chat({
+			model: 'm',
+			messages: [{ role: 'user', content: 'hi' }],
+		})
+
+		expect(captured).toBeInstanceOf(AbortSignal)
 	})
 })

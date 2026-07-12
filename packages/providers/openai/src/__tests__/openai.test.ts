@@ -44,6 +44,7 @@ describe('@namzu/openai', () => {
 				supportsTools: true,
 				supportsStreaming: true,
 				supportsFunctionCalling: true,
+				supportsAbortSignal: true,
 			})
 		})
 	})

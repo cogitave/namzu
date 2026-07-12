@@ -45,6 +45,7 @@ describe('@namzu/anthropic', () => {
 				supportsTools: true,
 				supportsStreaming: true,
 				supportsFunctionCalling: true,
+				supportsAbortSignal: true,
 			})
 		})
 	})

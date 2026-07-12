@@ -15,6 +15,7 @@ export const OPENROUTER_CAPABILITIES: ProviderCapabilities = {
 	supportsTools: true,
 	supportsStreaming: true,
 	supportsFunctionCalling: true,
+	supportsAbortSignal: true,
 }
 
 /**

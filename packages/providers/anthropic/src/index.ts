@@ -14,6 +14,7 @@ export const ANTHROPIC_CAPABILITIES: ProviderCapabilities = {
 	supportsTools: true,
 	supportsStreaming: true,
 	supportsFunctionCalling: true,
+	supportsAbortSignal: true,
 }
 
 /**

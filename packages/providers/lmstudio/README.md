@@ -76,10 +76,19 @@ import { LMSTUDIO_CAPABILITIES } from '@namzu/lmstudio'
 //   supportsTools: true,
 //   supportsStreaming: true,
 //   supportsFunctionCalling: true,
+//   supportsAbortSignal: true,       // see "Cancellation" below
 // }
 ```
 
 Tool-use support depends on the loaded model — not every open-weights model has been tuned for function calling. Refer to the model's card in LM Studio.
+
+## Cancellation
+
+`supportsAbortSignal` is `true`. Both model acquisition and prediction accept an `AbortSignal`, so `params.signal` is forwarded to the SDK and an in-flight request is genuinely cancelled (not merely at the next iteration boundary).
+
+## Error handling
+
+`chat()` / `chatStream()` failures are normalized to `@namzu/sdk`'s `ProviderRequestError` with a runtime-classifiable `kind`. A stopped server (connection refused / "Failed to connect to LM Studio") surfaces as `kind: 'network'` (retryable). Context exhaustion is special-cased: LM Studio reports it as a *successful* prediction with `stopReason: 'contextLengthReached'`, so when it also produced no output (the input alone overflowed the window) the provider throws `kind: 'context_overflow'`, letting the runtime compact and retry; a partial answer that hit the limit flows through normally as `finishReason: 'length'`.
 
 ## Observability
 
