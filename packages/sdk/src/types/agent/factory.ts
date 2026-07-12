@@ -50,6 +50,14 @@ export interface AgentFactoryOptions {
 
 	taskRouter?: TaskRouterConfig
 
+	/**
+	 * The run's own id, carried from whoever started the run into the config the
+	 * builder returns. A builder that drops it lets the agent mint a second id for
+	 * the same run (ses_017 P3) — thread it onto `BaseAgentConfig.runId`.
+	 *
+	 * NOT a child's id: `AgentManager.spawn` clears this before it builds a child,
+	 * because a child is its own run and links back via `parentRunId`.
+	 */
 	runId?: string
 
 	parentRunId?: string

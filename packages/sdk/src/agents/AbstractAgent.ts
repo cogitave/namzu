@@ -107,8 +107,17 @@ export abstract class AbstractAgent<
 		return this.metadata.capabilities
 	}
 
-	protected createRunId(): RunId {
-		return generateRunId()
+	/**
+	 * Resolve the run id for one invocation: the caller's id if the config
+	 * carries one, otherwise a freshly minted one. The base owns this because
+	 * the base advertises the identity — an agent that minted its own inline
+	 * silently renamed the caller's run, and the SSE mapper's substitution of
+	 * its own `runId` argument hid the split from every client (ses_017 P3;
+	 * one-canonical-name). Every agent MUST take its run id from here and
+	 * thread it into `query()`; no agent calls `generateRunId()` itself.
+	 */
+	protected resolveRunId(config: BaseAgentConfig): RunId {
+		return config.runId ?? generateRunId()
 	}
 
 	protected createEmptyResult(runId: RunId, startTime: number): BaseAgentResult {

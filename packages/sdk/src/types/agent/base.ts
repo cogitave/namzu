@@ -58,6 +58,25 @@ export interface BaseAgentConfig {
 	/** Isolation boundary (Convention #17). See `projectId` for the tightening plan. */
 	tenantId?: TenantId
 
+	/**
+	 * Identity of the run this invocation IS. Optional: when absent the agent
+	 * mints one via {@link AbstractAgent.resolveRunId}; when present it is the
+	 * run id — on the run record, on every {@link RunEvent}, and in the run's
+	 * on-disk directory name. Nothing downstream re-mints or re-maps it.
+	 *
+	 * It lives on the config, next to the four other scopes of the same tuple
+	 * (Tenant → Project → Thread → Session → Run) and next to `parentRunId`,
+	 * because the config builder is the transport that carries a caller's run
+	 * identity in (`AgentFactoryOptions.runId`). Splitting the run's own id
+	 * onto {@link AgentInput} would put one identity tuple in two objects.
+	 *
+	 * A CHILD run never inherits this. `AgentManager.spawn` clears it before
+	 * calling the child's `configBuilder` — a spawned sub-agent is a distinct
+	 * run with its own record, directory and budget, linked to its parent by
+	 * `parentRunId`, not by sharing an id with it.
+	 */
+	runId?: RunId
+
 	parentRunId?: RunId
 
 	depth?: number

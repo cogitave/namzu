@@ -31,6 +31,7 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 		listener?: RunEventListener,
 	): Promise<ReactiveAgentResult> {
 		const startTime = Date.now()
+		const runId = this.resolveRunId(config)
 
 		if (!config.sessionId || !config.threadId || !config.projectId || !config.tenantId) {
 			throw new Error(
@@ -71,6 +72,7 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 					threadId: config.threadId,
 					projectId: config.projectId,
 					tenantId: config.tenantId,
+					runId,
 					parentRunId: config.parentRunId,
 					depth: config.depth,
 					contextLevel: config.contextLevel,

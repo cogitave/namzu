@@ -223,6 +223,14 @@ export class AgentManager {
 				...(context.factoryOptions ?? {}),
 				tokenBudget: allocatedTokens,
 				timeoutMs: options.budgetAllocation?.timeoutMs ?? context.budgetTracker.remaining,
+				// A child is its OWN run: own record, own directory, own budget, linked
+				// to its parent by `parentRunId`. The inherited `factoryOptions` are the
+				// PARENT's and carry the parent's `runId`, so clear it here — otherwise
+				// every spawned child would open a run record under its parent's id the
+				// moment the config builders started honouring `options.runId` (ses_017
+				// P3). Cleared BEFORE `configOverrides` so a caller can still name a
+				// child run deliberately.
+				runId: undefined,
 				parentRunId: context.parentRunId as string | undefined,
 				depth: context.depth + 1,
 				...options.configOverrides,

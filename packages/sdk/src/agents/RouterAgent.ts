@@ -39,7 +39,7 @@ export class RouterAgent extends AbstractAgent<RouterAgentConfig, RouterAgentRes
 		listener?: RunEventListener,
 	): Promise<RouterAgentResult> {
 		const startTime = Date.now()
-		const runId = this.createRunId()
+		const runId = this.resolveRunId(config)
 
 		await this.emitEvent({ type: 'run_started', runId }, listener)
 
@@ -91,9 +91,16 @@ export class RouterAgent extends AbstractAgent<RouterAgentConfig, RouterAgentRes
 			)
 		}
 		const childInvocationState = deriveChildState(config.invocationState, this.metadata.id)
+
+		// The delegate inherits the router's run id ON PURPOSE. A route is a tail
+		// call, not a spawn: the router keeps no run record, opens no run directory
+		// and burns no budget of its own — the delegate's `query()` is the run. Mint
+		// the delegate a fresh id and the caller's id would name nothing on disk,
+		// which is the exact split P3 exists to close. Contrast `AgentManager.spawn`,
+		// where the child IS its own run and must NOT inherit the parent's id.
 		const delegateResult = await targetRoute.agent.run(
 			input,
-			{ ...config, invocationState: childInvocationState },
+			{ ...config, runId, invocationState: childInvocationState },
 			listener,
 		)
 

@@ -34,7 +34,7 @@ export class PipelineAgent extends AbstractAgent<PipelineAgentConfig, PipelineAg
 		listener?: RunEventListener,
 	): Promise<PipelineAgentResult> {
 		const startTime = Date.now()
-		const runId = this.createRunId()
+		const runId = this.resolveRunId(config)
 		const stepResults: PipelineStepResult[] = []
 		const previousResults = new Map<string, unknown>()
 		let completedSteps = 0

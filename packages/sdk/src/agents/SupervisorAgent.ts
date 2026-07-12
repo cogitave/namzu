@@ -41,7 +41,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 		listener?: RunEventListener,
 	): Promise<SupervisorAgentResult> {
 		const startTime = Date.now()
-		const runId = this.createRunId()
+		const runId = this.resolveRunId(config)
 
 		if (!config.sessionId || !config.threadId || !config.projectId || !config.tenantId) {
 			throw new Error(
