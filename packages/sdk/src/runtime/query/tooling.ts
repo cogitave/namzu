@@ -5,6 +5,7 @@ import type { InvocationState } from '../../types/invocation/index.js'
 import type { PermissionMode } from '../../types/permission/index.js'
 import type { RunEvent } from '../../types/run/index.js'
 import type { ToolRegistryContract } from '../../types/tool/index.js'
+import type { ToolDenyCheck } from '../../types/verification/index.js'
 import type { Logger } from '../../utils/logger.js'
 import { ToolExecutor } from './executor.js'
 
@@ -19,6 +20,7 @@ export interface ToolingBootstrapConfig {
 	abortSignal: AbortSignal
 	invocationState?: InvocationState
 	pluginManager?: PluginLifecycleManager
+	denyCheck?: ToolDenyCheck
 }
 
 export class ToolingBootstrap {
@@ -38,6 +40,7 @@ export class ToolingBootstrap {
 				abortSignal: config.abortSignal,
 				invocationState: config.invocationState,
 				pluginManager: config.pluginManager,
+				denyCheck: config.denyCheck,
 			},
 			activityStore,
 			emitEvent,

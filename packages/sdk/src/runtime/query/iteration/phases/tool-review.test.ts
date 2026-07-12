@@ -1,6 +1,16 @@
 /**
  * Current-code invariants asserted (2026-07-12, ses_017):
  *
+ *   The gate is consulted on two planes and this file exercises both, because the
+ *   harness wires both the way `runtime/query/index.ts` does. THIS phase's gate
+ *   decides what a HUMAN is asked (deny before review; allow-vs-review for the
+ *   rest). The executor's `denyFinalInput` decides what RUNS, against the input
+ *   after every rewrite. A modification denied below is denied by this phase — the
+ *   executor would catch it too, but the phase drops it from the approved set,
+ *   which is what makes the outcome 'rejected' rather than a dispatched batch that
+ *   comes back denied. See `__tests__/executor-deny-check.test.ts` for the
+ *   backstop's own invariants.
+ *
  *   - No gate configured: every call in the batch goes to the human, and
  *     `approve_tools` executes all of them.
  *   - Gate configured, every call allowed: no human is consulted; the batch runs.
@@ -117,6 +127,12 @@ function makeHarness(opts: {
 		events.push(event)
 	}
 
+	// One gate, both planes — as `runtime/query/index.ts` wires it. The review phase
+	// gets the gate itself (it needs allow-vs-review); the executor gets it as a bare
+	// deny decision over the FINAL input. Wiring only one of them here would let a
+	// green test describe a topology that does not ship.
+	const gate = opts.gate ? new VerificationGate(opts.gate, log) : undefined
+
 	const toolExecutor = new ToolExecutor(
 		{
 			tools: registry,
@@ -125,6 +141,7 @@ function makeHarness(opts: {
 			permissionMode: 'auto',
 			env: {},
 			abortSignal: new AbortController().signal,
+			denyCheck: gate ? (call) => gate.evaluate(call) : undefined,
 		},
 		new ActivityStore(runId, { enabled: false, trackToolCalls: false, trackLlmTurns: false }),
 		emitEvent,
@@ -154,7 +171,7 @@ function makeHarness(opts: {
 			reviewed.push(request)
 			return opts.decision
 		},
-		verificationGate: opts.gate ? new VerificationGate(opts.gate, log) : undefined,
+		verificationGate: gate,
 	} as unknown as Parameters<typeof runToolReview>[0]
 
 	return harness

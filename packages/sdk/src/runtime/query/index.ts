@@ -223,6 +223,10 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		}
 	}
 
+	const verificationGate = params.verificationGate?.enabled
+		? new VerificationGate(params.verificationGate, ctx.log)
+		: undefined
+
 	const toolExecutor = ToolingBootstrap.init(
 		{
 			tools: params.tools,
@@ -233,6 +237,10 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			abortSignal: ctx.abortController.signal,
 			invocationState: params.invocationState,
 			pluginManager: params.pluginManager,
+			// The same gate the review phase consults, handed to the executor as a
+			// bare decision so the deny plane is re-applied to the FINAL input — the
+			// one that survived every human and plugin rewrite. See `denyFinalInput`.
+			denyCheck: verificationGate ? (call) => verificationGate.evaluate(call) : undefined,
 		},
 		ctx.activityStore,
 		eventTranslator.emitEvent,
@@ -300,10 +308,6 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			}
 		}
 	}
-
-	const verificationGate = params.verificationGate?.enabled
-		? new VerificationGate(params.verificationGate, ctx.log)
-		: undefined
 
 	const iterationOrchestrator = new IterationOrchestrator(
 		{

@@ -4,7 +4,7 @@ import type { ChatCompletionResponse } from '../../../../types/provider/index.js
 import type { RunEvent } from '../../../../types/run/index.js'
 import type { GateEvaluationResult } from '../../../../types/verification/index.js'
 import { toErrorMessage } from '../../../../utils/error.js'
-import type { VerificationGate } from '../../../../verification/index.js'
+import { type VerificationGate, gateDenialOutput } from '../../../../verification/index.js'
 import type { IterationContext } from './context.js'
 
 interface VerificationAwareContext extends IterationContext {
@@ -37,6 +37,14 @@ interface ReviewableCall {
  * stringifies it, `custom_pattern` regexes it — and the gate exists to say no, so
  * "this check crashed" must not read as "this check approved". It must not take
  * the run down either: the caller answers the model with a denial result instead.
+ *
+ * This phase's gate decides WHAT A HUMAN IS ASKED: it drops denied calls before a
+ * reviewer sees them, and sorts the rest into allow (run without asking) vs review.
+ * It is not what makes a denial safe. The input it judges is still a *proposal* —
+ * `pre_tool_use` plugin hooks can rewrite it afterwards — so the authoritative
+ * check runs at the dispatch point, in `ToolExecutor.denyFinalInput`, against the
+ * input that can no longer change. Two checks, two jobs: this one shapes the human
+ * decision, that one is the non-bypassable backstop.
  */
 function evaluateGate(
 	gate: VerificationGate,
@@ -61,10 +69,6 @@ function evaluateGate(
 			reason: 'Verification gate error',
 		}
 	}
-}
-
-function gateDenialOutput(toolName: string, reason: string): string {
-	return `Error: Tool call "${toolName}" blocked by verification gate: ${reason}`
 }
 
 export async function* runToolReview(
@@ -219,6 +223,15 @@ export async function* runToolReview(
 					// A modification is a new call and is authorized as one — a benign
 					// call the human approved must not become a denied operation by way
 					// of a typo, a compromised client, or a malicious modify payload.
+					//
+					// `ToolExecutor.denyFinalInput` would catch this one too, and that is
+					// the check safety rests on. This one is kept because it changes the
+					// DECISION, not just the outcome: a denied modification is dropped
+					// from the approved set here, so if nothing survives, the phase ends
+					// as 'rejected' with the model told why — rather than dispatching a
+					// batch that is guaranteed to come back denied. The executor's check
+					// stays the backstop; this one keeps the review phase honest about
+					// what it approved.
 					if (ctx.verificationGate) {
 						const verdict = evaluateGate(
 							ctx.verificationGate,

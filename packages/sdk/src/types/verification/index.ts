@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { MAX_CUSTOM_PATTERN_LENGTH } from '../../constants/verification/index.js'
+import type { ToolDefinition } from '../tool/index.js'
 
 export type GateDecision = 'allow' | 'deny' | 'review'
 
@@ -8,6 +9,23 @@ export interface GateEvaluationResult {
 	readonly matchedRule: VerificationRule | null
 	readonly reason: string
 }
+
+/** One tool call, as the deny plane sees it. */
+export interface ToolCallContext {
+	readonly toolName: string
+	readonly toolInput: unknown
+	readonly toolDef: ToolDefinition | undefined
+}
+
+/**
+ * The deny plane as a port: one pure decision over one tool call.
+ *
+ * The executor holds this rather than a `VerificationGate` so that the layer
+ * which *dispatches* tools depends on the shape of an authorization answer and
+ * not on the machinery that produces it — the gate is configured, constructed
+ * and owned one layer up, in `runtime/query`.
+ */
+export type ToolDenyCheck = (call: ToolCallContext) => GateEvaluationResult
 
 export type VerificationRule =
 	| { type: 'allow_read_only' }

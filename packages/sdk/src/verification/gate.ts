@@ -1,8 +1,8 @@
 import { MAX_CUSTOM_PATTERN_LENGTH } from '../constants/verification/index.js'
-import type { ToolDefinition } from '../types/tool/index.js'
 import type {
 	GateDecision,
 	GateEvaluationResult,
+	ToolCallContext,
 	VerificationGateConfig,
 	VerificationRule,
 } from '../types/verification/index.js'
@@ -10,11 +10,7 @@ import { VerificationGateConfigSchema } from '../types/verification/index.js'
 import type { Logger } from '../utils/logger.js'
 import { evaluateRule } from './rules.js'
 
-export interface ToolCallContext {
-	readonly toolName: string
-	readonly toolInput: unknown
-	readonly toolDef: ToolDefinition | undefined
-}
+export type { ToolCallContext }
 
 export class VerificationGate {
 	private readonly rules: VerificationRule[]

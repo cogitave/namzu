@@ -19,9 +19,11 @@ import type { ChatCompletionResponse } from '../../types/provider/index.js'
 import type { RunEvent } from '../../types/run/index.js'
 import type { Sandbox } from '../../types/sandbox/index.js'
 import type { ToolContext, ToolRegistryContract, ToolResult } from '../../types/tool/index.js'
+import type { GateEvaluationResult, ToolDenyCheck } from '../../types/verification/index.js'
 import { toErrorMessage } from '../../utils/error.js'
 import type { Logger } from '../../utils/logger.js'
 import { compressShellOutput } from '../../utils/shell-compress.js'
+import { gateDenialOutput } from '../../verification/denial.js'
 
 export type EmitEvent = (event: RunEvent) => Promise<void>
 
@@ -35,6 +37,11 @@ export interface ToolExecutorConfig {
 	sandbox?: Sandbox
 	invocationState?: InvocationState
 	pluginManager?: PluginLifecycleManager
+	/**
+	 * The deny plane, evaluated against the input that is actually about to run.
+	 * See `denyFinalInput`. Absent when no verification gate is configured.
+	 */
+	denyCheck?: ToolDenyCheck
 }
 
 type PreToolHookOutcome =
@@ -151,6 +158,51 @@ export class ToolExecutor {
 	}
 
 	/**
+	 * The deny plane, evaluated against the input that is ACTUALLY about to run.
+	 *
+	 * There are two verification checks and they have two different jobs. The one
+	 * in `runToolReview` decides what a *human* is asked: it denies before a
+	 * reviewer ever sees a call, and splits the rest into allow-vs-review. This
+	 * one decides what *runs*. It sits at the last point where the input is still
+	 * observable and no longer changeable — after the `pre_tool_use` hooks, before
+	 * `registry.execute` — because everything between the model's proposal and the
+	 * dispatch may rewrite that input: a human `modify_tools`, a plugin hook's
+	 * `modify`, and whatever gets added next. A gate consulted on a *proposed*
+	 * input authorizes a call that no longer exists; only a check at the dispatch
+	 * point authorizes the call that happens. This is the non-bypassable one.
+	 *
+	 * Fails CLOSED (conventions/fail-closed-gates): a rule is a predicate over an
+	 * input shape it did not choose, and a rewritten input is exactly the shape it
+	 * did not expect, so "this check crashed" must not read as "this check
+	 * approved". The tool registry lookup sits inside the boundary too — it is
+	 * half the question being asked.
+	 *
+	 * Returns the denial to answer with, or `null` when the call may proceed.
+	 */
+	private denyFinalInput(toolName: string, input: unknown): GateEvaluationResult | null {
+		const denyCheck = this.config.denyCheck
+		if (!denyCheck) return null
+
+		let result: GateEvaluationResult
+		try {
+			result = denyCheck({
+				toolName,
+				toolInput: input,
+				toolDef: this.config.tools.get(toolName),
+			})
+		} catch (err) {
+			this.log.error('Verification gate threw on the final tool input — denying', {
+				runId: this.config.runId,
+				tool: toolName,
+				error: toErrorMessage(err),
+			})
+			return { decision: 'deny', matchedRule: null, reason: 'Verification gate error' }
+		}
+
+		return result.decision === 'deny' ? result : null
+	}
+
+	/**
 	 * Ask the probe registry whether this call may proceed, failing CLOSED if the
 	 * registry itself throws.
 	 *
@@ -223,6 +275,22 @@ export class ToolExecutor {
 			toolName,
 			input,
 		})
+
+		// `input` is final here: every rewrite (human modify, plugin hook) has already
+		// happened, and nothing below this line touches it before dispatch.
+		const denial = this.denyFinalInput(toolName, input)
+		if (denial) {
+			this.log.warn('Verification gate denied the final tool input — not executing', {
+				runId: this.config.runId,
+				tool: toolName,
+				reason: denial.reason,
+			})
+			const output = gateDenialOutput(toolName, denial.reason)
+			if (activity) {
+				this.activityStore.fail(activity.id, output)
+			}
+			return { toolCallId: toolCall.id, output }
+		}
 
 		const vetoOutcome = this.queryToolVeto(toolName, input)
 		if (vetoOutcome.action === 'deny') {
