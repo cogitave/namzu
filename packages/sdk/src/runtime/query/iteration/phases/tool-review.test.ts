@@ -167,6 +167,10 @@ function makeHarness(opts: {
 		checkpointMgr: {
 			create: async () => ({ id: 'cp_test' }),
 		},
+		// The review checkpoint records the run's accumulated active execution time,
+		// which only the guard meters (ses_017). This phase reads it; it does not
+		// interpret it, so a constant is enough here.
+		guard: { activeElapsedMs: 0 },
 		resumeHandler: async (request: HITLDecisionRequest): Promise<HITLResumeDecision> => {
 			reviewed.push(request)
 			return opts.decision

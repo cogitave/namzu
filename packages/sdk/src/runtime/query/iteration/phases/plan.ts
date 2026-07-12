@@ -6,7 +6,7 @@ export async function* runPlanGate(ctx: IterationContext): AsyncGenerator<RunEve
 		return 'continue'
 	}
 
-	const planCheckpoint = await ctx.checkpointMgr.create(ctx.runMgr, 0)
+	const planCheckpoint = await ctx.checkpointMgr.create(ctx.runMgr, 0, ctx.guard.activeElapsedMs)
 
 	await ctx.emitEvent({
 		type: 'checkpoint_created',

@@ -18,6 +18,7 @@ import type { RuntimeToolOverrides } from '../../types/agent/base.js'
 import type { AgentContextLevel } from '../../types/agent/factory.js'
 import {
 	type CheckpointId,
+	type IterationCheckpoint,
 	type ResumeHandler,
 	autoApproveHandler,
 } from '../../types/hitl/index.js'
@@ -354,7 +355,40 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		let sandbox: Sandbox | undefined
 
 		try {
+			// --- Resume: hydrate the run's accounting BEFORE anything writes ---
+			//
+			// A resumed run continues the SAME logical run, so it continues the same
+			// ledger: `tokenBudget`, `costLimitUsd` and `maxIterations` are LIFETIME
+			// limits of that run, and `timeoutMs` measures its total ACTIVE execution
+			// time (see `GuardCoordinator.restoreElapsed` — a human's thinking time is
+			// not the agent's compute time). Until ses_017 none of that survived a
+			// resume: every resumed run got a brand-new budget, so a run stopped dead at
+			// its cost cap could be resumed indefinitely, spending a full fresh
+			// allowance each time.
+			//
+			// The order is load-bearing. `init()` writes `run.json` from RunPersistence's
+			// in-memory state, so hydrating after it would first stamp a zeroed usage and
+			// iteration record over the real one on disk. The checkpoint lives under the
+			// run's own directory, so the store has to be opened before it can be read —
+			// `openRunDir()` only creates/attaches that directory and writes nothing,
+			// which is what lets the read happen before the write.
+			let resumeCheckpoint: IterationCheckpoint | undefined
+			if (params.resumeFromCheckpoint) {
+				await ctx.runMgr.openRunDir()
+				resumeCheckpoint = await checkpointMgr.restore(params.resumeFromCheckpoint)
+				ctx.runMgr.restoreFromCheckpoint(resumeCheckpoint)
+				guard.restoreElapsed(resumeCheckpoint.guardState?.elapsedMs ?? 0)
+			}
+
 			await ctx.runMgr.init()
+
+			// The ActivityStore deliberately starts EMPTY on resume: a checkpoint carries
+			// no per-activity history, so there is nothing to hydrate it from. Acceptable
+			// because activities are observability, not accounting — no limit is enforced
+			// against them — so a resumed run's activity feed shows only this segment's
+			// work. Same for the PlanManager and the WorkingStateManager; both are
+			// rebuilt empty. None of them meters a budget; all of them are the durable-
+			// pause programme's problem, not this one's.
 
 			ctx.log.info('Starting query', {
 				runId: ctx.runMgr.id,
@@ -397,17 +431,16 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				}
 			}
 
-			if (params.resumeFromCheckpoint) {
-				const checkpoint = await checkpointMgr.restore(params.resumeFromCheckpoint)
+			if (resumeCheckpoint) {
 				await eventTranslator.emitEvent({
 					type: 'run_resuming',
 					runId: ctx.runMgr.id,
-					fromCheckpointId: checkpoint.id,
+					fromCheckpointId: resumeCheckpoint.id,
 				})
 				yield* eventTranslator.drainPending()
 
 				pushSystemMessages()
-				for (const msg of prepareResumeMessages(checkpoint.messages)) {
+				for (const msg of prepareResumeMessages(resumeCheckpoint.messages)) {
 					ctx.runMgr.pushMessage(msg)
 				}
 			} else if (params.continuationMode) {

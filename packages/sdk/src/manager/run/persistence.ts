@@ -1,6 +1,7 @@
 import { EMPTY_TOKEN_USAGE } from '../../constants/limits.js'
 import { RunDiskStore } from '../../store/run/disk.js'
 import { type CostInfo, type TokenUsage, accumulateTokenUsage } from '../../types/common/index.js'
+import type { IterationCheckpoint } from '../../types/hitl/index.js'
 import type { RunId, SessionId, TenantId } from '../../types/ids/index.js'
 import type { AssistantMessage, Message } from '../../types/message/index.js'
 import type { EmergencySaveData } from '../../types/run/emergency.js'
@@ -112,9 +113,71 @@ export class RunPersistence {
 		return this.runStore.getRunDir()
 	}
 
-	async init(): Promise<void> {
+	/**
+	 * Create/attach the run's directory without writing anything into it.
+	 *
+	 * Split out of {@link init} for the resume path: the checkpoint being
+	 * resumed from lives under this run's own directory, so the store has to
+	 * know that directory before the checkpoint can be read — but the run's
+	 * accounting must be hydrated from that checkpoint BEFORE `init()` stamps
+	 * the meta file, or `init()` writes a zeroed `run.json` over the real one.
+	 * Idempotent; `init()` calls it too.
+	 */
+	async openRunDir(): Promise<void> {
 		await this.runStore.initRun(this.run.id, this.run.parentRunId)
+	}
+
+	async init(): Promise<void> {
+		await this.openRunDir()
 		await this.runStore.writeRunMeta(this.run)
+	}
+
+	/**
+	 * Hydrate the run's accounting from the checkpoint it is being resumed
+	 * from. Without this a resumed run starts on a blank ledger, which means
+	 * `tokenBudget` and `costLimitUsd` are re-granted in full on every resume —
+	 * a run stopped at its cost cap could be resumed forever, each time with a
+	 * fresh allowance to spend.
+	 *
+	 * **These are LIFETIME limits of the logical run, accumulated across
+	 * resumes.** A run that has already spent 90% of its token budget resumes
+	 * with 10% left, and a run that is already at its cost cap resumes only to
+	 * stop immediately. The guard's time budget is restored alongside this, on
+	 * ACTIVE-execution-time semantics — see
+	 * {@link import('../../runtime/query/guard.js').GuardCoordinator.restoreElapsed}.
+	 *
+	 * `guardState.iterationCount` is the authority for the iteration counter,
+	 * not `checkpoint.iteration`: the latter is the label the creating phase
+	 * passed (the plan gate writes `0` while the run may be mid-loop), the
+	 * former is the run's own counter at snapshot time.
+	 *
+	 * What this does NOT restore, deliberately:
+	 *   - `startedAt` stays this segment's start — a synthetic "start" that
+	 *     back-dates calendar time to make some elapsed sum work out would lie
+	 *     to every consumer that reads it as a timestamp. Active elapsed lives
+	 *     on the guard, which is the thing that actually meters it.
+	 *   - `messages` — the caller seeds those through `prepareResumeMessages`,
+	 *     which repairs dangling tool pairs first.
+	 *
+	 * Defensive reads: a checkpoint is JSON that some older writer put on disk,
+	 * so it is not really guaranteed to match the current type. Missing usage /
+	 * cost / guard state degrades to zero rather than to `undefined` leaking
+	 * into arithmetic and making every limit comparison `NaN` — i.e. silently
+	 * disabling the budget checks this method exists to enforce.
+	 */
+	restoreFromCheckpoint(checkpoint: IterationCheckpoint): void {
+		this.run.tokenUsage = { ...EMPTY_TOKEN_USAGE, ...checkpoint.tokenUsage }
+		this.run.costInfo = { ...ZERO_COST, ...checkpoint.costInfo }
+		this.run.currentIteration = Math.max(0, checkpoint.guardState?.iterationCount ?? 0)
+
+		this.log.info('Run accounting restored from checkpoint', {
+			runId: this.run.id,
+			checkpointId: checkpoint.id,
+			totalTokens: this.run.tokenUsage.totalTokens,
+			totalCost: this.run.costInfo.totalCost,
+			currentIteration: this.run.currentIteration,
+			activeElapsedMs: checkpoint.guardState?.elapsedMs ?? 0,
+		})
 	}
 
 	markRunning(): void {

@@ -749,6 +749,7 @@ describe('the carry survives the store — checkpoint, restore, replay', () => {
 		const checkpoint = await new CheckpointManager(store).create(
 			persistenceStub(first.runMgr.messages),
 			1,
+			0,
 		)
 
 		const restored = await new CheckpointManager(store).restore(checkpoint.id)
@@ -811,6 +812,7 @@ describe('the carry survives the store — checkpoint, restore, replay', () => {
 		const checkpoint = await new CheckpointManager(store).create(
 			persistenceStub(first.runMgr.messages),
 			1,
+			0,
 		)
 
 		// Corrupt the file ON DISK, the way a foreign writer or a torn write would: the

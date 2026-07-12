@@ -6,7 +6,11 @@ export async function* runIterationCheckpoint(
 	ctx: IterationContext,
 	iterationNum: number,
 ): AsyncGenerator<RunEvent, PhaseSignal> {
-	const iterCheckpoint = await ctx.checkpointMgr.create(ctx.runMgr, iterationNum)
+	const iterCheckpoint = await ctx.checkpointMgr.create(
+		ctx.runMgr,
+		iterationNum,
+		ctx.guard.activeElapsedMs,
+	)
 
 	await ctx.emitEvent({
 		type: 'checkpoint_created',

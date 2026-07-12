@@ -163,7 +163,11 @@ export async function* runToolReview(
 		})
 	}
 
-	const reviewCheckpoint = await ctx.checkpointMgr.create(ctx.runMgr, iterationNum)
+	const reviewCheckpoint = await ctx.checkpointMgr.create(
+		ctx.runMgr,
+		iterationNum,
+		ctx.guard.activeElapsedMs,
+	)
 	const pendingSummaries = reviewable.map((rc) => rc.summary)
 
 	await ctx.emitEvent({

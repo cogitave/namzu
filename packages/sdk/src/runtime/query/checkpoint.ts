@@ -61,9 +61,23 @@ export class CheckpointManager {
 		this.store = store
 	}
 
+	/**
+	 * Snapshot the run at `iteration`.
+	 *
+	 * `activeElapsedMs` is the execution time the run has consumed across ALL
+	 * of its segments — read it from
+	 * {@link import('./guard.js').GuardCoordinator.activeElapsedMs}, which is
+	 * the only thing that meters it. It cannot be derived here from
+	 * `runMgr.startedAt`: on a resumed run that field is the *segment's* start,
+	 * so a checkpoint written after a resume would claim the run had only ever
+	 * run for the length of the current segment, and the next resume would hand
+	 * back the time the previous ones spent. A required parameter rather than a
+	 * defaulted one precisely so that a caller cannot forget to answer.
+	 */
 	async create(
 		runMgr: RunPersistence,
 		iteration: number,
+		activeElapsedMs: number,
 		extra?: {
 			toolResults?: Array<{ toolCallId: string; toolName: string; input: unknown; output: string }>
 			branchStack?: BranchStackEntry[]
@@ -79,7 +93,7 @@ export class CheckpointManager {
 			costInfo: { ...runMgr.costInfo },
 			guardState: {
 				iterationCount: runMgr.currentIteration,
-				elapsedMs: Date.now() - (runMgr.getSession().startedAt ?? Date.now()),
+				elapsedMs: Math.max(0, activeElapsedMs),
 			},
 			createdAt: Date.now(),
 			toolResultHashes: extra?.toolResults ? buildToolResultHashes(extra.toolResults) : undefined,
