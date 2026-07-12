@@ -496,6 +496,11 @@ describe('attemptModelCall — the in-flight call is bounded, not just the attem
 			log: makeLogger(),
 		})
 
+		// Wait until the request is genuinely in flight before aborting. Aborting
+		// earlier is a different case — the request is never issued at all — and it is
+		// covered in the settle-ordering block below.
+		await vi.waitFor(() => expect(provider.calls).toHaveLength(1))
+
 		ctrl.abort()
 		await expect(promise).rejects.toMatchObject({ kind: 'aborted' })
 		expect(provider.calls).toHaveLength(1)
@@ -603,6 +608,103 @@ describe('attemptModelCall — the in-flight call is bounded, not just the attem
 		} finally {
 			process.off('warning', onWarning)
 		}
+	})
+})
+
+/**
+ * ses_015 pre-freeze R5 B1. Abort and deadline are STOP signals, not candidates in
+ * a race they can lose.
+ *
+ * They could lose it. The abort listener did not settle the call; it scheduled a
+ * zero-delay TIMER that settled it. `provider.chat` is invoked from a MICROTASK, and
+ * every microtask runs before any timer — so an abort delivered after
+ * `callWithinDeadline` returned was recorded, queued, and then beaten to the settle
+ * by the very request it was supposed to prevent. On a fast provider the response
+ * won outright and the loop carried on working for a run the caller had cancelled;
+ * on a slow one the request still went out, and on an adapter that ignores the
+ * signal (Ollama's non-streaming `chat()`) it was billed all the same.
+ *
+ * The deadline had the same hole from the other side: its timer cannot fire before
+ * the invocation microtask either, so a budget that expired in the gap issued the
+ * request anyway and only abandoned the wait afterwards.
+ *
+ * Both are now re-read in the invocation callback itself, immediately before the
+ * request would leave the process, and the abort rejects in its own tick.
+ */
+describe('attemptModelCall — abort and deadline settle ahead of the provider', () => {
+	it('never issues the request when the abort lands right after the call is entered', async () => {
+		const ctrl = new AbortController()
+		const provider = makeProvider(async () => okResponse())
+
+		const promise = attemptModelCall({
+			provider,
+			params: { model: 'm', messages: [] },
+			retry: RETRY,
+			signal: ctrl.signal,
+			deadlineAt: FAR_DEADLINE(),
+			log: makeLogger(),
+		})
+
+		// Synchronous: the executor has installed the listener and queued the
+		// invocation microtask, which has not run yet. Under the timer-deferred abort
+		// this ordering issued the request and let a fast answer win.
+		ctrl.abort()
+
+		await expect(promise).rejects.toMatchObject({ kind: 'aborted' })
+		expect(provider.calls).toHaveLength(0)
+	})
+
+	it("rejects as aborted when the abort lands while a fast provider is resolving — the provider's value does not win", async () => {
+		const ctrl = new AbortController()
+		// The provider cancels the run itself (a hook, a host, a user hitting ctrl-c
+		// while the request is on the wire) and answers in the same breath. The answer
+		// came after the abort; it does not get to overturn it.
+		const provider = makeProvider(async () => {
+			ctrl.abort()
+			return okResponse()
+		})
+
+		const promise = attemptModelCall({
+			provider,
+			params: { model: 'm', messages: [] },
+			retry: RETRY,
+			signal: ctrl.signal,
+			deadlineAt: FAR_DEADLINE(),
+			log: makeLogger(),
+		})
+
+		await expect(promise).rejects.toMatchObject({ kind: 'aborted' })
+		// The request WAS issued — this is the in-flight case — but its response is
+		// discarded rather than flowing on into hooks, tools, and the history.
+		expect(provider.calls).toHaveLength(1)
+	})
+
+	it('never issues the request when the deadline expires in the microtask gap', async () => {
+		// The gap is invisible to a clock the test cannot step, so the clock is the
+		// test's. Reads 1-3 are the retry loop's guard, the entry check, and armDeadline
+		// — all inside the budget. The 4th read is the gate in the invocation callback,
+		// one microtask later, and by then the budget is spent.
+		const now = vi.spyOn(Date, 'now')
+		now.mockReturnValueOnce(0).mockReturnValueOnce(0).mockReturnValueOnce(0)
+		now.mockReturnValue(5_000)
+
+		const provider = makeProvider(async () => okResponse())
+
+		const promise = attemptModelCall({
+			provider,
+			params: { model: 'm', messages: [] },
+			retry: RETRY,
+			signal: new AbortController().signal,
+			deadlineAt: 1_000,
+			log: makeLogger(),
+		})
+
+		// 'network', not 'aborted': a spent budget is what the loop classifies as a
+		// timeout (retryable transport kind + a deadline that has passed), not a cancel.
+		await expect(promise).rejects.toMatchObject({ kind: 'network' })
+		// Not "issued and then ignored" — never issued. An adapter that cannot honor
+		// the signal bills for every request it is handed, whoever stops waiting for it.
+		expect(provider.calls).toHaveLength(0)
 	})
 })
 

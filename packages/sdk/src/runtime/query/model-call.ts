@@ -132,8 +132,23 @@ function computeBackoffDelay(err: unknown, attempt: number, retry: RetryConfig):
 }
 
 /**
+ * Returned in place of a response when the pre-invocation gate decides the request
+ * must not be issued at all. It is not an error and never surfaces: the gate has
+ * already settled the outer promise, so this only tells the response handler that
+ * there is no response to resolve with. A sentinel rather than `undefined` because
+ * `undefined` is a value a misbehaving adapter could actually return.
+ */
+const NOT_ISSUED = Symbol('model-call:not-issued')
+
+/**
  * Issue one physical `provider.chat` and settle on whichever comes first: the
  * provider's own answer, the run signal aborting, or the run deadline elapsing.
+ *
+ * **Abort and deadline are first-come.** Both settle this promise in the tick they
+ * are observed, and the request is not issued once either has landed — not before
+ * the pre-check, not during `onAttempt`, not between installing the listener and
+ * invoking the provider, and not in the microtask gap in between. A provider
+ * response wins only when it wins outright.
  *
  * **The in-flight request is not cancelled by this function — the *wait* for it
  * is.** `signal` is still forwarded to the provider, so an adapter that honors it
@@ -179,12 +194,10 @@ function callWithinDeadline(
 	}
 
 	let deadlineTimer: ReturnType<typeof setTimeout> | undefined
-	let abortTimer: ReturnType<typeof setTimeout> | undefined
 	let onAbort: (() => void) | undefined
 
 	const cleanup = (): void => {
 		if (deadlineTimer !== undefined) clearTimeout(deadlineTimer)
-		if (abortTimer !== undefined) clearTimeout(abortTimer)
 		if (onAbort !== undefined) signal.removeEventListener('abort', onAbort)
 	}
 
@@ -197,26 +210,10 @@ function callWithinDeadline(
 			action()
 		}
 
-		onAbort = (): void => {
-			// An abort does not throw away work already done. The loop deliberately
-			// accounts usage and fires `post_llm_call` for a call that COMPLETED even
-			// though the run was cancelled in the meantime (ses_015 A4) — the tokens
-			// were spent either way, and observers should see the call that happened.
-			// So the abort rejection is deferred by one turn of the event loop, which
-			// lets a chat promise that has ALREADY resolved settle first. When the
-			// provider genuinely has nothing to give yet, this fires and the wait is
-			// abandoned — which is what keeps `cancel()` from hanging until the
-			// deadline on an adapter that cannot be aborted.
-			abortTimer = setTimeout(() => {
-				settle(() => {
-					reject(
-						new ProviderRequestError('Aborted during model call', {
-							kind: 'aborted',
-							providerId: provider.id,
-						}),
-					)
-				})
-			}, 0)
+		const abortWait = (message: string): void => {
+			settle(() => {
+				reject(new ProviderRequestError(message, { kind: 'aborted', providerId: provider.id }))
+			})
 		}
 
 		const abandonWait = (): void => {
@@ -228,6 +225,19 @@ function callWithinDeadline(
 					),
 				)
 			})
+		}
+
+		// SYNCHRONOUS, in the abort event's own tick. The earlier version deferred this
+		// rejection through a zero-delay timer, to let a chat promise that had already
+		// resolved settle first. But `provider.chat` is invoked from a MICROTASK, and
+		// microtasks run ahead of timers: the deferral did not hand the race to a
+		// finished call, it handed the race to EVERY call — an abort could be observed,
+		// scheduled, and then beaten by a provider that had not even been asked yet.
+		// Cancellation is a stop signal, not a vote, so it settles the moment it lands
+		// and everything downstream of it becomes a no-op through `settle` (ses_015
+		// pre-freeze R5 B1).
+		onAbort = (): void => {
+			abortWait('Aborted during model call')
 		}
 
 		// A deadline further out than {@link MAX_TIMER_DELAY_MS} cannot be expressed in
@@ -258,16 +268,7 @@ function callWithinDeadline(
 		// signal. Re-checking here closes the window on every ordering: whatever else
 		// happens, an abort that is already visible settles the call now (ses_015
 		// pre-freeze R4 B1).
-		if (signal.aborted) {
-			settle(() => {
-				reject(
-					new ProviderRequestError('Aborted before the request was issued', {
-						kind: 'aborted',
-						providerId: provider.id,
-					}),
-				)
-			})
-		}
+		if (signal.aborted) abortWait('Aborted before the request was issued')
 
 		// The race is already decided — by the abort above, or by `armDeadline` finding
 		// the clock past `deadlineAt` on its own re-read. Issuing the request anyway
@@ -281,9 +282,31 @@ function callWithinDeadline(
 		// throw has to arrive as a rejection of THIS promise so it settles through the
 		// same path — and reaches the same cleanup — as every other failure.
 		Promise.resolve()
-			.then(() => provider.chat({ ...params, signal }))
+			.then<ChatCompletionResponse | typeof NOT_ISSUED>(() => {
+				// Last gate before the request leaves the process. The checks above ran in
+				// the executor's tick; this callback runs a microtask later, and both stop
+				// conditions can land in that gap — an abort delivered right after
+				// `callWithinDeadline` returns, or a deadline that simply comes due (its
+				// timer cannot fire before this microtask, so the timer alone would let the
+				// request go out and only abandon the wait afterwards). Re-reading both here
+				// is what makes "not issued" true rather than merely "not awaited": on a
+				// provider that ignores the signal, an issued request is billed however
+				// promptly we walk away from it (ses_015 pre-freeze R5 B1 + M1).
+				if (signal.aborted) {
+					abortWait('Aborted before the request was issued')
+					return NOT_ISSUED
+				}
+				if (Date.now() >= deadlineAt) {
+					abandonWait()
+					return NOT_ISSUED
+				}
+				return provider.chat({ ...params, signal })
+			})
 			.then(
-				(response) => settle(() => resolve(response)),
+				(response) => {
+					if (response === NOT_ISSUED) return
+					settle(() => resolve(response))
+				},
 				(err) => settle(() => reject(err)),
 			)
 	}).finally(cleanup)

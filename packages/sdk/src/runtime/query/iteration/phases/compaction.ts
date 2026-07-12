@@ -4,7 +4,11 @@ import { serializeState } from '../../../../compaction/serializer.js'
 import { buildVerifiedSummaryParts } from '../../../../compaction/verifier.js'
 import type { CompactionConfig } from '../../../../config/runtime.js'
 import { CHARS_PER_TOKEN } from '../../../../constants/limits.js'
-import { type Message, createSystemMessage } from '../../../../types/message/index.js'
+import {
+	type Message,
+	type SystemMessage,
+	createSystemMessage,
+} from '../../../../types/message/index.js'
 import type { IterationContext } from './context.js'
 
 /**
@@ -56,7 +60,7 @@ function leadingSystemMessages(messages: Message[]): Message[] {
  * inside it — leaving it interleaved rather than leading. Scanning only the head
  * let those survive and stack (ses_015 pre-freeze M2).
  */
-function isCompactionSummary(message: Message): boolean {
+function isCompactionSummary(message: Message): message is SystemMessage {
 	return message.role === 'system' && (message.content ?? '').startsWith(COMPACTION_HEADER)
 }
 
@@ -84,34 +88,48 @@ export const STATE_HEADER = '[Working state]'
  */
 export const CARRY_HEADER = '[Additional context not captured in the working state]'
 
-/** Boundary between two carry entries. One entry is one pass's own contribution. */
-const CARRY_ENTRY_DELIMITER = '\n\n[--- from an earlier compaction ---]\n\n'
+/**
+ * Boundary between two carry entries in the RENDERED body. One entry is one pass's
+ * own contribution.
+ *
+ * Presentational only. Nothing splits on it — the next pass reads the entries as
+ * data — so a conversation that contains this exact string is just a conversation
+ * that contains this exact string.
+ */
+export const CARRY_ENTRY_DELIMITER = '\n\n[--- from an earlier compaction ---]\n\n'
 
 /** Marks where a single over-budget entry was cut. */
 export const CARRY_ELISION_MARKER = '\n[... elided to fit the carry budget]'
 
 /**
- * The carry entries held by one prior summary, newest first.
+ * The carry entries held by one prior summary, newest first — READ, never parsed.
  *
- * The head region is dropped when it carries {@link STATE_HEADER} — that is this
- * writer's own working state, and this pass re-serializes it from the manager. A
- * head WITHOUT the marker came from somewhere else (a summary written before this
- * format, or by another tool) and is kept as an entry: dropping it would take the
- * only copy of its facts with it.
+ * A summary this writer produced states its carry as data on the message
+ * (`meta.compaction.carry`), and that list is taken verbatim. Nothing is recovered
+ * from the body: the body is assembled by copying user and tool content into it, so
+ * every marker a parser could key on is a marker the conversation can contain. The
+ * previous version split the body on the first {@link CARRY_HEADER} it found
+ * anywhere, which let a user message quoting that header split the parser INSIDE
+ * the serialized state — discarding everything before it and promoting the state's
+ * tail into a "carried" entry — and let a message quoting the entry delimiter
+ * shatter one entry into several, so budget eviction could evict half of the NEWEST
+ * finding (ses_015 pre-freeze R5 B2).
+ *
+ * A summary with no such data is either older than this format or came from another
+ * tool. Its body is taken WHOLE as a single opaque entry — no markers consulted,
+ * nothing split — because dropping it would take the only copy of its facts with it.
+ * The one exception is a body that begins with {@link STATE_HEADER}: that prefix
+ * sits at a position nothing but this writer controls, and it means the body is a
+ * working state this pass re-serializes from the manager anyway. Carrying it would
+ * duplicate the state, not preserve it.
  */
-function carryEntriesOf(summary: Message): string[] {
-	const body = (summary.content ?? '').slice(COMPACTION_HEADER.length).trim()
-	const carryAt = body.indexOf(CARRY_HEADER)
-	const head = (carryAt === -1 ? body : body.slice(0, carryAt)).trim()
-	const carried = carryAt === -1 ? '' : body.slice(carryAt + CARRY_HEADER.length)
+function carryEntriesOf(summary: SystemMessage): string[] {
+	const structured = summary.meta?.compaction?.carry
+	if (structured) return structured.map((entry) => entry.trim()).filter((entry) => entry.length > 0)
 
-	const entries = carried
-		.split(CARRY_ENTRY_DELIMITER)
-		.map((entry) => entry.trim())
-		.filter((entry) => entry.length > 0)
-
-	if (head.length > 0 && !head.startsWith(STATE_HEADER)) entries.unshift(head)
-	return entries
+	const body = summary.content.slice(COMPACTION_HEADER.length).trim()
+	if (body.length === 0 || body.startsWith(STATE_HEADER)) return []
+	return [body]
 }
 
 /**
@@ -132,6 +150,18 @@ function priorCarryEntries(messages: Message[]): string[] {
 		if (summary) entries.push(...carryEntriesOf(summary))
 	}
 	return dedupeEntries(entries)
+}
+
+/**
+ * A summary as it goes out: the text the model reads, and the same carry list as
+ * data for the next pass to read. The two are built from ONE capped list, so what
+ * the next pass inherits is exactly what this pass showed the model — the rendering
+ * cannot drift from the record, and the record does not quietly hold facts the model
+ * was never given.
+ */
+interface SummaryBody {
+	text: string
+	carry: string[]
 }
 
 function dedupeEntries(entries: string[]): string[] {
@@ -160,6 +190,14 @@ function dedupeEntries(entries: string[]): string[] {
  * exceeds the budget it is truncated instead — head kept, tail elided behind
  * {@link CARRY_ELISION_MARKER} — rather than silently vanishing and leaving room
  * for older entries in its place.
+ *
+ * `convoTextBudget` is validated only as a positive number, so it can be smaller
+ * than the elision marker itself. That degenerate budget used to leave no room for
+ * the marker and therefore drop the newest entry outright — a budget below ~37
+ * characters silently inverted the policy this function exists to enforce. Below
+ * that floor the entry is hard-truncated with no marker: a budget that cannot
+ * afford to say "elided" still has to spend what it has on the newest facts
+ * (ses_015 pre-freeze R5 M2).
  */
 function capCarryEntries(entries: string[], budget: number): string[] {
 	const kept: string[] = []
@@ -174,7 +212,11 @@ function capCarryEntries(entries: string[], budget: number): string[] {
 		}
 		if (kept.length === 0) {
 			const room = budget - CARRY_ELISION_MARKER.length
-			if (room > 0) kept.push(entry.slice(0, room) + CARRY_ELISION_MARKER)
+			kept.push(
+				room > 0
+					? entry.slice(0, room) + CARRY_ELISION_MARKER
+					: entry.slice(0, Math.max(1, Math.floor(budget))),
+			)
 		}
 		// Everything past this entry is older than it. Newest-first means the drop
 		// happens here and takes the whole remainder of the list.
@@ -185,19 +227,35 @@ function capCarryEntries(entries: string[], budget: number): string[] {
 }
 
 /**
- * Assemble a summary body: the working state as re-serialized on THIS pass, then
- * the bounded newest-first carry list.
+ * Assemble a summary: the working state as re-serialized on THIS pass, then the
+ * bounded newest-first carry list — rendered for the model, and returned as data
+ * for the next pass.
  *
  * Both compaction paths build their body here — the LLM-verified one and the
  * serialize-only one — so the carry policy cannot drift between them. It already
  * had: the carry landed on the serialize-only branch first and the default,
  * verified branch went on losing summaries for a round.
  */
-function buildSummaryBody(serialized: string, carryEntries: string[], budget: number): string {
+function buildSummaryBody(serialized: string, carryEntries: string[], budget: number): SummaryBody {
 	const state = `${STATE_HEADER}\n${serialized}`
-	const capped = capCarryEntries(carryEntries, budget)
-	if (capped.length === 0) return state
-	return `${state}\n\n${CARRY_HEADER}\n${capped.join(CARRY_ENTRY_DELIMITER)}`
+	const capped = capCarryEntries(dedupeEntries(carryEntries), budget)
+	if (capped.length === 0) return { text: state, carry: [] }
+	return {
+		text: `${state}\n\n${CARRY_HEADER}\n${capped.join(CARRY_ENTRY_DELIMITER)}`,
+		carry: capped,
+	}
+}
+
+/**
+ * The summary message: rendered text for the model, structured carry for the next
+ * pass. Every summary this module writes is built here, so none can ship its carry
+ * as text alone and force the next pass back into parsing.
+ */
+function createSummaryMessage(body: SummaryBody): SystemMessage {
+	return {
+		...createSystemMessage(`${COMPACTION_HEADER}\n\n${body.text}`),
+		meta: { compaction: { carry: body.carry } },
+	}
 }
 
 export async function runCompactionCheck(ctx: IterationContext): Promise<void> {
@@ -329,13 +387,9 @@ export async function runCompactionCheck(ctx: IterationContext): Promise<void> {
 	}
 
 	const own = additions.trim()
-	const compactedContent = buildSummaryBody(
-		serialized,
-		own ? dedupeEntries([own, ...prior]) : prior,
-		config.convoTextBudget,
+	const compactionMessage = createSummaryMessage(
+		buildSummaryBody(serialized, own ? [own, ...prior] : prior, config.convoTextBudget),
 	)
-
-	const compactionMessage = createSystemMessage(`${COMPACTION_HEADER}\n\n${compactedContent}`)
 
 	// Strip on BOTH sides of the insert: a summary can sit in the leading system
 	// run or, after a forced reduction, inside the recent window. Dropping a
@@ -421,12 +475,13 @@ function buildStructuredReduction(
 	// its own — it carries what is already there, under the same policy as the
 	// proactive path. Scanned over the whole history and stripped on both sides of
 	// the insert (pre-freeze M2).
-	const compactedContent = buildSummaryBody(
-		serializeState(manager.getState()),
-		priorCarryEntries(messages),
-		config.convoTextBudget,
+	const compactionMessage = createSummaryMessage(
+		buildSummaryBody(
+			serializeState(manager.getState()),
+			priorCarryEntries(messages),
+			config.convoTextBudget,
+		),
 	)
-	const compactionMessage = createSystemMessage(`${COMPACTION_HEADER}\n\n${compactedContent}`)
 
 	return [
 		...stripPriorCompactionSummaries(systemMessages),

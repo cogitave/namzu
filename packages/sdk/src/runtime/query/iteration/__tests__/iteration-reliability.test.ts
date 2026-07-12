@@ -29,6 +29,13 @@
 //   gate's post-deadline branch end-to-end. The gate is therefore asserted
 //   directly on `isDeadlineTimeoutStop`, and each half is pinned by a test that
 //   fails when that half is dropped.
+//
+// Current-code invariants asserted (2026-07-12, ses_015 pre-freeze R5):
+// - A post-success abort and a mid-call abort are distinct. The first accounts the
+//   completed call's usage and fires token_usage_updated; the second settles the
+//   model call the moment the abort lands, so the response never reaches the loop
+//   and there is no usage to account. Both end the run 'cancelled' with no assistant
+//   message, no tools executed, and no llm_response event.
 // These tests drive the real query() loop with hand-rolled fake providers.
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -131,6 +138,12 @@ async function runQuery(opts: {
 	messages: Message[]
 	signal?: AbortSignal
 	runConfig?: Partial<AgentRunConfig>
+	/**
+	 * Observe events as the loop emits them. The only handle a test has on the
+	 * INSIDE of a run: `drainQuery` is awaited as a whole, so a hook that has to
+	 * fire at a specific point mid-iteration has nowhere else to hang.
+	 */
+	onEvent?: (event: RunEvent) => void
 }): Promise<{ run: Run; events: RunEvent[] }> {
 	const events: RunEvent[] = []
 	const run = await drainQuery(
@@ -157,6 +170,7 @@ async function runQuery(opts: {
 		},
 		(e) => {
 			events.push(e)
+			opts.onEvent?.(e)
 		},
 	)
 	return { run, events }
@@ -168,6 +182,46 @@ afterEach(() => {
 
 describe('iteration loop — post-success abort', () => {
 	it('accounts usage, skips the assistant push, and cancels', async () => {
+		// A post-SUCCESS abort: the response reached the loop, its usage was accounted,
+		// and the cancel lands before the loop acts on the content. `token_usage_updated`
+		// is the loop's own marker for "the call is accounted for", so aborting on it
+		// puts the cancel exactly in that window without racing a timer for it.
+		const ctrl = new AbortController()
+		const provider = makeProvider(async () => toolResponse('c1', '{}'))
+
+		const { run, events } = await runQuery({
+			provider,
+			messages: [createUserMessage('hello')],
+			signal: ctrl.signal,
+			onEvent: (e) => {
+				if (e.type === 'token_usage_updated') ctrl.abort()
+			},
+		})
+
+		expect(run.status).toBe('cancelled')
+		expect(run.stopReason).toBe('cancelled')
+		expect(provider.calls).toBe(1)
+		expect(run.messages.some((m) => m.role === 'assistant')).toBe(false)
+		// The tokens were spent and the observer sees them; the content they paid for
+		// is still not acted on.
+		expect(events.some((e) => e.type === 'token_usage_updated')).toBe(true)
+		expect(events.some((e) => e.type === 'llm_response')).toBe(false)
+	})
+
+	// ses_015 pre-freeze R5 B1. The abort above lands AFTER the call completed. An
+	// abort that lands while the call is still in flight is a different case with a
+	// different answer, and the two were previously conflated: the model call
+	// deferred its abort rejection through a timer, which let a provider resolving in
+	// the same tick win the race and be treated as a completed call.
+	//
+	// It is not one. Cancellation settles the call the moment it lands, so a response
+	// the provider produces afterwards is discarded — no assistant message, no tools,
+	// and no usage accounting, because the loop never receives the response to account
+	// (the same trade already made for a response that arrives after the deadline
+	// abandons the wait: on an adapter that ignores the signal those tokens are billed
+	// and unaccounted, and buying them back would mean letting a cancelled run keep
+	// mutating its own totals).
+	it('discards the response when the abort lands mid-call, and still cancels cleanly', async () => {
 		const ctrl = new AbortController()
 		const provider = makeProvider(async () => {
 			ctrl.abort()
@@ -184,8 +238,9 @@ describe('iteration loop — post-success abort', () => {
 		expect(run.stopReason).toBe('cancelled')
 		expect(provider.calls).toBe(1)
 		expect(run.messages.some((m) => m.role === 'assistant')).toBe(false)
-		expect(events.some((e) => e.type === 'token_usage_updated')).toBe(true)
 		expect(events.some((e) => e.type === 'llm_response')).toBe(false)
+		// The response never reached the loop, so there is nothing to account.
+		expect(events.some((e) => e.type === 'token_usage_updated')).toBe(false)
 	})
 
 	it('repairs a dangling tool call in the run history on cancellation', async () => {
