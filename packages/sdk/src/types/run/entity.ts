@@ -51,6 +51,29 @@ export interface Run {
 }
 
 /**
+ * The projection of a {@link Run} that `run.json` actually holds — the meta file
+ * carries no `messages`, `costInfo`, `stopReason` or `result`, only a `messageCount`.
+ *
+ * Named separately from `Run` rather than reusing it because a reader that types the
+ * file as a `Run` gets a `messages: Message[]` field the file does not have, and the
+ * first consumer to trust it reads `undefined.length`. The narrower type is the honest
+ * one: it says what is on disk.
+ */
+export interface PersistedRunMeta {
+	id: RunId
+	status: AgentStatus
+	metadata: RunStateMetadata
+	tokenUsage: TokenUsage
+	currentIteration: number
+	startedAt: number
+	endedAt?: number
+	lastError?: string
+	messageCount: number
+	parentRunId?: RunId
+	depth?: number
+}
+
+/**
  * @deprecated Use {@link Run}. Alias retained for the 0.4.x compatibility
  * window; scheduled for removal in a later session.
  */

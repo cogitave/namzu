@@ -1,4 +1,6 @@
+import type { HITLDecisionRequest } from '../../../../types/hitl/index.js'
 import type { RunEvent } from '../../../../types/run/index.js'
+import { generateDecisionRequestId } from '../../../../utils/id.js'
 import { CheckpointManager } from '../../checkpoint.js'
 import { type IterationContext, type PhaseSignal, handleHITLDecision } from './context.js'
 
@@ -21,12 +23,14 @@ export async function* runIterationCheckpoint(
 	yield* ctx.drainPending()
 
 	const summary = CheckpointManager.buildSummary(ctx.runMgr, iterationNum)
-	const iterDecision = await ctx.resumeHandler({
+	const request: HITLDecisionRequest = {
 		type: 'iteration_checkpoint',
+		requestId: generateDecisionRequestId(),
 		runId: ctx.runMgr.id,
 		checkpointId: iterCheckpoint.id,
 		summary,
-	})
+	}
+	const iterDecision = await ctx.resumeHandler(request)
 
-	return yield* handleHITLDecision(ctx, iterDecision, iterCheckpoint.id, 'iteration_checkpoint')
+	return yield* handleHITLDecision(ctx, iterDecision, request, 'iteration_checkpoint')
 }

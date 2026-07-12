@@ -158,6 +158,11 @@ export type StreamEventType =
 	| 'tool.executing'
 	| 'tool.completed'
 	| 'tool.error'
+	/**
+	 * A dispatched tool call whose result was lost to a crash, and which was NOT
+	 * re-executed on recovery. Its real-world effect is unknown.
+	 */
+	| 'tool.uncertain'
 	| 'token.usage'
 	| 'message.created'
 	| 'message.delta'

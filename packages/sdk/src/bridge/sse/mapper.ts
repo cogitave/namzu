@@ -63,6 +63,15 @@ const MAPPING: {
 		wire: 'review.requested',
 		transform: (e) => ({
 			run_id: e.runId,
+			// The id a client answers, and the checkpoint it answers against. Stable across
+			// re-emission, so a client that already answered this request recognises it
+			// rather than asking a human the same question twice.
+			//
+			// The resume TOKEN is not here, and must never be: this is a broadcast stream,
+			// and a capability every subscriber can read is not a capability. It is fetched
+			// server-side by an authorized reader.
+			request_id: e.requestId,
+			checkpoint_id: e.checkpointId,
 			tool_calls: e.toolCalls,
 			iteration: e.iteration,
 		}),
@@ -73,6 +82,15 @@ const MAPPING: {
 		transform: (e) => ({
 			run_id: e.runId,
 			decision: e.decision,
+		}),
+	},
+
+	tool_execution_uncertain: {
+		wire: 'tool.uncertain',
+		transform: (e) => ({
+			run_id: e.runId,
+			tool_call_id: e.toolCallId,
+			tool_name: e.toolName,
 		}),
 	},
 

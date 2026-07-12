@@ -4,7 +4,7 @@ import { type CostInfo, type TokenUsage, accumulateTokenUsage } from '../../type
 import type { IterationCheckpoint } from '../../types/hitl/index.js'
 import type { RunId, SessionId, TenantId } from '../../types/ids/index.js'
 import type { AssistantMessage, Message } from '../../types/message/index.js'
-import type { EmergencySaveData } from '../../types/run/emergency.js'
+import type { AwaitingDecisionRef, EmergencySaveData } from '../../types/run/emergency.js'
 import type { Run, RunPersistenceConfig, StopReason } from '../../types/run/index.js'
 import type { ProjectId, ThreadId } from '../../types/session/ids.js'
 import { type ModelPricing, ZERO_COST, accumulateCost } from '../../utils/cost.js'
@@ -16,6 +16,7 @@ export class RunPersistence {
 	private runStore: RunDiskStore
 	private pricing?: ModelPricing
 	private log: Logger
+	private awaitingDecision?: AwaitingDecisionRef
 	private readonly _sessionId: SessionId
 	private readonly _threadId: ThreadId
 	private readonly _tenantId: TenantId
@@ -213,10 +214,18 @@ export class RunPersistence {
 	 * `stopReason: 'paused'` is a label, not a state. It is set here for the
 	 * benefit of readers, but nothing may infer terminality from it — see
 	 * {@link import('../../types/run/disposition.js').RunDisposition}.
+	 *
+	 * `awaitingDecision` is a POINTER to the decision the run is parked on — the
+	 * decision itself lives on the checkpoint, and copying it here would create a
+	 * second source of truth that the first crash would leave disagreeing with the
+	 * first. The pointer is what lets an emergency snapshot taken mid-pause say
+	 * "resume from THAT checkpoint" instead of being projected into a history whose
+	 * pending tool call gets repaired away.
 	 */
-	markSuspended(): void {
+	markSuspended(awaitingDecision?: AwaitingDecisionRef): void {
 		this.run.status = 'awaiting_input'
 		this.run.stopReason = 'paused'
+		this.awaitingDecision = awaitingDecision
 	}
 
 	markFailed(error: string): void {
@@ -278,6 +287,7 @@ export class RunPersistence {
 			savedAt: Date.now(),
 			processSignal: signal,
 			lastError: this.run.lastError,
+			awaitingDecision: this.awaitingDecision,
 		}
 	}
 

@@ -80,6 +80,12 @@ interface Harness {
 	suspended: boolean
 	/** Run status observed at the moment `run_paused` was emitted. */
 	statusAtPause: string | null
+	/** Pending decisions written to a checkpoint, with the run's parked-ness at write time. */
+	attached: Array<{
+		checkpointId: string
+		decision: { requestId: string; state: string; resumeToken: string }
+		suspendedAtWrite: boolean
+	}>
 	log: Logger
 }
 
@@ -131,8 +137,9 @@ function makeHarness(opts: {
 		cancelled: false,
 		suspended: false,
 		statusAtPause: null,
+		attached: [],
 		log,
-	} as Harness
+	} as unknown as Harness
 
 	const emitEvent = async (event: RunEvent): Promise<void> => {
 		// Snapshot the run's status as a listener would see it AT emission time.
@@ -187,6 +194,16 @@ function makeHarness(opts: {
 		},
 		checkpointMgr: {
 			create: async () => ({ id: 'cp_test' }),
+			// D1: a `pause` persists the question on the checkpoint BEFORE parking the run,
+			// so a process that dies between the two leaves a checkpoint that still knows
+			// what it was waiting for. `suspendedAtWrite` is what proves the ordering.
+			attachPendingDecision: async (checkpointId: string, decision: unknown) => {
+				harness.attached.push({
+					checkpointId,
+					decision: decision as { requestId: string; state: string; resumeToken: string },
+					suspendedAtWrite: harness.suspended,
+				})
+			},
 		},
 		// The review checkpoint records the run's accumulated active execution time,
 		// which only the guard meters (ses_017). This phase reads it; it does not
@@ -511,7 +528,7 @@ describe('runToolReview — modify_tools re-enters the gate', () => {
 })
 
 describe('runToolReview — decisions that stop or reject (regression)', () => {
-	it('reject_tools executes nothing and tells the model why', async () => {
+	it('reject_tools executes nothing, ANSWERS every call, and tells the model why', async () => {
 		const h = makeHarness({ decision: { action: 'reject_tools', feedback: 'not now' } })
 
 		const outcome = await drive(
@@ -523,6 +540,15 @@ describe('runToolReview — decisions that stop or reject (regression)', () => {
 		expect(h.execs.safe_tool).not.toHaveBeenCalled()
 		expect(h.messages.at(-1)?.content).toBe('[SYSTEM] Tool calls rejected: not now')
 		expect(h.events.some((e) => e.type === 'tool_review_completed')).toBe(true)
+
+		// Pre-ses_017 this path wrote NO tool result and pushed only the user note, so
+		// the assistant's tool-call block was left unanswered — a history every provider
+		// rejects, shipped on the very next iteration. A rejection is still a dispatch
+		// outcome: each reviewed call gets an answer.
+		const denial = toolResultFor(h, 'call_1')
+		expect(denial).toBeDefined()
+		expect(denial?.content).toContain('rejected by user')
+		expect(denial?.content).toContain('not now')
 	})
 
 	it('pause SUSPENDS the run (not "stop"), executes nothing, and parks it before announcing it', async () => {
@@ -545,6 +571,22 @@ describe('runToolReview — decisions that stop or reject (regression)', () => {
 
 		expect(h.events.some((e) => e.type === 'run_paused')).toBe(true)
 		expect(h.statusAtPause).toBe('awaiting_input')
+
+		// D1: the pause PERSISTS the question. Without this the run parks and the next
+		// `query()` repairs the unanswered tool call away — the decision is destroyed and
+		// the pause is one you cannot come back to.
+		expect(h.attached).toHaveLength(1)
+		const written = h.attached[0]
+		expect(written?.checkpointId).toBe('cp_test')
+		expect(written?.decision.state).toBe('pending')
+		expect(written?.decision.resumeToken).toMatch(/^rt_[0-9a-f]{64}$/)
+		// The SAME id the request was emitted under, so a client is not asked twice.
+		expect(written?.decision.requestId).toBe(h.reviewed[0]?.requestId)
+
+		// Written BEFORE the run was parked: a process that dies between the two must
+		// leave a checkpoint that knows what it was waiting for, not a parked run with
+		// no question on it.
+		expect(written?.suspendedAtWrite).toBe(false)
 	})
 
 	it('abort cancels the run and executes nothing', async () => {

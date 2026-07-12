@@ -1,4 +1,6 @@
+import type { HITLDecisionRequest } from '../../../../types/hitl/index.js'
 import type { RunEvent } from '../../../../types/run/index.js'
+import { generateDecisionRequestId } from '../../../../utils/id.js'
 import { type IterationContext, type PhaseSignal, handleHITLDecision } from './context.js'
 
 export async function* runPlanGate(ctx: IterationContext): AsyncGenerator<RunEvent, PhaseSignal> {
@@ -17,8 +19,9 @@ export async function* runPlanGate(ctx: IterationContext): AsyncGenerator<RunEve
 	yield* ctx.drainPending()
 
 	const plan = ctx.planManager.active
-	const planDecision = await ctx.resumeHandler({
+	const request: HITLDecisionRequest = {
 		type: 'plan_approval',
+		requestId: generateDecisionRequestId(),
 		runId: ctx.runMgr.id,
 		checkpointId: planCheckpoint.id,
 		plan: {
@@ -33,7 +36,8 @@ export async function* runPlanGate(ctx: IterationContext): AsyncGenerator<RunEve
 			})),
 			summary: plan.summary,
 		},
-	})
+	}
+	const planDecision = await ctx.resumeHandler(request)
 
-	return yield* handleHITLDecision(ctx, planDecision, planCheckpoint.id, 'plan_gate')
+	return yield* handleHITLDecision(ctx, planDecision, request, 'plan_gate')
 }

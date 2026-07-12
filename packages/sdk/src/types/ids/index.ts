@@ -18,6 +18,30 @@ export type MCPClientId = `mcpc_${string}`
 export type MCPSessionId = `mcps_${string}`
 export type EnvironmentId = `env_${string}`
 export type CheckpointId = `cp_${string}`
+
+/**
+ * Stable identity of one HITL decision request, minted when the request is put
+ * to a reviewer and unchanged across every re-emission of that same request. A
+ * durable pause that re-emitted a fresh id on every resume would make an
+ * idempotent client answer the same question twice.
+ */
+export type DecisionRequestId = `dreq_${string}`
+
+/**
+ * Opaque, single-use capability that identifies one paused decision and permits
+ * it to be answered. Scoped to (run, request); redeeming it invalidates it.
+ *
+ * **A token is necessary, never sufficient.** Possession does not authorize:
+ * the route that accepts a decision still has to establish that the caller owns
+ * the run. n8n's Ni8mare (CVE-2026-21858) is in exactly this threat class — the
+ * endpoint that resumes a paused execution is a real, exploited attack surface,
+ * and a leaked resume token must not BE an authorization. For the same reason
+ * the token is never emitted on the run's event stream: an event stream is a
+ * broadcast, and a capability broadcast to every subscriber is not a capability.
+ * It lives on the checkpoint, and an authorized server-side reader hands it to
+ * whoever is entitled to answer.
+ */
+export type ResumeToken = `rt_${string}`
 export type LockId = `lock_${string}`
 export type AdvisoryId = `adv_${string}`
 export type AdvisoryCallId = `advc_${string}`

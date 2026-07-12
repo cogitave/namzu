@@ -2,7 +2,15 @@ import type { ActivityStatus, ActivityType } from '../activity/index.js'
 import type { BaseAgentResult } from '../agent/base.js'
 import type { CostInfo, TokenUsage } from '../common/index.js'
 import type { CheckpointId, ToolCallSummary } from '../hitl/index.js'
-import type { ActivityId, PlanId, PluginId, RunId, SandboxId, TaskId } from '../ids/index.js'
+import type {
+	ActivityId,
+	DecisionRequestId,
+	PlanId,
+	PluginId,
+	RunId,
+	SandboxId,
+	TaskId,
+} from '../ids/index.js'
 import type { PlanStep } from '../plan/index.js'
 import type { PluginHookEvent, PluginHookResult } from '../plugin/index.js'
 import type { TaskStatus } from '../task/index.js'
@@ -57,8 +65,23 @@ type CoreRunEvent =
 			result: string
 	  }
 	| {
+			/**
+			 * A batch is being put to a reviewer.
+			 *
+			 * `requestId` is stable across every re-emission of the same request: a run
+			 * that parks, is resumed, and finds its decision still unanswered re-emits
+			 * THIS event with THIS id, so an idempotent client is not asked the same
+			 * question twice under two names. `checkpointId` is where the decision is
+			 * persisted, and is what an out-of-process answer addresses.
+			 *
+			 * The resume TOKEN is deliberately not here. An event stream is a broadcast,
+			 * and a capability broadcast to every subscriber is not a capability; it is
+			 * read server-side, by an authorized reader, from the checkpoint.
+			 */
 			type: 'tool_review_requested'
 			runId: RunId
+			requestId: DecisionRequestId
+			checkpointId: CheckpointId
 			toolCalls: ToolCallSummary[]
 			iteration: number
 	  }
@@ -66,6 +89,22 @@ type CoreRunEvent =
 			type: 'tool_review_completed'
 			runId: RunId
 			decision: 'approved' | 'modified' | 'rejected'
+	  }
+	| {
+			/**
+			 * A tool call was dispatched, the process stopped before its result was
+			 * recorded, and it was NOT re-executed on recovery. Its real-world effect is
+			 * unknown — it may have run in full.
+			 *
+			 * Surfaced rather than guessed at. Exactly-once execution of an arbitrary
+			 * side effect is a fiction; the honest thing a framework can do when it
+			 * cannot know is say so, to the model and to the human, instead of quietly
+			 * running the call a second time.
+			 */
+			type: 'tool_execution_uncertain'
+			runId: RunId
+			toolCallId: string
+			toolName: string
 	  }
 	| {
 			type: 'checkpoint_created'

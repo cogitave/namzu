@@ -2,12 +2,17 @@ import { join } from 'node:path'
 import { repairDanglingMessages } from '../../../compaction/dangling.js'
 import { EmergencySaveManager } from '../../../manager/run/emergency.js'
 import { RunDiskStore } from '../../../store/run/disk.js'
-import type { CheckpointId, IterationCheckpoint } from '../../../types/hitl/index.js'
-import type { RunId } from '../../../types/ids/index.js'
+import type {
+	CheckpointId,
+	IterationCheckpoint,
+	PendingDecision,
+} from '../../../types/hitl/index.js'
+import type { DecisionRequestId, RunId } from '../../../types/ids/index.js'
 import type { Message } from '../../../types/message/index.js'
 import type { Mutation, ReplayAttribution } from '../../../types/run/replay.js'
 import type { Logger } from '../../../utils/logger.js'
 import { projectEmergencyToCheckpoint } from '../checkpoint.js'
+import { decisionOwnsToolBlock } from '../decision/pending.js'
 import { applyMutations } from './mutate.js'
 
 export type CheckpointSelector = CheckpointId | 'latest' | 'emergency'
@@ -45,6 +50,21 @@ export interface PreparedReplayState {
 	 * new `RunPersistence` before persisting the first time.
 	 */
 	attribution: ReplayAttribution
+	/**
+	 * Set when the source checkpoint was parked on a live decision that this fork did
+	 * NOT carry across.
+	 *
+	 * A replay is a fork, not a resume. The decision belongs to the original run — its
+	 * resume token is scoped to that run, and this fork has no authority to redeem it —
+	 * so the fork gets a timeline in which the human never answered and the tool never
+	 * ran, which is what the repaired history says. That is a coherent thing to want
+	 * (it is how you replay "what if I had said no?"), and it is a terrible thing to get
+	 * by accident. Surfaced so the caller knows which one happened.
+	 *
+	 * To *resume* the decision instead of forking away from it, redeem the token:
+	 * {@link import('../decision/resume.js').resumeDecision}.
+	 */
+	discardedPendingDecision?: DecisionRequestId
 }
 
 /**
@@ -69,7 +89,27 @@ export async function prepareReplayState(input: PrepareReplayInput): Promise<Pre
 	// Repair after mutations: a mutation may leave a tool call unmatched (repair
 	// synthesizes an error result) or append a result at the tail (repair
 	// canonicalizes its placement) so the replayed history is provider-valid.
+	//
+	// A replay REPAIRS even when the source checkpoint is parked on a live decision, and
+	// that is deliberate — a fork is not a resume. The decision, its token and its
+	// journal belong to the original run; the fork is a new timeline in which the human
+	// never answered and the tool never ran, and the synthesized "tool result missing"
+	// is the honest description of it. What the fork must not do is take that silently,
+	// so the dropped decision comes back on the result.
 	const messages = repairDanglingMessages(mutated)
+	const discarded = sourceCheckpoint.pendingDecision
+
+	if (discarded && discarded.state !== 'settled' && discarded.state !== 'cancelled') {
+		input.logger?.warn(
+			'Replaying from a checkpoint that is parked on a live decision — the decision is NOT carried into the fork',
+			{
+				runId: input.runId,
+				checkpointId: sourceCheckpoint.id,
+				requestId: discarded.requestId,
+				state: discarded.state,
+			},
+		)
+	}
 
 	const attribution: ReplayAttribution = {
 		sourceRunId: input.runId,
@@ -78,7 +118,12 @@ export async function prepareReplayState(input: PrepareReplayInput): Promise<Pre
 		replayedAt: Date.now(),
 	}
 
-	return { messages, sourceCheckpoint, attribution }
+	return {
+		messages,
+		sourceCheckpoint,
+		attribution,
+		discardedPendingDecision: discarded?.requestId,
+	}
 }
 
 /**
@@ -87,14 +132,39 @@ export async function prepareReplayState(input: PrepareReplayInput): Promise<Pre
  * interrupted run's persisted history is provider-valid, then drops
  * system-role messages — the resume caller pushes fresh system prompts
  * separately, so re-seeding the checkpoint's system messages would duplicate
- * them. This preserves the historical resume-branch policy of skipping
- * `system` messages while adding the repair pass.
+ * them.
+ *
+ * **Unless a live decision owns the tool-call block**, in which case the repair is
+ * suppressed. This is the ses_017 fix, and it is a parameter rather than a rule the
+ * caller has to remember precisely because forgetting it is silent and destructive:
+ * `repairDanglingMessages` treats an unexecuted assistant tool call as an interrupted
+ * pair and rewrites it into a "[SYSTEM] Tool result missing" placeholder. For a crash
+ * that is exactly right. For a **pause** it destroys the call a human was asked to
+ * approve, and tells the model the tool failed. The two cases are indistinguishable
+ * from the messages alone; only the persisted decision tells them apart, so the
+ * decision is what this takes.
+ *
+ * A caller who passes nothing gets the old behaviour, which is still correct for every
+ * checkpoint that has no decision on it.
+ *
+ * The suppressed history is deliberately provider-INVALID (an assistant tool-call block
+ * with no results). That is safe only because the resume dispatcher runs before
+ * anything can see it — see
+ * {@link import('../decision/dispatch.js').dispatchPendingDecision}. There is no path
+ * from here to a provider that does not pass through it.
  *
  * @param checkpointMessages - Messages loaded from the checkpoint being resumed
- * @returns Repaired, system-filtered messages ready to seed the resumed run
+ * @param pendingDecision - The checkpoint's decision, if it has one
+ * @returns System-filtered messages ready to seed the resumed run
  */
-export function prepareResumeMessages(checkpointMessages: Message[]): Message[] {
-	return repairDanglingMessages(checkpointMessages).filter((msg) => msg.role !== 'system')
+export function prepareResumeMessages(
+	checkpointMessages: Message[],
+	pendingDecision?: PendingDecision,
+): Message[] {
+	const messages = decisionOwnsToolBlock(pendingDecision)
+		? checkpointMessages
+		: repairDanglingMessages(checkpointMessages)
+	return messages.filter((msg) => msg.role !== 'system')
 }
 
 async function resolveCheckpoint(input: PrepareReplayInput): Promise<IterationCheckpoint> {

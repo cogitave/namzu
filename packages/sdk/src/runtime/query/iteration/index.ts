@@ -125,6 +125,17 @@ export interface IterationConfig {
 export class IterationOrchestrator {
 	private ctx: IterationContext
 
+	/**
+	 * The phase context, for the one caller that needs to run a phase OUTSIDE the loop:
+	 * the resume dispatcher, which must apply a persisted decision and finish the
+	 * iteration a pause interrupted before `runLoop` may take another turn. Exposed
+	 * rather than rebuilt, so the dispatched batch runs against exactly the executor,
+	 * gate, sandbox and checkpoint manager the loop would have used.
+	 */
+	get context(): IterationContext {
+		return this.ctx
+	}
+
 	constructor(
 		config: IterationConfig,
 		runMgr: RunPersistence,

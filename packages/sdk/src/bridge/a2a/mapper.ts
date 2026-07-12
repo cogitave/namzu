@@ -91,6 +91,11 @@ const MAPPING: {
 				{
 					kind: 'data',
 					data: {
+						// What a client answers, and where. The resume token is deliberately
+						// absent — an A2A status event is a broadcast, and a capability
+						// everyone can read is not one.
+						requestId: e.requestId,
+						checkpointId: e.checkpointId,
 						toolCalls: e.toolCalls.map((tc) => ({
 							id: tc.id,
 							name: tc.name,
@@ -102,6 +107,22 @@ const MAPPING: {
 			],
 		})
 	},
+
+	tool_execution_uncertain: (e, ctx) =>
+		statusEvent(e.runId, 'running', false, ctx, {
+			role: 'agent',
+			parts: [
+				{
+					kind: 'text',
+					text: `Tool "${e.toolName}" may have already run before the process stopped. It was NOT re-executed; verify its effect before retrying.`,
+				},
+				{
+					kind: 'data',
+					data: { toolCallId: e.toolCallId, toolName: e.toolName },
+					mimeType: 'application/x-namzu-uncertain-execution',
+				},
+			],
+		}),
 
 	plan_ready: (e, ctx) =>
 		statusEvent(e.runId, 'input-required', false, ctx, {

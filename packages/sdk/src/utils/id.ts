@@ -8,6 +8,7 @@ import type {
 	ConnectorId,
 	ConnectorInstanceId,
 	CredentialId,
+	DecisionRequestId,
 	DeliverableId,
 	DocumentId,
 	EmergencySaveId,
@@ -23,6 +24,7 @@ import type {
 	PlanId,
 	PluginId,
 	ProjectId,
+	ResumeToken,
 	RunId,
 	SandboxId,
 	SessionId,
@@ -163,6 +165,24 @@ export function generateEnvironmentId(): EnvironmentId {
 
 export function generateCheckpointId(): CheckpointId {
 	return generateId('cp_')
+}
+
+export function generateDecisionRequestId(): DecisionRequestId {
+	return generateId('dreq_')
+}
+
+/**
+ * Mint a resume token — the capability that lets one paused decision be answered.
+ *
+ * 256 bits from the same CSPRNG every other id here uses, hex-encoded, rather than the
+ * 12-character base36 suffix (~62 bits) the id generator hands out. An id only has to
+ * be unique; a bearer capability has to be **unguessable**, and it is the thing standing
+ * between an attacker and a resumed run. The extra entropy is free.
+ *
+ * Possession is necessary, never sufficient — see {@link ResumeToken}.
+ */
+export function generateResumeToken(): ResumeToken {
+	return `rt_${randomBytes(32).toString('hex')}`
 }
 
 export function generateAdvisoryId(): AdvisoryId {

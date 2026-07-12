@@ -116,6 +116,8 @@ describe('mapRunToStreamEvent — mapped variants', () => {
 		const a = mapRunToStreamEvent({
 			type: 'tool_review_requested',
 			runId: RID,
+			requestId: 'dreq_test',
+			checkpointId: 'cp_test',
 			iteration: 1,
 			toolCalls: [{ id: 'tc1', name: 'write_file', input: {}, isDestructive: true }],
 		})

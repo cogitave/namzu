@@ -6,7 +6,11 @@ import type { PlanManager } from '../../../../manager/plan/lifecycle.js'
 import type { RunPersistence } from '../../../../manager/run/persistence.js'
 import type { ActivityStore } from '../../../../store/activity/memory.js'
 import type { TaskGateway, TaskHandle } from '../../../../types/agent/gateway.js'
-import type { HITLResumeDecision, ResumeHandler } from '../../../../types/hitl/index.js'
+import type {
+	HITLDecisionRequest,
+	HITLResumeDecision,
+	ResumeHandler,
+} from '../../../../types/hitl/index.js'
 import type { TaskId } from '../../../../types/ids/index.js'
 import type { LLMProvider } from '../../../../types/provider/index.js'
 import type { AgentRunConfig, RunEvent } from '../../../../types/run/index.js'
@@ -14,6 +18,7 @@ import type { TaskStore } from '../../../../types/task/index.js'
 import type { ToolRegistryContract } from '../../../../types/tool/index.js'
 import type { Logger } from '../../../../utils/logger.js'
 import type { CheckpointManager } from '../../checkpoint.js'
+import { buildPendingDecision } from '../../decision/pending.js'
 import type { EmitEvent } from '../../events.js'
 import type { ToolExecutor } from '../../executor.js'
 import type { GuardCoordinator } from '../../guard.js'
@@ -86,18 +91,39 @@ export type PhaseSignal = 'continue' | 'stop' | 'suspend'
 export async function* handleHITLDecision(
 	ctx: IterationContext,
 	decision: HITLResumeDecision,
-	checkpointId: string,
+	request: HITLDecisionRequest,
 	context: string,
 ): AsyncGenerator<RunEvent, PhaseSignal> {
+	const checkpointId = request.checkpointId
+
 	switch (decision.action) {
 		case 'pause': {
+			// An iteration checkpoint parks DURABLY: its decision is persisted, so a
+			// resume finds it and applies it. A plan approval does NOT, and that is a
+			// deliberate refusal rather than an oversight — the checkpoint captures no
+			// `PlanManager` state, so a persisted plan decision would have nothing to
+			// resume into, and a pause you cannot come back to is worse than one that
+			// says so. (The absent-handler default never reaches here for a plan: it
+			// rejects the plan outright.) Durable plan approval waits on a PlanManager
+			// restore.
+			if (request.type === 'plan_approval') {
+				ctx.log.warn(
+					'Run paused at the plan gate — this pause is NOT durably resumable (the checkpoint does not capture plan state)',
+					{ runId: ctx.runMgr.id, reason: decision.reason },
+				)
+				ctx.runMgr.markSuspended()
+			} else {
+				const pending = buildPendingDecision(request)
+				await ctx.checkpointMgr.attachPendingDecision(checkpointId, pending)
+				ctx.runMgr.markSuspended({ checkpointId, requestId: pending.requestId })
+			}
+
 			// Park the run BEFORE the event goes out: a listener that reads the run's
 			// status on `run_paused` must not observe it as still `running`.
-			ctx.runMgr.markSuspended()
 			await ctx.emitEvent({
 				type: 'run_paused',
 				runId: ctx.runMgr.id,
-				checkpointId: checkpointId as `cp_${string}`,
+				checkpointId,
 				reason: decision.reason,
 			})
 			yield* ctx.drainPending()

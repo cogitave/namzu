@@ -1,7 +1,7 @@
 import { appendFile, mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { CheckpointId, IterationCheckpoint } from '../../types/hitl/index.js'
-import type { Run, RunEvent, RunStoreConfig } from '../../types/run/index.js'
+import type { PersistedRunMeta, Run, RunEvent, RunStoreConfig } from '../../types/run/index.js'
 import { type Logger, getRootLogger } from '../../utils/logger.js'
 
 export class RunDiskStore {
@@ -9,6 +9,7 @@ export class RunDiskStore {
 	private runDir: string | null = null
 	private log: Logger
 	private indexLock: Promise<void> = Promise.resolve()
+	private checkpointLocks = new Map<CheckpointId, Promise<void>>()
 
 	constructor(config: RunStoreConfig) {
 		this.baseDir = config.baseDir
@@ -65,6 +66,27 @@ export class RunDiskStore {
 		await atomicWriteJson(join(dir, 'run.json'), meta)
 	}
 
+	/**
+	 * Read back the run's own meta file.
+	 *
+	 * The durable-resume path needs it: a decision may only be answered while the run
+	 * is actually parked, and "is this run still resumable?" is a question about the
+	 * run's persisted status, not about the checkpoint. Reading it here is what lets
+	 * `resumeDecision` refuse a cancelled or completed run structurally, rather than
+	 * relying on whoever cancelled the run having remembered to also close its open
+	 * decisions.
+	 */
+	async readRunMeta(): Promise<PersistedRunMeta | null> {
+		const dir = this.requireInit()
+		try {
+			const content = await readFile(join(dir, 'run.json'), 'utf-8')
+			return JSON.parse(content) as PersistedRunMeta
+		} catch (err) {
+			if (isFileNotFound(err)) return null
+			throw err
+		}
+	}
+
 	async writeMessages(run: Run): Promise<void> {
 		const dir = this.requireInit()
 		await atomicWriteJson(join(dir, 'messages.json'), run.messages)
@@ -98,6 +120,56 @@ export class RunDiskStore {
 		} catch (err) {
 			if (isFileNotFound(err)) return null
 			throw err
+		}
+	}
+
+	/**
+	 * Read-modify-write one checkpoint under a per-checkpoint lock.
+	 *
+	 * Every transition of a {@link import('../../types/hitl/index.js').PendingDecision}
+	 * is a compare-and-set on a file, and a plain read-then-write would let two
+	 * concurrent redemptions of the same token both observe `pending` and both proceed.
+	 * The lock serialises them **within this store instance**, which is what makes the
+	 * single-use token single-use for an in-process caller.
+	 *
+	 * **Known limit, and it is a real one.** This is not a cross-process CAS. Two
+	 * worker processes holding their own `RunDiskStore` for the same run can still
+	 * interleave a read and a write, and nothing here stops them — the store has no
+	 * CAS and no fencing token (`ses_017` open question #17). A multi-worker deployment
+	 * must serialise decision redemption above this layer (the decisions route owns the
+	 * atomic `pending → resolved` transition per plan §D1) and must not treat this lock
+	 * as the guarantee. Stated rather than papered over: a lock that silently does less
+	 * than its name promises is how the next reader ships the race.
+	 *
+	 * `mutate` returning `undefined` means "no change" and skips the write.
+	 */
+	async updateCheckpoint(
+		checkpointId: CheckpointId,
+		mutate: (checkpoint: IterationCheckpoint) => IterationCheckpoint | undefined,
+	): Promise<IterationCheckpoint | null> {
+		const prev = this.checkpointLocks.get(checkpointId) ?? Promise.resolve()
+		let release!: () => void
+		const lock = new Promise<void>((r) => {
+			release = r
+		})
+		this.checkpointLocks.set(checkpointId, lock)
+
+		try {
+			await prev
+
+			const current = await this.readCheckpoint(checkpointId)
+			if (!current) return null
+
+			const next = mutate(current)
+			if (!next) return current
+
+			await this.writeCheckpoint(next)
+			return next
+		} finally {
+			release()
+			if (this.checkpointLocks.get(checkpointId) === lock) {
+				this.checkpointLocks.delete(checkpointId)
+			}
 		}
 	}
 

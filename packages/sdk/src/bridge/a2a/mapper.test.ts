@@ -137,6 +137,8 @@ describe('mapRunToA2AEvent — mapped variants', () => {
 		const event: RunEvent = {
 			type: 'tool_review_requested',
 			runId: RID,
+			requestId: 'dreq_test',
+			checkpointId: 'cp_test',
 			iteration: 2,
 			toolCalls: [{ id: 'tc1', name: 'write_file', input: {}, isDestructive: true }],
 		}
@@ -148,9 +150,14 @@ describe('mapRunToA2AEvent — mapped variants', () => {
 			expect(dataPart).toBeDefined()
 			if (dataPart && dataPart.kind === 'data') {
 				expect(dataPart.mimeType).toBe('application/x-namzu-review-request')
+				// The request the client answers, and where it is persisted. The resume
+				// TOKEN is deliberately absent — an A2A status event is a broadcast.
 				expect(dataPart.data).toEqual({
+					requestId: 'dreq_test',
+					checkpointId: 'cp_test',
 					toolCalls: [{ id: 'tc1', name: 'write_file', isDestructive: true }],
 				})
+				expect(JSON.stringify(dataPart.data)).not.toContain('rt_')
 			}
 		}
 	})

@@ -67,6 +67,28 @@ export { ContextCache } from './runtime/query/context-cache.js'
 export { CheckpointManager, projectEmergencyToCheckpoint } from './runtime/query/checkpoint.js'
 export { prepareReplayState, prepareResumeMessages } from './runtime/query/replay/prepare.js'
 export { listCheckpoints } from './runtime/query/replay/list.js'
+
+// Durable pause (ses_017 D1/D2). `resumeDecision` / `cancelDecision` /
+// `readPendingDecision` are the STATE-PREPARATION half: pure-record, no runtime deps.
+// The execution half is `query({ resumeFromCheckpoint })`, which the caller composes —
+// see state-prep-execution-split. `readPendingDecision` returns the resume token and is
+// a server-side, authorized read; the token is never on the event stream.
+export {
+	cancelDecision,
+	isResumableStatus,
+	readPendingDecision,
+	resumeDecision,
+} from './runtime/query/decision/resume.js'
+export { decisionOwnsToolBlock } from './runtime/query/decision/pending.js'
+export { isValidOutcomeFor } from './runtime/query/decision/apply.js'
+export {
+	DecisionAlreadyResolvedError,
+	DecisionNotFoundError,
+	DecisionOutcomeInvalidError,
+	DecisionTokenInvalidError,
+	EmergencyProjectionUnresumableError,
+	RunNotResumableError,
+} from './runtime/query/decision/errors.js'
 export { DecisionParser, FallbackResolver } from './runtime/decision/index.js'
 export {
 	buildLimitConfig,
@@ -357,7 +379,11 @@ export { assertComputerUseActionType, assertDisplayServer } from './types/comput
 export { isConnectorActive } from './types/connector/core.js'
 export { CONNECTOR_SCOPE_ORDER } from './types/connector/scope.js'
 export { RoutingResponseSchema } from './types/decision/index.js'
-export { autoApproveHandler } from './types/hitl/index.js'
+export {
+	autoApproveHandler,
+	deferredReviewHandler,
+	NO_IN_PROCESS_REVIEWER_REASON,
+} from './types/hitl/index.js'
 export { UNKNOWN_TENANT_ID } from './types/ids/index.js'
 export { deriveChildState } from './types/invocation/index.js'
 export { assertMemoryStatus } from './types/memory/index.js'

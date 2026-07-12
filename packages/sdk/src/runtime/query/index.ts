@@ -21,6 +21,7 @@ import {
 	type IterationCheckpoint,
 	type ResumeHandler,
 	autoApproveHandler,
+	deferredReviewHandler,
 } from '../../types/hitl/index.js'
 import type { RunId, SessionId, TenantId } from '../../types/ids/index.js'
 import type { InvocationState } from '../../types/invocation/index.js'
@@ -28,7 +29,13 @@ import { type Message, createSystemMessage } from '../../types/message/index.js'
 import type { AgentPersona } from '../../types/persona/index.js'
 import type { LLMProvider } from '../../types/provider/index.js'
 import type { TaskRouterConfig } from '../../types/router/index.js'
-import type { AgentRunConfig, Run, RunEvent, RunEventListener } from '../../types/run/index.js'
+import type {
+	AgentRunConfig,
+	Run,
+	RunDisposition,
+	RunEvent,
+	RunEventListener,
+} from '../../types/run/index.js'
 import type { Sandbox, SandboxProvider } from '../../types/sandbox/index.js'
 import type { ProjectId, ThreadId } from '../../types/session/ids.js'
 import type { Skill } from '../../types/skills/index.js'
@@ -36,10 +43,12 @@ import type { TaskStore } from '../../types/task/index.js'
 import type { ToolRegistryContract } from '../../types/tool/index.js'
 import type { VerificationGateConfig } from '../../types/verification/index.js'
 import type { ModelPricing } from '../../utils/cost.js'
+import { generateDecisionRequestId } from '../../utils/id.js'
 import { VerificationGate } from '../../verification/gate.js'
 import { CheckpointManager } from './checkpoint.js'
 import type { ContextCache } from './context-cache.js'
 import { RunContextFactory } from './context.js'
+import { dispatchPendingDecision } from './decision/dispatch.js'
 import { EventTranslator } from './events.js'
 import { GuardCoordinator } from './guard.js'
 import { IterationOrchestrator } from './iteration/index.js'
@@ -66,7 +75,24 @@ export interface QueryParams {
 	enableActivityTracking?: boolean
 	messages: Message[]
 	signal?: AbortSignal
-	resumeHandler: ResumeHandler
+
+	/**
+	 * Who answers a HITL request, in-process, while the run waits.
+	 *
+	 * **Present** — the fast path, and it is unchanged. An embedder with a synchronous
+	 * reviewer awaits here and gets exactly the behaviour it always had.
+	 *
+	 * **Absent** — nobody is there to answer, so nothing is approved:
+	 * {@link deferredReviewHandler} takes over and a tool review **parks the run
+	 * durably**, persisting the question on its checkpoint for an out-of-process answer
+	 * ({@link import('./decision/resume.js').resumeDecision}). This is the fail-closed
+	 * direction on purpose. An auto-approving default would make "I forgot to pass a
+	 * handler" and "I authorized this batch" the same program.
+	 *
+	 * A present handler can hand a decision out-of-process at any time by answering
+	 * `{ action: 'pause' }` — which is what `pause` has always meant, and now survives.
+	 */
+	resumeHandler?: ResumeHandler
 	resumeFromCheckpoint?: CheckpointId
 
 	/** Session scope for the run. Required — every run is attributed to a Session. */
@@ -147,6 +173,8 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 	const cwdForMigration = params.workingDirectory ?? process.cwd()
 	await RunContextFactory.ensureMigrated(`${cwdForMigration}/.namzu`)
 
+	const resumeHandler = params.resumeHandler ?? deferredReviewHandler
+
 	const ctx = RunContextFactory.build({
 		agentId: params.agentId,
 		agentName: params.agentName,
@@ -168,8 +196,9 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 	})
 
 	ctx.planManager.setApprovalHandler(async (request) => {
-		const decision = await params.resumeHandler({
+		const decision = await resumeHandler({
 			type: 'plan_approval',
+			requestId: generateDecisionRequestId(),
 			runId: ctx.runId,
 			checkpointId: `cp_plan_${request.planId}` as import('../../types/ids/index.js').CheckpointId,
 			plan: {
@@ -335,7 +364,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		() => eventTranslator.drainPending(),
 		ctx.abortController,
 		ctx.log,
-		params.resumeHandler,
+		resumeHandler,
 		checkpointMgr,
 		ctx.planManager,
 	)
@@ -440,7 +469,15 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				yield* eventTranslator.drainPending()
 
 				pushSystemMessages()
-				for (const msg of prepareResumeMessages(resumeCheckpoint.messages)) {
+				// The pending decision is what tells the repair apart from the destruction.
+				// Without it, `prepareResumeMessages` rewrites the still-unexecuted tool call
+				// the human was asked to approve into a "tool result missing" placeholder —
+				// correct for a crash, catastrophic for a pause. Passing the decision is not
+				// optional politeness; it is the fix.
+				for (const msg of prepareResumeMessages(
+					resumeCheckpoint.messages,
+					resumeCheckpoint.pendingDecision,
+				)) {
 					ctx.runMgr.pushMessage(msg)
 				}
 			} else if (params.continuationMode) {
@@ -526,7 +563,45 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				})
 			}
 
-			const disposition = yield* iterationOrchestrator.runLoop()
+			// --- The resume dispatcher (ses_017 D2) ---
+			//
+			// WHERE THIS SITS IS THE DESIGN. It runs OUTSIDE `runLoop`, after the checkpoint
+			// is restored, the accounting hydrated, the deps built and the sandbox created —
+			// and BEFORE compaction and before any model call. Everything that used to touch
+			// a resumed history first destroyed it:
+			//
+			//   1. `prepareResumeMessages` REPAIRED it, rewriting the pending tool call into
+			//      "[SYSTEM] Tool result missing" (now suppressed while a decision owns it);
+			//   2. `runCompactionCheck`, at the top of every iteration inside `runLoop`, can
+			//      summarise or drop it;
+			//   3. the model call then ships whatever is left.
+			//
+			// The dispatcher runs before all three, so the decision is applied to the block
+			// while the block still exists. Nothing between the seeding above and this line
+			// can touch the history: `pushSystemMessages` only prepends, and the `run_start`
+			// lifecycle hooks carry no mutable payload (`applyLifecycleHookResults` accepts
+			// only `continue` / `error`). There is no path from a restored pending decision
+			// to a provider that does not pass through here.
+			let disposition: RunDisposition | undefined
+
+			if (resumeCheckpoint?.pendingDecision) {
+				const signal = yield* dispatchPendingDecision(
+					iterationOrchestrator.context,
+					resumeCheckpoint,
+				)
+				// `suspend` — the decision was still unanswered, so it was re-emitted and the
+				// run parked again. `stop` — the decision was `abort`, and the run is over.
+				// Either way the loop must not run: there is nothing left for it to do, and
+				// entering it would start a fresh iteration on a run that just ended.
+				if (signal === 'suspend') disposition = 'suspended'
+				else if (signal === 'stop') disposition = 'completed'
+			}
+
+			// The decision was applied and the interrupted iteration finished. Now the loop
+			// picks up at iteration N+1, exactly where it would have been had nobody paused.
+			if (disposition === undefined) {
+				disposition = yield* iterationOrchestrator.runLoop()
+			}
 
 			// The loop TELLS us why it returned; we do not guess. A suspended run is
 			// not finished — it has more to do the moment a decision arrives — so it
@@ -579,10 +654,22 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 	})()
 }
 
-export async function drainQuery(
-	params: Omit<QueryParams, 'resumeHandler'> & { resumeHandler?: ResumeHandler },
-	listener?: RunEventListener,
-): Promise<Run> {
+/**
+ * Drive a run to a stopping point and hand back the {@link Run}.
+ *
+ * **Its handler default is `autoApproveHandler`, and it stays that way** — deliberately
+ * different from `query()`, whose absent handler parks the run. The asymmetry is the
+ * conservative choice, not an oversight: `drainQuery` has *always* substituted
+ * auto-approve for a missing handler, so flipping it to park would silently convert
+ * every existing caller's run from "approve and finish" into "wait forever for a
+ * decision nobody is coming to make". A caller that wants a durable pause here asks for
+ * one, by passing {@link deferredReviewHandler} or a handler that answers `pause`.
+ *
+ * Note that a `drainQuery` that parks still returns — the Run comes back
+ * `awaiting_input`, and is resumed out of band via
+ * {@link import('./decision/resume.js').resumeDecision}.
+ */
+export async function drainQuery(params: QueryParams, listener?: RunEventListener): Promise<Run> {
 	const fullParams: QueryParams = {
 		...params,
 		resumeHandler: params.resumeHandler ?? autoApproveHandler,

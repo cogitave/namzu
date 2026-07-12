@@ -101,6 +101,14 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 			case 'run_resuming':
 				break
 
+			case 'tool_execution_uncertain':
+				log.warn(`Tool "${event.toolName}" may have already run — NOT re-executed`, {
+					runId: event.runId,
+					toolCallId: event.toolCallId,
+					toolName: event.toolName,
+				})
+				break
+
 			case 'agent_pending':
 				log.info(`Agent task pending: ${event.childAgentId}`, {
 					runId: event.runId,

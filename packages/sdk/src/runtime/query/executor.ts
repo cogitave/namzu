@@ -54,6 +54,28 @@ export interface ToolExecutionBatch {
 	results: Array<{ toolCallId: string; output: string }>
 }
 
+/**
+ * Per-call observation of a batch, as it settles.
+ *
+ * `executeBatch` fans out with `Promise.all` and returns only once the WHOLE batch has
+ * settled, so from the outside a crash mid-batch is indistinguishable from a crash
+ * before it: there is no record of which calls started, which finished, and which lost
+ * their result. That is not a gap you can close after the fact — every durable-execution
+ * engine that offers any idempotency guarantee builds it on knowing, per unit of work,
+ * what started and what completed. This hook is where that knowledge is produced.
+ *
+ * Absent for every caller that does not need it, which is all of them except the
+ * durable-pause dispatcher; the normal path is byte-for-byte unchanged.
+ */
+export interface ToolExecutionObserver {
+	/** Fired the moment ONE call comes back, not when the batch does. */
+	onCallSettled?: (settled: {
+		toolCallId: string
+		toolName: string
+		output: string
+	}) => Promise<void>
+}
+
 export class ToolExecutor {
 	private config: ToolExecutorConfig
 	private activityStore: ActivityStore
@@ -84,7 +106,10 @@ export class ToolExecutor {
 		this.config = { ...this.config, sandbox }
 	}
 
-	async executeBatch(response: ChatCompletionResponse): Promise<ToolExecutionBatch> {
+	async executeBatch(
+		response: ChatCompletionResponse,
+		observer?: ToolExecutionObserver,
+	): Promise<ToolExecutionBatch> {
 		const toolCalls = response.message.toolCalls
 		if (!toolCalls) {
 			return { messages: [], results: [] }
@@ -99,7 +124,34 @@ export class ToolExecutor {
 		const toolContext = this.buildToolContext()
 
 		const results = await Promise.all(
-			toolCalls.map((toolCall) => this.executeSingleSafe(toolCall, toolContext)),
+			toolCalls.map(async (toolCall) => {
+				const result = await this.executeSingleSafe(toolCall, toolContext)
+				// Journalled per call, as it settles — not once for the batch. A settle
+				// notification that waited for its siblings would tell a crash recovery
+				// nothing it did not already know.
+				//
+				// A throw here must not take the batch down: the journal is a recovery
+				// aid, and losing a run because the aid failed would be the aid causing
+				// the incident it exists to mitigate. A failed write degrades that call
+				// to "uncertain" on the next resume, which is the safe reading.
+				if (observer?.onCallSettled) {
+					try {
+						await observer.onCallSettled({
+							toolCallId: result.toolCallId,
+							toolName: toolCall.function.name,
+							output: result.output,
+						})
+					} catch (err) {
+						this.log.error('Execution journal write failed — call will read as uncertain', {
+							runId: this.config.runId,
+							tool: toolCall.function.name,
+							toolCallId: result.toolCallId,
+							error: toErrorMessage(err),
+						})
+					}
+				}
+				return result
+			}),
 		)
 
 		const messages: Message[] = results.map((r) => createToolMessage(r.output, r.toolCallId))
