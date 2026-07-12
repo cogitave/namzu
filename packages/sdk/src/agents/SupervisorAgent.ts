@@ -121,84 +121,95 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 			this.metadata.id,
 		)
 
-		const run = await drainQuery(
-			{
-				systemPrompt: config.systemPrompt,
-				provider: config.provider,
-				tools,
-				runConfig: {
-					model: config.model,
-					tokenBudget: config.tokenBudget,
-					timeoutMs: config.timeoutMs,
-					maxIterations: config.maxIterations,
-					temperature: config.temperature,
-					env: config.env,
-					retry: config.retry,
+		// Compose input.signal with this agent's own abortController so cancel()
+		// ends the supervisor's OWN in-flight run — not just its child tasks (which
+		// already cancel via taskContext.parentAbortController). Previously the raw
+		// input.signal was forwarded, orphaning the internal controller (ses_015
+		// fix-batch; the base owns the control AND its wiring).
+		const runSignal = this.composeRunSignal(input.signal)
+
+		try {
+			const run = await drainQuery(
+				{
+					systemPrompt: config.systemPrompt,
+					provider: config.provider,
+					tools,
+					runConfig: {
+						model: config.model,
+						tokenBudget: config.tokenBudget,
+						timeoutMs: config.timeoutMs,
+						maxIterations: config.maxIterations,
+						temperature: config.temperature,
+						env: config.env,
+						retry: config.retry,
+					},
+					agentId: this.metadata.id,
+					agentName: this.metadata.name,
+					workingDirectory: input.workingDirectory,
+					messages: input.messages,
+					signal: runSignal.signal,
+					sessionId,
+					threadId,
+					projectId,
+					tenantId,
+					runId,
+					parentRunId: config.parentRunId,
+					depth: config.depth,
+					contextLevel: 'full',
+					onContextCreated: ({ planManager }) => {
+						planManagerRef = planManager
+					},
+					taskStore: input.taskStore,
+					runtimeToolOverrides: input.runtimeToolOverrides,
+					taskGateway: gateway,
+					launchedTasks,
+					advisory: config.advisory,
+					invocationState: childInvocationState,
 				},
-				agentId: this.metadata.id,
-				agentName: this.metadata.name,
-				workingDirectory: input.workingDirectory,
-				messages: input.messages,
-				signal: input.signal,
-				sessionId,
-				threadId,
-				projectId,
-				tenantId,
-				runId,
-				parentRunId: config.parentRunId,
-				depth: config.depth,
-				contextLevel: 'full',
-				onContextCreated: ({ planManager }) => {
-					planManagerRef = planManager
+				listener,
+			)
+
+			const taskHandles = gateway.listTasks()
+			const taskResults = taskHandles.map((handle, index) => ({
+				agentId: handle.agentId,
+				result: handle.result ?? {
+					runId,
+					status: handle.state as 'completed' | 'failed' | 'cancelled',
+					usage: { ...EMPTY_TOKEN_USAGE },
+					cost: { ...ZERO_COST },
+					iterations: 0,
+					durationMs: Date.now() - handle.createdAt,
+					messages: [],
 				},
-				taskStore: input.taskStore,
-				runtimeToolOverrides: input.runtimeToolOverrides,
-				taskGateway: gateway,
-				launchedTasks,
-				advisory: config.advisory,
-				invocationState: childInvocationState,
-			},
-			listener,
-		)
+				taskIndex: index,
+			}))
 
-		const taskHandles = gateway.listTasks()
-		const taskResults = taskHandles.map((handle, index) => ({
-			agentId: handle.agentId,
-			result: handle.result ?? {
-				runId,
-				status: handle.state as 'completed' | 'failed' | 'cancelled',
-				usage: { ...EMPTY_TOKEN_USAGE },
-				cost: { ...ZERO_COST },
-				iterations: 0,
-				durationMs: Date.now() - handle.createdAt,
-				messages: [],
-			},
-			taskIndex: index,
-		}))
+			const completedTasks = taskResults.filter((t) => t.result.status === 'completed').length
 
-		const completedTasks = taskResults.filter((t) => t.result.status === 'completed').length
-
-		return {
-			runId: run.id,
-			// A cancelled supervisor run reports 'cancelled', not 'failed'
-			// (ses_015 A4, round-2 M5).
-			status:
-				run.status === 'completed'
-					? 'completed'
-					: run.status === 'cancelled'
-						? 'cancelled'
-						: 'failed',
-			stopReason: run.stopReason,
-			usage: run.tokenUsage,
-			cost: run.costInfo,
-			iterations: run.currentIteration,
-			durationMs: Date.now() - startTime,
-			messages: run.messages,
-			result: run.result,
-			lastError: run.lastError,
-			taskResults,
-			completedTasks,
-			totalTasks: taskResults.length,
+			return {
+				runId: run.id,
+				// A cancelled supervisor run reports 'cancelled', not 'failed'
+				// (ses_015 A4, round-2 M5).
+				status:
+					run.status === 'completed'
+						? 'completed'
+						: run.status === 'cancelled'
+							? 'cancelled'
+							: 'failed',
+				stopReason: run.stopReason,
+				usage: run.tokenUsage,
+				cost: run.costInfo,
+				iterations: run.currentIteration,
+				durationMs: Date.now() - startTime,
+				messages: run.messages,
+				result: run.result,
+				lastError: run.lastError,
+				taskResults,
+				completedTasks,
+				totalTasks: taskResults.length,
+			}
+		} finally {
+			runSignal.dispose()
 		}
 	}
 }

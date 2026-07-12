@@ -39,18 +39,9 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 		}
 
 		// Compose the caller-supplied input.signal with this agent's own
-		// abortController so cancel() actually reaches the query pipeline — the
-		// query observes only the signal it is passed, so without this the
-		// agent's internal controller is orphaned and cancel() is a no-op on an
-		// in-flight run (ses_015 A6).
-		const runAbort = new AbortController()
-		const forwardAbort = (): void => runAbort.abort()
-		if (this.abortController.signal.aborted || input.signal?.aborted) {
-			runAbort.abort()
-		} else {
-			this.abortController.signal.addEventListener('abort', forwardAbort, { once: true })
-			input.signal?.addEventListener('abort', forwardAbort, { once: true })
-		}
+		// abortController via the base helper so cancel() reaches the query
+		// pipeline (ses_015 A6; the base owns the control AND its wiring).
+		const runSignal = this.composeRunSignal(input.signal)
 
 		try {
 			const run = await drainQuery(
@@ -84,7 +75,7 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 					depth: config.depth,
 					contextLevel: config.contextLevel,
 					messages: input.messages,
-					signal: runAbort.signal,
+					signal: runSignal.signal,
 					taskStore: input.taskStore,
 					runtimeToolOverrides: input.runtimeToolOverrides,
 					advisory: config.advisory,
@@ -117,8 +108,7 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 				toolCallCount,
 			}
 		} finally {
-			this.abortController.signal.removeEventListener('abort', forwardAbort)
-			input.signal?.removeEventListener('abort', forwardAbort)
+			runSignal.dispose()
 		}
 	}
 

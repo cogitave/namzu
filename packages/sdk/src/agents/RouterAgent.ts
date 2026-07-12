@@ -1,6 +1,7 @@
 import { EMPTY_TOKEN_USAGE } from '../constants/limits.js'
 import { FallbackResolver } from '../runtime/decision/fallback.js'
 import { DecisionParser } from '../runtime/decision/parser.js'
+import { chatWithRetry } from '../runtime/query/model-call.js'
 import type {
 	AgentInput,
 	AgentMetadata,
@@ -176,12 +177,20 @@ export class RouterAgent extends AbstractAgent<RouterAgentConfig, RouterAgentRes
 
 		for (let attempt = 0; attempt < maxRetries; attempt++) {
 			try {
-				const response = await config.provider.chat({
-					model: config.model,
-					messages: [createSystemMessage(prompt), createUserMessage(userContent)],
-					temperature: 0,
-					maxTokens: 200,
-				})
+				// Retry transient throttle/server/network blips: the provider adapter
+				// no longer retries internally, so an unwrapped routing call would fail
+				// on a single 429/503 (ses_015 fix-batch). This is orthogonal to the
+				// routing-parse retry loop that surrounds it.
+				const response = await chatWithRetry(
+					config.provider,
+					{
+						model: config.model,
+						messages: [createSystemMessage(prompt), createUserMessage(userContent)],
+						temperature: 0,
+						maxTokens: 200,
+					},
+					{ signal: input.signal, log },
+				)
 
 				const parseResult = parser.parse(response.message.content)
 

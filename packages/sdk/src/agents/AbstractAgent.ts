@@ -72,6 +72,37 @@ export abstract class AbstractAgent<
 		}
 	}
 
+	/**
+	 * Compose this agent's own {@link AbortController} with a caller-supplied
+	 * `external` signal into a single signal to hand the run pipeline. The base
+	 * owns the control (`cancel()` aborts `this.abortController`) AND its wiring:
+	 * the query observes only the signal it is passed, so a subclass that forwards
+	 * a raw `input.signal` orphans the internal controller and `cancel()` becomes
+	 * a no-op on an in-flight run (ses_015 A6). Either source aborting — including
+	 * one already aborted at entry — aborts the returned signal. `dispose()`
+	 * removes the listeners and must be called in the run's `finally`.
+	 */
+	protected composeRunSignal(external?: AbortSignal): { signal: AbortSignal; dispose(): void } {
+		const runAbort = new AbortController()
+		const forward = (): void => runAbort.abort()
+
+		if (this.abortController.signal.aborted || external?.aborted) {
+			runAbort.abort()
+			return { signal: runAbort.signal, dispose: () => {} }
+		}
+
+		this.abortController.signal.addEventListener('abort', forward, { once: true })
+		external?.addEventListener('abort', forward, { once: true })
+
+		return {
+			signal: runAbort.signal,
+			dispose: () => {
+				this.abortController.signal.removeEventListener('abort', forward)
+				external?.removeEventListener('abort', forward)
+			},
+		}
+	}
+
 	getCapabilities(): AgentCapabilities {
 		return this.metadata.capabilities
 	}

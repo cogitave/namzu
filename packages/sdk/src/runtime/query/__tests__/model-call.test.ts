@@ -2,9 +2,11 @@
 // - attemptModelCall retries ONLY throttle|server|network ProviderRequestError
 //   kinds; auth|bad_request|context_overflow|aborted|unknown and plain errors
 //   are rethrown after a single attempt.
-// - A server-advised retryAfterMs is honored verbatim as the backoff wait;
-//   otherwise the wait is full-jitter exponential (random(0, min(base*2^(n-1),
-//   maxDelayMs))) and each wait is additionally clamped to the deadline.
+// - A server-advised retryAfterMs is honored as the backoff wait but clamped to
+//   retry.maxDelayMs (ses_015 fix-batch), so a hostile/misparsed hours-long
+//   Retry-After cannot stall the loop; otherwise the wait is full-jitter
+//   exponential (random(0, min(base*2^(n-1), maxDelayMs))) and each wait is
+//   additionally clamped to the deadline.
 // - An abort during the backoff sleep rethrows kind 'aborted'; a signal already
 //   aborted at entry rethrows kind 'aborted' before any provider call.
 // - Reaching the run deadline stops the loop: pre-first-attempt it throws a
@@ -227,6 +229,25 @@ describe('attemptModelCall — backoff timing', () => {
 		})
 		restore()
 		expect(delays).toEqual([1234])
+	})
+
+	it('clamps a server-advised retryAfterMs to maxDelayMs', async () => {
+		const { delays, restore } = captureDelays()
+		// A hostile / misparsed Retry-After far above the configured ceiling.
+		const provider = makeProvider(async (_p, call) => {
+			if (call < 1) throw err('throttle', { retryAfterMs: 3_600_000 })
+			return okResponse()
+		})
+		await attemptModelCall({
+			provider,
+			params: { model: 'm', messages: [] },
+			retry: { ...RETRY, baseDelayMs: 1000, maxDelayMs: 30_000 },
+			signal: new AbortController().signal,
+			deadlineAt: FAR_DEADLINE(),
+			log: makeLogger(),
+		})
+		restore()
+		expect(delays).toEqual([30_000])
 	})
 
 	it('uses full-jitter exponential backoff within bounds', async () => {

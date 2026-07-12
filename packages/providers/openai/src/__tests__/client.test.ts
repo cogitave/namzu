@@ -15,6 +15,11 @@ import { OpenAIProvider } from '../client.js'
 // - the serializer converts an interrupted history (assistant toolCalls with a
 //   '{}'-arguments call + a synthesized '[SYSTEM] Tool result missing...' result)
 //   to the OpenAI wire format without throwing.
+//
+// Current-code invariants asserted (2026-07-12, ses_015 fix-batch):
+// - chatStream maps an error thrown WHILE iterating the vendor stream (e.g. a
+//   mid-stream APIConnectionError) onto ProviderRequestError (kind network),
+//   instead of letting the raw vendor error escape the generator.
 
 // Mock only the vendor client (default export); keep the real error classes so
 // the adapter's instanceof-based mapping matches the errors the tests throw.
@@ -256,5 +261,31 @@ describe('@namzu/openai — serializer round-trip', () => {
 		// Both tool results become role:'tool' messages keyed by tool_call_id.
 		const toolMessages = messages.filter((m) => m.role === 'tool')
 		expect(toolMessages.map((m) => m.tool_call_id)).toEqual(['call_read', 'call_empty'])
+	})
+})
+
+describe('@namzu/openai — chatStream mid-stream error mapping', () => {
+	it('maps an APIConnectionError thrown while iterating the stream to network', async () => {
+		async function* stream(): AsyncGenerator<{
+			id: string
+			choices: Array<{ delta: { content?: string }; finish_reason: null }>
+		}> {
+			yield { id: 'c1', choices: [{ delta: { content: 'hi' }, finish_reason: null }] }
+			throw new APIConnectionError({ message: 'connection dropped mid-stream' })
+		}
+		createMock.mockResolvedValueOnce(stream())
+
+		const drain = async (): Promise<void> => {
+			for await (const _chunk of newProvider().chatStream({
+				model: 'gpt-x',
+				messages: [{ role: 'user', content: 'hi' }],
+			})) {
+				// consume
+			}
+		}
+
+		const caught = await drain().catch((e: unknown) => e)
+		expect(isProviderRequestError(caught)).toBe(true)
+		expect((caught as ProviderRequestError).kind).toBe('network')
 	})
 })

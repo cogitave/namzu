@@ -496,11 +496,22 @@ export class IterationOrchestrator {
 
 					// A retry loop that exhausted the run deadline surfaces as a
 					// timeout stop (mirrors the guard hard-stop path) rather than a
-					// run failure (A3, round-2 M8).
-					if (Date.now() >= this.ctx.guard.deadlineAt) {
+					// run failure (A3, round-2 M8). Gate strictly on a RETRYABLE
+					// transport error (throttle/server/network) whose retries ran out
+					// against the deadline — a terminal auth/bad_request/unknown error
+					// or a tool-execution exception that merely happens to surface
+					// after the deadline keeps the normal failure path with the
+					// ORIGINAL error preserved, so misconfiguration is never masked as
+					// a timeout (ses_015 fix-batch).
+					if (
+						Date.now() >= this.ctx.guard.deadlineAt &&
+						isProviderRequestError(err) &&
+						(err.kind === 'throttle' || err.kind === 'server' || err.kind === 'network')
+					) {
 						this.ctx.log.info('Model call exhausted run deadline — enforcing timeout stop', {
 							runId: runMgr.id,
 							iteration: iterationNum,
+							kind: err.kind,
 						})
 						if (iterationActivity) {
 							this.ctx.activityStore.fail(iterationActivity.id, 'timeout')
@@ -510,6 +521,10 @@ export class IterationOrchestrator {
 							message: 'run deadline exceeded',
 						})
 						iterSpan.end()
+						// Heal any dangling assistant/tool pair in place before the
+						// final call so requestFinalResponse's chat cannot be rejected
+						// for a dangling pair (mirrors the cancellation path).
+						this.healHistoryInPlace()
 						await this.requestFinalResponse(model, 'timeout')
 						yield* this.ctx.drainPending()
 						runMgr.setStopReason('timeout')
@@ -620,14 +635,26 @@ export class IterationOrchestrator {
 		iterSpan.setAttribute(NAMZU.CANCELLED, true)
 		iterSpan.end()
 
+		this.healHistoryInPlace()
+
+		runMgr.setStopReason('cancelled')
+		runMgr.markCancelled()
+	}
+
+	/**
+	 * Repair the run's own persisted history in place so any dangling assistant
+	 * tool-call pair is healed ({@link repairDanglingMessages}) — making a later
+	 * resume/replay of this run, and any immediately-following model call (e.g.
+	 * requestFinalResponse), provider-valid. Shared by the cancellation path and
+	 * the deadline-timeout path (ses_015 fix-batch).
+	 */
+	private healHistoryInPlace(): void {
+		const { runMgr } = this.ctx
 		const repaired = repairDanglingMessages(runMgr.messages)
 		runMgr.messages.length = 0
 		for (const msg of repaired) {
 			runMgr.messages.push(msg)
 		}
-
-		runMgr.setStopReason('cancelled')
-		runMgr.markCancelled()
 	}
 
 	/**

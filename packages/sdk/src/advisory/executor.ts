@@ -1,5 +1,6 @@
 import { CHARS_PER_TOKEN } from '../constants/limits.js'
 import { assembleSystemPrompt } from '../persona/assembler.js'
+import { chatWithRetry } from '../runtime/query/model-call.js'
 import type { AdvisorDefinition } from '../types/advisory/config.js'
 import type { AdvisoryRequest, AdvisoryResult } from '../types/advisory/result.js'
 import type { CostInfo, TokenUsage } from '../types/common/index.js'
@@ -51,13 +52,21 @@ export class AdvisoryExecutor {
 			urgency: request.urgency,
 		})
 
-		const response = await advisor.provider.chat({
-			model: advisor.model,
-			messages,
-			temperature: advisor.temperature,
-			maxTokens: advisor.maxResponseTokens,
-			toolChoice: 'none',
-		})
+		// Retry transient throttle/server/network blips: the provider adapter no
+		// longer retries internally, so an unwrapped advisory call would fail on a
+		// single 429/503 (ses_015 fix-batch). No signal is in scope here;
+		// chatWithRetry supplies its own bounded budget.
+		const response = await chatWithRetry(
+			advisor.provider,
+			{
+				model: advisor.model,
+				messages,
+				temperature: advisor.temperature,
+				maxTokens: advisor.maxResponseTokens,
+				toolChoice: 'none',
+			},
+			{ log: this.logger },
+		)
 
 		const durationMs = Date.now() - startMs
 

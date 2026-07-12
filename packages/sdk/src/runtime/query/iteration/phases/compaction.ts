@@ -54,6 +54,39 @@ function stripPriorCompactionSummaries(systemMessages: Message[]): Message[] {
 	return systemMessages.filter((m) => !(m.content ?? '').startsWith(COMPACTION_HEADER))
 }
 
+/**
+ * Extract the body text (everything after {@link COMPACTION_HEADER}) of every
+ * prior compaction summary in a leading-system run. Anti-stacking replaces these
+ * summaries with a fresh one, so their content must be carried forward or any
+ * fact captured only inside an earlier summary is lost (ses_015 fix-batch).
+ */
+function extractPriorSummaryBodies(systemMessages: Message[]): string[] {
+	const bodies: string[] = []
+	for (const m of systemMessages) {
+		const content = m.content ?? ''
+		if (content.startsWith(COMPACTION_HEADER)) {
+			bodies.push(content.slice(COMPACTION_HEADER.length).replace(/^\s+/, ''))
+		}
+	}
+	return bodies
+}
+
+/**
+ * Build the `[Carried from prior summary]` continuity section appended to a
+ * serialize-only summary. Prior bodies are joined oldest-first and capped to
+ * `budget` chars by dropping the oldest text first (keeping the newest tail), so
+ * repeated compactions stay bounded while never silently forgetting the most
+ * recent summary. Returns '' when there is nothing to carry.
+ */
+function buildCarriedSummarySection(priorBodies: string[], budget: number): string {
+	if (priorBodies.length === 0) return ''
+	let combined = priorBodies.join('\n\n')
+	if (combined.length > budget) {
+		combined = combined.slice(combined.length - budget)
+	}
+	return `\n\n[Carried from prior summary]\n${combined}`
+}
+
 export async function runCompactionCheck(ctx: IterationContext): Promise<void> {
 	const config = ctx.compactionConfig
 	if (!config) return
@@ -89,20 +122,83 @@ export async function runCompactionCheck(ctx: IterationContext): Promise<void> {
 	const systemMessages = leadingSystemMessages(messages)
 	if (systemMessages.length === 0) return
 
-	// Route the proactive cut through findSafeTrimIndex so the split cannot
-	// sever a tool call/result pair: a pair straddling the naive boundary is
-	// pushed wholly into olderMessages (summarised), never leaving an orphaned
-	// result at the head of recentMessages.
-	const keepStart = findSafeTrimIndex(messages, messages.length - config.keepRecentMessages)
+	// Bounded, downward cut search (ses_015 fix-batch). The naive cut keeps the
+	// last keepRecentMessages messages raw. A forward-only findSafeTrimIndex can
+	// advance PAST the recent window (summarising away the latest user turn) or
+	// land inside the leading system run (duplicating system prompts, removing
+	// nothing). Instead we take the LARGEST safe cut <= naive: the recent window
+	// then never shrinks below the config intent, keepStart stays strictly above
+	// the system run, and a tool pair straddling the naive point is kept wholly in
+	// the recent window rather than split.
+	const naive = messages.length - config.keepRecentMessages
+	if (naive <= systemMessages.length) {
+		ctx.log.debug('Nothing older than the recent window to compact', {
+			messageCount: messages.length,
+			keepRecentMessages: config.keepRecentMessages,
+			systemCount: systemMessages.length,
+		})
+		return
+	}
+
+	let keepStart = -1
+	for (let candidate = naive; candidate > systemMessages.length; candidate--) {
+		if (candidate === findSafeTrimIndex(messages, candidate)) {
+			keepStart = candidate
+			break
+		}
+	}
+
+	if (keepStart === -1) {
+		// No safe cut at or below naive (a long unbroken tool chain). Advance
+		// forward once, but only commit if it still leaves at least one non-system
+		// message raw; otherwise skip this pass rather than summarise the whole
+		// tail including the live user prompt.
+		const forward = findSafeTrimIndex(messages, naive)
+		if (forward > messages.length - 1) {
+			ctx.log.debug('No safe compaction cut leaves a recent window — skipping pass', {
+				messageCount: messages.length,
+				keepRecentMessages: config.keepRecentMessages,
+			})
+			return
+		}
+		keepStart = forward
+	}
+
 	const recentMessages = messages.slice(keepStart)
 	const olderMessages = messages.slice(systemMessages.length, keepStart)
+
+	// A cut that folds in nothing older would only add a summary and re-trigger
+	// next iteration (no-shrink loop). keepStart > systemMessages.length keeps
+	// this defensive, but guard anyway.
+	if (olderMessages.length === 0) {
+		ctx.log.debug('Compaction cut removes nothing — skipping pass', {
+			messageCount: messages.length,
+		})
+		return
+	}
+
+	// Carry prior summary text into the new summary so a fact captured only in an
+	// earlier [COMPACTED CONTEXT] block (and never promoted to a working-state
+	// slot) survives this pass (ses_015 fix-batch).
+	const priorSummaryBodies = extractPriorSummaryBodies(systemMessages)
 
 	let compactedContent: string
 
 	if (config.llmVerification && manager.slotCount() < config.richStateThreshold) {
-		compactedContent = await buildVerifiedSummary(manager, olderMessages, ctx.provider, config)
+		// Feed the prior summaries into the verifier input (as the leading context
+		// so budget-truncation can't drop them) alongside the raw older messages.
+		const verifierInput =
+			priorSummaryBodies.length > 0
+				? [
+						createSystemMessage(`[Carried from prior summary]\n${priorSummaryBodies.join('\n\n')}`),
+						...olderMessages,
+					]
+				: olderMessages
+		compactedContent = await buildVerifiedSummary(manager, verifierInput, ctx.provider, config)
 	} else {
-		compactedContent = serializeState(manager.getState())
+		compactedContent =
+			serializeState(manager.getState()) +
+			buildCarriedSummarySection(priorSummaryBodies, config.convoTextBudget)
 	}
 
 	const compactionMessage = createSystemMessage(`${COMPACTION_HEADER}\n\n${compactedContent}`)
@@ -171,7 +267,13 @@ function buildStructuredReduction(
 	const keepStart = findSafeTrimIndex(messages, messages.length - keepRecent)
 	const recentMessages = messages.slice(keepStart)
 
-	const compactedContent = serializeState(manager.getState())
+	// Carry prior summary text forward so anti-stacking does not drop a fact that
+	// lived only inside an earlier summary (ses_015 fix-batch). Reactive recovery
+	// must not issue a model call, so this is a serialize-only append.
+	const priorSummaryBodies = extractPriorSummaryBodies(systemMessages)
+	const compactedContent =
+		serializeState(manager.getState()) +
+		buildCarriedSummarySection(priorSummaryBodies, config.convoTextBudget)
 	const compactionMessage = createSystemMessage(`${COMPACTION_HEADER}\n\n${compactedContent}`)
 
 	return [...stripPriorCompactionSummaries(systemMessages), compactionMessage, ...recentMessages]
@@ -198,18 +300,34 @@ export function reduceMessagesForOverflow(ctx: IterationContext): boolean {
 	const useStructured =
 		!!config && config.strategy !== 'disabled' && !!manager && manager.slotCount() > 0
 
-	const candidate =
+	let candidate =
 		useStructured && config && manager
 			? buildStructuredReduction(messages, config, manager)
 			: buildFallbackTrim(messages)
+	let strategy = useStructured ? 'structured' : 'fallback-trim'
+	let after = estimateTokensForMessages(candidate)
 
-	const after = estimateTokensForMessages(candidate)
+	// Cascade (ses_015 fix-batch): a structured candidate that cannot shrink
+	// (e.g. keepRecent >= history, so it re-includes everything plus a summary)
+	// must not strand the run. Fall back to the plain safe-trim, which can drop
+	// the oldest oversized tool pair even when structured cannot. Only give up if
+	// neither candidate shrinks.
+	if (after >= before && useStructured) {
+		const trimCandidate = buildFallbackTrim(messages)
+		const trimAfter = estimateTokensForMessages(trimCandidate)
+		if (trimAfter < before) {
+			candidate = trimCandidate
+			after = trimAfter
+			strategy = 'fallback-trim'
+		}
+	}
+
 	if (after >= before) {
 		ctx.log.warn('Overflow reduction produced no shrink — leaving history untouched', {
 			runId: ctx.runMgr.id,
 			beforeTokens: before,
 			candidateTokens: after,
-			strategy: useStructured ? 'structured' : 'fallback-trim',
+			strategy,
 		})
 		return false
 	}
@@ -226,7 +344,7 @@ export function reduceMessagesForOverflow(ctx: IterationContext): boolean {
 		newMessageCount: messages.length,
 		beforeTokens: before,
 		afterTokens: after,
-		strategy: useStructured ? 'structured' : 'fallback-trim',
+		strategy,
 	})
 	return true
 }

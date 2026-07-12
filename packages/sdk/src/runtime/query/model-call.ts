@@ -45,6 +45,12 @@ function sleepOrAbort(ms: number, signal: AbortSignal): Promise<boolean> {
  * Compute the backoff wait before the next attempt. Honors a server-advised
  * `retryAfterMs` when present; otherwise full-jitter exponential backoff
  * (`random(0, min(base * 2^(attempt-1), maxDelayMs))`).
+ *
+ * A server-advised `retryAfterMs` is clamped to `retry.maxDelayMs` too: a hostile
+ * or misparsed `Retry-After` (e.g. an hours-long value) must not stall the loop
+ * for the entire remaining run budget — the configured ceiling exists precisely
+ * for this case (ses_015 fix-batch). The run deadline still bounds the wait on
+ * top of this clamp in the caller.
  */
 function computeBackoffDelay(err: unknown, attempt: number, retry: RetryConfig): number {
 	if (
@@ -52,7 +58,7 @@ function computeBackoffDelay(err: unknown, attempt: number, retry: RetryConfig):
 		typeof err.retryAfterMs === 'number' &&
 		err.retryAfterMs >= 0
 	) {
-		return err.retryAfterMs
+		return Math.min(err.retryAfterMs, retry.maxDelayMs)
 	}
 	const exp = retry.baseDelayMs * 2 ** (attempt - 1)
 	const capped = Math.min(exp, retry.maxDelayMs)
@@ -165,4 +171,34 @@ export async function attemptModelCall(
 			providerId: provider.id,
 		})
 	)
+}
+
+/**
+ * Thin, ergonomic wrapper over {@link attemptModelCall} for SDK-internal chat
+ * callers OUTSIDE the main iteration loop (compaction verifier, RouterAgent
+ * routing, advisory consult). Those sites call `provider.chat` directly; because
+ * every provider adapter now disables its own vendor-SDK retry loop
+ * (`maxRetries: 0`), an unwrapped call has zero retries and a single transient
+ * `throttle`/`server`/`network` blip fails the whole operation. This restores
+ * bounded retry coverage without threading the loop's full plumbing.
+ *
+ * Defaults for the ancillary controls: `retry` → {@link DEFAULT_RETRY_CONFIG};
+ * `deadlineAt` → `now + 60_000` (a self-contained budget, never the exhausted
+ * run deadline); `signal` → a never-aborting signal when the caller has none in
+ * scope. `log` is required. Stays sdk-internal — not re-exported from the
+ * package root, so the dependency direction is unchanged.
+ */
+export function chatWithRetry(
+	provider: LLMProvider,
+	params: ChatCompletionParams,
+	opts: { retry?: RetryConfig; signal?: AbortSignal; log: Logger; deadlineAt?: number },
+): Promise<ChatCompletionResponse> {
+	return attemptModelCall({
+		provider,
+		params,
+		retry: opts.retry ?? DEFAULT_RETRY_CONFIG,
+		signal: opts.signal ?? new AbortController().signal,
+		deadlineAt: opts.deadlineAt ?? Date.now() + 60_000,
+		log: opts.log,
+	})
 }

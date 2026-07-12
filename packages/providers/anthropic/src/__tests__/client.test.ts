@@ -14,6 +14,15 @@ import { AnthropicProvider } from '../client.js'
 // - the serializer converts an interrupted history (assistant toolCalls with a
 //   '{}'-arguments call + a synthesized '[SYSTEM] Tool result missing...' result)
 //   to the Anthropic wire format without throwing.
+//
+// Current-code invariants asserted (2026-07-12, ses_015 fix-batch):
+// - context_overflow is INPUT-overflow specific: a max_tokens (output-cap) 400
+//   ("max_tokens: N > M, which is the maximum allowed number of output tokens...")
+//   maps to bad_request, NOT context_overflow — the old broad 'maximum'+'token'
+//   heuristic is gone.
+// - chatStream maps an error thrown WHILE iterating the vendor stream (e.g. a
+//   mid-stream APIConnectionError) onto ProviderRequestError (kind network),
+//   instead of letting the raw vendor error escape the generator.
 
 // Mock only the vendor client (default export); keep the real error classes so
 // the adapter's instanceof-based mapping matches the errors the tests throw.
@@ -173,6 +182,29 @@ describe('@namzu/anthropic — chat() error mapping', () => {
 		expect(pe.status).toBe(400)
 	})
 
+	it('maps a max_tokens (output-cap) 400 to bad_request, not context_overflow', async () => {
+		// The exact vendor wording for an over-cap max_tokens config error. It
+		// mentions both "maximum" and "tokens" but is NOT prompt overflow, so it
+		// must fail fast as bad_request rather than trigger destructive compaction.
+		const err = APIError.generate(
+			400,
+			anthropicBody(
+				'invalid_request_error',
+				'max_tokens: 128000 > 64000, which is the maximum allowed number of output tokens for claude-sonnet-4-5-20250929',
+			),
+			undefined,
+			new Headers(),
+		)
+		createMock.mockRejectedValueOnce(err)
+
+		const pe = (await newProvider()
+			.chat({ model: 'claude-x', messages: [{ role: 'user', content: 'hi' }] })
+			.catch((e: unknown) => e)) as ProviderRequestError
+
+		expect(pe.kind).toBe('bad_request')
+		expect(pe.status).toBe(400)
+	})
+
 	it('maps a user abort to aborted', async () => {
 		createMock.mockRejectedValueOnce(new APIUserAbortError())
 
@@ -250,5 +282,28 @@ describe('@namzu/anthropic — serializer round-trip', () => {
 			.flatMap((m) => (Array.isArray(m.content) ? m.content : []))
 			.filter((b: { type?: string }) => b.type === 'tool_result')
 		expect(toolResultBlocks).toHaveLength(2)
+	})
+})
+
+describe('@namzu/anthropic — chatStream mid-stream error mapping', () => {
+	it('maps an APIConnectionError thrown while iterating the stream to network', async () => {
+		async function* stream(): AsyncGenerator<{ type: string; message?: { id?: string } }> {
+			yield { type: 'message_start', message: { id: 'msg_1' } }
+			throw new APIConnectionError({ message: 'connection dropped mid-stream' })
+		}
+		createMock.mockResolvedValueOnce(stream())
+
+		const drain = async (): Promise<void> => {
+			for await (const _chunk of newProvider().chatStream({
+				model: 'claude-x',
+				messages: [{ role: 'user', content: 'hi' }],
+			})) {
+				// consume
+			}
+		}
+
+		const caught = await drain().catch((e: unknown) => e)
+		expect(isProviderRequestError(caught)).toBe(true)
+		expect((caught as ProviderRequestError).kind).toBe('network')
 	})
 })

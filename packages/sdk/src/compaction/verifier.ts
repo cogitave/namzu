@@ -1,6 +1,8 @@
 import type { CompactionConfig } from '../config/runtime.js'
+import { chatWithRetry } from '../runtime/query/model-call.js'
 import type { Message } from '../types/message/index.js'
 import type { LLMProvider } from '../types/provider/interface.js'
+import { getRootLogger } from '../utils/logger.js'
 import type { WorkingStateManager } from './manager.js'
 import { serializeState } from './serializer.js'
 
@@ -74,12 +76,20 @@ export async function buildVerifiedSummary(
 		},
 	]
 
-	const response = await provider.chat({
-		model: '',
-		messages: verificationMessages,
-		maxTokens: config.llmVerificationMaxTokens,
-		temperature: 0,
-	})
+	// Retry transient throttle/server/network blips: the provider adapter no
+	// longer retries internally, so an unwrapped call would fail the whole
+	// compaction pass on a single 429/503 (ses_015 fix-batch). No signal is in
+	// scope here; chatWithRetry supplies its own bounded budget.
+	const response = await chatWithRetry(
+		provider,
+		{
+			model: '',
+			messages: verificationMessages,
+			maxTokens: config.llmVerificationMaxTokens,
+			temperature: 0,
+		},
+		{ log: getRootLogger() },
+	)
 
 	const responseText = response.message.content?.trim() ?? ''
 

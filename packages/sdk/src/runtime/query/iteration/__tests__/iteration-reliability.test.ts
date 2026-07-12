@@ -9,6 +9,13 @@
 // - A context_overflow provider error is recovered by reducing history and
 //   reissuing within the same iteration; when the reducer cannot shrink, the
 //   run fails and the history is left untouched (candidate-first no-commit).
+//
+// Current-code invariants asserted (2026-07-12, ses_015 fix-batch):
+// - The deadline-timeout classification in the iteration catch is gated on a
+//   RETRYABLE transport error (throttle/server/network): a post-deadline server
+//   error stops the run as 'timeout', but a post-deadline auth error keeps the
+//   normal failure path with the ORIGINAL error preserved (run 'failed',
+//   stopReason not 'timeout') rather than being masked as a timeout.
 // These tests drive the real query() loop with hand-rolled fake providers.
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -271,5 +278,50 @@ describe('iteration loop — context overflow recovery', () => {
 		expect(provider.calls).toBe(1)
 		expect(run.status).toBe('failed')
 		expect(run.messages.some((m) => m.content?.includes('only one message'))).toBe(true)
+	})
+})
+
+describe('iteration loop — deadline classification', () => {
+	// The model call must outlive the run deadline: timeoutMs is comfortably above
+	// the loop's setup cost (so the guard does not hard-stop before the call), and
+	// the provider's delay crosses the deadline before it throws.
+	const TIMEOUT_MS = 250
+	const CROSS_DEADLINE_MS = 500
+
+	it('a post-deadline auth error fails with the original error, not a timeout', async () => {
+		const provider = makeProvider(async () => {
+			await new Promise((r) => setTimeout(r, CROSS_DEADLINE_MS))
+			throw new ProviderRequestError('expired api key', { kind: 'auth', providerId: 'fake' })
+		})
+
+		const { run } = await runQuery({
+			provider,
+			messages: [createUserMessage('hi')],
+			runConfig: { timeoutMs: TIMEOUT_MS },
+		})
+
+		expect(provider.calls).toBe(1)
+		expect(run.status).toBe('failed')
+		expect(run.stopReason).not.toBe('timeout')
+		expect(run.lastError).toContain('expired api key')
+	})
+
+	it('a post-deadline server error stops the run as a timeout', async () => {
+		const provider = makeProvider(async (_p, call) => {
+			if (call === 0) {
+				await new Promise((r) => setTimeout(r, CROSS_DEADLINE_MS))
+				throw new ProviderRequestError('overloaded', { kind: 'server', providerId: 'fake' })
+			}
+			// The subsequent requestFinalResponse call returns promptly.
+			return stopResponse('final summary')
+		})
+
+		const { run } = await runQuery({
+			provider,
+			messages: [createUserMessage('hi')],
+			runConfig: { timeoutMs: TIMEOUT_MS },
+		})
+
+		expect(run.stopReason).toBe('timeout')
 	})
 })

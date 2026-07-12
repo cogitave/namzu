@@ -280,20 +280,26 @@ const NETWORK_ERROR_CODES = new Set([
 ])
 
 /**
- * Bedrock Converse surfaces an oversized prompt as a `ValidationException`
- * whose message reads "Input is too long for requested model." (with close
- * variants that mention the model's context window / token budget). We key on
- * that wording to route it to `context_overflow` — handled by reactive
- * compaction — rather than a plain non-retryable `bad_request`.
+ * Bedrock Converse surfaces an oversized *prompt* as a `ValidationException`
+ * whose message reads "Input is too long for requested model." We key on that
+ * INPUT-overflow-specific wording (plus the other unambiguous context-overflow
+ * phrasings) to route it to `context_overflow` — handled by reactive compaction
+ * — rather than a plain non-retryable `bad_request`.
+ *
+ * Deliberately NOT the old generic `'too long'` or `'exceeds' && 'token'`
+ * heuristics: both also matched a `maxTokens` (output-cap) config error — "The
+ * maximum tokens you requested exceeds the model limit for ..." — which is NOT
+ * overflow and can never succeed. Misrouting it here triggers destructive
+ * reactive compaction on a doomed request. Ambiguity resolves to `bad_request` —
+ * failing fast beats shredding healthy run history (ses_015 fix-batch).
  */
 function isBedrockContextOverflow(message: string): boolean {
 	const m = message.toLowerCase()
 	return (
-		m.includes('too long') ||
+		m.includes('input is too long') ||
 		m.includes('too many tokens') ||
 		m.includes('context window') ||
-		m.includes('maximum context') ||
-		(m.includes('exceeds') && m.includes('token'))
+		m.includes('maximum context')
 	)
 }
 

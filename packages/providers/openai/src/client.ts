@@ -392,49 +392,59 @@ export class OpenAIProvider implements LLMProvider {
 			throw mapOpenAIError(err, this.id)
 		}
 
-		for await (const chunk of stream) {
-			try {
-				const choice = chunk.choices[0]
-				const delta = choice?.delta
+		// Wrap the whole iteration so an error thrown while advancing the vendor
+		// stream (mid-stream abort → 'aborted', connection drop → 'network', a
+		// server error → 'server') is mapped onto the ProviderRequestError
+		// taxonomy instead of escaping as a raw vendor error. The inner try/catch
+		// below still turns a single malformed chunk into an error chunk without
+		// tearing down the stream (ses_015 fix-batch).
+		try {
+			for await (const chunk of stream) {
+				try {
+					const choice = chunk.choices[0]
+					const delta = choice?.delta
 
-				const toolCalls = delta?.tool_calls?.map((tc) => ({
-					index: tc.index,
-					id: tc.id,
-					type: tc.type,
-					function: tc.function
-						? {
-								name: tc.function.name,
-								arguments: tc.function.arguments,
-							}
-						: undefined,
-				}))
+					const toolCalls = delta?.tool_calls?.map((tc) => ({
+						index: tc.index,
+						id: tc.id,
+						type: tc.type,
+						function: tc.function
+							? {
+									name: tc.function.name,
+									arguments: tc.function.arguments,
+								}
+							: undefined,
+					}))
 
-				const hasDelta =
-					(delta?.content !== undefined && delta.content !== null) ||
-					(toolCalls && toolCalls.length > 0)
-				const finishReason = choice?.finish_reason
-					? mapFinishReason(choice.finish_reason)
-					: undefined
-				const usage = chunk.usage ? parseUsage(chunk.usage) : undefined
+					const hasDelta =
+						(delta?.content !== undefined && delta.content !== null) ||
+						(toolCalls && toolCalls.length > 0)
+					const finishReason = choice?.finish_reason
+						? mapFinishReason(choice.finish_reason)
+						: undefined
+					const usage = chunk.usage ? parseUsage(chunk.usage) : undefined
 
-				if (!hasDelta && !finishReason && !usage) continue
+					if (!hasDelta && !finishReason && !usage) continue
 
-				yield {
-					id: chunk.id,
-					delta: {
-						content: delta?.content ?? undefined,
-						toolCalls,
-					},
-					finishReason,
-					usage,
-				}
-			} catch (parseErr) {
-				yield {
-					id: chunk.id ?? '',
-					delta: {},
-					error: `Stream parse error: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
+					yield {
+						id: chunk.id,
+						delta: {
+							content: delta?.content ?? undefined,
+							toolCalls,
+						},
+						finishReason,
+						usage,
+					}
+				} catch (parseErr) {
+					yield {
+						id: chunk.id ?? '',
+						delta: {},
+						error: `Stream parse error: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
+					}
 				}
 			}
+		} catch (err) {
+			throw mapOpenAIError(err, this.id)
 		}
 	}
 

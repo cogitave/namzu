@@ -61,10 +61,18 @@ function readRetryAfterMs(headers: Headers | undefined): number | undefined {
 }
 
 /**
- * Anthropic signals an over-long prompt as a 400 `invalid_request_error` whose
+ * Anthropic signals an over-long *prompt* as a 400 `invalid_request_error` whose
  * message reads "prompt is too long: N tokens > M maximum". There is no
- * dedicated error code, so we key on that message text — inspecting the
- * structured body first, then the derived `Error.message` as a fallback.
+ * dedicated error code, so we key on that INPUT-overflow-specific message text —
+ * inspecting the structured body first, then the derived `Error.message` as a
+ * fallback.
+ *
+ * Deliberately NOT a broad `'maximum' && 'token'` match: a `max_tokens` config
+ * error ("max_tokens: N > M, which is the maximum allowed number of output
+ * tokens...") also mentions both words but is a plain `bad_request`, not context
+ * overflow. Routing it here would trigger destructive reactive compaction on a
+ * request that can never succeed. Ambiguity resolves to `bad_request` — failing
+ * fast beats shredding healthy run history (ses_015 fix-batch).
  */
 function isContextOverflow(err: BadRequestError): boolean {
 	const body = err.error as { error?: { message?: unknown } } | undefined
@@ -73,7 +81,6 @@ function isContextOverflow(err: BadRequestError): boolean {
 	return (
 		haystack.includes('prompt is too long') ||
 		haystack.includes('too many tokens') ||
-		(haystack.includes('maximum') && haystack.includes('token')) ||
 		haystack.includes('context window') ||
 		haystack.includes('context length')
 	)
@@ -516,97 +523,107 @@ export class AnthropicProvider implements LLMProvider {
 		// fragments can reference the right tool call.
 		const activeTools = new Map<number, { id: string; name: string }>()
 
-		for await (const event of stream) {
-			try {
-				switch (event.type) {
-					case 'message_start': {
-						if (event.message?.id) messageId = event.message.id
-						if (event.message?.usage) {
-							yield {
-								id: messageId,
-								delta: {},
-								usage: parseUsage(event.message.usage),
+		// Wrap the whole iteration so an error thrown while advancing the vendor
+		// stream (mid-stream abort → 'aborted', connection drop → 'network', an
+		// overloaded event → 'server') is mapped onto the ProviderRequestError
+		// taxonomy instead of escaping as a raw vendor error. The inner try/catch
+		// below still turns a single malformed event into an error chunk without
+		// tearing down the stream (ses_015 fix-batch).
+		try {
+			for await (const event of stream) {
+				try {
+					switch (event.type) {
+						case 'message_start': {
+							if (event.message?.id) messageId = event.message.id
+							if (event.message?.usage) {
+								yield {
+									id: messageId,
+									delta: {},
+									usage: parseUsage(event.message.usage),
+								}
 							}
+							break
 						}
-						break
-					}
-					case 'content_block_start': {
-						const idx = event.index ?? 0
-						const block = event.content_block
-						if (block?.type === 'tool_use') {
-							const toolId = block.id ?? `tool-${Date.now()}`
-							activeTools.set(idx, { id: toolId, name: block.name ?? '' })
-							yield {
-								id: messageId,
-								delta: {
-									toolCalls: [
-										{
-											index: idx,
-											id: toolId,
-											type: 'function',
-											function: { name: block.name ?? '' },
-										},
-									],
-								},
+						case 'content_block_start': {
+							const idx = event.index ?? 0
+							const block = event.content_block
+							if (block?.type === 'tool_use') {
+								const toolId = block.id ?? `tool-${Date.now()}`
+								activeTools.set(idx, { id: toolId, name: block.name ?? '' })
+								yield {
+									id: messageId,
+									delta: {
+										toolCalls: [
+											{
+												index: idx,
+												id: toolId,
+												type: 'function',
+												function: { name: block.name ?? '' },
+											},
+										],
+									},
+								}
 							}
+							break
 						}
-						break
-					}
-					case 'content_block_delta': {
-						const idx = event.index ?? 0
-						const delta = event.delta
-						if (delta?.type === 'text_delta' && delta.text) {
-							yield { id: messageId, delta: { content: delta.text } }
-						} else if (delta?.type === 'input_json_delta' && delta.partial_json !== undefined) {
-							const active = activeTools.get(idx)
-							yield {
-								id: messageId,
-								delta: {
-									toolCalls: [
-										{
-											index: idx,
-											id: active?.id,
-											function: { arguments: delta.partial_json },
-										},
-									],
-								},
+						case 'content_block_delta': {
+							const idx = event.index ?? 0
+							const delta = event.delta
+							if (delta?.type === 'text_delta' && delta.text) {
+								yield { id: messageId, delta: { content: delta.text } }
+							} else if (delta?.type === 'input_json_delta' && delta.partial_json !== undefined) {
+								const active = activeTools.get(idx)
+								yield {
+									id: messageId,
+									delta: {
+										toolCalls: [
+											{
+												index: idx,
+												id: active?.id,
+												function: { arguments: delta.partial_json },
+											},
+										],
+									},
+								}
 							}
+							break
 						}
-						break
-					}
-					case 'content_block_stop':
-						// Aggregation is consumer-side — nothing to emit.
-						break
-					case 'message_delta': {
-						if (event.delta?.stop_reason) {
-							yield {
-								id: messageId,
-								delta: {},
-								finishReason: mapStopReason(event.delta.stop_reason),
-								usage: event.usage ? parseUsage(event.usage) : undefined,
+						case 'content_block_stop':
+							// Aggregation is consumer-side — nothing to emit.
+							break
+						case 'message_delta': {
+							if (event.delta?.stop_reason) {
+								yield {
+									id: messageId,
+									delta: {},
+									finishReason: mapStopReason(event.delta.stop_reason),
+									usage: event.usage ? parseUsage(event.usage) : undefined,
+								}
+							} else if (event.usage) {
+								yield {
+									id: messageId,
+									delta: {},
+									usage: parseUsage(event.usage),
+								}
 							}
-						} else if (event.usage) {
-							yield {
-								id: messageId,
-								delta: {},
-								usage: parseUsage(event.usage),
-							}
+							break
 						}
-						break
+						case 'message_stop':
+							return
+						default:
+							// Ignore unknown / ping / opaque events.
+							break
 					}
-					case 'message_stop':
-						return
-					default:
-						// Ignore unknown / ping / opaque events.
-						break
-				}
-			} catch (parseErr) {
-				yield {
-					id: messageId,
-					delta: {},
-					error: `Stream event error: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
+				} catch (parseErr) {
+					yield {
+						id: messageId,
+						delta: {},
+						error: `Stream event error: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
+					}
 				}
 			}
+		} catch (err) {
+			throw mapAnthropicError(err, this.id)
 		}
 	}
 

@@ -99,6 +99,13 @@ describe('@namzu/bedrock', () => {
 //    ValidationException → bad_request, unless the message reads "too long" /
 //    context wording → context_overflow; network error codes → network; a
 //    caller abort or AbortError → aborted.
+//
+// Current-code invariants asserted (2026-07-12, ses_015 fix-batch):
+//  - context_overflow keys STRICTLY on "input is too long" (Converse's prompt
+//    overflow wording). A maxTokens (output-cap) ValidationException — "The
+//    maximum tokens you requested exceeds the model limit..." — maps to
+//    bad_request, NOT context_overflow, so a doomed config request fails fast
+//    instead of triggering destructive reactive compaction.
 //  - toBedrockMessages serializes assistant toolCalls (valid, '{}', and
 //    malformed args guarded to {}) plus tool results (including a synthesized
 //    '[SYSTEM] Tool result missing...' result) without throwing.
@@ -200,6 +207,20 @@ describe('@namzu/bedrock — error taxonomy', () => {
 			awsError('ValidationException', 'malformed request field', 400),
 		)
 		expect(err.kind).toBe('bad_request')
+	})
+
+	it('ValidationException for an over-cap maxTokens maps to bad_request, not overflow', async () => {
+		// Output-cap config error: mentions "exceeds" and "tokens" but is NOT
+		// prompt overflow, so it must fail fast rather than compact history.
+		const err = await chatExpectError(
+			awsError(
+				'ValidationException',
+				'The maximum tokens you requested exceeds the model limit for claude-3-5-sonnet',
+				400,
+			),
+		)
+		expect(err.kind).toBe('bad_request')
+		expect(err.status).toBe(400)
 	})
 
 	it('network error code → kind "network"', async () => {
