@@ -48,7 +48,7 @@ import type {
 import type { LLMProvider } from '../../../types/provider/index.js'
 import type { AgentRunConfig, RetryConfig } from '../../../types/run/index.js'
 import type { Logger } from '../../../utils/logger.js'
-import { attemptModelCall, resolveRetryConfig } from '../model-call.js'
+import { attemptModelCall, isRetryableKind, resolveRetryConfig } from '../model-call.js'
 
 function makeLogger(): Logger {
 	const stub = {
@@ -920,5 +920,118 @@ describe('attemptModelCall — a provider that throws synchronously', () => {
 		).rejects.toThrow(TypeError)
 
 		expect(calls()).toBe(1)
+	})
+})
+
+/**
+ * ses_015 pre-freeze R6 B1. The deadline was checked on the way OUT — before the
+ * request was issued — and never on the way BACK IN.
+ *
+ * The timer is not a backstop for that. A provider that blocks SYNCHRONOUSLY past
+ * the deadline (a local model, a slow tokenizer, a large JSON parse) owns the event
+ * loop for the whole overrun, so the timer — a macrotask — cannot run; and when the
+ * provider finally hands back an already-fulfilled promise, the reaction to it is a
+ * MICROTASK, which runs ahead of the overdue timer. The response won a race it had
+ * already lost on the clock, and went on to be accounted, hooked, and appended.
+ */
+describe('attemptModelCall — the deadline is enforced when the response ARRIVES', () => {
+	it('discards the response of a provider that blocked synchronously past the deadline', async () => {
+		// The clock is the test's, so the overrun is exact rather than timing-dependent.
+		let clock = 0
+		vi.spyOn(Date, 'now').mockImplementation(() => clock)
+		const deadlineAt = 1_000
+
+		// The block: the budget is spent INSIDE chat(), and the promise it returns is
+		// already fulfilled. No timer had a chance to fire.
+		const provider = makeProvider(async () => {
+			clock = deadlineAt + 5
+			return okResponse()
+		})
+
+		const promise = attemptModelCall({
+			provider,
+			params: { model: 'm', messages: [] },
+			retry: RETRY,
+			signal: new AbortController().signal,
+			deadlineAt,
+			log: makeLogger(),
+		})
+
+		// Not the response. The same rejection the timer would have produced, had it
+		// been able to run — and a RETRYABLE transport kind, which is the half of
+		// `isDeadlineTimeoutStop` that makes the iteration classify the stop as a
+		// timeout rather than a failure.
+		const rejection = await promise.then(
+			() => undefined,
+			(e: unknown) => e as ProviderRequestError,
+		)
+		expect(rejection).toBeInstanceOf(ProviderRequestError)
+		expect(rejection?.kind).toBe('network')
+		expect(isRetryableKind(rejection?.kind ?? '')).toBe(true)
+		expect(rejection?.message).toContain('exceeded the run deadline')
+
+		// Issued once and not retried: the budget was already spent when it came back.
+		expect(provider.calls).toHaveLength(1)
+	})
+
+	it('still accepts a response that arrives with the budget intact', async () => {
+		// The other side of the guard. It rejects an OVERDUE response, not every
+		// response — a clock re-read that is wrong by a sign would pass the test above
+		// and break every healthy call.
+		let clock = 0
+		vi.spyOn(Date, 'now').mockImplementation(() => clock)
+
+		const provider = makeProvider(async () => {
+			clock = 999 // slow, but inside the budget
+			return okResponse()
+		})
+
+		const response = await attemptModelCall({
+			provider,
+			params: { model: 'm', messages: [] },
+			retry: RETRY,
+			signal: new AbortController().signal,
+			deadlineAt: 1_000,
+			log: makeLogger(),
+		})
+
+		expect(response.message.content).toBe('done')
+		expect(provider.calls).toHaveLength(1)
+	})
+})
+
+/**
+ * ses_015 pre-freeze R6 m1. Two stop conditions can be true at the same instant:
+ * `onAttempt` is a host observer, and an abort raised inside it can coincide with
+ * the deadline coming due. Whichever the call inspects first is what the run is
+ * reported as — and it read the clock first, so a user hitting ctrl-c came back as
+ * a `network` transport fault. The catch rethrows it verbatim (it sees
+ * `signal.aborted` and does not retry), so the wrong kind travelled all the way out.
+ */
+describe('attemptModelCall — an abort that coincides with the deadline is an abort', () => {
+	it('classifies as aborted when the observer aborts AND the deadline crosses', async () => {
+		const ctrl = new AbortController()
+		// Reads 1-2 are the retry loop's own guards, inside the budget. The observer
+		// then aborts and burns the rest of the clock, so every read after it — the
+		// entry check in callWithinDeadline included — is past the deadline.
+		const now = vi.spyOn(Date, 'now')
+		now.mockReturnValueOnce(0).mockReturnValueOnce(0)
+		now.mockReturnValue(5_000)
+
+		const provider = makeProvider(async () => okResponse())
+
+		await expect(
+			attemptModelCall({
+				provider,
+				params: { model: 'm', messages: [] },
+				retry: RETRY,
+				signal: ctrl.signal,
+				deadlineAt: 1_000,
+				log: makeLogger(),
+				onAttempt: () => ctrl.abort(),
+			}),
+		).rejects.toMatchObject({ kind: 'aborted' })
+
+		expect(provider.calls).toHaveLength(0)
 	})
 })

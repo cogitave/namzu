@@ -10,6 +10,7 @@
 			"connector",
 			"manager",
 			"plugin",
+			"probe",
 			"provider",
 			"rag",
 			"registry",
@@ -40,11 +41,29 @@
 		]
 	},
 	"coverageFloors": {
-		"advisory": { "line": 94, "branch": 91 },
-		"bridge":   { "line": 96, "branch": 95 },
-		"bus":      { "line": 94, "branch": 91 },
-		"connector":{ "line": 47, "branch": 84 },
-		"rag":      { "line": 92, "branch": 92 },
-		"registry": { "line": 93, "branch": 90 }
+		"advisory": {
+			"line": 94,
+			"branch": 91
+		},
+		"bridge": {
+			"line": 96,
+			"branch": 95
+		},
+		"bus": {
+			"line": 94,
+			"branch": 91
+		},
+		"connector": {
+			"line": 47,
+			"branch": 84
+		},
+		"rag": {
+			"line": 92,
+			"branch": 92
+		},
+		"registry": {
+			"line": 93,
+			"branch": 90
+		}
 	}
 }

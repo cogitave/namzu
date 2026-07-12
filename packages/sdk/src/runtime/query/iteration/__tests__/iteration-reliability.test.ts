@@ -421,6 +421,51 @@ describe('iteration loop — deadline classification', () => {
 		expect(elapsed).toBeLessThan(10_000)
 	})
 
+	it('does not account the usage of a response that arrived after the deadline', async () => {
+		// ses_015 pre-freeze R6 B1, end to end. The deadline was checked before the
+		// request went out and never when its answer came back, and the timer is no
+		// backstop for that: a provider that blocks SYNCHRONOUSLY past the deadline owns
+		// the event loop for the whole overrun, so the overdue timer (a macrotask)
+		// cannot run, while the reaction to the already-fulfilled promise it then
+		// returns is a microtask and runs first. The loop accounted that response's
+		// usage, pushed its message, and acted on it — on a budget that was already gone.
+		const OVERDUE_TOKENS = 999_999
+		const provider = makeProvider(async (_p, call) => {
+			// The grace-budget final response after the timeout; answers promptly.
+			if (call > 0) return stopResponse('final summary')
+
+			const until = Date.now() + CROSS_DEADLINE_MS
+			while (Date.now() < until) {
+				// Synchronous block. Nothing else in the process runs, timers included.
+			}
+			return {
+				id: 'r',
+				model: 'm',
+				message: { role: 'assistant', content: 'OVERDUE_CONTENT' },
+				finishReason: 'stop',
+				usage: {
+					promptTokens: 1,
+					completionTokens: OVERDUE_TOKENS - 1,
+					totalTokens: OVERDUE_TOKENS,
+				},
+			} as ChatCompletionResponse
+		})
+
+		const { run } = await runQuery({
+			provider,
+			messages: [createUserMessage('hi')],
+			runConfig: { timeoutMs: TIMEOUT_MS },
+		})
+
+		// The bill is what discriminates. Without the arrival-time check the response is
+		// simply accepted — and since it is a `stop`, the turn ENDS on it and the run
+		// reports success, so a test that only asserted a clean termination would pass
+		// against the defect. These three fail against it.
+		expect(run.tokenUsage.totalTokens).toBeLessThan(OVERDUE_TOKENS)
+		expect(run.messages.some((m) => m.content?.includes('OVERDUE_CONTENT'))).toBe(false)
+		expect(run.stopReason).toBe('timeout')
+	})
+
 	it('a retryable error that exhausts its retries BEFORE the deadline fails the run', async () => {
 		// The deadline half of the gate. A provider that is simply down must fail the
 		// run: calling it a timeout would hide a dead provider behind a clock the run

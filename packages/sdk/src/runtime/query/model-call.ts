@@ -144,11 +144,22 @@ const NOT_ISSUED = Symbol('model-call:not-issued')
  * Issue one physical `provider.chat` and settle on whichever comes first: the
  * provider's own answer, the run signal aborting, or the run deadline elapsing.
  *
- * **Abort and deadline are first-come.** Both settle this promise in the tick they
- * are observed, and the request is not issued once either has landed — not before
- * the pre-check, not during `onAttempt`, not between installing the listener and
- * invoking the provider, and not in the microtask gap in between. A provider
- * response wins only when it wins outright.
+ * **Abort and deadline are first-come, and abort has PRIORITY over a concurrent
+ * response.** Both settle this promise in the tick they are observed, and the
+ * request is not issued once either has landed — not before the pre-check, not
+ * during `onAttempt`, not between installing the listener and invoking the
+ * provider, not in the microtask gap in between, and not, once a response does
+ * arrive, without re-reading the clock that the response may have outrun. A
+ * provider response wins only when it wins outright.
+ *
+ * A response that resolves in the SAME TICK as an abort is discarded, and its usage
+ * goes unaccounted. That is deliberate, and it is a stated semantic rather than an
+ * artifact: cancellation is a stop signal, not a vote. The alternative — letting a
+ * response that landed microseconds before the abort be accepted — means a
+ * CANCELLED run accepts a model response and acts on it (hooks, tools, history),
+ * which is a strictly more dangerous direction than under-accounting the cost of a
+ * run that was cancelled anyway. The deadline path behaves the same way, so the two
+ * stop conditions are consistent (ses_015 pre-freeze R6, adjudicated).
  *
  * **The in-flight request is not cancelled by this function — the *wait* for it
  * is.** `signal` is still forwarded to the provider, so an adapter that honors it
@@ -183,6 +194,23 @@ function callWithinDeadline(
 	signal: AbortSignal,
 	deadlineAt: number,
 ): Promise<ChatCompletionResponse> {
+	// The signal is read BEFORE the clock. Both stop conditions can be true at once —
+	// `onAttempt` runs a host observer between the caller's checks and this call, and
+	// an abort raised there can coincide with the deadline coming due — and whichever
+	// is inspected first is the one the call is reported as. Reading the clock first
+	// reported a cancelled run as a `network` failure: the catch below sees
+	// `signal.aborted` and rethrows verbatim, so the misclassification travelled all
+	// the way out to the caller, where a user cancel looked like a transport fault
+	// (ses_015 pre-freeze R6 m1). An abort is what actually happened; it wins the tie.
+	if (signal.aborted) {
+		return Promise.reject(
+			new ProviderRequestError('Aborted before the request was issued', {
+				kind: 'aborted',
+				providerId: provider.id,
+			}),
+		)
+	}
+
 	const remaining = deadlineAt - Date.now()
 	if (remaining <= 0) {
 		return Promise.reject(
@@ -305,6 +333,25 @@ function callWithinDeadline(
 			.then(
 				(response) => {
 					if (response === NOT_ISSUED) return
+
+					// The deadline is enforced when the value ARRIVES, not only before it is
+					// asked for. The timer cannot be trusted to have fired: a provider that
+					// blocks SYNCHRONOUSLY past `deadlineAt` — a slow local model, a busy
+					// tokenizer, a long JSON parse — holds the event loop, so the overdue
+					// timer is a macrotask that cannot run, while the provider's own promise
+					// reaction is a microtask that runs first. The response then arrived after
+					// the budget was spent and was accepted anyway: accounted into the run's
+					// usage, handed to hooks, appended to the history. Re-reading the clock
+					// here is the only check that observes the overrun, and it produces the
+					// same retryable rejection the timer would have (ses_015 pre-freeze R6 B1).
+					if (signal.aborted) {
+						abortWait('Aborted during model call')
+						return
+					}
+					if (Date.now() >= deadlineAt) {
+						abandonWait()
+						return
+					}
 					settle(() => resolve(response))
 				},
 				(err) => settle(() => reject(err)),

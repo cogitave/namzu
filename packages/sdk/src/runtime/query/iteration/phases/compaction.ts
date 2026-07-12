@@ -9,6 +9,7 @@ import {
 	type SystemMessage,
 	createSystemMessage,
 } from '../../../../types/message/index.js'
+import type { Logger } from '../../../../utils/logger.js'
 import type { IterationContext } from './context.js'
 
 /**
@@ -107,29 +108,66 @@ export const CARRY_ELISION_MARKER = '\n[... elided to fit the carry budget]'
  * A summary this writer produced states its carry as data on the message
  * (`meta.compaction.carry`), and that list is taken verbatim. Nothing is recovered
  * from the body: the body is assembled by copying user and tool content into it, so
- * every marker a parser could key on is a marker the conversation can contain. The
- * previous version split the body on the first {@link CARRY_HEADER} it found
+ * every marker a parser could key on is a marker the conversation can contain. An
+ * earlier version split the body on the first {@link CARRY_HEADER} it found
  * anywhere, which let a user message quoting that header split the parser INSIDE
  * the serialized state — discarding everything before it and promoting the state's
  * tail into a "carried" entry — and let a message quoting the entry delimiter
  * shatter one entry into several, so budget eviction could evict half of the NEWEST
  * finding (ses_015 pre-freeze R5 B2).
  *
- * A summary with no such data is either older than this format or came from another
- * tool. Its body is taken WHOLE as a single opaque entry — no markers consulted,
- * nothing split — because dropping it would take the only copy of its facts with it.
- * The one exception is a body that begins with {@link STATE_HEADER}: that prefix
- * sits at a position nothing but this writer controls, and it means the body is a
- * working state this pass re-serializes from the manager anyway. Carrying it would
- * duplicate the state, not preserve it.
+ * That data can be malformed. A checkpoint is JSON on disk, restored with a cast and
+ * no validation, and a run can be resumed from a checkpoint another tool wrote. A
+ * `carry` that is truthy but not an array of strings used to reach `.map()` and crash
+ * the compaction pass — a corrupt file taking down the run rather than costing it a
+ * summary. It degrades to an empty carry and a warning instead (pre-freeze R6 m3).
+ *
+ * A summary with NO such data is either older than this format or came from another
+ * tool, and its body is all there is:
+ *
+ * - A body that does not begin with {@link STATE_HEADER} is taken WHOLE as one
+ *   opaque entry. No markers are consulted and nothing is split; dropping it would
+ *   take the only copy of its facts with it.
+ * - A body that DOES begin with {@link STATE_HEADER} is a summary this writer wrote
+ *   in the format that immediately preceded the metadata (that prefix sits at a
+ *   position nothing but this writer controls). Its state region is re-serialized
+ *   from the manager on this pass and is therefore dropped, but a carry region may
+ *   follow it — and returning `[]` for the whole body, as the first version of this
+ *   function did, silently destroyed those facts on the next pass. Everything after
+ *   the FIRST {@link CARRY_HEADER} is taken as ONE OPAQUE ENTRY: not split on the
+ *   entry delimiter, not scanned for further headers.
+ *
+ * The forgery this is exposed to is bounded by that opacity. A user message quoting
+ * {@link CARRY_HEADER} inside the working state of such a legacy summary can make
+ * the cut land early, so the tail of the state text is carried once as an opaque
+ * entry. That is content duplication — a stale copy of state the pass regenerates
+ * anyway — for one pass. It cannot corrupt an entry, cannot shatter one into
+ * fragments the budget then half-evicts, and cannot drop a real fact: everything
+ * after the cut is kept, and the real carry region lives after the state.
  */
-function carryEntriesOf(summary: SystemMessage): string[] {
+function carryEntriesOf(summary: SystemMessage, log: Logger): string[] {
 	const structured = summary.meta?.compaction?.carry
-	if (structured) return structured.map((entry) => entry.trim()).filter((entry) => entry.length > 0)
+	if (structured !== undefined) {
+		if (!Array.isArray(structured)) {
+			log.warn('Compaction summary carries a malformed carry list — ignoring it', {
+				type: typeof structured,
+			})
+			return []
+		}
+		return structured
+			.filter((entry): entry is string => typeof entry === 'string')
+			.map((entry) => entry.trim())
+			.filter((entry) => entry.length > 0)
+	}
 
 	const body = summary.content.slice(COMPACTION_HEADER.length).trim()
-	if (body.length === 0 || body.startsWith(STATE_HEADER)) return []
-	return [body]
+	if (body.length === 0) return []
+	if (!body.startsWith(STATE_HEADER)) return [body]
+
+	const carryAt = body.indexOf(CARRY_HEADER)
+	if (carryAt === -1) return []
+	const carried = body.slice(carryAt + CARRY_HEADER.length).trim()
+	return carried.length > 0 ? [carried] : []
 }
 
 /**
@@ -142,12 +180,12 @@ function carryEntriesOf(summary: SystemMessage): string[] {
  * without the dedupe that text would be counted twice against the budget and
  * evict something older that is not held anywhere else.
  */
-function priorCarryEntries(messages: Message[]): string[] {
+function priorCarryEntries(messages: Message[], log: Logger): string[] {
 	const summaries = messages.filter(isCompactionSummary)
 	const entries: string[] = []
 	for (let i = summaries.length - 1; i >= 0; i--) {
 		const summary = summaries[i]
-		if (summary) entries.push(...carryEntriesOf(summary))
+		if (summary) entries.push(...carryEntriesOf(summary, log))
 	}
 	return dedupeEntries(entries)
 }
@@ -191,13 +229,15 @@ function dedupeEntries(entries: string[]): string[] {
  * {@link CARRY_ELISION_MARKER} — rather than silently vanishing and leaving room
  * for older entries in its place.
  *
- * `convoTextBudget` is validated only as a positive number, so it can be smaller
- * than the elision marker itself. That degenerate budget used to leave no room for
- * the marker and therefore drop the newest entry outright — a budget below ~37
- * characters silently inverted the policy this function exists to enforce. Below
- * that floor the entry is hard-truncated with no marker: a budget that cannot
- * afford to say "elided" still has to spend what it has on the newest facts
- * (ses_015 pre-freeze R5 M2).
+ * `convoTextBudget` is a positive integer, but nothing stops it from being SMALLER
+ * than the elision marker itself. Such a budget used to leave no room for the marker
+ * and therefore drop the newest entry outright — a budget below ~37 characters
+ * silently inverted the policy this function exists to enforce. Below that floor the
+ * entry is hard-truncated with no marker: a budget that cannot afford to say
+ * "elided" still has to spend what it has on the newest facts (ses_015 pre-freeze R5
+ * M2). The schema rejects the two budgets that made even this unbounded — a
+ * fractional one, which `slice` spends as a whole character, and `Infinity`, which
+ * every cost comparison below passes (pre-freeze R6 M1).
  */
 function capCarryEntries(entries: string[], budget: number): string[] {
 	const kept: string[] = []
@@ -354,7 +394,7 @@ export async function runCompactionCheck(ctx: IterationContext): Promise<void> {
 	// Scanned over the WHOLE history, not just the leading system run, so an
 	// interleaved summary is carried and then dropped rather than left behind to
 	// stack (pre-freeze M2).
-	const prior = priorCarryEntries(messages)
+	const prior = priorCarryEntries(messages, ctx.log)
 
 	let serialized: string
 	let additions = ''
@@ -461,6 +501,7 @@ function buildStructuredReduction(
 	messages: Message[],
 	config: CompactionConfig,
 	manager: WorkingStateManager,
+	log: Logger,
 ): Message[] {
 	const systemMessages = leadingSystemMessages(messages)
 	if (systemMessages.length === 0) return buildFallbackTrim(messages)
@@ -478,7 +519,7 @@ function buildStructuredReduction(
 	const compactionMessage = createSummaryMessage(
 		buildSummaryBody(
 			serializeState(manager.getState()),
-			priorCarryEntries(messages),
+			priorCarryEntries(messages, log),
 			config.convoTextBudget,
 		),
 	)
@@ -513,7 +554,7 @@ export function reduceMessagesForOverflow(ctx: IterationContext): boolean {
 
 	let candidate =
 		useStructured && config && manager
-			? buildStructuredReduction(messages, config, manager)
+			? buildStructuredReduction(messages, config, manager, ctx.log)
 			: buildFallbackTrim(messages)
 	let strategy = useStructured ? 'structured' : 'fallback-trim'
 	let after = estimateTokensForMessages(candidate)

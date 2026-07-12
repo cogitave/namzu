@@ -17,21 +17,38 @@ export const TaskRouterConfigSchema = z
 	})
 	.optional()
 
+/**
+ * A compaction budget: a COUNT of messages, slots, tokens, or characters.
+ *
+ * Every one of these is a finite positive integer, and the schema has to say so —
+ * `z.number().positive()` does not. It admits `0.5`, which a character cap then
+ * spends as one whole character (`slice(0, 0.5)` keeps nothing; the floor keeps one),
+ * so the budget is exceeded by the very code enforcing it. And it admits `Infinity`,
+ * which every `used + cost <= budget` comparison passes: the carry that these budgets
+ * exist to BOUND grows without limit, and the "bounded carry" the compaction pass
+ * promises is simply false. A fractional message count is no better — it is compared
+ * against array lengths and halved with `Math.floor`.
+ *
+ * Rejecting the degenerate values at the boundary is what lets the code downstream
+ * state its guarantees plainly (ses_015 pre-freeze R6 M1).
+ */
+const budget = () => z.number().int().positive().finite()
+
 export const CompactionConfigSchema = z.object({
 	strategy: z.enum(['structured', 'sliding-window', 'disabled']).default('structured'),
 	triggerThreshold: z.number().min(0).max(1).default(0.7),
 	resetThreshold: z.number().min(0).max(1).default(0.4),
-	keepRecentMessages: z.number().positive().default(4),
-	maxToolResults: z.number().positive().default(30),
-	maxListSize: z.number().positive().default(25),
+	keepRecentMessages: budget().default(4),
+	maxToolResults: budget().default(30),
+	maxListSize: budget().default(25),
 	llmVerification: z.boolean().default(true),
-	llmVerificationMaxTokens: z.number().positive().default(2048),
-	richStateThreshold: z.number().positive().default(15),
-	convoTextBudget: z.number().positive().default(12_000),
-	maxSentencesPerTurn: z.number().positive().default(5),
-	maxCharsPerNote: z.number().positive().default(500),
-	maxCharsPerRequirement: z.number().positive().default(300),
-	maxCharsPerTask: z.number().positive().default(400),
+	llmVerificationMaxTokens: budget().default(2048),
+	richStateThreshold: budget().default(15),
+	convoTextBudget: budget().default(12_000),
+	maxSentencesPerTurn: budget().default(5),
+	maxCharsPerNote: budget().default(500),
+	maxCharsPerRequirement: budget().default(300),
+	maxCharsPerTask: budget().default(400),
 })
 
 export type CompactionConfig = z.infer<typeof CompactionConfigSchema>
