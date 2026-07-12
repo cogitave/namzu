@@ -1,7 +1,7 @@
 ---
 title: Anthropic Provider
 description: Configure @namzu/anthropic for the Anthropic Messages API through Namzu.
-last_updated: 2026-04-18
+last_updated: 2026-07-12
 status: current
 related_packages: ["@namzu/sdk", "@namzu/anthropic"]
 ---
@@ -112,22 +112,35 @@ The package exports `ANTHROPIC_CAPABILITIES`:
   supportsTools: true,
   supportsStreaming: true,
   supportsFunctionCalling: true,
+  supportsAbortSignal: true,
 }
 ```
 
-## 9. Operational Notes
+## 9. Error Handling and Cancellation
+
+`chat()` and `chatStream()` failures are normalized to the SDK's `ProviderRequestError` with a runtime-classifiable `kind` — `throttle`, `context_overflow`, `auth`, `bad_request`, `server`, `network`, `aborted`, or `unknown`. Anthropic's `anthropic-ratelimit-*` reset headers and `Retry-After` are read into `retryAfterMs`, which the runtime's retry loop honors in place of its computed backoff.
+
+The vendor SDK's internal retry loop is **disabled**, so the SDK's `retry.maxAttempts` bounds the number of requests that physically reach the network. A direct `provider.chat()` call outside the agent loop therefore performs exactly one request.
+
+`supportsAbortSignal` is `true`: `params.signal` is forwarded to the transport, so a cancel aborts an in-flight request rather than waiting for the next iteration boundary.
+
+See [Reliability and Cancellation](../sdk/runtime/reliability.md).
+
+## 10. Operational Notes
 
 - Anthropic requires `max_tokens`, so setting `maxTokens` at provider creation time is a good default.
 - `baseURL` can point at proxies or gateways, but for Bedrock-hosted Anthropic models [`@namzu/bedrock`](./bedrock.md) is the better fit.
 - The provider also implements `listModels()` and `healthCheck()`.
 
-## 10. Common Errors
+## 11. Common Errors
 
 | Error | Meaning | Fix |
 | --- | --- | --- |
 | `Unsupported provider type: anthropic` | registration never happened | call `registerAnthropic()` before `create()` |
 | missing API key error | `apiKey` not provided | pass a valid Anthropic API key |
 | tool-rich calls fail unexpectedly | `max_tokens` handling was overlooked in direct calls | set `maxTokens` at provider creation or per call |
+| `ProviderRequestError` with `kind: 'auth'` | key rejected (401/403) | terminal — not retried. Check the key |
+| `ProviderRequestError` with `kind: 'throttle'` | rate limited (429) | retried automatically inside an agent run; honor `retryAfterMs` on direct calls |
 
 ## Related
 
@@ -136,5 +149,6 @@ The package exports `ANTHROPIC_CAPABILITIES`:
 - [Bedrock Provider](./bedrock.md)
 - [HTTP Provider](./http.md)
 - [Provider Registry](../sdk/provider-integration/registry.md)
+- [Reliability and Cancellation](../sdk/runtime/reliability.md)
 - [Anthropic Provider Entry](https://github.com/cogitave/namzu/blob/main/packages/providers/anthropic/src/index.ts)
 - [Anthropic Config Types](https://github.com/cogitave/namzu/blob/main/packages/providers/anthropic/src/types.ts)

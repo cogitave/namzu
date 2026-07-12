@@ -1,7 +1,7 @@
 ---
 title: Runtime Pipeline
 description: Detailed walkthrough of how @namzu/sdk turns agent input into provider calls, tool execution, checkpoints, and final results.
-last_updated: 2026-04-18
+last_updated: 2026-07-12
 status: current
 related_packages: ["@namzu/sdk"]
 ---
@@ -56,8 +56,8 @@ The practical iteration sequence is:
 plan gate
   -> limit and cancellation guard
   -> pending task notifications
-  -> compaction check
-  -> provider.chat(...)
+  -> compaction check (proactive)
+  -> model call (bounded retry + reactive overflow recovery)
   -> advisory phase
   -> tool review or direct tool execution
   -> checkpoint
@@ -82,10 +82,33 @@ The phase modules live in `runtime/query/iteration/phases/`:
 The LLM boundary is intentionally narrow:
 
 - The runtime prepares normalized messages and tool schemas.
-- The provider receives `chat({ model, messages, tools, ... })`.
-- The provider returns a normalized `ChatCompletionResponse`.
+- The provider receives `chat({ model, messages, tools, signal })`.
+- The provider returns a normalized `ChatCompletionResponse`, or throws a normalized `ProviderRequestError`.
 
-Because providers implement the shared `LLMProvider` contract, the runtime does not need vendor-specific branching at this point.
+Because providers implement the shared `LLMProvider` contract — on the failure path as well as the success path — the runtime does not need vendor-specific branching at this point.
+
+The call itself is not a bare `provider.chat()`. `model-call.ts` wraps it in a bounded retry loop, and the orchestrator wraps *that* in overflow recovery:
+
+```text
+callModelWithOverflowRecovery
+  -> attemptModelCall            (retry: throttle | server | network,
+  |                               jittered backoff, deadline-aware)
+  |     -> provider.chat({ ..., signal })
+  |
+  -> on ProviderRequestError kind 'context_overflow':
+       drain pending notifications -> force-compact -> reissue
+       (bounded by retry.overflowAttempts; a non-shrinking
+        reduction is never committed)
+```
+
+Two properties follow from this placement:
+
+- **Retry is inside the iteration, not around it.** A retried call does not consume an iteration, does not re-run the plan gate or compaction check, and does not double-fire hooks. `maxIterations` counts logical turns.
+- **Overflow recovery reissues within the same iteration.** The compaction it forces is *reactive* — the safety net for when the proactive threshold check underestimated the payload. The proactive path in `phases/compaction.ts` remains the normal one.
+
+`finishReason: 'length'` is handled at this boundary too: truncated tool-call arguments are sanitized before the assistant message is recorded, and a synthesized not-executed tool result keeps the assistant/tool sequence provider-valid.
+
+See [Reliability and Cancellation](../runtime/reliability.md).
 
 ## 6. Tool Review and Execution
 
@@ -117,12 +140,18 @@ The loop exits through explicit stop paths:
 | Cancellation | Abort signal or explicit cancellation |
 | Pause | HITL decision at plan gate, tool review, or checkpoint |
 | Final response | Runtime forces a final answer because limits are near |
+| Provider error | A terminal `ProviderRequestError` (`auth`, `bad_request`, `unknown`, or a retryable kind that exhausted its attempts) |
 
-When the runtime stops, `RunPersistence` and the surrounding query pipeline finalize the `AgentRun` result that the agent surface returns.
+The run's guard clock bounds retries as well as iterations: `attemptModelCall` checks the deadline before each attempt and caps each backoff wait by the time remaining, so a retry storm cannot push a run past its `timeoutMs`.
+
+Cancellation reaches the in-flight request rather than only the iteration boundary. `AbstractAgent` composes the agent's internal controller with any caller-supplied `input.signal` into the single signal the query observes, which is what makes `agent.cancel()` abort a call already on the wire — on every provider that declares `supportsAbortSignal`.
+
+When the runtime stops, `RunPersistence` and the surrounding query pipeline finalize the `AgentRun` result that the agent surface returns. A history left dangling by a cancel or an interruption is healed by `repairDanglingMessages` on the resume or replay path, not carried forward broken.
 
 ## Related
 
 - [SDK Runtime](../runtime/README.md)
+- [Reliability and Cancellation](../runtime/reliability.md)
 - [Source Tree](./source-tree.md)
 - [State and Persistence](./state-and-persistence.md)
 - [Query Entry Point](https://github.com/cogitave/namzu/blob/main/packages/sdk/src/runtime/query/index.ts)

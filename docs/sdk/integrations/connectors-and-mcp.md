@@ -1,7 +1,7 @@
 ---
 title: Connectors and MCP
 description: Build connector catalogs, expose connector instances as tools, consume remote MCP servers, and bridge connected integrations back out through MCP in @namzu/sdk.
-last_updated: 2026-04-18
+last_updated: 2026-07-12
 status: current
 related_packages: ["@namzu/sdk"]
 ---
@@ -177,6 +177,38 @@ The generated tool names are prefixed as:
 - `mcp_<serverName>_<toolName>`
 
 That keeps remote MCP tools distinct from local tool definitions.
+
+### Remote names are canonicalized
+
+The MCP spec does not constrain what a server calls its own tools, and providers
+do: a function name must match `[a-zA-Z0-9_-]` and fit in 64 characters. Names
+like `notion.search`, `db:query`, or a 70-character method all occur in the wild.
+
+You cannot rename a tool that lives inside someone else's server, so the registry
+key is **canonicalized** rather than rejected:
+
+```ts
+import { canonicalizeToolName } from '@namzu/sdk'
+
+canonicalizeToolName('mcp_notion_notion.search')  // 'mcp_notion_notion_search'
+```
+
+Three properties matter in practice:
+
+- **Deterministic and stable.** One input yields one name in every process and
+  every release (an over-long name gets a truncated prefix plus a fixed hash
+  suffix), so a canonicalized name persisted in a run history still resolves
+  after a restart.
+- **The remote is still invoked under its original name.** The adapter captures
+  it in the tool's `execute` closure. Renaming the registry key is invisible to
+  the server on the other end.
+- **`__` collapses to `_`.** The doubled underscore is the plugin namespace
+  separator, so a canonicalized name can never be mistaken for a composed
+  `plugin__tool` name.
+
+The same canonicalization applies to connector method names
+(`connectorMethodToTool`), for the same reason: a connector definition may come
+from anywhere and name its methods anything.
 
 ## 7. Read MCP Resources and Templates
 

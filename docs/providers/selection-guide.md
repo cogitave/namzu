@@ -1,7 +1,7 @@
 ---
 title: Provider Selection Guide
 description: Detailed decision guide for choosing the right published Namzu provider package by deployment model, vendor fit, dependency shape, and local-vs-cloud tradeoffs.
-last_updated: 2026-04-18
+last_updated: 2026-07-12
 status: current
 related_packages: ["@namzu/sdk", "@namzu/openai", "@namzu/anthropic", "@namzu/bedrock", "@namzu/openrouter", "@namzu/http", "@namzu/ollama", "@namzu/lmstudio"]
 ---
@@ -34,17 +34,26 @@ All published Namzu providers plug into the same `ProviderRegistry`, but they ar
 | Local open-model workflow with Ollama | `@namzu/ollama` | Native Ollama client |
 | Local open-model workflow with LM Studio | `@namzu/lmstudio` | Official LM Studio SDK transport |
 
-## 3. Tool and Streaming Expectations
+## 3. Tool, Streaming, and Cancellation Expectations
 
-| Package | Declared tool support | Streaming | Notes |
-| --- | --- | --- | --- |
-| `@namzu/openai` | Yes | Yes | Strong default for general-purpose tool agents |
-| `@namzu/anthropic` | Yes | Yes | Strong default for Anthropic-native tool agents |
-| `@namzu/bedrock` | Yes | Yes | Good when tool-capable models are enabled in Bedrock |
-| `@namzu/openrouter` | Yes | Yes | Depends on chosen upstream model |
-| `@namzu/http` | Yes | Yes | Actual endpoint must implement the expected dialect correctly |
-| `@namzu/ollama` | Conservative `false` | Yes | Tool behavior varies by selected model |
-| `@namzu/lmstudio` | Yes | Yes | Real behavior still depends on the loaded model |
+| Package | Declared tool support | Streaming | Abort signal | Notes |
+| --- | --- | --- | --- | --- |
+| `@namzu/openai` | Yes | Yes | Yes | Strong default for general-purpose tool agents |
+| `@namzu/anthropic` | Yes | Yes | Yes | Strong default for Anthropic-native tool agents |
+| `@namzu/bedrock` | Yes | Yes | Yes | Good when tool-capable models are enabled in Bedrock |
+| `@namzu/openrouter` | Yes | Yes | Yes | Depends on chosen upstream model |
+| `@namzu/http` | Yes | Yes | Yes | Actual endpoint must implement the expected dialect correctly |
+| `@namzu/ollama` | Conservative `false` | Yes | **No** (non-streaming) | Tool behavior varies by selected model |
+| `@namzu/lmstudio` | Yes | Yes | Yes | Real behavior still depends on the loaded model |
+
+**If a responsive cancel matters**, that last column is a real selection
+criterion. `@namzu/ollama` cannot abort an in-flight non-streaming request — a
+cancel only lands at the next iteration boundary. Every other package aborts the
+request itself. See [Reliability and Cancellation](../sdk/runtime/reliability.md#6-cancellation).
+
+Error handling does **not** vary by package: every provider throws the same
+`ProviderRequestError` with a classified `kind`, so retry and overflow behavior
+is uniform across the lineup.
 
 ## 4. When `@namzu/http` Is the Right Answer
 
@@ -69,6 +78,7 @@ For local models:
 | Ollama daemon and pulled models | `@namzu/ollama` |
 | LM Studio UI and loaded local models | `@namzu/lmstudio` |
 | OpenAI-compatible local HTTP only | `@namzu/http` |
+| Ollama, but you need in-flight cancellation | `@namzu/http` against the Ollama endpoint, or Ollama's streaming path |
 
 ## 6. Common Decision Patterns
 

@@ -1,7 +1,7 @@
 ---
 title: Provider Operations
-description: Direct provider usage in @namzu/sdk, including chat, streaming, tool-call inspection, model listing, health checks, and capability-driven routing.
-last_updated: 2026-04-18
+description: Direct provider usage in @namzu/sdk, including chat, streaming, typed errors, cancellation, tool-call inspection, model listing, health checks, and capability-driven routing.
+last_updated: 2026-07-12
 status: current
 related_packages: ["@namzu/sdk", "@namzu/openai", "@namzu/anthropic", "@namzu/bedrock", "@namzu/openrouter", "@namzu/http", "@namzu/ollama", "@namzu/lmstudio"]
 ---
@@ -39,6 +39,7 @@ const { provider, capabilities } = ProviderRegistry.create({
 console.log(capabilities.supportsStreaming)
 console.log(capabilities.supportsTools)
 console.log(capabilities.supportsFunctionCalling)
+console.log(capabilities.supportsAbortSignal)
 ```
 
 The returned `capabilities` object is the fastest way to branch UI or runtime behavior before the first call.
@@ -165,7 +166,72 @@ Typical uses:
 - `healthCheck()` before accepting traffic
 - `listModels()` when rendering setup forms or validating config choices
 
-## 7. Capability-Driven Routing
+## 7. Error Handling
+
+Every provider normalizes its vendor errors into `ProviderRequestError`, so you
+branch on a classified `kind` rather than string-matching a vendor message:
+
+```ts
+import { isProviderRequestError } from '@namzu/sdk'
+
+try {
+  const response = await provider.chat({ model, messages })
+} catch (err) {
+  if (isProviderRequestError(err)) {
+    switch (err.kind) {
+      case 'throttle':
+        // err.retryAfterMs is populated when the response carried a
+        // Retry-After or rate-limit-reset header
+        await sleep(err.retryAfterMs ?? 1000)
+        break
+      case 'auth':
+        throw new Error('Check your API key')
+      case 'context_overflow':
+        // Compact the history — retrying the same payload fails identically
+        break
+      default:
+        throw err
+    }
+  }
+  throw err
+}
+```
+
+The kinds are `throttle`, `context_overflow`, `auth`, `bad_request`, `server`,
+`network`, `aborted`, and `unknown`. `err.status`, `err.retryAfterMs`,
+`err.providerId`, and `err.cause` carry the detail. The full taxonomy is in
+[Reliability and Cancellation](../runtime/reliability.md#1-the-provider-error-taxonomy).
+
+> **A direct `provider.chat()` call has no retries.** Every adapter disables its
+> vendor SDK's internal retry loop, so the SDK's own retry policy is the only one
+> — and that policy lives in the runtime loop, not in the provider. A direct call
+> is exactly one request. If you want bounded retries on a direct-call path, you
+> own the loop; the `kind` above is what you branch on.
+
+## 8. Cancellation
+
+`ChatCompletionParams` takes an optional `signal`:
+
+```ts
+const controller = new AbortController()
+
+const response = await provider.chat({
+  model: 'gpt-4o-mini',
+  messages: [{ role: 'user', content: 'Long task...' }],
+  signal: controller.signal,
+})
+
+// From elsewhere:
+controller.abort()   // rejects with a ProviderRequestError of kind 'aborted'
+```
+
+Check `capabilities.supportsAbortSignal` before relying on it. Every published
+provider forwards the signal to its transport except `@namzu/ollama`, whose
+official client exposes no abort path on the **non-streaming** `chat()` — there,
+a signal only rejects a request that was already aborted before dispatch. The
+streaming path is cancellable.
+
+## 9. Capability-Driven Routing
 
 The capability object returned by `ProviderRegistry.create()` is often enough to decide which runtime shape to use:
 
@@ -174,10 +240,11 @@ The capability object returned by `ProviderRegistry.create()` is often enough to
 | `supportsStreaming` | Turn on token-by-token or chunk-by-chunk UI |
 | `supportsTools` | Enable tool-enabled agents or direct tool-call inspection |
 | `supportsFunctionCalling` | Prefer structured tool orchestration instead of plain-text prompting |
+| `supportsAbortSignal` | Decide whether a cancel button can stop an in-flight call, or only the next iteration |
 
 This lets you branch behavior without hardcoding vendor names.
 
-## 8. Direct Provider Calls vs Agent Runtime
+## 10. Direct Provider Calls vs Agent Runtime
 
 | If you need... | Use |
 | --- | --- |
@@ -186,7 +253,7 @@ This lets you branch behavior without hardcoding vendor names.
 | Health or model discovery | `healthCheck()` / `listModels()` |
 | Tool execution loop, safety policy, and final run assembly | `ReactiveAgent.run()` or `drainQuery()` |
 
-## 9. Common Mistakes
+## 11. Common Mistakes
 
 | Mistake | Why it hurts |
 | --- | --- |
@@ -194,12 +261,16 @@ This lets you branch behavior without hardcoding vendor names.
 | assuming every provider implements `listModels()` and `healthCheck()` | those methods are optional on the shared interface |
 | ignoring `capabilities` and branching by vendor name instead | you lose the main benefit of the provider abstraction |
 | jumping straight into agents before a direct preflight request | setup errors become harder to isolate |
+| expecting a direct `chat()` call to retry a 429 | vendor-internal retries are disabled; a direct call is one request |
+| string-matching a vendor error message to detect rate limits | check `isProviderRequestError(err)` and branch on `err.kind` |
 
 ## Related
 
 - [Provider Registry](./registry.md)
 - [SDK Quickstart](../quickstart.md)
 - [Low-Level Runtime](../runtime/low-level.md)
+- [Reliability and Cancellation](../runtime/reliability.md)
 - [Providers Overview](../../providers/README.md)
 - [Provider Interface Source](https://github.com/cogitave/namzu/blob/main/packages/sdk/src/types/provider/interface.ts)
+- [Provider Errors Source](https://github.com/cogitave/namzu/blob/main/packages/sdk/src/provider/errors.ts)
 - [Provider Registry Source](https://github.com/cogitave/namzu/blob/main/packages/sdk/src/provider/registry.ts)

@@ -1,7 +1,7 @@
 ---
 title: Bedrock Provider
 description: Configure @namzu/bedrock for AWS Bedrock Converse API usage with Namzu.
-last_updated: 2026-04-18
+last_updated: 2026-07-12
 status: current
 related_packages: ["@namzu/sdk", "@namzu/bedrock"]
 ---
@@ -111,23 +111,38 @@ The package exports `BEDROCK_CAPABILITIES`:
   supportsTools: true,
   supportsStreaming: true,
   supportsFunctionCalling: true,
+  supportsAbortSignal: true,
 }
 ```
 
-## 9. Operational Notes
+## 9. Error Handling and Cancellation
+
+`chat()` and `chatStream()` failures are normalized to the SDK's `ProviderRequestError` with a runtime-classifiable `kind` — `throttle`, `context_overflow`, `auth`, `bad_request`, `server`, `network`, `aborted`, or `unknown`. AWS throttling exceptions map to `kind: 'throttle'`, and retry-after headers are read into `retryAfterMs`, which the runtime's retry loop honors in place of its computed backoff.
+
+The AWS SDK's internal retry loop is **disabled**, so the SDK's `retry.maxAttempts` bounds the number of requests that physically reach the network. A direct `provider.chat()` call outside the agent loop therefore performs exactly one request.
+
+`supportsAbortSignal` is `true`: `params.signal` is forwarded to the transport, so a cancel aborts an in-flight request rather than waiting for the next iteration boundary.
+
+The assistant tool-call argument reparse is guarded against malformed JSON, so a truncated or malformed Converse tool block cannot crash the run.
+
+See [Reliability and Cancellation](../sdk/runtime/reliability.md).
+
+## 10. Operational Notes
 
 - If you do not pass explicit credentials, the AWS SDK default credential chain is used.
 - Model access in Bedrock is region-specific, so enable the models you need in the target AWS region before testing.
 - The provider also implements `listModels()` and `healthCheck()`.
 - Bedrock model identifiers differ from direct vendor identifiers, so keep your runtime model config Bedrock-specific.
 
-## 10. Common Errors
+## 11. Common Errors
 
 | Error | Meaning | Fix |
 | --- | --- | --- |
 | `Unsupported provider type: bedrock` | registration never happened | call `registerBedrock()` first |
 | auth failures | AWS credentials were not resolved | pass explicit credentials or fix the AWS default chain |
 | model unavailable in region | Bedrock access is not enabled in that region | enable the model in Bedrock and use the correct region |
+| `ProviderRequestError` with `kind: 'auth'` | credentials rejected | terminal — not retried. Fix the credential chain |
+| `ProviderRequestError` with `kind: 'throttle'` | AWS throttling exception | retried automatically inside an agent run; honor `retryAfterMs` on direct calls |
 
 ## Related
 

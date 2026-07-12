@@ -1,7 +1,7 @@
 ---
 title: SDK Tools
 description: Define tools, register them in ToolRegistry, and understand built-in tool behavior in @namzu/sdk.
-last_updated: 2026-04-18
+last_updated: 2026-07-12
 status: current
 related_packages: ["@namzu/sdk", "@namzu/computer-use"]
 ---
@@ -44,7 +44,7 @@ const summarizeText = defineTool({
 
 | Field | Purpose |
 | --- | --- |
-| `name` | Stable snake_case identifier exposed to the model |
+| `name` | Stable snake_case identifier exposed to the model. Must match `[a-zA-Z0-9_-]{1,64}` — validated at registration |
 | `description` | Prompt-facing summary of when to use the tool |
 | `inputSchema` | Zod schema used for validation and JSON Schema generation |
 | `category` | High-level grouping such as `filesystem`, `shell`, `network`, `analysis`, or `custom` |
@@ -54,6 +54,8 @@ const summarizeText = defineTool({
 | `concurrencySafe` | Signals whether concurrent execution is safe |
 
 If `execute()` throws, the SDK converts that throw into a structured failed tool result instead of leaking an uncaught error through the tool boundary.
+
+The registry key **is** `tool.name` — the model is shown the name and calls it back, so registering under a different key throws `ToolNameKeyMismatchError`. An invalid name throws `InvalidToolNameError` at registration rather than failing as a 400 on the next model call. See [Tool Safety](./safety.md#8-tool-names-are-canonical).
 
 ## 3. Tool Context
 
@@ -163,8 +165,11 @@ Tool execution is shaped by more than the tool function itself:
 
 - `permissionMode: 'plan'` blocks non-read-only tools
 - `VerificationGate` can allow, deny, or review a tool call
+- a probe veto can deny a specific call, and **fails closed** — a throwing handler denies
 - sandbox-aware tools can execute inside a constrained environment
 - destructive flags can feed HITL or other policy layers
+
+A denied or unknown tool call comes back to the model as a failed tool result rather than throwing out of the run, so the other calls in the same batch still execute.
 
 Read [Tool Safety](./safety.md) for the full decision path.
 

@@ -1,7 +1,7 @@
 ---
 title: Safety and Operations
-description: Sandboxing, verification, bus coordination, telemetry, and operational guardrails inside @namzu/sdk.
-last_updated: 2026-04-18
+description: Sandboxing, verification, frame authentication, fail-closed policy, bus coordination, telemetry, and operational guardrails inside @namzu/sdk.
+last_updated: 2026-07-12
 status: current
 related_packages: ["@namzu/sdk", "@namzu/computer-use"]
 ---
@@ -40,7 +40,44 @@ Architecturally, this is separate from sandboxing:
 - verification decides whether a tool call should proceed
 - sandboxing decides what the process can do if it proceeds
 
-## 3. Agent Bus
+## 3. Fail-Closed Policy
+
+Two authorization layers changed from fail-open to **fail-closed**, because an authorizer that crashes and is read as an approval is worse than no authorizer at all.
+
+| Layer | A throwing handler... |
+| --- | --- |
+| Probe veto (`probe/registry.ts`) | **denies**. Opt out per handler with `{ onError: 'allow' }` |
+| Plugin hook (`plugin/lifecycle.ts`) | **blocks** the guarded operation. Opt out per hook with `onError: 'continue'` |
+
+For vetoes, the `where` predicate is evaluated *inside* the same try boundary as the handler. It is half of the handler: a filter like `e => e.input.command.startsWith('rm')` throws on the first tool call whose input has no `command`, and evaluating it outside the boundary let that throw escape `queryVeto` and abort the run instead of producing the deny the policy promises.
+
+A continued plugin-hook error stays visible on the `plugin_hook_completed` event's `error` field. A crashed hook must never be indistinguishable from a clean one.
+
+The `ToolExecutor` wraps the veto query itself in the same posture: if the probe registry *machinery* throws — not one handler, the whole mechanism — the call is denied rather than allowed, and the run is not aborted.
+
+## 4. Frame Authentication
+
+Model-facing frames are **authenticated, not escaped**.
+
+Sub-agent results and advisory blocks arrive as untrusted content — a sub-agent's output can contain anything, including text that looks like a framework tag. The old defense was to escape the payload. The current defense is to make the *boundary* unforgeable instead:
+
+- Frames carry a per-run nonce in their tag name: `<task-notification-{nonce}>`, `<advisory-result-{nonce}>`.
+- A `<frame-authentication>` block in the system prompt tells the model that **only** nonce-bearing tags were written by the framework, and that any unmarked `<task-notification>` or `<system>` tag is untrusted data to report on rather than instruction to act on.
+- The nonce is generated per run and never appears in the model's input except on the framework's own tags, so it is not derivable from anything a sub-agent can see.
+
+The payoff is fidelity. Because the boundary is now the thing an attacker cannot reproduce, the payload inside a frame is passed through **verbatim** — code, file paths, and ampersands reach the model byte-exact rather than HTML-escaped into something that no longer matches the filesystem.
+
+Escaping stays where it does no harm: tool names and descriptions in the prompt catalogue are escaped, because they are metadata, not content the model has to reproduce. The working directory is likewise left unescaped, since the model builds absolute paths from it and an escaped `/Users/x/R&amp;D/app` would fail every file operation with ENOENT.
+
+## 5. One Canonical Tool Name
+
+Every name-keyed safety layer — probe vetoes, plugin `pre_tool_use` hooks, the verification gate — matches on the raw name the model supplied. A tool reachable under two spellings is therefore a privilege-escalation hole: a tool denied under one name is reachable under the other.
+
+So there is exactly one canonical name per tool, and no alias resolution anywhere. The plugin namespace separator is `__` with no legacy `:` fallback, and composition is injective because no component may itself contain `__`. Names the SDK does not author (an MCP server's own tool names, connector methods) are canonicalized deterministically onto the provider-legal character set rather than aliased.
+
+See [Tool Safety](../tools/safety.md#8-tool-names-are-canonical).
+
+## 6. Agent Bus
 
 `bus/` owns coordination primitives for concurrent or multi-agent scenarios:
 
@@ -52,7 +89,7 @@ Architecturally, this is separate from sandboxing:
 
 The `AgentBus` composes these primitives and exposes cleanup and maintenance operations around them.
 
-## 4. Telemetry
+## 7. Telemetry
 
 Observability is split between `telemetry/` and parts of `provider/telemetry/`:
 
@@ -60,7 +97,7 @@ Observability is split between `telemetry/` and parts of `provider/telemetry/`:
 - `telemetry/metrics.ts` and related helpers centralize metrics behavior.
 - runtime and iteration code create spans around runs and iterations instead of logging only ad hoc strings.
 
-## 5. Constants and Config as Guardrail Infrastructure
+## 8. Constants and Config as Guardrail Infrastructure
 
 Several folders support operational safety indirectly:
 
@@ -72,20 +109,25 @@ Several folders support operational safety indirectly:
 
 This is part of the SDK architecture even though these folders do not execute user work directly.
 
-## 6. Safety Flow in Practice
+## 9. Safety Flow in Practice
 
 A practical request can touch these layers in sequence:
 
 ```text
-tool call requested
+tool call requested (by the name the model supplied)
+  -> name resolves in the registry, or an error result goes back to the model
   -> verification gate decides allow/deny/review
+  -> plugin pre_tool_use hooks run (a throw blocks)
+  -> probe vetoes are queried (a throw denies)
   -> tool executes
   -> sandbox constrains filesystem and process behavior
   -> agent bus coordinates locks or ownership if needed
   -> telemetry records the run and iteration effects
 ```
 
-## 7. Computer Use and Safety
+Every deny in that chain returns to the model as a failed tool result rather than throwing out of the run, so one blocked call does not take the other calls in the batch down with it.
+
+## 10. Computer Use and Safety
 
 `computer_use` is a good stress case for this layer:
 
@@ -98,7 +140,11 @@ That makes desktop automation fit into the same operational model as any other t
 ## Related
 
 - [SDK Tools](../tools/README.md)
+- [Tool Safety](../tools/safety.md)
 - [Runtime Pipeline](./runtime-pipeline.md)
+- [Plugins and MCP Servers](../integrations/plugins.md)
 - [Extensions and Integrations](./extensions.md)
+- [Migrating to 0.5.0](../../migration/0.5.md)
 - [Sandbox Factory](https://github.com/cogitave/namzu/blob/main/packages/sdk/src/sandbox/factory.ts)
 - [Verification Gate](https://github.com/cogitave/namzu/blob/main/packages/sdk/src/verification/gate.ts)
+- [Probe Registry](https://github.com/cogitave/namzu/blob/main/packages/sdk/src/probe/registry.ts)

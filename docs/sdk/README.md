@@ -1,7 +1,7 @@
 ---
 title: Overview
 description: Overview of the public surfaces exported by @namzu/sdk and how they fit together.
-last_updated: 2026-04-18
+last_updated: 2026-07-12
 status: current
 related_packages: ["@namzu/sdk"]
 ---
@@ -62,7 +62,7 @@ The SDK docs are grouped by domain instead of a flat file list:
 | Folder | Purpose |
 | --- | --- |
 | [agents/](./agents/README.md) | agent classes, orchestration, delegation, and manager-facing behavior |
-| [runtime/](./runtime/README.md) | runtime overview, IDs, configuration, and low-level query entrypoints |
+| [runtime/](./runtime/README.md) | runtime overview, IDs, configuration, reliability, and low-level query entrypoints |
 | [tools/](./tools/README.md) | tool definitions, built-ins, and safety policy |
 | [provider-integration/](./provider-integration/README.md) | SDK-level provider registry and direct provider operations |
 | [integrations/](./integrations/README.md) | connectors, MCP, plugins, and event bridges |
@@ -80,6 +80,7 @@ Read these pages next depending on what you are doing:
 | --- | --- |
 | Run a first agent | [SDK Quickstart](./quickstart.md) |
 | Understand runtime components | [SDK Runtime](./runtime/README.md) |
+| Handle provider errors, retries, and cancellation | [Reliability and Cancellation](./runtime/reliability.md) |
 | Understand provider registration and creation | [SDK Provider Integration](./provider-integration/README.md) |
 | Choose the right agent class and delegation boundary | [SDK Agents](./agents/README.md) |
 | Build system prompts from persona and skill files | [SDK Prompting](./prompting/README.md) |

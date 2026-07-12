@@ -1,7 +1,7 @@
 ---
 title: Replay
 description: Fork an existing run from any checkpoint with optional controlled mutations. Useful for debugging, regression tests, and counterfactual "what if" analysis.
-last_updated: 2026-04-21
+last_updated: 2026-07-12
 status: current
 related_packages: ["@namzu/sdk"]
 ---
@@ -120,7 +120,37 @@ try {
 
 **Mutations deferred from v1.** `truncateAfter`, `swapProvider`, `overrideBudget`, `overrideMessage`, `skipTool`. `truncateAfter` is redundant with picking an earlier `fromCheckpoint`; the rest are real but lower-frequency. Raise an issue if you need one — prioritisation follows demand.
 
-## 5. Determinism Envelope
+## 5. History Repair at the Fork Point
+
+A checkpoint taken from an interrupted run can hold a history providers will
+reject: an assistant message with tool calls whose results never arrived, or a
+tool result whose call was compacted away. Applying a mutation can produce the
+same shape.
+
+`prepareReplayState` therefore **repairs the history after mutations are
+applied**, so a forked run does not inherit a dangling pair from the run it
+forked. The repair is `repairDanglingMessages()`, which is exported if you need
+it directly:
+
+```ts
+import { repairDanglingMessages, prepareResumeMessages } from '@namzu/sdk'
+```
+
+It heals rather than deletes — orphaned tool results are dropped, missing results
+are synthesized deterministically as explicit error placeholders, and every
+result is relocated to sit immediately after its assistant message in the
+declared `toolCalls` order. It is pure and idempotent.
+
+`prepareResumeMessages(checkpointMessages)` is the resume-path wrapper: it
+repairs the history and strips `system` messages, since the prompt is rebuilt for
+the new run.
+
+Note the contrast with `removeDanglingMessages()`, which is still exported and
+still *deletes* the offending assistant turns. Use `repair` when you want to
+continue a conversation; `remove` only produces a valid transcript. See
+[Reliability and Cancellation](./reliability.md#7-history-repair).
+
+## 6. Determinism Envelope
 
 Read this carefully — the name "replay" is load-bearing and honest disclosure matters.
 
@@ -134,7 +164,7 @@ Read this carefully — the name "replay" is load-bearing and honest disclosure 
 
 If you need byte-identical reproduction for regression tests, v1 is not it — those tests should pin inputs + use a mock provider, or wait for the deterministic reproduce-mode session. If you need "start from checkpoint N with a mocked tool response and see what the agent does," v1 is exactly the right primitive.
 
-## 6. Attribution on Replayed Runs
+## 7. Attribution on Replayed Runs
 
 `prepareReplayState` returns an `attribution` record:
 
@@ -149,13 +179,13 @@ type ReplayAttribution = {
 
 Stamp it on the new run as `run.replayOf = prepared.attribution` before persisting. Downstream code that reads `Run` sees `replayOf === undefined` for original runs and a populated `ReplayAttribution` for replays. Use this to filter replays out of production dashboards, tag them in traces, or diff them against the source.
 
-## 7. Security
+## 8. Security
 
 `prepareReplayState` and `listCheckpoints` read the source run's directory directly — they do not consult a multi-tenant gatekeeper because today there is no tenant field on `Run` or on the `RunDiskStore` read API. Single-tenant deployments are safe by default; multi-tenant operators must enforce tenant scoping at the caller (e.g. by validating the `runId` belongs to the requesting tenant before invoking replay).
 
 When the end-to-end `replay()` wrapper lands (follow-up session), tenant scoping will go through `RunPersistence`, which already carries `tenantId`.
 
-## 8. Non-Scope
+## 9. Non-Scope
 
 Not in v1; deferred with a dedicated follow-up:
 
@@ -165,7 +195,7 @@ Not in v1; deferred with a dedicated follow-up:
 - **Export / import of captured runs** for off-machine bug reports. Returns with the CLI session, paired with a redaction story.
 - **Visual time-travel UI.** Separate deliverable; this page documents the primitive.
 
-## 9. References
+## 10. References
 
 - [`ses_005-deterministic-replay`](https://github.com/bahadirarda/namzu/tree/main/docs.local/sessions/ses_005-deterministic-replay) — design record, ratified decisions, implementation plan. Internal; linked here for context on what was cut from v1 and why.
 - `projectEmergencyToCheckpoint` — exported helper if you want to project emergency dumps yourself rather than letting `prepareReplayState` do it.

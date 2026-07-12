@@ -1,7 +1,7 @@
 ---
 title: HTTP Provider
 description: Use @namzu/http as the generic zero-dependency provider for OpenAI- or Anthropic-compatible HTTP endpoints.
-last_updated: 2026-04-18
+last_updated: 2026-07-12
 status: current
 related_packages: ["@namzu/sdk", "@namzu/http"]
 ---
@@ -102,19 +102,32 @@ The package exports `HTTP_CAPABILITIES`:
   supportsTools: true,
   supportsStreaming: true,
   supportsFunctionCalling: true,
+  supportsAbortSignal: true,
 }
 ```
 
 The actual endpoint still has to support those features correctly.
 
-## 8. Operational Notes
+## 8. Error Handling and Cancellation
+
+`chat()` and `chatStream()` failures are normalized to the SDK's `ProviderRequestError` with a runtime-classifiable `kind` — `throttle`, `context_overflow`, `auth`, `bad_request`, `server`, `network`, `aborted`, or `unknown`. HTTP status is mapped through the SDK's shared `classifyHttpStatus` (`429 → throttle`, `401/403 → auth`, `5xx → server`), and `Retry-After` / rate-limit reset headers are read into `retryAfterMs`.
+
+Because this package is fetch-based there is no vendor retry loop to disable, so the SDK's `retry.maxAttempts` is already the only retry policy. A direct `provider.chat()` call outside the agent loop performs exactly one request.
+
+`supportsAbortSignal` is `true`: `params.signal` is forwarded to `fetch`, so a cancel aborts an in-flight request rather than waiting for the next iteration boundary.
+
+`DialectMismatchError` is a configuration error, not a request error — it is thrown separately from the `ProviderRequestError` taxonomy.
+
+See [Reliability and Cancellation](../sdk/runtime/reliability.md).
+
+## 9. Operational Notes
 
 - The package exports `DialectMismatchError`, which is thrown when the declared dialect does not match the actual response shape.
 - Use `dialect: 'anthropic'` only for native Anthropic-style endpoints.
 - This package is a good fit for self-hosted gateways, vLLM, TGI, Groq-style OpenAI-compatible APIs, and similar targets.
 - The provider also implements `listModels()` and `healthCheck()`.
 
-## 9. Why Dialect Choice Matters
+## 10. Why Dialect Choice Matters
 
 The package does not silently auto-detect wire shape. That is deliberate:
 
@@ -122,7 +135,7 @@ The package does not silently auto-detect wire shape. That is deliberate:
 - silent coercion can corrupt tool-call arguments or stream parsing
 - fail-fast configuration errors are easier to debug than partial runtime corruption
 
-## 10. Common Errors
+## 11. Common Errors
 
 | Error | Meaning | Fix |
 | --- | --- | --- |
@@ -130,6 +143,7 @@ The package does not silently auto-detect wire shape. That is deliberate:
 | `HttpProvider: baseURL is required` | no endpoint URL was passed | supply `baseURL` |
 | `DialectMismatchError` | endpoint response shape does not match declared dialect | fix `dialect` or endpoint target |
 | missing model error | no default model and no per-call model for OpenAI-style calls | set `model` in config or per call |
+| `ProviderRequestError` with `kind: 'network'` | the endpoint is unreachable | check `baseURL` and that the gateway is up. Retried inside an agent run |
 
 ## Related
 

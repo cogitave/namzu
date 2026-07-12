@@ -1,4 +1,4 @@
 {
   "title": "Runtime",
-  "pages": ["index", "configuration", "identities", "low-level", "replay"]
+  "pages": ["index", "configuration", "identities", "low-level", "reliability", "replay"]
 }

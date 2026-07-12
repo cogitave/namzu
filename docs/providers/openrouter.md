@@ -1,7 +1,7 @@
 ---
 title: OpenRouter Provider
 description: Configure @namzu/openrouter for multi-vendor model access through OpenRouter.
-last_updated: 2026-04-18
+last_updated: 2026-07-12
 status: current
 related_packages: ["@namzu/sdk", "@namzu/openrouter"]
 ---
@@ -73,12 +73,25 @@ The package exports `OPENROUTER_CAPABILITIES`:
   supportsTools: true,
   supportsStreaming: true,
   supportsFunctionCalling: true,
+  supportsAbortSignal: true,
 }
 ```
 
 Actual tool quality still depends on the chosen upstream model.
 
-## 8. Operational Notes
+## 8. Error Handling and Cancellation
+
+`chat()` and `chatStream()` failures are normalized to the SDK's `ProviderRequestError` with a runtime-classifiable `kind` — `throttle`, `context_overflow`, `auth`, `bad_request`, `server`, `network`, `aborted`, or `unknown`. `Retry-After` and rate-limit reset headers are read into `retryAfterMs`, which the runtime's retry loop honors in place of its computed backoff.
+
+Vendor-internal retries are **disabled**, so the SDK's `retry.maxAttempts` bounds the number of requests that physically reach the network. A direct `provider.chat()` call outside the agent loop therefore performs exactly one request.
+
+`supportsAbortSignal` is `true`: `params.signal` is forwarded to the transport, so a cancel aborts an in-flight request rather than waiting for the next iteration boundary.
+
+Because OpenRouter proxies many upstream vendors, an error `kind` reflects what OpenRouter returned, not necessarily what the upstream vendor produced.
+
+See [Reliability and Cancellation](../sdk/runtime/reliability.md).
+
+## 9. Operational Notes
 
 - Model identifiers typically use the `vendor/model-name` form.
 - This package is fetch-based and keeps runtime dependencies small.
@@ -87,13 +100,14 @@ Actual tool quality still depends on the chosen upstream model.
 - `siteUrl` and `siteName` are useful when you want OpenRouter-side attribution or analytics context.
 - The provider also implements `listModels()` and `healthCheck()`.
 
-## 9. Common Errors
+## 10. Common Errors
 
 | Error | Meaning | Fix |
 | --- | --- | --- |
 | `Unsupported provider type: openrouter` | registration never happened | call `registerOpenRouter()` first |
 | missing API key error | no `apiKey` passed | set `OPENROUTER_API_KEY` and pass it into config |
 | model not found | incorrect `vendor/model` identifier | verify the model name in OpenRouter's catalog |
+| `ProviderRequestError` with `kind: 'throttle'` | rate limited (429) | retried automatically inside an agent run; honor `retryAfterMs` on direct calls |
 
 ## Related
 

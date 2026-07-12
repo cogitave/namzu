@@ -1,7 +1,7 @@
 ---
 title: Providers Overview
 description: Compare the published Namzu provider packages and choose the right integration path for your runtime.
-last_updated: 2026-04-18
+last_updated: 2026-07-12
 status: current
 related_packages: ["@namzu/sdk", "@namzu/openai", "@namzu/anthropic", "@namzu/bedrock", "@namzu/openrouter", "@namzu/http", "@namzu/ollama", "@namzu/lmstudio"]
 ---
@@ -33,17 +33,36 @@ Every provider page follows the same runtime shape:
 
 ## 3. Capability Snapshot
 
-| Package | Tools | Streaming | Notes |
-| --- | --- | --- | --- |
-| `@namzu/openai` | Yes | Yes | Strong default for general-purpose cloud agents |
-| `@namzu/anthropic` | Yes | Yes | Anthropic-native behavior |
-| `@namzu/bedrock` | Yes | Yes | Best when auth and governance already live in AWS |
-| `@namzu/openrouter` | Yes | Yes | Depends on chosen upstream model |
-| `@namzu/http` | Yes | Yes | Endpoint must match declared dialect correctly |
-| `@namzu/ollama` | Conservative `false` | Yes | Tool behavior depends on chosen model |
-| `@namzu/lmstudio` | Yes | Yes | Loaded model still determines practical quality |
+| Package | Tools | Streaming | Abort signal | Notes |
+| --- | --- | --- | --- | --- |
+| `@namzu/openai` | Yes | Yes | Yes | Strong default for general-purpose cloud agents |
+| `@namzu/anthropic` | Yes | Yes | Yes | Anthropic-native behavior |
+| `@namzu/bedrock` | Yes | Yes | Yes | Best when auth and governance already live in AWS |
+| `@namzu/openrouter` | Yes | Yes | Yes | Depends on chosen upstream model |
+| `@namzu/http` | Yes | Yes | Yes | Endpoint must match declared dialect correctly |
+| `@namzu/ollama` | Conservative `false` | Yes | **No** (non-streaming) | Tool behavior depends on chosen model |
+| `@namzu/lmstudio` | Yes | Yes | Yes | Loaded model still determines practical quality |
 
-## 4. Quick Routing Guide
+The **abort signal** column is `ProviderCapabilities.supportsAbortSignal`: whether a
+cancel aborts an in-flight request, or only takes effect at the next iteration
+boundary. Only `@namzu/ollama` declares `false`, and only on its non-streaming
+path — its official client exposes no abort hook there. See
+[Reliability and Cancellation](../sdk/runtime/reliability.md#6-cancellation).
+
+## 4. Errors Are Uniform Across Packages
+
+Whichever package you pick, a failed model call throws the same
+`ProviderRequestError`, carrying a classified `kind` (`throttle`,
+`context_overflow`, `auth`, `bad_request`, `server`, `network`, `aborted`,
+`unknown`), the upstream `status`, and a `retryAfterMs` parsed from the vendor's
+rate-limit headers when there was one.
+
+That is what lets the runtime loop retry a 429 and compact-and-reissue on a
+context overflow without knowing which vendor it is talking to — and it means
+your own error handling does not have to branch by vendor either. See
+[Reliability and Cancellation](../sdk/runtime/reliability.md).
+
+## 5. Quick Routing Guide
 
 - choose `@namzu/openai` if OpenAI is the primary target
 - choose `@namzu/anthropic` if you want Anthropic-native Messages API semantics
@@ -52,7 +71,7 @@ Every provider page follows the same runtime shape:
 - choose `@namzu/http` if the backend is compatible but non-standard for the Namzu package lineup
 - choose `@namzu/ollama` or `@namzu/lmstudio` for local model workflows
 
-## 5. Recommended Reading Path
+## 6. Recommended Reading Path
 
 | If you need... | Read |
 | --- | --- |

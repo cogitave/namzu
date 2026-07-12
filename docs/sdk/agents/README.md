@@ -1,7 +1,7 @@
 ---
 title: Agents and Orchestration
 description: Choose the right SDK agent class, understand delegation boundaries, and wire orchestration surfaces safely in @namzu/sdk.
-last_updated: 2026-04-18
+last_updated: 2026-07-12
 status: current
 related_packages: ["@namzu/sdk"]
 ---
@@ -224,6 +224,14 @@ Current hard requirements:
 
 This is why `SupervisorAgent` becomes much more useful once a real `AgentManager` is present. The manager is where the orchestration runtime turns from "one run" into "an accountable hierarchy of runs".
 
+### `agent.cancel()` reaches the in-flight call
+
+Cancellation is owned by `AbstractAgent`, not by each subclass. The base composes its internal controller with any `input.signal` you pass into the single signal the query pipeline observes, and the runtime forwards that signal to the provider on every model-call attempt.
+
+The practical consequence: `await agent.cancel()` aborts the HTTP request that is currently on the wire, rather than waiting for the next iteration boundary. The one exception is `@namzu/ollama`'s non-streaming path, which declares `supportsAbortSignal: false`.
+
+A run cancelled mid-tool-call leaves a history with tool calls that have no results. That history is healed on the resume or replay path by `repairDanglingMessages`, so a cancelled run can be resumed without a provider rejecting its message sequence. See [Reliability and Cancellation](../runtime/reliability.md).
+
 ## 8. Invocation State Is for Runtime Context, Not Prompt Text
 
 `InvocationState` flows through agent hierarchies and is not shown to the model. Use it for:
@@ -250,6 +258,7 @@ Do not confuse it with persona or system prompt text. Prompt composition belongs
 - [SDK Quickstart](../quickstart.md)
 - [Low-Level Runtime](../runtime/low-level.md)
 - [Run Configuration](../runtime/configuration.md)
+- [Reliability and Cancellation](../runtime/reliability.md)
 - [Run Identities](../runtime/identities.md)
 - [Sessions, Workspaces, and Retention](../sessions/README.md)
 - [Execution Folders](../architecture/execution-folders.md)

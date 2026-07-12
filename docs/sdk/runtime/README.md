@@ -1,7 +1,7 @@
 ---
 title: Runtime
 description: Reference map for the runtime building blocks exposed by @namzu/sdk.
-last_updated: 2026-04-18
+last_updated: 2026-07-12
 status: current
 related_packages: ["@namzu/sdk"]
 ---
@@ -18,7 +18,8 @@ The SDK exports a broad runtime surface, but the pieces follow a consistent shap
 | Agents | `ReactiveAgent`, `PipelineAgent`, `RouterAgent`, `SupervisorAgent` | Different execution patterns over the same runtime |
 | Low-level kernel | `query`, `drainQuery` | Direct control over event streaming, verification, sandboxing, and runtime-only features |
 | Lifecycle | `AgentManager`, `RunPersistence`, `EmergencySaveManager`, `PlanManager` | Run orchestration, persistence, and review hooks |
-| Replay (v1) | `listCheckpoints`, `prepareReplayState`, `MutationNotApplicableError` | Fork an existing run from a checkpoint, optionally mutating the fork point — see [Replay](./replay.md) |
+| Replay (v1) | `listCheckpoints`, `prepareReplayState`, `prepareResumeMessages`, `MutationNotApplicableError` | Fork an existing run from a checkpoint, optionally mutating the fork point — see [Replay](./replay.md) |
+| Reliability | `ProviderRequestError`, `isProviderRequestError`, `classifyHttpStatus`, `RetryConfigSchema`, `DEFAULT_RETRY_CONFIG`, `repairDanglingMessages` | Typed provider errors, bounded retries, overflow recovery, and cancellation — see [Reliability](./reliability.md) |
 | Stores | `RunDiskStore`, `DiskTaskStore`, conversation and memory stores | Local durability for runtime data |
 | Session hierarchy | `InMemorySessionStore`, `DiskSessionStore`, handoff, summary, workspace, retention exports | Tenant-scoped project and delegation state |
 | Sandboxing | `LocalSandboxProvider`, `SandboxProviderFactory` | Isolated command execution |
@@ -51,6 +52,8 @@ Every provider package plugs into the same `LLMProvider` contract:
 - `listModels()` and `healthCheck()` are optional.
 
 This is why you can swap provider packages without rewriting agent setup code.
+
+Provider failures are normalized too: every provider throws `ProviderRequestError` with a classified `kind`, which is what lets the loop decide what to retry without knowing the vendor. See [Reliability and Cancellation](./reliability.md).
 
 Read [Provider Operations](../provider-integration/operations.md) if you want direct provider-call patterns instead of the agent loop.
 
@@ -89,6 +92,7 @@ If you are implementing against the SDK rather than only consuming the public AP
 | Project-session-sub-session persistence and archival | [SDK Sessions](../sessions/README.md) |
 | Required IDs and identity mapping | [Runtime Identities](./identities.md) |
 | Agent config and runtime limits | [Runtime Configuration](./configuration.md) |
+| Provider errors, retries, overflow recovery, and cancellation | [Reliability and Cancellation](./reliability.md) |
 | `query()` and `drainQuery()` wiring | [Low-Level Runtime](./low-level.md) |
 | Plugin manifests, namespacing, and hook order | [Plugins and MCP Servers](../integrations/plugins.md) |
 | The shipped tool set | [Built-In Tools](../tools/built-in.md) |
@@ -112,6 +116,7 @@ If you are implementing against the SDK rather than only consuming the public AP
 - [SDK Retrieval](../retrieval/README.md)
 - [SDK Sessions](../sessions/README.md)
 - [Runtime Configuration](./configuration.md)
+- [Reliability and Cancellation](./reliability.md)
 - [Low-Level Runtime](./low-level.md)
 - [Connectors and MCP](../integrations/connectors-and-mcp.md)
 - [Plugins and MCP Servers](../integrations/plugins.md)

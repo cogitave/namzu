@@ -1,7 +1,7 @@
 ---
 title: Run Configuration
-description: Required and optional runtime config for Namzu agents, including model, limits, permissions, environment, and working directory.
-last_updated: 2026-04-18
+description: Required and optional runtime config for Namzu agents, including model, limits, retries, permissions, environment, and working directory.
+last_updated: 2026-07-12
 status: current
 related_packages: ["@namzu/sdk"]
 ---
@@ -82,8 +82,26 @@ At minimum, a practical run needs:
 | `maxResponseTokens` | Output-size guard for model responses |
 | `costLimitUsd` | Cost budget guard when pricing is available |
 | `temperature` | Model creativity or variance control |
+| `retry` | Retry and overflow-recovery policy for model calls |
 
 These settings shape the runtime loop, not only the provider call.
+
+### `retry`
+
+`retry` is a `RetryConfig`. Omit it and the run uses `DEFAULT_RETRY_CONFIG`.
+
+| Field | Default | Purpose |
+| --- | --- | --- |
+| `enabled` | `true` | When `false`, a model call is attempted exactly once |
+| `maxAttempts` | `3` | Max physical attempts per model call, including the first |
+| `baseDelayMs` | `1000` | Base delay for full-jitter exponential backoff |
+| `maxDelayMs` | `30_000` | Ceiling on any single wait, including a server-advised `Retry-After` |
+| `overflowAttempts` | `2` | Max compact-and-reissue passes per iteration on a context overflow |
+
+Only `throttle`, `server`, and `network` provider errors are retried. Retries are
+bounded by the run's `timeoutMs`, so they cannot push a run past its deadline.
+
+See [Reliability and Cancellation](./reliability.md) for the full contract.
 
 ## 5. Permission and Environment Fields
 
@@ -164,6 +182,9 @@ Important defaults include:
 | `maxResponseTokens` | `8192` |
 | `timeoutMs` | `600_000` |
 | `maxIterations` | `200` |
+| `retry` | `DEFAULT_RETRY_CONFIG` (see above) |
+
+`RetryConfigSchema` is exported alongside `RuntimeConfigSchema` for app-level config assembly, so `RUNTIME_DEFAULTS.retry` is already populated.
 
 Those defaults are useful for application-level config objects, but most production apps should still set explicit values for the runs they actually care about.
 
@@ -210,12 +231,14 @@ const agentConfig = {
 | keeping `tokenBudget` too low for tool-rich tasks | early stop or forced finalization |
 | forgetting `maxResponseTokens` in provider-direct calls | large responses can be harder to control |
 | mixing app config defaults and per-run overrides inconsistently | debugging run behavior becomes harder |
+| raising `retry.maxAttempts` on a short `timeoutMs` | attempts share the run deadline, so the budget is spent waiting |
 
 ## Related
 
 - [SDK Quickstart](../quickstart.md)
 - [Run Identities](./identities.md)
 - [Low-Level Runtime](./low-level.md)
+- [Reliability and Cancellation](./reliability.md)
 - [Tool Safety](../tools/safety.md)
 - [SDK Runtime](./README.md)
 - [RuntimeConfigSchema Source](https://github.com/cogitave/namzu/blob/main/packages/sdk/src/config/runtime.ts)

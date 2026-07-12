@@ -1,7 +1,7 @@
 ---
 title: LM Studio Provider
 description: Configure @namzu/lmstudio for local LM Studio server usage in Namzu.
-last_updated: 2026-04-18
+last_updated: 2026-07-12
 status: current
 related_packages: ["@namzu/sdk", "@namzu/lmstudio"]
 ---
@@ -78,12 +78,26 @@ The package exports `LMSTUDIO_CAPABILITIES`:
   supportsTools: true,
   supportsStreaming: true,
   supportsFunctionCalling: true,
+  supportsAbortSignal: true,
 }
 ```
 
 Practical behavior still depends on the loaded model.
 
-## 9. Operational Notes
+## 9. Error Handling and Cancellation
+
+`chat()` and `chatStream()` failures are normalized to the SDK's `ProviderRequestError` with a runtime-classifiable `kind` — `throttle`, `context_overflow`, `auth`, `bad_request`, `server`, `network`, `aborted`, or `unknown`.
+
+Two cases are worth knowing:
+
+- **A stopped server** (connection refused, or "Failed to connect to LM Studio") surfaces as `kind: 'network'`, which is retryable, rather than as an opaque failure.
+- **Context exhaustion is special-cased.** LM Studio reports it as a *successful* prediction with `stopReason: 'contextLengthReached'`. When that comes back with no output at all — meaning the input alone overflowed the window — the provider throws `kind: 'context_overflow'`, which lets the runtime compact and reissue. A partial answer that merely hit the limit flows through normally as `finishReason: 'length'`.
+
+`supportsAbortSignal` is `true`: both model acquisition and prediction accept an `AbortSignal`, so `params.signal` is forwarded and an in-flight request is genuinely cancelled.
+
+See [Reliability and Cancellation](../sdk/runtime/reliability.md).
+
+## 10. Operational Notes
 
 - The target model must already be loaded in LM Studio.
 - This package uses the official LM Studio SDK rather than the OpenAI-compatible HTTP endpoint.
@@ -91,13 +105,15 @@ Practical behavior still depends on the loaded model.
 - `host` accepts `http://` or `https://`, but the SDK converts it to the WebSocket form it needs internally.
 - The provider also implements `listModels()` and `healthCheck()`.
 
-## 10. Common Errors
+## 11. Common Errors
 
 | Error | Meaning | Fix |
 | --- | --- | --- |
 | `Unsupported provider type: lmstudio` | registration never happened | call `registerLMStudio()` first |
 | model required error | neither provider config nor call supplied a model | set a default model or pass one per call |
 | model not found or unloaded | LM Studio server is up but the model is not loaded | load the model first in LM Studio |
+| `ProviderRequestError` with `kind: 'network'` | LM Studio server is not running | start the server. Retried inside an agent run |
+| `ProviderRequestError` with `kind: 'context_overflow'` | the input alone exceeded the model's window | the runtime compacts and reissues; on direct calls, shorten the input |
 
 ## Related
 

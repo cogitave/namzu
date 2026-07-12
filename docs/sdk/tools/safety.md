@@ -1,7 +1,7 @@
 ---
 title: Tool Safety
-description: Layered tool safety in @namzu/sdk, including tool metadata, availability states, verification gates, plan mode, and sandbox boundaries.
-last_updated: 2026-04-18
+description: Layered tool safety in @namzu/sdk, including tool metadata, availability states, verification gates, probe vetoes, plan mode, and sandbox boundaries.
+last_updated: 2026-07-12
 status: current
 related_packages: ["@namzu/sdk", "@namzu/computer-use"]
 ---
@@ -20,9 +20,13 @@ Tool safety in the SDK is intentionally layered:
 | Tool availability state | Control whether a tool is active, deferred, or suspended |
 | Permission mode | Block mutating tools in plan-style execution |
 | Verification gate | Decide allow, deny, or review before execution |
+| Probe veto | Let application code deny a specific call at execution time |
 | Sandbox | Constrain what execution can do if it is allowed |
 
 No single layer is expected to do all the work.
+
+Every one of these layers matches on **the name the model supplied**. That is why
+a tool is reachable under exactly one name — see [Tool Names Are Canonical](#8-tool-names-are-canonical).
 
 ## 2. Safety Metadata in `defineTool()`
 
@@ -108,7 +112,80 @@ The important boundary is:
 
 Today, high-level agent helpers such as `ReactiveAgent.run()` do not expose `verificationGate` directly. If you want to turn this on in a real run, wire the config through `query()` or `drainQuery()` as shown in [Low-Level Runtime](../runtime/low-level.md).
 
-## 7. Sandbox Boundary
+## 7. Probe Vetoes
+
+Where the verification gate is rule-based, a **probe veto** is application code
+that gets asked, per call, whether an operation may proceed. `tool_executing` is
+the vetoable event kind today.
+
+```ts
+import { probe } from '@namzu/sdk'
+
+probe.veto(
+  'tool_executing',
+  (event) => (event.toolName === 'bash' ? { action: 'deny', reason: 'shell disabled' } : 'allow'),
+  { name: 'no-shell' },
+)
+```
+
+The first deny wins, and a denied call comes back to the model as a failed tool
+result rather than throwing out of the run.
+
+### Vetoes fail closed
+
+**A veto handler that throws denies.** So does a `where` filter that throws — the
+predicate is evaluated inside the same boundary as the handler, because it is
+half of the handler.
+
+This matters more than it looks. A filter like
+`e => e.input.command.startsWith('rm')` throws a `TypeError` on the first tool
+call whose input has no `command` field. Before this behavior existed, that throw
+was logged and the call proceeded: a crashed authorizer silently waved through
+exactly the operations it was written to stop.
+
+A veto is an authorization decision, and an authorizer that cannot answer must
+not be read as an allow.
+
+A genuinely non-critical veto can opt out per handler:
+
+```ts
+probe.veto('tool_executing', handler, { onError: 'allow' })
+```
+
+A deny produced by a throwing handler carries `reason: PROBE_ERROR_REASON`
+(exported), so you can tell it apart from a deliberate deny in your event stream.
+
+> **Upgrading from `0.4.x`:** this is a behavior change. A handler that was
+> quietly crashing was not enforcing anything; it will now start denying. See
+> [Migrating to 0.5.0](../../migration/0.5.md#section-b--veto-handlers-fail-closed).
+
+## 8. Tool Names Are Canonical
+
+The registry key **is** the model-visible name. `defineTool()` names are
+validated at registration against `[a-zA-Z0-9_-]{1,64}` — the intersection of
+what strict providers accept for a function name — so an invalid name fails at
+registration rather than as a 400 on the next model call. Registering a tool
+under a key that differs from its `name` throws `ToolNameKeyMismatchError`: the
+model is shown the name and calls it back, so a divergence produces a tool the
+model can see but never invoke.
+
+A tool is reachable under **exactly one** name. There are no aliases, and the
+plugin namespace separator (`__`) has no legacy `:` fallback. This is a safety
+property, not a naming preference: probe vetoes, plugin `pre_tool_use` hooks, and
+the verification gate all match on the raw name the model supplied, so a second
+spelling resolved further down in the registry would reach a tool those layers
+had just denied under its other name.
+
+### An unknown name is an error result, not a throw
+
+A name the registry does not hold comes back to the model as a tool-level error
+result. It is not a rejection.
+
+Models mistype and invent tool names. One bad name in a batch must still let the
+other calls return and let the model correct itself — a rejection here used to
+escape the executor's `Promise.all` and abort the entire run.
+
+## 9. Sandbox Boundary
 
 Several built-in tools are sandbox-aware:
 
@@ -121,7 +198,7 @@ When a sandbox is present in `ToolContext`, those tools route through sandbox AP
 
 This is why the sandbox is a real operational layer and not just a documentation concept.
 
-## 8. Built-In Tool Safety Signals
+## 10. Built-In Tool Safety Signals
 
 Some examples from the shipped built-ins:
 
@@ -133,7 +210,7 @@ Some examples from the shipped built-ins:
 
 Those declarations make it easier to write policy that matches real behavior.
 
-## 9. Failure Behavior
+## 11. Failure Behavior
 
 `defineTool()` catches thrown errors and converts them into structured failed `ToolResult`s:
 
@@ -151,7 +228,7 @@ This matters for:
 - better event streams
 - predictable MCP or UI error handling
 
-## 10. Practical Safety Pattern
+## 12. Practical Safety Pattern
 
 For a conservative agent:
 
@@ -169,5 +246,8 @@ That pattern gives the model useful autonomy without treating every tool equally
 - [Built-In Tools](./built-in.md)
 - [Run Configuration](../runtime/configuration.md)
 - [Low-Level Runtime](../runtime/low-level.md)
+- [Plugins and MCP Servers](../integrations/plugins.md)
 - [Safety and Operations](../architecture/safety.md)
+- [Migrating to 0.5.0](../../migration/0.5.md)
 - [VerificationGate Source](https://github.com/cogitave/namzu/blob/main/packages/sdk/src/verification/gate.ts)
+- [Probe Registry Source](https://github.com/cogitave/namzu/blob/main/packages/sdk/src/probe/registry.ts)

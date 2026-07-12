@@ -1,7 +1,7 @@
 ---
 title: Provider Registry
 description: How provider packages register with ProviderRegistry, how to create providers safely, and how to hand them into agents.
-last_updated: 2026-04-18
+last_updated: 2026-07-12
 status: current
 related_packages: ["@namzu/sdk", "@namzu/openai", "@namzu/anthropic", "@namzu/bedrock", "@namzu/openrouter", "@namzu/http", "@namzu/ollama", "@namzu/lmstudio"]
 ---
@@ -81,6 +81,13 @@ That capability object is useful when your application wants to make decisions s
 - whether to expose tool-using agents on this backend
 - whether to prefer streaming UI behavior
 - whether a provider should be used for structured-output or function-calling tasks
+- whether a cancel can stop an in-flight request (`supportsAbortSignal`) or only takes effect at the next iteration boundary
+
+The `ProviderCapabilities` flags are `supportsTools`, `supportsStreaming`,
+`supportsFunctionCalling`, the optional `maxOutputTokens`, and the optional
+`supportsAbortSignal`. Every published provider declares `supportsAbortSignal:
+true` except `@namzu/ollama` — see
+[Reliability and Cancellation](../runtime/reliability.md#6-cancellation).
 
 ## 5. ProviderRegistry API Surface
 

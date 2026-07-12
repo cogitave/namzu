@@ -1,7 +1,7 @@
 ---
 title: Namzu Documentation
 description: Entry point for the published Namzu docs covering the SDK, computer-use package, and provider packages.
-last_updated: 2026-04-18
+last_updated: 2026-07-12
 status: current
 related_packages: ["@namzu/sdk", "@namzu/computer-use", "@namzu/openai", "@namzu/anthropic", "@namzu/bedrock", "@namzu/openrouter", "@namzu/http", "@namzu/ollama", "@namzu/lmstudio"]
 ---
@@ -29,6 +29,7 @@ Ignored and unpublished workspace areas are intentionally excluded from this doc
 | [Getting Started](./getting-started.md) | Choose packages, install them, and make the first successful call |
 | [SDK Overview](./sdk/README.md) | Understand what lives in `@namzu/sdk` and how its parts fit together |
 | [SDK Runtime](./sdk/runtime/README.md) | Runtime map plus IDs, configuration, and low-level execution entrypoints |
+| [Reliability and Cancellation](./sdk/runtime/reliability.md) | Typed provider errors, retries, context-overflow recovery, and cancellation |
 | [SDK Agents](./sdk/agents/README.md) | Agent classes, orchestration, and delegation boundaries |
 | [SDK Tools](./sdk/tools/README.md) | Tool definition, built-in tools, and tool-safety policy |
 | [SDK Provider Integration](./sdk/provider-integration/README.md) | SDK-level provider registry and direct provider operations |
@@ -45,6 +46,7 @@ Ignored and unpublished workspace areas are intentionally excluded from this doc
 | [Platform Support](./computer-use/platform-support.md) | Review OS support, permissions, and operational caveats |
 | [Providers](./providers/README.md) | Compare provider packages and route to the right integration page |
 | [Provider Selection Guide](./providers/selection-guide.md) | Choose the right provider package by deployment model, dependency shape, and local-vs-cloud tradeoffs |
+| [Migration Guides](./migration/0.5.md) | Breaking changes per release, with the upgrade path for each |
 
 ## 3. Recommended Reading Order
 
