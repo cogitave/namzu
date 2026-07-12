@@ -64,11 +64,17 @@ export abstract class AbstractAgent<
 		return this.invocationLock.acquire(this.metadata.id)
 	}
 
+	/**
+	 * Cancelling waits for the children to be cancelled, including the ones that are
+	 * parked: a child suspended on a durable decision is stopped by a write, not by a
+	 * signal, and returning before that write lands would report a cancel that has not
+	 * happened yet.
+	 */
 	async cancel(): Promise<void> {
 		this.abortController.abort()
 
 		if (this.agentManager && this.currentRunId) {
-			this.agentManager.cancelAll(this.currentRunId)
+			await this.agentManager.cancelAll(this.currentRunId)
 		}
 	}
 

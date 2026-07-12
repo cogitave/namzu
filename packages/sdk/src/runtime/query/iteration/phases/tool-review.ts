@@ -154,11 +154,16 @@ export async function* runToolReview(
 
 	switch (reviewDecision.action) {
 		case 'pause': {
-			await ctx.emitEvent({
-				type: 'tool_review_completed',
-				runId: ctx.runMgr.id,
-				decision: 'rejected',
-			})
+			// NOTHING is said about the review's outcome here, because there is no outcome:
+			// the question is still open. This used to emit `tool_review_completed
+			// { decision: 'rejected' }` before parking, so a client that closes its approval
+			// dialog and records "rejected" on `review.completed` — the only sane reading of
+			// that event — told the user their tools had been DENIED while the batch sat on
+			// disk waiting for them to approve it. Once the pause became durable it stopped
+			// being merely wrong and became self-contradicting: hours later the human
+			// approves, the run resumes, and a SECOND `tool_review_completed` goes out for
+			// the same requestId saying `approved`. The pause is announced by `run_paused`.
+			// The review completes exactly once — when it is actually decided.
 
 			// D1: persist the question BEFORE the run is parked, so a process that dies
 			// between the two leaves a checkpoint that still knows what it was waiting
@@ -170,8 +175,10 @@ export async function* runToolReview(
 			await ctx.checkpointMgr.attachPendingDecision(reviewCheckpoint.id, decision)
 
 			// Park the run BEFORE the event goes out, so a listener that reads the run's
-			// status on `run_paused` cannot observe it as still `running`.
-			ctx.runMgr.markSuspended({
+			// status on `run_paused` cannot observe it as still `running` — and park it ON
+			// DISK, so a process killed before the generator returns leaves a run that can
+			// still be answered rather than one stuck at `idle` holding a live decision.
+			await ctx.runMgr.markSuspended({
 				checkpointId: reviewCheckpoint.id,
 				requestId: decision.requestId,
 			})

@@ -8,7 +8,11 @@ import {
 	type FilesystemMigrator,
 	NOOP_FILESYSTEM_MIGRATION_SINK,
 } from '../../session/migration/index.js'
-import { DefaultPathBuilder, type PathBuilder } from '../../session/workspace/path-builder.js'
+import {
+	DefaultPathBuilder,
+	type PathBuilder,
+	resolveRunsDir,
+} from '../../session/workspace/path-builder.js'
 import { ActivityStore } from '../../store/activity/memory.js'
 import { type ActivityTrackingConfig, resolveActivityTracking } from '../../types/activity/index.js'
 import type { RunId, SessionId, TenantId } from '../../types/ids/index.js'
@@ -153,7 +157,12 @@ export class RunContextFactory {
 
 		const pathBuilder = config.pathBuilder ?? new DefaultPathBuilder(join(cwd, '.namzu'))
 		const outputDir = pathBuilder.sessionDir(config.projectId, config.sessionId)
-		const runsDir = join(outputDir, 'runs')
+		const runsDir = resolveRunsDir({
+			workingDirectory: cwd,
+			projectId: config.projectId,
+			sessionId: config.sessionId,
+			pathBuilder,
+		})
 
 		const log = getRootLogger().child({
 			component: 'query',

@@ -127,6 +127,51 @@ function recordingProvider(): RecordingProvider {
 	}
 }
 
+/**
+ * Asks for a batch the verification gate will split: one call it denies, one it routes
+ * to the human. The shape a partial gate denial actually has.
+ */
+function mixedBatchProvider(): RecordingProvider {
+	const seen: Message[][] = []
+	let turn = 0
+	return {
+		id: 'fake',
+		name: 'Fake',
+		seen,
+		async chat(params: ChatCompletionParams): Promise<ChatCompletionResponse> {
+			seen.push(params.messages.map((m) => ({ ...m })))
+			turn++
+			if (turn === 1) {
+				return {
+					id: 'r',
+					model: 'm',
+					message: {
+						role: 'assistant',
+						content: 'two calls',
+						toolCalls: [
+							{ id: 'call_bad', type: 'function', function: { name: 'danger', arguments: '{}' } },
+							{ id: 'call_1', type: 'function', function: { name: 'noop', arguments: '{}' } },
+						],
+					},
+					finishReason: 'tool_calls',
+					usage: USAGE,
+				} as ChatCompletionResponse
+			}
+			return {
+				id: 'r',
+				model: 'm',
+				message: { role: 'assistant', content: 'all done' },
+				finishReason: 'stop',
+				usage: USAGE,
+			} as ChatCompletionResponse
+		},
+		// biome-ignore lint/correctness/useYield: stub, never invoked
+		async *chatStream() {
+			throw new Error('not used')
+		},
+	}
+}
+
 /** A provider that ONLY ends the turn — used on the resume leg. */
 function stoppingRecordingProvider(): RecordingProvider {
 	const seen: Message[][] = []
@@ -665,7 +710,64 @@ describe('D2: resume applies the outcome and finishes the iteration it interrupt
 	it('re-gates an approved call at dispatch — a decision is not a bypass of the deny plane', async () => {
 		const cwd = tmp()
 		const calls: string[] = []
-		const { checkpointId, baseDir, decision } = await pauseAtReview(cwd, calls)
+
+		// **The gate is live on the PAUSE leg, and it denies one call of the batch.** It
+		// used to be enabled only on the resume leg, which made this test quietly weaker
+		// than it looked: a pause taken with no gate produces a decision whose ids EQUAL
+		// the assistant block's, so the resume never had to survive the case where they
+		// differ — and that case (`findReviewedBlock` demanding set-equality against a
+		// block that still carries the gate-denied call) hard-failed the run and spent the
+		// token. A gate that denies at review time is the ordinary state of the world, not
+		// an edge case, and the pause this test resumes from is now taken in it.
+		const gate = {
+			enabled: true,
+			rules: [{ type: 'deny_by_name' as const, toolNames: ['danger'] }],
+			allowReadOnlyTools: false,
+			denyDangerousPatterns: false,
+			logDecisions: false,
+		}
+		const dangerTool: ToolDefinition<Record<string, never>> = {
+			...noopTool(calls),
+			name: 'danger',
+			async execute() {
+				calls.push('danger')
+				return { success: true, output: 'ok' }
+			},
+		}
+		const tools = () => {
+			const registry = new ToolRegistry()
+			registry.register(noopTool(calls) as unknown as ToolDefinition)
+			registry.register(dangerTool as unknown as ToolDefinition)
+			return registry
+		}
+
+		const events: RunEvent[] = []
+		await drainQuery(
+			{
+				provider: mixedBatchProvider(),
+				tools: tools(),
+				runConfig: { model: 'm', tokenBudget: 1_000_000, timeoutMs: 600_000, maxIterations: 5 },
+				agentId: 'agent_test',
+				agentName: 'Test',
+				workingDirectory: cwd,
+				messages: [],
+				runId: RUN_ID,
+				sessionId: SESSION_ID,
+				threadId: THREAD_ID,
+				projectId: PROJECT_ID,
+				tenantId: TENANT_ID,
+				verificationGate: gate,
+				resumeHandler: async () => ({ action: 'pause', reason: 'stepping away' }),
+			},
+			(e) => {
+				events.push(e)
+			},
+		)
+
+		const checkpointId = pausedCheckpointId(events)
+		const baseDir = runsDir(cwd)
+		const decision = await readPendingDecision({ baseDir, runId: RUN_ID, checkpointId })
+		if (!decision) throw new Error('no pending decision was persisted')
 
 		await resumeDecision({
 			baseDir,
@@ -675,12 +777,12 @@ describe('D2: resume applies the outcome and finishes the iteration it interrupt
 			decision: { action: 'approve_tools' },
 		})
 
-		// The gate now denies `noop`. The human approved it hours ago; policy has moved
+		// The gate now denies `noop` TOO. The human approved it hours ago; policy has moved
 		// on. The call is authorized at DISPATCH, against the input that actually runs —
 		// so the stale approval does not carry it through (authorize-what-runs).
-		await drainQuery({
+		const run = await drainQuery({
 			provider: stoppingRecordingProvider(),
-			tools: registryWith(noopTool(calls)),
+			tools: tools(),
 			runConfig: { model: 'm', tokenBudget: 1_000_000, timeoutMs: 600_000, maxIterations: 5 },
 			agentId: 'agent_test',
 			agentName: 'Test',
@@ -693,16 +795,17 @@ describe('D2: resume applies the outcome and finishes the iteration it interrupt
 			tenantId: TENANT_ID,
 			resumeFromCheckpoint: checkpointId,
 			verificationGate: {
-				enabled: true,
-				rules: [{ type: 'deny_by_name', toolNames: ['noop'] }],
-				allowReadOnlyTools: false,
-				denyDangerousPatterns: false,
-				logDecisions: false,
+				...gate,
+				rules: [{ type: 'deny_by_name', toolNames: ['danger', 'noop'] }],
 			},
 			resumeHandler: async () => ({ action: 'continue' }),
 		})
 
-		expect(calls).toEqual([]) // the tool did NOT run, despite a recorded approval
+		expect(calls).toEqual([]) // NEITHER tool ran, despite a recorded approval
+		// And the run got there by APPLYING the decision, not by falling over: a resume
+		// that cannot find its own reviewed block ends `failed`, which would satisfy the
+		// assertion above for entirely the wrong reason.
+		expect(run.status).toBe('completed')
 	})
 })
 

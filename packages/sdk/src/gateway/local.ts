@@ -89,8 +89,20 @@ export class LocalTaskGateway implements TaskGateway {
 		await this.agentManager.continueTask(taskId, message)
 	}
 
+	/**
+	 * `TaskGateway.cancelTask` is fire-and-forget by contract, and the durable half of a
+	 * cancel is not. The signal fires and the task is terminalized synchronously inside
+	 * `cancel()`; the write that closes a parked child's decision is dispatched here and
+	 * its failure is logged rather than swallowed. A caller that must know the decision is
+	 * closed goes to `AgentManager.cancel` and awaits it.
+	 */
 	cancelTask(taskId: TaskId): void {
-		this.agentManager.cancel(taskId)
+		this.agentManager.cancel(taskId).catch((err) => {
+			getRootLogger().error('Durable cancel failed for task', {
+				taskId,
+				error: err instanceof Error ? err.message : String(err),
+			})
+		})
 	}
 
 	getTask(taskId: TaskId): TaskHandle | undefined {

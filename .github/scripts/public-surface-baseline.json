@@ -283,6 +283,7 @@
   "buildVerifiedSummary",
   "calculateCost",
   "cancelDecision",
+  "cancelRun",
   "canonicalizeToolName",
   "checkLimitsDetailed",
   "classifyHttpStatus",

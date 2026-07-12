@@ -25,32 +25,79 @@ interface DispatchContext extends IterationContext {
 	readonly verificationGate?: import('../../../verification/gate.js').VerificationGate
 }
 
+export interface DispatchOptions {
+	/**
+	 * True when this segment built a sandbox and the decision was parked in a PREVIOUS
+	 * one — so the approved batch is about to run in a sandbox that has none of the state
+	 * the earlier iterations built. See {@link FRESH_SANDBOX_NOTE}.
+	 */
+	readonly freshSandbox?: boolean
+}
+
+/**
+ * What the model is told when the batch it is about to see ran in a sandbox that was
+ * built after the pause.
+ *
+ * A `Sandbox` cannot outlive the process: `SandboxProvider.create()` mints a fresh root
+ * and `destroy()` removes it, and there is no attach-by-id anywhere in the contract. So
+ * a run that pauses for a human — which is a pause that is *meant* to outlive the
+ * process — cannot keep it. Holding one open instead would strand a temp tree and its
+ * processes for as long as a human takes to answer, which is worse, and would still not
+ * survive the redeploy the durable pause exists to survive.
+ *
+ * What we CAN refuse to do is let it happen silently. A run that spent iterations
+ * installing dependencies and writing files, then parked for review of
+ * `bash ./deploy.sh`, comes back to an empty filesystem — and a model told only
+ * "no such file: ./deploy.sh" concludes the deploy is broken and starts debugging a
+ * phantom. Told the truth, it rebuilds what it needs. Appended AFTER the batch's tool
+ * results, which is both where it is useful and the only provider-valid position: a
+ * message between an assistant tool-call block and its results is a history no provider
+ * accepts.
+ */
+const FRESH_SANDBOX_NOTE =
+	'[SYSTEM] This run was paused and has resumed in a NEW, EMPTY sandbox. Files, installed packages, background processes and any other sandbox-local state created before the pause were NOT carried across the pause — a fresh sandbox is a fresh filesystem. Tool results above that report missing files or missing setup are describing that, not a failure of your earlier work. Re-create what you need before relying on it.'
+
 /**
  * Locate the tool-call block the decision is about.
  *
  * The LAST assistant message carrying tool calls in the restored history — which, on a
  * checkpoint written by the review phase, is the final message, because the review runs
- * before any result is written. Cross-checked against the ids the decision names: if the
- * two disagree, the checkpoint and the decision are describing different runs, and
- * executing anything at that point would be executing a batch nobody reviewed.
+ * before any result is written.
+ *
+ * **The decision's ids are a SUBSET of the block's, not its equal**, and demanding
+ * equality made a whole class of pause permanently unresumable. The verification gate
+ * strips a denied call from the REQUEST (and answers it, there and then, with a denial
+ * result) while leaving it in the assistant MESSAGE, where it has to stay — it is what
+ * the model actually said. So a batch of `[danger, noop]` whose `danger` the gate denied
+ * parks with a decision naming one call and a block carrying two. Under set-equality the
+ * resume threw "names tool calls that are not the checkpoint's pending block", the run
+ * ended `failed`, the tool the human explicitly approved never ran — and the token was
+ * spent, so it could not be tried again.
+ *
+ * What the check must actually establish is that every call the decision names is in
+ * this block: an id the block does NOT carry means the decision and the checkpoint
+ * describe different runs, and executing on the strength of that approval would be
+ * executing a batch nobody reviewed. The calls come back filtered to exactly the ones
+ * the decision names, so a caller cannot reach a call the human was never shown — the
+ * gate-denied one keeps the denial it already got.
  */
 function findReviewedBlock(
 	messages: readonly { role: string }[],
 	request: Extract<HITLDecisionRequest, { type: 'tool_review' }>,
 ): { assistant: AssistantMessage; calls: ProviderToolCall[] } | null {
+	const reviewedIds = new Set(request.toolCalls.map((tc) => tc.id))
+	if (reviewedIds.size === 0) return null
+
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const msg = messages[i] as AssistantMessage | undefined
 		if (!msg || msg.role !== 'assistant') continue
 		const calls = msg.toolCalls
 		if (!calls || calls.length === 0) continue
 
-		const reviewedIds = new Set(request.toolCalls.map((tc) => tc.id))
 		const blockIds = new Set(calls.map((c) => c.id))
-		const sameSize = reviewedIds.size === blockIds.size
-		const sameIds = [...reviewedIds].every((id) => blockIds.has(id))
-		if (!sameSize || !sameIds) return null
+		if (![...reviewedIds].every((id) => blockIds.has(id))) return null
 
-		return { assistant: msg, calls: [...calls] }
+		return { assistant: msg, calls: calls.filter((c) => reviewedIds.has(c.id)) }
 	}
 	return null
 }
@@ -99,6 +146,33 @@ function reconstructResponse(
 }
 
 /**
+ * The model response of the iteration a non-tool_review decision interrupted.
+ *
+ * The advisory phase reads one thing off it — the category of the last tool called — so
+ * it is rebuilt from the assistant message the restored history already carries rather
+ * than being invented. A history with no tool-call block yields a response with no
+ * calls, which is what the advisor is then told, honestly. Usage is zero for the same
+ * reason it is zero in {@link reconstructResponse}: those tokens are already in the
+ * ledger the checkpoint restored.
+ */
+function reconstructResponseFromHistory(
+	ctx: DispatchContext,
+	checkpoint: IterationCheckpoint,
+): ChatCompletionResponse {
+	const messages = ctx.runMgr.messages
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const msg = messages[i] as AssistantMessage | undefined
+		if (msg?.role !== 'assistant') continue
+		if (!msg.toolCalls || msg.toolCalls.length === 0) continue
+		return reconstructResponse(ctx, checkpoint, msg)
+	}
+	return reconstructResponse(ctx, checkpoint, {
+		role: 'assistant',
+		content: null,
+	} as AssistantMessage)
+}
+
+/**
  * Re-emit a decision that is still unanswered, and park the run again.
  *
  * The SAME `requestId` — a durable pause that minted a fresh id on every resume would
@@ -124,7 +198,10 @@ async function* reparkPending(
 		})
 	}
 
-	ctx.runMgr.markSuspended({ checkpointId: checkpoint.id, requestId: decision.requestId })
+	await ctx.runMgr.markSuspended({
+		checkpointId: checkpoint.id,
+		requestId: decision.requestId,
+	})
 	await ctx.emitEvent({
 		type: 'run_paused',
 		runId: ctx.runMgr.id,
@@ -155,14 +232,29 @@ async function* reparkPending(
  * This is the tail of `IterationOrchestrator.runLoop`, replayed at the point the pause
  * cut it off. It deliberately does not emit `iteration_started` — that already happened,
  * in the segment before the pause.
+ *
+ * **`fromCheckpointPhase` says how much of the tail is left**, and it is not a
+ * convenience flag. The two decisions that park mid-iteration park at different points:
+ * a `tool_review` parks BEFORE the post-tool checkpoint (so that checkpoint is still
+ * owed), while an `iteration_checkpoint` parks INSIDE it (so re-running it would write a
+ * second checkpoint and re-ask the very question that parked the run — a resume that
+ * immediately parks again, forever). Resuming an `iteration_checkpoint` used to skip the
+ * tail entirely instead: it flipped the decision to `settled`, returned 'continue', and
+ * let the loop start iteration N+1 — losing the advisory phase, the `iteration_end`
+ * hooks and the `iteration_completed` event of the iteration whose tools had actually
+ * run. That is the same bug this function exists to close, arriving through the other
+ * door.
  */
 async function* completeInterruptedTail(
 	ctx: DispatchContext,
 	iterationNum: number,
 	response: ChatCompletionResponse,
+	fromCheckpointPhase = false,
 ): AsyncGenerator<RunEvent, PhaseSignal> {
-	const checkpointSignal = yield* runIterationCheckpoint(ctx, iterationNum)
-	if (checkpointSignal !== 'continue') return checkpointSignal
+	if (!fromCheckpointPhase) {
+		const checkpointSignal = yield* runIterationCheckpoint(ctx, iterationNum)
+		if (checkpointSignal !== 'continue') return checkpointSignal
+	}
 
 	await runAdvisoryPhase(ctx, iterationNum, response)
 
@@ -196,6 +288,7 @@ async function* applyResolved(
 	checkpoint: IterationCheckpoint,
 	decision: PendingDecision,
 	request: Extract<HITLDecisionRequest, { type: 'tool_review' }>,
+	options: DispatchOptions,
 ): AsyncGenerator<RunEvent, PhaseSignal> {
 	const outcome = decision.outcome
 	if (!outcome) {
@@ -248,6 +341,32 @@ async function* applyResolved(
 	})
 	yield* ctx.drainPending()
 
+	// **The right to dispatch is claimed, not assumed.** Redemption hands exactly one
+	// caller a PreparedDecisionResume; it does not stop that caller from being RUN twice —
+	// a retried request, a queue that delivered the job twice, an operator re-driving a
+	// resume that looked stuck. Two drives would both read `resolved` here and both
+	// dispatch the batch, which is the double-execution the single-use token exists to
+	// prevent, reached one layer down. Losing this claim means somebody else is already
+	// executing (or already has), so this run refuses rather than charging the card twice.
+	// It fails the run, loudly: two concurrent resumes of one decision is a caller bug,
+	// and the safe reading of a bug is to stop.
+	//
+	// The honest cost, stated rather than hidden: a process that dies between winning this
+	// claim and writing the journal below leaves a claim nobody is acting on, and the next
+	// resume refuses a batch that in fact never ran. Recovering that needs an operator (the
+	// claim file names the decision). It is the deliberate trade — the alternative reading,
+	// "the claim is stale, go ahead", is indistinguishable from "the winner is 5ms from
+	// dispatching", and being wrong about that runs a destructive batch twice. A resume
+	// that stops and asks is recoverable; a second charge on a customer's card is not.
+	if (applied.approved.length > 0) {
+		const won = await ctx.checkpointMgr.claimExecution(checkpoint.id, decision)
+		if (!won) {
+			throw new Error(
+				`Decision ${decision.requestId} is already being executed by another resume of run ${ctx.runMgr.id} — refusing to dispatch its tool batch a second time`,
+			)
+		}
+	}
+
 	// The journal opens BEFORE anything is dispatched. If the process dies between this
 	// write and the batch coming back, `executing` plus these entries is what tells the
 	// next resume that these calls may already have run — which is the only alternative
@@ -283,6 +402,9 @@ async function* applyResolved(
 	}
 	if (applied.systemNote) {
 		ctx.runMgr.pushMessage(createUserMessage(applied.systemNote))
+	}
+	if (options.freshSandbox && applied.approved.length > 0) {
+		ctx.runMgr.pushMessage(createUserMessage(FRESH_SANDBOX_NOTE))
 	}
 
 	await ctx.checkpointMgr.updatePendingDecision(checkpoint.id, (d) => ({ ...d, state: 'settled' }))
@@ -322,6 +444,7 @@ async function* recoverExecuting(
 	checkpoint: IterationCheckpoint,
 	decision: PendingDecision,
 	request: Extract<HITLDecisionRequest, { type: 'tool_review' }>,
+	options: DispatchOptions,
 ): AsyncGenerator<RunEvent, PhaseSignal> {
 	const block = findReviewedBlock(ctx.runMgr.messages, request)
 	if (!block) {
@@ -370,6 +493,9 @@ async function* recoverExecuting(
 			requestId: decision.requestId,
 		})
 	}
+	if (options.freshSandbox) {
+		ctx.runMgr.pushMessage(createUserMessage(FRESH_SANDBOX_NOTE))
+	}
 	yield* ctx.drainPending()
 
 	await ctx.checkpointMgr.updatePendingDecision(checkpoint.id, (d) => ({
@@ -413,6 +539,7 @@ async function* recoverExecuting(
 export async function* dispatchPendingDecision(
 	ctx: DispatchContext,
 	checkpoint: IterationCheckpoint,
+	options: DispatchOptions = {},
 ): AsyncGenerator<RunEvent, PhaseSignal> {
 	const decision = checkpoint.pendingDecision
 	if (!decision) return 'continue'
@@ -438,10 +565,18 @@ export async function* dispatchPendingDecision(
 
 	const request = decision.request
 	if (request.type !== 'tool_review') {
-		// A parked iteration_checkpoint has no tool-call block to protect, so its outcome
-		// is just the loop's own signal. (A plan_approval never parks durably — the
-		// checkpoint cannot restore PlanManager, so parking one would strand the run;
-		// `deferredReviewHandler` rejects it instead of pretending.)
+		// A parked iteration_checkpoint has no tool-call block to protect — its tools ran
+		// before it was raised — so there is nothing to APPLY. What it does still owe is
+		// the rest of the iteration it interrupted: the checkpoint phase sits ahead of the
+		// advisory phase, the `iteration_end` hooks and the `iteration_completed` event, so
+		// a pause there cuts the iteration off after its tools and before every consumer
+		// that is entitled to hear how it ended. Settling and returning 'continue' — which
+		// is what this did — restarted the loop at iteration N+1 and skipped all of them
+		// permanently: a plugin reconciling on `iteration_end` silently loses the iteration
+		// whose tools actually ran, and a client pairing started/completed waits forever.
+		//
+		// (A plan_approval never parks durably — the checkpoint cannot restore PlanManager,
+		// so parking one would strand the run; the plan gate ends the run instead.)
 		const outcome = decision.outcome
 		await ctx.checkpointMgr.updatePendingDecision(checkpoint.id, (d) => ({
 			...d,
@@ -452,12 +587,21 @@ export async function* dispatchPendingDecision(
 			ctx.runMgr.markCancelled()
 			return 'stop'
 		}
-		return 'continue'
+		if (request.type !== 'iteration_checkpoint') return 'continue'
+
+		return yield* completeInterruptedTail(
+			ctx,
+			checkpoint.iteration,
+			reconstructResponseFromHistory(ctx, checkpoint),
+			// The checkpoint phase is where this decision was raised. Running it again would
+			// write a second checkpoint and re-ask the question that parked the run.
+			true,
+		)
 	}
 
 	if (decision.state === 'executing') {
-		return yield* recoverExecuting(ctx, checkpoint, decision, request)
+		return yield* recoverExecuting(ctx, checkpoint, decision, request, options)
 	}
 
-	return yield* applyResolved(ctx, checkpoint, decision, request)
+	return yield* applyResolved(ctx, checkpoint, decision, request, options)
 }

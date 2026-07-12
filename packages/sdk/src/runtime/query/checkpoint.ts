@@ -148,6 +148,28 @@ export class CheckpointManager {
 		return updated?.pendingDecision ?? null
 	}
 
+	/**
+	 * Claim the right to DISPATCH an answered batch. Exactly one caller ever gets it.
+	 *
+	 * The redemption claim makes the token single-use, which means exactly one caller
+	 * leaves `resumeDecision` with a `PreparedDecisionResume`. It does not stop that
+	 * caller from being run twice — a retried request, a job delivered twice, an operator
+	 * re-driving a resume that looked stuck. Both drives would read `state: 'resolved'`
+	 * off the checkpoint and both would dispatch the approved batch, which is the very
+	 * double-execution the token guard exists to prevent, reached one layer down.
+	 *
+	 * Returns `true` when this caller won and may execute. A loser must NOT execute:
+	 * somebody else is already doing it, or already has.
+	 */
+	async claimExecution(checkpointId: CheckpointId, decision: PendingDecision): Promise<boolean> {
+		const lost = await this.store.claimDecision(
+			checkpointId,
+			{ requestId: decision.requestId, outcome: decision.outcome, at: Date.now() },
+			'execution',
+		)
+		return lost === null
+	}
+
 	/** Attach a freshly-minted pending decision to a checkpoint that was just written. */
 	async attachPendingDecision(
 		checkpointId: CheckpointId,

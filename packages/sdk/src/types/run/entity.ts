@@ -2,6 +2,7 @@ import type { AgentStatus, CostInfo, TokenUsage } from '../common/index.js'
 import type { RunId } from '../ids/index.js'
 import type { Message } from '../message/index.js'
 import type { AgentRunConfig } from './config.js'
+import type { AwaitingDecisionRef } from './emergency.js'
 import type { ReplayAttribution } from './replay.js'
 import type { StopReason } from './stop-reason.js'
 
@@ -44,6 +45,13 @@ export interface Run {
 	depth?: number
 
 	/**
+	 * Set while the run is `awaiting_input` — a pointer to the decision it is parked on.
+	 * Cleared by nothing: it names the last decision the run stopped for, and a resumed
+	 * run either answers that decision or parks on a new one.
+	 */
+	awaitingDecision?: AwaitingDecisionRef
+
+	/**
 	 * Present when this run was produced by {@link replay}. `undefined` for
 	 * original runs. See `ses_005-deterministic-replay` for the primitive.
 	 */
@@ -71,6 +79,13 @@ export interface PersistedRunMeta {
 	messageCount: number
 	parentRunId?: RunId
 	depth?: number
+
+	/**
+	 * The decision an `awaiting_input` run is parked on. This is what lets a process
+	 * that did not park the run — a cancel, an operator tool, the next resume — find the
+	 * checkpoint the decision lives on without scanning every checkpoint the run wrote.
+	 */
+	awaitingDecision?: AwaitingDecisionRef
 }
 
 /**

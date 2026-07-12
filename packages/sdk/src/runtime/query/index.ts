@@ -49,6 +49,7 @@ import { CheckpointManager } from './checkpoint.js'
 import type { ContextCache } from './context-cache.js'
 import { RunContextFactory } from './context.js'
 import { dispatchPendingDecision } from './decision/dispatch.js'
+import { RunNotResumableError } from './decision/errors.js'
 import { EventTranslator } from './events.js'
 import { GuardCoordinator } from './guard.js'
 import { IterationOrchestrator } from './iteration/index.js'
@@ -404,6 +405,19 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			let resumeCheckpoint: IterationCheckpoint | undefined
 			if (params.resumeFromCheckpoint) {
 				await ctx.runMgr.openRunDir()
+
+				// **A cancelled run is not resumed. By construction, and here — not only at
+				// the point a token is redeemed.** `resumeDecision` refuses a cancelled run,
+				// but it is one door: a caller that still holds the checkpoint id can drive
+				// `query({ resumeFromCheckpoint })` directly, and until this check existed
+				// that ran the loop on a run the user had cancelled — and, with an already
+				// `resolved` decision on the checkpoint, dispatched the approved batch. The
+				// refusal belongs where the run is loaded, so every door passes it.
+				const persisted = await ctx.runMgr.getRunStore().readRunMeta()
+				if (persisted?.status === 'cancelled') {
+					throw new RunNotResumableError(ctx.runMgr.id, persisted.status)
+				}
+
 				resumeCheckpoint = await checkpointMgr.restore(params.resumeFromCheckpoint)
 				ctx.runMgr.restoreFromCheckpoint(resumeCheckpoint)
 				guard.restoreElapsed(resumeCheckpoint.guardState?.elapsedMs ?? 0)
@@ -588,6 +602,12 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				const signal = yield* dispatchPendingDecision(
 					iterationOrchestrator.context,
 					resumeCheckpoint,
+					// The sandbox this batch is about to run in was built moments ago, by the
+					// block above. It is NOT the one the iterations before the pause worked in —
+					// that one was destroyed when the run parked, because a Sandbox cannot
+					// outlive its process. The model is told, rather than left to reason from a
+					// filesystem that no longer exists.
+					{ freshSandbox: sandbox !== undefined },
 				)
 				// `suspend` — the decision was still unanswered, so it was re-emitted and the
 				// run parked again. `stop` — the decision was `abort`, and the run is over.
@@ -627,9 +647,28 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		} catch (err) {
 			yield* resultAssembler.handleError(err, rootSpan)
 		} finally {
-			// --- Sandbox lifecycle: destroy after run ---
+			// --- Sandbox lifecycle: destroy at the end of the SEGMENT ---
+			//
+			// **A sandbox is per-segment, and a suspended run's sandbox goes with the rest
+			// of them.** It cannot be otherwise: `SandboxProvider.create()` mints a fresh
+			// root and `destroy()` removes it, and nothing in the contract can re-attach to
+			// an existing one — so a pause that is *meant* to outlive the process cannot
+			// carry it across. The alternative, holding it open, strands a temp tree and its
+			// processes for as long as a human takes to answer and STILL does not survive
+			// the redeploy the durable pause exists to survive. It goes.
+			//
+			// What must not happen is for it to go silently: the batch a human approves then
+			// runs in a fresh, empty sandbox, and a model told only "no such file" debugs a
+			// phantom. The resumed run says so, in the history, right after the results —
+			// see `FRESH_SANDBOX_NOTE` in the dispatcher.
 			if (sandbox) {
 				const sandboxId = sandbox.id
+				if (ctx.runMgr.status === 'awaiting_input') {
+					ctx.log.warn(
+						'Run parked with a sandbox — destroying it. A Sandbox cannot be reattached, so the resumed run gets a NEW, EMPTY one and any sandbox-local state this segment built is gone. A tool whose effect depends on that state must not be parked for review.',
+						{ sandboxId, runId: ctx.runId },
+					)
+				}
 				try {
 					await sandbox.destroy()
 					await eventTranslator.emitEvent({

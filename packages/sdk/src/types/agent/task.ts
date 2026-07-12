@@ -90,6 +90,17 @@ export interface AgentTask {
 	result?: BaseAgentResult
 	progress?: AgentTaskProgress
 
+	/**
+	 * The child's working directory — `AgentInput.workingDirectory`, kept because a
+	 * cancel needs it AFTER the child's run has returned.
+	 *
+	 * A child that parks on a durable decision leaves the record of that decision on
+	 * disk, under a path rooted at this directory. Cancelling it means reaching that
+	 * record, and by then the `AgentInput` that carried the directory is long gone —
+	 * which is a large part of why nothing ever did.
+	 */
+	workingDirectory?: string
+
 	pendingMessages: Message[]
 	createdAt: number
 	completedAt?: number

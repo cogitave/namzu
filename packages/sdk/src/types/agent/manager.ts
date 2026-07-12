@@ -15,8 +15,17 @@ export interface AgentManagerContract {
 		listener?: RunEventListener,
 	): Promise<AgentTask>
 
-	cancel(taskId: TaskId): void
-	cancelAll(parentRunId: RunId): void
+	/**
+	 * Cancel a task. **Async, because a cancel has to reach the disk.**
+	 *
+	 * A child parked on a durable decision has no live process to signal — its generator
+	 * returned when it parked — so a cancel that only aborts a signal leaves the decision
+	 * `pending` on disk and the run `awaiting_input`, and a leaked resume token can still
+	 * run its tools. Cancelling means transitioning the persisted record, and awaiting
+	 * this is how a caller knows that it happened.
+	 */
+	cancel(taskId: TaskId): Promise<void>
+	cancelAll(parentRunId: RunId): Promise<void>
 
 	continueTask(taskId: TaskId, message: string): Promise<void>
 	queueMessage(taskId: TaskId, message: Message): void

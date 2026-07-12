@@ -107,6 +107,31 @@ export interface ToolExecutionJournalEntry {
 }
 
 /**
+ * The durable record that a decision has been answered — written by an **exclusive
+ * create**, so exactly one caller can ever write it.
+ *
+ * This is what makes the resume token single-use. `PendingDecision.state` describes the
+ * decision; the claim *arbitrates* it, and the two are separate on purpose: the state
+ * is a read-modify-write (two concurrent redemptions both read `pending` and both
+ * proceed), while the claim is a compare-and-set the filesystem decides. It carries the
+ * outcome so a loser can be told what the decision was answered with even before the
+ * winner has written that outcome onto the checkpoint — and so a crash between the two
+ * writes is recoverable rather than a spent token on a still-`pending` record.
+ *
+ * See {@link import('../../store/run/disk.js').RunDiskStore.claimDecision}.
+ */
+export interface DecisionClaim {
+	requestId: DecisionRequestId
+	/** What the winner answered. Absent when the claim is a cancellation. */
+	outcome?: HITLResumeDecision
+	/** Set when the claim was taken by a cancel rather than by a redemption. */
+	cancelled?: boolean
+	/** Free-form attribution for diagnostics — never authorization. */
+	claimedBy?: string
+	at: number
+}
+
+/**
  * A decision the run is parked on, persisted alongside the checkpoint it was raised
  * at. This is the thing whose absence made a pause unresumable.
  */

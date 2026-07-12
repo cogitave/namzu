@@ -98,28 +98,38 @@ export async function* handleHITLDecision(
 
 	switch (decision.action) {
 		case 'pause': {
-			// An iteration checkpoint parks DURABLY: its decision is persisted, so a
-			// resume finds it and applies it. A plan approval does NOT, and that is a
-			// deliberate refusal rather than an oversight — the checkpoint captures no
-			// `PlanManager` state, so a persisted plan decision would have nothing to
-			// resume into, and a pause you cannot come back to is worse than one that
-			// says so. (The absent-handler default never reaches here for a plan: it
-			// rejects the plan outright.) Durable plan approval waits on a PlanManager
-			// restore.
+			// A plan approval cannot park DURABLY, and pretending otherwise produced a run
+			// that was neither terminal nor resumable — the third state, and the worst one.
+			// The checkpoint captures no `PlanManager`, so a persisted plan decision would
+			// have nothing to resume INTO: the resumed run rebuilds an empty PlanManager,
+			// never re-fires the gate, and `approve_plan` would be recorded against a plan
+			// that no longer exists. Parking without a decision was worse still — nothing
+			// could answer the run at all, `resumeDecision` threw `DecisionNotFoundError`
+			// forever, and `deriveStatus` reported the whole Session as awaiting a human
+			// who had no way to reply.
+			//
+			// So it STOPS, which is what it did before ses_017 and is the honest answer:
+			// this pause cannot be come back to, and a run that says so beats a run that
+			// waits for a message that can never arrive. Durable plan approval waits on a
+			// PlanManager restore (ses_017 open questions).
 			if (request.type === 'plan_approval') {
 				ctx.log.warn(
-					'Run paused at the plan gate — this pause is NOT durably resumable (the checkpoint does not capture plan state)',
+					'Pause at the plan gate is NOT durably resumable (the checkpoint captures no plan state) — ending the run instead of parking it on a decision nothing can answer',
 					{ runId: ctx.runMgr.id, reason: decision.reason },
 				)
-				ctx.runMgr.markSuspended()
-			} else {
-				const pending = buildPendingDecision(request)
-				await ctx.checkpointMgr.attachPendingDecision(checkpointId, pending)
-				ctx.runMgr.markSuspended({ checkpointId, requestId: pending.requestId })
+				ctx.runMgr.setStopReason('paused')
+				return 'stop'
 			}
 
+			const pending = buildPendingDecision(request)
+			await ctx.checkpointMgr.attachPendingDecision(checkpointId, pending)
+
 			// Park the run BEFORE the event goes out: a listener that reads the run's
-			// status on `run_paused` must not observe it as still `running`.
+			// status on `run_paused` must not observe it as still `running`. The park is a
+			// WRITE — the suspension is persisted here, not at finalize, so a process that
+			// dies in between leaves a run that can still be answered.
+			await ctx.runMgr.markSuspended({ checkpointId, requestId: pending.requestId })
+
 			await ctx.emitEvent({
 				type: 'run_paused',
 				runId: ctx.runMgr.id,

@@ -68,17 +68,25 @@ export { CheckpointManager, projectEmergencyToCheckpoint } from './runtime/query
 export { prepareReplayState, prepareResumeMessages } from './runtime/query/replay/prepare.js'
 export { listCheckpoints } from './runtime/query/replay/list.js'
 
-// Durable pause (ses_017 D1/D2). `resumeDecision` / `cancelDecision` /
+// Durable pause (ses_017 D1/D2). `resumeDecision` / `cancelRun` / `cancelDecision` /
 // `readPendingDecision` are the STATE-PREPARATION half: pure-record, no runtime deps.
 // The execution half is `query({ resumeFromCheckpoint })`, which the caller composes —
 // see state-prep-execution-split. `readPendingDecision` returns the resume token and is
 // a server-side, authorized read; the token is never on the event stream.
+//
+// `cancelRun` is the seam a cancel path MUST go through when the run may be parked: a
+// suspended run has no live process, so a cancel that only aborts a signal leaves the
+// decision answerable and its tools runnable. It transitions the persisted decision AND
+// the run's persisted status, which is what makes "a cancelled run is never resumed"
+// true by construction rather than by promise.
 export {
 	cancelDecision,
+	cancelRun,
 	isResumableStatus,
 	readPendingDecision,
 	resumeDecision,
 } from './runtime/query/decision/resume.js'
+export type { CancelRunOutcome, RunLocator } from './runtime/query/decision/resume.js'
 export { decisionOwnsToolBlock } from './runtime/query/decision/pending.js'
 export { isValidOutcomeFor } from './runtime/query/decision/apply.js'
 export {

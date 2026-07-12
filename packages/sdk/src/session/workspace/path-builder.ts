@@ -69,3 +69,25 @@ export class DefaultPathBuilder implements PathBuilder {
 		return join(this.sessionDir(projectId, sessionId), 'runs', runId)
 	}
 }
+
+/**
+ * The directory a session's runs live under — `RunDiskStore`'s `baseDir`, and the
+ * `baseDir` every durable-decision locator takes.
+ *
+ * One expression of it, used by everything that has to name it: the runtime, when it
+ * builds a run's store; and any caller that has to find a run's record WITHOUT the run
+ * — a cancel reaching a suspended child, an operator tool, a resume in a fresh process.
+ * A second copy of `join(pathBuilder.sessionDir(...), 'runs')` somewhere else is how the
+ * two silently disagree, and a cancel that computes the wrong directory does not fail —
+ * it succeeds against nothing ([one-canonical-name](../../../../docs.local/conventions/one-canonical-name.md)).
+ */
+export function resolveRunsDir(scope: {
+	workingDirectory: string
+	projectId: ProjectId
+	sessionId: SessionId
+	pathBuilder?: PathBuilder
+}): string {
+	const pathBuilder =
+		scope.pathBuilder ?? new DefaultPathBuilder(join(scope.workingDirectory, '.namzu'))
+	return join(pathBuilder.sessionDir(scope.projectId, scope.sessionId), 'runs')
+}

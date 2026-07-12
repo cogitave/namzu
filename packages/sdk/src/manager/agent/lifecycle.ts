@@ -1,11 +1,13 @@
 import { AGENT_MANAGER_DEFAULTS } from '../../constants/agent/index.js'
 import { EMPTY_TOKEN_USAGE } from '../../constants/limits.js'
 import type { AgentRegistry } from '../../registry/agent/definitions.js'
+import { cancelRun } from '../../runtime/query/decision/resume.js'
 import {
 	type CapacityValidator,
 	DelegationCapacityExceeded,
 } from '../../session/handoff/capacity.js'
 import type { SessionSummaryMaterializer } from '../../session/summary/materialize.js'
+import { resolveRunsDir } from '../../session/workspace/path-builder.js'
 import type { WorkspaceBackendRegistry } from '../../session/workspace/registry.js'
 import type { BaseAgentConfig, BaseAgentResult } from '../../types/agent/base.js'
 import type {
@@ -170,6 +172,7 @@ export class AgentManager {
 			state: 'pending',
 			pendingMessages: [],
 			createdAt: Date.now(),
+			workingDirectory: options.input.workingDirectory,
 			runEventListener: listener,
 		}
 
@@ -275,17 +278,86 @@ export class AgentManager {
 		return agentTask
 	}
 
-	cancel(taskId: TaskId): void {
+	/**
+	 * Cancel a task — including one that is PARKED on a durable decision.
+	 *
+	 * Async, and that is the fix rather than an inconvenience. A suspended child has no
+	 * live process: its generator returned when it parked, so `childAbortController.abort()`
+	 * reaches nobody, and the child's decision stays `pending` on disk with its run still
+	 * reading `awaiting_input`. Anyone holding the resume token — the reviewer who was
+	 * asked BEFORE the cancel, say — could still redeem it and run the batch on a run the
+	 * user believes they cancelled. The cancel has to reach the record, and reaching a
+	 * record is I/O.
+	 *
+	 * Signal first, then the disk: the signal is what stops a child that is still running,
+	 * and it costs nothing when there is nobody to hear it.
+	 */
+	async cancel(taskId: TaskId): Promise<void> {
 		const agentTask = this.instances.get(taskId)
 		if (!agentTask || isTerminalAgentTaskState(agentTask.state)) return
 
+		const wasSuspended = agentTask.state === 'input-required'
+
+		// The in-memory half is synchronous and stays that way: the signal fires and the
+		// task is terminalized before this function's first `await`, so a caller that does
+		// not await (`dispose()`) still gets a stopped, `canceled` task.
 		agentTask.childAbortController.abort('canceled')
-		this.markCanceled(taskId)
+		const released = this.markCanceled(taskId)
+
+		if (wasSuspended) await this.cancelSuspendedRun(agentTask)
+		await released
 	}
 
-	cancelAll(parentRunId: RunId): void {
-		for (const agentTask of this.listByParent(parentRunId)) {
-			this.cancel(agentTask.taskId)
+	async cancelAll(parentRunId: RunId): Promise<void> {
+		await Promise.all(this.listByParent(parentRunId).map((task) => this.cancel(task.taskId)))
+	}
+
+	/**
+	 * Reach the durable decision of a child that parked, and cancel the run it belongs to.
+	 *
+	 * The child's record lives under its parent (`<runs>/<parentRunId>/children/<childRunId>`),
+	 * and the runs directory is derived the same way the runtime derives it — from the
+	 * child's own session scope and working directory, through {@link resolveRunsDir}. A
+	 * second expression of that layout here is how the two drift apart, so there is only
+	 * the one.
+	 *
+	 * Failures are logged, not thrown: the task is being cancelled either way, and a
+	 * missing run directory (a child that never got as far as writing one) is not a
+	 * reason to leave the task alive.
+	 */
+	private async cancelSuspendedRun(agentTask: AgentTask): Promise<void> {
+		const runId = agentTask.result?.runId
+		const workingDirectory = agentTask.workingDirectory
+		const { sessionId, projectId, parentRunId } = agentTask.context
+
+		if (!runId || !workingDirectory) {
+			this.log.warn('Suspended child has no run record to cancel — cancelling the task only', {
+				taskId: agentTask.taskId,
+			})
+			return
+		}
+
+		try {
+			const outcome = await cancelRun({
+				baseDir: resolveRunsDir({ workingDirectory, projectId, sessionId }),
+				runId,
+				parentRunId,
+				logger: this.log,
+			})
+			this.log.info('Cancelled a suspended child run durably', {
+				taskId: agentTask.taskId,
+				runId,
+				cancelledDecisions: outcome.cancelledDecisions.length,
+			})
+		} catch (err) {
+			this.log.error(
+				'Failed to cancel a suspended child run durably — its decision may still be answerable',
+				{
+					taskId: agentTask.taskId,
+					runId,
+					error: toErrorMessage(err),
+				},
+			)
 		}
 	}
 
@@ -371,6 +443,16 @@ export class AgentManager {
 		}
 	}
 
+	/**
+	 * Synchronous by contract, and the durable half of a cancel is not.
+	 *
+	 * The signal fires and the task is terminalized before this returns — that is what
+	 * `dispose()` promises and it still holds. The disk write that closes a PARKED child's
+	 * decision is dispatched and not awaited, because `dispose()` cannot await and lying
+	 * about it would be worse than saying so. A caller that must know the decisions are
+	 * closed calls {@link cancelAll} (or {@link cancel}) and awaits it; `dispose()` is a
+	 * teardown, not a guarantee about the filesystem.
+	 */
 	dispose(): void {
 		for (const taskId of this.instances.keys()) {
 			this.clearEvictionTimer(taskId)
@@ -381,7 +463,12 @@ export class AgentManager {
 		// Disposal cancels what is actually live, by identity, not by a sentinel that
 		// matches nothing (ses_017 P4).
 		for (const agentTask of this.listActive()) {
-			this.cancel(agentTask.taskId)
+			this.cancel(agentTask.taskId).catch((err) => {
+				this.log.error('Cancel during dispose failed', {
+					taskId: agentTask.taskId,
+					error: toErrorMessage(err),
+				})
+			})
 		}
 		this.instances.clear()
 		this.spawnRecords.clear()
@@ -618,7 +705,7 @@ export class AgentManager {
 		// (`cancel(taskId)` already terminalized the task, so that path short-circuits
 		// inside `markCanceled` and this is not a double transition.) — ses_017 P4
 		if (result.status === 'cancelled') {
-			this.markCanceled(agentTask.taskId, result)
+			await this.markCanceled(agentTask.taskId, result)
 			return
 		}
 
@@ -828,9 +915,26 @@ export class AgentManager {
 		}
 	}
 
-	private markCanceled(taskId: TaskId, result?: BaseAgentResult): void {
+	/**
+	 * Terminalize a cancelled task and RELEASE what it was holding.
+	 *
+	 * Everything before the first `await` is the in-memory transition, so a caller that
+	 * cannot await (`dispose()`) still gets a `canceled` task and the events that go with
+	 * it. The returned promise settles when the child's sub-session and workspace have
+	 * actually been released — which nothing here used to do at all.
+	 *
+	 * **Cancel was the one terminal arm that released nothing.** `completed` materializes
+	 * a summary and idles the sub-session; `failed` marks it failed and disposes the
+	 * workspace; `canceled` did neither, so every cancelled child left its sub-session
+	 * `active` (so the parent session never read as idle) and its worktree on disk. For a
+	 * child that was PARKED that is doubly true: `finalizeChild` returns early on
+	 * `awaiting_input` — correctly, because a resume needs the workspace disposing it
+	 * would destroy — and until something cancels it, nothing was ever going to come back
+	 * and clean it up. Cancelling is that something. Nobody is coming back now.
+	 */
+	private markCanceled(taskId: TaskId, result?: BaseAgentResult): Promise<void> {
 		const agentTask = this.instances.get(taskId)
-		if (!agentTask || isTerminalAgentTaskState(agentTask.state)) return
+		if (!agentTask || isTerminalAgentTaskState(agentTask.state)) return Promise.resolve()
 
 		// Present when the cancel arrived as an abort cascade and the child's run
 		// actually returned; absent when `cancel(taskId)` terminalized the task while
@@ -847,6 +951,16 @@ export class AgentManager {
 		this.log.info(`Agent task canceled: ${taskId}`)
 		this.scheduleEviction(taskId)
 		this.resolveCompletionCallbacks(taskId)
+
+		const spawnRecord = this.spawnRecords.get(taskId)
+		if (!spawnRecord) return Promise.resolve()
+
+		return this.failSubSession(spawnRecord).catch((err) => {
+			this.log.warn('SubSession release on cancel failed', {
+				taskId,
+				error: toErrorMessage(err),
+			})
+		})
 	}
 
 	private updateState(taskId: TaskId, state: AgentTaskState): void {

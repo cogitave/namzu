@@ -128,8 +128,30 @@ export class RunPersistence {
 		await this.runStore.initRun(this.run.id, this.run.parentRunId)
 	}
 
+	/**
+	 * Stamp the run's meta file for this segment.
+	 *
+	 * **It will not overwrite a persisted suspension with `idle`.** A resumed segment
+	 * re-runs `init()`, and a fresh `RunPersistence` starts every run at `idle` — so
+	 * `init()` used to write `idle` over the `awaiting_input` the pause had persisted.
+	 * If the resumed segment then died before parking again, the run was left non-terminal
+	 * at `idle`, holding a live pending decision, and `resumeDecision` refused it forever
+	 * (`RunNotResumableError(runId, 'idle')`). A run that cannot be answered and cannot
+	 * be finished is the exact failure the durable pause exists to prevent, so the last
+	 * durable truth about a parked run survives until this segment replaces it with a
+	 * REAL outcome: a completion, a failure, a cancellation, or a fresh suspension.
+	 */
 	async init(): Promise<void> {
 		await this.openRunDir()
+
+		const persisted = await this.runStore.readRunMeta()
+		if (persisted?.status === 'awaiting_input') {
+			this.run.status = 'awaiting_input'
+			this.run.stopReason = 'paused'
+			this.run.awaitingDecision = persisted.awaitingDecision
+			this.awaitingDecision = persisted.awaitingDecision
+		}
+
 		await this.runStore.writeRunMeta(this.run)
 	}
 
@@ -221,11 +243,25 @@ export class RunPersistence {
 	 * first. The pointer is what lets an emergency snapshot taken mid-pause say
 	 * "resume from THAT checkpoint" instead of being projected into a history whose
 	 * pending tool call gets repaired away.
+	 *
+	 * **It WRITES, and that is the whole point of it being async.** `awaiting_input`
+	 * used to reach `run.json` only through `finalize()`, at the very end of the
+	 * generator — so between the moment the decision was durably persisted and the
+	 * moment the generator returned, the run's own file still said `idle`. A process
+	 * killed in that window (an OOM, a redeploy — precisely the crash the durable pause
+	 * claims to survive) left a checkpoint that knew exactly what it was waiting for and
+	 * a run that could never be resumed to answer it. The suspension is persisted where
+	 * it is DECIDED. Only the run's meta is written here, not the whole run: the
+	 * messages of the paused turn are already on the checkpoint, which is what a resume
+	 * reads.
 	 */
-	markSuspended(awaitingDecision?: AwaitingDecisionRef): void {
+	async markSuspended(awaitingDecision?: AwaitingDecisionRef): Promise<void> {
 		this.run.status = 'awaiting_input'
 		this.run.stopReason = 'paused'
 		this.awaitingDecision = awaitingDecision
+		this.run.awaitingDecision = awaitingDecision
+
+		await this.runStore.writeRunMeta(this.run)
 	}
 
 	markFailed(error: string): void {
