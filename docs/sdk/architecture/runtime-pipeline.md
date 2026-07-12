@@ -1,7 +1,7 @@
 ---
 title: Runtime Pipeline
 description: Detailed walkthrough of how @namzu/sdk turns agent input into provider calls, tool execution, checkpoints, and final results.
-last_updated: 2026-07-12
+last_updated: 2026-07-13
 status: current
 related_packages: ["@namzu/sdk"]
 ---
@@ -126,7 +126,10 @@ Tool authorization is two checks with two different jobs, not one gate consulted
    decision. A `modify` decision rewrites a call's input, and that rewritten
    input is re-evaluated against the gate's deny plane before it is treated as
    approved — a benign call a human approved cannot be modified into a denied
-   operation.
+   operation. A `pause` decision — which is also what an absent handler
+   returns — **parks the run durably** instead of answering: the question is
+   persisted on the checkpoint, the run is marked `awaiting_input`, and the
+   generator returns. See [Durable Pause](../runtime/durable-pause.md).
 4. Whatever leaves this phase — approved as proposed or approved as modified —
    is still not final. `ToolExecutor` re-evaluates the gate's deny plane one
    more time, against the tool's *final* input, after every `pre_tool_use`
@@ -157,23 +160,34 @@ Neither subsystem creates an alternative run architecture. Both are additions ar
 
 The loop exits through explicit stop paths:
 
-| Stop path | Trigger |
+The loop returns a `RunDisposition` saying **why** it stopped, rather than letting `query()` infer "done" from the mere fact that it returned. There are two dispositions, and the difference is structural:
+
+| Disposition | Meaning |
 | --- | --- |
-| Guard stop | Token, cost, timeout, or iteration limit |
-| Cancellation | Abort signal or explicit cancellation |
-| Pause | HITL decision at plan gate, tool review, or checkpoint |
-| Final response | Runtime forces a final answer because limits are near |
-| Provider error | A terminal `ProviderRequestError` (`auth`, `bad_request`, `unknown`, or a retryable kind that exhausted its attempts) |
+| `completed` | The run is over. Terminalize it, resolve a result, emit a completion event |
+| `suspended` | The run is **parked** awaiting an external decision. Non-terminal: no `endedAt`, no result, no `run_completed`, no `run_end` hooks |
 
-The run's guard clock bounds retries as well as iterations: `attemptModelCall` checks the deadline before each attempt and caps each backoff wait by the time remaining, so a retry storm cannot push a run past its `timeoutMs`.
+`stopReason` cannot carry this. It is a label on the last thing that happened, written by whoever stopped the loop, and deriving a control-flow fact from a description is how a paused run came to be persisted as **completed** before `0.5.0`.
 
-Cancellation reaches the in-flight request rather than only the iteration boundary. `AbstractAgent` composes the agent's internal controller with any caller-supplied `input.signal` into the single signal the query observes, which is what makes `agent.cancel()` abort a call already on the wire — on every provider that declares `supportsAbortSignal`.
+| Stop path | Trigger | Disposition |
+| --- | --- | --- |
+| Guard stop | Token, cost, timeout, or iteration limit | `completed` |
+| Cancellation | Abort signal or explicit cancellation | `completed` (terminal, status `cancelled`) |
+| Durable pause | A tool review nobody in-process answered | **`suspended`** — the run parks and can be resumed |
+| Plan gate, unanswered | A plan approval with no in-process reviewer | `completed` — the plan is rejected and the run **ends**. It cannot park: the checkpoint captures no `PlanManager` |
+| Final response | Runtime forces a final answer because limits are near | `completed` |
+| Provider error | A terminal `ProviderRequestError` (`auth`, `bad_request`, `unknown`, or a retryable kind that exhausted its attempts) | `completed` (status `failed`) |
 
-When the runtime stops, `RunPersistence` and the surrounding query pipeline finalize the `AgentRun` result that the agent surface returns. A history left dangling by a cancel or an interruption is healed by `repairDanglingMessages` on the resume or replay path, not carried forward broken.
+The run's guard clock bounds retries as well as iterations: `attemptModelCall` checks the deadline before each attempt and caps each backoff wait by the time remaining, so a retry storm cannot push a run past its `timeoutMs`. That clock measures **active execution time**, so a run parked for a human is not burning it.
+
+Cancellation reaches the in-flight request rather than only the iteration boundary. `AbstractAgent` composes the agent's internal controller with any caller-supplied `input.signal` into the single signal the query observes, which is what makes `agent.cancel()` abort a call already on the wire — on every provider that declares `supportsAbortSignal`. A run that is already **parked** has no live process to signal, and is cancelled through the persisted record instead (`cancelRun`).
+
+When the runtime stops, `RunPersistence` and the surrounding query pipeline finalize the `AgentRun` result that the agent surface returns. A history left dangling by a cancel or an interruption is healed by `repairDanglingMessages` on the resume or replay path, not carried forward broken — **except** where a persisted decision owns the dangling tool-call block, because there the unanswered call is the question a human is being asked, and repairing it would destroy the decision. See [Durable Pause](../runtime/durable-pause.md).
 
 ## Related
 
 - [SDK Runtime](../runtime/README.md)
+- [Durable Pause](../runtime/durable-pause.md)
 - [Reliability and Cancellation](../runtime/reliability.md)
 - [Source Tree](./source-tree.md)
 - [State and Persistence](./state-and-persistence.md)

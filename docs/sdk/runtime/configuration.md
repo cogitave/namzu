@@ -1,7 +1,7 @@
 ---
 title: Run Configuration
 description: Required and optional runtime config for Namzu agents, including model, limits, retries, permissions, environment, and working directory.
-last_updated: 2026-07-12
+last_updated: 2026-07-13
 status: current
 related_packages: ["@namzu/sdk"]
 ---
@@ -66,8 +66,8 @@ At minimum, a practical run needs:
 | `provider` | Yes | LLM backend implementation |
 | `tools` | Yes | Tool registry the runtime can expose and execute |
 | `model` | Yes | Model identifier used for provider calls |
-| `tokenBudget` | Yes | Maximum token budget for the run |
-| `timeoutMs` | Yes | Wall-clock timeout for the run |
+| `tokenBudget` | Yes | Maximum token budget for the run — a **lifetime** limit (see section 4) |
+| `timeoutMs` | Yes | Timeout for the run, measured in **active execution time** (see section 4) |
 | `projectId` | Yes | Long-lived project scope |
 | `sessionId` | Yes | Immediate session scope |
 | `tenantId` | Yes | Isolation boundary |
@@ -85,6 +85,34 @@ At minimum, a practical run needs:
 | `retry` | Retry and overflow-recovery policy for model calls |
 
 These settings shape the runtime loop, not only the provider call.
+
+### Limits are lifetime limits, and `timeoutMs` is an execution clock
+
+A run can stop and be resumed — because it was paused for a human, or because a
+segment crashed. What the limits mean across that boundary is a contract, not an
+implementation detail:
+
+| Limit | Across a resume |
+| --- | --- |
+| `tokenBudget` | **Lifetime.** Token usage accumulates across every segment of the run |
+| `costLimitUsd` | **Lifetime.** Cost accumulates across every segment |
+| `maxIterations` | **Lifetime.** The iteration count is carried, not reset |
+| `timeoutMs` | **Active execution time** — the time the run spends *executing*, not calendar time |
+
+`timeoutMs` is not a wall clock. An hour parked waiting for a human costs the run
+nothing, because human thinking is not agent compute and charging it to a
+wall-clock timeout would turn every pause into a timeout. Time spent inside a
+*live* segment awaiting an in-process `resumeHandler` **does** count, because the
+segment never ended.
+
+Before `0.5.0` a resumed run started on a blank ledger — full budget, zero
+iterations, a fresh clock — so a run stopped at its cost cap could be resumed
+forever with a new allowance each time. See
+[Durable Pause](./durable-pause.md#7-accounting-across-a-resume) and
+[Migrating to 0.5.0 §I](../../migration/0.5.md#section-i--a-paused-run-is-a-state-not-a-completion).
+
+A **fork** is the deliberate exception: it inherits the source run's history but
+not its ledger, so it runs on a brand-new budget.
 
 ### `retry`
 
@@ -232,12 +260,15 @@ const agentConfig = {
 | forgetting `maxResponseTokens` in provider-direct calls | large responses can be harder to control |
 | mixing app config defaults and per-run overrides inconsistently | debugging run behavior becomes harder |
 | raising `retry.maxAttempts` on a short `timeoutMs` | attempts share the run deadline, so the budget is spent waiting |
+| expecting a resumed run to get a fresh budget | it does not. Budgets are lifetime limits; fork if you want a new one |
+| reading `timeoutMs` as a wall clock | it measures active execution time. A run parked for a human is not burning it |
 
 ## Related
 
 - [SDK Quickstart](../quickstart.md)
 - [Run Identities](./identities.md)
 - [Low-Level Runtime](./low-level.md)
+- [Durable Pause](./durable-pause.md)
 - [Reliability and Cancellation](./reliability.md)
 - [Tool Safety](../tools/safety.md)
 - [SDK Runtime](./README.md)

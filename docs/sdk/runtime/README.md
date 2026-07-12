@@ -1,7 +1,7 @@
 ---
 title: Runtime
 description: Reference map for the runtime building blocks exposed by @namzu/sdk.
-last_updated: 2026-07-12
+last_updated: 2026-07-13
 status: current
 related_packages: ["@namzu/sdk"]
 ---
@@ -18,7 +18,8 @@ The SDK exports a broad runtime surface, but the pieces follow a consistent shap
 | Agents | `ReactiveAgent`, `PipelineAgent`, `RouterAgent`, `SupervisorAgent` | Different execution patterns over the same runtime |
 | Low-level kernel | `query`, `drainQuery` | Direct control over event streaming, verification, sandboxing, and runtime-only features |
 | Lifecycle | `AgentManager`, `RunPersistence`, `EmergencySaveManager`, `PlanManager` | Run orchestration, persistence, and review hooks |
-| Replay (v1) | `listCheckpoints`, `prepareReplayState`, `prepareResumeMessages`, `MutationNotApplicableError` | Fork an existing run from a checkpoint, optionally mutating the fork point — see [Replay](./replay.md) |
+| Durable pause | `resumeDecision`, `readPendingDecision`, `cancelRun`, `readRunLease`, `deferredReviewHandler` | A run that stops for a human survives the process it stopped in — see [Durable Pause](./durable-pause.md) |
+| Replay and fork | `listCheckpoints`, `prepareReplayState`, `prepareForkState`, `prepareResumeMessages`, `MutationNotApplicableError` | Fork a **new** run from an existing run's checkpoint, optionally mutating the fork point — see [Replay](./replay.md). Continuing *the same* run is a resume, not a fork |
 | Reliability | `ProviderRequestError`, `isProviderRequestError`, `classifyHttpStatus`, `RetryConfigSchema`, `DEFAULT_RETRY_CONFIG`, `repairDanglingMessages` | Typed provider errors, bounded retries, overflow recovery, and cancellation — see [Reliability](./reliability.md) |
 | Stores | `RunDiskStore`, `DiskTaskStore`, conversation and memory stores | Local durability for runtime data |
 | Session hierarchy | `InMemorySessionStore`, `DiskSessionStore`, handoff, summary, workspace, retention exports | Tenant-scoped project and delegation state |
@@ -93,6 +94,7 @@ If you are implementing against the SDK rather than only consuming the public AP
 | Required IDs and identity mapping | [Runtime Identities](./identities.md) |
 | Agent config and runtime limits | [Runtime Configuration](./configuration.md) |
 | Provider errors, retries, overflow recovery, and cancellation | [Reliability and Cancellation](./reliability.md) |
+| A run that parks for a human, and how it is answered later | [Durable Pause](./durable-pause.md) |
 | `query()` and `drainQuery()` wiring | [Low-Level Runtime](./low-level.md) |
 | Plugin manifests, namespacing, and hook order | [Plugins and MCP Servers](../integrations/plugins.md) |
 | The shipped tool set | [Built-In Tools](../tools/built-in.md) |
@@ -116,6 +118,7 @@ If you are implementing against the SDK rather than only consuming the public AP
 - [SDK Retrieval](../retrieval/README.md)
 - [SDK Sessions](../sessions/README.md)
 - [Runtime Configuration](./configuration.md)
+- [Durable Pause](./durable-pause.md)
 - [Reliability and Cancellation](./reliability.md)
 - [Low-Level Runtime](./low-level.md)
 - [Connectors and MCP](../integrations/connectors-and-mcp.md)

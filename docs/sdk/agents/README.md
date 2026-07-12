@@ -1,7 +1,7 @@
 ---
 title: Agents and Orchestration
 description: Choose the right SDK agent class, understand delegation boundaries, and wire orchestration surfaces safely in @namzu/sdk.
-last_updated: 2026-07-12
+last_updated: 2026-07-13
 status: current
 related_packages: ["@namzu/sdk"]
 ---
@@ -230,7 +230,18 @@ Cancellation is owned by `AbstractAgent`, not by each subclass. The base compose
 
 The practical consequence: `await agent.cancel()` aborts the HTTP request that is currently on the wire, rather than waiting for the next iteration boundary. The one exception is `@namzu/ollama`'s non-streaming path, which declares `supportsAbortSignal: false`.
 
-A run cancelled mid-tool-call leaves a history with tool calls that have no results. That history is healed on the resume or replay path by `repairDanglingMessages`, so a cancelled run can be resumed without a provider rejecting its message sequence. See [Reliability and Cancellation](../runtime/reliability.md).
+The signal reaches **child** runs too. Before `0.5.0`, `SupervisorAgent`'s children hung off the agent's own controller, which nothing signalled — so children were uncancellable.
+
+A tool that is **already executing** is not cancelled. It runs to completion; the loop stops waiting and stops issuing work, and there is no rollback.
+
+### A cancelled run is not resumable, and a parked run needs `cancelRun`
+
+Two things changed in `0.5.0` that a cancellation path has to know:
+
+- **A cancelled run can no longer be resumed.** `query({ resumeFromCheckpoint })` refuses any terminal run — `cancelled`, `completed` or `failed` — with `RunNotResumableError`, and writes nothing. Re-driving a finished run from a checkpoint is a **fork**: it mints a new id (`prepareForkState`). A run cancelled mid-tool-call still leaves a history with unanswered tool calls, and `repairDanglingMessages` still heals it — but on the fork or crash-recovery path, not by resurrecting the cancelled run.
+- **`agent.cancel()` cannot reach a run that is parked.** A run suspended on a durable decision has no live process: its generator returned when it parked, so there is no signal to abort. Cancelling it means transitioning the persisted record, which is what `cancelRun()` does. `AgentManagerContract.cancel` / `cancelAll` are async for the same reason — a cancel has to reach the disk.
+
+See [Reliability and Cancellation](../runtime/reliability.md) and [Durable Pause](../runtime/durable-pause.md).
 
 ## 8. Invocation State Is for Runtime Context, Not Prompt Text
 
@@ -258,6 +269,7 @@ Do not confuse it with persona or system prompt text. Prompt composition belongs
 - [SDK Quickstart](../quickstart.md)
 - [Low-Level Runtime](../runtime/low-level.md)
 - [Run Configuration](../runtime/configuration.md)
+- [Durable Pause](../runtime/durable-pause.md)
 - [Reliability and Cancellation](../runtime/reliability.md)
 - [Run Identities](../runtime/identities.md)
 - [Sessions, Workspaces, and Retention](../sessions/README.md)

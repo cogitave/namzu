@@ -1,7 +1,7 @@
 ---
 title: Reliability and Cancellation
 description: Typed provider errors, bounded model-call retries, context-overflow recovery, truncated-response handling, cancellation, and history repair in @namzu/sdk.
-last_updated: 2026-07-12
+last_updated: 2026-07-13
 status: current
 related_packages: ["@namzu/sdk", "@namzu/openai", "@namzu/anthropic", "@namzu/bedrock", "@namzu/openrouter", "@namzu/http", "@namzu/ollama", "@namzu/lmstudio"]
 ---
@@ -139,7 +139,31 @@ const running = agent.run(input, config)
 await agent.cancel()   // aborts the in-flight provider call, not just the next iteration
 ```
 
-Not every provider can honor it. `ProviderCapabilities.supportsAbortSignal` tells you which:
+Cancellation is **asynchronous**: the signal is a request to stop, and the terminal `cancelled` outcome arrives afterwards, on the event stream. A cancel that races a settlement never overwrites a genuine one — a requested cancel wins over a *non-terminal* settlement, and never over a terminal one.
+
+### What a cancel reaches, and what it does not
+
+| It reaches | It does not reach |
+| --- | --- |
+| The in-flight provider call (the signal goes to the socket) | **A tool that is already executing.** It runs to completion. The loop stops waiting and stops issuing work; there is no rollback and none is implied |
+| The iteration loop, at the next boundary | A run that is **parked** — see below |
+| Every **child** run, through the run signal | |
+
+### A parked run has no process to signal
+
+A run that stopped for a human ([Durable Pause](./durable-pause.md)) has no live process: its generator returned when it parked. An `AbortSignal` reaches nobody. A cancel that only signals leaves `run.json` reading `awaiting_input` with its decision still `pending`, and anyone holding the resume token can still redeem it and run the batch.
+
+**`cancelRun` is the seam a cancel must go through when the run may be parked.** It closes every open decision first, then writes the run's persisted status:
+
+```ts
+import { cancelRun } from '@namzu/sdk'
+
+await cancelRun({ baseDir, runId, parentRunId })
+```
+
+`AgentManagerContract.cancel` / `cancelAll` are `Promise`-returning as of `0.5.0` for exactly this reason: a cancel has to reach the disk, and awaiting it is how a caller knows that it did.
+
+Not every provider can honor an abort signal. `ProviderCapabilities.supportsAbortSignal` tells you which:
 
 | Provider | `supportsAbortSignal` |
 | --- | --- |
@@ -173,7 +197,13 @@ Three ordered steps:
 
 The function is pure, deterministic, and idempotent: `repair(repair(x))` deep-equals `repair(x)`.
 
-`prepareResumeMessages(checkpointMessages)` is the resume-path wrapper: it repairs the history and strips `system` messages (the prompt is rebuilt for the new run). Resume, replay, and cancellation histories all route through this repair, which is why a forked run no longer inherits a dangling pair from the run it forked.
+`prepareResumeMessages(checkpointMessages, pendingDecision?)` is the resume-path wrapper: it repairs the history and strips `system` messages (the prompt is rebuilt for the new run). Resume, replay, and cancellation histories all route through this repair, which is why a forked run no longer inherits a dangling pair from the run it forked.
+
+### A repair is right for a crash and wrong for a pause
+
+The second argument is not optional politeness. **A run that parked for a human has an unanswered tool call on purpose** — that pending batch is the question, and it is what the resume has to act on. Repairing it rewrites the call the human was asked to approve into a `[SYSTEM] Tool result missing` placeholder, and the approval then applies to nothing.
+
+A crash and a pause leave the *same shape* in the history. The only thing that tells them apart is the persisted decision. So when a decision owns the tool-call block (a `tool_review` in state `pending`, `resolved` or `executing`), the repair is **suppressed** and the block is left exactly as it is. Pass the checkpoint's `pendingDecision` whenever you have one; the runtime's own resume path does.
 
 Contrast with `removeDanglingMessages()`, which is still exported and still *deletes* the offending assistant messages. Use `repair` when you want to continue a conversation, `remove` when you only want a valid transcript.
 
@@ -191,12 +221,16 @@ If the failed attempts consumed billable input tokens upstream, your Namzu-side 
 | Setting `maxAttempts` high to "be safe" | Attempts share the run deadline. A large cap on a short `timeoutMs` just spends the budget waiting |
 | Assuming `retry.enabled: false` means zero retries anywhere | The main loop honors it; the ancillary paths in section 3 keep their own bounded retry |
 | Expecting `agent.cancel()` to stop an in-flight Ollama non-streaming call | It cannot. Check `capabilities.supportsAbortSignal` |
+| Expecting `agent.cancel()` to stop a **parked** run | There is no process to signal. Use `cancelRun()` |
+| Expecting a cancel to undo a tool that is already running | It runs to completion. There is no rollback |
 | Reconciling provider invoices against SDK cost figures | Failed attempts are not accounted (section 8) |
 | Calling `removeDanglingMessages()` before a resume | It deletes the assistant turns. `prepareResumeMessages()` heals them instead |
+| Repairing a paused run's history without its `pendingDecision` | The tool call the human was asked to approve is rewritten into "result missing", and the approval applies to nothing |
 
 ## Related
 
 - [Run Configuration](./configuration.md)
+- [Durable Pause](./durable-pause.md)
 - [Replay](./replay.md)
 - [Low-Level Runtime](./low-level.md)
 - [Provider Operations](../provider-integration/operations.md)

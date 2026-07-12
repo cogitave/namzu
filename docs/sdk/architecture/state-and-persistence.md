@@ -1,7 +1,7 @@
 ---
 title: State and Persistence
 description: How @namzu/sdk models sessions, stores, checkpoints, tasks, memory, and durable run state.
-last_updated: 2026-04-18
+last_updated: 2026-07-13
 status: current
 related_packages: ["@namzu/sdk"]
 ---
@@ -59,6 +59,17 @@ The important pattern is that stores persist or retrieve data, but they do not o
 - `RunPersistence` coordinates the runtime-facing state transitions around that disk layer.
 
 The disk layout is intentionally file-oriented and append-friendly rather than database-first.
+
+Two directories are written by the durable-pause machinery, and the filesystem is not incidental to them — it is the **arbitrator**:
+
+| Path | What it is |
+| --- | --- |
+| `leases/000001.json`, `…` | The run lease. One run is driven by one segment at a time, and the file's **number is the fencing token**, so a single exclusive create gives arbitration, monotonicity and an audit trail of every takeover |
+| `decisions/<checkpointId>.claim.json`, `.execution.json` | The durable single-use claims: the right to **answer** a paused decision, and the right to **dispatch** the answered batch. Never deleted — a claim is the proof that a right was consumed |
+
+Both rest on an exclusive-create (`wx`) that the filesystem decides, which is the only cross-process primitive available without a server. It is atomic on a local filesystem and on POSIX-compliant shared mounts, and **not** on NFS without `O_EXCL`. A deployment that spreads one run's directory across such a mount, or that runs workers against genuinely separate roots, needs the lease moved into a shared store. See [Durable Pause](../runtime/durable-pause.md#82-the-lease-is-per-namzu-root).
+
+The pending decision itself lives on the **checkpoint** (`IterationCheckpoint.pendingDecision`), not in a second file, so a resume cannot find a decision without the history it belongs to.
 
 ## 5. Task Storage
 

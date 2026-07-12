@@ -1,7 +1,7 @@
 ---
 title: Tool Safety
 description: Layered tool safety in @namzu/sdk, including tool metadata, availability states, verification gates, probe vetoes, plan mode, and sandbox boundaries.
-last_updated: 2026-07-12
+last_updated: 2026-07-13
 status: current
 related_packages: ["@namzu/sdk", "@namzu/computer-use"]
 ---
@@ -123,6 +123,12 @@ approves. The second decides what actually runs, and nothing downstream of it
 can undo that decision. See
 [Safety Flow in Practice](../architecture/safety.md#9-safety-flow-in-practice)
 for the full sequence.
+
+**And if no human is there to ask?** Nothing runs. A `query()` with no
+`resumeHandler` does not auto-approve — it **parks the run durably**, persisting
+the question so it can be answered out of process later. An absent reviewer and
+an authorizing one must not be the same program. See
+[Durable Pause](../runtime/durable-pause.md).
 
 ## 6. Verification Gate Example
 
@@ -288,6 +294,7 @@ That pattern gives the model useful autonomy without treating every tool equally
 - [SDK Tools](./README.md)
 - [Built-In Tools](./built-in.md)
 - [Run Configuration](../runtime/configuration.md)
+- [Durable Pause](../runtime/durable-pause.md)
 - [Low-Level Runtime](../runtime/low-level.md)
 - [Plugins and MCP Servers](../integrations/plugins.md)
 - [Safety and Operations](../architecture/safety.md)

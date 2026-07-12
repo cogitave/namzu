@@ -1,7 +1,7 @@
 ---
 title: Event Bridges
 description: Bridge internal Namzu runtime events to SSE and A2A wire formats, and convert messages, runs, and agent metadata into protocol-friendly shapes.
-last_updated: 2026-04-18
+last_updated: 2026-07-13
 status: current
 related_packages: ["@namzu/sdk"]
 ---
@@ -21,7 +21,9 @@ The bridge helpers keep those worlds explicit instead of forcing your app to man
 
 ## 2. SSE Mapping With `mapRunToStreamEvent()`
 
-`mapRunToStreamEvent(event, runId)` turns selected `RunEvent` values into SSE-friendly wire events:
+`mapRunToStreamEvent(event)` turns selected `RunEvent` values into SSE-friendly wire events.
+
+**It takes one argument as of `0.5.0`.** The second argument overwrote `event.runId` on the way out, and it existed only because the API and the SDK minted different ids for one run. They do not anymore, and a sub-agent's events now carry the **child's** id rather than being relabelled as the parent's — see [Migrating to 0.5.0 §H](../../migration/0.5.md#section-h--one-canonical-run-id).
 
 ```ts
 import {
@@ -59,7 +61,7 @@ while (true) {
     break
   }
 
-  const mapped = mapRunToStreamEvent(next.value, next.value.runId)
+  const mapped = mapRunToStreamEvent(next.value)
   if (mapped) {
     console.log(mapped.wire, mapped.data)
   }
@@ -75,6 +77,7 @@ Typical mapped wire events include:
 - `tool.completed`
 - `review.requested`
 - `checkpoint.created`
+- `run.paused` — the run parked for a decision it cannot answer itself. **This is the pause signal**, and a review that parks no longer emits `review.completed`. See [Durable Pause](../runtime/durable-pause.md)
 
 ## 3. Important SSE Limitation
 
@@ -220,6 +223,8 @@ The A2A helpers also export two small but useful state functions:
 - `isTerminalState()`
 
 Use them when your app needs to reason about status transitions without rebuilding the mapping table yourself.
+
+`WireRunStatus` gained **`awaiting_input`** in `0.5.0`, and it maps to A2A `input-required`. It is **non-terminal**: a run in it is not finished, it is waiting to be answered. Previously a run waiting on a human was reported as `running`, so a client could not tell that it was the one being waited on. A `switch` over `WireRunStatus` with no `default` needs a new arm.
 
 ## 10. Choosing the Right Bridge
 
