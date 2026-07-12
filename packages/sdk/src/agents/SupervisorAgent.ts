@@ -59,76 +59,91 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 			tenantId,
 		}
 
-		let gateway: TaskGateway
-		if (config.gateway) {
-			gateway = config.gateway
-		} else if (config.agentManager) {
-			const mergedFactoryOptions = config.factoryOptions
-				? {
-						...config.factoryOptions,
-						taskRouter: config.taskRouter ?? config.factoryOptions.taskRouter,
-					}
-				: config.taskRouter
-					? ({
-							taskRouter: config.taskRouter,
-						} as import('../types/agent/index.js').AgentFactoryOptions)
-					: undefined
-
-			const taskContext: AgentTaskContext = {
-				parentRunId: runId,
-				parentAgentId: this.metadata.id,
-				parentAbortController: this.abortController,
-				depth: 0,
-				budgetTracker: {
-					total: config.tokenBudget,
-					remaining: config.tokenBudget,
-				},
-				factoryOptions: mergedFactoryOptions,
-				tenantId,
-				threadId,
-				sessionId,
-				projectId,
-				parentActor,
-			}
-			gateway = new LocalTaskGateway(config.agentManager, taskContext, listener, input)
-		} else {
-			throw new Error("SupervisorAgentConfig requires either 'gateway' or 'agentManager'")
-		}
-
-		const launchedTasks = new Map<TaskId, LaunchedTaskMeta>()
-
-		let planManagerRef: import('../manager/plan/lifecycle.js').PlanManager | undefined
-
-		const coordinatorToolDefs = buildCoordinatorTools({
-			gateway,
-			workingDirectory: input.workingDirectory,
-			allowedAgentIds: config.agentIds,
-			taskStore: input.taskStore,
-			runId,
-			getPlanManager: () => planManagerRef,
-			onTaskLaunched: (agentTaskId, meta) => {
-				launchedTasks.set(agentTaskId, meta)
-			},
-		})
-
-		const tools = new ToolRegistry()
-		for (const tool of coordinatorToolDefs) {
-			tools.register(tool)
-		}
-
-		const childInvocationState = deriveChildState(
-			config.invocationState ?? { tenantId },
-			this.metadata.id,
-		)
-
 		// Compose input.signal with this agent's own abortController so cancel()
-		// ends the supervisor's OWN in-flight run — not just its child tasks (which
-		// already cancel via taskContext.parentAbortController). Previously the raw
-		// input.signal was forwarded, orphaning the internal controller (ses_015
-		// fix-batch; the base owns the control AND its wiring).
+		// ends the supervisor's OWN in-flight run (ses_015 fix-batch; the base owns
+		// the control AND its wiring). Composed HERE, before the gateway is built,
+		// because the children hang off it — see childAbortController below.
 		const runSignal = this.composeRunSignal(input.signal)
 
 		try {
+			// Children abort when THIS RUN aborts. They used to hang off
+			// `this.abortController` — the agent's own controller — which meant only
+			// `agent.cancel()` could reach them, and `agent.cancel()` is unusable
+			// against a shared agent instance (it is never reset, so it poisons every
+			// later run). A per-run cancel therefore stopped the supervisor's own loop
+			// and left every child running. The children belong to the run, so they
+			// hang off the run's signal (ses_017 P4; base-owns-its-wiring).
+			const childAbortController = new AbortController()
+			if (runSignal.signal.aborted) {
+				childAbortController.abort('canceled')
+			} else {
+				runSignal.signal.addEventListener('abort', () => childAbortController.abort('canceled'), {
+					once: true,
+				})
+			}
+
+			let gateway: TaskGateway
+			if (config.gateway) {
+				gateway = config.gateway
+			} else if (config.agentManager) {
+				const mergedFactoryOptions = config.factoryOptions
+					? {
+							...config.factoryOptions,
+							taskRouter: config.taskRouter ?? config.factoryOptions.taskRouter,
+						}
+					: config.taskRouter
+						? ({
+								taskRouter: config.taskRouter,
+							} as import('../types/agent/index.js').AgentFactoryOptions)
+						: undefined
+
+				const taskContext: AgentTaskContext = {
+					parentRunId: runId,
+					parentAgentId: this.metadata.id,
+					parentAbortController: childAbortController,
+					depth: 0,
+					budgetTracker: {
+						total: config.tokenBudget,
+						remaining: config.tokenBudget,
+					},
+					factoryOptions: mergedFactoryOptions,
+					tenantId,
+					threadId,
+					sessionId,
+					projectId,
+					parentActor,
+				}
+				gateway = new LocalTaskGateway(config.agentManager, taskContext, listener, input)
+			} else {
+				throw new Error("SupervisorAgentConfig requires either 'gateway' or 'agentManager'")
+			}
+
+			const launchedTasks = new Map<TaskId, LaunchedTaskMeta>()
+
+			let planManagerRef: import('../manager/plan/lifecycle.js').PlanManager | undefined
+
+			const coordinatorToolDefs = buildCoordinatorTools({
+				gateway,
+				workingDirectory: input.workingDirectory,
+				allowedAgentIds: config.agentIds,
+				taskStore: input.taskStore,
+				runId,
+				getPlanManager: () => planManagerRef,
+				onTaskLaunched: (agentTaskId, meta) => {
+					launchedTasks.set(agentTaskId, meta)
+				},
+			})
+
+			const tools = new ToolRegistry()
+			for (const tool of coordinatorToolDefs) {
+				tools.register(tool)
+			}
+
+			const childInvocationState = deriveChildState(
+				config.invocationState ?? { tenantId },
+				this.metadata.id,
+			)
+
 			const run = await drainQuery(
 				{
 					systemPrompt: config.systemPrompt,

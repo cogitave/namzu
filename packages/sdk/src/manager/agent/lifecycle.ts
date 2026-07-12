@@ -375,7 +375,14 @@ export class AgentManager {
 		for (const taskId of this.instances.keys()) {
 			this.clearEvictionTimer(taskId)
 		}
-		this.cancelAll('' as RunId)
+		// `cancelAll('' as RunId)` cancelled NOTHING: cancelAll filters by
+		// `context.parentRunId === parentRunId`, and no task has an empty parent run
+		// id — so dispose() dropped its instance map with every child still running.
+		// Disposal cancels what is actually live, by identity, not by a sentinel that
+		// matches nothing (ses_017 P4).
+		for (const agentTask of this.listActive()) {
+			this.cancel(agentTask.taskId)
+		}
 		this.instances.clear()
 		this.spawnRecords.clear()
 		this.listeners.length = 0
@@ -603,6 +610,18 @@ export class AgentManager {
 			return
 		}
 
+		// A child that was cancelled is CANCELLED, not completed. Only the explicit
+		// `cancel(taskId)` path used to reach `markCanceled`; a child stopped by the
+		// parent's abort cascade came back here with `status: 'cancelled'` and fell
+		// through to `markCompleted` below, so the parent was told its child finished
+		// — and `agent_completed`, not `agent_canceled`, went out on the run stream.
+		// (`cancel(taskId)` already terminalized the task, so that path short-circuits
+		// inside `markCanceled` and this is not a double transition.) — ses_017 P4
+		if (result.status === 'cancelled') {
+			this.markCanceled(agentTask.taskId, result)
+			return
+		}
+
 		// Kernel terminalization (§8.1): Materializer seals the summary and
 		// atomically flips the child session active→idle. Only run when the
 		// child actually succeeded; failed sub-sessions skip materialization
@@ -809,10 +828,14 @@ export class AgentManager {
 		}
 	}
 
-	private markCanceled(taskId: TaskId): void {
+	private markCanceled(taskId: TaskId, result?: BaseAgentResult): void {
 		const agentTask = this.instances.get(taskId)
 		if (!agentTask || isTerminalAgentTaskState(agentTask.state)) return
 
+		// Present when the cancel arrived as an abort cascade and the child's run
+		// actually returned; absent when `cancel(taskId)` terminalized the task while
+		// its run was still unwinding.
+		if (result) agentTask.result = result
 		agentTask.completedAt = Date.now()
 		this.updateState(taskId, 'canceled')
 		this.emit({ type: 'canceled', taskId })
