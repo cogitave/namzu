@@ -33,7 +33,7 @@ import type { CheckpointManager } from '../checkpoint.js'
 import type { EmitEvent } from '../events.js'
 import type { ToolExecutor } from '../executor.js'
 import type { GuardCoordinator } from '../guard.js'
-import { attemptModelCall, resolveRetryConfig } from '../model-call.js'
+import { attemptModelCall, isRetryableKind, resolveRetryConfig } from '../model-call.js'
 import { applyLifecycleHookResults } from '../plugin-hooks.js'
 import { runAdvisoryPhase } from './phases/advisory.js'
 import { runIterationCheckpoint } from './phases/checkpoint.js'
@@ -62,6 +62,37 @@ const TRUNCATED_TOOL_RESULT_CONTENT =
 export type { IterationContext } from './phases/index.js'
 export type { PhaseSignal } from './phases/index.js'
 export type { ToolReviewOutcome } from './phases/index.js'
+
+/**
+ * Does an error that escaped an iteration mean the run ran out of TIME, rather
+ * than that it failed? Both halves of the answer are load-bearing, and dropping
+ * either one is a real defect:
+ *
+ *   - **The deadline must have passed.** A retryable transport error that
+ *     exhausted its attempts while the budget was still healthy is a failed run,
+ *     not a timeout — the provider is down, and saying "timeout" hides that.
+ *   - **The error must be a retryable transport kind.** Not every error that
+ *     happens to surface after the deadline was caused by the clock. A
+ *     `context_overflow` rethrown by {@link IterationOrchestrator.callModelWithOverflowRecovery}
+ *     is raised OUTSIDE the model call's deadline race and can land here late; so
+ *     can an `auth` error, a `bad_request`, or a plain tool/store exception. Those
+ *     keep the normal failure path with the ORIGINAL error preserved, so a
+ *     misconfiguration is never masked as a timeout (ses_015 fix-batch).
+ *
+ * A predicate rather than an inline condition because the second half is not
+ * reachable end-to-end through `query()`: since pre-freeze B2 the model call
+ * stops WAITING at the deadline, so an error a provider reports afterwards is
+ * never observed at all, and a suite driving only fake providers can pass with
+ * the kind clause deleted (ses_015 pre-freeze R3, mutation-proven). Kept
+ * honest by direct unit tests instead.
+ */
+export function isDeadlineTimeoutStop(
+	err: unknown,
+	deadlineAt: number,
+	now: number = Date.now(),
+): boolean {
+	return now >= deadlineAt && isProviderRequestError(err) && isRetryableKind(err.kind)
+}
 
 export interface IterationConfig {
 	provider: LLMProvider
@@ -513,22 +544,13 @@ export class IterationOrchestrator {
 
 					// A retry loop that exhausted the run deadline surfaces as a
 					// timeout stop (mirrors the guard hard-stop path) rather than a
-					// run failure (A3, round-2 M8). Gate strictly on a RETRYABLE
-					// transport error (throttle/server/network) whose retries ran out
-					// against the deadline — a terminal auth/bad_request/unknown error
-					// or a tool-execution exception that merely happens to surface
-					// after the deadline keeps the normal failure path with the
-					// ORIGINAL error preserved, so misconfiguration is never masked as
-					// a timeout (ses_015 fix-batch).
-					if (
-						Date.now() >= this.ctx.guard.deadlineAt &&
-						isProviderRequestError(err) &&
-						(err.kind === 'throttle' || err.kind === 'server' || err.kind === 'network')
-					) {
+					// run failure (A3, round-2 M8). Both halves of the test are
+					// load-bearing — see {@link isDeadlineTimeoutStop}.
+					if (isDeadlineTimeoutStop(err, this.ctx.guard.deadlineAt)) {
 						this.ctx.log.info('Model call exhausted run deadline — enforcing timeout stop', {
 							runId: runMgr.id,
 							iteration: iterationNum,
-							kind: err.kind,
+							kind: isProviderRequestError(err) ? err.kind : 'unknown',
 						})
 						if (iterationActivity) {
 							this.ctx.activityStore.fail(iterationActivity.id, 'timeout')

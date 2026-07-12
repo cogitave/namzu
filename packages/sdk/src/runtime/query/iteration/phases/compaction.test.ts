@@ -35,6 +35,11 @@ import { findDanglingMessages } from '../../../../compaction/dangling.js'
 import type { CompactionConfig } from '../../../../config/runtime.js'
 import type { RunId } from '../../../../types/ids/index.js'
 import type { Message } from '../../../../types/message/index.js'
+import type {
+	ChatCompletionParams,
+	ChatCompletionResponse,
+	LLMProvider,
+} from '../../../../types/provider/index.js'
 import type { Logger } from '../../../../utils/logger.js'
 import { COMPACTION_HEADER, runCompactionCheck } from './compaction.js'
 import type { IterationContext } from './context.js'
@@ -66,9 +71,43 @@ function emptyWorkingState() {
 	}
 }
 
-function makeCtx(messages: Message[], config: Partial<CompactionConfig>): IterationContext {
+/**
+ * A provider standing in for the compaction verifier. `COMPLETE` is its happy
+ * path — the answer it gives when the structured state already captures the
+ * excerpt — and on that answer `buildVerifiedSummary` returns the serialized
+ * state ALONE. Anything the caller wanted carried has to survive outside the
+ * verifier's return value.
+ */
+function makeVerifierProvider(reply: string): LLMProvider & { seen: ChatCompletionParams[] } {
+	const seen: ChatCompletionParams[] = []
 	return {
-		provider: {} as never,
+		id: 'fake',
+		name: 'Fake',
+		seen,
+		async chat(params: ChatCompletionParams): Promise<ChatCompletionResponse> {
+			seen.push(params)
+			return {
+				id: 'r',
+				model: 'm',
+				message: { role: 'assistant', content: reply },
+				finishReason: 'stop',
+				usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+			} as ChatCompletionResponse
+		},
+		// biome-ignore lint/correctness/useYield: stub, never invoked
+		async *chatStream() {
+			throw new Error('not used')
+		},
+	} as LLMProvider & { seen: ChatCompletionParams[] }
+}
+
+function makeCtx(
+	messages: Message[],
+	config: Partial<CompactionConfig>,
+	provider?: LLMProvider,
+): IterationContext {
+	return {
+		provider: (provider ?? {}) as never,
 		runConfig: { tokenBudget: 1000 },
 		runMgr: { id: 'run_1' as RunId, messages },
 		log: makeLogger(),
@@ -211,5 +250,85 @@ describe('runCompactionCheck — proactive cut-point safety', () => {
 		expect(summary?.content).toContain('UNIQUE_FACT_ABC123')
 		// Anti-stacking still holds: exactly one summary after the pass.
 		expect(result.filter((m) => (m.content ?? '').startsWith(COMPACTION_HEADER))).toHaveLength(1)
+	})
+
+	// ses_015 pre-freeze R1. The carry above was implemented only on the
+	// serialize-only branch. The DEFAULT config runs the OTHER branch —
+	// llmVerification is on and a young run's slotCount is below
+	// richStateThreshold — where the prior bodies reached the verifier as input and
+	// nothing more: on `COMPLETE` the verifier returns the serialized state alone,
+	// the strip removed the original block, and the fact existed nowhere afterwards.
+	// The branch most runs take was the one still losing data.
+	it('carries a prior summary fact on the DEFAULT llmVerification path (verifier answers COMPLETE)', async () => {
+		const messages: Message[] = [
+			{ role: 'system', content: 'system prompt' },
+			{
+				role: 'system',
+				content: `${COMPACTION_HEADER}\n\nUNIQUE_FACT_ABC123 must be preserved across compactions`,
+			},
+			{ role: 'user', content: 'u1 with a long body of text to have something to summarise' },
+			{ role: 'assistant', content: 'a1 with a long body of text to have something to summarise' },
+			{ role: 'user', content: 'u2 with a long body of text to have something to summarise' },
+			{ role: 'assistant', content: 'a2 with a long body of text to have something to summarise' },
+			{ role: 'user', content: 'u3 with a long body of text to have something to summarise' },
+		]
+		const provider = makeVerifierProvider('COMPLETE')
+
+		// slotCount() is 0 (< richStateThreshold), so this is the verified branch.
+		const ctx = makeCtx(messages, { llmVerification: true }, provider)
+		await runCompactionCheck(ctx)
+
+		const result = ctx.runMgr.messages
+		expect(provider.seen).toHaveLength(1)
+		const summary = result.find((m) => (m.content ?? '').startsWith(COMPACTION_HEADER))
+		expect(summary?.content).toContain('UNIQUE_FACT_ABC123')
+		expect(result.filter((m) => (m.content ?? '').startsWith(COMPACTION_HEADER))).toHaveLength(1)
+	})
+
+	it('carries a prior summary fact when the verifier reports additions', async () => {
+		const messages: Message[] = [
+			{ role: 'system', content: 'system prompt' },
+			{
+				role: 'system',
+				content: `${COMPACTION_HEADER}\n\nUNIQUE_FACT_ABC123 must be preserved across compactions`,
+			},
+			{ role: 'user', content: 'u1 with a long body of text to have something to summarise' },
+			{ role: 'assistant', content: 'a1 with a long body of text to have something to summarise' },
+			{ role: 'user', content: 'u2 with a long body of text to have something to summarise' },
+			{ role: 'assistant', content: 'a2 with a long body of text to have something to summarise' },
+			{ role: 'user', content: 'u3 with a long body of text to have something to summarise' },
+		]
+		const provider = makeVerifierProvider('- the user asked for something else too')
+
+		const ctx = makeCtx(messages, { llmVerification: true }, provider)
+		await runCompactionCheck(ctx)
+
+		const summary = ctx.runMgr.messages.find((m) => (m.content ?? '').startsWith(COMPACTION_HEADER))
+		// Both survive: the verifier's additions AND the carried prior summary.
+		expect(summary?.content).toContain('the user asked for something else too')
+		expect(summary?.content).toContain('UNIQUE_FACT_ABC123')
+	})
+
+	it('caps the carried section at convoTextBudget, dropping the oldest text first', async () => {
+		// Two prior summaries, oldest first. With a budget that only fits the newest,
+		// the newest survives and the oldest is dropped — repeated compactions stay
+		// bounded rather than growing a summary that carries every summary before it.
+		const messages: Message[] = [
+			{ role: 'system', content: 'system prompt' },
+			{ role: 'system', content: `${COMPACTION_HEADER}\n\nOLDEST_FACT ${'x'.repeat(200)}` },
+			{ role: 'user', content: 'u1 with a long body of text to have something to summarise' },
+			{ role: 'system', content: `${COMPACTION_HEADER}\n\nNEWEST_FACT` },
+			{ role: 'assistant', content: 'a1 with a long body of text to have something to summarise' },
+			{ role: 'user', content: 'u2 with a long body of text to have something to summarise' },
+			{ role: 'assistant', content: 'a2 with a long body of text to have something to summarise' },
+			{ role: 'user', content: 'u3 with a long body of text to have something to summarise' },
+		]
+
+		const ctx = makeCtx(messages, { convoTextBudget: 20 })
+		await runCompactionCheck(ctx)
+
+		const summary = ctx.runMgr.messages.find((m) => (m.content ?? '').startsWith(COMPACTION_HEADER))
+		expect(summary?.content).toContain('NEWEST_FACT')
+		expect(summary?.content).not.toContain('OLDEST_FACT')
 	})
 })

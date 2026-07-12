@@ -345,6 +345,13 @@ describe('attemptModelCall — abort', () => {
 	})
 
 	it('rethrows aborted when the signal fires during the backoff sleep', async () => {
+		// The backoff is FULL JITTER — random(0, capped) — so with a 100ms cap it lands
+		// under the 5ms abort about 5% of the time, the sleep finishes first, a second
+		// attempt goes out and the one-call assertion below fails. That made this a
+		// pre-existing ~5%-flaky test (it fired during the ses_015 pre-freeze gate run).
+		// Pinning the jitter keeps the abort strictly inside the sleep, which is the
+		// thing under test; the jitter itself is asserted in the backoff block above.
+		vi.spyOn(Math, 'random').mockReturnValue(0.99)
 		const controller = new AbortController()
 		const provider = makeProvider(async () => {
 			throw err('server')
@@ -510,6 +517,64 @@ describe('attemptModelCall — the in-flight call is bounded, not just the attem
 		})
 
 		expect(provider.calls[0]?.signal).toBe(ctrl.signal)
+	})
+
+	// ses_015 pre-freeze R2. Real timers on purpose: the defect IS Node's own
+	// setTimeout clamping, and a fake clock does not reproduce it. `setTimeout(cb,
+	// d)` with d > 2^31-1 overflows the signed 32-bit delay and Node clamps it to
+	// 1 ms (TimeoutOverflowWarning), so the deadline timer fired ~1 ms into every
+	// call: a healthy provider was abandoned as 'network', all three attempts burned
+	// on the same clamp, and the run FAILED — not even classified as a timeout,
+	// since the real deadline was still a month out.
+	it('does not abandon the call when the deadline is past the 32-bit timer ceiling', async () => {
+		const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1_000
+		expect(THIRTY_DAYS_MS).toBeGreaterThan(2_147_483_647)
+
+		const provider = makeProvider(
+			() =>
+				new Promise<ChatCompletionResponse>((resolve) => {
+					setTimeout(() => resolve(okResponse()), 30)
+				}),
+		)
+
+		const res = await attemptModelCall({
+			provider,
+			params: { model: 'm', messages: [] },
+			retry: RETRY,
+			signal: new AbortController().signal,
+			deadlineAt: Date.now() + THIRTY_DAYS_MS,
+			log: makeLogger(),
+		})
+
+		// The call answers normally and is not retried: the clamped timer never fires.
+		expect(res.finishReason).toBe('stop')
+		expect(provider.calls).toHaveLength(1)
+	})
+
+	it('emits no TimeoutOverflowWarning for an over-ceiling deadline', async () => {
+		const warnings: string[] = []
+		const onWarning = (w: Error): void => {
+			warnings.push(w.name)
+		}
+		process.on('warning', onWarning)
+		try {
+			const provider = makeProvider(async () => okResponse())
+			await attemptModelCall({
+				provider,
+				params: { model: 'm', messages: [] },
+				retry: RETRY,
+				signal: new AbortController().signal,
+				// Infinity is accepted by the runtime config schema (z.number().positive()),
+				// and it is the worst case for the naive timer: NaN/overflowing delay, 1 ms.
+				deadlineAt: Number.POSITIVE_INFINITY,
+				log: makeLogger(),
+			})
+			// Warnings are emitted on a later tick than the setTimeout call.
+			await new Promise((r) => setImmediate(r))
+			expect(warnings).not.toContain('TimeoutOverflowWarning')
+		} finally {
+			process.off('warning', onWarning)
+		}
 	})
 })
 

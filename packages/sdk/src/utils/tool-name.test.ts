@@ -274,4 +274,36 @@ describe('canonicalizeToolName — budget', () => {
 	it('leaves a short valid name untouched even under a tight budget', () => {
 		expect(canonicalizeToolName('ok', 7)).toBe('ok')
 	})
+
+	// ses_015 pre-freeze H2. Pinned as INTENDED behaviour, not tolerated as a bug:
+	// the reserved suffix shape is what keeps the repaired space disjoint from the
+	// identity space, and a repaired name wears that shape, so it must itself be
+	// repaired when fed back in. Idempotence and injectivity are mutually exclusive
+	// here, and injectivity is what keeps a persisted name resolving to the tool it
+	// was persisted for. Anyone "fixing" this into idempotence — by passing a
+	// reserved-shaped input through untouched — reopens the collision hole where a
+	// server advertising the literal string `a_b_04la3gs` lands on top of the
+	// canonical name of `a.b`. The contract that makes non-idempotence safe is
+	// positional: apply exactly once, at the ingest boundary.
+	it('is deliberately NOT idempotent — re-canonicalizing a canonical name mints a new one', () => {
+		const once = canonicalizeToolName('a.b')
+		const twice = canonicalizeToolName(once)
+
+		expect(once).toBe('a_b_04la3gs')
+		expect(twice).not.toBe(once)
+		expect(RESERVED_SUFFIX.test(once)).toBe(true)
+		expect(RESERVED_SUFFIX.test(twice)).toBe(true)
+	})
+
+	it('repairs a raw name that arrives already wearing the reserved shape', () => {
+		// The other side of the same coin, and the reason the above cannot be "fixed":
+		// this raw name is perfectly legal, but passing it through untouched would put
+		// it in the identity space wearing a repaired shape — exactly on top of
+		// canonicalizeToolName('a.b').
+		const raw = 'a_b_04la3gs'
+		const canonical = canonicalizeToolName(raw)
+
+		expect(canonical).not.toBe(raw)
+		expect(canonical).not.toBe(canonicalizeToolName('a.b'))
+	})
 })

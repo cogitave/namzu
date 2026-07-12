@@ -94,6 +94,26 @@ function needsNoSubstitution(value: string, maxLength: number): boolean {
  * base whose trailing underscores are stripped, so the join cannot introduce one
  * either.
  *
+ * ## Apply exactly once, at the ingest boundary
+ *
+ * **This function is deliberately NOT idempotent, and must never be applied to
+ * its own output.** Reserving the suffix shape is what makes the two spaces
+ * disjoint, so a repaired name — which wears that shape by construction — is
+ * itself an input the function must repair: `canonicalizeToolName('a.b')` is
+ * `a_b_04la3gs`, and feeding that back yields `a_b_04la3gs_0665qjo`. Idempotence
+ * and injectivity cannot both hold here; injectivity is the one that keeps a
+ * persisted name pointing at the tool it was persisted for, so it wins.
+ *
+ * The contract is therefore positional, not defensive: canonicalize a remote name
+ * ONCE, where it enters the SDK (the MCP/connector adapters and the plugin
+ * lifecycle's leaf pass), and treat the result as the name from then on. A resume
+ * or replay path that re-canonicalizes a name it read back from a run history
+ * would mint a NEW name and silently fail to resolve the tool. There is no guard
+ * against double application, and there cannot be one: an "already canonical?"
+ * check would have to recognise the reserved shape and pass it through untouched,
+ * which is precisely the identity-space overlap that reopens the collision hole
+ * (ses_015 pre-freeze B3/H2).
+ *
  * ## Budget
  *
  * `maxLength` is the space this name actually has, which is not always the

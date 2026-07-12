@@ -11,19 +11,24 @@
 //   run fails and the history is left untouched (candidate-first no-commit).
 //
 // Current-code invariants asserted (2026-07-12, ses_015 fix-batch):
-// - The deadline-timeout classification in the iteration catch is gated on a
-//   RETRYABLE transport error (throttle/server/network): a post-deadline server
-//   error stops the run as 'timeout', but an auth error keeps the normal failure
-//   path with the ORIGINAL error preserved (run 'failed', stopReason not
-//   'timeout') rather than being masked as a timeout.
+// - The deadline-timeout classification in the iteration catch is gated on BOTH
+//   halves of `isDeadlineTimeoutStop`: the deadline must have passed AND the error
+//   must be a retryable transport kind (throttle/server/network). A retryable error
+//   that exhausts its retries while the budget is healthy FAILS the run; a
+//   post-deadline auth/bad_request/context_overflow error keeps the normal failure
+//   path with the ORIGINAL error preserved rather than being masked as a timeout.
 //
 // Current-code invariants asserted (2026-07-12, ses_015 pre-freeze B2):
 // - A provider that never answers cannot hold the run past timeoutMs: the model
 //   call itself races the deadline, not merely the attempt count, and the run
 //   stops as 'timeout'.
-// - Revised with B2: an error a provider reports AFTER the deadline is no longer
-//   observable — the loop has stopped waiting for it by then — so the auth-error
-//   invariant above is asserted on an error that actually arrives.
+//
+// Current-code invariants asserted (2026-07-12, ses_015 pre-freeze R3):
+// - B2 has a consequence for THIS suite: an error a provider reports after the
+//   deadline is never observed by the loop, so no fake provider can drive the
+//   gate's post-deadline branch end-to-end. The gate is therefore asserted
+//   directly on `isDeadlineTimeoutStop`, and each half is pinned by a test that
+//   fails when that half is dropped.
 // These tests drive the real query() loop with hand-rolled fake providers.
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -47,6 +52,7 @@ import type {
 } from '../../../../types/provider/index.js'
 import type { AgentRunConfig, Run, RunEvent } from '../../../../types/run/index.js'
 import { drainQuery } from '../../index.js'
+import { isDeadlineTimeoutStop } from '../index.js'
 
 interface FakeProvider extends LLMProvider {
 	calls: number
@@ -297,12 +303,11 @@ describe('iteration loop — deadline classification', () => {
 	const CROSS_DEADLINE_MS = 500
 
 	it('an auth error fails with the original error, never reclassified as a timeout', async () => {
-		// Misconfiguration must not be masked as a timeout. Since pre-freeze B2 the
-		// loop stops WAITING at the deadline, so an error the provider only reports
-		// afterwards can no longer be observed at all — the run has already stopped as
-		// a timeout, which is the honest classification when nothing ever answered.
-		// The reclassification guard therefore applies where it can: an auth error
-		// that DID arrive fails on its own terms, whatever the clock says next.
+		// Misconfiguration must not be masked as a timeout. This is the end-to-end
+		// half of the invariant — an auth error that arrives fails on its own terms,
+		// and is not retried. The post-deadline half cannot be driven through a fake
+		// provider at all (see the isDeadlineTimeoutStop block below), so this test
+		// alone does NOT hold the gate up: it passes with the kind clause deleted.
 		const provider = makeProvider(async () => {
 			throw new ProviderRequestError('expired api key', { kind: 'auth', providerId: 'fake' })
 		})
@@ -359,5 +364,83 @@ describe('iteration loop — deadline classification', () => {
 		expect(run.stopReason).toBe('timeout')
 		// Generous ceiling — the point is that it terminates at all.
 		expect(elapsed).toBeLessThan(10_000)
+	})
+
+	it('a retryable error that exhausts its retries BEFORE the deadline fails the run', async () => {
+		// The deadline half of the gate. A provider that is simply down must fail the
+		// run: calling it a timeout would hide a dead provider behind a clock the run
+		// never came close to spending. Retries are made instant so the deadline stays
+		// far away throughout.
+		const provider = makeProvider(async () => {
+			throw new ProviderRequestError('overloaded', { kind: 'server', providerId: 'fake' })
+		})
+
+		const { run } = await runQuery({
+			provider,
+			messages: [createUserMessage('hi')],
+			runConfig: {
+				timeoutMs: 600_000,
+				retry: {
+					enabled: true,
+					maxAttempts: 2,
+					baseDelayMs: 0,
+					maxDelayMs: 0,
+					overflowAttempts: 0,
+				},
+			},
+		})
+
+		expect(provider.calls).toBe(2)
+		expect(run.status).toBe('failed')
+		expect(run.stopReason).not.toBe('timeout')
+		expect(run.lastError).toContain('overloaded')
+	})
+})
+
+// ses_015 pre-freeze R3. The gate itself, in isolation.
+//
+// The end-to-end tests above cannot cover it. Since pre-freeze B2 the model call
+// stops WAITING at the deadline, so an error a provider reports afterwards is
+// never observed by the loop at all — there is no fake provider that can deliver a
+// post-deadline auth error to the iteration catch, and the previous round's
+// attempt to weaken the auth test into something that passed left the kind clause
+// completely untested (deleting it kept all 1126 tests green).
+//
+// The clause is still load-bearing in production: errors raised OUTSIDE the model
+// call's deadline race do reach the catch late — a context_overflow rethrown by
+// callModelWithOverflowRecovery when the reducer cannot shrink, a store or tool
+// exception, an auth error surfacing across a scheduling gap. Without the clause
+// every one of them is reported as a timeout and the real cause is lost.
+describe('isDeadlineTimeoutStop — both halves of the gate', () => {
+	const DEADLINE = 1_000
+	const AFTER = DEADLINE + 1
+	const BEFORE = DEADLINE - 1
+
+	it('classifies a post-deadline retryable transport error as a timeout', () => {
+		for (const kind of ['throttle', 'server', 'network'] as const) {
+			const err = new ProviderRequestError('transport', { kind, providerId: 'fake' })
+			expect(isDeadlineTimeoutStop(err, DEADLINE, AFTER)).toBe(true)
+		}
+	})
+
+	it('never classifies a post-deadline auth error as a timeout', () => {
+		// Kills the mutant that drops the retryable-kind clause: an expired key must
+		// fail the run as auth, so the operator sees the misconfiguration.
+		const err = new ProviderRequestError('expired api key', { kind: 'auth', providerId: 'fake' })
+		expect(isDeadlineTimeoutStop(err, DEADLINE, AFTER)).toBe(false)
+	})
+
+	it('never classifies a post-deadline non-retryable or non-provider error as a timeout', () => {
+		for (const kind of ['bad_request', 'context_overflow', 'unknown'] as const) {
+			const err = new ProviderRequestError('terminal', { kind, providerId: 'fake' })
+			expect(isDeadlineTimeoutStop(err, DEADLINE, AFTER)).toBe(false)
+		}
+		expect(isDeadlineTimeoutStop(new Error('tool blew up'), DEADLINE, AFTER)).toBe(false)
+	})
+
+	it('does not classify a retryable error as a timeout while the deadline is still ahead', () => {
+		// Kills the mutant that drops the deadline clause.
+		const err = new ProviderRequestError('overloaded', { kind: 'server', providerId: 'fake' })
+		expect(isDeadlineTimeoutStop(err, DEADLINE, BEFORE)).toBe(false)
 	})
 })

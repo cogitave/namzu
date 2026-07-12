@@ -23,8 +23,23 @@ export function resolveRetryConfig(runConfig: AgentRunConfig): RetryConfig {
  */
 const ANCILLARY_CALL_BUDGET_MS = 120_000
 
+/**
+ * Largest delay `setTimeout` can express (2^31 - 1 ms, ~24.8 days). Node stores
+ * the delay in a signed 32-bit integer: a larger value overflows and is silently
+ * clamped to **1 ms**, with a `TimeoutOverflowWarning`.
+ *
+ * That clamp turned a generous run budget into an instant failure. A run
+ * configured with, say, a 30-day `timeoutMs` armed its deadline timer for
+ * 2_592_000_000 ms, Node fired it 1 ms later, and every model call — healthy
+ * provider, prompt answer — was abandoned as a retryable `network` error before
+ * it could return. All retries burned on the same clamp, and the iteration's
+ * timeout branch did not even classify the stop as a timeout, because the real
+ * deadline was still a month away: the run simply failed (ses_015 pre-freeze R2).
+ */
+const MAX_TIMER_DELAY_MS = 2_147_483_647
+
 /** Kinds that a plain retry can plausibly recover from. */
-function isRetryableKind(kind: string): boolean {
+export function isRetryableKind(kind: string): boolean {
 	return kind === 'throttle' || kind === 'server' || kind === 'network'
 }
 
@@ -161,7 +176,7 @@ function callWithinDeadline(
 			}, 0)
 		}
 
-		deadlineTimer = setTimeout(() => {
+		const abandonWait = (): void => {
 			settle(() => {
 				reject(
 					new ProviderRequestError(
@@ -170,7 +185,25 @@ function callWithinDeadline(
 					),
 				)
 			})
-		}, remaining)
+		}
+
+		// A deadline further out than {@link MAX_TIMER_DELAY_MS} cannot be expressed in
+		// one `setTimeout` — Node would clamp it to 1 ms and abandon the call at once —
+		// so a long budget is counted down in slices and only fires when the clock has
+		// actually reached `deadlineAt`. Re-reading the clock on each re-arm also means
+		// a suspended process cannot overshoot silently.
+		const armDeadline = (): void => {
+			const left = deadlineAt - Date.now()
+			if (left <= 0) {
+				abandonWait()
+				return
+			}
+			deadlineTimer = setTimeout(
+				left > MAX_TIMER_DELAY_MS ? armDeadline : abandonWait,
+				Math.min(left, MAX_TIMER_DELAY_MS),
+			)
+		}
+		armDeadline()
 
 		signal.addEventListener('abort', onAbort, { once: true })
 

@@ -265,6 +265,56 @@ describe('PluginLifecycleManager enable() contribution types', () => {
 			expect(events).toEqual(['disconnect', 'unregister'])
 		})
 
+		it('disconnects a client whose own connect failed, so no subprocess is orphaned', async () => {
+			// ses_015 pre-freeze H1. The stdio transport SPAWNS the server process and
+			// only then performs the `initialize` handshake, so a handshake failure (wrong
+			// protocol version, bad auth) leaves a live child behind. The client was
+			// recorded for rollback only after a successful connect, so rollback never saw
+			// it and nothing ever sent the SIGTERM — and enable() is retryable from
+			// 'error', so each retry orphaned another process.
+			mockConnect.mockRejectedValueOnce(new Error('unsupported protocol version'))
+			mockDisconnect.mockResolvedValue(undefined)
+			const { registry } = makePluginRegistry({
+				manifest: {
+					name: 'solo',
+					version: '0.0.1',
+					description: 't',
+					mcpServers: [{ name: 'srv', command: '/bin/true' }],
+				},
+			})
+			const mgr = new PluginLifecycleManager({
+				pluginRegistry: registry,
+				toolRegistry: makeToolRegistry(),
+				log: makeLogger(),
+			})
+
+			await expect(mgr.enable(pluginId)).rejects.toThrow(/unsupported protocol version/)
+
+			// The only client in this enable is the one that failed to connect.
+			expect(mockDisconnect).toHaveBeenCalledOnce()
+		})
+
+		it('surfaces the connect failure even when the cleanup disconnect also fails', async () => {
+			mockConnect.mockRejectedValueOnce(new Error('unsupported protocol version'))
+			mockDisconnect.mockRejectedValue(new Error('transport already dead'))
+			const { registry } = makePluginRegistry({
+				manifest: {
+					name: 'solo',
+					version: '0.0.1',
+					description: 't',
+					mcpServers: [{ name: 'srv', command: '/bin/true' }],
+				},
+			})
+			const mgr = new PluginLifecycleManager({
+				pluginRegistry: registry,
+				toolRegistry: makeToolRegistry(),
+				log: makeLogger(),
+			})
+
+			// The teardown must not mask why the enable failed.
+			await expect(mgr.enable(pluginId)).rejects.toThrow(/unsupported protocol version/)
+		})
+
 		it('rolls back tools and MCP clients when connect fails mid-enable', async () => {
 			mockConnect
 				.mockResolvedValueOnce(undefined) // first server connects
@@ -292,8 +342,11 @@ describe('PluginLifecycleManager enable() contribution types', () => {
 			await expect(mgr.enable(pluginId)).rejects.toThrow(/connect refused/)
 
 			// Rollback: first server's tools unregistered, first client disconnected.
+			// Twice, not once: the client that FAILED to connect is torn down at the
+			// failure site (it never reaches the rollback record), and the one that had
+			// connected is torn down by the rollback (ses_015 pre-freeze H1).
 			expect(toolRegistry.listNames()).toEqual([])
-			expect(mockDisconnect).toHaveBeenCalledOnce()
+			expect(mockDisconnect).toHaveBeenCalledTimes(2)
 		})
 	})
 })

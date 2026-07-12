@@ -280,7 +280,28 @@ export class PluginLifecycleManager {
 			},
 		})
 
-		await client.connect()
+		// The client is recorded for rollback only once it is connected, so a connect
+		// that FAILS is invisible to rollbackContributions — and a stdio transport
+		// spawns its child process before the `initialize` handshake it then fails on.
+		// The subprocess outlived the enable: nothing held a reference to it, and each
+		// retried enable (the 'error' status is retryable) orphaned another one. It is
+		// torn down here instead, and the original connect failure is what propagates —
+		// a disconnect that fails on top of it must not mask the reason the enable
+		// failed (ses_015 pre-freeze H1).
+		try {
+			await client.connect()
+		} catch (connectErr) {
+			try {
+				await client.disconnect()
+			} catch (disconnectErr) {
+				this.log.warn('MCP disconnect after a failed connect also failed', {
+					pluginId,
+					serverName: config.name,
+					error: toErrorMessage(disconnectErr),
+				})
+			}
+			throw connectErr
+		}
 		contributions.mcpClients.push(client)
 
 		// Compose every name for this server before registering any of them, so a

@@ -209,7 +209,16 @@ export async function runCompactionCheck(ctx: IterationContext): Promise<void> {
 						...olderWithoutSummaries,
 					]
 				: olderWithoutSummaries
-		compactedContent = await buildVerifiedSummary(manager, verifierInput, ctx.provider, config)
+		const verified = await buildVerifiedSummary(manager, verifierInput, ctx.provider, config)
+
+		// The carry is appended to the verifier's OUTPUT, not merely handed to it as
+		// input. On the verifier's happy path — it answers COMPLETE — buildVerifiedSummary
+		// returns the serialized state alone, so a prior summary that reached it only as
+		// input is nowhere in the result, while the strip below removes the original
+		// block from the history: the fact is gone. That is the loss this carry exists
+		// to prevent, and it was live on the branch most runs take (ses_015 pre-freeze R1).
+		compactedContent =
+			verified + buildCarriedSummarySection(priorSummaryBodies, config.convoTextBudget)
 	} else {
 		compactedContent =
 			serializeState(manager.getState()) +
