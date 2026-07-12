@@ -51,6 +51,7 @@ export class RunPersistence {
 			startedAt: Date.now(),
 			parentRunId: config.parentRunId,
 			depth: config.depth,
+			replayOf: config.replayOf,
 		}
 	}
 

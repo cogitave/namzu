@@ -3,6 +3,7 @@ import type { Logger } from '../../utils/logger.js'
 import type { RunId, SessionId, TenantId } from '../ids/index.js'
 import type { PermissionMode } from '../permission/index.js'
 import type { ProjectId, ThreadId } from '../session/ids.js'
+import type { ReplayAttribution } from './replay.js'
 
 /**
  * Retry / reactive-recovery policy for the runtime loop's model calls. Fully
@@ -65,6 +66,14 @@ export interface RunPersistenceConfig {
 	parentRunId?: RunId
 
 	depth?: number
+
+	/**
+	 * Provenance of a FORKED run — the source run and the checkpoint it was forked at.
+	 * Persisted onto the fork's own `run.json`, because the source's record says nothing
+	 * about it: a fork must not touch its source. See {@link
+	 * import('../../runtime/query/replay/fork.js').prepareForkState}.
+	 */
+	replayOf?: ReplayAttribution
 }
 
 export interface RunStoreConfig {

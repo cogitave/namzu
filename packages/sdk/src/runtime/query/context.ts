@@ -19,7 +19,7 @@ import type { RunId, SessionId, TenantId } from '../../types/ids/index.js'
 import type { Message } from '../../types/message/index.js'
 import type { PermissionMode } from '../../types/permission/index.js'
 import type { LLMProvider } from '../../types/provider/index.js'
-import type { AgentRunConfig } from '../../types/run/index.js'
+import type { AgentRunConfig, ReplayAttribution } from '../../types/run/index.js'
 import type { ProjectId, ThreadId } from '../../types/session/ids.js'
 import type { ModelPricing } from '../../utils/cost.js'
 import { generateFrameNonce, generateRunId } from '../../utils/id.js'
@@ -74,6 +74,9 @@ export interface RunContextConfig {
 	parentRunId?: RunId
 
 	depth?: number
+
+	/** Fork provenance, persisted on the new run's record. */
+	replayOf?: ReplayAttribution
 }
 
 /** Result of {@link RunContextFactory.build}. */
@@ -189,6 +192,7 @@ export class RunContextFactory {
 			projectId: config.projectId,
 			parentRunId: config.parentRunId,
 			depth: config.depth,
+			replayOf: config.replayOf,
 		})
 
 		const trackingConfig = resolveActivityTracking(permissionMode, config.enableActivityTracking)

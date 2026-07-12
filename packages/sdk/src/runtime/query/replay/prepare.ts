@@ -22,6 +22,13 @@ export interface PrepareReplayInput {
 	baseDir: string
 	/** Source run to fork from. */
 	runId: RunId
+	/**
+	 * The source run's parent, when the source is a CHILD run. Load-bearing for the same
+	 * reason it is on `DecisionLocator`: a child's record lives at
+	 * `baseDir/<parentRunId>/children/<runId>`, and without it the store resolves
+	 * `baseDir/<runId>` — a directory it then CREATES, empty, and finds no checkpoints in.
+	 */
+	parentRunId?: RunId
 	/** Which checkpoint to fork at. */
 	fromCheckpoint: CheckpointSelector
 	/** Optional mutations applied at the fork point before the caller hands state to `query()`. */
@@ -172,7 +179,7 @@ async function resolveCheckpoint(input: PrepareReplayInput): Promise<IterationCh
 		return resolveEmergency(input)
 	}
 	const store = new RunDiskStore({ baseDir: input.baseDir, logger: input.logger })
-	await store.initRun(input.runId)
+	await store.initRun(input.runId, input.parentRunId)
 
 	if (input.fromCheckpoint === 'latest') {
 		const all = await store.listCheckpoints()

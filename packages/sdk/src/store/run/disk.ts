@@ -1,8 +1,18 @@
 import { randomUUID } from 'node:crypto'
 import { appendFile, mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises'
+import { hostname } from 'node:os'
 import { join } from 'node:path'
 import type { CheckpointId, DecisionClaim, IterationCheckpoint } from '../../types/hitl/index.js'
+import type { RunId } from '../../types/ids/index.js'
 import type { PersistedRunMeta, Run, RunEvent, RunStoreConfig } from '../../types/run/index.js'
+import {
+	DEFAULT_RUN_LEASE_TTL_MS,
+	type RunLease,
+	RunLeaseHeldError,
+	RunLeaseLostError,
+	type RunLeaseOptions,
+	type RunLeaseView,
+} from '../../types/run/lease.js'
 import { type Logger, getRootLogger } from '../../utils/logger.js'
 
 export class RunDiskStore {
@@ -11,6 +21,16 @@ export class RunDiskStore {
 	private log: Logger
 	private indexLock: Promise<void> = Promise.resolve()
 	private checkpointLocks = new Map<CheckpointId, Promise<void>>()
+	/**
+	 * The lease this store writes under, when it writes on a segment's behalf.
+	 *
+	 * `null` is not "unfenced by accident" — it is the **control plane**: a cancel, a
+	 * token redemption, an operator read. Those must work *while a segment holds the
+	 * lease* (a cancel that could not touch a running run would be useless), and their own
+	 * races are arbitrated by the decision claim, which is a compare-and-set on the
+	 * durable record. The lease governs the execution plane: whoever is driving the loop.
+	 */
+	private lease: RunLease | null = null
 
 	constructor(config: RunStoreConfig) {
 		this.baseDir = config.baseDir
@@ -35,6 +55,221 @@ export class RunDiskStore {
 		return this.runDir
 	}
 
+	// ─── The run lease (ses_017 G1) ──────────────────────────────────────────
+	//
+	// One run, one driver. The lease is a *sequence* of exclusive-create files —
+	// `leases/000001.json`, `leases/000002.json`, … — and the file's number IS the fencing
+	// token. That construction gives three things at once, which is why it is this and not
+	// a single mutable `lease.json`:
+	//
+	//   1. **Arbitration.** Taking the lease means creating the next token with `wx`. Two
+	//      processes racing to take over one stale lease both try to create the same file;
+	//      the filesystem picks one. Same primitive as `claimDecision`, deliberately.
+	//   2. **Monotonicity for free.** The token cannot go backwards, because a lower one
+	//      already exists on disk. No counter to persist, no read-modify-write to race.
+	//   3. **An audit trail.** Every takeover leaves its record. "Who has been driving this
+	//      run, and when did they stop renewing" is answerable after the fact.
+	//
+	// Renewal rewrites the holder's OWN file (nobody else writes it, so there is no lock).
+	// Release stamps `releasedAt` on it, which frees the run immediately — that is what
+	// makes a parked run resumable the instant it parks, rather than one TTL later.
+
+	private leasesDir(): string {
+		return join(this.requireInit(), 'leases')
+	}
+
+	/** Who owns this run, right now — the operator-facing read. */
+	async readLease(): Promise<RunLeaseView> {
+		const current = await this.readCurrentLease()
+		if (!current) return { status: 'free', token: 0 }
+
+		if (current.releasedAt !== undefined) {
+			return { status: 'free', token: current.token, lease: current }
+		}
+
+		const expiresAt = current.renewedAt + current.ttlMs
+		return {
+			status: Date.now() <= expiresAt ? 'held' : 'stale',
+			token: current.token,
+			lease: current,
+			expiresAt,
+		}
+	}
+
+	/**
+	 * Take the run's lease, or refuse.
+	 *
+	 * Refuses with {@link RunLeaseHeldError} when a live segment holds it. Takes it over —
+	 * at a HIGHER token, which fences the old holder's writes — when the lease is stale or
+	 * was released. The takeover does not require the old holder to be dead, only to be
+	 * stale; being wrong about that is survivable precisely because of the fence.
+	 */
+	async acquireLease(runId: RunId, options: RunLeaseOptions = {}): Promise<RunLease> {
+		const dir = this.leasesDir()
+		await mkdir(dir, { recursive: true })
+
+		const ttlMs = options.ttlMs ?? DEFAULT_RUN_LEASE_TTL_MS
+		const holderId = options.holderId ?? `${hostname()}:${process.pid}:${randomUUID().slice(0, 8)}`
+
+		// Bounded retry: each failed `wx` means somebody else took the token we wanted, so
+		// the next read shows THEM as the holder and we refuse. The loop exists for the one
+		// case where that is not true — a taker that crashed between creating its file and
+		// nothing else, leaving a token nobody is renewing — where the next attempt simply
+		// takes the token above it.
+		for (let attempt = 0; attempt < 5; attempt++) {
+			const view = await this.readLease()
+			if (view.status === 'held' && view.lease) {
+				throw new RunLeaseHeldError(view.lease)
+			}
+
+			const now = Date.now()
+			const lease: RunLease = {
+				runId,
+				token: view.token + 1,
+				holderId,
+				acquiredAt: now,
+				renewedAt: now,
+				ttlMs,
+			}
+
+			try {
+				await writeFile(this.leasePath(lease.token), JSON.stringify(lease, null, 2), {
+					encoding: 'utf-8',
+					flag: 'wx',
+				})
+			} catch (err) {
+				if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err
+				continue
+			}
+
+			if (view.status === 'stale' && view.lease) {
+				this.log.warn(
+					'Took over a run whose lease went stale — the previous segment stopped renewing and is presumed dead. Its writes are now fenced off.',
+					{
+						runId,
+						previousHolder: view.lease.holderId,
+						previousToken: view.lease.token,
+						notRenewedSince: new Date(view.lease.renewedAt).toISOString(),
+						token: lease.token,
+					},
+				)
+			}
+
+			this.lease = lease
+			return lease
+		}
+
+		// Five consecutive losses of the create race with nobody holding the result. This
+		// is not a state the filesystem should be able to produce; refusing is the only
+		// honest answer, because the alternative is to write under a token we did not win.
+		throw new Error(
+			`Could not acquire the lease for run ${runId}: the fencing token kept being taken from under us. Retry.`,
+		)
+	}
+
+	/**
+	 * Heartbeat. Refuses with {@link RunLeaseLostError} if the run has been taken over —
+	 * which is how a stalled segment finds out it no longer owns the run it thinks it is
+	 * driving, and can stop before it does any more work.
+	 */
+	async renewLease(): Promise<RunLease> {
+		const held = this.lease
+		if (!held) throw new Error('renewLease() called without a lease — acquireLease() first')
+
+		await this.assertFence('renew the lease')
+
+		const renewed: RunLease = { ...held, renewedAt: Date.now() }
+		await atomicWriteJson(this.leasePath(held.token), renewed)
+		this.lease = renewed
+		return renewed
+	}
+
+	/**
+	 * Hand the lease back. The run is free immediately.
+	 *
+	 * A segment that has been FENCED releases nothing: the lease it holds is not the run's
+	 * current lease, and stamping `releasedAt` on a superseded record would be writing
+	 * about a run that is not ours — the exact class of write the fence exists to refuse.
+	 * It drops its own handle and says so.
+	 */
+	async releaseLease(): Promise<void> {
+		const held = this.lease
+		if (!held) return
+		this.lease = null
+
+		const current = await this.readCurrentLease()
+		if (!current || current.token !== held.token) {
+			this.log.warn('Not releasing a lease this segment no longer holds — the run was taken over', {
+				runId: held.runId,
+				heldToken: held.token,
+				currentToken: current?.token ?? 0,
+			})
+			return
+		}
+
+		await atomicWriteJson(this.leasePath(held.token), { ...held, releasedAt: Date.now() })
+	}
+
+	/** The lease this store writes under, if any. */
+	getLease(): RunLease | null {
+		return this.lease
+	}
+
+	private leasePath(token: number): string {
+		return join(this.leasesDir(), `${String(token).padStart(6, '0')}.json`)
+	}
+
+	private async readCurrentLease(): Promise<RunLease | null> {
+		let files: string[]
+		try {
+			files = await readdir(this.leasesDir())
+		} catch (err) {
+			if (isFileNotFound(err)) return null
+			throw err
+		}
+
+		let highest = 0
+		for (const file of files) {
+			if (!file.endsWith('.json')) continue
+			const token = Number.parseInt(file.slice(0, -'.json'.length), 10)
+			if (Number.isFinite(token) && token > highest) highest = token
+		}
+		if (highest === 0) return null
+
+		try {
+			return JSON.parse(await readFile(this.leasePath(highest), 'utf-8')) as RunLease
+		} catch (err) {
+			if (isFileNotFound(err)) return null
+			throw err
+		}
+	}
+
+	/**
+	 * **The fence.** Every write a SEGMENT makes passes through here first.
+	 *
+	 * The check is a fact on disk, not a fact in memory: a stalled process believes it
+	 * holds the lease right up to the moment it is told otherwise, so asking it is
+	 * worthless. It re-reads the current token and refuses if it is not the one it holds.
+	 *
+	 * A store with no lease is the control plane (cancel, redemption, operator reads) and
+	 * is deliberately not fenced — see {@link lease}.
+	 *
+	 * `transcript.jsonl` is deliberately NOT fenced: it is append-only, so a superseded
+	 * segment's events cannot destroy the new segment's, and refusing them would throw
+	 * away the evidence of what the stalled process was doing. Everything that REPLACES a
+	 * file — the run meta, the messages, the checkpoints, the index — is fenced.
+	 */
+	private async assertFence(operation: string): Promise<void> {
+		const held = this.lease
+		if (!held) return
+
+		const current = await this.readCurrentLease()
+		const currentToken = current?.token ?? 0
+		if (currentToken !== held.token) {
+			throw new RunLeaseLostError(held.runId, held.token, currentToken, operation)
+		}
+	}
+
 	async appendEvent(event: RunEvent): Promise<void> {
 		const dir = this.requireInit()
 
@@ -48,6 +283,7 @@ export class RunDiskStore {
 
 	async writeRunMeta(run: Run): Promise<void> {
 		const dir = this.requireInit()
+		await this.assertFence('write run.json')
 
 		const meta: Record<string, unknown> = {
 			id: run.id,
@@ -63,6 +299,12 @@ export class RunDiskStore {
 
 		if (run.parentRunId) meta.parentRunId = run.parentRunId
 		if (run.depth !== undefined && run.depth > 0) meta.depth = run.depth
+		// A fork's provenance. It is on the RUN's own record, not only in the caller's
+		// head, because "where did this run come from" is the first question asked of a run
+		// that exists because somebody re-drove a checkpoint — and the source run's record
+		// says nothing about it (a fork must not touch its source; that is what makes it a
+		// fork rather than an overwrite).
+		if (run.replayOf) meta.replayOf = run.replayOf
 		// The pointer to the decision the run is parked on. A POINTER: the decision itself
 		// lives on the checkpoint, and copying it here would create a second source of
 		// truth that the first crash leaves disagreeing with the first. It is here because
@@ -88,6 +330,7 @@ export class RunDiskStore {
 		mutate: (meta: PersistedRunMeta) => PersistedRunMeta | undefined,
 	): Promise<PersistedRunMeta | null> {
 		const dir = this.requireInit()
+		await this.assertFence('update run.json')
 		const current = await this.readRunMeta()
 		if (!current) return null
 
@@ -121,11 +364,13 @@ export class RunDiskStore {
 
 	async writeMessages(run: Run): Promise<void> {
 		const dir = this.requireInit()
+		await this.assertFence('write messages.json')
 		await atomicWriteJson(join(dir, 'messages.json'), run.messages)
 	}
 
 	async writeReport(content: string): Promise<string> {
 		const dir = this.requireInit()
+		await this.assertFence('write report.md')
 
 		const reportPath = join(dir, 'report.md')
 		await atomicWriteFile(reportPath, content)
@@ -139,6 +384,7 @@ export class RunDiskStore {
 
 	async writeCheckpoint(checkpoint: IterationCheckpoint): Promise<void> {
 		const dir = this.requireInit()
+		await this.assertFence(`write checkpoint ${checkpoint.id}`)
 		const cpDir = join(dir, 'checkpoints')
 		await mkdir(cpDir, { recursive: true })
 		await atomicWriteJson(join(cpDir, `${checkpoint.id}.json`), checkpoint)
@@ -330,6 +576,7 @@ export class RunDiskStore {
 
 	async addToIndex(run: Run): Promise<void> {
 		if (run.parentRunId) return
+		await this.assertFence('update index.json')
 
 		const prev = this.indexLock
 		let resolve!: () => void

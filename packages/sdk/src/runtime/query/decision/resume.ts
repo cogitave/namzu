@@ -8,6 +8,7 @@ import type {
 	PendingDecision,
 } from '../../../types/hitl/index.js'
 import type { CheckpointId, RunId } from '../../../types/ids/index.js'
+import { RunLeaseHeldError, type RunLeaseView } from '../../../types/run/lease.js'
 import type { Logger } from '../../../utils/logger.js'
 import { isValidOutcomeFor } from './apply.js'
 import {
@@ -101,6 +102,28 @@ export async function readPendingDecision(
 }
 
 /**
+ * Who is driving this run — the operator-facing read of its lease (ses_017 G1).
+ *
+ * The answer has three shapes, and reporting them as two is how a crashed run gets
+ * described as a run waiting for a human:
+ *
+ *   - `free` — nobody. With `run.json` reading `awaiting_input`, that is a **parked** run:
+ *     it stopped for a decision, it released its lease on the way out, and it is safe to
+ *     resume right now.
+ *   - `held` — a live segment took the lease and is renewing it. Not parked, whatever the
+ *     run's last persisted status happens to say — a segment that is mid-iteration has not
+ *     written anything since it started.
+ *   - `stale` — a segment took the lease and stopped renewing. It is presumed dead, and
+ *     `expiresAt` says since when. The run can be taken over (the takeover fences the old
+ *     holder's writes), but it must not be *reported* as parked: nobody is waiting on a
+ *     human here, something died.
+ */
+export async function readRunLease(locator: RunLocator): Promise<RunLeaseView> {
+	const store = await storeFor(locator)
+	return store.readLease()
+}
+
+/**
  * Answer a paused decision: validate the token, record the outcome, and hand back the
  * state a resume needs. The **state-preparation** half of durable resume.
  *
@@ -111,21 +134,25 @@ export async function readPendingDecision(
  *      is unresumable *by construction*, and does not depend on whoever cancelled it
  *      having also remembered to close its open decisions. Only an `awaiting_input` run
  *      may be resumed.
- *   2. **Is there a decision to answer?** Absent → `DecisionNotFoundError`.
- *   3. **Has it already been answered?** Any state past `pending` → the token is spent.
+ *   2. **Is anyone still driving it?** A live segment holds the run's lease
+ *      (`RunLeaseHeldError`), and a token spent against a run nobody may drive strands
+ *      the human's answer. A STALE lease does not refuse: that is a crashed holder, and
+ *      taking its run over is the recovery the TTL exists for.
+ *   3. **Is there a decision to answer?** Absent → `DecisionNotFoundError`.
+ *   4. **Has it already been answered?** Any state past `pending` → the token is spent.
  *      The recorded outcome rides on the error so the route can tell an exact duplicate
  *      (answer with it) from a conflicting one (refuse), instead of returning a
  *      reflexive "idempotent 200" to a client that just changed its mind after the
  *      tools ran.
- *   4. **Is the token right?** Constant-time. Checked after the cheap structural checks,
+ *   5. **Is the token right?** Constant-time. Checked after the cheap structural checks,
  *      and raised identically for a malformed, stale or foreign token.
- *   5. **Does the outcome answer the question that was asked?**
- *   6. **CLAIM it.** Only now, once every refusal that must spend nothing has had its
+ *   6. **Does the outcome answer the question that was asked?**
+ *   7. **CLAIM it.** Only now, once every refusal that must spend nothing has had its
  *      chance, is the durable compare-and-set attempted — an exclusive create that
  *      exactly one caller wins ({@link
- *      import('../../../store/run/disk.js').RunDiskStore.claimDecision}). Steps 2–5 are
- *      *screening*; this is the arbitration. Before it existed, two concurrent
- *      redemptions of one token both passed every check above and both got a
+ *      import('../../../store/run/disk.js').RunDiskStore.claimDecision}). Everything above
+ *      is *screening*; this is the arbitration. Before it existed, two concurrent
+ *      redemptions of one token both passed every check and both got a
  *      `PreparedDecisionResume` — and the approved batch ran twice.
  *
  * **Exactly one caller may ever leave this function with a prepared resume.** A loser
@@ -149,6 +176,18 @@ export async function resumeDecision(input: ResumeDecisionInput): Promise<Prepar
 	}
 	if (meta.status !== 'awaiting_input') {
 		throw new RunNotResumableError(input.runId, meta.status)
+	}
+
+	// A live segment still holds the run. The token is NOT spent on it: a decision that is
+	// recorded against a run nobody may drive leaves the human's answer stranded on disk
+	// and the token gone, and the caller with no way to retry (a spent token is refused
+	// the second time by design). Refusing here keeps the token valid — retry when the
+	// lease frees, which `expiresAt` names. A STALE lease is not a live segment and does
+	// not refuse: that is a crashed holder, and taking its run over is exactly the recovery
+	// the TTL exists to permit.
+	const lease = await store.readLease()
+	if (lease.status === 'held' && lease.lease) {
+		throw new RunLeaseHeldError(lease.lease)
 	}
 
 	const checkpoint = await store.readCheckpoint(input.checkpointId)

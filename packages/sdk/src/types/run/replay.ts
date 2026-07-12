@@ -45,6 +45,28 @@ export interface ReplayAttribution {
 }
 
 /**
+ * A fork was pointed at its own source run.
+ *
+ * A fork exists to leave the source alone: it is a NEW run, from a checkpoint of an old
+ * one, and running it under the source's id would overwrite the very record it forked
+ * from — its `run.json`, its `messages.json`, its index entry. That is not a fork, it is
+ * the re-drive that ses_017 G2 exists to stop, wearing a fork's clothes. Refused at both
+ * doors: when the fork state is prepared, and again in `query()` if attribution ever
+ * reaches it naming the run it is driving.
+ */
+export class ForkTargetsSourceRunError extends Error {
+	readonly runId: RunId
+
+	constructor(runId: RunId) {
+		super(
+			`A fork must run under a NEW run id — ${runId} is the run it forks FROM. Running a fork under its source's id would overwrite the record the fork exists to preserve.`,
+		)
+		this.name = 'ForkTargetsSourceRunError'
+		this.runId = runId
+	}
+}
+
+/**
  * Thrown when a {@link Mutation} cannot be applied at the resolved fork
  * point. Currently raised by `injectToolResponse` when the supplied
  * `toolCallId` does not match any pending tool call in the checkpoint's

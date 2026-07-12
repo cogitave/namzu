@@ -517,27 +517,40 @@ describe('F3: cancelling a suspended run reaches its durable decision', () => {
 		expect(calls).toEqual([])
 	})
 
-	it('and query() refuses to resume the cancelled run even from the checkpoint itself', async () => {
+	it('and query() refuses to resume the cancelled run even from the checkpoint itself — WITHOUT writing over it', async () => {
 		const cwd = tmp()
 		const calls: string[] = []
 		const { checkpointId, baseDir } = await park(cwd, calls)
 
 		await cancelRun({ baseDir, runId: RUN_ID })
 
+		const metaBefore = await readFile(join(baseDir, RUN_ID, 'run.json'), 'utf-8')
+		const messagesBefore = await readFile(join(baseDir, RUN_ID, 'messages.json'), 'utf-8')
+
 		// The last door: a caller who still holds the checkpoint id and drives `query()`
 		// directly. A cancelled run is unresumable BY CONSTRUCTION, so the tool the user
 		// believes they cancelled does not run.
-		const { run } = await drive({
-			cwd,
-			provider: stoppingProvider(),
-			tools: registryOf(tool('deploy', calls)),
-			handler: continueHandler,
-			resumeFromCheckpoint: checkpointId,
-		})
+		//
+		// **And the refusal itself must not destroy the run** (ses_017 G2). This used to
+		// come back as a FAILED run — because the refusal was raised INSIDE `query()`'s
+		// try, where `handleError` marks the run failed and `finalize()` persists that. So
+		// the guard protecting the cancelled run rewrote its `run.json` to
+		// `status: 'failed'` and its `messages.json` to `[]`: refusing to resume it
+		// destroyed it. The refusal now throws OUT of `query()` from admission, before the
+		// first write, and the record is byte-identical afterwards.
+		await expect(
+			drive({
+				cwd,
+				provider: stoppingProvider(),
+				tools: registryOf(tool('deploy', calls)),
+				handler: continueHandler,
+				resumeFromCheckpoint: checkpointId,
+			}),
+		).rejects.toThrow(RunNotResumableError)
 
 		expect(calls).toEqual([])
-		expect(run.status).toBe('failed')
-		expect(String(run.lastError)).toContain('cancelled')
+		expect(await readFile(join(baseDir, RUN_ID, 'run.json'), 'utf-8')).toBe(metaBefore)
+		expect(await readFile(join(baseDir, RUN_ID, 'messages.json'), 'utf-8')).toBe(messagesBefore)
 	})
 
 	it('is idempotent, and leaves an already-resolved decision alone', async () => {

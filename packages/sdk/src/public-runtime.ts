@@ -68,6 +68,26 @@ export { CheckpointManager, projectEmergencyToCheckpoint } from './runtime/query
 export { prepareReplayState, prepareResumeMessages } from './runtime/query/replay/prepare.js'
 export { listCheckpoints } from './runtime/query/replay/list.js'
 
+// Resume and fork are two things, and they were one door (ses_017 G2). `prepareForkState`
+// mints a NEW run id, carries the source's history and its provenance, and never touches
+// the source's record; `query({ resumeFromCheckpoint })` continues THE run and now refuses
+// a terminal one instead of overwriting it.
+export { prepareForkState } from './runtime/query/replay/fork.js'
+export type { PreparedFork, PrepareForkInput } from './runtime/query/replay/fork.js'
+
+// The run lease (ses_017 G1). One run is driven by one segment at a time; the lease is how
+// that is enforced across processes, and the fencing token is how a stalled holder that
+// wakes up late is stopped from clobbering the run that moved on without it. `readRunLease`
+// is the operator-facing read: a run that is `awaiting_input` with a FREE lease is parked;
+// one with a STALE lease is a crashed segment, and those are different facts.
+export { readRunLease } from './runtime/query/decision/resume.js'
+export {
+	DEFAULT_RUN_LEASE_HEARTBEAT_MS,
+	DEFAULT_RUN_LEASE_TTL_MS,
+	RunLeaseHeldError,
+	RunLeaseLostError,
+} from './types/run/lease.js'
+
 // Durable pause (ses_017 D1/D2). `resumeDecision` / `cancelRun` / `cancelDecision` /
 // `readPendingDecision` are the STATE-PREPARATION half: pure-record, no runtime deps.
 // The execution half is `query({ resumeFromCheckpoint })`, which the caller composes —
@@ -412,7 +432,7 @@ export {
 	PluginMCPServerConfigSchema,
 } from './types/plugin/index.js'
 export { EmergencySaveConfigSchema } from './types/run/emergency.js'
-export { MutationNotApplicableError } from './types/run/replay.js'
+export { ForkTargetsSourceRunError, MutationNotApplicableError } from './types/run/replay.js'
 export {
 	assertSandboxEnvironment,
 	assertSandboxStatus,

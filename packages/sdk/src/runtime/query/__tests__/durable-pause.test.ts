@@ -59,6 +59,7 @@ import {
 } from '../decision/errors.js'
 import { cancelDecision, readPendingDecision, resumeDecision } from '../decision/resume.js'
 import { drainQuery, query } from '../index.js'
+import { type PreparedFork, prepareForkState } from '../replay/fork.js'
 import { prepareReplayState } from '../replay/prepare.js'
 
 const RUN_ID = 'run_durable_pause' as RunId
@@ -257,6 +258,34 @@ async function drive(opts: {
 		},
 	)
 	return { run, events }
+}
+
+/**
+ * Drive a FORK — a new run, seeded from another run's checkpoint. The source run is not
+ * named anywhere in the call: that is the point of the split (ses_017 G2).
+ */
+async function driveFork(opts: {
+	cwd: string
+	provider: LLMProvider
+	tools: ToolRegistry
+	fork: PreparedFork
+}): Promise<Run> {
+	return drainQuery({
+		provider: opts.provider,
+		tools: opts.tools,
+		runConfig: { model: 'm', tokenBudget: 1_000_000, timeoutMs: 600_000, maxIterations: 5 },
+		agentId: 'agent_test',
+		agentName: 'Test',
+		workingDirectory: opts.cwd,
+		runId: opts.fork.runId,
+		messages: opts.fork.messages,
+		replayOf: opts.fork.attribution,
+		sessionId: SESSION_ID,
+		threadId: THREAD_ID,
+		projectId: PROJECT_ID,
+		tenantId: TENANT_ID,
+		resumeHandler: async () => ({ action: 'continue' }),
+	})
 }
 
 function pausedCheckpointId(events: RunEvent[]): `cp_${string}` {
@@ -1237,21 +1266,28 @@ describe('a decision that has let go of the block does NOT keep the repair suppr
 		const settled = await readPendingDecision({ baseDir, runId: RUN_ID, checkpointId })
 		expect(settled?.state).toBe('settled')
 
-		// Now resume from that SAME (now stale) checkpoint again. Its messages are still
-		// the pre-execution ones — the assistant's tool-call block with no results — but the
+		// Now re-drive that SAME (now stale) checkpoint. Its messages are still the
+		// pre-execution ones — the assistant's tool-call block with no results — but the
 		// decision has let go of it: the real results live in a later checkpoint, and this
-		// is a fork whose tools did not run in its own timeline.
+		// is a timeline whose tools did not run.
 		//
 		// So the repair MUST come back. Suppressing it here would hand the provider an
 		// assistant tool-call block with no results at all — which is precisely what the
 		// repair exists to prevent, and a strictly worse failure than the one D2 fixed.
+		//
+		// **And this is a FORK, which is why it goes through the fork door** (ses_017 G2).
+		// Re-driving a settled checkpoint is a new timeline, not a continuation: the source
+		// run COMPLETED, and `query({ resumeFromCheckpoint })` under its id would overwrite
+		// its `run.json` and its history with this second drive's — which is what it used to
+		// do, and what this test used to depend on. A fork mints its own id and leaves the
+		// source alone; `resume` now refuses a completed run outright.
+		const fork = await prepareForkState({ baseDir, runId: RUN_ID, fromCheckpoint: checkpointId })
 		const provider = stoppingRecordingProvider()
-		await drive({
+		await driveFork({
 			cwd,
 			provider,
 			tools: registryWith(noopTool(calls)),
-			decision: { action: 'continue' },
-			resumeFromCheckpoint: checkpointId,
+			fork,
 		})
 
 		const handed = provider.seen[0] ?? []
