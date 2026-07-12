@@ -1,4 +1,4 @@
-import type { Message } from '../types/message/index.js'
+import type { AssistantMessage, Message, ToolMessage } from '../types/message/index.js'
 
 /**
  * Represents the result of scanning messages for dangling tool call/result pairs.
@@ -201,6 +201,117 @@ export function removeDanglingMessages(messages: Message[]): Message[] {
 
 	// Return messages not marked for removal, preserving order
 	return messages.filter((_, idx) => !indicesToRemove.has(idx))
+}
+
+/**
+ * Fixed content for a tool result synthesized in place of one that never
+ * arrived (the run was interrupted after the model requested the call but
+ * before the tool completed). The wording is stable so downstream
+ * summarisers and provider adapters can recognise a synthesized result.
+ */
+const MISSING_TOOL_RESULT_CONTENT =
+	'[SYSTEM] Tool result missing: run was interrupted before this tool completed.'
+
+/**
+ * Repairs a message sequence into a provider-valid shape **without dropping
+ * assistant tool calls**. Where {@link removeDanglingMessages} deletes the
+ * offending assistant messages, this function *heals* the history so it can
+ * be resumed or replayed. Three ordered steps:
+ *
+ * 1. **Drop orphaned tool messages.** A `tool` result whose `toolCallId`
+ *    matches no assistant tool call anywhere in the sequence is removed —
+ *    provider APIs reject such results and the information is unrecoverable.
+ * 2. **Synthesize missing results.** Every assistant tool call with no
+ *    matching `tool` result gets one error placeholder
+ *    ({@link MISSING_TOOL_RESULT_CONTENT}). Its `timestamp` is *derived* from
+ *    the assistant message (`assistant.timestamp + 1`), never wall-clock, so
+ *    the function stays pure and deterministic.
+ * 3. **Canonicalize placement.** Every tool result is relocated to sit
+ *    immediately after its assistant message, in the assistant's declared
+ *    `toolCalls` order. This makes the output robust against callers that
+ *    append results at the tail (e.g. replay mutations) and against providers
+ *    (Anthropic/Bedrock) that flush the pending tool block when a non-tool
+ *    message intervenes.
+ *
+ * Pure, deterministic, and idempotent: `repair(repair(x))` deep-equals
+ * `repair(x)`. Returns a new array; never mutates the input array or its
+ * message objects. Assumes tool call ids are unique across the conversation
+ * (provider-guaranteed); a call id duplicated across distinct assistant
+ * messages is malformed input outside this contract.
+ *
+ * @param messages - Array of messages to repair
+ * @returns New array in provider-valid, canonical order
+ */
+export function repairDanglingMessages(messages: Message[]): Message[] {
+	// ── Step 1: DROP orphaned tool messages ──
+	const knownCallIds = new Set<string>()
+	for (const message of messages) {
+		if (hasToolCalls(message)) {
+			const assistantMsg = message as AssistantMessage
+			for (const toolCall of assistantMsg.toolCalls ?? []) {
+				knownCallIds.add(toolCall.id)
+			}
+		}
+	}
+
+	const withoutOrphans = messages.filter(
+		(message) => !isToolMessage(message) || knownCallIds.has((message as ToolMessage).toolCallId),
+	)
+
+	// ── Step 2: SYNTHESIZE a result for every unmatched assistant tool call ──
+	const satisfiedCallIds = new Set<string>()
+	for (const message of withoutOrphans) {
+		if (isToolMessage(message)) {
+			satisfiedCallIds.add((message as ToolMessage).toolCallId)
+		}
+	}
+
+	const withSynthesized: Message[] = [...withoutOrphans]
+	for (const message of withoutOrphans) {
+		if (!hasToolCalls(message)) continue
+		const assistant = message as AssistantMessage
+		for (const toolCall of assistant.toolCalls ?? []) {
+			if (satisfiedCallIds.has(toolCall.id)) continue
+			satisfiedCallIds.add(toolCall.id)
+			const synthesized: ToolMessage = {
+				role: 'tool',
+				content: MISSING_TOOL_RESULT_CONTENT,
+				toolCallId: toolCall.id,
+				timestamp: (assistant.timestamp ?? 0) + 1,
+			}
+			withSynthesized.push(synthesized)
+		}
+	}
+
+	// ── Step 3: CANONICALIZE placement ──
+	const resultsByCallId = new Map<string, ToolMessage[]>()
+	for (const message of withSynthesized) {
+		if (!isToolMessage(message)) continue
+		const toolMsg = message as ToolMessage
+		const bucket = resultsByCallId.get(toolMsg.toolCallId)
+		if (bucket) {
+			bucket.push(toolMsg)
+		} else {
+			resultsByCallId.set(toolMsg.toolCallId, [toolMsg])
+		}
+	}
+
+	const canonical: Message[] = []
+	for (const message of withSynthesized) {
+		if (isToolMessage(message)) continue
+		canonical.push(message)
+		if (!hasToolCalls(message)) continue
+		const assistant = message as AssistantMessage
+		for (const toolCall of assistant.toolCalls ?? []) {
+			const results = resultsByCallId.get(toolCall.id)
+			if (!results) continue
+			for (const result of results) {
+				canonical.push(result)
+			}
+		}
+	}
+
+	return canonical
 }
 
 /**

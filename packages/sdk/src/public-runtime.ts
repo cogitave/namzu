@@ -62,7 +62,7 @@ export { resolveTaskModel } from './router/task-router.js'
 export { drainQuery, query } from './runtime/query/index.js'
 export { ContextCache } from './runtime/query/context-cache.js'
 export { CheckpointManager, projectEmergencyToCheckpoint } from './runtime/query/checkpoint.js'
-export { prepareReplayState } from './runtime/query/replay/prepare.js'
+export { prepareReplayState, prepareResumeMessages } from './runtime/query/replay/prepare.js'
 export { listCheckpoints } from './runtime/query/replay/list.js'
 export { DecisionParser, FallbackResolver } from './runtime/decision/index.js'
 export {
@@ -388,6 +388,7 @@ export {
 	findSafeTrimIndex,
 	NullManager,
 	removeDanglingMessages,
+	repairDanglingMessages,
 	serializeState,
 	SlidingWindowManager,
 	StructuredCompactionManager,

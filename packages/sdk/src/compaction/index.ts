@@ -27,6 +27,7 @@ export { buildVerifiedSummary } from './verifier.js'
 export {
 	findDanglingMessages,
 	removeDanglingMessages,
+	repairDanglingMessages,
 	findSafeTrimIndex,
 } from './dangling.js'
 

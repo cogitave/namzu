@@ -45,6 +45,7 @@ import { IterationOrchestrator } from './iteration/index.js'
 import { applyLifecycleHookResults } from './plugin-hooks.js'
 import { PromptBuilder } from './prompt.js'
 import type { PromptSegments } from './prompt.js'
+import { prepareResumeMessages } from './replay/prepare.js'
 import { ResultAssembler } from './result.js'
 import { ToolingBootstrap } from './tooling.js'
 
@@ -400,8 +401,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				yield* eventTranslator.drainPending()
 
 				pushSystemMessages()
-				for (const msg of checkpoint.messages) {
-					if (msg.role === 'system') continue
+				for (const msg of prepareResumeMessages(checkpoint.messages)) {
 					ctx.runMgr.pushMessage(msg)
 				}
 			} else if (params.continuationMode) {

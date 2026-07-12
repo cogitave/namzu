@@ -1,3 +1,4 @@
+import { findSafeTrimIndex } from '../../../../compaction/dangling.js'
 import { serializeState } from '../../../../compaction/serializer.js'
 import { buildVerifiedSummary } from '../../../../compaction/verifier.js'
 import { CHARS_PER_TOKEN } from '../../../../constants/limits.js'
@@ -61,7 +62,11 @@ export async function runCompactionCheck(ctx: IterationContext): Promise<void> {
 	}
 	if (systemMessages.length === 0) return
 
-	const keepStart = messages.length - config.keepRecentMessages
+	// Route the proactive cut through findSafeTrimIndex so the split cannot
+	// sever a tool call/result pair: a pair straddling the naive boundary is
+	// pushed wholly into olderMessages (summarised), never leaving an orphaned
+	// result at the head of recentMessages.
+	const keepStart = findSafeTrimIndex(messages, messages.length - config.keepRecentMessages)
 	const recentMessages = messages.slice(keepStart)
 	const olderMessages = messages.slice(systemMessages.length, keepStart)
 

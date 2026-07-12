@@ -1,4 +1,5 @@
 import { join } from 'node:path'
+import { repairDanglingMessages } from '../../../compaction/dangling.js'
 import { EmergencySaveManager } from '../../../manager/run/emergency.js'
 import { RunDiskStore } from '../../../store/run/disk.js'
 import type { CheckpointId, IterationCheckpoint } from '../../../types/hitl/index.js'
@@ -64,7 +65,11 @@ export interface PreparedReplayState {
 export async function prepareReplayState(input: PrepareReplayInput): Promise<PreparedReplayState> {
 	const sourceCheckpoint = await resolveCheckpoint(input)
 	const mutations = input.mutate ?? []
-	const messages = applyMutations(sourceCheckpoint.messages, mutations)
+	const mutated = applyMutations(sourceCheckpoint.messages, mutations)
+	// Repair after mutations: a mutation may leave a tool call unmatched (repair
+	// synthesizes an error result) or append a result at the tail (repair
+	// canonicalizes its placement) so the replayed history is provider-valid.
+	const messages = repairDanglingMessages(mutated)
 
 	const attribution: ReplayAttribution = {
 		sourceRunId: input.runId,
@@ -74,6 +79,22 @@ export async function prepareReplayState(input: PrepareReplayInput): Promise<Pre
 	}
 
 	return { messages, sourceCheckpoint, attribution }
+}
+
+/**
+ * State-preparation half of a **resume** from a checkpoint. Pure transform:
+ * repairs dangling tool pairs ({@link repairDanglingMessages}) so an
+ * interrupted run's persisted history is provider-valid, then drops
+ * system-role messages — the resume caller pushes fresh system prompts
+ * separately, so re-seeding the checkpoint's system messages would duplicate
+ * them. This preserves the historical resume-branch policy of skipping
+ * `system` messages while adding the repair pass.
+ *
+ * @param checkpointMessages - Messages loaded from the checkpoint being resumed
+ * @returns Repaired, system-filtered messages ready to seed the resumed run
+ */
+export function prepareResumeMessages(checkpointMessages: Message[]): Message[] {
+	return repairDanglingMessages(checkpointMessages).filter((msg) => msg.role !== 'system')
 }
 
 async function resolveCheckpoint(input: PrepareReplayInput): Promise<IterationCheckpoint> {

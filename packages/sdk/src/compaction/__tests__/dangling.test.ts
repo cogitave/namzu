@@ -5,7 +5,12 @@ import type {
 	ToolMessage,
 	UserMessage,
 } from '../../types/message/index.js'
-import { findDanglingMessages, findSafeTrimIndex, removeDanglingMessages } from '../dangling.js'
+import {
+	findDanglingMessages,
+	findSafeTrimIndex,
+	removeDanglingMessages,
+	repairDanglingMessages,
+} from '../dangling.js'
 
 /**
  * Test helpers to create messages with proper typing.
@@ -443,5 +448,157 @@ describe('findSafeTrimIndex', () => {
 		// Algorithm advances past both orphan tools — kept portion (slice from safeIdx) is empty and valid
 		const kept = messages.slice(safeIdx)
 		expect(findDanglingMessages(kept).isValid).toBe(true)
+	})
+})
+
+/**
+ * Current-code invariants asserted (2026-07-12, ses_015 Phase C):
+ *
+ *   `repairDanglingMessages` heals a history into provider-valid, canonical
+ *   shape WITHOUT dropping assistant tool calls, in three ordered steps:
+ *
+ *   - Step 1 (drop orphans): a `tool` result whose `toolCallId` matches no
+ *     assistant tool call anywhere is removed.
+ *   - Step 2 (synthesize): every assistant tool call lacking a matching
+ *     result gets exactly one placeholder `tool` message whose content is the
+ *     fixed MISSING string and whose `timestamp` is DERIVED as
+ *     `assistant.timestamp + 1` (never wall-clock). When the assistant has no
+ *     timestamp, the derived value is `1` (`(undefined ?? 0) + 1`).
+ *   - Step 3 (canonicalize): every result — pre-existing or synthesized — is
+ *     relocated to sit immediately after its assistant message, in the
+ *     assistant's declared `toolCalls` order.
+ *
+ *   - Purity: returns a NEW array; the input array and its message objects
+ *     are never mutated.
+ *   - Idempotence: `repair(repair(x))` deep-equals `repair(x)`.
+ *   - Already-valid, canonical histories are returned value-equal (new array).
+ *   - Assumes tool call ids unique across the conversation (provider-
+ *     guaranteed); duplicate ids across distinct assistants are out of scope.
+ */
+describe('repairDanglingMessages', () => {
+	const MISSING = '[SYSTEM] Tool result missing: run was interrupted before this tool completed.'
+
+	function assistantWithTs(
+		content: string | null,
+		toolCallIds: string[],
+		timestamp: number,
+	): AssistantMessage {
+		return {
+			role: 'assistant',
+			content,
+			timestamp,
+			toolCalls: toolCallIds.map((id) => ({
+				id,
+				type: 'function',
+				function: { name: 'test_tool', arguments: '{}' },
+			})),
+		}
+	}
+
+	it('drops orphaned tool messages whose call id matches nothing', () => {
+		const messages: Message[] = [
+			createUserMessage('test'),
+			createAssistantMessage('response', ['call-1']),
+			createToolMessage('result', 'call-1'),
+			createToolMessage('orphan', 'call-999'),
+		]
+
+		const repaired = repairDanglingMessages(messages)
+
+		expect(repaired.map((m) => m.role)).toEqual(['user', 'assistant', 'tool'])
+		expect(repaired.some((m) => m.role === 'tool' && m.toolCallId === 'call-999')).toBe(false)
+	})
+
+	it('synthesizes one error result per unmatched call with a derived timestamp', () => {
+		const assistant = assistantWithTs('working', ['call-1'], 1000)
+		const messages: Message[] = [createUserMessage('test'), assistant]
+
+		const repaired = repairDanglingMessages(messages)
+
+		expect(repaired).toHaveLength(3)
+		const synth = repaired[2] as ToolMessage
+		expect(synth.role).toBe('tool')
+		expect(synth.toolCallId).toBe('call-1')
+		expect(synth.content).toBe(MISSING)
+		// Derived, not wall-clock: assistant.timestamp + 1.
+		expect(synth.timestamp).toBe(1001)
+	})
+
+	it('derives timestamp 1 when the assistant message has no timestamp', () => {
+		const assistant: AssistantMessage = {
+			role: 'assistant',
+			content: null,
+			toolCalls: [{ id: 'call-1', type: 'function', function: { name: 't', arguments: '{}' } }],
+		}
+		const repaired = repairDanglingMessages([assistant])
+
+		const synth = repaired[1] as ToolMessage
+		expect(synth.timestamp).toBe(1)
+	})
+
+	it('relocates a result placed after an intervening user message', () => {
+		const messages: Message[] = [
+			createUserMessage('test'),
+			createAssistantMessage('response', ['call-1']),
+			createUserMessage('interleaved'),
+			createToolMessage('result', 'call-1'),
+		]
+
+		const repaired = repairDanglingMessages(messages)
+
+		// Result canonicalized to sit immediately after its assistant.
+		expect(repaired.map((m) => m.role)).toEqual(['user', 'assistant', 'tool', 'user'])
+		expect((repaired[2] as ToolMessage).toolCallId).toBe('call-1')
+		expect(repaired[3]?.content).toBe('interleaved')
+	})
+
+	it('preserves toolCalls order for a multi-call batch, synthesizing the gaps', () => {
+		const assistant = assistantWithTs('multi', ['call-1', 'call-2', 'call-3'], 500)
+		const messages: Message[] = [
+			createUserMessage('test'),
+			assistant,
+			createToolMessage('real-2', 'call-2'),
+		]
+
+		const repaired = repairDanglingMessages(messages)
+
+		expect(repaired).toHaveLength(5)
+		const toolBatch = repaired.slice(2) as ToolMessage[]
+		expect(toolBatch.map((t) => t.toolCallId)).toEqual(['call-1', 'call-2', 'call-3'])
+		expect(toolBatch[0]?.content).toBe(MISSING)
+		expect(toolBatch[1]?.content).toBe('real-2')
+		expect(toolBatch[2]?.content).toBe(MISSING)
+	})
+
+	it('is idempotent: repair(repair(x)) deep-equals repair(x)', () => {
+		const messages: Message[] = [
+			createUserMessage('start'),
+			assistantWithTs('a1', ['call-1', 'call-2'], 100),
+			createUserMessage('interleaved'),
+			createToolMessage('r2', 'call-2'),
+			createToolMessage('orphan', 'call-999'),
+			assistantWithTs('a2', ['call-3'], 200),
+		]
+
+		const once = repairDanglingMessages(messages)
+		const twice = repairDanglingMessages(once)
+
+		expect(twice).toEqual(once)
+	})
+
+	it('returns a new array and does not mutate the input', () => {
+		const messages: Message[] = [
+			createUserMessage('test'),
+			createAssistantMessage('response', ['call-1']),
+			createToolMessage('result', 'call-1'),
+		]
+		const snapshot = messages.map((m) => ({ ...m }))
+
+		const repaired = repairDanglingMessages(messages)
+
+		expect(repaired).not.toBe(messages)
+		expect(repaired).toEqual(messages) // already valid + canonical → value-equal
+		// Input untouched.
+		expect(messages).toEqual(snapshot)
 	})
 })
