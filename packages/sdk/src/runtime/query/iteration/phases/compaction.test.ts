@@ -29,6 +29,14 @@
  *     duplication and no history growth.
  *   - Prior [COMPACTED CONTEXT] summary text is carried into the fresh summary so
  *     a fact captured only in an earlier summary survives a second compaction.
+ *
+ * Additional invariants asserted (2026-07-12, ses_015 pre-freeze R4):
+ *   - The carry is a structured newest-first list of entries, one entry per pass,
+ *     capped by dropping whole entries from the END (the oldest) and never by
+ *     slicing characters off a concatenated blob. The working state is regenerated
+ *     from the manager each pass and is therefore never carried, so a summary body
+ *     holds exactly one state serialization and exactly one carry header no matter
+ *     how many passes precede it.
  */
 import { describe, expect, it, vi } from 'vitest'
 import { findDanglingMessages } from '../../../../compaction/dangling.js'
@@ -41,7 +49,13 @@ import type {
 	LLMProvider,
 } from '../../../../types/provider/index.js'
 import type { Logger } from '../../../../utils/logger.js'
-import { COMPACTION_HEADER, runCompactionCheck } from './compaction.js'
+import {
+	CARRY_ELISION_MARKER,
+	CARRY_HEADER,
+	COMPACTION_HEADER,
+	STATE_HEADER,
+	runCompactionCheck,
+} from './compaction.js'
 import type { IterationContext } from './context.js'
 
 function makeLogger(): Logger {
@@ -105,6 +119,7 @@ function makeCtx(
 	messages: Message[],
 	config: Partial<CompactionConfig>,
 	provider?: LLMProvider,
+	state?: ReturnType<typeof emptyWorkingState>,
 ): IterationContext {
 	return {
 		provider: (provider ?? {}) as never,
@@ -130,7 +145,7 @@ function makeCtx(
 		} as CompactionConfig,
 		workingStateManager: {
 			slotCount: () => 0,
-			getState: () => emptyWorkingState(),
+			getState: () => state ?? emptyWorkingState(),
 		},
 	} as unknown as IterationContext
 }
@@ -309,6 +324,27 @@ describe('runCompactionCheck — proactive cut-point safety', () => {
 		expect(summary?.content).toContain('UNIQUE_FACT_ABC123')
 	})
 
+	it('carries a fact from a summary interleaved outside the leading system run', async () => {
+		const messages: Message[] = [
+			{ role: 'system', content: 'system prompt' },
+			{ role: 'user', content: 'u1 with a long body of text to have something to summarise' },
+			{
+				role: 'system',
+				content: `${COMPACTION_HEADER}\n\nINTERLEAVED_FACT stranded inside the window`,
+			},
+			{ role: 'assistant', content: 'a1 with a long body of text to have something to summarise' },
+			{ role: 'user', content: 'u2 with a long body of text to have something to summarise' },
+			{ role: 'assistant', content: 'a2 with a long body of text to have something to summarise' },
+			{ role: 'user', content: 'u3 with a long body of text to have something to summarise' },
+		]
+
+		const ctx = makeCtx(messages, {})
+		await runCompactionCheck(ctx)
+
+		const summary = ctx.runMgr.messages.find((m) => (m.content ?? '').startsWith(COMPACTION_HEADER))
+		expect(summary?.content).toContain('INTERLEAVED_FACT')
+	})
+
 	it('caps the carried section at convoTextBudget, dropping the oldest text first', async () => {
 		// Two prior summaries, oldest first. With a budget that only fits the newest,
 		// the newest survives and the oldest is dropped — repeated compactions stay
@@ -330,5 +366,158 @@ describe('runCompactionCheck — proactive cut-point safety', () => {
 		const summary = ctx.runMgr.messages.find((m) => (m.content ?? '').startsWith(COMPACTION_HEADER))
 		expect(summary?.content).toContain('NEWEST_FACT')
 		expect(summary?.content).not.toContain('OLDEST_FACT')
+	})
+})
+
+/**
+ * ses_015 pre-freeze R4 B2. The carry was a string append: each pass took the
+ * ENTIRE prior summary body — state serialization, verifier additions, and that
+ * body's own carried section — and appended it to a freshly serialized state. Two
+ * failures followed. The state was duplicated on every pass and the carry markers
+ * nested; and the cap, `slice(-budget)` over the concatenated blob, kept the blob's
+ * TAIL. The tail is the OLDEST carried material, while the newest findings sit near
+ * the front — so a third pass dropped exactly what the second pass had just
+ * discovered and kept what it had already superseded.
+ *
+ * The carry is now an explicit newest-first list of entries, one entry per pass,
+ * capped by dropping whole entries from the end.
+ */
+describe('runCompactionCheck — the carry is a bounded, newest-first list', () => {
+	/** Three fresh turns, enough for the next pass to have something older to fold in. */
+	function conversation(tag: string): Message[] {
+		return [
+			{ role: 'user', content: `user ${tag} with a long body of text to have something to fold` },
+			{
+				role: 'assistant',
+				content: `assistant ${tag} with a long body of text to have something to fold`,
+			},
+			{ role: 'user', content: `user ${tag} again with a long body of text to have to fold` },
+		]
+	}
+
+	/** A verifier that answers differently on each pass, oldest reply first. */
+	function makeScriptedVerifier(replies: string[]): LLMProvider & { seen: ChatCompletionParams[] } {
+		const seen: ChatCompletionParams[] = []
+		return {
+			id: 'fake',
+			name: 'Fake',
+			seen,
+			async chat(params: ChatCompletionParams): Promise<ChatCompletionResponse> {
+				const reply = replies[seen.length] ?? 'COMPLETE'
+				seen.push(params)
+				return {
+					id: 'r',
+					model: 'm',
+					message: { role: 'assistant', content: reply },
+					finishReason: 'stop',
+					usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+				} as ChatCompletionResponse
+			},
+			// biome-ignore lint/correctness/useYield: stub, never invoked
+			async *chatStream() {
+				throw new Error('not used')
+			},
+		} as LLMProvider & { seen: ChatCompletionParams[] }
+	}
+
+	function occurrences(haystack: string, needle: string): number {
+		return haystack.split(needle).length - 1
+	}
+
+	function summaryOf(ctx: IterationContext): string {
+		return (
+			ctx.runMgr.messages.find((m) => (m.content ?? '').startsWith(COMPACTION_HEADER))?.content ??
+			''
+		)
+	}
+
+	it('keeps the newest findings over three passes and drops the oldest entry when the budget bites', async () => {
+		// One ~101-char entry per pass. The budget fits two of them plus a delimiter
+		// and cannot fit three, so the third pass is forced to drop exactly one entry.
+		const FACT_1 = `PASS1_FACT ${'a'.repeat(90)}`
+		const FACT_2 = `PASS2_FACT ${'b'.repeat(90)}`
+		const FACT_3 = `PASS3_FACT ${'c'.repeat(90)}`
+		const provider = makeScriptedVerifier([FACT_1, FACT_2, FACT_3])
+
+		const messages: Message[] = [
+			{ role: 'system', content: 'system prompt' },
+			...conversation('one'),
+			...conversation('two'),
+		]
+		const ctx = makeCtx(messages, { llmVerification: true, convoTextBudget: 260 }, provider)
+
+		await runCompactionCheck(ctx)
+		ctx.runMgr.messages.push(...conversation('three'))
+		await runCompactionCheck(ctx)
+		ctx.runMgr.messages.push(...conversation('four'))
+		await runCompactionCheck(ctx)
+
+		expect(provider.seen).toHaveLength(3)
+		const summary = summaryOf(ctx)
+
+		// What the verifier found on the SECOND pass is still here after the third.
+		expect(summary).toContain('PASS2_FACT')
+		expect(summary).toContain('PASS3_FACT')
+		// The entry the budget forced out is the OLDEST one. Under the old tail-slice
+		// cap this was the survivor and PASS3_FACT was the casualty.
+		expect(summary).not.toContain('PASS1_FACT')
+	})
+
+	it('writes exactly one state serialization and one carry header, however many passes run', async () => {
+		const provider = makeScriptedVerifier(['PASS1_FACT', 'PASS2_FACT', 'PASS3_FACT'])
+		const state = { ...emptyWorkingState(), task: 'TASK_MARKER_XYZ' }
+
+		const messages: Message[] = [
+			{ role: 'system', content: 'system prompt' },
+			...conversation('one'),
+			...conversation('two'),
+		]
+		const ctx = makeCtx(messages, { llmVerification: true }, provider, state)
+
+		await runCompactionCheck(ctx)
+		ctx.runMgr.messages.push(...conversation('three'))
+		await runCompactionCheck(ctx)
+		ctx.runMgr.messages.push(...conversation('four'))
+		await runCompactionCheck(ctx)
+
+		const summary = summaryOf(ctx)
+
+		// The state is re-serialized from the manager every pass, so the body holds one
+		// copy — not one per pass, each staler than the last.
+		expect(occurrences(summary, STATE_HEADER)).toBe(1)
+		expect(occurrences(summary, 'TASK_MARKER_XYZ')).toBe(1)
+		// The carry is a flat list, not a summary nested inside a summary inside a
+		// summary. One header, whatever the depth of history behind it.
+		expect(occurrences(summary, CARRY_HEADER)).toBe(1)
+		// And it is not a flat list that lost anything: every pass's findings are here.
+		expect(summary).toContain('PASS1_FACT')
+		expect(summary).toContain('PASS2_FACT')
+		expect(summary).toContain('PASS3_FACT')
+	})
+
+	it('truncates a single over-budget entry rather than dropping it', async () => {
+		// The newest entry alone exceeds the budget. Dropping it would satisfy the cap
+		// and lose the most recent material outright — the inverse of the policy — so
+		// it is cut down to fit instead, with the cut marked.
+		const huge = `HEAD_FACT ${'x'.repeat(500)}`
+		const messages: Message[] = [
+			{ role: 'system', content: 'system prompt' },
+			{ role: 'system', content: `${COMPACTION_HEADER}\n\n${huge}` },
+			...conversation('one'),
+			...conversation('two'),
+		]
+		const ctx = makeCtx(messages, { convoTextBudget: 100 })
+
+		await runCompactionCheck(ctx)
+		const summary = summaryOf(ctx)
+
+		expect(summary).toContain(CARRY_HEADER)
+		expect(summary).toContain('HEAD_FACT')
+		expect(summary).toContain(CARRY_ELISION_MARKER)
+		// The tail is what was cut, and the carry section stays inside its budget.
+		expect(summary).not.toContain('x'.repeat(200))
+		expect(summary.slice(summary.indexOf(CARRY_HEADER) + CARRY_HEADER.length).length).toBeLessThan(
+			120,
+		)
 	})
 })

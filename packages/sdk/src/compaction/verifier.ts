@@ -43,26 +43,46 @@ function truncateMessages(messages: Message[], budget: number): string {
 	return lines.join('\n\n')
 }
 
-export async function buildVerifiedSummary(
+/** Section header under which {@link buildVerifiedSummary} renders its additions. */
+const ADDITIONS_HEADER = '## LLM Verification Additions'
+
+/**
+ * The two halves of a verified summary, kept apart.
+ *
+ * `serialized` is re-derived from the {@link WorkingStateManager} on every
+ * compaction pass, so it is disposable: a later pass regenerates it. `additions`
+ * is not — it is what the verifier found in the older conversation that the
+ * structured state does NOT hold, and if a later pass does not carry it forward it
+ * exists nowhere. Compaction needs the two separately in order to carry the second
+ * without duplicating the first (ses_015 pre-freeze R4 B2).
+ */
+export interface VerifiedSummaryParts {
+	/** The working state, serialized on this pass. */
+	serialized: string
+	/** Verifier findings absent from the state; `''` when it found nothing to add. */
+	additions: string
+}
+
+export async function buildVerifiedSummaryParts(
 	manager: WorkingStateManager,
 	olderMessages: Message[],
 	provider: LLMProvider,
 	config: CompactionConfig,
-): Promise<string> {
+): Promise<VerifiedSummaryParts> {
 	const serialized = serializeState(manager.getState())
 
 	if (manager.slotCount() >= config.richStateThreshold) {
-		return serialized
+		return { serialized, additions: '' }
 	}
 
 	if (!config.llmVerification) {
-		return serialized
+		return { serialized, additions: '' }
 	}
 
 	const conversationExcerpt = truncateMessages(olderMessages, config.convoTextBudget)
 
 	if (!conversationExcerpt.trim()) {
-		return serialized
+		return { serialized, additions: '' }
 	}
 
 	const verificationMessages: Message[] = [
@@ -93,9 +113,28 @@ export async function buildVerifiedSummary(
 
 	const responseText = response.message.content?.trim() ?? ''
 
-	if (responseText === 'COMPLETE') {
-		return serialized
+	if (responseText === 'COMPLETE' || responseText === '') {
+		return { serialized, additions: '' }
 	}
 
-	return `${serialized}\n\n## LLM Verification Additions\n\n${responseText}`
+	return { serialized, additions: responseText }
+}
+
+/**
+ * The verified summary as one block: the serialized state, plus the verifier's
+ * additions under {@link ADDITIONS_HEADER} when it found any.
+ */
+export async function buildVerifiedSummary(
+	manager: WorkingStateManager,
+	olderMessages: Message[],
+	provider: LLMProvider,
+	config: CompactionConfig,
+): Promise<string> {
+	const { serialized, additions } = await buildVerifiedSummaryParts(
+		manager,
+		olderMessages,
+		provider,
+		config,
+	)
+	return additions ? `${serialized}\n\n${ADDITIONS_HEADER}\n\n${additions}` : serialized
 }

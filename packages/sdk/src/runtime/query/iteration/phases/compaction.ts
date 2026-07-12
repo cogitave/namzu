@@ -1,7 +1,7 @@
 import { findSafeTrimIndex } from '../../../../compaction/dangling.js'
 import type { WorkingStateManager } from '../../../../compaction/manager.js'
 import { serializeState } from '../../../../compaction/serializer.js'
-import { buildVerifiedSummary } from '../../../../compaction/verifier.js'
+import { buildVerifiedSummaryParts } from '../../../../compaction/verifier.js'
 import type { CompactionConfig } from '../../../../config/runtime.js'
 import { CHARS_PER_TOKEN } from '../../../../constants/limits.js'
 import { type Message, createSystemMessage } from '../../../../types/message/index.js'
@@ -66,35 +66,138 @@ function stripPriorCompactionSummaries(messages: Message[]): Message[] {
 }
 
 /**
- * Extract the body text (everything after {@link COMPACTION_HEADER}) of every
- * prior compaction summary in the sequence, oldest first. Anti-stacking replaces
- * these summaries with a fresh one, so their content must be carried forward or
- * any fact captured only inside an earlier summary is lost (ses_015 fix-batch).
+ * Header of the working-state region of a summary body.
+ *
+ * Everything under it is re-serialized from the {@link WorkingStateManager} on
+ * every pass, which is exactly why a later pass DISCARDS it instead of carrying it:
+ * the marker is what lets the parser tell "state this writer will regenerate
+ * anyway" apart from "text that exists nowhere else". Without that distinction each
+ * pass appended the whole previous body to a freshly serialized state, so the state
+ * was duplicated every pass and the carry markers nested (ses_015 pre-freeze R4 B2).
  */
-function extractPriorSummaryBodies(messages: Message[]): string[] {
-	const bodies: string[] = []
-	for (const m of messages) {
-		if (!isCompactionSummary(m)) continue
-		const content = m.content ?? ''
-		bodies.push(content.slice(COMPACTION_HEADER.length).replace(/^\s+/, ''))
-	}
-	return bodies
+export const STATE_HEADER = '[Working state]'
+
+/**
+ * Header of the carry region: what the older conversation contained that the
+ * working state does NOT hold — this pass's verifier findings, and the same from
+ * every earlier pass — newest first.
+ */
+export const CARRY_HEADER = '[Additional context not captured in the working state]'
+
+/** Boundary between two carry entries. One entry is one pass's own contribution. */
+const CARRY_ENTRY_DELIMITER = '\n\n[--- from an earlier compaction ---]\n\n'
+
+/** Marks where a single over-budget entry was cut. */
+export const CARRY_ELISION_MARKER = '\n[... elided to fit the carry budget]'
+
+/**
+ * The carry entries held by one prior summary, newest first.
+ *
+ * The head region is dropped when it carries {@link STATE_HEADER} — that is this
+ * writer's own working state, and this pass re-serializes it from the manager. A
+ * head WITHOUT the marker came from somewhere else (a summary written before this
+ * format, or by another tool) and is kept as an entry: dropping it would take the
+ * only copy of its facts with it.
+ */
+function carryEntriesOf(summary: Message): string[] {
+	const body = (summary.content ?? '').slice(COMPACTION_HEADER.length).trim()
+	const carryAt = body.indexOf(CARRY_HEADER)
+	const head = (carryAt === -1 ? body : body.slice(0, carryAt)).trim()
+	const carried = carryAt === -1 ? '' : body.slice(carryAt + CARRY_HEADER.length)
+
+	const entries = carried
+		.split(CARRY_ENTRY_DELIMITER)
+		.map((entry) => entry.trim())
+		.filter((entry) => entry.length > 0)
+
+	if (head.length > 0 && !head.startsWith(STATE_HEADER)) entries.unshift(head)
+	return entries
 }
 
 /**
- * Build the `[Carried from prior summary]` continuity section appended to a
- * serialize-only summary. Prior bodies are joined oldest-first and capped to
- * `budget` chars by dropping the oldest text first (keeping the newest tail), so
- * repeated compactions stay bounded while never silently forgetting the most
- * recent summary. Returns '' when there is nothing to carry.
+ * Every carry entry in the history, newest first, deduplicated by exact text.
+ *
+ * Newest first is the whole point: the cap drops from the END of this list, so the
+ * material most likely to still matter is the material that survives. Duplicates
+ * are real — a forced reduction can leave a summary interleaved in the recent
+ * window while the summary that already carried its text sits at the head — and
+ * without the dedupe that text would be counted twice against the budget and
+ * evict something older that is not held anywhere else.
  */
-function buildCarriedSummarySection(priorBodies: string[], budget: number): string {
-	if (priorBodies.length === 0) return ''
-	let combined = priorBodies.join('\n\n')
-	if (combined.length > budget) {
-		combined = combined.slice(combined.length - budget)
+function priorCarryEntries(messages: Message[]): string[] {
+	const summaries = messages.filter(isCompactionSummary)
+	const entries: string[] = []
+	for (let i = summaries.length - 1; i >= 0; i--) {
+		const summary = summaries[i]
+		if (summary) entries.push(...carryEntriesOf(summary))
 	}
-	return `\n\n[Carried from prior summary]\n${combined}`
+	return dedupeEntries(entries)
+}
+
+function dedupeEntries(entries: string[]): string[] {
+	const seen = new Set<string>()
+	const unique: string[] = []
+	for (const entry of entries) {
+		if (seen.has(entry)) continue
+		seen.add(entry)
+		unique.push(entry)
+	}
+	return unique
+}
+
+/**
+ * Cap the carry list at `budget` characters by dropping WHOLE entries from the end
+ * of the list — the oldest.
+ *
+ * The cap this replaces sliced the last `budget` characters off a single
+ * concatenated blob. The blob ran oldest-last, so the surviving tail was the
+ * OLDEST material and the newest findings — sitting near the front — were the ones
+ * cut: the exact inverse of the policy this function is named for. A third pass
+ * could drop precisely what the second pass had just discovered (ses_015 pre-freeze
+ * R4 B2).
+ *
+ * The newest entry is the one entry that must not be dropped, so when it alone
+ * exceeds the budget it is truncated instead — head kept, tail elided behind
+ * {@link CARRY_ELISION_MARKER} — rather than silently vanishing and leaving room
+ * for older entries in its place.
+ */
+function capCarryEntries(entries: string[], budget: number): string[] {
+	const kept: string[] = []
+	let used = 0
+
+	for (const entry of entries) {
+		const cost = entry.length + (kept.length > 0 ? CARRY_ENTRY_DELIMITER.length : 0)
+		if (used + cost <= budget) {
+			kept.push(entry)
+			used += cost
+			continue
+		}
+		if (kept.length === 0) {
+			const room = budget - CARRY_ELISION_MARKER.length
+			if (room > 0) kept.push(entry.slice(0, room) + CARRY_ELISION_MARKER)
+		}
+		// Everything past this entry is older than it. Newest-first means the drop
+		// happens here and takes the whole remainder of the list.
+		break
+	}
+
+	return kept
+}
+
+/**
+ * Assemble a summary body: the working state as re-serialized on THIS pass, then
+ * the bounded newest-first carry list.
+ *
+ * Both compaction paths build their body here — the LLM-verified one and the
+ * serialize-only one — so the carry policy cannot drift between them. It already
+ * had: the carry landed on the serialize-only branch first and the default,
+ * verified branch went on losing summaries for a round.
+ */
+function buildSummaryBody(serialized: string, carryEntries: string[], budget: number): string {
+	const state = `${STATE_HEADER}\n${serialized}`
+	const capped = capCarryEntries(carryEntries, budget)
+	if (capped.length === 0) return state
+	return `${state}\n\n${CARRY_HEADER}\n${capped.join(CARRY_ENTRY_DELIMITER)}`
 }
 
 export async function runCompactionCheck(ctx: IterationContext): Promise<void> {
@@ -187,43 +290,50 @@ export async function runCompactionCheck(ctx: IterationContext): Promise<void> {
 		return
 	}
 
-	// Carry prior summary text into the new summary so a fact captured only in an
-	// earlier [COMPACTED CONTEXT] block (and never promoted to a working-state
-	// slot) survives this pass (ses_015 fix-batch). Scanned over the WHOLE history,
-	// not just the leading system run, so an interleaved summary is carried and
-	// then dropped rather than left behind to stack (pre-freeze M2).
-	const priorSummaryBodies = extractPriorSummaryBodies(messages)
+	// Carry forward what the prior summaries hold and the working state does not, so
+	// a fact captured only in an earlier [COMPACTED CONTEXT] block (and never
+	// promoted to a working-state slot) survives this pass (ses_015 fix-batch).
+	// Scanned over the WHOLE history, not just the leading system run, so an
+	// interleaved summary is carried and then dropped rather than left behind to
+	// stack (pre-freeze M2).
+	const prior = priorCarryEntries(messages)
 
-	let compactedContent: string
+	let serialized: string
+	let additions = ''
 
 	if (config.llmVerification && manager.slotCount() < config.richStateThreshold) {
-		// Feed the prior summaries into the verifier input (as the leading context
-		// so budget-truncation can't drop them) alongside the raw older messages.
-		// Those are stripped of summary blocks first — carried separately, they
-		// would otherwise reach the verifier twice.
+		// Feed the carried entries into the verifier input (as the leading context so
+		// budget-truncation can't drop them) alongside the raw older messages. Those
+		// are stripped of summary blocks first — carried separately, they would
+		// otherwise reach the verifier twice.
 		const olderWithoutSummaries = stripPriorCompactionSummaries(olderMessages)
 		const verifierInput =
-			priorSummaryBodies.length > 0
+			prior.length > 0
 				? [
-						createSystemMessage(`[Carried from prior summary]\n${priorSummaryBodies.join('\n\n')}`),
+						createSystemMessage(`${CARRY_HEADER}\n${prior.join(CARRY_ENTRY_DELIMITER)}`),
 						...olderWithoutSummaries,
 					]
 				: olderWithoutSummaries
-		const verified = await buildVerifiedSummary(manager, verifierInput, ctx.provider, config)
 
-		// The carry is appended to the verifier's OUTPUT, not merely handed to it as
-		// input. On the verifier's happy path — it answers COMPLETE — buildVerifiedSummary
-		// returns the serialized state alone, so a prior summary that reached it only as
-		// input is nowhere in the result, while the strip below removes the original
-		// block from the history: the fact is gone. That is the loss this carry exists
-		// to prevent, and it was live on the branch most runs take (ses_015 pre-freeze R1).
-		compactedContent =
-			verified + buildCarriedSummarySection(priorSummaryBodies, config.convoTextBudget)
+		// The verifier's findings are taken SEPARATELY from the state it was given, and
+		// become this pass's own carry entry. Its happy path — it answers COMPLETE —
+		// returns the serialized state alone, so anything that reached it only as input
+		// is nowhere in its output, while the strip below removes the original block
+		// from the history: the fact would be gone. That is the loss this carry exists
+		// to prevent, and it was live on the branch most runs take (pre-freeze R1).
+		const parts = await buildVerifiedSummaryParts(manager, verifierInput, ctx.provider, config)
+		serialized = parts.serialized
+		additions = parts.additions
 	} else {
-		compactedContent =
-			serializeState(manager.getState()) +
-			buildCarriedSummarySection(priorSummaryBodies, config.convoTextBudget)
+		serialized = serializeState(manager.getState())
 	}
+
+	const own = additions.trim()
+	const compactedContent = buildSummaryBody(
+		serialized,
+		own ? dedupeEntries([own, ...prior]) : prior,
+		config.convoTextBudget,
+	)
 
 	const compactionMessage = createSystemMessage(`${COMPACTION_HEADER}\n\n${compactedContent}`)
 
@@ -307,12 +417,15 @@ function buildStructuredReduction(
 
 	// Carry prior summary text forward so anti-stacking does not drop a fact that
 	// lived only inside an earlier summary (ses_015 fix-batch). Reactive recovery
-	// must not issue a model call, so this is a serialize-only append. Scanned over
-	// the whole history and stripped on both sides of the insert (pre-freeze M2).
-	const priorSummaryBodies = extractPriorSummaryBodies(messages)
-	const compactedContent =
-		serializeState(manager.getState()) +
-		buildCarriedSummarySection(priorSummaryBodies, config.convoTextBudget)
+	// must not issue a model call, so this pass contributes no verifier findings of
+	// its own — it carries what is already there, under the same policy as the
+	// proactive path. Scanned over the whole history and stripped on both sides of
+	// the insert (pre-freeze M2).
+	const compactedContent = buildSummaryBody(
+		serializeState(manager.getState()),
+		priorCarryEntries(messages),
+		config.convoTextBudget,
+	)
 	const compactionMessage = createSystemMessage(`${COMPACTION_HEADER}\n\n${compactedContent}`)
 
 	return [

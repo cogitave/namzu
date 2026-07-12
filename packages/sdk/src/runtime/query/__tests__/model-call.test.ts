@@ -386,6 +386,34 @@ describe('attemptModelCall — deadline', () => {
 		expect(provider.calls).toHaveLength(0)
 	})
 
+	// ses_015 pre-freeze R4 m1. The deadline is live when callWithinDeadline reads the
+	// clock and spent by the time armDeadline re-reads it a statement later — one
+	// millisecond of real time between two adjacent lines is all that takes. The
+	// promise settles through abandonWait either way, but execution carried straight
+	// on and still issued the physical request: a result the settled promise can never
+	// deliver, paid for in a round trip and, on a provider that cannot be aborted, in
+	// tokens.
+	it('does not issue a request when the deadline crosses between the check and the arm', async () => {
+		const provider = makeProvider(async () => okResponse())
+		const now = vi.spyOn(Date, 'now')
+		now.mockReturnValueOnce(999) // attempt-loop deadline check: still live
+		now.mockReturnValueOnce(999) // callWithinDeadline: remaining = 1ms
+		now.mockReturnValue(1_000) // armDeadline's re-read onwards: spent
+
+		await expect(
+			attemptModelCall({
+				provider,
+				params: { model: 'm', messages: [] },
+				retry: RETRY,
+				signal: new AbortController().signal,
+				deadlineAt: 1_000,
+				log: makeLogger(),
+			}),
+		).rejects.toMatchObject({ kind: 'network' })
+
+		expect(provider.calls).toHaveLength(0)
+	})
+
 	it('rethrows the last error when the deadline is reached mid-retry', async () => {
 		vi.useFakeTimers({ now: 0 })
 		// Pin jitter to 1 so the first backoff consumes the full remaining budget
@@ -600,6 +628,31 @@ describe('attemptModelCall — onAttempt isolation', () => {
 		expect(log.warn).toHaveBeenCalledTimes(1)
 	})
 
+	// ses_015 pre-freeze R4 B1. The attempt loop checks `signal.aborted`, THEN runs
+	// the observer, and only then does the race install its abort listener — and
+	// `addEventListener` does not replay an abort that already fired. An abort raised
+	// inside the observer was therefore observed by nobody: the listener never fired,
+	// and the loop waited on a provider that may ignore the forwarded signal until the
+	// deadline, instead of being cancelled promptly.
+	it('rejects as aborted, and issues no request, when the observer aborts the signal', async () => {
+		const ctrl = new AbortController()
+		const provider = makeProvider(async () => okResponse())
+
+		await expect(
+			attemptModelCall({
+				provider,
+				params: { model: 'm', messages: [] },
+				retry: RETRY,
+				signal: ctrl.signal,
+				deadlineAt: FAR_DEADLINE(),
+				log: makeLogger(),
+				onAttempt: () => ctrl.abort(),
+			}),
+		).rejects.toMatchObject({ kind: 'aborted' })
+
+		expect(provider.calls).toHaveLength(0)
+	})
+
 	it('does not issue a request when the deadline crosses during the observer', async () => {
 		vi.useFakeTimers({ now: 0 })
 		// The observer is host code and takes whatever time it takes. The deadline was
@@ -623,6 +676,58 @@ describe('attemptModelCall — onAttempt isolation', () => {
 
 		await expect(promise).rejects.toMatchObject({ kind: 'network' })
 		expect(provider.calls).toHaveLength(0)
+	})
+})
+
+describe('attemptModelCall — a backoff past the 32-bit timer ceiling', () => {
+	// ses_015 pre-freeze R4 M1. Real timers on purpose: the defect IS Node's own
+	// setTimeout clamp, and a fake clock does not reproduce it. RetryConfigSchema
+	// accepts any non-negative maxDelayMs — Infinity included — and a server-advised
+	// retryAfterMs is clamped only to that ceiling, so the delay handed to setTimeout
+	// can exceed 2^31-1 ms, where Node silently clamps it to 1 ms. The configuration
+	// asking the loop to back off hardest was the one that made it retry instantly,
+	// hammering the throttled provider that asked for the wait.
+	it('does not collapse an over-ceiling backoff into an immediate retry', async () => {
+		const OVER_CEILING_MS = 3_000_000_000
+		expect(OVER_CEILING_MS).toBeGreaterThan(2_147_483_647)
+
+		const warnings: string[] = []
+		const onWarning = (w: Error): void => {
+			warnings.push(w.name)
+		}
+		process.on('warning', onWarning)
+
+		const ctrl = new AbortController()
+		const provider = makeProvider(async () => {
+			throw err('throttle', { retryAfterMs: OVER_CEILING_MS })
+		})
+
+		try {
+			const promise = attemptModelCall({
+				provider,
+				params: { model: 'm', messages: [] },
+				retry: { ...RETRY, maxAttempts: 3, maxDelayMs: OVER_CEILING_MS },
+				signal: ctrl.signal,
+				deadlineAt: Date.now() + 10 * OVER_CEILING_MS,
+				log: makeLogger(),
+			})
+
+			// Under the clamp the sleep wakes ~1 ms in and attempt 2 goes straight back
+			// out. 50 ms of real time is orders of magnitude more than that needs.
+			await new Promise((r) => setTimeout(r, 50))
+			expect(provider.calls).toHaveLength(1)
+			// Warnings land a tick after the setTimeout call that provoked them.
+			await new Promise((r) => setImmediate(r))
+			expect(warnings).not.toContain('TimeoutOverflowWarning')
+
+			// The sliced sleep must still race the signal, or cancelling a run would hang
+			// for the whole 24.8-day slice.
+			ctrl.abort()
+			await expect(promise).rejects.toMatchObject({ kind: 'aborted' })
+			expect(provider.calls).toHaveLength(1)
+		} finally {
+			process.off('warning', onWarning)
+		}
 	})
 })
 

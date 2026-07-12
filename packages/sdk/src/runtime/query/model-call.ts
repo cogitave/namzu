@@ -44,23 +44,66 @@ export function isRetryableKind(kind: string): boolean {
 }
 
 /**
+ * Run `onElapsed` after `delayMs`, slicing a delay above {@link MAX_TIMER_DELAY_MS}
+ * into re-armed chunks so Node's 32-bit clamp cannot turn a long wait into a 1 ms
+ * one. Returns a canceller for the pending timer.
+ *
+ * The countdown is arithmetic, not wall-clock. The run deadline is an absolute
+ * instant, so `armDeadline` re-reads the clock on every re-arm and a suspended
+ * process cannot overshoot it silently. A backoff is a *duration*: subtracting each
+ * slice keeps the overwhelmingly common single-slice case (a delay under the
+ * ceiling) at exactly one `setTimeout` for exactly the requested delay, with no
+ * clock read to drift against.
+ */
+function armSlicedTimer(delayMs: number, onElapsed: () => void): () => void {
+	let timer: ReturnType<typeof setTimeout> | undefined
+
+	const arm = (left: number): void => {
+		const slice = Math.min(left, MAX_TIMER_DELAY_MS)
+		timer = setTimeout(() => {
+			const rest = left - slice
+			if (rest <= 0) {
+				onElapsed()
+				return
+			}
+			arm(rest)
+		}, slice)
+	}
+	arm(delayMs)
+
+	return (): void => {
+		if (timer !== undefined) clearTimeout(timer)
+	}
+}
+
+/**
  * Sleep for `ms`, resolving early (returning `true`) if `signal` aborts first.
  * Returns `false` if the full delay elapsed. Removes its abort listener so a
  * long-lived signal does not accumulate listeners across attempts.
+ *
+ * The wait is armed through {@link armSlicedTimer}, not a bare `setTimeout`. The
+ * backoff delay is bounded by `retry.maxDelayMs`, and the retry schema accepts any
+ * non-negative number there — `Infinity` included — while a server-advised
+ * `retryAfterMs` is only clamped to that same ceiling. A delay above 2^31-1 ms
+ * handed straight to `setTimeout` is silently clamped to **1 ms**, so the very
+ * configuration that asks the loop to back off hardest is the one that would make
+ * it hammer a throttled provider with no wait at all (ses_015 pre-freeze R4 M1 —
+ * the same clamp the deadline timer was fixed for in R2).
  */
 function sleepOrAbort(ms: number, signal: AbortSignal): Promise<boolean> {
 	if (signal.aborted) return Promise.resolve(true)
 	if (ms <= 0) return Promise.resolve(false)
 	return new Promise<boolean>((resolve) => {
+		let cancelTimer = (): void => {}
 		const onAbort = (): void => {
-			clearTimeout(timer)
+			cancelTimer()
 			resolve(true)
 		}
-		const timer = setTimeout(() => {
+		signal.addEventListener('abort', onAbort, { once: true })
+		cancelTimer = armSlicedTimer(ms, () => {
 			signal.removeEventListener('abort', onAbort)
 			resolve(false)
-		}, ms)
-		signal.addEventListener('abort', onAbort, { once: true })
+		})
 	})
 }
 
@@ -206,6 +249,32 @@ function callWithinDeadline(
 		armDeadline()
 
 		signal.addEventListener('abort', onAbort, { once: true })
+
+		// `addEventListener` does NOT replay an abort that already fired. The caller
+		// checks `signal.aborted` before the attempt, but host code runs between that
+		// check and this listener — `onAttempt` is a user-supplied observer — and an
+		// abort raised THERE was observed by nobody: the listener never fired, and the
+		// wait ran on until the deadline against a provider that may not honor the
+		// signal. Re-checking here closes the window on every ordering: whatever else
+		// happens, an abort that is already visible settles the call now (ses_015
+		// pre-freeze R4 B1).
+		if (signal.aborted) {
+			settle(() => {
+				reject(
+					new ProviderRequestError('Aborted before the request was issued', {
+						kind: 'aborted',
+						providerId: provider.id,
+					}),
+				)
+			})
+		}
+
+		// The race is already decided — by the abort above, or by `armDeadline` finding
+		// the clock past `deadlineAt` on its own re-read. Issuing the request anyway
+		// buys a result nobody can use (the promise has settled) at the price of a
+		// round trip and, on a provider that cannot be aborted, the tokens (ses_015
+		// pre-freeze R4 m1).
+		if (settled) return
 
 		// `Promise.resolve().then(...)` rather than a bare call: a conforming adapter
 		// may validate its params and throw SYNCHRONOUSLY out of `chat()`, and that
