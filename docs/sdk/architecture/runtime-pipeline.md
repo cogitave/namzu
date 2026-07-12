@@ -112,14 +112,37 @@ See [Reliability and Cancellation](../runtime/reliability.md).
 
 ## 6. Tool Review and Execution
 
-Tool execution is a two-stage boundary:
+Tool authorization is two checks with two different jobs, not one gate consulted once.
 
-1. `tool-review.ts` inspects requested tool calls.
-2. If a `VerificationGate` exists, it evaluates allow, deny, or review decisions first.
-3. If human review is required, the runtime asks the resume handler for a decision.
-4. Approved tool calls execute through the tool executor and append tool messages back into the run.
+1. `tool-review.ts` inspects requested tool calls and, if a `VerificationGate` is
+   configured, evaluates each one against it. Deny is global here: any call the
+   gate denies is answered immediately and removed from the batch **before** a
+   human reviewer ever sees it. No review decision — including approving the
+   rest of the batch — can restore a call the gate already denied.
+2. The calls the gate did not deny go to a human only if at least one of them
+   needs review; if every survivor is already `allow`, the batch executes
+   without asking anyone.
+3. If human review is required, the runtime asks the resume handler for a
+   decision. A `modify` decision rewrites a call's input, and that rewritten
+   input is re-evaluated against the gate's deny plane before it is treated as
+   approved — a benign call a human approved cannot be modified into a denied
+   operation.
+4. Whatever leaves this phase — approved as proposed or approved as modified —
+   is still not final. `ToolExecutor` re-evaluates the gate's deny plane one
+   more time, against the tool's *final* input, after every `pre_tool_use`
+   plugin hook has run and immediately before dispatch. A hook that rewrites an
+   allowed call into one the deny rules match is denied at this point rather
+   than executed.
 
-This split is important because the runtime treats tool approval as a first-class phase, not as an incidental check buried inside tool execution.
+This split is important because the runtime treats tool approval as a
+first-class phase, not as an incidental check buried inside tool execution.
+The review phase decides what a human is asked and what the phase approves;
+the executor decides what actually runs, and that second check is the one
+nothing downstream of it can bypass. Both fail closed: an exception thrown
+while evaluating a rule is treated as a deny. See
+[Tool Safety](../tools/safety.md#5-verification-gate) and
+[Safety and Operations](./safety.md#9-safety-flow-in-practice) for the full
+picture.
 
 ## 7. Compaction and Advisory Are Side Paths, Not Separate Loops
 

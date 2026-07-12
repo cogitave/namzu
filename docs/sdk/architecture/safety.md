@@ -35,6 +35,18 @@ The local provider is responsible for:
 - it compiles regex-based custom rules
 - it evaluates a tool call into allow, deny, or review
 
+Deny is a plane, not a position in the rule list: a `deny` rule matching a call
+wins over an `allow` rule matching the same call regardless of which is written
+first. Rule order only decides allow-versus-review among the calls no rule
+denies. A rule that throws while evaluating denies the call — see
+[Fail-Closed Policy](#3-fail-closed-policy).
+
+The gate is not consulted once per call. `runToolReview` asks it about the
+input the model proposed, to strip denied calls out before a human reviewer
+sees the batch and to decide which survivors need review. `ToolExecutor` asks
+it again, against the tool's *final* input, immediately before dispatch — see
+[Safety Flow in Practice](#9-safety-flow-in-practice) for the full sequence.
+
 Architecturally, this is separate from sandboxing:
 
 - verification decides whether a tool call should proceed
@@ -48,6 +60,7 @@ Two authorization layers changed from fail-open to **fail-closed**, because an a
 | --- | --- |
 | Probe veto (`probe/registry.ts`) | **denies**. Opt out per handler with `{ onError: 'allow' }` |
 | Plugin hook (`plugin/lifecycle.ts`) | **blocks** the guarded operation. Opt out per hook with `onError: 'continue'` |
+| Verification gate (`verification/gate.ts`) | **denies**, at both points it is consulted — in `runToolReview` and again in `ToolExecutor` against the final input. No opt-out. |
 
 For vetoes, the `where` predicate is evaluated *inside* the same try boundary as the handler. It is half of the handler: a filter like `e => e.input.command.startsWith('rm')` throws on the first tool call whose input has no `command`, and evaluating it outside the boundary let that throw escape `queryVeto` and abort the run instead of producing the deny the policy promises.
 
@@ -116,14 +129,29 @@ A practical request can touch these layers in sequence:
 ```text
 tool call requested (by the name the model supplied)
   -> name resolves in the registry, or an error result goes back to the model
-  -> verification gate decides allow/deny/review
-  -> plugin pre_tool_use hooks run (a throw blocks)
+  -> verification gate evaluates the PROPOSED input (runToolReview):
+       deny -> removed from the batch, answered now, before any human sees it
+       otherwise -> allow-only survivors execute unasked; any review-decision
+                    survivor sends the whole surviving set to a human
+  -> human review, if reached (approve / modify / deny per call)
+       -> a modify produces a new input, but does not skip the steps below
+  -> plugin pre_tool_use hooks run (a throw blocks; a modify rewrites the input)
+  -> verification gate evaluates the FINAL input again (ToolExecutor),
+     immediately before dispatch — this is the one nothing downstream can bypass
   -> probe vetoes are queried (a throw denies)
   -> tool executes
   -> sandbox constrains filesystem and process behavior
   -> agent bus coordinates locks or ownership if needed
   -> telemetry records the run and iteration effects
 ```
+
+The gate appears twice on purpose: the first pass decides what a human is
+asked and what the review phase approves; the second decides what actually
+runs, at the one point where every possible rewrite — human `modify`, plugin
+hook — has already happened and nothing more will touch the input before
+dispatch. Approving a batch in review never approves a call the gate denied
+earlier, and a plugin hook can no longer rewrite a call into something the
+deny rules match and have it execute.
 
 Every deny in that chain returns to the model as a failed tool result rather than throwing out of the run, so one blocked call does not take the other calls in the batch down with it.
 

@@ -272,6 +272,18 @@ The default hook timeout is five seconds unless you override `hookTimeoutMs`.
 
 That means plugin hooks should be fast, bounded, and deliberate. They are runtime controls, not background jobs.
 
+### A `pre_tool_use` modify does not bypass verification
+
+A `modify` action composes onto the tool's input, but it is not the last word
+on whether that input runs. If the run has a `VerificationGate` configured,
+`ToolExecutor` re-evaluates the gate's deny plane against the input as it
+stands after every `pre_tool_use` hook has run — immediately before dispatch,
+which is the last point the input is still observable and no longer
+changeable. A hook that rewrites a gate-allowed call into one the deny rules
+match will have that call denied rather than executed, even though the gate
+already allowed the call the model originally proposed. See
+[Tool Safety § Verification Gate](../tools/safety.md#5-verification-gate).
+
 ### When a hook throws
 
 A throwing or timing-out hook **blocks the operation it guards**. That is the
@@ -406,6 +418,7 @@ This is useful for:
 ## Related
 
 - [SDK Tools](../tools/README.md)
+- [Tool Safety](../tools/safety.md)
 - [Connectors and MCP](./connectors-and-mcp.md)
 - [Low-Level Runtime](../runtime/low-level.md)
 - [Event Bridges](./event-bridges.md)

@@ -85,6 +85,45 @@ Built-in rule types include:
 - `custom_pattern`
 - `allow_by_tier`
 
+### Deny is a plane, not a position in the list
+
+Rule order decides allow-versus-review, and nothing else. A `deny` rule matching
+a call always wins over an `allow` rule matching the same call, regardless of
+which one is written first in `rules` — so an operator's explicit
+`deny_by_name` is never dead config behind an earlier allow, including the
+built-in `allow_read_only` rule that `allowReadOnlyTools` prepends. Only among
+the calls no rule denies does list order pick the first matching `allow` or
+`review` rule.
+
+A rule that throws while evaluating denies the call it was evaluating. The
+gate fails closed like the other authorization layers — see
+[Fail-Closed Policy](../architecture/safety.md#3-fail-closed-policy).
+
+### The gate is consulted twice, for two different questions
+
+The gate is not a single checkpoint. It is asked about a tool call at two
+points, and the two checks have two different jobs:
+
+1. **Before a human is asked.** `runToolReview` evaluates the gate against the
+   input the model proposed. Any call the gate denies is removed from the
+   batch right there and answered immediately — a human reviewer never sees
+   it, and no review decision, including approving the rest of the batch, can
+   put it back. Calls the gate did not deny go to a human only if at least one
+   of them needs review; if every survivor is `allow`, the batch runs without
+   asking anyone.
+2. **Immediately before dispatch.** A human `modify` decision, or a plugin
+   `pre_tool_use` hook, can rewrite a call's input after the first check ran.
+   `ToolExecutor` re-evaluates the gate's deny plane against that *final*
+   input — after every hook has run, at the last point where the input is
+   still observable and no longer changeable. A rewrite that turns an allowed
+   call into one the deny rules match is denied here, not executed.
+
+The first check decides what a human is asked and what the review phase
+approves. The second decides what actually runs, and nothing downstream of it
+can undo that decision. See
+[Safety Flow in Practice](../architecture/safety.md#9-safety-flow-in-practice)
+for the full sequence.
+
 ## 6. Verification Gate Example
 
 ```ts
@@ -104,6 +143,10 @@ const gate = new VerificationGate(
   getRootLogger(),
 )
 ```
+
+`write_file` is denied here even though `allow_read_only` and any `allow_by_category`
+rule are evaluated too — deny wins regardless of order, so listing the deny rule
+first or last makes no difference to the outcome.
 
 The important boundary is:
 

@@ -1,7 +1,7 @@
 ---
 title: Low-Level Runtime
 description: Use query() and drainQuery() directly in @namzu/sdk when you need verification gates, sandbox providers, plugin wiring, event streaming, or query-only runtime controls.
-last_updated: 2026-04-18
+last_updated: 2026-07-12
 status: current
 related_packages: ["@namzu/sdk", "@namzu/openai"]
 ---
@@ -172,7 +172,7 @@ Use this pattern when a transport layer or UI needs every incremental event as i
 
 | Field | Purpose |
 | --- | --- |
-| `verificationGate` | Rule-based allow, deny, or review decisions before tool execution |
+| `verificationGate` | Rule-based allow, deny, or review decisions — evaluated before human review and again against the final input immediately before dispatch |
 | `sandboxProvider` | Create a sandbox for the run and inject it into tool context |
 | `pluginManager` | Run plugin hooks and plugin-contributed runtime behavior |
 | `taskRouter` | Task-specific model routing |
