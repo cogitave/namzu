@@ -17,7 +17,8 @@
 			"runtime",
 			"session",
 			"store",
-			"tools"
+			"tools",
+			"verification"
 		],
 		"baselineExempt": [
 			"config",
@@ -30,8 +31,7 @@
 			"skills",
 			"telemetry",
 			"utils",
-			"vault",
-			"verification"
+			"vault"
 		],
 		"exempt": [
 			"__tests__",
@@ -64,6 +64,10 @@
 		"registry": {
 			"line": 93,
 			"branch": 90
+		},
+		"verification": {
+			"line": 89,
+			"branch": 82
 		}
 	}
 }

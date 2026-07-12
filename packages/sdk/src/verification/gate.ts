@@ -1,6 +1,7 @@
 import { MAX_CUSTOM_PATTERN_LENGTH } from '../constants/verification/index.js'
 import type { ToolDefinition } from '../types/tool/index.js'
 import type {
+	GateDecision,
 	GateEvaluationResult,
 	VerificationGateConfig,
 	VerificationRule,
@@ -77,6 +78,18 @@ export class VerificationGate {
 		}
 	}
 
+	/**
+	 * Deny is a plane, not a position in a list.
+	 *
+	 * Rule order decides allow-vs-review and nothing else: a deny rule matching
+	 * this call wins over an allow rule matching the same call no matter which
+	 * one is written first. Under the old first-match-wins scan, an earlier
+	 * `allow` masked a later `deny` — and since the constructor prepends the
+	 * built-in `allow_read_only` rule ahead of every operator-authored rule, an
+	 * operator's explicit `deny_by_name` on a read-only tool was dead config.
+	 * Deny short-circuits; an allow match is remembered but keeps scanning, so a
+	 * deny further down still overrides it.
+	 */
 	evaluate(ctx: ToolCallContext): GateEvaluationResult {
 		if (!this.enabled) {
 			return {
@@ -85,6 +98,12 @@ export class VerificationGate {
 				reason: 'Gate disabled',
 			}
 		}
+
+		let firstAllowOrReview: {
+			rule: VerificationRule
+			index: number
+			decision: GateDecision
+		} | null = null
 
 		for (let i = 0; i < this.rules.length; i++) {
 			const rule = this.rules[i]
@@ -98,24 +117,22 @@ export class VerificationGate {
 				this.nameSets.get(i),
 			)
 
-			if (decision !== null) {
-				const result: GateEvaluationResult = {
-					decision,
-					matchedRule: rule,
-					reason: `Matched rule: ${rule.type}`,
-				}
+			if (decision === null) continue
 
-				if (this.logDecisions) {
-					this.log.debug('Gate decision', {
-						toolName: ctx.toolName,
-						decision,
-						ruleType: rule.type,
-						ruleIndex: i,
-					})
-				}
-
-				return result
+			if (decision === 'deny') {
+				return this.decided(ctx, decision, rule, i)
 			}
+
+			firstAllowOrReview ??= { rule, index: i, decision }
+		}
+
+		if (firstAllowOrReview) {
+			return this.decided(
+				ctx,
+				firstAllowOrReview.decision,
+				firstAllowOrReview.rule,
+				firstAllowOrReview.index,
+			)
 		}
 
 		const result: GateEvaluationResult = {
@@ -132,5 +149,27 @@ export class VerificationGate {
 		}
 
 		return result
+	}
+
+	private decided(
+		ctx: ToolCallContext,
+		decision: GateDecision,
+		rule: VerificationRule,
+		index: number,
+	): GateEvaluationResult {
+		if (this.logDecisions) {
+			this.log.debug('Gate decision', {
+				toolName: ctx.toolName,
+				decision,
+				ruleType: rule.type,
+				ruleIndex: index,
+			})
+		}
+
+		return {
+			decision,
+			matchedRule: rule,
+			reason: `Matched rule: ${rule.type}`,
+		}
 	}
 }
