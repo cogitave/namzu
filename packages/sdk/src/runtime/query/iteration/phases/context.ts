@@ -72,7 +72,16 @@ export interface IterationContext {
 	readonly pluginManager?: import('../../../../plugin/lifecycle.js').PluginLifecycleManager
 }
 
-export type PhaseSignal = 'continue' | 'stop'
+/**
+ * How a phase wants the loop to proceed.
+ *
+ * `stop` and `suspend` both end the loop, and conflating them is what made a
+ * paused run indistinguishable from a finished one: `pause` and `abort` both
+ * returned `stop`, so the only trace of the difference was a `stopReason`
+ * nobody downstream consulted. They are now separate signals, and the loop
+ * turns them into separate {@link import('../../../../types/run/disposition.js').RunDisposition}s.
+ */
+export type PhaseSignal = 'continue' | 'stop' | 'suspend'
 
 export async function* handleHITLDecision(
 	ctx: IterationContext,
@@ -82,6 +91,9 @@ export async function* handleHITLDecision(
 ): AsyncGenerator<RunEvent, PhaseSignal> {
 	switch (decision.action) {
 		case 'pause': {
+			// Park the run BEFORE the event goes out: a listener that reads the run's
+			// status on `run_paused` must not observe it as still `running`.
+			ctx.runMgr.markSuspended()
 			await ctx.emitEvent({
 				type: 'run_paused',
 				runId: ctx.runMgr.id,
@@ -89,12 +101,11 @@ export async function* handleHITLDecision(
 				reason: decision.reason,
 			})
 			yield* ctx.drainPending()
-			ctx.runMgr.setStopReason('paused')
 			ctx.log.info(`Run paused at ${context}`, {
 				sessionId: ctx.runMgr.id,
 				reason: decision.reason,
 			})
-			return 'stop'
+			return 'suspend'
 		}
 		case 'abort': {
 			ctx.runMgr.setStopReason('cancelled')

@@ -585,6 +585,16 @@ export class AgentManager {
 	private async finalizeChild(agentTask: AgentTask, result: BaseAgentResult): Promise<void> {
 		const spawnRecord = this.spawnRecords.get(agentTask.taskId)
 
+		// A suspended child has not finished — it is parked awaiting a decision and
+		// will run again when one arrives. Nothing here may terminalize it, and that
+		// means skipping this whole block, not just `markCompleted`: the `else` arm
+		// below would mark its sub-session FAILED and DISPOSE ITS WORKSPACE, which
+		// destroys the very state a resume needs. (ses_017 P2.)
+		if (result.status === 'awaiting_input') {
+			this.markSuspended(agentTask.taskId, result)
+			return
+		}
+
 		// Kernel terminalization (§8.1): Materializer seals the summary and
 		// atomically flips the child session active→idle. Only run when the
 		// child actually succeeded; failed sub-sessions skip materialization
@@ -676,6 +686,37 @@ export class AgentManager {
 		}
 
 		this.markCompleted(agentTask.taskId, result)
+	}
+
+	/**
+	 * Park a child that stopped to await an external decision.
+	 *
+	 * Deliberately unlike every other transition in this class:
+	 *
+	 *   - state → `input-required`, which {@link isTerminalAgentTaskState} does
+	 *     not consider terminal, so the task stays cancellable and continuable.
+	 *   - **no `completedAt`** — nothing completed.
+	 *   - **no eviction timer.** Evicting the record would drop the result, the
+	 *     spawn record and the sub-session edge a resume has to find.
+	 *   - **no `agent_completed` RunEvent.** The child's own `run_paused` already
+	 *     reached the parent's listener (wrapped with lineage); telling the parent
+	 *     its child COMPLETED would be the same lie one level up.
+	 *
+	 * The completion callbacks DO resolve. `waitForCompletion` means "the child is
+	 * no longer running", and a suspended child is not running — the process is
+	 * free. Leaving them unresolved would hang `LocalTaskGateway.waitForTask`
+	 * forever on a decision that, until D1/D2 ship, has nowhere to arrive from.
+	 * The awaiter is not misled: the handle it reads says `input-required`.
+	 */
+	private markSuspended(taskId: TaskId, result: BaseAgentResult): void {
+		const agentTask = this.instances.get(taskId)
+		if (!agentTask || isTerminalAgentTaskState(agentTask.state)) return
+
+		agentTask.result = result
+		this.updateState(taskId, 'input-required')
+		this.emit({ type: 'input_required', taskId, result })
+		this.log.info(`Agent task awaiting input: ${taskId}`)
+		this.resolveCompletionCallbacks(taskId)
 	}
 
 	private markCompleted(taskId: TaskId, result: BaseAgentResult): void {

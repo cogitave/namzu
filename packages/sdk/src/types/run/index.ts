@@ -7,6 +7,7 @@ export * from './replay.js'
 // renamed to `WireRunStatus` in ses_010 commit 7, so there is no longer a
 // collision to avoid.
 export * from './status.js'
+export * from './disposition.js'
 export * from './events.js'
 export * from './metadata.js'
 export * from './emergency.js'

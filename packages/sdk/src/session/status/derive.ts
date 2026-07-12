@@ -15,8 +15,10 @@
  *      Delegation-in-flight is an active state of the parent — the parent
  *      Run is suspended waiting on the child's SessionSummaryMaterializer,
  *      and the session is NOT idle while that is pending.
- *   3. Any Run `awaiting_hitl` or `awaiting_hitl_resolution` → Session
- *      `awaiting_hitl`.
+ *   3. Any Run `awaiting_input` → Session `awaiting_hitl`. (The Session enum
+ *      keeps its own spelling; the Run enum collapsed `awaiting_hitl` +
+ *      `awaiting_hitl_resolution` into the single `awaiting_input` suspension
+ *      in ses_017 P2.)
  *   4. All Runs `failed` and at least one Run present → Session `failed`.
  *   5. Otherwise (all runs terminal — succeeded/cancelled/failed mix, or no
  *      runs at all) → Session `idle`.
@@ -44,10 +46,8 @@ export function deriveStatus(
 	const hasActive = runs.some((r) => r.status === 'running' || r.status === 'awaiting_subsession')
 	if (hasActive) return 'active'
 
-	// Any HITL block (synchronous or persisted) → `awaiting_hitl`.
-	const hasHitl = runs.some(
-		(r) => r.status === 'awaiting_hitl' || r.status === 'awaiting_hitl_resolution',
-	)
+	// Any Run parked awaiting an external decision → `awaiting_hitl`.
+	const hasHitl = runs.some((r) => r.status === 'awaiting_input')
 	if (hasHitl) return 'awaiting_hitl'
 
 	// All failed (with at least one Run) → `failed`. Note that a `cancelled`

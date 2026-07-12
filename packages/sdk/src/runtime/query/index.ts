@@ -526,19 +526,29 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				})
 			}
 
-			yield* iterationOrchestrator.runLoop()
+			const disposition = yield* iterationOrchestrator.runLoop()
 
-			if (params.pluginManager) {
-				const hookResults = await params.pluginManager.executeHooks(
-					'run_end',
-					{ runId: ctx.runId },
-					eventTranslator.emitEvent,
-				)
-				applyLifecycleHookResults('run_end', hookResults)
-				yield* eventTranslator.drainPending()
+			// The loop TELLS us why it returned; we do not guess. A suspended run is
+			// not finished — it has more to do the moment a decision arrives — so it
+			// gets none of the end-of-run treatment: no `run_end` hooks (they would
+			// fire again on resume, and a plugin that tears down on `run_end` would
+			// tear down a live run), no `run_completed`, no `endedAt`, no result.
+			// `persist()` in `finalize()` still runs, and writes the suspension.
+			if (disposition === 'suspended') {
+				yield* resultAssembler.suspendRun(rootSpan)
+			} else {
+				if (params.pluginManager) {
+					const hookResults = await params.pluginManager.executeHooks(
+						'run_end',
+						{ runId: ctx.runId },
+						eventTranslator.emitEvent,
+					)
+					applyLifecycleHookResults('run_end', hookResults)
+					yield* eventTranslator.drainPending()
+				}
+
+				yield* resultAssembler.completeRun(rootSpan)
 			}
-
-			yield* resultAssembler.completeRun(rootSpan)
 		} catch (err) {
 			yield* resultAssembler.handleError(err, rootSpan)
 		} finally {

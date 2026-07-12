@@ -35,8 +35,13 @@
  *     input reaching the tool.
  *   - `modify_tools` with `action: 'deny'` drops the call and answers it with a
  *     denial tool-result; if nothing survives, outcome is 'rejected'.
- *   - `reject_tools` / `pause` / `abort` execute nothing. `pause` and `abort` return
- *     'stop' and set the stop reason ('paused' / cancelled + markCancelled).
+ *   - `reject_tools` / `pause` / `abort` execute nothing. `abort` returns 'stop' and
+ *     terminalizes the run (cancelled + markCancelled).
+ *   - (ses_017 P2) `pause` returns 'suspend', NOT 'stop', and SUSPENDS the run via
+ *     `markSuspended()` — it does not merely set a stop reason. The two used to be
+ *     the same signal, which is how a paused run reached `completeRun` and was
+ *     persisted as finished. The phase must park the run BEFORE `run_paused` goes
+ *     out, so no listener can observe a paused run still reading as `running`.
  */
 
 import { describe, expect, it, vi } from 'vitest'
@@ -71,6 +76,10 @@ interface Harness {
 	execs: Record<string, ReturnType<typeof vi.fn>>
 	stopReason: string | null
 	cancelled: boolean
+	/** Set by `markSuspended()`. The run is parked, not finished. */
+	suspended: boolean
+	/** Run status observed at the moment `run_paused` was emitted. */
+	statusAtPause: string | null
 	log: Logger
 }
 
@@ -120,10 +129,18 @@ function makeHarness(opts: {
 		execs,
 		stopReason: null,
 		cancelled: false,
+		suspended: false,
+		statusAtPause: null,
 		log,
 	} as Harness
 
 	const emitEvent = async (event: RunEvent): Promise<void> => {
+		// Snapshot the run's status as a listener would see it AT emission time.
+		// Parking the run after the event goes out would publish a `run_paused` for
+		// a run that still reads `running` — the ordering is the assertion.
+		if (event.type === 'run_paused') {
+			harness.statusAtPause = harness.suspended ? 'awaiting_input' : 'running'
+		}
 		events.push(event)
 	}
 
@@ -162,6 +179,10 @@ function makeHarness(opts: {
 			},
 			markCancelled: () => {
 				harness.cancelled = true
+			},
+			markSuspended: () => {
+				harness.suspended = true
+				harness.stopReason = 'paused'
 			},
 		},
 		checkpointMgr: {
@@ -504,7 +525,7 @@ describe('runToolReview — decisions that stop or reject (regression)', () => {
 		expect(h.events.some((e) => e.type === 'tool_review_completed')).toBe(true)
 	})
 
-	it('pause stops the run and executes nothing', async () => {
+	it('pause SUSPENDS the run (not "stop"), executes nothing, and parks it before announcing it', async () => {
 		const h = makeHarness({ decision: { action: 'pause', reason: 'stepping away' } })
 
 		const outcome = await drive(
@@ -512,10 +533,18 @@ describe('runToolReview — decisions that stop or reject (regression)', () => {
 			buildResponse([{ id: 'call_1', name: 'safe_tool', args: { path: '/tmp/a' } }]),
 		)
 
-		expect(outcome).toBe('stop')
+		// 'suspend', not 'stop'. The loop turns this into a `suspended` disposition,
+		// which is the only thing that keeps `query()` from terminalizing the run.
+		expect(outcome).toBe('suspend')
 		expect(h.execs.safe_tool).not.toHaveBeenCalled()
+
+		// The run is PARKED — a stop reason alone is what the old code set, and it
+		// left the run `running` for `completeRun` to mark completed.
+		expect(h.suspended).toBe(true)
 		expect(h.stopReason).toBe('paused')
+
 		expect(h.events.some((e) => e.type === 'run_paused')).toBe(true)
+		expect(h.statusAtPause).toBe('awaiting_input')
 	})
 
 	it('abort cancels the run and executes nothing', async () => {

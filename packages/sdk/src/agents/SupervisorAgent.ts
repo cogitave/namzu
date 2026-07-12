@@ -189,13 +189,18 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 			return {
 				runId: run.id,
 				// A cancelled supervisor run reports 'cancelled', not 'failed'
-				// (ses_015 A4, round-2 M5).
+				// (ses_015 A4, round-2 M5) — and a SUSPENDED one reports
+				// 'awaiting_input', not 'failed' (ses_017 P2). This `else → failed`
+				// fallthrough is exactly the shape that turned a paused run into a
+				// failed one: any status the mapping does not name becomes a failure.
 				status:
 					run.status === 'completed'
 						? 'completed'
 						: run.status === 'cancelled'
 							? 'cancelled'
-							: 'failed',
+							: run.status === 'awaiting_input'
+								? 'awaiting_input'
+								: 'failed',
 				stopReason: run.stopReason,
 				usage: run.tokenUsage,
 				cost: run.costInfo,

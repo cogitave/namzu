@@ -48,12 +48,25 @@ export interface CreateMessageRequest {
  * Distinct from the domain {@link import('../types/run/status.js').RunStatus}
  * which models the kernel state machine. The wire enum collapses domain
  * variants onto the HTTP-facing shape (e.g. domain `succeeded` → wire
- * `completed`; domain `awaiting_hitl*` → wire `running`; domain
- * `awaiting_subsession` → wire `running`).
+ * `completed`; domain `awaiting_subsession` → wire `running`).
+ *
+ * `awaiting_input` is NOT collapsed. It used to be — the wire reported a run
+ * waiting on a human as `running`, on the theory that a pause was an internal
+ * detail. It is not: a client that cannot see the difference cannot know it is
+ * the one being waited on, and cannot know the run will sit there forever until
+ * it answers. It is carried verbatim from the domain enum and maps onto A2A's
+ * `input-required` (`RUN_STATUS_TO_A2A`), which has always meant exactly this.
+ *
+ * **This union must stay identical to the copy in `@namzu/contracts`**
+ * (`packages/contracts/src/api.ts`). They are two declarations of one wire
+ * contract — the SDK cannot import the contracts leaf — so a value added to one
+ * and not the other is a split-brain wire, where the API accepts a status the
+ * SDK's own bridge cannot map. `packages/api` asserts they agree.
  */
 export type WireRunStatus =
 	| 'queued'
 	| 'running'
+	| 'awaiting_input'
 	| 'completed'
 	| 'failed'
 	| 'cancelled'

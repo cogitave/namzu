@@ -12,6 +12,7 @@ import type { ActivityStore } from '../../../store/activity/memory.js'
 import { GENAI, NAMZU, agentIterationSpanName } from '../../../telemetry/attributes.js'
 import { getTracer } from '../../../telemetry/runtime-accessors.js'
 import type { Activity } from '../../../types/activity/index.js'
+import { isTerminalAgentTaskState } from '../../../types/agent/task.js'
 import type { ResumeHandler } from '../../../types/hitl/index.js'
 import {
 	type Message,
@@ -24,7 +25,13 @@ import type {
 	ChatCompletionResponse,
 	LLMProvider,
 } from '../../../types/provider/index.js'
-import type { AgentRunConfig, RetryConfig, RunEvent, StopReason } from '../../../types/run/index.js'
+import type {
+	AgentRunConfig,
+	RetryConfig,
+	RunDisposition,
+	RunEvent,
+	StopReason,
+} from '../../../types/run/index.js'
 import type { LLMToolSchema, ToolRegistryContract } from '../../../types/tool/index.js'
 import { toErrorMessage } from '../../../utils/error.js'
 import type { Logger } from '../../../utils/logger.js'
@@ -162,7 +169,16 @@ export class IterationOrchestrator {
 		}
 	}
 
-	async *runLoop(): AsyncGenerator<RunEvent> {
+	/**
+	 * Drive the run to a stopping point and say WHY it stopped.
+	 *
+	 * The return value is the load-bearing part. Before ses_017 this returned
+	 * `void`, so `query()` had no way to distinguish "the loop is done" from "the
+	 * loop parked the run awaiting a human" — it inferred the former in both cases
+	 * and terminalized. A `pause` and an `abort` both surfaced as the same silent
+	 * `return`, differing only in a `stopReason` nothing downstream read.
+	 */
+	async *runLoop(): AsyncGenerator<RunEvent, RunDisposition> {
 		const { runConfig, runMgr } = this.ctx
 		const { model } = runConfig
 		const tracer = getTracer()
@@ -190,11 +206,12 @@ export class IterationOrchestrator {
 				})
 				runMgr.setStopReason('cancelled')
 				runMgr.markCancelled()
-				return
+				return 'completed'
 			}
 
 			const planSignal = yield* runPlanGate(this.ctx)
-			if (planSignal === 'stop') return
+			if (planSignal === 'suspend') return 'suspended'
+			if (planSignal === 'stop') return 'completed'
 
 			while (true) {
 				const guardResult = this.ctx.guard.beforeIteration(runMgr, this.ctx.abortController.signal)
@@ -494,9 +511,14 @@ export class IterationOrchestrator {
 
 					const reviewOutcome = yield* runToolReview(this.ctx, response, iterationNum)
 
+					if (reviewOutcome === 'suspend') {
+						iterSpan.end()
+						return 'suspended'
+					}
+
 					if (reviewOutcome === 'stop') {
 						iterSpan.end()
-						return
+						return 'completed'
 					}
 
 					if (reviewOutcome === 'rejected') {
@@ -505,9 +527,13 @@ export class IterationOrchestrator {
 					}
 
 					const checkpointSignal = yield* runIterationCheckpoint(this.ctx, iterationNum)
+					if (checkpointSignal === 'suspend') {
+						iterSpan.end()
+						return 'suspended'
+					}
 					if (checkpointSignal === 'stop') {
 						iterSpan.end()
-						return
+						return 'completed'
 					}
 
 					await runAdvisoryPhase(this.ctx, iterationNum, response)
@@ -583,16 +609,33 @@ export class IterationOrchestrator {
 					throw err
 				}
 			}
+
+			// Every `break` above ends the run for real — end_turn, a guard limit, a
+			// cancellation. Only an explicit `return 'suspended'` parks it.
+			return 'completed'
 		} finally {
 			unsubscribeTaskListener?.()
 		}
 	}
 
+	/**
+	 * Is any child task still able to make progress on its own?
+	 *
+	 * A child parked on `input-required` is NOT. It is waiting for a decision from
+	 * outside the system, and no amount of waiting by the parent produces one — so
+	 * counting it as "running" would stall the parent at every end-of-turn until its
+	 * own timeout, on a child that cannot possibly finish. The parent is told the
+	 * child is awaiting input (the notification carries its state) and gets on with
+	 * its turn. Resuming a suspended CHILD is sub-agent HITL, which is ses_019.
+	 *
+	 * `isTerminalAgentTaskState` covers `rejected` too, which the hand-rolled
+	 * comparison this replaces did not.
+	 */
 	private hasRunningAgentTasks(): boolean {
 		if (!this.ctx.taskGateway) return false
 		return this.ctx.taskGateway
 			.listTasks()
-			.some((t) => t.state !== 'completed' && t.state !== 'failed' && t.state !== 'canceled')
+			.some((t) => !isTerminalAgentTaskState(t.state) && t.state !== 'input-required')
 	}
 
 	private async *waitAndInjectNotifications(): AsyncGenerator<RunEvent> {

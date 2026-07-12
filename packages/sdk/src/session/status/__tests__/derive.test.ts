@@ -62,16 +62,17 @@ describe('deriveStatus', () => {
 		expect(deriveStatus(makeSession('idle'), runs('awaiting_subsession'))).toBe('active')
 	})
 
-	it('any awaiting_hitl → awaiting_hitl', () => {
-		expect(deriveStatus(makeSession('idle'), runs('succeeded', 'awaiting_hitl'))).toBe(
+	// ses_017 P2: the Run enum's `awaiting_hitl` + `awaiting_hitl_resolution` —
+	// both declared, neither ever set — collapsed into the single `awaiting_input`
+	// suspension. The Session enum keeps its own `awaiting_hitl` spelling.
+	it('any awaiting_input run → awaiting_hitl session', () => {
+		expect(deriveStatus(makeSession('idle'), runs('succeeded', 'awaiting_input'))).toBe(
 			'awaiting_hitl',
 		)
 	})
 
-	it('any awaiting_hitl_resolution → awaiting_hitl (persisted HITL wait)', () => {
-		expect(deriveStatus(makeSession('idle'), runs('awaiting_hitl_resolution'))).toBe(
-			'awaiting_hitl',
-		)
+	it('a lone awaiting_input run → awaiting_hitl session', () => {
+		expect(deriveStatus(makeSession('idle'), runs('awaiting_input'))).toBe('awaiting_hitl')
 	})
 
 	it('all failed → failed', () => {
@@ -96,6 +97,6 @@ describe('deriveStatus', () => {
 
 	it('running takes precedence over HITL', () => {
 		// Two runs — one running, one HITL. Active is higher priority (§5.1).
-		expect(deriveStatus(makeSession('idle'), runs('running', 'awaiting_hitl'))).toBe('active')
+		expect(deriveStatus(makeSession('idle'), runs('running', 'awaiting_input'))).toBe('active')
 	})
 })

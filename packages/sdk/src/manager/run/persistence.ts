@@ -193,6 +193,32 @@ export class RunPersistence {
 		this.resolveResult()
 	}
 
+	/**
+	 * Park the run: it is waiting on a decision from outside itself and cannot
+	 * progress until one arrives.
+	 *
+	 * The three things this deliberately does NOT do are the whole point:
+	 *
+	 *   - **No `endedAt`.** The run has not ended. A timestamp here would make
+	 *     every consumer that computes a duration, or that reads `endedAt` as
+	 *     "is it over", treat a waiting run as a finished one — which is exactly
+	 *     the bug this state exists to close.
+	 *   - **No `resolveResult()`.** A suspended run has no answer yet. Promoting
+	 *     the last assistant message to `result` would publish a half-finished
+	 *     turn (typically the very message whose tool calls are awaiting review)
+	 *     as the run's output.
+	 *   - **No completion event.** The caller emits `run_paused`; `run_completed`
+	 *     must never fire for a run that is still going to run again.
+	 *
+	 * `stopReason: 'paused'` is a label, not a state. It is set here for the
+	 * benefit of readers, but nothing may infer terminality from it — see
+	 * {@link import('../../types/run/disposition.js').RunDisposition}.
+	 */
+	markSuspended(): void {
+		this.run.status = 'awaiting_input'
+		this.run.stopReason = 'paused'
+	}
+
 	markFailed(error: string): void {
 		this.run.status = 'failed'
 		this.run.stopReason = 'error'

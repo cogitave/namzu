@@ -11,7 +11,12 @@ interface VerificationAwareContext extends IterationContext {
 	readonly verificationGate?: VerificationGate
 }
 
-export type ToolReviewOutcome = 'executed' | 'rejected' | 'stop'
+/**
+ * `stop` ends the run for good (the human aborted it). `suspend` parks it
+ * awaiting a decision that has not arrived yet — the run is not over and must
+ * not be terminalized. See {@link import('./context.js').PhaseSignal}.
+ */
+export type ToolReviewOutcome = 'executed' | 'rejected' | 'stop' | 'suspend'
 
 type ProviderToolCall = NonNullable<ChatCompletionResponse['message']['toolCalls']>[number]
 
@@ -275,6 +280,12 @@ export async function* runToolReview(
 				runId: ctx.runMgr.id,
 				decision: 'rejected',
 			})
+			// Park the run BEFORE the event goes out, so a listener that reads the
+			// run's status on `run_paused` cannot observe it as still `running`.
+			// The tool calls stay unanswered in the history on purpose: the pending
+			// batch is what a resume has to act on, and `reviewCheckpoint` is where
+			// it was saved.
+			ctx.runMgr.markSuspended()
 			await ctx.emitEvent({
 				type: 'run_paused',
 				runId: ctx.runMgr.id,
@@ -282,8 +293,7 @@ export async function* runToolReview(
 				reason: reviewDecision.reason,
 			})
 			yield* ctx.drainPending()
-			ctx.runMgr.setStopReason('paused')
-			return 'stop'
+			return 'suspend'
 		}
 
 		case 'abort': {

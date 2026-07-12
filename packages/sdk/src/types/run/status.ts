@@ -10,10 +10,21 @@
  * Variants:
  *  - `queued` — run created, not yet started.
  *  - `running` — iteration loop in flight.
- *  - `awaiting_hitl` — synchronous-wait on a HITL gate (user present).
- *  - `awaiting_hitl_resolution` — persisted-wait after a HITL timeout under
- *    `HITLConfig.onTimeout = 'pause_run_until_resolved'`. User absent; Run
- *    persists until resolved or cancelled (permission-policies.md §13.3).
+ *  - `awaiting_input` — **the suspension.** The run is blocked on a decision
+ *    from outside itself (tool review, plan approval, iteration checkpoint) and
+ *    cannot progress until one arrives. Non-terminal: no `endedAt`, no result,
+ *    no completion event. Spelled identically in {@link
+ *    import('../common/index.js').AgentStatus} (the persisted vocabulary) and
+ *    on the wire — one name, one meaning, everywhere.
+ *
+ *    Replaces the pre-ses_017 `awaiting_hitl` / `awaiting_hitl_resolution`
+ *    pair, which were declared here and never set by anything. Two spellings
+ *    for one state, neither of them reachable, is how "a paused run is
+ *    persisted as FINISHED" survived as a bug: the vocabulary said the state
+ *    existed while every code path terminalized it. The `pause_run_until_
+ *    resolved` timeout policy that motivated the second variant does not exist
+ *    in the runtime; if it lands, it is a property of the pending *decision*
+ *    (how long it may sit unanswered), not a second run state.
  *  - `awaiting_subsession` — parent Run has delegated to a child SubSession
  *    and is suspended until the Materializer seals the child's summary.
  *    Session-level fan-in treats this as `active` (delegation in flight
@@ -25,8 +36,7 @@
 export type RunStatus =
 	| 'queued'
 	| 'running'
-	| 'awaiting_hitl'
-	| 'awaiting_hitl_resolution'
+	| 'awaiting_input'
 	| 'awaiting_subsession'
 	| 'succeeded'
 	| 'failed'
