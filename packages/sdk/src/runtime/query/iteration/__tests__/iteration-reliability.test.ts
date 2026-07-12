@@ -13,9 +13,17 @@
 // Current-code invariants asserted (2026-07-12, ses_015 fix-batch):
 // - The deadline-timeout classification in the iteration catch is gated on a
 //   RETRYABLE transport error (throttle/server/network): a post-deadline server
-//   error stops the run as 'timeout', but a post-deadline auth error keeps the
-//   normal failure path with the ORIGINAL error preserved (run 'failed',
-//   stopReason not 'timeout') rather than being masked as a timeout.
+//   error stops the run as 'timeout', but an auth error keeps the normal failure
+//   path with the ORIGINAL error preserved (run 'failed', stopReason not
+//   'timeout') rather than being masked as a timeout.
+//
+// Current-code invariants asserted (2026-07-12, ses_015 pre-freeze B2):
+// - A provider that never answers cannot hold the run past timeoutMs: the model
+//   call itself races the deadline, not merely the attempt count, and the run
+//   stops as 'timeout'.
+// - Revised with B2: an error a provider reports AFTER the deadline is no longer
+//   observable — the loop has stopped waiting for it by then — so the auth-error
+//   invariant above is asserted on an error that actually arrives.
 // These tests drive the real query() loop with hand-rolled fake providers.
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -288,9 +296,14 @@ describe('iteration loop — deadline classification', () => {
 	const TIMEOUT_MS = 250
 	const CROSS_DEADLINE_MS = 500
 
-	it('a post-deadline auth error fails with the original error, not a timeout', async () => {
+	it('an auth error fails with the original error, never reclassified as a timeout', async () => {
+		// Misconfiguration must not be masked as a timeout. Since pre-freeze B2 the
+		// loop stops WAITING at the deadline, so an error the provider only reports
+		// afterwards can no longer be observed at all — the run has already stopped as
+		// a timeout, which is the honest classification when nothing ever answered.
+		// The reclassification guard therefore applies where it can: an auth error
+		// that DID arrive fails on its own terms, whatever the clock says next.
 		const provider = makeProvider(async () => {
-			await new Promise((r) => setTimeout(r, CROSS_DEADLINE_MS))
 			throw new ProviderRequestError('expired api key', { kind: 'auth', providerId: 'fake' })
 		})
 
@@ -323,5 +336,28 @@ describe('iteration loop — deadline classification', () => {
 		})
 
 		expect(run.stopReason).toBe('timeout')
+	})
+
+	it('a provider that never answers cannot hold the run past timeoutMs', async () => {
+		// The pre-freeze B2 guarantee, end to end. Before it, attemptModelCall checked
+		// the deadline only BEFORE awaiting provider.chat, so a hang was unbounded: the
+		// retry layer capped the number of attempts, not the duration of one.
+		const provider = makeProvider(async (_p, call) => {
+			// The requestFinalResponse call (its own grace budget) answers promptly.
+			if (call > 0) return stopResponse('final summary')
+			return new Promise<ChatCompletionResponse>(() => {})
+		})
+
+		const started = Date.now()
+		const { run } = await runQuery({
+			provider,
+			messages: [createUserMessage('hi')],
+			runConfig: { timeoutMs: TIMEOUT_MS },
+		})
+		const elapsed = Date.now() - started
+
+		expect(run.stopReason).toBe('timeout')
+		// Generous ceiling — the point is that it terminates at all.
+		expect(elapsed).toBeLessThan(10_000)
 	})
 })

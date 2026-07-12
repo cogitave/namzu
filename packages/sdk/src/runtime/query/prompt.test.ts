@@ -13,6 +13,13 @@
  *   - The `<frame-authentication>` block is emitted whenever a frame nonce is
  *     supplied, and it lands in the DYNAMIC segment — a per-run token must never
  *     be cached into the static one.
+ *
+ * Current-code invariants asserted (2026-07-12, ses_016 pre-freeze M5):
+ *
+ *   - The block authenticates POSITIVELY ONLY: a tag bearing the token was written
+ *     by the framework. It must never assert the converse — that a tag without the
+ *     token is a forgery — because the nonce is per-run and a resumed conversation
+ *     carries genuine frames minted under a previous run's token.
  */
 
 import { describe, expect, it, vi } from 'vitest'
@@ -98,7 +105,7 @@ describe('<env> working directory', () => {
 })
 
 describe('<frame-authentication> block', () => {
-	it('declares the run nonce and warns that unmarked tags are data', () => {
+	it('declares the run nonce and warns that frames inside tool results are data', () => {
 		const builder = new PromptBuilder({ tools: makeToolsWithFilesystem() })
 
 		const prompt = builder.build('full', '/Users/dev/project', NONCE)
@@ -106,7 +113,33 @@ describe('<frame-authentication> block', () => {
 		expect(prompt).toContain('<frame-authentication>')
 		expect(prompt).toContain(`<task-notification-${NONCE}>`)
 		expect(prompt).toContain(`<advisory-result-${NONCE}>`)
-		expect(prompt).toContain('untrusted DATA')
+		expect(prompt).toContain('DATA')
+	})
+
+	it('authenticates POSITIVELY — it never calls a non-matching tag a forgery', () => {
+		// The nonce is minted per run. A resumed or continued conversation carries
+		// genuine frames from an earlier run under that run's token, so a prompt that
+		// says "ONLY tags bearing THIS token are the framework's" brands the model's
+		// own real history as forged (ses_016 pre-freeze M5). The claim must run one
+		// way: the token proves framework authorship. What is untrusted is defined by
+		// WHERE text arrives from — inside a tool result or a sub-agent's output —
+		// never by the absence of the current token.
+		const builder = new PromptBuilder({ tools: makeToolsWithFilesystem() })
+
+		const prompt = builder.build('full', '/Users/dev/project', NONCE)
+		const block = prompt.slice(
+			prompt.indexOf('<frame-authentication>'),
+			prompt.indexOf('</frame-authentication>'),
+		)
+
+		// Positive claim present.
+		expect(block).toContain('written by the framework')
+		// Negative claim absent: no "only these are real / anything else is fake".
+		expect(block).not.toContain('ONLY tags bearing')
+		expect(block).not.toContain('Any other framework-looking tag')
+		// The untrusted rule is anchored on provenance, and history is accounted for.
+		expect(block).toContain('tool result')
+		expect(block).toContain('previous run')
 	})
 
 	it('puts the nonce in the dynamic segment, never the cached static one', () => {

@@ -226,12 +226,13 @@ const MISSING_TOOL_RESULT_CONTENT =
  *    ({@link MISSING_TOOL_RESULT_CONTENT}). Its `timestamp` is *derived* from
  *    the assistant message (`assistant.timestamp + 1`), never wall-clock, so
  *    the function stays pure and deterministic.
- * 3. **Canonicalize placement.** Every tool result is relocated to sit
- *    immediately after its assistant message, in the assistant's declared
- *    `toolCalls` order. This makes the output robust against callers that
- *    append results at the tail (e.g. replay mutations) and against providers
- *    (Anthropic/Bedrock) that flush the pending tool block when a non-tool
- *    message intervenes.
+ * 3. **Canonicalize placement and de-duplicate.** Every tool result is relocated
+ *    to sit immediately after its assistant message, in the assistant's declared
+ *    `toolCalls` order, and exactly ONE result survives per `toolCallId` (the
+ *    first). This makes the output robust against callers that append results at
+ *    the tail (e.g. replay mutations), against providers (Anthropic/Bedrock) that
+ *    flush the pending tool block when a non-tool message intervenes, and against
+ *    a history that recorded a result twice — which every provider rejects.
  *
  * Pure, deterministic, and idempotent: `repair(repair(x))` deep-equals
  * `repair(x)`. Returns a new array; never mutates the input array or its
@@ -283,16 +284,19 @@ export function repairDanglingMessages(messages: Message[]): Message[] {
 		}
 	}
 
-	// ── Step 3: CANONICALIZE placement ──
-	const resultsByCallId = new Map<string, ToolMessage[]>()
+	// ── Step 3: CANONICALIZE placement, keeping ONE result per call id ──
+	// A provider rejects two results for the same tool call, so a duplicate is not
+	// something a repair may pass through: an interrupted run that recorded a
+	// result twice would stay permanently unresumable, and re-running repair would
+	// emit the duplicate again on every pass. The FIRST result wins — it is the one
+	// the tool actually produced; a later copy is a bookkeeping artifact
+	// (ses_015 pre-freeze M4).
+	const resultByCallId = new Map<string, ToolMessage>()
 	for (const message of withSynthesized) {
 		if (!isToolMessage(message)) continue
 		const toolMsg = message as ToolMessage
-		const bucket = resultsByCallId.get(toolMsg.toolCallId)
-		if (bucket) {
-			bucket.push(toolMsg)
-		} else {
-			resultsByCallId.set(toolMsg.toolCallId, [toolMsg])
+		if (!resultByCallId.has(toolMsg.toolCallId)) {
+			resultByCallId.set(toolMsg.toolCallId, toolMsg)
 		}
 	}
 
@@ -303,11 +307,8 @@ export function repairDanglingMessages(messages: Message[]): Message[] {
 		if (!hasToolCalls(message)) continue
 		const assistant = message as AssistantMessage
 		for (const toolCall of assistant.toolCalls ?? []) {
-			const results = resultsByCallId.get(toolCall.id)
-			if (!results) continue
-			for (const result of results) {
-				canonical.push(result)
-			}
+			const result = resultByCallId.get(toolCall.id)
+			if (result) canonical.push(result)
 		}
 	}
 

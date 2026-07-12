@@ -16,6 +16,15 @@
 // - onAttempt observer errors are logged and swallowed; the call still proceeds.
 // - resolveRetryConfig falls back to DEFAULT_RETRY_CONFIG when runConfig.retry
 //   is absent and returns the provided config otherwise.
+//
+// Current-code invariants asserted (2026-07-12, ses_015 pre-freeze B2):
+// - deadlineAt bounds the IN-FLIGHT call, not merely the attempt count: a
+//   provider that never returns is abandoned at the deadline with a retryable
+//   'network' kind (so the loop's timeout branch fires), is not retried
+//   afterwards, and a late response arriving after the wait was abandoned cannot
+//   resolve the call.
+// - An abort mid-flight rejects with kind 'aborted'; the signal is still
+//   forwarded to the provider so an abortable adapter tears the request down.
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_RETRY_CONFIG } from '../../../config/runtime.js'
 import { ProviderRequestError } from '../../../provider/errors.js'
@@ -85,14 +94,26 @@ function err(kind: ProviderErrorKind, extra?: { retryAfterMs?: number }): Provid
 	return new ProviderRequestError(`fail:${kind}`, { kind, providerId: 'fake', ...extra })
 }
 
-/** Replace setTimeout with a synchronous stub that records the requested delay. */
-function captureDelays(): { delays: number[]; restore: () => void } {
+/**
+ * Replace setTimeout with a synchronous stub that records the requested delay.
+ *
+ * Two things schedule timers under `attemptModelCall`: the backoff sleep, and the
+ * in-flight deadline installed per attempt by `callWithinDeadline` (pre-freeze
+ * B2). Only the first is under test here. The deadline timers carry the full
+ * remaining run budget, so anything at or above `ignoreAtOrAbove` is neither
+ * recorded nor fired — every test in this block runs against FAR_DEADLINE, and
+ * firing that timer synchronously would abandon the call before the provider
+ * could answer.
+ */
+function captureDelays(ignoreAtOrAbove = 60_000): { delays: number[]; restore: () => void } {
 	const delays: number[] = []
 	const spy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((
 		cb: () => void,
 		ms?: number,
 	) => {
-		delays.push(ms ?? 0)
+		const delay = ms ?? 0
+		if (delay >= ignoreAtOrAbove) return 0 as unknown as ReturnType<typeof setTimeout>
+		delays.push(delay)
 		cb()
 		return 0 as unknown as ReturnType<typeof setTimeout>
 	}) as typeof setTimeout)
@@ -102,8 +123,11 @@ function captureDelays(): { delays: number[]; restore: () => void } {
 const FAR_DEADLINE = () => Date.now() + 10 * 60_000
 
 afterEach(() => {
-	vi.restoreAllMocks()
+	// Fake timers must come off BEFORE the spies are restored. Reversed, a spy on
+	// globalThis.setTimeout is written back while the fake clock still owns the
+	// global, and the next real-timer test sees setTimeout undefined.
 	vi.useRealTimers()
+	vi.restoreAllMocks()
 })
 
 describe('resolveRetryConfig', () => {
@@ -365,6 +389,115 @@ describe('attemptModelCall — deadline', () => {
 		await vi.advanceTimersByTimeAsync(500)
 		await assertion
 		expect(provider.calls).toHaveLength(1)
+	})
+})
+
+describe('attemptModelCall — the in-flight call is bounded, not just the attempts', () => {
+	it('abandons a provider that never returns once the deadline elapses', async () => {
+		vi.useFakeTimers({ now: 0 })
+		// A provider that hangs forever: the pre-attempt deadline check cannot see
+		// it, because it is only reached once the await resolves. Before the bound,
+		// this run waited indefinitely and blew straight past timeoutMs.
+		const provider = makeProvider(() => new Promise<ChatCompletionResponse>(() => {}))
+
+		const promise = attemptModelCall({
+			provider,
+			params: { model: 'm', messages: [] },
+			retry: RETRY,
+			signal: new AbortController().signal,
+			deadlineAt: 5_000,
+			log: makeLogger(),
+		})
+
+		// Classified as a retryable transport kind so the iteration catch's timeout
+		// branch fires and the run stops as 'timeout' rather than 'failed'.
+		const assertion = expect(promise).rejects.toMatchObject({ kind: 'network' })
+		await vi.advanceTimersByTimeAsync(5_000)
+		await assertion
+		expect(provider.calls).toHaveLength(1)
+	})
+
+	it('does not retry after the deadline abandons an attempt', async () => {
+		vi.useFakeTimers({ now: 0 })
+		const provider = makeProvider(() => new Promise<ChatCompletionResponse>(() => {}))
+
+		const promise = attemptModelCall({
+			provider,
+			params: { model: 'm', messages: [] },
+			retry: { ...RETRY, maxAttempts: 5 },
+			signal: new AbortController().signal,
+			deadlineAt: 1_000,
+			log: makeLogger(),
+		})
+
+		const assertion = expect(promise).rejects.toMatchObject({ kind: 'network' })
+		await vi.advanceTimersByTimeAsync(60_000)
+		await assertion
+		expect(provider.calls).toHaveLength(1)
+	})
+
+	it('abandons an in-flight call when the signal aborts, with kind aborted', async () => {
+		const ctrl = new AbortController()
+		const provider = makeProvider(() => new Promise<ChatCompletionResponse>(() => {}))
+
+		const promise = attemptModelCall({
+			provider,
+			params: { model: 'm', messages: [] },
+			retry: RETRY,
+			signal: ctrl.signal,
+			deadlineAt: FAR_DEADLINE(),
+			log: makeLogger(),
+		})
+
+		ctrl.abort()
+		await expect(promise).rejects.toMatchObject({ kind: 'aborted' })
+		expect(provider.calls).toHaveLength(1)
+	})
+
+	it('ignores a late response from a provider whose wait was already abandoned', async () => {
+		vi.useFakeTimers({ now: 0 })
+		// The Ollama case: the request cannot be cancelled and eventually answers.
+		// The bound promises only that the LOOP stopped waiting — the late value
+		// must not resolve the call and flow on into hooks and tools.
+		let settle: ((r: ChatCompletionResponse) => void) | undefined
+		const provider = makeProvider(
+			() =>
+				new Promise<ChatCompletionResponse>((resolve) => {
+					settle = resolve
+				}),
+		)
+
+		const promise = attemptModelCall({
+			provider,
+			params: { model: 'm', messages: [] },
+			retry: { ...RETRY, enabled: false },
+			signal: new AbortController().signal,
+			deadlineAt: 2_000,
+			log: makeLogger(),
+		})
+
+		const assertion = expect(promise).rejects.toMatchObject({ kind: 'network' })
+		await vi.advanceTimersByTimeAsync(2_000)
+		await assertion
+
+		settle?.(okResponse())
+		await expect(promise).rejects.toMatchObject({ kind: 'network' })
+	})
+
+	it('forwards the signal to the provider so an abortable adapter can cancel', async () => {
+		const ctrl = new AbortController()
+		const provider = makeProvider(async () => okResponse())
+
+		await attemptModelCall({
+			provider,
+			params: { model: 'm', messages: [] },
+			retry: RETRY,
+			signal: ctrl.signal,
+			deadlineAt: FAR_DEADLINE(),
+			log: makeLogger(),
+		})
+
+		expect(provider.calls[0]?.signal).toBe(ctrl.signal)
 	})
 })
 

@@ -49,24 +49,34 @@ function leadingSystemMessages(messages: Message[]): Message[] {
 	return systemMessages
 }
 
-/** Drop any prior compaction summaries from a leading-system run (anti-stacking). */
-function stripPriorCompactionSummaries(systemMessages: Message[]): Message[] {
-	return systemMessages.filter((m) => !(m.content ?? '').startsWith(COMPACTION_HEADER))
+/**
+ * A system message carrying a prior compaction summary. Recognised ANYWHERE in
+ * the sequence, not just in the leading system run: a forced reduction keeps a
+ * halved recent window, and a summary inserted by an earlier pass can end up
+ * inside it — leaving it interleaved rather than leading. Scanning only the head
+ * let those survive and stack (ses_015 pre-freeze M2).
+ */
+function isCompactionSummary(message: Message): boolean {
+	return message.role === 'system' && (message.content ?? '').startsWith(COMPACTION_HEADER)
+}
+
+/** Drop every prior compaction summary from a message run (anti-stacking). */
+function stripPriorCompactionSummaries(messages: Message[]): Message[] {
+	return messages.filter((m) => !isCompactionSummary(m))
 }
 
 /**
  * Extract the body text (everything after {@link COMPACTION_HEADER}) of every
- * prior compaction summary in a leading-system run. Anti-stacking replaces these
- * summaries with a fresh one, so their content must be carried forward or any
- * fact captured only inside an earlier summary is lost (ses_015 fix-batch).
+ * prior compaction summary in the sequence, oldest first. Anti-stacking replaces
+ * these summaries with a fresh one, so their content must be carried forward or
+ * any fact captured only inside an earlier summary is lost (ses_015 fix-batch).
  */
-function extractPriorSummaryBodies(systemMessages: Message[]): string[] {
+function extractPriorSummaryBodies(messages: Message[]): string[] {
 	const bodies: string[] = []
-	for (const m of systemMessages) {
+	for (const m of messages) {
+		if (!isCompactionSummary(m)) continue
 		const content = m.content ?? ''
-		if (content.startsWith(COMPACTION_HEADER)) {
-			bodies.push(content.slice(COMPACTION_HEADER.length).replace(/^\s+/, ''))
-		}
+		bodies.push(content.slice(COMPACTION_HEADER.length).replace(/^\s+/, ''))
 	}
 	return bodies
 }
@@ -179,21 +189,26 @@ export async function runCompactionCheck(ctx: IterationContext): Promise<void> {
 
 	// Carry prior summary text into the new summary so a fact captured only in an
 	// earlier [COMPACTED CONTEXT] block (and never promoted to a working-state
-	// slot) survives this pass (ses_015 fix-batch).
-	const priorSummaryBodies = extractPriorSummaryBodies(systemMessages)
+	// slot) survives this pass (ses_015 fix-batch). Scanned over the WHOLE history,
+	// not just the leading system run, so an interleaved summary is carried and
+	// then dropped rather than left behind to stack (pre-freeze M2).
+	const priorSummaryBodies = extractPriorSummaryBodies(messages)
 
 	let compactedContent: string
 
 	if (config.llmVerification && manager.slotCount() < config.richStateThreshold) {
 		// Feed the prior summaries into the verifier input (as the leading context
 		// so budget-truncation can't drop them) alongside the raw older messages.
+		// Those are stripped of summary blocks first — carried separately, they
+		// would otherwise reach the verifier twice.
+		const olderWithoutSummaries = stripPriorCompactionSummaries(olderMessages)
 		const verifierInput =
 			priorSummaryBodies.length > 0
 				? [
 						createSystemMessage(`[Carried from prior summary]\n${priorSummaryBodies.join('\n\n')}`),
-						...olderMessages,
+						...olderWithoutSummaries,
 					]
-				: olderMessages
+				: olderWithoutSummaries
 		compactedContent = await buildVerifiedSummary(manager, verifierInput, ctx.provider, config)
 	} else {
 		compactedContent =
@@ -203,10 +218,13 @@ export async function runCompactionCheck(ctx: IterationContext): Promise<void> {
 
 	const compactionMessage = createSystemMessage(`${COMPACTION_HEADER}\n\n${compactedContent}`)
 
+	// Strip on BOTH sides of the insert: a summary can sit in the leading system
+	// run or, after a forced reduction, inside the recent window. Dropping a
+	// system message can never sever a tool call/result pair.
 	const newMessages = [
 		...stripPriorCompactionSummaries(systemMessages),
 		compactionMessage,
-		...recentMessages,
+		...stripPriorCompactionSummaries(recentMessages),
 	]
 
 	const oldCount = messages.length
@@ -231,19 +249,30 @@ export async function runCompactionCheck(ctx: IterationContext): Promise<void> {
 
 /**
  * Build a fallback-trim candidate: keep leading system messages, drop the
- * oldest half of the remaining (non-system) messages, adjusting the cut with
+ * oldest half of the remaining **non-system** messages, adjusting the cut with
  * findSafeTrimIndex so no tool call/result pair is severed. No summary message
  * is produced — this path runs when there is no compaction config / working
  * state to summarise from.
+ *
+ * "Half" is counted over actual non-system messages, and the cut lands on the
+ * first non-system message that survives. Counting raw positions instead let
+ * interleaved system messages (a prior compaction summary, say) inflate the
+ * count and push the cut arbitrarily deep — far enough, in a summary-heavy
+ * history, to walk off the end of the conversation (ses_015 pre-freeze M3).
  */
 function buildFallbackTrim(messages: Message[]): Message[] {
 	const systemMessages = leadingSystemMessages(messages)
 	const nonSystemStart = systemMessages.length
-	const nonSystemCount = messages.length - nonSystemStart
-	if (nonSystemCount <= 1) return messages.slice()
 
-	const dropCount = Math.floor(nonSystemCount / 2)
-	const naiveCut = nonSystemStart + dropCount
+	const nonSystemIndices: number[] = []
+	for (let i = nonSystemStart; i < messages.length; i++) {
+		const msg = messages[i]
+		if (msg && msg.role !== 'system') nonSystemIndices.push(i)
+	}
+	if (nonSystemIndices.length <= 1) return messages.slice()
+
+	const dropCount = Math.floor(nonSystemIndices.length / 2)
+	const naiveCut = nonSystemIndices[dropCount] ?? messages.length
 	const safeCut = findSafeTrimIndex(messages, naiveCut)
 	return [...systemMessages, ...messages.slice(safeCut)]
 }
@@ -269,14 +298,19 @@ function buildStructuredReduction(
 
 	// Carry prior summary text forward so anti-stacking does not drop a fact that
 	// lived only inside an earlier summary (ses_015 fix-batch). Reactive recovery
-	// must not issue a model call, so this is a serialize-only append.
-	const priorSummaryBodies = extractPriorSummaryBodies(systemMessages)
+	// must not issue a model call, so this is a serialize-only append. Scanned over
+	// the whole history and stripped on both sides of the insert (pre-freeze M2).
+	const priorSummaryBodies = extractPriorSummaryBodies(messages)
 	const compactedContent =
 		serializeState(manager.getState()) +
 		buildCarriedSummarySection(priorSummaryBodies, config.convoTextBudget)
 	const compactionMessage = createSystemMessage(`${COMPACTION_HEADER}\n\n${compactedContent}`)
 
-	return [...stripPriorCompactionSummaries(systemMessages), compactionMessage, ...recentMessages]
+	return [
+		...stripPriorCompactionSummaries(systemMessages),
+		compactionMessage,
+		...stripPriorCompactionSummaries(recentMessages),
+	]
 }
 
 /**

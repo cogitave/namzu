@@ -139,7 +139,9 @@ describe('mcpToolToToolDefinition', () => {
 			mockClient({ content: [], isError: false }),
 			'notion',
 		)
-		expect(tool.name).toBe('mcp_notion_notion_search')
+		// The repaired leaf carries a hash of the original name, so `notion.search`
+		// and `notion:search` cannot collapse onto one key (pre-freeze B3).
+		expect(tool.name).toMatch(/^mcp_notion_notion_search_[a-z0-9]{7}$/)
 	})
 
 	it('invokes the server under its ORIGINAL name, not the canonicalized one', async () => {

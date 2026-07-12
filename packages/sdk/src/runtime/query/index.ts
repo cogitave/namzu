@@ -43,7 +43,7 @@ import { EventTranslator } from './events.js'
 import { GuardCoordinator } from './guard.js'
 import { IterationOrchestrator } from './iteration/index.js'
 import { applyLifecycleHookResults } from './plugin-hooks.js'
-import { PromptBuilder } from './prompt.js'
+import { PromptBuilder, buildFrameAuthentication } from './prompt.js'
 import type { PromptSegments } from './prompt.js'
 import { prepareResumeMessages } from './replay/prepare.js'
 import { ResultAssembler } from './result.js'
@@ -407,7 +407,25 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 					ctx.runMgr.pushMessage(msg)
 				}
 			} else if (params.continuationMode) {
-				for (const msg of params.messages) {
+				// The caller owns the whole history here, system prompt included — so
+				// nothing installs a system message for this run, and the frame nonce is
+				// freshly minted per run. Without the declaration below, every frame this
+				// run emits would carry a token the model was never told to trust, which
+				// is the same as emitting no token at all (ses_016 pre-freeze M5).
+				// It is spliced in after the caller's own leading system run rather than
+				// prepended, so the cached static prefix keeps its position. A stale
+				// declaration from the previous run may sit alongside it; the wording is
+				// positive-only, so two live tokens read as two things the framework
+				// wrote, not as a contradiction.
+				const provided = [...params.messages]
+				let insertAt = 0
+				while (insertAt < provided.length && provided[insertAt]?.role === 'system') insertAt++
+				provided.splice(
+					insertAt,
+					0,
+					createSystemMessage(buildFrameAuthentication(ctx.frameNonce), 'ephemeral'),
+				)
+				for (const msg of provided) {
 					ctx.runMgr.pushMessage(msg)
 				}
 			} else {

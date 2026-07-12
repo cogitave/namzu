@@ -275,15 +275,23 @@ describe('enable() name validation', () => {
 
 		// The MCP spec does not constrain tool names, and `notion.search` / `db:query`
 		// are real. Strict validation made one of them fatal to the whole plugin.
-		expect(registered).toEqual(['notion__srv__notion_search', 'notion__srv__db_query'])
+		// A repaired leaf carries a hash of the original, so two remote names can
+		// never collapse onto one registry key (pre-freeze B3).
+		expect(registered).toHaveLength(2)
+		expect(registered[0]).toMatch(/^notion__srv__notion_search_[a-z0-9]{7}$/)
+		expect(registered[1]).toMatch(/^notion__srv__db_query_[a-z0-9]{7}$/)
 		expect(state.current.status).toBe('enabled')
 	})
 
-	it('skips a remote tool whose canonical name collides, without rolling back', async () => {
+	it('registers BOTH tools whose sanitized names would have collapsed together', async () => {
+		// The pre-freeze B3 kill case, at the lifecycle level. `a.b` and `a:b` both
+		// sanitize to `a_b`, so the second used to be dropped as a duplicate and the
+		// first kept the key. MCP enumeration order is not stable across restarts, so
+		// the SAME persisted tool name could come back bound to a DIFFERENT remote
+		// tool. Both must register, under distinct keys.
 		mockConnect.mockResolvedValue(undefined)
 		mockListTools.mockResolvedValue([
 			{ name: 'a.b', inputSchema: { type: 'object' } },
-			// Canonicalizes to the same leaf as `a.b`.
 			{ name: 'a:b', inputSchema: { type: 'object' } },
 		])
 		const events: PluginLifecycleEvent[] = []
@@ -303,10 +311,42 @@ describe('enable() name validation', () => {
 
 		await mgr.enable(pluginId)
 
-		expect(registered).toEqual(['p__srv__a_b'])
+		expect(registered).toHaveLength(2)
+		expect(new Set(registered).size).toBe(2)
+		expect(state.current.status).toBe('enabled')
+		expect(events.find((e) => e.type === 'plugin_tool_skipped')).toBeUndefined()
+	})
+
+	it('skips a tool a server advertised twice, without rolling back', async () => {
+		// What the skip path is now FOR: a genuinely duplicate raw name is a server
+		// error, and nothing on this side can disambiguate the two. It is dropped and
+		// reported rather than silently aliased onto the first one's key.
+		mockConnect.mockResolvedValue(undefined)
+		mockListTools.mockResolvedValue([
+			{ name: 'a.b', inputSchema: { type: 'object' } },
+			{ name: 'a.b', inputSchema: { type: 'object' } },
+		])
+		const events: PluginLifecycleEvent[] = []
+		const { registry, state } = makePluginRegistry({
+			name: 'p',
+			version: '0.0.1',
+			description: 't',
+			mcpServers: [{ name: 'srv', command: '/bin/true' }],
+		})
+		const { registry: toolRegistry, registered } = makeToolRegistry()
+		const mgr = new PluginLifecycleManager({
+			pluginRegistry: registry,
+			toolRegistry,
+			log: makeLogger(),
+		})
+		mgr.on((e) => events.push(e))
+
+		await mgr.enable(pluginId)
+
+		expect(registered).toHaveLength(1)
 		expect(state.current.status).toBe('enabled')
 		expect(events.find((e) => e.type === 'plugin_tool_skipped')).toMatchObject({
-			toolName: 'a:b',
+			toolName: 'a.b',
 		})
 	})
 

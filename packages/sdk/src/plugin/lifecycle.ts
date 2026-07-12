@@ -310,6 +310,14 @@ export class PluginLifecycleManager {
 				continue
 			}
 
+			// Backstop, not a routine path. Canonicalization is a pure function of the
+			// raw name and appends a hash of it whenever it repairs anything, so two
+			// DIFFERENT remote names can no longer collapse onto one key (ses_015
+			// pre-freeze B3) — reaching here means the server advertised the same raw
+			// name twice, or a 32-bit hash collision. Either way the tool is skipped
+			// and reported: registration order is not stable across restarts, so
+			// silently keeping whichever arrived first would let a persisted canonical
+			// name invoke a different remote tool after a reconnect.
 			if (taken.has(name) || this.toolRegistry.has(name)) {
 				this.skipMCPTool(
 					pluginId,

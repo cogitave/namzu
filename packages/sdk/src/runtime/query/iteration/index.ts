@@ -149,6 +149,19 @@ export class IterationOrchestrator {
 		}
 
 		try {
+			// A run whose signal is ALREADY aborted must not do any work at all. The
+			// plan gate runs before the loop's own guard check, so without this a
+			// cancelled run would still write a checkpoint and could block waiting for
+			// a human HITL decision it can never act on (ses_015 pre-freeze M1).
+			if (this.ctx.abortController.signal.aborted) {
+				this.ctx.log.info('Run cancelled before it started — skipping plan gate', {
+					runId: runMgr.id,
+				})
+				runMgr.setStopReason('cancelled')
+				runMgr.markCancelled()
+				return
+			}
+
 			const planSignal = yield* runPlanGate(this.ctx)
 			if (planSignal === 'stop') return
 

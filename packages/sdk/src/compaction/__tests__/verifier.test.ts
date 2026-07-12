@@ -16,10 +16,21 @@ import { WorkingStateManager } from '../manager.js'
 import { serializeState } from '../serializer.js'
 import { buildVerifiedSummary } from '../verifier.js'
 
-/** Fire every scheduled timeout immediately so retry backoff does not sleep. */
+/**
+ * Fire retry-backoff timeouts immediately so the test does not sleep.
+ *
+ * Skips the long ones. `attemptModelCall` also arms a timer per attempt for the
+ * call's own deadline (pre-freeze B2), carrying the whole remaining budget —
+ * firing THAT synchronously would abandon every call before the provider could
+ * answer. Backoff waits are bounded by `maxDelayMs` (30s), the ancillary call
+ * budget is 120s, so 60s separates them cleanly.
+ */
 function instantTimers(): () => void {
-	const spy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((cb: () => void) => {
-		cb()
+	const spy = vi.spyOn(globalThis, 'setTimeout').mockImplementation(((
+		cb: () => void,
+		ms?: number,
+	) => {
+		if ((ms ?? 0) < 60_000) cb()
 		return 0 as unknown as ReturnType<typeof setTimeout>
 	}) as typeof setTimeout)
 	return () => spy.mockRestore()

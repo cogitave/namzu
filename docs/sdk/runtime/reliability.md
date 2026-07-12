@@ -85,16 +85,18 @@ Four properties of the retry loop are worth knowing because they are what keep i
 
 - **Backoff is full-jitter.** The wait is `random(0, min(baseDelayMs * 2^(attempt-1), maxDelayMs))`, not a fixed ramp, so a fleet of agents throttled at the same instant does not retry in lockstep.
 - **`retryAfterMs` wins, but is clamped.** When the provider read a `Retry-After` or rate-limit-reset header, the loop waits that long instead of its computed backoff — but never longer than `maxDelayMs`. A misparsed or hostile hours-long `Retry-After` must not stall the run for its entire remaining budget.
-- **It is deadline-aware.** Every wait is also capped by the time remaining until the run's guard deadline, and the loop checks the deadline before each attempt. Retries cannot push a run past its `timeoutMs`.
+- **It is deadline-aware, including while a request is in flight.** Every wait is capped by the time remaining until the run's guard deadline, the loop checks the deadline before each attempt, and each attempt itself races the deadline. A provider that hangs — or answers long after it was needed — cannot hold the run open: the wait is abandoned at `deadlineAt` and the run stops as `timeout`. Retries cannot push a run past its `timeoutMs`, and neither can a single call.
 - **`maxAttempts` bounds physical calls, not logical ones.** Every provider adapter disables its own vendor-SDK retry loop, so the SDK's cap is the real number of requests that hit the network. Without that, `maxAttempts: 3` over a vendor default of 2 internal retries would have been up to nine requests.
 
-An aborted signal short-circuits the loop at any point, including mid-backoff — the sleep races the signal rather than running to completion.
+An aborted signal short-circuits the loop at any point, including mid-backoff and mid-request — the sleep and the call both race the signal rather than running to completion.
+
+**What "abandoned" means for a provider that cannot be cancelled.** The signal is forwarded to the adapter, so one that honors it (`supportsAbortSignal: true`) tears the request down. One that cannot — Ollama's non-streaming `chat()` takes no signal at all — will keep the HTTP request open until its own transport gives up, and you will still pay for the tokens it eventually returns. The guarantee the runtime can actually make is the one it makes: the loop stops *waiting*, and a late response can no longer flow into hooks, tools, or the message history.
 
 ## 3. What Is Retried Outside the Main Loop
 
-Compaction verification, `RouterAgent` routing decisions, and advisory consults call the provider outside the iteration loop. Because vendor-internal retries are off, those calls would otherwise have zero retry coverage and a single transient blip would fail the whole operation. They now route through the same bounded-retry path with `DEFAULT_RETRY_CONFIG` and a self-contained 60-second budget rather than the run's (possibly exhausted) deadline.
+Compaction verification, `RouterAgent` routing decisions, and advisory consults call the provider outside the iteration loop. Because vendor-internal retries are off, those calls would otherwise have zero retry coverage and a single transient blip would fail the whole operation. They route through the same bounded path with `DEFAULT_RETRY_CONFIG` and a self-contained 120-second budget rather than the run's (possibly exhausted) deadline. That budget bounds the call itself, not just its retries, so a hung verifier cannot stall a compaction pass indefinitely.
 
-This is internal wiring, not a surface you configure — it is documented so the behavior is not surprising when you see a retried request from a run whose `retry.enabled` is `false` for the main loop.
+This is internal wiring, not a surface you configure — it is documented because it is genuinely surprising otherwise: a run with `retry.enabled: false` can still emit a retried request, because that setting governs the main loop and these paths carry their own budget.
 
 ## 4. Context-Overflow Recovery
 

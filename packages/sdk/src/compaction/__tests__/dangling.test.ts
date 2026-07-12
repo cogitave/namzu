@@ -466,7 +466,10 @@ describe('findSafeTrimIndex', () => {
  *     timestamp, the derived value is `1` (`(undefined ?? 0) + 1`).
  *   - Step 3 (canonicalize): every result — pre-existing or synthesized — is
  *     relocated to sit immediately after its assistant message, in the
- *     assistant's declared `toolCalls` order.
+ *     assistant's declared `toolCalls` order, and exactly ONE result survives per
+ *     `toolCallId` — the first (ses_015 pre-freeze M4). Providers reject a second
+ *     result for the same call, so passing a duplicate through would leave a
+ *     history permanently unresumable by the very function that claims to heal it.
  *
  *   - Purity: returns a NEW array; the input array and its message objects
  *     are never mutated.
@@ -600,5 +603,45 @@ describe('repairDanglingMessages', () => {
 		expect(repaired).toEqual(messages) // already valid + canonical → value-equal
 		// Input untouched.
 		expect(messages).toEqual(snapshot)
+	})
+
+	// ── Duplicate results (ses_015 pre-freeze M4) ──
+	// Repair bucketed results by call id and emitted every member of the bucket, so
+	// a history that recorded a result twice stayed provider-invalid after a repair
+	// that claimed to make it valid — and every further pass re-emitted it.
+
+	it('keeps only the FIRST result when a call id was answered twice', () => {
+		const messages: Message[] = [
+			createUserMessage('start'),
+			createAssistantMessage('calling', ['call-1']),
+			createToolMessage('first', 'call-1'),
+			createToolMessage('duplicate', 'call-1'),
+		]
+
+		const repaired = repairDanglingMessages(messages)
+
+		const results = repaired.filter((m) => m.role === 'tool') as ToolMessage[]
+		expect(results).toHaveLength(1)
+		expect(results[0]?.content).toBe('first')
+	})
+
+	it('de-duplicates results that arrived interleaved, and stays idempotent', () => {
+		const messages: Message[] = [
+			createUserMessage('start'),
+			assistantWithTs('a1', ['call-1', 'call-2'], 100),
+			createToolMessage('r1', 'call-1'),
+			createUserMessage('noise'),
+			createToolMessage('r1-again', 'call-1'),
+			createToolMessage('r2', 'call-2'),
+			createToolMessage('r2-again', 'call-2'),
+		]
+
+		const once = repairDanglingMessages(messages)
+		const twice = repairDanglingMessages(once)
+
+		const results = once.filter((m) => m.role === 'tool') as ToolMessage[]
+		expect(results.map((r) => r.toolCallId)).toEqual(['call-1', 'call-2'])
+		expect(results.map((r) => r.content)).toEqual(['r1', 'r2'])
+		expect(twice).toEqual(once)
 	})
 })
