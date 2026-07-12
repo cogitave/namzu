@@ -3,6 +3,7 @@ import type { RunId, SessionId, TenantId } from '../ids/index.js'
 import type { InvocationState } from '../invocation/index.js'
 import type { Message } from '../message/index.js'
 import type { PermissionMode } from '../permission/index.js'
+import type { RetryConfig } from '../run/config.js'
 import type { StopReason } from '../run/stop-reason.js'
 import type { ProjectId, ThreadId } from '../session/ids.js'
 import type { TaskStore } from '../task/index.js'
@@ -22,6 +23,13 @@ export interface BaseAgentConfig {
 	costLimitUsd?: number
 	permissionMode?: PermissionMode
 	env?: Record<string, string>
+
+	/**
+	 * Retry / reactive-recovery policy for the run's model calls. Optional;
+	 * agents copy it into the {@link AgentRunConfig} they build, and the
+	 * runtime falls back to `DEFAULT_RETRY_CONFIG` when absent.
+	 */
+	retry?: RetryConfig
 
 	/**
 	 * Long-lived goal scope for the run. Required at runtime — agents reject

@@ -25,6 +25,8 @@ export const NAMZU = {
 	RUN_ID: 'namzu.run.id',
 	RUN_STATUS: 'namzu.run.status',
 	ITERATION: 'namzu.iteration',
+	CANCELLED: 'namzu.cancelled',
+	RESPONSE_TRUNCATED: 'namzu.response.truncated',
 	TOOL_SUCCESS: 'namzu.tool.success',
 	TOOL_ERROR: 'namzu.tool.error',
 	COST_TOTAL: 'namzu.cost.total',

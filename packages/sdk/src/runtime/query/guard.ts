@@ -30,6 +30,21 @@ export class GuardCoordinator {
 		this.startTime = Date.now()
 	}
 
+	/**
+	 * Absolute wall-clock deadline for the run (`guardStart + timeoutMs`),
+	 * expressed as an epoch-ms timestamp. Single source of truth for the
+	 * run's time budget: the model-call attempt loop reads this so a retry
+	 * never runs on a second, drifting clock (ses_015 A3, round-2 M8).
+	 */
+	get deadlineAt(): number {
+		return this.startTime + this.limitConfig.timeoutMs
+	}
+
+	/** Configured run timeout in milliseconds. */
+	get timeoutMs(): number {
+		return this.limitConfig.timeoutMs
+	}
+
 	beforeIteration(runMgr: RunPersistence, abortSignal: AbortSignal): GuardCheckResult {
 		const limitState = {
 			aborted: abortSignal.aborted,

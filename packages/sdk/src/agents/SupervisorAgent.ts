@@ -133,6 +133,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 					maxIterations: config.maxIterations,
 					temperature: config.temperature,
 					env: config.env,
+					retry: config.retry,
 				},
 				agentId: this.metadata.id,
 				agentName: this.metadata.name,
@@ -179,7 +180,14 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 
 		return {
 			runId: run.id,
-			status: run.status === 'completed' ? 'completed' : 'failed',
+			// A cancelled supervisor run reports 'cancelled', not 'failed'
+			// (ses_015 A4, round-2 M5).
+			status:
+				run.status === 'completed'
+					? 'completed'
+					: run.status === 'cancelled'
+						? 'cancelled'
+						: 'failed',
 			stopReason: run.stopReason,
 			usage: run.tokenUsage,
 			cost: run.costInfo,

@@ -8,6 +8,7 @@ export type {
 export type { StreamChunk } from './stream.js'
 export type { ModelInfo } from './model.js'
 export type { LLMProvider } from './interface.js'
+export type { ProviderErrorKind, ProviderErrorInfo } from './errors.js'
 export type {
 	ProviderConfigRegistry,
 	ProviderType,

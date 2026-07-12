@@ -14,7 +14,9 @@ export { VERSION } from './version.js'
 
 export {
 	CompactionConfigSchema,
+	DEFAULT_RETRY_CONFIG,
 	PluginRuntimeConfigSchema,
+	RetryConfigSchema,
 	RUNTIME_DEFAULTS,
 	RuntimeConfigSchema,
 	SandboxConfigSchema,
@@ -136,10 +138,13 @@ export { LocalTaskGateway } from './gateway/local.js'
 // ─── providers, sandbox, vault ───────────────────────────────────────────
 
 export {
+	classifyHttpStatus,
 	DuplicateProviderError,
+	isProviderRequestError,
 	MOCK_CAPABILITIES,
 	MockLLMProvider,
 	ProviderRegistry,
+	ProviderRequestError,
 	registerMock,
 	UnknownProviderError,
 } from './provider/index.js'

@@ -38,67 +38,87 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 			)
 		}
 
-		const run = await drainQuery(
-			{
-				systemPrompt: config.systemPrompt,
-				persona: config.persona,
-				skills: config.skills,
-				basePrompt: config.basePrompt,
-				provider: config.provider,
-				tools: config.tools,
-				runConfig: {
-					model: config.model,
-					tokenBudget: config.tokenBudget,
-					timeoutMs: config.timeoutMs,
-					maxIterations: config.maxIterations,
-					temperature: config.temperature,
-					maxResponseTokens: config.maxResponseTokens,
-					costLimitUsd: config.costLimitUsd,
-					permissionMode: config.permissionMode,
-					env: config.env,
-				},
-				agentId: this.metadata.id,
-				agentName: this.metadata.name,
-				workingDirectory: input.workingDirectory,
-				sessionId: config.sessionId,
-				threadId: config.threadId,
-				projectId: config.projectId,
-				tenantId: config.tenantId,
-				parentRunId: config.parentRunId,
-				depth: config.depth,
-				contextLevel: config.contextLevel,
-				messages: input.messages,
-				signal: input.signal,
-				taskStore: input.taskStore,
-				runtimeToolOverrides: input.runtimeToolOverrides,
-				advisory: config.advisory,
-				invocationState: config.invocationState,
-			},
-			listener,
-		)
-
-		let toolCallCount = 0
-		for (const msg of run.messages) {
-			if (msg.role === 'assistant') {
-				const assistantMsg = msg as AssistantMessage
-				if (assistantMsg.toolCalls) {
-					toolCallCount += assistantMsg.toolCalls.length
-				}
-			}
+		// Compose the caller-supplied input.signal with this agent's own
+		// abortController so cancel() actually reaches the query pipeline — the
+		// query observes only the signal it is passed, so without this the
+		// agent's internal controller is orphaned and cancel() is a no-op on an
+		// in-flight run (ses_015 A6).
+		const runAbort = new AbortController()
+		const forwardAbort = (): void => runAbort.abort()
+		if (this.abortController.signal.aborted || input.signal?.aborted) {
+			runAbort.abort()
+		} else {
+			this.abortController.signal.addEventListener('abort', forwardAbort, { once: true })
+			input.signal?.addEventListener('abort', forwardAbort, { once: true })
 		}
 
-		return {
-			runId: run.id,
-			status: run.status,
-			stopReason: run.stopReason,
-			usage: run.tokenUsage,
-			cost: run.costInfo,
-			iterations: run.currentIteration,
-			durationMs: Date.now() - startTime,
-			messages: run.messages,
-			result: run.result,
-			lastError: run.lastError,
-			toolCallCount,
+		try {
+			const run = await drainQuery(
+				{
+					systemPrompt: config.systemPrompt,
+					persona: config.persona,
+					skills: config.skills,
+					basePrompt: config.basePrompt,
+					provider: config.provider,
+					tools: config.tools,
+					runConfig: {
+						model: config.model,
+						tokenBudget: config.tokenBudget,
+						timeoutMs: config.timeoutMs,
+						maxIterations: config.maxIterations,
+						temperature: config.temperature,
+						maxResponseTokens: config.maxResponseTokens,
+						costLimitUsd: config.costLimitUsd,
+						permissionMode: config.permissionMode,
+						env: config.env,
+						retry: config.retry,
+					},
+					agentId: this.metadata.id,
+					agentName: this.metadata.name,
+					workingDirectory: input.workingDirectory,
+					sessionId: config.sessionId,
+					threadId: config.threadId,
+					projectId: config.projectId,
+					tenantId: config.tenantId,
+					parentRunId: config.parentRunId,
+					depth: config.depth,
+					contextLevel: config.contextLevel,
+					messages: input.messages,
+					signal: runAbort.signal,
+					taskStore: input.taskStore,
+					runtimeToolOverrides: input.runtimeToolOverrides,
+					advisory: config.advisory,
+					invocationState: config.invocationState,
+				},
+				listener,
+			)
+
+			let toolCallCount = 0
+			for (const msg of run.messages) {
+				if (msg.role === 'assistant') {
+					const assistantMsg = msg as AssistantMessage
+					if (assistantMsg.toolCalls) {
+						toolCallCount += assistantMsg.toolCalls.length
+					}
+				}
+			}
+
+			return {
+				runId: run.id,
+				status: run.status,
+				stopReason: run.stopReason,
+				usage: run.tokenUsage,
+				cost: run.costInfo,
+				iterations: run.currentIteration,
+				durationMs: Date.now() - startTime,
+				messages: run.messages,
+				result: run.result,
+				lastError: run.lastError,
+				toolCallCount,
+			}
+		} finally {
+			this.abortController.signal.removeEventListener('abort', forwardAbort)
+			input.signal?.removeEventListener('abort', forwardAbort)
 		}
 	}
 

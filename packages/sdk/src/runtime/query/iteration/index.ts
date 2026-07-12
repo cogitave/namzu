@@ -1,31 +1,62 @@
-import { SpanStatusCode } from '@opentelemetry/api'
+import { type Span, SpanStatusCode } from '@opentelemetry/api'
 import type { AdvisoryContext } from '../../../advisory/context.js'
+import { repairDanglingMessages } from '../../../compaction/dangling.js'
 import { extractFromAssistantMessage } from '../../../compaction/extractor.js'
 import type { WorkingStateManager } from '../../../compaction/manager.js'
 import type { CompactionConfig } from '../../../config/runtime.js'
+import { FINAL_RESPONSE_GRACE_MS } from '../../../constants/limits.js'
 import type { PlanManager } from '../../../manager/plan/lifecycle.js'
 import type { RunPersistence } from '../../../manager/run/persistence.js'
+import { isProviderRequestError } from '../../../provider/errors.js'
 import type { ActivityStore } from '../../../store/activity/memory.js'
 import { GENAI, NAMZU, agentIterationSpanName } from '../../../telemetry/attributes.js'
 import { getTracer } from '../../../telemetry/runtime-accessors.js'
+import type { Activity } from '../../../types/activity/index.js'
 import type { ResumeHandler } from '../../../types/hitl/index.js'
-import { createAssistantMessage, createUserMessage } from '../../../types/message/index.js'
-import type { LLMProvider } from '../../../types/provider/index.js'
-import type { AgentRunConfig, RunEvent, StopReason } from '../../../types/run/index.js'
-import type { ToolRegistryContract } from '../../../types/tool/index.js'
+import {
+	type Message,
+	createAssistantMessage,
+	createToolMessage,
+	createUserMessage,
+} from '../../../types/message/index.js'
+import type {
+	ChatCompletionParams,
+	ChatCompletionResponse,
+	LLMProvider,
+} from '../../../types/provider/index.js'
+import type { AgentRunConfig, RetryConfig, RunEvent, StopReason } from '../../../types/run/index.js'
+import type { LLMToolSchema, ToolRegistryContract } from '../../../types/tool/index.js'
 import { toErrorMessage } from '../../../utils/error.js'
 import type { Logger } from '../../../utils/logger.js'
 import type { CheckpointManager } from '../checkpoint.js'
 import type { EmitEvent } from '../events.js'
 import type { ToolExecutor } from '../executor.js'
 import type { GuardCoordinator } from '../guard.js'
+import { attemptModelCall, resolveRetryConfig } from '../model-call.js'
 import { applyLifecycleHookResults } from '../plugin-hooks.js'
 import { runAdvisoryPhase } from './phases/advisory.js'
 import { runIterationCheckpoint } from './phases/checkpoint.js'
-import { runCompactionCheck } from './phases/compaction.js'
+import { reduceMessagesForOverflow, runCompactionCheck } from './phases/compaction.js'
 import type { IterationContext } from './phases/index.js'
 import { runPlanGate } from './phases/plan.js'
 import { runToolReview } from './phases/tool-review.js'
+
+/**
+ * Synthetic user prompt appended when the guard forces finalization (warning
+ * state near a resource limit). Extracted so the reactive overflow-reissue path
+ * rebuilds the outbound messages with byte-identical semantics.
+ */
+const FORCE_FINALIZE_PROMPT =
+	'[SYSTEM] You are approaching your resource limits. Provide your final, comprehensive response now based on everything you have gathered so far. Do not request any more tool calls.'
+
+/**
+ * Content of a synthesized tool result standing in for a tool call the model
+ * requested in a response that the provider truncated (`finishReason: 'length'`)
+ * before the request completed. Not executed — the pair only exists to keep the
+ * assistant/tool sequence provider-valid so the next iteration can retry.
+ */
+const TRUNCATED_TOOL_RESULT_CONTENT =
+	'[SYSTEM] Tool not executed: the model response was truncated (finishReason: length) before this tool call completed. Retry with a shorter response.'
 
 export type { IterationContext } from './phases/index.js'
 export type { PhaseSignal } from './phases/index.js'
@@ -196,12 +227,7 @@ export class IterationOrchestrator {
 						: this.ctx.tools.toLLMTools(this.ctx.allowedTools)
 
 					const messages = forceFinalize
-						? [
-								...runMgr.messages,
-								createUserMessage(
-									'[SYSTEM] You are approaching your resource limits. Provide your final, comprehensive response now based on everything you have gathered so far. Do not request any more tool calls.',
-								),
-							]
+						? [...runMgr.messages, createUserMessage(FORCE_FINALIZE_PROMPT)]
 						: runMgr.messages
 
 					if (this.ctx.pluginManager) {
@@ -214,26 +240,30 @@ export class IterationOrchestrator {
 						yield* this.ctx.drainPending()
 					}
 
-					const response = await this.ctx.provider.chat({
-						model,
+					const retry = resolveRetryConfig(runConfig)
+					const response = await this.callModelWithOverflowRecovery(
 						messages,
-						tools: openAITools && openAITools.length > 0 ? openAITools : undefined,
-						temperature: runConfig.temperature,
-						maxTokens: runConfig.maxResponseTokens,
-						cacheControl: { type: 'auto' },
-					})
+						openAITools,
+						model,
+						retry,
+						forceFinalize,
+					)
+
+					// SANITIZE EARLY (A6, round-2 M11): a length-truncated tool
+					// call may carry invalid JSON arguments; repair them to '{}'
+					// before the call is recorded or any provider re-serializes
+					// the assistant message.
+					if (response.finishReason === 'length' && response.message.toolCalls) {
+						for (const tc of response.message.toolCalls) {
+							try {
+								JSON.parse(tc.function.arguments)
+							} catch {
+								tc.function.arguments = '{}'
+							}
+						}
+					}
 
 					runMgr.accumulateUsage(response.usage)
-
-					if (this.ctx.pluginManager) {
-						const hookResults = await this.ctx.pluginManager.executeHooks(
-							'post_llm_call',
-							{ runId: runMgr.id, iteration: iterationNum },
-							this.ctx.emitEvent,
-						)
-						applyLifecycleHookResults('post_llm_call', hookResults)
-						yield* this.ctx.drainPending()
-					}
 
 					this.ctx.log.debug('LLM response received', {
 						runId: runMgr.id,
@@ -247,12 +277,32 @@ export class IterationOrchestrator {
 						totalCost: runMgr.costInfo.totalCost,
 					})
 
+					// Post-success order (A4, round-2 M6): accumulateUsage →
+					// token_usage_updated → post_llm_call → abort check. On a
+					// post-success abort we still account usage and fire the post
+					// hook (observers see the completed call) but push no assistant
+					// message and run no tools, avoiding a dangling tool-call pair.
 					await this.ctx.emitEvent({
 						type: 'token_usage_updated',
 						runId: runMgr.id,
 						usage: runMgr.tokenUsage,
 						cost: runMgr.costInfo,
 					})
+
+					if (this.ctx.pluginManager) {
+						const hookResults = await this.ctx.pluginManager.executeHooks(
+							'post_llm_call',
+							{ runId: runMgr.id, iteration: iterationNum },
+							this.ctx.emitEvent,
+						)
+						applyLifecycleHookResults('post_llm_call', hookResults)
+					}
+					yield* this.ctx.drainPending()
+
+					if (this.ctx.abortController.signal.aborted) {
+						this.enterCancellationPath(iterationActivity, iterSpan)
+						break
+					}
 
 					const assistantMsg = createAssistantMessage(
 						response.message.content,
@@ -288,6 +338,54 @@ export class IterationOrchestrator {
 							content: response.message.content,
 							hasToolCalls: forceFinalize ? false : !!response.message.toolCalls?.length,
 						})
+					}
+
+					// finishReason 'length' handling (A6, round-2 M11/M12). Only
+					// for real model turns (never forced finalize). With tool
+					// calls the turn was truncated mid-request: do NOT execute
+					// them; push a synthesized not-executed result per call to keep
+					// the assistant/tool pair provider-valid, then close the
+					// iteration through the normal tail (iteration_end hook +
+					// iteration_completed + span end) and continue. Without tool
+					// calls: warn + span attribute and fall through to end-turn.
+					if (!forceFinalize && response.finishReason === 'length') {
+						const truncatedCalls = response.message.toolCalls
+						if (truncatedCalls && truncatedCalls.length > 0) {
+							this.ctx.log.warn('LLM response truncated (length) with tool calls — not executing', {
+								runId: runMgr.id,
+								iteration: iterationNum,
+								toolCallCount: truncatedCalls.length,
+							})
+							for (const tc of truncatedCalls) {
+								runMgr.pushMessage(createToolMessage(TRUNCATED_TOOL_RESULT_CONTENT, tc.id))
+							}
+
+							if (this.ctx.pluginManager) {
+								const hookResults = await this.ctx.pluginManager.executeHooks(
+									'iteration_end',
+									{ runId: runMgr.id, iteration: iterationNum },
+									this.ctx.emitEvent,
+								)
+								applyLifecycleHookResults('iteration_end', hookResults)
+								yield* this.ctx.drainPending()
+							}
+
+							await this.ctx.emitEvent({
+								type: 'iteration_completed',
+								runId: runMgr.id,
+								iteration: iterationNum,
+								hasToolCalls: true,
+							})
+							yield* this.ctx.drainPending()
+							iterSpan.end()
+							continue
+						}
+
+						this.ctx.log.warn('LLM response truncated (length) with no tool calls', {
+							runId: runMgr.id,
+							iteration: iterationNum,
+						})
+						iterSpan.setAttribute(NAMZU.RESPONSE_TRUNCATED, true)
 					}
 
 					if (
@@ -385,6 +483,39 @@ export class IterationOrchestrator {
 					yield* this.ctx.drainPending()
 					iterSpan.end()
 				} catch (err) {
+					// Cancellation takes priority: an aborted signal (or an
+					// 'aborted' provider error) heals the history and stops the run
+					// as cancelled rather than failed (A4).
+					if (
+						this.ctx.abortController.signal.aborted ||
+						(isProviderRequestError(err) && err.kind === 'aborted')
+					) {
+						this.enterCancellationPath(iterationActivity, iterSpan)
+						break
+					}
+
+					// A retry loop that exhausted the run deadline surfaces as a
+					// timeout stop (mirrors the guard hard-stop path) rather than a
+					// run failure (A3, round-2 M8).
+					if (Date.now() >= this.ctx.guard.deadlineAt) {
+						this.ctx.log.info('Model call exhausted run deadline — enforcing timeout stop', {
+							runId: runMgr.id,
+							iteration: iterationNum,
+						})
+						if (iterationActivity) {
+							this.ctx.activityStore.fail(iterationActivity.id, 'timeout')
+						}
+						iterSpan.setStatus({
+							code: SpanStatusCode.ERROR,
+							message: 'run deadline exceeded',
+						})
+						iterSpan.end()
+						await this.requestFinalResponse(model, 'timeout')
+						yield* this.ctx.drainPending()
+						runMgr.setStopReason('timeout')
+						break
+					}
+
 					if (iterationActivity) {
 						this.ctx.activityStore.fail(iterationActivity.id, toErrorMessage(err))
 					}
@@ -466,6 +597,106 @@ export class IterationOrchestrator {
 		})
 	}
 
+	/**
+	 * Heal and terminate the run as cancelled. Shared by the post-success abort
+	 * check and the iteration catch (A4). Cancels the iteration activity, marks
+	 * the span OK with a `namzu.cancelled` attribute, repairs the run's own
+	 * persisted history in place (so a later resume/replay of THIS run is
+	 * provider-valid, round-2 M7), then sets the stop reason and marks cancelled.
+	 * Callers must `break` the loop after calling this.
+	 */
+	private enterCancellationPath(iterationActivity: Activity | null, iterSpan: Span): void {
+		const { runMgr } = this.ctx
+		this.ctx.log.info('Run cancelled during iteration — healing history', {
+			runId: runMgr.id,
+			iteration: runMgr.currentIteration,
+		})
+
+		if (iterationActivity) {
+			this.ctx.activityStore.cancel(iterationActivity.id)
+		}
+
+		iterSpan.setStatus({ code: SpanStatusCode.OK })
+		iterSpan.setAttribute(NAMZU.CANCELLED, true)
+		iterSpan.end()
+
+		const repaired = repairDanglingMessages(runMgr.messages)
+		runMgr.messages.length = 0
+		for (const msg of repaired) {
+			runMgr.messages.push(msg)
+		}
+
+		runMgr.setStopReason('cancelled')
+		runMgr.markCancelled()
+	}
+
+	/**
+	 * Issue the main model call with bounded retries ({@link attemptModelCall})
+	 * and reactive context-overflow recovery (A5). On a `context_overflow`
+	 * provider error, up to `retry.overflowAttempts` times: drain pending task
+	 * notifications into history (M16), reduce the live history
+	 * ({@link reduceMessagesForOverflow}), rebuild the outbound messages exactly
+	 * as the original construction, and reissue within the same iteration. If the
+	 * reducer cannot shrink further, the overflow error is rethrown. An abort
+	 * mid-reissue surfaces as an `aborted` error handled by the iteration catch.
+	 */
+	private async callModelWithOverflowRecovery(
+		messages: Message[],
+		openAITools: LLMToolSchema[] | undefined,
+		model: string,
+		retry: RetryConfig,
+		forceFinalize: boolean,
+	): Promise<ChatCompletionResponse> {
+		const buildParams = (msgs: Message[]): ChatCompletionParams => ({
+			model,
+			messages: msgs,
+			tools: openAITools && openAITools.length > 0 ? openAITools : undefined,
+			temperature: this.ctx.runConfig.temperature,
+			maxTokens: this.ctx.runConfig.maxResponseTokens,
+			cacheControl: { type: 'auto' },
+		})
+
+		let currentMessages = messages
+		let overflowAttempts = 0
+
+		while (true) {
+			try {
+				return await attemptModelCall({
+					provider: this.ctx.provider,
+					params: buildParams(currentMessages),
+					retry,
+					signal: this.ctx.abortController.signal,
+					deadlineAt: this.ctx.guard.deadlineAt,
+					log: this.ctx.log,
+				})
+			} catch (err) {
+				if (!isProviderRequestError(err) || err.kind !== 'context_overflow') {
+					throw err
+				}
+				if (overflowAttempts >= retry.overflowAttempts) {
+					throw err
+				}
+				overflowAttempts++
+
+				// Drain pending task notifications into history BEFORE reducing so
+				// the reducer preserves/summarises them rather than the reissue
+				// silently dropping completed-task results (round-2 M16).
+				while (this.ctx.pendingNotifications.length > 0) {
+					await this.injectOneTaskNotification()
+				}
+
+				const reduced = reduceMessagesForOverflow(this.ctx)
+				if (!reduced) {
+					throw err
+				}
+
+				currentMessages = forceFinalize
+					? [...this.ctx.runMgr.messages, createUserMessage(FORCE_FINALIZE_PROMPT)]
+					: this.ctx.runMgr.messages
+			}
+		}
+	}
+
 	private async requestFinalResponse(model: string, reason: StopReason): Promise<void> {
 		const lastAssistant = [...this.ctx.runMgr.messages]
 			.reverse()
@@ -490,12 +721,21 @@ export class IterationOrchestrator {
 				),
 			]
 
-			const response = await this.ctx.provider.chat({
-				model,
-				messages: finalMessages,
-				temperature: this.ctx.runConfig.temperature,
-				maxTokens: this.ctx.runConfig.maxResponseTokens,
-				cacheControl: { type: 'auto' },
+			// Best-effort: own 30s grace budget (not the already-exhausted run
+			// deadline, round-2 B3), capped at 2 attempts.
+			const response = await attemptModelCall({
+				provider: this.ctx.provider,
+				params: {
+					model,
+					messages: finalMessages,
+					temperature: this.ctx.runConfig.temperature,
+					maxTokens: this.ctx.runConfig.maxResponseTokens,
+					cacheControl: { type: 'auto' },
+				},
+				retry: { ...resolveRetryConfig(this.ctx.runConfig), maxAttempts: 2 },
+				signal: this.ctx.abortController.signal,
+				deadlineAt: Date.now() + FINAL_RESPONSE_GRACE_MS,
+				log: this.ctx.log,
 			})
 
 			this.ctx.runMgr.accumulateUsage(response.usage)

@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { HOOK_TIMEOUT_MS } from '../constants/plugin/index.js'
+import type { RetryConfig } from '../types/run/config.js'
 import { SandboxConfigSchema } from '../types/sandbox/index.js'
 
 export { SandboxConfigSchema }
@@ -46,6 +47,21 @@ export const AgentBusConfigSchema = z.object({
 
 export type AgentBusConfig = z.infer<typeof AgentBusConfigSchema>
 
+export const RetryConfigSchema = z.object({
+	enabled: z.boolean().default(true),
+	maxAttempts: z.number().int().positive().default(3),
+	baseDelayMs: z.number().nonnegative().default(1000),
+	maxDelayMs: z.number().nonnegative().default(30_000),
+	overflowAttempts: z.number().int().nonnegative().default(2),
+})
+
+/**
+ * Fully-resolved retry defaults, derived from {@link RetryConfigSchema} so the
+ * schema stays the single source of truth. `satisfies RetryConfig` pins the
+ * shape to the hand-written interface in `types/run/config.ts`.
+ */
+export const DEFAULT_RETRY_CONFIG: RetryConfig = RetryConfigSchema.parse({})
+
 export const PromptCacheConfigSchema = z.object({
 	enabled: z.boolean().default(true),
 	strategy: z.enum(['auto', 'disabled']).default('auto'),
@@ -69,6 +85,7 @@ export const RuntimeConfigSchema = z.object({
 	maxIterations: z.number().positive().default(200),
 	taskRouter: TaskRouterConfigSchema,
 	compaction: CompactionConfigSchema.default({}),
+	retry: RetryConfigSchema.default({}),
 	agentBus: AgentBusConfigSchema.optional(),
 	promptCache: PromptCacheConfigSchema.optional(),
 	plugins: PluginRuntimeConfigSchema.optional(),

@@ -1,5 +1,6 @@
 import type { AgentInfo } from '../../contracts/index.js'
 import type { TaskRouterConfig } from '../router/index.js'
+import type { RetryConfig } from '../run/config.js'
 import type { AgentContextLevel, BaseAgentConfig, BaseAgentResult } from './base.js'
 import type { Agent } from './core.js'
 
@@ -30,6 +31,9 @@ export interface AgentFactoryOptions {
 	maxResponseTokens?: number
 	env?: Record<string, string>
 	permissionMode?: 'plan' | 'auto'
+
+	/** Retry / reactive-recovery policy threaded into the built agent config. */
+	retry?: RetryConfig
 
 	systemPrompt?: string
 

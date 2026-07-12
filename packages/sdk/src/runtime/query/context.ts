@@ -126,7 +126,20 @@ export class RunContextFactory {
 	static build(config: RunContextConfig): RunContext {
 		const abortController = new AbortController()
 		if (config.signal) {
-			config.signal.addEventListener('abort', () => abortController.abort(), { once: true })
+			// An already-aborted parent never re-fires 'abort', so propagate its
+			// state eagerly — otherwise a run started with a pre-aborted signal
+			// would proceed as if live (ses_015 A4).
+			if (config.signal.aborted) {
+				abortController.abort(config.signal.reason)
+			} else {
+				config.signal.addEventListener(
+					'abort',
+					() => abortController.abort(config.signal?.reason),
+					{
+						once: true,
+					},
+				)
+			}
 		}
 
 		const cwd = config.workingDirectory ?? process.cwd()

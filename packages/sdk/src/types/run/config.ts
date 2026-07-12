@@ -4,6 +4,25 @@ import type { RunId, SessionId, TenantId } from '../ids/index.js'
 import type { PermissionMode } from '../permission/index.js'
 import type { ProjectId, ThreadId } from '../session/ids.js'
 
+/**
+ * Retry / reactive-recovery policy for the runtime loop's model calls. Fully
+ * resolved (every field required) — the possibly-partial surface lives on the
+ * Zod `RetryConfigSchema` in `config/runtime.ts`; `resolveRetryConfig` fills
+ * defaults for callers that omit `retry` entirely.
+ */
+export interface RetryConfig {
+	/** Master switch. When false the model call is attempted exactly once. */
+	enabled: boolean
+	/** Max physical attempts for a single logical model call (includes the first). */
+	maxAttempts: number
+	/** Base delay for full-jitter exponential backoff, in milliseconds. */
+	baseDelayMs: number
+	/** Ceiling for any single computed backoff wait, in milliseconds. */
+	maxDelayMs: number
+	/** Max reactive context-overflow reduce+reissue passes per iteration. */
+	overflowAttempts: number
+}
+
 export interface AgentRunConfig {
 	model: string
 	timeoutMs: number
@@ -14,6 +33,7 @@ export interface AgentRunConfig {
 	temperature?: number
 	env?: Record<string, string>
 	permissionMode?: PermissionMode
+	retry?: RetryConfig
 	sandbox?: {
 		timeoutMs?: number
 		memoryLimitMb?: number

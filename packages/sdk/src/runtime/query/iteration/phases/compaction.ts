@@ -1,16 +1,28 @@
 import { findSafeTrimIndex } from '../../../../compaction/dangling.js'
+import type { WorkingStateManager } from '../../../../compaction/manager.js'
 import { serializeState } from '../../../../compaction/serializer.js'
 import { buildVerifiedSummary } from '../../../../compaction/verifier.js'
+import type { CompactionConfig } from '../../../../config/runtime.js'
 import { CHARS_PER_TOKEN } from '../../../../constants/limits.js'
-import { createSystemMessage } from '../../../../types/message/index.js'
+import { type Message, createSystemMessage } from '../../../../types/message/index.js'
 import type { IterationContext } from './context.js'
 
-const COMPACTION_HEADER =
+/**
+ * Exact prefix of a synthesized compaction summary's content. Exported so the
+ * reactive reducer and the proactive check can both strip prior summaries
+ * before inserting a fresh one — otherwise repeated compactions stack multiple
+ * `[COMPACTED CONTEXT] …` system messages (ses_015 A5, round-2 M9). Residual
+ * risk: a genuine user/system message that happens to start with this exact
+ * string would also be stripped; treated as acceptable given the sentinel's
+ * specificity.
+ */
+export const COMPACTION_HEADER =
 	'[COMPACTED CONTEXT] The following is a structured summary of the conversation so far.'
 
-function estimateTokens(ctx: IterationContext): number {
+/** Token estimate for an explicit message array (chars / CHARS_PER_TOKEN). */
+export function estimateTokensForMessages(messages: Message[]): number {
 	let chars = 0
-	for (const msg of ctx.runMgr.messages) {
+	for (const msg of messages) {
 		if (msg.content) {
 			chars += msg.content.length
 		}
@@ -21,6 +33,25 @@ function estimateTokens(ctx: IterationContext): number {
 		}
 	}
 	return Math.ceil(chars / CHARS_PER_TOKEN)
+}
+
+function estimateTokens(ctx: IterationContext): number {
+	return estimateTokensForMessages(ctx.runMgr.messages)
+}
+
+/** Leading run of system-role messages at the head of the sequence. */
+function leadingSystemMessages(messages: Message[]): Message[] {
+	const systemMessages: Message[] = []
+	for (const msg of messages) {
+		if (msg.role !== 'system') break
+		systemMessages.push(msg)
+	}
+	return systemMessages
+}
+
+/** Drop any prior compaction summaries from a leading-system run (anti-stacking). */
+function stripPriorCompactionSummaries(systemMessages: Message[]): Message[] {
+	return systemMessages.filter((m) => !(m.content ?? '').startsWith(COMPACTION_HEADER))
 }
 
 export async function runCompactionCheck(ctx: IterationContext): Promise<void> {
@@ -55,11 +86,7 @@ export async function runCompactionCheck(ctx: IterationContext): Promise<void> {
 		return
 	}
 
-	const systemMessages: typeof messages = []
-	for (const msg of messages) {
-		if (msg.role !== 'system') break
-		systemMessages.push(msg)
-	}
+	const systemMessages = leadingSystemMessages(messages)
 	if (systemMessages.length === 0) return
 
 	// Route the proactive cut through findSafeTrimIndex so the split cannot
@@ -80,7 +107,11 @@ export async function runCompactionCheck(ctx: IterationContext): Promise<void> {
 
 	const compactionMessage = createSystemMessage(`${COMPACTION_HEADER}\n\n${compactedContent}`)
 
-	const newMessages = [...systemMessages, compactionMessage, ...recentMessages]
+	const newMessages = [
+		...stripPriorCompactionSummaries(systemMessages),
+		compactionMessage,
+		...recentMessages,
+	]
 
 	const oldCount = messages.length
 	messages.length = 0
@@ -100,4 +131,102 @@ export async function runCompactionCheck(ctx: IterationContext): Promise<void> {
 		reductionPercent: Math.round((1 - newEstimate / estimatedTokens) * 100),
 		slotCount: manager.slotCount(),
 	})
+}
+
+/**
+ * Build a fallback-trim candidate: keep leading system messages, drop the
+ * oldest half of the remaining (non-system) messages, adjusting the cut with
+ * findSafeTrimIndex so no tool call/result pair is severed. No summary message
+ * is produced — this path runs when there is no compaction config / working
+ * state to summarise from.
+ */
+function buildFallbackTrim(messages: Message[]): Message[] {
+	const systemMessages = leadingSystemMessages(messages)
+	const nonSystemStart = systemMessages.length
+	const nonSystemCount = messages.length - nonSystemStart
+	if (nonSystemCount <= 1) return messages.slice()
+
+	const dropCount = Math.floor(nonSystemCount / 2)
+	const naiveCut = nonSystemStart + dropCount
+	const safeCut = findSafeTrimIndex(messages, naiveCut)
+	return [...systemMessages, ...messages.slice(safeCut)]
+}
+
+/**
+ * Build a forced structured-compaction candidate: keep a halved recent window
+ * (min 1), summarise everything older into a single serialized-state system
+ * message, and strip any prior summaries (anti-stacking). No LLM verifier is
+ * used — reactive recovery must not itself issue a model call. Falls back to a
+ * plain trim when there is no leading system anchor to attach the summary to.
+ */
+function buildStructuredReduction(
+	messages: Message[],
+	config: CompactionConfig,
+	manager: WorkingStateManager,
+): Message[] {
+	const systemMessages = leadingSystemMessages(messages)
+	if (systemMessages.length === 0) return buildFallbackTrim(messages)
+
+	const keepRecent = Math.max(1, Math.floor(config.keepRecentMessages / 2))
+	const keepStart = findSafeTrimIndex(messages, messages.length - keepRecent)
+	const recentMessages = messages.slice(keepStart)
+
+	const compactedContent = serializeState(manager.getState())
+	const compactionMessage = createSystemMessage(`${COMPACTION_HEADER}\n\n${compactedContent}`)
+
+	return [...stripPriorCompactionSummaries(systemMessages), compactionMessage, ...recentMessages]
+}
+
+/**
+ * Reactive context-overflow recovery. Builds a reduction candidate first
+ * (pure), estimates it, and commits (in-place splice of the live
+ * `runMgr.messages`) ONLY if the estimate strictly shrinks — otherwise leaves
+ * the history untouched and returns `false` so the caller stops reissuing
+ * (ses_015 A5, round-2 M10, B2). Works without compaction config: absent
+ * config / working state / an empty slot set selects the fallback safe-trim
+ * path; a configured, non-empty state selects a forced structured pass.
+ *
+ * @returns `true` if messages were reduced and committed, `false` otherwise.
+ */
+export function reduceMessagesForOverflow(ctx: IterationContext): boolean {
+	const messages = ctx.runMgr.messages
+	const config = ctx.compactionConfig
+	const manager = ctx.workingStateManager
+
+	const before = estimateTokensForMessages(messages)
+
+	const useStructured =
+		!!config && config.strategy !== 'disabled' && !!manager && manager.slotCount() > 0
+
+	const candidate =
+		useStructured && config && manager
+			? buildStructuredReduction(messages, config, manager)
+			: buildFallbackTrim(messages)
+
+	const after = estimateTokensForMessages(candidate)
+	if (after >= before) {
+		ctx.log.warn('Overflow reduction produced no shrink — leaving history untouched', {
+			runId: ctx.runMgr.id,
+			beforeTokens: before,
+			candidateTokens: after,
+			strategy: useStructured ? 'structured' : 'fallback-trim',
+		})
+		return false
+	}
+
+	const oldCount = messages.length
+	messages.length = 0
+	for (const msg of candidate) {
+		messages.push(msg)
+	}
+
+	ctx.log.info('Context reduced after overflow', {
+		runId: ctx.runMgr.id,
+		oldMessageCount: oldCount,
+		newMessageCount: messages.length,
+		beforeTokens: before,
+		afterTokens: after,
+		strategy: useStructured ? 'structured' : 'fallback-trim',
+	})
+	return true
 }

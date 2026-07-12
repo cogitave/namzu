@@ -40,6 +40,15 @@ export interface ChatCompletionParams {
 	repetitionPenalty?: number
 
 	responseFormat?: ResponseFormat
+
+	/**
+	 * Abort signal for the in-flight request. The runtime injects the run's
+	 * signal on every attempt so a cancellation aborts the current call rather
+	 * than only taking effect at the next iteration boundary. Providers that
+	 * cannot forward it to their transport advertise `supportsAbortSignal:
+	 * false` in their {@link ProviderCapabilities}.
+	 */
+	signal?: AbortSignal
 }
 
 export interface ChatCompletionResponse {

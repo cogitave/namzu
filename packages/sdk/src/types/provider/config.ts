@@ -40,6 +40,13 @@ export interface ProviderCapabilities {
 	supportsStreaming: boolean
 	supportsFunctionCalling: boolean
 	maxOutputTokens?: number
+	/**
+	 * Whether the provider forwards `ChatCompletionParams.signal` to its
+	 * transport so an in-flight request is actually aborted. Absent/false means
+	 * cancellation only takes effect at the next iteration boundary (e.g.
+	 * Ollama's non-streaming path). See ses_015 A6 / Phase B.
+	 */
+	supportsAbortSignal?: boolean
 }
 
 export interface ProviderFactoryResult {
