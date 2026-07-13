@@ -81,6 +81,11 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				log.info('Run completed', { runId: event.runId })
 				break
 
+			case 'run_cancelled':
+				// Not an error: the run was told to stop and it stopped.
+				log.info('Run cancelled', { runId: event.runId })
+				break
+
 			case 'run_failed':
 				log.error('Run failed', {
 					runId: event.runId,

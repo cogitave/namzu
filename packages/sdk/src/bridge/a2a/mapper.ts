@@ -54,6 +54,20 @@ const MAPPING: {
 		return completedEvent
 	},
 
+	/**
+	 * `canceled` (A2A spells it with one `l`), and `final: true`.
+	 *
+	 * It must not land on `completed` — the state this event exists to stop a cancelled run
+	 * from reaching — and it must not land on `failed` either: an A2A client escalates,
+	 * retries or alerts on a failed task, and nothing failed. The user asked for the run to
+	 * stop and it stopped.
+	 */
+	run_cancelled: (e, ctx) =>
+		statusEvent(e.runId, 'canceled', true, ctx, {
+			role: 'agent',
+			parts: [{ kind: 'text', text: 'Run cancelled' }],
+		}),
+
 	run_failed: (e, ctx) =>
 		statusEvent(e.runId, 'failed', true, ctx, {
 			role: 'agent',

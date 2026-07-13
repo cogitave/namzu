@@ -188,6 +188,23 @@ const MAPPING: {
 	run_completed: null,
 	run_failed: null,
 
+	/**
+	 * **Not null, unlike the two above it — and the asymmetry is the point.**
+	 *
+	 * `run_completed` / `run_failed` map to null because the HOST owns those terminals: it
+	 * emits them from the finished {@link import('../../types/run/index.js').Run}, with the
+	 * usage, iteration count and duration that only the return value carries and that this
+	 * mapper cannot see. A cancellation needs none of that — the run id IS the payload — and
+	 * a host that has to be told a run was cancelled by inspecting a status field is exactly
+	 * the host that forgets to. `run.cancelled` has been in
+	 * {@link import('../../contracts/api.js').StreamEventType} the whole time with nothing
+	 * emitting it; this fills it.
+	 */
+	run_cancelled: {
+		wire: 'run.cancelled',
+		transform: (e) => ({ run_id: e.runId }),
+	},
+
 	agent_pending: {
 		wire: 'agent.pending',
 		transform: (e) => ({

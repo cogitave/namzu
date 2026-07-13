@@ -41,6 +41,44 @@ export class ResultAssembler {
 			return
 		}
 
+		// A cancelled run is not a completed run, and it used to say it was. The status
+		// check below already refused to `markCompleted` it — so its RECORD said
+		// `cancelled` — and then the emit right after announced `run_completed` to every
+		// listener anyway. Every cancelled run told the wire it had finished: the
+		// embedder's `signal.abort()`, the durable `cancelRun`, a reviewer's `abort`, a
+		// cancel that lands mid-loop. All of them mark the run cancelled BEFORE the
+		// disposition reaches this method, which is why the branch belongs here, at the
+		// one place they all funnel through, rather than at each of the six call sites
+		// that could each forget it.
+		if (runMgr.status === 'cancelled') {
+			yield* this.endCancelledRun(rootSpan)
+			return
+		}
+
+		// **The last place a durable cancel can still be heard.** `abortIfRunCancelled` re-reads
+		// the run's status at the three points where the segment can stop before doing something
+		// irreversible — the top of an iteration, and immediately before either tool batch. None
+		// of them covers the window between the LAST such check and the end of the turn: cancel a
+		// run while its final model call is in flight, the model answers `stop`, and the loop
+		// breaks `end_turn` having never looked at the disk again. `markCompleted` then stamps
+		// `completed` over the `cancelled` the control plane wrote, `finalize()` PERSISTS it —
+		// the fence permits it, this segment does hold the lease — and the run the user was told
+		// was dead comes to rest completed, with a result, on the wire and on disk.
+		//
+		// A `cancelled` read here can only be that: admission and `init()` both refuse a run that
+		// was ALREADY cancelled, so nothing but a cancel landing DURING this segment can put that
+		// word on the disk. And by the time `cancelRun` wrote it, it had already returned
+		// `{ status: 'cancelled' }` to whoever asked. The disk wins; the run is cancelled.
+		const persisted = await runMgr.getRunStore().readRunMeta()
+		if (persisted?.status === 'cancelled') {
+			log.info('Run was cancelled while its last iteration was in flight — honouring the cancel', {
+				runId: runMgr.id,
+			})
+			runMgr.markCancelled()
+			yield* this.endCancelledRun(rootSpan)
+			return
+		}
+
 		if (runMgr.status === 'running') {
 			runMgr.markCompleted(runMgr.stopReason)
 		}
@@ -70,6 +108,47 @@ export class ResultAssembler {
 
 	async *completeSession(rootSpan: Span): AsyncGenerator<RunEvent> {
 		yield* this.completeRun(rootSpan)
+	}
+
+	/**
+	 * Close out a run that was CANCELLED.
+	 *
+	 * Terminal, like completion — the span ends, the queue drains, the record is already
+	 * written ({@link import('../../manager/run/persistence.js').RunPersistence.markCancelled}
+	 * ran in whichever phase noticed the cancel) — and it says `run_cancelled`, not
+	 * `run_completed`. That one word is the whole method: a client pairing `run_completed`
+	 * with "it worked" was being lied to on every cancellation, including the in-process
+	 * `signal.abort()` path.
+	 *
+	 * Not to be confused with the control plane's
+	 * {@link import('./decision/resume.js').cancelRun}, which CAUSES a cancellation from
+	 * outside the run. This one REPORTS one from inside it, and marks nothing: by the time
+	 * a disposition reaches the assembler, the cancel has already been recorded.
+	 *
+	 * `SpanStatusCode.OK`, deliberately: a cancelled run is not an error. It did what it
+	 * was told. `namzu.cancelled` on the span is what distinguishes it from a completion,
+	 * and it mirrors what the iteration span already sets.
+	 */
+	async *endCancelledRun(rootSpan: Span): AsyncGenerator<RunEvent> {
+		const { runMgr, log, emitEvent, drainPending } = this.config
+
+		await emitEvent({ type: 'run_cancelled', runId: runMgr.id })
+		yield* drainPending()
+
+		rootSpan.setAttributes({
+			[NAMZU.RUN_STATUS]: 'cancelled',
+			[NAMZU.CANCELLED]: true,
+			[NAMZU.ITERATION]: runMgr.currentIteration,
+			[GENAI.USAGE_INPUT_TOKENS]: runMgr.tokenUsage.promptTokens,
+			[GENAI.USAGE_OUTPUT_TOKENS]: runMgr.tokenUsage.completionTokens,
+		})
+		rootSpan.setStatus({ code: SpanStatusCode.OK })
+
+		log.info('Query cancelled', {
+			runId: runMgr.id,
+			iterations: runMgr.currentIteration,
+			stopReason: runMgr.stopReason,
+		})
 	}
 
 	/**

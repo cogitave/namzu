@@ -446,3 +446,35 @@ describe('mapRunToStreamEvent — run_id comes off the event (ses_017 P3)', () =
 		expect(mapped?.data.run_id).not.toBe(RID)
 	})
 })
+
+/**
+ * Current-code invariants asserted (2026-07-13, ses_017):
+ *
+ *   - `run_cancelled` maps to the `run.cancelled` wire event, carrying the run's
+ *     own id. It is NOT in the null set: `run_completed` / `run_failed` are null
+ *     because the HOST emits those terminals from the finished Run (with usage,
+ *     iterations, duration — none of which this mapper can see), while a
+ *     cancellation's whole payload is the run id. `run.cancelled` had been in
+ *     `StreamEventType` from the start with nothing emitting it.
+ *   - No cancelled run can reach `run.completed` through this mapper, because the
+ *     kernel no longer emits `run_completed` for one (ses_017 P4).
+ */
+describe('a cancelled run on the SSE wire', () => {
+	it('run_cancelled → run.cancelled, carrying the run id', () => {
+		const mapped = mapRunToStreamEvent({ type: 'run_cancelled', runId: RID })
+
+		expect(mapped).toEqual({ wire: 'run.cancelled', data: { run_id: RID } })
+	})
+
+	it('is not in the null set, and is not run.completed', () => {
+		const mapped = mapRunToStreamEvent({ type: 'run_cancelled', runId: RID })
+
+		// Both halves are load-bearing. A null here would be the "the host emits the
+		// terminals" reflex applied to the one terminal the host cannot reconstruct from
+		// the Run's shape, and it would leave the SSE bridge silent about a cancellation
+		// — which is the same absence of truth as saying "completed", one layer down.
+		expect(mapped).not.toBeNull()
+		expect(mapped?.wire).not.toBe('run.completed')
+		expect(mapped?.wire).not.toBe('run.failed')
+	})
+})

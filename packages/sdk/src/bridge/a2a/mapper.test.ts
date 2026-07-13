@@ -298,3 +298,35 @@ describe('mapSessionToA2AEvent (deprecated alias)', () => {
 		expect(mapSessionToA2AEvent).toBe(mapRunToA2AEvent)
 	})
 })
+
+/**
+ * Current-code invariants asserted (2026-07-13, ses_017):
+ *
+ *   - `run_cancelled` → A2A `canceled` (one `l`, per the A2A task-state
+ *     vocabulary), `final: true`. Not `completed` — the state this event exists to
+ *     keep a cancelled run out of — and not `failed`, which is what an A2A client
+ *     escalates, retries and alerts on. Nothing failed; the run was told to stop.
+ */
+describe('a cancelled run on the A2A wire', () => {
+	it('run_cancelled → canceled / final', () => {
+		const event: RunEvent = { type: 'run_cancelled', runId: RID }
+		const a2a = mapRunToA2AEvent(event, 'ctx_9')
+
+		expect(isStatusEvent(a2a)).toBe(true)
+		if (isStatusEvent(a2a)) {
+			expect(a2a.status.state).toBe('canceled')
+			expect(a2a.final).toBe(true)
+			expect(a2a.taskId).toBe(RID)
+			expect(a2a.contextId).toBe('ctx_9')
+		}
+	})
+
+	it('never lands on the terminal state a completion lands on', () => {
+		const cancelled = mapRunToA2AEvent({ type: 'run_cancelled', runId: RID })
+		const completed = mapRunToA2AEvent({ type: 'run_completed', runId: RID, result: 'done' })
+
+		expect(isStatusEvent(completed) && completed.status.state).toBe('completed')
+		expect(isStatusEvent(cancelled) && cancelled.status.state).not.toBe('completed')
+		expect(isStatusEvent(cancelled) && cancelled.status.state).not.toBe('failed')
+	})
+})

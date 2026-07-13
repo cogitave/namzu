@@ -104,12 +104,18 @@ export class RouterAgent extends AbstractAgent<RouterAgentConfig, RouterAgentRes
 			listener,
 		)
 
+		// The router echoes the delegate's OUTCOME, not a completion. A route is a tail call:
+		// the delegate's own `query()` has already said how the run ended on this very run id,
+		// and a router that stamps `run_completed` on top of a delegate that was cancelled
+		// reinstates, one layer up, the exact lie ses_017 P4 removed from `ResultAssembler`.
 		await this.emitEvent(
-			{
-				type: 'run_completed',
-				runId,
-				result: delegateResult.result ?? '',
-			},
+			delegateResult.status === 'cancelled'
+				? { type: 'run_cancelled', runId }
+				: {
+						type: 'run_completed',
+						runId,
+						result: delegateResult.result ?? '',
+					},
 			listener,
 		)
 

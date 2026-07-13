@@ -148,12 +148,18 @@ export class PipelineAgent extends AbstractAgent<PipelineAgentConfig, PipelineAg
 					: 'failed'
 			const lastOutput = stepResults[stepResults.length - 1]?.output
 
+			// And a cancelled pipeline does not announce a COMPLETION either. It reported
+			// `status: 'cancelled'` to its caller while telling every listener on the event
+			// stream that it had completed — the same lie `ResultAssembler` told, one layer up
+			// (ses_017 P4).
 			await this.emitEvent(
-				{
-					type: 'run_completed',
-					runId,
-					result: typeof lastOutput === 'string' ? lastOutput : JSON.stringify(lastOutput),
-				},
+				cancelled
+					? { type: 'run_cancelled', runId }
+					: {
+							type: 'run_completed',
+							runId,
+							result: typeof lastOutput === 'string' ? lastOutput : JSON.stringify(lastOutput),
+						},
 				listener,
 			)
 

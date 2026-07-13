@@ -124,6 +124,31 @@ type CoreRunEvent =
 			fromCheckpointId: CheckpointId
 	  }
 	| { type: 'run_completed'; runId: RunId; result: string }
+	| {
+			/**
+			 * The run was CANCELLED — by the embedder's `signal.abort()`, by the durable
+			 * control plane ({@link import('../../runtime/query/decision/resume.js').cancelRun}),
+			 * or by a reviewer answering `abort`. It is terminal and it is not a success.
+			 *
+			 * **It is its own event because a cancellation a consumer can only see by reading
+			 * a field is a cancellation most consumers will not see.** Until ses_017 P4 a
+			 * cancelled run emitted `run_completed`: `ResultAssembler.completeRun` skipped
+			 * `markCompleted` for a run that was already `cancelled` — so the run's RECORD was
+			 * honest — and then fired the completion event anyway. Every bridge, every UI and
+			 * every A2A client that pairs `run_completed` with "it worked" was told the deploy
+			 * the user cancelled had finished. The alternative fix — a `status` field on
+			 * `run_completed` — puts the truth behind a field the existing consumers do not
+			 * read, and whose default reading ("no field, so it completed") is the very lie
+			 * being fixed. A new `type` cannot be ignored by accident: it is the union's sole
+			 * discriminator (Convention #16), and every exhaustive consumer in this repo — both
+			 * wire bridges, the reporter — is forced by the compiler to say what it means.
+			 *
+			 * No `result`: a cancelled run has no answer. `markCancelled` deliberately does not
+			 * promote the last assistant turn, and this event will not invent one either.
+			 */
+			type: 'run_cancelled'
+			runId: RunId
+	  }
 	| { type: 'run_failed'; runId: RunId; error: string }
 	| {
 			type: 'token_usage_updated'
