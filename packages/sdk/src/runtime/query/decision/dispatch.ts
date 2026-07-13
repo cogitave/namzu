@@ -12,6 +12,7 @@ import type { RunEvent } from '../../../types/run/index.js'
 import { runAdvisoryPhase } from '../iteration/phases/advisory.js'
 import { runIterationCheckpoint } from '../iteration/phases/checkpoint.js'
 import type { IterationContext, PhaseSignal } from '../iteration/phases/context.js'
+import { abortIfRunCancelled } from '../ownership.js'
 import { applyLifecycleHookResults } from '../plugin-hooks.js'
 import { type ProviderToolCall, type ReviewableCall, applyReviewOutcome } from './apply.js'
 import {
@@ -341,6 +342,29 @@ async function* applyResolved(
 	})
 	yield* ctx.drainPending()
 
+	// **THE LAST INSTANT AT WHICH A CANCELLED RUN CAN STILL BE STOPPED.**
+	//
+	// This is the exact shape of the accident: a run is parked on a decision the human has
+	// approved, so the decision reads `resolved` and the batch is armed. The user changes
+	// their mind and calls `cancelRun`, which — per its own contract — leaves an already
+	// `resolved` decision alone and writes `run.json = cancelled`. It returns
+	// `{ status: 'cancelled' }` and the user is told the run is dead. Meanwhile a queue
+	// worker had already taken the lease and read `awaiting_input` a millisecond before that
+	// write landed. It has passed admission, `init()` has run, and it is HERE, about to
+	// dispatch the batch. Nothing between admission and this line reads the run's status
+	// again, so the deploy tool the user cancelled runs, and the run finishes `completed`.
+	//
+	// The lease cannot close this — the control plane is unfenced BY DESIGN, because a
+	// cancel that could not touch a run somebody is driving would be useless. Only re-reading
+	// can. Before the claim and before the journal, so a cancelled run spends nothing: the
+	// execution claim is permanent, and burning it here would make the batch undispatchable
+	// even if the cancel is later found to have raced a legitimate resume.
+	if (await abortIfRunCancelled(ctx, 'about to dispatch an approved batch')) {
+		ctx.runMgr.setStopReason('cancelled')
+		ctx.runMgr.markCancelled()
+		return 'stop'
+	}
+
 	// **The right to dispatch is claimed, not assumed.** Redemption hands exactly one
 	// caller a PreparedDecisionResume; it does not stop that caller from being RUN twice —
 	// a retried request, a queue that delivered the job twice, an operator re-driving a
@@ -543,6 +567,17 @@ export async function* dispatchPendingDecision(
 ): AsyncGenerator<RunEvent, PhaseSignal> {
 	const decision = checkpoint.pendingDecision
 	if (!decision) return 'continue'
+
+	// Was the run cancelled between admission and here? Asked FIRST, because every branch
+	// below writes something on the run's behalf — a re-park would stamp `awaiting_input`
+	// straight back over the cancellation, and the fence would permit it, because this
+	// segment does hold the lease. `applyResolved` asks again immediately before the batch;
+	// this one is what stops the other three branches.
+	if (await abortIfRunCancelled(ctx, 'about to dispatch a persisted decision')) {
+		ctx.runMgr.setStopReason('cancelled')
+		ctx.runMgr.markCancelled()
+		return 'stop'
+	}
 
 	ctx.log.info('Dispatching a persisted decision before the loop starts', {
 		runId: ctx.runMgr.id,

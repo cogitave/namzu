@@ -502,15 +502,16 @@ describe('parked, live and crashed are three different things', () => {
 })
 
 describe('resume continues THE run, and refuses one that is over', () => {
-	it.each(['completed', 'failed'] as const)(
+	it.each(['completed', 'cancelled'] as const)(
 		'refuses to resume a %s run, naming the status it found',
 		async (status) => {
 			const cwd = tmp()
 			const calls: string[] = []
 			const { checkpointId, baseDir } = await parkAndApprove(cwd, calls)
 
-			// The run reaches a terminal state — a completion, or a failure the operator has
-			// already been told about. Its record is final.
+			// The run reaches a DECIDED end state: something reached an outcome, or somebody
+			// chose to end it. Either way its record means something, and re-driving it under
+			// its own id would overwrite that.
 			const control = new RunDiskStore({ baseDir })
 			await control.initRun(RUN_ID)
 			await control.updateRunMeta((meta) => ({ ...meta, status, endedAt: Date.now() }))
@@ -529,11 +530,89 @@ describe('resume continues THE run, and refuses one that is over', () => {
 			expect((err as RunNotResumableError).status).toBe(status)
 			expect(String(err)).toContain(status)
 
-			// Only `cancelled` used to be refused; a completed or failed run was re-driven
-			// under its own id and its record overwritten by the second drive.
+			// Only `cancelled` used to be refused; a completed run was re-driven under its own
+			// id and its record overwritten by the second drive.
 			expect(readFileSync(join(baseDir, RUN_ID, 'run.json'), 'utf-8')).toBe(metaBefore)
 			expect(readFileSync(join(baseDir, RUN_ID, 'messages.json'), 'utf-8')).toBe(messagesBefore)
 			expect(calls).toEqual([])
+		},
+	)
+
+	// ses_017 fix-batch L5. Refusing `failed` alongside the other two was a BRICK, and this
+	// is the shape of it: the human's answer is already spent, and only a retry under the
+	// run's own id can ever dispatch it.
+	it('RESUMES a run that failed after the human approved — the token is spent and only this can still dispatch the batch', async () => {
+		const cwd = tmp()
+		const calls: string[] = []
+		const { checkpointId, baseDir } = await parkAndApprove(cwd, calls)
+
+		// The approved batch has NOT run — the resumed segment died before dispatching it (a
+		// provider 529 that exhausted its retries, an OOM, a tool that threw on the way in).
+		// `handleError` → `markFailed` → `finalize()` persisted `failed`.
+		const control = new RunDiskStore({ baseDir })
+		await control.initRun(RUN_ID)
+		await control.updateRunMeta((meta) => ({
+			...meta,
+			status: 'failed',
+			lastError: 'provider unavailable',
+			endedAt: Date.now(),
+		}))
+		expect(calls).toEqual([])
+
+		// The decision is still `resolved`: the token was permanently spent when the human
+		// answered, and by design it cannot be redeemed a second time. Refuse this retry and
+		// the approved batch is undispatchable FOREVER — the run is a brick, and the only
+		// escape is a fork, which mints a new id and re-grants the whole lifetime budget.
+		expect((await readPendingDecision({ baseDir, runId: RUN_ID, checkpointId }))?.state).toBe(
+			'resolved',
+		)
+
+		const run = await drive({
+			cwd,
+			provider: stopping('recovered after the failure'),
+			tools: registryWith(noopTool(calls)),
+			resumeFromCheckpoint: checkpointId,
+		})
+
+		expect(run.status).toBe('completed')
+		expect(run.id).toBe(RUN_ID) // the SAME run: same id, same ledger, same index entry
+		expect(calls).toEqual(['noop']) // and the batch the human approved finally ran, once
+	})
+
+	// ses_017 fix-batch L4 / open question #23. The guard covered the `resumeFromCheckpoint`
+	// door and `admitSegment` returned before reaching it on the other one.
+	it.each(['completed', 'failed', 'cancelled'] as const)(
+		'refuses a plain query({ runId }) against a %s run — a run id names ONE run',
+		async (status) => {
+			const cwd = tmp()
+			const calls: string[] = []
+			const { baseDir } = await parkAndApprove(cwd, calls)
+
+			const control = new RunDiskStore({ baseDir })
+			await control.initRun(RUN_ID)
+			await control.updateRunMeta((meta) => ({ ...meta, status, endedAt: Date.now() }))
+
+			const metaBefore = readFileSync(join(baseDir, RUN_ID, 'run.json'), 'utf-8')
+			const messagesBefore = readFileSync(join(baseDir, RUN_ID, 'messages.json'), 'utf-8')
+
+			// No checkpoint — so there is no continuation semantics to offer at all. A retry
+			// harness, a redelivered queue job, an API route echoing a client-supplied id: all
+			// walked past admission (which returned early), into `init()`, which stamped a
+			// fresh `idle` over the finished record, zeroed its usage and its iteration count,
+			// and replaced `messages.json` with this segment's history. Note `failed` is
+			// refused HERE even though a resume may continue it: without a checkpoint there is
+			// nothing to continue from, only a record to overwrite.
+			const err = await drive({
+				cwd,
+				provider: stopping('second drive'),
+				tools: registryWith(noopTool(calls)),
+			}).catch((e) => e)
+
+			expect(err).toBeInstanceOf(RunNotResumableError)
+			expect((err as RunNotResumableError).status).toBe(status)
+
+			expect(readFileSync(join(baseDir, RUN_ID, 'run.json'), 'utf-8')).toBe(metaBefore)
+			expect(readFileSync(join(baseDir, RUN_ID, 'messages.json'), 'utf-8')).toBe(messagesBefore)
 		},
 	)
 

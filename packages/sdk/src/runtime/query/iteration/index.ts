@@ -32,6 +32,7 @@ import type {
 	RunEvent,
 	StopReason,
 } from '../../../types/run/index.js'
+import { RunLeaseLostError } from '../../../types/run/lease.js'
 import type { LLMToolSchema, ToolRegistryContract } from '../../../types/tool/index.js'
 import { toErrorMessage } from '../../../utils/error.js'
 import type { Logger } from '../../../utils/logger.js'
@@ -41,6 +42,7 @@ import type { EmitEvent } from '../events.js'
 import type { ToolExecutor } from '../executor.js'
 import type { GuardCoordinator } from '../guard.js'
 import { attemptModelCall, isRetryableKind, resolveRetryConfig } from '../model-call.js'
+import { abortIfRunCancelled } from '../ownership.js'
 import { applyLifecycleHookResults } from '../plugin-hooks.js'
 import { runAdvisoryPhase } from './phases/advisory.js'
 import { runIterationCheckpoint } from './phases/checkpoint.js'
@@ -211,6 +213,7 @@ export class IterationOrchestrator {
 			// plan gate runs before the loop's own guard check, so without this a
 			// cancelled run would still write a checkpoint and could block waiting for
 			// a human HITL decision it can never act on (ses_015 pre-freeze M1).
+			this.throwIfDisowned()
 			if (this.ctx.abortController.signal.aborted) {
 				this.ctx.log.info('Run cancelled before it started — skipping plan gate', {
 					runId: runMgr.id,
@@ -225,6 +228,16 @@ export class IterationOrchestrator {
 			if (planSignal === 'stop') return 'completed'
 
 			while (true) {
+				// A durable cancel reaches nobody. `cancelRun` writes `run.json` and closes the
+				// run's open decisions; it holds no lease, it has no signal to raise, and the
+				// live segment driving this loop has no idea it happened. Without this read, a
+				// cancelled run keeps calling the provider and keeps running tools until it
+				// finishes on its own — and the user who cancelled it was told it was dead. The
+				// abort routes it through the cancellation path below, which is the same
+				// machinery an in-process `signal.abort()` has always used.
+				await abortIfRunCancelled(this.ctx, 'at the top of an iteration')
+
+				this.throwIfDisowned()
 				const guardResult = this.ctx.guard.beforeIteration(runMgr, this.ctx.abortController.signal)
 
 				if (guardResult.shouldStop) {
@@ -375,6 +388,7 @@ export class IterationOrchestrator {
 					}
 					yield* this.ctx.drainPending()
 
+					this.throwIfDisowned()
 					if (this.ctx.abortController.signal.aborted) {
 						this.enterCancellationPath(iterationActivity, iterSpan)
 						break
@@ -568,6 +582,14 @@ export class IterationOrchestrator {
 					yield* this.ctx.drainPending()
 					iterSpan.end()
 				} catch (err) {
+					// LOSING THE RUN takes priority over everything, cancellation included. A
+					// segment that has been superseded must not heal the history, must not mark
+					// the run cancelled and must not emit a terminal event: it does not own this
+					// run, and whatever owns it now is still driving it. It gets out of the way
+					// and `query()` exits silently. (The abort surfaces here as an `aborted`
+					// provider error, which the branch below would otherwise read as a cancel.)
+					this.throwIfDisowned(err)
+
 					// Cancellation takes priority: an aborted signal (or an
 					// 'aborted' provider error) heals the history and stops the run
 					// as cancelled rather than failed (A4).
@@ -627,6 +649,28 @@ export class IterationOrchestrator {
 		} finally {
 			unsubscribeTaskListener?.()
 		}
+	}
+
+	/**
+	 * Stop, immediately and without a word, if this segment no longer owns the run.
+	 *
+	 * The loss arrives as an abort — `RunLeaseHolder` calls `onLost`, which aborts the run's
+	 * controller — and an abort is indistinguishable, at every check in this loop, from a
+	 * user cancelling. Left alone, the loss therefore went down the CANCELLATION path:
+	 * `enterCancellationPath` healed the history, marked the run `cancelled`, and `query()`
+	 * then emitted a terminal event and persisted, for a run that another segment had taken
+	 * over and was driving perfectly well. Rethrowing instead routes it to
+	 * {@link import('../ownership.js').isSegmentDisowned}, and the segment exits leaving no
+	 * trace on a run that is not its own.
+	 *
+	 * Checked at every point the loop reads the signal, and from the iteration `catch` — the
+	 * abort can surface as an `aborted` provider error from inside the model call, and that
+	 * branch would have swallowed it as a cancellation.
+	 */
+	private throwIfDisowned(err?: unknown): void {
+		if (err instanceof RunLeaseLostError) throw err
+		const reason: unknown = this.ctx.abortController.signal.reason
+		if (reason instanceof RunLeaseLostError) throw reason
 	}
 
 	/**

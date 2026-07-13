@@ -39,6 +39,7 @@ import type {
 	RunEventListener,
 	RunLeaseOptions,
 } from '../../types/run/index.js'
+import { DEFAULT_RUN_LEASE_ABANDON_MS } from '../../types/run/lease.js'
 import { ForkTargetsSourceRunError } from '../../types/run/replay.js'
 import type { Sandbox, SandboxProvider } from '../../types/sandbox/index.js'
 import type { ProjectId, ThreadId } from '../../types/session/ids.js'
@@ -58,6 +59,7 @@ import { EventTranslator } from './events.js'
 import { GuardCoordinator } from './guard.js'
 import { IterationOrchestrator } from './iteration/index.js'
 import { RunLeaseHolder } from './lease.js'
+import { isSegmentDisowned } from './ownership.js'
 import { applyLifecycleHookResults } from './plugin-hooks.js'
 import { PromptBuilder, buildFrameAuthentication } from './prompt.js'
 import type { PromptSegments } from './prompt.js'
@@ -204,8 +206,8 @@ export interface QueryParams {
  *   1. **The lease first, the status check under it.** Reading the status and *then*
  *      taking the lease is a check-then-act race: the run's live segment could complete
  *      between the two, and a second segment would take the freed lease and re-drive a run
- *      that had just finished. Under the lease, the status this reads is the status that
- *      holds for as long as this segment holds it.
+ *      that had just finished. Under the lease, no other SEGMENT can move the status while
+ *      this one reads it.
  *   2. **Hydration before `init()`.** `init()` writes `run.json` from RunPersistence's
  *      in-memory state, so hydrating after it would stamp a zeroed usage and iteration
  *      record over the real one on disk. A resumed run continues the SAME logical run and
@@ -213,12 +215,47 @@ export interface QueryParams {
  *      LIFETIME limits, and `timeoutMs` measures ACTIVE execution time, so an hour of
  *      human thinking costs the run nothing (`GuardCoordinator.restoreElapsed`).
  *
- * **What a resume refuses.** A TERMINAL run — `completed`, `failed` or `cancelled`. Only
- * `cancelled` was refused before, so `query({ resumeFromCheckpoint })` would happily
- * re-drive a finished run under its own id and overwrite its record with the second
- * drive's. Re-driving a finished run from a checkpoint is a legitimate thing to want; it
- * is called a **fork**, it gets a new id, and it has its own entry point
- * ({@link import('./replay/fork.js').prepareForkState}).
+ * **The lease does NOT freeze the status, and this docstring used to claim it did.** The
+ * control plane — `cancelRun` — holds no lease and is unfenced on purpose, so the status
+ * read here can be stale before the next line runs. Admission is therefore the FIRST check,
+ * not the only one: see {@link import('./ownership.js').abortIfRunCancelled}, and the
+ * second terminal guard in `RunPersistence.init()`.
+ *
+ * ### What a run id may be re-driven for
+ *
+ * **A run id names one run.** A terminal run's record is not a scratchpad, and both doors
+ * into this function had to be closed, not one:
+ *
+ *   - `query({ runId })` **with no checkpoint** — the door the previous fix left open, by
+ *     returning before the check ran. A retry harness, a redelivered queue job or an API
+ *     route that echoes a client-supplied id walked straight into `init()`, which stamped a
+ *     fresh `idle` over the finished run, zeroed its usage and its iteration count, and
+ *     replaced its history with this segment's. Every terminal status is refused here;
+ *     there is no continuation semantics to offer, because there is no checkpoint to
+ *     continue from.
+ *   - `query({ runId, resumeFromCheckpoint })` — refuses `completed` and `cancelled`, and
+ *     **allows `failed`**.
+ *
+ * ### Why `failed` is the one terminal status a resume may continue
+ *
+ * `completed` and `cancelled` are *decided*: something reached an outcome, or somebody
+ * chose to end the run, and re-driving either under its own id overwrites a record that
+ * means something. `failed` is neither. Nobody chose it — the run died on a provider 529,
+ * an OOM, a tool that threw — and the record is a tombstone, not a result.
+ *
+ * Refusing it bricks the run, and this is not theoretical: park on a decision, the human
+ * approves (which permanently spends the single-use token and writes the claim), the
+ * resumed segment then dies to a transient provider error, and `finalize()` persists
+ * `failed`. Refusing the retry leaves the approved batch undispatchable forever, because
+ * the token cannot be redeemed twice by design. The only remaining path would be
+ * `prepareForkState`, which mints a NEW id — losing the run's identity, its index entry and,
+ * worse, its LIFETIME ledger: a fork re-grants the whole `tokenBudget` and `costLimitUsd`,
+ * so a run stopped at its cost cap could be "recovered" into an unlimited one.
+ *
+ * Retrying under the run's own id is safe by construction, and each of the three ways it
+ * could double-execute is already closed: the lease stops a second driver, the execution
+ * claim stops the approved batch being dispatched twice, and a decision found `executing`
+ * is recovered from its journal rather than re-run.
  *
  * **What it still allows, deliberately:** a NON-terminal run with no decision on it —
  * `idle`, `running`, or an `awaiting_input` whose decision is already `settled`. Those are
@@ -231,6 +268,7 @@ async function admitSegment(
 	ctx: import('./context.js').RunContext,
 	checkpointMgr: CheckpointManager,
 	guard: GuardCoordinator,
+	consumer: ConsumerLiveness,
 ): Promise<{ lease: RunLeaseHolder; resumeCheckpoint?: IterationCheckpoint }> {
 	// A fork under its source's id is an overwrite with a provenance stamp on it. The
 	// fork entry point refuses it too; this is the door that cannot be walked around.
@@ -240,6 +278,7 @@ async function admitSegment(
 
 	await ctx.runMgr.openRunDir()
 
+	const abandonAfterMs = params.lease?.abandonAfterMs ?? DEFAULT_RUN_LEASE_ABANDON_MS
 	const lease = await RunLeaseHolder.acquire({
 		...params.lease,
 		runId: ctx.runId,
@@ -248,17 +287,29 @@ async function admitSegment(
 		// A segment that loses its lease mid-run has been superseded: every write it makes
 		// from here is fenced off, so the work it is doing is work nobody will accept.
 		// Stopping it is the difference between wasting one provider call and wasting the
-		// rest of the run.
+		// rest of the run. `query()` routes the abort to a SILENT exit — a segment that does
+		// not own the run has no standing to declare it failed.
 		onLost: (err) => ctx.abortController.abort(err),
+		// The heartbeat is the only thing still running inside a generator its consumer
+		// dropped, so the heartbeat is what notices and gives the run back.
+		isAbandoned: () => consumer.hasAbandoned(abandonAfterMs),
 	})
 
 	try {
-		if (!params.resumeFromCheckpoint) return { lease }
-
 		const persisted = await ctx.runMgr.getRunStore().readRunMeta()
 		if (persisted && isTerminalStatus(persisted.status)) {
-			throw new RunNotResumableError(ctx.runMgr.id, persisted.status)
+			const retryable = params.resumeFromCheckpoint !== undefined && persisted.status === 'failed'
+			if (!retryable) {
+				throw new RunNotResumableError(ctx.runMgr.id, persisted.status)
+			}
+			ctx.log.info('Resuming a run that FAILED — its ledger, its id, its decision, retried', {
+				runId: ctx.runMgr.id,
+				fromCheckpoint: params.resumeFromCheckpoint,
+				lastError: persisted.lastError,
+			})
 		}
+
+		if (!params.resumeFromCheckpoint) return { lease }
 
 		const resumeCheckpoint = await checkpointMgr.restore(params.resumeFromCheckpoint)
 		ctx.runMgr.restoreFromCheckpoint(resumeCheckpoint)
@@ -272,7 +323,82 @@ async function admitSegment(
 	}
 }
 
-export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run> {
+/**
+ * Is anybody still pulling this run's events?
+ *
+ * An async generator is either executing inside `next()` — alive, doing the run's work — or
+ * suspended at a `yield`, waiting for its consumer to take the event it is holding out. The
+ * second state is the consumer's turn, and a consumer that never takes another turn has
+ * abandoned the run: no `break` (which would call `.return()` and run the `finally`), no
+ * `.return()`, just a dropped reference. Node does not run a generator's `finally` on
+ * collection, so nothing else will ever notice.
+ *
+ * Distinguishing the two is the whole trick, and it is why this counts PULLS rather than
+ * elapsed time: a run that has been quiet for five minutes because it is inside a slow tool
+ * is alive and must not be touched.
+ */
+class ConsumerLiveness {
+	private pullInFlight = false
+	private lastPullEndedAt = Date.now()
+
+	enter(): void {
+		this.pullInFlight = true
+	}
+
+	leave(): void {
+		this.pullInFlight = false
+		this.lastPullEndedAt = Date.now()
+	}
+
+	hasAbandoned(afterMs: number): boolean {
+		if (this.pullInFlight) return false
+		return Date.now() - this.lastPullEndedAt > afterMs
+	}
+}
+
+/** Count every pull the consumer makes, so an abandoned generator can be told from a busy one. */
+function trackPulls<T, R>(
+	inner: AsyncGenerator<T, R>,
+	consumer: ConsumerLiveness,
+): AsyncGenerator<T, R> {
+	const track = async <V>(step: () => Promise<V>): Promise<V> => {
+		consumer.enter()
+		try {
+			return await step()
+		} finally {
+			consumer.leave()
+		}
+	}
+
+	return {
+		next: (...args: [] | [unknown]) => track(() => inner.next(...(args as []))),
+		return: (value: R | PromiseLike<R>) => track(() => inner.return(value)),
+		throw: (err: unknown) => track(() => inner.throw(err)),
+		[Symbol.asyncIterator]() {
+			return this
+		},
+	} as AsyncGenerator<T, R>
+}
+
+/**
+ * Drive a run, yielding its events.
+ *
+ * A plain function returning a generator rather than an `async function*`, for one reason:
+ * the returned generator is wrapped so that every pull the consumer makes is counted. That
+ * is what lets an ABANDONED run be told from a busy one — see {@link ConsumerLiveness} —
+ * and an abandoned run has to be noticed by something, because a dropped generator runs no
+ * `finally` and would otherwise renew its lease, and hold the run, for the life of the
+ * process.
+ */
+export function query(params: QueryParams): AsyncGenerator<RunEvent, Run> {
+	const consumer = new ConsumerLiveness()
+	return trackPulls(runSegment(params, consumer), consumer)
+}
+
+async function* runSegment(
+	params: QueryParams,
+	consumer: ConsumerLiveness,
+): AsyncGenerator<RunEvent, Run> {
 	// Boot-time filesystem migration (session-hierarchy.md §13.4.1). First
 	// call per process per root actually runs; subsequent calls short-circuit
 	// via the in-memory guard in `context.ts`. Kept here rather than inside
@@ -492,7 +618,13 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		// record it was refusing to touch — destroying the run it exists to protect. A
 		// refusal must throw out of `query()` having written nothing, and from here it
 		// does.
-		const { lease, resumeCheckpoint } = await admitSegment(params, ctx, checkpointMgr, guard)
+		const { lease, resumeCheckpoint } = await admitSegment(
+			params,
+			ctx,
+			checkpointMgr,
+			guard,
+			consumer,
+		)
 
 		const rootSpan = tracer.startSpan(agentRunSpanName(params.agentName))
 		rootSpan.setAttributes({
@@ -504,6 +636,11 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		})
 
 		let sandbox: Sandbox | undefined
+		// Set when this segment discovers it does not own the run: taken over, expired,
+		// abandoned by its consumer, or terminalized under it by the control plane. It is the
+		// difference between a run that FAILED and a run this segment merely stopped being
+		// entitled to speak for — see {@link isSegmentDisowned}.
+		let disowned: Error | undefined
 
 		try {
 			try {
@@ -729,7 +866,19 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 					yield* resultAssembler.completeRun(rootSpan)
 				}
 			} catch (err) {
-				yield* resultAssembler.handleError(err, rootSpan)
+				// **A segment that does not own this run says NOTHING about it.** `handleError`
+				// marks the run failed, emits a terminal `run_failed` to every listener, and
+				// appends it to the deliberately-unfenced `transcript.jsonl` — for a run another
+				// segment may at that moment be driving to completion. The fence refuses a
+				// superseded segment's record writes; only this refuses its CLAIMS. It exits
+				// quietly and rethrows, so the caller learns the truth from a typed error instead
+				// of from a run that is now lying about itself.
+				if (isSegmentDisowned(err)) {
+					disowned = err
+					await resultAssembler.abandonSegment(err, rootSpan)
+				} else {
+					yield* resultAssembler.handleError(err, rootSpan)
+				}
 			} finally {
 				// --- Sandbox lifecycle: destroy at the end of the SEGMENT ---
 				//
@@ -772,6 +921,12 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				unsubscribeTaskStore?.()
 				rootSpan.end()
 			}
+
+			// `finalize()` PERSISTS. A disowned segment must not reach it: its record is not
+			// this segment's to write, and the fence would refuse the write anyway — turning a
+			// clean handover into a `RunLeaseLostError` thrown from inside the persist, after
+			// the terminal events had already gone out.
+			if (disowned) throw disowned
 
 			return await resultAssembler.finalize()
 		} finally {

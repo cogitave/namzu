@@ -101,6 +101,40 @@ export class ResultAssembler {
 		})
 	}
 
+	/**
+	 * Walk away from a run this segment no longer owns.
+	 *
+	 * **It emits nothing, marks nothing, and persists nothing** — and each of those is a
+	 * thing {@link handleError} would have done. A superseded segment driven through the
+	 * failure path emits a terminal `run_failed` to every listener (the API's SSE feed, the
+	 * event bridges, the CLI's run view) and appends it to `transcript.jsonl`, which is
+	 * append-only and deliberately unfenced — for a run that another segment is at that
+	 * moment driving to completion. The persisted transcript then contains a `run_failed`
+	 * for a run that finished, and every consumer of the stream saw a live run die.
+	 *
+	 * The fence stops a segment that lost its lease from writing the run's RECORD. Nothing
+	 * stopped it from announcing the run's death. This does.
+	 *
+	 * The span still ends and the loss is still logged: this segment really did stop, and
+	 * the operator is entitled to know why. It is the RUN's story that is not ours to tell.
+	 */
+	async abandonSegment(err: unknown, rootSpan: Span): Promise<void> {
+		const { runMgr, log } = this.config
+		const message = toErrorMessage(err)
+
+		rootSpan.setAttributes({
+			[NAMZU.RUN_STATUS]: 'disowned',
+			[NAMZU.ITERATION]: runMgr.currentIteration,
+		})
+		rootSpan.setStatus({ code: SpanStatusCode.ERROR, message })
+		rootSpan.recordException(err instanceof Error ? err : new Error(message))
+
+		log.warn(
+			'This segment no longer owns the run it was driving — exiting without touching its record. Whatever owns it now is the only thing entitled to say how it ends.',
+			{ runId: runMgr.id, reason: message },
+		)
+	}
+
 	async *handleError(err: unknown, rootSpan: Span): AsyncGenerator<RunEvent> {
 		const { runMgr, planManager, log, emitEvent, drainPending } = this.config
 		const errorMessage = toErrorMessage(err)

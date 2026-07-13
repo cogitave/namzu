@@ -1,4 +1,5 @@
 import { EMPTY_TOKEN_USAGE } from '../../constants/limits.js'
+import { RunNotResumableError } from '../../runtime/query/decision/errors.js'
 import { RunDiskStore } from '../../store/run/disk.js'
 import { type CostInfo, type TokenUsage, accumulateTokenUsage } from '../../types/common/index.js'
 import type { IterationCheckpoint } from '../../types/hitl/index.js'
@@ -141,11 +142,28 @@ export class RunPersistence {
 	 * be finished is the exact failure the durable pause exists to prevent, so the last
 	 * durable truth about a parked run survives until this segment replaces it with a
 	 * REAL outcome: a completion, a failure, a cancellation, or a fresh suspension.
+	 *
+	 * **It will not overwrite a run that is OVER, either — and that is the second guard, not
+	 * a duplicate of admission's.** Admission reads the run's status and refuses a terminal
+	 * one; this re-reads it immediately before the first write. The gap between the two is
+	 * real and it is exactly where a durable cancel lands: `cancelRun` takes no lease and is
+	 * unfenced by design, so it can flip `run.json` to `cancelled` a millisecond after
+	 * admission looked. Without this, `init()` then stamps a freshly-constructed `idle` over
+	 * the cancellation — the fence permits it, because this segment does legitimately hold
+	 * the lease — the run is resurrected, and the batch the user cancelled goes on to run.
+	 * A refusal here writes nothing and exits silently ({@link
+	 * import('../../runtime/query/ownership.js').isSegmentDisowned}).
+	 *
+	 * `failed` is deliberately NOT in the list: a failed run is the one terminal state a
+	 * resume may continue, because nobody chose it. See `admitSegment`.
 	 */
 	async init(): Promise<void> {
 		await this.openRunDir()
 
 		const persisted = await this.runStore.readRunMeta()
+		if (persisted?.status === 'cancelled' || persisted?.status === 'completed') {
+			throw new RunNotResumableError(this.run.id, persisted.status)
+		}
 		if (persisted?.status === 'awaiting_input') {
 			this.run.status = 'awaiting_input'
 			this.run.stopReason = 'paused'
@@ -328,14 +346,26 @@ export class RunPersistence {
 		}
 	}
 
+	/**
+	 * Write the run's record — **as ONE fenced commit, not four.**
+	 *
+	 * The four writes are one fact about the run, and splitting them across four independent
+	 * fence checks made a takeover able to land in the middle. A stalled segment that passed
+	 * the fence at `writeRunMeta` and was refused at `writeMessages` left `run.json` written
+	 * by one segment and `messages.json` by another: a record whose persisted `messageCount`
+	 * and status do not describe its own history, which is precisely what the next resume
+	 * reads. Under one commit the group either lands whole or is refused whole.
+	 */
 	async persist(): Promise<void> {
-		await this.runStore.writeRunMeta(this.run)
-		await this.runStore.writeMessages(this.run)
-		await this.runStore.addToIndex(this.run)
+		await this.runStore.commit('persist the run', async () => {
+			await this.runStore.writeRunMeta(this.run)
+			await this.runStore.writeMessages(this.run)
+			await this.runStore.addToIndex(this.run)
 
-		if (this.run.result) {
-			await this.runStore.writeReport(this.run.result)
-		}
+			if (this.run.result) {
+				await this.runStore.writeReport(this.run.result)
+			}
+		})
 
 		this.log.info('Run persisted to disk', {
 			runId: this.run.id,

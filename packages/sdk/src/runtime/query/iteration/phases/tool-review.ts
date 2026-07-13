@@ -12,6 +12,7 @@ import {
 	evaluateGate,
 } from '../../decision/apply.js'
 import { buildPendingDecision } from '../../decision/pending.js'
+import { abortIfRunCancelled } from '../../ownership.js'
 import type { IterationContext } from './context.js'
 
 interface VerificationAwareContext extends IterationContext {
@@ -40,8 +41,20 @@ export async function* runToolReview(
 	 * around the calls it is handed, so a call that is not in that list cannot
 	 * ride along inside `response` — which is exactly how the denied half of a
 	 * mixed batch used to execute on `approve_tools`.
+	 *
+	 * **Being the only door is what makes the cancellation check here worth anything.** The
+	 * run's persisted status is re-read at the last instant before the batch goes out,
+	 * because a durable cancel is unfenced and can land at any point — including while a
+	 * human sat in `resumeHandler` deciding, which on the in-process path is an unbounded
+	 * wait. A tool's side effect is the one thing that cannot be taken back, so the check
+	 * goes as close to it as it can get. It cannot stop a batch already in flight; it can
+	 * stop this one from starting.
 	 */
 	const executeCalls = async (calls: readonly ProviderToolCall[]): Promise<void> => {
+		if (await abortIfRunCancelled(ctx, 'about to execute a tool batch')) {
+			throw ctx.abortController.signal.reason
+		}
+
 		const batch = await ctx.toolExecutor.executeBatch({
 			...response,
 			message: { ...response.message, toolCalls: [...calls] },

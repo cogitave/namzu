@@ -80,13 +80,27 @@ export type { PreparedFork, PrepareForkInput } from './runtime/query/replay/fork
 // wakes up late is stopped from clobbering the run that moved on without it. `readRunLease`
 // is the operator-facing read: a run that is `awaiting_input` with a FREE lease is parked;
 // one with a STALE lease is a crashed segment, and those are different facts.
+//
+// The four error classes are what a caller branches on, and they are four because they mean
+// four different things: `Held` (something is driving it — wait), `Lost` (this segment was
+// superseded — stop, silently), `Unreadable` (we cannot tell who owns it — fail closed,
+// never assume it is free) and `WriteLockTimeout` (we could not make the write fenced, so we
+// did not make it). `Expired` and `SegmentAbandoned` are subclasses of `Lost`, because a
+// segment whose lease ran out and one whose consumer walked away are in the same position as
+// one that was taken over: they no longer own the run, and must not speak for it.
 export { readRunLease } from './runtime/query/decision/resume.js'
 export {
+	DEFAULT_RUN_LEASE_ABANDON_MS,
 	DEFAULT_RUN_LEASE_HEARTBEAT_MS,
 	DEFAULT_RUN_LEASE_TTL_MS,
+	RunLeaseExpiredError,
 	RunLeaseHeldError,
 	RunLeaseLostError,
+	RunLeaseUnreadableError,
+	RunSegmentAbandonedError,
+	RunWriteLockTimeoutError,
 } from './types/run/lease.js'
+export { isSegmentDisowned, RunCancelledElsewhereError } from './runtime/query/ownership.js'
 
 // Durable pause (ses_017 D1/D2). `resumeDecision` / `cancelRun` / `cancelDecision` /
 // `readPendingDecision` are the STATE-PREPARATION half: pure-record, no runtime deps.

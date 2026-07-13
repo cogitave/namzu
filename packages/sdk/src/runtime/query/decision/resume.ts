@@ -87,6 +87,16 @@ async function storeFor(locator: RunLocator): Promise<RunDiskStore> {
 }
 
 /**
+ * How long redemption holds the run, and why it is short.
+ *
+ * A redemption is not a segment: it validates a token, writes a claim and stamps an outcome
+ * onto a checkpoint. It takes the lease only to FENCE a stalled holder off the run while it
+ * does so, and it gives it straight back. The TTL is the blast radius if the redeeming
+ * process dies mid-write — the run is unresumable for this long, and no longer.
+ */
+const REDEMPTION_LEASE_TTL_MS = 10_000
+
+/**
  * Read a run's pending decision, token included.
  *
  * **Server-side only.** The resume token is a capability, so this is the authorized,
@@ -134,10 +144,13 @@ export async function readRunLease(locator: RunLocator): Promise<RunLeaseView> {
  *      is unresumable *by construction*, and does not depend on whoever cancelled it
  *      having also remembered to close its open decisions. Only an `awaiting_input` run
  *      may be resumed.
- *   2. **Is anyone still driving it?** A live segment holds the run's lease
- *      (`RunLeaseHeldError`), and a token spent against a run nobody may drive strands
- *      the human's answer. A STALE lease does not refuse: that is a crashed holder, and
- *      taking its run over is the recovery the TTL exists for.
+ *   2. **Is anyone still driving it, and if they are STALLED, take the run off them.** A
+ *      live segment holds the lease and the redemption is refused (`RunLeaseHeldError`),
+ *      because a token spent against a run nobody may drive strands the human's answer on
+ *      disk with no way to retry. A STALE lease is a crashed holder and does not refuse —
+ *      but it is TAKEN OVER, not merely noticed, which is the part that was missing: reading
+ *      a stale lease fences nobody, so the stalled-but-alive holder kept the current fencing
+ *      token and could still write. See the acquisition below for what that costs.
  *   3. **Is there a decision to answer?** Absent → `DecisionNotFoundError`.
  *   4. **Has it already been answered?** Any state past `pending` → the token is spent.
  *      The recorded outcome rides on the error so the route can tell an exact duplicate
@@ -178,89 +191,126 @@ export async function resumeDecision(input: ResumeDecisionInput): Promise<Prepar
 		throw new RunNotResumableError(input.runId, meta.status)
 	}
 
+	const lease = await store.readLease()
+
 	// A live segment still holds the run. The token is NOT spent on it: a decision that is
 	// recorded against a run nobody may drive leaves the human's answer stranded on disk
 	// and the token gone, and the caller with no way to retry (a spent token is refused
 	// the second time by design). Refusing here keeps the token valid — retry when the
-	// lease frees, which `expiresAt` names. A STALE lease is not a live segment and does
-	// not refuse: that is a crashed holder, and taking its run over is exactly the recovery
-	// the TTL exists to permit.
-	const lease = await store.readLease()
+	// lease frees, which `expiresAt` names.
 	if (lease.status === 'held' && lease.lease) {
 		throw new RunLeaseHeldError(lease.lease)
 	}
 
-	const checkpoint = await store.readCheckpoint(input.checkpointId)
-	const decision = checkpoint?.pendingDecision
-	if (!checkpoint || !decision) {
-		throw new DecisionNotFoundError(input.runId, input.checkpointId)
-	}
-	if (decision.state !== 'pending') {
-		throw new DecisionAlreadyResolvedError(
-			input.runId,
-			decision.requestId,
-			decision.state,
-			decision.outcome,
-		)
-	}
-	if (!resumeTokenMatches(decision.resumeToken, input.resumeToken)) {
-		throw new DecisionTokenInvalidError(input.runId, decision.requestId)
-	}
-	if (!isValidOutcomeFor(decision.request.type, input.decision.action)) {
-		throw new DecisionOutcomeInvalidError(
-			input.runId,
-			decision.requestId,
-			decision.request.type,
-			input.decision.action,
-		)
-	}
-
-	const now = Date.now()
-	const lost = await store.claimDecision(input.checkpointId, {
-		requestId: decision.requestId,
-		outcome: input.decision,
-		at: now,
-	})
-
-	if (lost) {
-		// Somebody else answered this decision. The claim carries THEIR outcome, so the
-		// refusal is specific even if the winner has not finished writing the checkpoint
-		// yet — and even if the winner CRASHED between the claim and that write, which is
-		// why the record is healed here rather than left `pending` with a spent token.
-		// That combination is the one shape that would be permanently unanswerable.
-		const healed = await settleClaimOntoCheckpoint(store, input.checkpointId, lost)
-		throw new DecisionAlreadyResolvedError(
-			input.runId,
-			decision.requestId,
-			healed?.state ?? (lost.cancelled ? 'cancelled' : 'resolved'),
-			healed?.outcome ?? lost.outcome,
-		)
-	}
-
-	const updated = await store.updateCheckpoint(input.checkpointId, (cp) => {
-		const pending = cp.pendingDecision
-		if (!pending) return undefined
-		return {
-			...cp,
-			pendingDecision: {
-				...pending,
-				state: 'resolved',
-				outcome: input.decision,
-				redeemedAt: now,
-				updatedAt: now,
+	// A STALE lease is a crashed holder, and taking its run over is the recovery the TTL
+	// exists to permit — but NOTICING that it is stale, which is all this used to do, takes
+	// nothing over. The stalled holder keeps the current fencing token, so it is not fenced
+	// by anything: it can wake up after the token has been permanently spent and the outcome
+	// written, pass its fence (its token IS still the current one), and write the run out
+	// from under the answer — re-parking it on a NEW decision that orphans the one just
+	// answered, or terminalizing it, at which point the `query({ resumeFromCheckpoint })`
+	// this function just handed back is refused and the approved batch never runs, with the
+	// token already gone. Acquiring mints token N+1, and THAT is what fences it.
+	//
+	// Only on `stale`. A `free` lease has no holder to fence, and taking one there would put
+	// the lease in front of the decision CLAIM as the arbiter of concurrent redemptions —
+	// so the loser of a race would get a retryable `RunLeaseHeldError` instead of the
+	// `DecisionAlreadyResolvedError` carrying the winner's outcome that the errors contract
+	// promises it. The claim arbitrates redemption; the lease arbitrates driving.
+	if (lease.status === 'stale' && lease.lease) {
+		input.logger?.warn(
+			'Redeeming a decision on a run whose segment stopped renewing — taking the run over so its stalled holder cannot write over the answer',
+			{
+				runId: input.runId,
+				stalledHolder: lease.lease.holderId,
+				stalledToken: lease.lease.token,
 			},
-		}
-	})
-
-	if (!updated?.pendingDecision) {
-		throw new DecisionNotFoundError(input.runId, input.checkpointId)
+		)
+		await store.acquireLease(input.runId, {
+			ttlMs: REDEMPTION_LEASE_TTL_MS,
+			holderId: `redemption:${process.pid}`,
+		})
 	}
 
-	return {
-		runId: input.runId,
-		checkpointId: input.checkpointId,
-		checkpoint: updated,
-		decision: updated.pendingDecision,
+	try {
+		const checkpoint = await store.readCheckpoint(input.checkpointId)
+		const decision = checkpoint?.pendingDecision
+		if (!checkpoint || !decision) {
+			throw new DecisionNotFoundError(input.runId, input.checkpointId)
+		}
+		if (decision.state !== 'pending') {
+			throw new DecisionAlreadyResolvedError(
+				input.runId,
+				decision.requestId,
+				decision.state,
+				decision.outcome,
+			)
+		}
+		if (!resumeTokenMatches(decision.resumeToken, input.resumeToken)) {
+			throw new DecisionTokenInvalidError(input.runId, decision.requestId)
+		}
+		if (!isValidOutcomeFor(decision.request.type, input.decision.action)) {
+			throw new DecisionOutcomeInvalidError(
+				input.runId,
+				decision.requestId,
+				decision.request.type,
+				input.decision.action,
+			)
+		}
+
+		const now = Date.now()
+		const lost = await store.claimDecision(input.checkpointId, {
+			requestId: decision.requestId,
+			outcome: input.decision,
+			at: now,
+		})
+
+		if (lost) {
+			// Somebody else answered this decision. The claim carries THEIR outcome, so the
+			// refusal is specific even if the winner has not finished writing the checkpoint
+			// yet — and even if the winner CRASHED between the claim and that write, which is
+			// why the record is healed here rather than left `pending` with a spent token.
+			// That combination is the one shape that would be permanently unanswerable.
+			const healed = await settleClaimOntoCheckpoint(store, input.checkpointId, lost)
+			throw new DecisionAlreadyResolvedError(
+				input.runId,
+				decision.requestId,
+				healed?.state ?? (lost.cancelled ? 'cancelled' : 'resolved'),
+				healed?.outcome ?? lost.outcome,
+			)
+		}
+
+		const updated = await store.updateCheckpoint(input.checkpointId, (cp) => {
+			const pending = cp.pendingDecision
+			if (!pending) return undefined
+			return {
+				...cp,
+				pendingDecision: {
+					...pending,
+					state: 'resolved',
+					outcome: input.decision,
+					redeemedAt: now,
+					updatedAt: now,
+				},
+			}
+		})
+
+		if (!updated?.pendingDecision) {
+			throw new DecisionNotFoundError(input.runId, input.checkpointId)
+		}
+
+		return {
+			runId: input.runId,
+			checkpointId: input.checkpointId,
+			checkpoint: updated,
+			decision: updated.pendingDecision,
+		}
+	} finally {
+		// Handed back the moment the answer is recorded — a no-op unless a stale lease was
+		// actually taken over above. Redemption is the state-preparation half; the caller
+		// drives the resume itself, and it needs the lease to be free to do it. A redemption
+		// that kept the lease would refuse the very `query()` it just prepared.
+		await store.releaseLease()
 	}
 }
 

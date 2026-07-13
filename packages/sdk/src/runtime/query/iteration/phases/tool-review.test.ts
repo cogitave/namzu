@@ -80,6 +80,12 @@ interface Harness {
 	suspended: boolean
 	/** Run status observed at the moment `run_paused` was emitted. */
 	statusAtPause: string | null
+	/**
+	 * What `run.json` says, as the phase's last-instant cancellation check reads it. `null`
+	 * is a run with no persisted record — which is what these tests drive, and which is not
+	 * cancelled.
+	 */
+	persistedMeta: { status: string } | null
 	/** Pending decisions written to a checkpoint, with the run's parked-ness at write time. */
 	attached: Array<{
 		checkpointId: string
@@ -137,6 +143,7 @@ function makeHarness(opts: {
 		cancelled: false,
 		suspended: false,
 		statusAtPause: null,
+		persistedMeta: null,
 		attached: [],
 		log,
 	} as unknown as Harness
@@ -178,8 +185,15 @@ function makeHarness(opts: {
 		log,
 		emitEvent,
 		drainPending: function* (): Generator<RunEvent> {},
+		// The phase re-reads the run's persisted status at the last instant before a batch
+		// goes to the executor, because a durable `cancelRun` is unfenced and can land at any
+		// moment — including while the human sits in `resumeHandler`. These tests drive the
+		// phase against a run with no persisted record, which reads as "not cancelled" and is
+		// the honest stub: `readRunMeta` returns null for a run whose `run.json` is not there.
+		abortController: new AbortController(),
 		runMgr: {
 			id: runId,
+			getRunStore: () => ({ readRunMeta: async () => harness.persistedMeta }),
 			pushMessage: (m: Message) => messages.push(m),
 			setStopReason: (r: string) => {
 				harness.stopReason = r
