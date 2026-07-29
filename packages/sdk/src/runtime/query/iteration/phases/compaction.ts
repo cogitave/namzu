@@ -94,18 +94,60 @@ export async function runCompactionCheck(ctx: IterationContext): Promise<void> {
 	}
 	if (systemMessages.length === 0) return
 
-	// Tool-pair atomicity guard. A naive cut at `length - keepRecentMessages`
-	// can land BETWEEN an assistant-with-toolCalls (which would be dropped into
-	// `olderMessages`) and its `tool` results (kept in `recentMessages`),
-	// leaving orphaned `tool_result` blocks at the head of the recent window.
-	// The Anthropic provider then emits a `tool_result` with no matching
-	// `tool_use` and the API rejects the next turn with a 400 — so compaction,
-	// whose whole job is to keep a long run alive, instead kills it. Snap the
-	// boundary FORWARD to a safe point (existing `findSafeTrimIndex`, previously
-	// only wired to the unused ConversationManager strategy classes) so no pair
-	// is split. Any message this moves out of the recent window is already
-	// represented in the extracted WorkingState the summary is built from.
-	const keepStart = findSafeTrimIndex(messages, messages.length - config.keepRecentMessages)
+	// Tool-pair atomicity guard, taken DOWNWARD.
+	//
+	// A naive cut at `length - keepRecentMessages` can land BETWEEN an
+	// assistant-with-toolCalls (dropped into `olderMessages`) and its `tool`
+	// results (kept in `recentMessages`), leaving orphaned `tool_result` blocks at
+	// the head of the recent window. The Anthropic provider then emits a
+	// `tool_result` with no matching `tool_use` and the API rejects the next turn
+	// with a 400 — so compaction, whose whole job is to keep a long run alive,
+	// instead kills it.
+	//
+	// Snapping FORWARD via `findSafeTrimIndex` fixes the orphan and introduces a
+	// worse failure. That walk skips leading `tool` messages with no stop short of
+	// `messages.length`, so whenever the entire suffix from the naive index is
+	// `tool` messages, the boundary lands ON `messages.length`: `recentMessages`
+	// comes back EMPTY and `[...preservedSystem, compactionMessage]` replaces the
+	// whole recent window. The model is then asked to answer a conversation whose
+	// last turn — including the user's own message — was deleted, and it answers a
+	// question nobody asked. The shape is routine, not exotic: one assistant turn
+	// fanning out `>= keepRecentMessages` parallel tool calls, measured at the
+	// start of the very next iteration, which is exactly where this runs. The
+	// `olderMessages` floor guard below cannot catch it either — in that shape
+	// `olderMessages` is the whole transcript.
+	//
+	// So take the LARGEST safe boundary AT OR BELOW naive instead. A cut that low
+	// removes no more than the naive cut would, so at least `keepRecentMessages`
+	// original messages always survive verbatim, and the transcript can never be
+	// reduced to system messages alone. `findSafeTrimIndex(m, k) === k` is the
+	// safety predicate — reused rather than reimplemented, so the function itself
+	// (public API, other callers) is untouched.
+	const naiveKeepStart = messages.length - config.keepRecentMessages
+	let keepStart = -1
+	for (let candidate = naiveKeepStart; candidate > systemMessages.length; candidate--) {
+		if (findSafeTrimIndex(messages, candidate) === candidate) {
+			keepStart = candidate
+			break
+		}
+	}
+
+	// No safe boundary at or below naive. Either every candidate splits a pair-set
+	// (one assistant fanning out more calls than the recent window holds), or naive
+	// itself sits inside the leading system prefix — which would otherwise
+	// duplicate those prompts into `recentMessages`. Skipping costs one iteration's
+	// worth of context headroom; cutting anyway costs the live turn. The condition
+	// is self-clearing: the next assistant message moves naive past the tool block.
+	if (keepStart < 0) {
+		ctx.log.debug('Skipping compaction — no safe cut at or below the naive boundary', {
+			runId: ctx.runMgr.id,
+			naiveKeepStart,
+			systemMessages: systemMessages.length,
+			messageCount: messages.length,
+		})
+		return
+	}
+
 	const recentMessages = messages.slice(keepStart)
 	const olderMessages = messages.slice(systemMessages.length, keepStart)
 

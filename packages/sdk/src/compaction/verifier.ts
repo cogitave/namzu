@@ -86,7 +86,16 @@ export async function buildVerifiedSummary(
 
 	const responseText = response.message.content?.trim() ?? ''
 
-	if (responseText === 'COMPLETE') {
+	// `COMPLETE` is the verifier saying it found nothing to add. An EMPTY reply
+	// says the same thing by accident — a turn truncated at
+	// `llmVerificationMaxTokens`, a refusal, or a provider that returned no
+	// content at all — and used to fall through to the append below, stamping a
+	// bare `## LLM Verification Additions` heading with nothing under it. That
+	// empty promise then rides in the compaction summary, and therefore in every
+	// subsequent system prompt, for the rest of the run. A heading with no body
+	// is not a verification result; treat a silent verifier the same as one that
+	// had nothing to say.
+	if (responseText === 'COMPLETE' || responseText.length === 0) {
 		return serialized
 	}
 
