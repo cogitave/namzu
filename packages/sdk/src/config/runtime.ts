@@ -26,20 +26,29 @@ export const CompactionConfigSchema = z.object({
 	 * `tokenBudget` unlimited (0) set this so compaction fires on
 	 * window-pressure instead of being a silent no-op.
 	 */
-	contextWindowTokens: z.number().positive().optional(),
+	// Every field below counts something — tokens, messages, characters,
+	// sentences. `z.number().positive()` was the wrong validator for all of them:
+	// Zod's base number check rejects only non-numbers and NaN, so `Infinity` and
+	// `0.5` both passed. `Infinity` is the dangerous one, because it turns a bound
+	// into a no-op rather than an error — `convoTextBudget: Infinity` makes the
+	// verifier's `charCount > budget` test never true, so `truncateMessages` stops
+	// truncating and the WHOLE history is pasted into the verification prompt.
+	// A fraction is merely nonsense (`keepRecentMessages: 2.5`). `.int()` rejects
+	// both: `Number.isInteger` is false for Infinity and for any fraction.
+	contextWindowTokens: z.number().int().positive().optional(),
 	triggerThreshold: z.number().min(0).max(1).default(0.7),
 	resetThreshold: z.number().min(0).max(1).default(0.4),
-	keepRecentMessages: z.number().positive().default(4),
-	maxToolResults: z.number().positive().default(30),
-	maxListSize: z.number().positive().default(25),
+	keepRecentMessages: z.number().int().positive().default(4),
+	maxToolResults: z.number().int().positive().default(30),
+	maxListSize: z.number().int().positive().default(25),
 	llmVerification: z.boolean().default(true),
-	llmVerificationMaxTokens: z.number().positive().default(2048),
-	richStateThreshold: z.number().positive().default(15),
-	convoTextBudget: z.number().positive().default(12_000),
-	maxSentencesPerTurn: z.number().positive().default(5),
-	maxCharsPerNote: z.number().positive().default(500),
-	maxCharsPerRequirement: z.number().positive().default(300),
-	maxCharsPerTask: z.number().positive().default(400),
+	llmVerificationMaxTokens: z.number().int().positive().default(2048),
+	richStateThreshold: z.number().int().positive().default(15),
+	convoTextBudget: z.number().int().positive().default(12_000),
+	maxSentencesPerTurn: z.number().int().positive().default(5),
+	maxCharsPerNote: z.number().int().positive().default(500),
+	maxCharsPerRequirement: z.number().int().positive().default(300),
+	maxCharsPerTask: z.number().int().positive().default(400),
 })
 
 export type CompactionConfig = z.infer<typeof CompactionConfigSchema>
