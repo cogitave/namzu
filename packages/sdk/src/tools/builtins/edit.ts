@@ -29,10 +29,10 @@ const inputSchema = z
 				'Alias for new_string. Also used as inserted content when insertLine is provided. Self-budget this payload under 12000 characters before calling.',
 			),
 		insertLine: z
-			.union([z.coerce.number().int().min(0), z.string().min(1)])
+			.union([z.number().int().min(0), z.literal('end')])
 			.optional()
 			.describe(
-				'Optional line insertion target. Inserts the replacement after this 1-indexed line; 0 inserts before the first line; "end" appends to the file.',
+				'Optional line insertion target. Pass a JSON integer to insert after that 1-indexed line, 0 to insert before the first line, or the exact string "end" to append. Headings, anchors, numeric strings, null, and empty strings are invalid.',
 			),
 		replace_all: z
 			.boolean()
@@ -166,18 +166,16 @@ function normalizeEditInput(
 }
 
 function normalizeInsertLine(
-	value: string | number,
+	value: unknown,
 ): { success: true; value: number | 'end' } | { success: false; error: string } {
-	if (typeof value === 'string') {
-		if (value.trim().toLowerCase() === 'end') return { success: true, value: 'end' }
-		const parsed = Number(value)
-		if (Number.isInteger(parsed) && parsed >= 0) return { success: true, value: parsed }
-		return {
-			success: false,
-			error: 'insertLine must be a non-negative line number or "end".',
-		}
+	if (value === 'end') return { success: true, value: 'end' }
+	if (typeof value === 'number' && Number.isInteger(value) && value >= 0) {
+		return { success: true, value }
 	}
-	return { success: true, value }
+	return {
+		success: false,
+		error: 'insertLine must be a non-negative line number or "end".',
+	}
 }
 
 function applyEdit(
