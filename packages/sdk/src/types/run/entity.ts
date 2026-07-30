@@ -1,6 +1,7 @@
 import type { AgentStatus, CostInfo, TokenUsage } from '../common/index.js'
 import type { RunId } from '../ids/index.js'
 import type { Message } from '../message/index.js'
+import type { ProviderErrorInfo } from '../provider/index.js'
 import type { AgentRunConfig } from './config.js'
 import type { ReplayAttribution } from './replay.js'
 import type { StopReason } from './stop-reason.js'
@@ -37,6 +38,7 @@ export interface Run {
 	endedAt?: number
 	stopReason?: StopReason
 	lastError?: string
+	lastProviderError?: ProviderErrorInfo
 	result?: string
 
 	parentRunId?: RunId

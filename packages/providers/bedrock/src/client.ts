@@ -7,6 +7,7 @@ import type {
 	Message as BedrockMessage,
 	ContentBlock,
 	ConversationRole,
+	ConverseStreamCommandOutput,
 	ConverseStreamOutput,
 	SystemContentBlock,
 	Tool,
@@ -22,6 +23,12 @@ import type {
 	StreamChunk,
 	TokenUsage,
 	ToolChoice,
+} from '@namzu/sdk'
+import {
+	ProviderRequestError,
+	isCallerAbortError,
+	isProviderRequestError,
+	providerVendorError,
 } from '@namzu/sdk'
 import type { BedrockConfig } from './types.js'
 
@@ -280,14 +287,29 @@ export class BedrockProvider implements LLMProvider {
 			inferenceConfig,
 		})
 
-		const response = await this.client.send(command, {
-			requestTimeout: this.config.timeout ?? 120_000,
-			// Per-request abort: a Stop tears the in-flight Converse stream down.
-			abortSignal: params.signal,
-		})
+		// AWS models failures as distinct exception CLASSES rather than status
+		// codes (ThrottlingException, ValidationException, AccessDeniedException),
+		// and lets them escape verbatim. Classify from the class name, then drop
+		// the AWS error — no re-throw, no `cause`.
+		let response: ConverseStreamCommandOutput
+		try {
+			response = await this.client.send(command, {
+				requestTimeout: this.config.timeout ?? 120_000,
+				// Per-request abort: a Stop tears the in-flight Converse stream down.
+				abortSignal: params.signal,
+			})
+		} catch (err) {
+			if (isCallerAbortError(err, params.signal)) throw params.signal?.reason ?? err
+			if (isProviderRequestError(err)) throw err
+			throw providerVendorError({ providerId: 'bedrock', error: err })
+		}
 
 		if (!response.stream) {
-			throw new Error('Bedrock returned no stream body')
+			throw new ProviderRequestError({
+				kind: 'server',
+				providerId: 'bedrock',
+				detail: 'the response contained no stream body',
+			})
 		}
 
 		const requestId = response.$metadata.requestId ?? `bedrock-${Date.now()}`
@@ -295,94 +317,116 @@ export class BedrockProvider implements LLMProvider {
 		const activeToolCalls = new Map<number, { id: string; name: string; args: string }>()
 		let toolCallIndex = 0
 
-		for await (const event of response.stream as AsyncIterable<ConverseStreamOutput>) {
-			// Stop pulling promptly on abort; `for await` calls the stream's
-			// `.return()` on this throw, releasing the connection.
-			params.signal?.throwIfAborted()
-			try {
-				if ('contentBlockDelta' in event && event.contentBlockDelta?.delta) {
-					const delta = event.contentBlockDelta.delta
-					if ('text' in delta && delta.text) {
-						yield {
-							id: requestId,
-							delta: { content: delta.text },
+		try {
+			for await (const event of response.stream as AsyncIterable<ConverseStreamOutput>) {
+				// Stop pulling promptly on abort; `for await` calls the stream's
+				// `.return()` on this throw, releasing the connection.
+				params.signal?.throwIfAborted()
+
+				// Bedrock reports several post-handshake failures as UNION
+				// EVENTS, not thrown exceptions. Ignoring these members makes a
+				// throttled or failed stream look like a clean EOF.
+				const streamFailure =
+					('internalServerException' in event ? event.internalServerException : undefined) ??
+					('modelStreamErrorException' in event ? event.modelStreamErrorException : undefined) ??
+					('validationException' in event ? event.validationException : undefined) ??
+					('throttlingException' in event ? event.throttlingException : undefined) ??
+					('serviceUnavailableException' in event ? event.serviceUnavailableException : undefined)
+				if (streamFailure) {
+					throw providerVendorError({
+						providerId: 'bedrock',
+						error: streamFailure,
+					})
+				}
+
+				try {
+					if ('contentBlockDelta' in event && event.contentBlockDelta?.delta) {
+						const delta = event.contentBlockDelta.delta
+						if ('text' in delta && delta.text) {
+							yield {
+								id: requestId,
+								delta: { content: delta.text },
+							}
+						}
+
+						if ('toolUse' in delta && delta.toolUse) {
+							const idx = event.contentBlockDelta.contentBlockIndex ?? toolCallIndex
+							const active = activeToolCalls.get(idx)
+							if (active) {
+								active.args += delta.toolUse.input ?? ''
+								yield {
+									id: requestId,
+									delta: {
+										toolCalls: [
+											{
+												index: idx,
+												function: { arguments: delta.toolUse.input ?? '' },
+											},
+										],
+									},
+								}
+							}
 						}
 					}
 
-					if ('toolUse' in delta && delta.toolUse) {
-						const idx = event.contentBlockDelta.contentBlockIndex ?? toolCallIndex
-						const active = activeToolCalls.get(idx)
-						if (active) {
-							active.args += delta.toolUse.input ?? ''
+					if ('contentBlockStart' in event && event.contentBlockStart?.start) {
+						const start = event.contentBlockStart.start
+						if ('toolUse' in start && start.toolUse) {
+							const idx = event.contentBlockStart.contentBlockIndex ?? toolCallIndex
+							activeToolCalls.set(idx, {
+								id: start.toolUse.toolUseId ?? `tool-${Date.now()}`,
+								name: start.toolUse.name ?? '',
+								args: '',
+							})
 							yield {
 								id: requestId,
 								delta: {
 									toolCalls: [
 										{
 											index: idx,
-											function: { arguments: delta.toolUse.input ?? '' },
+											id: start.toolUse.toolUseId,
+											type: 'function',
+											function: { name: start.toolUse.name ?? '' },
 										},
 									],
 								},
 							}
+							toolCallIndex = idx + 1
 						}
 					}
-				}
 
-				if ('contentBlockStart' in event && event.contentBlockStart?.start) {
-					const start = event.contentBlockStart.start
-					if ('toolUse' in start && start.toolUse) {
-						const idx = event.contentBlockStart.contentBlockIndex ?? toolCallIndex
-						activeToolCalls.set(idx, {
-							id: start.toolUse.toolUseId ?? `tool-${Date.now()}`,
-							name: start.toolUse.name ?? '',
-							args: '',
-						})
+					if ('contentBlockStop' in event) {
+					}
+
+					if ('messageStop' in event && event.messageStop) {
 						yield {
 							id: requestId,
-							delta: {
-								toolCalls: [
-									{
-										index: idx,
-										id: start.toolUse.toolUseId,
-										type: 'function',
-										function: { name: start.toolUse.name ?? '' },
-									},
-								],
-							},
+							delta: {},
+							finishReason: mapStopReason(event.messageStop.stopReason),
 						}
-						toolCallIndex = idx + 1
 					}
-				}
 
-				if ('contentBlockStop' in event) {
-				}
-
-				if ('messageStop' in event && event.messageStop) {
-					yield {
-						id: requestId,
-						delta: {},
-						finishReason: mapStopReason(event.messageStop.stopReason),
+					if ('metadata' in event && event.metadata?.usage) {
+						const usage = parseUsage(event.metadata.usage as RawBedrockUsage)
+						yield {
+							id: requestId,
+							delta: {},
+							usage,
+						}
 					}
-				}
-
-				if ('metadata' in event && event.metadata?.usage) {
-					const usage = parseUsage(event.metadata.usage as RawBedrockUsage)
-					yield {
-						id: requestId,
-						delta: {},
-						usage,
-					}
-				}
-			} catch (parseErr) {
-				yield {
-					id: requestId,
-					delta: { content: undefined },
-					finishReason: undefined,
-					usage: undefined,
-					error: `Stream parse error: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
+				} catch (parseErr) {
+					if (isProviderRequestError(parseErr)) throw parseErr
+					throw new ProviderRequestError({
+						kind: 'server',
+						providerId: 'bedrock',
+						detail: 'the provider stream returned malformed data',
+					})
 				}
 			}
+		} catch (err) {
+			if (isCallerAbortError(err, params.signal)) throw params.signal?.reason ?? err
+			if (isProviderRequestError(err)) throw err
+			throw providerVendorError({ providerId: 'bedrock', error: err })
 		}
 	}
 

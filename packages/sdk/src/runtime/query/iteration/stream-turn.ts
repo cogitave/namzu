@@ -1,3 +1,4 @@
+import { isProviderRequestError } from '../../../provider/errors.js'
 import { mergeTokenUsage } from '../../../types/common/index.js'
 import type { ToolUseId } from '../../../types/ids/index.js'
 import type {
@@ -111,9 +112,12 @@ export async function* streamProviderTurn(
 			inputTruncated: boolean
 		}
 	>()
-	let streamError: string | undefined
+	let streamError: Error | undefined
 
-	const stream = provider.chatStream({ ...params, stream: true }) as AsyncIterable<StreamChunk>
+	const stream = provider.chatStream({
+		...params,
+		stream: true,
+	}) as AsyncIterable<StreamChunk>
 
 	// Drive the stream manually so each `.next()` can be RACED against the run
 	// abort: a Stop tears the in-flight model request down (the provider got
@@ -145,7 +149,7 @@ export async function* streamProviderTurn(
 			if (res.done) break
 			const chunk = res.value
 			if (chunk.error) {
-				streamError = chunk.error
+				streamError = new Error(`Provider stream error: ${chunk.error}`)
 				break
 			}
 			if (!id && chunk.id) id = chunk.id
@@ -252,7 +256,7 @@ export async function* streamProviderTurn(
 		// run as cancelled rather than recording a normal (errored) turn. Any
 		// other stream error is captured into the synthesized response as before.
 		if (signal?.aborted) throw err
-		streamError = err instanceof Error ? err.message : String(err)
+		streamError = err instanceof Error ? err : new Error(String(err))
 	} finally {
 		if (onAbort) signal?.removeEventListener('abort', onAbort)
 		// Release the underlying connection on every exit (natural end, error,
@@ -355,7 +359,7 @@ export async function* streamProviderTurn(
 		log.warn('provider stream failed after tool input; surfacing tool call to executor', {
 			runId,
 			iteration,
-			error: streamError,
+			error: streamError?.message ?? 'provider stream failed',
 			toolCallCount: toolCalls.length,
 		})
 	}
@@ -378,7 +382,8 @@ export async function* streamProviderTurn(
 	yield* drainPending()
 
 	if (streamError && !recoveredToolInputFromStreamError) {
-		throw new Error(`Provider stream error: ${streamError}`)
+		if (isProviderRequestError(streamError)) throw streamError
+		throw new Error(`Provider stream error: ${streamError.message}`)
 	}
 
 	const response: ChatCompletionResponse = {

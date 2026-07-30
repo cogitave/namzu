@@ -1,7 +1,7 @@
 ---
 title: Low-Level Runtime
 description: Use query() and drainQuery() directly in @namzu/sdk when you need sandbox providers, plugin wiring, event streaming, or other query-only runtime controls.
-last_updated: 2026-05-02
+last_updated: 2026-07-30
 status: current
 related_packages: ["@namzu/sdk", "@namzu/openai"]
 ---
@@ -230,6 +230,30 @@ That means stream transport code usually needs both:
 
 1. mapped incremental events during execution
 2. the final `AgentRun` when execution completes
+
+Provider failures carry an additional safe, serializable classification:
+
+```ts
+const run = await drainQuery(params, async (event) => {
+  if (event.type === 'run_failed' && event.providerError) {
+    console.error({
+      kind: event.providerError.kind,
+      providerId: event.providerError.providerId,
+      status: event.providerError.status,
+      retryAfterMs: event.providerError.retryAfterMs,
+    })
+  }
+})
+
+if (run.lastProviderError?.kind === 'throttle') {
+  // A scheduler can use retryAfterMs without parsing an error message.
+}
+```
+
+`providerError` and `lastProviderError` are present only when the failure came
+from a provider as a classified `ProviderRequestError`. Other runtime failures
+continue to use the ordinary `error` / `lastError` fields. The provider metadata
+never includes a response body, vendor message, URL, or error `cause`.
 
 ## 10. Common Mistakes
 

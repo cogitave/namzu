@@ -7,7 +7,13 @@ import type {
 	StreamChunk,
 	TokenUsage,
 } from '@namzu/sdk'
-import { type ChatResponse, Ollama, type Message as OllamaMessage } from 'ollama'
+import { isCallerAbortError, isProviderRequestError, providerVendorError } from '@namzu/sdk'
+import {
+	type AbortableAsyncIterator,
+	type ChatResponse,
+	Ollama,
+	type Message as OllamaMessage,
+} from 'ollama'
 import type { OllamaConfig } from './types.js'
 
 /**
@@ -40,6 +46,23 @@ function toOllamaMessages(messages: ChatCompletionParams['messages']): OllamaMes
 	}))
 }
 
+/**
+ * Ollama's `done_reason` in the SDK's vocabulary. `length` is the one that
+ * matters: it is what the iteration loop's auto-continuation branch reads.
+ * Anything unrecognised stays 'stop' — the conservative answer, because claiming
+ * a truncation that did not happen would trigger a pointless continuation.
+ */
+function mapDoneReason(reason: string | undefined): StreamChunk['finishReason'] {
+	switch (reason) {
+		case 'length':
+			return 'length'
+		case 'stop':
+			return 'stop'
+		default:
+			return 'stop'
+	}
+}
+
 function buildUsage(resp: Pick<ChatResponse, 'prompt_eval_count' | 'eval_count'>): TokenUsage {
 	const promptTokens = resp.prompt_eval_count ?? 0
 	const completionTokens = resp.eval_count ?? 0
@@ -49,6 +72,44 @@ function buildUsage(resp: Pick<ChatResponse, 'prompt_eval_count' | 'eval_count'>
 		totalTokens: promptTokens + completionTokens,
 		cachedTokens: 0,
 		cacheWriteTokens: 0,
+	}
+}
+
+/**
+ * Race the initial POST/response-handshake against Stop.
+ *
+ * The ollama SDK creates its private AbortController inside the request and
+ * exposes it only on the resolved iterator. If Stop wins before that point, the
+ * caller still returns immediately; when the iterator eventually arrives, abort
+ * it so the late connection is not left generating.
+ */
+async function awaitStreamStart(
+	operation: Promise<AbortableAsyncIterator<ChatResponse>>,
+	signal?: AbortSignal,
+): Promise<AbortableAsyncIterator<ChatResponse>> {
+	if (!signal) return operation
+
+	let onAbort: (() => void) | undefined
+	const aborted = new Promise<never>((_resolve, reject) => {
+		if (signal.aborted) {
+			reject(signal.reason)
+			return
+		}
+		onAbort = () => reject(signal.reason)
+		signal.addEventListener('abort', onAbort, { once: true })
+	})
+
+	void operation.then(
+		(stream) => {
+			if (signal.aborted) stream.abort()
+		},
+		() => undefined,
+	)
+
+	try {
+		return await Promise.race([operation, aborted])
+	} finally {
+		if (onAbort) signal.removeEventListener('abort', onAbort)
 	}
 }
 
@@ -93,12 +154,27 @@ export class OllamaProvider implements LLMProvider {
 		const messages = toOllamaMessages(params.messages)
 		const options = this.buildOptions(params)
 
-		const stream = await this.client.chat({
-			model,
-			messages,
-			stream: true,
-			...(Object.keys(options).length > 0 ? { options } : {}),
-		})
+		// The ollama SDK's `checkOk` promotes the response body's `error` field into
+		// `ResponseError.message`, so an upstream that echoes a credential back has
+		// already put it in the vendor error before this code runs. Classify from
+		// the status, then drop the vendor error entirely — no re-throw, no `cause`.
+		let stream: AbortableAsyncIterator<ChatResponse>
+		try {
+			params.signal?.throwIfAborted()
+			stream = await awaitStreamStart(
+				this.client.chat({
+					model,
+					messages,
+					stream: true,
+					...(Object.keys(options).length > 0 ? { options } : {}),
+				}),
+				params.signal,
+			)
+		} catch (err) {
+			if (isCallerAbortError(err, params.signal)) throw params.signal?.reason ?? err
+			if (isProviderRequestError(err)) throw err
+			throw providerVendorError({ providerId: 'ollama', error: err })
+		}
 
 		// Wire the caller abort to the iterator's real teardown: `stream.abort()`
 		// calls the underlying AbortController so the fetch is cancelled and the
@@ -129,11 +205,21 @@ export class OllamaProvider implements LLMProvider {
 					yield {
 						id,
 						delta: {},
-						finishReason: 'stop',
+						// `done_reason` was ignored and every finish reported as 'stop', so a
+						// length-truncated answer was indistinguishable from a finished one.
+						// The consumer that starves on this is real: the iteration loop's
+						// auto-continuation only fires on `finishReason === 'length'`, so it
+						// could never fire for Ollama. The field is in the vendor's own
+						// typings, so this needs no cast.
+						finishReason: mapDoneReason(chunk.done_reason),
 						usage,
 					}
 				}
 			}
+		} catch (err) {
+			if (isCallerAbortError(err, signal)) throw signal?.reason ?? err
+			if (isProviderRequestError(err)) throw err
+			throw providerVendorError({ providerId: 'ollama', error: err })
 		} finally {
 			signal?.removeEventListener('abort', onAbort)
 		}

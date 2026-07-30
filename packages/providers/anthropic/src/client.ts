@@ -10,6 +10,12 @@ import type {
 	TokenUsage,
 	ToolChoice,
 } from '@namzu/sdk'
+import {
+	ProviderRequestError,
+	isCallerAbortError,
+	isProviderRequestError,
+	providerVendorError,
+} from '@namzu/sdk'
 import type { AnthropicConfig } from './types.js'
 
 // Floor for `max_tokens` when neither the request nor the provider
@@ -276,7 +282,13 @@ function applyMessageCacheBreakpoint(messages: AnthropicMessageParam[]): void {
 		if (!msg) continue
 		if (typeof msg.content === 'string') {
 			if (msg.content.length === 0) continue
-			msg.content = [{ type: 'text', text: msg.content, cache_control: { type: 'ephemeral' } }]
+			msg.content = [
+				{
+					type: 'text',
+					text: msg.content,
+					cache_control: { type: 'ephemeral' },
+				},
+			]
 			return
 		}
 		if (msg.content.length > 0) {
@@ -451,7 +463,10 @@ export class AnthropicProvider implements LLMProvider {
 			// line or Anthropic rejects the request. Emit the block-array form
 			// with the identity prefix first; cache breakpoints (if any) stay
 			// on the tagged blocks behind it, so the ordering survives.
-			const ccBlock: AnthropicTextBlock = { type: 'text', text: CLAUDE_CODE_SYSTEM_PREFIX }
+			const ccBlock: AnthropicTextBlock = {
+				type: 'text',
+				text: CLAUDE_CODE_SYSTEM_PREFIX,
+			}
 			body.system = system ? [ccBlock, ...system] : [ccBlock]
 		} else if (system) {
 			body.system = system
@@ -493,7 +508,21 @@ export class AnthropicProvider implements LLMProvider {
 		const createParams = this.buildCreateParams(params, true)
 		const signal = params.signal
 
-		const stream = (await this.createRaw(createParams, { signal })) as AsyncIterable<StreamEvent>
+		let stream: AsyncIterable<StreamEvent>
+		try {
+			stream = (await this.createRaw(createParams, {
+				signal,
+			})) as AsyncIterable<StreamEvent>
+		} catch (err) {
+			// The vendor SDK builds its error message FROM the response body, so a
+			// credential the upstream echoed back is already inside `err.message`
+			// before this code runs (proven with a planted fake token). Classify from
+			// the status and drop the vendor error entirely — no re-throw, no
+			// `cause`, because a `cause` is exactly what a structured logger walks.
+			if (isCallerAbortError(err, signal)) throw signal?.reason ?? err
+			if (isProviderRequestError(err)) throw err
+			throw providerVendorError({ providerId: 'anthropic', error: err })
+		}
 
 		let messageId = ''
 		// Track active tool-use blocks by content_block index so input_json_delta
@@ -521,9 +550,11 @@ export class AnthropicProvider implements LLMProvider {
 					new Promise<IteratorResult<StreamEvent>>((_, reject) => {
 						timer = setTimeout(() => {
 							reject(
-								new Error(
-									`Anthropic stream idle for ${Math.round(streamIdleTimeoutMs / 1000)}s — aborting so the run lifecycle can emit run_failed.`,
-								),
+								new ProviderRequestError({
+									kind: 'network',
+									providerId: 'anthropic',
+									detail: `stream idle for ${Math.round(streamIdleTimeoutMs / 1000)}s — aborting so the run lifecycle can emit run_failed`,
+								}),
 							)
 						}, streamIdleTimeoutMs)
 					}),
@@ -645,13 +676,25 @@ export class AnthropicProvider implements LLMProvider {
 							break
 					}
 				} catch (parseErr) {
-					yield {
-						id: messageId,
-						delta: {},
-						error: `Stream event error: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
-					}
+					if (isProviderRequestError(parseErr)) throw parseErr
+					throw new ProviderRequestError({
+						kind: 'server',
+						providerId: 'anthropic',
+						detail: 'the provider stream returned malformed data',
+					})
 				}
 			}
+		} catch (err) {
+			// A mid-stream failure arrives AFTER a 200, so the create-call wrap above
+			// never sees it: the vendor SDK's SSE reader throws its own APIError for
+			// an `event: error` frame, with the frame body as the message. Same
+			// treatment — classify, then drop.
+			//
+			// An abort is NOT a provider failure: restore the caller's signal.reason
+			// even when the SDK replaced it with its own APIUserAbortError object.
+			if (isCallerAbortError(err, signal)) throw signal?.reason ?? err
+			if (isProviderRequestError(err)) throw err
+			throw providerVendorError({ providerId: 'anthropic', error: err })
 		} finally {
 			// Always release the underlying HTTP/2 connection — both on
 			// idle-timeout rejection (bubbling up) and on normal stream

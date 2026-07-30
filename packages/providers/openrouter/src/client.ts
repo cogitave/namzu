@@ -7,6 +7,13 @@ import type {
 	TokenUsage,
 	ToolChoice,
 } from '@namzu/sdk'
+import {
+	ProviderRequestError,
+	isCallerAbortError,
+	isProviderRequestError,
+	providerHttpError,
+	providerVendorError,
+} from '@namzu/sdk'
 import type { OpenRouterConfig } from './types.js'
 
 const OPENROUTER_BASE_URL = process.env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api/v1'
@@ -160,20 +167,41 @@ export class OpenRouterProvider implements LLMProvider {
 		// prior `AbortSignal.timeout(...)` expression (byte-identical).
 		const signal = params.signal ? AbortSignal.any([timeout, params.signal]) : timeout
 
-		const response = await fetch(`${this.baseUrl}/chat/completions`, {
-			method: 'POST',
-			headers: this.getHeaders(),
-			body: JSON.stringify(body),
-			signal,
-		})
+		let response: Response
+		try {
+			response = await fetch(`${this.baseUrl}/chat/completions`, {
+				method: 'POST',
+				headers: this.getHeaders(),
+				body: JSON.stringify(body),
+				signal,
+			})
+		} catch (err) {
+			if (isCallerAbortError(err, params.signal)) throw params.signal?.reason ?? err
+			throw providerVendorError({ providerId: 'openrouter', error: err })
+		}
 
 		if (!response.ok) {
-			const errorBody = await response.text()
-			throw new Error(`OpenRouter API error (${response.status}): ${errorBody}`)
+			// The body is read to CLASSIFY (a 400 saying "prompt is too long" is a
+			// context overflow, any other 400 is a bad request) and then dropped. It
+			// used to be interpolated straight into the message, which is how a
+			// credential the upstream echoed back reached every log that recorded
+			// the failure — proven with a planted fake token.
+			const errorBody = await response.text().catch(() => '')
+			throw providerHttpError({
+				providerId: 'openrouter',
+				status: response.status,
+				body: errorBody,
+				retryAfter: response.headers.get('retry-after'),
+			})
 		}
 
 		if (!response.body) {
-			throw new Error('OpenRouter returned no stream body')
+			throw new ProviderRequestError({
+				kind: 'server',
+				providerId: 'openrouter',
+				status: response.status,
+				detail: 'the response contained no stream body',
+			})
 		}
 
 		const reader = response.body.getReader()
@@ -199,6 +227,7 @@ export class OpenRouterProvider implements LLMProvider {
 					try {
 						const parsed = JSON.parse(data) as {
 							id: string
+							error?: unknown
 							choices: Array<{
 								delta: {
 									content?: string
@@ -212,6 +241,13 @@ export class OpenRouterProvider implements LLMProvider {
 								finish_reason?: string
 							}>
 							usage?: RawUsage
+						}
+
+						if (parsed.error !== undefined) {
+							throw providerVendorError({
+								providerId: 'openrouter',
+								error: new Error(data),
+							})
 						}
 
 						const choice = parsed.choices[0]
@@ -232,16 +268,21 @@ export class OpenRouterProvider implements LLMProvider {
 							usage: parsed.usage ? parseUsage(parsed.usage) : undefined,
 						}
 					} catch (parseErr) {
-						yield {
-							id: '',
-							delta: { content: undefined },
-							finishReason: undefined,
-							usage: undefined,
-							error: `Stream parse error: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
-						}
+						if (isProviderRequestError(parseErr)) throw parseErr
+						// JSON SyntaxError messages include a source snippet, and
+						// mapping failures may include vendor values. Drop both.
+						throw new ProviderRequestError({
+							kind: 'server',
+							providerId: 'openrouter',
+							detail: 'the provider stream returned malformed data',
+						})
 					}
 				}
 			}
+		} catch (err) {
+			if (isCallerAbortError(err, params.signal)) throw params.signal?.reason ?? err
+			if (isProviderRequestError(err)) throw err
+			throw providerVendorError({ providerId: 'openrouter', error: err })
 		} finally {
 			reader.releaseLock()
 		}
