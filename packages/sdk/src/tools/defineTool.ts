@@ -11,6 +11,7 @@ export interface DefineToolOptions<S extends z.ZodType> {
 	name: string
 	description: string
 	inputSchema: S
+	validationErrorHint?: string
 	category: ToolDefinition['category']
 	permissions: ToolPermission[]
 	readOnly: boolean
@@ -29,6 +30,7 @@ export function defineTool<S extends z.ZodType>(
 		name: options.name,
 		description: options.description,
 		inputSchema: options.inputSchema,
+		validationErrorHint: options.validationErrorHint,
 		tier: options.tier,
 		category: options.category,
 		permissions: options.permissions,

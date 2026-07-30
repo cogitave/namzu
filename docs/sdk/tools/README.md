@@ -1,7 +1,7 @@
 ---
 title: SDK Tools
 description: Define tools, register them in ToolRegistry, and understand built-in tool behavior in @namzu/sdk.
-last_updated: 2026-04-18
+last_updated: 2026-07-30
 status: current
 related_packages: ["@namzu/sdk", "@namzu/computer-use"]
 ---
@@ -47,6 +47,7 @@ const summarizeText = defineTool({
 | `name` | Stable snake_case identifier exposed to the model |
 | `description` | Prompt-facing summary of when to use the tool |
 | `inputSchema` | Zod schema used for validation and JSON Schema generation |
+| `validationErrorHint` | Optional model-facing retry guidance for conditional schemas whose accepted shapes are not clear from top-level required fields |
 | `category` | High-level grouping such as `filesystem`, `shell`, `network`, `analysis`, or `custom` |
 | `permissions` | Declared capability list such as `file_read` or `network_access` |
 | `readOnly` | Declares whether the tool should be treated as non-mutating |
@@ -54,6 +55,15 @@ const summarizeText = defineTool({
 | `concurrencySafe` | Signals whether concurrent execution is safe |
 
 If `execute()` throws, the SDK converts that throw into a structured failed tool result instead of leaking an uncaught error through the tool boundary.
+
+When `inputSchema` rejects a call, `ToolRegistry` appends
+`validationErrorHint` to the structured failure. Keep the hint concise and
+include complete safe payloads when a tool supports conditional input shapes:
+
+```ts
+validationErrorHint:
+  'Accepted shapes: {"path":"file.md","insertLine":"end","new_string":"text"} or {"path":"file.md","old_string":"old","new_string":"new"}.',
+```
 
 ## 3. Tool Context
 

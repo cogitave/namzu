@@ -64,6 +64,12 @@ export interface ToolDefinition<TInput = unknown> {
 	name: string
 	description: string
 	inputSchema: z.ZodType<TInput, z.ZodTypeDef, unknown>
+	/**
+	 * Concise, model-readable recovery guidance appended when inputSchema
+	 * rejects a call. Use for conditional schemas whose required shapes
+	 * cannot be reconstructed from JSON Schema's top-level `required` list.
+	 */
+	validationErrorHint?: string
 	execute(input: TInput, context: ToolContext): Promise<ToolResult>
 	tier?: string
 	permissions?: ToolPermission[]
