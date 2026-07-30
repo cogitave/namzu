@@ -167,6 +167,13 @@ tools.register(
     name: 'echo_text',
     description: 'Return the provided text.',
     inputSchema: z.object({ text: z.string() }),
+    modelInputSchema: {
+      type: 'object',
+      properties: { text: { type: 'string' } },
+      required: ['text'],
+      additionalProperties: false,
+    },
+    enforceModelInput: true,
     category: 'analysis',
     permissions: [],
     readOnly: true,
@@ -187,6 +194,11 @@ const response = await provider.chat({
     },
   ],
   tools: tools.toLLMTools(),
+  // Optional non-wire provider hint for tools with a reviewed
+  // modelInputSchema. The agent runtime derives this automatically.
+  // This OpenAI example ignores the hint; Anthropic transports map it
+  // to strict tool use when the selected model supports that feature.
+  enforceToolInputSchema: ['echo_text'],
   toolChoice: 'auto',
 })
 
@@ -197,6 +209,9 @@ Important boundary:
 
 - providers return tool-call intent
 - `ToolRegistry.execute()` or the agent runtime performs the actual tool execution
+- `enforceToolInputSchema` is a Namzu provider hint, not a JSON request field;
+  custom providers must map or strip it instead of spreading the whole params
+  object into a wire payload
 
 If you need automatic tool execution and iterative reasoning, move back up to `ReactiveAgent` or [Low-Level Runtime](../runtime/low-level.md).
 

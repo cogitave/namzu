@@ -1,6 +1,7 @@
 import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { Validator } from 'jsonschema'
 import { describe, expect, it } from 'vitest'
 import { zodToJsonSchema } from 'zod-to-json-schema'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
@@ -21,8 +22,11 @@ describe('EditTool', () => {
 	it('accepts oldStr/newStr aliases for string replacement', async () => {
 		const dir = mkdtempSync(join(tmpdir(), 'namzu-edit-'))
 		writeFileSync(join(dir, 'doc.md'), 'alpha\nbeta\n')
+		const registry = new ToolRegistry()
+		registry.register(EditTool)
 
-		const result = await EditTool.execute(
+		const result = await registry.execute(
+			'edit',
 			{ path: 'doc.md', oldStr: 'beta', newStr: 'gamma', replace_all: false },
 			makeContext(dir),
 		)
@@ -92,6 +96,56 @@ describe('EditTool', () => {
 		])
 	})
 
+	it('publishes a closed Draft 7 model schema with canonical exclusive operation shapes', () => {
+		const schema = EditTool.modelInputSchema
+		expect(schema).toBeDefined()
+		if (!schema) throw new Error('EditTool.modelInputSchema is required')
+
+		const validator = new Validator()
+		const accepts = (input: unknown) => validator.validate(input, schema as never).valid
+
+		for (const input of [
+			{ path: 'doc.md', old_string: 'old', new_string: 'new' },
+			{
+				path: 'doc.md',
+				old_string: 'old',
+				new_string: 'new',
+				replace_all: true,
+			},
+			{ path: 'doc.md', insertLine: 'end', new_string: 'append' },
+			{ path: 'doc.md', insertLine: 0, new_string: 'prepend' },
+			// Anthropic strict schemas do not support minimum. The model
+			// description says non-negative and runtime Zod remains authoritative.
+			{ path: 'doc.md', insertLine: -1, new_string: 'runtime rejects this' },
+		]) {
+			expect(accepts(input), JSON.stringify(input)).toBe(true)
+		}
+
+		for (const input of [
+			{ path: 'doc.md', new_string: 'missing selector' },
+			{
+				path: 'doc.md',
+				old_string: 'old',
+				insertLine: 'end',
+				new_string: 'ambiguous',
+			},
+			{ path: 'doc.md', insertLine: '"end"', new_string: 'quoted wrong' },
+			{ path: 'doc.md', insertLine: 'end', newStr: 'legacy alias' },
+			{ path: 'doc.md', oldStr: 'old', newStr: 'new' },
+			{
+				path: 'doc.md',
+				insertLine: 'end',
+				new_string: 'append',
+				replace_all: false,
+			},
+		]) {
+			expect(accepts(input), JSON.stringify(input)).toBe(false)
+		}
+
+		expect(JSON.stringify(schema)).not.toMatch(/"(?:minimum|maximum|minLength|maxLength|pattern)":/)
+		assertEveryObjectSchemaIsClosed(schema)
+	})
+
 	it('refuses invalid insertLine values even when a caller bypasses the schema', async () => {
 		for (const insertLine of ['## Progress', null, '', '1']) {
 			const dir = mkdtempSync(join(tmpdir(), 'namzu-edit-'))
@@ -131,3 +185,19 @@ describe('EditTool', () => {
 		expect(result.error).toContain('{"path":"file.md","old_string":"old","new_string":"new"}')
 	})
 })
+
+function assertEveryObjectSchemaIsClosed(value: unknown, path = '$'): void {
+	if (Array.isArray(value)) {
+		value.forEach((item, index) => assertEveryObjectSchemaIsClosed(item, `${path}[${index}]`))
+		return
+	}
+	if (!value || typeof value !== 'object') return
+
+	const record = value as Record<string, unknown>
+	if (record.type === 'object') {
+		expect(record.additionalProperties, `${path} must be closed`).toBe(false)
+	}
+	for (const [key, child] of Object.entries(record)) {
+		assertEveryObjectSchemaIsClosed(child, `${path}.${key}`)
+	}
+}

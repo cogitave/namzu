@@ -68,10 +68,20 @@ ProviderRegistry.create({
   type: 'anthropic',
   apiKey: process.env.ANTHROPIC_API_KEY!,
   baseURL: 'https://anthropic-proxy.example.com',
+  // Use 'on' only when a proxy alias supports Anthropic strict tool use.
+  strictToolUse: 'auto',
   defaultHeaders: { 'x-team': 'platform' },
   timeout: 120_000,
 })
 ```
+
+### Strict tool inputs
+
+Tools declared with both `modelInputSchema` and `enforceModelInput: true` are
+sent with Anthropic `strict: true` on recognized Claude 4.5+ models.
+`strictToolUse` defaults to `auto`; set it to `on` for a compatible proxy model
+alias or `off` to disable constrained input generation. Runtime Zod validation
+still runs for every tool call.
 
 ### Max tokens
 

@@ -54,7 +54,11 @@ export class ToolRegistry extends ManagedRegistry<ToolDefinition> {
 	private tierConfig?: ToolTierConfig
 
 	constructor(config?: ToolRegistryConfig) {
-		super({ componentName: 'ToolRegistry', idField: 'name', logger: config?.logger })
+		super({
+			componentName: 'ToolRegistry',
+			idField: 'name',
+			logger: config?.logger,
+		})
 		this.tierConfig = config?.tierConfig
 	}
 
@@ -88,6 +92,11 @@ export class ToolRegistry extends ManagedRegistry<ToolDefinition> {
 	}
 
 	private registerOne(id: string, tool: ToolDefinition, state: ToolAvailability): void {
+		if (tool.enforceModelInput && !tool.modelInputSchema) {
+			throw new Error(
+				`Tool "${id}" enables enforceModelInput but does not define modelInputSchema. Constrained input generation requires an explicit provider-safe model schema.`,
+			)
+		}
 		if (tool.tier && this.tierConfig) {
 			const validIds = this.tierConfig.tiers.map((t) => t.id)
 			if (!validIds.includes(tool.tier)) {
@@ -279,10 +288,12 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 				function: {
 					name: tool.name,
 					description,
-					parameters: zodToJsonSchema(tool.inputSchema, {
-						target: 'jsonSchema7',
-						$refStrategy: 'none',
-					}) as Record<string, unknown>,
+					parameters:
+						(tool.modelInputSchema ? structuredClone(tool.modelInputSchema) : undefined) ??
+						(zodToJsonSchema(tool.inputSchema, {
+							target: 'jsonSchema7',
+							$refStrategy: 'none',
+						}) as Record<string, unknown>),
 				},
 			}
 		})
@@ -468,14 +479,38 @@ export function toolDiscoveryHint(description: string, maxLength = 100): string 
  */
 function listArgumentNames(tool: ToolDefinition): string[] {
 	try {
-		const json = zodToJsonSchema(tool.inputSchema, {
-			target: 'jsonSchema7',
-			$refStrategy: 'none',
-		}) as { properties?: Record<string, unknown> }
-		return Object.keys(json.properties ?? {}).map((key) => key.toLowerCase())
+		const json =
+			tool.modelInputSchema ??
+			(zodToJsonSchema(tool.inputSchema, {
+				target: 'jsonSchema7',
+				$refStrategy: 'none',
+			}) as Record<string, unknown>)
+		return [...collectSchemaPropertyNames(json)].map((key) => key.toLowerCase())
 	} catch {
 		return []
 	}
+}
+
+function collectSchemaPropertyNames(
+	schema: unknown,
+	names: Set<string> = new Set(),
+	seen: Set<object> = new Set(),
+): Set<string> {
+	if (!schema || typeof schema !== 'object' || Array.isArray(schema)) return names
+	if (seen.has(schema)) return names
+	seen.add(schema)
+
+	const record = schema as Record<string, unknown>
+	const properties = record.properties
+	if (properties && typeof properties === 'object' && !Array.isArray(properties)) {
+		for (const name of Object.keys(properties)) names.add(name)
+	}
+	for (const keyword of ['anyOf', 'oneOf', 'allOf'] as const) {
+		const branches = record[keyword]
+		if (!Array.isArray(branches)) continue
+		for (const branch of branches) collectSchemaPropertyNames(branch, names, seen)
+	}
+	return names
 }
 
 /**

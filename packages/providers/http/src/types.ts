@@ -20,6 +20,12 @@ export interface HttpConfig {
 	headers?: Record<string, string>
 	/** Default model when chat params don't specify one. */
 	model?: string
+	/**
+	 * Anthropic-dialect constrained tool-input policy. `auto` enables strict
+	 * tool use for known Claude 4.5+ model identifiers, `on` opts a compatible
+	 * proxy alias in, and `off` disables it. Default: `auto`.
+	 */
+	strictToolUse?: 'auto' | 'on' | 'off'
 	/** Request timeout in ms. Default: 60000. */
 	timeout?: number
 }

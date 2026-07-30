@@ -1,7 +1,7 @@
 ---
 title: Built-In Tools
 description: Reference for the built-in tools exported by @namzu/sdk, including their purpose, safety shape, and common usage patterns.
-last_updated: 2026-05-02
+last_updated: 2026-07-30
 status: current
 related_packages: ["@namzu/sdk", "@namzu/computer-use"]
 ---
@@ -85,11 +85,14 @@ Notes:
 
 Purpose:
 
-- apply exact-string replacements
+- apply exact-string replacements or insert text after a numbered line or at the end
 
 Notes:
 
-- fails if `old_string` is missing
+- models see only the canonical `old_string` / `new_string` keys; legacy `oldStr` / `newStr` aliases remain runtime-only compatibility inputs
+- replacement requires `path`, `old_string`, and `new_string`
+- insertion requires `path`, `insertLine`, and `new_string`; `insertLine` is a non-negative JSON integer or the parsed JSON string `"end"`
+- rejects a string containing quote characters such as `"\"end\""`
 - fails if `old_string` is not unique unless `replace_all` is `true`
 - useful for targeted edits without rewriting entire files
 
