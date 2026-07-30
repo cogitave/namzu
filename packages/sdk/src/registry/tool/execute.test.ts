@@ -433,6 +433,20 @@ describe('ToolRegistry — execute', () => {
 		expect(result.error).toContain('Expected string, received number')
 	})
 
+	it('appends a tool-specific recovery hint to validation failures', async () => {
+		const r = new ToolRegistry()
+		r.register(
+			makeTool('strict', {
+				inputSchema: z.object({ required: z.string() }),
+				validationErrorHint: 'Retry with {"required":"value"}.',
+			}),
+		)
+		const result = await r.execute('strict', { required: 123 }, makeContext())
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('Required: required: string.')
+		expect(result.error).toContain('Retry with {"required":"value"}.')
+	})
+
 	it('empty-args validation lists required params with descriptions', async () => {
 		const r = new ToolRegistry()
 		r.register(

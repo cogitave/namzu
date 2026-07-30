@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { zodToJsonSchema } from 'zod-to-json-schema'
+import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { ToolContext } from '../../../types/tool/index.js'
 import { EditTool } from '../edit.js'
 
@@ -110,5 +111,23 @@ describe('EditTool', () => {
 			expect(result.error).toBe('insertLine must be a non-negative line number or "end".')
 			expect(readFileSync(join(dir, 'doc.md'), 'utf-8')).toBe('alpha\nbeta\n')
 		}
+	})
+
+	it('returns complete recovery shapes when path is missing and insertLine is invalid', async () => {
+		const registry = new ToolRegistry()
+		registry.register(EditTool)
+
+		const result = await registry.execute(
+			'edit',
+			{ insertLine: '## Progress' },
+			makeContext('/tmp'),
+		)
+
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('Validation failed for "edit":')
+		expect(result.error).toContain('insertLine: Invalid input')
+		expect(result.error).toContain('Required: path: string — Path to the file to edit.')
+		expect(result.error).toContain('{"path":"file.md","insertLine":"end","new_string":"text"}')
+		expect(result.error).toContain('{"path":"file.md","old_string":"old","new_string":"new"}')
 	})
 })

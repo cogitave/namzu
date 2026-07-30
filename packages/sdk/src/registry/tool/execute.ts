@@ -370,10 +370,13 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 						Object.keys(rawInput as Record<string, unknown>).length === 0)
 
 				const requiredHint = describeRequiredInput(tool.inputSchema)
+				const recoveryHint = tool.validationErrorHint?.trim()
+					? ` ${tool.validationErrorHint.trim()}`
+					: ''
 
 				const enrichedMessage = isEmptyInput
-					? `Tool "${toolName}" was called with no arguments. ${requiredHint} Retry the call with the required parameters populated.`
-					: `Validation failed for "${toolName}": ${errorMessage}. ${requiredHint}`
+					? `Tool "${toolName}" was called with no arguments. ${requiredHint}${recoveryHint} Retry the call with the required parameters populated.`
+					: `Validation failed for "${toolName}": ${errorMessage}. ${requiredHint}${recoveryHint}`
 
 				this.log.error(`Tool input validation failed: ${toolName}`, {
 					errors: errorMessage,
