@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
+import { ProviderRequestError } from '../../../provider/errors.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
@@ -72,6 +73,22 @@ class IdleDuringToolInputProvider implements LLMProvider {
 	}
 }
 
+class ClassifiedFailureProvider implements LLMProvider {
+	readonly id = 'classified-failure'
+	readonly name = 'Classified Failure Provider'
+
+	async *chatStream(): AsyncIterable<StreamChunk> {
+		yield await Promise.reject(
+			new ProviderRequestError({
+				kind: 'throttle',
+				providerId: 'classified-failure',
+				status: 429,
+				retryAfterMs: 2000,
+			}),
+		)
+	}
+}
+
 describe('query stream recovery', () => {
 	let workdirs: string[] = []
 
@@ -82,7 +99,10 @@ describe('query stream recovery', () => {
 
 	it('turns an idle stream with partial tool JSON into retryable tool feedback', async () => {
 		const provider = new IdleDuringToolInputProvider()
-		const actualWrite = vi.fn(async () => ({ success: true, output: 'should not run' }))
+		const actualWrite = vi.fn(async () => ({
+			success: true,
+			output: 'should not run',
+		}))
 		const tools = new ToolRegistry()
 		tools.register({
 			name: 'write_file',
@@ -152,5 +172,48 @@ describe('query stream recovery', () => {
 		expect(completedTool?.type === 'tool_completed' ? completedTool.result : '').toContain(
 			'extend it with edit using insertLine',
 		)
+	})
+
+	it('preserves classified provider metadata through the primary run boundary', async () => {
+		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-provider-error-'))
+		workdirs.push(workingDirectory)
+		const events: RunEvent[] = []
+
+		const run = await drainQuery(
+			{
+				provider: new ClassifiedFailureProvider(),
+				tools: new ToolRegistry(),
+				runConfig: {
+					model: 'mock-model',
+					timeoutMs: 5_000,
+					tokenBudget: 100_000,
+					maxIterations: 1,
+					maxResponseTokens: 256,
+				},
+				agentId: 'agent_test',
+				agentName: 'Test Agent',
+				messages: [createUserMessage('fail with classified metadata')],
+				workingDirectory,
+				sessionId: 'ses_provider_error' as SessionId,
+				threadId: 'thd_provider_error' as ThreadId,
+				projectId: 'prj_provider_error' as ProjectId,
+				tenantId: 'tnt_provider_error' as TenantId,
+			},
+			(event) => {
+				events.push(event)
+			},
+		)
+
+		expect(run.status).toBe('failed')
+		expect(run.lastProviderError).toEqual({
+			kind: 'throttle',
+			providerId: 'classified-failure',
+			status: 429,
+			retryAfterMs: 2000,
+		})
+		expect(events.find((event) => event.type === 'run_failed')).toMatchObject({
+			type: 'run_failed',
+			providerError: run.lastProviderError,
+		})
 	})
 })

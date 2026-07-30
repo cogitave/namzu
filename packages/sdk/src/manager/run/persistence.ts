@@ -5,6 +5,7 @@ import { RunDiskStore } from '../../store/run/disk.js'
 import { type CostInfo, type TokenUsage, accumulateTokenUsage } from '../../types/common/index.js'
 import type { RunId, SessionId, TenantId } from '../../types/ids/index.js'
 import type { Message } from '../../types/message/index.js'
+import type { ProviderErrorInfo } from '../../types/provider/index.js'
 import type { CheckpointRunScope, CheckpointStore } from '../../types/run/checkpoint-store.js'
 import type { EmergencySaveData } from '../../types/run/emergency.js'
 import type { Run, RunPersistenceConfig, StopReason } from '../../types/run/index.js'
@@ -164,10 +165,11 @@ export class RunPersistence {
 		this.resolveResult()
 	}
 
-	markFailed(error: string): void {
+	markFailed(error: string, providerError?: ProviderErrorInfo): void {
 		this.run.status = 'failed'
 		this.run.stopReason = 'error'
 		this.run.lastError = error
+		if (providerError) this.run.lastProviderError = providerError
 		this.run.endedAt = Date.now()
 	}
 

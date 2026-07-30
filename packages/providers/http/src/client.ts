@@ -8,6 +8,12 @@ import type {
 	TokenUsage,
 	ToolChoice,
 } from '@namzu/sdk'
+import {
+	ProviderRequestError,
+	isCallerAbortError,
+	providerHttpError,
+	providerVendorError,
+} from '@namzu/sdk'
 import { DialectMismatchError, type HttpConfig, type HttpDialect } from './types.js'
 
 const DEFAULT_TIMEOUT_MS = 60_000
@@ -347,26 +353,55 @@ export class HttpProvider implements LLMProvider {
 				? formatAnthropicRequest(params, true, this.config.model)
 				: buildOpenAIBody(params, true, this.config.model)
 
-		const response = await fetch(url, {
-			method: 'POST',
-			headers: this.getHeaders(),
-			body: JSON.stringify(body),
-			signal: this.timeoutSignal(params.signal),
-		})
+		let response: Response
+		try {
+			response = await fetch(url, {
+				method: 'POST',
+				headers: this.getHeaders(),
+				body: JSON.stringify(body),
+				signal: this.timeoutSignal(params.signal),
+			})
+		} catch (err) {
+			if (isCallerAbortError(err, params.signal)) throw params.signal?.reason ?? err
+			throw providerVendorError({ providerId: 'http', error: err })
+		}
 
 		if (!response.ok) {
-			const errorBody = await response.text()
-			throw new Error(`HttpProvider error (${response.status}) from ${url}: ${errorBody}`)
+			// Body read to CLASSIFY, then dropped. It used to be interpolated into
+			// the message together with the URL, so a credential the upstream echoed
+			// back — or one embedded in the URL — reached every log that recorded the
+			// failure. Proven with a planted fake token.
+			const errorBody = await response.text().catch(() => '')
+			throw providerHttpError({
+				providerId: 'http',
+				status: response.status,
+				body: errorBody,
+				retryAfter: response.headers.get('retry-after'),
+			})
 		}
 
 		if (!response.body) {
-			throw new Error(`HttpProvider: no stream body from ${url}`)
+			throw new ProviderRequestError({
+				kind: 'server',
+				providerId: 'http',
+				status: response.status,
+				detail: 'the response contained no stream body',
+			})
 		}
 
 		if (this.dialect === 'anthropic') {
 			yield* this.streamAnthropic(response.body, url, response.status, params.signal)
 		} else {
 			yield* this.streamOpenAI(response.body, url, response.status, params.signal)
+		}
+	}
+
+	private async readStream(reader: ReadableStreamDefaultReader<Uint8Array>, signal?: AbortSignal) {
+		try {
+			return await reader.read()
+		} catch (err) {
+			if (isCallerAbortError(err, signal)) throw signal?.reason ?? err
+			throw providerVendorError({ providerId: 'http', error: err })
 		}
 	}
 
@@ -384,7 +419,7 @@ export class HttpProvider implements LLMProvider {
 		try {
 			while (true) {
 				signal?.throwIfAborted()
-				const { done, value } = await reader.read()
+				const { done, value } = await this.readStream(reader, signal)
 				if (done) break
 
 				buffer += decoder.decode(value, { stream: true })
@@ -400,13 +435,22 @@ export class HttpProvider implements LLMProvider {
 					let parsed: unknown
 					try {
 						parsed = JSON.parse(data)
-					} catch (parseErr) {
-						yield {
-							id: '',
-							delta: {},
-							error: `Stream parse error: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
-						}
-						continue
+					} catch {
+						// V8 includes a source snippet in SyntaxError.message. Never
+						// place that message in a chunk or cause: the malformed frame
+						// may contain a credential or request content.
+						throw new ProviderRequestError({
+							kind: 'server',
+							providerId: 'http',
+							detail: 'the provider stream returned malformed JSON',
+						})
+					}
+
+					if (parsed && typeof parsed === 'object' && 'error' in parsed) {
+						throw providerVendorError({
+							providerId: 'http',
+							error: new Error(data),
+						})
 					}
 
 					if (firstFrame) {
@@ -480,7 +524,7 @@ export class HttpProvider implements LLMProvider {
 		try {
 			while (true) {
 				signal?.throwIfAborted()
-				const { done, value } = await reader.read()
+				const { done, value } = await this.readStream(reader, signal)
 				if (done) break
 
 				buffer += decoder.decode(value, { stream: true })
@@ -500,13 +544,14 @@ export class HttpProvider implements LLMProvider {
 					let parsed: unknown
 					try {
 						parsed = JSON.parse(data)
-					} catch (parseErr) {
-						yield {
-							id: messageId,
-							delta: {},
-							error: `Stream parse error: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
-						}
-						continue
+					} catch {
+						// SyntaxError.message may quote the response fragment. Replace
+						// it with an authored diagnostic and drop the raw frame.
+						throw new ProviderRequestError({
+							kind: 'server',
+							providerId: 'http',
+							detail: 'the provider stream returned malformed JSON',
+						})
 					}
 
 					if (!parsed || typeof parsed !== 'object') continue
@@ -614,12 +659,10 @@ export class HttpProvider implements LLMProvider {
 						case 'message_stop':
 							return
 						case 'error': {
-							yield {
-								id: messageId,
-								delta: {},
-								error: `Anthropic stream error: ${JSON.stringify(parsed)}`,
-							}
-							break
+							throw providerVendorError({
+								providerId: 'http',
+								error: new Error(data),
+							})
 						}
 						default:
 							// Unknown / ping events — ignore.

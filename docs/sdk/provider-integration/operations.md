@@ -1,7 +1,7 @@
 ---
 title: Provider Operations
 description: Direct provider usage in @namzu/sdk, including chat, streaming, tool-call inspection, model listing, health checks, and capability-driven routing.
-last_updated: 2026-04-18
+last_updated: 2026-07-30
 status: current
 related_packages: ["@namzu/sdk", "@namzu/openai", "@namzu/anthropic", "@namzu/bedrock", "@namzu/openrouter", "@namzu/http", "@namzu/ollama", "@namzu/lmstudio"]
 ---
@@ -95,7 +95,64 @@ The stream chunks are normalized across providers:
 - `finishReason` tells you why generation ended
 - `usage` may appear near the end of the stream
 
-## 5. Direct Tool-Call Inspection
+## 5. Handle Classified Provider Failures
+
+All published Namzu providers throw the same `ProviderRequestError` shape for
+request-start and mid-stream provider failures. Use the structural guard rather
+than `instanceof`; an application can load more than one copy of the SDK through
+its dependency graph.
+
+```ts
+import { isProviderRequestError } from '@namzu/sdk'
+
+try {
+  for await (const chunk of provider.chatStream({
+    model: 'gpt-4o-mini',
+    messages: [{ role: 'user', content: 'Summarize this document.' }],
+  })) {
+    process.stdout.write(chunk.delta.content ?? '')
+  }
+} catch (error) {
+  if (!isProviderRequestError(error)) {
+    throw error
+  }
+
+  console.error({
+    kind: error.kind,
+    providerId: error.providerId,
+    status: error.status,
+    retryAfterMs: error.retryAfterMs,
+  })
+}
+```
+
+`kind` is one of:
+
+| Kind | Meaning |
+| --- | --- |
+| `throttle` | The provider rate-limited the request |
+| `network` | The provider could not be reached or its stream failed |
+| `auth` | The provider rejected the credentials |
+| `context_overflow` | The prompt exceeded the model context window |
+| `bad_request` | The provider rejected the request as invalid |
+| `server` | The provider failed while handling an otherwise valid request |
+
+`status` and `retryAfterMs` are optional because not every transport exposes an
+HTTP response or preserves retry headers. They are metadata only: Namzu does not
+sleep or retry when constructing the error. In particular, the Ollama client
+discards response headers before its driver sees an error.
+
+Provider errors deliberately omit vendor messages, response bodies, URLs, and
+`cause`. Those surfaces may contain credentials echoed by an upstream service.
+The normalized message and structured fields are safe to record. A caller-owned
+abort remains the caller's original abort error and is not converted into a
+provider failure.
+
+When using `query()` or `drainQuery()`, the same safe metadata also appears on
+failed runs and `run_failed` events; see
+[Low-Level Runtime](../runtime/low-level.md#9-event-streaming-and-sse-mapping).
+
+## 6. Direct Tool-Call Inspection
 
 Direct provider calls do not execute tools for you. They only return normalized tool-call requests when the model chooses them.
 
@@ -143,7 +200,7 @@ Important boundary:
 
 If you need automatic tool execution and iterative reasoning, move back up to `ReactiveAgent` or [Low-Level Runtime](../runtime/low-level.md).
 
-## 6. Optional Provider Methods
+## 7. Optional Provider Methods
 
 Most published providers implement two optional utility methods:
 
@@ -165,7 +222,7 @@ Typical uses:
 - `healthCheck()` before accepting traffic
 - `listModels()` when rendering setup forms or validating config choices
 
-## 7. Capability-Driven Routing
+## 8. Capability-Driven Routing
 
 The capability object returned by `ProviderRegistry.create()` is often enough to decide which runtime shape to use:
 
@@ -177,7 +234,7 @@ The capability object returned by `ProviderRegistry.create()` is often enough to
 
 This lets you branch behavior without hardcoding vendor names.
 
-## 8. Direct Provider Calls vs Agent Runtime
+## 9. Direct Provider Calls vs Agent Runtime
 
 | If you need... | Use |
 | --- | --- |
@@ -186,7 +243,7 @@ This lets you branch behavior without hardcoding vendor names.
 | Health or model discovery | `healthCheck()` / `listModels()` |
 | Tool execution loop, safety policy, and final run assembly | `ReactiveAgent.run()` or `drainQuery()` |
 
-## 9. Common Mistakes
+## 10. Common Mistakes
 
 | Mistake | Why it hurts |
 | --- | --- |
@@ -194,6 +251,7 @@ This lets you branch behavior without hardcoding vendor names.
 | assuming every provider implements `listModels()` and `healthCheck()` | those methods are optional on the shared interface |
 | ignoring `capabilities` and branching by vendor name instead | you lose the main benefit of the provider abstraction |
 | jumping straight into agents before a direct preflight request | setup errors become harder to isolate |
+| logging an unknown vendor error or its `cause` instead of the normalized fields | upstream error text may contain request data or credentials |
 
 ## Related
 

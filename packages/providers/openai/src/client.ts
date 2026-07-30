@@ -8,6 +8,12 @@ import type {
 	TokenUsage,
 	ToolChoice,
 } from '@namzu/sdk'
+import {
+	ProviderRequestError,
+	isCallerAbortError,
+	isProviderRequestError,
+	providerVendorError,
+} from '@namzu/sdk'
 import OpenAI from 'openai'
 import type {
 	ChatCompletionContentPart,
@@ -188,73 +194,92 @@ export class OpenAIProvider implements LLMProvider {
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
 		const model = this.resolveModel(params)
 
-		const stream = await this.client.chat.completions.create(
-			{
-				model,
-				messages: toOpenAIMessages(params.messages),
-				stream: true,
-				stream_options: { include_usage: true },
-				tools: toOpenAITools(params),
-				tool_choice: formatToolChoice(params.toolChoice),
-				parallel_tool_calls: params.parallelToolCalls,
-				temperature: params.temperature,
-				max_tokens: params.maxTokens,
-				top_p: params.topP,
-				frequency_penalty: params.frequencyPenalty,
-				presence_penalty: params.presencePenalty,
-				stop: params.stop,
-				response_format: params.responseFormat,
-			},
-			// Per-request abort: a Stop tears the in-flight SSE request down.
-			{ signal: params.signal },
-		)
+		let stream: Awaited<ReturnType<typeof this.client.chat.completions.create>>
+		try {
+			stream = await this.client.chat.completions.create(
+				{
+					model,
+					messages: toOpenAIMessages(params.messages),
+					stream: true,
+					stream_options: { include_usage: true },
+					tools: toOpenAITools(params),
+					tool_choice: formatToolChoice(params.toolChoice),
+					parallel_tool_calls: params.parallelToolCalls,
+					temperature: params.temperature,
+					max_tokens: params.maxTokens,
+					top_p: params.topP,
+					frequency_penalty: params.frequencyPenalty,
+					presence_penalty: params.presencePenalty,
+					stop: params.stop,
+					response_format: params.responseFormat,
+				},
+				// Per-request abort: a Stop tears the in-flight SSE request down.
+				{ signal: params.signal },
+			)
+		} catch (err) {
+			// The vendor SDK builds its error message FROM the response body, so a
+			// credential the upstream echoed back is already inside `err.message`
+			// before this code runs (proven with a planted fake token). Classify from
+			// the status and drop the vendor error entirely — no re-throw, no
+			// `cause`, because a `cause` is exactly what a structured logger walks.
+			if (isCallerAbortError(err, params.signal)) throw params.signal?.reason ?? err
+			if (isProviderRequestError(err)) throw err
+			throw providerVendorError({ providerId: 'openai', error: err })
+		}
 
-		for await (const chunk of stream) {
-			// Stop pulling promptly on abort; `for await` calls the stream's
-			// `.return()` on this throw, releasing the connection.
-			params.signal?.throwIfAborted()
-			try {
-				const choice = chunk.choices[0]
-				const delta = choice?.delta
+		try {
+			for await (const chunk of stream) {
+				// Stop pulling promptly on abort; `for await` calls the stream's
+				// `.return()` on this throw, releasing the connection.
+				params.signal?.throwIfAborted()
+				try {
+					const choice = chunk.choices[0]
+					const delta = choice?.delta
 
-				const toolCalls = delta?.tool_calls?.map((tc) => ({
-					index: tc.index,
-					id: tc.id,
-					type: tc.type,
-					function: tc.function
-						? {
-								name: tc.function.name,
-								arguments: tc.function.arguments,
-							}
-						: undefined,
-				}))
+					const toolCalls = delta?.tool_calls?.map((tc) => ({
+						index: tc.index,
+						id: tc.id,
+						type: tc.type,
+						function: tc.function
+							? {
+									name: tc.function.name,
+									arguments: tc.function.arguments,
+								}
+							: undefined,
+					}))
 
-				const hasDelta =
-					(delta?.content !== undefined && delta.content !== null) ||
-					(toolCalls && toolCalls.length > 0)
-				const finishReason = choice?.finish_reason
-					? mapFinishReason(choice.finish_reason)
-					: undefined
-				const usage = chunk.usage ? parseUsage(chunk.usage) : undefined
+					const hasDelta =
+						(delta?.content !== undefined && delta.content !== null) ||
+						(toolCalls && toolCalls.length > 0)
+					const finishReason = choice?.finish_reason
+						? mapFinishReason(choice.finish_reason)
+						: undefined
+					const usage = chunk.usage ? parseUsage(chunk.usage) : undefined
 
-				if (!hasDelta && !finishReason && !usage) continue
+					if (!hasDelta && !finishReason && !usage) continue
 
-				yield {
-					id: chunk.id,
-					delta: {
-						content: delta?.content ?? undefined,
-						toolCalls,
-					},
-					finishReason,
-					usage,
-				}
-			} catch (parseErr) {
-				yield {
-					id: chunk.id ?? '',
-					delta: {},
-					error: `Stream parse error: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
+					yield {
+						id: chunk.id,
+						delta: {
+							content: delta?.content ?? undefined,
+							toolCalls,
+						},
+						finishReason,
+						usage,
+					}
+				} catch (parseErr) {
+					if (isProviderRequestError(parseErr)) throw parseErr
+					throw new ProviderRequestError({
+						kind: 'server',
+						providerId: 'openai',
+						detail: 'the provider stream returned malformed data',
+					})
 				}
 			}
+		} catch (err) {
+			if (isCallerAbortError(err, params.signal)) throw params.signal?.reason ?? err
+			if (isProviderRequestError(err)) throw err
+			throw providerVendorError({ providerId: 'openai', error: err })
 		}
 	}
 

@@ -1,6 +1,7 @@
 import { type Span, SpanStatusCode } from '@opentelemetry/api'
 import type { PlanManager } from '../../manager/plan/lifecycle.js'
 import type { RunPersistence } from '../../manager/run/persistence.js'
+import { isProviderRequestError } from '../../provider/errors.js'
 import type { ActivityStore } from '../../store/activity/memory.js'
 import { GENAI, NAMZU } from '../../telemetry/attributes.js'
 import type { Run, RunEvent } from '../../types/run/index.js'
@@ -61,7 +62,15 @@ export class ResultAssembler {
 	async *handleError(err: unknown, rootSpan: Span): AsyncGenerator<RunEvent> {
 		const { runMgr, planManager, log, emitEvent, drainPending } = this.config
 		const errorMessage = toErrorMessage(err)
-		runMgr.markFailed(errorMessage)
+		const providerError = isProviderRequestError(err)
+			? {
+					kind: err.kind,
+					providerId: err.providerId,
+					...(err.status !== undefined ? { status: err.status } : {}),
+					...(err.retryAfterMs !== undefined ? { retryAfterMs: err.retryAfterMs } : {}),
+				}
+			: undefined
+		runMgr.markFailed(errorMessage, providerError)
 
 		if (planManager.isActive) {
 			planManager.failPlan(errorMessage)
@@ -71,6 +80,7 @@ export class ResultAssembler {
 			type: 'run_failed',
 			runId: runMgr.id,
 			error: errorMessage,
+			...(providerError ? { providerError } : {}),
 		})
 		yield* drainPending()
 

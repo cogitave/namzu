@@ -47,11 +47,19 @@ export * from './utils/id.js'
 
 // ─── utility helpers ─────────────────────────────────────────────────────
 
-export { accumulateCost, calculateCost, formatCost, ZERO_COST } from './utils/cost.js'
+export {
+	accumulateCost,
+	calculateCost,
+	formatCost,
+	ZERO_COST,
+} from './utils/cost.js'
 export { toErrorMessage } from './utils/error.js'
 export { configureLogger, getRootLogger, Logger } from './utils/logger.js'
 export { buildToolResultHashes, hashToolResult } from './utils/hash.js'
-export { compressShellOutput, compressShellOutputFull } from './utils/shell-compress.js'
+export {
+	compressShellOutput,
+	compressShellOutputFull,
+} from './utils/shell-compress.js'
 export { createChildAbortController } from './utils/abort.js'
 export { memoizeAsync } from './utils/memoize.js'
 export { extractFinalResponse } from './utils/conversation.js'
@@ -61,7 +69,10 @@ export { extractFinalResponse } from './utils/conversation.js'
 export { resolveTaskModel } from './router/task-router.js'
 export { drainQuery, query } from './runtime/query/index.js'
 export { ContextCache } from './runtime/query/context-cache.js'
-export { CheckpointManager, projectEmergencyToCheckpoint } from './runtime/query/checkpoint.js'
+export {
+	CheckpointManager,
+	projectEmergencyToCheckpoint,
+} from './runtime/query/checkpoint.js'
 export { prepareReplayState } from './runtime/query/replay/prepare.js'
 export { listCheckpoints } from './runtime/query/replay/list.js'
 export { DecisionParser, FallbackResolver } from './runtime/decision/index.js'
@@ -73,8 +84,17 @@ export {
 
 // ─── personas, skills, advisory ──────────────────────────────────────────
 
-export { assembleSystemPrompt, mergePersonas, withSessionContext } from './persona/index.js'
-export { discoverSkills, loadSkill, resolveSkillChain, SkillRegistry } from './skills/index.js'
+export {
+	assembleSystemPrompt,
+	mergePersonas,
+	withSessionContext,
+} from './persona/index.js'
+export {
+	discoverSkills,
+	loadSkill,
+	resolveSkillChain,
+	SkillRegistry,
+} from './skills/index.js'
 export {
 	AdvisorRegistry,
 	AdvisoryContext,
@@ -144,19 +164,30 @@ export { LocalTaskGateway } from './gateway/local.js'
 // ─── providers, sandbox, vault ───────────────────────────────────────────
 
 export {
+	bodySaysContextOverflow,
+	classifyProviderHttpStatus,
 	DuplicateProviderError,
+	isCallerAbortError,
+	isProviderRequestError,
 	LazyProviderLoadError,
 	LazyProviderSyncCreateError,
 	MOCK_CAPABILITIES,
 	MockLLMProvider,
+	parseRetryAfterMs,
 	PERMISSIVE_PROVIDER_CAPABILITIES,
+	providerHttpError,
+	providerVendorError,
 	ProviderRegistry,
+	ProviderRequestError,
 	registerMock,
 	resolveProviderCapabilities,
 	UnknownProviderError,
 } from './provider/index.js'
 
-export { LocalSandboxProvider, SandboxProviderFactory } from './sandbox/index.js'
+export {
+	LocalSandboxProvider,
+	SandboxProviderFactory,
+} from './sandbox/index.js'
 
 export { InMemoryCredentialVault } from './vault/index.js'
 
@@ -222,7 +253,10 @@ export {
 	runToA2ATask,
 } from './bridge/a2a/index.js'
 
-export { mapRunToStreamEvent, mapSessionToStreamEvent } from './bridge/sse/index.js'
+export {
+	mapRunToStreamEvent,
+	mapSessionToStreamEvent,
+} from './bridge/sse/index.js'
 
 // ─── bus, verification ───────────────────────────────────────────────────
 
@@ -355,10 +389,19 @@ export {
 // ─── runtime helpers colocated with shapes under `types/` (§1.5) ─────────
 
 export { A2AProtocolError } from './types/a2a/index.js'
-export { isTerminalActivityStatus, resolveActivityTracking } from './types/activity/index.js'
+export {
+	isTerminalActivityStatus,
+	resolveActivityTracking,
+} from './types/activity/index.js'
 export { isTerminalAgentTaskState } from './types/agent/task.js'
-export { accumulateTokenUsage, isTerminalStatus } from './types/common/index.js'
-export { assertComputerUseActionType, assertDisplayServer } from './types/computer-use/index.js'
+export {
+	accumulateTokenUsage,
+	isTerminalStatus,
+} from './types/common/index.js'
+export {
+	assertComputerUseActionType,
+	assertDisplayServer,
+} from './types/computer-use/index.js'
 export { isConnectorActive } from './types/connector/core.js'
 export { CONNECTOR_SCOPE_ORDER } from './types/connector/scope.js'
 export { RoutingResponseSchema } from './types/decision/index.js'

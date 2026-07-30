@@ -14,6 +14,7 @@ import type {
 } from '../ids/index.js'
 import type { PlanStep } from '../plan/index.js'
 import type { PluginHookEvent, PluginHookResult } from '../plugin/index.js'
+import type { ProviderErrorInfo } from '../provider/index.js'
 import type { TaskStatus } from '../task/index.js'
 import type { Lineage } from './lineage.js'
 import type { MessageStopReason } from './stop-reason.js'
@@ -98,7 +99,12 @@ type CoreRunEvent =
 			fromCheckpointId: CheckpointId
 	  }
 	| { type: 'run_completed'; runId: RunId; result: string }
-	| { type: 'run_failed'; runId: RunId; error: string }
+	| {
+			type: 'run_failed'
+			runId: RunId
+			error: string
+			providerError?: ProviderErrorInfo
+	  }
 	// Additive 2026-07 (provider capability negotiation): emitted once per
 	// run when the request asks for something the provider DRIVER declared
 	// it cannot do — tools registered against a no-tools driver (tool
