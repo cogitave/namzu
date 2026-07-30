@@ -52,6 +52,60 @@ const inputSchema = z
 
 type EditInput = z.infer<typeof inputSchema>
 
+const modelInputSchema: Record<string, unknown> = {
+	type: 'object',
+	properties: {
+		path: {
+			type: 'string',
+			description: 'Path to the file to edit.',
+		},
+		old_string: {
+			type: 'string',
+			description: 'The exact unique string to find and replace.',
+		},
+		new_string: {
+			type: 'string',
+			description: 'The replacement or inserted text. Keep this payload under 12000 characters.',
+		},
+		insertLine: {
+			anyOf: [{ type: 'integer' }, { type: 'string', const: 'end' }],
+			description:
+				'Line insertion target: a non-negative JSON integer, or the exact JSON string "end" to append.',
+		},
+		replace_all: {
+			type: 'boolean',
+			description: 'Replace every occurrence of old_string instead of one unique match.',
+		},
+	},
+	required: ['path', 'new_string'],
+	additionalProperties: false,
+	anyOf: [
+		{
+			type: 'object',
+			properties: {
+				path: { type: 'string' },
+				old_string: { type: 'string' },
+				new_string: { type: 'string' },
+				replace_all: { type: 'boolean' },
+			},
+			required: ['path', 'old_string', 'new_string'],
+			additionalProperties: false,
+		},
+		{
+			type: 'object',
+			properties: {
+				path: { type: 'string' },
+				insertLine: {
+					anyOf: [{ type: 'integer' }, { type: 'string', const: 'end' }],
+				},
+				new_string: { type: 'string' },
+			},
+			required: ['path', 'insertLine', 'new_string'],
+			additionalProperties: false,
+		},
+	],
+}
+
 type NormalizedEditInput =
 	| {
 			operation: 'replace'
@@ -69,8 +123,10 @@ type NormalizedEditInput =
 export const EditTool = defineTool({
 	name: 'edit',
 	description:
-		'Makes targeted edits to a file using exact string find-and-replace or line insertion. THIS IS THE PREFERRED WAY TO MODIFY AN EXISTING FILE — never reach for `write` to change a file that already exists, because `write` overwrites the whole body and discards earlier work on partial failure. `edit` keeps the rest of the file byte-for-byte intact and is recoverable: if a single edit fails (old_string/oldStr ambiguous, broader restructuring needed), follow up with another `edit` instead of re-emitting the entire file via `write`. The old_string/oldStr must be unique in the file unless replace_all is true. For insertions, pass insertLine plus new_string/newStr; use insertLine: "end" to extend a file at the end. Self-budget new_string/newStr under 12000 characters before emitting the tool call; use repeated bounded edits for long sections. Preserves file formatting and indentation.',
+		'Makes targeted edits to a file using exact string find-and-replace or line insertion. THIS IS THE PREFERRED WAY TO MODIFY AN EXISTING FILE — never reach for `write` to change a file that already exists, because `write` overwrites the whole body and discards earlier work on partial failure. `edit` keeps the rest of the file byte-for-byte intact and is recoverable: if a single exact match fails or broader restructuring is needed, follow up with another `edit` instead of re-emitting the entire file via `write`. For replacement, pass path + old_string + new_string; old_string must be unique unless replace_all is true. For insertion, pass path + insertLine + new_string; use the parsed JSON value insertLine: "end" to append, never a string containing quote characters. Self-budget new_string under 12000 characters before emitting the tool call; use repeated bounded edits for long sections. Preserves file formatting and indentation.',
 	inputSchema,
+	modelInputSchema,
+	enforceModelInput: true,
 	validationErrorHint:
 		'Accepted shapes: {"path":"file.md","insertLine":"end","new_string":"text"} or {"path":"file.md","old_string":"old","new_string":"new"}. Always include path; insertLine accepts only a non-negative JSON integer or the exact string "end".',
 	category: 'filesystem',
@@ -109,7 +165,11 @@ export const EditTool = defineTool({
 			return {
 				success: true,
 				output: `Edited ${input.path}: ${result.replacements} replacement(s) [sandboxed]`,
-				data: { path: input.path, replacements: result.replacements, sandboxed: true },
+				data: {
+					path: input.path,
+					replacements: result.replacements,
+					sandboxed: true,
+				},
 			}
 		}
 
@@ -135,7 +195,10 @@ function normalizeEditInput(
 ): { success: true; operation: NormalizedEditInput } | { success: false; error: string } {
 	const newString = input.new_string ?? input.newStr
 	if (typeof newString !== 'string') {
-		return { success: false, error: 'Either new_string or newStr is required.' }
+		return {
+			success: false,
+			error: 'Either new_string or newStr is required.',
+		}
 	}
 
 	if (input.insertLine !== undefined) {
@@ -154,7 +217,10 @@ function normalizeEditInput(
 
 	const oldString = input.old_string ?? input.oldStr
 	if (typeof oldString !== 'string') {
-		return { success: false, error: 'Either old_string/oldStr or insertLine is required.' }
+		return {
+			success: false,
+			error: 'Either old_string/oldStr or insertLine is required.',
+		}
 	}
 	return {
 		success: true,

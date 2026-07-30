@@ -12,7 +12,11 @@ export type ResponseFormat =
 	| { type: 'json_object' }
 	| {
 			type: 'json_schema'
-			json_schema: { name: string; schema: Record<string, unknown>; strict?: boolean }
+			json_schema: {
+				name: string
+				schema: Record<string, unknown>
+				strict?: boolean
+			}
 	  }
 
 export interface CacheControl {
@@ -23,6 +27,15 @@ export interface ChatCompletionParams {
 	model: string
 	messages: Message[]
 	tools?: LLMToolSchema[]
+	/**
+	 * Provider hint naming tools whose model-facing JSON Schema should be
+	 * enforced through constrained generation when the selected transport and
+	 * model support it.
+	 *
+	 * This is not a wire field. Provider implementations must consume or omit
+	 * it instead of serializing ChatCompletionParams wholesale.
+	 */
+	enforceToolInputSchema?: readonly string[]
 	temperature?: number
 	maxTokens?: number
 	stream?: boolean

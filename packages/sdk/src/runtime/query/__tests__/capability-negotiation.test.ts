@@ -46,6 +46,32 @@ class CapturingProvider implements LLMProvider {
 	}
 }
 
+class ClosingSummaryProvider implements LLMProvider {
+	readonly id = 'closing-summary'
+	readonly name = 'Closing Summary Provider'
+	readonly calls: ChatCompletionParams[] = []
+
+	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
+		this.calls.push(params)
+		if (this.calls.length === 1) {
+			yield {
+				id: 'msg_empty',
+				delta: {},
+				finishReason: 'stop',
+				usage: ZERO_USAGE,
+			}
+			return
+		}
+		yield { id: 'msg_summary', delta: { content: 'closing summary' } }
+		yield {
+			id: 'msg_summary',
+			delta: {},
+			finishReason: 'stop',
+			usage: ZERO_USAGE,
+		}
+	}
+}
+
 const NO_TOOLS_CAPABILITIES: ProviderCapabilities = {
 	supportsTools: false,
 	supportsStreaming: true,
@@ -65,6 +91,25 @@ function registerEchoTool(tools: ToolRegistry): void {
 		name: 'echo',
 		description: 'Echo the text back.',
 		inputSchema: z.object({ text: z.string() }),
+		execute: async () => ({ success: true, output: 'ok' }),
+	})
+}
+
+function registerEnforcedTool(tools: ToolRegistry, name: string): void {
+	tools.register({
+		name,
+		description: `${name} tool`,
+		inputSchema: z.object({
+			new_string: z.string().optional(),
+			newStr: z.string().optional(),
+		}),
+		modelInputSchema: {
+			type: 'object',
+			properties: { new_string: { type: 'string' } },
+			required: ['new_string'],
+			additionalProperties: false,
+		},
+		enforceModelInput: true,
 		execute: async () => ({ success: true, output: 'ok' }),
 	})
 }
@@ -174,6 +219,49 @@ describe('query() capability negotiation', () => {
 
 		expect(run.status).toBe('completed')
 		expect(provider.lastParams?.tools?.map((t) => t.function.name)).toContain('echo')
+	})
+
+	it('propagates enforcement names from the exact allowed and cache-stable tool schemas', async () => {
+		const provider = new CapturingProvider()
+		const tools = new ToolRegistry()
+		registerEnforcedTool(tools, 'edit')
+		registerEnforcedTool(tools, 'cached_edit')
+		registerEnforcedTool(tools, 'excluded_edit')
+		tools.suspendAll()
+		tools.activate(['edit'])
+
+		const run = await drainQuery({
+			...baseParams(provider, tools, await mkWorkdir()),
+			allowedTools: ['edit', 'cached_edit'],
+			messages: [createUserMessage('hello')],
+		})
+
+		expect(run.status).toBe('completed')
+		expect(provider.lastParams?.tools?.map((tool) => tool.function.name)).toEqual([
+			'edit',
+			'cached_edit',
+		])
+		expect(provider.lastParams?.enforceToolInputSchema).toEqual(['edit', 'cached_edit'])
+		expect(JSON.stringify(provider.lastParams?.tools)).not.toContain('newStr')
+	})
+
+	it('keeps the same enforcement hint on the closing-summary provider call', async () => {
+		const provider = new ClosingSummaryProvider()
+		const tools = new ToolRegistry()
+		registerEnforcedTool(tools, 'edit')
+
+		const run = await drainQuery({
+			...baseParams(provider, tools, await mkWorkdir()),
+			messages: [createUserMessage('hello')],
+		})
+
+		expect(run.status).toBe('completed')
+		expect(provider.calls).toHaveLength(2)
+		for (const call of provider.calls) {
+			expect(call.tools?.map((tool) => tool.function.name)).toEqual(['edit'])
+			expect(call.enforceToolInputSchema).toEqual(['edit'])
+		}
+		expect(provider.calls[1]?.toolChoice).toBe('none')
 	})
 
 	it('emits a vision capability_warning when attachments hit a no-vision provider', async () => {

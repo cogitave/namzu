@@ -65,6 +65,20 @@ export interface ToolDefinition<TInput = unknown> {
 	description: string
 	inputSchema: z.ZodType<TInput, z.ZodTypeDef, unknown>
 	/**
+	 * Optional canonical JSON Schema shown to models instead of the runtime
+	 * Zod schema. Use this when runtime compatibility accepts aliases or
+	 * constraints that should not be advertised to a model.
+	 *
+	 * This is intentionally independent of TInput: the model-facing contract
+	 * may be narrower than the execution decoder.
+	 */
+	modelInputSchema?: Record<string, unknown>
+	/**
+	 * Ask capable providers to constrain generated input to modelInputSchema.
+	 * ToolRegistry rejects this flag unless modelInputSchema is also present.
+	 */
+	enforceModelInput?: boolean
+	/**
 	 * Concise, model-readable recovery guidance appended when inputSchema
 	 * rejects a call. Use for conditional schemas whose required shapes
 	 * cannot be reconstructed from JSON Schema's top-level `required` list.

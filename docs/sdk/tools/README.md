@@ -46,7 +46,9 @@ const summarizeText = defineTool({
 | --- | --- |
 | `name` | Stable snake_case identifier exposed to the model |
 | `description` | Prompt-facing summary of when to use the tool |
-| `inputSchema` | Zod schema used for validation and JSON Schema generation |
+| `inputSchema` | Zod schema used for runtime validation and default JSON Schema generation |
+| `modelInputSchema` | Optional canonical JSON Schema shown to models instead of the runtime compatibility schema |
+| `enforceModelInput` | Requests constrained input generation on capable providers; requires `modelInputSchema` |
 | `validationErrorHint` | Optional model-facing retry guidance for conditional schemas whose accepted shapes are not clear from top-level required fields |
 | `category` | High-level grouping such as `filesystem`, `shell`, `network`, `analysis`, or `custom` |
 | `permissions` | Declared capability list such as `file_read` or `network_access` |
@@ -64,6 +66,71 @@ include complete safe payloads when a tool supports conditional input shapes:
 validationErrorHint:
   'Accepted shapes: {"path":"file.md","insertLine":"end","new_string":"text"} or {"path":"file.md","old_string":"old","new_string":"new"}.',
 ```
+
+### Separate runtime compatibility from the model contract
+
+Use `modelInputSchema` when direct callers need compatibility aliases or
+runtime-only constraints that should not become choices in the model's tool
+schema. `ToolRegistry` publishes this override through `toLLMTools()` while
+continuing to validate execution with `inputSchema`:
+
+```ts
+const editLike = defineTool({
+  name: 'edit_like',
+  description: 'Replace exact text in a file.',
+  inputSchema: z.object({
+    path: z.string(),
+    old_string: z.string().optional(),
+    oldStr: z.string().optional(), // legacy runtime alias
+    new_string: z.string().optional(),
+    newStr: z.string().optional(), // legacy runtime alias
+  }),
+  modelInputSchema: {
+    type: 'object',
+    properties: {
+      path: { type: 'string' },
+      old_string: { type: 'string' },
+      new_string: { type: 'string' },
+    },
+    required: ['path', 'old_string', 'new_string'],
+    additionalProperties: false,
+  },
+  enforceModelInput: true,
+  category: 'filesystem',
+  permissions: ['file_write'],
+  readOnly: false,
+  destructive: false,
+  concurrencySafe: false,
+  async execute(input) {
+    // Runtime execution may normalize oldStr/newStr for compatibility.
+    return { success: true, output: input.path }
+  },
+})
+```
+
+`enforceModelInput: true` without an explicit `modelInputSchema` is rejected at
+registration. Namzu does not assume a Zod-generated schema is compatible with
+every provider's constrained-decoding subset.
+
+The agent runtime carries enforced tool names to providers through
+`ChatCompletionParams.enforceToolInputSchema`. This property is a non-wire
+provider hint: custom `LLMProvider` implementations must consume or strip it
+instead of serializing `ChatCompletionParams` wholesale.
+
+Native Anthropic and the HTTP provider's Anthropic dialect enable strict tool
+use for documented Claude 4.5+ model identifiers. Their `strictToolUse`
+configuration accepts:
+
+- `"auto"` (default): enable only for recognized compatible models
+- `"on"`: opt a compatible proxy/model alias in
+- `"off"`: disable constrained tool inputs
+
+Runtime validation always remains authoritative. Anthropic's strict JSON
+Schema subset does not grammar-enforce constraints such as `minimum`, so those
+constraints belong in descriptions and the runtime decoder. Anthropic also
+limits one request to 20 strict tools, 24 optional parameters, and 16 union
+parameters. Compiled schemas are cached for up to 24 hours; do not place PHI
+in schema property names, enum/const values, or regex patterns.
 
 ## 3. Tool Context
 

@@ -11,6 +11,8 @@ export interface DefineToolOptions<S extends z.ZodType> {
 	name: string
 	description: string
 	inputSchema: S
+	modelInputSchema?: Record<string, unknown>
+	enforceModelInput?: boolean
 	validationErrorHint?: string
 	category: ToolDefinition['category']
 	permissions: ToolPermission[]
@@ -30,6 +32,8 @@ export function defineTool<S extends z.ZodType>(
 		name: options.name,
 		description: options.description,
 		inputSchema: options.inputSchema,
+		modelInputSchema: options.modelInputSchema,
+		enforceModelInput: options.enforceModelInput,
 		validationErrorHint: options.validationErrorHint,
 		tier: options.tier,
 		category: options.category,

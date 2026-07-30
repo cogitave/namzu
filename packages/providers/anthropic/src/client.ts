@@ -106,6 +106,7 @@ interface AnthropicToolParam {
 	name: string
 	description: string
 	input_schema: unknown
+	strict?: boolean
 	cache_control?: AnthropicCacheControl
 }
 
@@ -233,13 +234,19 @@ function toAnthropicMessages(messages: ChatCompletionParams['messages']): Anthro
 function toAnthropicTools(
 	params: ChatCompletionParams,
 	cachingEnabled: boolean,
+	strictToolUseEnabled: boolean,
 ): AnthropicToolParam[] | undefined {
 	if (!params.tools || params.tools.length === 0) return undefined
-	const tools: AnthropicToolParam[] = params.tools.map((t) => ({
-		name: t.function.name,
-		description: t.function.description ?? '',
-		input_schema: t.function.parameters ?? { type: 'object' },
-	}))
+	const enforcedNames = new Set(params.enforceToolInputSchema ?? [])
+	const tools: AnthropicToolParam[] = params.tools.map((t) => {
+		const strict = strictToolUseEnabled && enforcedNames.has(t.function.name)
+		return {
+			name: t.function.name,
+			description: t.function.description ?? '',
+			input_schema: t.function.parameters ?? { type: 'object' },
+			...(strict ? { strict: true } : {}),
+		}
+	})
 	if (cachingEnabled) {
 		// Breakpoint on the tools-array tail: tools render at position 0 of
 		// the cache prefix, so this caches every tool schema even when the
@@ -248,6 +255,24 @@ function toAnthropicTools(
 		if (tail) tail.cache_control = { type: 'ephemeral' }
 	}
 	return tools
+}
+
+function shouldUseStrictToolInputs(
+	model: string,
+	mode: AnthropicConfig['strictToolUse'] = 'auto',
+): boolean {
+	if (mode === 'on') return true
+	if (mode === 'off') return false
+
+	const normalized = model.toLowerCase()
+	if (/^(?:anthropic\/)?claude-mythos-preview$/.test(normalized)) return true
+	const version = normalized.match(
+		/^(?:anthropic\/)?claude-(?:haiku|sonnet|opus|fable|mythos)-(\d+)(?:[-_.](\d+))?(?:-\d{8})?$/,
+	)
+	if (!version) return false
+	const major = Number(version[1])
+	const minor = Number(version[2] ?? 0)
+	return major > 4 || (major === 4 && minor >= 5)
 }
 
 function toAnthropicToolChoice(tc?: ToolChoice, parallelToolCalls?: boolean): unknown {
@@ -445,14 +470,19 @@ export class AnthropicProvider implements LLMProvider {
 		// is tools → system → messages, so each later breakpoint covers all
 		// earlier sections too).
 		const cachingEnabled = params.cacheControl !== undefined
+		const model = this.resolveModel(params)
 		const system = extractSystem(params.messages, cachingEnabled)
 		const messages = toAnthropicMessages(params.messages)
 		if (cachingEnabled) applyMessageCacheBreakpoint(messages)
-		const tools = toAnthropicTools(params, cachingEnabled)
+		const tools = toAnthropicTools(
+			params,
+			cachingEnabled,
+			shouldUseStrictToolInputs(model, this.config.strictToolUse),
+		)
 		const toolChoice = toAnthropicToolChoice(params.toolChoice, params.parallelToolCalls)
 
 		const body: Record<string, unknown> = {
-			model: this.resolveModel(params),
+			model,
 			messages,
 			max_tokens: params.maxTokens ?? this.config.maxTokens ?? DEFAULT_MAX_TOKENS,
 			stream,

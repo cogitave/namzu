@@ -6,6 +6,7 @@ import { GENAI, NAMZU, agentIterationSpanName } from '../../../telemetry/attribu
 import { getTracer } from '../../../telemetry/runtime-accessors.js'
 import { createAssistantMessage, createUserMessage } from '../../../types/message/index.js'
 import type { RunEvent, StopReason } from '../../../types/run/index.js'
+import type { LLMToolSchema, ToolRegistryContract } from '../../../types/tool/index.js'
 import { toErrorMessage } from '../../../utils/error.js'
 import { generateMessageId } from '../../../utils/id.js'
 import { applyLifecycleHookResults } from '../plugin-hooks.js'
@@ -118,6 +119,7 @@ export class IterationOrchestrator {
 				// risks a 400 because the history still carries
 				// tool_use/tool_result blocks.
 				const openAITools = this.ctx.tools.toLLMTools(this.ctx.allowedTools)
+				const enforceToolInputSchema = enforcedModelInputToolNames(this.ctx.tools, openAITools)
 
 				const messages = forceFinalize
 					? [
@@ -152,6 +154,7 @@ export class IterationOrchestrator {
 						model,
 						messages,
 						tools: openAITools.length > 0 ? openAITools : undefined,
+						enforceToolInputSchema,
 						toolChoice: forceFinalize && openAITools.length > 0 ? 'none' : undefined,
 						temperature: runConfig.temperature,
 						maxTokens: runConfig.maxResponseTokens,
@@ -428,11 +431,13 @@ export class IterationOrchestrator {
 			// tools param identical to prior iterations (cache prefix intact,
 			// no 400 on tool blocks in history) and forbid use via tool_choice.
 			const finalTools = this.ctx.tools.toLLMTools(this.ctx.allowedTools)
+			const enforceToolInputSchema = enforcedModelInputToolNames(this.ctx.tools, finalTools)
 			const response = await collect(
 				this.ctx.provider.chatStream({
 					model,
 					messages: finalMessages,
 					tools: finalTools.length > 0 ? finalTools : undefined,
+					enforceToolInputSchema,
 					toolChoice: finalTools.length > 0 ? 'none' : undefined,
 					temperature: this.ctx.runConfig.temperature,
 					maxTokens: this.ctx.runConfig.maxResponseTokens,
@@ -470,4 +475,14 @@ export class IterationOrchestrator {
 			})
 		}
 	}
+}
+
+function enforcedModelInputToolNames(
+	registry: ToolRegistryContract,
+	tools: readonly LLMToolSchema[],
+): readonly string[] | undefined {
+	const names = tools
+		.map((tool) => tool.function.name)
+		.filter((name) => registry.get(name)?.enforceModelInput === true)
+	return names.length > 0 ? names : undefined
 }

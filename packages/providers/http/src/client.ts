@@ -81,6 +81,24 @@ function formatToolChoice(tc: ToolChoice | undefined): unknown {
 	return tc
 }
 
+function shouldUseStrictToolInputs(
+	model: string,
+	mode: HttpConfig['strictToolUse'] = 'auto',
+): boolean {
+	if (mode === 'on') return true
+	if (mode === 'off') return false
+
+	const normalized = model.toLowerCase()
+	if (/^(?:anthropic\/)?claude-mythos-preview$/.test(normalized)) return true
+	const version = normalized.match(
+		/^(?:anthropic\/)?claude-(?:haiku|sonnet|opus|fable|mythos)-(\d+)(?:[-_.](\d+))?(?:-\d{8})?$/,
+	)
+	if (!version) return false
+	const major = Number(version[1])
+	const minor = Number(version[2] ?? 0)
+	return major > 4 || (major === 4 && minor >= 5)
+}
+
 function joinUrl(base: string, path: string): string {
 	const trimmedBase = base.endsWith('/') ? base.slice(0, -1) : base
 	const trimmedPath = path.startsWith('/') ? path : `/${path}`
@@ -184,10 +202,12 @@ function formatAnthropicRequest(
 	params: ChatCompletionParams,
 	stream: boolean,
 	defaultModel?: string,
+	strictToolUse: HttpConfig['strictToolUse'] = 'auto',
 ): Record<string, unknown> {
 	const systemParts: string[] = []
 	const messages: AnthropicMessage[] = []
 	let pendingToolResults: AnthropicContentBlock[] = []
+	const model = params.model || defaultModel
 
 	const flushToolResults = () => {
 		if (pendingToolResults.length > 0) {
@@ -248,7 +268,7 @@ function formatAnthropicRequest(
 	flushToolResults()
 
 	const body: Record<string, unknown> = {
-		model: params.model || defaultModel,
+		model,
 		messages,
 		// Anthropic requires max_tokens. Default to 4096 if the caller didn't set one.
 		max_tokens: params.maxTokens ?? 4096,
@@ -262,10 +282,13 @@ function formatAnthropicRequest(
 	if (params.stop) body.stop_sequences = params.stop
 
 	if (params.tools && params.tools.length > 0) {
+		const enforcedNames = new Set(params.enforceToolInputSchema ?? [])
+		const strictEnabled = shouldUseStrictToolInputs(model ?? '', strictToolUse)
 		body.tools = params.tools.map((t) => ({
 			name: t.function.name,
 			description: t.function.description ?? '',
 			input_schema: t.function.parameters ?? { type: 'object' },
+			...(strictEnabled && enforcedNames.has(t.function.name) ? { strict: true } : {}),
 		}))
 	}
 
@@ -350,7 +373,7 @@ export class HttpProvider implements LLMProvider {
 		const url = this.endpoint()
 		const body =
 			this.dialect === 'anthropic'
-				? formatAnthropicRequest(params, true, this.config.model)
+				? formatAnthropicRequest(params, true, this.config.model, this.config.strictToolUse)
 				: buildOpenAIBody(params, true, this.config.model)
 
 		let response: Response
