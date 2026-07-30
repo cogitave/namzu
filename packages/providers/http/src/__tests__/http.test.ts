@@ -314,8 +314,13 @@ describe('@namzu/http — request construction', () => {
 		})
 		const editSchema = {
 			type: 'object',
-			properties: { new_string: { type: 'string' } },
-			required: ['new_string'],
+			properties: {
+				path: { type: 'string' },
+				old_string: { type: 'string' },
+				new_string: { type: 'string' },
+				replace_all: { type: 'boolean' },
+			},
+			required: ['path', 'old_string', 'new_string'],
 			additionalProperties: false,
 		}
 

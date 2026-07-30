@@ -26,8 +26,8 @@ import { WriteFileTool } from './write-file.js'
 // `code.claude.com/docs/en/tools-reference`) does NOT include `LS` —
 // directory listing is canonical `Bash` + `Glob`. `search_tools` has no
 // Claude analogue at all. Including these in the defaults gives the model
-// tools that look right but degrade alignment. File extension is canonical
-// `edit` with `insertLine: "end"` — the legacy `Append` tool is gone.
+// tools that look right but degrade alignment. File extension uses canonical
+// exact replacement against a unique tail or deterministic marker.
 // Hosts that genuinely want LS/search can still register them explicitly.
 
 export function getBuiltinTools(): ToolDefinition[] {

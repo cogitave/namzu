@@ -93,6 +93,10 @@ export interface Sandbox {
 	readonly rootDir: string
 	readonly environment: SandboxEnvironment
 	exec(command: string, args?: string[], opts?: SandboxExecOptions): Promise<SandboxExecResult>
+	/**
+	 * Atomically replace the destination body: readers must observe either the
+	 * previous complete body or the new complete body, never a truncated file.
+	 */
 	writeFile(path: string, content: string | Buffer): Promise<void>
 	readFile(path: string): Promise<Buffer>
 	/**

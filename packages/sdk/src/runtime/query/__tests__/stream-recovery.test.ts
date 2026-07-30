@@ -170,7 +170,7 @@ describe('query stream recovery', () => {
 			'call was cut off',
 		)
 		expect(completedTool?.type === 'tool_completed' ? completedTool.result : '').toContain(
-			'extend it with edit using insertLine',
+			'advance that marker with bounded exact edit calls',
 		)
 	})
 

@@ -107,27 +107,27 @@ describe('query long-document tool flow', () => {
 				name: 'write',
 				input: {
 					path: 'outputs/long-document-flow.md',
-					content: '# Long document flow\n\n{{BODY}}\n',
+					content: '# Long document flow\n\n{{CHUNK_001}}\n',
 				},
 			},
+			...chunks.map((chunk, index) => ({
+				name: 'edit',
+				input: {
+					path: 'outputs/long-document-flow.md',
+					old_string: `{{CHUNK_${String(index + 1).padStart(3, '0')}}}`,
+					new_string: `${chunk}\n{{CHUNK_${String(index + 2).padStart(3, '0')}}}`,
+					replace_all: false,
+				},
+			})),
 			{
 				name: 'edit',
 				input: {
 					path: 'outputs/long-document-flow.md',
-					oldStr: '{{BODY}}',
-					newStr: chunks[0],
+					old_string: `{{CHUNK_${String(chunks.length + 1).padStart(3, '0')}}}`,
+					new_string: '',
 					replace_all: false,
 				},
 			},
-			...chunks.slice(1).map((chunk) => ({
-				name: 'edit',
-				input: {
-					path: 'outputs/long-document-flow.md',
-					insertLine: 'end',
-					newStr: chunk,
-					replace_all: false,
-				},
-			})),
 		])
 		const tools = new ToolRegistry()
 		tools.register(WriteFileTool)
@@ -169,9 +169,9 @@ describe('query long-document tool flow', () => {
 
 		expect(run.status).toBe('completed')
 		expect(run.result).toBe('Long document created and verified.')
-		expect(provider.calls).toBe(6)
-		expect(executingTools).toEqual(['write', 'edit', 'edit', 'edit', 'edit'])
-		expect(final).not.toContain('{{BODY}}')
+		expect(provider.calls).toBe(7)
+		expect(executingTools).toEqual(['write', 'edit', 'edit', 'edit', 'edit', 'edit'])
+		expect(final).not.toContain('{{CHUNK_')
 		expect(final.split('\n').length).toBeGreaterThan(160)
 		expect(final).toContain('## Section 1')
 		expect(final).toContain('## Section 4')

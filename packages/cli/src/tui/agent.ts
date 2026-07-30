@@ -190,7 +190,7 @@ async function ensureRegistered(id: ProviderId): Promise<void> {
 
 // Builtins we don't expose: `verify_outputs` — not part of the recognizable
 // Claude-Code tool surface, just noise in `/tools`. (`append` was removed
-// from the SDK entirely; `edit` with insertLine:"end" covers it.)
+// from the SDK entirely; exact replacement against a unique tail/marker covers it.)
 const EXCLUDED_BUILTINS = new Set(['verify_outputs'])
 
 // namzu's own identity. Injected as system context so the agent presents as
@@ -739,11 +739,11 @@ export function previewToolInput(toolName: string, input: unknown): readonly str
 		if (content !== undefined) return previewLines(content, 8)
 	}
 	if (name === 'edit') {
-		const oldStr = str('old_string') ?? str('oldStr')
-		const newStr = str('new_string') ?? str('newStr')
+		const oldString = str('old_string')
+		const newString = str('new_string')
 		const lines: string[] = []
-		if (oldStr) for (const l of previewLines(oldStr, 4)) lines.push(`- ${l}`)
-		if (newStr) for (const l of previewLines(newStr, 4)) lines.push(`+ ${l}`)
+		if (oldString) for (const line of previewLines(oldString, 4)) lines.push(`- ${line}`)
+		if (newString) for (const line of previewLines(newString, 4)) lines.push(`+ ${line}`)
 		if (lines.length > 0) return lines
 	}
 	return undefined
@@ -778,11 +778,11 @@ export function toolStartDetail(toolName: string, input: unknown): readonly stri
 		return content !== undefined ? clampLines(content) : undefined
 	}
 	if (name === 'edit') {
-		const oldStr = str('old_string') ?? str('oldStr')
-		const newStr = str('new_string') ?? str('newStr')
+		const oldString = str('old_string')
+		const newString = str('new_string')
 		const lines: string[] = []
-		if (oldStr) for (const l of clampLines(oldStr)) lines.push(`- ${l}`)
-		if (newStr) for (const l of clampLines(newStr)) lines.push(`+ ${l}`)
+		if (oldString) for (const line of clampLines(oldString)) lines.push(`- ${line}`)
+		if (newString) for (const line of clampLines(newString)) lines.push(`+ ${line}`)
 		return lines.length > 0 ? lines : undefined
 	}
 	return undefined

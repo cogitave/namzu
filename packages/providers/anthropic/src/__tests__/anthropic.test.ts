@@ -312,27 +312,12 @@ describe('AnthropicProvider — buildCreateParams', () => {
 				type: 'object',
 				properties: {
 					path: { type: 'string' },
+					old_string: { type: 'string' },
 					new_string: { type: 'string' },
-					insertLine: {
-						anyOf: [{ type: 'integer' }, { type: 'string', const: 'end' }],
-					},
+					replace_all: { type: 'boolean' },
 				},
-				required: ['path', 'new_string'],
+				required: ['path', 'old_string', 'new_string'],
 				additionalProperties: false,
-				anyOf: [
-					{
-						type: 'object',
-						properties: {
-							path: { type: 'string' },
-							insertLine: {
-								anyOf: [{ type: 'integer' }, { type: 'string', const: 'end' }],
-							},
-							new_string: { type: 'string' },
-						},
-						required: ['path', 'insertLine', 'new_string'],
-						additionalProperties: false,
-					},
-				],
 			}
 			const body = buildParams(makeProvider(), {
 				model: 'claude-opus-5',
