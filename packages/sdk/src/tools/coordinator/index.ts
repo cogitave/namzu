@@ -227,28 +227,6 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 		},
 	})
 
-	const cancelTask = defineTool({
-		name: 'cancel_task',
-		description:
-			'Cancel a running agent task. Only use this with a task_id from a previous create_task.',
-		inputSchema: z.object({
-			task_id: z.string().describe('Agent task ID from a previous create_task'),
-		}),
-		category: 'custom',
-		permissions: [],
-		readOnly: false,
-		destructive: false,
-		concurrencySafe: true,
-		async execute({ task_id }) {
-			gateway.cancelTask(task_id as TaskId)
-			return {
-				success: true,
-				output: `Task ${task_id} cancelled`,
-				data: { task_id },
-			}
-		},
-	})
-
 	const agentTaskList = defineTool({
 		name: 'agent_task_list',
 		description:
@@ -305,19 +283,18 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 		},
 	})
 
-	// `continue_task` was a follow-up channel for a still-alive worker
-	// task. With `create_task` now blocking + tool_result returning
-	// the worker's final output, every worker reaches a terminal
-	// state by the time the supervisor wants to follow up — and the
-	// agent manager rejects `continue` on terminal tasks. The
-	// industrial pattern is to issue a fresh `create_task` that
-	// references the prior worker's output path, so we drop
-	// `continue_task` from the registered surface entirely. The
-	// definition stays in this file for now in case a future
-	// non-default gateway (one that keeps the worker process alive
-	// for follow-ups) wants to re-register it.
+	// `continue_task` and model-facing per-task cancellation both
+	// belonged to the old non-blocking worker protocol. With
+	// `create_task` now blocking + tool_result returning the worker's
+	// final output, every worker is terminal by the time a later model
+	// turn learns its task id. The old cancel tool additionally called
+	// a void/no-op gateway method and manufactured "cancelled" even for
+	// a missing id. Host-owned run interruption still uses the gateway
+	// cancellation contract directly; it does not need a model tool.
+	// Keep only the follow-up definition for a future non-default
+	// gateway that deliberately preserves live workers between turns.
 	void continueTask
-	const tools: ToolDefinition[] = [createTask, cancelTask, agentTaskList]
+	const tools: ToolDefinition[] = [createTask, agentTaskList]
 
 	if (getPlanManager) {
 		const approvePlan = defineTool({

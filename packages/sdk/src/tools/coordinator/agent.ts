@@ -19,14 +19,12 @@ import type { TaskLaunchedCallback } from './index.js'
  * subagent tool calls are isolated — only the summary surfaces to
  * the parent.
  *
- * This is **NOT** the same shape as the legacy `create_task` /
- * `continue_task` / `cancel_task` trio that this package ships
- * alongside it: those are non-blocking and use a `<task-notification>`
- * callback model. The async pattern is useful for hosts that want a
- * work-queue surface, but it is not what Claude Code trained against.
- * For free agentic alignment, prefer the canonical `Agent` tool; keep
- * the legacy coordinator tools only when you genuinely need
- * fire-and-forget multi-task fan-out.
+ * This is **NOT** the same shape as the coordinator `create_task`
+ * tool that this package ships alongside it. That tool exposes
+ * Namzu's task IDs and optional planning integration, while still
+ * returning results synchronously. For free agentic alignment,
+ * prefer the canonical `Agent` tool; use the coordinator tool when
+ * the host needs task tracking.
  */
 export interface AgentToolOptions {
 	gateway: TaskGateway
