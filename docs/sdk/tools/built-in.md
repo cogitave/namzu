@@ -1,7 +1,7 @@
 ---
 title: Built-In Tools
 description: Reference for the built-in tools exported by @namzu/sdk, including their purpose, safety shape, and common usage patterns.
-last_updated: 2026-07-30
+last_updated: 2026-07-31
 status: current
 related_packages: ["@namzu/sdk", "@namzu/computer-use"]
 ---
@@ -77,24 +77,38 @@ Purpose:
 
 Notes:
 
+- accepts exactly `path` and `content`; compatibility aliases are not accepted
 - destructive by declaration
 - not concurrency-safe
 - sandbox-aware when a sandbox is present
+- serializes same-process mutations by resolved path
+- commits local writes through a same-directory temp file and atomic rename;
+  sandbox `writeFile` implementations carry the same atomic replacement
+  contract
 
 ### 4.3 `Edit`
 
 Purpose:
 
-- apply exact-string replacements or insert text after a numbered line or at the end
+- apply one exact-string replacement
 
 Notes:
 
-- models see only the canonical `old_string` / `new_string` keys; legacy `oldStr` / `newStr` aliases remain runtime-only compatibility inputs
-- replacement requires `path`, `old_string`, and `new_string`
-- insertion requires `path`, `insertLine`, and `new_string`; `insertLine` is a non-negative JSON integer or the parsed JSON string `"end"`
-- rejects a string containing quote characters such as `"\"end\""`
+- accepts exactly `path`, `old_string`, `new_string`, and optional `replace_all`
+- compatibility aliases and line-based insertion fields are not accepted
+- `new_string` may be empty to delete the exact match
 - fails if `old_string` is not unique unless `replace_all` is `true`
+- normalizes only consistent CRLF/LF boundaries; it does not perform fuzzy matching
+- serializes same-process mutations by resolved path
+- commits local writes atomically; sandbox writes rely on the `Sandbox`
+  interface's atomic replacement guarantee
 - useful for targeted edits without rewriting entire files
+
+To append or assemble a long document, write a unique deterministic marker and
+replace it with the bounded chunk plus the next marker. Advance markers
+monotonically (`{{CHUNK_001}}` → `{{CHUNK_002}}`) so retrying a completed edit
+fails safely instead of duplicating content. Distributed hosts must still
+assign one writer per file or provide storage-level compare-and-swap.
 
 ### 4.4 `Bash`
 

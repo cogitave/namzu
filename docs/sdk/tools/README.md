@@ -1,7 +1,7 @@
 ---
 title: SDK Tools
 description: Define tools, register them in ToolRegistry, and understand built-in tool behavior in @namzu/sdk.
-last_updated: 2026-07-30
+last_updated: 2026-07-31
 status: current
 related_packages: ["@namzu/sdk", "@namzu/computer-use"]
 ---
@@ -60,31 +60,31 @@ If `execute()` throws, the SDK converts that throw into a structured failed tool
 
 When `inputSchema` rejects a call, `ToolRegistry` appends
 `validationErrorHint` to the structured failure. Keep the hint concise and
-include complete safe payloads when a tool supports conditional input shapes:
+include one complete safe payload:
 
 ```ts
 validationErrorHint:
-  'Accepted shapes: {"path":"file.md","insertLine":"end","new_string":"text"} or {"path":"file.md","old_string":"old","new_string":"new"}.',
+  'Required shape: {"path":"file.md","old_string":"exact text","new_string":"replacement"}.',
 ```
 
-### Separate runtime compatibility from the model contract
+### Publish a provider-safe model contract
 
-Use `modelInputSchema` when direct callers need compatibility aliases or
-runtime-only constraints that should not become choices in the model's tool
-schema. `ToolRegistry` publishes this override through `toLLMTools()` while
-continuing to validate execution with `inputSchema`:
+Use `modelInputSchema` when the generated Zod JSON Schema includes constraints
+outside a provider's constrained-decoding subset. `ToolRegistry` publishes this
+reviewed override through `toLLMTools()` while runtime execution remains
+authoritative:
 
 ```ts
 const editLike = defineTool({
   name: 'edit_like',
   description: 'Replace exact text in a file.',
-  inputSchema: z.object({
-    path: z.string(),
-    old_string: z.string().optional(),
-    oldStr: z.string().optional(), // legacy runtime alias
-    new_string: z.string().optional(),
-    newStr: z.string().optional(), // legacy runtime alias
-  }),
+  inputSchema: z
+    .object({
+      path: z.string().min(1),
+      old_string: z.string().min(1),
+      new_string: z.string(),
+    })
+    .strict(),
   modelInputSchema: {
     type: 'object',
     properties: {
@@ -102,11 +102,20 @@ const editLike = defineTool({
   destructive: false,
   concurrencySafe: false,
   async execute(input) {
-    // Runtime execution may normalize oldStr/newStr for compatibility.
     return { success: true, output: input.path }
   },
 })
 ```
+
+The built-in `edit` and `write` tools deliberately expose the same single
+canonical shape at both boundaries:
+
+- `edit`: `path`, `old_string`, `new_string`, optional `replace_all`
+- `write`: `path`, `content`
+
+They do not accept aliases or combine exact replacement with line-number
+insertion. For append-like work, replace a unique tail or deterministic rolling
+marker with itself plus the new content.
 
 `enforceModelInput: true` without an explicit `modelInputSchema` is rejected at
 registration. Namzu does not assume a Zod-generated schema is compatible with
