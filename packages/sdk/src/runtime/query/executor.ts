@@ -24,6 +24,23 @@ import { compressShellOutput } from '../../utils/shell-compress.js'
 
 export type EmitEvent = (event: RunEvent) => Promise<void>
 
+/**
+ * Default per-tool deadline. Long enough for a real build or test run,
+ * short enough that a wedged tool does not hold a turn open indefinitely.
+ * A tool that legitimately runs longer declares its own `timeoutMs`.
+ */
+export const DEFAULT_TOOL_TIMEOUT_MS = 120_000
+
+/**
+ * Cap on tools executing at once within a single batch.
+ *
+ * `executeBatch` used to `Promise.all` an unbounded fan-out, so a model
+ * emitting fifty parallel reads opened fifty file handles and fifty
+ * activity records at once. The serial chain is unaffected — it is
+ * already one-at-a-time by construction.
+ */
+export const DEFAULT_TOOL_CONCURRENCY = 8
+
 export interface ToolExecutorConfig {
 	tools: ToolRegistryContract
 	runId: RunId
@@ -35,6 +52,10 @@ export interface ToolExecutorConfig {
 	sandbox?: Sandbox
 	invocationState?: InvocationState
 	pluginManager?: PluginLifecycleManager
+	/** Run-level default deadline; per-tool `timeoutMs` overrides it. */
+	toolTimeoutMs?: number
+	/** Max concurrently-executing concurrency-safe tools. */
+	maxToolConcurrency?: number
 }
 
 type PreToolHookOutcome =
@@ -150,6 +171,11 @@ export class ToolExecutor {
 		const results: Array<{ toolCallId: string; output: string }> = new Array(toolCalls.length)
 		const parallel: Promise<void>[] = []
 		let serial: Promise<void> = Promise.resolve()
+		// Bounded fan-out. A model emitting fifty parallel reads used to open
+		// fifty file handles and fifty activity records simultaneously; the
+		// gate keeps that at a working-set size while preserving completion
+		// order independence.
+		const gate = new Semaphore(this.config.maxToolConcurrency ?? DEFAULT_TOOL_CONCURRENCY)
 		toolCalls.forEach((toolCall, i) => {
 			const denialReason = denials?.get(toolCall.id)
 			if (denialReason !== undefined) {
@@ -168,6 +194,14 @@ export class ToolExecutor {
 			const run = async () => {
 				results[i] = await this.executeSingle(toolCall, ctx)
 			}
+			const gated = async () => {
+				await gate.acquire()
+				try {
+					await run()
+				} finally {
+					gate.release()
+				}
+			}
 			let input: unknown = {}
 			try {
 				input = JSON.parse(toolCall.function.arguments || '{}')
@@ -176,7 +210,7 @@ export class ToolExecutor {
 			}
 			const safe =
 				this.config.tools.get(toolCall.function.name)?.isConcurrencySafe?.(input) === true
-			if (safe) parallel.push(run())
+			if (safe) parallel.push(gated())
 			else serial = serial.then(run)
 		})
 		await Promise.all([...parallel, serial])
@@ -335,7 +369,7 @@ export class ToolExecutor {
 		// Wrap so any throw materialises as an error result.
 		let result: { success: boolean; output: string; error?: string }
 		try {
-			result = await this.config.tools.execute(toolName, input, toolContext)
+			result = await this.executeWithDeadline(toolName, input, toolContext)
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err)
 			this.log.warn('Tool execution threw', {
@@ -398,6 +432,110 @@ export class ToolExecutor {
 		})
 
 		return { toolCallId: toolCall.id, output }
+	}
+
+	/**
+	 * Run a tool under a deadline, with the run abort folded in.
+	 *
+	 * `ToolContext.abortSignal` existed but was produced and consumed by
+	 * nothing: a Stop tore down the model stream and then parked inside
+	 * `Promise.all` waiting for a tool that had no idea it should quit. A
+	 * hung MCP stdio server or a `bash` with the old one-hour default
+	 * could hold a turn open long after the user cancelled.
+	 *
+	 * Two mechanisms, because neither alone is enough:
+	 *
+	 * 1. The composed signal (run abort OR deadline) is handed to the tool
+	 *    so a cooperative tool actually stops working.
+	 * 2. The `race` bounds the *executor's* wait regardless, so an
+	 *    uncooperative tool becomes detached rather than blocking.
+	 *
+	 * A timeout is reported as a normal failed result, not a throw: the
+	 * model sees "this timed out" as a `tool_result` and can route around
+	 * it, which is what Pydantic AI and the OpenAI Agents SDK both do.
+	 */
+	private async executeWithDeadline(
+		toolName: string,
+		input: unknown,
+		toolContext: ToolContext,
+	): Promise<{ success: boolean; output: string; error?: string }> {
+		const timeoutMs =
+			this.config.tools.get(toolName)?.timeoutMs ??
+			this.config.toolTimeoutMs ??
+			DEFAULT_TOOL_TIMEOUT_MS
+
+		if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+			return this.config.tools.execute(toolName, input, toolContext)
+		}
+
+		const controller = new AbortController()
+		const runSignal = this.config.abortSignal
+		const onRunAbort = () => controller.abort(runSignal.reason)
+		if (runSignal.aborted) controller.abort(runSignal.reason)
+		else runSignal.addEventListener('abort', onRunAbort, { once: true })
+
+		let timer: ReturnType<typeof setTimeout> | undefined
+		let timedOut = false
+
+		try {
+			const expired = new Promise<'timeout'>((resolve) => {
+				timer = setTimeout(() => {
+					timedOut = true
+					controller.abort(new Error(`Tool "${toolName}" exceeded ${timeoutMs}ms`))
+					resolve('timeout')
+				}, timeoutMs)
+			})
+
+			const aborted = new Promise<'aborted'>((resolve) => {
+				if (controller.signal.aborted && !timedOut) {
+					resolve('aborted')
+					return
+				}
+				controller.signal.addEventListener(
+					'abort',
+					() => {
+						if (!timedOut) resolve('aborted')
+					},
+					{ once: true },
+				)
+			})
+
+			const execution = this.config.tools.execute(toolName, input, {
+				...toolContext,
+				abortSignal: controller.signal,
+			})
+			// The loser of the race may still reject later; neutralize it so
+			// it is never an unhandled rejection.
+			execution.catch(() => {})
+
+			const outcome = await Promise.race([execution, expired, aborted])
+
+			if (outcome === 'timeout') {
+				this.log.warn('Tool timed out', {
+					runId: this.config.runId,
+					tool: toolName,
+					timeoutMs,
+				})
+				return {
+					success: false,
+					output: '',
+					error: `Tool "${toolName}" timed out after ${timeoutMs}ms and was abandoned. It may still be running. Try a narrower input, or a different approach.`,
+				}
+			}
+
+			if (outcome === 'aborted') {
+				return {
+					success: false,
+					output: '',
+					error: `Tool "${toolName}" was cancelled.`,
+				}
+			}
+
+			return outcome
+		} finally {
+			if (timer !== undefined) clearTimeout(timer)
+			runSignal.removeEventListener('abort', onRunAbort)
+		}
 	}
 
 	private async runPreToolHook(toolName: string, input: unknown): Promise<PreToolHookOutcome> {
@@ -597,6 +735,32 @@ export class ToolExecutor {
 			})
 		}
 		return compressed
+	}
+}
+
+/** Minimal counting semaphore. FIFO, no timeout — the deadline is per-tool. */
+class Semaphore {
+	private available: number
+	private readonly waiters: Array<() => void> = []
+
+	constructor(permits: number) {
+		this.available = Math.max(1, permits)
+	}
+
+	acquire(): Promise<void> {
+		if (this.available > 0) {
+			this.available--
+			return Promise.resolve()
+		}
+		return new Promise<void>((resolve) => {
+			this.waiters.push(resolve)
+		})
+	}
+
+	release(): void {
+		const next = this.waiters.shift()
+		if (next) next()
+		else this.available++
 	}
 }
 

@@ -158,6 +158,14 @@ export interface MCPClientConfig {
 	transport: MCPTransportUnion
 	capabilities?: MCPClientCapabilities
 	clientInfo?: { name: string; version: string }
+	/**
+	 * Deadline for a single JSON-RPC round trip. Defaults to
+	 * `DEFAULT_MCP_REQUEST_TIMEOUT_MS`.
+	 *
+	 * Without one, a wedged stdio server left every caller pending
+	 * forever — no error, no failure, just a run that stopped.
+	 */
+	requestTimeoutMs?: number
 }
 
 export interface MCPClientState {

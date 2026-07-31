@@ -17,6 +17,8 @@ export interface DefineToolOptions<S extends z.ZodType> {
 	destructive: boolean | ((input: z.infer<S>) => boolean)
 	concurrencySafe: boolean
 	tier?: string
+	/** Per-execution deadline; see {@link ToolDefinition.timeoutMs}. */
+	timeoutMs?: number
 	execute(input: z.infer<S>, context: ToolContext): Promise<ToolResult>
 }
 
@@ -30,6 +32,7 @@ export function defineTool<S extends z.ZodType>(
 		description: options.description,
 		inputSchema: options.inputSchema,
 		tier: options.tier,
+		...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
 		category: options.category,
 		permissions: options.permissions,
 		isReadOnly: () => options.readOnly,

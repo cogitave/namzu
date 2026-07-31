@@ -21,7 +21,11 @@ import { HttpSseTransport } from './http-sse.js'
 import { StdioTransport } from './stdio.js'
 import { StreamableHttpTransport } from './streamable-http.js'
 
-import { MCP_PROTOCOL_VERSION } from '../../constants/mcp/index.js'
+import {
+	DEFAULT_MCP_REQUEST_TIMEOUT_MS,
+	JSON_RPC_METHOD_NOT_FOUND,
+	MCP_PROTOCOL_VERSION,
+} from '../../constants/mcp/index.js'
 import { VERSION } from '../../version.js'
 
 const NAMZU_CLIENT_INFO = { name: 'namzu-sdk', version: VERSION }
@@ -66,11 +70,13 @@ export class MCPClient {
 			this.transport.onClose(() => {
 				this.status = 'disconnected'
 				this.log.info('MCP transport closed')
+				this.rejectAllPending(`MCP transport to "${this.config.serverName}" closed`)
 			})
 			this.transport.onError((err) => {
 				this.status = 'error'
 				this.error = err.message
 				this.log.error('MCP transport error', { error: err.message })
+				this.rejectAllPending(`MCP transport to "${this.config.serverName}" failed: ${err.message}`)
 			})
 
 			await this.transport.connect()
@@ -102,10 +108,7 @@ export class MCPClient {
 	async disconnect(): Promise<void> {
 		if (this.status === 'disconnected') return
 
-		for (const [, pending] of this.pendingRequests) {
-			pending.reject(new Error('MCPClient disconnecting'))
-		}
-		this.pendingRequests.clear()
+		this.rejectAllPending('MCPClient disconnecting')
 
 		await this.transport.close()
 		this.status = 'disconnected'
@@ -184,6 +187,18 @@ export class MCPClient {
 		}
 	}
 
+	/**
+	 * Send a JSON-RPC request and wait for its reply, bounded by a timer.
+	 *
+	 * There was no timer at all. On `streamable_http` the pending promise
+	 * happened to be bounded because `send()` awaits the fetch inside an
+	 * aborted scope, but on **stdio** — the default for local servers —
+	 * and on `http_sse` (whose reply arrives on a separate channel) a
+	 * server that wedged left the promise pending forever. Combined with
+	 * an executor that awaited tools unbounded, one unresponsive MCP
+	 * server hung the whole run with no error and no `run_failed`: not a
+	 * crash, just a process that stopped.
+	 */
 	private async request(method: string, params: Record<string, unknown>): Promise<unknown> {
 		const id = this.nextRequestId++
 		const message: MCPJsonRpcMessage = {
@@ -192,14 +207,60 @@ export class MCPClient {
 			method,
 			params,
 		}
+		const timeoutMs = this.config.requestTimeoutMs ?? DEFAULT_MCP_REQUEST_TIMEOUT_MS
 
 		return new Promise<unknown>((resolve, reject) => {
-			this.pendingRequests.set(id, { resolve, reject })
+			const timer = setTimeout(() => {
+				this.pendingRequests.delete(id)
+				this.log.warn('MCP request timed out', {
+					server: this.config.serverName,
+					method,
+					timeoutMs,
+				})
+				reject(
+					new Error(
+						`MCP request "${method}" to "${this.config.serverName}" timed out after ${timeoutMs}ms`,
+					),
+				)
+			}, timeoutMs)
+
+			this.pendingRequests.set(id, {
+				resolve: (value) => {
+					clearTimeout(timer)
+					resolve(value)
+				},
+				reject: (err) => {
+					clearTimeout(timer)
+					reject(err)
+				},
+			})
+
 			this.transport.send(message).catch((err) => {
+				clearTimeout(timer)
 				this.pendingRequests.delete(id)
 				reject(err)
 			})
 		})
+	}
+
+	/**
+	 * Fail every in-flight request with the same reason.
+	 *
+	 * Previously only `disconnect()` did this, so a transport that dropped
+	 * on its own — process exit, socket reset, server crash — left callers
+	 * waiting on promises that could never settle.
+	 */
+	private rejectAllPending(reason: string): void {
+		if (this.pendingRequests.size === 0) return
+		this.log.warn('Failing in-flight MCP requests', {
+			server: this.config.serverName,
+			count: this.pendingRequests.size,
+			reason,
+		})
+		for (const [, pending] of this.pendingRequests) {
+			pending.reject(new Error(reason))
+		}
+		this.pendingRequests.clear()
 	}
 
 	private async notify(method: string, params: Record<string, unknown>): Promise<void> {
@@ -229,6 +290,34 @@ export class MCPClient {
 			for (const handler of this.notificationHandlers) {
 				handler(message.method, message.params)
 			}
+			return
+		}
+
+		// A frame carrying BOTH an id and a method is a server-initiated
+		// REQUEST — `sampling/createMessage`, `elicitation/create`,
+		// `roots/list`, `ping`. It matched neither branch above and was
+		// dropped on the floor, so a spec-current server sat waiting for a
+		// reply that would never come, which looks exactly like a hang.
+		// Answer honestly: we do not implement these yet.
+		if (message.method && message.id !== undefined) {
+			this.log.warn('Declining unsupported server-initiated MCP request', {
+				server: this.config.serverName,
+				method: message.method,
+			})
+			void this.transport
+				.send({
+					jsonrpc: '2.0',
+					id: message.id,
+					error: {
+						code: JSON_RPC_METHOD_NOT_FOUND,
+						message: `Method not found: ${message.method}`,
+					},
+				})
+				.catch((err) => {
+					this.log.debug('Failed to send method-not-found reply', {
+						error: toErrorMessage(err),
+					})
+				})
 		}
 	}
 

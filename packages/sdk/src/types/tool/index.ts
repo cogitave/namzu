@@ -69,6 +69,20 @@ export interface ToolDefinition<TInput = unknown> {
 	permissions?: ToolPermission[]
 	category?: 'filesystem' | 'shell' | 'network' | 'analysis' | 'custom'
 
+	/**
+	 * Deadline for a single execution, overriding the run-level default.
+	 *
+	 * On expiry the executor stops waiting and returns a model-visible
+	 * error result, so a slow dependency becomes something the agent can
+	 * route around instead of a turn that never comes back. The tool's
+	 * `context.abortSignal` fires at the same moment; a tool that honours
+	 * it also stops doing work, and one that ignores it merely becomes
+	 * detached.
+	 *
+	 * Omit to inherit the executor's default.
+	 */
+	timeoutMs?: number
+
 	isReadOnly?(input: TInput): boolean
 	isDestructive?(input: TInput): boolean
 	isConcurrencySafe?(input: TInput): boolean

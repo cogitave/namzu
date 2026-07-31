@@ -11,7 +11,12 @@ const execAsync = promisify(exec)
 // but Namzu shouldn't read a consumer's env name. Consumers can
 // still alias their own var to `NAMZU_BASH_TIMEOUT_MS` at deploy
 // time if they want a unified knob.
-const DEFAULT_BASH_TIMEOUT_MS = readPositiveIntEnv('NAMZU_BASH_TIMEOUT_MS', 60 * 60 * 1000)
+// Two minutes, not an hour. The old default meant a wedged command held
+// the turn — and, before per-tool deadlines existed, the whole run — for
+// up to 3600s while ignoring Stop entirely. The model can still ask for
+// longer via the tool's own `timeout` argument when it knows a build is
+// slow; the point is that the DEFAULT is survivable.
+const DEFAULT_BASH_TIMEOUT_MS = readPositiveIntEnv('NAMZU_BASH_TIMEOUT_MS', 2 * 60 * 1000)
 const DEFAULT_BASH_MAX_BUFFER_BYTES = readPositiveIntEnv(
 	'NAMZU_BASH_MAX_BUFFER_BYTES',
 	100 * 1024 * 1024,
@@ -104,11 +109,16 @@ export const BashTool = defineTool({
 			}
 		}
 
+		// Thread the run/deadline signal into the child process. Without it
+		// a Stop tore down the model stream and left the command running,
+		// and the executor's deadline could only ever DETACH from the tool
+		// rather than end the work it started.
 		const { stdout, stderr } = await execAsync(input.command, {
 			cwd: context.workingDirectory,
 			timeout: input.timeout,
 			env: { ...process.env, ...context.env },
 			maxBuffer: DEFAULT_BASH_MAX_BUFFER_BYTES,
+			signal: context.abortSignal,
 		})
 
 		const output = [stdout ? `STDOUT:\n${stdout}` : '', stderr ? `STDERR:\n${stderr}` : '']
