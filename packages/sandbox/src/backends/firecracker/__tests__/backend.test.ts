@@ -20,6 +20,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { buildFirecrackerBackend, normalizeHandle } from '../index.js'
 import type { WireSandboxAgentHandle } from '../transport.js'
+import { localIpcPath } from './fixtures/ipc-path.js'
 import {
 	CA_CRT,
 	CLIENT_CRT,
@@ -27,6 +28,13 @@ import {
 	type RelayHandle,
 	startMtlsRelay,
 } from './fixtures/mtls-pki.js'
+// The loopback agent under test is the guest-side agent for a Linux microVM:
+// it spawns `/bin/sh` to run commands, and that binary does not exist on
+// Windows. These cases assert behavior the platform cannot produce, so they
+// skip there rather than leaving the suite permanently red for Windows
+// contributors. The socket-address fixture IS platform-correct, so the
+// transport is still exercised wherever it can be.
+const IS_WINDOWS = process.platform === 'win32'
 
 const require_ = createRequire(import.meta.url)
 
@@ -44,7 +52,7 @@ let realPath: string | undefined
 
 beforeEach(() => {
 	workDir = mkdtempSync(join(tmpdir(), 'fc-backend-test-'))
-	sockPath = join(workDir, 'agent.sock')
+	sockPath = localIpcPath(workDir)
 	realPath = process.env.PATH
 	process.env.NAMZU_SANDBOX_WORKSPACE = workDir
 	delete require_.cache[require_.resolve('../../../../agent/agent.cjs')]
@@ -101,7 +109,7 @@ function stubOrchestrator(handle: WireSandboxAgentHandle): {
 	return { calls }
 }
 
-describe('buildFirecrackerBackend (loopback agent)', () => {
+describe.skipIf(IS_WINDOWS)('buildFirecrackerBackend (loopback agent)', () => {
 	it('creates a Sandbox handle and round-trips exec/write/read/listFiles/destroy', async () => {
 		server = await startAgent()
 		const { calls } = stubOrchestrator({ kind: 'unix', path: sockPath })
@@ -350,69 +358,72 @@ describe('normalizeHandle (mtls cert injection)', () => {
 	})
 })
 
-describe('buildFirecrackerBackend (network mode over a loopback mTLS relay)', () => {
-	it('injects the client cert + round-trips exec/file-IO through the relay', async () => {
-		// The agent on a unix socket; a loopback mTLS relay in front of it.
-		server = await startAgent()
-		relay = await startMtlsRelay(sockPath)
-		// The orchestrator returns a WIRE mtls handle (NO cert material) whose
-		// host:port point at the relay; the relay resolves the sandboxId.
-		const { calls } = stubOrchestrator({
-			kind: 'mtls',
-			host: '127.0.0.1',
-			port: relay.port,
-			sandboxId: 'sb-net',
+describe.skipIf(IS_WINDOWS)(
+	'buildFirecrackerBackend (network mode over a loopback mTLS relay)',
+	() => {
+		it('injects the client cert + round-trips exec/file-IO through the relay', async () => {
+			// The agent on a unix socket; a loopback mTLS relay in front of it.
+			server = await startAgent()
+			relay = await startMtlsRelay(sockPath)
+			// The orchestrator returns a WIRE mtls handle (NO cert material) whose
+			// host:port point at the relay; the relay resolves the sandboxId.
+			const { calls } = stubOrchestrator({
+				kind: 'mtls',
+				host: '127.0.0.1',
+				port: relay.port,
+				sandboxId: 'sb-net',
+			})
+
+			const backend = buildFirecrackerBackend({
+				orchestratorEndpoint: 'https://orchestrator.test/',
+				getToken: async () => 'tok',
+				readyTimeoutMs: 5_000,
+				readyPollIntervalMs: 50,
+				// The CONSUMER-injected client material — never returned by the
+				// orchestrator. Merged onto the handle's `tls` block.
+				mtls: {
+					ca: CA_CRT,
+					cert: CLIENT_CRT,
+					key: CLIENT_KEY,
+					servername: 'sandbox.fc.internal',
+				},
+			})
+
+			const sandbox = await backend.create({ workingDirectory: workDir })
+			expect(sandbox.status).toBe('ready')
+
+			// The dialer wrote the `SANDBOX <id>` routing preamble (the relay's key).
+			expect(await relay.preamble()).toBe('sb-net')
+
+			// Full exec + file-IO round-trip over the mTLS tunnel.
+			const r = await sandbox.exec('/bin/sh', ['-c', 'echo hello-mtls'])
+			expect(r.stdout).toContain('hello-mtls')
+			await sandbox.writeFile('out/r.txt', 'via-relay')
+			expect((await sandbox.readFile('out/r.txt')).toString('utf8')).toBe('via-relay')
+
+			await sandbox.destroy()
+			expect(calls.some((c) => c.method === 'DELETE')).toBe(true)
 		})
 
-		const backend = buildFirecrackerBackend({
-			orchestratorEndpoint: 'https://orchestrator.test/',
-			getToken: async () => 'tok',
-			readyTimeoutMs: 5_000,
-			readyPollIntervalMs: 50,
-			// The CONSUMER-injected client material — never returned by the
-			// orchestrator. Merged onto the handle's `tls` block.
-			mtls: {
-				ca: CA_CRT,
-				cert: CLIENT_CRT,
-				key: CLIENT_KEY,
-				servername: 'sandbox.fc.internal',
-			},
+		it('rejects a create when the orchestrator returns mtls but no cert material is injected', async () => {
+			server = await startAgent()
+			relay = await startMtlsRelay(sockPath)
+			stubOrchestrator({
+				kind: 'mtls',
+				host: '127.0.0.1',
+				port: relay.port,
+				sandboxId: 'sb-net',
+			})
+			const backend = buildFirecrackerBackend({
+				orchestratorEndpoint: 'https://orchestrator.test/',
+				getToken: async () => 'tok',
+				readyTimeoutMs: 2_000,
+				readyPollIntervalMs: 50,
+				// No `mtls` material → normalizeHandle must throw at create time.
+			})
+			await expect(backend.create({ workingDirectory: workDir })).rejects.toThrow(
+				/no client cert material was injected/,
+			)
 		})
-
-		const sandbox = await backend.create({ workingDirectory: workDir })
-		expect(sandbox.status).toBe('ready')
-
-		// The dialer wrote the `SANDBOX <id>` routing preamble (the relay's key).
-		expect(await relay.preamble()).toBe('sb-net')
-
-		// Full exec + file-IO round-trip over the mTLS tunnel.
-		const r = await sandbox.exec('/bin/sh', ['-c', 'echo hello-mtls'])
-		expect(r.stdout).toContain('hello-mtls')
-		await sandbox.writeFile('out/r.txt', 'via-relay')
-		expect((await sandbox.readFile('out/r.txt')).toString('utf8')).toBe('via-relay')
-
-		await sandbox.destroy()
-		expect(calls.some((c) => c.method === 'DELETE')).toBe(true)
-	})
-
-	it('rejects a create when the orchestrator returns mtls but no cert material is injected', async () => {
-		server = await startAgent()
-		relay = await startMtlsRelay(sockPath)
-		stubOrchestrator({
-			kind: 'mtls',
-			host: '127.0.0.1',
-			port: relay.port,
-			sandboxId: 'sb-net',
-		})
-		const backend = buildFirecrackerBackend({
-			orchestratorEndpoint: 'https://orchestrator.test/',
-			getToken: async () => 'tok',
-			readyTimeoutMs: 2_000,
-			readyPollIntervalMs: 50,
-			// No `mtls` material → normalizeHandle must throw at create time.
-		})
-		await expect(backend.create({ workingDirectory: workDir })).rejects.toThrow(
-			/no client cert material was injected/,
-		)
-	})
-})
+	},
+)

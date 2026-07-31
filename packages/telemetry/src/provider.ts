@@ -8,9 +8,9 @@ import {
 	PeriodicExportingMetricReader,
 } from '@opentelemetry/sdk-metrics'
 import {
+	BatchSpanProcessor,
 	ConsoleSpanExporter,
 	NodeTracerProvider,
-	BatchSpanProcessor,
 } from '@opentelemetry/sdk-trace-node'
 import type { TelemetryConfig } from './types.js'
 import { VERSION } from './version.js'

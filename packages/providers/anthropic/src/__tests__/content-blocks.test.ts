@@ -67,7 +67,7 @@ describe('tool results carry non-text content', () => {
 
 		const result = firstToolResult(out)
 		expect(Array.isArray(result?.content)).toBe(true)
-		const blocks = result?.content as unknown as Array<Record<string, unknown>>
+		const blocks = result?.content as unknown as Record<string, unknown>[]
 		expect(blocks[0]).toMatchObject({ type: 'text', text: 'Screenshot captured.' })
 		expect(blocks[1]).toMatchObject({
 			type: 'image',
@@ -76,7 +76,9 @@ describe('tool results carry non-text content', () => {
 	})
 
 	it('keeps a plain string a plain string — the cache prefix must not move', () => {
-		const out = toAnthropicMessages(messages([{ role: 'tool', content: 'plain', toolCallId: 'c1' }]))
+		const out = toAnthropicMessages(
+			messages([{ role: 'tool', content: 'plain', toolCallId: 'c1' }]),
+		)
 		expect(firstToolResult(out)?.content).toBe('plain')
 	})
 
@@ -93,7 +95,9 @@ describe('assistant turns echo reasoning verbatim', () => {
 				{
 					role: 'assistant',
 					content: 'Let me check.',
-					reasoning: [{ type: 'thinking', text: 'the file is probably stale', signature: 'sig-abc' }],
+					reasoning: [
+						{ type: 'thinking', text: 'the file is probably stale', signature: 'sig-abc' },
+					],
 					toolCalls: [
 						{ id: 'c1', type: 'function', function: { name: 'read', arguments: '{"path":"a"}' } },
 					],
@@ -101,7 +105,7 @@ describe('assistant turns echo reasoning verbatim', () => {
 			]),
 		)
 
-		const blocks = out[0]?.content as unknown as Array<Record<string, unknown>>
+		const blocks = out[0]?.content as unknown as Record<string, unknown>[]
 		// Order is load-bearing: thinking, then text, then tool_use.
 		expect(blocks.map((b) => b.type)).toEqual(['thinking', 'text', 'tool_use'])
 		expect(blocks[0]).toMatchObject({
@@ -123,7 +127,7 @@ describe('assistant turns echo reasoning verbatim', () => {
 			]),
 		)
 
-		const blocks = out[0]?.content as unknown as Array<Record<string, unknown>>
+		const blocks = out[0]?.content as unknown as Record<string, unknown>[]
 		expect(blocks[0]).toMatchObject({ type: 'redacted_thinking', data: 'opaque-payload' })
 	})
 
@@ -137,7 +141,7 @@ describe('assistant turns echo reasoning verbatim', () => {
 				},
 			]),
 		)
-		const blocks = out[0]?.content as unknown as Array<Record<string, unknown>>
+		const blocks = out[0]?.content as unknown as Record<string, unknown>[]
 		expect(blocks.map((b) => b.type)).toEqual(['text', 'tool_use'])
 	})
 })

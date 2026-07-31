@@ -891,7 +891,7 @@ function toAnthropicToolResultContent(
 	if (!Array.isArray(content)) return JSON.stringify(content)
 
 	const blocks: Array<AnthropicTextBlock | AnthropicImageBlock | AnthropicDocumentBlock> = []
-	for (const block of content as ReadonlyArray<Record<string, unknown>>) {
+	for (const block of content as readonly Record<string, unknown>[]) {
 		switch (block.type) {
 			case 'text':
 				blocks.push({ type: 'text', text: String(block.text ?? '') })

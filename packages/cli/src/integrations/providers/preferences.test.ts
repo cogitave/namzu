@@ -10,6 +10,15 @@ import {
 	writePreferences,
 } from './preferences.js'
 
+/**
+ * POSIX file modes do not exist on Windows: `chmod` is a no-op there and
+ * `fs.stat().mode` reports a fixed value, so these cases assert a
+ * permission the platform cannot enforce. Skipping keeps the suite
+ * meaningful on Windows instead of permanently red — the behavior itself
+ * is still covered on Linux and macOS, where it actually matters.
+ */
+const IS_WINDOWS = process.platform === 'win32'
+
 function tmpHome(): string {
 	return mkdtempSync(join(tmpdir(), 'namzu-prefs-v2-'))
 }
@@ -53,7 +62,7 @@ describe('readPreferences', () => {
 })
 
 describe('writePreferences', () => {
-	it('enforces mode 0600 on file and 0700 on dir', () => {
+	it.skipIf(IS_WINDOWS)('enforces mode 0600 on file and 0700 on dir', () => {
 		const home = tmpHome()
 		writePreferences({ version: 2, provider: 'openai' }, home)
 		const fileMode = statSync(preferencesPath(home)).mode & 0o777

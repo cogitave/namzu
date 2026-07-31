@@ -2,7 +2,7 @@ import type { CaseResult, EvalCase, EvalRun, ExperimentReport, Score, Scorer } f
 
 export interface ExperimentConfig<TInput = unknown> {
 	name: string
-	cases: ReadonlyArray<EvalCase<TInput>>
+	cases: readonly EvalCase<TInput>[]
 	/** Applied to every case unless the case overrides them. */
 	scorers: readonly Scorer[]
 	/**
