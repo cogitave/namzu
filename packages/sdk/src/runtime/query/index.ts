@@ -30,6 +30,7 @@ import type { WorkingMemoryProvider } from '../../types/agent/working-memory.js'
 import type { InputGuardrailSpec, OutputGuardrailSpec } from '../../types/guardrail/index.js'
 import {
 	type CheckpointId,
+	type HITLResumeDecision,
 	type ResumeHandler,
 	autoApproveHandler,
 } from '../../types/hitl/index.js'
@@ -70,6 +71,7 @@ import { applyLifecycleHookResults } from './plugin-hooks.js'
 import { PromptBuilder } from './prompt.js'
 import type { PromptSegments } from './prompt.js'
 import { ResultAssembler } from './result.js'
+import { type PendingResumePlan, applyPendingResume, planPendingResume } from './resume-pending.js'
 import { ToolingBootstrap } from './tooling.js'
 
 export interface QueryParams {
@@ -182,6 +184,37 @@ export interface QueryParams {
 	signal?: AbortSignal
 	resumeHandler: ResumeHandler
 	resumeFromCheckpoint?: CheckpointId
+
+	/**
+	 * The answer to the decision the checkpoint parked on, collected
+	 * out-of-band — typically in a different process.
+	 *
+	 * Recording a park makes the request survive a restart; this is what
+	 * makes the ANSWER survive one. Without it a resumed run repairs the
+	 * unanswered `tool_use` blocks away and lets the model re-decide, so a
+	 * human's "yes, delete that row" degrades into "ask the model again and
+	 * hope it asks for the same thing".
+	 *
+	 * Applies only to a `tool_review` park (the others leave no tool calls
+	 * to apply a decision to) and only when the checkpoint's tool calls
+	 * still match the ones the decision was made about — otherwise the
+	 * decision is ignored and the repair path runs, because consent to one
+	 * batch is not consent to a different one.
+	 */
+	pendingDecision?: HITLResumeDecision
+
+	/**
+	 * How long a HITL decision may take before the park is written to the
+	 * checkpoint store. Defaults to {@link PARK_RECORD_DELAY_MS}.
+	 *
+	 * A park is only worth persisting if a human is actually looking at it:
+	 * a programmatic handler answers in microseconds, and the iteration
+	 * gate runs on every iteration, so recording every park unconditionally
+	 * would take a long run from one full-history checkpoint write per
+	 * iteration to three. Set `0` to record every park (tests, or a host
+	 * that wants an unconditional audit trail).
+	 */
+	parkRecordDelayMs?: number
 
 	/** Session scope for the run. Required — every run is attributed to a Session. */
 	sessionId: SessionId
@@ -546,6 +579,9 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		...(params.stopWhen ? { stopWhen: params.stopWhen } : {}),
 		...(params.onStepFinish ? { onStepFinish: params.onStepFinish } : {}),
 		...(params.structuredOutput ? { structuredOutput: params.structuredOutput } : {}),
+		...(params.parkRecordDelayMs !== undefined
+			? { parkRecordDelayMs: params.parkRecordDelayMs }
+			: {}),
 		tools: params.tools,
 		allowedTools: effectiveAllowedTools,
 		runMgr: ctx.runMgr,
@@ -586,6 +622,9 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		})
 
 		let sandbox: Sandbox | undefined
+		// Decided during checkpoint restore, executed after the sandbox
+		// exists — the approved tools may well need it.
+		let pendingResume: PendingResumePlan | null = null
 		let emergencyManager: EmergencySaveManager | undefined
 
 		try {
@@ -664,17 +703,32 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 
 				pushSystemMessages()
 
+				// A human answered the park in a different process; apply that
+				// answer to the tool calls they were actually shown. Without
+				// this the repair below throws the approval away and the model
+				// re-decides, so "yes, delete that row" degrades into "ask
+				// again and hope it asks for the same thing".
+				pendingResume =
+					params.pendingDecision && checkpoint.pending
+						? planPendingResume(checkpoint, params.pendingDecision, ctx.log)
+						: null
+
 				// A checkpoint taken at a tool-review park snapshots the
 				// assistant turn AFTER its `tool_use` blocks but BEFORE any
 				// `tool_result` exists, so replaying it verbatim would send a
 				// malformed request on the first model call of the resumed
 				// run. Repair the incomplete turn rather than inheriting it:
 				// the model re-decides from the last valid state.
+				//
+				// The pending-decision path uses the SAME repair: it strips
+				// the unanswered turn here and `applyPendingResume` re-appends
+				// it together with the results that answer it, so the history
+				// stays well-formed either way.
 				const dangling = findDanglingMessages(checkpoint.messages)
 				const restoredMessages = dangling.isValid
 					? checkpoint.messages
 					: removeDanglingMessages(checkpoint.messages)
-				if (!dangling.isValid) {
+				if (!dangling.isValid && !pendingResume) {
 					ctx.log.warn('Checkpoint contained unanswered tool calls — repaired on restore', {
 						runId: ctx.runMgr.id,
 						checkpointId: checkpoint.id,
@@ -830,6 +884,19 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				ctx.runMgr.setLastError(inputVerdict.reason ?? 'blocked by an input guardrail')
 				yield* resultAssembler.completeRun(rootSpan)
 				return ctx.runMgr.getRun()
+			}
+
+			// Honor the approval a human already gave, before the loop's
+			// first model call. The sandbox exists by now, so an approved
+			// tool that needs one gets it.
+			if (pendingResume) {
+				ctx.log.info('Applying a pending HITL decision to the checkpointed tool calls', {
+					runId: ctx.runId,
+					tools: pendingResume.response.message.toolCalls?.map((tc) => tc.function.name),
+					denied: pendingResume.denials.size,
+				})
+				await applyPendingResume(pendingResume, ctx.runMgr, toolExecutor)
+				yield* eventTranslator.drainPending()
 			}
 
 			yield* iterationOrchestrator.runLoop()

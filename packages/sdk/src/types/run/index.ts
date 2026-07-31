@@ -12,6 +12,7 @@ export * from './status.js'
 export * from './events.js'
 export * from './metadata.js'
 export * from './emergency.js'
+export * from './state.js'
 export type { Lineage } from './lineage.js'
 export type {
 	SubsessionIdledEvent,

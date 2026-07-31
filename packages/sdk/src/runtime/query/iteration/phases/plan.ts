@@ -1,3 +1,4 @@
+import type { HITLDecisionRequest } from '../../../../types/hitl/index.js'
 import type { RunEvent } from '../../../../types/run/index.js'
 import { type IterationContext, type PhaseSignal, handleHITLDecision } from './context.js'
 
@@ -17,7 +18,7 @@ export async function* runPlanGate(ctx: IterationContext): AsyncGenerator<RunEve
 	yield* ctx.drainPending()
 
 	const plan = ctx.planManager.active
-	const planDecision = await ctx.resumeHandler({
+	const request: HITLDecisionRequest = {
 		type: 'plan_approval',
 		runId: ctx.runMgr.id,
 		checkpointId: planCheckpoint.id,
@@ -33,7 +34,14 @@ export async function* runPlanGate(ctx: IterationContext): AsyncGenerator<RunEve
 			})),
 			summary: plan.summary,
 		},
-	})
+	}
+
+	// Record the park BEFORE awaiting it. A process that dies while a human
+	// is reading the plan otherwise leaves nothing behind saying the plan
+	// was ever put up for approval.
+	await ctx.checkpointMgr.park(planCheckpoint, request)
+	const planDecision = await ctx.resumeHandler(request)
+	await ctx.checkpointMgr.unpark(planCheckpoint.id, planDecision)
 
 	return yield* handleHITLDecision(ctx, planDecision, planCheckpoint.id, 'plan_gate')
 }

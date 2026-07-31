@@ -61,7 +61,14 @@ export { extractFinalResponse } from './utils/conversation.js'
 export { resolveTaskModel } from './router/task-router.js'
 export { drainQuery, query } from './runtime/query/index.js'
 export { ContextCache } from './runtime/query/context-cache.js'
-export { CheckpointManager, projectEmergencyToCheckpoint } from './runtime/query/checkpoint.js'
+export {
+	CheckpointManager,
+	findPendingCheckpoint,
+	projectEmergencyToCheckpoint,
+} from './runtime/query/checkpoint.js'
+// Durable run state: the snapshot a different process picks a run up from.
+export { captureRunState, loadRunState } from './runtime/query/run-state.js'
+export type { RunStateScope } from './runtime/query/run-state.js'
 export { prepareReplayState } from './runtime/query/replay/prepare.js'
 export { listCheckpoints } from './runtime/query/replay/list.js'
 export { DecisionParser, FallbackResolver } from './runtime/decision/index.js'

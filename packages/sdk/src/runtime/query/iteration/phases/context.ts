@@ -7,7 +7,11 @@ import type { RunPersistence } from '../../../../manager/run/persistence.js'
 import type { ActivityStore } from '../../../../store/activity/memory.js'
 import type { TaskGateway } from '../../../../types/agent/gateway.js'
 import type { WorkingMemoryProvider } from '../../../../types/agent/working-memory.js'
-import type { HITLResumeDecision, ResumeHandler } from '../../../../types/hitl/index.js'
+import type {
+	HITLResumeDecision,
+	IterationCheckpoint,
+	ResumeHandler,
+} from '../../../../types/hitl/index.js'
 import type { TaskId } from '../../../../types/ids/index.js'
 import type { LLMProvider } from '../../../../types/provider/index.js'
 import type {
@@ -95,9 +99,113 @@ export interface IterationContext {
 	readonly verificationGate?: import('../../../../verification/gate.js').VerificationGate
 
 	readonly pluginManager?: import('../../../../plugin/lifecycle.js').PluginLifecycleManager
+
+	/**
+	 * Override for {@link PARK_RECORD_DELAY_MS}. Internal; tests set `0` to
+	 * observe a recorded park without waiting out the real threshold.
+	 */
+	readonly parkRecordDelayMs?: number
 }
 
 export type PhaseSignal = 'continue' | 'stop'
+
+/**
+ * How long a decision may take before the park is written to the store.
+ *
+ * A park is only worth persisting if a human is actually looking at it. An
+ * `autoApproveHandler` — or any programmatic handler — answers in well
+ * under a millisecond, and the iteration gate runs on EVERY iteration by
+ * default, so recording every one unconditionally would take a long run
+ * from one full-history checkpoint write per iteration to three. This
+ * threshold buys the durability where it matters and costs nothing where
+ * it does not.
+ */
+export const PARK_RECORD_DELAY_MS = 250
+
+/**
+ * Await a HITL decision, recording the park durably if it turns out to be
+ * a real one.
+ *
+ * The park used to exist only as a suspended `await` inside one process:
+ * kill the process and the request vanished, so a host could not rebuild
+ * an approval queue and a resumed run silently re-asked the model instead
+ * of honoring an approval a human had already granted.
+ */
+export async function awaitDecisionDurably(
+	ctx: IterationContext,
+	checkpoint: IterationCheckpoint,
+	request: Parameters<ResumeHandler>[0],
+): Promise<HITLResumeDecision> {
+	const delay = ctx.parkRecordDelayMs ?? PARK_RECORD_DELAY_MS
+	const decisionPromise = awaitDecisionOrAbort(ctx, request)
+
+	let settled = false
+	let recorded = false
+
+	const record = async (): Promise<void> => {
+		try {
+			await ctx.checkpointMgr.park(checkpoint, request)
+			recorded = true
+		} catch (err) {
+			// A store that cannot record the park must not take the run down
+			// with it — the in-process await is still perfectly valid, it is
+			// only the cross-process handoff that is lost. Loudly, though.
+			ctx.log.error('Failed to record a HITL park — the run is not resumable across a restart', {
+				runId: ctx.runMgr.id,
+				checkpointId: checkpoint.id,
+				error: err instanceof Error ? err.message : String(err),
+			})
+		}
+	}
+
+	const recordIfSlow = (async (): Promise<void> => {
+		await sleep(delay)
+		if (settled) return
+		await record()
+	})()
+
+	try {
+		const decision = await decisionPromise
+		settled = true
+		await recordIfSlow
+
+		// `pause` is not an answer — it is "I am not answering now, hold
+		// this". It therefore ALWAYS gets recorded, even when it arrived too
+		// fast for the slow-park timer: a host that cannot block (a
+		// serverless handler, a queue worker) answers `pause` immediately
+		// and comes back in another process, which is the whole case this
+		// exists for.
+		if (decision.action === 'pause') {
+			if (!recorded) await record()
+			return decision
+		}
+
+		// Every other action resolves the park. Clearing it is what keeps an
+		// approval queue from re-serving a decision that was already made.
+		if (recorded) {
+			await ctx.checkpointMgr.unpark(checkpoint.id, decision).catch((err: unknown) => {
+				ctx.log.error('Failed to clear a recorded HITL park', {
+					runId: ctx.runMgr.id,
+					checkpointId: checkpoint.id,
+					error: err instanceof Error ? err.message : String(err),
+				})
+				return null
+			})
+		}
+		return decision
+	} finally {
+		settled = true
+	}
+}
+
+function sleep(ms: number): Promise<void> {
+	return new Promise((resolve) => {
+		const timer = setTimeout(resolve, ms)
+		// A pending park recorder must never be the reason a process stays
+		// alive after the run settles.
+		;(timer as { unref?: () => void }).unref?.()
+	})
+}
 
 /**
  * Await a HITL `resumeHandler` decision, but RACE it against the run's abort

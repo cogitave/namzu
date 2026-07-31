@@ -4,6 +4,8 @@ import type {
 	BranchStackEntry,
 	CheckpointId,
 	CheckpointSummary,
+	HITLDecisionRequest,
+	HITLResumeDecision,
 	IterationCheckpoint,
 } from '../../types/hitl/index.js'
 import type { AssistantMessage } from '../../types/message/index.js'
@@ -59,6 +61,28 @@ export function projectEmergencyToCheckpoint(dump: EmergencySaveData): Iteration
 	}
 }
 
+/**
+ * The newest checkpoint of a run that is still awaiting a human decision,
+ * or `null` when the run is not parked.
+ *
+ * Standalone (not a `CheckpointManager` method) so a host can ask the
+ * question without constructing a run: an approval-queue worker in a
+ * different process has a store and a scope, and nothing else.
+ */
+export async function findPendingCheckpoint(
+	store: CheckpointStore,
+	scope: CheckpointRunScope,
+): Promise<IterationCheckpoint | null> {
+	const all = await store.listCheckpoints(scope)
+	// `listCheckpoints` is contractually ascending by `createdAt`; the
+	// newest outstanding park is the one a human should be answering.
+	for (let i = all.length - 1; i >= 0; i--) {
+		const cp = all[i] as IterationCheckpoint
+		if (cp.pending && cp.pending.resolvedAt === undefined) return cp
+	}
+	return null
+}
+
 export class CheckpointManager {
 	private store: CheckpointStore
 	private scope: CheckpointRunScope
@@ -103,6 +127,68 @@ export class CheckpointManager {
 
 		await this.store.writeCheckpoint(this.scope, checkpoint)
 		return checkpoint
+	}
+
+	/**
+	 * Record that the run parked at `checkpoint` awaiting a human, and
+	 * return the updated checkpoint.
+	 *
+	 * A park used to exist only as a suspended `await`: the checkpoint
+	 * written just before it was indistinguishable from any mid-run
+	 * checkpoint, so a host could not tell from durable state that a
+	 * decision was outstanding — and a process boundary lost the request
+	 * entirely. Writing the request down is what lets an approval queue be
+	 * rebuilt, and what lets a resumed run apply the answer to the exact
+	 * tool calls the human saw.
+	 *
+	 * Called after `create` rather than as an argument to it because the
+	 * request carries the checkpoint's own id.
+	 */
+	async park(
+		checkpoint: IterationCheckpoint,
+		request: HITLDecisionRequest,
+	): Promise<IterationCheckpoint> {
+		const parked: IterationCheckpoint = {
+			...checkpoint,
+			pending: { request, parkedAt: Date.now() },
+		}
+		await this.store.writeCheckpoint(this.scope, parked)
+		return parked
+	}
+
+	/**
+	 * Record the answer, so an outstanding park stops looking outstanding.
+	 *
+	 * The decision is kept rather than erased: a checkpoint that shows both
+	 * what was asked and what was answered is the evidence trail an
+	 * approval gate is worth having. A no-op when the checkpoint is gone
+	 * (pruned) or was never parked.
+	 */
+	async unpark(
+		checkpointId: CheckpointId,
+		decision: HITLResumeDecision,
+	): Promise<IterationCheckpoint | null> {
+		const checkpoint = await this.store.readCheckpoint(this.scope, checkpointId)
+		if (!checkpoint?.pending) return null
+
+		const resolved: IterationCheckpoint = {
+			...checkpoint,
+			pending: { ...checkpoint.pending, resolvedAt: Date.now(), decision },
+		}
+		await this.store.writeCheckpoint(this.scope, resolved)
+		return resolved
+	}
+
+	/**
+	 * The run's outstanding park, if it has one — the newest checkpoint
+	 * whose `pending` has no `resolvedAt`.
+	 *
+	 * This is the read a host's approval queue is built from, and it works
+	 * across a process boundary because it consults the store rather than
+	 * in-memory state.
+	 */
+	async findPending(): Promise<IterationCheckpoint | null> {
+		return findPendingCheckpoint(this.store, this.scope)
 	}
 
 	async restore(checkpointId: CheckpointId): Promise<IterationCheckpoint> {

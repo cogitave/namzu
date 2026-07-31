@@ -119,6 +119,35 @@ export interface BranchStackEntry {
 	timestamp: number
 }
 
+/**
+ * A decision the run is parked on, recorded durably.
+ *
+ * Without this the park exists only as a suspended `await` inside one
+ * process: a checkpoint written at a tool-review gate looks identical to a
+ * checkpoint written mid-run, so nothing on disk says "a human owes this
+ * run an answer". Kill the process and the request is gone — the approval
+ * queue a host would build from durable state has nothing to read, and a
+ * resumed run silently re-asks the model instead of honoring the approval
+ * that was already granted.
+ *
+ * `request` is stored verbatim so a fresh process can render exactly what
+ * the human was shown, and apply the answer to exactly those tool calls.
+ */
+export interface PendingDecision {
+	/** The request the run parked on, as the `resumeHandler` received it. */
+	readonly request: HITLDecisionRequest
+	/** Epoch ms at which the run parked. */
+	readonly parkedAt: number
+	/**
+	 * Set once the decision arrives, so a resolved checkpoint stays
+	 * distinguishable from one that was never parked. A checkpoint is
+	 * outstanding when `pending` is set and `resolvedAt` is not.
+	 */
+	readonly resolvedAt?: number
+	/** The answer, when one arrived. Kept as evidence of who decided what. */
+	readonly decision?: HITLResumeDecision
+}
+
 export interface IterationCheckpoint {
 	id: CheckpointId
 	runId: RunId
@@ -127,6 +156,12 @@ export interface IterationCheckpoint {
 	tokenUsage: TokenUsage
 	costInfo: CostInfo
 	planStatus?: PlanStatus
+
+	/**
+	 * Present when the run parked at this checkpoint awaiting a human.
+	 * See {@link PendingDecision}.
+	 */
+	pending?: PendingDecision
 	guardState: {
 		iterationCount: number
 		elapsedMs: number
