@@ -16,9 +16,18 @@ import { getTracer } from '../../../telemetry/runtime-accessors.js'
 import { STRUCTURED_OUTPUT_TOOL_NAME } from '../../../tools/builtins/structuredOutput.js'
 import type { CostInfo, TokenUsage } from '../../../types/common/index.js'
 import type { MessageId } from '../../../types/ids/index.js'
-import { createAssistantMessage, createUserMessage } from '../../../types/message/index.js'
+import {
+	createAssistantMessage,
+	createSystemMessage,
+	createUserMessage,
+} from '../../../types/message/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
-import type { RunEvent, StepResult, StopReason } from '../../../types/run/index.js'
+import type {
+	PrepareStepResult,
+	RunEvent,
+	StepResult,
+	StopReason,
+} from '../../../types/run/index.js'
 import { toErrorMessage } from '../../../utils/error.js'
 import { generateMessageId } from '../../../utils/id.js'
 import type { ToolCallOutcome } from '../executor.js'
@@ -160,9 +169,15 @@ export class IterationOrchestrator {
 				const usageBefore = { ...runMgr.tokenUsage }
 				const costBefore = { ...runMgr.costInfo }
 
-				const openAITools = this.ctx.tools.toLLMTools(this.ctx.allowedTools)
+				// Shape this step before calling the model. `stopWhen` decides
+				// whether to keep going; this decides HOW. No-op when the host
+				// supplied no hook.
+				const step = await this.prepareStep(iterationNum)
 
-				const messages = forceFinalize
+				const openAITools = this.ctx.tools.toLLMTools(step.allowedTools ?? this.ctx.allowedTools)
+				const stepModel = step.model ?? model
+
+				const baseMessages = forceFinalize
 					? [
 							...runMgr.messages,
 							createUserMessage(
@@ -170,6 +185,13 @@ export class IterationOrchestrator {
 							),
 						]
 					: runMgr.messages
+
+				// Step guidance is appended to the REQUEST, never pushed onto
+				// the run's history: it applies to this step only, and pushing
+				// it would accumulate one stale instruction per iteration.
+				const messages = step.system
+					? [...baseMessages, createSystemMessage(step.system)]
+					: baseMessages
 
 				if (this.ctx.pluginManager) {
 					const hookResults = await this.ctx.pluginManager.executeHooks(
@@ -192,12 +214,12 @@ export class IterationOrchestrator {
 				const { response, messageId } = yield* streamProviderTurn(
 					this.ctx.provider,
 					{
-						model,
+						model: stepModel,
 						messages,
 						tools: openAITools.length > 0 ? openAITools : undefined,
 						toolChoice: forceFinalize && openAITools.length > 0 ? 'none' : undefined,
-						temperature: runConfig.temperature,
-						maxTokens: runConfig.maxResponseTokens,
+						temperature: step.temperature ?? runConfig.temperature,
+						maxTokens: step.maxResponseTokens ?? runConfig.maxResponseTokens,
 						cacheControl: { type: 'auto' },
 						...(runConfig.thinking ? { thinking: runConfig.thinking } : {}),
 						// Thread the run abort into the model call so a Stop tears the
@@ -531,6 +553,74 @@ export class IterationOrchestrator {
 				throw err
 			}
 		}
+	}
+
+	/**
+	 * Ask the host how to shape this step.
+	 *
+	 * Fails OPEN on a throw — same reasoning as `stopWhen` and deliberately
+	 * opposite to a guardrail: a broken step-shaping hook should not kill an
+	 * otherwise healthy run, and unlike a safety check, nothing unsafe gets
+	 * through when it is skipped.
+	 */
+	private async prepareStep(stepNumber: number): Promise<{
+		allowedTools?: string[]
+		model?: string
+		system?: string
+		temperature?: number
+		maxResponseTokens?: number
+	}> {
+		const hook = this.ctx.prepareStep
+		if (!hook) return {}
+
+		let result: PrepareStepResult | undefined
+		try {
+			result = await hook({
+				runId: this.ctx.runMgr.id,
+				stepNumber,
+				messages: this.ctx.runMgr.messages,
+				steps: this.steps,
+			})
+		} catch (err) {
+			this.ctx.log.error('prepareStep threw — continuing with the run configuration', {
+				runId: this.ctx.runMgr.id,
+				stepNumber,
+				error: toErrorMessage(err),
+			})
+			return {}
+		}
+		if (!result) return {}
+
+		const prepared: {
+			allowedTools?: string[]
+			model?: string
+			system?: string
+			temperature?: number
+			maxResponseTokens?: number
+		} = {}
+
+		if (result.activeTools) {
+			// A phase list that outlives a tool rename should narrow the
+			// surface, not kill the agent mid-run.
+			const known = result.activeTools.filter((name: string) => this.ctx.tools.has(name))
+			const unknown = result.activeTools.filter((name: string) => !this.ctx.tools.has(name))
+			if (unknown.length > 0) {
+				this.ctx.log.warn('prepareStep named tools that are not registered — ignoring them', {
+					runId: this.ctx.runMgr.id,
+					stepNumber,
+					unknown,
+				})
+			}
+			prepared.allowedTools = known
+		}
+		if (result.model !== undefined) prepared.model = result.model
+		if (result.system !== undefined) prepared.system = result.system
+		if (result.temperature !== undefined) prepared.temperature = result.temperature
+		if (result.maxResponseTokens !== undefined) {
+			prepared.maxResponseTokens = result.maxResponseTokens
+		}
+
+		return prepared
 	}
 
 	/** Steps completed so far, exposed on the returned `Run`. */

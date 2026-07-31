@@ -1,4 +1,5 @@
 export * from './step.js'
+export * from './prepare-step.js'
 export * from './stop-reason.js'
 export * from './config.js'
 export * from './checkpoint-store.js'

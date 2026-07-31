@@ -16,6 +16,7 @@ import type { TaskId } from '../../../../types/ids/index.js'
 import type { LLMProvider } from '../../../../types/provider/index.js'
 import type {
 	AgentRunConfig,
+	PrepareStep,
 	RunEvent,
 	StepResult,
 	StopCondition,
@@ -105,6 +106,9 @@ export interface IterationContext {
 	 * observe a recorded park without waiting out the real threshold.
 	 */
 	readonly parkRecordDelayMs?: number
+
+	/** Host hook that shapes each step before the model call. */
+	readonly prepareStep?: PrepareStep
 }
 
 export type PhaseSignal = 'continue' | 'stop'

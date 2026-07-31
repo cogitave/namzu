@@ -44,6 +44,7 @@ import type { TaskRouterConfig } from '../../types/router/index.js'
 import type { CheckpointStore } from '../../types/run/checkpoint-store.js'
 import type {
 	AgentRunConfig,
+	PrepareStep,
 	Run,
 	RunEvent,
 	RunEventListener,
@@ -157,6 +158,27 @@ export interface QueryParams {
 
 	/** Called with each completed step, as it completes. */
 	onStepFinish?: (step: StepResult) => void
+
+	/**
+	 * Shape each step before the model is called: narrow the tool surface,
+	 * swap the model, add one-step guidance, change sampling.
+	 *
+	 * `stopWhen` let a run decide TO STOP from what its steps produced;
+	 * this is the other half — deciding how the next step should look.
+	 * Without it, the tool surface and model are fixed at `query()` time,
+	 * so a phased agent (research with search tools, write with file tools,
+	 * verify with a cheaper model) had to be three separate runs, each
+	 * starting blind to the last one's context.
+	 *
+	 * Narrowing `activeTools` costs a prompt-cache prefix, since tools
+	 * render at position 0 — worth it at a real phase boundary, not every
+	 * step. It does not touch `tool_choice`: Anthropic has no
+	 * `allowed_tools`, and moving `tool_choice` invalidates cached MESSAGE
+	 * blocks too, which is a strictly worse trade for the same effect.
+	 *
+	 * Fails open — a throw leaves the step with the run's configuration.
+	 */
+	prepareStep?: PrepareStep
 
 	/**
 	 * Force the run to finish by calling a schema-validated tool, and land
@@ -603,6 +625,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		provider: resilientProvider,
 		runConfig: params.runConfig,
 		...(params.stopWhen ? { stopWhen: params.stopWhen } : {}),
+		...(params.prepareStep ? { prepareStep: params.prepareStep } : {}),
 		...(params.onStepFinish ? { onStepFinish: params.onStepFinish } : {}),
 		...(params.structuredOutput ? { structuredOutput: params.structuredOutput } : {}),
 		...(params.parkRecordDelayMs !== undefined
