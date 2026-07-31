@@ -500,6 +500,12 @@ const COMPACTION_CONFIG = {
 	triggerThreshold: 0.7,
 	resetThreshold: 0.4,
 	keepRecentMessages: 6,
+	// Reclaim from stale tool output before summarizing. A CLI session is
+	// exactly the shape this helps most: a few enormous file reads and shell
+	// dumps the agent already used, next to reasoning worth keeping verbatim.
+	clearToolResults: true,
+	keepRecentToolResults: 3,
+	minToolResultCharsToClear: 1_000,
 	maxToolResults: 30,
 	maxListSize: 25,
 	// Pin the opening decisions/requirements; eviction takes from the

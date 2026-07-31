@@ -45,6 +45,36 @@ export const CompactionConfigSchema = z.object({
 	 */
 	resetThreshold: z.number().min(0).max(1).default(0.4),
 	keepRecentMessages: z.number().positive().default(4),
+
+	/**
+	 * Before summarizing destructively, clear the OUTPUT of old, large tool
+	 * results in place.
+	 *
+	 * Compaction paraphrases the agent's own reasoning away — the decisions,
+	 * the false starts it learned from, the exact wording of a plan. That is
+	 * a heavy price for a context problem usually caused by something much
+	 * dumber: a few enormous tool outputs the agent already read and moved
+	 * past. Clearing those reclaims most of the same tokens while keeping
+	 * every message verbatim, and it is safe where trimming is not, because
+	 * nothing moves — the `tool_use` ↔ `tool_result` pairing is untouched by
+	 * construction.
+	 *
+	 * If the clear gets the context back under `triggerThreshold`, the
+	 * summarization pass is skipped entirely. Set `false` to go straight to
+	 * summarization.
+	 */
+	clearToolResults: z.boolean().default(true),
+	/** Most recent tool results left alone — the agent is likely still using them. */
+	keepRecentToolResults: z.number().min(0).default(3),
+	/**
+	 * Don't clear results smaller than this. Below it the placeholder is
+	 * comparable in size to the output, so the churn buys nothing and costs
+	 * the model a confusing hole in its history.
+	 */
+	minToolResultCharsToClear: z.number().min(0).default(1_000),
+	/** Tools whose output is never cleared, by name. */
+	preserveToolResultsFrom: z.array(z.string()).optional(),
+
 	maxToolResults: z.number().positive().default(30),
 	maxListSize: z.number().positive().default(25),
 	/**

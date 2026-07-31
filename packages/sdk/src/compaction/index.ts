@@ -39,3 +39,11 @@ export {
 	resolveContextWindow,
 } from './context-window.js'
 export type { ResolvedContextWindow } from './context-window.js'
+
+export {
+	clearStaleToolResults,
+	isClearedToolResult,
+	DEFAULT_KEEP_RECENT_TOOL_RESULTS,
+	DEFAULT_MIN_CHARS_TO_CLEAR,
+} from './tool-result-editing.js'
+export type { ToolResultEditConfig, ToolResultEditOutcome } from './tool-result-editing.js'

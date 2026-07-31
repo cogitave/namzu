@@ -1,6 +1,7 @@
 import { resolveContextWindow } from '../../../../compaction/context-window.js'
 import { findSafeTrimIndex } from '../../../../compaction/dangling.js'
 import { serializeState } from '../../../../compaction/serializer.js'
+import { clearStaleToolResults } from '../../../../compaction/tool-result-editing.js'
 import { buildVerifiedSummary } from '../../../../compaction/verifier.js'
 import { CHARS_PER_TOKEN } from '../../../../constants/limits.js'
 import { createSystemMessage } from '../../../../types/message/index.js'
@@ -103,6 +104,51 @@ export async function runCompactionCheck(ctx: IterationContext): Promise<void> {
 		triggerThreshold: config.triggerThreshold,
 		slotCount: manager.slotCount(),
 	})
+
+	// Try the cheap, NON-destructive reclaim first: clear the output of old,
+	// large tool results in place. Compaction paraphrases the agent's own
+	// reasoning away, which is a heavy price for a context problem usually
+	// caused by something dumber — a few enormous tool outputs the agent
+	// already read and moved past. Clearing those keeps every message
+	// verbatim, and keeps `tool_use` ↔ `tool_result` pairing intact by
+	// construction, because nothing moves.
+	if (config.clearToolResults !== false) {
+		const edit = clearStaleToolResults(ctx.runMgr.messages, {
+			...(config.keepRecentToolResults !== undefined
+				? { keepRecentToolResults: config.keepRecentToolResults }
+				: {}),
+			...(config.minToolResultCharsToClear !== undefined
+				? { minCharsToClear: config.minToolResultCharsToClear }
+				: {}),
+			...(config.preserveToolResultsFrom ? { preserveTools: config.preserveToolResultsFrom } : {}),
+		})
+
+		if (edit.clearedCount > 0) {
+			// Element-wise, not a rebuild: the edit is length-preserving by
+			// construction (only `content` changes), so writing entries back
+			// keeps the live array identity the rest of the run holds.
+			const live = ctx.runMgr.messages
+			edit.messages.forEach((msg, i) => {
+				live[i] = msg
+			})
+
+			const reclaimedTokens = Math.ceil(edit.charsReclaimed / CHARS_PER_TOKEN)
+			ctx.log.info('Cleared stale tool results instead of compacting', {
+				runId: ctx.runMgr.id,
+				cleared: edit.clearedCount,
+				charsReclaimed: edit.charsReclaimed,
+				reclaimedTokens,
+			})
+
+			// If that was enough, stop here and keep the history verbatim.
+			// The measurement is an estimate either way; the provider's own
+			// count for the NEXT turn will correct it, and an over-eager
+			// summarization is far more costly than one late pass.
+			if ((estimatedTokens - reclaimedTokens) / budget < config.triggerThreshold) {
+				return
+			}
+		}
+	}
 
 	const messages = ctx.runMgr.messages
 	if (messages.length < config.keepRecentMessages + 2) {
