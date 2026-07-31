@@ -4,6 +4,7 @@ import {
 	AdvisoryExecutor,
 	TriggerEvaluator,
 } from '../../advisory/index.js'
+import { findDanglingMessages, removeDanglingMessages } from '../../compaction/dangling.js'
 import { extractFromUserMessage } from '../../compaction/extractor.js'
 import { WorkingStateManager } from '../../compaction/manager.js'
 import type { CompactionConfig } from '../../config/runtime.js'
@@ -491,7 +492,28 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				yield* eventTranslator.drainPending()
 
 				pushSystemMessages()
-				for (const msg of checkpoint.messages) {
+
+				// A checkpoint taken at a tool-review park snapshots the
+				// assistant turn AFTER its `tool_use` blocks but BEFORE any
+				// `tool_result` exists, so replaying it verbatim would send a
+				// malformed request on the first model call of the resumed
+				// run. Repair the incomplete turn rather than inheriting it:
+				// the model re-decides from the last valid state.
+				const dangling = findDanglingMessages(checkpoint.messages)
+				const restoredMessages = dangling.isValid
+					? checkpoint.messages
+					: removeDanglingMessages(checkpoint.messages)
+				if (!dangling.isValid) {
+					ctx.log.warn('Checkpoint contained unanswered tool calls — repaired on restore', {
+						runId: ctx.runMgr.id,
+						checkpointId: checkpoint.id,
+						unansweredAssistantTurns: dangling.assistantsWithUnmatchedCalls.length,
+						orphanedToolMessages: dangling.orphanedToolMessages.length,
+						removed: checkpoint.messages.length - restoredMessages.length,
+					})
+				}
+
+				for (const msg of restoredMessages) {
 					if (msg.role === 'system') {
 						// Re-push the FRESH static/dynamic floor (done above) but PRESERVE
 						// the two system messages that carry irreplaceable run state: the

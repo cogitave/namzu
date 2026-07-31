@@ -1,7 +1,7 @@
-import { createUserMessage } from '../../../../types/message/index.js'
 import type { ChatCompletionResponse } from '../../../../types/provider/index.js'
 import type { RunEvent } from '../../../../types/run/index.js'
 import type { VerificationGate } from '../../../../verification/index.js'
+import type { ToolCallDenials } from '../../executor.js'
 import { type IterationContext, awaitDecisionOrAbort } from './context.js'
 
 interface VerificationAwareContext extends IterationContext {
@@ -10,6 +10,23 @@ interface VerificationAwareContext extends IterationContext {
 
 export type ToolReviewOutcome = 'executed' | 'rejected' | 'stop'
 
+/**
+ * Run every tool call in `response` through the gate and (when the gate is
+ * inconclusive) a human, then hand the whole batch — approved and refused
+ * alike — to the executor.
+ *
+ * Two invariants this function is responsible for:
+ *
+ * 1. **Every `tool_use` is answered.** No branch may return without the
+ *    executor having produced a `tool_result` for each call, because an
+ *    unanswered `tool_use` makes the next provider request malformed. The
+ *    refusal reason rides inside the `tool_result`, which is also what
+ *    lets a rejection steer the model instead of just stopping it.
+ * 2. **A gate denial is never overridable by an approval.** A human
+ *    approving a batch approves the calls the gate left undecided — not
+ *    the ones it refused. Gate denials are threaded into every downstream
+ *    execution so no path can widen them.
+ */
 export async function* runToolReview(
 	ctx: VerificationAwareContext,
 	response: ChatCompletionResponse,
@@ -38,6 +55,22 @@ export async function* runToolReview(
 		}
 	})
 
+	/** Executes the batch, answering every call, and appends the results. */
+	const settle = async (denials?: ToolCallDenials): Promise<void> => {
+		const batch = await ctx.toolExecutor.executeBatch(response, denials)
+		for (const msg of batch.messages) {
+			ctx.runMgr.pushMessage(msg)
+		}
+	}
+
+	/** Every call denied for the same reason (human rejection, gate stop). */
+	const denyAll = (reason: string): ToolCallDenials =>
+		new Map(toolCalls.map((tc) => [tc.id, reason]))
+
+	// Gate-denied ids survive the whole function: a later human approval
+	// must not be able to release them.
+	const gateDenied = new Map<string, string>()
+
 	if (ctx.verificationGate) {
 		const gate = ctx.verificationGate
 		const gateResults = toolCallSummaries.map((tc) => ({
@@ -49,6 +82,12 @@ export async function* runToolReview(
 			}),
 		}))
 
+		for (const gr of gateResults) {
+			if (gr.gateResult.decision === 'deny') {
+				gateDenied.set(gr.toolCall.id, `Blocked by the verification gate: ${gr.gateResult.reason}`)
+			}
+		}
+
 		const allAllowed = gateResults.every((gr) => gr.gateResult.decision === 'allow')
 		const allDenied = gateResults.every((gr) => gr.gateResult.decision === 'deny')
 
@@ -56,23 +95,17 @@ export async function* runToolReview(
 			ctx.log.debug('Verification gate: all tool calls pre-approved', {
 				tools: gateResults.map((gr) => gr.toolCall.name),
 			})
-			const batch = await ctx.toolExecutor.executeBatch(response)
-			for (const msg of batch.messages) {
-				ctx.runMgr.pushMessage(msg)
-			}
+			await settle()
+			yield* ctx.drainPending()
 			return 'executed'
 		}
 
 		if (allDenied) {
-			const reasons = gateResults
-				.map((gr) => `${gr.toolCall.name}: ${gr.gateResult.reason}`)
-				.join('; ')
 			ctx.log.debug('Verification gate: all tool calls denied', {
 				tools: gateResults.map((gr) => gr.toolCall.name),
 			})
-			ctx.runMgr.pushMessage(
-				createUserMessage(`[SYSTEM] Tool calls blocked by verification gate: ${reasons}`),
-			)
+			await settle(gateDenied)
+			yield* ctx.drainPending()
 			return 'rejected'
 		}
 
@@ -110,8 +143,9 @@ export async function* runToolReview(
 			})
 			yield* ctx.drainPending()
 
-			const feedback = reviewDecision.feedback || 'User rejected the tool calls'
-			ctx.runMgr.pushMessage(createUserMessage(`[SYSTEM] Tool calls rejected: ${feedback}`))
+			const feedback = reviewDecision.feedback || 'The user rejected this tool call.'
+			await settle(denyAll(feedback))
+			yield* ctx.drainPending()
 			return 'rejected'
 		}
 
@@ -123,33 +157,26 @@ export async function* runToolReview(
 			})
 			yield* ctx.drainPending()
 
+			// Gate denials are the floor; per-call human denials add to them.
+			const denials = new Map(gateDenied)
+
 			for (const mod of reviewDecision.modifications) {
 				if (mod.action === 'modify' && mod.modifiedInput !== undefined) {
 					const tc = toolCalls.find((t) => t.id === mod.toolCallId)
-					if (tc) {
+					// A modification cannot resurrect a gate-denied call.
+					if (tc && !denials.has(tc.id)) {
 						tc.function.arguments = JSON.stringify(mod.modifiedInput)
 					}
 				}
+				if (mod.action === 'deny' && !denials.has(mod.toolCallId)) {
+					denials.set(mod.toolCallId, 'The user denied this tool call.')
+				}
 			}
 
-			const deniedIds = new Set(
-				reviewDecision.modifications.filter((m) => m.action === 'deny').map((m) => m.toolCallId),
-			)
-			const filteredToolCalls = toolCalls.filter((tc) => !deniedIds.has(tc.id))
-
-			if (filteredToolCalls.length === 0) {
-				ctx.runMgr.pushMessage(createUserMessage('[SYSTEM] All tool calls were denied by user'))
-				return 'rejected'
-			}
-
-			const batch = await ctx.toolExecutor.executeBatch({
-				...response,
-				message: { ...response.message, toolCalls: filteredToolCalls },
-			})
-			for (const msg of batch.messages) {
-				ctx.runMgr.pushMessage(msg)
-			}
-			return 'executed'
+			const everythingDenied = denials.size === toolCalls.length
+			await settle(denials)
+			yield* ctx.drainPending()
+			return everythingDenied ? 'rejected' : 'executed'
 		}
 
 		case 'pause': {
@@ -190,10 +217,11 @@ export async function* runToolReview(
 			})
 			yield* ctx.drainPending()
 
-			const batch = await ctx.toolExecutor.executeBatch(response)
-			for (const msg of batch.messages) {
-				ctx.runMgr.pushMessage(msg)
-			}
+			// `gateDenied` is non-empty only on the gate's mixed-decision
+			// path. Passing it here is what stops a human "approve" from
+			// executing calls the gate refused.
+			await settle(gateDenied)
+			yield* ctx.drainPending()
 			return 'executed'
 		}
 
@@ -206,10 +234,8 @@ export async function* runToolReview(
 			ctx.log.warn('Unexpected plan decision during tool review', {
 				action: reviewDecision.action,
 			})
-			const batch = await ctx.toolExecutor.executeBatch(response)
-			for (const msg of batch.messages) {
-				ctx.runMgr.pushMessage(msg)
-			}
+			await settle(gateDenied)
+			yield* ctx.drainPending()
 			return 'executed'
 		}
 

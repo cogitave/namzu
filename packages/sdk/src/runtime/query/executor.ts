@@ -47,6 +47,26 @@ export interface ToolExecutionBatch {
 	results: Array<{ toolCallId: string; output: string }>
 }
 
+/**
+ * Denial reasons keyed by `tool_use` id. Any id present here is answered
+ * with a synthetic `tool_result` carrying the reason INSTEAD of being
+ * executed — see {@link ToolExecutor.executeBatch}.
+ */
+export type ToolCallDenials = ReadonlyMap<string, string>
+
+/**
+ * Model-visible text for a tool call that was never executed.
+ *
+ * The reason travels INSIDE the `tool_result` rather than as a trailing
+ * user message: a `tool_use` block must be answered by a `tool_result`
+ * with the same id, and a denial is an answer, not an omission. Putting
+ * the reason here is also what makes rejection *steer* — the model reads
+ * it in the slot it already attends to for tool outcomes.
+ */
+export function deniedToolOutput(toolName: string, reason: string): string {
+	return `Error: Tool "${toolName}" was not executed. ${reason}`
+}
+
 export class ToolExecutor {
 	private config: ToolExecutorConfig
 	private activityStore: ActivityStore
@@ -84,7 +104,25 @@ export class ToolExecutor {
 		this.config = { ...this.config, sandbox }
 	}
 
-	async executeBatch(response: ChatCompletionResponse): Promise<ToolExecutionBatch> {
+	/**
+	 * Answer every `tool_use` block in `response` with exactly one
+	 * `tool_result`.
+	 *
+	 * `denials` marks ids that must NOT run: each is answered with a
+	 * synthetic error result carrying the caller's reason instead of being
+	 * executed. This is what makes the invariant hold by construction —
+	 * a gate denial, a human rejection and a partial approval all leave
+	 * the history valid, because there is exactly one place that turns a
+	 * batch of tool calls into messages and it always covers all of them.
+	 *
+	 * Answering with `is_error` semantics rather than dropping the call is
+	 * the universal contract across providers: an unanswered `tool_use`
+	 * is a protocol violation, not a decline.
+	 */
+	async executeBatch(
+		response: ChatCompletionResponse,
+		denials?: ToolCallDenials,
+	): Promise<ToolExecutionBatch> {
 		const toolCalls = response.message.toolCalls
 		if (!toolCalls) {
 			return { messages: [], results: [] }
@@ -93,6 +131,7 @@ export class ToolExecutor {
 		this.log.debug('Executing tool batch', {
 			runId: this.config.runId,
 			toolCount: toolCalls.length,
+			deniedCount: denials?.size ?? 0,
 			tools: toolCalls.map((tc) => tc.function.name),
 		})
 
@@ -112,6 +151,19 @@ export class ToolExecutor {
 		const parallel: Promise<void>[] = []
 		let serial: Promise<void> = Promise.resolve()
 		toolCalls.forEach((toolCall, i) => {
+			const denialReason = denials?.get(toolCall.id)
+			if (denialReason !== undefined) {
+				// Denied calls never touch the tool; they still get a result
+				// message so the assistant turn stays fully answered. Run them
+				// on the parallel branch — they perform no side effects, so
+				// serialization would only add latency.
+				parallel.push(
+					this.recordDenial(toolCall, denialReason).then((r) => {
+						results[i] = r
+					}),
+				)
+				return
+			}
 			const ctx = { ...baseContext, toolUseId: toolCall.id }
 			const run = async () => {
 				results[i] = await this.executeSingle(toolCall, ctx)
@@ -430,6 +482,64 @@ export class ToolExecutor {
 			}
 		}
 		return override
+	}
+
+	/**
+	 * Answer a tool call that policy or a human refused, without executing
+	 * it. Emits the same `tool_executing` → `tool_completed` pair as a real
+	 * execution so UI cards reach a terminal state instead of hanging in
+	 * `executing`, and records a failed activity for the trace.
+	 */
+	private async recordDenial(
+		toolCall: ToolCall,
+		reason: string,
+	): Promise<{ toolCallId: string; output: string }> {
+		const toolName = toolCall.function.name
+		let input: unknown = {}
+		try {
+			input = JSON.parse(toolCall.function.arguments || '{}')
+		} catch {
+			input = toolCall.function.arguments
+		}
+
+		const output = deniedToolOutput(toolName, reason)
+
+		this.log.info('Tool call denied — synthesizing tool_result', {
+			runId: this.config.runId,
+			tool: toolName,
+			toolUseId: toolCall.id,
+			reason,
+		})
+
+		const activity = this.activityStore.create({
+			type: 'tool_call',
+			description: toolName,
+			input,
+			toolName,
+			toolCallId: toolCall.id,
+		})
+		if (activity) {
+			this.activityStore.start(activity.id)
+			this.activityStore.fail(activity.id, output)
+		}
+
+		await this.emitEvent({
+			type: 'tool_executing',
+			runId: this.config.runId,
+			toolUseId: toolCall.id,
+			toolName,
+			input,
+		})
+		await this.emitEvent({
+			type: 'tool_completed',
+			runId: this.config.runId,
+			toolUseId: toolCall.id,
+			toolName,
+			result: output,
+			isError: true,
+		})
+
+		return { toolCallId: toolCall.id, output }
 	}
 
 	private async recordSyntheticHookOutcome(
