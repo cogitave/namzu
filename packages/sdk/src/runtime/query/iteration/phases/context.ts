@@ -16,6 +16,7 @@ import type {
 	StepResult,
 	StopCondition,
 } from '../../../../types/run/index.js'
+import type { StructuredOutputConfig } from '../../../../types/structured-output/index.js'
 import type { TaskStore } from '../../../../types/task/index.js'
 import type { ToolRegistryContract } from '../../../../types/tool/index.js'
 import type { Logger } from '../../../../utils/logger.js'
@@ -58,6 +59,9 @@ export interface IterationContext {
 
 	/** Called with each completed step, as it completes. */
 	readonly onStepFinish?: (step: StepResult) => void
+
+	/** Demand a schema-validated final answer. See QueryParams.structuredOutput. */
+	readonly structuredOutput?: StructuredOutputConfig
 	readonly tools: ToolRegistryContract
 	readonly allowedTools?: string[]
 	readonly runMgr: RunPersistence

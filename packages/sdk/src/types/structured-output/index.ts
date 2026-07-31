@@ -20,6 +20,15 @@ export interface StructuredOutputConfig<TSchema extends z.ZodType = z.ZodType> {
 	 * Default: true
 	 */
 	enforceToolChoice?: boolean
+
+	/**
+	 * Turns spent re-prompting when the model answers in prose or fails
+	 * validation. Defaults to {@link DEFAULT_STRUCTURED_OUTPUT_RETRIES}.
+	 *
+	 * Bounded so a model that cannot satisfy the schema fails loudly rather
+	 * than iterating against `maxIterations`.
+	 */
+	maxRetries?: number
 }
 
 /**

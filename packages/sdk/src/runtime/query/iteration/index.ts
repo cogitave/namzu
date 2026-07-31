@@ -1,6 +1,10 @@
 import { type Span, SpanStatusCode } from '@opentelemetry/api'
 import { extractFromAssistantMessage } from '../../../compaction/extractor.js'
 import { AUTO_CONTINUATION_USER_MESSAGE } from '../../../constants/continuation.js'
+import {
+	DEFAULT_STRUCTURED_OUTPUT_RETRIES,
+	STRUCTURED_OUTPUT_REPROMPT,
+} from '../../../constants/tools/index.js'
 import { collect } from '../../../provider/collect.js'
 import {
 	GENAI,
@@ -9,6 +13,7 @@ import {
 	parentContext,
 } from '../../../telemetry/attributes.js'
 import { getTracer } from '../../../telemetry/runtime-accessors.js'
+import { STRUCTURED_OUTPUT_TOOL_NAME } from '../../../tools/builtins/structuredOutput.js'
 import type { CostInfo, TokenUsage } from '../../../types/common/index.js'
 import type { MessageId } from '../../../types/ids/index.js'
 import { createAssistantMessage, createUserMessage } from '../../../types/message/index.js'
@@ -340,6 +345,40 @@ export class IterationOrchestrator {
 						continue
 					}
 
+					// The model tried to finish in prose while a structured
+					// output was demanded. Send it back with the schema error
+					// rather than returning an unusable result — this is the
+					// re-prompt half, and it is bounded so a model that cannot
+					// satisfy the schema fails loudly instead of looping.
+					if (!forceFinalize && this.needsStructuredOutput()) {
+						const attempt = ++this.structuredOutputAttempts
+						const limit = this.structuredOutputRetryLimit()
+						if (attempt > limit) {
+							this.ctx.log.warn('Structured output not produced within its retries', {
+								runId: runMgr.id,
+								attempts: attempt - 1,
+							})
+							runMgr.setStopReason('structured_output_failed')
+							iterSpan.end()
+							break
+						}
+						this.ctx.log.info('Re-prompting for structured output', {
+							runId: runMgr.id,
+							attempt,
+							limit,
+						})
+						runMgr.pushMessage(createUserMessage(STRUCTURED_OUTPUT_REPROMPT))
+						await this.ctx.emitEvent({
+							type: 'iteration_completed',
+							runId: runMgr.id,
+							iteration: iterationNum,
+							hasToolCalls: false,
+						})
+						yield* this.ctx.drainPending()
+						iterSpan.end()
+						continue
+					}
+
 					if (!hasContent && !forceFinalize) {
 						this.ctx.log.warn('Empty completion detected — requesting final summary', {
 							iteration: iterationNum,
@@ -396,6 +435,26 @@ export class IterationOrchestrator {
 				if (reviewOutcome.decision === 'rejected') {
 					iterSpan.end()
 					continue
+				}
+
+				// A successful `structured_output` call IS the answer, so the
+				// run ends here rather than paying for another turn whose only
+				// job would be to restate it.
+				if (this.captureStructuredOutput(reviewOutcome.results)) {
+					this.ctx.log.info('Structured output produced — ending run', {
+						runId: runMgr.id,
+						iteration: iterationNum,
+					})
+					runMgr.setStopReason('end_turn')
+					await this.ctx.emitEvent({
+						type: 'iteration_completed',
+						runId: runMgr.id,
+						iteration: iterationNum,
+						hasToolCalls: true,
+					})
+					yield* this.ctx.drainPending()
+					iterSpan.end()
+					break
 				}
 
 				// Evaluated AFTER the tools ran, so a predicate can see what they
@@ -535,6 +594,42 @@ export class IterationOrchestrator {
 
 		this.steps.push(step)
 		this.ctx.onStepFinish?.(step)
+	}
+
+	/** Turns spent asking the model again for a valid structured output. */
+	private structuredOutputAttempts = 0
+	private structuredOutputDone = false
+
+	private structuredOutputRetryLimit(): number {
+		return this.ctx.structuredOutput?.maxRetries ?? DEFAULT_STRUCTURED_OUTPUT_RETRIES
+	}
+
+	/** True while a structured output was demanded and has not arrived. */
+	private needsStructuredOutput(): boolean {
+		return this.ctx.structuredOutput !== undefined && !this.structuredOutputDone
+	}
+
+	/**
+	 * Record the structured output if this batch produced one.
+	 *
+	 * The tool validates against the Zod schema before its `execute` runs,
+	 * so reaching here successfully means the value is already valid — a
+	 * failed parse comes back as an error result and simply does not
+	 * satisfy the demand, which sends the loop round again.
+	 */
+	private captureStructuredOutput(results: readonly ToolCallOutcome[]): boolean {
+		if (!this.needsStructuredOutput()) return false
+		const hit = results.find((r) => r.toolName === STRUCTURED_OUTPUT_TOOL_NAME && !r.isError)
+		if (!hit) return false
+		try {
+			this.ctx.runMgr.setStructuredOutput(JSON.parse(hit.output))
+		} catch {
+			// The tool serializes its own validated input, so this is
+			// unreachable in practice; keep the raw text rather than losing it.
+			this.ctx.runMgr.setStructuredOutput(hit.output)
+		}
+		this.structuredOutputDone = true
+		return true
 	}
 
 	/** Evaluate the caller's halt predicate, if there is one. */

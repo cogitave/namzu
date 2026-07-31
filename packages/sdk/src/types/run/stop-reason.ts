@@ -8,6 +8,8 @@ export type StopReason =
 	| 'plan_rejected'
 	/** A caller-supplied `stopWhen` predicate returned true. */
 	| 'stop_condition'
+	/** The model never produced a valid structured output within its retries. */
+	| 'structured_output_failed'
 	| 'paused'
 	| 'error'
 

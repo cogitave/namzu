@@ -234,6 +234,11 @@ export class RunPersistence {
 	 * persists the returned `Run` keeps per-step attribution instead of
 	 * having to reconstruct it from raw events.
 	 */
+	/** Record the validated structured output on the run. */
+	setStructuredOutput(value: unknown): void {
+		this.run.structuredOutput = value
+	}
+
 	setSteps(steps: readonly StepResult[]): void {
 		this.run.steps = steps
 	}

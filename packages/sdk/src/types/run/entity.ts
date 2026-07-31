@@ -50,6 +50,13 @@ export interface Run {
 	 */
 	steps?: readonly StepResult[]
 
+	/**
+	 * Schema-validated final output, when `structuredOutput` was requested
+	 * and the model produced one. Absent otherwise — check `stopReason`
+	 * for `structured_output_failed`.
+	 */
+	structuredOutput?: unknown
+
 	parentRunId?: RunId
 
 	depth?: number

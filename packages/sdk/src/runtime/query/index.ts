@@ -18,6 +18,10 @@ import { GENAI, NAMZU, agentRunSpanName } from '../../telemetry/attributes.js'
 import { getTracer } from '../../telemetry/runtime-accessors.js'
 import { buildAdvisoryTools } from '../../tools/advisory/index.js'
 import { SearchToolsTool } from '../../tools/builtins/search-tools.js'
+import {
+	STRUCTURED_OUTPUT_TOOL_NAME,
+	createStructuredOutputTool,
+} from '../../tools/builtins/structuredOutput.js'
 import { buildTaskTools } from '../../tools/task/index.js'
 import type { AdvisoryConfig } from '../../types/advisory/index.js'
 import type { AgentRuntimeContext, RuntimeToolOverrides } from '../../types/agent/base.js'
@@ -46,6 +50,7 @@ import type {
 import type { Sandbox, SandboxProvider } from '../../types/sandbox/index.js'
 import type { ProjectId, ThreadId } from '../../types/session/ids.js'
 import type { Skill } from '../../types/skills/index.js'
+import type { StructuredOutputConfig } from '../../types/structured-output/index.js'
 import type { TaskStore } from '../../types/task/index.js'
 import type { ToolRegistryContract } from '../../types/tool/index.js'
 import type { VerificationGateConfig } from '../../types/verification/index.js'
@@ -131,6 +136,18 @@ export interface QueryParams {
 
 	/** Called with each completed step, as it completes. */
 	onStepFinish?: (step: StepResult) => void
+
+	/**
+	 * Force the run to finish by calling a schema-validated tool, and land
+	 * the parsed value on `Run.structuredOutput`.
+	 *
+	 * Both leaf pieces already shipped and neither was reachable:
+	 * `createStructuredOutputTool` is excluded from the default builtin set,
+	 * and `StructuredOutputConfig` had no field on QueryParams at all. A host
+	 * needing a typed result had to register the tool by hand and hope —
+	 * nothing forced the call, and nothing stopped the loop when it came.
+	 */
+	structuredOutput?: StructuredOutputConfig
 	tools: ToolRegistryContract
 	runConfig: AgentRunConfig
 	allowedTools?: string[]
@@ -349,6 +366,15 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		}
 	}
 
+	// Registered HERE, before the first turn, not when the model is nearly
+	// done. Tools render at prefix position 0, so injecting one late would
+	// invalidate the whole prompt cache for the rest of the run — the same
+	// reason the forced-final turn keeps its tools array and uses
+	// `toolChoice: 'none'` instead of dropping it.
+	if (params.structuredOutput && !params.tools.has(STRUCTURED_OUTPUT_TOOL_NAME)) {
+		params.tools.register(createStructuredOutputTool(params.structuredOutput.schema))
+	}
+
 	// ─── Provider capability negotiation (before tooling bootstrap) ────────
 	// Compare what the request asks for with what the DRIVER declared it
 	// does. Undeclared capabilities resolve permissively (today's behavior
@@ -497,6 +523,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		runConfig: params.runConfig,
 		...(params.stopWhen ? { stopWhen: params.stopWhen } : {}),
 		...(params.onStepFinish ? { onStepFinish: params.onStepFinish } : {}),
+		...(params.structuredOutput ? { structuredOutput: params.structuredOutput } : {}),
 		tools: params.tools,
 		allowedTools: effectiveAllowedTools,
 		runMgr: ctx.runMgr,

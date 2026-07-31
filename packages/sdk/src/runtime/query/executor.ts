@@ -84,6 +84,8 @@ type PreToolHookOutcome =
 /** What one tool call produced, before it becomes a message. */
 export interface ToolCallOutcome {
 	toolCallId: string
+	/** Which tool produced it. */
+	toolName: string
 	/** Text form — what the host, the transcript and compaction see. */
 	output: string
 	/** Rich form for the model, when the tool supplied one. */
@@ -308,7 +310,7 @@ export class ToolExecutor {
 				result: message,
 				isError: true,
 			})
-			return { toolCallId: toolCall.id, output: message, isError: true }
+			return { toolCallId: toolCall.id, toolName, output: message, isError: true }
 		}
 
 		let input: unknown
@@ -336,7 +338,7 @@ export class ToolExecutor {
 				result: message,
 				isError: true,
 			})
-			return { toolCallId: toolCall.id, output: message, isError: true }
+			return { toolCallId: toolCall.id, toolName, output: message, isError: true }
 		}
 
 		const preOutcome = await this.runPreToolHook(toolName, input)
@@ -399,6 +401,7 @@ export class ToolExecutor {
 			})
 			return {
 				toolCallId: toolCall.id,
+				toolName,
 				output: `Error: ${veto.message}`,
 			}
 		}
@@ -412,7 +415,11 @@ export class ToolExecutor {
 		// propagate up to `result.ts` as `run_failed` without emitting a
 		// terminal `tool_completed`, leaving UI cards stuck in `executing`.
 		// Wrap so any throw materialises as an error result.
-		let result: { success: boolean; output: string; error?: string }
+		// Typed as the full ToolResult, not a narrowed literal: the narrow
+		// version silently DROPPED `content`, so a tool returning an image
+		// block had it discarded here — before the wire mapper that was
+		// built to carry it ever saw it.
+		let result: ToolResult
 		try {
 			result = await this.executeWithDeadline(toolName, input, toolContext)
 		} catch (err) {
@@ -508,7 +515,18 @@ export class ToolExecutor {
 			...(budgeted.spillPath ? { outputSpillPath: budgeted.spillPath } : {}),
 		})
 
-		return { toolCallId: toolCall.id, output }
+		return {
+			toolCallId: toolCall.id,
+			toolName,
+			output,
+			isError: effectiveIsError,
+			// A plugin override replaces what the model sees, and a spilled
+			// preview is no longer the tool's own payload — neither may carry
+			// rich content through.
+			...(result.content !== undefined && postOverride === null && !budgeted.truncated
+				? { content: result.content }
+				: {}),
+		}
 	}
 
 	/**
@@ -535,7 +553,7 @@ export class ToolExecutor {
 		toolName: string,
 		input: unknown,
 		toolContext: ToolContext,
-	): Promise<{ success: boolean; output: string; error?: string }> {
+	): Promise<ToolResult> {
 		const timeoutMs =
 			this.config.tools.get(toolName)?.timeoutMs ??
 			this.config.toolTimeoutMs ??
@@ -751,7 +769,7 @@ export class ToolExecutor {
 			isError: true,
 		})
 
-		return { toolCallId: toolCall.id, output, isError: true }
+		return { toolCallId: toolCall.id, toolName, output, isError: true }
 	}
 
 	private async recordSyntheticHookOutcome(
@@ -790,7 +808,7 @@ export class ToolExecutor {
 			result: outcome.output,
 			isError: outcome.kind === 'error',
 		})
-		return { toolCallId, output: outcome.output, isError: outcome.kind === 'error' }
+		return { toolCallId, toolName, output: outcome.output, isError: outcome.kind === 'error' }
 	}
 
 	private maybeCompress(toolName: string, output: string): string {
