@@ -144,17 +144,24 @@ export { LocalTaskGateway } from './gateway/local.js'
 // ─── providers, sandbox, vault ───────────────────────────────────────────
 
 export {
+	classifyProviderError,
+	DEFAULT_PROVIDER_RETRY,
 	DuplicateProviderError,
+	isAbortError,
+	isProviderError,
 	LazyProviderLoadError,
 	LazyProviderSyncCreateError,
 	MOCK_CAPABILITIES,
 	MockLLMProvider,
 	PERMISSIVE_PROVIDER_CAPABILITIES,
+	ProviderError,
 	ProviderRegistry,
 	registerMock,
 	resolveProviderCapabilities,
 	UnknownProviderError,
+	withProviderRetry,
 } from './provider/index.js'
+export type { ProviderRetryConfig, WithProviderRetryOptions } from './provider/index.js'
 
 export { LocalSandboxProvider, SandboxProviderFactory } from './sandbox/index.js'
 

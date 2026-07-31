@@ -12,3 +12,11 @@ export {
 	resolveProviderCapabilities,
 } from './capabilities.js'
 export type { ResolvedProviderCapabilities } from './capabilities.js'
+export {
+	ProviderError,
+	classifyProviderError,
+	isAbortError,
+	isProviderError,
+} from '../types/provider/errors.js'
+export { DEFAULT_PROVIDER_RETRY, withProviderRetry } from './retry.js'
+export type { ProviderRetryConfig, WithProviderRetryOptions } from './retry.js'

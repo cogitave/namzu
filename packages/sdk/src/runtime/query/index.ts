@@ -9,6 +9,7 @@ import { extractFromUserMessage } from '../../compaction/extractor.js'
 import { WorkingStateManager } from '../../compaction/manager.js'
 import type { CompactionConfig } from '../../config/runtime.js'
 import { resolveProviderCapabilities } from '../../provider/capabilities.js'
+import { type ProviderRetryConfig, withProviderRetry } from '../../provider/retry.js'
 import type { PathBuilder } from '../../session/workspace/path-builder.js'
 import { GENAI, NAMZU, agentRunSpanName } from '../../telemetry/attributes.js'
 import { getTracer } from '../../telemetry/runtime-accessors.js'
@@ -60,6 +61,16 @@ export interface QueryParams {
 	skills?: Skill[]
 	basePrompt?: string
 	provider: LLMProvider
+	/**
+	 * Transient-failure policy for model calls. A single 429 or 503 used to
+	 * terminate a run outright — no driver in the estate retries. Defaults
+	 * to {@link DEFAULT_PROVIDER_RETRY}; pass `false` to opt out (e.g. when
+	 * the host already wraps the provider with its own policy).
+	 *
+	 * Only failures that happen BEFORE the first content chunk are retried;
+	 * see `withProviderRetry`.
+	 */
+	retry?: Partial<ProviderRetryConfig> | false
 	tools: ToolRegistryContract
 	runConfig: AgentRunConfig
 	allowedTools?: string[]
@@ -183,11 +194,20 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 	const cwdForMigration = params.workingDirectory ?? process.cwd()
 	await RunContextFactory.ensureMigrated(`${cwdForMigration}/.namzu`)
 
+	// Every model call in the run — the loop's turns, the forced-final
+	// summary, advisory and compaction side calls — goes through this one
+	// wrapped provider, so the retry policy cannot be bypassed by a code
+	// path that happens to hold the raw driver.
+	const resilientProvider =
+		params.retry === false
+			? params.provider
+			: withProviderRetry(params.provider, { config: params.retry })
+
 	const ctx = RunContextFactory.build({
 		agentId: params.agentId,
 		agentName: params.agentName,
 		runConfig: params.runConfig,
-		provider: params.provider,
+		provider: resilientProvider,
 		workingDirectory: params.workingDirectory,
 		pricing: params.pricing,
 		enableActivityTracking: params.enableActivityTracking,
@@ -397,7 +417,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		: undefined
 
 	const iterationOrchestrator = new IterationOrchestrator({
-		provider: params.provider,
+		provider: resilientProvider,
 		runConfig: params.runConfig,
 		tools: params.tools,
 		allowedTools: effectiveAllowedTools,

@@ -21,3 +21,4 @@ export type {
 	RegisterLazyOptions,
 	LLMProviderConstructor,
 } from './config.js'
+export type { ProviderErrorCode, ProviderErrorInit } from './errors.js'
