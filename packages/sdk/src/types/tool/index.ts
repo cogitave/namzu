@@ -83,6 +83,20 @@ export interface ToolResult {
 	 * text.
 	 */
 	content?: import('../message/index.js').ToolResultContent
+
+	/**
+	 * This failure might succeed if tried again — a network blip, a lock
+	 * contention, a rate limit — as opposed to one that never will, like a
+	 * missing file or a rejected argument.
+	 *
+	 * Nothing distinguished the two before, so a transient failure cost a
+	 * full model round trip to retry: the error went back as a
+	 * `tool_result`, the model read it, and decided (or didn't) to call
+	 * again. Only meaningful alongside {@link ToolDefinition.maxRetries};
+	 * a tool that has not opted into retries is never retried no matter
+	 * what it sets here.
+	 */
+	retryable?: boolean
 }
 
 export interface ToolDefinition<TInput = unknown> {
@@ -107,6 +121,22 @@ export interface ToolDefinition<TInput = unknown> {
 	 * Omit to inherit the executor's default.
 	 */
 	timeoutMs?: number
+
+	/**
+	 * How many times a FAILED execution may be retried in-loop before the
+	 * error is handed to the model.
+	 *
+	 * **Defaults to 0, and that default is load-bearing.** Retrying is only
+	 * safe if the tool is idempotent, and the SDK cannot know that: silently
+	 * re-running a `write_file`, a `git push` or a payment call is worse
+	 * than never retrying at all. The tool author opts in, per tool.
+	 *
+	 * Even then, only failures the tool marked
+	 * {@link ToolResult.retryable} are retried — a missing file is not
+	 * going to appear on the second attempt, and burning the budget on it
+	 * just delays the error the model needs to see.
+	 */
+	maxRetries?: number
 
 	isReadOnly?(input: TInput): boolean
 	isDestructive?(input: TInput): boolean
@@ -192,3 +222,5 @@ export interface ToolRegistryContract {
 	toTierGuidance(): string | null
 	assignTiers(mapping: Record<string, string>): void
 }
+
+export * from './repair.js'

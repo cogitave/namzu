@@ -55,6 +55,7 @@ import type { Skill } from '../../types/skills/index.js'
 import type { StructuredOutputConfig } from '../../types/structured-output/index.js'
 import type { TaskStore } from '../../types/task/index.js'
 import type { ToolRegistryContract } from '../../types/tool/index.js'
+import type { RepairToolCall } from '../../types/tool/repair.js'
 import type { VerificationGateConfig } from '../../types/verification/index.js'
 import type { ModelPricing } from '../../utils/cost.js'
 import { VerificationGate } from '../../verification/gate.js'
@@ -124,6 +125,21 @@ export interface QueryParams {
 	 * agent decides the rest is worth re-reading. Set `0` to disable.
 	 */
 	maxToolOutputChars?: number
+
+	/**
+	 * Last chance to fix a tool call the model got wrong, before the error
+	 * reaches it.
+	 *
+	 * A malformed call costs a full round trip otherwise: the error goes
+	 * back as a `tool_result`, the model re-reads the entire context, and
+	 * issues a second inference to add a missing brace. A host that can
+	 * repair the arguments locally — a cheap model handed the schema, or
+	 * plain string surgery — turns that into nothing.
+	 *
+	 * See {@link RepairToolCall}. Declining is normal and cheap: the
+	 * original error simply proceeds to the model as before.
+	 */
+	repairToolCall?: RepairToolCall
 
 	/**
 	 * Programmable halt condition, evaluated after each step's tools have
@@ -497,6 +513,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			// cleaned up with the run and reachable by the model's own
 			// `read`/`grep` without a new affordance.
 			...(toolOutputDir ? { toolOutputDir } : {}),
+			...(params.repairToolCall ? { repairToolCall: params.repairToolCall } : {}),
 		},
 		ctx.activityStore,
 		eventTranslator.emitEvent,

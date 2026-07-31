@@ -5,6 +5,7 @@ import type { PluginLifecycleManager } from '../../plugin/lifecycle.js'
 import { buildProbeContext } from '../../probe/context.js'
 import { ProbeVetoError } from '../../probe/errors.js'
 import { type ProbeRegistry, probe as defaultProbeRegistry } from '../../probe/registry.js'
+import { renderToolSchema } from '../../registry/tool/schema.js'
 import type { ActivityStore } from '../../store/activity/memory.js'
 import type { RunId } from '../../types/ids/index.js'
 import type { InvocationState } from '../../types/invocation/index.js'
@@ -25,6 +26,12 @@ import type {
 	ToolRegistryContract,
 	ToolResult,
 } from '../../types/tool/index.js'
+import type {
+	RepairToolCall,
+	ToolCallRepair,
+	ToolCallRepairReason,
+} from '../../types/tool/repair.js'
+import { toErrorMessage } from '../../utils/error.js'
 import type { Logger } from '../../utils/logger.js'
 import { compressShellOutput } from '../../utils/shell-compress.js'
 import { DEFAULT_MAX_TOOL_OUTPUT_CHARS, applyToolOutputBudget } from './tool-output-budget.js'
@@ -47,6 +54,14 @@ export const DEFAULT_TOOL_TIMEOUT_MS = 120_000
  * already one-at-a-time by construction.
  */
 export const DEFAULT_TOOL_CONCURRENCY = 8
+
+/**
+ * An empty arguments string means "no arguments", not "malformed" — the
+ * shape a no-parameter tool arrives in.
+ */
+function parseArguments(raw: string): unknown {
+	return JSON.parse(raw || '{}')
+}
 
 export interface ToolExecutorConfig {
 	tools: ToolRegistryContract
@@ -74,6 +89,11 @@ export interface ToolExecutorConfig {
 	 * the overflow is lost.
 	 */
 	toolOutputDir?: string
+	/**
+	 * Last chance to fix a tool call the model got wrong, before the error
+	 * reaches it. See {@link RepairToolCall}.
+	 */
+	repairToolCall?: RepairToolCall
 }
 
 type PreToolHookOutcome =
@@ -291,7 +311,7 @@ export class ToolExecutor {
 		toolCall: ToolCall,
 		toolContext: ToolContext,
 	): Promise<ToolCallOutcome> {
-		const toolName = toolCall.function.name
+		let toolName = toolCall.function.name
 
 		if (toolCall.metadata?.inputTruncated === true) {
 			const message = truncatedToolInputMessage(toolName)
@@ -313,16 +333,19 @@ export class ToolExecutor {
 			return { toolCallId: toolCall.id, toolName, output: message, isError: true }
 		}
 
-		let input: unknown
+		// A malformed call used to cost a full model round trip to fix: the
+		// error went back as a `tool_result`, the model re-read the whole
+		// context and tried again. A host that can repair it locally turns
+		// that into nothing. No-op when no repairer is configured.
+		const resolved = await this.resolveCall(toolCall)
+		toolName = resolved.toolName
 
-		try {
-			input = JSON.parse(toolCall.function.arguments)
-		} catch {
+		if (!resolved.ok) {
 			// Codex M2: malformed JSON args used to return without ever
 			// emitting tool_executing or tool_completed, leaving UI cards
 			// orphaned in `streaming_input`. Emit the executing→completed
 			// terminal pair so the card lifecycle closes.
-			const message = `Error: Invalid JSON in tool arguments for "${toolName}"`
+			const message = resolved.message
 			await this.emitEvent({
 				type: 'tool_executing',
 				runId: this.config.runId,
@@ -340,6 +363,8 @@ export class ToolExecutor {
 			})
 			return { toolCallId: toolCall.id, toolName, output: message, isError: true }
 		}
+
+		let input: unknown = resolved.input
 
 		const preOutcome = await this.runPreToolHook(toolName, input)
 		if (preOutcome.kind === 'skip' || preOutcome.kind === 'error') {
@@ -419,17 +444,32 @@ export class ToolExecutor {
 		// version silently DROPPED `content`, so a tool returning an image
 		// block had it discarded here — before the wire mapper that was
 		// built to carry it ever saw it.
-		let result: ToolResult
-		try {
-			result = await this.executeWithDeadline(toolName, input, toolContext)
-		} catch (err) {
-			const message = err instanceof Error ? err.message : String(err)
-			this.log.warn('Tool execution threw', {
+		let result: ToolResult = await this.runOnce(toolName, input, toolContext)
+		let post = await this.runPostToolHook(toolName, input, result)
+
+		// In-loop retry. A transient failure used to cost a full model round
+		// trip: the error went back as a `tool_result`, the model read it and
+		// decided (or didn't) to call again. Strictly opt-in per tool,
+		// because the SDK cannot know a tool is idempotent — silently
+		// re-running a write or a payment is worse than never retrying.
+		const maxRetries = Math.max(0, this.config.tools.get(toolName)?.maxRetries ?? 0)
+		for (let attempt = 1; attempt <= maxRetries; attempt++) {
+			// A missing file will not appear on the second attempt; burning
+			// the budget on it only delays the error the model needs to see.
+			// A `post_tool_use` hook asking for a retry overrides that — it
+			// looked at the result and knows something the tool did not.
+			const retryable = post.retry || (!result.success && result.retryable === true)
+			if (!retryable) break
+			this.log.info('Retrying a failed tool call', {
 				runId: this.config.runId,
 				tool: toolName,
-				error: message,
+				attempt,
+				maxRetries,
+				requestedByHook: post.retry,
+				error: result.error,
 			})
-			result = { success: false, output: '', error: message }
+			result = await this.runOnce(toolName, input, toolContext)
+			post = await this.runPostToolHook(toolName, input, result)
 		}
 		const durationMs = Date.now() - startMs
 
@@ -465,7 +505,7 @@ export class ToolExecutor {
 		}
 		output = budgeted.output
 
-		const postOverride = await this.runPostToolHook(toolName, input, result)
+		const postOverride = post.override
 		if (postOverride !== null) {
 			output = postOverride
 		}
@@ -682,18 +722,180 @@ export class ToolExecutor {
 		return { kind: 'continue', input: currentInput }
 	}
 
+	/**
+	 * Turn the call the model issued into a name and a parsed input, giving
+	 * a configured repairer one chance to fix it first.
+	 *
+	 * Exactly one chance: a repairer that produces a call which is still
+	 * broken will not do better on a second look, and an unbounded loop
+	 * here is a hang rather than a degradation.
+	 *
+	 * `invalid_json` is the ONLY failure that stops the call here, and it
+	 * stopped it before this function existed too. `unknown_tool` and
+	 * `schema_validation` merely OFFER the repair and otherwise fall
+	 * through to the registry, which reports both with better messages —
+	 * its schema error already ships a "Required: <field>: <type>" hint the
+	 * model can self-correct from. So with no repairer configured this is
+	 * behaviorally identical to the bare `JSON.parse` it replaced.
+	 */
+	private async resolveCall(
+		toolCall: ToolCall,
+	): Promise<
+		| { ok: true; toolName: string; input: unknown }
+		| { ok: false; toolName: string; message: string }
+	> {
+		let toolName = toolCall.function.name
+		let raw = toolCall.function.arguments
+
+		for (let attempt = 0; ; attempt++) {
+			const failure = this.inspectCall(toolName, raw)
+			if (!failure) return { ok: true, toolName, input: parseArguments(raw) }
+
+			const repair =
+				attempt === 0 && this.config.repairToolCall
+					? await this.requestRepair(toolCall, toolName, failure)
+					: null
+
+			if (!repair) {
+				if (failure.reason === 'invalid_json') {
+					return { ok: false, toolName, message: failure.message }
+				}
+				return { ok: true, toolName, input: parseArguments(raw) }
+			}
+
+			this.log.info('Repaired a malformed tool call', {
+				runId: this.config.runId,
+				tool: toolName,
+				reason: failure.reason,
+				...(repair.toolName && repair.toolName !== toolName ? { repairedTo: repair.toolName } : {}),
+			})
+			toolName = repair.toolName ?? toolName
+			raw = repair.arguments
+		}
+	}
+
+	/**
+	 * What is wrong with this call, or `null` if nothing is.
+	 *
+	 * JSON is checked before the tool is looked up: an unparseable argument
+	 * string is broken regardless of which tool it was aimed at, and it is
+	 * the one problem the executor itself has to answer.
+	 */
+	private inspectCall(
+		toolName: string,
+		raw: string,
+	): { reason: ToolCallRepairReason; message: string } | null {
+		let parsed: unknown
+		try {
+			parsed = parseArguments(raw)
+		} catch {
+			return {
+				reason: 'invalid_json',
+				message: `Error: Invalid JSON in tool arguments for "${toolName}"`,
+			}
+		}
+
+		const tool = this.config.tools.get?.(toolName)
+		if (!tool) {
+			// Either the model named a tool that does not exist, or this
+			// registry does not implement `get`. Both are the registry's to
+			// answer; a repairer still gets offered the `unknown_tool` case.
+			return { reason: 'unknown_tool', message: `Error: Unknown tool "${toolName}"` }
+		}
+
+		// A registry that hands back a tool with no schema has nothing to
+		// validate against; that is not a repairable condition, just an
+		// unvalidatable one.
+		const validation = tool.inputSchema?.safeParse(parsed)
+		if (validation && !validation.success) {
+			return {
+				reason: 'schema_validation',
+				message: `Error: Invalid arguments for "${toolName}": ${validation.error.issues
+					.map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
+					.join('; ')}`,
+			}
+		}
+
+		return null
+	}
+
+	private async requestRepair(
+		toolCall: ToolCall,
+		toolName: string,
+		failure: { reason: ToolCallRepairReason; message: string },
+	): Promise<ToolCallRepair | null> {
+		const repairToolCall = this.config.repairToolCall
+		if (!repairToolCall) return null
+
+		const tool = this.config.tools.get(toolName)
+		try {
+			return await repairToolCall({
+				toolCall,
+				reason: failure.reason,
+				message: failure.message,
+				...(tool ? { tool, jsonSchema: renderToolSchema(tool.inputSchema) } : {}),
+				availableTools: this.config.tools.listNames(),
+			})
+		} catch (err) {
+			// A broken repairer must not turn a recoverable tool error into a
+			// failed run: the original error is still a perfectly good answer
+			// to give the model.
+			this.log.error('repairToolCall threw — falling back to the original error', {
+				runId: this.config.runId,
+				tool: toolName,
+				error: toErrorMessage(err),
+			})
+			return null
+		}
+	}
+
+	/**
+	 * One execution attempt, with a throw materialized as an error result.
+	 *
+	 * Codex M4: an unhandled throw from `tools.execute(...)` used to
+	 * propagate up to `result.ts` as `run_failed` without emitting a
+	 * terminal `tool_completed`, leaving UI cards stuck in `executing`.
+	 *
+	 * The return is the full `ToolResult`, not a narrowed literal: the
+	 * narrow version silently DROPPED `content`, so a tool returning an
+	 * image block had it discarded here — before the wire mapper built to
+	 * carry it ever saw it.
+	 */
+	private async runOnce(
+		toolName: string,
+		input: unknown,
+		toolContext: ToolContext,
+	): Promise<ToolResult> {
+		try {
+			return await this.executeWithDeadline(toolName, input, toolContext)
+		} catch (err) {
+			const message = toErrorMessage(err)
+			this.log.warn('Tool execution threw', {
+				runId: this.config.runId,
+				tool: toolName,
+				error: message,
+			})
+			return { success: false, output: '', error: message }
+		}
+	}
+
+	/**
+	 * @returns `override` — text replacing the tool's output, or `null`.
+	 *   `retry` — the hook asked for the tool to run again.
+	 */
 	private async runPostToolHook(
 		toolName: string,
 		input: unknown,
 		toolResult: ToolResult,
-	): Promise<string | null> {
-		if (!this.config.pluginManager) return null
+	): Promise<{ override: string | null; retry: boolean }> {
+		if (!this.config.pluginManager) return { override: null, retry: false }
 		const results = await this.config.pluginManager.executeHooks(
 			'post_tool_use',
 			{ runId: this.config.runId, toolName, toolInput: input, toolResult },
 			this.emitEvent,
 		)
 		let override: string | null = null
+		let retry = false
 		for (const result of results) {
 			switch (result.action) {
 				case 'continue':
@@ -701,9 +903,16 @@ export class ToolExecutor {
 				case 'error':
 					override = `Error: ${result.message}`
 					continue
+				// `retry` was a declared variant with no implementation: every
+				// site that consumed it threw. Here it finally means something
+				// — the hook saw the result and wants the tool run again —
+				// and it is bounded by the same per-tool retry budget, so a
+				// plugin cannot spin the executor.
+				case 'retry':
+					retry = true
+					continue
 				case 'skip':
 				case 'modify':
-				case 'retry':
 				case 'resume':
 					throw new Error(
 						`Plugin hook post_tool_use returned unsupported action '${result.action}' for tool ${toolName}`,
@@ -714,7 +923,7 @@ export class ToolExecutor {
 				}
 			}
 		}
-		return override
+		return { override, retry }
 	}
 
 	/**
