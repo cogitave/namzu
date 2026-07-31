@@ -84,6 +84,9 @@ export const BashTool = defineTool({
 			const result = await context.sandbox.exec('/bin/sh', ['-c', input.command], {
 				timeout: input.timeout,
 				env: context.env,
+				// Same reason as the host path below: a Stop must reach the
+				// process, not just the promise waiting on it.
+				signal: context.abortSignal,
 			})
 
 			if (result.timedOut) {
@@ -94,9 +97,21 @@ export const BashTool = defineTool({
 				}
 			}
 
+			// The sandbox reports when IT clipped a stream. Dropping those
+			// flags meant the model saw a complete-looking result that had
+			// silently lost its tail — and the kernel's own convention is
+			// that it does not truncate silently.
+			const clipped = [
+				result.stdoutTruncated ? 'stdout' : '',
+				result.stderrTruncated ? 'stderr' : '',
+			].filter(Boolean)
+
 			const output = [
 				result.stdout ? `STDOUT:\n${result.stdout}` : '',
 				result.stderr ? `STDERR:\n${result.stderr}` : '',
+				clipped.length > 0
+					? `[${clipped.join(' and ')} was truncated by the sandbox output cap — re-run with a filter (grep/head/tail) to see the rest]`
+					: '',
 			]
 				.filter(Boolean)
 				.join('\n\n')
@@ -104,7 +119,12 @@ export const BashTool = defineTool({
 			return {
 				success: result.exitCode === 0,
 				output: output || '(no output)',
-				data: { exitCode: result.exitCode, sandboxed: true },
+				data: {
+					exitCode: result.exitCode,
+					sandboxed: true,
+					stdoutTruncated: result.stdoutTruncated ?? false,
+					stderrTruncated: result.stderrTruncated ?? false,
+				},
 				error: result.exitCode !== 0 ? `Command exited with code ${result.exitCode}` : undefined,
 			}
 		}

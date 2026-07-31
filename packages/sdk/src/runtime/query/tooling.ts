@@ -20,6 +20,10 @@ export interface ToolingBootstrapConfig {
 	allowedTools?: readonly string[]
 	invocationState?: InvocationState
 	pluginManager?: PluginLifecycleManager
+	toolTimeoutMs?: number
+	maxToolConcurrency?: number
+	maxToolOutputChars?: number
+	toolOutputDir?: string
 }
 
 export class ToolingBootstrap {
@@ -40,6 +44,14 @@ export class ToolingBootstrap {
 				allowedTools: config.allowedTools,
 				invocationState: config.invocationState,
 				pluginManager: config.pluginManager,
+				...(config.toolTimeoutMs !== undefined ? { toolTimeoutMs: config.toolTimeoutMs } : {}),
+				...(config.maxToolConcurrency !== undefined
+					? { maxToolConcurrency: config.maxToolConcurrency }
+					: {}),
+				...(config.maxToolOutputChars !== undefined
+					? { maxToolOutputChars: config.maxToolOutputChars }
+					: {}),
+				...(config.toolOutputDir !== undefined ? { toolOutputDir: config.toolOutputDir } : {}),
 			},
 			activityStore,
 			emitEvent,

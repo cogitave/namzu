@@ -56,6 +56,17 @@ export interface SandboxExecResult {
 	readonly signal?: string
 	readonly timedOut: boolean
 	readonly durationMs: number
+	/**
+	 * Set when the backend clipped the stream at its output cap.
+	 *
+	 * The firecracker protocol already computed these, but they had no slot
+	 * in this contract, so they were dropped at the type boundary and the
+	 * model saw a complete-looking result that had silently lost its tail —
+	 * against the kernel's own convention that it does not truncate
+	 * silently.
+	 */
+	readonly stdoutTruncated?: boolean
+	readonly stderrTruncated?: boolean
 }
 
 // ---------------------------------------------------------------------------
@@ -66,6 +77,15 @@ export interface SandboxExecOptions {
 	readonly timeout?: number
 	readonly env?: Record<string, string>
 	readonly cwd?: string
+	/**
+	 * Cancellation for the command. A backend that honours it kills the
+	 * process; one that does not simply ignores it, so this is additive.
+	 *
+	 * Without it a Stop (or a per-tool deadline) could only ever abandon
+	 * the *wait* — the sandboxed process kept running after the host
+	 * believed the run had been cancelled.
+	 */
+	readonly signal?: AbortSignal
 }
 
 // ---------------------------------------------------------------------------

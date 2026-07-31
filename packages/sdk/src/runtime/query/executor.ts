@@ -21,6 +21,7 @@ import type {
 } from '../../types/tool/index.js'
 import type { Logger } from '../../utils/logger.js'
 import { compressShellOutput } from '../../utils/shell-compress.js'
+import { DEFAULT_MAX_TOOL_OUTPUT_CHARS, applyToolOutputBudget } from './tool-output-budget.js'
 
 export type EmitEvent = (event: RunEvent) => Promise<void>
 
@@ -56,6 +57,17 @@ export interface ToolExecutorConfig {
 	toolTimeoutMs?: number
 	/** Max concurrently-executing concurrency-safe tools. */
 	maxToolConcurrency?: number
+	/**
+	 * Model-visible size cap for a single tool result. Defaults to
+	 * {@link DEFAULT_MAX_TOOL_OUTPUT_CHARS}; set `0` to disable.
+	 */
+	maxToolOutputChars?: number
+	/**
+	 * Where over-budget output is spilled so the model can read it back
+	 * with `read`/`grep`. Absent ⇒ over-budget output is middle-elided and
+	 * the overflow is lost.
+	 */
+	toolOutputDir?: string
 }
 
 type PreToolHookOutcome =
@@ -387,6 +399,32 @@ export class ToolExecutor {
 
 		let output = result.success ? this.maybeCompress(toolName, rawOutput) : rawOutput
 
+		// Compression is opportunistic and shell-only; the budget is the
+		// hard bound that applies to every tool. Runs after compression so
+		// a result that shrinks under the cap is never spilled needlessly.
+		const budgeted = applyToolOutputBudget({
+			toolName,
+			toolUseId: toolCall.id,
+			output,
+			maxChars: this.config.maxToolOutputChars ?? DEFAULT_MAX_TOOL_OUTPUT_CHARS,
+			spillDir: this.config.toolOutputDir,
+			onError: (message) =>
+				this.log.warn('Failed to spill oversized tool output', {
+					runId: this.config.runId,
+					tool: toolName,
+					error: message,
+				}),
+		})
+		if (budgeted.truncated) {
+			this.log.warn('Tool output exceeded the model-visible budget', {
+				runId: this.config.runId,
+				tool: toolName,
+				originalLength: budgeted.originalLength,
+				spillPath: budgeted.spillPath,
+			})
+		}
+		output = budgeted.output
+
 		const postOverride = await this.runPostToolHook(toolName, input, result)
 		if (postOverride !== null) {
 			output = postOverride
@@ -429,6 +467,12 @@ export class ToolExecutor {
 			toolName,
 			result: output,
 			isError: effectiveIsError,
+			durationMs,
+			// Pre-truncation size, so a host can show "returned 2.1 MB" even
+			// though the model only ever saw a preview.
+			outputLength: budgeted.originalLength,
+			...(budgeted.truncated ? { outputTruncated: true } : {}),
+			...(budgeted.spillPath ? { outputSpillPath: budgeted.spillPath } : {}),
 		})
 
 		return { toolCallId: toolCall.id, output }

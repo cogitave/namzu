@@ -93,6 +93,22 @@ type CoreRunEvent =
 			toolName: string
 			result: string
 			isError: boolean
+			/**
+			 * Wall-clock the tool took. Computed since the first version of
+			 * the executor but only ever logged; a host asking "which tool
+			 * was slow" had to reconstruct it from event timestamps.
+			 */
+			durationMs?: number
+			/**
+			 * Size of the tool's output BEFORE the model-visible budget was
+			 * applied, so a host can report "returned 2.1 MB" even though
+			 * `result` is a preview.
+			 */
+			outputLength?: number
+			/** True when `result` is a preview rather than the whole output. */
+			outputTruncated?: boolean
+			/** Where the full output was written, when it was spilled. */
+			outputSpillPath?: string
 	  }
 	| {
 			type: 'tool_review_requested'

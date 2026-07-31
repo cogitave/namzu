@@ -26,7 +26,35 @@ describe('ReadFileTool', () => {
 		)
 
 		expect(result.success).toBe(true)
-		expect(result.output).toBe('2\ttwo\n3\tthree')
+		expect(result.output).toContain('2\ttwo\n3\tthree')
+		// A window over a longer file now says so: the model must be able to
+		// tell "these are all the lines" from "these are the lines I asked
+		// for", or it reasons about a fragment as if it were the file.
+		expect(result.output).toContain('PARTIAL view — lines 2-3 of 4')
+		expect(result.data).toMatchObject({ truncated: true, returnedLines: 2, totalLines: 4 })
+	})
+
+	it('adds no partial-view notice when the whole file was returned', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'namzu-read-'))
+		writeFileSync(join(dir, 'doc.md'), ['one', 'two'].join('\n'))
+
+		const result = await ReadFileTool.execute({ path: 'doc.md' }, makeContext(dir))
+
+		expect(result.output).toBe('1\tone\n2\ttwo')
+		expect(result.data).toMatchObject({ truncated: false })
+	})
+
+	it('defaults to a bounded window instead of returning an entire large file', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'namzu-read-'))
+		const lines = Array.from({ length: 5000 }, (_, i) => `line ${i + 1}`)
+		writeFileSync(join(dir, 'big.txt'), lines.join('\n'))
+
+		const result = await ReadFileTool.execute({ path: 'big.txt' }, makeContext(dir))
+
+		expect(result.data).toMatchObject({ returnedLines: 2000, totalLines: 5000, truncated: true })
+		expect(result.output).toContain('PARTIAL view — lines 1-2000 of 5000')
+		// The notice names the exact next call rather than describing it.
+		expect(result.output).toContain('offset: 2000')
 	})
 
 	it('guides binary Office documents through extractor tooling', async () => {

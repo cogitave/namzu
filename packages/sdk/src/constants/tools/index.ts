@@ -32,3 +32,10 @@ export const DANGEROUS_PATTERNS = [
 ]
 
 export const FILESYSTEM_TOOLS = new Set(['glob', 'read', 'write', 'bash'])
+
+/**
+ * Subdirectory of a run directory holding tool output that exceeded the
+ * model-visible budget. Kept beside the run so it is cleaned up with the
+ * run and reachable by the agent through its own `read`/`grep`.
+ */
+export const TOOL_OUTPUT_DIR_NAME = 'tool-output'

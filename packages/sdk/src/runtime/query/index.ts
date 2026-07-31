@@ -1,3 +1,4 @@
+import { join } from 'node:path'
 import {
 	AdvisorRegistry,
 	AdvisoryContext,
@@ -8,6 +9,7 @@ import { findDanglingMessages, removeDanglingMessages } from '../../compaction/d
 import { extractFromUserMessage } from '../../compaction/extractor.js'
 import { WorkingStateManager } from '../../compaction/manager.js'
 import type { CompactionConfig } from '../../config/runtime.js'
+import { TOOL_OUTPUT_DIR_NAME } from '../../constants/tools/index.js'
 import { EmergencySaveManager } from '../../manager/run/emergency.js'
 import { resolveProviderCapabilities } from '../../provider/capabilities.js'
 import { type ProviderRetryConfig, withProviderRetry } from '../../provider/retry.js'
@@ -92,6 +94,20 @@ export interface QueryParams {
 	 * run settles.
 	 */
 	emergencySave?: boolean
+
+	/** Default per-tool execution deadline. See {@link ToolDefinition.timeoutMs}. */
+	toolTimeoutMs?: number
+
+	/** Max concurrently-executing concurrency-safe tools in one batch. */
+	maxToolConcurrency?: number
+
+	/**
+	 * Model-visible size cap for a single tool result. Over-budget output is
+	 * spilled to the run directory and replaced with a head+tail preview
+	 * naming the path, so nothing is lost and tokens are paid only if the
+	 * agent decides the rest is worth re-reading. Set `0` to disable.
+	 */
+	maxToolOutputChars?: number
 	tools: ToolRegistryContract
 	runConfig: AgentRunConfig
 	allowedTools?: string[]
@@ -350,6 +366,11 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		? []
 		: withDeferredDiscoveryTool(params.tools, params.allowedTools)
 
+	//  is null only when the run has no disk layout (tests,
+	// in-memory hosts); the budget then degrades to middle-elision.
+	const runDirForTools = ctx.runMgr.getRunDir()
+	const toolOutputDir = runDirForTools ? join(runDirForTools, TOOL_OUTPUT_DIR_NAME) : undefined
+
 	const toolExecutor = ToolingBootstrap.init(
 		{
 			tools: params.tools,
@@ -361,6 +382,17 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			allowedTools: effectiveAllowedTools,
 			invocationState: params.invocationState,
 			pluginManager: params.pluginManager,
+			...(params.toolTimeoutMs !== undefined ? { toolTimeoutMs: params.toolTimeoutMs } : {}),
+			...(params.maxToolConcurrency !== undefined
+				? { maxToolConcurrency: params.maxToolConcurrency }
+				: {}),
+			...(params.maxToolOutputChars !== undefined
+				? { maxToolOutputChars: params.maxToolOutputChars }
+				: {}),
+			// Overflow lands beside the run's other artifacts, so it is
+			// cleaned up with the run and reachable by the model's own
+			// `read`/`grep` without a new affordance.
+			...(toolOutputDir ? { toolOutputDir } : {}),
 		},
 		ctx.activityStore,
 		eventTranslator.emitEvent,

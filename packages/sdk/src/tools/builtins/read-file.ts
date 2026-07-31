@@ -23,7 +23,7 @@ const inputSchema = z.object({
 export const ReadFileTool = defineTool({
 	name: 'read',
 	description:
-		'Reads a file and returns its contents with line numbers. Supports readRange ([start,end], 1-indexed inclusive) or offset/limit for large files.',
+		'Reads a file and returns its contents with line numbers. Supports readRange ([start,end], 1-indexed inclusive) or offset/limit for large files. Without a window it returns the first 2000 lines and says so — pass offset/limit to continue.',
 	inputSchema,
 	category: 'filesystem',
 	permissions: ['file_read'],
@@ -57,12 +57,14 @@ export const ReadFileTool = defineTool({
 
 			context.fileReadTracker?.recordRead(input.path)
 
+			const partial = selectedLines.length < lines.length
 			return {
 				success: true,
-				output: numberedLines,
+				output: numberedLines + partialViewNotice(start, selectedLines.length, lines.length),
 				data: {
 					totalLines: lines.length,
 					returnedLines: selectedLines.length,
+					truncated: partial,
 					path: input.path,
 					sandboxed: true,
 				},
@@ -92,12 +94,15 @@ export const ReadFileTool = defineTool({
 
 		context.fileReadTracker?.recordRead(filePath)
 
+		const isPartial = selectedLines.length < lines.length
+
 		return {
 			success: true,
-			output: numberedLines,
+			output: numberedLines + partialViewNotice(start, selectedLines.length, lines.length),
 			data: {
 				totalLines: lines.length,
 				returnedLines: selectedLines.length,
+				truncated: isPartial,
 				path: filePath,
 			},
 		}
@@ -128,6 +133,35 @@ function buildStructuredBinaryGuidance(path: string, format: string, extractor: 
 	].join('\n')
 }
 
+/**
+ * Lines returned when the caller specifies no window.
+ *
+ * Chosen to cover the overwhelming majority of source files whole while
+ * bounding the pathological case. Claude Code uses 2000 for the same
+ * reason.
+ */
+const DEFAULT_READ_LINES = 2000
+
+/**
+ * Tell the model, explicitly, when it is looking at a window rather than
+ * the file.
+ *
+ * Without this a truncated read is indistinguishable from a short file, and
+ * the agent reasons about a fragment as if it were the whole thing — the
+ * most expensive silent failure a read tool can have. The notice names the
+ * exact next call rather than describing it.
+ */
+function partialViewNotice(start: number, returned: number, total: number): string {
+	if (returned >= total) return ''
+	const shownTo = start + returned
+	return [
+		'',
+		'',
+		`[PARTIAL view — lines ${start + 1}-${shownTo} of ${total}.`,
+		`Continue with read({ offset: ${shownTo}, limit: N }), or narrow with grep.]`,
+	].join('\n')
+}
+
 function resolveReadWindow(
 	input: z.infer<typeof inputSchema>,
 	totalLines: number,
@@ -139,6 +173,9 @@ function resolveReadWindow(
 		return { start, end }
 	}
 	const start = Math.max(0, input.offset ?? 0)
-	const end = input.limit ? start + input.limit : totalLines
+	// A bare `read({ path })` used to return the entire file, so a 2 MB
+	// lockfile became ~500k tokens in one tool_result. Default to a window
+	// and say so in the output; the model asks for more when it needs it.
+	const end = input.limit ? start + input.limit : Math.min(totalLines, start + DEFAULT_READ_LINES)
 	return { start, end }
 }
