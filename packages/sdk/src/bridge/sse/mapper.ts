@@ -33,6 +33,39 @@ const MAPPING: {
 		transform: (e, runId) => ({ run_id: runId, iteration: e.iteration }),
 	},
 
+	reasoning_started: {
+		wire: 'reasoning.started',
+		transform: (e, runId) => ({
+			run_id: runId,
+			iteration: e.iteration,
+			message_id: e.messageId,
+			block_index: e.blockIndex,
+			reasoning_type: e.reasoningType,
+		}),
+	},
+
+	reasoning_delta: {
+		wire: 'reasoning.delta',
+		transform: (e, runId) => ({
+			run_id: runId,
+			message_id: e.messageId,
+			block_index: e.blockIndex,
+			text: e.text,
+		}),
+	},
+
+	reasoning_completed: {
+		wire: 'reasoning.completed',
+		transform: (e, runId) => ({
+			run_id: runId,
+			iteration: e.iteration,
+			message_id: e.messageId,
+			block_index: e.blockIndex,
+			text: e.text,
+			signed: e.signed,
+		}),
+	},
+
 	compaction_completed: {
 		wire: 'compaction.completed',
 		transform: (e, runId) => ({

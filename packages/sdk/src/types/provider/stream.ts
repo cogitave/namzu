@@ -31,6 +31,29 @@ export interface StreamChunk {
 			index: number
 			id: string
 		}
+
+		/**
+		 * A fragment of a reasoning block.
+		 *
+		 * There was no channel for this at all, so `thinking_delta` and
+		 * `signature_delta` fell through the driver's `default: // ignore`
+		 * and the blocks could not be stored even in principle — which is
+		 * what made the verbatim-echo contract unsatisfiable and left the
+		 * streaming UI with a multi-second stall and zero events.
+		 *
+		 * `index` groups fragments belonging to the same block, exactly as
+		 * `toolCalls[].index` does. `done` closes it.
+		 */
+		reasoning?: {
+			index: number
+			type?: 'thinking' | 'redacted_thinking'
+			text?: string
+			/** Arrives once, at the end of the block. */
+			signature?: string
+			/** Opaque payload for a redacted block. */
+			encrypted?: string
+			done?: boolean
+		}
 	}
 	finishReason?: 'stop' | 'tool_calls' | 'length' | 'content_filter'
 	usage?: TokenUsage

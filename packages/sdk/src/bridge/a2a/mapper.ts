@@ -134,6 +134,11 @@ const MAPPING: {
 	// Context management is kernel-internal bookkeeping; A2A peers model a
 	// task lifecycle, not the host runtime's memory strategy.
 	compaction_completed: null,
+	// Reasoning is kernel-internal: an A2A peer models a task lifecycle,
+	// not the host runtime's inner monologue.
+	reasoning_started: null,
+	reasoning_delta: null,
+	reasoning_completed: null,
 	tool_executing: null,
 	tool_review_completed: null,
 	checkpoint_created: null,

@@ -274,6 +274,41 @@ type CoreRunEvent =
 			iteration: number
 			messageId: MessageId
 	  }
+	/**
+	 * The model began emitting a reasoning block.
+	 *
+	 * Without these, extended thinking looked to a streaming UI like a
+	 * multi-second stall with no events at all — the run was working, and
+	 * the host had no way to say so.
+	 */
+	| {
+			type: 'reasoning_started'
+			runId: RunId
+			iteration: number
+			messageId: MessageId
+			blockIndex: number
+			reasoningType: 'thinking' | 'redacted_thinking'
+	  }
+	/** Ephemeral — excluded from `transcript.jsonl`, like `text_delta`. */
+	| {
+			type: 'reasoning_delta'
+			runId: RunId
+			iteration: number
+			messageId: MessageId
+			blockIndex: number
+			text: string
+	  }
+	| {
+			type: 'reasoning_completed'
+			runId: RunId
+			iteration: number
+			messageId: MessageId
+			blockIndex: number
+			/** Present only when the provider returned readable thinking. */
+			text?: string
+			/** True when the block carried a signature that must be replayed. */
+			signed: boolean
+	  }
 	| {
 			type: 'text_delta'
 			runId: RunId
@@ -361,6 +396,9 @@ export type RunEventListener = (event: RunEvent) => void | Promise<void>
 const EPHEMERAL_EVENT_TYPES: ReadonlySet<RunEvent['type']> = new Set<RunEvent['type']>([
 	'text_delta',
 	'tool_input_delta',
+	// The completed block carries the full text; the deltas would only
+	// duplicate it into the transcript at scale.
+	'reasoning_delta',
 ])
 
 export function isEphemeralEvent(event: RunEvent): boolean {

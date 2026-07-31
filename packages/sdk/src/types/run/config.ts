@@ -9,6 +9,15 @@ export interface AgentRunConfig {
 	model: string
 	timeoutMs: number
 	maxResponseTokens?: number
+
+	/**
+	 * Extended-thinking request, forwarded on every model call in the run.
+	 *
+	 * Drivers that do not support it ignore the field. Note that Anthropic
+	 * rejects temperature/top_p/top_k while thinking is enabled, so the
+	 * driver omits them rather than sending a request it knows will 400.
+	 */
+	thinking?: import('../provider/index.js').ThinkingConfig
 	tokenBudget: number
 	costLimitUsd?: number
 	maxIterations?: number

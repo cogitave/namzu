@@ -1,5 +1,5 @@
 import type { TokenUsage } from '../common/index.js'
-import type { Message, ToolCall } from '../message/index.js'
+import type { Message, ReasoningBlock, ToolCall } from '../message/index.js'
 import type { LLMToolSchema } from '../tool/index.js'
 
 export type ToolChoice =
@@ -50,6 +50,30 @@ export interface ChatCompletionParams {
 	repetitionPenalty?: number
 
 	responseFormat?: ResponseFormat
+
+	/**
+	 * Extended-thinking request.
+	 *
+	 * Absent from this struct entirely before, and `buildCreateParams`
+	 * assembles the Anthropic body key-by-key with no passthrough, so
+	 * thinking could not be *requested* — while on models where it is on by
+	 * default the runtime received blocks it then discarded. Neither half
+	 * was expressible.
+	 *
+	 * Drivers that do not support it ignore the field.
+	 */
+	thinking?: ThinkingConfig
+}
+
+export interface ThinkingConfig {
+	type: 'enabled' | 'disabled'
+	/** Token allowance for the thinking pass. */
+	budgetTokens?: number
+	/**
+	 * Whether the provider should return full thinking text or a summary.
+	 * Purely a request hint; the runtime stores whatever comes back.
+	 */
+	display?: 'full' | 'summarized'
 }
 
 export interface ChatCompletionResponse {
@@ -59,6 +83,8 @@ export interface ChatCompletionResponse {
 		role: 'assistant'
 		content: string | null
 		toolCalls?: ToolCall[]
+		/** Reasoning blocks the model emitted, in original block order. */
+		reasoning?: readonly ReasoningBlock[]
 	}
 	finishReason: 'stop' | 'tool_calls' | 'length' | 'content_filter'
 	usage: TokenUsage

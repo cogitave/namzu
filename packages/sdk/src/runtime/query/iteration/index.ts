@@ -184,6 +184,7 @@ export class IterationOrchestrator {
 						temperature: runConfig.temperature,
 						maxTokens: runConfig.maxResponseTokens,
 						cacheControl: { type: 'auto' },
+						...(runConfig.thinking ? { thinking: runConfig.thinking } : {}),
 						// Thread the run abort into the model call so a Stop tears the
 						// in-flight turn down (provider passes it to fetch; the consumer
 						// also races it). Inert when never aborted.
@@ -230,9 +231,14 @@ export class IterationOrchestrator {
 					cost: runMgr.costInfo,
 				})
 
+				// Reasoning rides along with the turn it belongs to, so the
+				// replay contract holds automatically: trimming or compacting
+				// the assistant message takes its thinking blocks with it,
+				// and no separate atomicity rule is needed.
 				const assistantMsg = createAssistantMessage(
 					response.message.content,
 					forceFinalize ? undefined : response.message.toolCalls,
+					response.message.reasoning,
 				)
 				runMgr.pushMessage(assistantMsg)
 
@@ -467,6 +473,7 @@ export class IterationOrchestrator {
 					temperature: this.ctx.runConfig.temperature,
 					maxTokens: this.ctx.runConfig.maxResponseTokens,
 					cacheControl: { type: 'auto' },
+					...(this.ctx.runConfig.thinking ? { thinking: this.ctx.runConfig.thinking } : {}),
 					// Cancellable too: a Stop during the closing summary must not
 					// stream to completion.
 					signal: this.ctx.abortController.signal,

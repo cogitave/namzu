@@ -225,6 +225,22 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				})
 				break
 
+			case 'reasoning_started':
+			case 'reasoning_delta':
+				// High-frequency and content-bearing; the completed block
+				// below carries everything a log needs.
+				break
+
+			case 'reasoning_completed':
+				log.debug('Reasoning block completed', {
+					runId: event.runId,
+					iteration: event.iteration,
+					blockIndex: event.blockIndex,
+					signed: event.signed,
+					chars: event.text?.length ?? 0,
+				})
+				break
+
 			case 'compaction_completed':
 				log.info('Context compacted', {
 					runId: event.runId,

@@ -413,12 +413,18 @@ interface StreamEvent {
 	type: string
 	message?: { id?: string; usage?: RawAnthropicUsage }
 	index?: number
-	content_block?: { type?: string; id?: string; name?: string }
+	content_block?: { type?: string; id?: string; name?: string; data?: string }
 	delta?: {
 		type?: string
 		text?: string
 		partial_json?: string
 		stop_reason?: string | null
+		/** `thinking_delta` payload. */
+		thinking?: string
+		/** `signature_delta` payload — must be replayed verbatim. */
+		signature?: string
+		/** `redacted_thinking` opaque payload. */
+		data?: string
 	}
 	usage?: RawAnthropicUsage
 }
@@ -525,9 +531,25 @@ export class AnthropicProvider implements LLMProvider {
 		// otherwise) — this also drops a parallelToolCalls-derived choice on
 		// tool-less requests.
 		if (tools && toolChoice) body.tool_choice = toolChoice
-		if (params.temperature !== undefined) body.temperature = params.temperature
-		if (params.topP !== undefined) body.top_p = params.topP
-		if (params.topK !== undefined) body.top_k = params.topK
+		if (params.thinking) {
+			// Anthropic rejects `temperature`, `top_p` and `top_k` while
+			// thinking is enabled, so they are omitted rather than passed and
+			// 400'd — the request the caller wanted is the one with thinking.
+			body.thinking =
+				params.thinking.type === 'enabled'
+					? {
+							type: 'enabled',
+							...(params.thinking.budgetTokens !== undefined
+								? { budget_tokens: params.thinking.budgetTokens }
+								: {}),
+						}
+					: { type: 'disabled' }
+		}
+		if (!params.thinking || params.thinking.type === 'disabled') {
+			if (params.temperature !== undefined) body.temperature = params.temperature
+			if (params.topP !== undefined) body.top_p = params.topP
+			if (params.topK !== undefined) body.top_k = params.topK
+		}
 		if (params.stop) body.stop_sequences = params.stop
 
 		return body
@@ -563,6 +585,12 @@ export class AnthropicProvider implements LLMProvider {
 		// Track active tool-use blocks by content_block index so input_json_delta
 		// fragments can reference the right tool call.
 		const activeTools = new Map<number, { id: string; name: string }>()
+
+		// Reasoning block indices still open, so `content_block_stop` knows
+
+		// whether it is closing a tool or a thinking block.
+
+		const openReasoning = new Set<number>()
 
 		// Anthropic Messages API streams over SSE. Do not impose a
 		// provider-local 90s idle cutoff by default: long reasoning or
@@ -621,6 +649,24 @@ export class AnthropicProvider implements LLMProvider {
 						case 'content_block_start': {
 							const idx = event.index ?? 0
 							const block = event.content_block
+							// Thinking blocks used to fall through to
+							// `default: // ignore`, so they were neither surfaced nor
+							// storable — which is what made the verbatim-echo contract
+							// unsatisfiable and left the streaming UI with a silent
+							// multi-second gap while the model was demonstrably working.
+							if (block?.type === 'thinking' || block?.type === 'redacted_thinking') {
+								yield {
+									id: messageId,
+									delta: {
+										reasoning: {
+											index: idx,
+											type: block.type,
+											...(block.data ? { encrypted: block.data } : {}),
+										},
+									},
+								}
+								break
+							}
 							if (block?.type === 'tool_use') {
 								const toolId = block.id ?? `tool-${Date.now()}`
 								activeTools.set(idx, { id: toolId, name: block.name ?? '' })
@@ -645,6 +691,15 @@ export class AnthropicProvider implements LLMProvider {
 							const delta = event.delta
 							if (delta?.type === 'text_delta' && delta.text) {
 								yield { id: messageId, delta: { content: delta.text } }
+							} else if (delta?.type === 'thinking_delta' && delta.thinking) {
+								yield { id: messageId, delta: { reasoning: { index: idx, text: delta.thinking } } }
+							} else if (delta?.type === 'signature_delta' && delta.signature) {
+								// The signature arrives once, at the end of the block, and
+								// replaying it unchanged is what keeps the echo valid.
+								yield {
+									id: messageId,
+									delta: { reasoning: { index: idx, signature: delta.signature } },
+								}
 							} else if (delta?.type === 'input_json_delta' && delta.partial_json !== undefined) {
 								const active = activeTools.get(idx)
 								yield {
@@ -682,6 +737,14 @@ export class AnthropicProvider implements LLMProvider {
 									},
 								}
 								activeTools.delete(idx)
+								break
+							}
+							// A reasoning block closes here too; the consumer needs the
+							// boundary to emit `reasoning_completed` rather than waiting
+							// for end-of-stream.
+							if (openReasoning.has(idx)) {
+								openReasoning.delete(idx)
+								yield { id: messageId, delta: { reasoning: { index: idx, done: true } } }
 							}
 							break
 						}

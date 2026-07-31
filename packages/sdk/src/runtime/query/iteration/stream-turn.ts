@@ -3,6 +3,7 @@ import { GENAI, NAMZU, chatSpanName, parentContext } from '../../../telemetry/at
 import { getTracer } from '../../../telemetry/runtime-accessors.js'
 import { mergeTokenUsage } from '../../../types/common/index.js'
 import type { ToolUseId } from '../../../types/ids/index.js'
+import type { ReasoningBlock } from '../../../types/message/index.js'
 import type {
 	ChatCompletionResponse,
 	LLMProvider,
@@ -129,6 +130,14 @@ export async function* streamProviderTurn(
 			inputTruncated: boolean
 		}
 	>()
+	// Reasoning blocks, bucketed by stream index exactly like tool calls.
+	// Order matters on replay — Anthropic wants the assistant turn echoed
+	// verbatim — so the map is drained in index order at the end.
+	const reasoningBuckets = new Map<
+		number,
+		{ type: 'thinking' | 'redacted_thinking'; text: string; signature?: string; encrypted?: string }
+	>()
+
 	let streamError: string | undefined
 
 	const stream = provider.chatStream({ ...params, stream: true }) as AsyncIterable<StreamChunk>
@@ -167,6 +176,51 @@ export async function* streamProviderTurn(
 				break
 			}
 			if (!id && chunk.id) id = chunk.id
+
+			const reasoning = chunk.delta.reasoning
+			if (reasoning) {
+				let bucket = reasoningBuckets.get(reasoning.index)
+				if (!bucket) {
+					bucket = { type: reasoning.type ?? 'thinking', text: '' }
+					reasoningBuckets.set(reasoning.index, bucket)
+					await emitEvent({
+						type: 'reasoning_started',
+						runId,
+						iteration,
+						messageId,
+						blockIndex: reasoning.index,
+						reasoningType: bucket.type,
+					})
+					yield* drainPending()
+				}
+				if (reasoning.type) bucket.type = reasoning.type
+				if (reasoning.signature) bucket.signature = reasoning.signature
+				if (reasoning.encrypted) bucket.encrypted = reasoning.encrypted
+				if (reasoning.text) {
+					bucket.text += reasoning.text
+					await emitEvent({
+						type: 'reasoning_delta',
+						runId,
+						iteration,
+						messageId,
+						blockIndex: reasoning.index,
+						text: reasoning.text,
+					})
+					yield* drainPending()
+				}
+				if (reasoning.done) {
+					await emitEvent({
+						type: 'reasoning_completed',
+						runId,
+						iteration,
+						messageId,
+						blockIndex: reasoning.index,
+						...(bucket.text ? { text: bucket.text } : {}),
+						signed: bucket.signature !== undefined,
+					})
+					yield* drainPending()
+				}
+			}
 
 			if (chunk.delta.content) {
 				textBuf += chunk.delta.content
@@ -401,6 +455,18 @@ export async function* streamProviderTurn(
 		throw new Error(`Provider stream error: ${streamError}`)
 	}
 
+	// Drained in stream-index order: the replay contract is about the
+	// original block order, and a Map preserves insertion order, not index
+	// order, when a provider interleaves blocks.
+	const reasoningBlocks: ReasoningBlock[] = [...reasoningBuckets.entries()]
+		.sort(([a], [b]) => a - b)
+		.map(([, bucket]) => ({
+			type: bucket.type,
+			...(bucket.text ? { text: bucket.text } : {}),
+			...(bucket.signature ? { signature: bucket.signature } : {}),
+			...(bucket.encrypted ? { encrypted: bucket.encrypted } : {}),
+		}))
+
 	const response: ChatCompletionResponse = {
 		id: id || messageId,
 		model: model || params.model,
@@ -408,6 +474,7 @@ export async function* streamProviderTurn(
 			role: 'assistant',
 			content: textBuf.length > 0 ? textBuf : null,
 			toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+			...(reasoningBlocks.length > 0 ? { reasoning: reasoningBlocks } : {}),
 		},
 		finishReason: effectiveFinishReason,
 		usage,

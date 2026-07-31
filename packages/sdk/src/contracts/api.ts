@@ -148,6 +148,14 @@ export type StreamEventType =
 	 * transcript needs to know its middle was dropped, not infer it.
 	 */
 	| 'compaction.completed'
+	/**
+	 * Extended-thinking lifecycle. Wire-visible because without it a
+	 * client renders a multi-second stall with no events while the model
+	 * is demonstrably working.
+	 */
+	| 'reasoning.started'
+	| 'reasoning.delta'
+	| 'reasoning.completed'
 	| 'tool.executing'
 	| 'tool.completed'
 	| 'tool.error'
