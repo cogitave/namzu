@@ -10,7 +10,12 @@ import type { WorkingMemoryProvider } from '../../../../types/agent/working-memo
 import type { HITLResumeDecision, ResumeHandler } from '../../../../types/hitl/index.js'
 import type { TaskId } from '../../../../types/ids/index.js'
 import type { LLMProvider } from '../../../../types/provider/index.js'
-import type { AgentRunConfig, RunEvent } from '../../../../types/run/index.js'
+import type {
+	AgentRunConfig,
+	RunEvent,
+	StepResult,
+	StopCondition,
+} from '../../../../types/run/index.js'
 import type { TaskStore } from '../../../../types/task/index.js'
 import type { ToolRegistryContract } from '../../../../types/tool/index.js'
 import type { Logger } from '../../../../utils/logger.js'
@@ -44,6 +49,15 @@ export interface IterationContext {
 	 */
 	readonly rootSpan?: import('@opentelemetry/api').Span
 	readonly runConfig: AgentRunConfig
+
+	/**
+	 * Caller-supplied halt predicate, evaluated after each step's tools have
+	 * run. See {@link StopCondition}.
+	 */
+	readonly stopWhen?: StopCondition
+
+	/** Called with each completed step, as it completes. */
+	readonly onStepFinish?: (step: StepResult) => void
 	readonly tools: ToolRegistryContract
 	readonly allowedTools?: string[]
 	readonly runMgr: RunPersistence

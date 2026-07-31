@@ -152,12 +152,12 @@ function harness(opts: {
 	return { ctx, messages, executed }
 }
 
-/** Drain the generator and return its outcome. */
+/** Drain the generator and return its decision. */
 async function run(ctx: IterationContext, resp: ChatCompletionResponse) {
 	const gen = runToolReview(ctx, resp, 1)
 	let next = await gen.next()
 	while (!next.done) next = await gen.next()
-	return next.value
+	return next.value.decision
 }
 
 /** The whole point: history must be sendable to a provider afterwards. */

@@ -9,10 +9,14 @@ import {
 	parentContext,
 } from '../../../telemetry/attributes.js'
 import { getTracer } from '../../../telemetry/runtime-accessors.js'
+import type { CostInfo, TokenUsage } from '../../../types/common/index.js'
+import type { MessageId } from '../../../types/ids/index.js'
 import { createAssistantMessage, createUserMessage } from '../../../types/message/index.js'
-import type { RunEvent, StopReason } from '../../../types/run/index.js'
+import type { ChatCompletionResponse } from '../../../types/provider/index.js'
+import type { RunEvent, StepResult, StopReason } from '../../../types/run/index.js'
 import { toErrorMessage } from '../../../utils/error.js'
 import { generateMessageId } from '../../../utils/id.js'
+import type { ToolCallOutcome } from '../executor.js'
 import { applyLifecycleHookResults } from '../plugin-hooks.js'
 import { runAdvisoryPhase } from './phases/advisory.js'
 import { runIterationCheckpoint } from './phases/checkpoint.js'
@@ -145,6 +149,12 @@ export class IterationOrchestrator {
 				// entire prompt-cache prefix (tools render at position 0) and
 				// risks a 400 because the history still carries
 				// tool_use/tool_result blocks.
+				// Snapshot the cumulative counters so the step can report ITS
+				// own usage rather than the run total.
+				const stepStartedAt = Date.now()
+				const usageBefore = { ...runMgr.tokenUsage }
+				const costBefore = { ...runMgr.costInfo }
+
 				const openAITools = this.ctx.tools.toLLMTools(this.ctx.allowedTools)
 
 				const messages = forceFinalize
@@ -174,7 +184,7 @@ export class IterationOrchestrator {
 				// aggregated `ChatCompletionResponse` for the legacy
 				// downstream paths (assistantMsg construction, working
 				// state extraction, telemetry attribute stamping).
-				const { response } = yield* streamProviderTurn(
+				const { response, messageId } = yield* streamProviderTurn(
 					this.ctx.provider,
 					{
 						model,
@@ -363,14 +373,49 @@ export class IterationOrchestrator {
 
 				const reviewOutcome = yield* runToolReview(this.ctx, response, iterationNum)
 
-				if (reviewOutcome === 'stop') {
+				// The step record is built even for a rejected batch: a run that
+				// spent a turn getting its tools refused still spent the tokens,
+				// and a caller reconstructing cost per step must see it.
+				this.recordStep({
+					stepNumber: iterationNum,
+					model,
+					messageId,
+					response,
+					toolResults: reviewOutcome.results,
+					toolExecutionMs: reviewOutcome.durationMs,
+					startedAt: stepStartedAt,
+					usageBefore,
+					costBefore,
+				})
+
+				if (reviewOutcome.decision === 'stop') {
 					iterSpan.end()
 					return
 				}
 
-				if (reviewOutcome === 'rejected') {
+				if (reviewOutcome.decision === 'rejected') {
 					iterSpan.end()
 					continue
+				}
+
+				// Evaluated AFTER the tools ran, so a predicate can see what they
+				// returned — which is what makes a terminal submit_answer tool
+				// usable without discarding its output.
+				if (await this.shouldStop()) {
+					this.ctx.log.info('Stop condition met', {
+						runId: runMgr.id,
+						iteration: iterationNum,
+					})
+					runMgr.setStopReason('stop_condition')
+					await this.ctx.emitEvent({
+						type: 'iteration_completed',
+						runId: runMgr.id,
+						iteration: iterationNum,
+						hasToolCalls: true,
+					})
+					yield* this.ctx.drainPending()
+					iterSpan.end()
+					break
 				}
 
 				const checkpointSignal = yield* runIterationCheckpoint(this.ctx, iterationNum)
@@ -426,6 +471,92 @@ export class IterationOrchestrator {
 				iterSpan.end()
 				throw err
 			}
+		}
+	}
+
+	/** Steps completed so far, exposed on the returned `Run`. */
+	private readonly steps: StepResult[] = []
+
+	getSteps(): readonly StepResult[] {
+		return this.steps
+	}
+
+	/**
+	 * Fold one iteration into a `StepResult`.
+	 *
+	 * Every field here was already computed somewhere in the loop; the only
+	 * new work is subtracting the cumulative counters so the step carries
+	 * ITS usage rather than the run's running total, which is the number a
+	 * caller asking "what did this step cost" actually wants.
+	 */
+	private recordStep(input: {
+		stepNumber: number
+		model: string
+		messageId: MessageId
+		response: ChatCompletionResponse
+		toolResults: readonly ToolCallOutcome[]
+		toolExecutionMs: number
+		startedAt: number
+		usageBefore: TokenUsage
+		costBefore: CostInfo
+	}): void {
+		const { runMgr } = this.ctx
+		const toolCalls = input.response.message.toolCalls ?? []
+		const byId = new Map(input.toolResults.map((r) => [r.toolCallId, r]))
+
+		const step: StepResult = {
+			stepNumber: input.stepNumber,
+			model: input.model,
+			messageId: input.messageId,
+			content: input.response.message.content,
+			toolCalls,
+			// Ordered by the tool CALLS, not by completion, so the record
+			// matches what the model asked for.
+			toolResults: toolCalls.map((tc) => {
+				const outcome = byId.get(tc.id)
+				return {
+					toolCallId: tc.id,
+					toolName: tc.function.name,
+					output: outcome?.output ?? '',
+					isError: outcome?.isError ?? false,
+					durationMs: 0,
+				}
+			}),
+			finishReason: input.response.finishReason,
+			usage: subtractUsage(runMgr.tokenUsage, input.usageBefore),
+			costDelta: {
+				...runMgr.costInfo,
+				totalCost: round6(runMgr.costInfo.totalCost - input.costBefore.totalCost),
+			},
+			startedAt: input.startedAt,
+			durationMs: Date.now() - input.startedAt,
+			toolExecutionMs: input.toolExecutionMs,
+		}
+
+		this.steps.push(step)
+		this.ctx.onStepFinish?.(step)
+	}
+
+	/** Evaluate the caller's halt predicate, if there is one. */
+	private async shouldStop(): Promise<boolean> {
+		const stopWhen = this.ctx.stopWhen
+		const latestStep = this.steps.at(-1)
+		if (!stopWhen || !latestStep) return false
+		try {
+			return await stopWhen({
+				steps: this.steps,
+				latestStep,
+				totalUsage: this.ctx.runMgr.tokenUsage,
+				totalCost: this.ctx.runMgr.costInfo,
+			})
+		} catch (err) {
+			// A throwing predicate must not kill a run that is otherwise
+			// healthy; failing open keeps the existing budgets in charge.
+			this.ctx.log.error('Stop condition threw — continuing the run', {
+				runId: this.ctx.runMgr.id,
+				error: toErrorMessage(err),
+			})
+			return false
 		}
 	}
 
@@ -507,4 +638,20 @@ export class IterationOrchestrator {
 			})
 		}
 	}
+}
+
+/** Per-step usage: the delta between two cumulative snapshots. */
+function subtractUsage(after: TokenUsage, before: TokenUsage): TokenUsage {
+	return {
+		promptTokens: after.promptTokens - before.promptTokens,
+		completionTokens: after.completionTokens - before.completionTokens,
+		totalTokens: after.totalTokens - before.totalTokens,
+		cachedTokens: (after.cachedTokens ?? 0) - (before.cachedTokens ?? 0),
+		cacheWriteTokens: (after.cacheWriteTokens ?? 0) - (before.cacheWriteTokens ?? 0),
+	}
+}
+
+/** Cost deltas are subtractions of floats; keep them presentable. */
+function round6(n: number): number {
+	return Math.round(n * 1e6) / 1e6
 }

@@ -8,7 +8,19 @@ interface VerificationAwareContext extends IterationContext {
 	readonly verificationGate?: VerificationGate
 }
 
-export type ToolReviewOutcome = 'executed' | 'rejected' | 'stop'
+export type ToolReviewDecision = 'executed' | 'rejected' | 'stop'
+
+/**
+ * What the review produced. The tool outcomes travel with the decision so
+ * the loop can build a `StepResult` without re-deriving them from the
+ * messages it just pushed.
+ */
+export interface ToolReviewOutcome {
+	decision: ToolReviewDecision
+	results: readonly import('../../executor.js').ToolCallOutcome[]
+	/** Wall-clock spent executing tools in this review. */
+	durationMs: number
+}
 
 /**
  * Run every tool call in `response` through the gate and (when the gate is
@@ -32,9 +44,18 @@ export async function* runToolReview(
 	response: ChatCompletionResponse,
 	iterationNum: number,
 ): AsyncGenerator<RunEvent, ToolReviewOutcome> {
+	let executed: readonly import('../../executor.js').ToolCallOutcome[] = []
+	let toolMs = 0
+
+	const finish = (decision: ToolReviewDecision): ToolReviewOutcome => ({
+		decision,
+		results: executed,
+		durationMs: toolMs,
+	})
+
 	const toolCalls = response.message.toolCalls
 	if (!toolCalls || toolCalls.length === 0) {
-		return 'executed'
+		return finish('executed')
 	}
 
 	const toolCallSummaries = toolCalls.map((tc) => {
@@ -57,7 +78,10 @@ export async function* runToolReview(
 
 	/** Executes the batch, answering every call, and appends the results. */
 	const settle = async (denials?: ToolCallDenials): Promise<void> => {
+		const startedAt = Date.now()
 		const batch = await ctx.toolExecutor.executeBatch(response, denials)
+		toolMs += Date.now() - startedAt
+		executed = batch.results
 		for (const msg of batch.messages) {
 			ctx.runMgr.pushMessage(msg)
 		}
@@ -97,7 +121,7 @@ export async function* runToolReview(
 			})
 			await settle()
 			yield* ctx.drainPending()
-			return 'executed'
+			return finish('executed')
 		}
 
 		if (allDenied) {
@@ -106,7 +130,7 @@ export async function* runToolReview(
 			})
 			await settle(gateDenied)
 			yield* ctx.drainPending()
-			return 'rejected'
+			return finish('rejected')
 		}
 
 		ctx.log.debug('Verification gate: mixed decisions, proceeding to review', {
@@ -146,7 +170,7 @@ export async function* runToolReview(
 			const feedback = reviewDecision.feedback || 'The user rejected this tool call.'
 			await settle(denyAll(feedback))
 			yield* ctx.drainPending()
-			return 'rejected'
+			return finish('rejected')
 		}
 
 		case 'modify_tools': {
@@ -176,7 +200,7 @@ export async function* runToolReview(
 			const everythingDenied = denials.size === toolCalls.length
 			await settle(denials)
 			yield* ctx.drainPending()
-			return everythingDenied ? 'rejected' : 'executed'
+			return finish(everythingDenied ? 'rejected' : 'executed')
 		}
 
 		case 'pause': {
@@ -193,7 +217,7 @@ export async function* runToolReview(
 			})
 			yield* ctx.drainPending()
 			ctx.runMgr.setStopReason('paused')
-			return 'stop'
+			return finish('stop')
 		}
 
 		case 'abort': {
@@ -205,7 +229,7 @@ export async function* runToolReview(
 			yield* ctx.drainPending()
 			ctx.runMgr.setStopReason('cancelled')
 			ctx.runMgr.markCancelled()
-			return 'stop'
+			return finish('stop')
 		}
 
 		case 'approve_tools':
@@ -222,7 +246,7 @@ export async function* runToolReview(
 			// executing calls the gate refused.
 			await settle(gateDenied)
 			yield* ctx.drainPending()
-			return 'executed'
+			return finish('executed')
 		}
 
 		case 'approve_plan':
@@ -236,7 +260,7 @@ export async function* runToolReview(
 			})
 			await settle(gateDenied)
 			yield* ctx.drainPending()
-			return 'executed'
+			return finish('executed')
 		}
 
 		default: {

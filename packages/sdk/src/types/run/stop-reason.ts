@@ -6,6 +6,8 @@ export type StopReason =
 	| 'max_iterations'
 	| 'cancelled'
 	| 'plan_rejected'
+	/** A caller-supplied `stopWhen` predicate returned true. */
+	| 'stop_condition'
 	| 'paused'
 	| 'error'
 

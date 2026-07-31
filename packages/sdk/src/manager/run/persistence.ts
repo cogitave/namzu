@@ -7,7 +7,7 @@ import type { RunId, SessionId, TenantId } from '../../types/ids/index.js'
 import type { Message } from '../../types/message/index.js'
 import type { CheckpointRunScope, CheckpointStore } from '../../types/run/checkpoint-store.js'
 import type { EmergencySaveData } from '../../types/run/emergency.js'
-import type { Run, RunPersistenceConfig, StopReason } from '../../types/run/index.js'
+import type { Run, RunPersistenceConfig, StepResult, StopReason } from '../../types/run/index.js'
 import type { ProjectId, ThreadId } from '../../types/session/ids.js'
 import { type ModelPricing, ZERO_COST, accumulateCost } from '../../utils/cost.js'
 import { generateEmergencySaveId } from '../../utils/id.js'
@@ -229,6 +229,15 @@ export class RunPersistence {
 	 * in place would re-trigger compaction against a window that no longer
 	 * exists.
 	 */
+	/**
+	 * Attach the loop's per-iteration record to the run so a host that
+	 * persists the returned `Run` keeps per-step attribution instead of
+	 * having to reconstruct it from raw events.
+	 */
+	setSteps(steps: readonly StepResult[]): void {
+		this.run.steps = steps
+	}
+
 	clearLastPromptTokens(): void {
 		this._lastPromptTokens = undefined
 	}

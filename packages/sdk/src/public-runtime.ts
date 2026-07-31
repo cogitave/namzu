@@ -427,3 +427,7 @@ export {
 	StructuredCompactionManager,
 	WorkingStateManager,
 } from './compaction/index.js'
+
+// ─── loop control ────────────────────────────────────────────────────────
+
+export { anyOf, hasToolCall, stepCountIs } from './types/run/step.js'

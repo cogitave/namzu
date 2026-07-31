@@ -35,7 +35,14 @@ import type { AgentPersona } from '../../types/persona/index.js'
 import type { LLMProvider } from '../../types/provider/index.js'
 import type { TaskRouterConfig } from '../../types/router/index.js'
 import type { CheckpointStore } from '../../types/run/checkpoint-store.js'
-import type { AgentRunConfig, Run, RunEvent, RunEventListener } from '../../types/run/index.js'
+import type {
+	AgentRunConfig,
+	Run,
+	RunEvent,
+	RunEventListener,
+	StepResult,
+	StopCondition,
+} from '../../types/run/index.js'
 import type { Sandbox, SandboxProvider } from '../../types/sandbox/index.js'
 import type { ProjectId, ThreadId } from '../../types/session/ids.js'
 import type { Skill } from '../../types/skills/index.js'
@@ -108,6 +115,22 @@ export interface QueryParams {
 	 * agent decides the rest is worth re-reading. Set `0` to disable.
 	 */
 	maxToolOutputChars?: number
+
+	/**
+	 * Programmable halt condition, evaluated after each step's tools have
+	 * run so a predicate can see what they returned.
+	 *
+	 * Before this the only halt was `GuardCoordinator`, which sees four
+	 * numeric budgets and never the messages — so a terminal
+	 * `submit_answer` tool could not end a run, and the model had to be
+	 * prompt-begged to stop with `maxIterations: 200` as the only backstop.
+	 *
+	 * Helpers: `stepCountIs`, `hasToolCall`, `anyOf`.
+	 */
+	stopWhen?: StopCondition
+
+	/** Called with each completed step, as it completes. */
+	onStepFinish?: (step: StepResult) => void
 	tools: ToolRegistryContract
 	runConfig: AgentRunConfig
 	allowedTools?: string[]
@@ -472,6 +495,8 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 	const iterationOrchestrator = new IterationOrchestrator({
 		provider: resilientProvider,
 		runConfig: params.runConfig,
+		...(params.stopWhen ? { stopWhen: params.stopWhen } : {}),
+		...(params.onStepFinish ? { onStepFinish: params.onStepFinish } : {}),
 		tools: params.tools,
 		allowedTools: effectiveAllowedTools,
 		runMgr: ctx.runMgr,
@@ -741,8 +766,14 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				yield* eventTranslator.drainPending()
 			}
 
+			// Hand the step record to the run before it settles, so the
+			// returned `Run` carries it.
+			ctx.runMgr.setSteps(iterationOrchestrator.getSteps())
+
 			yield* resultAssembler.completeRun(rootSpan)
 		} catch (err) {
+			// A failed run still spent its steps; report them.
+			ctx.runMgr.setSteps(iterationOrchestrator.getSteps())
 			yield* resultAssembler.handleError(err, rootSpan)
 		} finally {
 			// Release the process's termination path as soon as this run is

@@ -132,7 +132,9 @@ describe('runToolReview answer_question case', () => {
 			selectedOptionIds: [],
 		})
 		const { value } = await drainGenerator(runToolReview(ctx, response, 1))
-		expect(value).toBe('executed')
+		// The review now returns its tool outcomes alongside the decision, so
+		// the loop can build a StepResult without re-deriving them.
+		expect(value.decision).toBe('executed')
 		expect(batchCount()).toBe(1)
 		expect(warns).toHaveLength(1)
 	})
