@@ -459,3 +459,8 @@ export {
 	promptInjectionGuardrail,
 	secretRedactionGuardrail,
 } from './runtime/query/guardrail-presets.js'
+
+// Error taxonomy. `toPlatformError` is the load-bearing one: it normalizes
+// ANYTHING thrown into the declared `PlatformError` shape, so a host writes
+// one handler instead of an `instanceof` ladder per call site.
+export { NamzuError, isNamzuError, toPlatformError } from './types/errors/index.js'

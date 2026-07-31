@@ -27,6 +27,7 @@ import type { AdvisoryConfig } from '../../types/advisory/index.js'
 import type { AgentRuntimeContext, RuntimeToolOverrides } from '../../types/agent/base.js'
 import type { AgentContextLevel } from '../../types/agent/factory.js'
 import type { WorkingMemoryProvider } from '../../types/agent/working-memory.js'
+import { NamzuError } from '../../types/errors/index.js'
 import type { InputGuardrailSpec, OutputGuardrailSpec } from '../../types/guardrail/index.js'
 import {
 	type CheckpointId,
@@ -463,7 +464,11 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 	if (stripToolSurfaces) {
 		const message = `Provider '${params.provider.id}' declares supportsTools: false but ${registeredToolCount} tool(s) are registered — stripping all tool surfaces from the prompt and request so the model is never told about tools it cannot call. Pass strictCapabilities: true to fail instead, or use a tools-capable provider.`
 		if (params.strictCapabilities) {
-			throw new Error(message)
+			throw new NamzuError({
+				code: 'capability_unavailable',
+				message,
+				details: { providerId: params.provider.id, capability: 'tools', registeredToolCount },
+			})
 		}
 		ctx.log.warn(`CAPABILITY MISMATCH: ${message}`, {
 			providerId: params.provider.id,
@@ -474,7 +479,11 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 	if (attachmentMessageCount > 0) {
 		const message = `Provider '${params.provider.id}' declares supportsVision: false but ${attachmentMessageCount} user message(s) carry image attachments — the driver will not map them, so the model never sees the images. Pass strictCapabilities: true to fail instead, or use a vision-capable provider.`
 		if (params.strictCapabilities) {
-			throw new Error(message)
+			throw new NamzuError({
+				code: 'capability_unavailable',
+				message,
+				details: { providerId: params.provider.id, capability: 'vision', attachmentMessageCount },
+			})
 		}
 		ctx.log.warn(`CAPABILITY MISMATCH: ${message}`, {
 			providerId: params.provider.id,

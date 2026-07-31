@@ -1,3 +1,4 @@
+import { NamzuError } from '../../types/errors/index.js'
 import type { PluginHookEvent, PluginHookResult } from '../../types/plugin/index.js'
 
 /**
@@ -17,7 +18,11 @@ export function applyLifecycleHookResults(
 			case 'continue':
 				continue
 			case 'error':
-				throw new Error(`Plugin hook ${event} reported error: ${result.message}`)
+				throw new NamzuError({
+					code: 'plugin_error',
+					message: `Plugin hook ${event} reported error: ${result.message}`,
+					details: { event },
+				})
 			case 'skip':
 			case 'modify':
 			case 'retry':

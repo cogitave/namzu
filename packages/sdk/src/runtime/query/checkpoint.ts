@@ -1,4 +1,5 @@
 import type { RunPersistence } from '../../manager/run/persistence.js'
+import { NamzuError } from '../../types/errors/index.js'
 import type {
 	ActiveNodeInfo,
 	BranchStackEntry,
@@ -194,7 +195,11 @@ export class CheckpointManager {
 	async restore(checkpointId: CheckpointId): Promise<IterationCheckpoint> {
 		const checkpoint = await this.store.readCheckpoint(this.scope, checkpointId)
 		if (!checkpoint) {
-			throw new Error(`Checkpoint not found: ${checkpointId}`)
+			throw new NamzuError({
+				code: 'not_found',
+				message: `Checkpoint not found: ${checkpointId}`,
+				details: { checkpointId, runId: this.scope.runId },
+			})
 		}
 		return checkpoint
 	}

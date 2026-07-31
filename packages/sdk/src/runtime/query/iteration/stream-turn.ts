@@ -2,6 +2,7 @@ import { type Span, SpanStatusCode } from '@opentelemetry/api'
 import { GENAI, NAMZU, chatSpanName, parentContext } from '../../../telemetry/attributes.js'
 import { getTracer } from '../../../telemetry/runtime-accessors.js'
 import { mergeTokenUsage } from '../../../types/common/index.js'
+import { NamzuError } from '../../../types/errors/index.js'
 import type { ToolUseId } from '../../../types/ids/index.js'
 import type { ReasoningBlock } from '../../../types/message/index.js'
 import type {
@@ -452,7 +453,11 @@ export async function* streamProviderTurn(
 	if (streamError && !recoveredToolInputFromStreamError) {
 		chatSpan.setStatus({ code: SpanStatusCode.ERROR, message: streamError })
 		chatSpan.end()
-		throw new Error(`Provider stream error: ${streamError}`)
+		throw new NamzuError({
+			code: 'provider_error',
+			message: `Provider stream error: ${streamError}`,
+			details: { model: params.model },
+		})
 	}
 
 	// Drained in stream-index order: the replay contract is about the
