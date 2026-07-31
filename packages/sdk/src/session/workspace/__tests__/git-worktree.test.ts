@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { posix } from '../../../test-support/paths.js'
 import type { WorkspaceRef } from '../../../types/workspace/ref.js'
 import { WorkspaceBackendError } from '../../errors.js'
 import {
@@ -45,7 +46,10 @@ describe('GitWorktreeDriver', () => {
 		const call = calls[0]
 		if (!call) throw new Error('missing call')
 		expect(call.file).toBe('git')
-		expect(call.args).toEqual([
+		// `posix()` per element: the worktree path is built with `path.join`,
+		// so it is backslash-separated on Windows. The assertion is about
+		// argv shape and ordering, not separator style.
+		expect(call.args.map(posix)).toEqual([
 			'-C',
 			'/repo',
 			'worktree',
@@ -71,7 +75,7 @@ describe('GitWorktreeDriver', () => {
 		await driver.create({ label: 'bar' })
 		const call = calls[0]
 		if (!call) throw new Error('missing call')
-		expect(call.args.at(-1)).toBe('/repo/.namzu/worktrees/bar')
+		expect(posix(call.args.at(-1))).toBe('/repo/.namzu/worktrees/bar')
 	})
 
 	it('create: wraps failures in WorkspaceBackendError', async () => {
