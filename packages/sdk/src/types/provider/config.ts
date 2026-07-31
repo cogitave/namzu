@@ -28,11 +28,60 @@ export type ProviderFactoryConfig = {
 	[K in ProviderType]: ProviderConfigRegistry[K]
 }[ProviderType]
 
-export interface MockProviderConfig {
-	type: 'mock'
+/** One scripted tool call within a {@link MockTurn}. */
+export interface MockToolCall {
+	name: string
+	/** Serialized to JSON and streamed in fragments. */
+	args?: Record<string, unknown>
+	/** Defaults to a deterministic `call_<turn>_<index>`. */
+	id?: string
+	/** Fragment size for the argument JSON; smaller exercises more buffering. */
+	argChunkSize?: number
+	/**
+	 * Omit the block-close signal and stop mid-JSON, reproducing the
+	 * provider cutting a tool call off at `max_tokens`. The consumer should
+	 * mark the call `inputTruncated` rather than crashing on a parse.
+	 */
+	truncateArguments?: boolean
+}
+
+/** One assistant turn the mock provider plays. */
+export interface MockTurn {
+	text?: string
+	toolCalls?: MockToolCall[]
+	finishReason?: 'stop' | 'tool_calls' | 'length' | 'content_filter'
+	usage?: Partial<import('../common/index.js').TokenUsage>
+	/** Text fragment size. */
+	chunkSize?: number
+	/** Fail the request outright, before any chunk — e.g. a 429. */
+	error?: { message: string; status?: number }
+	/** Fail mid-stream after N text chunks, to exercise recovery paths. */
+	throwAfterChunks?: number
+	throwMessage?: string
+}
+
+/**
+ * The scripted behavior itself, without the registry discriminant, so a
+ * test can `new MockLLMProvider({ turns: [...] })` directly.
+ */
+export interface MockScript {
 	model?: string
+	/** Shorthand for a single text-only turn. */
 	responseText?: string
 	responseDelayMs?: number
+	/**
+	 * Scripted turns. A script shorter than the run repeats its last entry,
+	 * so a loop bug shows up as repetition rather than a crash.
+	 */
+	turns?: MockTurn[]
+	/** Full control: decide each turn from the request that triggered it. */
+	nextTurn?: (params: import('./chat.js').ChatCompletionParams, turnIndex: number) => MockTurn
+	/** Observe every request (assert on tools, toolChoice, cacheControl…). */
+	onRequest?: (params: import('./chat.js').ChatCompletionParams) => void
+}
+
+export interface MockProviderConfig extends MockScript {
+	type: 'mock'
 }
 
 /**

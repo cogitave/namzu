@@ -2,10 +2,13 @@ import type { ProviderCapabilities } from '../types/provider/index.js'
 import { MockLLMProvider } from './mock.js'
 import { ProviderRegistry } from './registry.js'
 
+// The mock can script tool calls, so declaring otherwise made
+// capability negotiation strip the tool surface before a request was even
+// built — which is why no consumer could test a tool through the loop.
 export const MOCK_CAPABILITIES: ProviderCapabilities = {
-	supportsTools: false,
+	supportsTools: true,
 	supportsStreaming: true,
-	supportsFunctionCalling: false,
+	supportsFunctionCalling: true,
 }
 
 /**
