@@ -4,73 +4,13 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
+import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
-import type { LLMProvider, StreamChunk } from '../../../types/provider/index.js'
 import type { RunEvent } from '../../../types/run/index.js'
 import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
 import { drainQuery } from '../index.js'
-
-const ZERO_USAGE = {
-	promptTokens: 0,
-	completionTokens: 0,
-	totalTokens: 0,
-	cachedTokens: 0,
-	cacheWriteTokens: 0,
-}
-
-class IdleDuringToolInputProvider implements LLMProvider {
-	readonly id = 'idle-during-tool-input'
-	readonly name = 'Idle During Tool Input Provider'
-	calls = 0
-
-	async *chatStream(): AsyncIterable<StreamChunk> {
-		this.calls += 1
-
-		if (this.calls === 1) {
-			yield {
-				id: 'msg_1',
-				delta: {
-					toolCalls: [
-						{
-							index: 0,
-							id: 'toolu_write_1',
-							type: 'function',
-							function: { name: 'write_file' },
-						},
-					],
-				},
-			}
-			yield {
-				id: 'msg_1',
-				delta: {
-					toolCalls: [
-						{
-							index: 0,
-							id: 'toolu_write_1',
-							function: {
-								arguments: '{"path":"/tmp/out.md","content":"partial',
-							},
-						},
-					],
-				},
-			}
-			throw new Error('Anthropic stream idle for 90s')
-		}
-
-		yield {
-			id: 'msg_2',
-			delta: { content: 'Recovered after retry guidance.' },
-		}
-		yield {
-			id: 'msg_2',
-			delta: {},
-			finishReason: 'stop',
-			usage: ZERO_USAGE,
-		}
-	}
-}
 
 describe('query stream recovery', () => {
 	let workdirs: string[] = []
@@ -81,7 +21,24 @@ describe('query stream recovery', () => {
 	})
 
 	it('turns an idle stream with partial tool JSON into retryable tool feedback', async () => {
-		const provider = new IdleDuringToolInputProvider()
+		// The provider goes idle mid-tool-JSON — the exact failure the
+		// truncated-tool-input recovery path exists for — then recovers on
+		// the retry the runtime prompts for.
+		const provider = new MockLLMProvider({
+			turns: [
+				{
+					toolCalls: [
+						{
+							name: 'write_file',
+							id: 'toolu_write_1',
+							rawArguments: '{"path":"/tmp/out.md","content":"partial',
+							throwAfterArguments: 'Anthropic stream idle for 90s',
+						},
+					],
+				},
+				{ text: 'Recovered after retry guidance.' },
+			],
+		})
 		const actualWrite = vi.fn(async () => ({ success: true, output: 'should not run' }))
 		const tools = new ToolRegistry()
 		tools.register({
@@ -124,7 +81,8 @@ describe('query stream recovery', () => {
 
 		expect(run.status).toBe('completed')
 		expect(run.result).toBe('Recovered after retry guidance.')
-		expect(provider.calls).toBe(2)
+		// The failed turn plus the recovery turn.
+		expect(provider.requests).toHaveLength(2)
 		expect(actualWrite).not.toHaveBeenCalled()
 
 		expect(events.some((event) => event.type === 'run_failed')).toBe(false)

@@ -5,6 +5,7 @@ import type {
 	LLMProvider,
 	MockScript,
 	MockTurn,
+	ProviderCapabilities,
 	StreamChunk,
 } from '../types/provider/index.js'
 
@@ -36,6 +37,7 @@ const EMPTY_USAGE: TokenUsage = {
 export class MockLLMProvider implements LLMProvider {
 	readonly id = 'mock'
 	readonly name = 'Mock LLM Provider'
+	readonly capabilities: ProviderCapabilities | undefined
 
 	private readonly model: string
 	private readonly responseDelayMs: number
@@ -48,6 +50,7 @@ export class MockLLMProvider implements LLMProvider {
 	readonly requests: ChatCompletionParams[] = []
 
 	constructor(config: MockScript = {}) {
+		this.capabilities = config.capabilities
 		this.model = config.model ?? FALLBACK_MOCK_MODEL
 		this.responseDelayMs = config.responseDelayMs ?? 0
 		this.onRequest = config.onRequest
@@ -121,13 +124,17 @@ export class MockLLMProvider implements LLMProvider {
 
 			// Arguments arrive as JSON fragments, which is what forces the
 			// consumer's partial-JSON buffering to be exercised.
-			const args = JSON.stringify(call.args ?? {})
+			const args = call.rawArguments ?? JSON.stringify(call.args ?? {})
 			const step = call.argChunkSize ?? Math.max(1, Math.ceil(args.length / 3))
 			for (let i = 0; i < args.length; i += step) {
 				yield {
 					id,
 					delta: { toolCalls: [{ index, function: { arguments: args.slice(i, i + step) } }] },
 				}
+			}
+
+			if (call.throwAfterArguments !== undefined) {
+				throw new Error(call.throwAfterArguments)
 			}
 
 			if (call.truncateArguments !== true) {

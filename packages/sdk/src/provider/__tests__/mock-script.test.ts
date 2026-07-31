@@ -10,7 +10,10 @@ import { MockLLMProvider } from '../mock.js'
  * capability negotiation stripped the tool surface before a request was even
  * built. No consumer could test that the agent loop calls their tool — and
  * namzu's own maintainers hand-rolled eight `implements LLMProvider` fakes
- * across seven test files to work around exactly that.
+ * across seven test files to work around exactly that. Six of those are now
+ * gone; the two that remain are in `registry.test.ts`, which tests that the
+ * registry accepts arbitrary provider CONSTRUCTORS — collapsing those onto
+ * this mock would defeat what they check.
  *
  * These cases assert the mock produces the frame sequence a REAL driver
  * produces, so a test written against it exercises the consumer path rather

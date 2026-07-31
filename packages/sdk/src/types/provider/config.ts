@@ -43,6 +43,21 @@ export interface MockToolCall {
 	 * mark the call `inputTruncated` rather than crashing on a parse.
 	 */
 	truncateArguments?: boolean
+	/**
+	 * Emit this raw string as the argument payload instead of serializing
+	 * `args`. For scripting malformed or partial JSON the model could
+	 * plausibly produce.
+	 */
+	rawArguments?: string
+	/**
+	 * Throw after the argument fragments, mid-tool-block.
+	 *
+	 * This is the failure the truncated-tool-input recovery path exists
+	 * for — a provider going idle while streaming tool JSON — so it has to
+	 * be scriptable, or that path can only be tested by hand-rolling a
+	 * provider.
+	 */
+	throwAfterArguments?: string
 }
 
 /** One assistant turn the mock provider plays. */
@@ -76,6 +91,14 @@ export interface MockScript {
 	turns?: MockTurn[]
 	/** Full control: decide each turn from the request that triggered it. */
 	nextTurn?: (params: import('./chat.js').ChatCompletionParams, turnIndex: number) => MockTurn
+	/**
+	 * Override the capability declaration for this instance.
+	 *
+	 * Capability negotiation degrades a run when a driver says it cannot do
+	 * something, and testing that path means being able to SAY it — a fixed
+	 * registry-level declaration cannot express "a driver with no vision".
+	 */
+	capabilities?: ProviderCapabilities
 	/** Observe every request (assert on tools, toolChoice, cacheControl…). */
 	onRequest?: (params: import('./chat.js').ChatCompletionParams) => void
 }

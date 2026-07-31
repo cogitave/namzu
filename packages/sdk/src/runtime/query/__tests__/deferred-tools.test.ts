@@ -4,44 +4,22 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
+import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { SearchToolsTool } from '../../../tools/builtins/search-tools.js'
 import type { RunId, SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
-import type {
-	ChatCompletionParams,
-	LLMProvider,
-	StreamChunk,
-} from '../../../types/provider/index.js'
 import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
 import { drainQuery } from '../index.js'
 
-const ZERO_USAGE = {
-	promptTokens: 0,
-	completionTokens: 0,
-	totalTokens: 0,
-	cachedTokens: 0,
-	cacheWriteTokens: 0,
-}
-
-class CapturingProvider implements LLMProvider {
-	readonly id = 'capturing'
-	readonly name = 'Capturing Provider'
-	lastParams?: ChatCompletionParams
-
-	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
-		this.lastParams = params
-		yield {
-			id: 'msg_1',
-			delta: { content: 'done' },
-		}
-		yield {
-			id: 'msg_1',
-			delta: {},
-			finishReason: 'stop',
-			usage: ZERO_USAGE,
-		}
-	}
+/**
+ * The scriptable mock captures every request it receives, which is all
+ * this suite ever needed a hand-rolled provider for. Keeping a bespoke
+ * class here would mean re-implementing the frame sequence by hand — the
+ * exact duplication the mock was rebuilt to remove.
+ */
+function capturingProvider(): MockLLMProvider {
+	return new MockLLMProvider({ turns: [{ text: 'done' }] })
 }
 
 function registerDeferredDocumentTool(tools: ToolRegistry, name = 'generate_document'): void {
@@ -67,7 +45,7 @@ describe('query deferred tool discovery', () => {
 	})
 
 	it('auto-exposes search_tools when deferred tools are registered', async () => {
-		const provider = new CapturingProvider()
+		const provider = capturingProvider()
 		const tools = new ToolRegistry()
 		registerDeferredDocumentTool(tools)
 
@@ -99,10 +77,14 @@ describe('query deferred tool discovery', () => {
 		expect(tools.getAvailability(SearchToolsTool.name)).toBe('active')
 		expect(tools.getAvailability('generate_document')).toBe('deferred')
 
-		const toolNames = provider.lastParams?.tools?.map((tool) => tool.function.name).sort() ?? []
+		const toolNames =
+			provider.requests
+				.at(-1)
+				?.tools?.map((tool) => tool.function.name)
+				.sort() ?? []
 		expect(toolNames).toEqual([SearchToolsTool.name])
 
-		const systemPrompt = (provider.lastParams?.messages ?? [])
+		const systemPrompt = (provider.requests.at(-1)?.messages ?? [])
 			.filter((message) => message.role === 'system')
 			.map((message) => message.content)
 			.join('\n')
@@ -114,7 +96,7 @@ describe('query deferred tool discovery', () => {
 	})
 
 	it('keeps search_tools executable when allowedTools names a deferred tool', async () => {
-		const provider = new CapturingProvider()
+		const provider = capturingProvider()
 		const tools = new ToolRegistry()
 		registerDeferredDocumentTool(tools)
 
@@ -145,10 +127,14 @@ describe('query deferred tool discovery', () => {
 		expect(run.status).toBe('completed')
 		expect(tools.getAvailability('generate_document')).toBe('deferred')
 
-		const toolNames = provider.lastParams?.tools?.map((tool) => tool.function.name).sort() ?? []
+		const toolNames =
+			provider.requests
+				.at(-1)
+				?.tools?.map((tool) => tool.function.name)
+				.sort() ?? []
 		expect(toolNames).toEqual([SearchToolsTool.name])
 
-		const systemPrompt = (provider.lastParams?.messages ?? [])
+		const systemPrompt = (provider.requests.at(-1)?.messages ?? [])
 			.filter((message) => message.role === 'system')
 			.map((message) => message.content)
 			.join('\n')

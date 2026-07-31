@@ -4,81 +4,36 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
+import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { EditTool, WriteFileTool } from '../../../tools/builtins/index.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
-import type { LLMProvider, StreamChunk } from '../../../types/provider/index.js'
 import type { RunEvent } from '../../../types/run/index.js'
 import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
 import { drainQuery } from '../index.js'
-
-const ZERO_USAGE = {
-	promptTokens: 0,
-	completionTokens: 0,
-	totalTokens: 0,
-	cachedTokens: 0,
-	cacheWriteTokens: 0,
-}
 
 interface ToolStep {
 	readonly name: string
 	readonly input: Record<string, unknown>
 }
 
-class ScriptedLongDocumentProvider implements LLMProvider {
-	readonly id = 'scripted-long-document'
-	readonly name = 'Scripted Long Document Provider'
-	calls = 0
-
-	constructor(private readonly steps: readonly ToolStep[]) {}
-
-	async *chatStream(): AsyncIterable<StreamChunk> {
-		const step = this.steps[this.calls]
-		this.calls += 1
-
-		if (!step) {
-			yield {
-				id: 'msg_done',
-				delta: { content: 'Long document created and verified.' },
-				finishReason: 'stop',
-				usage: ZERO_USAGE,
-			}
-			return
-		}
-
-		yield {
-			id: `msg_${this.calls}`,
-			delta: {
-				toolCalls: [
-					{
-						index: 0,
-						id: `toolu_${this.calls}`,
-						type: 'function',
-						function: { name: step.name },
-					},
-				],
-			},
-		}
-		yield {
-			id: `msg_${this.calls}`,
-			delta: {
-				toolCalls: [
-					{
-						index: 0,
-						id: `toolu_${this.calls}`,
-						function: { arguments: JSON.stringify(step.input) },
-					},
-				],
-			},
-		}
-		yield {
-			id: `msg_${this.calls}`,
-			delta: {},
-			finishReason: 'tool_calls',
-			usage: ZERO_USAGE,
-		}
-	}
+/**
+ * Script the steps, then a closing text turn.
+ *
+ * This replaces a hand-rolled provider that never emitted `toolCallEnd`
+ * and relied on end-of-stream inference to close each tool block. The
+ * mock emits that boundary the way a real driver does (Anthropic's
+ * `content_block_stop`), so the collapse raises fidelity rather than
+ * merely removing code.
+ */
+function scriptedLongDocumentProvider(steps: readonly ToolStep[]): MockLLMProvider {
+	return new MockLLMProvider({
+		turns: [
+			...steps.map((step) => ({ toolCalls: [{ name: step.name, args: step.input }] })),
+			{ text: 'Long document created and verified.' },
+		],
+	})
 }
 
 describe('query long-document tool flow', () => {
@@ -102,7 +57,7 @@ describe('query long-document tool flow', () => {
 			return chunk
 		})
 
-		const provider = new ScriptedLongDocumentProvider([
+		const provider = scriptedLongDocumentProvider([
 			{
 				name: 'write',
 				input: {
@@ -169,7 +124,8 @@ describe('query long-document tool flow', () => {
 
 		expect(run.status).toBe('completed')
 		expect(run.result).toBe('Long document created and verified.')
-		expect(provider.calls).toBe(6)
+		// One request per turn — the mock records every one it received.
+		expect(provider.requests).toHaveLength(6)
 		expect(executingTools).toEqual(['write', 'edit', 'edit', 'edit', 'edit'])
 		expect(final).not.toContain('{{BODY}}')
 		expect(final.split('\n').length).toBeGreaterThan(160)

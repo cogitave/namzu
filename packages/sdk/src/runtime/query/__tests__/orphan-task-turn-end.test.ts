@@ -4,44 +4,16 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
+import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { TaskGateway, TaskHandle } from '../../../types/agent/gateway.js'
 import type { SessionId, TaskId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
-import type { LLMProvider, StreamChunk } from '../../../types/provider/index.js'
 import type { RunEvent } from '../../../types/run/index.js'
 import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
 import { drainQuery } from '../index.js'
 
-const ZERO_USAGE = {
-	promptTokens: 0,
-	completionTokens: 0,
-	totalTokens: 0,
-	cachedTokens: 0,
-	cacheWriteTokens: 0,
-}
-
 /** Ends its turn with plain text on the first (and only) call. */
-class SingleTurnProvider implements LLMProvider {
-	readonly id = 'single-turn'
-	readonly name = 'Single Turn Provider'
-	calls = 0
-
-	async *chatStream(): AsyncIterable<StreamChunk> {
-		this.calls += 1
-		yield {
-			id: `msg_${this.calls}`,
-			delta: { content: 'Final answer.' },
-		}
-		yield {
-			id: `msg_${this.calls}`,
-			delta: {},
-			finishReason: 'stop',
-			usage: ZERO_USAGE,
-		}
-	}
-}
-
 /**
  * Gateway that permanently reports one running task. Every dispatch
  * tool is blocking, so a running task at end-of-turn is an orphan —
@@ -84,7 +56,8 @@ describe('end of turn with running agent tasks', () => {
 	// hang detector here: with the busy-wait present this test times
 	// out instead of completing.
 	it('ends the run promptly instead of busy-waiting on orphan tasks', async () => {
-		const provider = new SingleTurnProvider()
+		// One text turn, no tools — the mock's default script shape.
+		const provider = new MockLLMProvider({ turns: [{ text: 'Final answer.' }] })
 		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-orphan-task-'))
 		workdirs.push(workingDirectory)
 		const events: RunEvent[] = []
@@ -121,7 +94,8 @@ describe('end of turn with running agent tasks', () => {
 		expect(run.stopReason).toBe('end_turn')
 		expect(run.result).toBe('Final answer.')
 		// One turn only — no futile re-invocation loop on the orphan.
-		expect(provider.calls).toBe(1)
+		// Exactly one model call: the run must NOT busy-wait on the orphan.
+		expect(provider.requests).toHaveLength(1)
 		expect(events.some((event) => event.type === 'run_failed')).toBe(false)
 	}, 10_000)
 })
