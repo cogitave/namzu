@@ -1,3 +1,6 @@
+import { type Span, SpanStatusCode } from '@opentelemetry/api'
+import { GENAI, NAMZU, chatSpanName, parentContext } from '../../../telemetry/attributes.js'
+import { getTracer } from '../../../telemetry/runtime-accessors.js'
 import { mergeTokenUsage } from '../../../types/common/index.js'
 import type { ToolUseId } from '../../../types/ids/index.js'
 import type {
@@ -72,7 +75,22 @@ export async function* streamProviderTurn(
 	iteration: number,
 	forceFinalize: boolean,
 	log: Logger,
+	parentSpan?: Span,
 ): AsyncGenerator<RunEvent, StreamingTurnResult> {
+	// The `chat {model}` span the GenAI conventions require. There was none:
+	// `chatSpanName` existed with zero call sites, so a trace carried no LLM
+	// latency at all and the token counts landed on the iteration span
+	// instead of the operation that produced them.
+	const chatSpan = getTracer().startSpan(chatSpanName(params.model), {}, parentContext(parentSpan))
+	chatSpan.setAttributes({
+		[GENAI.OPERATION_NAME]: 'chat',
+		[GENAI.REQUEST_MODEL]: params.model,
+		...(params.temperature !== undefined
+			? { [GENAI.REQUEST_TEMPERATURE]: params.temperature }
+			: {}),
+		...(params.maxTokens !== undefined ? { [GENAI.REQUEST_MAX_TOKENS]: params.maxTokens } : {}),
+	})
+
 	const messageId = generateMessageId()
 	await emitEvent({ type: 'message_started', runId, iteration, messageId })
 	yield* drainPending()
@@ -378,6 +396,8 @@ export async function* streamProviderTurn(
 	yield* drainPending()
 
 	if (streamError && !recoveredToolInputFromStreamError) {
+		chatSpan.setStatus({ code: SpanStatusCode.ERROR, message: streamError })
+		chatSpan.end()
 		throw new Error(`Provider stream error: ${streamError}`)
 	}
 
@@ -392,5 +412,20 @@ export async function* streamProviderTurn(
 		finishReason: effectiveFinishReason,
 		usage,
 	}
+
+	// Usage belongs on the span for the call that produced it, not on the
+	// iteration that happened to contain it.
+	chatSpan.setAttributes({
+		[GENAI.RESPONSE_MODEL]: response.model,
+		[GENAI.RESPONSE_ID]: response.id,
+		[GENAI.RESPONSE_FINISH_REASONS]: [response.finishReason],
+		[GENAI.USAGE_INPUT_TOKENS]: usage.promptTokens,
+		[GENAI.USAGE_OUTPUT_TOKENS]: usage.completionTokens,
+		[NAMZU.CACHE_READ_TOKENS]: usage.cachedTokens ?? 0,
+		[NAMZU.CACHE_WRITE_TOKENS]: usage.cacheWriteTokens ?? 0,
+	})
+	chatSpan.setStatus({ code: SpanStatusCode.OK })
+	chatSpan.end()
+
 	return { response, messageId }
 }

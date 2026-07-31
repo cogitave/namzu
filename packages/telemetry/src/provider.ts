@@ -10,7 +10,7 @@ import {
 import {
 	ConsoleSpanExporter,
 	NodeTracerProvider,
-	SimpleSpanProcessor,
+	BatchSpanProcessor,
 } from '@opentelemetry/sdk-trace-node'
 import type { TelemetryConfig } from './types.js'
 import { VERSION } from './version.js'
@@ -78,7 +78,10 @@ export class TelemetryProvider {
 							headers: this.config.otlpHeaders,
 						})
 					: new ConsoleSpanExporter()
-			tracerProvider.addSpanProcessor(new SimpleSpanProcessor(traceExporter))
+			// Batched, not synchronous-per-span: a run emits a span per
+			// iteration, per model call and per tool, and exporting each one
+			// inline puts network latency on the agent loop.
+			tracerProvider.addSpanProcessor(new BatchSpanProcessor(traceExporter))
 		}
 		tracerProvider.register()
 		this.tracerProvider = tracerProvider

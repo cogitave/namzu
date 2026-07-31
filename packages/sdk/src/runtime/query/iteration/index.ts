@@ -1,8 +1,13 @@
-import { SpanStatusCode } from '@opentelemetry/api'
+import { type Span, SpanStatusCode } from '@opentelemetry/api'
 import { extractFromAssistantMessage } from '../../../compaction/extractor.js'
 import { AUTO_CONTINUATION_USER_MESSAGE } from '../../../constants/continuation.js'
 import { collect } from '../../../provider/collect.js'
-import { GENAI, NAMZU, agentIterationSpanName } from '../../../telemetry/attributes.js'
+import {
+	GENAI,
+	NAMZU,
+	agentIterationSpanName,
+	parentContext,
+} from '../../../telemetry/attributes.js'
 import { getTracer } from '../../../telemetry/runtime-accessors.js'
 import { createAssistantMessage, createUserMessage } from '../../../types/message/index.js'
 import type { RunEvent, StopReason } from '../../../types/run/index.js'
@@ -27,6 +32,17 @@ export class IterationOrchestrator {
 
 	constructor(ctx: IterationContext) {
 		this.ctx = ctx
+	}
+
+	/**
+	 * Adopt the run's span after construction.
+	 *
+	 * The orchestrator is built before `query()` enters its generator body,
+	 * which is where the run span is created — so the parent cannot be a
+	 * constructor argument without reordering setup around one field.
+	 */
+	setRootSpan(span: Span): void {
+		this.ctx = { ...this.ctx, rootSpan: span }
 	}
 
 	async *runLoop(): AsyncGenerator<RunEvent> {
@@ -80,7 +96,19 @@ export class IterationOrchestrator {
 				this.ctx.activityStore.start(iterationActivity.id)
 			}
 
-			const iterSpan = tracer.startSpan(agentIterationSpanName(iterationNum))
+			// Parent explicitly: this body is an async generator, so the
+			// ambient context at resume time belongs to the CONSUMER, not to
+			// whoever created the run span. Without this every iteration
+			// emits as its own root and a 20-turn run shows up as 21
+			// disconnected traces.
+			const iterSpan = tracer.startSpan(
+				agentIterationSpanName(iterationNum),
+				{},
+				parentContext(this.ctx.rootSpan),
+			)
+			// Tool spans for this turn belong under this iteration.
+			this.ctx.toolExecutor.setParentSpan(iterSpan)
+
 			iterSpan.setAttributes({
 				[NAMZU.ITERATION]: iterationNum,
 				[NAMZU.RUN_ID]: runMgr.id,
@@ -167,6 +195,7 @@ export class IterationOrchestrator {
 					iterationNum,
 					forceFinalize,
 					this.ctx.log,
+					iterSpan,
 				)
 
 				// Main-loop turn: also records the prompt size compaction reads.

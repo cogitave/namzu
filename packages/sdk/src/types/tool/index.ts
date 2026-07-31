@@ -51,6 +51,20 @@ export interface ToolContext {
 	 * Optional because not every executor path provides it yet.
 	 */
 	toolUseId?: string
+
+	/**
+	 * Span to parent this tool's `execute_tool` span to.
+	 *
+	 * OTel's GenAI conventions define a strict hierarchy —
+	 * `invoke_agent` → `chat {model}` → `execute_tool` — and vendor
+	 * dashboards rely on it. `startActiveSpan` cannot supply the parent
+	 * here: the span-owning bodies upstream are async GENERATORS, and a
+	 * generator resumes on its consumer's async context, so the ambient
+	 * context is already gone by the time a tool runs. Passing the parent
+	 * explicitly is the only approach that actually works, and
+	 * `ToolContext` is already threaded to exactly the right place.
+	 */
+	parentSpan?: import('@opentelemetry/api').Span
 }
 
 export interface ToolResult {

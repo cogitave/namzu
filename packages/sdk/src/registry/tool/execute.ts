@@ -1,4 +1,4 @@
-import { SpanStatusCode } from '@opentelemetry/api'
+import { SpanStatusCode, context as otelContext, trace } from '@opentelemetry/api'
 import { zodToJsonSchema } from 'zod-to-json-schema'
 import { GENAI, NAMZU, toolSpanName } from '../../telemetry/attributes.js'
 import { getTracer } from '../../telemetry/runtime-accessors.js'
@@ -299,7 +299,17 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 	): Promise<ToolExecutionResult> {
 		const tracer = getTracer()
 
-		return tracer.startActiveSpan(toolSpanName(toolName), async (span) => {
+		// Explicit parent, not the ambient context. Every span-owning body
+		// upstream is an async generator, and a generator resumes on its
+		// consumer's async context — so by the time a tool executes, whatever
+		// `startActiveSpan` established upstream is long gone and this span
+		// would emit as a root. `context.parentSpan` is threaded through
+		// `ToolContext`, which already reaches here.
+		const parentCtx = context.parentSpan
+			? trace.setSpan(otelContext.active(), context.parentSpan)
+			: otelContext.active()
+
+		return tracer.startActiveSpan(toolSpanName(toolName), {}, parentCtx, async (span) => {
 			span.setAttributes({
 				[GENAI.TOOL_NAME]: toolName,
 				[GENAI.TOOL_TYPE]: 'function',

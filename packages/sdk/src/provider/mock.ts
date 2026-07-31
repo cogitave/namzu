@@ -52,9 +52,7 @@ export class MockLLMProvider implements LLMProvider {
 		this.responseDelayMs = config.responseDelayMs ?? 0
 		this.onRequest = config.onRequest
 		this.nextTurn = config.nextTurn
-		this.turns =
-			config.turns ?? // Back-compat: the old single-string config becomes a one-turn script.
-			[{ text: config.responseText ?? 'Mock provider response' }]
+		this.turns = config.turns ?? [{ text: config.responseText ?? 'Mock provider response' }] // Back-compat: the old single-string config becomes a one-turn script.
 	}
 
 	/** Reset the script pointer and captured requests between cases. */

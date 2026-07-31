@@ -501,6 +501,8 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 
 	return yield* (async function* (): AsyncGenerator<RunEvent, Run> {
 		const rootSpan = tracer.startSpan(agentRunSpanName(params.agentName))
+		// Hand the run span to the loop so every iteration parents to it.
+		iterationOrchestrator.setRootSpan(rootSpan)
 		rootSpan.setAttributes({
 			[NAMZU.RUN_ID]: ctx.runMgr.id,
 			[GENAI.AGENT_NAME]: params.agentName,

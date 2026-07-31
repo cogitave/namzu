@@ -1,3 +1,4 @@
+import type { Span } from '@opentelemetry/api'
 import { extractFromToolCall, extractFromToolResult } from '../../compaction/extractor.js'
 import type { WorkingStateManager } from '../../compaction/manager.js'
 import type { PluginLifecycleManager } from '../../plugin/lifecycle.js'
@@ -107,6 +108,7 @@ export class ToolExecutor {
 	private log: Logger
 	private workingStateManager?: WorkingStateManager
 	private probes: ProbeRegistry
+	private parentSpan?: Span
 	private readonly readPaths: Set<string> = new Set()
 	private readonly fileReadTracker: FileReadTracker = {
 		recordRead: (key: string) => {
@@ -135,6 +137,15 @@ export class ToolExecutor {
 
 	setSandbox(sandbox: Sandbox): void {
 		this.config = { ...this.config, sandbox }
+	}
+
+	/**
+	 * Span that this executor's tool spans should hang off — the current
+	 * iteration. Re-set each turn by the orchestrator, because a tool span
+	 * belongs under the iteration that requested it.
+	 */
+	setParentSpan(span: Span | undefined): void {
+		this.parentSpan = span
 	}
 
 	/**
@@ -249,6 +260,7 @@ export class ToolExecutor {
 			allowedTools: this.config.allowedTools,
 			sandbox: this.config.sandbox,
 			fileReadTracker: this.fileReadTracker,
+			...(this.parentSpan ? { parentSpan: this.parentSpan } : {}),
 		}
 	}
 

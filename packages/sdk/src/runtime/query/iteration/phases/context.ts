@@ -37,6 +37,12 @@ export interface LaunchedTaskMeta {
 
 export interface IterationContext {
 	readonly provider: LLMProvider
+	/**
+	 * The run's `invoke_agent` span, so each iteration can parent itself to
+	 * it. Explicit rather than ambient because this loop is an async
+	 * generator — see `parentContext` in `telemetry/attributes.ts`.
+	 */
+	readonly rootSpan?: import('@opentelemetry/api').Span
 	readonly runConfig: AgentRunConfig
 	readonly tools: ToolRegistryContract
 	readonly allowedTools?: string[]
