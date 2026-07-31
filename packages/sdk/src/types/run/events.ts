@@ -78,6 +78,12 @@ type CoreRunEvent =
 			/** The window the trigger measured against, and where it came from. */
 			contextWindowTokens: number
 			windowSource: 'config' | 'model-table' | 'default'
+			/**
+			 * False when the pass could not get the context below
+			 * `resetThreshold` — the trigger is still armed, and a host may
+			 * want to surface that the run is running tight.
+			 */
+			reachedResetThreshold?: boolean
 	  }
 	| {
 			type: 'tool_executing'

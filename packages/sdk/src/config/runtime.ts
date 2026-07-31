@@ -27,11 +27,35 @@ export const CompactionConfigSchema = z.object({
 	 * window-pressure instead of being a silent no-op.
 	 */
 	contextWindowTokens: z.number().positive().optional(),
+	/** Fraction of the context window at which a compaction pass fires. */
 	triggerThreshold: z.number().min(0).max(1).default(0.7),
+	/**
+	 * Fraction the pass must get the context BELOW to be worth keeping.
+	 *
+	 * This is hysteresis, and without it compaction can thrash: a pass that
+	 * only shaves the context from 0.72 to 0.71 of the window leaves the
+	 * trigger armed, so the next iteration compacts again — paying a
+	 * summarization call and busting the prompt-cache prefix each time, for
+	 * nothing. A pass that cannot reach this level logs the shortfall and
+	 * the run continues rather than repeating a move that does not work.
+	 *
+	 * The field was declared and set by the shipped CLI but read by nothing;
+	 * the choice was to implement it or delete it, and thrash is a real
+	 * failure mode once the trigger actually fires.
+	 */
 	resetThreshold: z.number().min(0).max(1).default(0.4),
 	keepRecentMessages: z.number().positive().default(4),
 	maxToolResults: z.number().positive().default(30),
 	maxListSize: z.number().positive().default(25),
+	/**
+	 * Entries pinned at the head of each capped list, never evicted.
+	 *
+	 * Eviction used to drop the OLDEST entry, so a long run silently
+	 * deleted the decision that set its approach while keeping the last
+	 * twenty-five incidental notes. The early entries are the load-bearing
+	 * ones and the recent ones are still in the un-compacted tail.
+	 */
+	keepFirstEntries: z.number().min(0).default(3),
 	llmVerification: z.boolean().default(true),
 	llmVerificationMaxTokens: z.number().positive().default(2048),
 	richStateThreshold: z.number().positive().default(15),

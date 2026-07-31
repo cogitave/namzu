@@ -502,6 +502,9 @@ const COMPACTION_CONFIG = {
 	keepRecentMessages: 6,
 	maxToolResults: 30,
 	maxListSize: 25,
+	// Pin the opening decisions/requirements; eviction takes from the
+	// middle so a long session keeps what set its direction.
+	keepFirstEntries: 3,
 	llmVerification: false,
 	llmVerificationMaxTokens: 2048,
 	richStateThreshold: 15,

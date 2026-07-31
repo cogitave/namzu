@@ -110,12 +110,67 @@ export function extractFromToolResult(
 			timestamp: Date.now(),
 		})
 	} else {
+		// Everything the builtin name-sets do not recognise — every MCP tool,
+		// every custom tool, every connector-bridged tool — used to collapse
+		// into a flat 120-character head slice. On an MCP-heavy run that made
+		// the summary near information-free: `Ran: {"results":[{"id":"a1b2` and
+		// nothing else. Unknown tools are the ones the summary can say least
+		// about from the name, so they need MORE room, not less, and a
+		// structure-aware slice rather than a blind prefix.
 		manager.addToolResult({
 			tool: toolName,
-			summary: truncateResult(result, 120),
+			summary: summarizeUnknownResult(result),
 			timestamp: Date.now(),
 		})
 	}
+}
+
+/** Room for an unrecognised tool's result. */
+const UNKNOWN_RESULT_BUDGET = 400
+
+/**
+ * Summarize a result from a tool we know nothing about.
+ *
+ * A blind prefix of JSON is the worst possible slice: it spends the whole
+ * budget on syntax and array scaffolding before reaching a single value.
+ * Where the payload parses as JSON, describe its SHAPE — that is what a
+ * later turn actually needs in order to decide whether to re-run the tool.
+ */
+function summarizeUnknownResult(result: string): string {
+	const trimmed = result.trim()
+	if (trimmed.length <= UNKNOWN_RESULT_BUDGET) return trimmed
+
+	if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+		try {
+			const parsed: unknown = JSON.parse(trimmed)
+			if (Array.isArray(parsed)) {
+				const shape = parsed.length > 0 ? describeShape(parsed[0]) : 'empty'
+				return `array of ${parsed.length} × ${shape} — ${truncateResult(trimmed, 200)}`
+			}
+			if (parsed && typeof parsed === 'object') {
+				const keys = Object.keys(parsed)
+				return `object{${keys.slice(0, 12).join(', ')}${keys.length > 12 ? ', …' : ''}} — ${truncateResult(trimmed, 200)}`
+			}
+		} catch {
+			// Not JSON after all; fall through to the text slice.
+		}
+	}
+
+	// Plain text: keep the head AND the tail. The tail is where a command's
+	// error or a document's conclusion lives.
+	const head = trimmed.slice(0, UNKNOWN_RESULT_BUDGET - 120)
+	const tail = trimmed.slice(-100)
+	return `${head} … [${trimmed.length - head.length - tail.length} chars omitted] … ${tail}`
+}
+
+function describeShape(value: unknown): string {
+	if (value === null) return 'null'
+	if (Array.isArray(value)) return 'array'
+	if (typeof value === 'object') {
+		const keys = Object.keys(value as object)
+		return `object{${keys.slice(0, 6).join(', ')}${keys.length > 6 ? ', …' : ''}}`
+	}
+	return typeof value
 }
 
 export function extractFromUserMessage(

@@ -213,6 +213,22 @@ export async function runCompactionCheck(ctx: IterationContext): Promise<void> {
 	// context and compact again immediately.
 	ctx.runMgr.clearLastPromptTokens()
 
+	// Hysteresis. A pass that only gets the context from 0.72 to 0.71 of the
+	// window leaves the trigger armed, so the next iteration compacts again
+	// — paying a summarization call and busting the prompt-cache prefix each
+	// time, for nothing. Report the shortfall rather than repeating a move
+	// that demonstrably does not work; `resetThreshold` was declared and
+	// CLI-set but read by nothing until now.
+	const reachedReset = newEstimate / budget <= config.resetThreshold
+	if (!reachedReset) {
+		ctx.log.warn('Compaction did not reach its reset threshold — context may still be tight', {
+			runId: ctx.runMgr.id,
+			afterUsage: Math.round((newEstimate / budget) * 100),
+			resetThreshold: Math.round(config.resetThreshold * 100),
+			hint: 'lower keepRecentMessages, or raise the context window if the model supports one',
+		})
+	}
+
 	ctx.log.info('Context compacted', {
 		runId: ctx.runMgr.id,
 		oldMessageCount: oldCount,
@@ -221,6 +237,7 @@ export async function runCompactionCheck(ctx: IterationContext): Promise<void> {
 		oldTokenEstimate: estimatedTokens,
 		newTokenEstimate: newEstimate,
 		reductionPercent: Math.round((1 - newEstimate / estimatedTokens) * 100),
+		reachedReset,
 		slotCount: manager.slotCount(),
 	})
 
@@ -238,5 +255,6 @@ export async function runCompactionCheck(ctx: IterationContext): Promise<void> {
 		measuredBy: measured.source,
 		contextWindowTokens: budget,
 		windowSource: window.source,
+		reachedResetThreshold: reachedReset,
 	})
 }
