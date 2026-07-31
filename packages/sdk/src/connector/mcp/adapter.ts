@@ -9,44 +9,135 @@ import type { ToolResultBlock } from '../../types/message/index.js'
 import type { ToolContext, ToolDefinition, ToolResult } from '../../types/tool/index.js'
 import type { MCPClient } from './client.js'
 
+/**
+ * Convert an MCP server's declared input schema into the Zod type namzu
+ * validates and re-renders with.
+ *
+ * The re-render is why fidelity matters here. A bridged tool's schema makes
+ * a round trip — server JSON Schema → Zod → JSON Schema on the wire — and
+ * whatever this function drops is dropped from what the MODEL is shown. The
+ * previous version collapsed `array` to `z.array(z.unknown())` and `object`
+ * to `z.record(z.unknown())`, so every MCP tool taking a structured
+ * argument was presented as "an array of anything" or "an object with any
+ * keys". Nested properties, item types, enums, and descriptions all
+ * vanished, and the model was left guessing at a shape the server had
+ * spelled out precisely.
+ */
 export function mcpJsonSchemaToZod(schema: MCPJsonSchema): z.ZodType {
-	if (!schema.properties || Object.keys(schema.properties).length === 0) {
-		return z.object({}).passthrough()
+	return objectToZod(schema as unknown as Record<string, unknown>)
+}
+
+function objectToZod(schema: Record<string, unknown>): z.ZodType {
+	const properties = schema.properties as Record<string, unknown> | undefined
+	if (!properties || Object.keys(properties).length === 0) {
+		return closeOrOpen(z.object({}), schema)
 	}
 
 	const shape: Record<string, z.ZodType> = {}
-	const required = new Set(schema.required ?? [])
+	const required = new Set((schema.required as string[] | undefined) ?? [])
 
-	for (const [key, propSchema] of Object.entries(schema.properties)) {
-		let field = jsonSchemaPropertyToZod(propSchema)
-		if (!required.has(key)) {
-			field = field.optional()
-		}
-		shape[key] = field
+	for (const [key, propSchema] of Object.entries(properties)) {
+		const field = jsonSchemaPropertyToZod(propSchema)
+		shape[key] = required.has(key) ? field : field.optional()
 	}
 
-	return z.object(shape).passthrough()
+	return closeOrOpen(z.object(shape), schema)
+}
+
+/**
+ * Honor the server's `additionalProperties`, defaulting to closed.
+ *
+ * The old default was `.passthrough()`, which renders as
+ * `additionalProperties: true` — telling the model it may invent arguments
+ * the server never declared. Zod's default `.strip()` renders `false` and
+ * silently drops undeclared keys rather than rejecting them, so the
+ * contract shown to the model tightens without turning a server's
+ * incomplete schema into a hard validation failure.
+ */
+function closeOrOpen(obj: z.ZodObject<z.ZodRawShape>, schema: Record<string, unknown>): z.ZodType {
+	return schema.additionalProperties === true ? obj.passthrough() : obj
 }
 
 function jsonSchemaPropertyToZod(prop: unknown): z.ZodType {
 	if (typeof prop !== 'object' || prop === null) return z.unknown()
 	const schema = prop as Record<string, unknown>
 
-	switch (schema.type) {
+	let base = baseTypeToZod(schema)
+
+	// `type: ['string', 'null']` is how a JSON Schema says nullable.
+	if (Array.isArray(schema.type) && schema.type.includes('null')) {
+		base = base.nullable()
+	}
+
+	const description = schema.description
+	if (typeof description === 'string' && description.length > 0) {
+		base = base.describe(description)
+	}
+
+	if (schema.default !== undefined) {
+		base = base.default(schema.default)
+	}
+
+	return base
+}
+
+function baseTypeToZod(schema: Record<string, unknown>): z.ZodType {
+	// An `enum` pins the value more tightly than `type` does, so it wins.
+	const enumValues = schema.enum
+	if (Array.isArray(enumValues) && enumValues.length > 0) {
+		return enumToZod(enumValues)
+	}
+	if (schema.const !== undefined) {
+		return z.literal(schema.const as z.Primitive)
+	}
+
+	const composite = (schema.anyOf ?? schema.oneOf) as unknown[] | undefined
+	if (Array.isArray(composite) && composite.length > 0) {
+		const members = composite.map(jsonSchemaPropertyToZod)
+		return members.length === 1
+			? (members[0] as z.ZodType)
+			: z.union(members as [z.ZodType, z.ZodType, ...z.ZodType[]])
+	}
+
+	// A union type (`['string','null']`) resolves through its non-null half;
+	// `jsonSchemaPropertyToZod` adds `.nullable()` back on top.
+	const type = Array.isArray(schema.type)
+		? (schema.type as string[]).find((t) => t !== 'null')
+		: (schema.type as string | undefined)
+
+	switch (type) {
 		case 'string':
 			return z.string()
 		case 'number':
-		case 'integer':
 			return z.number()
+		case 'integer':
+			return z.number().int()
 		case 'boolean':
 			return z.boolean()
-		case 'array':
-			return z.array(z.unknown())
+		case 'null':
+			return z.null()
+		case 'array': {
+			const items = schema.items
+			// A tuple (`items` as an array) is rare in tool schemas; treat it
+			// as a heterogeneous list rather than pretending to model it.
+			if (Array.isArray(items)) return z.array(z.unknown())
+			return z.array(items === undefined ? z.unknown() : jsonSchemaPropertyToZod(items))
+		}
 		case 'object':
-			return z.record(z.unknown())
+			return objectToZod(schema)
 		default:
 			return z.unknown()
 	}
+}
+
+function enumToZod(values: readonly unknown[]): z.ZodType {
+	if (values.every((v): v is string => typeof v === 'string')) {
+		return z.enum(values as [string, ...string[]])
+	}
+	const literals = values.map((v) => z.literal(v as z.Primitive))
+	return literals.length === 1
+		? (literals[0] as z.ZodType)
+		: z.union(literals as unknown as [z.ZodType, z.ZodType, ...z.ZodType[]])
 }
 
 export function zodToMCPJsonSchema(zodSchema: z.ZodType): MCPJsonSchema {

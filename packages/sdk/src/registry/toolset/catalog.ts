@@ -1,4 +1,3 @@
-import { zodToJsonSchema } from 'zod-to-json-schema'
 import type { ToolRegistryContract } from '../../types/tool/index.js'
 import type { LLMToolSchema, ToolAvailability, ToolDefinition } from '../../types/tool/index.js'
 import type {
@@ -10,6 +9,7 @@ import type {
 	ToolsetDefinition,
 	ToolsetPolicy,
 } from '../../types/toolset/index.js'
+import { renderToolSchema } from '../tool/schema.js'
 
 export interface ToolCatalogSearchOptions {
 	readonly loading?: readonly ToolLoadingMode[]
@@ -226,10 +226,7 @@ function toolDefinitionToLLMTool(definition: ToolDefinition | undefined): LLMToo
 		function: {
 			name: definition.name,
 			description: definition.description,
-			parameters: zodToJsonSchema(definition.inputSchema, {
-				target: 'jsonSchema7',
-				$refStrategy: 'none',
-			}) as Record<string, unknown>,
+			parameters: renderToolSchema(definition.inputSchema),
 		},
 	}
 }

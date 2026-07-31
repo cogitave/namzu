@@ -1,5 +1,4 @@
 import { SpanStatusCode, context as otelContext, trace } from '@opentelemetry/api'
-import { zodToJsonSchema } from 'zod-to-json-schema'
 import { GENAI, NAMZU, toolSpanName } from '../../telemetry/attributes.js'
 import { getTracer } from '../../telemetry/runtime-accessors.js'
 import type {
@@ -13,6 +12,7 @@ import type {
 } from '../../types/tool/index.js'
 import { toErrorMessage } from '../../utils/error.js'
 import { ManagedRegistry } from '../ManagedRegistry.js'
+import { renderToolSchema } from './schema.js'
 
 export type { ToolExecutionResult }
 
@@ -279,10 +279,7 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 				function: {
 					name: tool.name,
 					description,
-					parameters: zodToJsonSchema(tool.inputSchema, {
-						target: 'jsonSchema7',
-						$refStrategy: 'none',
-					}) as Record<string, unknown>,
+					parameters: renderToolSchema(tool.inputSchema),
 				},
 			}
 		})
@@ -475,10 +472,7 @@ export function toolDiscoveryHint(description: string, maxLength = 100): string 
  */
 function listArgumentNames(tool: ToolDefinition): string[] {
 	try {
-		const json = zodToJsonSchema(tool.inputSchema, {
-			target: 'jsonSchema7',
-			$refStrategy: 'none',
-		}) as { properties?: Record<string, unknown> }
+		const json = renderToolSchema(tool.inputSchema) as { properties?: Record<string, unknown> }
 		return Object.keys(json.properties ?? {}).map((key) => key.toLowerCase())
 	} catch {
 		return []
@@ -499,7 +493,7 @@ function listArgumentNames(tool: ToolDefinition): string[] {
  */
 function describeRequiredInput(schema: { _def?: unknown }): string {
 	try {
-		const json = zodToJsonSchema(schema as never) as {
+		const json = renderToolSchema(schema as never) as {
 			properties?: Record<string, { type?: string; description?: string }>
 			required?: string[]
 		}
