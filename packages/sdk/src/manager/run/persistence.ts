@@ -202,6 +202,26 @@ export class RunPersistence {
 		}
 	}
 
+	/**
+	 * Seed the spend counters from a checkpoint so a resumed run continues
+	 * its budget instead of starting a fresh one.
+	 *
+	 * Without this, a run checkpointed at $4.80 of a $5 cap came back with a
+	 * brand-new $5: a task that parked five times spent 5x its cap while
+	 * every invocation truthfully reported itself in budget. The checkpoint
+	 * already persisted all three values — they were written and discarded
+	 * on the way back in.
+	 *
+	 * Restore, not accumulate: the caller holds a checkpoint's absolute
+	 * totals, and adding them to a freshly-zeroed run would be the same
+	 * arithmetic only by accident.
+	 */
+	restoreUsage(tokenUsage: TokenUsage, costInfo: CostInfo, currentIteration: number): void {
+		this.run.tokenUsage = { ...tokenUsage }
+		this.run.costInfo = { ...costInfo }
+		this.run.currentIteration = currentIteration
+	}
+
 	private resolveResult(): void {
 		// Walk the tail of the message log to assemble the final
 		// assistant output. The iteration loop's auto-continuation

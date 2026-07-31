@@ -1,5 +1,6 @@
 import type { CompactionConfig } from '../config/runtime.js'
 import { collect } from '../provider/collect.js'
+import type { TokenUsage } from '../types/common/index.js'
 import type { Message } from '../types/message/index.js'
 import type { LLMProvider } from '../types/provider/interface.js'
 import type { WorkingStateManager } from './manager.js'
@@ -42,11 +43,23 @@ function truncateMessages(messages: Message[], budget: number): string {
 	return lines.join('\n\n')
 }
 
+/**
+ * Narrow sink for the tokens a side-channel model call spends.
+ *
+ * The verifier runs outside the iteration loop, so its usage never reached
+ * `runMgr.accumulateUsage` and the guard could not see it — and it fires
+ * exactly when the context is largest, making it the most expensive call
+ * the run does not count. A one-method sink keeps the compaction layer
+ * from depending on `RunPersistence`.
+ */
+export type UsageSink = (usage: TokenUsage) => void
+
 export async function buildVerifiedSummary(
 	manager: WorkingStateManager,
 	olderMessages: Message[],
 	provider: LLMProvider,
 	config: CompactionConfig,
+	onUsage?: UsageSink,
 ): Promise<string> {
 	const serialized = serializeState(manager.getState())
 
@@ -83,6 +96,8 @@ export async function buildVerifiedSummary(
 			temperature: 0,
 		}),
 	)
+
+	onUsage?.(response.usage)
 
 	const responseText = response.message.content?.trim() ?? ''
 

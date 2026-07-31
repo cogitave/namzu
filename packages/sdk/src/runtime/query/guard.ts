@@ -7,6 +7,15 @@ export interface GuardConfig {
 	timeoutMs: number
 	costLimitUsd?: number
 	maxIterations?: number
+	/**
+	 * Wall-clock already consumed by this run before the current process
+	 * picked it up, from `IterationCheckpoint.guardState.elapsedMs`.
+	 *
+	 * The timeout budget is a property of the RUN, not of the process
+	 * hosting it. Without the offset a run resumed from a checkpoint got a
+	 * fresh clock every time, so N resumes bought N x `timeoutMs`.
+	 */
+	elapsedMsOffset?: number
 }
 
 export interface GuardCheckResult {
@@ -27,7 +36,23 @@ export class GuardCoordinator {
 			config.costLimitUsd,
 			config.maxIterations,
 		)
-		this.startTime = Date.now()
+		// Backdating the start is how elapsed time carries across a resume:
+		// every downstream check reads `Date.now() - startTime`, so one
+		// subtraction here covers the hard stop and the warning threshold
+		// alike.
+		this.startTime = Date.now() - Math.max(0, config.elapsedMsOffset ?? 0)
+	}
+
+	/**
+	 * Adopt a checkpoint's elapsed time after construction.
+	 *
+	 * The guard is built before the checkpoint is read (restore is async and
+	 * happens inside the run generator), so the resume path cannot pass
+	 * `elapsedMsOffset` to the constructor. Rather than reorder setup around
+	 * one field, let the resume branch hand it over.
+	 */
+	restoreElapsed(elapsedMs: number): void {
+		this.startTime = Date.now() - Math.max(0, elapsedMs)
 	}
 
 	beforeIteration(runMgr: RunPersistence, abortSignal: AbortSignal): GuardCheckResult {

@@ -125,7 +125,13 @@ export async function runCompactionCheck(ctx: IterationContext): Promise<void> {
 	let compactedContent: string
 
 	if (config.llmVerification && manager.slotCount() < config.richStateThreshold) {
-		compactedContent = await buildVerifiedSummary(manager, olderMessages, ctx.provider, config)
+		compactedContent = await buildVerifiedSummary(
+			manager,
+			olderMessages,
+			ctx.provider,
+			config,
+			(usage) => ctx.runMgr.accumulateUsage(usage),
+		)
 	} else {
 		compactedContent = serializeState(manager.getState())
 	}

@@ -511,6 +511,27 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				})
 				yield* eventTranslator.drainPending()
 
+				// Budgets are properties of the RUN, not of the process hosting
+				// it. The checkpoint already carried all three; they were
+				// written and then discarded on the way back in, so a run
+				// recalled at $4.80 of a $5 cap came back with a fresh $5 and
+				// a fresh timeout clock. Restore before the first iteration so
+				// a resumed run that is already over budget stops immediately.
+				ctx.runMgr.restoreUsage(
+					checkpoint.tokenUsage,
+					checkpoint.costInfo,
+					checkpoint.guardState.iterationCount,
+				)
+				guard.restoreElapsed(checkpoint.guardState.elapsedMs)
+				ctx.log.info('Restored budgets from checkpoint', {
+					runId: ctx.runMgr.id,
+					checkpointId: checkpoint.id,
+					totalTokens: checkpoint.tokenUsage.totalTokens,
+					totalCost: checkpoint.costInfo.totalCost,
+					iteration: checkpoint.guardState.iterationCount,
+					elapsedMs: checkpoint.guardState.elapsedMs,
+				})
+
 				pushSystemMessages()
 
 				// A checkpoint taken at a tool-review park snapshots the

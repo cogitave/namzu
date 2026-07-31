@@ -110,6 +110,14 @@ export async function runAdvisoryPhase(
 
 		advisoryCtx.evaluator.recordFiring(trigger.id, iterationNum)
 
+		// An advisory call is a real model call on the run's dime. It was
+		// recorded into `callHistory` for reporting but never reached
+		// `runMgr.tokenUsage`, so the guard could not see it: a run with
+		// `tokenBudget: 200_000` and an `on_error` trigger could send well
+		// past 200k and never trip `token_budget`. The usage is already in
+		// hand — this just tells the accountant about it.
+		ctx.runMgr.accumulateUsage(executionResult.usage)
+
 		advisoryCtx.recordCall({
 			advisorId: advisor.id,
 			triggerId: trigger.id,

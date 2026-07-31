@@ -142,6 +142,9 @@ function makeCtx(options: MockCtxOptions = {}): {
 		runMgr: {
 			id: 'run_1' as RunId,
 			messages: [],
+			// An advisory call is a billed model call on the run's budget;
+			// the phase now reports it so the guard can see it.
+			accumulateUsage: vi.fn(),
 			tokenUsage: {
 				promptTokens: 0,
 				completionTokens: 0,
