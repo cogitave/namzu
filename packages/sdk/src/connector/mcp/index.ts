@@ -19,3 +19,7 @@ export { MCPConnectorBridge } from '../../bridge/mcp/connector/adapter.js'
 
 export { MCPServer } from './server.js'
 export type { MCPServerToolProvider, MCPServerResourceProvider } from './server.js'
+
+export type { MCPToolDiscoveryOptions } from './discovery.js'
+export { applyToolPolicy, diffTools, hasDrift, toolsHash } from './policy.js'
+export type { MCPToolDrift, MCPToolPolicy, MCPToolPolicyDecision } from './policy.js'

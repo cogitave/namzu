@@ -25,6 +25,7 @@ import {
 	DEFAULT_MCP_REQUEST_TIMEOUT_MS,
 	JSON_RPC_METHOD_NOT_FOUND,
 	MCP_PROTOCOL_VERSION,
+	MCP_SUPPORTED_PROTOCOL_VERSIONS,
 } from '../../constants/mcp/index.js'
 import { VERSION } from '../../version.js'
 
@@ -86,6 +87,24 @@ export class MCPClient {
 				capabilities: this.config.capabilities ?? {},
 				clientInfo: this.config.clientInfo ?? NAMZU_CLIENT_INFO,
 			})) as MCPInitializeResult
+
+			// The server answers with the version IT will speak, which need
+			// not be the one we asked for. Ignoring that answer — as this did
+			// — makes an unspeakable version look like a healthy connection
+			// until something downstream breaks in a confusing way.
+			const negotiated = result.protocolVersion
+			if (negotiated && !MCP_SUPPORTED_PROTOCOL_VERSIONS.includes(negotiated)) {
+				throw new Error(
+					`MCP server "${this.config.serverName}" negotiated protocol version "${negotiated}", ` +
+						`which this client cannot speak (supported: ${MCP_SUPPORTED_PROTOCOL_VERSIONS.join(', ')}).`,
+				)
+			}
+			if (negotiated && negotiated !== MCP_PROTOCOL_VERSION) {
+				this.log.info('MCP server negotiated a different protocol version', {
+					requested: MCP_PROTOCOL_VERSION,
+					negotiated,
+				})
+			}
 
 			this.serverInfo = result.serverInfo
 			this.serverCapabilities = result.capabilities
