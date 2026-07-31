@@ -10,6 +10,10 @@ export type StopReason =
 	| 'stop_condition'
 	/** The model never produced a valid structured output within its retries. */
 	| 'structured_output_failed'
+	/** An input guardrail refused the run before it started. */
+	| 'input_guardrail'
+	/** An output guardrail refused the produced result. */
+	| 'output_guardrail'
 	| 'paused'
 	| 'error'
 

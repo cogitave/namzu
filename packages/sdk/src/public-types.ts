@@ -165,3 +165,4 @@ export type {
 	WorkingState,
 } from './compaction/index.js'
 export type * from './eval/index.js'
+export type * from './types/guardrail/index.js'

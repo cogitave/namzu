@@ -66,6 +66,17 @@ const MAPPING: {
 		}),
 	},
 
+	guardrail_triggered: {
+		wire: 'guardrail.triggered',
+		transform: (e, runId) => ({
+			run_id: runId,
+			stage: e.stage,
+			action: e.action,
+			guardrail: e.guardrail,
+			reason: e.reason,
+		}),
+	},
+
 	compaction_completed: {
 		wire: 'compaction.completed',
 		transform: (e, runId) => ({

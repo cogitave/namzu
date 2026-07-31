@@ -144,6 +144,21 @@ type CoreRunEvent =
 			runId: RunId
 			fromCheckpointId: CheckpointId
 	  }
+	/**
+	 * A guardrail blocked or rewrote the run.
+	 *
+	 * Emitted so a host can show WHY a run refused, and — for a rewrite —
+	 * so a consumer that already rendered `text_delta` events knows the
+	 * text it displayed has been corrected.
+	 */
+	| {
+			type: 'guardrail_triggered'
+			runId: RunId
+			stage: 'input' | 'output'
+			action: 'block' | 'rewrite'
+			guardrail?: string
+			reason?: string
+	  }
 	| { type: 'run_completed'; runId: RunId; result: string }
 	| { type: 'run_failed'; runId: RunId; error: string }
 	// Additive 2026-07 (provider capability negotiation): emitted once per

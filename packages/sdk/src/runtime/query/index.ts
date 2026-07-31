@@ -27,6 +27,7 @@ import type { AdvisoryConfig } from '../../types/advisory/index.js'
 import type { AgentRuntimeContext, RuntimeToolOverrides } from '../../types/agent/base.js'
 import type { AgentContextLevel } from '../../types/agent/factory.js'
 import type { WorkingMemoryProvider } from '../../types/agent/working-memory.js'
+import type { InputGuardrailSpec, OutputGuardrailSpec } from '../../types/guardrail/index.js'
 import {
 	type CheckpointId,
 	type ResumeHandler,
@@ -61,6 +62,7 @@ import type { ContextCache } from './context-cache.js'
 import { RunContextFactory } from './context.js'
 import { EventTranslator } from './events.js'
 import { GuardCoordinator } from './guard.js'
+import { runInputGuardrails, runOutputGuardrails } from './guardrails.js'
 import { IterationOrchestrator } from './iteration/index.js'
 import { isCompactionMessage } from './iteration/phases/compaction.js'
 import { isWorkingMemoryMessage } from './iteration/phases/working-memory.js'
@@ -148,6 +150,26 @@ export interface QueryParams {
 	 * nothing forced the call, and nothing stopped the loop when it came.
 	 */
 	structuredOutput?: StructuredOutputConfig
+
+	/**
+	 * Checks run BEFORE the first model call. A block settles the run as
+	 * `input_guardrail` having spent nothing.
+	 *
+	 * namzu's three tool gates all point one way — they protect the world
+	 * from the agent. These are the other direction.
+	 */
+	inputGuardrails?: readonly InputGuardrailSpec[]
+
+	/**
+	 * Checks run against the FINAL result. A block settles the run as
+	 * `output_guardrail`; a `rewrite` replaces the text (so a PII policy
+	 * can redact rather than discard the whole answer).
+	 *
+	 * These gate the result, not the stream: `text_delta` events already
+	 * reached the host, so a rewrite arrives as a correction alongside a
+	 * `guardrail_triggered` event.
+	 */
+	outputGuardrails?: readonly OutputGuardrailSpec[]
 	tools: ToolRegistryContract
 	runConfig: AgentRunConfig
 	allowedTools?: string[]
@@ -781,6 +803,35 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				}
 			}
 
+			// Before the first model call: the cheapest place to refuse, since
+			// nothing has been spent. Previously unreachable — `run_start`
+			// fires with only `{ runId }` and `run_started` carries only the
+			// system prompt, so no hook could see the user's message.
+			const inputVerdict = await runInputGuardrails(
+				params.inputGuardrails,
+				{
+					runId: ctx.runId,
+					messages: ctx.runMgr.messages,
+					...(segments?.static ? { systemPrompt: segments.static } : {}),
+				},
+				ctx.log,
+			)
+			if (inputVerdict.blocked) {
+				await eventTranslator.emitEvent({
+					type: 'guardrail_triggered',
+					runId: ctx.runId,
+					stage: 'input',
+					action: 'block',
+					...(inputVerdict.name ? { guardrail: inputVerdict.name } : {}),
+					...(inputVerdict.reason ? { reason: inputVerdict.reason } : {}),
+				})
+				yield* eventTranslator.drainPending()
+				ctx.runMgr.setStopReason('input_guardrail')
+				ctx.runMgr.setLastError(inputVerdict.reason ?? 'blocked by an input guardrail')
+				yield* resultAssembler.completeRun(rootSpan)
+				return ctx.runMgr.getRun()
+			}
+
 			yield* iterationOrchestrator.runLoop()
 
 			if (params.pluginManager) {
@@ -796,6 +847,47 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			// Hand the step record to the run before it settles, so the
 			// returned `Run` carries it.
 			ctx.runMgr.setSteps(iterationOrchestrator.getSteps())
+
+			// Gates the FINAL result, not the stream — `text_delta` already
+			// reached the host as the model produced it. A rewrite is
+			// therefore a correction, and the event says so; buffering every
+			// token to gate the stream itself would trade the streaming UX
+			// for the guarantee, which is the host's call, not the SDK's.
+			if (params.outputGuardrails && params.outputGuardrails.length > 0) {
+				ctx.runMgr.markCompleted(ctx.runMgr.stopReason)
+				const produced = ctx.runMgr.getRun().result ?? ''
+				const outputVerdict = await runOutputGuardrails(
+					params.outputGuardrails,
+					{ runId: ctx.runId, output: produced, messages: ctx.runMgr.messages },
+					ctx.log,
+				)
+
+				if (outputVerdict.blocked) {
+					await eventTranslator.emitEvent({
+						type: 'guardrail_triggered',
+						runId: ctx.runId,
+						stage: 'output',
+						action: 'block',
+						...(outputVerdict.name ? { guardrail: outputVerdict.name } : {}),
+						...(outputVerdict.reason ? { reason: outputVerdict.reason } : {}),
+					})
+					yield* eventTranslator.drainPending()
+					ctx.runMgr.setStopReason('output_guardrail')
+					ctx.runMgr.setLastError(outputVerdict.reason ?? 'blocked by an output guardrail')
+					ctx.runMgr.setResult('')
+				} else if (outputVerdict.rewritten !== undefined) {
+					await eventTranslator.emitEvent({
+						type: 'guardrail_triggered',
+						runId: ctx.runId,
+						stage: 'output',
+						action: 'rewrite',
+						...(outputVerdict.name ? { guardrail: outputVerdict.name } : {}),
+						...(outputVerdict.reason ? { reason: outputVerdict.reason } : {}),
+					})
+					yield* eventTranslator.drainPending()
+					ctx.runMgr.setResult(outputVerdict.rewritten)
+				}
+			}
 
 			yield* resultAssembler.completeRun(rootSpan)
 		} catch (err) {

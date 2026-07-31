@@ -241,6 +241,16 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				})
 				break
 
+			case 'guardrail_triggered':
+				log.warn('Guardrail triggered', {
+					runId: event.runId,
+					stage: event.stage,
+					action: event.action,
+					guardrail: event.guardrail,
+					reason: event.reason,
+				})
+				break
+
 			case 'compaction_completed':
 				log.info('Context compacted', {
 					runId: event.runId,

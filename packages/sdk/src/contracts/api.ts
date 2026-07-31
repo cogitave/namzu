@@ -148,6 +148,8 @@ export type StreamEventType =
 	 * transcript needs to know its middle was dropped, not infer it.
 	 */
 	| 'compaction.completed'
+	/** A guardrail refused or corrected the run. */
+	| 'guardrail.triggered'
 	/**
 	 * Extended-thinking lifecycle. Wire-visible because without it a
 	 * client renders a multi-second stall with no events while the model

@@ -445,3 +445,10 @@ export {
 	stepBudgetScorer,
 	trajectoryScorer,
 } from './eval/index.js'
+
+// ─── guardrails ──────────────────────────────────────────────────────────
+
+export {
+	promptInjectionGuardrail,
+	secretRedactionGuardrail,
+} from './runtime/query/guardrail-presets.js'

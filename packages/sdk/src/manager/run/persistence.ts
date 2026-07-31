@@ -235,6 +235,17 @@ export class RunPersistence {
 	 * having to reconstruct it from raw events.
 	 */
 	/** Record the validated structured output on the run. */
+	/**
+	 * Override the assembled result.
+	 *
+	 * Used by the output-guardrail rewrite path: the run produced text, a
+	 * policy corrected it, and the corrected text is what `run_completed`
+	 * and `Run.result` must carry.
+	 */
+	setResult(result: string): void {
+		this.run.result = result
+	}
+
 	setStructuredOutput(value: unknown): void {
 		this.run.structuredOutput = value
 	}

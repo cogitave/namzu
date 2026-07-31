@@ -134,6 +134,9 @@ const MAPPING: {
 	// Context management is kernel-internal bookkeeping; A2A peers model a
 	// task lifecycle, not the host runtime's memory strategy.
 	compaction_completed: null,
+	// A refusal is the run's own policy decision; the peer sees it in the
+	// terminal task state, not as a separate signal.
+	guardrail_triggered: null,
 	// Reasoning is kernel-internal: an A2A peer models a task lifecycle,
 	// not the host runtime's inner monologue.
 	reasoning_started: null,
