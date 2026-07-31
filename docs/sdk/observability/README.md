@@ -1,7 +1,7 @@
 ---
 title: Telemetry
 description: Configure tracing and metrics with @namzu/telemetry — OTLP or console exporters, and the built-in platform metrics helpers.
-last_updated: 2026-04-20
+last_updated: 2026-07-31
 status: current
 related_packages: ["@namzu/telemetry", "@namzu/sdk"]
 ---
@@ -160,15 +160,31 @@ try {
 ## 9. What the SDK Already Instruments
 
 Even without custom spans, the SDK runtime already uses the shared
-tracer in core execution paths:
+tracer in core execution paths, and emits them as a **nested hierarchy**
+matching the OpenTelemetry GenAI semantic conventions:
 
-- agent run setup (`runtime/query/index.ts`)
-- iteration execution (`runtime/query/iteration/index.ts`)
-- tool execution (`registry/tool/execute.ts`)
+```
+invoke_agent {agent}          runtime/query/index.ts
+└── namzu.agent.iteration N   runtime/query/iteration/index.ts
+    ├── chat {model}          runtime/query/iteration/stream-turn.ts
+    └── namzu.tool.execute X  registry/tool/execute.ts
+```
+
+The `chat` span carries `gen_ai.operation.name`, the request and response
+model, `gen_ai.response.finish_reasons`, token usage and the cache
+read/write counters — so LLM latency and per-call token attribution land
+where vendor GenAI dashboards look for them.
 
 Telemetry becomes useful as soon as you `await registerTelemetry()` at
 startup; nothing else in your code needs to change to pick up the
 instrumentation already there.
+
+> **Implementation note for contributors.** Span parents are threaded
+> explicitly (`parentContext(span)`), never through the ambient context.
+> Every span-owning body in the run loop is an async generator, and a
+> generator resumes on its *consumer's* async context — so
+> `startActiveSpan` compiles, runs, and silently parents nothing. Before
+> this was fixed, a 20-iteration run emitted 21 disconnected root spans.
 
 ## 10. Common Mistakes
 
@@ -178,6 +194,7 @@ instrumentation already there.
 | constructing `createPlatformMetrics()` before `registerTelemetry` | counters bind to the no-op meter and never rewire |
 | expecting `getTelemetry()` to always return a provider | it returns `null` until registration completes |
 | using custom spans with a different telemetry bootstrap than the SDK | traces fragment across providers |
+| creating a child span with `startActiveSpan` inside an async generator | the ambient parent is gone by the time the body resumes, so the span emits as a root — pass the parent explicitly |
 
 ## Related
 

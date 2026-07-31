@@ -1,7 +1,7 @@
 ---
 title: Runtime
 description: Reference map for the runtime building blocks exposed by @namzu/sdk.
-last_updated: 2026-04-18
+last_updated: 2026-07-31
 status: current
 related_packages: ["@namzu/sdk"]
 ---
@@ -46,9 +46,9 @@ If you are starting fresh, begin with `ReactiveAgent` unless you already know yo
 
 Every provider package plugs into the same `LLMProvider` contract:
 
-- `chat(params)` returns a normalized completion result.
-- `chatStream(params)` yields normalized stream chunks.
-- `listModels()` and `healthCheck()` are optional.
+- `chatStream(params)` yields normalized stream chunks. It is the single entry point — `chat()` was removed. Use `collect(provider.chatStream(...))` when you want an aggregated response.
+- `listModels()`, `healthCheck()` and `doctorCheck()` are optional.
+- `capabilities` declares what the *driver* does with a request (tools mapped? attachments mapped?), so the runtime degrades loudly instead of silently.
 
 This is why you can swap provider packages without rewriting agent setup code.
 
@@ -118,6 +118,7 @@ If you are implementing against the SDK rather than only consuming the public AP
 - [Event Bridges](../integrations/event-bridges.md)
 - [SDK Observability](../observability/README.md)
 - [Tool Safety](../tools/safety.md)
+- [Loop Control and Resilience](./loop-control.md)
 - [SDK Quickstart](../quickstart.md)
 - [Providers Overview](../../providers/README.md)
 - [Computer Use](../../computer-use/README.md)

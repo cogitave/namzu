@@ -126,7 +126,7 @@ const response = await provider.chat({
 console.log(response.message.content)
 ```
 
-The response is `{ id, model, message: { role, content, toolCalls? }, finishReason, usage }`. The kernel installed alone runs against `MockLLMProvider` — pre-registered, no network dependencies, good for tests.
+The response is `{ id, model, message: { role, content, toolCalls? }, finishReason, usage }`. The kernel installed alone runs against `MockLLMProvider` — pre-registered, no network dependencies, and scriptable: give it `turns` and it emits tool calls with the same stream framing a real driver produces.
 
 ## Provider Selection
 

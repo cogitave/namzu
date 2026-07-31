@@ -328,7 +328,7 @@ pnpm add @namzu/sdk
 
 Requirements: Node ≥ 20, TypeScript strict mode, ESM.
 
-The SDK ships the kernel only. Pick an LLM backend by adding a provider package — `@namzu/anthropic`, `@namzu/openai`, `@namzu/ollama`, `@namzu/bedrock`, `@namzu/openrouter`, `@namzu/lmstudio`, or the zero-dep `@namzu/http`. The kernel alone runs against `MockLLMProvider`, which is pre-registered and good for tests.
+The SDK ships the kernel only. Pick an LLM backend by adding a provider package — `@namzu/anthropic`, `@namzu/openai`, `@namzu/ollama`, `@namzu/bedrock`, `@namzu/openrouter`, `@namzu/lmstudio`, or the zero-dep `@namzu/http`. The kernel alone runs against `MockLLMProvider`, which is pre-registered and scriptable — pass `turns` to script tool calls, failures and mid-stream errors. See [Testing Agents](../../docs/sdk/runtime/testing.md).
 
 ## Quick Start
 

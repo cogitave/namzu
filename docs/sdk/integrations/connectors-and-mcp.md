@@ -198,12 +198,36 @@ This is useful when a remote MCP server exposes documents, datasets, or template
 
 ## 8. Available MCP Transport Shapes
 
-The current SDK exports two client transport shapes:
+The current SDK exports these client transport shapes:
 
 | Transport | Use it when... |
 | --- | --- |
 | `stdio` | The MCP server is a child process you spawn locally |
 | `http-sse` | The MCP server is reachable over an HTTP-plus-SSE endpoint |
+| `streamable_http` | The server speaks the Streamable HTTP transport |
+
+### Request deadlines
+
+Every JSON-RPC round trip is bounded by `requestTimeoutMs` (default 30s):
+
+```ts
+const client = new MCPClient({
+  serverName: 'docs-server',
+  transport: { type: 'stdio', command: 'my-mcp-server' },
+  requestTimeoutMs: 15_000,
+})
+```
+
+This matters most on `stdio` — the default for local servers — where a
+wedged server would otherwise leave callers pending forever with no error
+and no `run_failed`: not a crash, just a process that stopped. In-flight
+requests are also rejected when the transport closes or errors, not only
+on an explicit `disconnect()`.
+
+A server-initiated request the client does not implement
+(`sampling/createMessage`, `elicitation/create`, `roots/list`) is answered
+with JSON-RPC `-32601` rather than dropped, so a spec-current server does
+not wait on a reply that will never come.
 
 Typical `http-sse` config shape:
 

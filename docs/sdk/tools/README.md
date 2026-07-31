@@ -1,7 +1,7 @@
 ---
 title: SDK Tools
 description: Define tools, register them in ToolRegistry, and understand built-in tool behavior in @namzu/sdk.
-last_updated: 2026-04-18
+last_updated: 2026-07-31
 status: current
 related_packages: ["@namzu/sdk", "@namzu/computer-use"]
 ---
@@ -52,6 +52,7 @@ const summarizeText = defineTool({
 | `readOnly` | Declares whether the tool should be treated as non-mutating |
 | `destructive` | Signals whether the tool performs a risky action |
 | `concurrencySafe` | Signals whether concurrent execution is safe |
+| `timeoutMs` | Optional per-execution deadline, overriding the run default |
 
 If `execute()` throws, the SDK converts that throw into a structured failed tool result instead of leaking an uncaught error through the tool boundary.
 
@@ -68,6 +69,7 @@ If `execute()` throws, the SDK converts that throw into a structured failed tool
 | `permissionContext` | Runtime permission mode information |
 | `toolRegistry` | Lets tools such as `search_tools` activate deferred tools |
 | `sandbox` | Lets sandbox-aware tools read, write, or execute inside containment |
+| `parentSpan` | Span to parent this tool's OpenTelemetry span to |
 
 This is the boundary between a simple helper function and a real runtime tool.
 
@@ -129,9 +131,33 @@ That gives the runtime:
 - cheap discovery tools immediately
 - stronger mutation tools only when the agent can justify loading them
 
-## 7. Structured Output Tool
+## 7. Structured Output
 
-`createStructuredOutputTool(schema)` is a tool factory used when the final answer must match a schema. Instead of asking the model to format JSON in plain text, the runtime can force the model to call a schema-bound tool.
+Pass `structuredOutput` to `query()` when the final answer must match a schema. The runtime registers a schema-bound tool, validates the call, puts the parsed value on `Run.structuredOutput`, and ends the run there.
+
+```ts
+const run = await runToCompletion(
+  query({
+    provider,
+    tools,
+    structuredOutput: {
+      schema: z.object({
+        verdict: z.enum(['pass', 'fail']),
+        findings: z.array(z.string()),
+      }),
+      // Re-prompts before giving up. Default: 2.
+      maxRetries: 2,
+    },
+    // …
+  }),
+)
+
+run.structuredOutput // { verdict, findings } — already validated
+```
+
+A model that answers in prose instead is re-prompted. If it still will not comply within `maxRetries`, the run settles with `stopReason: 'structured_output_failed'` rather than grinding against `maxIterations` — you get a clear failure instead of an expensive one.
+
+The tool is registered from iteration zero, never injected late. Tools render at prompt-cache prefix position 0, so adding one mid-run would invalidate the cached prefix for every remaining turn.
 
 This is especially useful for:
 
@@ -139,6 +165,37 @@ This is especially useful for:
 - classification outputs
 - MCP-friendly machine-readable responses
 - UI payload generation
+
+`createStructuredOutputTool(schema)` remains exported if you want to register and drive the tool yourself.
+
+## 7a. Tool Results Can Carry More Than Text
+
+`ToolResult.output` is the text form — what the host, the transcript and compaction see. When the model needs something a string cannot carry, set `content` as well:
+
+```ts
+return {
+  success: true,
+  output: 'Screenshot captured (1920x1080, image/png).',
+  content: [
+    { type: 'text', text: 'Screenshot captured.' },
+    { type: 'image', data: base64Png, mediaType: 'image/png' },
+  ],
+}
+```
+
+The two channels are separate on purpose: a host UI wants the description, the model wants the pixels. Drivers that cannot express non-text results (`@namzu/openai`, `@namzu/ollama`) degrade to an explicit `[image: …]` placeholder rather than dumping base64 into the conversation.
+
+Failed results are marked on the wire as well — `is_error` on Anthropic, `status: 'error'` on Bedrock — so the model's tool-failure recovery behavior fires instead of relying on prose formatting.
+
+## 7b. Deadlines and Output Budgets
+
+Two runtime bounds apply to every tool, with no configuration required.
+
+**Deadline.** Tools get 120 seconds by default (`toolTimeoutMs` on `query()`, or `timeoutMs` per tool). On expiry the executor stops waiting and returns a model-visible error result, so the agent can route around a slow dependency instead of losing the turn. `context.abortSignal` fires at the same moment, so a cooperative tool actually stops working — `bash` passes it to the child process.
+
+**Output budget.** A single tool result is capped at 40,000 model-visible characters (`maxToolOutputChars`; `0` disables). Over-budget output is written to `<runDir>/tool-output/<toolUseId>.txt` and replaced with a head+tail preview naming the path, so nothing is lost and tokens are paid only if the agent decides the rest is worth re-reading — with `read` and `grep`, tools it already has.
+
+Relatedly, `read` returns the first 2000 lines when given no window, and says so with a `[PARTIAL view — lines X-Y of Z]` notice naming the exact next call. A truncated read that looks like a short file is the most expensive silent failure a read tool can have.
 
 ## 8. Computer Use Is a Tool Factory, Not a Separate Runtime
 
