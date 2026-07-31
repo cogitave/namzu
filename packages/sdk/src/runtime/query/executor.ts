@@ -206,7 +206,7 @@ export class ToolExecutor {
 		// turn apply one-after-another instead of racing read→modify→write
 		// (which let the last writer clobber the rest). Results are written by
 		// index to preserve the original tool-call order.
-		const results: Array<ToolCallOutcome> = new Array(toolCalls.length)
+		const results: ToolCallOutcome[] = new Array(toolCalls.length)
 		const parallel: Promise<void>[] = []
 		let serial: Promise<void> = Promise.resolve()
 		// Bounded fan-out. A model emitting fifty parallel reads used to open

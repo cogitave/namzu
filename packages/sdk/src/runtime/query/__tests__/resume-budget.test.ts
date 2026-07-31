@@ -116,7 +116,6 @@ describe('RunPersistence.restoreUsage', () => {
 			threadId: 't',
 			projectId: 'p',
 			tenantId: 'tn',
-			// biome-ignore lint/suspicious/noExplicitAny: minimal construction for a unit test
 		} as any)
 
 		mgr.accumulateUsage({

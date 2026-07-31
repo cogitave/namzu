@@ -87,7 +87,7 @@ export function applyToolOutputBudget(opts: ApplyToolOutputBudgetOptions): ToolO
 	const recovery = spillPath
 		? [
 				`The full output was written to: ${spillPath}`,
-				`Read a specific window with \`read\` (offset/limit) or search it with \`grep\`. Do NOT read it whole — that is what exceeded the budget.`,
+				'Read a specific window with `read` (offset/limit) or search it with `grep`. Do NOT read it whole — that is what exceeded the budget.',
 			].join('\n')
 		: 'The full output was not retained. Re-run with a narrower query, a line range, or a filter.'
 
