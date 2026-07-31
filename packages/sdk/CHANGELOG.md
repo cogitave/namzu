@@ -1,5 +1,24 @@
 # Changelog
 
+## 2.0.0
+
+### Major Changes
+
+- 6b0fbfd: Replace the built-in filesystem mutation contracts with one strict canonical
+  shape per tool: `edit` accepts `path`, `old_string`, `new_string`, and optional
+  `replace_all`; `write` accepts `path` and `content`. Remove line insertion and
+  legacy aliases, serialize same-process mutations by resolved path, and document
+  replay-safe marker advancement for bounded long-document writes. Local writes
+  commit through same-directory temp files and atomic rename; sandbox
+  implementations are required to provide the same atomic replacement contract.
+
+### Minor Changes
+
+- 11167dd: Separate runtime tool validation from canonical model-facing JSON Schema,
+  propagate constrained-input hints through the agent loop, and map reviewed
+  schemas to Anthropic strict tool use with capability-aware overrides. The
+  built-in edit tool advertises only canonical arguments.
+
 ## 1.4.0
 
 ### Minor Changes

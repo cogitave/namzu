@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.2.0
+
+### Minor Changes
+
+- 11167dd: Separate runtime tool validation from canonical model-facing JSON Schema,
+  propagate constrained-input hints through the agent loop, and map reviewed
+  schemas to Anthropic strict tool use with capability-aware overrides. The
+  built-in edit tool advertises only canonical arguments.
+
 ## 1.1.2
 
 ### Patch Changes
