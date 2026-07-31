@@ -77,7 +77,7 @@ How Namzu compares, category by category. Framework category tells you what job 
 | Sub-agent spawn (`fork`/`exec`) | ✅ parent/child/depth/budget | via graph | crews | ✅ | ❌ | handoffs |
 | Signal propagation tree | ✅ AbortController + cancelAll | ❌ | ❌ | partial | ❌ | ❌ |
 | Checkpoint + resume | ✅ per-iteration | ✅ per-superstep | ❌ | partial | ❌ | sessions |
-| Emergency save on signal | ✅ `EmergencySaveManager` | ❌ | ❌ | ❌ | ❌ | ❌ |
+| Emergency save on signal | ✅ `EmergencySaveManager` (opt-in) | ❌ | ❌ | ❌ | ❌ | ❌ |
 | Resource quotas (token / cost / time) | ✅ per run + per child | manual | manual | manual | ❌ | manual |
 | Provider prompt cache wired | ✅ `ContextCache` + telemetry | ❌ | ❌ | partial | ❌ | ✅ |
 | Thread ↔ Run separation | ✅ | ❌ | ❌ | ✅ | ❌ | partial |
@@ -215,7 +215,9 @@ The kernel assumes processes crash. Two layers make sure that when they do, you 
 
 **Checkpoints** (`store/run/disk.ts`) are atomic per-iteration snapshots. Each `IterationCheckpoint` captures the run state at a super-step boundary — messages, working state, tool-call state, usage, cost, iteration index. Writes are atomic via write-temp-rename (Convention #8). You can read them, list them, and delete them. A future `Run.replay(runId, { fromCheckpoint })` API will build on top of this; the storage is already there.
 
-**Emergency save** (`manager/run/emergency.ts`) is the kernel's core-dump. `EmergencySaveManager` installs handlers for SIGINT and SIGTERM. When the process is dying, every active run gets its `toEmergencySnapshot()` flushed atomically to an `emergency/` directory. On the next boot you can inspect or resume the saved state. There is no reliance on the user remembering to catch signals; the kernel does it.
+**Emergency save** (`manager/run/emergency.ts`) is the kernel's core-dump. Pass `emergencySave: true` to `query()` and `EmergencySaveManager` installs handlers for SIGINT, SIGTERM and `uncaughtException`; when the process is dying the run's `toEmergencySnapshot()` is flushed atomically to an `emergency/` directory, and `replay({ fromCheckpoint: 'emergency' })` reads it back. The handlers are removed when the run settles.
+
+It is **opt-in on purpose.** Attaching means calling `process.on(...)` with handlers that `process.exit()` — a library must not seize a host's termination path by default, and the manager is a singleton, so with concurrent runs the last one to attach would silently become the only one saved. Turn it on for a process that owns its run end to end (a CLI, a single-run worker); leave it off inside a server that has its own drain sequence.
 
 Together these give Namzu durable execution without requiring a database. Runs resume across crashes, across reboots, across graceful shutdowns.
 

@@ -8,6 +8,7 @@ import { findDanglingMessages, removeDanglingMessages } from '../../compaction/d
 import { extractFromUserMessage } from '../../compaction/extractor.js'
 import { WorkingStateManager } from '../../compaction/manager.js'
 import type { CompactionConfig } from '../../config/runtime.js'
+import { EmergencySaveManager } from '../../manager/run/emergency.js'
 import { resolveProviderCapabilities } from '../../provider/capabilities.js'
 import { type ProviderRetryConfig, withProviderRetry } from '../../provider/retry.js'
 import type { PathBuilder } from '../../session/workspace/path-builder.js'
@@ -71,6 +72,26 @@ export interface QueryParams {
 	 * see `withProviderRetry`.
 	 */
 	retry?: Partial<ProviderRetryConfig> | false
+
+	/**
+	 * Install process-level crash handlers that dump this run's state to
+	 * `<runDir>/../emergency/<runId>.json` on SIGINT, SIGTERM or an
+	 * uncaught exception. `replay({ fromCheckpoint: 'emergency' })` reads
+	 * that file.
+	 *
+	 * **Off by default, and it must stay that way.** `attach` registers
+	 * `process.on(...)` handlers that call `process.exit()`. A library
+	 * seizing a host's termination path is an overreach in any embedded
+	 * context (an API server has its own drain sequence), and the manager
+	 * is a singleton whose `attach` detaches whoever held it before — so
+	 * with concurrent runs the last one to start would silently become the
+	 * only one that gets saved.
+	 *
+	 * Turn it on for a process the run owns end-to-end: a CLI, a worker
+	 * that handles one run at a time. The handlers are removed when the
+	 * run settles.
+	 */
+	emergencySave?: boolean
 	tools: ToolRegistryContract
 	runConfig: AgentRunConfig
 	allowedTools?: string[]
@@ -457,6 +478,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		})
 
 		let sandbox: Sandbox | undefined
+		let emergencyManager: EmergencySaveManager | undefined
 
 		try {
 			await ctx.runMgr.init()
@@ -658,6 +680,21 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				})
 			}
 
+			// Crash-save handlers live for exactly the run's lifetime, and are
+			// removed in the `finally` below. Opt-in — see `emergencySave`.
+			if (params.emergencySave) {
+				const runDir = ctx.runMgr.getRunDir()
+				if (runDir) {
+					emergencyManager = EmergencySaveManager.instance(ctx.log)
+					emergencyManager.attach(ctx.runMgr, runDir, ctx.log)
+				} else {
+					ctx.log.warn(
+						'emergencySave requested but the run has no output directory — crash dumps disabled',
+						{ runId: ctx.runId },
+					)
+				}
+			}
+
 			yield* iterationOrchestrator.runLoop()
 
 			if (params.pluginManager) {
@@ -674,6 +711,12 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		} catch (err) {
 			yield* resultAssembler.handleError(err, rootSpan)
 		} finally {
+			// Release the process's termination path as soon as this run is
+			// done with it. Leaving the handlers installed would keep a
+			// WeakRef'd, settled run as the crash target for the rest of the
+			// process's life.
+			emergencyManager?.detach()
+
 			// --- Sandbox lifecycle: destroy after run ---
 			if (sandbox) {
 				const sandboxId = sandbox.id

@@ -534,6 +534,10 @@ async function* runTurn(
 			...(taskGateway ? { taskGateway } : {}),
 			verificationGate: VERIFICATION_GATE,
 			compactionConfig: COMPACTION_CONFIG,
+			// The CLI owns its process end to end, so it can safely hand the
+			// termination path to the kernel: a Ctrl-C mid-run now leaves a
+			// dump under .namzu/emergency/ instead of losing the turn.
+			emergencySave: true,
 			runConfig: {
 				model,
 				timeoutMs: 600_000,
