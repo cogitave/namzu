@@ -164,3 +164,4 @@ export type {
 	ToolResultSlot,
 	WorkingState,
 } from './compaction/index.js'
+export type * from './eval/index.js'

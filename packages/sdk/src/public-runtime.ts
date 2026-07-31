@@ -431,3 +431,17 @@ export {
 // ─── loop control ────────────────────────────────────────────────────────
 
 export { anyOf, hasToolCall, stepCountIs } from './types/run/step.js'
+
+// ─── evaluation harness ──────────────────────────────────────────────────
+
+export {
+	completionScorer,
+	containsScorer,
+	customScorer,
+	evalRunFromQuery,
+	evalRunFromRun,
+	formatReport,
+	runExperiment,
+	stepBudgetScorer,
+	trajectoryScorer,
+} from './eval/index.js'
