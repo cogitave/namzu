@@ -377,6 +377,9 @@ export {
 	createAssistantMessage,
 	createSystemMessage,
 	createToolMessage,
+	hasNonTextBlocks,
+	toToolResultBlocks,
+	toolResultToText,
 	createUserMessage,
 } from './types/message/index.js'
 export { isTerminalPlanStatus } from './types/plan/index.js'

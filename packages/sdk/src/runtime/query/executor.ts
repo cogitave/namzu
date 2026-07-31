@@ -8,7 +8,12 @@ import { type ProbeRegistry, probe as defaultProbeRegistry } from '../../probe/r
 import type { ActivityStore } from '../../store/activity/memory.js'
 import type { RunId } from '../../types/ids/index.js'
 import type { InvocationState } from '../../types/invocation/index.js'
-import { type Message, type ToolCall, createToolMessage } from '../../types/message/index.js'
+import {
+	type Message,
+	type ToolCall,
+	type ToolResultContent,
+	createToolMessage,
+} from '../../types/message/index.js'
 import type { PermissionMode } from '../../types/permission/index.js'
 import type { PluginHookResult } from '../../types/plugin/index.js'
 import type { ChatCompletionResponse } from '../../types/provider/index.js'
@@ -76,9 +81,19 @@ type PreToolHookOutcome =
 	| { kind: 'skip'; input: unknown; output: string }
 	| { kind: 'error'; input: unknown; output: string }
 
+/** What one tool call produced, before it becomes a message. */
+export interface ToolCallOutcome {
+	toolCallId: string
+	/** Text form — what the host, the transcript and compaction see. */
+	output: string
+	/** Rich form for the model, when the tool supplied one. */
+	content?: ToolResultContent
+	isError?: boolean
+}
+
 export interface ToolExecutionBatch {
 	messages: Message[]
-	results: Array<{ toolCallId: string; output: string }>
+	results: ToolCallOutcome[]
 }
 
 /**
@@ -191,7 +206,7 @@ export class ToolExecutor {
 		// turn apply one-after-another instead of racing read→modify→write
 		// (which let the last writer clobber the rest). Results are written by
 		// index to preserve the original tool-call order.
-		const results: Array<{ toolCallId: string; output: string }> = new Array(toolCalls.length)
+		const results: Array<ToolCallOutcome> = new Array(toolCalls.length)
 		const parallel: Promise<void>[] = []
 		let serial: Promise<void> = Promise.resolve()
 		// Bounded fan-out. A model emitting fifty parallel reads used to open
@@ -238,7 +253,13 @@ export class ToolExecutor {
 		})
 		await Promise.all([...parallel, serial])
 
-		const messages: Message[] = results.map((r) => createToolMessage(r.output, r.toolCallId))
+		// isError and rich content were computed and then discarded here: the
+		// tuple narrowed to {toolCallId, output} BEFORE the message was built,
+		// so the failure signal and any image block were structurally lost at
+		// the last possible moment.
+		const messages: Message[] = results.map((r) =>
+			createToolMessage(r.content ?? r.output, r.toolCallId, r.isError),
+		)
 
 		return { messages, results }
 	}
@@ -267,7 +288,7 @@ export class ToolExecutor {
 	private async executeSingle(
 		toolCall: ToolCall,
 		toolContext: ToolContext,
-	): Promise<{ toolCallId: string; output: string }> {
+	): Promise<ToolCallOutcome> {
 		const toolName = toolCall.function.name
 
 		if (toolCall.metadata?.inputTruncated === true) {
@@ -287,7 +308,7 @@ export class ToolExecutor {
 				result: message,
 				isError: true,
 			})
-			return { toolCallId: toolCall.id, output: message }
+			return { toolCallId: toolCall.id, output: message, isError: true }
 		}
 
 		let input: unknown
@@ -315,7 +336,7 @@ export class ToolExecutor {
 				result: message,
 				isError: true,
 			})
-			return { toolCallId: toolCall.id, output: message }
+			return { toolCallId: toolCall.id, output: message, isError: true }
 		}
 
 		const preOutcome = await this.runPreToolHook(toolName, input)
@@ -684,10 +705,7 @@ export class ToolExecutor {
 	 * execution so UI cards reach a terminal state instead of hanging in
 	 * `executing`, and records a failed activity for the trace.
 	 */
-	private async recordDenial(
-		toolCall: ToolCall,
-		reason: string,
-	): Promise<{ toolCallId: string; output: string }> {
+	private async recordDenial(toolCall: ToolCall, reason: string): Promise<ToolCallOutcome> {
 		const toolName = toolCall.function.name
 		let input: unknown = {}
 		try {
@@ -733,7 +751,7 @@ export class ToolExecutor {
 			isError: true,
 		})
 
-		return { toolCallId: toolCall.id, output }
+		return { toolCallId: toolCall.id, output, isError: true }
 	}
 
 	private async recordSyntheticHookOutcome(
@@ -741,7 +759,7 @@ export class ToolExecutor {
 		toolName: string,
 		input: unknown,
 		outcome: { kind: 'skip' | 'error'; output: string },
-	): Promise<{ toolCallId: string; output: string }> {
+	): Promise<ToolCallOutcome> {
 		const activity = this.activityStore.create({
 			type: 'tool_call',
 			description: toolName,
@@ -772,7 +790,7 @@ export class ToolExecutor {
 			result: outcome.output,
 			isError: outcome.kind === 'error',
 		})
-		return { toolCallId, output: outcome.output }
+		return { toolCallId, output: outcome.output, isError: outcome.kind === 'error' }
 	}
 
 	private maybeCompress(toolName: string, output: string): string {

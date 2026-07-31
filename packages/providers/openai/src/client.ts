@@ -8,6 +8,7 @@ import type {
 	TokenUsage,
 	ToolChoice,
 } from '@namzu/sdk'
+import { toolResultToText } from '@namzu/sdk'
 import OpenAI from 'openai'
 import type {
 	ChatCompletionContentPart,
@@ -112,9 +113,12 @@ export function toOpenAIMessages(
 			return { role: 'user', content: msg.content }
 		}
 		if (msg.role === 'tool') {
+			// Chat Completions tool messages are text-only on the wire, so a
+			// non-text block degrades to an honest placeholder rather than
+			// having its base64 payload dumped as text.
 			return {
 				role: 'tool',
-				content: msg.content,
+				content: toolResultToText(msg.content),
 				tool_call_id: msg.toolCallId,
 			}
 		}

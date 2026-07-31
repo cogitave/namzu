@@ -86,7 +86,45 @@ interface AnthropicToolUseBlock {
 interface AnthropicToolResultBlock {
 	type: 'tool_result'
 	tool_use_id: string
-	content: string
+	/**
+	 * Anthropic accepts a string OR an array of text/image blocks here.
+	 * namzu only ever sent a string, which is why a `computer-use`
+	 * screenshot reached the model as base64 TEXT.
+	 */
+	content: string | Array<AnthropicTextBlock | AnthropicImageBlock | AnthropicDocumentBlock>
+	/**
+	 * Anthropic prescribes `is_error: true` so the model recognises a
+	 * failure and retries. namzu computed this and then dropped it at the
+	 * provider boundary, leaving prose formatting to convey failure.
+	 */
+	is_error?: boolean
+	cache_control?: AnthropicCacheControl
+}
+
+interface AnthropicDocumentBlock {
+	type: 'document'
+	source: { type: 'base64'; media_type: string; data: string }
+	title?: string
+	cache_control?: AnthropicCacheControl
+}
+
+/**
+ * Extended-thinking blocks. Opaque to namzu: parsed, stored and replayed
+ * verbatim, never interpreted. The signature is load-bearing — Anthropic
+ * requires the preceding assistant turn to be echoed back unchanged when a
+ * `tool_result` follows, and a rebuilt turn triggers ordering/signature
+ * errors.
+ */
+interface AnthropicThinkingBlock {
+	type: 'thinking'
+	thinking: string
+	signature?: string
+	cache_control?: AnthropicCacheControl
+}
+
+interface AnthropicRedactedThinkingBlock {
+	type: 'redacted_thinking'
+	data: string
 	cache_control?: AnthropicCacheControl
 }
 
@@ -114,6 +152,9 @@ type AnthropicContentBlock =
 	| AnthropicToolUseBlock
 	| AnthropicToolResultBlock
 	| AnthropicImageBlock
+	| AnthropicDocumentBlock
+	| AnthropicThinkingBlock
+	| AnthropicRedactedThinkingBlock
 
 interface AnthropicMessageParam {
 	role: 'user' | 'assistant'
@@ -148,7 +189,10 @@ function extractSystem(
 	return blocks
 }
 
-function toAnthropicMessages(messages: ChatCompletionParams['messages']): AnthropicMessageParam[] {
+/** Exported for the wire-shape tests; not part of the package surface. */
+export function toAnthropicMessages(
+	messages: ChatCompletionParams['messages'],
+): AnthropicMessageParam[] {
 	const out: AnthropicMessageParam[] = []
 	let pendingToolResults: AnthropicToolResultBlock[] = []
 
@@ -163,12 +207,15 @@ function toAnthropicMessages(messages: ChatCompletionParams['messages']): Anthro
 		if (msg.role === 'system') continue
 
 		if (msg.role === 'tool') {
-			const toolMsg = msg as { toolCallId?: string; content?: unknown }
+			const toolMsg = msg as { toolCallId?: string; content?: unknown; isError?: boolean }
 			pendingToolResults.push({
 				type: 'tool_result',
 				tool_use_id: toolMsg.toolCallId ?? 'unknown',
-				content:
-					typeof toolMsg.content === 'string' ? toolMsg.content : JSON.stringify(toolMsg.content),
+				content: toAnthropicToolResultContent(toolMsg.content),
+				// Anthropic prescribes this so the model recognises the
+				// failure and retries; the runtime has always known it and
+				// used to discard it exactly here.
+				...(toolMsg.isError === true ? { is_error: true } : {}),
 			})
 			continue
 		}
@@ -177,6 +224,23 @@ function toAnthropicMessages(messages: ChatCompletionParams['messages']): Anthro
 
 		if (msg.role === 'assistant' && 'toolCalls' in msg && msg.toolCalls) {
 			const blocks: AnthropicContentBlock[] = []
+			// Thinking blocks FIRST, verbatim, signature intact. Anthropic
+			// requires the assistant turn preceding a `tool_result` to be
+			// echoed back unchanged; rebuilding it as `[text, ...tool_use]`
+			// — which is what this function used to do unconditionally — is
+			// precisely the pattern that contract prohibits, and produces
+			// ordering/signature errors once extended thinking is on.
+			for (const block of readReasoning(msg)) {
+				if (block.type === 'redacted_thinking') {
+					if (block.encrypted) blocks.push({ type: 'redacted_thinking', data: block.encrypted })
+					continue
+				}
+				blocks.push({
+					type: 'thinking',
+					thinking: block.text ?? '',
+					...(block.signature ? { signature: block.signature } : {}),
+				})
+			}
 			if (msg.content && typeof msg.content === 'string') {
 				blocks.push({ type: 'text', text: msg.content })
 			}
@@ -734,4 +798,65 @@ export class AnthropicProvider implements LLMProvider {
 		// want network-level verification should call `chat()` directly.
 		return Boolean(this.client) && Boolean(this.config.apiKey)
 	}
+}
+
+/** Shape of an SDK `ReasoningBlock`, read structurally to avoid coupling. */
+interface ReasoningBlockLike {
+	readonly type: 'thinking' | 'redacted_thinking'
+	readonly text?: string
+	readonly signature?: string
+	readonly encrypted?: string
+}
+
+function readReasoning(msg: unknown): readonly ReasoningBlockLike[] {
+	const blocks = (msg as { reasoning?: readonly ReasoningBlockLike[] } | null)?.reasoning
+	return Array.isArray(blocks) ? blocks : []
+}
+
+/**
+ * Map namzu tool-result content onto Anthropic's `tool_result.content`.
+ *
+ * A plain string stays a plain string — the common case, and the shape
+ * that keeps the cache prefix byte-identical for every existing run.
+ * Blocks become Anthropic blocks, which is what makes a screenshot
+ * actually reach the model instead of arriving as base64 text.
+ */
+function toAnthropicToolResultContent(
+	content: unknown,
+): string | Array<AnthropicTextBlock | AnthropicImageBlock | AnthropicDocumentBlock> {
+	if (typeof content === 'string') return content
+	if (!Array.isArray(content)) return JSON.stringify(content)
+
+	const blocks: Array<AnthropicTextBlock | AnthropicImageBlock | AnthropicDocumentBlock> = []
+	for (const block of content as ReadonlyArray<Record<string, unknown>>) {
+		switch (block.type) {
+			case 'text':
+				blocks.push({ type: 'text', text: String(block.text ?? '') })
+				break
+			case 'image':
+				blocks.push({
+					type: 'image',
+					source: {
+						type: 'base64',
+						media_type: String(block.mediaType),
+						data: String(block.data),
+					},
+				})
+				break
+			case 'document':
+				blocks.push({
+					type: 'document',
+					source: {
+						type: 'base64',
+						media_type: String(block.mediaType),
+						data: String(block.data),
+					},
+					...(block.name ? { title: String(block.name) } : {}),
+				})
+				break
+		}
+	}
+	// Anthropic rejects an empty content array; a result that reduced to
+	// nothing still has to say something.
+	return blocks.length > 0 ? blocks : '(no content)'
 }

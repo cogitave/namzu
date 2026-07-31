@@ -1,5 +1,6 @@
 import { serializeState } from '../../../../compaction/serializer.js'
 import type { AdvisoryRequest, TriggerEvaluationState } from '../../../../types/advisory/index.js'
+import { toolResultToText } from '../../../../types/message/content.js'
 import { createUserMessage } from '../../../../types/message/index.js'
 import type { ChatCompletionResponse } from '../../../../types/provider/index.js'
 import { toErrorMessage } from '../../../../utils/error.js'
@@ -184,8 +185,11 @@ function extractLastErrorFromMessages(ctx: IterationContext): string | undefined
 	const messages = ctx.runMgr.messages
 	for (let i = messages.length - 1; i >= 0; i--) {
 		const msg = messages[i]
-		if (msg?.role === 'tool' && msg.content?.startsWith('Error:')) {
-			return msg.content
+		if (msg?.role === 'tool') {
+			// Tool results can now carry content blocks; the error sentinel is
+			// a text convention, so flatten before matching it.
+			const text = toolResultToText(msg.content)
+			if (text.startsWith('Error:')) return text
 		}
 	}
 	return undefined

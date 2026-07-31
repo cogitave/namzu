@@ -173,7 +173,9 @@ export async function runCompactionCheck(ctx: IterationContext): Promise<void> {
 	// Without this the never-trimmed floor accumulates one redundant summary
 	// per pass, unbounded. Unconditional now, for the reason given at the
 	// thrash guard above.
-	const preservedSystem = systemMessages.filter((m) => !isCompactionMessage(m.content))
+	const preservedSystem = systemMessages.filter(
+		(m) => !isCompactionMessage(typeof m.content === 'string' ? m.content : null),
+	)
 	const newMessages = [...preservedSystem, compactionMessage, ...recentMessages]
 
 	// OPAQUE survival guard (ses_055 D1): the pinned working-memory slot is a

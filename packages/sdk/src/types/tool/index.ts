@@ -72,6 +72,17 @@ export interface ToolResult {
 	output: string
 	data?: unknown
 	error?: string
+	/**
+	 * Rich content for the MODEL, when a string cannot carry it — a
+	 * screenshot, a chart, a PDF. `output` stays the text the host and the
+	 * transcript see; when this is set it is what reaches the provider.
+	 *
+	 * Keeping the two separate is deliberate: a host UI wants "screenshot
+	 * (1280x800)", the model wants the pixels, and forcing one channel to
+	 * serve both is what made `computer-use` send megabytes of base64 as
+	 * text.
+	 */
+	content?: import('../message/index.js').ToolResultContent
 }
 
 export interface ToolDefinition<TInput = unknown> {

@@ -5,6 +5,7 @@ import type {
 	MCPToolDefinition,
 	MCPToolResult,
 } from '../../types/connector/index.js'
+import type { ToolResultBlock } from '../../types/message/index.js'
 import type { ToolContext, ToolDefinition, ToolResult } from '../../types/tool/index.js'
 import type { MCPClient } from './client.js'
 
@@ -101,9 +102,30 @@ export function mcpToolResultToToolResult(result: MCPToolResult): ToolResult {
 		.map((block) => block.text)
 		.join('\n')
 
+	// Non-text blocks used to be filtered out and never seen again: a
+	// bridged MCP server returning a chart, a screenshot or a PDF had that
+	// content silently discarded, even though `types/connector/mcp.ts`
+	// modelled `image` and `resource` blocks all along. Pass them through
+	// as model-visible content when any are present.
+	const blocks: ToolResultBlock[] = []
+	for (const block of result.content) {
+		if (block.type === 'text') {
+			blocks.push({ type: 'text', text: block.text })
+		} else if (block.type === 'image' && block.data && block.mimeType) {
+			blocks.push({ type: 'image', data: block.data, mediaType: block.mimeType })
+		} else if (block.type === 'resource' && block.resource?.text) {
+			// A resource with inline text is readable content; one that is
+			// only a URI is a pointer the model cannot dereference, so it is
+			// named rather than pretended to be present.
+			blocks.push({ type: 'text', text: block.resource.text })
+		}
+	}
+	const hasRichContent = blocks.some((b) => b.type !== 'text')
+
 	return {
 		success: !result.isError,
 		output: textContent,
+		...(hasRichContent ? { content: blocks } : {}),
 		data: result.content,
 		error: result.isError ? textContent : undefined,
 	}

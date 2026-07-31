@@ -7,6 +7,7 @@ import type {
 	StreamChunk,
 	TokenUsage,
 } from '@namzu/sdk'
+import { toolResultToText } from '@namzu/sdk'
 import { type ChatResponse, Ollama, type Message as OllamaMessage } from 'ollama'
 import type { OllamaConfig } from './types.js'
 
@@ -36,7 +37,7 @@ function resolveHost(config: OllamaConfig): string {
 function toOllamaMessages(messages: ChatCompletionParams['messages']): OllamaMessage[] {
 	return messages.map((msg) => ({
 		role: msg.role,
-		content: typeof msg.content === 'string' ? msg.content : (msg.content ?? ''),
+		content: msg.content === null ? '' : toolResultToText(msg.content),
 	}))
 }
 

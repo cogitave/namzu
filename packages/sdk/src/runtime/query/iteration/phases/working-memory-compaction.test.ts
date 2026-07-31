@@ -98,6 +98,11 @@ function makeCtx(opts: {
 const WM_BLOCK =
 	'ARTIFACTS\n  • report.docx · Word document · 48.2 KB · imp:H\n       path: /mnt/user-data/outputs/report.docx'
 
+/** Messages can now carry content blocks; these cases are about text. */
+function asText(content: unknown): string {
+	return typeof content === 'string' ? content : ''
+}
+
 describe('Layer-B compaction seam (ses_055 #104)', () => {
 	it('FIRES on small contextWindowTokens with tokenBudget=0 AND preserves the pinned WM slot', async () => {
 		const messages = buildOverflowingMessages()
@@ -110,7 +115,7 @@ describe('Layer-B compaction seam (ses_055 #104)', () => {
 		await refreshWorkingMemory(ctx)
 		// The slot is pinned as the last leading system message (index 1).
 		expect(messages[1]?.role).toBe('system')
-		expect(messages[1]?.content?.startsWith(WORKING_MEMORY_HEADER)).toBe(true)
+		expect(asText(messages[1]?.content).startsWith(WORKING_MEMORY_HEADER)).toBe(true)
 
 		const before = messages.length
 		await runCompactionCheck(ctx)
@@ -118,11 +123,11 @@ describe('Layer-B compaction seam (ses_055 #104)', () => {
 		// (1) compaction fired: a [COMPACTED CONTEXT] message appeared and the
 		// transcript shrank.
 		expect(messages.length).toBeLessThan(before)
-		expect(messages.some((m) => m.content?.includes('[COMPACTED CONTEXT]'))).toBe(true)
+		expect(messages.some((m) => asText(m.content).includes('[COMPACTED CONTEXT]'))).toBe(true)
 
 		// (2) the pinned working-memory slot survived by header identity.
 		const wm = messages.filter(
-			(m) => m.role === 'system' && m.content?.startsWith(WORKING_MEMORY_HEADER),
+			(m) => m.role === 'system' && asText(m.content).startsWith(WORKING_MEMORY_HEADER),
 		)
 		expect(wm).toHaveLength(1)
 		expect(wm[0]?.content).toContain('report.docx')
@@ -137,7 +142,7 @@ describe('Layer-B compaction seam (ses_055 #104)', () => {
 
 		// budget = tokenBudget = 0 → guard returns; no compaction, no mutation.
 		expect(messages.length).toBe(before)
-		expect(messages.some((m) => m.content?.includes('[COMPACTED CONTEXT]'))).toBe(false)
+		expect(messages.some((m) => asText(m.content).includes('[COMPACTED CONTEXT]'))).toBe(false)
 	})
 
 	it('removes the slot when the provider returns an empty block', async () => {
@@ -148,7 +153,7 @@ describe('Layer-B compaction seam (ses_055 #104)', () => {
 			workingMemoryProvider: () => WM_BLOCK,
 		})
 		await refreshWorkingMemory(ctx)
-		expect(messages.some((m) => m.content?.startsWith(WORKING_MEMORY_HEADER))).toBe(true)
+		expect(messages.some((m) => asText(m.content).startsWith(WORKING_MEMORY_HEADER))).toBe(true)
 
 		// Same transcript, provider now returns blank ⇒ the slot is removed.
 		const blankCtx = makeCtx({
@@ -157,7 +162,7 @@ describe('Layer-B compaction seam (ses_055 #104)', () => {
 			workingMemoryProvider: () => '   ',
 		})
 		await refreshWorkingMemory(blankCtx)
-		expect(messages.some((m) => m.content?.startsWith(WORKING_MEMORY_HEADER))).toBe(false)
+		expect(messages.some((m) => asText(m.content).startsWith(WORKING_MEMORY_HEADER))).toBe(false)
 	})
 
 	it('keeps the prior slot when the provider throws (failure-isolated)', async () => {
@@ -178,7 +183,7 @@ describe('Layer-B compaction seam (ses_055 #104)', () => {
 		})
 		await refreshWorkingMemory(throwingCtx)
 		// Prior slot retained; run not broken.
-		expect(messages.some((m) => m.content?.startsWith(WORKING_MEMORY_HEADER))).toBe(true)
+		expect(messages.some((m) => asText(m.content).startsWith(WORKING_MEMORY_HEADER))).toBe(true)
 	})
 
 	it('does NOT orphan a tool_result when the recent-window cut splits a tool pair (C1)', async () => {
@@ -210,7 +215,7 @@ describe('Layer-B compaction seam (ses_055 #104)', () => {
 		await runCompactionCheck(ctx)
 
 		// Compaction fired.
-		expect(messages.some((m) => m.content?.includes('[COMPACTED CONTEXT]'))).toBe(true)
+		expect(messages.some((m) => asText(m.content).includes('[COMPACTED CONTEXT]'))).toBe(true)
 		// The surviving transcript has NO dangling tool pair — the tool result
 		// whose assistant was summarized away was moved into the older set too,
 		// so no orphaned tool_result remains to 400 the next provider turn.
