@@ -31,7 +31,7 @@
  */
 
 import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -39,7 +39,10 @@ const baselinePath = join(__dirname, 'public-surface-baseline.json')
 const sdkDistPath = join(__dirname, '..', '..', 'packages', 'sdk', 'dist', 'index.js')
 
 const baseline = JSON.parse(readFileSync(baselinePath, 'utf8'))
-const sdk = await import(sdkDistPath)
+// `import()` of an absolute path only works on POSIX; on Windows a bare
+// `C:\...` is parsed as a URL scheme. Go through a file:// URL so the
+// gate is runnable locally on every platform, not just in CI.
+const sdk = await import(pathToFileURL(sdkDistPath).href)
 const current = Object.keys(sdk).sort()
 
 const missing = baseline.filter((name) => !current.includes(name))
