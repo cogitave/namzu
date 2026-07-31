@@ -54,6 +54,31 @@ type CoreRunEvent =
 			iteration: number
 			hasToolCalls: boolean
 	  }
+	/**
+	 * A compaction pass replaced a span of history with a summary.
+	 *
+	 * Compaction deletes messages irrecoverably and previously emitted
+	 * nothing at all — a host could not show the user that context was
+	 * dropped, and `transcript.jsonl` recorded a conversation that silently
+	 * lost its middle. Every field here is measured, not estimated, where
+	 * the provider reported it (`measuredBy`).
+	 */
+	| {
+			type: 'compaction_completed'
+			runId: RunId
+			iteration: number
+			/** Messages before and after the pass. */
+			messagesBefore: number
+			messagesAfter: number
+			/** Context size in tokens before and after. */
+			tokensBefore: number
+			tokensAfter: number
+			/** Whether `tokensBefore` came from the provider or a heuristic. */
+			measuredBy: 'provider' | 'estimate'
+			/** The window the trigger measured against, and where it came from. */
+			contextWindowTokens: number
+			windowSource: 'config' | 'model-table' | 'default'
+	  }
 	| {
 			type: 'tool_executing'
 			runId: RunId

@@ -18,6 +18,9 @@ export class RunPersistence {
 	private runStore: RunDiskStore
 	private checkpointStore: CheckpointStore
 	private pricing?: ModelPricing
+
+	/** See {@link recordTurnUsage}. */
+	private _lastPromptTokens?: number
 	private log: Logger
 	private readonly _sessionId: SessionId
 	private readonly _threadId: ThreadId
@@ -200,6 +203,42 @@ export class RunPersistence {
 		if (this.pricing) {
 			this.run.costInfo = accumulateCost(this.run.costInfo, usage, this.pricing)
 		}
+	}
+
+	/**
+	 * Accumulate usage from a MAIN-LOOP turn, and remember its prompt size.
+	 *
+	 * `tokenUsage.promptTokens` is cumulative across turns, so it says
+	 * nothing about how full the context currently is. The last turn's
+	 * prompt count does: it is the provider's own measurement of the
+	 * context it just received. Compaction needs that number and nothing
+	 * else gives it — a char/4 heuristic is the alternative.
+	 *
+	 * Side-channel calls (advisory, the compaction verifier, routing) use
+	 * plain {@link accumulateUsage} instead: their prompts are not the
+	 * run's context, and letting them write here would corrupt the signal.
+	 */
+	recordTurnUsage(usage: TokenUsage): void {
+		this.accumulateUsage(usage)
+		this._lastPromptTokens = usage.promptTokens
+	}
+
+	/**
+	 * Forget the last prompt measurement. Called after compaction: the
+	 * reading described the context that was just replaced, so leaving it
+	 * in place would re-trigger compaction against a window that no longer
+	 * exists.
+	 */
+	clearLastPromptTokens(): void {
+		this._lastPromptTokens = undefined
+	}
+
+	/**
+	 * Provider-reported size of the most recent main-loop prompt, or
+	 * `undefined` before the first turn completes.
+	 */
+	get lastPromptTokens(): number | undefined {
+		return this._lastPromptTokens
 	}
 
 	/**

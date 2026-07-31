@@ -33,6 +33,21 @@ const MAPPING: {
 		transform: (e, runId) => ({ run_id: runId, iteration: e.iteration }),
 	},
 
+	compaction_completed: {
+		wire: 'compaction.completed',
+		transform: (e, runId) => ({
+			run_id: runId,
+			iteration: e.iteration,
+			messages_before: e.messagesBefore,
+			messages_after: e.messagesAfter,
+			tokens_before: e.tokensBefore,
+			tokens_after: e.tokensAfter,
+			measured_by: e.measuredBy,
+			context_window_tokens: e.contextWindowTokens,
+			window_source: e.windowSource,
+		}),
+	},
+
 	tool_executing: {
 		wire: 'tool.executing',
 		transform: (e, runId) => ({

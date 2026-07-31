@@ -225,6 +225,19 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				})
 				break
 
+			case 'compaction_completed':
+				log.info('Context compacted', {
+					runId: event.runId,
+					iteration: event.iteration,
+					messagesDropped: event.messagesBefore - event.messagesAfter,
+					tokensBefore: event.tokensBefore,
+					tokensAfter: event.tokensAfter,
+					measuredBy: event.measuredBy,
+					contextWindowTokens: event.contextWindowTokens,
+					windowSource: event.windowSource,
+				})
+				break
+
 			case 'capability_warning':
 				log.warn('Provider capability mismatch', {
 					runId: event.runId,

@@ -33,3 +33,9 @@ export {
 export { NullManager, SlidingWindowManager, StructuredCompactionManager } from './managers/index.js'
 
 export { createConversationManager } from './factory.js'
+export {
+	DEFAULT_ASSUMED_CONTEXT_WINDOW,
+	lookupContextWindow,
+	resolveContextWindow,
+} from './context-window.js'
+export type { ResolvedContextWindow } from './context-window.js'

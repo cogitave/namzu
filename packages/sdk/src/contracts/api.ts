@@ -142,6 +142,12 @@ export type StreamEventType =
 	| 'run.resuming'
 	| 'iteration.started'
 	| 'iteration.completed'
+	/**
+	 * A compaction pass replaced a span of history with a summary. Wire-
+	 * visible because the operation is destructive: a client rendering the
+	 * transcript needs to know its middle was dropped, not infer it.
+	 */
+	| 'compaction.completed'
 	| 'tool.executing'
 	| 'tool.completed'
 	| 'tool.error'

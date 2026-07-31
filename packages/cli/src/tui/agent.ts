@@ -488,9 +488,13 @@ const VERIFICATION_GATE = {
 
 // Automatic context compression for long, tool-heavy turns: the structured
 // strategy summarizes old tool results / notes once the message buffer
-// crosses the trigger threshold of the token budget, keeping the most
+// crosses the trigger threshold of the MODEL CONTEXT WINDOW, keeping the most
 // recent messages verbatim. A no-op for short turns; a safety net against
 // unbounded context growth on long ones.
+//
+// `contextWindowTokens` is deliberately omitted: the SDK resolves the window
+// from `runConfig.model`, which is the value the user actually chose. Pinning
+// a number here would fix one window across every model the CLI can talk to.
 const COMPACTION_CONFIG = {
 	strategy: 'structured' as const,
 	triggerThreshold: 0.7,

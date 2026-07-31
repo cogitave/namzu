@@ -169,7 +169,8 @@ export class IterationOrchestrator {
 					this.ctx.log,
 				)
 
-				runMgr.accumulateUsage(response.usage)
+				// Main-loop turn: also records the prompt size compaction reads.
+				runMgr.recordTurnUsage(response.usage)
 
 				if (this.ctx.pluginManager) {
 					const hookResults = await this.ctx.pluginManager.executeHooks(

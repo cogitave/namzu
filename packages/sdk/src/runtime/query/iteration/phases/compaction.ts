@@ -1,3 +1,4 @@
+import { resolveContextWindow } from '../../../../compaction/context-window.js'
 import { findSafeTrimIndex } from '../../../../compaction/dangling.js'
 import { serializeState } from '../../../../compaction/serializer.js'
 import { buildVerifiedSummary } from '../../../../compaction/verifier.js'
@@ -47,6 +48,26 @@ function estimateTokens(ctx: IterationContext): number {
 	return Math.ceil(chars / CHARS_PER_TOKEN)
 }
 
+/**
+ * How full the context is, in tokens.
+ *
+ * Prefer the provider's own count of the last prompt — it is a measurement,
+ * not a guess, and it includes everything the heuristic cannot see (tool
+ * schemas, system blocks, image tokens, per-message framing). The chars/4
+ * estimate remains the fallback for iteration 1, before any turn has
+ * reported, and for providers that do not return usage.
+ */
+function measureContext(ctx: IterationContext): {
+	tokens: number
+	source: 'provider' | 'estimate'
+} {
+	const reported = ctx.runMgr.lastPromptTokens
+	if (reported !== undefined && reported > 0) {
+		return { tokens: reported, source: 'provider' }
+	}
+	return { tokens: estimateTokens(ctx), source: 'estimate' }
+}
+
 export async function runCompactionCheck(ctx: IterationContext): Promise<void> {
 	const config = ctx.compactionConfig
 	if (!config) return
@@ -55,15 +76,18 @@ export async function runCompactionCheck(ctx: IterationContext): Promise<void> {
 	const manager = ctx.workingStateManager
 	if (!manager) return
 
-	const estimatedTokens = estimateTokens(ctx)
-	// F1: measure the CURRENT window against the model context window when the
-	// host supplies one, falling back to the run-level cumulative `tokenBudget`
-	// otherwise. Repointing the SINGLE `budget` assignment moves BOTH the
-	// `<= 0` guard AND the divisor at once — so "compaction on + tokenBudget=0"
-	// is no longer a silent no-op. Existing consumers (no contextWindowTokens)
-	// stay byte-identical.
-	const budget = config.contextWindowTokens ?? ctx.runConfig.tokenBudget
-	if (budget <= 0) return
+	const measured = measureContext(ctx)
+	const estimatedTokens = measured.tokens
+
+	// The divisor is a WINDOW, never `runConfig.tokenBudget`. The old
+	// fallback compared a live context size against a cumulative spend cap
+	// — dimensionally the wrong quantity, and self-defeating: the guard
+	// force-finalizes at 0.9 x tokenBudget while this needs 0.7 x the same
+	// number. Nothing in the estate ever set `contextWindowTokens`, so the
+	// fallback WAS the behavior, and the shipped CLI's 1M budget put the
+	// trigger at ~700k. See `compaction/context-window.ts`.
+	const window = resolveContextWindow(config.contextWindowTokens, ctx.runConfig.model)
+	const budget = window.tokens
 
 	const usage = estimatedTokens / budget
 
@@ -71,8 +95,10 @@ export async function runCompactionCheck(ctx: IterationContext): Promise<void> {
 
 	ctx.log.info('Compaction threshold reached — compacting context', {
 		runId: ctx.runMgr.id,
-		estimatedTokens,
-		budget,
+		contextTokens: estimatedTokens,
+		measuredBy: measured.source,
+		window: budget,
+		windowSource: window.source,
 		usage: Math.round(usage * 100),
 		triggerThreshold: config.triggerThreshold,
 		slotCount: manager.slotCount(),
@@ -111,10 +137,14 @@ export async function runCompactionCheck(ctx: IterationContext): Promise<void> {
 
 	// D7: nothing meaningful to compact — skip instead of thrashing the
 	// permanent leading floor every iteration (and avoid an LLM verification
-	// call when there is no older history to summarize). Scoped to the new
-	// contextWindowTokens path so any existing consumer (tokenBudget-only) keeps
-	// its exact prior behavior — byte-identical (ses_055 verify).
-	if (config.contextWindowTokens != null && olderMessages.length < MIN_OLDER_MESSAGES_TO_COMPACT) {
+	// call when there is no older history to summarize).
+	//
+	// This guard used to be gated on `contextWindowTokens != null` to keep
+	// the tokenBudget path byte-identical. That path's actual behavior was
+	// "never fires", so there is nothing left to preserve — and now that the
+	// trigger works, an ungated consumer would thrash. Same for the prior-
+	// summary replacement below.
+	if (olderMessages.length < MIN_OLDER_MESSAGES_TO_COMPACT) {
 		ctx.log.debug('Skipping compaction — too few older messages', {
 			runId: ctx.runMgr.id,
 			olderMessages: olderMessages.length,
@@ -138,17 +168,12 @@ export async function runCompactionCheck(ctx: IterationContext): Promise<void> {
 
 	const compactionMessage = createSystemMessage(`${COMPACTION_HEADER}\n\n${compactedContent}`)
 
-	// On the new per-iteration (contextWindowTokens) path, drop any PRIOR
-	// `[COMPACTED CONTEXT]` summary from the leading floor — `serializeState` is
-	// cumulative, so the new summary supersedes it. Without this the never-trimmed
-	// floor accumulates one redundant summary per pass and the frequent
-	// per-iteration trigger makes that bloat unbounded (ses_055 verify, MEDIUM).
-	// Legacy consumers (no contextWindowTokens) keep their exact prior
-	// accumulation behavior — byte-identical.
-	const preservedSystem =
-		config.contextWindowTokens != null
-			? systemMessages.filter((m) => !isCompactionMessage(m.content))
-			: systemMessages
+	// Drop any PRIOR `[COMPACTED CONTEXT]` summary from the leading floor —
+	// `serializeState` is cumulative, so the new summary supersedes it.
+	// Without this the never-trimmed floor accumulates one redundant summary
+	// per pass, unbounded. Unconditional now, for the reason given at the
+	// thrash guard above.
+	const preservedSystem = systemMessages.filter((m) => !isCompactionMessage(m.content))
 	const newMessages = [...preservedSystem, compactionMessage, ...recentMessages]
 
 	// OPAQUE survival guard (ses_055 D1): the pinned working-memory slot is a
@@ -179,6 +204,13 @@ export async function runCompactionCheck(ctx: IterationContext): Promise<void> {
 
 	const newEstimate = estimateTokens(ctx)
 
+	// The provider's count described the PRE-compaction prompt; the window
+	// it just shrank to has not been sent yet, so the post number is
+	// necessarily an estimate. Invalidate the stale reading so the next
+	// trigger check does not compare the old prompt size against the new
+	// context and compact again immediately.
+	ctx.runMgr.clearLastPromptTokens()
+
 	ctx.log.info('Context compacted', {
 		runId: ctx.runMgr.id,
 		oldMessageCount: oldCount,
@@ -188,5 +220,21 @@ export async function runCompactionCheck(ctx: IterationContext): Promise<void> {
 		newTokenEstimate: newEstimate,
 		reductionPercent: Math.round((1 - newEstimate / estimatedTokens) * 100),
 		slotCount: manager.slotCount(),
+	})
+
+	// Compaction is destructive and was, until now, completely silent: no
+	// event, no transcript record, nothing a host could surface. Emit the
+	// loss so it is observable.
+	await ctx.emitEvent({
+		type: 'compaction_completed',
+		runId: ctx.runMgr.id,
+		iteration: ctx.runMgr.currentIteration,
+		messagesBefore: oldCount,
+		messagesAfter: messages.length,
+		tokensBefore: estimatedTokens,
+		tokensAfter: newEstimate,
+		measuredBy: measured.source,
+		contextWindowTokens: budget,
+		windowSource: window.source,
 	})
 }

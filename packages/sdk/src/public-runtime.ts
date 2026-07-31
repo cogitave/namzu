@@ -407,6 +407,9 @@ export { assertTaskStatus, isTerminalTaskStatus } from './types/task/index.js'
 
 export {
 	buildVerifiedSummary,
+	DEFAULT_ASSUMED_CONTEXT_WINDOW,
+	lookupContextWindow,
+	resolveContextWindow,
 	createConversationManager,
 	extractFromAssistantMessage,
 	extractFromToolCall,

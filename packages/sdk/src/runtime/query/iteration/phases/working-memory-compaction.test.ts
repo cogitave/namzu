@@ -84,7 +84,14 @@ function makeCtx(opts: {
 			id: 'run_1' as RunId,
 			currentIteration: 3,
 			messages: opts.messages,
+			// Compaction prefers the provider's reported prompt size over the
+			// chars/4 heuristic; `undefined` keeps these cases on the estimate
+			// path they were written against.
+			lastPromptTokens: undefined,
+			clearLastPromptTokens: () => {},
+			accumulateUsage: () => {},
 		},
+		emitEvent: async () => {},
 	} as unknown as IterationContext
 }
 
