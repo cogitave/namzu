@@ -197,6 +197,35 @@ Two runtime bounds apply to every tool, with no configuration required.
 
 Relatedly, `read` returns the first 2000 lines when given no window, and says so with a `[PARTIAL view — lines X-Y of Z]` notice naming the exact next call. A truncated read that looks like a short file is the most expensive silent failure a read tool can have.
 
+## 7c. Failing and Recovering
+
+**Retryable failures.** A tool may declare `maxRetries` and mark a result
+`retryable: true`, and the executor will re-run it in-loop instead of
+sending the error back for the model to re-decide.
+
+```ts
+const tool: ToolDefinition = {
+  name: 'fetch_page',
+  maxRetries: 2,
+  execute: async () => ({
+    success: false, output: '', error: 'ECONNRESET', retryable: true,
+  }),
+  // …
+}
+```
+
+`maxRetries` **defaults to 0, and that default is load-bearing.** Retrying
+is only safe if the tool is idempotent, and the SDK cannot know that:
+silently re-running a write, a `git push` or a payment call is worse than
+never retrying at all. Even opted in, only failures marked `retryable` are
+retried — a missing file will not appear on the second attempt, and burning
+the budget on it just delays the error the model needs to see.
+
+**Repairing a malformed call.** `query({ repairToolCall })` gets a last
+look before the error reaches the model, and may rewrite the arguments and
+the tool name. See
+[Loop Control §9](../runtime/loop-control.md#9-repairing-a-bad-tool-call).
+
 ## 8. Computer Use Is a Tool Factory, Not a Separate Runtime
 
 Desktop control plugs into the same registry model as every other tool:

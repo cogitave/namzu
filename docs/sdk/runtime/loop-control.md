@@ -120,7 +120,49 @@ fresh envelope.
 Side-channel model calls — advisory consultations, the compaction
 verifier, agent routing — are counted against the same budgets.
 
-## 5. Context Compaction
+## 5. Shaping Each Step
+
+`stopWhen` decides whether to keep going. `prepareStep` decides *how* the
+next step should look — the other half of the same idea.
+
+```ts
+query({
+  prepareStep: ({ stepNumber, steps, messages }) => {
+    if (stepNumber <= 3) return { activeTools: ['search', 'read_file'] }
+    return { activeTools: ['write_file'], model: 'claude-haiku-4-5-20251001' }
+  },
+})
+```
+
+The hook receives the run id, the step number, the full message history
+and every completed `StepResult`. It may return `activeTools`, `model`,
+`system`, `temperature` and `maxResponseTokens`; an omitted field keeps
+the run's configured value, and returning nothing is the same as having no
+hook.
+
+Without it the tool surface and the model are fixed at `query()` time, so
+a phased agent — research, then write, then verify with a cheaper model —
+had to be several separate runs, each starting blind to the last one's
+context.
+
+Four things worth knowing:
+
+- **`system` is one-step guidance.** It is appended to the *request* and
+  never pushed onto the run's history, so a long run does not accumulate
+  one stale phase instruction per iteration.
+- **`activeTools` costs a prompt-cache prefix.** Tools render at position
+  0, so changing the set invalidates the cached prefix for that step. That
+  is inherent to narrowing — worth paying at a real phase boundary, not
+  every step.
+- **It does not touch `tool_choice`.** Anthropic has no `allowed_tools`
+  parameter, and moving `tool_choice` invalidates cached *message* blocks
+  as well: a strictly worse trade for the same effect.
+- **It fails open.** A throwing hook leaves the step with the run's
+  configuration, and tool names that are not registered are dropped with a
+  warning — a phase list that outlives a tool rename should narrow the
+  surface, not kill the agent mid-run.
+
+## 6. Context Compaction
 
 Compaction triggers on **window pressure**, measured against the model's
 context window:
@@ -138,11 +180,40 @@ turn over a character heuristic, because it counts what the heuristic
 cannot see: tool schemas, system blocks, image tokens, per-message
 framing.
 
+### Clearing stale tool output first
+
+Before summarizing, the pass clears the **output** of old, large tool
+results in place — replacing it with a short placeholder naming the tool
+and its original size. If that gets the context back under
+`triggerThreshold`, summarization is skipped entirely and the history stays
+verbatim.
+
+The ordering is the point. Summarization paraphrases away the agent's own
+reasoning — the decisions, the false starts it learned from, the exact
+wording of a plan — and that is a heavy price for a context problem usually
+caused by something much dumber: a handful of enormous tool outputs the
+agent already read and moved past. Clearing them is also *safe* where
+trimming is not, because nothing moves: the `tool` message keeps its
+position and its `toolCallId`, so `tool_use` ↔ `tool_result` pairing holds
+by construction.
+
+| Field | Default | Meaning |
+|---|---|---|
+| `clearToolResults` | `true` | Set `false` to go straight to summarization. |
+| `keepRecentToolResults` | `3` | Most recent results left alone — still in use. |
+| `minToolResultCharsToClear` | `1000` | Below this the placeholder costs as much. |
+| `preserveToolResultsFrom` | — | Tool names never cleared. |
+
+Never cleared: an **error** result (small, and it is what steers the next
+turn), the most recent N, and anything under the size floor. Image payloads
+are measured by their base64 size — a screenshot is the largest thing a
+tool result can carry and exactly the kind of output an agent reads once.
+
 A pass emits `compaction_completed` (wire: `compaction.completed`) with
 before/after message counts and token sizes. Compaction deletes history
 irrecoverably, so it is worth surfacing.
 
-## 6. Extended Thinking
+## 7. Extended Thinking
 
 ```ts
 query({
@@ -167,7 +238,113 @@ Anthropic rejects `temperature`, `top_p` and `top_k` while thinking is
 enabled, so the driver omits them rather than sending a request it knows
 will fail.
 
-## 7. Crash Save
+## 8. Guardrails
+
+The three gates on tool calls — probe veto, `VerificationGate`, HITL review
+— all point the same way: they protect the world from the agent. Guardrails
+are the other direction.
+
+```ts
+import { secretRedactionGuardrail } from '@namzu/sdk'
+
+query({
+  inputGuardrails: [({ messages }) => /* … */ ({ action: 'pass' })],
+  outputGuardrails: [secretRedactionGuardrail()],
+})
+```
+
+- **Input** guardrails run before the first model call, so a refusal costs
+  nothing. A block settles the run as `input_guardrail`.
+- **Output** guardrails run against the final result. A block settles as
+  `output_guardrail`; a `rewrite` replaces the text, so a redaction policy
+  can clean an answer rather than discard it. Rewrites compose.
+- A guardrail that **throws fails closed**, deliberately the opposite of
+  `stopWhen`: a broken halt predicate should not kill a healthy run, but a
+  broken safety check must not wave content through.
+
+Both stages emit `guardrail_triggered` (wire: `guardrail.triggered`).
+
+> **Output guardrails gate the result, not the stream.** `text_delta`
+> events have already reached the host by the time one runs, so a rewrite
+> arrives as a *correction* alongside the event. Gating the stream itself
+> would mean buffering every token — trading the streaming UX for the
+> guarantee — which is a host decision, not the SDK's.
+
+Presets: `secretRedactionGuardrail(options)` (prefix-anchored credential
+patterns; redacts by default, `onMatch: 'block'` to refuse) and
+`promptInjectionGuardrail()` (partial by design — it raises the cost of the
+lazy attack, it is not a boundary).
+
+## 9. Repairing a Bad Tool Call
+
+A malformed call otherwise costs a full round trip: the error goes back as
+a `tool_result`, the model re-reads the entire context, and issues a second
+inference to add a missing brace.
+
+```ts
+query({
+  repairToolCall: async ({ toolCall, reason, jsonSchema, availableTools }) => {
+    if (reason !== 'invalid_json') return null
+    return { arguments: await fixJson(toolCall.function.arguments, jsonSchema) }
+  },
+})
+```
+
+The hook sees the reason (`invalid_json`, `schema_validation`,
+`unknown_tool`), the tool's JSON Schema and every registered tool name, and
+may rewrite the **arguments** and the **tool name** — nothing else. It
+cannot invent a call the model never made, nor suppress one.
+
+It is tried exactly once (a repairer that produces a still-broken call will
+not do better on a second look, and an unbounded loop is a hang). A throw
+is caught. Declining with `null` is normal: the original error proceeds to
+the model as before.
+
+### Per-tool retry budget
+
+```ts
+const tool: ToolDefinition = {
+  name: 'fetch_page',
+  maxRetries: 2,
+  execute: async () => ({ success: false, output: '', error: 'ECONNRESET', retryable: true }),
+  // …
+}
+```
+
+`maxRetries` **defaults to 0, and that default is load-bearing.** Retrying
+is only safe if the tool is idempotent and the SDK cannot know that:
+silently re-running a write, a `git push` or a payment is worse than never
+retrying. Even opted in, only failures the tool marked `retryable` are
+retried — a missing file will not appear on the second attempt.
+
+A `post_tool_use` plugin hook returning `{ action: 'retry' }` also re-runs
+the tool, bounded by the same budget.
+
+## 10. Typed Failures
+
+```ts
+import { toPlatformError } from '@namzu/sdk'
+
+try {
+  await drainQuery(params)
+} catch (err) {
+  const { code, message, retryable, details } = toPlatformError(err)
+}
+```
+
+`toPlatformError` normalizes **anything** thrown into one shape — a
+`NamzuError`, a `ProviderError`, a plain `Error` from a dependency, or a
+thrown string — so "handle errors from the SDK" is one handler rather than
+an `instanceof` ladder per call site. A `ProviderError` keeps its own
+classification: its code lands in `details.providerCode` and its
+`retryable` verdict is preserved, not recomputed.
+
+`NamzuErrorCode` is deliberately small — each member exists because a
+caller does something different about it: `invalid_config`,
+`provider_error`, `tool_error`, `not_found`, `plugin_error`,
+`capability_unavailable`, `storage_error`, `unknown`.
+
+## 11. Crash Save
 
 ```ts
 query({ emergencySave: true })

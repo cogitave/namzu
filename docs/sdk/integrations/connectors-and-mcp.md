@@ -1,7 +1,7 @@
 ---
 title: Connectors and MCP
 description: Build connector catalogs, expose connector instances as tools, consume remote MCP servers, and bridge connected integrations back out through MCP in @namzu/sdk.
-last_updated: 2026-04-18
+last_updated: 2026-07-31
 status: current
 related_packages: ["@namzu/sdk"]
 ---
@@ -177,6 +177,67 @@ The generated tool names are prefixed as:
 - `mcp_<serverName>_<toolName>`
 
 That keeps remote MCP tools distinct from local tool definitions.
+
+### Deciding what a server may contribute
+
+The example above admits whatever the server offers, which puts the
+**remote** side in charge of what enters the agent's tool registry — the
+inversion of least privilege. A server can add a tool between two runs and
+it becomes callable with nobody having agreed to it.
+
+```ts
+const discovery = new MCPToolDiscovery([client], {
+  policies: {
+    filesystem: { allow: ['read_file', 'list_directory'] },
+    '*': { deny: ['shell_exec'] },   // servers with no entry of their own
+  },
+  onDrift: ({ serverName, drift }) => {
+    logger.warn('MCP server changed its tools', { serverName, ...drift })
+  },
+})
+```
+
+Deny beats allow, so a self-contradicting config resolves restrictively.
+Hosts that configure no policy see no behavior change.
+
+### Noticing a server that changes its mind
+
+The admitted tool set is fingerprinted and compared on each discovery.
+`onDrift` reports `added` / `removed` / `changed`.
+
+The fingerprint covers each tool's **description and input schema**, not
+just its name, because the attack shape is advertising something benign at
+approval time and swapping its meaning afterwards — the name never moves,
+so a name-only check misses it entirely. Drift compares only what policy
+*admitted*, so a permanently-refused tool is not perpetual noise.
+
+It is reported rather than blocked: a dev server legitimately changes
+between runs, and only the host knows which kind it is looking at.
+
+### Protocol negotiation
+
+A server answers `initialize` with the version *it* will speak, which need
+not be the one the client asked for. `MCPClient` refuses anything outside
+`MCP_SUPPORTED_PROTOCOL_VERSIONS` and names what it can speak. An **absent**
+version is tolerated — a missing field is a sloppy server, an unsupported
+one is a real incompatibility.
+
+`MCP_PROTOCOL_VERSION` is the version namzu actually implements, not the
+newest one published. Advertising a version whose requirements are
+unimplemented is worse than advertising an older one honestly, because the
+server tailors its behavior to the claim.
+
+### Schema fidelity
+
+A bridged tool's schema round-trips — server JSON Schema → Zod → JSON
+Schema on the wire — so anything the converter drops is dropped from what
+the **model** is shown. `mcpJsonSchemaToZod` preserves nested objects (with
+their own `required`), array item types, enums, `const`, `anyOf`/`oneOf`,
+nullable (`type: ['string','null']`), descriptions and defaults.
+
+MCP objects default to **closed** (`additionalProperties: false`), so the
+model is not told it may invent arguments the server never declared. A
+server that explicitly sets `additionalProperties: true` is honored.
 
 ## 7. Read MCP Resources and Templates
 

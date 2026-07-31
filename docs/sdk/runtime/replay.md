@@ -1,7 +1,7 @@
 ---
 title: Replay
 description: Fork an existing run from any checkpoint with optional controlled mutations. Useful for debugging, regression tests, and counterfactual "what if" analysis.
-last_updated: 2026-04-21
+last_updated: 2026-07-31
 status: current
 related_packages: ["@namzu/sdk"]
 ---
@@ -149,13 +149,72 @@ type ReplayAttribution = {
 
 Stamp it on the new run as `run.replayOf = prepared.attribution` before persisting. Downstream code that reads `Run` sees `replayOf === undefined` for original runs and a populated `ReplayAttribution` for replays. Use this to filter replays out of production dashboards, tag them in traces, or diff them against the source.
 
-## 7. Security
+## 7. Durable Run State (Resuming in Another Process)
+
+A HITL park used to exist only as a suspended `await` inside one process:
+the checkpoint written just before it was indistinguishable from any
+mid-run checkpoint, so nothing in durable state said a human owed the run
+an answer. An approval queue could not be rebuilt from the store, and a
+serverless host could not park a run at all, because the container holding
+the promise had to stay alive to receive the answer.
+
+### Finding a parked run
+
+```ts
+import { findPendingCheckpoint, loadRunState } from '@namzu/sdk'
+
+// In a different process: a store and a scope, and nothing else.
+const state = await loadRunState(checkpointStore, {
+  tenantId, projectId, sessionId, threadId, runId,
+})
+
+if (state?.pending && state.pending.resolvedAt === undefined) {
+  // Render `state.pending.request` to a human.
+}
+```
+
+`IterationCheckpoint.pending` records the `HITLDecisionRequest` verbatim,
+and keeps the answer once it arrives — a gate that cannot say what was
+approved is not an audit trail. `RunState` is a flat, JSON-safe snapshot;
+`parseRunState` refuses a snapshot from an incompatible SDK version rather
+than half-restoring a run that looks healthy and has lost its budgets.
+
+Park recording is lazy (`parkRecordDelayMs`, default 250 ms) so a
+programmatic handler never pays for it. The exception is a `pause`
+decision, which is **always** recorded: `pause` is not an answer, it is "I
+am not answering now, hold this" — and an instant `pause` is exactly the
+serverless pattern, where the host cannot block and comes back later.
+
+### Honoring the answer
+
+```ts
+await drainQuery({
+  ...params,
+  messages: [],
+  resumeFromCheckpoint: state.checkpointId,
+  pendingDecision: { action: 'approve_tools' },
+})
+```
+
+`pendingDecision` applies an out-of-band answer to the exact tool calls the
+human was shown. Without it the resumed run repairs the unanswered
+`tool_use` blocks away and lets the model re-decide, so "yes, delete that
+row" degrades into "ask the model again and hope it asks for the same
+thing".
+
+It applies only to a `tool_review` park — the other kinds leave no tool
+calls to apply a decision to — and is **refused** when the checkpoint's
+tool calls no longer match the recorded request: consent to one batch is
+not consent to a different one. In that case the repair path runs as
+before.
+
+## 8. Security
 
 `prepareReplayState` and `listCheckpoints` read the source run's directory directly — they do not consult a multi-tenant gatekeeper because today there is no tenant field on `Run` or on the `RunDiskStore` read API. Single-tenant deployments are safe by default; multi-tenant operators must enforce tenant scoping at the caller (e.g. by validating the `runId` belongs to the requesting tenant before invoking replay).
 
 When the end-to-end `replay()` wrapper lands (follow-up session), tenant scoping will go through `RunPersistence`, which already carries `tenantId`.
 
-## 8. Non-Scope
+## 9. Non-Scope
 
 Not in v1; deferred with a dedicated follow-up:
 
@@ -165,7 +224,7 @@ Not in v1; deferred with a dedicated follow-up:
 - **Export / import of captured runs** for off-machine bug reports. Returns with the CLI session, paired with a redaction story.
 - **Visual time-travel UI.** Separate deliverable; this page documents the primitive.
 
-## 9. References
+## 10. References
 
 - [`ses_005-deterministic-replay`](https://github.com/bahadirarda/namzu/tree/main/docs.local/sessions/ses_005-deterministic-replay) — design record, ratified decisions, implementation plan. Internal; linked here for context on what was cut from v1 and why.
 - `projectEmergencyToCheckpoint` — exported helper if you want to project emergency dumps yourself rather than letting `prepareReplayState` do it.
