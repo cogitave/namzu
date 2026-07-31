@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { TaskGateway } from '../../../types/agent/gateway.js'
 import type {
 	HITLDecisionRequest,
@@ -141,6 +142,136 @@ describe('coordinator ask_user_question registration', () => {
 
 describe('coordinator ask_user_question input schema', () => {
 	const noopHandler: ResumeHandler = async () => ({ action: 'continue' })
+
+	it('publishes one closed canonical model contract and requests constrained input', () => {
+		const tool = askTool(noopHandler)
+		expect(tool.modelInputSchema).toEqual({
+			type: 'object',
+			properties: {
+				question: {
+					type: 'string',
+					description: 'Full question text — clear, specific, and ending with a question mark.',
+				},
+				header: {
+					type: 'string',
+					description: 'Optional very short topic label, no more than 24 characters.',
+				},
+				options: {
+					type: 'array',
+					description: 'A JSON array of 2-4 genuinely distinct, context-derived option objects.',
+					items: {
+						type: 'object',
+						properties: {
+							label: {
+								type: 'string',
+								description:
+									'Concise option label. Put the recommended option first and append " (Recommended)".',
+							},
+							description: {
+								type: 'string',
+								description: 'Optional one-line explanation of what changes if selected.',
+							},
+						},
+						required: ['label'],
+						additionalProperties: false,
+					},
+				},
+				multiSelect: {
+					type: 'boolean',
+					description: 'True only when several options can apply at once.',
+				},
+				allowFreeText: {
+					type: 'boolean',
+					description: 'Whether the user may answer in their own words.',
+				},
+			},
+			required: ['question', 'options'],
+			additionalProperties: false,
+		})
+		expect(tool.enforceModelInput).toBe(true)
+		expect(tool.validationErrorHint).toBe(
+			'Required shape: {"question":"...?","options":[{"label":"First (Recommended)","description":"What changes"},{"label":"Second","description":"What changes"}]}. "options" must be a JSON array of 2-4 objects, never a string.',
+		)
+	})
+
+	it('returns fresh canonical schemas from the registry boundary', () => {
+		const registry = new ToolRegistry()
+		registry.register(askTool(noopHandler))
+
+		const first = registry.toLLMTools()[0]?.function.parameters
+		expect(first).toEqual(askTool(noopHandler).modelInputSchema)
+		const firstProperties = first?.properties as Record<string, unknown>
+		firstProperties.legacy_options = { type: 'string' }
+
+		const next = registry.toLLMTools()[0]?.function.parameters
+		expect(JSON.stringify(next)).not.toContain('legacy_options')
+		expect(next).toEqual(askTool(noopHandler).modelInputSchema)
+	})
+
+	it('isolates the canonical schema between public coordinator builder results', () => {
+		const first = askTool(noopHandler)
+		const second = askTool(noopHandler)
+		expect(first.modelInputSchema).not.toBe(second.modelInputSchema)
+
+		const firstProperties = first.modelInputSchema?.properties as Record<string, unknown>
+		firstProperties.legacy_options = { type: 'string' }
+
+		expect(JSON.stringify(second.modelInputSchema)).not.toContain('legacy_options')
+	})
+
+	it('rejects the captured XML-like string and other malformed option shapes', () => {
+		const tool = askTool(noopHandler)
+		for (const options of [
+			'<options><option><label>Board</label></option></options>',
+			[42, { label: 'Engineering' }],
+			[{ description: 'Missing label' }, { label: 'Engineering' }],
+			[{ label: 'Board', description: 42 }, { label: 'Engineering' }],
+		]) {
+			expect(
+				tool.inputSchema.safeParse({ question: 'Who is the audience?', options }).success,
+				JSON.stringify(options),
+			).toBe(false)
+		}
+	})
+
+	it('rejects unknown root and option properties instead of stripping them', () => {
+		const tool = askTool(noopHandler)
+		expect(tool.inputSchema.safeParse({ ...baseInput, legacy: true }).success).toBe(false)
+		expect(
+			tool.inputSchema.safeParse({
+				...baseInput,
+				options: [{ label: 'Board', value: 'legacy' }, { label: 'Engineering team' }],
+			}).success,
+		).toBe(false)
+	})
+
+	it('returns the canonical recovery shape through the real registry path', async () => {
+		const requests: HITLDecisionRequest[] = []
+		const registry = new ToolRegistry()
+		registry.register(
+			askTool(async (request) => {
+				requests.push(request)
+				return { action: 'continue' }
+			}),
+		)
+
+		const result = await registry.execute(
+			'ask_user_question',
+			{
+				question: 'Who is the audience?',
+				options: '<options><option><label>Board</label></option></options>',
+			},
+			testToolContext(),
+		)
+
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('Expected array, received string')
+		expect(result.error).toContain(
+			'Required shape: {"question":"...?","options":[{"label":"First (Recommended)","description":"What changes"},{"label":"Second","description":"What changes"}]}.',
+		)
+		expect(result.error).toContain('"options" must be a JSON array of 2-4 objects, never a string.')
+		expect(requests).toHaveLength(0)
+	})
 
 	it('rejects fewer than 2 options and more than 4', () => {
 		const tool = askTool(noopHandler)

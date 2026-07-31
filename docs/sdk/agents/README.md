@@ -1,7 +1,7 @@
 ---
 title: Agents and Orchestration
 description: Choose the right SDK agent class, understand delegation boundaries, and wire orchestration surfaces safely in @namzu/sdk.
-last_updated: 2026-04-18
+last_updated: 2026-07-31
 status: current
 related_packages: ["@namzu/sdk"]
 ---
@@ -211,6 +211,10 @@ Current hard requirements:
 - `SupervisorAgent` requires `sessionId`, `projectId`, and `tenantId`
 - it also requires either `gateway` or `agentManager`
 - if you want managed child spawning, pass `agentManager`
+- `ask_user_question` is registered only when both `resumeHandler` and `runId`
+  are available. Its model contract requires `options` to be a JSON array of
+  2–4 objects with a `label` (and optional `description`); capable providers
+  constrain that shape, while the runtime decoder remains authoritative.
 
 ## 7. What `AgentManager` Actually Owns
 
