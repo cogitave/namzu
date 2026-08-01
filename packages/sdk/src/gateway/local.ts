@@ -48,7 +48,14 @@ export class LocalTaskGateway implements TaskGateway {
 				projectId: this.taskContext.projectId,
 				parentActor: this.taskContext.parentActor,
 			},
-			{ ...this.taskContext, budgetTracker: { ...this.taskContext.budgetTracker } },
+			// The budget tracker is SHARED on purpose and must not be cloned.
+			// `AgentManager.spawn` debits it (`remaining -= allocatedTokens`)
+			// so siblings divide one pool; handing each spawn a fresh copy
+			// made the debit land on a throwaway object, so every child saw
+			// the parent's untouched `remaining` and N children were each
+			// allocated `maxBudgetFraction` of the SAME number — N x 50% of a
+			// budget that only had 100% in it.
+			this.taskContext,
 			this.listener,
 		)
 

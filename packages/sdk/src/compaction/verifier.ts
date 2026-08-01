@@ -60,6 +60,14 @@ export async function buildVerifiedSummary(
 	provider: LLMProvider,
 	config: CompactionConfig,
 	onUsage?: UsageSink,
+	/**
+	 * The run's model. Required in practice: this used to send `model: ''`,
+	 * which some drivers quietly default and others reject outright — on
+	 * Bedrock the model id IS the endpoint. So compaction's verifier failed
+	 * exactly on the providers where a long run most needs it, and the
+	 * failure surfaced as compaction killing the run it exists to save.
+	 */
+	model?: string,
 ): Promise<string> {
 	const serialized = serializeState(manager.getState())
 
@@ -90,7 +98,7 @@ export async function buildVerifiedSummary(
 
 	const response = await collect(
 		provider.chatStream({
-			model: '',
+			model: model ?? '',
 			messages: verificationMessages,
 			maxTokens: config.llmVerificationMaxTokens,
 			temperature: 0,

@@ -222,7 +222,7 @@ export class AgentManager {
 			childConfig = await definition.configBuilder({
 				...(context.factoryOptions ?? {}),
 				tokenBudget: allocatedTokens,
-				timeoutMs: options.budgetAllocation?.timeoutMs ?? context.budgetTracker.remaining,
+				timeoutMs: options.budgetAllocation?.timeoutMs ?? this.config.childTimeoutMs,
 				parentRunId: context.parentRunId as string | undefined,
 				depth: context.depth + 1,
 				...options.configOverrides,
@@ -246,7 +246,7 @@ export class AgentManager {
 			childConfig = {
 				model: options.configOverrides?.model ?? 'default',
 				tokenBudget: allocatedTokens,
-				timeoutMs: options.budgetAllocation?.timeoutMs ?? context.budgetTracker.remaining,
+				timeoutMs: options.budgetAllocation?.timeoutMs ?? this.config.childTimeoutMs,
 				temperature: options.configOverrides?.temperature,
 				maxIterations: options.configOverrides?.maxIterations,
 				maxResponseTokens: options.configOverrides?.maxResponseTokens,

@@ -149,4 +149,18 @@ export interface AgentManagerConfig {
 	evictionMs: number
 
 	maxBudgetFraction: number
+
+	/**
+	 * Wall-clock deadline given to a spawned child when the caller supplies
+	 * no `budgetAllocation.timeoutMs`.
+	 *
+	 * This exists because the fallback used to be
+	 * `context.budgetTracker.remaining` — a TOKEN count read as
+	 * milliseconds. The unit error hid for so long because a typical
+	 * six-figure token budget lands in a plausible-looking range of
+	 * milliseconds; it only bites at the edges, where an unlimited budget
+	 * (`0`) became a zero-millisecond deadline and a small budget became a
+	 * child that died in under a second.
+	 */
+	childTimeoutMs: number
 }

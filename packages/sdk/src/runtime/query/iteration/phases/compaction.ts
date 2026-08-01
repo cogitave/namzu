@@ -207,6 +207,7 @@ export async function runCompactionCheck(ctx: IterationContext): Promise<void> {
 			ctx.provider,
 			config,
 			(usage) => ctx.runMgr.accumulateUsage(usage),
+			ctx.runConfig.model,
 		)
 	} else {
 		compactedContent = serializeState(manager.getState())

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { AGENT_MANAGER_DEFAULTS } from '../../../constants/agent/index.js'
 import { EMPTY_TOKEN_USAGE } from '../../../constants/limits.js'
+import { LocalTaskGateway } from '../../../gateway/local.js'
 import { AgentRegistry } from '../../../registry/agent/definitions.js'
 import {
 	DefaultCapacityValidator,
@@ -471,3 +473,92 @@ describe('AgentManager.sendMessage — Phase 6 SubSession spawn', () => {
 // unconditional required. Prior `describe('AgentManager.sendMessage — legacy
 // mode (no session deps)')` block deleted; every spawn now produces a
 // SubSession + Session + WorkspaceRef triple (Convention #0).
+
+/**
+ * Two unit errors in the delegation path that no test covered, because the
+ * numbers involved stay plausible-looking until you check their units and
+ * their identity.
+ */
+describe('AgentManager.sendMessage — budget and deadline arithmetic', () => {
+	it('does not derive the child deadline from the TOKEN budget', async () => {
+		// The fallback used to be `context.budgetTracker.remaining` — a token
+		// count read as milliseconds. It hid for so long because a six-figure
+		// token budget lands in a plausible range of milliseconds.
+		const seen: BaseAgentConfig[] = []
+		const childAgent = makeAgent('child-deadline', async (_input, config) => {
+			seen.push(config)
+			return successResult()
+		})
+		const harness = await buildHarness(childAgent)
+		const context = buildContext(harness.parentSession.id, harness.projectId, harness.threadId)
+		context.budgetTracker = { total: 100_000, remaining: 100_000 }
+
+		const task = await harness.manager.sendMessage(
+			buildOptions('child-deadline', harness.parentSession.id, harness.projectId),
+			context,
+		)
+		await waitForTask(harness.manager, task.taskId)
+
+		expect(seen).toHaveLength(1)
+		// Before the fix this was the post-debit token remainder (50_000).
+		expect(seen[0]?.timeoutMs).toBe(AGENT_MANAGER_DEFAULTS.childTimeoutMs)
+	})
+
+	it('an unlimited token budget does not become a zero-millisecond deadline', async () => {
+		// The edge where the unit error actually bit: `tokenBudget: 0` means
+		// "no cap", and it produced a child that was out of time on arrival.
+		const seen: BaseAgentConfig[] = []
+		const childAgent = makeAgent('child-zero', async (_input, config) => {
+			seen.push(config)
+			return successResult()
+		})
+		const harness = await buildHarness(childAgent)
+		const context = buildContext(harness.parentSession.id, harness.projectId, harness.threadId)
+		context.budgetTracker = { total: 0, remaining: 0 }
+
+		const task = await harness.manager.sendMessage(
+			buildOptions('child-zero', harness.parentSession.id, harness.projectId),
+			context,
+		)
+		await waitForTask(harness.manager, task.taskId)
+
+		expect(seen[0]?.timeoutMs).toBeGreaterThan(0)
+	})
+
+	it('siblings divide ONE budget pool when spawned THROUGH THE GATEWAY', async () => {
+		// `spawn` debits the shared tracker. A caller that hands each spawn a
+		// cloned tracker makes the debit land on a throwaway object, so N
+		// children are each allocated maxBudgetFraction of the SAME number.
+		const seen: BaseAgentConfig[] = []
+		const childAgent = makeAgent('child-budget', async (_input, config) => {
+			seen.push(config)
+			return successResult()
+		})
+		const harness = await buildHarness(childAgent)
+		const context = buildContext(harness.parentSession.id, harness.projectId, harness.threadId)
+		context.budgetTracker = { total: 100_000, remaining: 100_000 }
+
+		// Go through the GATEWAY, which is where the clone was: calling
+		// `manager.sendMessage` directly always shared the tracker, so a test
+		// at that level proves nothing about the defect.
+		const gateway = new LocalTaskGateway(harness.manager, context)
+
+		for (let i = 0; i < 3; i++) {
+			const handle = await gateway.createTask({
+				agentId: 'child-budget',
+				prompt: 'work',
+				workingDirectory: '/tmp',
+			})
+			await waitForTask(harness.manager, handle.taskId)
+		}
+
+		const allocated = seen.map((c) => c.tokenBudget ?? 0)
+		expect(allocated).toHaveLength(3)
+		// Strictly decreasing: each spawn sees a smaller remaining pool.
+		expect(allocated[1]).toBeLessThan(allocated[0] as number)
+		expect(allocated[2]).toBeLessThan(allocated[1] as number)
+		// And the pool is never over-committed.
+		expect(allocated.reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(100_000)
+		expect(context.budgetTracker.remaining).toBeLessThan(100_000)
+	})
+})
