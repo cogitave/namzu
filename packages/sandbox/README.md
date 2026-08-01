@@ -67,7 +67,22 @@ that's the host's call, not the SDK's.
 
 ## Egress allowlist policy
 
-Every backend supports the same `EgressPolicy` shape:
+Every backend accepts the same `EgressPolicy` shape, but they do **not**
+all enforce every variant, and a backend that cannot enforce one now
+throws instead of quietly ignoring it:
+
+| Backend | `deny-all` | `allow-all` | `static` / `resolver` |
+|---|---|---|---|
+| `container:docker` | enforced (`--network none`) | enforced | **throws** — no proxy to filter through |
+| `microvm:firecracker` | enforced | enforced | enforced (host-materialised allowlist) |
+
+The docker row is the important one. It used to accept a restrictive
+policy and silently grant the configured network, which is worse than not
+supporting the feature: the host believes it is protected and stops
+looking. Refusing loudly is the only honest option for a control the
+backend cannot implement.
+
+The shape itself:
 
 ```ts
 type EgressPolicy =
@@ -85,6 +100,27 @@ it issues the JWT, the allowlist claim is baked in there). This
 avoids the "where does the resolver get its context from"
 plumbing problem; the host owns the closure, the SDK runtime
 doesn't have to forward identity through `provider.create`.
+
+## Container confinement (`container:docker`)
+
+Every container is launched with:
+
+- `--cap-drop=ALL` — `CAP_DAC_OVERRIDE` alone walks past the read-only bind
+  mounts the layout sets up, so the default capability set makes the mount
+  layout advisory rather than enforced.
+- `--security-opt=no-new-privileges` — without it a setuid binary in the
+  image re-escalates after the drop.
+- `--network none` by default (see the egress table above).
+
+There is deliberately **no re-add list** for capabilities. A workload that
+genuinely needs one should say so somewhere a reviewer sees it, not inherit
+it from a default.
+
+`runAsUser` (`--user`) is opt-in rather than defaulted, because the correct
+uid depends on the image's own filesystem ownership and forcing one breaks
+every image that expects root at startup. Set it whenever the image
+supports a non-root user — a container running as root is one bind-mount
+misconfiguration away from writing the host.
 
 ## Status
 
