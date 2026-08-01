@@ -56,6 +56,17 @@ export const DEFAULT_TOOL_TIMEOUT_MS = 120_000
 export const DEFAULT_TOOL_CONCURRENCY = 8
 
 /**
+ * Re-runs granted to a `post_tool_use` hook that returns `{action:'retry'}`
+ * on a tool which did not opt into {@link ToolDefinition.maxRetries}.
+ *
+ * Small on purpose. The hook is host code reacting to one specific result,
+ * which is a more specific signal than the tool's blanket idempotency
+ * declaration — but the tool still never said it was safe to re-run, so
+ * this buys one correction, not a loop.
+ */
+export const HOOK_RETRY_BUDGET = 1
+
+/**
  * An empty arguments string means "no arguments", not "malformed" — the
  * shape a no-parameter tool arrives in.
  */
@@ -313,7 +324,17 @@ export class ToolExecutor {
 	): Promise<ToolCallOutcome> {
 		let toolName = toolCall.function.name
 
-		if (toolCall.metadata?.inputTruncated === true) {
+		// A stream that cut off mid-JSON is the case `repairToolCall` exists
+		// for, and it used to be the one case that never reached it: this
+		// branch returned before `resolveCall` ran, so the motivating failure
+		// was answered with a generic hint while the configured repairer sat
+		// unused. Offer it the partial buffer first.
+		const truncationRepair =
+			toolCall.metadata?.inputTruncated === true
+				? await this.repairTruncatedCall(toolCall, toolName)
+				: null
+
+		if (toolCall.metadata?.inputTruncated === true && !truncationRepair) {
 			const message = truncatedToolInputMessage(toolName)
 			await this.emitEvent({
 				type: 'tool_executing',
@@ -337,7 +358,19 @@ export class ToolExecutor {
 		// error went back as a `tool_result`, the model re-read the whole
 		// context and tried again. A host that can repair it locally turns
 		// that into nothing. No-op when no repairer is configured.
-		const resolved = await this.resolveCall(toolCall)
+		const resolved = await this.resolveCall(
+			truncationRepair
+				? {
+						...toolCall,
+						function: {
+							...toolCall.function,
+							name: truncationRepair.toolName ?? toolName,
+							arguments: truncationRepair.arguments,
+						},
+						metadata: {},
+					}
+				: toolCall,
+		)
 		toolName = resolved.toolName
 
 		if (!resolved.ok) {
@@ -453,18 +486,27 @@ export class ToolExecutor {
 		// because the SDK cannot know a tool is idempotent — silently
 		// re-running a write or a payment is worse than never retrying.
 		const maxRetries = Math.max(0, this.config.tools.get(toolName)?.maxRetries ?? 0)
-		for (let attempt = 1; attempt <= maxRetries; attempt++) {
+		for (let attempt = 1; ; attempt++) {
 			// A missing file will not appear on the second attempt; burning
 			// the budget on it only delays the error the model needs to see.
-			// A `post_tool_use` hook asking for a retry overrides that — it
-			// looked at the result and knows something the tool did not.
-			const retryable = post.retry || (!result.success && result.retryable === true)
-			if (!retryable) break
+			const toolWants = !result.success && result.retryable === true
+			// A `post_tool_use` hook asking for a retry gets its OWN budget.
+			// Bounding it by `maxRetries` made it a silent no-op at the
+			// shipped default of 0: the hook's answer was read and discarded
+			// on every tool that had not separately opted in. The hook is
+			// host code looking at this specific result — a more specific
+			// signal than the tool's blanket idempotency declaration — so it
+			// is honored, but still bounded so a plugin cannot spin the
+			// executor.
+			if (!toolWants && !post.retry) break
+			const budget = post.retry ? Math.max(maxRetries, HOOK_RETRY_BUDGET) : maxRetries
+			if (attempt > budget) break
+
 			this.log.info('Retrying a failed tool call', {
 				runId: this.config.runId,
 				tool: toolName,
 				attempt,
-				maxRetries,
+				budget,
 				requestedByHook: post.retry,
 				error: result.error,
 			})
@@ -781,6 +823,30 @@ export class ToolExecutor {
 	 * string is broken regardless of which tool it was aimed at, and it is
 	 * the one problem the executor itself has to answer.
 	 */
+	private async repairTruncatedCall(
+		toolCall: ToolCall,
+		toolName: string,
+	): Promise<ToolCallRepair | null> {
+		if (!this.config.repairToolCall) return null
+
+		// Present the PARTIAL buffer, not the normalized `"{}"` — a repairer
+		// handed an empty object has nothing to work from.
+		const partial = toolCall.metadata?.partialArguments ?? ''
+		const repair = await this.requestRepair(
+			{ ...toolCall, function: { ...toolCall.function, arguments: partial } },
+			toolName,
+			{ reason: 'invalid_json', message: truncatedToolInputMessage(toolName) },
+		)
+		if (repair) {
+			this.log.info('Repaired a tool call whose input stream was truncated', {
+				runId: this.config.runId,
+				tool: toolName,
+				partialLength: partial.length,
+			})
+		}
+		return repair
+	}
+
 	private inspectCall(
 		toolName: string,
 		raw: string,

@@ -5,6 +5,7 @@ import type { InvocationState } from '../../types/invocation/index.js'
 import type { PermissionMode } from '../../types/permission/index.js'
 import type { RunEvent } from '../../types/run/index.js'
 import type { ToolRegistryContract } from '../../types/tool/index.js'
+import type { RepairToolCall } from '../../types/tool/repair.js'
 import type { Logger } from '../../utils/logger.js'
 import { ToolExecutor } from './executor.js'
 
@@ -24,6 +25,7 @@ export interface ToolingBootstrapConfig {
 	maxToolConcurrency?: number
 	maxToolOutputChars?: number
 	toolOutputDir?: string
+	repairToolCall?: RepairToolCall
 }
 
 export class ToolingBootstrap {
@@ -52,6 +54,7 @@ export class ToolingBootstrap {
 					? { maxToolOutputChars: config.maxToolOutputChars }
 					: {}),
 				...(config.toolOutputDir !== undefined ? { toolOutputDir: config.toolOutputDir } : {}),
+				...(config.repairToolCall !== undefined ? { repairToolCall: config.repairToolCall } : {}),
 			},
 			activityStore,
 			emitEvent,

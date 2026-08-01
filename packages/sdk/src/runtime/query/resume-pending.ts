@@ -1,5 +1,9 @@
 import type { RunPersistence } from '../../manager/run/persistence.js'
-import type { HITLResumeDecision, IterationCheckpoint } from '../../types/hitl/index.js'
+import type {
+	CheckpointId,
+	HITLResumeDecision,
+	IterationCheckpoint,
+} from '../../types/hitl/index.js'
 import type { AssistantMessage, Message, ToolCall } from '../../types/message/index.js'
 import type { ChatCompletionResponse } from '../../types/provider/index.js'
 import type { Logger } from '../../utils/logger.js'
@@ -20,6 +24,12 @@ import type { ToolCallDenials, ToolExecutor } from './executor.js'
  * keeps the existing repair-and-re-decide behavior.
  */
 export interface PendingResumePlan {
+	/**
+	 * The checkpoint the park was recorded on, so the caller can clear it
+	 * once the decision has actually been applied. Leaving it outstanding
+	 * makes an approval queue re-serve a destructive call that already ran.
+	 */
+	readonly checkpointId: CheckpointId
 	/** The assistant turn whose `tool_use` blocks are unanswered. */
 	readonly assistant: AssistantMessage
 	/** Synthesized response the executor consumes. */
@@ -84,6 +94,7 @@ export function planPendingResume(
 	if (!denials) return null
 
 	return {
+		checkpointId: checkpoint.id,
 		assistant,
 		response: synthesizeResponse(assistant),
 		denials,

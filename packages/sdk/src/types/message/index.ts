@@ -28,6 +28,14 @@ export interface ToolCall {
 	 */
 	metadata?: {
 		inputTruncated?: boolean
+		/**
+		 * The partial argument buffer as it arrived, when the stream cut off
+		 * mid-JSON. `function.arguments` is normalized to `"{}"` in that
+		 * case so tool args stay clean, which leaves this as the only record
+		 * of what the model was actually saying — and a `repairToolCall`
+		 * hook has nothing to repair without it.
+		 */
+		partialArguments?: string
 	}
 }
 

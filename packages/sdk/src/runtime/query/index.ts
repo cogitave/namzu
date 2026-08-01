@@ -946,6 +946,25 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				})
 				await applyPendingResume(pendingResume, ctx.runMgr, toolExecutor)
 				yield* eventTranslator.drainPending()
+
+				// The decision has now actually been carried out, so the park
+				// is no longer outstanding. Without this the checkpoint keeps
+				// reporting `pending` with no `resolvedAt`, and an approval
+				// queue re-serves a destructive call that already ran — which
+				// defeats the entire point of recording the park.
+				const resolvedCheckpointId = pendingResume.checkpointId
+				if (params.pendingDecision) {
+					await checkpointMgr
+						.unpark(resolvedCheckpointId, params.pendingDecision)
+						.catch((err: unknown) => {
+							ctx.log.error('Applied a pending decision but failed to clear the park', {
+								runId: ctx.runId,
+								checkpointId: resolvedCheckpointId,
+								error: err instanceof Error ? err.message : String(err),
+							})
+							return null
+						})
+				}
 			}
 
 			yield* iterationOrchestrator.runLoop()
@@ -970,8 +989,12 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			// token to gate the stream itself would trade the streaming UX
 			// for the guarantee, which is the host's call, not the SDK's.
 			if (params.outputGuardrails && params.outputGuardrails.length > 0) {
-				ctx.runMgr.markCompleted(ctx.runMgr.stopReason)
-				const produced = ctx.runMgr.getRun().result ?? ''
+				// Read what the run produced WITHOUT settling it. This used to
+				// call `markCompleted()` just to materialize the text, which
+				// force-marked a cancelled or paused run `completed` merely
+				// because a guardrail was configured — the presence of a
+				// safety check silently rewrote the run's own outcome.
+				const produced = ctx.runMgr.materializeResult()
 				const outputVerdict = await runOutputGuardrails(
 					params.outputGuardrails,
 					{ runId: ctx.runId, output: produced, messages: ctx.runMgr.messages },

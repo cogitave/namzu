@@ -416,7 +416,13 @@ export async function* streamProviderTurn(
 				name: b.name,
 				arguments: JSON.stringify(b.parsed ?? {}),
 			},
-			...(b.inputTruncated ? { metadata: { inputTruncated: true } } : {}),
+			// Carry the partial buffer alongside the flag. `arguments` is
+			// normalized to `{}` above, so without this the only record of
+			// what the model was actually saying is gone — and a
+			// `repairToolCall` hook has nothing to repair.
+			...(b.inputTruncated
+				? { metadata: { inputTruncated: true, partialArguments: b.argsBuf } }
+				: {}),
 		}))
 
 	const recoveredToolInputFromStreamError =

@@ -242,8 +242,19 @@ export class RunPersistence {
 	 * policy corrected it, and the corrected text is what `run_completed`
 	 * and `Run.result` must carry.
 	 */
+	/**
+	 * Override the run's final text.
+	 *
+	 * The override is sticky: `resolveResult` re-derives the result from the
+	 * message tail, and it runs again when the run settles, so without this
+	 * flag a guardrail's redaction was silently re-expanded back to the raw
+	 * model output at `markCompleted`. The previous code only survived that
+	 * by settling the run EARLY — which is what made configuring a guardrail
+	 * rewrite a cancelled run's status.
+	 */
 	setResult(result: string): void {
 		this.run.result = result
+		this.resultOverridden = true
 	}
 
 	setStructuredOutput(value: unknown): void {
@@ -286,7 +297,26 @@ export class RunPersistence {
 		this.run.currentIteration = currentIteration
 	}
 
+	/**
+	 * Assemble the final assistant output WITHOUT settling the run.
+	 *
+	 * An output guardrail has to read what the run produced before it can
+	 * judge it, and the only way to materialize that used to be
+	 * `markCompleted()` — which force-marked a cancelled or paused run as
+	 * `completed` merely because a guardrail was configured. Reading and
+	 * settling are different operations; this is the read.
+	 */
+	materializeResult(): string {
+		this.resolveResult()
+		return this.run.result ?? ''
+	}
+
+	/** Set once a caller has explicitly supplied the final text. */
+	private resultOverridden = false
+
 	private resolveResult(): void {
+		if (this.resultOverridden) return
+
 		// Walk the tail of the message log to assemble the final
 		// assistant output. The iteration loop's auto-continuation
 		// path (see `runtime/query/iteration/index.ts`) inserts a
