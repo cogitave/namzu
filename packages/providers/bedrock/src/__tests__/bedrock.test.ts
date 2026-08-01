@@ -1,5 +1,6 @@
 import { DuplicateProviderError, ProviderRegistry } from '@namzu/sdk'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { toBedrockMessages } from '../client.js'
 import { BEDROCK_CAPABILITIES, BedrockProvider, registerBedrock } from '../index.js'
 
 // Ensure a clean slate between tests. The sdk pre-registers 'mock' on import
@@ -52,5 +53,32 @@ describe('@namzu/bedrock', () => {
 			const provider = new BedrockProvider({ region: 'us-east-1' })
 			expect(provider.capabilities).toEqual(BEDROCK_CAPABILITIES)
 		})
+	})
+})
+
+describe('Converse tool results carry failure status', () => {
+	it('marks a failed tool result with status: error', () => {
+		// The executor computed `isError`, the SSE and A2A bridges carried
+		// it, and then this driver flattened every failure into an ordinary
+		// success. Converse has a first-class field for it; the model's
+		// trained tool-failure recovery path keys off that field.
+		const mapped = toBedrockMessages([
+			{ role: 'assistant', content: null, toolCalls: [] },
+			{ role: 'tool', content: 'Error: file not found', toolCallId: 'call_1', isError: true },
+		] as never)
+
+		const block = mapped.flatMap((m) => m.content ?? []).find((c) => 'toolResult' in c)
+		expect(block).toBeDefined()
+		expect((block as { toolResult: { status?: string } }).toolResult.status).toBe('error')
+	})
+
+	it('leaves a successful tool result unmarked', () => {
+		const mapped = toBedrockMessages([
+			{ role: 'assistant', content: null, toolCalls: [] },
+			{ role: 'tool', content: 'ok', toolCallId: 'call_1' },
+		] as never)
+
+		const block = mapped.flatMap((m) => m.content ?? []).find((c) => 'toolResult' in c)
+		expect((block as { toolResult: { status?: string } }).toolResult.status).toBeUndefined()
 	})
 })

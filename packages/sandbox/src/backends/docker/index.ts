@@ -44,6 +44,7 @@ import {
 
 import {
 	ContainerSandboxLayoutValidationError,
+	type EgressPolicy,
 	type SandboxBackend,
 	type SandboxBackendOptions,
 } from '../../index.js'
@@ -69,6 +70,17 @@ export interface DockerBackendInternalConfig {
 	 */
 	readonly layout: ResolvedContainerSandboxLayout
 	readonly dockerBinary?: string
+
+	/**
+	 * `--user` value for the container, e.g. `'1000:1000'` or `'nobody'`.
+	 *
+	 * Left unset by default because the correct uid depends on the image's
+	 * own filesystem ownership, and forcing one would break every image
+	 * that expects root at startup. Set it whenever the image supports a
+	 * non-root user — a container running as root is one bind-mount
+	 * misconfiguration away from writing the host.
+	 */
+	readonly runAsUser?: string
 	readonly network?: 'none' | 'bridge' | string
 	readonly readyPollIntervalMs?: number
 	readonly readyTimeoutMs?: number
@@ -133,6 +145,47 @@ export function buildDockerBackend(config: DockerBackendInternalConfig): Sandbox
 	}
 }
 
+/**
+ * Reconcile the configured docker network with the caller's egress policy.
+ *
+ * The policy used to be accepted and silently ignored, which is worse than
+ * not supporting it: a host that set `deny-all` believed the container had
+ * no network and it had the configured one. Docker can enforce `deny-all`
+ * natively (`--network none`); it cannot enforce a host allowlist without
+ * a proxy this backend does not have, so those policies are REFUSED rather
+ * than quietly downgraded to "allow everything".
+ */
+export function resolveNetwork(configured: string, egress: EgressPolicy | undefined): string {
+	if (!egress) return configured
+
+	switch (egress.kind) {
+		case 'deny-all':
+			return 'none'
+		case 'allow-all':
+			return configured
+		default:
+			throw new Error(
+				`The docker sandbox backend cannot enforce an egress policy of kind '${egress.kind}': it has no proxy to filter hosts through. Use 'deny-all', 'allow-all', or a backend that implements host filtering (see the firecracker backend). Refusing rather than silently granting full network access.`,
+			)
+	}
+}
+
+/**
+ * Confinement flags applied to every container.
+ *
+ * A sandbox whose containers run as root with the full default capability
+ * set is not confining much: `CAP_DAC_OVERRIDE` alone walks past the
+ * read-only bind mounts the layout sets up, and without
+ * `no-new-privileges` a setuid binary inside the image re-escalates. These
+ * are the defaults every container runtime hardening guide starts with,
+ * and none of them were present.
+ *
+ * `--cap-drop=ALL` is deliberately not softened by a re-add list: a
+ * workload that genuinely needs a capability should say so through
+ * `extraRunArgs` and be visible in review.
+ */
+const HARDENING_ARGS: readonly string[] = ['--cap-drop=ALL', '--security-opt=no-new-privileges']
+
 async function spawnDockerSandbox(
 	config: DockerBackendInternalConfig,
 	options: SandboxBackendOptions,
@@ -140,7 +193,7 @@ async function spawnDockerSandbox(
 	const resolvedLayout = config.layout
 	const id = generateSandboxId()
 	const docker = config.dockerBinary ?? DEFAULT_DOCKER_BINARY
-	const network = config.network ?? 'none'
+	const network = resolveNetwork(config.network ?? 'none', options.egress)
 	const runtime = config.runtime
 	const hostReachability = config.hostReachability ?? 'host-port'
 	const containerName = `namzu-sandbox-${id}`
@@ -180,6 +233,8 @@ async function spawnDockerSandbox(
 			containerName,
 			'--network',
 			network,
+			...HARDENING_ARGS,
+			...(config.runAsUser ? ['--user', config.runAsUser] : []),
 		]
 
 		// `--label key=value` flags. Validate first — an empty key or

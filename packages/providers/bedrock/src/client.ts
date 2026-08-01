@@ -35,7 +35,8 @@ function toBedrockRole(role: string): ConversationRole {
 	return role === 'assistant' ? 'assistant' : 'user'
 }
 
-function toBedrockMessages(messages: ChatCompletionParams['messages']): BedrockMessage[] {
+/** Exported for tests: the tool-result mapping is the seam that dropped `isError`. */
+export function toBedrockMessages(messages: ChatCompletionParams['messages']): BedrockMessage[] {
 	const out: BedrockMessage[] = []
 
 	let pendingToolResults: ContentBlock[] = []
@@ -51,7 +52,7 @@ function toBedrockMessages(messages: ChatCompletionParams['messages']): BedrockM
 		if (msg.role === 'system') continue
 
 		if (msg.role === 'tool') {
-			const toolMsg = msg as { toolCallId?: string; content?: string }
+			const toolMsg = msg as { toolCallId?: string; content?: string; isError?: boolean }
 			const resultBlock: ToolResultContentBlock = {
 				text:
 					typeof toolMsg.content === 'string' ? toolMsg.content : JSON.stringify(toolMsg.content),
@@ -60,6 +61,14 @@ function toBedrockMessages(messages: ChatCompletionParams['messages']): BedrockM
 				toolResult: {
 					toolUseId: toolMsg.toolCallId ?? 'unknown',
 					content: [resultBlock],
+					// Converse has a first-class `status` for a failed tool
+					// result, and it was being dropped: the executor computed
+					// `isError`, the SSE and A2A bridges carried it, and then
+					// the driver flattened every failure into an ordinary
+					// success. The model's trained tool-failure recovery path
+					// keys off this, so without it namzu was relying on prose
+					// formatting to convey "that call failed".
+					...(toolMsg.isError ? { status: 'error' as const } : {}),
 				},
 			})
 			continue
