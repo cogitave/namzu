@@ -189,9 +189,18 @@ export class IterationOrchestrator {
 				// Step guidance is appended to the REQUEST, never pushed onto
 				// the run's history: it applies to this step only, and pushing
 				// it would accumulate one stale instruction per iteration.
+				// Copy before it crosses the provider boundary. `runMgr.messages`
+				// is the LIVE run array, and the loop pushes onto it after the
+				// call returns — so a driver that retains what it was handed
+				// (to log it, cache it, or replay it on retry) watched its own
+				// input grow new turns underneath it. A capture provider in the
+				// estate recorded every turn as identical to the last for
+				// exactly this reason. Shallow is enough: the defect is array
+				// mutation, and per-iteration this is trivial next to the model
+				// call it precedes.
 				const messages = step.system
 					? [...baseMessages, createSystemMessage(step.system)]
-					: baseMessages
+					: [...baseMessages]
 
 				if (this.ctx.pluginManager) {
 					const hookResults = await this.ctx.pluginManager.executeHooks(
