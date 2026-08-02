@@ -19,6 +19,29 @@ import type {
 import type { OpenAIConfig } from './types.js'
 
 /**
+ * Report a turn that produced tool calls as `tool_calls`, whatever the
+ * endpoint called it.
+ *
+ * Endpoints on this wire shape — gateways and local servers especially —
+ * routinely send `finish_reason: "stop"` on the same response that carries
+ * a populated `tool_calls`. Passing that through says the turn is over
+ * when the model has just asked for work, and a consumer that trusts the
+ * reason skips every call it was handed.
+ *
+ * The calls are the fact and the reason is the summary, so when they
+ * disagree the calls win. The tool call can also arrive in the same chunk
+ * as the reason, so the current chunk is checked as well as the ones
+ * before it.
+ */
+function honestFinishReason(
+	reported: StreamChunk['finishReason'],
+	sawToolCall: boolean,
+): StreamChunk['finishReason'] {
+	if (reported === undefined) return undefined
+	return sawToolCall && reported === 'stop' ? 'tool_calls' : reported
+}
+
+/**
  * Full capability set — this driver maps tools (`toOpenAITools`), streams
  * natively, and maps user-message image `attachments` into `image_url`
  * content parts with base64 data URIs (`toOpenAIMessages`).
@@ -210,6 +233,9 @@ export class OpenAIProvider implements LLMProvider {
 	}
 
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
+		// Whether this stream has produced a tool call yet — see
+		// `honestFinishReason`.
+		let sawToolCall = false
 		const model = this.resolveModel(params)
 
 		const stream = await this.client.chat.completions.create(
@@ -264,9 +290,11 @@ export class OpenAIProvider implements LLMProvider {
 				const hasDelta =
 					(delta?.content !== undefined && delta.content !== null) ||
 					(toolCalls && toolCalls.length > 0)
-				const finishReason = choice?.finish_reason
-					? mapFinishReason(choice.finish_reason)
-					: undefined
+				if (toolCalls && toolCalls.length > 0) sawToolCall = true
+				const finishReason = honestFinishReason(
+					choice?.finish_reason ? mapFinishReason(choice.finish_reason) : undefined,
+					sawToolCall,
+				)
 				const usage = chunk.usage ? parseUsage(chunk.usage) : undefined
 
 				if (!hasDelta && !finishReason && !usage) continue

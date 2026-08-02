@@ -11,6 +11,29 @@ import type {
 import { toolResultToText } from '@namzu/sdk'
 import { DialectMismatchError, type HttpConfig, type HttpDialect } from './types.js'
 
+/**
+ * Report a turn that produced tool calls as `tool_calls`, whatever the
+ * endpoint called it.
+ *
+ * Endpoints on this wire shape — gateways and local servers especially —
+ * routinely send `finish_reason: "stop"` on the same response that carries
+ * a populated `tool_calls`. Passing that through says the turn is over
+ * when the model has just asked for work, and a consumer that trusts the
+ * reason skips every call it was handed.
+ *
+ * The calls are the fact and the reason is the summary, so when they
+ * disagree the calls win. The tool call can also arrive in the same chunk
+ * as the reason, so the current chunk is checked as well as the ones
+ * before it.
+ */
+function honestFinishReason(
+	reported: StreamChunk['finishReason'],
+	sawToolCall: boolean,
+): StreamChunk['finishReason'] {
+	if (reported === undefined) return undefined
+	return sawToolCall && reported === 'stop' ? 'tool_calls' : reported
+}
+
 const DEFAULT_TIMEOUT_MS = 60_000
 
 // --------------------------------------------------------------------------------------
@@ -480,6 +503,9 @@ export class HttpProvider implements LLMProvider {
 		const decoder = new TextDecoder()
 		let buffer = ''
 		let firstFrame = true
+		// Whether this stream has produced a tool call yet — see
+		// `honestFinishReason`.
+		let sawToolCall = false
 
 		try {
 			while (true) {
@@ -541,6 +567,9 @@ export class HttpProvider implements LLMProvider {
 					const choice = obj.choices[0]
 					if (!choice) continue
 
+					if (choice.delta.tool_calls && choice.delta.tool_calls.length > 0) {
+						sawToolCall = true
+					}
 					yield {
 						id: obj.id ?? '',
 						delta: {
@@ -552,7 +581,10 @@ export class HttpProvider implements LLMProvider {
 								function: tc.function,
 							})),
 						},
-						finishReason: choice.finish_reason as StreamChunk['finishReason'],
+						finishReason: honestFinishReason(
+							choice.finish_reason as StreamChunk['finishReason'],
+							sawToolCall,
+						),
 						usage: obj.usage ? parseOpenAIUsage(obj.usage) : undefined,
 					}
 				}

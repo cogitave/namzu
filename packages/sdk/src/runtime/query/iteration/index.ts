@@ -316,12 +316,24 @@ export class IterationOrchestrator {
 					})
 				}
 
-				if (
-					forceFinalize ||
-					response.finishReason === 'stop' ||
-					!response.message.toolCalls ||
-					response.message.toolCalls.length === 0
-				) {
+				// Tool calls beat the finish reason. The reason is the
+				// provider's SUMMARY of the turn and the tool calls are the
+				// turn itself, so when they disagree the calls are the fact.
+				// Several OpenAI-shaped endpoints — gateways and local servers
+				// especially — report `stop` alongside a populated
+				// `tool_calls`, and three of this repo's drivers pass that
+				// value through untouched.
+				//
+				// Reading `stop` first meant the turn ended with every
+				// requested call silently skipped, an assistant message
+				// carrying tool_use blocks that were never answered, and a
+				// run that settled `end_turn` having done nothing it was
+				// asked to do. Checking the calls first costs nothing when
+				// the provider is honest and is the only thing that saves the
+				// run when it is not.
+				const hasToolCalls = (response.message.toolCalls?.length ?? 0) > 0
+
+				if (forceFinalize || !hasToolCalls) {
 					// Every task-dispatch tool (create_task, continue_task, Agent)
 					// is BLOCKING: the worker's output returns as the dispatching
 					// tool_use's canonical tool_result, so by the time the model
