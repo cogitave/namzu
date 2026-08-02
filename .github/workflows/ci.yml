@@ -48,6 +48,19 @@ jobs:
       - name: Test
         run: pnpm -r test
 
+      # Behaviour regression gate. The harness exists so that a change to a
+      # tool description, the deferred-tool top-k, or the compaction
+      # threshold ships with a signal behind it — and that signal could not
+      # reach CI while the harness was a library function with no runner.
+      #
+      # Exit codes are load-bearing: 1 is a regression to chase, 2 is a
+      # broken harness to fix, 3 is "found nothing to run". `continue-on-
+      # error` because the repo ships no first-party suites yet; drop it
+      # the moment `evals/` has one, or this gate is decoration.
+      - name: Evals
+        run: node packages/cli/dist/index.js eval --dir evals --out eval-report.json
+        continue-on-error: true
+
       # SDK coverage gate (ses_006-test-coverage-sprint).
       # Runs on one node version only — coverage output is identical across
       # matrix entries, so gating on all four would waste CI time and

@@ -184,6 +184,56 @@ Persist the map however you like — the shapes are serializable. Building
 this into the harness would mean owning a cache key policy that only the
 caller can define correctly.
 
+## 7. Running a Suite From CI
+
+`namzu eval` discovers, runs, prints, writes an artifact, and sets an exit
+code. Without it the harness's signal could not reach CI: every consumer
+had to hand-write the runner and the report-to-exit-code mapping.
+
+```bash
+namzu eval --dir evals --out eval-report.json
+namzu eval --tag fast          # only suites declaring this tag
+```
+
+A **suite** is a file named `*.eval.js` that default-exports a function
+returning an `ExperimentReport`, and may export a `tags` array:
+
+```ts
+export const tags = ['fast']
+
+export default async function () {
+  return runExperiment({ name: 'file-editing', cases, scorers, run })
+}
+```
+
+The `run` callback stays caller-owned, so a suite module owns everything
+about how its runs are constructed and hands back only the structured
+result.
+
+| Exit | Meaning |
+| --- | --- |
+| `0` | Every case passed |
+| `1` | At least one case failed — a regression to chase |
+| `2` | At least one case was inconclusive — a broken harness to fix |
+| `3` | No suite found, one could not be loaded, or `--tag` matched nothing |
+
+`2` is separate from `1` deliberately, for the same reason `unavailable`
+is not zero: a suite that could not judge tells you nothing about the cases
+it did judge, and collapsing the two sends somebody hunting a behaviour
+change that never happened. It is checked first, so a run that is both
+inconclusive and failing reports inconclusive.
+
+`3` rather than `0` for an empty discovery: a gate that finds nothing to
+run must not report green.
+
+Suite ids are **path-derived** (`tools/read.eval.js` → `tools/read`,
+always posix-separated) so two commits' artifacts describe the same
+suites and can be diffed. Two files resolving to one id is refused rather
+than resolved — a report would silently describe whichever ran last.
+
+The artifact is the full report, not a summary, because a summary cannot
+say which scorer moved.
+
 ## Related
 
 - [Runtime](../runtime/README.md)
