@@ -9,7 +9,7 @@ import type { BlobStore, FileRecord, FileRegistry, FileRole, FileScopeType } fro
 
 /**
  * Path roots accepted by `downloadByPath`. The defaults match the
- * legacy `claude.ai`-style sandbox conventions used by Namzu agents:
+ * container layout Namzu agents run under:
  * `/mnt/user-data/{outputs,uploads}` and the shorter `/{outputs,uploads}`.
  * Operators can override with `FilesRouterOptions.downloadPathRoots`.
  */
@@ -36,8 +36,8 @@ export interface AuthzContext {
  * The router cannot distinguish "no credentials" from "authenticated
  * but not a scope member" purely from the `null` return — handlers
  * inspect the request's `authorization`/`cookie` headers to decide
- * whether to respond with 401 (unauthenticated) or 404 (mirroring
- * claude.ai's "leak nothing about other tenants" pattern).
+ * whether to respond with 401 (unauthenticated) or 404 — a 403 would
+ * confirm the scope exists, which is itself a leak about another tenant.
  */
 export type AuthzCheck = (
 	req: Request,

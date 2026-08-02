@@ -89,8 +89,8 @@ export interface DockerBackendInternalConfig {
 	 * (vanilla Docker namespaces, what Docker Desktop ships). Linux
 	 * production deployments that have registered gVisor on the host
 	 * daemon can pass `runsc` to upgrade to a userspace-kernel trust
-	 * boundary — same primitive Modal Labs and OpenAI Code Interpreter
-	 * ship. Hosts can also pass a custom runtime name registered in
+	 * boundary — the usual primitive for running untrusted code at
+	 * scale. Hosts can also pass a custom runtime name registered in
 	 * `daemon.json`. macOS Docker Desktop has no `runsc` runtime, so
 	 * the default `runc` is the only option there; that's documented
 	 * as the local-dev tier in the package README.

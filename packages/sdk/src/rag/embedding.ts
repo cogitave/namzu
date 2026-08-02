@@ -1,7 +1,13 @@
-import type { EmbeddingProvider, OpenRouterEmbeddingConfig } from '../types/rag/index.js'
+import type { EmbeddingProvider, HttpEmbeddingConfig } from '../types/rag/index.js'
 
-export class OpenRouterEmbeddingProvider implements EmbeddingProvider {
-	readonly id = 'openrouter-embedding'
+/**
+ * Embeddings over the common HTTP shape: `POST {baseUrl}/embeddings` with
+ * a bearer key, `{ model, input, dimensions }` in, `{ data: [{ index,
+ * embedding }] }` out. Every hosted embeddings service worth pointing at
+ * speaks it, so the driver is the shape rather than any one host.
+ */
+export class HttpEmbeddingProvider implements EmbeddingProvider {
+	readonly id = 'http-embedding'
 	readonly model: string
 	readonly dimensions: number
 
@@ -9,11 +15,11 @@ export class OpenRouterEmbeddingProvider implements EmbeddingProvider {
 	private readonly baseUrl: string
 	private readonly batchSize: number
 
-	constructor(config: OpenRouterEmbeddingConfig) {
+	constructor(config: HttpEmbeddingConfig) {
 		this.model = config.model
 		this.dimensions = config.dimensions ?? 1536
 		this.apiKey = config.apiKey
-		this.baseUrl = config.baseUrl ?? 'https://openrouter.ai/api/v1'
+		this.baseUrl = config.baseUrl.replace(/\/+$/, '')
 		this.batchSize = config.batchSize ?? 64
 	}
 

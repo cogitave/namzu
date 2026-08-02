@@ -29,8 +29,8 @@
  *    Firecracker isolation AND insist on running the scheduler
  *    themselves. Tier 3 isolation, highest operational cost.
  *
- *  • `gvisor` — adapter for `runsc` runtime (Google's userspace
- *    kernel). What OpenAI Code Interpreter and Modal Labs ship.
+ *  • `gvisor` — adapter for the `runsc` userspace-kernel runtime.
+ *    The usual choice for running untrusted code at scale.
  *    Trusted-tenant tier with near-zero cold-start; runs on
  *    commodity Linux without nested virt. Locally via Linux Docker
  *    runtime; not available on macOS Docker Desktop.
@@ -124,8 +124,8 @@ export {
  *
  *   - `process` — the agent runs on the developer's own host;
  *     the sandbox keeps it from reading `~/.ssh` or running
- *     `rm -rf ~`. Single-user; no multi-tenancy. What Anthropic
- *     ships with Claude Code via `@anthropic-ai/sandbox-runtime`.
+ *     `rm -rf ~`. Single-user; no multi-tenancy. The tier a
+ *     developer-machine agent actually runs in.
  *
  *   - `container` — the agent runs inside an OCI container per
  *     task. Same code path locally (`docker compose`) and on
@@ -232,10 +232,10 @@ export interface ProcessBackendConfig {
  *
  *   - `docker` (default) — plain OCI container on the host's
  *     Docker daemon. No special runtime required.
- *   - `runsc` — Google's gVisor userspace-kernel runtime. Stronger
+ *   - `runsc` — the gVisor userspace-kernel runtime. Stronger
  *     isolation (syscall-table separation), runs on commodity
- *     Linux without nested virt. Trusted-tenant tier; what OpenAI
- *     Code Interpreter and Modal Labs ship. Requires the
+ *     Linux without nested virt. Trusted-tenant tier, and the usual
+ *     choice for running untrusted code at scale. Requires the
  *     `runsc` runtime installed on the Docker daemon (Linux only;
  *     Docker Desktop on macOS does not support it). See
  *     `gvisor.dev/docs/user_guide/quick_start/docker`.
@@ -564,8 +564,8 @@ interface SandboxProviderConfigBase {
  * the chosen backend.
  *
  * Backends are loaded lazily — the package only imports the
- * platform-specific modules (Anthropic's sandbox-runtime, the
- * Docker SDK, the E2B SDK, …) when the corresponding backend is
+ * platform-specific modules (the host sandbox runtime, the
+ * Docker SDK, the microVM SDK, …) when the corresponding backend is
  * requested. That keeps `@namzu/sandbox` reasonable to install in
  * environments where one backend is genuinely impossible.
  *
@@ -576,7 +576,7 @@ interface SandboxProviderConfigBase {
  *   - **P3.1** — `container` (docker runtime). Phase 1: ship now.
  *   - **P3.2** — `EgressPolicy` plumbing + reference egress proxy.
  *   - **P3.3** — `microvm` (E2B + Fly Machines adapters). Phase 2.
- *   - **P3.4** — `process` (Anthropic sandbox-runtime adapter).
+ *   - **P3.4** — `process` (host sandbox-runtime adapter).
  *   - **P3.5** — `microvm` (self-hosted firecracker-containerd) +
  *     `container` (gVisor runtime). Phase 3 adversarial-multi-tenant.
  *

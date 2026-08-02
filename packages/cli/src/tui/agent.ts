@@ -56,7 +56,7 @@ import {
 	ensureFreshAnthropicToken,
 	findDetected,
 	isAnthropicOAuthToken,
-	readClaudeCodeKeychainCredential,
+	readAgentKeychainCredential,
 	readPreferences,
 } from '../integrations/providers/index.js'
 import { createSubagentRuntime } from '../integrations/subagents/runtime.js'
@@ -188,9 +188,10 @@ async function ensureRegistered(id: ProviderId): Promise<void> {
 	registered.add(id)
 }
 
-// Builtins we don't expose: `verify_outputs` — not part of the recognizable
-// Claude-Code tool surface, just noise in `/tools`. (`append` was removed
-// from the SDK entirely; `edit` with insertLine:"end" covers it.)
+// Builtins we don't expose: `verify_outputs` — a host-side check rather
+// than something the model should be choosing to call, so in `/tools` it is
+// noise. (`append` was removed from the SDK entirely; `edit` with
+// insertLine:"end" covers it.)
 const EXCLUDED_BUILTINS = new Set(['verify_outputs'])
 
 // namzu's own identity. Injected as system context so the agent presents as
@@ -263,7 +264,7 @@ export async function createAgentSession(
 	let currentToken = det?.apiKey
 	const refreshTokenIfNeeded = async (): Promise<void> => {
 		if (!keychainRefresh) return
-		const cred = readClaudeCodeKeychainCredential()
+		const cred = readAgentKeychainCredential()
 		if (!cred) return
 		const fresh = await ensureFreshAnthropicToken(cred.accessToken, {
 			refreshToken: cred.refreshToken,
@@ -332,7 +333,7 @@ export async function createAgentSession(
 	const deferredToolCount = clawtoolTools.length
 	// Task store → query auto-registers create_task / update_task / list_tasks
 	// and emits task_created/task_updated, so the agent can track a plan for the
-	// current request (Claude-Code todo style). Tasks are run-scoped.
+	// current request. Tasks are run-scoped.
 	const taskStore: TaskStore = new DiskTaskStore({
 		baseDir: join(process.cwd(), '.namzu'),
 		defaultRunId: 'run_namzu-cli' as RunId,

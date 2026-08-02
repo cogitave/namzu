@@ -6,15 +6,15 @@ export {
 	findDetected,
 } from './discover.js'
 export {
-	type ClaudeCodeOAuthCredential,
+	type AgentOAuthCredential,
 	isAnthropicOAuthToken,
-	readClaudeCodeKeychainCredential,
+	readAgentKeychainCredential,
 } from './keychain.js'
 export { maskSecret } from './mask.js'
 export {
 	ensureFreshAnthropicToken,
 	type OAuthMetadata,
-	refreshClaudeCodeToken,
+	refreshAgentOAuthToken,
 } from './oauth.js'
 export {
 	type Preferences,

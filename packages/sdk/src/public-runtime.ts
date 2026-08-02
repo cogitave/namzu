@@ -186,7 +186,7 @@ export {
 	DefaultKnowledgeBase,
 	DefaultRetriever,
 	InMemoryVectorStore,
-	OpenRouterEmbeddingProvider,
+	HttpEmbeddingProvider,
 	TextChunker,
 } from './rag/index.js'
 

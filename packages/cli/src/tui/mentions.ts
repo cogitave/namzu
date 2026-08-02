@@ -1,7 +1,7 @@
 /**
  * `@file` mentions in a composed message. Typing `@src/auth.ts` inlines that
- * file's contents into the text sent to the model (Claude Code / opencode
- * style), while the visible message keeps the readable `@path` token.
+ * file's contents into the text sent to the model, while the visible
+ * message keeps the readable `@path` token.
  *
  * Safety: only files resolving *inside* the working directory are inlined
  * (so `@/etc/passwd` or `@../secrets` are ignored, not exfiltrated), and each

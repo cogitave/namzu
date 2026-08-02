@@ -14,7 +14,7 @@
  * picker can render immediately and refine if discovery completes later.
  */
 
-import { readClaudeCodeKeychainCredential } from './keychain.js'
+import { KEYCHAIN_SERVICE, readAgentKeychainCredential } from './keychain.js'
 import { PROVIDER_REGISTRY, type ProviderId, type ProviderRegistryEntry } from './registry.js'
 import { readClawtoolSecrets } from './secrets.js'
 
@@ -34,7 +34,7 @@ export interface DetectedProvider {
 	readonly baseUrl?: string
 	/**
 	 * OAuth refresh metadata, present only when `apiKey` is an OAuth access
-	 * token carrying a refresh token + expiry (the Claude Code Keychain). Lets
+	 * token carrying a refresh token + expiry (the Keychain source). Lets
 	 * the session layer renew a lapsed token instead of failing with a 401.
 	 */
 	readonly oauth?: { readonly refreshToken?: string; readonly expiresAt?: number }
@@ -69,7 +69,7 @@ export async function discoverProviders(
 	// macOS-only: read the third-party OAuth credential stored in the login
 	// Keychain once. Only anthropic consumes it, but we scan up front so
 	// the loop body stays uniform.
-	const claudeKeychain = opts.skipKeychain ? null : readClaudeCodeKeychainCredential()
+	const keychainCredential = opts.skipKeychain ? null : readAgentKeychainCredential()
 
 	for (const id of Object.keys(PROVIDER_REGISTRY) as readonly ProviderId[]) {
 		const entry = PROVIDER_REGISTRY[id]
@@ -89,15 +89,15 @@ export async function discoverProviders(
 				sources.push({ kind: 'secrets-toml', envName: cand.envName, scope: cand.scope })
 			}
 		}
-		if (id === 'anthropic' && claudeKeychain) {
-			if (apiKey === undefined) apiKey = claudeKeychain.accessToken
-			sources.push({ kind: 'keychain', service: 'Claude Code-credentials' })
+		if (id === 'anthropic' && keychainCredential) {
+			if (apiKey === undefined) apiKey = keychainCredential.accessToken
+			sources.push({ kind: 'keychain', service: KEYCHAIN_SERVICE })
 			// Only carry refresh metadata when the Keychain token is the one we'll
 			// actually use (an env/secrets token has no refresh path).
-			if (apiKey === claudeKeychain.accessToken) {
+			if (apiKey === keychainCredential.accessToken) {
 				oauth = {
-					refreshToken: claudeKeychain.refreshToken,
-					expiresAt: claudeKeychain.expiresAt,
+					refreshToken: keychainCredential.refreshToken,
+					expiresAt: keychainCredential.expiresAt,
 				}
 			}
 		}

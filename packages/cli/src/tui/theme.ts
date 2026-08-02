@@ -1,8 +1,9 @@
 /**
  * Theme tokens for the TUI — a single dark palette. We inherit the
- * terminal's own background (like claude-code / gemini-cli) rather than
- * painting one, and only theme the foreground; curated hex colors
- * (GitHub-dark-leaning) give a consistent, premium look on dark terminals.
+ * terminal's own background rather than painting one, and only theme the
+ * foreground — a TUI that repaints the canvas fights whatever the user
+ * already chose. Curated hex colors give a consistent look on dark
+ * terminals.
  * `background` is kept for reference / a future light theme but is not
  * forced onto the canvas. A theme registry/picker is a follow-up.
  */

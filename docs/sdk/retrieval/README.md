@@ -17,7 +17,7 @@ The public exports line up as one pipeline:
 | Stage | Owns | Main exports |
 | --- | --- | --- |
 | Chunking | split documents into searchable units | `TextChunker`, `DEFAULT_CHUNKING_CONFIG` |
-| Embeddings | convert text into vectors | `EmbeddingProvider`, `OpenRouterEmbeddingProvider` |
+| Embeddings | convert text into vectors | `EmbeddingProvider`, `HttpEmbeddingProvider` |
 | Vector store | persist searchable vectors | `InMemoryVectorStore`, `VectorStore` |
 | Retrieval | rank relevant chunks | `DefaultRetriever`, `DEFAULT_RETRIEVAL_CONFIG` |
 | Knowledge base | one scoped corpus with ingest/query methods | `DefaultKnowledgeBase` |

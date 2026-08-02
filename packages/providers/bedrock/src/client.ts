@@ -28,10 +28,64 @@ import type {
 import { ProviderError, isAbortError, toolResultToText } from '@namzu/sdk'
 import type { BedrockConfig } from './types.js'
 
-function extractSystemBlocks(messages: ChatCompletionParams['messages']): SystemContentBlock[] {
-	return messages
-		.filter((m) => m.role === 'system')
-		.map((m) => ({ text: typeof m.content === 'string' ? m.content : '' }))
+/**
+ * A cache breakpoint on this wire is a content BLOCK, not an annotation on
+ * a neighbouring block: everything before it in render order is cached,
+ * the block itself marks the boundary.
+ *
+ * Render order is tools → system → messages, so a breakpoint late in the
+ * request covers every section ahead of it. Placing one at the tail of
+ * each section means the tool schemas survive as a cached prefix even
+ * when the conversation below them changes on every turn — which is the
+ * whole point, since the tool block is both the largest static segment
+ * and the first thing an invalidated prefix would throw away.
+ */
+const CACHE_POINT = { cachePoint: { type: 'default' as const } }
+
+/**
+ * System messages become one block each so the runtime's `cacheHint`
+ * boundaries survive into the request: the prompt builder tags the static
+ * segment `'cache'` and the per-run dynamic segment `'ephemeral'`. The
+ * breakpoint goes after the LAST `'cache'`-tagged block, so the static
+ * prefix is cached and the dynamic tail after it is not — putting it at
+ * the very end instead would cache text that changes every run, which
+ * invalidates the entry on every turn and costs a cache WRITE each time
+ * for nothing.
+ */
+function extractSystemBlocks(
+	messages: ChatCompletionParams['messages'],
+	cachingEnabled: boolean,
+): SystemContentBlock[] {
+	const blocks: SystemContentBlock[] = []
+	let lastCacheTagged = -1
+	for (const m of messages) {
+		if (m.role !== 'system') continue
+		const text = typeof m.content === 'string' ? m.content : ''
+		if (text.length === 0) continue
+		blocks.push({ text })
+		if (m.cacheHint === 'cache') lastCacheTagged = blocks.length - 1
+	}
+	if (cachingEnabled && lastCacheTagged >= 0) {
+		blocks.splice(lastCacheTagged + 1, 0, CACHE_POINT)
+	}
+	return blocks
+}
+
+/**
+ * Final breakpoint: after the last content block of the last message.
+ * Caches the whole conversation prefix, so the next iteration — which
+ * only appends — reads all of the prior history at cache rates.
+ *
+ * A breakpoint may not follow an empty message, so trailing empties are
+ * skipped rather than tagged.
+ */
+function applyMessageCacheBreakpoint(messages: BedrockMessage[]): void {
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const msg = messages[i]
+		if (!msg?.content || msg.content.length === 0) continue
+		msg.content.push(CACHE_POINT)
+		return
+	}
 }
 
 function toBedrockRole(role: string): ConversationRole {
@@ -239,7 +293,10 @@ function extractToolNamesFromHistory(messages: ChatCompletionParams['messages'])
 	return Array.from(names)
 }
 
-function toBedrockToolConfig(params: ChatCompletionParams): ToolConfiguration | undefined {
+function toBedrockToolConfig(
+	params: ChatCompletionParams,
+	cachingEnabled: boolean,
+): ToolConfiguration | undefined {
 	if (params.tools && params.tools.length > 0) {
 		const tools: Tool[] = params.tools.map(
 			(t) =>
@@ -253,6 +310,11 @@ function toBedrockToolConfig(params: ChatCompletionParams): ToolConfiguration | 
 					},
 				}) as Tool,
 		)
+
+		// Tools render at position 0 of the cache prefix, so a breakpoint
+		// here holds every schema even when the breakpoints downstream are
+		// invalidated by a changed conversation.
+		if (cachingEnabled) tools.push(CACHE_POINT as Tool)
 
 		const toolChoice = formatToolChoice(params.toolChoice)
 		return { tools, toolChoice }
@@ -377,9 +439,13 @@ export class BedrockProvider implements LLMProvider {
 	}
 
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
-		const system = extractSystemBlocks(params.messages)
+		// The runtime asks for caching by setting `cacheControl` on every
+		// iteration; the driver decides where the breakpoints go.
+		const cachingEnabled = params.cacheControl !== undefined
+		const system = extractSystemBlocks(params.messages, cachingEnabled)
 		const messages = toBedrockMessages(params.messages)
-		const toolConfig = toBedrockToolConfig(params)
+		if (cachingEnabled) applyMessageCacheBreakpoint(messages)
+		const toolConfig = toBedrockToolConfig(params, cachingEnabled)
 
 		const inferenceConfig: Record<string, unknown> = {}
 		if (params.maxTokens !== undefined) inferenceConfig.maxTokens = params.maxTokens
