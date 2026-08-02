@@ -27,6 +27,17 @@ import type { ProjectId, ThreadId } from '../../types/session/ids.js'
 import type { Thread, ThreadStatus } from '../../types/thread/entity.js'
 import type { CreateThreadParams, ThreadStore } from '../../types/thread/store.js'
 import { generateThreadId } from '../../utils/id.js'
+import { defineSchema, migrate, stamp } from '../schema.js'
+
+/**
+ * This store's on-disk format, versioned as a unit — which is how a
+ * migration would actually be written and shipped, and it keeps every call
+ * site free of schema plumbing.
+ *
+ * Bump `current` and add the migration for the step you are leaving when
+ * the shape changes.
+ */
+const SCHEMA = defineSchema({ kind: 'thread-store', current: 1, migrations: {} })
 
 /** Config for {@link DiskThreadStore}. `rootDir` is absolute. */
 export interface DiskThreadStoreConfig {
@@ -241,7 +252,11 @@ function deserializeThread(raw: PersistedThread): Thread {
 async function readJson<T>(path: string): Promise<T | null> {
 	try {
 		const raw = await readFile(path, 'utf-8')
-		return JSON.parse(raw) as T
+		// Through the schema rather than a bare cast: a record from an older
+		// build is brought forward, and one from a NEWER build is refused
+		// instead of read partially and written back with the difference
+		// gone.
+		return migrate<T>(SCHEMA, JSON.parse(raw))
 	} catch (err) {
 		const code = (err as NodeJS.ErrnoException).code
 		if (code === 'ENOENT') return null
@@ -252,7 +267,7 @@ async function readJson<T>(path: string): Promise<T | null> {
 async function atomicWriteJson(filePath: string, value: unknown): Promise<void> {
 	const tempPath = `${filePath}.tmp`
 	try {
-		await writeFile(tempPath, JSON.stringify(value, null, 2), 'utf-8')
+		await writeFile(tempPath, JSON.stringify(stamp(SCHEMA, value), null, 2), 'utf-8')
 		await rename(tempPath, filePath)
 	} catch (err) {
 		await unlink(tempPath).catch(() => undefined)

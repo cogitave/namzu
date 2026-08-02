@@ -12,6 +12,17 @@ import type {
 } from '../../types/task/index.js'
 import { generateTaskId } from '../../utils/id.js'
 import { type Logger, getRootLogger } from '../../utils/logger.js'
+import { defineSchema, migrate, stamp } from '../schema.js'
+
+/**
+ * This store's on-disk format, versioned as a unit — which is how a
+ * migration would actually be written and shipped, and it keeps every call
+ * site free of schema plumbing.
+ *
+ * Bump `current` and add the migration for the step you are leaving when
+ * the shape changes.
+ */
+const SCHEMA = defineSchema({ kind: 'task-store', current: 1, migrations: {} })
 
 export interface DiskTaskStoreConfig {
 	baseDir: string
@@ -301,7 +312,7 @@ export class DiskTaskStore implements TaskStore {
 			if (!file.endsWith('.json')) continue
 			try {
 				const raw = await readFile(join(dir, file), 'utf-8')
-				const task = JSON.parse(raw) as Task
+				const task = migrate<Task>(SCHEMA, JSON.parse(raw))
 				tasks.push(task)
 			} catch (err) {
 				this.log.warn('Failed to read task file', {
@@ -417,7 +428,7 @@ export class DiskTaskStore implements TaskStore {
 		}
 
 		try {
-			return JSON.parse(raw) as Task
+			return migrate<Task>(SCHEMA, JSON.parse(raw))
 		} catch (err) {
 			this.log.error('Corrupt task JSON on disk', {
 				taskId,
@@ -446,5 +457,5 @@ async function atomicWriteFile(filePath: string, content: string): Promise<void>
 }
 
 async function atomicWriteJson(filePath: string, value: unknown): Promise<void> {
-	await atomicWriteFile(filePath, JSON.stringify(value, null, 2))
+	await atomicWriteFile(filePath, JSON.stringify(stamp(SCHEMA, value), null, 2))
 }

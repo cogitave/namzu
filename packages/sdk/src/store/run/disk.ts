@@ -3,6 +3,17 @@ import { join } from 'node:path'
 import type { CheckpointId, IterationCheckpoint } from '../../types/hitl/index.js'
 import type { Run, RunEvent, RunStoreConfig } from '../../types/run/index.js'
 import { type Logger, getRootLogger } from '../../utils/logger.js'
+import { defineSchema, migrate, stamp } from '../schema.js'
+
+/**
+ * This store's on-disk format, versioned as a unit — which is how a
+ * migration would actually be written and shipped, and it keeps every call
+ * site free of schema plumbing.
+ *
+ * Bump `current` and add the migration for the step you are leaving when
+ * the shape changes.
+ */
+const SCHEMA = defineSchema({ kind: 'run-store', current: 1, migrations: {} })
 
 export class RunDiskStore {
 	private baseDir: string
@@ -94,7 +105,7 @@ export class RunDiskStore {
 		const dir = this.requireInit()
 		try {
 			const content = await readFile(join(dir, 'checkpoints', `${checkpointId}.json`), 'utf-8')
-			return JSON.parse(content) as IterationCheckpoint
+			return migrate<IterationCheckpoint>(SCHEMA, JSON.parse(content))
 		} catch (err) {
 			if (isFileNotFound(err)) return null
 			throw err
@@ -111,7 +122,7 @@ export class RunDiskStore {
 				if (!file.endsWith('.json')) continue
 				try {
 					const content = await readFile(join(cpDir, file), 'utf-8')
-					checkpoints.push(JSON.parse(content) as IterationCheckpoint)
+					checkpoints.push(migrate<IterationCheckpoint>(SCHEMA, JSON.parse(content)))
 				} catch {
 					this.log.warn(`Failed to parse checkpoint file: ${file}`)
 				}
@@ -144,7 +155,7 @@ export class RunDiskStore {
 		try {
 			const indexPath = join(baseDir, 'index.json')
 			const content = await readFile(indexPath, 'utf-8')
-			return JSON.parse(content)
+			return migrate(SCHEMA, JSON.parse(content))
 		} catch (err) {
 			if (isFileNotFound(err)) return []
 			throw err
@@ -168,7 +179,7 @@ export class RunDiskStore {
 
 			try {
 				const content = await readFile(indexPath, 'utf-8')
-				index = JSON.parse(content)
+				index = migrate(SCHEMA, JSON.parse(content))
 			} catch (err) {
 				if (!isFileNotFound(err)) throw err
 			}
@@ -211,7 +222,7 @@ async function atomicWriteFile(filePath: string, content: string): Promise<void>
 }
 
 async function atomicWriteJson(filePath: string, value: unknown): Promise<void> {
-	await atomicWriteFile(filePath, JSON.stringify(value, null, 2))
+	await atomicWriteFile(filePath, JSON.stringify(stamp(SCHEMA, value), null, 2))
 }
 
 function isFileNotFound(err: unknown): boolean {
