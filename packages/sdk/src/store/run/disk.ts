@@ -106,7 +106,7 @@ export class RunDiskStore {
 		const dir = this.requireInit()
 		try {
 			const content = await readFile(join(dir, 'checkpoints', `${checkpointId}.json`), 'utf-8')
-			return migrate<IterationCheckpoint>(SCHEMA, JSON.parse(content))
+			return parseCheckpoint(content, `${checkpointId}.json`)
 		} catch (err) {
 			if (isFileNotFound(err)) return null
 			throw err
@@ -121,12 +121,20 @@ export class RunDiskStore {
 			const checkpoints: IterationCheckpoint[] = []
 			for (const file of files) {
 				if (!file.endsWith('.json')) continue
-				try {
-					const content = await readFile(join(cpDir, file), 'utf-8')
-					checkpoints.push(migrate<IterationCheckpoint>(SCHEMA, JSON.parse(content)))
-				} catch {
-					this.log.warn(`Failed to parse checkpoint file: ${file}`)
-				}
+				// An unreadable checkpoint used to be logged and skipped, so
+				// this returned a silently short list that four callers treat
+				// as complete. A missing NEWEST checkpoint quietly resumes
+				// from an older point and re-runs a whole iteration of tool
+				// calls; a missing PARKED one reports "not parked" and drops
+				// an approval a human already granted, because the file is
+				// the only durable record of a park. Pruning under-deletes
+				// too: a file the keep-count cannot see is immortal.
+				//
+				// The by-id read next door was already strict. Two read paths
+				// disagreeing about whether damage matters is how the lenient
+				// one gets trusted.
+				const content = await readFile(join(cpDir, file), 'utf-8')
+				checkpoints.push(parseCheckpoint(content, file))
 			}
 			return checkpoints.sort((a, b) => a.createdAt - b.createdAt)
 		} catch (err) {
@@ -213,6 +221,35 @@ export class RunDiskStore {
 
 async function atomicWriteJson(filePath: string, value: unknown): Promise<void> {
 	await atomicWriteFile(filePath, JSON.stringify(stamp(SCHEMA, value), null, 2))
+}
+
+/**
+ * Parse a checkpoint, checking it is one.
+ *
+ * Both read paths were `JSON.parse(content) as IterationCheckpoint` — a
+ * cast, not a check, so `{}` passed both and failed much later at the
+ * point of use, where the message names a missing property rather than a
+ * damaged file. The fields checked here are the ones the resume path
+ * dereferences immediately; the rest are optional and their absence is
+ * survivable.
+ */
+function parseCheckpoint(content: string, file: string): IterationCheckpoint {
+	const parsed = migrate<unknown>(SCHEMA, JSON.parse(content))
+	const record = parsed as Partial<IterationCheckpoint> | null
+
+	if (
+		record === null ||
+		typeof record !== 'object' ||
+		typeof record.id !== 'string' ||
+		typeof record.iteration !== 'number' ||
+		typeof record.createdAt !== 'number' ||
+		!Array.isArray(record.messages)
+	) {
+		throw new Error(
+			`Checkpoint file "${file}" is not a usable checkpoint: it parsed as JSON but is missing the fields a resume needs (id, iteration, createdAt, messages). Refusing rather than resuming from it.`,
+		)
+	}
+	return record as IterationCheckpoint
 }
 
 function isFileNotFound(err: unknown): boolean {
