@@ -437,7 +437,7 @@ describe('serializeSandboxError — transport-safe error envelope', () => {
 		expect(serializeSandboxError(true).message).toBe('true')
 	})
 
-	// Codex round 5 (C): the envelope must defend against values that
+	// the envelope must defend against values that
 	// JSON.stringify either drops silently or that structuredClone
 	// throws on. Each of these cases asserts a specific envelope shape
 	// AND that the result survives both transport channels.
@@ -484,7 +484,7 @@ describe('serializeSandboxError — transport-safe error envelope', () => {
 		}
 	})
 
-	// Codex round 5 (B): cycle guard. The previous round-4 implementation
+	// cycle guard. The previous round-4 implementation
 	// recursed unconditionally on `cause`, so a cycle would either
 	// stack-overflow (synchronous) or trip JSON.stringify's circular
 	// detection (async via the receiver). The WeakSet path replaces
@@ -561,7 +561,7 @@ describe('serializeSandboxError — transport-safe error envelope', () => {
 })
 
 describe('public exports — runtime import paths', () => {
-	// Codex round 4 (E): Vandal-side prompt template generators must
+	// Vandal-side prompt template generators must
 	// be able to import the default-path constants from the sandbox
 	// package via the SDK's root barrel. `@namzu/sdk` exposes only
 	// `"."` in its package.json `exports`; subpath imports like

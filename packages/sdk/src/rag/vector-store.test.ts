@@ -27,7 +27,7 @@
  *   - `deleteByDocument(documentId)`: NOT tenant-scoped in the
  *     current API — deletes every chunk with matching `documentId`
  *     ACROSS tenants. This is an asymmetry with `search` /
- *     `deleteByKnowledgeBase` and is intentional to pin (Codex #9 flag).
+ *     `deleteByKnowledgeBase` and is intentional to pin.
  *   - `deleteByKnowledgeBase(kbId, tenantId)`: tenant-scoped deletion
  *     by knowledge base.
  *   - `cosineSimilarity(a, b)`: returns 0 when arrays differ in length
@@ -151,7 +151,7 @@ describe('InMemoryVectorStore — delete', () => {
 		expect((await s.search(baseQuery)).map((r) => r.chunk.id)).toEqual(['b'])
 	})
 
-	it('deleteByDocument removes every chunk of the document ACROSS tenants (asymmetry per Codex #9)', async () => {
+	it('deleteByDocument removes every chunk of the document ACROSS tenants (asymmetry)', async () => {
 		const s = new InMemoryVectorStore()
 		await s.upsert([
 			chunk('a', { documentId: D1, tenantId: T1 }),

@@ -393,7 +393,7 @@ export class ToolExecutor {
 		toolName = resolved.toolName
 
 		if (!resolved.ok) {
-			// Codex M2: malformed JSON args used to return without ever
+			// malformed JSON args used to return without ever
 			// emitting tool_executing or tool_completed, leaving UI cards
 			// orphaned in `streaming_input`. Emit the executing→completed
 			// terminal pair so the card lifecycle closes.
@@ -466,7 +466,7 @@ export class ToolExecutor {
 			if (activity) {
 				this.activityStore.fail(activity.id, veto.message)
 			}
-			// Codex M1: probe veto used to skip tool_completed entirely.
+			// probe veto used to skip tool_completed entirely.
 			// Emit the terminal event with isError so UI cards finalize.
 			await this.emitEvent({
 				type: 'tool_completed',
@@ -488,7 +488,7 @@ export class ToolExecutor {
 		}
 
 		const startMs = Date.now()
-		// Codex M4: an unhandled throw from `tools.execute(...)` used to
+		// an unhandled throw from `tools.execute(...)` used to
 		// propagate up to `result.ts` as `run_failed` without emitting a
 		// terminal `tool_completed`, leaving UI cards stuck in `executing`.
 		// Wrap so any throw materialises as an error result.
@@ -937,7 +937,7 @@ export class ToolExecutor {
 	/**
 	 * One execution attempt, with a throw materialized as an error result.
 	 *
-	 * Codex M4: an unhandled throw from `tools.execute(...)` used to
+	 * an unhandled throw from `tools.execute(...)` used to
 	 * propagate up to `result.ts` as `run_failed` without emitting a
 	 * terminal `tool_completed`, leaving UI cards stuck in `executing`.
 	 *

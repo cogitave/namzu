@@ -2,7 +2,7 @@
  * Current-code invariants asserted (2026-04-21, ses_006 Phase 3):
  *
  *   - `register(id, item)` silently overwrites an existing entry —
- *     NO duplicate-error is thrown (Codex #1 verified the design
+ *     NO duplicate-error is thrown (review verified the design
  *     §2.3 "typed DuplicateRegistrationError" claim was fiction).
  *   - `get(id)` returns `undefined` for an unknown id (NOT a typed
  *     error). `getAll`, `listIds`, `has`, `size` reflect the current

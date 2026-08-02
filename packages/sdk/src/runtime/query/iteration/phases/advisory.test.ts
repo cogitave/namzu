@@ -4,7 +4,7 @@
  *   This file pins the live mutation boundary that `src/advisory/*` tests
  *   intentionally do NOT cover: the advisory phase IS where advisories
  *   inject user messages into the run via `ctx.runMgr.pushMessage(...)`
- *   (Codex #6). A regression that drops the `pushMessage` call — silently
+ *  . A regression that drops the `pushMessage` call — silently
  *   dropping all advisor output — would pass `src/advisory` tests,
  *   typecheck, and lint. This file is the only thing that catches it.
  *

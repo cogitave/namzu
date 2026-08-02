@@ -1,7 +1,7 @@
 /**
  * Integration — AgentManager.provisionSpawn compensating rollback.
  *
- * Covers Codex SPAWN-ROLLBACK critique (ses_001-hierarchy-redesign Phase 2
+ * Covers spawn-rollback critique (ses_001-hierarchy-redesign Phase 2
  * adversarial review, 2026-04-18). Without the try/catch wrapper around the
  * createSession → updateSession → createSubSession → workspace.create
  * mutation block, a failure after createSession leaves an `active` child

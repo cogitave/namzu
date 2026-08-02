@@ -2,9 +2,8 @@
  * Declarative LLM provider registry — the single source of truth that
  * discovery, picker labeling, and runtime construction all derive from.
  *
- * Pattern lifted from NousResearch hermes-agent's `PROVIDER_REGISTRY`
- * (`hermes_cli/auth.py:183-457`). Adding a provider = adding one entry
- * here; nothing else in this layer needs to change.
+ * Adding a provider means adding one entry here; nothing else in this
+ * layer needs to change.
  */
 
 export type ProviderId =
@@ -42,7 +41,7 @@ export const PROVIDER_REGISTRY: Readonly<Record<ProviderId, ProviderRegistryEntr
 		anthropic: {
 			id: 'anthropic',
 			label: 'Anthropic (Claude)',
-			// Order mirrors hermes: explicit anthropic key, then anthropic-token
+			// Order: explicit anthropic key, then anthropic-token
 			// variant, then claude-code's OAuth env (often present when the user
 			// has claude-code installed).
 			envVars: ['ANTHROPIC_API_KEY', 'ANTHROPIC_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN'],

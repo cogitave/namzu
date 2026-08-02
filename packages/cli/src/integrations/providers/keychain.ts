@@ -8,9 +8,7 @@
  *   { "claudeAiOauth": { "accessToken": "...", "refreshToken": "...",
  *                         "expiresAt": ..., "scopes": [...] } }
  *
- * Pattern ported from NousResearch's hermes-agent
- * (`agent/anthropic_adapter.py:_read_claude_code_credentials_from_keychain`).
- * Non-throwing — every failure (not-darwin, security not installed,
+ *  * Non-throwing — every failure (not-darwin, security not installed,
  * entry missing, payload malformed) returns `null` so discovery treats
  * the source as "not available" rather than crashing.
  */
@@ -145,8 +143,7 @@ function readKeychainAccount(): string | null {
 /**
  * Detect whether a credential value is an Anthropic OAuth-style token
  * (must be sent via `Authorization: Bearer`) vs a console API key (sent
- * via `x-api-key`). Ported from hermes's `_is_oauth_token` —
- * positively identifies by prefix; defaults to API-key when unsure.
+ * via `x-api-key`). Positively identifies by prefix; defaults to API-key when unsure.
  */
 export function isAnthropicOAuthToken(value: string): boolean {
 	if (value.startsWith('sk-ant-api')) return false // console API key

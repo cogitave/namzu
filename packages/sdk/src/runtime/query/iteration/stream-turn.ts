@@ -56,7 +56,7 @@ export interface StreamingTurnResult {
  * end-of-message. The bus's ephemeral filter (D1) ensures these
  * deltas never hit transcript.jsonl.
  *
- * Edge cases (codex A3, A4, A5):
+ * Edge cases A3, A4, A5:
  * - Stream ends without `finishReason` (anthropic-sdk-typescript#842
  *   dropped message_stop): we still emit `message_completed` from a
  *   finally-style fall-through path with `stopReason: 'refusal'`.

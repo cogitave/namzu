@@ -328,7 +328,7 @@ export interface SandboxCreateConfig {
  * Putting layout on `SandboxCreateConfig` would let the SDK runtime
  * (`drainQuery`) call `provider.create()` without it and trigger a
  * runtime validation failure that the type system cannot catch — a
- * trap Codex flagged in the second review round. Hosts spawning a
+ * trap flagged in the second review round. Hosts spawning a
  * sandbox per task construct one provider per task too; the same
  * closure that knows the per-task `hostPath`s is the one that calls
  * `createSandboxProvider`.

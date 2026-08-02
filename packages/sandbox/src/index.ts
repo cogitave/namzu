@@ -218,9 +218,9 @@ export interface ACIStandbyPoolBackendConfig {
  *   - `bubblewrap` on Linux / WSL2 (`bwrap`)
  *   - `seatbelt` on macOS (`sandbox-exec`)
  *
- * Both are what `@anthropic-ai/sandbox-runtime` ships. Cold-start
- * is process spawn (~ms). Use this when the agent runs on the
- * end-user's developer machine — Claude Code's deployment model.
+ * Cold-start is a process spawn (~ms), which is what makes this tier
+ * viable on a developer's own machine: the agent runs beside the work it
+ * is doing, so a container per call would cost more than the call.
  */
 export interface ProcessBackendConfig {
 	readonly tier: 'process'

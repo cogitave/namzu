@@ -111,7 +111,7 @@ export function buildAgentTool(opts: AgentToolOptions): ToolDefinition {
 			// Treat the subagent as successful only when BOTH agree.
 			// Reporting a failed subagent as successful would silently
 			// hand the parent garbage output and make debugging
-			// impossible, which is what Codex flagged on the first cut.
+			// impossible, which is what review flagged on the first cut.
 			const runStatus = completed.result?.status
 			const succeeded =
 				completed.state === 'completed' && (runStatus === undefined || runStatus === 'completed')

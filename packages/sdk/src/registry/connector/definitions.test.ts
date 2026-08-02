@@ -7,7 +7,7 @@
  *   - `listByType(connectionType)` filters by `connectionType`.
  *   - As a global (non-tenant-scoped) registry, ConnectorRegistry is
  *     shared across tenants; tenant isolation lives in
- *     `TenantConnectorManager` per Codex #5.
+ *     `TenantConnectorManager`.
  */
 
 import { describe, expect, it } from 'vitest'

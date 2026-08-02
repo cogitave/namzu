@@ -66,7 +66,7 @@ export async function discoverProviders(
 	const secrets = readClawtoolSecrets(opts.home)
 	const detected: DetectedProvider[] = []
 
-	// macOS-only: read Claude Code's OAuth credential from the login
+	// macOS-only: read the third-party OAuth credential stored in the login
 	// Keychain once. Only anthropic consumes it, but we scan up front so
 	// the loop body stays uniform.
 	const claudeKeychain = opts.skipKeychain ? null : readClaudeCodeKeychainCredential()

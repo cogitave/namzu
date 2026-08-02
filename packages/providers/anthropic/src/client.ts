@@ -784,7 +784,7 @@ export class AnthropicProvider implements LLMProvider {
 			// idle-timeout rejection (bubbling up) and on normal stream
 			// end (`message_stop` returned out of the loop). Leaving
 			// the SSE connection open until OS-level timeout was the
-			// gap Codex called out.
+			// gap called out in review.
 			await iter.return?.().catch(() => undefined)
 		}
 	}

@@ -178,7 +178,7 @@ const MAPPING: {
 	// v3 message + tool-input lifecycle (ses_001-tool-stream-events). A2A's
 	// status-update model is coarse-grained, so per-delta events are dropped
 	// at this layer. `message_completed` carries the aggregated assistant
-	// content (codex A1) — A2A surfaces a single status event with the
+	// content — A2A surfaces a single status event with the
 	// full text, replacing the per-iteration `llm_response` mapping.
 	message_started: null,
 	text_delta: null,

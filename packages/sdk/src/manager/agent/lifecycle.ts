@@ -488,7 +488,7 @@ export class AgentManager {
 
 		// Compensating rollback wraps every mutation after createSession so a
 		// mid-flight failure (status flip, subsession insert, workspace driver)
-		// leaves no orphan child session. Codex SPAWN-ROLLBACK critique (Phase
+		// leaves no orphan child session. spawn-rollback critique (Phase
 		// 2 review, 2026-04-18): without this, `workspaceRegistry.get().create`
 		// throwing — or a concurrent `updateSession` race — strands an
 		// `active` child session with no subsession edge, invisible to the

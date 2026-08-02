@@ -7,7 +7,6 @@
  * `xclip` then `wl-paste`; Windows uses PowerShell. Non-throwing — any
  * failure (no image on the clipboard, tool missing) returns `null`.
  *
- * Pattern mirrors Claude Code's `utils/imagePaste.ts` clipboard plumbing.
  */
 
 import { execFileSync } from 'node:child_process'
