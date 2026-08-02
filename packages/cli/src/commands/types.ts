@@ -24,5 +24,18 @@ export interface CommandDef {
 	 * pre-Commander argument parsing contract.
 	 */
 	readonly passThrough?: boolean
+	/**
+	 * Help text for a passThrough command that does not render its own.
+	 *
+	 * `passThrough` turns commander's `--help` off so a command can parse
+	 * it itself. A command that does not then receives `--help` as INPUT —
+	 * it becomes the prompt to run, or the query to search — and a user
+	 * asking how to use something gets a credential error or an empty
+	 * result list instead of an answer.
+	 *
+	 * Set this and the registry answers `--help` before the handler runs.
+	 * Leave it unset only when the command genuinely renders its own.
+	 */
+	readonly help?: string
 	readonly handler: CommandHandler
 }

@@ -31,6 +31,19 @@ export const runCommand: CommandDef = {
 	name: 'run',
 	description: 'Run a single prompt headlessly and print the reply (for scripts/CI)',
 	passThrough: true,
+	help: [
+		'Usage: namzu run <prompt...>',
+		'       echo "<prompt>" | namzu run',
+		'',
+		'Run a single prompt headlessly and print the reply. Everything after',
+		'the command name is the prompt; when none is given it is read from',
+		'stdin, so this composes with a pipe.',
+		'',
+		'Needs a provider. Set a credential in the environment, or run namzu',
+		'once to pick one interactively.',
+		'',
+		'Exit codes: 0 on a reply, 2 when no prompt was supplied.',
+	].join('\n'),
 	handler: async ({ ctx, rawArgs }) => {
 		let prompt = rawArgs.join(' ').trim()
 		if (!prompt) prompt = (await readStdin()).trim()

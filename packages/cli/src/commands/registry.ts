@@ -19,10 +19,22 @@ export function registerCommand(program: Command, def: CommandDef, opts: Registe
 			.passThroughOptions(true)
 			.argument('[args...]')
 			.action(async (args: string[] | undefined) => {
-				const code = await def.handler({
-					ctx: opts.getContext(),
-					rawArgs: args ?? [],
-				})
+				const rawArgs = args ?? []
+
+				// `helpOption(false)` hands `--help` to the command, which is
+				// right for one that renders its own. A command that does not
+				// used to receive `--help` as INPUT: it became the prompt to
+				// run, or the query to search, and the user asking how to use
+				// something got a credential error or an empty result list.
+				// Three commands did this. Handling it here rather than in
+				// each one is what stops the fourth from doing it too.
+				if (def.help !== undefined && rawArgs.some((a) => a === '--help' || a === '-h')) {
+					opts.getContext().formatter.print({ text: def.help })
+					opts.setExitCode(0)
+					return
+				}
+
+				const code = await def.handler({ ctx: opts.getContext(), rawArgs })
 				opts.setExitCode(code)
 			})
 	} else {
