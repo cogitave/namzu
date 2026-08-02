@@ -1,5 +1,6 @@
 import { type Span, SpanStatusCode } from '@opentelemetry/api'
 import { GENAI, NAMZU, chatSpanName, parentContext } from '../../../telemetry/attributes.js'
+import { recordModelDuration, recordTokenUsage } from '../../../telemetry/metrics.js'
 import { getTracer } from '../../../telemetry/runtime-accessors.js'
 import { mergeTokenUsage } from '../../../types/common/index.js'
 import { NamzuError } from '../../../types/errors/index.js'
@@ -83,6 +84,7 @@ export async function* streamProviderTurn(
 	// `chatSpanName` existed with zero call sites, so a trace carried no LLM
 	// latency at all and the token counts landed on the iteration span
 	// instead of the operation that produced them.
+	const callStartedAt = Date.now()
 	const chatSpan = getTracer().startSpan(chatSpanName(params.model), {}, parentContext(parentSpan))
 	chatSpan.setAttributes({
 		[GENAI.OPERATION_NAME]: 'chat',
@@ -490,6 +492,14 @@ export async function* streamProviderTurn(
 		finishReason: effectiveFinishReason,
 		usage,
 	}
+
+	// The same numbers as a MEASUREMENT, not only as a span attribute.
+	// A span answers "what happened in this run"; a metric answers "what is
+	// this costing across every run", and no amount of span attributes adds
+	// up to the second question without a trace backend willing to
+	// aggregate them.
+	recordTokenUsage(params.model, usage)
+	recordModelDuration(params.model, Date.now() - callStartedAt)
 
 	// Usage belongs on the span for the call that produced it, not on the
 	// iteration that happened to contain it.

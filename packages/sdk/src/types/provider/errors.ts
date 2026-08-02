@@ -90,29 +90,51 @@ export function isAbortError(err: unknown): boolean {
 	return name === 'AbortError'
 }
 
+/**
+ * Every throwable on the cause chain, outermost first.
+ *
+ * A signal was only ever read off the error handed in, so one layer of
+ * wrapping hid it — and wrapping is the normal case, not an edge one:
+ * vendor SDKs wrap their transport errors and the runtime wraps again on
+ * the way out. A rate limit wrapped once classified as `unknown`, which is
+ * treated as non-retryable, so the retry policy was dead for every failure
+ * that was not the outermost throwable.
+ *
+ * The `seen` set is not defensive decoration: a cause cycle is easy to
+ * build by accident when errors are re-wrapped in a retry loop, and
+ * without it this walk never terminates.
+ */
+function* causeChain(err: unknown): Generator<Record<string, unknown>> {
+	const seen = new Set<unknown>()
+	let current: unknown = err
+	while (current !== null && typeof current === 'object' && !seen.has(current)) {
+		seen.add(current)
+		yield current as Record<string, unknown>
+		current = (current as { cause?: unknown }).cause
+	}
+}
+
 function readStatus(err: unknown): number | undefined {
-	const e = err as
-		| {
-				status?: unknown
-				statusCode?: unknown
-				response?: { status?: unknown }
-				// Some vendor SDKs hide the status one level down in a
-				// metadata bag rather than on the error itself. It is still a
-				// status; not looking there meant a throttle from such a
-				// driver fell through to message-text matching and, when the
-				// wording did not happen to match, was filed as `unknown` and
-				// never retried.
-				$metadata?: { httpStatusCode?: unknown }
-		  }
-		| null
-		| undefined
-	for (const candidate of [
-		e?.status,
-		e?.statusCode,
-		e?.response?.status,
-		e?.$metadata?.httpStatusCode,
-	]) {
-		if (typeof candidate === 'number' && Number.isFinite(candidate)) return candidate
+	for (const link of causeChain(err)) {
+		const e = link as {
+			status?: unknown
+			statusCode?: unknown
+			response?: { status?: unknown }
+			// Some vendor SDKs hide the status in a metadata bag rather than
+			// on the error itself. It is still a status; not looking there
+			// meant a throttle fell through to message-text matching and,
+			// when the wording did not happen to match, was filed as
+			// `unknown` and never retried.
+			$metadata?: { httpStatusCode?: unknown }
+		}
+		for (const candidate of [
+			e.status,
+			e.statusCode,
+			e.response?.status,
+			e.$metadata?.httpStatusCode,
+		]) {
+			if (typeof candidate === 'number' && Number.isFinite(candidate)) return candidate
+		}
 	}
 	return undefined
 }
@@ -122,32 +144,48 @@ function readStatus(err: unknown): number | undefined {
  * the wild; most providers send seconds.
  */
 function readRetryAfterMs(err: unknown, now: number): number | undefined {
-	const headers = (err as { headers?: unknown } | null)?.headers
-	if (!headers) return undefined
+	for (const link of causeChain(err)) {
+		const headers = link.headers
+		if (!headers) continue
 
-	let raw: string | undefined
-	if (typeof (headers as Headers).get === 'function') {
-		raw = (headers as Headers).get('retry-after') ?? undefined
-	} else if (typeof headers === 'object') {
-		const bag = headers as Record<string, unknown>
-		const value = bag['retry-after'] ?? bag['Retry-After']
-		if (typeof value === 'string' || typeof value === 'number') raw = String(value)
+		let raw: string | undefined
+		if (typeof (headers as Headers).get === 'function') {
+			raw = (headers as Headers).get('retry-after') ?? undefined
+		} else if (typeof headers === 'object') {
+			const bag = headers as Record<string, unknown>
+			const value = bag['retry-after'] ?? bag['Retry-After']
+			if (typeof value === 'string' || typeof value === 'number') raw = String(value)
+		}
+		if (raw === undefined) continue
+
+		const seconds = Number(raw)
+		if (Number.isFinite(seconds) && seconds >= 0) return Math.round(seconds * 1000)
+
+		const at = Date.parse(raw)
+		if (Number.isFinite(at)) return Math.max(0, at - now)
 	}
-	if (raw === undefined) return undefined
-
-	const seconds = Number(raw)
-	if (Number.isFinite(seconds) && seconds >= 0) return Math.round(seconds * 1000)
-
-	const at = Date.parse(raw)
-	if (Number.isFinite(at)) return Math.max(0, at - now)
 	return undefined
 }
 
 function readErrnoCode(err: unknown): string | undefined {
-	const direct = (err as { code?: unknown } | null)?.code
-	if (typeof direct === 'string') return direct
-	const nested = (err as { cause?: { code?: unknown } } | null)?.cause?.code
-	return typeof nested === 'string' ? nested : undefined
+	// The whole chain, not one level down. A transport failure is usually
+	// the innermost link and everything above it is context, so stopping at
+	// depth one meant a socket reset behind two wrappers read as unknown —
+	// which is non-retryable, for the one class of failure where retrying
+	// is almost always right.
+	for (const link of causeChain(err)) {
+		if (typeof link.code === 'string') return link.code
+	}
+	return undefined
+}
+
+/** Every message on the chain, outermost first. */
+function chainMessages(err: unknown): string[] {
+	const out: string[] = []
+	for (const link of causeChain(err)) {
+		if (typeof link.message === 'string' && link.message.length > 0) out.push(link.message)
+	}
+	return out
 }
 
 /** Node/undici transport failures that mean "never reached the model". */
@@ -226,6 +264,13 @@ function codeFromMessage(message: string): ProviderErrorCode | undefined {
  * ahead of the generic 400 mapping because it is the one 4xx the runtime
  * can actually act on (shed history and retry) rather than surface.
  *
+ * Every signal is read across the WHOLE cause chain, not off the error
+ * handed in. Wrapping is the normal case — a vendor SDK wraps its
+ * transport error and the runtime wraps again on the way out — and reading
+ * only the outer link meant a rate limit wrapped once classified as
+ * `unknown`, which is non-retryable. The retry policy was therefore dead
+ * for every failure that was not the outermost throwable.
+ *
  * Aborts are passed through untouched — see {@link isAbortError}.
  */
 export function classifyProviderError(
@@ -240,10 +285,16 @@ export function classifyProviderError(
 	const errno = readErrnoCode(err)
 	const retryAfterMs = readRetryAfterMs(err, now)
 
+	// Message sniffing also reads the chain. The wording that identifies a
+	// failure sits on the link that produced it, and a wrapper's message is
+	// usually generic ("request failed") — so matching only the outer text
+	// looks at the one string least likely to say anything.
+	const messages = chainMessages(err)
+	const fromMessage = messages.map(codeFromMessage).find((code) => code !== undefined)
+
 	// A 400 that is really a window overflow must not be filed as a plain
 	// invalid_request: the caller can recover from one and not the other.
-	const fromMessage = codeFromMessage(message)
-	if (fromMessage === 'context_length_exceeded') {
+	if (messages.some((m) => codeFromMessage(m) === 'context_length_exceeded')) {
 		return new ProviderError({
 			code: 'context_length_exceeded',
 			message,

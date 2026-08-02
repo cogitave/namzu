@@ -16,6 +16,7 @@ import { resolveProviderCapabilities } from '../../provider/capabilities.js'
 import { type ProviderRetryConfig, withProviderRetry } from '../../provider/retry.js'
 import type { PathBuilder } from '../../session/workspace/path-builder.js'
 import { GENAI, NAMZU, agentRunSpanName, parentContext } from '../../telemetry/attributes.js'
+import { recordRunDuration } from '../../telemetry/metrics.js'
 import { getTracer } from '../../telemetry/runtime-accessors.js'
 import { buildAdvisoryTools } from '../../tools/advisory/index.js'
 import { SearchToolsTool } from '../../tools/builtins/search-tools.js'
@@ -686,6 +687,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		// iterations were parented, except across the spawn boundary, where
 		// it is worse: the delegation structure is the thing you most want
 		// to see.
+		const runStartedAt = Date.now()
 		const rootSpan = tracer.startSpan(
 			agentRunSpanName(params.agentName),
 			{},
@@ -1108,6 +1110,11 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			}
 
 			unsubscribeTaskStore?.()
+			// Keyed by HOW it settled, not just that it did: a run that was
+			// cancelled and a run that hit its budget have very different
+			// duration distributions, and averaging them together describes
+			// neither.
+			recordRunDuration(ctx.runMgr.getRun().status ?? 'unknown', Date.now() - runStartedAt)
 			rootSpan.end()
 		}
 

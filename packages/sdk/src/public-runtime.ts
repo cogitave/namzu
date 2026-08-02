@@ -454,6 +454,21 @@ export {
 	trajectoryScorer,
 } from './eval/index.js'
 
+// ─── metrics ─────────────────────────────────────────────────────────────
+//
+// Exported so a host can record its own measurements onto the same series
+// the runtime uses, rather than defining a parallel set under different
+// names that never aggregate.
+
+export {
+	recordModelDuration,
+	recordRunDuration,
+	recordTokenUsage,
+	recordToolCall,
+	resetRuntimeMetrics,
+} from './telemetry/metrics.js'
+export type { TokenUsageSample } from './telemetry/metrics.js'
+
 // ─── guardrails ──────────────────────────────────────────────────────────
 
 export {

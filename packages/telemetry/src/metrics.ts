@@ -1,4 +1,9 @@
-import { getMeter } from './provider.js'
+import {
+	recordModelDuration,
+	recordRunDuration as recordRunDurationMs,
+	recordTokenUsage as recordTokenUsageSample,
+	recordToolCall as recordToolCallOutcome,
+} from '@namzu/sdk'
 
 export interface PlatformMetrics {
 	recordTokenUsage(model: string, inputTokens: number, outputTokens: number): void
@@ -8,76 +13,44 @@ export interface PlatformMetrics {
 }
 
 /**
- * Eager-bind platform metrics. Counters and histograms are constructed
- * immediately against whatever `getMeter()` returns.
+ * A host-facing handle onto the runtime's own metric instruments.
  *
- * If called before `registerTelemetry(...)`, `getMeter()` returns the
- * `@opentelemetry/api` no-op meter and every subsequent `.add()` / `.record()`
- * call is silently discarded — for the lifetime of this `PlatformMetrics`
- * instance. The no-op bindings are not retroactively rewired when
- * `registerTelemetry` is called later.
+ * This used to define its own counters and histograms, which had two
+ * consequences and no benefit. The instruments were bound EAGERLY, so a bag
+ * built before `registerTelemetry()` captured the no-op meter and discarded
+ * every write for the rest of its life — silently, forever, from one line
+ * of call order. And nothing in the workspace ever built one, so the
+ * runtime emitted spans and not a single measurement.
  *
- * Call order: `await registerTelemetry({...})` FIRST, then `createPlatformMetrics()`.
- * Or wrap the latter in a lazy factory if the metric bag must be constructed
- * before telemetry registration is guaranteed.
+ * The instruments now live beside the code that records them, and this
+ * delegates. Call order no longer matters: they resolve on first use and
+ * re-resolve once a real provider is installed. Anything a host records
+ * here lands on the same series as the runtime's own, so the two aggregate
+ * instead of describing the same events under two names.
  */
 export function createPlatformMetrics(): PlatformMetrics {
-	const meter = getMeter()
-
-	const tokenInputCounter = meter.createCounter('gen_ai.client.token.usage', {
-		description: 'Number of input (prompt) tokens used',
-		unit: '{token}',
-	})
-
-	const tokenOutputCounter = meter.createCounter('gen_ai.client.token.usage.output', {
-		description: 'Number of output (completion) tokens used',
-		unit: '{token}',
-	})
-
-	const toolCallCounter = meter.createCounter('gen_ai.tool.call.count', {
-		description: 'Number of tool calls executed',
-		unit: '{call}',
-	})
-
-	const runDurationHistogram = meter.createHistogram('namzu.run.duration', {
-		description: 'Agent run duration',
-		unit: 's',
-	})
-
-	const llmLatencyHistogram = meter.createHistogram('gen_ai.client.operation.duration', {
-		description: 'LLM request duration (GenAI semantic convention)',
-		unit: 's',
-	})
-
 	return {
 		recordTokenUsage(model: string, inputTokens: number, outputTokens: number): void {
-			tokenInputCounter.add(inputTokens, {
-				'gen_ai.request.model': model,
-				'gen_ai.token.type': 'input',
-			})
-			tokenOutputCounter.add(outputTokens, {
-				'gen_ai.request.model': model,
-				'gen_ai.token.type': 'output',
+			recordTokenUsageSample(model, {
+				promptTokens: inputTokens,
+				completionTokens: outputTokens,
 			})
 		},
 
 		recordToolCall(toolName: string, success: boolean): void {
-			toolCallCounter.add(1, {
-				'gen_ai.tool.name': toolName,
-				'namzu.tool.success': success,
-			})
+			recordToolCallOutcome(toolName, success)
 		},
 
+		// This signature takes seconds and the recorder takes milliseconds.
+		// The conversion has to happen on exactly one side of the boundary;
+		// it lives on the recorder's, so this undoes it rather than letting
+		// both sides divide.
 		recordRunDuration(status: string, durationSec: number): void {
-			runDurationHistogram.record(durationSec, {
-				'namzu.run.status': status,
-			})
+			recordRunDurationMs(status, durationSec * 1000)
 		},
 
 		recordLLMLatency(model: string, durationSec: number): void {
-			llmLatencyHistogram.record(durationSec, {
-				'gen_ai.request.model': model,
-			})
+			recordModelDuration(model, durationSec * 1000)
 		},
 	}
 }

@@ -1,5 +1,6 @@
 import { SpanStatusCode, context as otelContext, trace } from '@opentelemetry/api'
 import { GENAI, NAMZU, toolSpanName } from '../../telemetry/attributes.js'
+import { recordToolCall } from '../../telemetry/metrics.js'
 import { getTracer } from '../../telemetry/runtime-accessors.js'
 import type {
 	LLMToolSchema,
@@ -411,6 +412,7 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 				})
 
 				span.setAttribute(NAMZU.TOOL_SUCCESS, result.success)
+				recordToolCall(toolName, result.success, result.success ? undefined : result.error)
 				if (!result.success && result.error) {
 					span.setAttribute(NAMZU.TOOL_ERROR, result.error)
 					span.setStatus({ code: SpanStatusCode.ERROR, message: result.error })
