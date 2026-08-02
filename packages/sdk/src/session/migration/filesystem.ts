@@ -44,6 +44,7 @@ import { join } from 'node:path'
 import type { TenantId } from '../../types/ids/index.js'
 import { UNKNOWN_TENANT_ID } from '../../types/ids/index.js'
 import type { ProjectId, SessionId } from '../../types/session/ids.js'
+import { atomicWriteFile } from '../../utils/atomic-write.js'
 import { FilesystemMigrationError } from './errors.js'
 import { acquireMigrationLock, readMarker, releaseMigrationLock, writeMarker } from './marker.js'
 
@@ -369,20 +370,14 @@ export class DefaultFilesystemMigrator implements FilesystemMigrator {
 }
 
 /**
- * Shared atomic-write helper. Mirrors `store/session/disk.ts:atomicWriteJson`
- * — intentionally duplicated so `session/migration/` has no inbound
- * dependency on the store layer (Convention #4 dependency direction).
+ * The duplication this replaced existed to keep `session/migration/` free
+ * of an inbound dependency on the store layer, which was the right
+ * instinct — and it also meant this copy kept the fixed sidecar name after
+ * the stores were fixed. Living in `utils/` satisfies both: everything may
+ * depend on it, so there is nothing left to duplicate.
  */
 async function atomicWriteJson(filePath: string, value: unknown): Promise<void> {
-	const { writeFile, rename: renameFile, unlink } = await import('node:fs/promises')
-	const tmp = `${filePath}.tmp`
-	try {
-		await writeFile(tmp, JSON.stringify(value, null, 2), 'utf-8')
-		await renameFile(tmp, filePath)
-	} catch (err) {
-		await unlink(tmp).catch(() => undefined)
-		throw err
-	}
+	await atomicWriteFile(filePath, JSON.stringify(value, null, 2))
 }
 
 async function directoryExists(path: string): Promise<boolean> {

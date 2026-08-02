@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { MemoryId } from '../../types/ids/index.js'
 import type {
@@ -9,6 +9,7 @@ import type {
 	MemorySearchResult,
 	MemoryStore,
 } from '../../types/memory/index.js'
+import { atomicWriteFile } from '../../utils/atomic-write.js'
 import { generateMemoryId } from '../../utils/id.js'
 import { type Logger, getRootLogger } from '../../utils/logger.js'
 import { defineSchema, migrate, stamp } from '../schema.js'
@@ -197,17 +198,6 @@ export class DiskMemoryStore implements MemoryStore {
 	private async persistIndex(): Promise<void> {
 		const entries = this.index.allEntries()
 		await atomicWriteJson(this.indexPath, entries)
-	}
-}
-
-async function atomicWriteFile(filePath: string, content: string): Promise<void> {
-	const tempPath = `${filePath}.tmp`
-	try {
-		await writeFile(tempPath, content, 'utf-8')
-		await rename(tempPath, filePath)
-	} catch (err) {
-		await unlink(tempPath).catch(() => undefined)
-		throw err
 	}
 }
 

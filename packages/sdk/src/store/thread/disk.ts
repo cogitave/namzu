@@ -19,13 +19,14 @@
  * {@link TenantIsolationError} (Convention #17).
  */
 
-import { mkdir, readFile, readdir, rename, rm, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { StaleThreadError, TenantIsolationError } from '../../session/errors.js'
 import type { TenantId } from '../../types/ids/index.js'
 import type { ProjectId, ThreadId } from '../../types/session/ids.js'
 import type { Thread, ThreadStatus } from '../../types/thread/entity.js'
 import type { CreateThreadParams, ThreadStore } from '../../types/thread/store.js'
+import { atomicWriteFile } from '../../utils/atomic-write.js'
 import { generateThreadId } from '../../utils/id.js'
 import { defineSchema, migrate, stamp } from '../schema.js'
 
@@ -265,12 +266,7 @@ async function readJson<T>(path: string): Promise<T | null> {
 }
 
 async function atomicWriteJson(filePath: string, value: unknown): Promise<void> {
-	const tempPath = `${filePath}.tmp`
-	try {
-		await writeFile(tempPath, JSON.stringify(stamp(SCHEMA, value), null, 2), 'utf-8')
-		await rename(tempPath, filePath)
-	} catch (err) {
-		await unlink(tempPath).catch(() => undefined)
-		throw err
-	}
+	// Through the shared writer: the sidecar name has to be private to this
+	// write, and a fixed `.tmp` is shared by every writer of the record.
+	await atomicWriteFile(filePath, JSON.stringify(stamp(SCHEMA, value), null, 2))
 }

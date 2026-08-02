@@ -1,7 +1,8 @@
-import { appendFile, mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, readFile, readdir, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { CheckpointId, IterationCheckpoint } from '../../types/hitl/index.js'
 import type { Run, RunEvent, RunStoreConfig } from '../../types/run/index.js'
+import { atomicWriteFile } from '../../utils/atomic-write.js'
 import { type Logger, getRootLogger } from '../../utils/logger.js'
 import { defineSchema, migrate, stamp } from '../schema.js'
 
@@ -207,17 +208,6 @@ export class RunDiskStore {
 		} finally {
 			resolve?.()
 		}
-	}
-}
-
-async function atomicWriteFile(filePath: string, content: string): Promise<void> {
-	const tempPath = `${filePath}.tmp`
-	try {
-		await writeFile(tempPath, content, 'utf-8')
-		await rename(tempPath, filePath)
-	} catch (err) {
-		await unlink(tempPath).catch(() => undefined)
-		throw err
 	}
 }
 

@@ -21,16 +21,7 @@
  * path lives in Phase 7 of the overall roadmap.
  */
 
-import {
-	appendFile,
-	mkdir,
-	readFile,
-	readdir,
-	rename,
-	rm,
-	unlink,
-	writeFile,
-} from 'node:fs/promises'
+import { appendFile, mkdir, readFile, readdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { TenantIsolationError } from '../../session/errors.js'
 import { SessionAlreadySummarizedError } from '../../session/summary/errors.js'
@@ -54,6 +45,7 @@ import type {
 	SessionSummaryOutcome,
 	SessionSummaryRef,
 } from '../../types/summary/ref.js'
+import { atomicWriteFile } from '../../utils/atomic-write.js'
 import {
 	generateMessageId,
 	generateProjectId,
@@ -980,14 +972,9 @@ async function readJson<T>(path: string): Promise<T | null> {
 }
 
 async function atomicWriteJson(filePath: string, value: unknown): Promise<void> {
-	const tempPath = `${filePath}.tmp`
-	try {
-		await writeFile(tempPath, JSON.stringify(stamp(SCHEMA, value), null, 2), 'utf-8')
-		await rename(tempPath, filePath)
-	} catch (err) {
-		await unlink(tempPath).catch(() => undefined)
-		throw err
-	}
+	// Through the shared writer: the sidecar name has to be private to this
+	// write, and a fixed `.tmp` is shared by every writer of the record.
+	await atomicWriteFile(filePath, JSON.stringify(stamp(SCHEMA, value), null, 2))
 }
 
 // Note: messages are append-only `messages.jsonl` (not write-tmp-rename).

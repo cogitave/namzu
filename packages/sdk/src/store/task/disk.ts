@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { RunId, TaskId, TenantId } from '../../types/ids/index.js'
 import type {
@@ -10,6 +10,7 @@ import type {
 	TaskStore,
 	UpdateTaskParams,
 } from '../../types/task/index.js'
+import { atomicWriteFile } from '../../utils/atomic-write.js'
 import { generateTaskId } from '../../utils/id.js'
 import { type Logger, getRootLogger } from '../../utils/logger.js'
 import { defineSchema, migrate, stamp } from '../schema.js'
@@ -442,17 +443,6 @@ export class DiskTaskStore implements TaskStore {
 	private async findTask(id: TaskId): Promise<Task | undefined> {
 		const task = await this.readTask(this.defaultRunId, id)
 		return task ?? undefined
-	}
-}
-
-async function atomicWriteFile(filePath: string, content: string): Promise<void> {
-	const tempPath = `${filePath}.tmp`
-	try {
-		await writeFile(tempPath, content, 'utf-8')
-		await rename(tempPath, filePath)
-	} catch (err) {
-		await unlink(tempPath).catch(() => undefined)
-		throw err
 	}
 }
 
