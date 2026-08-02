@@ -25,7 +25,24 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 		})
 	}
 
+	/**
+	 * One run at a time per instance.
+	 *
+	 * `abortController` and `currentRunId` are instance state, so two
+	 * overlapping runs share one abort controller — cancelling either kills
+	 * both — and the second clobbers the first's run id, so a later
+	 * `cancel()` cancels the wrong run. Neither failure announces itself.
+	 * A host that wants parallelism constructs a second instance.
+	 */
 	async run(
+		input: AgentInput,
+		config: ReactiveAgentConfig,
+		listener?: RunEventListener,
+	): Promise<ReactiveAgentResult> {
+		return await this.underInvocationLock(() => this.runExclusive(input, config, listener))
+	}
+
+	private async runExclusive(
 		input: AgentInput,
 		config: ReactiveAgentConfig,
 		listener?: RunEventListener,

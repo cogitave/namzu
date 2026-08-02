@@ -10,6 +10,16 @@ export type StopReason =
 	| 'stop_condition'
 	/** The model never produced a valid structured output within its retries. */
 	| 'structured_output_failed'
+	/**
+	 * A host reviewer kept rejecting the answer and the run ran out of
+	 * attempts.
+	 *
+	 * Distinct from a budget stop on purpose: without it the run would end
+	 * on `max_iterations` or a token cap, naming the resource it exhausted
+	 * rather than the judgement that exhausted it — and the reader would go
+	 * looking for a loop instead of at the reviewer.
+	 */
+	| 'answer_rejected'
 	/** An input guardrail refused the run before it started. */
 	| 'input_guardrail'
 	/** An output guardrail refused the produced result. */

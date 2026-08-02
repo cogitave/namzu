@@ -49,6 +49,7 @@ import { type Message, createSystemMessage } from '../../types/message/index.js'
 import type { AgentPersona } from '../../types/persona/index.js'
 import type { LLMProvider } from '../../types/provider/index.js'
 import type { TaskRouterConfig } from '../../types/router/index.js'
+import type { ReviewAnswer } from '../../types/run/answer-review.js'
 import type { CheckpointStore } from '../../types/run/checkpoint-store.js'
 import type {
 	AgentRunConfig,
@@ -195,6 +196,24 @@ export interface QueryParams {
 	 * Helpers: `stepCountIs`, `hasToolCall`, `anyOf`.
 	 */
 	stopWhen?: StopCondition
+
+	/**
+	 * Judge the answer the run is about to settle with, and hand it back
+	 * with feedback when it is not good enough.
+	 *
+	 * `stopWhen` is only consulted after tools have run, so there was no
+	 * seam at the point the model stops calling them: the run finalized
+	 * with whatever it had. Verify-then-fix — run the build, feed the
+	 * failure back, let it try again — meant starting a new run and
+	 * re-supplying the context the first one had already assembled.
+	 *
+	 * Bounded by {@link maxAnswerReviews}. Never called on the forced-final
+	 * turn, which exists to extract a closing summary under pressure.
+	 */
+	reviewAnswer?: ReviewAnswer
+
+	/** Rejections allowed before the run stops. Default 3. */
+	maxAnswerReviews?: number
 
 	/** Called with each completed step, as it completes. */
 	onStepFinish?: (step: StepResult) => void
@@ -693,6 +712,8 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		...(params.stopWhen ? { stopWhen: params.stopWhen } : {}),
 		...(params.prepareStep ? { prepareStep: params.prepareStep } : {}),
 		...(params.onStepFinish ? { onStepFinish: params.onStepFinish } : {}),
+		...(params.reviewAnswer ? { reviewAnswer: params.reviewAnswer } : {}),
+		...(params.maxAnswerReviews !== undefined ? { maxAnswerReviews: params.maxAnswerReviews } : {}),
 		...(params.structuredOutput ? { structuredOutput: params.structuredOutput } : {}),
 		...(params.parkRecordDelayMs !== undefined
 			? { parkRecordDelayMs: params.parkRecordDelayMs }

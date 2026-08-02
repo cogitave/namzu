@@ -44,6 +44,48 @@ the real budgets would have let finish.
 
 The run settles with `stopReason: 'stop_condition'`.
 
+### Judging the answer, not just the tool calls
+
+`stopWhen` is evaluated after each step's **tools** have run, so it has
+nothing to say at the moment the model stops calling them — the run simply
+finalized with whatever it had produced. Verify-then-fix (run the build,
+feed the failure back, let it try again) meant starting a whole new run and
+re-supplying the context the first one had already assembled.
+
+```ts
+query({
+  reviewAnswer: async (answer, { messages }) => {
+    const build = await runBuild()
+    return build.ok
+      ? { accept: true }
+      : { accept: false, feedback: `The build fails:\n${build.output}` }
+  },
+  maxAnswerReviews: 3,
+})
+```
+
+The feedback is pushed as the next **user** turn, because the model is the
+audience — a code would have to be explained to it anyway. Say what is
+wrong and what would satisfy the check.
+
+Three properties are load-bearing:
+
+- **Bounded.** `maxAnswerReviews` (default 3) caps rejections. Past it the
+  run stops with `stopReason: 'answer_rejected'` — a reason that names the
+  reviewer rather than the resource it exhausted. Without a distinct
+  reason, a reviewer that never accepts would end the run on
+  `max_iterations` and send the reader looking for a loop.
+- **Never on the forced-final turn.** That turn exists to extract a closing
+  summary under pressure; rejecting it would spend budget the run has
+  already run out of.
+- **A reviewer that throws ACCEPTS.** This is the opposite of what the
+  safety gates do, deliberately. They are asked "is this dangerous", where
+  failing closed costs one refused operation. This is asked "is this good
+  enough", where failing closed means handing the answer back forever — so
+  a broken judge would turn every run into a loop. One unreviewed answer is
+  the cheaper failure. The throw is logged at `error` so it is never
+  mistaken for approval.
+
 ### Numeric budgets
 
 `AgentRunConfig` carries `tokenBudget`, `costLimitUsd`, `timeoutMs` and

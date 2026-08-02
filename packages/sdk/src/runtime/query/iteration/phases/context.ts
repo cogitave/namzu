@@ -14,6 +14,7 @@ import type {
 } from '../../../../types/hitl/index.js'
 import type { TaskId } from '../../../../types/ids/index.js'
 import type { LLMProvider } from '../../../../types/provider/index.js'
+import type { ReviewAnswer } from '../../../../types/run/answer-review.js'
 import type {
 	AgentRunConfig,
 	PrepareStep,
@@ -62,6 +63,13 @@ export interface IterationContext {
 	 * run. See {@link StopCondition}.
 	 */
 	readonly stopWhen?: StopCondition
+
+	/**
+	 * Host verdict on the answer the run is about to settle with, and how
+	 * many rejections it may spend before stopping.
+	 */
+	readonly reviewAnswer?: ReviewAnswer
+	readonly maxAnswerReviews?: number
 
 	/** Called with each completed step, as it completes. */
 	readonly onStepFinish?: (step: StepResult) => void

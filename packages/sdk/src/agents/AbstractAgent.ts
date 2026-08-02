@@ -64,6 +64,32 @@ export abstract class AbstractAgent<
 		return this.invocationLock.acquire(this.metadata.id)
 	}
 
+	/**
+	 * Run `body` under this instance's invocation lock.
+	 *
+	 * The lock existed, was exported, and had no caller — so concurrent
+	 * invocations of one agent instance were not prevented at all, and the
+	 * error type that announces the refusal could never be thrown.
+	 *
+	 * They genuinely are unsafe. `abortController` and `currentRunId` are
+	 * INSTANCE state: two overlapping runs share one abort controller, so
+	 * cancelling either kills both, and the second clobbers the first's run
+	 * id, so `cancel()` afterwards cancels the wrong run. Neither failure
+	 * announces itself — the first run simply stops, or the wrong one does.
+	 *
+	 * A host that wants parallelism constructs a second instance, which is
+	 * cheap; sharing one was never the supported shape, it merely was not
+	 * refused.
+	 */
+	protected async underInvocationLock<T>(body: () => Promise<T>): Promise<T> {
+		const lock = this.acquireInvocationLock()
+		try {
+			return await body()
+		} finally {
+			lock[Symbol.dispose]()
+		}
+	}
+
 	async cancel(): Promise<void> {
 		this.abortController.abort()
 

@@ -23,3 +23,4 @@ export type {
 } from './subsession-events.js'
 export { RUN_EVENT_SCHEMA_VERSION } from './schema-version.js'
 export type { RunEventSchemaVersion } from './schema-version.js'
+export type { AnswerReview, AnswerReviewContext, ReviewAnswer } from './answer-review.js'

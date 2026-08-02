@@ -23,6 +23,7 @@ import {
 } from '../../../types/message/index.js'
 import { classifyProviderError } from '../../../types/provider/errors.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
+import type { AnswerReview } from '../../../types/run/answer-review.js'
 import type {
 	PrepareStepResult,
 	RunEvent,
@@ -46,8 +47,20 @@ export type { IterationContext } from './phases/index.js'
 export type { PhaseSignal } from './phases/index.js'
 export type { ToolReviewOutcome } from './phases/index.js'
 
+/**
+ * How many times an answer may be handed back before the run stops.
+ *
+ * Bounded for the same reason the structured-output re-prompt is: a judge
+ * that never accepts would otherwise spend the whole token budget
+ * rediscovering that, and the run would end on a budget error rather than
+ * on the thing that actually went wrong.
+ */
+const DEFAULT_ANSWER_REVIEW_LIMIT = 3
+
 export class IterationOrchestrator {
 	private ctx: IterationContext
+	/** Rejections so far. See {@link DEFAULT_ANSWER_REVIEW_LIMIT}. */
+	private answerReviewAttempts = 0
 
 	constructor(ctx: IterationContext) {
 		this.ctx = ctx
@@ -438,6 +451,52 @@ export class IterationOrchestrator {
 						continue
 					}
 
+					// Let the host judge the ANSWER and hand back work.
+					//
+					// The stop predicate is only consulted after tools ran, so
+					// there was no seam here at all: the moment the model
+					// stopped calling tools the run finalized, whatever it had
+					// produced. Verify-then-fix — run the build, feed the
+					// failure back, let it try again — meant starting a whole
+					// new run and re-supplying the context the first one had.
+					//
+					// Shaped after the structured-output re-prompt directly
+					// above, which solves the same problem for one specific
+					// judge: bounded attempts, feedback as a user message, and
+					// a loud stop rather than a loop.
+					if (!forceFinalize && this.ctx.reviewAnswer) {
+						const review = await this.reviewAnswer(response.message.content ?? '')
+						if (review && !review.accept) {
+							const attempt = ++this.answerReviewAttempts
+							const limit = this.ctx.maxAnswerReviews ?? DEFAULT_ANSWER_REVIEW_LIMIT
+							if (attempt > limit) {
+								this.ctx.log.warn('Answer rejected more times than the run allows', {
+									runId: runMgr.id,
+									attempts: attempt - 1,
+									limit,
+								})
+								runMgr.setStopReason('answer_rejected')
+								iterSpan.end()
+								break
+							}
+							this.ctx.log.info('Answer rejected — returning it to the model', {
+								runId: runMgr.id,
+								attempt,
+								limit,
+							})
+							runMgr.pushMessage(createUserMessage(review.feedback))
+							await this.ctx.emitEvent({
+								type: 'iteration_completed',
+								runId: runMgr.id,
+								iteration: iterationNum,
+								hasToolCalls: false,
+							})
+							yield* this.ctx.drainPending()
+							iterSpan.end()
+							continue
+						}
+					}
+
 					if (!hasContent && !forceFinalize) {
 						this.ctx.log.warn('Empty completion detected — requesting final summary', {
 							iteration: iterationNum,
@@ -788,6 +847,35 @@ export class IterationOrchestrator {
 		}
 		this.structuredOutputDone = true
 		return true
+	}
+
+	/**
+	 * Ask the host whether this answer is good enough.
+	 *
+	 * A hook that throws **accepts**, which is the opposite of what the
+	 * safety gates do, and deliberately so. Those are asked "is this
+	 * dangerous", where the cost of failing closed is one refused
+	 * operation. This is asked "is this good enough", where failing closed
+	 * means handing the answer back forever — so a broken judge would turn
+	 * every run into a loop that ends on a budget error naming nothing. One
+	 * unreviewed answer is the cheaper failure, and the throw is logged at
+	 * `error` so it is not mistaken for approval.
+	 */
+	private async reviewAnswer(answer: string): Promise<AnswerReview | undefined> {
+		if (!this.ctx.reviewAnswer) return undefined
+		try {
+			return await this.ctx.reviewAnswer(answer, {
+				runId: this.ctx.runMgr.id,
+				iteration: this.ctx.runMgr.currentIteration,
+				messages: this.ctx.runMgr.messages,
+			})
+		} catch (err) {
+			this.ctx.log.error('Answer review threw — accepting the answer unreviewed', {
+				runId: this.ctx.runMgr.id,
+				error: toErrorMessage(err),
+			})
+			return { accept: true }
+		}
 	}
 
 	/** Evaluate the caller's halt predicate, if there is one. */
