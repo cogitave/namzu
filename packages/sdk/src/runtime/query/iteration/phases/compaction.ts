@@ -91,7 +91,58 @@ function measureContext(ctx: IterationContext): {
 	return { tokens: estimateTokens(ctx), source: 'estimate' }
 }
 
-export async function runCompactionCheck(ctx: IterationContext): Promise<void> {
+/**
+ * Shed history because the PROVIDER said the prompt is too long.
+ *
+ * The threshold path guesses when to compact and can guess low — the
+ * estimate is a heuristic, and a run carrying images or a language the
+ * chars-per-token ratio does not fit will hit the real window while still
+ * reading as comfortable. When that happens the provider tells us exactly
+ * what is wrong, and the kernel already classifies it precisely and then
+ * did nothing with it: the call was correctly marked non-retryable
+ * (resending the identical prompt cannot help) and the run died holding a
+ * compaction subsystem that could have made room.
+ *
+ * Forced rather than threshold-gated, because the threshold is the thing
+ * that was just proven wrong.
+ *
+ * @returns whether anything was actually shed. `false` means retrying would
+ *   send the same prompt again, so the caller must not.
+ */
+export async function relieveOverflow(ctx: IterationContext): Promise<boolean> {
+	const before = ctx.runMgr.messages.length
+	const beforeChars = totalChars(ctx.runMgr.messages)
+
+	await runCompactionCheck(ctx, { force: true })
+
+	const shed = beforeChars - totalChars(ctx.runMgr.messages)
+	if (shed <= 0) {
+		ctx.log.warn('Context overflow with nothing left to shed — the prompt is irreducible', {
+			runId: ctx.runMgr.id,
+			messages: before,
+		})
+		return false
+	}
+
+	ctx.log.info('Relieved a context overflow by compacting', {
+		runId: ctx.runMgr.id,
+		messagesBefore: before,
+		messagesAfter: ctx.runMgr.messages.length,
+		charsShed: shed,
+	})
+	return true
+}
+
+function totalChars(messages: readonly { content: unknown }[]): number {
+	let total = 0
+	for (const msg of messages) total += measureContentChars(msg.content)
+	return total
+}
+
+export async function runCompactionCheck(
+	ctx: IterationContext,
+	options?: { force?: boolean },
+): Promise<void> {
 	const config = ctx.compactionConfig
 	if (!config) return
 	if (config.strategy === 'disabled') return
@@ -114,7 +165,9 @@ export async function runCompactionCheck(ctx: IterationContext): Promise<void> {
 
 	const usage = estimatedTokens / budget
 
-	if (usage < config.triggerThreshold) return
+	// A forced pass skips the threshold: it runs because the provider
+	// rejected the prompt, which is stronger evidence than any estimate.
+	if (!options?.force && usage < config.triggerThreshold) return
 
 	ctx.log.info('Compaction threshold reached — compacting context', {
 		runId: ctx.runMgr.id,

@@ -21,6 +21,7 @@ import {
 	createSystemMessage,
 	createUserMessage,
 } from '../../../types/message/index.js'
+import { classifyProviderError } from '../../../types/provider/errors.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
 import type {
 	PrepareStepResult,
@@ -34,7 +35,7 @@ import type { ToolCallOutcome } from '../executor.js'
 import { applyLifecycleHookResults } from '../plugin-hooks.js'
 import { runAdvisoryPhase } from './phases/advisory.js'
 import { runIterationCheckpoint } from './phases/checkpoint.js'
-import { runCompactionCheck } from './phases/compaction.js'
+import { relieveOverflow, runCompactionCheck } from './phases/compaction.js'
 import type { IterationContext } from './phases/index.js'
 import { runPlanGate } from './phases/plan.js'
 import { runToolReview } from './phases/tool-review.js'
@@ -67,6 +68,10 @@ export class IterationOrchestrator {
 		const { runConfig, runMgr } = this.ctx
 		const { model } = runConfig
 		const tracer = getTracer()
+
+		// One context-overflow relief per run: a second overflow after a
+		// successful compaction means the prompt is irreducible.
+		let overflowRelieved = false
 
 		const planSignal = yield* runPlanGate(this.ctx)
 		if (planSignal === 'stop') return
@@ -547,6 +552,37 @@ export class IterationOrchestrator {
 					runMgr.markCancelled()
 					iterSpan.end()
 					break
+				}
+
+				// The one provider failure the kernel can actually do something
+				// about. `context_length_exceeded` is correctly non-retryable —
+				// resending the identical prompt cannot help — but the kernel
+				// owns a compaction subsystem that can make the prompt smaller.
+				// Without this the run died holding the remedy: the threshold
+				// path had simply guessed low, which a run carrying images or a
+				// language the chars-per-token ratio does not fit will do.
+				//
+				// Relief is attempted ONCE per iteration and only when it
+				// actually shed something. A second overflow after a successful
+				// compaction means the prompt is irreducible, and looping on it
+				// would burn the budget to arrive at the same error.
+				if (
+					!overflowRelieved &&
+					classifyProviderError(err, this.ctx.provider.id).code === 'context_length_exceeded'
+				) {
+					overflowRelieved = true
+					const shed = await relieveOverflow(this.ctx)
+					if (shed) {
+						this.ctx.log.info('Retrying the turn after relieving a context overflow', {
+							runId: runMgr.id,
+							iteration: iterationNum,
+						})
+						if (iterationActivity) {
+							this.ctx.activityStore.complete(iterationActivity.id)
+						}
+						iterSpan.end()
+						continue
+					}
 				}
 
 				if (iterationActivity) {
