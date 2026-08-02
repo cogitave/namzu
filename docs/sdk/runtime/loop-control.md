@@ -1,7 +1,7 @@
 ---
 title: Loop Control and Resilience
 description: Stop conditions, step records, provider retry, budgets across resume, compaction triggers, and extended thinking in the @namzu/sdk agent loop.
-last_updated: 2026-07-31
+last_updated: 2026-08-03
 status: current
 related_packages: ["@namzu/sdk", "@namzu/anthropic"]
 ---
@@ -110,6 +110,43 @@ it is the one 4xx a caller can act on.
 Aborts propagate untouched, so a Stop still settles the run as
 `cancelled` rather than being mistaken for a transport failure.
 
+Each backoff emits `provider_retry` **before** it sleeps, carrying the
+attempt, the delay, and the classified code — so a host can tell a run that
+is waiting from a run that has hung.
+
+### When a transient failure survives every retry
+
+The run settles as **paused**, not failed: `run_paused` names the
+checkpoint to resume from, and `Run.stopReason` is `'paused'`. A 503 and a
+bad API key used to be indistinguishable at the run boundary, so recovering
+meant the host knowing about checkpoints and driving replay itself.
+
+Both conditions are required — the failure must classify as `retryable`
+**and** a checkpoint must exist. Pausing on a permanent error would invite
+a resume that cannot work; pausing with nowhere to resume from produces a
+run nobody can pick up again, which is strictly worse than reporting the
+failure.
+
+When a run does fail, `run_failed` carries `failure` (the structured
+classification) and, when a catalog rule claims it, `explanation` — a
+stable id and a sentence saying what to change. See
+[Event Bridges](../integrations/event-bridges.md).
+
+### Relief when the prompt is already too long
+
+`context_length_exceeded` triggers a forced compaction pass and one retry.
+Two rules keep that from spinning or giving up early:
+
+- The retry only happens if the pass shed a **meaningful** amount — a
+  fraction of the prompt, floored at a couple of thousand characters. Any
+  positive shed used to count, so clearing one short tool result reported
+  success and the retry burned a call to be told the same thing.
+- Relief is latched per **stuck point**, not per run. The latch stops a
+  second overflow immediately after a successful compaction from looping;
+  it is cleared by a turn that actually succeeded. As a run-scoped flag it
+  meant one relief at iteration 3 left iteration 40 to die on an overflow
+  with obvious moves left.
+
 ## 4. Budgets Across a Resume
 
 `query({ resumeFromCheckpoint })` restores `tokenUsage`, `costInfo`,
@@ -200,6 +237,12 @@ results in place — replacing it with a short placeholder naming the tool
 and its original size. If that gets the context back under
 `triggerThreshold`, summarization is skipped entirely and the history stays
 verbatim.
+
+That shortcut does **not** apply to a forced pass. A forced pass runs
+because the provider rejected the prompt as too long, which is a
+measurement — and the shortcut would answer it with the same estimate the
+provider just refuted, declare success after clearing one result, and hand
+back a history that overflows again on the retry.
 
 The ordering is the point. Summarization paraphrases away the agent's own
 reasoning — the decisions, the false starts it learned from, the exact

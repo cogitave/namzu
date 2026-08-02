@@ -228,7 +228,20 @@ type CoreRunEvent =
 	 * occurred, and the iteration loop re-ran the classifier to recover
 	 * structure that had already been computed upstream.
 	 */
-	| { type: 'run_failed'; runId: RunId; error: string; failure?: PlatformError }
+	| {
+			type: 'run_failed'
+			runId: RunId
+			error: string
+			failure?: PlatformError
+			/**
+			 * Operator-facing explanation, when a catalog rule claims this
+			 * failure: a stable `id` to grep for, and `hint` saying what to
+			 * change. Absent when no rule matched — inventing advice for an
+			 * uncharacterised failure is worse than saying nothing, because
+			 * it sends the reader somewhere specific and wrong.
+			 */
+			explanation?: { id: string; message: string; hint: string }
+	  }
 	// Additive 2026-07 (provider capability negotiation): emitted once per
 	// run when the request asks for something the provider DRIVER declared
 	// it cannot do — tools registered against a no-tools driver (tool

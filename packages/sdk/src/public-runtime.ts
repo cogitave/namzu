@@ -488,3 +488,15 @@ export {
 // ANYTHING thrown into the declared `PlatformError` shape, so a host writes
 // one handler instead of an `instanceof` ladder per call site.
 export { NamzuError, isNamzuError, toPlatformError } from './types/errors/index.js'
+// The remediation layer above it: classification says what KIND of failure
+// it is, the catalog says what a person should do about it. Separate on
+// purpose — the first is structural and belongs at the boundary, the second
+// is editorial and belongs in a list a human appends to.
+export {
+	DEFAULT_ERROR_RULES,
+	explainError,
+	factsOf,
+	readHint,
+	withHint,
+} from './types/errors/catalog.js'
+export type { ErrorCatalogRule, ErrorExplanation, ErrorFacts } from './types/errors/catalog.js'

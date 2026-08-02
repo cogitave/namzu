@@ -40,6 +40,7 @@ import {
 	type SandboxFileEntry,
 	type SandboxId,
 	type SandboxStatus,
+	withHint,
 } from '@namzu/sdk'
 
 import {
@@ -421,8 +422,11 @@ async function readMappedPort(docker: string, containerName: string): Promise<nu
 	])
 	const port = Number(inspectOutput.trim())
 	if (!Number.isInteger(port) || port <= 0 || port > 65535) {
-		throw new Error(
-			`docker inspect returned no usable host port mapping for ${containerName}: '${inspectOutput}'`,
+		throw withHint(
+			new Error(
+				`docker inspect returned no usable host port mapping for ${containerName}: '${inspectOutput}'`,
+			),
+			'The container started but its worker port was never published. Usually the container exited immediately — check its logs — or the host had no free port to bind.',
 		)
 	}
 	return port
@@ -460,9 +464,12 @@ async function execViaWorker(
 				: cause
 					? String(cause)
 					: 'unknown'
-		throw new Error(
-			`namzu-sandbox /execute fetch failed (baseUrl=${baseUrl}): ${err instanceof Error ? err.message : String(err)} — cause: ${causeMsg}`,
-			{ cause: err },
+		throw withHint(
+			new Error(
+				`namzu-sandbox /execute fetch failed (baseUrl=${baseUrl}): ${err instanceof Error ? err.message : String(err)} — cause: ${causeMsg}`,
+				{ cause: err },
+			),
+			'The container was reachable when it started, so it has most likely exited or been killed since — an out-of-memory kill under `memoryLimitMb` is the common cause. Check the container logs and its exit code.',
 		)
 	}
 	if (!res.ok || !res.body) {
@@ -596,10 +603,17 @@ async function waitForWorkerReady(
 		}
 		await new Promise((resolve) => setTimeout(resolve, pollMs))
 	}
-	throw new Error(
-		`namzu-sandbox worker did not become ready within ${timeoutMs}ms: ${
-			lastError instanceof Error ? lastError.message : String(lastError)
-		}`,
+	// A hint attached at the throw site, where the cause is actually known.
+	// The container runtime's own message says a request failed; it cannot
+	// say that the image may not be built or the daemon may not be running,
+	// which is what a reader needs.
+	throw withHint(
+		new Error(
+			`namzu-sandbox worker did not become ready within ${timeoutMs}ms: ${
+				lastError instanceof Error ? lastError.message : String(lastError)
+			}`,
+		),
+		'Check that the container runtime is running and that the sandbox worker image is built and reachable. A cold image pull can also exceed this window — raise the readiness timeout before assuming the worker is broken.',
 	)
 }
 

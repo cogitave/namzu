@@ -619,6 +619,9 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		log: ctx.log,
 		emitEvent: eventTranslator.emitEvent,
 		drainPending: () => eventTranslator.drainPending(),
+		// Read at settle time, not now: checkpoints are written per
+		// iteration, so the answer changes as the run proceeds.
+		resumeCheckpointId: () => checkpointMgr.lastCheckpointId,
 	})
 
 	let advisoryCtx: AdvisoryContext | undefined

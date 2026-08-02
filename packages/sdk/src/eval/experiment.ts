@@ -18,7 +18,22 @@ export interface ExperimentConfig<TInput = unknown> {
 	 * here keeps the harness independent of how you construct a run —
 	 * scripted mock, real provider, or a whole agent behind a facade.
 	 */
-	run: (input: TInput, evalCase: EvalCase<TInput>) => Promise<EvalRun>
+	run: (input: TInput, evalCase: EvalCase<TInput>, signal: AbortSignal) => Promise<EvalRun>
+	/**
+	 * Deadline for a single case. Unset means no deadline.
+	 *
+	 * `executeCase` used to be a bare await, so a `run` closure that never
+	 * settled blocked its worker and `runExperiment` never returned — no
+	 * report, no partial results, nothing to read. The documented path
+	 * inherits deadlines from the runtime it drives, so the residual is a
+	 * closure that does not go through `query()` and a mid-iteration
+	 * provider stall the between-iterations guard cannot see. Both are
+	 * reachable, and neither is the suite's fault to absorb silently.
+	 *
+	 * A timed-out case is REPORTED and the suite continues, exactly like a
+	 * case that threw: forty cases should not be lost to one that hung.
+	 */
+	timeoutMs?: number
 	/** Mean score a case must reach to count as passed. Default 1. */
 	passThreshold?: number
 	/** Cases to run at once. Default 1 — deterministic ordering by default. */
@@ -129,8 +144,37 @@ async function executeCase<TInput>(
 	config: ExperimentConfig<TInput>,
 	evalCase: EvalCase<TInput>,
 ): Promise<EvalRun> {
+	const startedAt = Date.now()
+	const controller = new AbortController()
+	const timeoutMs = config.timeoutMs
+	// The signal is handed to `run` so a closure that drives `query()` can
+	// pass it through and actually stop working. A closure that ignores it
+	// is merely detached rather than stopped — the same bargain every other
+	// deadline in the SDK makes — but the SUITE is unblocked either way,
+	// which is the part that was missing.
+	const timer =
+		timeoutMs !== undefined && timeoutMs > 0
+			? setTimeout(
+					() => controller.abort(new Error(`case timed out after ${timeoutMs}ms`)),
+					timeoutMs,
+				)
+			: undefined
+
+	const deadline =
+		timer === undefined
+			? undefined
+			: new Promise<never>((_resolve, reject) => {
+					controller.signal.addEventListener('abort', () => reject(controller.signal.reason), {
+						once: true,
+					})
+				})
+
 	try {
-		return await config.run(evalCase.input, evalCase)
+		const work = config.run(evalCase.input, evalCase, controller.signal)
+		// A rejection of the loser must never surface as an unhandled
+		// rejection after the race has already been decided.
+		if (deadline) work.catch(() => {})
+		return await (deadline ? Promise.race([work, deadline]) : work)
 	} catch (err) {
 		return {
 			output: null,
@@ -138,9 +182,17 @@ async function executeCase<TInput>(
 			toolCalls: [],
 			totalTokens: 0,
 			totalCostUsd: 0,
-			durationMs: 0,
+			// Real elapsed time, not zero: a case that burned its whole
+			// deadline is the most interesting number in the report, and
+			// zero would hide it.
+			durationMs: Date.now() - startedAt,
 			error: err instanceof Error ? err.message : String(err),
 		}
+	} finally {
+		// Only the timer needs clearing. Aborting here would fire a spurious
+		// signal at a `run` that has already settled — the deadline branch
+		// has aborted already, and every other path is done.
+		clearTimeout(timer)
 	}
 }
 

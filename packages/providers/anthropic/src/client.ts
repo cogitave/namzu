@@ -937,30 +937,74 @@ function toAnthropicToolResultContent(
 			case 'text':
 				blocks.push({ type: 'text', text: String(block.text ?? '') })
 				break
-			case 'image':
-				blocks.push({
-					type: 'image',
-					source: {
-						type: 'base64',
-						media_type: String(block.mediaType),
-						data: String(block.data),
-					},
-				})
+			case 'image': {
+				// Shape-checked, like the sibling driver next door. `String()`
+				// on a non-string `data` produced `"[object Object]"` or
+				// `"undefined"` as the base64 payload — a request the wire
+				// rejects with no indication of which block was at fault, and
+				// an unvalidated remote tool result can reach here. A media
+				// type outside the accepted set degrades to a named
+				// placeholder rather than being smuggled through as text.
+				const source = imageSource(block)
+				if (source) blocks.push(source)
+				else blocks.push({ type: 'text', text: describeUnsendableBlock(block) })
 				break
-			case 'document':
-				blocks.push({
-					type: 'document',
-					source: {
-						type: 'base64',
-						media_type: String(block.mediaType),
-						data: String(block.data),
-					},
-					...(block.name ? { title: String(block.name) } : {}),
-				})
+			}
+			case 'document': {
+				const document = documentSource(block)
+				if (document) blocks.push(document)
+				else blocks.push({ type: 'text', text: describeUnsendableBlock(block) })
 				break
+			}
 		}
 	}
-	// Anthropic rejects an empty content array; a result that reduced to
+	// The wire rejects an empty content array; a result that reduced to
 	// nothing still has to say something.
 	return blocks.length > 0 ? blocks : '(no content)'
+}
+
+/** Media types this wire format accepts for an image block. */
+const IMAGE_MEDIA_TYPES: ReadonlySet<string> = new Set([
+	'image/png',
+	'image/jpeg',
+	'image/gif',
+	'image/webp',
+])
+
+/** Media types this wire format accepts for a document block. */
+const DOCUMENT_MEDIA_TYPES: ReadonlySet<string> = new Set(['application/pdf'])
+
+function imageSource(block: Record<string, unknown>): AnthropicImageBlock | null {
+	if (typeof block.data !== 'string' || block.data.length === 0) return null
+	if (typeof block.mediaType !== 'string' || !IMAGE_MEDIA_TYPES.has(block.mediaType)) return null
+	return {
+		type: 'image',
+		source: { type: 'base64', media_type: block.mediaType, data: block.data },
+	}
+}
+
+function documentSource(block: Record<string, unknown>): AnthropicDocumentBlock | null {
+	if (typeof block.data !== 'string' || block.data.length === 0) return null
+	if (typeof block.mediaType !== 'string' || !DOCUMENT_MEDIA_TYPES.has(block.mediaType)) {
+		return null
+	}
+	return {
+		type: 'document',
+		source: { type: 'base64', media_type: block.mediaType, data: block.data },
+		...(typeof block.name === 'string' && block.name ? { title: block.name } : {}),
+	}
+}
+
+/**
+ * Name a block this wire cannot carry, rather than inlining its payload.
+ *
+ * The model learns something happened and what kind of thing it was;
+ * dumping the base64 in as text would cost thousands of tokens to say
+ * nothing it can read.
+ */
+function describeUnsendableBlock(block: Record<string, unknown>): string {
+	const kind = typeof block.type === 'string' ? block.type : 'content'
+	const mediaType = typeof block.mediaType === 'string' ? block.mediaType : 'unknown type'
+	const size = typeof block.data === 'string' ? `, ${block.data.length} base64 chars` : ''
+	return `[${kind} omitted: ${mediaType} cannot be sent to this model${size}]`
 }

@@ -231,13 +231,42 @@ whether the delay was the server's idea. On the SSE wire it is
 
 ### Reading why a run failed
 
-`run_failed` carries both `error` (the flattened message) and `failure`
-(the structured projection: `code`, `retryable`, `details` including the
-provider code, status and any `retryAfterMs`). The classification is
-computed at the provider boundary — over status, errno, `Retry-After` and
-the whole cause chain — and used to be discarded one line before the event
-was emitted, leaving a host to guess whether "request failed" meant a rate
-limit worth retrying or a bad key worth stopping for.
+`run_failed` carries three things:
+
+- `error` — the flattened message, for consumers that only render a string
+- `failure` — the structured projection: `code`, `retryable`, and `details`
+  including the provider code, status and any `retryAfterMs`
+- `explanation` — an operator-facing `{ id, message, hint }`, when a
+  catalog rule claims the failure
+
+The classification is computed at the provider boundary — over status,
+errno, `Retry-After` and the whole cause chain — and used to be discarded
+one line before the event was emitted, leaving a host to guess whether
+"request failed" meant a rate limit worth retrying or a bad key worth
+stopping for.
+
+`explanation` is a separate layer on purpose: classification is structural
+and belongs at the boundary, remediation is editorial and belongs in a list
+a human appends to. Its `id` is stable and greppable; `hint` says what to
+change. It is **absent** when no rule matched — inventing advice for an
+uncharacterised failure is worse than saying nothing, because it sends the
+reader somewhere specific and wrong. Extend it by passing your own rules to
+`explainError(err, rules)`, or attach a hint at the raise point with
+`withHint(err, '…')`, which outranks every generic rule because code that
+raised a failure knows more about it than a status code does.
+
+### A run that paused instead of failing
+
+A transient failure that survived every in-turn recovery now settles as
+**paused** rather than failed, emitting `run_paused` with the checkpoint to
+resume from. A 503 and a bad API key used to be indistinguishable at the
+run boundary, and recovering meant the host knowing about checkpoints and
+driving replay itself.
+
+Two conditions, both required: the failure must classify as `retryable`,
+and a checkpoint must exist. Pausing on a permanent error would invite a
+resume that cannot work, and pausing with nowhere to resume from produces a
+run nobody can ever pick up — strictly worse than reporting the failure.
 
 That makes the A2A stream cleaner than the full internal event bus.
 

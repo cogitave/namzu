@@ -69,8 +69,15 @@ export class IterationOrchestrator {
 		const { model } = runConfig
 		const tracer = getTracer()
 
-		// One context-overflow relief per run: a second overflow after a
-		// successful compaction means the prompt is irreducible.
+		// One context-overflow relief per *stuck point*, not per run.
+		//
+		// The latch exists so that a second overflow immediately after a
+		// successful compaction — meaning the prompt is irreducible — stops
+		// instead of looping. It was never meant to disarm the mechanism for
+		// the rest of the run, which is what a run-scoped flag did: one
+		// relief at iteration 3 left iteration 40 to die on an overflow with
+		// obvious moves left. It is cleared by a turn that actually
+		// succeeded, which is the evidence that the run is no longer stuck.
 		let overflowRelieved = false
 
 		const planSignal = yield* runPlanGate(this.ctx)
@@ -252,6 +259,10 @@ export class IterationOrchestrator {
 
 				// Main-loop turn: also records the prompt size compaction reads.
 				runMgr.recordTurnUsage(response.usage)
+
+				// The turn went through, so the run is not sitting on an
+				// irreducible prompt any more. Re-arm relief for the next one.
+				overflowRelieved = false
 
 				if (this.ctx.pluginManager) {
 					const hookResults = await this.ctx.pluginManager.executeHooks(

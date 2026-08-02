@@ -99,6 +99,16 @@ export class CheckpointManager {
 	private workingStateSource?: () => WorkingStateSnapshot | undefined
 
 	/**
+	 * The most recent checkpoint this manager wrote, if any.
+	 *
+	 * A run that fails on a transient error needs to name the state a host
+	 * should resume from. Re-listing the store to find it would be a disk
+	 * read on the failure path, at the moment the run is least able to
+	 * afford one; the id is already in hand.
+	 */
+	private lastCreatedId?: CheckpointId
+
+	/**
 	 * @param store scope-keyed checkpoint persistence. The default query
 	 *   pipeline passes the run's disk-backed store
 	 *   ({@link import('../../store/run/checkpoint-disk.js').DiskCheckpointStore});
@@ -144,7 +154,13 @@ export class CheckpointManager {
 		}
 
 		await this.store.writeCheckpoint(this.scope, checkpoint)
+		this.lastCreatedId = checkpoint.id
 		return checkpoint
+	}
+
+	/** See {@link lastCreatedId}. */
+	get lastCheckpointId(): CheckpointId | undefined {
+		return this.lastCreatedId
 	}
 
 	/**

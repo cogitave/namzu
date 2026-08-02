@@ -1,7 +1,7 @@
 ---
 title: Evaluation
 description: Score agent behaviour with a dataset, deterministic scorers, and a model-graded judge, so a behaviour change ships with a regression signal behind it.
-last_updated: 2026-08-02
+last_updated: 2026-08-03
 status: current
 related_packages: ["@namzu/sdk"]
 ---
@@ -104,6 +104,51 @@ A run that **threw** still scores zero: that is a real failure of the thing unde
 - Two scorers sharing a name is an error, not a silent overwrite. Scores are keyed by name, so the second would replace the first and the mean would be computed over the wrong denominator.
 - A case that throws is a result, not a crash — a suite whose first broken case aborts tells you nothing about the other forty.
 - `concurrency` defaults to 1, so ordering is deterministic unless you ask otherwise.
+- `timeoutMs` bounds a single case. Unset means no deadline, which was the
+  only behaviour available: a `run` closure that never settled blocked its
+  worker and `runExperiment` never returned — no report, no partial
+  results, nothing to read. A timed-out case is **reported** and the suite
+  continues, exactly like a case that threw, and its `durationMs` is the
+  real elapsed time rather than zero.
+- `run` receives an `AbortSignal` as its third argument. A closure that
+  drives `query()` should pass it through so the run actually stops; one
+  that ignores it is merely detached, but the suite is unblocked either
+  way. The signal does not fire for a case that finished in time — a
+  spurious abort would train closures to ignore it.
+- The documented path already inherits deadlines from the runtime it
+  drives (a run-level timeout enforced between iterations, a per-tool
+  abandon, provider request timeouts). `timeoutMs` covers what those
+  cannot see: a closure that does not go through `query()`, and a
+  mid-iteration provider stall.
+
+### Caching case results
+
+There is no built-in result cache, and that is deliberate — the `run`
+callback is caller-owned, `onCaseFinish` fires per case, and `EvalRun` /
+`CaseResult` / `ExperimentReport` are plain JSON, so caching is a few lines
+of your own code:
+
+```ts
+const cache = new Map<string, EvalRun>()
+
+const report = await runExperiment({
+  name: 'cached',
+  cases,
+  scorers,
+  run: async (input, evalCase, signal) => {
+    const key = `${evalCase.name}:${JSON.stringify(input)}`
+    const hit = cache.get(key)
+    if (hit) return hit
+    const fresh = await driveTheAgent(input, signal)
+    cache.set(key, fresh)
+    return fresh
+  },
+})
+```
+
+Persist the map however you like — the shapes are serializable. Building
+this into the harness would mean owning a cache key policy that only the
+caller can define correctly.
 
 ## Related
 

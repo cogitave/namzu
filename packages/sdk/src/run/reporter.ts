@@ -78,6 +78,12 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				log.error('Run failed', {
 					runId: event.runId,
 					error: event.error,
+					// A greppable id and a sentence saying what to change,
+					// where before there was only whatever prose the vendor
+					// SDK happened to write.
+					code: event.failure?.code,
+					reason: event.explanation?.id,
+					hint: event.explanation?.hint,
 				})
 				break
 

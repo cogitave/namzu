@@ -36,6 +36,18 @@ export function isCompactionMessage(content: string | null | undefined): boolean
 const MIN_OLDER_MESSAGES_TO_COMPACT = 1
 
 /**
+ * How much a forced pass must shed before the turn is worth retrying.
+ *
+ * Both floors, whichever is larger. The fraction is what makes the bar
+ * scale: shedding 2 KB out of a 900 KB prompt is not relief, and retrying
+ * on it spends a whole model call to be told the same thing again. The
+ * absolute floor keeps a small prompt from being held to a meaningless
+ * fraction of itself.
+ */
+const MIN_RELIEF_FRACTION = 0.02
+const MIN_RELIEF_CHARS = 2_000
+
+/**
  * Model-visible size of a message body, in characters.
  *
  * An image block is measured by its base64 payload because that is what
@@ -157,10 +169,19 @@ export async function relieveOverflow(ctx: IterationContext): Promise<boolean> {
 	await runCompactionCheck(ctx, { force: true })
 
 	const shed = beforeChars - totalChars(ctx.runMgr.messages)
-	if (shed <= 0) {
-		ctx.log.warn('Context overflow with nothing left to shed — the prompt is irreducible', {
+	// A shed has to be big enough to plausibly change the provider's verdict.
+	// Any positive number used to count, so clearing a single short tool
+	// result reported success, the turn was retried against a prompt that was
+	// still over the window, and the retry burned a call to learn nothing.
+	// The floor is a fraction of what was there rather than a constant: what
+	// counts as meaningful scales with the prompt.
+	const meaningful = Math.max(MIN_RELIEF_CHARS, beforeChars * MIN_RELIEF_FRACTION)
+	if (shed < meaningful) {
+		ctx.log.warn('Context overflow with too little left to shed — the prompt is irreducible', {
 			runId: ctx.runMgr.id,
 			messages: before,
+			charsShed: shed,
+			neededAtLeast: Math.ceil(meaningful),
 		})
 		return false
 	}
@@ -260,7 +281,18 @@ export async function runCompactionCheck(
 			// The measurement is an estimate either way; the provider's own
 			// count for the NEXT turn will correct it, and an over-eager
 			// summarization is far more costly than one late pass.
-			if ((estimatedTokens - reclaimedTokens) / budget < config.triggerThreshold) {
+			//
+			// NOT on a forced pass. A forced pass runs because the provider
+			// REJECTED the prompt as too long, which is a measurement — and
+			// this branch would answer it with the same estimate the provider
+			// just refuted, declare success after clearing one result, and
+			// hand back a history that overflows again on the retry. The
+			// estimate is the thing that was proven wrong; it does not get to
+			// end the pass.
+			if (
+				!options?.force &&
+				(estimatedTokens - reclaimedTokens) / budget < config.triggerThreshold
+			) {
 				return
 			}
 		}
