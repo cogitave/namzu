@@ -1,7 +1,7 @@
 ---
 title: Plugins and MCP Servers
 description: Load project or user plugins in @namzu/sdk, register namespaced tools, execute hooks, and mount plugin-managed stdio MCP servers.
-last_updated: 2026-04-18
+last_updated: 2026-08-03
 status: current
 related_packages: ["@namzu/sdk"]
 ---
@@ -203,9 +203,19 @@ Example names:
 - plugin name `fs-plugin`
 - MCP server name `fs`
 - remote tool `read_file`
-- final tool name `fs-plugin:mcp__fs__read_file`
+- final tool name `fs-plugin__mcp__fs__read_file`
 
 That naming scheme is intentional and collision-resistant.
+
+The separator is `__` and every part of the name must match
+`[a-zA-Z0-9_-]`, up to 64 characters total. This is not a style
+preference: the name reaches the provider verbatim, the major message APIs
+accept only that character set, and they reject the **whole request** for
+one bad name rather than skipping that tool. The registry refuses a name
+outside the pattern at registration, where it can still say which tool is
+at fault — a deferred tool with an illegal name would otherwise fail the
+request at the moment something activated it, with nothing naming the
+culprit.
 
 ## 8. What Plugin `mcpServers` Do Not Do
 

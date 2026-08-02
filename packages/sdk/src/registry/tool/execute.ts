@@ -50,6 +50,39 @@ const SEARCH_WEIGHT_NAME_PARTIAL = 8
 const SEARCH_WEIGHT_DESCRIPTION = 5
 const SEARCH_WEIGHT_ARGUMENT = 3
 
+/**
+ * What a tool name may be, everywhere it comes from.
+ *
+ * A tool name reaches the provider verbatim, and the major message APIs
+ * accept `[a-zA-Z0-9_-]` up to 64 characters. Nothing checked it: names
+ * were derived by concatenation at three separate construction sites —
+ * the remote-tool bridge, the plugin bridge, the CLI bridge — and any of
+ * them could produce something the wire rejects.
+ *
+ * The rejection is a 400 on the WHOLE request rather than on that tool,
+ * and the tools most likely to carry a bad name are registered deferred,
+ * so it fired the moment one was activated with nothing naming the
+ * culprit. Failing at registration instead names the tool, at the moment
+ * something can still be done about it, and costs the run nothing.
+ *
+ * One driver already ratified passing names through untouched, on the
+ * grounds that a confusing name is "a naming problem to fix in the
+ * registry, not something to paper over" — which is precisely why the
+ * registry has to be the one that checks.
+ */
+export const TOOL_NAME_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/
+
+export function assertToolName(name: string): void {
+	if (TOOL_NAME_PATTERN.test(name)) return
+	const reason =
+		name.length > 64
+			? `it is ${name.length} characters, over the 64-character limit`
+			: 'it contains characters outside [a-zA-Z0-9_-]'
+	throw new Error(
+		`Tool name "${name}" cannot be sent to a provider: ${reason}. Providers reject the whole request for one bad name, so this is refused at registration where it can still be attributed.`,
+	)
+}
+
 export class ToolRegistry extends ManagedRegistry<ToolDefinition> {
 	private availability: Map<string, ToolAvailability> = new Map()
 	private tierConfig?: ToolTierConfig
@@ -89,6 +122,7 @@ export class ToolRegistry extends ManagedRegistry<ToolDefinition> {
 	}
 
 	private registerOne(id: string, tool: ToolDefinition, state: ToolAvailability): void {
+		assertToolName(id)
 		if (tool.tier && this.tierConfig) {
 			const validIds = this.tierConfig.tiers.map((t) => t.id)
 			if (!validIds.includes(tool.tier)) {

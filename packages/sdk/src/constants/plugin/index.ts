@@ -5,8 +5,21 @@ export const USER_PLUGIN_DIR = '.namzu/plugins'
 /** Manifest file name */
 export const PLUGIN_MANIFEST_FILENAME = 'plugin.json'
 
-/** Namespacing separator between plugin name and component name */
-export const PLUGIN_NAMESPACE_SEPARATOR = ':'
+/**
+ * Namespacing separator between plugin name and component name.
+ *
+ * `__`, not `:`. A tool name reaches the provider verbatim, and the major
+ * message APIs accept `[a-zA-Z0-9_-]` only — so a colon made EVERY
+ * plugin-contributed tool name illegal, unconditionally. Those tools are
+ * registered deferred, so the rejection fired the moment one was activated
+ * and took down the whole request rather than that one tool, with nothing
+ * naming the culprit.
+ *
+ * Double underscore rather than single so the boundary stays legible in a
+ * name that already contains underscores, and it matches the separator the
+ * remote-tool bridge next door already uses.
+ */
+export const PLUGIN_NAMESPACE_SEPARATOR = '__'
 
 /** Plugin name validation */
 export const PLUGIN_NAME_MAX_LENGTH = 64

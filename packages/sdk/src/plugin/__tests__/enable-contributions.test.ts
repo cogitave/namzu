@@ -192,8 +192,8 @@ describe('PluginLifecycleManager enable() contribution types', () => {
 			expect(mockConnect).toHaveBeenCalledOnce()
 			expect(mockListTools).toHaveBeenCalledOnce()
 			expect(toolRegistry.listNames()).toEqual([
-				'fs-plugin:mcp__fs__read_file',
-				'fs-plugin:mcp__fs__write_file',
+				'fs-plugin__mcp__fs__read_file',
+				'fs-plugin__mcp__fs__write_file',
 			])
 		})
 
@@ -217,7 +217,7 @@ describe('PluginLifecycleManager enable() contribution types', () => {
 			})
 
 			await mgr.enable(pluginId)
-			expect(toolRegistry.listNames()).toContain('net:mcp__srv__ping')
+			expect(toolRegistry.listNames()).toContain('net__mcp__srv__ping')
 
 			await mgr.disable(pluginId)
 			expect(mockDisconnect).toHaveBeenCalledOnce()

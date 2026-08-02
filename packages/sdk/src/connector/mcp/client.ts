@@ -29,6 +29,9 @@ import {
 } from '../../constants/mcp/index.js'
 import { VERSION } from '../../version.js'
 
+/** Runaway guard for a server whose cursor never ends. */
+const MAX_LIST_PAGES = 100
+
 const NAMZU_CLIENT_INFO = { name: 'namzu-sdk', version: VERSION }
 
 export class MCPClient {
@@ -153,8 +156,7 @@ export class MCPClient {
 
 	async listTools(): Promise<MCPToolDefinition[]> {
 		this.requireConnected()
-		const result = (await this.request('tools/list', {})) as { tools: MCPToolDefinition[] }
-		return result.tools
+		return await this.listAllPages('tools/list', 'tools')
 	}
 
 	async callTool(name: string, args?: Record<string, unknown>): Promise<MCPToolResult> {
@@ -168,8 +170,7 @@ export class MCPClient {
 
 	async listResources(): Promise<MCPResource[]> {
 		this.requireConnected()
-		const result = (await this.request('resources/list', {})) as { resources: MCPResource[] }
-		return result.resources
+		return await this.listAllPages('resources/list', 'resources')
 	}
 
 	async readResource(uri: string): Promise<MCPContentBlock[]> {
@@ -182,10 +183,48 @@ export class MCPClient {
 
 	async listResourceTemplates(): Promise<MCPResourceTemplate[]> {
 		this.requireConnected()
-		const result = (await this.request('resources/templates/list', {})) as {
-			resourceTemplates: MCPResourceTemplate[]
+		return await this.listAllPages('resources/templates/list', 'resourceTemplates')
+	}
+
+	/**
+	 * Read a paged list to the end.
+	 *
+	 * The three list calls each sent an empty params object and returned
+	 * the first page, never sending a cursor and never reading the one
+	 * that came back. A server that pages its catalogue therefore
+	 * contributed only its first page: the rest were never registered,
+	 * never namespaced, never advertised — with no error, no warning and
+	 * no drift signal, because drift compares page one against page one.
+	 * The symptom is a model that does not use a tool it was told about,
+	 * which reads as model incompetence rather than a client bug.
+	 *
+	 * The page cap is a runaway guard, not a limit anyone should reach: a
+	 * server that keeps returning a cursor forever would otherwise loop
+	 * until the process dies. Hitting it is loud, because a silently
+	 * truncated catalogue is the failure being fixed here.
+	 */
+	private async listAllPages<T>(method: string, field: string): Promise<T[]> {
+		const items: T[] = []
+		let cursor: string | undefined
+
+		for (let page = 1; ; page++) {
+			const result = (await this.request(method, cursor === undefined ? {} : { cursor })) as Record<
+				string,
+				unknown
+			>
+
+			const batch = result[field]
+			if (Array.isArray(batch)) items.push(...(batch as T[]))
+
+			const next = result.nextCursor
+			if (typeof next !== 'string' || next.length === 0) return items
+			if (page >= MAX_LIST_PAGES) {
+				throw new Error(
+					`${method} did not stop paging after ${MAX_LIST_PAGES} pages (${items.length} items so far). Refusing to keep going rather than returning a catalogue that is silently missing the rest.`,
+				)
+			}
+			cursor = next
 		}
-		return result.resourceTemplates
 	}
 
 	onNotification(handler: (method: string, params?: Record<string, unknown>) => void): void {
