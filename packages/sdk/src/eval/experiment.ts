@@ -50,7 +50,20 @@ export async function runExperiment<TInput>(
 			const scorers = evalCase.scorers ?? config.scorers
 			const scores: Record<string, Score> = {}
 
+			// Scores are keyed by name, so two scorers sharing one collapse:
+			// the mean's denominator becomes the count of distinct NAMES and
+			// the surviving score is whichever ran last. Two
+			// `containsScorer(...)` instances are both called 'contains', so
+			// this is easy to hit by accident and silently halves the
+			// evidence. Ambiguous results are worse than a loud failure.
+			const seen = new Set<string>()
 			for (const scorer of scorers) {
+				if (seen.has(scorer.name)) {
+					throw new Error(
+						`Duplicate scorer name "${scorer.name}" for case "${evalCase.name}". Scores are keyed by name, so the second would overwrite the first and the case mean would be computed over the wrong denominator. Give each scorer a distinct name.`,
+					)
+				}
+				seen.add(scorer.name)
 				scores[scorer.name] = await safeScore(scorer, run, evalCase)
 			}
 
@@ -110,6 +123,17 @@ async function executeCase<TInput>(
 
 /** A throwing scorer scores zero with the throw as its reason. */
 async function safeScore(scorer: Scorer, run: EvalRun, evalCase: EvalCase): Promise<Score> {
+	// A run that THREW scores zero, whatever the scorer would have said.
+	// `executeCase` catches the failure and returns an empty run, and an
+	// empty run walks straight into every scorer's happy path:
+	// `stepBudgetScorer` sees 0 steps against its allowance and returns 1,
+	// `trajectoryScorer` sees no tools expected and none called and returns
+	// 1. So a suite whose runs were all dying reported green. The failure is
+	// recorded on `run.error` and nothing consulted it.
+	if (run.error !== undefined) {
+		return { score: 0, reason: `run failed: ${run.error}`, details: { error: run.error } }
+	}
+
 	try {
 		return await scorer.score(run, evalCase)
 	} catch (err) {
