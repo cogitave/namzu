@@ -33,3 +33,13 @@ export type MessageStopReason =
 	| 'pause_turn'
 	| 'refusal'
 	| 'forced_finalize'
+	/**
+	 * The turn was cancelled mid-stream.
+	 *
+	 * Also Namzu-specific, and added because the cancel path had no way to
+	 * close the message it had opened: it re-threw from inside the chunk
+	 * loop, so the terminal event never fired and a host consuming the
+	 * message lifecycle saw a message begin and never end. A turn that
+	 * stops is still a turn that finished streaming, whatever stopped it.
+	 */
+	| 'cancelled'

@@ -69,6 +69,55 @@ export interface StreamingTurnResult {
  *   we instead synthesize a tool call with runtime truncation metadata
  *   so the executor can return a model-readable retry hint.
  */
+/**
+ * Close out a turn that was cancelled part-way through.
+ *
+ * Everything a completed turn records, for a turn that stopped early: the
+ * usage it did accumulate, the latency it did spend, the span it opened,
+ * and a terminal event closing the message it announced.
+ *
+ * The event is emitted directly rather than yielded because this runs
+ * inside a `catch` that is about to re-throw — a `yield` there would never
+ * be pulled. Nothing here is allowed to throw over the cancellation: a
+ * failure while tidying up must not replace the reason the turn ended.
+ */
+async function settleCancelledTurn(args: {
+	emitEvent: EmitEvent
+	runId: import('../../../types/ids/index.js').RunId
+	iteration: number
+	messageId: import('../../../types/ids/index.js').MessageId
+	usage: ChatCompletionResponse['usage']
+	text: string
+	model: string
+	startedAt: number
+	span: Span
+}): Promise<void> {
+	try {
+		recordTokenUsage(args.model, args.usage)
+		recordModelDuration(args.model, Date.now() - args.startedAt)
+		args.span.setAttributes({
+			[GENAI.USAGE_INPUT_TOKENS]: args.usage.promptTokens,
+			[GENAI.USAGE_OUTPUT_TOKENS]: args.usage.completionTokens,
+			[NAMZU.CACHE_READ_TOKENS]: args.usage.cachedTokens ?? 0,
+			[NAMZU.CACHE_WRITE_TOKENS]: args.usage.cacheWriteTokens ?? 0,
+		})
+		args.span.setStatus({ code: SpanStatusCode.OK })
+		args.span.end()
+
+		await args.emitEvent({
+			type: 'message_completed',
+			runId: args.runId,
+			iteration: args.iteration,
+			messageId: args.messageId,
+			stopReason: 'cancelled',
+			usage: args.usage,
+			content: args.text || undefined,
+		})
+	} catch {
+		// Best effort. The cancellation is the news.
+	}
+}
+
 export async function* streamProviderTurn(
 	provider: LLMProvider,
 	params: import('../../../types/provider/index.js').ChatCompletionParams,
@@ -326,7 +375,30 @@ export async function* streamProviderTurn(
 		// An abort tears the turn down: propagate it so the run loop settles the
 		// run as cancelled rather than recording a normal (errored) turn. Any
 		// other stream error is captured into the synthesized response as before.
-		if (signal?.aborted) throw err
+		if (signal?.aborted) {
+			// Settle what the turn already produced BEFORE unwinding. Throwing
+			// straight from here skipped everything below: the usage merged so
+			// far was discarded wholesale, so every cancelled turn
+			// under-reported its own cost; the span opened for this call was
+			// never ended, so it never exported at all; and a host consuming
+			// the message lifecycle saw a message begin and never end.
+			//
+			// The stream-ERROR path a few lines down already does exactly
+			// this. Cancel was the one exit that skipped it, which is the
+			// opposite of what its frequency deserves.
+			await settleCancelledTurn({
+				emitEvent,
+				runId,
+				iteration,
+				messageId,
+				usage,
+				text: textBuf,
+				model: params.model,
+				startedAt: callStartedAt,
+				span: chatSpan,
+			})
+			throw err
+		}
 		streamError = err instanceof Error ? err.message : String(err)
 	} finally {
 		if (onAbort) signal?.removeEventListener('abort', onAbort)
