@@ -499,6 +499,20 @@ export class ToolExecutor {
 				toolCallId: toolCall.id,
 				toolName,
 				output: `Error: ${veto.message}`,
+				// The event emitted just above says this failed; the RESULT
+				// has to say so too. This was the only result-producing
+				// branch in the file that left it off, and `isError` being
+				// optional meant the compiler could not notice.
+				//
+				// Four things degraded off the omission, not one. Two drivers
+				// emit their failure marker only when this is true, so the
+				// model read a SUCCESSFUL result whose body begins "Error: …"
+				// and the failure-recovery path it was trained on never
+				// fired. The persisted step recorded a literal
+				// `isError: false`, so the run record contradicted its own
+				// event stream. And compaction's guard against clearing error
+				// results silently excluded vetoed ones.
+				isError: true,
 			}
 		}
 
