@@ -1,7 +1,7 @@
 ---
 title: Provider Selection Guide
 description: Detailed decision guide for choosing the right published Namzu provider package by deployment model, vendor fit, dependency shape, and local-vs-cloud tradeoffs.
-last_updated: 2026-04-18
+last_updated: 2026-08-02
 status: current
 related_packages: ["@namzu/sdk", "@namzu/openai", "@namzu/anthropic", "@namzu/bedrock", "@namzu/openrouter", "@namzu/http", "@namzu/ollama", "@namzu/lmstudio"]
 ---
@@ -43,8 +43,8 @@ All published Namzu providers plug into the same `ProviderRegistry`, but they ar
 | `@namzu/bedrock` | Yes | Yes | Good when tool-capable models are enabled in Bedrock |
 | `@namzu/openrouter` | Yes | Yes | Depends on chosen upstream model |
 | `@namzu/http` | Yes | Yes | Actual endpoint must implement the expected dialect correctly |
-| `@namzu/ollama` | Conservative `false` | Yes | Tool behavior varies by selected model |
-| `@namzu/lmstudio` | Yes | Yes | Real behavior still depends on the loaded model |
+| `@namzu/ollama` | Yes | Yes | Also carries images; whether the loaded model can use either is the model’s business |
+| `@namzu/lmstudio` | Yes | Yes | Image attachments are dropped; the driver does not upload them |
 
 ## 4. When `@namzu/http` Is the Right Answer
 

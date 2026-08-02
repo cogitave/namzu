@@ -1,7 +1,7 @@
 ---
 title: Providers Overview
 description: Compare the published Namzu provider packages and choose the right integration path for your runtime.
-last_updated: 2026-04-18
+last_updated: 2026-08-02
 status: current
 related_packages: ["@namzu/sdk", "@namzu/openai", "@namzu/anthropic", "@namzu/bedrock", "@namzu/openrouter", "@namzu/http", "@namzu/ollama", "@namzu/lmstudio"]
 ---
@@ -40,8 +40,8 @@ Every provider page follows the same runtime shape:
 | `@namzu/bedrock` | Yes | Yes | Best when auth and governance already live in AWS |
 | `@namzu/openrouter` | Yes | Yes | Depends on chosen upstream model |
 | `@namzu/http` | Yes | Yes | Endpoint must match declared dialect correctly |
-| `@namzu/ollama` | Conservative `false` | Yes | Tool behavior depends on chosen model |
-| `@namzu/lmstudio` | Yes | Yes | Loaded model still determines practical quality |
+| `@namzu/ollama` | Yes | Yes | Also carries images; whether the loaded model can use either is the model’s business |
+| `@namzu/lmstudio` | Yes | Yes | Image attachments are dropped; the driver does not upload them |
 
 ## 4. Quick Routing Guide
 

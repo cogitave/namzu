@@ -1,7 +1,7 @@
 ---
 title: Ollama Provider
 description: Configure @namzu/ollama for local Ollama-based model execution in Namzu.
-last_updated: 2026-04-18
+last_updated: 2026-08-02
 status: current
 related_packages: ["@namzu/sdk", "@namzu/ollama"]
 ---
@@ -76,18 +76,23 @@ The package exports `OLLAMA_CAPABILITIES`:
 
 ```ts
 {
-  supportsTools: false,
+  supportsTools: true,
   supportsStreaming: true,
-  supportsFunctionCalling: false,
+  supportsFunctionCalling: true,
+  supportsVision: true,
 }
 ```
 
-That conservative declaration is intentional. Actual tool support varies by model and should not be assumed globally.
+These flags describe the DRIVER, not the model. The driver sends tool schemas, reassembles calls off the stream, replays an assistant turn's own calls with their arguments, and carries image attachments as image bytes.
+
+Whether the model you loaded was trained to call tools or to see images is a separate question the daemon does not report. A model that cannot call tools simply will not, and the run proceeds as a text turn.
 
 ## 9. Operational Notes
 
 - An Ollama daemon and at least one pulled model must already be available.
-- The exported `OLLAMA_CAPABILITIES` constant is conservative and reports tool support as `false` by default because tool behavior depends on the chosen model.
+- Tool results are bound to their call by tool NAME on this wire, not by call id; the driver resolves the name from the assistant turn that made the call.
+- An image whose media type the daemon cannot decode would fail the whole request, so an unrecognised format is named in the text instead of being sent as bytes.
+- Reasoning is requested only when the caller asks for it, and reasoning the model produced is replayed back on the next turn.
 - If you prefer a generic OpenAI-compatible path over the Ollama-specific package, [`@namzu/http`](./http.md) can target the Ollama HTTP endpoint instead.
 - The provider also implements `listModels()` and `healthCheck()`.
 

@@ -76,10 +76,15 @@ import { LMSTUDIO_CAPABILITIES } from '@namzu/lmstudio'
 //   supportsTools: true,
 //   supportsStreaming: true,
 //   supportsFunctionCalling: true,
+//   supportsVision: false,
 // }
 ```
 
-Tool-use support depends on the loaded model — not every open-weights model has been tuned for function calling. Refer to the model's card in LM Studio.
+The driver sends tool schemas and maps the conversation onto the backend's native part structure, so the assistant's own calls and each result travel as first-class parts rather than as text folded into a user turn.
+
+Vision is off because an image would have to be uploaded and referenced by handle first, and this driver does not make that round-trip.
+
+Whether the loaded model was tuned for function calling is a separate question — not every open-weights model has been. Refer to the model's card.
 
 ## Observability
 
