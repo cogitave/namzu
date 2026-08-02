@@ -92,10 +92,26 @@ export function isAbortError(err: unknown): boolean {
 
 function readStatus(err: unknown): number | undefined {
 	const e = err as
-		| { status?: unknown; statusCode?: unknown; response?: { status?: unknown } }
+		| {
+				status?: unknown
+				statusCode?: unknown
+				response?: { status?: unknown }
+				// Some vendor SDKs hide the status one level down in a
+				// metadata bag rather than on the error itself. It is still a
+				// status; not looking there meant a throttle from such a
+				// driver fell through to message-text matching and, when the
+				// wording did not happen to match, was filed as `unknown` and
+				// never retried.
+				$metadata?: { httpStatusCode?: unknown }
+		  }
 		| null
 		| undefined
-	for (const candidate of [e?.status, e?.statusCode, e?.response?.status]) {
+	for (const candidate of [
+		e?.status,
+		e?.statusCode,
+		e?.response?.status,
+		e?.$metadata?.httpStatusCode,
+	]) {
 		if (typeof candidate === 'number' && Number.isFinite(candidate)) return candidate
 	}
 	return undefined

@@ -20,11 +20,12 @@ import type {
 	LLMProvider,
 	ModelInfo,
 	ProviderCapabilities,
+	ProviderErrorCode,
 	StreamChunk,
 	TokenUsage,
 	ToolChoice,
 } from '@namzu/sdk'
-import { toolResultToText } from '@namzu/sdk'
+import { ProviderError, isAbortError, toolResultToText } from '@namzu/sdk'
 import type { BedrockConfig } from './types.js'
 
 function extractSystemBlocks(messages: ChatCompletionParams['messages']): SystemContentBlock[] {
@@ -35,6 +36,60 @@ function extractSystemBlocks(messages: ChatCompletionParams['messages']): System
 
 function toBedrockRole(role: string): ConversationRole {
 	return role === 'assistant' ? 'assistant' : 'user'
+}
+
+/**
+ * This service reports failures as named exception classes, and the name
+ * is a better signal than anything else the error carries: it is exact,
+ * stable, and set even when the status is not.
+ *
+ * Without this mapping a throttle reached the runtime as an unclassified
+ * error, which is treated as non-retryable — so the retry policy was
+ * effectively dead on this driver, and the one failure most worth backing
+ * off from was the one that killed the run.
+ */
+const EXCEPTION_CODES: Readonly<Record<string, ProviderErrorCode>> = {
+	ThrottlingException: 'rate_limit',
+	TooManyRequestsException: 'rate_limit',
+	ServiceQuotaExceededException: 'rate_limit',
+	ServiceUnavailableException: 'overloaded',
+	ModelNotReadyException: 'overloaded',
+	ModelTimeoutException: 'timeout',
+	InternalServerException: 'server_error',
+	ModelStreamErrorException: 'server_error',
+	AccessDeniedException: 'auth',
+	ResourceNotFoundException: 'not_found',
+	ValidationException: 'invalid_request',
+}
+
+/**
+ * Run a request, turning a named service exception into a classified
+ * {@link ProviderError} the runtime can act on.
+ *
+ * Wrapping here rather than teaching the shared classifier these names: a
+ * driver knows its own vendor's error vocabulary, and the classifier
+ * should stay generic. It already short-circuits on an error that is
+ * already a `ProviderError`.
+ */
+async function sendClassified<T>(send: () => Promise<T>, providerId: string): Promise<T> {
+	try {
+		return await send()
+	} catch (err) {
+		if (isAbortError(err)) throw err
+
+		const name = (err as { name?: string })?.name ?? ''
+		const code = EXCEPTION_CODES[name]
+		if (!code) throw err
+
+		const status = (err as { $metadata?: { httpStatusCode?: number } })?.$metadata?.httpStatusCode
+		throw new ProviderError({
+			code,
+			message: err instanceof Error ? err.message : String(err),
+			providerId,
+			...(status !== undefined ? { status } : {}),
+			cause: err,
+		})
+	}
 }
 
 /** Image media types this wire format accepts, mapped to its format name. */
@@ -340,11 +395,15 @@ export class BedrockProvider implements LLMProvider {
 			inferenceConfig,
 		})
 
-		const response = await this.client.send(command, {
-			requestTimeout: this.config.timeout ?? 120_000,
-			// Per-request abort: a Stop tears the in-flight Converse stream down.
-			abortSignal: params.signal,
-		})
+		const response = await sendClassified(
+			() =>
+				this.client.send(command, {
+					requestTimeout: this.config.timeout ?? 120_000,
+					// Per-request abort: a Stop tears the in-flight stream down.
+					abortSignal: params.signal,
+				}),
+			this.id,
+		)
 
 		if (!response.stream) {
 			throw new Error('Bedrock returned no stream body')
