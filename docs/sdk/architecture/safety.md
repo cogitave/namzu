@@ -70,7 +70,31 @@ a requirement gets it or gets an error. It is never silently downgraded: a
 security control that is accepted and then not applied is worse than one
 that was never offered, because the caller stops looking.
 
-## 2. Verification Gate
+## 2. Which Way a Gate Fails
+
+namzu has several places that can stop or alter a run, and they must agree
+on what happens when the check **itself** throws. They did not: a content
+guardrail that threw blocked the run, and a tool veto that threw let the
+call proceed. The same policy inverted its security posture depending on
+which surface it was written on, and nobody had chosen that.
+
+| Surface | A handler that throws | Why |
+| --- | --- | --- |
+| Input / output guardrail | **blocks** | It was asked whether this is safe and did not answer |
+| Tool veto (probe) | **denies** | It was asked whether this may run and did not permit it |
+| Plugin lifecycle hook | **fails the run** | Same reasoning: a refused hook is not a passed one |
+| Observer probe | **skipped** | It was never asked a question, so it has no answer to withhold |
+
+The last row is the one asymmetry that is deliberate. Taking a run down
+because a metrics handler crashed would be the same mistake pointing the
+other way.
+
+A denial names the probe that produced it, so a buggy veto is diagnosable
+rather than mysterious. That exposure — a bad handler refusing every call —
+is real, and it is the same one the guardrail already accepted: a wrongly
+permitted destructive call is not recoverable at all, and a refusal is.
+
+## 3. Verification Gate
 
 `verification/gate.ts` is the rule-based pre-execution decision layer for tools:
 
@@ -83,7 +107,7 @@ Architecturally, this is separate from sandboxing:
 - verification decides whether a tool call should proceed
 - sandboxing decides what the process can do if it proceeds
 
-## 3. Agent Bus
+## 4. Agent Bus
 
 `bus/` owns coordination primitives for concurrent or multi-agent scenarios:
 
@@ -95,7 +119,7 @@ Architecturally, this is separate from sandboxing:
 
 The `AgentBus` composes these primitives and exposes cleanup and maintenance operations around them.
 
-## 4. Telemetry
+## 5. Telemetry
 
 Observability is split between `telemetry/` and parts of `provider/telemetry/`:
 
@@ -103,7 +127,7 @@ Observability is split between `telemetry/` and parts of `provider/telemetry/`:
 - `telemetry/metrics.ts` and related helpers centralize metrics behavior.
 - runtime and iteration code create spans around runs and iterations instead of logging only ad hoc strings.
 
-## 5. Constants and Config as Guardrail Infrastructure
+## 6. Constants and Config as Guardrail Infrastructure
 
 Several folders support operational safety indirectly:
 
@@ -115,7 +139,7 @@ Several folders support operational safety indirectly:
 
 This is part of the SDK architecture even though these folders do not execute user work directly.
 
-## 6. Safety Flow in Practice
+## 7. Safety Flow in Practice
 
 A practical request can touch these layers in sequence:
 
@@ -128,7 +152,7 @@ tool call requested
   -> telemetry records the run and iteration effects
 ```
 
-## 7. Computer Use and Safety
+## 8. Computer Use and Safety
 
 `computer_use` is a good stress case for this layer:
 

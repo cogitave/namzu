@@ -34,7 +34,12 @@ import type {
 import { toErrorMessage } from '../../utils/error.js'
 import type { Logger } from '../../utils/logger.js'
 import { compressShellOutput } from '../../utils/shell-compress.js'
-import { DEFAULT_MAX_TOOL_OUTPUT_CHARS, applyToolOutputBudget } from './tool-output-budget.js'
+import {
+	DEFAULT_MAX_TOOL_OUTPUT_CHARS,
+	applyToolOutputBudget,
+	describeDroppedContent,
+	measureContentBytes,
+} from './tool-output-budget.js'
 
 export type EmitEvent = (event: RunEvent) => Promise<void>
 
@@ -94,6 +99,26 @@ export interface ToolExecutorConfig {
 	 * {@link DEFAULT_MAX_TOOL_OUTPUT_CHARS}; set `0` to disable.
 	 */
 	maxToolOutputChars?: number
+
+	/**
+	 * Cap on the RICH channel of a single tool result, in base64
+	 * characters. `0` or absent disables it.
+	 *
+	 * Separate from {@link maxToolOutputChars} because the two are different
+	 * quantities with different costs: the text budget bounds characters the
+	 * model reads, and an image block of any size passed it untouched — the
+	 * single largest payload a tool result can carry was the one thing not
+	 * bounded on the turn that produced it.
+	 *
+	 * **Off by default, deliberately.** The right number depends entirely on
+	 * what a host's tools return and on the model's own image budget, and
+	 * inventing one here would either break screenshot workflows or be so
+	 * generous it bounds nothing. A host that knows its payloads sets it;
+	 * the steady state is already bounded, because reclamation clears
+	 * image-bearing results first.
+	 */
+	maxToolContentBytes?: number
+
 	/**
 	 * Where over-budget output is spilled so the model can read it back
 	 * with `read`/`grep`. Absent ⇒ over-budget output is middle-elided and
@@ -628,6 +653,17 @@ export class ToolExecutor {
 		}
 		output = budgeted.output
 
+		// A truncated text half drops the rich half with it — the preview is
+		// no longer the tool's own payload, so an image alongside it would be
+		// illustrating something the model can no longer read. Dropping is
+		// right; doing it SILENTLY is not. The model saw a preview and had no
+		// way to know an image existed at all, so it reasoned as though the
+		// tool had returned text only.
+		if (budgeted.truncated && result.content !== undefined) {
+			const dropped = describeDroppedContent(result.content)
+			if (dropped) output = `${output}\n\n${dropped}`
+		}
+
 		const postOverride = post.override
 		if (postOverride !== null) {
 			output = postOverride
@@ -687,7 +723,7 @@ export class ToolExecutor {
 			// preview is no longer the tool's own payload — neither may carry
 			// rich content through.
 			...(result.content !== undefined && postOverride === null && !budgeted.truncated
-				? { content: result.content }
+				? { content: this.budgetContent(result.content, toolName) }
 				: {}),
 		}
 	}
@@ -1163,6 +1199,45 @@ export class ToolExecutor {
 			isError: outcome.kind === 'error',
 		})
 		return { toolCallId, toolName, output: outcome.output, isError: outcome.kind === 'error' }
+	}
+
+	/**
+	 * Bound the rich channel, or leave it alone when no cap is configured.
+	 *
+	 * Refused whole rather than trimmed: half a base64 payload is not a
+	 * smaller image, it is a corrupt one, and a driver handed it would
+	 * either fail the request or show the model noise. The text half stays
+	 * untouched, so the result still says what happened — and the
+	 * replacement names what was withheld and how big it was, which is what
+	 * lets the agent ask for a smaller region instead of retrying the same
+	 * call.
+	 */
+	private budgetContent(
+		content: import('../../types/message/index.js').ToolResultContent,
+		toolName: string,
+	): import('../../types/message/index.js').ToolResultContent {
+		const cap = this.config.maxToolContentBytes ?? 0
+		if (cap <= 0) return content
+
+		const size = measureContentBytes(content)
+		if (size <= cap) return content
+
+		this.log.warn('Tool result content exceeded the rich-content budget', {
+			runId: this.config.runId,
+			tool: toolName,
+			contentBytes: size,
+			cap,
+		})
+
+		const described = describeDroppedContent(content)
+		return [
+			{
+				type: 'text',
+				text: `[rich content withheld: ${size} base64 chars exceeds this run's ${cap} cap${
+					described ? ` — ${described}` : ''
+				}]`,
+			},
+		] as import('../../types/message/index.js').ToolResultContent
 	}
 
 	private maybeCompress(toolName: string, output: string): string {

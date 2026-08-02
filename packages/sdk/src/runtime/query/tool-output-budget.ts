@@ -47,6 +47,51 @@ export interface ToolOutputBudgetResult {
 	readonly spillPath?: string
 }
 
+/**
+ * Name what a truncated result took with it.
+ *
+ * Returns `undefined` when there was nothing but text to lose, so the
+ * ordinary case adds no noise.
+ *
+ * The model is the reader here, and it is reasoning about a result it can
+ * no longer fully see. "An image was returned and is not shown" is a fact
+ * it can act on — ask for a smaller region, re-run against a file — where
+ * silence looks exactly like a tool that only ever returns text.
+ */
+export function describeDroppedContent(
+	content: readonly { type?: string }[] | unknown,
+): string | undefined {
+	if (!Array.isArray(content)) return undefined
+
+	const counts = new Map<string, number>()
+	for (const block of content as readonly { type?: unknown }[]) {
+		const kind = typeof block?.type === 'string' ? block.type : 'content'
+		if (kind === 'text') continue
+		counts.set(kind, (counts.get(kind) ?? 0) + 1)
+	}
+	if (counts.size === 0) return undefined
+
+	const parts = [...counts].map(([kind, n]) => (n === 1 ? `1 ${kind}` : `${n} ${kind} blocks`))
+	return `[${parts.join(', ')} omitted: this result was truncated, and the preview above no longer describes them.]`
+}
+
+/**
+ * Total size of the rich channel, in base64 characters.
+ *
+ * Measured on the payload rather than the block count, because one block
+ * is the whole cost: a single screenshot is the largest thing a tool
+ * result can carry.
+ */
+export function measureContentBytes(content: readonly unknown[] | unknown): number {
+	if (!Array.isArray(content)) return 0
+	let total = 0
+	for (const block of content as readonly Record<string, unknown>[]) {
+		if (typeof block?.data === 'string') total += block.data.length
+		else if (typeof block?.text === 'string') total += block.text.length
+	}
+	return total
+}
+
 export interface ApplyToolOutputBudgetOptions {
 	readonly toolName: string
 	readonly toolUseId: string

@@ -1,7 +1,13 @@
 /**
- * Ratified §9 of docs.local/sessions/ses_007-probe-and-doctor/design.md.
- * These tests pin the contract documented there — not an internal
- * implementation detail. If the semantics change, update §9 first.
+ * These tests pin the probe CONTRACT, not an internal implementation
+ * detail. If the semantics change, change the published documentation
+ * first: `docs/sdk/architecture/safety.md`, "Which Way a Gate Fails".
+ *
+ * They used to point at a session design document that has since been
+ * frozen and removed, so the instruction to update it first could not be
+ * followed — which is how the fail-open veto kept its ratified status
+ * with no surviving argument for it. A contract reference has to name
+ * something a reader can still open.
  */
 
 import { describe, expect, it, vi } from 'vitest'
@@ -388,7 +394,18 @@ describe('ProbeRegistry — veto API', () => {
 		expect(audit).toEqual(['high-priority-allow', 'mid-priority-deny', 'low-priority-deny'])
 	})
 
-	it('a throwing veto handler defaults to allow for that probe; aggregate unaffected', () => {
+	it('a throwing veto handler denies — it did not say yes', () => {
+		// This asserted `allow`, with no rationale recorded for why. The
+		// result was that the SAME policy inverted its security posture
+		// depending on which surface it was written on: a content guardrail
+		// that throws blocks the run (and says so in its own comment —
+		// "safety is unknown"), while a tool veto that threw waved the tool
+		// through. Nobody chose that asymmetry, which is how it survived.
+		//
+		// The exposure this trades against is real and is the same one the
+		// guardrail already accepted: a buggy veto can refuse every call.
+		// The refusal names the probe, so it is diagnosable; a wrongly
+		// permitted destructive call is not recoverable at all.
 		const reg = createProbeRegistry()
 		reg.setLogger(makeLogger())
 		const audit: string[] = []
@@ -413,8 +430,34 @@ describe('ProbeRegistry — veto API', () => {
 			{ type: 'tool_executing', runId: 'r' as never, toolName: 't', input: {} } as never,
 			buildProbeContext(),
 		)
-		expect(outcome.action).toBe('allow')
-		expect(audit).toEqual(['throw', 'allow'])
+		expect(outcome.action).toBe('deny')
+		expect(outcome.probeName).toBe('bad')
+		expect(outcome.reason).toContain('threw while deciding')
+		// Short-circuits: once a decision is missing there is nothing a
+		// later allow can add, and running on would spend handlers to reach
+		// the same answer.
+		expect(audit).toEqual(['throw'])
+	})
+
+	it('still skips a throwing OBSERVER, which was never asked a question', () => {
+		// The asymmetry that IS deliberate. An observer has no answer to
+		// withhold, so taking a run down because a metrics handler crashed
+		// would be the same mistake pointing the other way.
+		const reg = createProbeRegistry()
+		reg.setLogger(makeLogger())
+		const seen: string[] = []
+		reg.on('tool_executing', () => {
+			throw new Error('boom')
+		})
+		reg.on('tool_executing', () => {
+			seen.push('second')
+		})
+
+		reg.dispatch(
+			{ type: 'tool_executing', runId: 'r' as never, toolName: 't', input: {} } as never,
+			buildProbeContext(),
+		)
+		expect(seen).toEqual(['second'])
 	})
 
 	it('observe-tier dispatch is independent — veto registration does not fire on dispatch', () => {

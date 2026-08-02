@@ -194,8 +194,28 @@ export class ProbeRegistry {
 			try {
 				decision = entry.handler(frozen, ctx)
 			} catch (error) {
+				// A veto that threw did not say yes.
+				//
+				// Skipping it let the call proceed — so the SAME policy
+				// inverted its security posture depending on which surface it
+				// was written on: a content guardrail that throws blocks the
+				// run, and a tool veto that throws waved the tool through.
+				// The two are the same kind of decision and the asymmetry was
+				// nobody's decision, which is how it survived.
+				//
+				// An OBSERVER that throws is still skipped, a few lines up.
+				// That asymmetry IS deliberate: an observer was never asked a
+				// question, so it has no answer to withhold, and taking a run
+				// down because a metrics handler crashed would be the same
+				// mistake pointing the other way.
 				this.logThrow(entry.name ?? 'unnamed', frozen.type, error)
-				continue
+				return {
+					action: 'deny',
+					probeName: entry.name,
+					reason: `probe "${entry.name ?? 'unnamed'}" threw while deciding, so it did not permit this: ${
+						error instanceof Error ? error.message : String(error)
+					}`,
+				}
 			}
 			const normalized = normalizeDecision(decision)
 			if (!normalized.allow && firstDeny === undefined) {
