@@ -1,3 +1,4 @@
+import type { WorkingStateSnapshot } from '../../compaction/wire.js'
 import type { RunPersistence } from '../../manager/run/persistence.js'
 import { NamzuError } from '../../types/errors/index.js'
 import type {
@@ -87,6 +88,15 @@ export async function findPendingCheckpoint(
 export class CheckpointManager {
 	private store: CheckpointStore
 	private scope: CheckpointRunScope
+	/**
+	 * Compaction's state source, when the run has one.
+	 *
+	 * Every checkpoint snapshots it, so a resumed run can carry forward the
+	 * state its earlier summary was built from. Without that the next
+	 * compaction supersedes that summary with one covering only post-resume
+	 * activity, and the record of everything before the resume is gone.
+	 */
+	private workingStateSource?: () => WorkingStateSnapshot | undefined
 
 	/**
 	 * @param store scope-keyed checkpoint persistence. The default query
@@ -100,6 +110,11 @@ export class CheckpointManager {
 		this.scope = scope
 	}
 
+	/** Wire compaction's state in, so every checkpoint carries a snapshot. */
+	setWorkingStateSource(source: () => WorkingStateSnapshot | undefined): void {
+		this.workingStateSource = source
+	}
+
 	async create(
 		runMgr: RunPersistence,
 		iteration: number,
@@ -107,6 +122,7 @@ export class CheckpointManager {
 			toolResults?: Array<{ toolCallId: string; toolName: string; input: unknown; output: string }>
 			branchStack?: BranchStackEntry[]
 			activeNode?: ActiveNodeInfo
+			workingState?: WorkingStateSnapshot
 		},
 	): Promise<IterationCheckpoint> {
 		const checkpoint: IterationCheckpoint = {
@@ -124,6 +140,7 @@ export class CheckpointManager {
 			toolResultHashes: extra?.toolResults ? buildToolResultHashes(extra.toolResults) : undefined,
 			branchStack: extra?.branchStack,
 			activeNode: extra?.activeNode,
+			workingState: extra?.workingState ?? this.workingStateSource?.(),
 		}
 
 		await this.store.writeCheckpoint(this.scope, checkpoint)

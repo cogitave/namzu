@@ -8,6 +8,7 @@ import {
 import { findDanglingMessages, removeDanglingMessages } from '../../compaction/dangling.js'
 import { extractFromUserMessage } from '../../compaction/extractor.js'
 import { WorkingStateManager } from '../../compaction/manager.js'
+import { restoreWorkingState, snapshotWorkingState } from '../../compaction/wire.js'
 import type { CompactionConfig } from '../../config/runtime.js'
 import { TOOL_OUTPUT_DIR_NAME } from '../../constants/tools/index.js'
 import { EmergencySaveManager } from '../../manager/run/emergency.js'
@@ -579,6 +580,16 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		ctx.runMgr.getRunScope(),
 	)
 
+	// Every checkpoint carries compaction's accumulated state, so a run that
+	// comes back in a new process can adopt it (see the restore block).
+	// Without it, compaction's own justification for dropping the prior
+	// `[COMPACTED CONTEXT]` block — that `serializeState` is cumulative —
+	// holds within one process and fails across a resume.
+	if (workingStateManager) {
+		const manager = workingStateManager
+		checkpointMgr.setWorkingStateSource(() => snapshotWorkingState(manager))
+	}
+
 	const resultAssembler = new ResultAssembler({
 		runMgr: ctx.runMgr,
 		planManager: ctx.planManager,
@@ -741,6 +752,23 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 					checkpoint.guardState.iterationCount,
 				)
 				guard.restoreElapsed(checkpoint.guardState.elapsedMs)
+
+				// Adopt the working state the earlier summary was built from.
+				// The `[COMPACTED CONTEXT]` block below is preserved precisely
+				// because it is the only surviving record of the history the
+				// first pass deleted — and without this, the NEXT compaction
+				// would drop it and replace it with a summary covering only
+				// what happened after the resume, silently losing the run's
+				// first hour.
+				if (workingStateManager && checkpoint.workingState && params.compactionConfig) {
+					const revived = restoreWorkingState(checkpoint.workingState, params.compactionConfig)
+					workingStateManager.replaceState(revived.getState())
+					ctx.log.info('Restored compaction working state from checkpoint', {
+						runId: ctx.runMgr.id,
+						checkpointId: checkpoint.id,
+						slots: workingStateManager.slotCount(),
+					})
+				}
 				ctx.log.info('Restored budgets from checkpoint', {
 					runId: ctx.runMgr.id,
 					checkpointId: checkpoint.id,

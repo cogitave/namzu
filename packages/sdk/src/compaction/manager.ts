@@ -109,6 +109,18 @@ export class WorkingStateManager {
 		return this.state
 	}
 
+	/**
+	 * Adopt a previously captured state.
+	 *
+	 * Used on resume: a run that compacted, checkpointed and came back in a
+	 * new process needs the state its earlier summary was built from, or the
+	 * next compaction supersedes that summary with one covering only what
+	 * happened after the resume. See {@link restoreWorkingState}.
+	 */
+	replaceState(state: WorkingState): void {
+		this.state = state
+	}
+
 	reset(): void {
 		this.state = createEmptyState()
 	}

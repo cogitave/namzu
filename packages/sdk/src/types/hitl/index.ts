@@ -1,3 +1,4 @@
+import type { WorkingStateSnapshot } from '../../compaction/wire.js'
 import type { CostInfo, TokenUsage } from '../common/index.js'
 import type { CheckpointId, PlanId, RunId } from '../ids/index.js'
 import type { Message } from '../message/index.js'
@@ -173,6 +174,16 @@ export interface IterationCheckpoint {
 	branchStack?: BranchStackEntry[]
 
 	activeNode?: ActiveNodeInfo
+
+	/**
+	 * Compaction's accumulated working state at the moment of the
+	 * checkpoint.
+	 *
+	 * Absent on checkpoints written before this existed, and absent when
+	 * compaction is disabled — in both cases the resumed run starts with an
+	 * empty manager, which is exactly today's behaviour.
+	 */
+	workingState?: WorkingStateSnapshot
 }
 
 export function autoApproveHandler(request: HITLDecisionRequest): Promise<HITLResumeDecision> {
