@@ -1,3 +1,5 @@
+import { SPILL_MARKER } from '../runtime/query/tool-output-budget.js'
+import { toolResultToText } from '../types/message/content.js'
 import type { Message, ToolMessage, ToolResultBlock } from '../types/message/index.js'
 
 /**
@@ -41,6 +43,74 @@ export const DEFAULT_MIN_CHARS_TO_CLEAR = 1_000
 
 /** Marks a cleared result, and is how a second pass recognizes its own work. */
 const CLEARED_PREFIX = '[tool output cleared]'
+
+/**
+ * How much of the original result survives a clear, at each end.
+ *
+ * Small on purpose — the point of clearing is to reclaim context, and a
+ * generous keep defeats it. But zero was the wrong number: a result just
+ * over the minimum lost 100% of itself, including the three lines the
+ * agent was actively reasoning from, to reclaim a few hundred characters.
+ */
+const KEEP_HEAD_CHARS = 400
+const KEEP_TAIL_CHARS = 200
+
+/**
+ * Build the placeholder that replaces a cleared result.
+ *
+ * Two things survive, for two different reasons.
+ *
+ * The SPILL LINE, unconditionally: when a result was over the output
+ * budget its full text was written to disk and that line is the pointer
+ * back to it. Replacing the whole content destroyed the cheapest recovery
+ * route precisely for the largest results — and then told the model to
+ * call the tool again, which is advice to re-run something that returned
+ * megabytes. Keeping one line preserves a `read`/`grep` route worth far
+ * more than the line costs.
+ *
+ * A HEAD AND TAIL, because a result is not uniformly valuable: what a
+ * model needs from a long output is usually near one end, and keeping a
+ * few hundred characters of each is the difference between "I remember
+ * roughly what this said" and "call it again".
+ */
+function clearedPlaceholder(
+	content: ToolMessage['content'],
+	toolName: string,
+	size: number,
+): string {
+	const text = typeof content === 'string' ? content : toolResultToText(content)
+	const parts: string[] = [
+		`${CLEARED_PREFIX} ${toolName} returned ${size.toLocaleString('en-US')} characters, cleared to reclaim context.`,
+	]
+
+	const spillLine = text.split('\n').find((line) => line.startsWith(SPILL_MARKER))
+	if (spillLine) {
+		parts.push(
+			spillLine,
+			'Read a window of it with `read` (offset/limit) or search it with `grep`.',
+		)
+	} else {
+		parts.push('Call the tool again if you still need the rest.')
+	}
+
+	if (text.length > KEEP_HEAD_CHARS + KEEP_TAIL_CHARS) {
+		parts.push(
+			'',
+			text.slice(0, KEEP_HEAD_CHARS),
+			`… ${(text.length - KEEP_HEAD_CHARS - KEEP_TAIL_CHARS).toLocaleString('en-US')} characters elided …`,
+			text.slice(-KEEP_TAIL_CHARS),
+		)
+	} else {
+		// Shorter than what an elision would keep, so eliding it would drop
+		// content while saving nothing. A caller that lowered the minimum
+		// far enough to reach a result this small gets it back whole, and a
+		// truthful `charsReclaimed` of about zero — rather than a total loss
+		// dressed up as a saving.
+		parts.push('', text)
+	}
+
+	return parts.join('\n')
+}
 
 export interface ToolResultEditOutcome {
 	readonly messages: Message[]
@@ -111,7 +181,7 @@ export function clearStaleToolResults(
 		charsReclaimed += size - 0
 		return {
 			...tool,
-			content: `${CLEARED_PREFIX} ${toolName} returned ${size.toLocaleString('en-US')} characters, cleared to reclaim context. Call the tool again if you still need this output.`,
+			content: clearedPlaceholder(tool.content, toolName, size),
 		} satisfies ToolMessage
 	})
 

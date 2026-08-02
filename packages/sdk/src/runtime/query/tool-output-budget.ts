@@ -17,6 +17,17 @@ import { join } from 'node:path'
 export const DEFAULT_MAX_TOOL_OUTPUT_CHARS = 40_000
 
 /**
+ * Opening of the line that points at a spilled output.
+ *
+ * A constant rather than a phrase repeated in two files, because the line
+ * has to survive later editing: compaction clears stale tool results, and
+ * clearing a spilled one destroys the only route back to the content this
+ * budget deliberately kept. Whatever clears a result has to be able to
+ * recognise this line and keep it.
+ */
+export const SPILL_MARKER = 'The full output was written to:'
+
+/**
  * Share of the budget spent on the head. The rest goes to the tail.
  *
  * Weighted toward the head because that is where a document's structure
@@ -86,7 +97,7 @@ export function applyToolOutputBudget(opts: ApplyToolOutputBudgetOptions): ToolO
 
 	const recovery = spillPath
 		? [
-				`The full output was written to: ${spillPath}`,
+				`${SPILL_MARKER} ${spillPath}`,
 				'Read a specific window with `read` (offset/limit) or search it with `grep`. Do NOT read it whole — that is what exceeded the budget.',
 			].join('\n')
 		: 'The full output was not retained. Re-run with a narrower query, a line range, or a filter.'
