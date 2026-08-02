@@ -134,6 +134,12 @@ function buildOpenAIBody(
 		model: params.model || defaultModel,
 		messages: formatOpenAIMessages(params.messages),
 		stream,
+		// A conforming endpoint sends no usage object on a streamed response
+		// unless this asks for one. Without it the parsing below had nothing
+		// to parse: every streamed turn reported zero tokens, so cost read as
+		// free and any budget or compaction threshold keyed on usage never
+		// fired however large the thread grew.
+		...(stream ? { stream_options: { include_usage: true } } : {}),
 	}
 
 	if (params.tools && params.tools.length > 0) body.tools = params.tools

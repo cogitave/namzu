@@ -655,6 +655,12 @@ export class AnthropicProvider implements LLMProvider {
 							// unsatisfiable and left the streaming UI with a silent
 							// multi-second gap while the model was demonstrably working.
 							if (block?.type === 'thinking' || block?.type === 'redacted_thinking') {
+								// Register the block so its close is recognised. Without
+								// this the set stayed empty, the `content_block_stop`
+								// branch below could never match, and `done: true` was
+								// never emitted — so a UI that opened a thinking card
+								// left it spinning for the rest of the run.
+								openReasoning.add(idx)
 								yield {
 									id: messageId,
 									delta: {

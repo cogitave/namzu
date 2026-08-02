@@ -34,6 +34,26 @@ type OpenAIFinishReason = 'stop' | 'length' | 'tool_calls' | 'content_filter' | 
 
 type NamzuFinishReason = ChatCompletionResponse['finishReason']
 
+/**
+ * Does this model belong to the reasoning family?
+ *
+ * Matched on the id prefix because that is the only signal available
+ * before the first call — there is no capability endpoint to ask, and
+ * getting it wrong costs a run rather than a warning.
+ *
+ * Deliberately conservative: an unknown model falls through to the
+ * standard parameters, which is the shape the overwhelming majority of
+ * endpoints accept. A false positive would strip `temperature` from a
+ * model that honours it, which is a silent behaviour change; a false
+ * negative produces a clear 400 naming the parameter.
+ */
+export function isReasoningModel(model: string): boolean {
+	const id = model.toLowerCase()
+	// Strip a deployment or vendor prefix such as `openai/gpt-5`.
+	const bare = id.slice(id.lastIndexOf('/') + 1)
+	return /^(o\d|gpt-5)/.test(bare)
+}
+
 function mapFinishReason(reason: OpenAIFinishReason | null | undefined): NamzuFinishReason {
 	switch (reason) {
 		case 'length':
@@ -201,8 +221,16 @@ export class OpenAIProvider implements LLMProvider {
 				tools: toOpenAITools(params),
 				tool_choice: formatToolChoice(params.toolChoice),
 				parallel_tool_calls: params.parallelToolCalls,
-				temperature: params.temperature,
-				max_tokens: params.maxTokens,
+				// Reasoning-family models take `max_completion_tokens` and
+				// reject `max_tokens` and `temperature` outright. The rejection
+				// is a 400, which classifies as `invalid_request` and is
+				// therefore not retryable — so sending the wrong pair killed
+				// the run on its first turn, every time, for anyone pointing
+				// namzu at one of these models with a token cap set (which the
+				// runtime always does).
+				...(isReasoningModel(model)
+					? { max_completion_tokens: params.maxTokens }
+					: { temperature: params.temperature, max_tokens: params.maxTokens }),
 				top_p: params.topP,
 				frequency_penalty: params.frequencyPenalty,
 				presence_penalty: params.presencePenalty,
