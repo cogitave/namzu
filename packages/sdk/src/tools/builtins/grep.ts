@@ -1,7 +1,61 @@
 import { glob, readFile } from 'node:fs/promises'
-import { relative, resolve } from 'node:path'
+import { relative, resolve, sep } from 'node:path'
 import { z } from 'zod'
+import type { Sandbox } from '../../types/sandbox/index.js'
 import { defineTool } from '../defineTool.js'
+import { matchesGlob } from '../glob-match.js'
+import { resolveWithin } from '../paths.js'
+import { joinPosix, relativePosix, resolveWithinPosix } from '../posix-path.js'
+
+/**
+ * Where the files come from.
+ *
+ * The host and the sandbox differ in exactly two operations — enumerate
+ * and read — so that is all this abstracts. Matching, context lines and
+ * the caps stay in one implementation; duplicating them per source is how
+ * the two would drift apart, and the sandbox path is the one nobody runs
+ * by accident.
+ */
+interface FileSource {
+	/** The root every reported path is relative to. */
+	readonly root: string
+	/** True when paths are the sandbox's, not the host's. */
+	readonly posix?: boolean
+	list(searchRoot: string, pattern: string): AsyncIterable<string>
+	read(path: string): Promise<Buffer>
+}
+
+function hostSource(workingDirectory: string): FileSource {
+	return {
+		root: workingDirectory,
+		async *list(searchRoot, pattern) {
+			for await (const entry of glob(pattern, { cwd: searchRoot })) {
+				yield resolve(searchRoot, entry)
+			}
+		},
+		read: (path) => readFile(path),
+	}
+}
+
+function sandboxSource(sandbox: Sandbox): FileSource {
+	return {
+		root: sandbox.rootDir,
+		posix: true,
+		async *list(searchRoot, pattern) {
+			for (const entry of await sandbox.listFiles(searchRoot)) {
+				// Sandbox paths stay in the sandbox's own coordinate system.
+				// Running them through the host's path module would rewrite a
+				// POSIX container path into a host-shaped one whenever the
+				// two disagree, and then hand the model a path its own
+				// sandbox cannot open.
+				const absolute = joinPosix(searchRoot, entry.path)
+				const relPath = relativePosix(sandbox.rootDir, absolute)
+				if (matchesGlob(relPath, pattern)) yield absolute
+			}
+		},
+		read: (path) => sandbox.readFile(path),
+	}
+}
 
 const inputSchema = z.object({
 	pattern: z.string().describe('Regular expression pattern to search for in file contents'),
@@ -63,9 +117,25 @@ export const GrepTool = defineTool({
 			}
 		}
 
-		const searchRoot = input.path
-			? resolve(context.workingDirectory, input.path)
-			: context.workingDirectory
+		// Inside the sandbox when there is one, on the host otherwise. Only
+		// the file SOURCE differs — matching, context lines and the caps are
+		// one implementation, because duplicating the substantive half is
+		// how the two paths would drift.
+		//
+		// This tool read the host filesystem through `node:fs` and
+		// referenced `context.sandbox` nowhere, so with a container backend
+		// wired in the sandbox was not a read boundary at all — and grep
+		// returns file CONTENT, so what leaked was not a listing.
+		const source: FileSource = context.sandbox
+			? sandboxSource(context.sandbox)
+			: hostSource(context.workingDirectory)
+
+		// Contained, not merely resolved — see `resolveWithin`. Bare
+		// resolution let `path: "../../.."` read whatever sits above the
+		// working directory, with no sandbox needed to make it work.
+		const searchRoot = source.posix
+			? resolveWithinPosix(source.root, input.path)
+			: resolveWithin(source.root, input.path)
 
 		// Auto-prepend **/ for simple patterns (e.g. "*.ts" → "**/*.ts")
 		let filePattern = input.include ?? '**/*'
@@ -78,13 +148,12 @@ export const GrepTool = defineTool({
 		let filesSearched = 0
 		let filesMatched = 0
 
-		for await (const entry of glob(filePattern, { cwd: searchRoot })) {
-			const filePath = resolve(searchRoot, entry)
+		for await (const filePath of source.list(searchRoot, filePattern)) {
 			filesSearched++
 
 			let content: string
 			try {
-				const buffer = await readFile(filePath)
+				const buffer = await source.read(filePath)
 				if (buffer.length > MAX_FILE_SIZE) continue
 				if (isBinaryContent(buffer)) continue
 				content = buffer.toString('utf-8')
@@ -105,7 +174,12 @@ export const GrepTool = defineTool({
 					filesMatched++
 				}
 
-				const relPath = `./${relative(context.workingDirectory, filePath)}`
+				// Relative to the root the file came FROM. Reporting a
+				// host-relative path for a file read inside the sandbox would
+				// hand the model a string `read` then resolves somewhere else.
+				const relPath = source.posix
+					? `./${relativePosix(source.root, filePath)}`
+					: `./${relative(source.root, filePath).split(sep).join('/')}`
 
 				if (input.context_lines > 0) {
 					const start = Math.max(0, i - input.context_lines)

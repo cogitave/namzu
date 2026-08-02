@@ -1,7 +1,8 @@
 import { readdir, stat } from 'node:fs/promises'
-import { join, relative, resolve } from 'node:path'
+import { join, relative } from 'node:path'
 import { z } from 'zod'
 import { defineTool } from '../defineTool.js'
+import { resolveWithin } from '../paths.js'
 
 const inputSchema = z.object({
 	path: z.string().default('.').describe('Directory path to list. Defaults to working directory.'),
@@ -116,7 +117,8 @@ export const LsTool = defineTool({
 	concurrencySafe: true,
 
 	async execute(input, context) {
-		const targetPath = resolve(context.workingDirectory, input.path)
+		// Contained, not merely resolved — see `resolveWithin`.
+		const targetPath = resolveWithin(context.workingDirectory, input.path)
 
 		if (input.recursive) {
 			const output: string[] = []
