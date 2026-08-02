@@ -34,12 +34,34 @@ export function isCompactionMessage(content: string | null | undefined): boolean
  */
 const MIN_OLDER_MESSAGES_TO_COMPACT = 1
 
+/**
+ * Model-visible size of a message body, in characters.
+ *
+ * An image block is measured by its base64 payload because that is what
+ * actually occupies the request. It is NOT what the model is billed for —
+ * an image costs far fewer tokens than its base64 length divided by four —
+ * but under-counting it to zero is the worse error: it let a run full of
+ * screenshots read as an empty context.
+ */
+function measureContentChars(content: unknown): number {
+	if (typeof content === 'string') return content.length
+	if (!Array.isArray(content)) return 0
+	let total = 0
+	for (const block of content as readonly Record<string, unknown>[]) {
+		if (block.type === 'text' && typeof block.text === 'string') total += block.text.length
+		else if (block.type === 'image' && typeof block.data === 'string') total += block.data.length
+	}
+	return total
+}
+
 function estimateTokens(ctx: IterationContext): number {
 	let chars = 0
 	for (const msg of ctx.runMgr.messages) {
-		if (msg.content) {
-			chars += msg.content.length
-		}
+		// `content` is `string | ToolResultBlock[]`. On an array, `.length` is
+		// the BLOCK COUNT, so a tool result carrying a 400 KB screenshot
+		// contributed 1 — and the estimate that decides when to compact read
+		// near zero for exactly the runs that need compacting most.
+		chars += measureContentChars(msg.content)
 		if (msg.role === 'assistant' && msg.toolCalls) {
 			for (const tc of msg.toolCalls) {
 				chars += tc.function.name.length + tc.function.arguments.length

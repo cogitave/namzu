@@ -286,6 +286,25 @@ export class ToolExecutor {
 		})
 		await Promise.all([...parallel, serial])
 
+		// Whatever failed above left a hole in `results`; fill every one, so
+		// the invariant holds by construction rather than by everything having
+		// gone well.
+		for (let i = 0; i < toolCalls.length; i++) {
+			if (results[i]) continue
+			const toolCall = toolCalls[i] as ToolCall
+			const toolName = toolCall.function.name
+			const message = `Error: Tool "${toolName}" did not complete — the batch failed before it produced a result.`
+			results[i] = { toolCallId: toolCall.id, toolName, output: message, isError: true }
+			await this.emitEvent({
+				type: 'tool_completed',
+				runId: this.config.runId,
+				toolUseId: toolCall.id,
+				toolName,
+				result: message,
+				isError: true,
+			})
+		}
+
 		// isError and rich content were computed and then discarded here: the
 		// tuple narrowed to {toolCallId, output} BEFORE the message was built,
 		// so the failure signal and any image block were structurally lost at

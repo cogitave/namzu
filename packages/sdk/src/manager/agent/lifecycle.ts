@@ -20,6 +20,7 @@ import type {
 	SendMessageOptions,
 } from '../../types/agent/task.js'
 import { isTerminalAgentTaskState } from '../../types/agent/task.js'
+import { NamzuError } from '../../types/errors/index.js'
 import type { AgentId, RunId, SessionId, TaskId, TenantId } from '../../types/ids/index.js'
 import type { Message } from '../../types/message/index.js'
 import type { RunEvent, RunEventListener } from '../../types/run/events.js'
@@ -131,6 +132,26 @@ export class AgentManager {
 			options.budgetAllocation?.tokenBudget ?? maxAllocation,
 			maxAllocation,
 		)
+
+		// Budget exhaustion must not INVERT into no budget at all. Downstream,
+		// `tokenBudget: 0` means "uncapped" (`LimitChecker`: `tokenBudget > 0
+		// && total >= tokenBudget`), and `maxAllocation` floors to 0 as soon as
+		// the parent's remaining drops below `1 / maxBudgetFraction`. So the
+		// most depleted parent in the tree was the one that spawned an
+		// unlimited child. Refuse instead: a caller that wants an uncapped
+		// child can say so explicitly with its own `budgetAllocation`.
+		if (allocatedTokens <= 0) {
+			throw new NamzuError({
+				code: 'invalid_config',
+				message: `Cannot spawn "${options.agentId}": the parent has ${context.budgetTracker.remaining} tokens remaining, which allocates 0 to the child — and a token budget of 0 means UNLIMITED downstream.`,
+				details: {
+					agentId: options.agentId,
+					parentRemaining: context.budgetTracker.remaining,
+					maxBudgetFraction: this.config.maxBudgetFraction,
+				},
+			})
+		}
+
 		context.budgetTracker.remaining -= allocatedTokens
 
 		// Phase 6: SubSession + child Session + WorkspaceRef triple. Happens

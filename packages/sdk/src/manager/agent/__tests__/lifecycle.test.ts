@@ -504,25 +504,45 @@ describe('AgentManager.sendMessage — budget and deadline arithmetic', () => {
 		expect(seen[0]?.timeoutMs).toBe(AGENT_MANAGER_DEFAULTS.childTimeoutMs)
 	})
 
-	it('an unlimited token budget does not become a zero-millisecond deadline', async () => {
-		// The edge where the unit error actually bit: `tokenBudget: 0` means
-		// "no cap", and it produced a child that was out of time on arrival.
+	it('a nearly-exhausted parent still gives its child a real deadline', async () => {
+		// The edge where the unit error bit hardest: a tiny token remainder
+		// read as milliseconds produced a child that was out of time on
+		// arrival.
 		const seen: BaseAgentConfig[] = []
-		const childAgent = makeAgent('child-zero', async (_input, config) => {
+		const childAgent = makeAgent('child-small', async (_input, config) => {
 			seen.push(config)
 			return successResult()
 		})
 		const harness = await buildHarness(childAgent)
 		const context = buildContext(harness.parentSession.id, harness.projectId, harness.threadId)
-		context.budgetTracker = { total: 0, remaining: 0 }
+		context.budgetTracker = { total: 100_000, remaining: 20 }
 
 		const task = await harness.manager.sendMessage(
-			buildOptions('child-zero', harness.parentSession.id, harness.projectId),
+			buildOptions('child-small', harness.parentSession.id, harness.projectId),
 			context,
 		)
 		await waitForTask(harness.manager, task.taskId)
 
-		expect(seen[0]?.timeoutMs).toBeGreaterThan(0)
+		// Old code: floor(20 * 0.5) = 10 tokens, read as 10 MILLISECONDS.
+		expect(seen[0]?.timeoutMs).toBe(AGENT_MANAGER_DEFAULTS.childTimeoutMs)
+	})
+
+	it('refuses to spawn when the allocation would floor to zero', async () => {
+		// Because `tokenBudget: 0` means UNLIMITED downstream
+		// (`LimitChecker`: `tokenBudget > 0 && total >= tokenBudget`), the
+		// most depleted parent in the tree was the one that spawned an
+		// uncapped child. Budget exhaustion must not invert into no budget.
+		const childAgent = makeAgent('child-broke', async () => successResult())
+		const harness = await buildHarness(childAgent)
+		const context = buildContext(harness.parentSession.id, harness.projectId, harness.threadId)
+		context.budgetTracker = { total: 100_000, remaining: 1 }
+
+		await expect(
+			harness.manager.sendMessage(
+				buildOptions('child-broke', harness.parentSession.id, harness.projectId),
+				context,
+			),
+		).rejects.toThrow(/allocates 0 to the child/)
 	})
 
 	it('siblings divide ONE budget pool when spawned THROUGH THE GATEWAY', async () => {

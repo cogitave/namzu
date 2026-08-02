@@ -80,6 +80,13 @@ export function toolsHash(tools: readonly MCPToolDefinition[]): string {
 			name: tool.name,
 			description: tool.description ?? '',
 			inputSchema: stableStringify(tool.inputSchema),
+			// `annotations` carries `readOnlyHint` and `destructiveHint`, and
+			// those are what `mcpToolToToolDefinition` turns into `isReadOnly`
+			// / `isDestructive` — the flags the HITL review keys on. Omitting
+			// them meant a server could flip a tool from destructive to
+			// read-only, silently removing it from human review, and the
+			// fingerprint built to catch exactly that rug-pull saw nothing.
+			annotations: stableStringify(tool.annotations),
 		}))
 
 	return createHash('sha256').update(JSON.stringify(canonical)).digest('hex')
