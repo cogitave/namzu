@@ -711,7 +711,14 @@ export function toAgentEvent(event: RunEvent): AgentEvent | null {
 		case 'run_completed':
 			return { kind: 'done' }
 		case 'run_failed':
-			return { kind: 'error', message: event.error }
+			// The classification is now carried on the event rather than
+			// having been flattened away upstream. Shown because "rate
+			// limited, retryable" and "your key is wrong" are the same
+			// sentence to a reader who only gets the message.
+			return {
+				kind: 'error',
+				message: event.failure ? `[${event.failure.code}] ${event.error}` : event.error,
+			}
 		default:
 			return null
 	}

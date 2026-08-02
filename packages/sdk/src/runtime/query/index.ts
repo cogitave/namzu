@@ -62,6 +62,7 @@ import type { ToolRegistryContract } from '../../types/tool/index.js'
 import type { RepairToolCall } from '../../types/tool/repair.js'
 import type { VerificationGateConfig } from '../../types/verification/index.js'
 import type { ModelPricing } from '../../utils/cost.js'
+import { getRootLogger } from '../../utils/logger.js'
 import { VerificationGate } from '../../verification/gate.js'
 import { CheckpointManager } from './checkpoint.js'
 import type { ContextCache } from './context-cache.js'
@@ -387,10 +388,14 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 	// summary, advisory and compaction side calls — goes through this one
 	// wrapped provider, so the retry policy cannot be bypassed by a code
 	// path that happens to hold the raw driver.
+	// The logger is passed on purpose: `withProviderRetry` guards every one
+	// of its warns behind `options.log`, and this is its only production
+	// call site — so without it the "failed, retrying" and "failed, giving
+	// up" lines were dead code and a backoff left no trace anywhere.
 	const resilientProvider =
 		params.retry === false
 			? params.provider
-			: withProviderRetry(params.provider, { config: params.retry })
+			: withProviderRetry(params.provider, { config: params.retry, log: getRootLogger() })
 
 	const ctx = RunContextFactory.build({
 		agentId: params.agentId,

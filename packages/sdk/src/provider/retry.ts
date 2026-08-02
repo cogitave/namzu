@@ -146,6 +146,28 @@ export function withProviderRetry(
 					serverDirected: serverDirected !== undefined,
 				})
 
+				// Tell the consumer BEFORE sleeping. With the default policy a
+				// run can sit silent for the better part of a minute between
+				// `iteration_started` and the next event, and a server-directed
+				// delay may take it to the full cap — a host with no signal
+				// cannot tell a backoff from a hang, and its watchdog cancels a
+				// run that was about to succeed. This is the only channel open
+				// while the decorator sleeps: the consumer is blocked inside
+				// this iterator, so a callback could not reach it until the
+				// backoff was already over.
+				yield {
+					id: '',
+					delta: {},
+					retry: {
+						attempt: attempt + 1,
+						maxRetries: config.maxRetries,
+						delayMs: delay,
+						code: classified.code,
+						...(classified.status !== undefined ? { status: classified.status } : {}),
+						serverDirected: serverDirected !== undefined,
+					},
+				}
+
 				await doSleep(delay, params.signal)
 			}
 		}

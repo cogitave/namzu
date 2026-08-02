@@ -1,6 +1,6 @@
 import type { ActivityStatus, ActivityType } from '../activity/index.js'
 import type { BaseAgentResult } from '../agent/base.js'
-import type { CostInfo, TokenUsage } from '../common/index.js'
+import type { CostInfo, PlatformError, TokenUsage } from '../common/index.js'
 import type { CheckpointId, ToolCallSummary } from '../hitl/index.js'
 import type {
 	ActivityId,
@@ -116,6 +116,34 @@ type CoreRunEvent =
 			/** Optional completion in [0,1] when the tool genuinely knows it. */
 			fraction?: number
 	  }
+	/**
+	 * A model call failed transiently and is being retried after a backoff.
+	 *
+	 * Answers the same question `tool_progress` answers — "is it still
+	 * working?" — for the other half of a run's wall clock. With the default
+	 * policy, or a server-directed delay up to the cap, a run can sit silent
+	 * for the better part of a minute between `iteration_started` and the
+	 * next event. A host saw literally nothing and no keepalive, so a
+	 * backoff was indistinguishable from a hang and a watchdog would cancel
+	 * a run that was about to succeed.
+	 *
+	 * Emitted before the sleep, so the delay it names is the one still
+	 * ahead.
+	 */
+	| {
+			type: 'provider_retry'
+			runId: RunId
+			iteration: number
+			/** 1-based attempt that just failed. */
+			attempt: number
+			maxRetries: number
+			delayMs: number
+			/** Classified failure code, as the boundary classifier reports it. */
+			code: string
+			status?: number
+			/** The delay came from the server's own `Retry-After`. */
+			serverDirected: boolean
+	  }
 	| {
 			type: 'tool_completed'
 			runId: RunId
@@ -184,7 +212,23 @@ type CoreRunEvent =
 			reason?: string
 	  }
 	| { type: 'run_completed'; runId: RunId; result: string }
-	| { type: 'run_failed'; runId: RunId; error: string }
+	/**
+	 * The run failed.
+	 *
+	 * `error` is the flattened message, kept for every consumer that only
+	 * ever rendered a string. `failure` is the structured projection, and
+	 * it is the point: namzu already classifies at the provider boundary —
+	 * over status, errno, `Retry-After` and the whole cause chain — so a
+	 * fully-populated error genuinely arrived here and was flattened one
+	 * line later, discarding `code`, `status`, `retryAfterMs`, `retryable`
+	 * and `details`.
+	 *
+	 * The damage was self-inflicted downstream: one consumer substring-
+	 * matched the flattened message to decide whether an error had
+	 * occurred, and the iteration loop re-ran the classifier to recover
+	 * structure that had already been computed upstream.
+	 */
+	| { type: 'run_failed'; runId: RunId; error: string; failure?: PlatformError }
 	// Additive 2026-07 (provider capability negotiation): emitted once per
 	// run when the request asks for something the provider DRIVER declared
 	// it cannot do — tools registered against a no-tools driver (tool

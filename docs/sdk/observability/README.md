@@ -1,7 +1,7 @@
 ---
 title: Telemetry
 description: Configure tracing and metrics with @namzu/telemetry — OTLP or console exporters, and the built-in platform metrics helpers.
-last_updated: 2026-07-31
+last_updated: 2026-08-03
 status: current
 related_packages: ["@namzu/telemetry", "@namzu/sdk"]
 ---
@@ -47,6 +47,28 @@ Attribute constants (`GENAI`, `NAMZU`) and span-name helpers
 ```ts
 import { GENAI, NAMZU, toolSpanName } from '@namzu/telemetry/attributes'
 ```
+
+`GENAI` and `NAMZU` are **re-exported** from `@namzu/sdk`, not restated —
+they used to be a hand-maintained copy here and had already drifted, losing
+`GENAI.TOKEN_TYPE`. A parity test now fails if anyone copies them back.
+
+### Metrics the runtime records
+
+| Instrument | Kind | What it answers |
+| --- | --- | --- |
+| `gen_ai.client.token.usage` | counter | tokens, split by `gen_ai.token.type` (`input` / `output` / `cache_read` / `cache_write`) |
+| `gen_ai.client.operation.duration` | histogram | how long a whole model request took |
+| `gen_ai.client.time_to_first_token` | histogram | how long the caller waited before anything arrived |
+| `gen_ai.tool.call.count` | counter | tool calls, by name / success / error type |
+| `gen_ai.tool.call.duration` | histogram | how long a tool took, same attributes as the count |
+| `namzu.run.duration` | histogram | how long a run took, by how it settled |
+
+Time-to-first-token and request duration are deliberately separate.
+namzu streams, so perceived latency is dominated by the first number, and
+the second cannot distinguish a fast-first-token long generation from a
+stalled one. Tool duration carries the same attributes as the tool count so
+"which tool is slow" and "which tool fails" are one query, not two that
+cannot be joined.
 
 ## 3. Bootstrap Telemetry
 

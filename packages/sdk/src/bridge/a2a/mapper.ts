@@ -12,6 +12,7 @@ function statusEvent(
 	isFinal: boolean,
 	contextId?: string,
 	message?: TaskStatusUpdateEvent['status']['message'],
+	metadata?: Record<string, unknown>,
 ): TaskStatusUpdateEvent {
 	return {
 		taskId,
@@ -22,6 +23,7 @@ function statusEvent(
 			timestamp: new Date().toISOString(),
 		},
 		final: isFinal,
+		...(metadata !== undefined ? { metadata } : {}),
 	}
 }
 
@@ -55,10 +57,27 @@ const MAPPING: {
 	},
 
 	run_failed: (e, ctx) =>
-		statusEvent(e.runId, 'failed', true, ctx, {
-			role: 'agent',
-			parts: [{ kind: 'text', text: e.error }],
-		}),
+		statusEvent(
+			e.runId,
+			'failed',
+			true,
+			ctx,
+			{
+				role: 'agent',
+				parts: [{ kind: 'text', text: e.error }],
+			},
+			// The classification travels as metadata rather than being
+			// flattened into the text: a remote peer deciding whether to
+			// retry needs `retryable` and the code, not prose it would have
+			// to pattern-match.
+			e.failure
+				? {
+						code: e.failure.code,
+						retryable: e.failure.retryable,
+						...(e.failure.details ? { details: e.failure.details } : {}),
+					}
+				: undefined,
+		),
 
 	// Capability degradation is host-facing diagnostics, not A2A task state.
 	capability_warning: null,
@@ -72,6 +91,20 @@ const MAPPING: {
 	// A2A models discrete artifacts and task-status transitions; a progress
 	// tick is neither, so it has no A2A representation.
 	tool_progress: null,
+
+	// A retry IS a task-status transition in A2A's model — the task is
+	// still running and this says why nothing is arriving. Reported as
+	// working rather than failed: the call has not given up.
+	provider_retry: (e, ctx) =>
+		statusEvent(e.runId, 'running', false, ctx, {
+			role: 'agent',
+			parts: [
+				{
+					kind: 'text',
+					text: `Model call failed (${e.code}); retrying in ${e.delayMs}ms — attempt ${e.attempt} of ${e.maxRetries}`,
+				},
+			],
+		}),
 
 	tool_completed: (e, ctx) =>
 		artifactEvent(e.runId, ctx, {

@@ -3,6 +3,7 @@ import type { PlanManager } from '../../manager/plan/lifecycle.js'
 import type { RunPersistence } from '../../manager/run/persistence.js'
 import type { ActivityStore } from '../../store/activity/memory.js'
 import { GENAI, NAMZU } from '../../telemetry/attributes.js'
+import { toPlatformError } from '../../types/errors/index.js'
 import type { Run, RunEvent } from '../../types/run/index.js'
 import { toErrorMessage } from '../../utils/error.js'
 import type { Logger } from '../../utils/logger.js'
@@ -61,6 +62,12 @@ export class ResultAssembler {
 	async *handleError(err: unknown, rootSpan: Span): AsyncGenerator<RunEvent> {
 		const { runMgr, planManager, log, emitEvent, drainPending } = this.config
 		const errorMessage = toErrorMessage(err)
+		// The classifier at the provider boundary already walked the cause
+		// chain over status, errno and `Retry-After`, so a fully-populated
+		// error arrives here — and used to be flattened to a string one line
+		// later, discarding every field of it. `toPlatformError` is the
+		// projection that was written for exactly this and had no callers.
+		const failure = toPlatformError(err)
 		runMgr.markFailed(errorMessage)
 
 		if (planManager.isActive) {
@@ -71,6 +78,7 @@ export class ResultAssembler {
 			type: 'run_failed',
 			runId: runMgr.id,
 			error: errorMessage,
+			failure,
 		})
 		yield* drainPending()
 

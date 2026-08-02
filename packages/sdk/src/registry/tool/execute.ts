@@ -462,13 +462,20 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 
 			try {
 				this.log.debug(`Executing tool: ${toolName}`)
+				const startedAt = Date.now()
 				const result = await tool.execute(finalInput, context)
+				const durationMs = Date.now() - startedAt
 				this.log.debug(`Tool completed: ${toolName}`, {
 					success: result.success,
 				})
 
 				span.setAttribute(NAMZU.TOOL_SUCCESS, result.success)
-				recordToolCall(toolName, result.success, result.success ? undefined : result.error)
+				recordToolCall(
+					toolName,
+					result.success,
+					result.success ? undefined : result.error,
+					durationMs,
+				)
 				if (!result.success && result.error) {
 					span.setAttribute(NAMZU.TOOL_ERROR, result.error)
 					span.setStatus({ code: SpanStatusCode.ERROR, message: result.error })

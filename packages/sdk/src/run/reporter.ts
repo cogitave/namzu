@@ -283,6 +283,20 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				})
 				break
 
+			case 'provider_retry':
+				// `warn`, not debug: this is the run going quiet for a
+				// measurable stretch, and the delay it names is still ahead.
+				log.warn(`Model call failed — retrying in ${event.delayMs}ms`, {
+					runId: event.runId,
+					iteration: event.iteration,
+					attempt: event.attempt,
+					maxRetries: event.maxRetries,
+					code: event.code,
+					status: event.status,
+					serverDirected: event.serverDirected,
+				})
+				break
+
 			default: {
 				const _exhaustive: never = event
 				throw new Error(`Unhandled run event type: ${(_exhaustive as RunEvent).type}`)

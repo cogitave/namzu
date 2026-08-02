@@ -1,6 +1,10 @@
 import { type Span, SpanStatusCode } from '@opentelemetry/api'
 import { GENAI, NAMZU, chatSpanName, parentContext } from '../../../telemetry/attributes.js'
-import { recordModelDuration, recordTokenUsage } from '../../../telemetry/metrics.js'
+import {
+	recordModelDuration,
+	recordTimeToFirstToken,
+	recordTokenUsage,
+} from '../../../telemetry/metrics.js'
 import { getTracer } from '../../../telemetry/runtime-accessors.js'
 import { mergeTokenUsage } from '../../../types/common/index.js'
 import { NamzuError } from '../../../types/errors/index.js'
@@ -134,6 +138,7 @@ export async function* streamProviderTurn(
 	// latency at all and the token counts landed on the iteration span
 	// instead of the operation that produced them.
 	const callStartedAt = Date.now()
+	let firstDeltaSeen = false
 	const chatSpan = getTracer().startSpan(chatSpanName(params.model), {}, parentContext(parentSpan))
 	chatSpan.setAttributes({
 		[GENAI.OPERATION_NAME]: 'chat',
@@ -223,11 +228,48 @@ export async function* streamProviderTurn(
 			const res = await (aborted ? Promise.race([next, aborted]) : next)
 			if (res.done) break
 			const chunk = res.value
+
+			// A backoff notice from the retry decorator, not output. Emitted
+			// and drained here because this is the only moment the consumer
+			// runs during a retry — the decorator is about to sleep, and it
+			// is that silence a host cannot otherwise distinguish from a
+			// hang. It carries no delta, so nothing below applies to it.
+			if (chunk.retry) {
+				await emitEvent({
+					type: 'provider_retry',
+					runId,
+					iteration,
+					attempt: chunk.retry.attempt,
+					maxRetries: chunk.retry.maxRetries,
+					delayMs: chunk.retry.delayMs,
+					code: chunk.retry.code,
+					...(chunk.retry.status !== undefined ? { status: chunk.retry.status } : {}),
+					serverDirected: chunk.retry.serverDirected,
+				})
+				yield* drainPending()
+				continue
+			}
+
 			if (chunk.error) {
 				streamError = chunk.error
 				break
 			}
 			if (!id && chunk.id) id = chunk.id
+
+			// The first delta of the turn, of ANY kind — text, reasoning or a
+			// tool call. namzu streams, so perceived latency is dominated by
+			// this number, and the request histogram measures the whole call:
+			// it cannot tell a fast-first-token long generation from a
+			// stalled one, which is exactly the distinction a streaming UI is
+			// judged on. Keyed off the delta rather than the first chunk
+			// because a provider may open with a metadata-only frame.
+			if (
+				!firstDeltaSeen &&
+				(chunk.delta.content || chunk.delta.reasoning || chunk.delta.toolCalls?.length)
+			) {
+				firstDeltaSeen = true
+				recordTimeToFirstToken(params.model, Date.now() - callStartedAt)
+			}
 
 			const reasoning = chunk.delta.reasoning
 			if (reasoning) {

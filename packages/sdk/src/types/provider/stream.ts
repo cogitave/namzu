@@ -58,4 +58,31 @@ export interface StreamChunk {
 	finishReason?: 'stop' | 'tool_calls' | 'length' | 'content_filter'
 	usage?: TokenUsage
 	error?: string
+
+	/**
+	 * The call failed and is about to be retried after a backoff.
+	 *
+	 * Emitted by the retry decorator, never by a driver. It rides the
+	 * stream because that is the only channel open while the decorator is
+	 * sleeping: the consumer is blocked inside the provider's iterator, so
+	 * an out-of-band callback could not reach it until the backoff was
+	 * already over — which is exactly the window a host needs to be told
+	 * about. A retry chunk carries no delta and must not be treated as
+	 * output.
+	 */
+	retry?: ProviderRetryNotice
+}
+
+/** See {@link StreamChunk.retry}. */
+export interface ProviderRetryNotice {
+	/** 1-based attempt that just failed. */
+	readonly attempt: number
+	readonly maxRetries: number
+	/** How long the decorator is about to sleep. */
+	readonly delayMs: number
+	/** Classified failure code, as `classifyProviderError` reports it. */
+	readonly code: string
+	readonly status?: number
+	/** The delay came from the server's own `Retry-After`, not backoff. */
+	readonly serverDirected: boolean
 }

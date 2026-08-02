@@ -158,6 +158,14 @@ export type StreamEventType =
 	| 'reasoning.started'
 	| 'reasoning.delta'
 	| 'reasoning.completed'
+	/**
+	 * A model call failed transiently and is being retried after a backoff.
+	 * Wire-visible on the same grounds as `tool.progress` and the reasoning
+	 * events: without it a client sees no event and no keepalive for the
+	 * whole backoff, so a run that is about to succeed is indistinguishable
+	 * from one that has hung.
+	 */
+	| 'provider.retry'
 	| 'tool.executing'
 	/** Ephemeral progress from a long-running tool. Not in the transcript. */
 	| 'tool.progress'

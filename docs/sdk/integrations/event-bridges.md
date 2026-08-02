@@ -1,7 +1,7 @@
 ---
 title: Event Bridges
 description: Bridge internal Namzu runtime events to SSE and A2A wire formats, and convert messages, runs, and agent metadata into protocol-friendly shapes.
-last_updated: 2026-04-18
+last_updated: 2026-08-03
 status: current
 related_packages: ["@namzu/sdk"]
 ---
@@ -206,9 +206,38 @@ Important runtime choices baked into the mapper:
 
 - `run_started` maps to task state `running`
 - `run_completed` maps to final task state `completed`
-- `run_failed` maps to final task state `failed`
+- `run_failed` maps to final task state `failed`, carrying the failure's
+  `code` / `retryable` / `details` as event **metadata** rather than folded
+  into the text — a peer deciding whether to retry needs the flag, not prose
+  it would have to pattern-match
+- `provider_retry` maps to `running`, because a backoff is a task still
+  working, not a failure
 - `tool_review_requested`, `plan_ready`, and `run_paused` map to `input-required`
 - many internal events intentionally map to `null`
+
+### Knowing a run is backing off, not hung
+
+`provider_retry` is emitted **before** each backoff sleep, so the delay it
+names is still ahead. With the default policy — three retries, a 16s cap —
+or a server-directed `Retry-After` up to the 60s ceiling, a run can
+otherwise sit silent for the better part of a minute between
+`iteration_started` and the next event. A host saw nothing and got no
+keepalive, so a backoff was indistinguishable from a hang and a watchdog
+would cancel a run that was about to succeed.
+
+It carries the attempt, the ceiling, the delay, the classified code and
+whether the delay was the server's idea. On the SSE wire it is
+`provider.retry`.
+
+### Reading why a run failed
+
+`run_failed` carries both `error` (the flattened message) and `failure`
+(the structured projection: `code`, `retryable`, `details` including the
+provider code, status and any `retryAfterMs`). The classification is
+computed at the provider boundary — over status, errno, `Retry-After` and
+the whole cause chain — and used to be discarded one line before the event
+was emitted, leaving a host to guess whether "request failed" meant a rate
+limit worth retrying or a bad key worth stopping for.
 
 That makes the A2A stream cleaner than the full internal event bus.
 

@@ -24,6 +24,8 @@ interface Instruments {
 	toolCalls: Counter
 	runDuration: Histogram
 	llmDuration: Histogram
+	timeToFirstToken: Histogram
+	toolDuration: Histogram
 }
 
 function build(meter: Meter): Instruments {
@@ -47,6 +49,23 @@ function build(meter: Meter): Instruments {
 		}),
 		llmDuration: meter.createHistogram('gen_ai.client.operation.duration', {
 			description: 'Model request duration',
+			unit: 's',
+		}),
+		// namzu streams, so perceived latency is dominated by how long the
+		// user waits for the FIRST token, not by how long the whole request
+		// takes. The request histogram above cannot tell a fast-first-token
+		// long generation from a stalled one, and no host could recover the
+		// distinction from namzu's data in any form.
+		timeToFirstToken: meter.createHistogram('gen_ai.client.time_to_first_token', {
+			description: 'Time from request start to the first content delta',
+			unit: 's',
+		}),
+		// The wall clock was measured since the first version of the executor
+		// and emitted per call on `tool_completed`, so a p95 was computable
+		// from events — but there was no instrument, with the value already
+		// in scope one frame above the call site.
+		toolDuration: meter.createHistogram('gen_ai.tool.call.duration', {
+			description: 'Tool execution duration',
 			unit: 's',
 		}),
 	}
@@ -127,12 +146,34 @@ export function recordTokenUsage(model: string, usage: TokenUsageSample): void {
  * flat success rate cannot separate a tool that is broken from one whose
  * input the model keeps getting wrong, and those need different fixes.
  */
-export function recordToolCall(toolName: string, success: boolean, errorType?: string): void {
-	instruments().toolCalls.add(1, {
+export function recordToolCall(
+	toolName: string,
+	success: boolean,
+	errorType?: string,
+	durationMs?: number,
+): void {
+	const attributes = {
 		[GENAI.TOOL_NAME]: toolName,
 		[NAMZU.TOOL_SUCCESS]: success,
 		...(errorType !== undefined ? { [NAMZU.TOOL_ERROR]: errorType } : {}),
-	})
+	}
+	const { toolCalls, toolDuration } = instruments()
+	toolCalls.add(1, attributes)
+	// Same attributes as the count, so "which tool is slow" and "which tool
+	// fails" are answerable from one query rather than two that cannot be
+	// joined.
+	if (durationMs !== undefined) toolDuration.record(durationMs / 1000, attributes)
+}
+
+/**
+ * Record how long the first content delta took to arrive.
+ *
+ * Recorded at the first delta rather than at the end of the request,
+ * because the two are not the same measurement and only this one tracks
+ * what a person waiting actually experiences.
+ */
+export function recordTimeToFirstToken(model: string, durationMs: number): void {
+	instruments().timeToFirstToken.record(durationMs / 1000, { [GENAI.REQUEST_MODEL]: model })
 }
 
 /** Record how long a whole run took, keyed by how it settled. */

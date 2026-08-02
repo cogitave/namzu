@@ -115,6 +115,23 @@ const MAPPING: {
 		}),
 	},
 
+	// Same reason as `tool_progress`, for the other half of a run's wall
+	// clock: a backoff can run for the better part of a minute, and without
+	// this the client gets no event and no keepalive for its duration.
+	provider_retry: {
+		wire: 'provider.retry',
+		transform: (e, runId) => ({
+			run_id: runId,
+			iteration: e.iteration,
+			attempt: e.attempt,
+			max_retries: e.maxRetries,
+			delay_ms: e.delayMs,
+			code: e.code,
+			status: e.status,
+			server_directed: e.serverDirected,
+		}),
+	},
+
 	tool_completed: {
 		wire: 'tool.completed',
 		transform: (e, runId) => ({
