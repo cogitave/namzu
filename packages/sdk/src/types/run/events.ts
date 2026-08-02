@@ -92,6 +92,30 @@ type CoreRunEvent =
 			toolName: string
 			input: unknown
 	  }
+	/**
+	 * A tool saying how far along it is.
+	 *
+	 * Ephemeral — excluded from `transcript.jsonl`, like `text_delta`. It is
+	 * for a host rendering a live view, not part of the conversation, and a
+	 * chatty tool must not be able to bloat the durable record.
+	 *
+	 * Tools get a deadline of up to two minutes by default, so before this
+	 * a build, a test run or a long fetch was simply silent for its whole
+	 * duration: the host could show that a tool had started and then nothing
+	 * at all until it either finished or timed out. The model never sees
+	 * these; they answer "is it still working?", which is a question only a
+	 * human asks.
+	 */
+	| {
+			type: 'tool_progress'
+			runId: RunId
+			toolUseId: ToolUseId
+			toolName: string
+			/** Human-readable, e.g. "compiled 40/120 files". */
+			message: string
+			/** Optional completion in [0,1] when the tool genuinely knows it. */
+			fraction?: number
+	  }
 	| {
 			type: 'tool_completed'
 			runId: RunId
@@ -420,6 +444,10 @@ const EPHEMERAL_EVENT_TYPES: ReadonlySet<RunEvent['type']> = new Set<RunEvent['t
 	// The completed block carries the full text; the deltas would only
 	// duplicate it into the transcript at scale.
 	'reasoning_delta',
+	// Answers "is it still working?", which only a live view asks. A tool
+	// reporting every file it compiles must not be able to write thousands
+	// of lines into the durable record.
+	'tool_progress',
 ])
 
 export function isEphemeralEvent(event: RunEvent): boolean {

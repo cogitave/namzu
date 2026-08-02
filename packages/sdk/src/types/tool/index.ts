@@ -65,6 +65,24 @@ export interface ToolContext {
 	 * `ToolContext` is already threaded to exactly the right place.
 	 */
 	parentSpan?: import('@opentelemetry/api').Span
+
+	/**
+	 * Say how far along you are, for a host rendering a live view.
+	 *
+	 * A tool may run for the full per-tool deadline — two minutes by
+	 * default — and before this it was silent for all of it: a host could
+	 * show that a build had started and then nothing until it finished or
+	 * timed out.
+	 *
+	 * Fire-and-forget and never throws, so a tool can call it freely
+	 * without wrapping it. The model never sees these: progress answers
+	 * "is it still working?", which is a question only a human asks, and
+	 * putting it in the conversation would spend tokens telling the model
+	 * something it cannot act on.
+	 *
+	 * Absent when the executing surface has no event stream to write to.
+	 */
+	report?: (message: string, fraction?: number) => void
 }
 
 export interface ToolResult {

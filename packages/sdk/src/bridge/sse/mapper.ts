@@ -102,6 +102,19 @@ const MAPPING: {
 		}),
 	},
 
+	// Ephemeral, like text_delta: a live view wants it, the durable record
+	// does not, and a chatty tool must not be able to bloat transcript.jsonl.
+	tool_progress: {
+		wire: 'tool.progress',
+		transform: (e, runId) => ({
+			run_id: runId,
+			tool_use_id: e.toolUseId,
+			tool_name: e.toolName,
+			message: e.message,
+			fraction: e.fraction,
+		}),
+	},
+
 	tool_completed: {
 		wire: 'tool.completed',
 		transform: (e, runId) => ({

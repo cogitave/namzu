@@ -69,6 +69,10 @@ const MAPPING: {
 			parts: [{ kind: 'text', text: `Iteration ${e.iteration} started` }],
 		}),
 
+	// A2A models discrete artifacts and task-status transitions; a progress
+	// tick is neither, so it has no A2A representation.
+	tool_progress: null,
+
 	tool_completed: (e, ctx) =>
 		artifactEvent(e.runId, ctx, {
 			artifactId: `tool-${e.toolName}-${Date.now()}`,

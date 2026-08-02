@@ -273,6 +273,16 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				})
 				break
 
+			case 'tool_progress':
+				// Debug, not info: a long tool can emit many of these and they
+				// are a live-view signal, not a run milestone.
+				log.debug(`Tool progress: ${event.toolName}`, {
+					runId: event.runId,
+					tool: event.toolName,
+					message: event.message,
+				})
+				break
+
 			default: {
 				const _exhaustive: never = event
 				throw new Error(`Unhandled run event type: ${(_exhaustive as RunEvent).type}`)

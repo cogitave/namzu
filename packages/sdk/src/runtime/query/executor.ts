@@ -7,7 +7,7 @@ import { ProbeVetoError } from '../../probe/errors.js'
 import { type ProbeRegistry, probe as defaultProbeRegistry } from '../../probe/registry.js'
 import { renderToolSchema } from '../../registry/tool/schema.js'
 import type { ActivityStore } from '../../store/activity/memory.js'
-import type { RunId } from '../../types/ids/index.js'
+import type { RunId, ToolUseId } from '../../types/ids/index.js'
 import type { InvocationState } from '../../types/invocation/index.js'
 import {
 	type Message,
@@ -261,7 +261,26 @@ export class ToolExecutor {
 				)
 				return
 			}
-			const ctx = { ...baseContext, toolUseId: toolCall.id }
+			// Per-call, because the event has to name which call it is about:
+			// a batch can run several tools at once and a host rendering them
+			// side by side needs to know whose progress this is.
+			const ctx: ToolContext = {
+				...baseContext,
+				toolUseId: toolCall.id,
+				report: (message: string, fraction?: number) => {
+					// Fire-and-forget: a tool reporting progress must never be
+					// able to fail because the host's listener threw, and must
+					// never have to await the emit mid-work.
+					void this.emitEvent({
+						type: 'tool_progress',
+						runId: this.config.runId,
+						toolUseId: toolCall.id as ToolUseId,
+						toolName: toolCall.function.name,
+						message,
+						...(fraction !== undefined ? { fraction: Math.min(1, Math.max(0, fraction)) } : {}),
+					}).catch(() => {})
+				},
+			}
 			const run = async () => {
 				results[i] = await this.executeSingle(toolCall, ctx)
 			}

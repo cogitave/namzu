@@ -159,6 +159,8 @@ export type StreamEventType =
 	| 'reasoning.delta'
 	| 'reasoning.completed'
 	| 'tool.executing'
+	/** Ephemeral progress from a long-running tool. Not in the transcript. */
+	| 'tool.progress'
 	| 'tool.completed'
 	| 'tool.error'
 	// v3 tool input lifecycle (ses_001-tool-stream-events). Additive; phase 4
