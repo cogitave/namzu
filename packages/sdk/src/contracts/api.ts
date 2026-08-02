@@ -189,6 +189,13 @@ export type StreamEventType =
 	| 'message.created'
 	| 'message.delta'
 	| 'message.completed'
+	/**
+	 * A tool asked the user a question and the run is parked on it. Wire-
+	 * visible for the same reason `review.requested` is: a client cannot
+	 * render an approval card for something it never hears about.
+	 */
+	| 'question.asked'
+	| 'question.answered'
 	| 'review.requested'
 	| 'review.completed'
 	| 'checkpoint.created'

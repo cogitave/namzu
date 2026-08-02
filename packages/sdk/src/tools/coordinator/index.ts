@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { PlanManager } from '../../manager/plan/lifecycle.js'
+import type { PendingAnswers, QuestionParkRecorder } from '../../runtime/query/question-park.js'
 import type { AgentRuntimeContext } from '../../types/agent/base.js'
 import type { TaskGateway } from '../../types/agent/gateway.js'
 import type { ResumeHandler, UserQuestionOption } from '../../types/hitl/index.js'
@@ -45,6 +46,27 @@ export interface CoordinatorToolsOptions {
 	 * runId the park request cannot be addressed.
 	 */
 	resumeHandler?: ResumeHandler
+
+	/**
+	 * Makes a question park durable and visible.
+	 *
+	 * Without it the park exists only as a suspended `await` inside one
+	 * process — nothing on disk says a human owes this run an answer, and a
+	 * remote host cannot observe the question at all. Optional because a
+	 * host driving the tools directly may have no checkpoint store.
+	 */
+	questionParks?: QuestionParkRecorder
+
+	/**
+	 * Answers carried in from a resumed run, keyed by `questionId`.
+	 *
+	 * Consulted BEFORE the park handler: a re-entered `ask_user_question`
+	 * must return the answer that was already given rather than asking
+	 * again. Without it, resuming re-parks a question the user answered —
+	 * and in a headless resume that either deadlocks or auto-answers with
+	 * the no-consent sentinel, discarding the real answer.
+	 */
+	pendingAnswers?: PendingAnswers
 }
 
 const approvePlanStepSchema = z.object({
@@ -93,6 +115,8 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 		runId,
 		getPlanManager,
 		resumeHandler,
+		questionParks,
+		pendingAnswers,
 		// `onTaskLaunched` was the entry point for the old
 		// non-blocking + envelope-injection flow. create_task is now
 		// blocking, so the callback is no longer wired here.
@@ -479,19 +503,44 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 					...(opt.description !== undefined ? { description: opt.description } : {}),
 				}))
 
-				const decision = await parkHandler({
-					type: 'user_question',
-					runId: parkRunId,
-					checkpointId: `cp_question_${toolUseId}`,
-					question: {
-						questionId: toolUseId,
-						question,
-						...(header !== undefined ? { header } : {}),
-						options: questionOptions,
-						multiSelect,
-						allowFreeText,
-					},
-				})
+				const questionData = {
+					questionId: toolUseId,
+					question,
+					...(header !== undefined ? { header } : {}),
+					options: questionOptions,
+					multiSelect,
+					allowFreeText,
+				}
+
+				// An answer carried in from a resumed run. Checked before the
+				// park, because re-entering this tool is HOW the answer gets
+				// delivered: the batch is re-executed, and without this the
+				// re-execution would ask the user something they already
+				// answered — or, headless, auto-answer with the no-consent
+				// sentinel and throw the real answer away.
+				const carried = pendingAnswers?.take(toolUseId)
+
+				// A real checkpoint, not a synthetic id nothing ever wrote.
+				// Skipped when an answer is already in hand: parking a
+				// question that is answered would leave an outstanding record
+				// for a decision that has been made.
+				const parkedAt =
+					carried === undefined && questionParks ? await questionParks.record(questionData) : null
+
+				const decision =
+					carried ??
+					(await parkHandler({
+						type: 'user_question',
+						runId: parkRunId,
+						checkpointId: parkedAt ?? `cp_question_${toolUseId}`,
+						question: questionData,
+					}))
+
+				// Clear the park once the answer is in, so an approval queue
+				// stops serving a question that has been answered.
+				if (parkedAt !== null && questionParks) {
+					await questionParks.resolve(parkedAt, decision)
+				}
 
 				// The no-answer sentinel (explicitly NOT consent — fixes the
 				// "empty answer reads as approval" ambiguity): used for empty

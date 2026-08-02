@@ -133,12 +133,44 @@ export interface SandboxFileEntry {
 // Sandbox interface — the core abstraction
 // ---------------------------------------------------------------------------
 
+/**
+ * A network policy applied to a LIVE sandbox.
+ *
+ * The whole point is that it can change mid-life. The common shape —
+ * "fetch the repository with a token, then drop to deny-all before running
+ * anything the repository contains" — was not expressible at all: the
+ * policy was frozen at provider construction, so a host had to build a
+ * second provider and a second sandbox, copying the work across.
+ */
+export interface SandboxNetworkPolicy {
+	/**
+	 * Hosts the sandbox may reach. Empty denies everything.
+	 *
+	 * `api.example.com` matches that host; `.example.com` matches the
+	 * domain and its subdomains. Substring matching is deliberately not
+	 * offered — `example.com` as a substring would admit
+	 * `example.com.attacker.net`.
+	 */
+	readonly allowedHosts: readonly string[]
+}
+
 export interface Sandbox {
 	readonly id: SandboxId
 	readonly status: SandboxStatus
 	readonly rootDir: string
 	readonly environment: SandboxEnvironment
 	exec(command: string, args?: string[], opts?: SandboxExecOptions): Promise<SandboxExecResult>
+
+	/**
+	 * Narrow or widen what this sandbox can reach, while it is running.
+	 *
+	 * Optional, and a backend that cannot enforce it must **throw** rather
+	 * than accept and ignore. A network policy that is accepted and not
+	 * applied is worse than one that was never offered: the caller stops
+	 * looking, and the run proceeds believing it is confined. That is the
+	 * same rule the tiered sandbox provider follows, for the same reason.
+	 */
+	setNetworkPolicy?(policy: SandboxNetworkPolicy): Promise<void>
 	writeFile(path: string, content: string | Buffer): Promise<void>
 	readFile(path: string): Promise<Buffer>
 	/**

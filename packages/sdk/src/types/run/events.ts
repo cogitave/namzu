@@ -168,6 +168,36 @@ type CoreRunEvent =
 			/** Where the full output was written, when it was spilled. */
 			outputSpillPath?: string
 	  }
+	/**
+	 * A tool asked the user a question and the run is parked on it.
+	 *
+	 * The question used to park through the raw handler under a synthetic
+	 * checkpoint id that was never written, so a remote host could not
+	 * observe it at all — the in-process callback was the only channel, and
+	 * a tool review with the same shape had an event, a bridge mapping and
+	 * a durable record. This is that surface, for the other kind of park.
+	 */
+	| {
+			type: 'user_question_asked'
+			runId: RunId
+			checkpointId: CheckpointId
+			/** The asking `tool_use_id`, so an answer can be matched back. */
+			questionId: string
+			question: string
+	  }
+	/**
+	 * The question was resolved.
+	 *
+	 * `answered: false` covers a decline and a non-response. Distinguished
+	 * because the asking tool refuses to invent consent from either, and a
+	 * host rendering the card needs the same distinction.
+	 */
+	| {
+			type: 'user_question_answered'
+			runId: RunId
+			checkpointId: CheckpointId
+			answered: boolean
+	  }
 	| {
 			type: 'tool_review_requested'
 			runId: RunId

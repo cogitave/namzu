@@ -449,6 +449,17 @@ export interface PassthroughBackendConfig {
  *     problem — the host owns the closure, the SDK runtime
  *     doesn't have to forward identity through `provider.create`.
  */
+export {
+	EgressProxy,
+	isHostAllowed,
+	splitAuthority,
+} from './egress/index.js'
+export type {
+	BrokeredCredential,
+	EgressProxyOptions,
+	RunningEgressProxy,
+} from './egress/index.js'
+
 export type EgressPolicy =
 	| { readonly kind: 'deny-all' }
 	| { readonly kind: 'allow-all' }

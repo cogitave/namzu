@@ -8,6 +8,7 @@ import type { AssistantMessage, Message, ToolCall } from '../../types/message/in
 import type { ChatCompletionResponse } from '../../types/provider/index.js'
 import type { Logger } from '../../utils/logger.js'
 import type { PriorToolResults, ToolCallDenials, ToolExecutor } from './executor.js'
+import { PendingAnswers } from './question-park.js'
 
 /**
  * Apply a decision collected out-of-band to the tool calls a run parked on.
@@ -36,6 +37,11 @@ export interface PendingResumePlan {
 	readonly response: ChatCompletionResponse
 	/** Per-call refusals derived from the decision. */
 	readonly denials: ToolCallDenials
+	/**
+	 * Answers to deliver to tools that parked on a question, keyed by the
+	 * asking call's id. Present only on a question resume.
+	 */
+	readonly answers?: PendingAnswers
 }
 
 /**
@@ -57,6 +63,18 @@ export function planPendingResume(
 ): PendingResumePlan | null {
 	const pending = checkpoint.pending
 	if (!pending) return null
+
+	// A question raised INSIDE a tool resumes through the same door. The
+	// checkpoint was written mid-execution, so it holds the assistant turn
+	// with its `tool_use` blocks unanswered — the same shape a tool-review
+	// park leaves — and re-executing that batch is exactly how the asking
+	// tool gets re-entered. The answer reaches it through `PendingAnswers`
+	// rather than through a second question, and siblings that already
+	// finished are answered from the transcript, so re-execution costs
+	// nothing beyond the one tool that was waiting.
+	if (pending.request.type === 'user_question') {
+		return planQuestionResume(checkpoint, decision, pending.request.question.questionId, log)
+	}
 
 	if (pending.request.type !== 'tool_review') {
 		log.info('Pending decision supplied for a park that leaves no tool calls to apply it to', {
@@ -98,6 +116,60 @@ export function planPendingResume(
 		assistant,
 		response: synthesizeResponse(assistant),
 		denials,
+	}
+}
+
+/**
+ * Resume a batch that parked inside a tool asking the user a question.
+ *
+ * The re-entry contract, stated plainly: the batch is re-executed, the
+ * asking tool is re-entered, and the recorded answer is handed to it
+ * instead of a second question. Nothing else in the batch runs twice —
+ * every sibling that already completed is answered from the transcript by
+ * the same recovery the crash path uses.
+ *
+ * This is why the answer must be delivered through the tool rather than
+ * appended as a message: the question was asked BY a tool, its result is
+ * what the model reads, and there is no `tool_result` for that call until
+ * the tool produces one. Skipping the model call and re-running the batch
+ * is what makes the answer land in the slot the model is already waiting
+ * on.
+ */
+function planQuestionResume(
+	checkpoint: IterationCheckpoint,
+	decision: HITLResumeDecision,
+	questionId: string,
+	log: Logger,
+): PendingResumePlan | null {
+	const assistant = lastAssistantWithUnansweredCalls(checkpoint.messages)
+	if (!assistant?.toolCalls || assistant.toolCalls.length === 0) {
+		log.warn('Checkpoint records a question park but has no unanswered tool calls', {
+			checkpointId: checkpoint.id,
+		})
+		return null
+	}
+
+	// The answer must belong to a call that is actually in this turn. A
+	// stale client answering a question from an earlier turn would
+	// otherwise have its answer delivered to whatever tool now holds that
+	// slot — the misdirection the asking tool's own id guard exists to
+	// prevent, checked here too because by then the tool has been entered.
+	if (!assistant.toolCalls.some((tc) => tc.id === questionId)) {
+		log.error('The parked question does not belong to any unanswered call in this turn', {
+			checkpointId: checkpoint.id,
+			questionId,
+		})
+		return null
+	}
+
+	return {
+		checkpointId: checkpoint.id,
+		assistant,
+		response: synthesizeResponse(assistant),
+		// Nothing was refused. A question is not an approval gate: the
+		// answer steers the tool, it does not license it.
+		denials: new Map(),
+		answers: PendingAnswers.from(decision),
 	}
 }
 

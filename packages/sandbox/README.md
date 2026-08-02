@@ -201,3 +201,78 @@ const sandbox = createSandboxProvider({
 // Wire into drainQuery / agent run config:
 //   sandboxProvider: sandbox
 ```
+
+## The egress boundary
+
+An egress policy could be *declared* long before it could be *enforced*.
+Only two of its four shapes were honourable anywhere: this backend refused
+a host allowlist outright because it had nothing to filter through, and
+only the microVM backend forwarded one. `deny-all` and `allow-all` were
+the whole spectrum a container-tier sandbox could express — all or nothing.
+
+`EgressProxy` is the boundary the other two shapes are enforced at. When a
+policy is `static` or `resolver`, the backend starts one on host loopback
+and points the container at it through `HTTP_PROXY` / `HTTPS_PROXY` (both
+spellings, because tooling is split between them and a workload reading
+only the missing one would bypass the boundary while looking like the
+policy worked).
+
+Matching has exactly two forms, and substring is deliberately not one of
+them:
+
+| Entry | Matches |
+| --- | --- |
+| `api.example.com` | that host only |
+| `.example.com` | that domain and any subdomain |
+
+`host.includes(entry)` is the obvious implementation and it is a hole: an
+entry of `example.com` would admit `example.com.attacker.net`, a domain
+the attacker owns. Plain suffix matching has the same hole without the
+leading dot — `notexample.com` ends with `example.com` — which is why the
+wildcard form requires it. Comparison ignores case and a trailing dot,
+because DNS does and an allowlist that did not would be bypassable by
+typing the host differently.
+
+A policy that cannot be read **denies**. An allowlist that fails open is
+not an allowlist.
+
+### Changing the policy while the sandbox runs
+
+`sandbox.setNetworkPolicy({ allowedHosts })` narrows or widens a live
+sandbox. The shape this exists for — "clone with a token, then drop to
+deny-all before running anything the repository contains" — was not
+expressible at all: the policy was frozen at provider construction, so a
+host had to build a second provider and a second sandbox and copy the work
+across.
+
+A backend that cannot enforce it **throws**. A network policy accepted and
+not applied is worse than one never offered: the caller stops looking, and
+the run proceeds believing it is confined.
+
+### Credentials that never enter the sandbox
+
+Any token the agent needed to reach an allowed host had to be inside the
+container, in the environment — readable by the untrusted code it is meant
+to be isolated from, via `/proc/self/environ`, or via a prompt injection
+that exfiltrates it over the very egress the policy permits.
+
+`brokeredCredentials` holds the real value host-side and stamps it on at
+the boundary, scoped per host:
+
+```ts
+brokeredCredentials: [
+  { host: 'api.example.com', header: 'authorization', value: process.env.TOKEN! },
+]
+```
+
+Per host, not globally: a credential attached to every request is a
+credential handed to whichever host the agent was talked into contacting.
+
+One honest limit. A credential **cannot** be injected into a CONNECT
+tunnel — by the time those bytes reach the proxy they are encrypted, and
+reading them would mean terminating TLS with a CA the sandbox trusts, which
+would let the proxy read every byte the agent sends anywhere. That is a
+strictly larger risk than the one being mitigated, so it is not built. A
+workload that needs brokering speaks plain HTTP to the proxy and lets it
+upgrade to HTTPS upstream. The allowlist is still enforced on CONNECT,
+because the target names the host in clear text.

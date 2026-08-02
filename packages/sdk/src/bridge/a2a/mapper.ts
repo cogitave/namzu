@@ -118,6 +118,23 @@ const MAPPING: {
 			},
 		}),
 
+	user_question_asked: (e, ctx) =>
+		statusEvent(e.runId, 'input-required', false, ctx, {
+			role: 'agent',
+			parts: [
+				{ kind: 'text', text: e.question },
+				{
+					kind: 'data',
+					data: { questionId: e.questionId, checkpointId: e.checkpointId },
+					mimeType: 'application/x-namzu-user-question',
+				},
+			],
+		}),
+
+	// The task leaves `input-required` by the next status event it emits;
+	// a second one here would only restate what the resumed run says.
+	user_question_answered: null,
+
 	tool_review_requested: (e, ctx) => {
 		const toolNames = e.toolCalls.map((tc) => tc.name).join(', ')
 		return statusEvent(e.runId, 'input-required', false, ctx, {

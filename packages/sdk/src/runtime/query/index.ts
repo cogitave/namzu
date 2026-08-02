@@ -82,6 +82,7 @@ import { isWorkingMemoryMessage } from './iteration/phases/working-memory.js'
 import { applyLifecycleHookResults } from './plugin-hooks.js'
 import { PromptBuilder } from './prompt.js'
 import type { PromptSegments } from './prompt.js'
+import type { PendingAnswers, QuestionParkBinding } from './question-park.js'
 import { ResultAssembler } from './result.js'
 import {
 	type PendingResumePlan,
@@ -130,6 +131,28 @@ export interface QueryParams {
 	 * run settles.
 	 */
 	emergencySave?: boolean
+
+	/**
+	 * Durability for questions raised from inside a tool.
+	 *
+	 * The tool that asks is built before the run exists, so the binding is
+	 * created by whoever builds the tools and attached here — that is what
+	 * lets one tool instance be durable inside a run and inert outside one.
+	 * Without it, a question park exists only as a suspended `await`: kill
+	 * the process while somebody is looking at the card and the answer can
+	 * never be applied.
+	 */
+	questionParks?: QuestionParkBinding
+
+	/**
+	 * The registry a re-entered `ask_user_question` reads its answer from.
+	 *
+	 * Same shape as {@link questionParks}: the tool is built before the run
+	 * exists, so the instance is created by whoever builds the tools and
+	 * filled here on the resume path. Without it a resumed run re-asks a
+	 * question the user already answered.
+	 */
+	pendingAnswers?: PendingAnswers
 
 	/** Default per-tool execution deadline. See {@link ToolDefinition.timeoutMs}. */
 	toolTimeoutMs?: number
@@ -739,6 +762,61 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		// And every park it records carries an absolute deadline, so an
 		// unanswered approval cannot outlive the worker that asked for it.
 		checkpointMgr.setParkTtl(params.runConfig.hitlParkTtlMs)
+
+		// A question raised from inside a tool becomes a real checkpoint
+		// here. It used to park under a synthetic id nothing ever wrote, so
+		// the checkpoint did not exist: nothing on disk said a human owed
+		// this run an answer, and a remote host could not observe the
+		// question at all.
+		params.questionParks?.bind({
+			record: async (question) => {
+				try {
+					const checkpoint = await checkpointMgr.create(ctx.runMgr, ctx.runMgr.currentIteration)
+					const parked = await checkpointMgr.park(checkpoint, {
+						type: 'user_question',
+						runId: ctx.runMgr.id,
+						checkpointId: checkpoint.id,
+						question,
+					})
+					await eventTranslator.emitEvent({
+						type: 'user_question_asked',
+						runId: ctx.runMgr.id,
+						checkpointId: parked.id,
+						questionId: question.questionId,
+						question: question.question,
+					})
+					return parked.id
+				} catch (err) {
+					// A store that cannot record the park must not take the
+					// tool down with it: the in-process await is still valid
+					// and only the cross-process handoff is lost. Loudly,
+					// because a host building an approval queue from durable
+					// state will not see this question.
+					ctx.log.error('Failed to record a question park — it is not resumable', {
+						runId: ctx.runMgr.id,
+						questionId: question.questionId,
+						error: err instanceof Error ? err.message : String(err),
+					})
+					return null
+				}
+			},
+			resolve: async (checkpointId, decision) => {
+				await checkpointMgr.unpark(checkpointId, decision).catch((err: unknown) => {
+					ctx.log.error('Failed to clear a recorded question park', {
+						runId: ctx.runMgr.id,
+						checkpointId,
+						error: err instanceof Error ? err.message : String(err),
+					})
+					return null
+				})
+				await eventTranslator.emitEvent({
+					type: 'user_question_answered',
+					runId: ctx.runMgr.id,
+					checkpointId,
+					answered: decision.action === 'answer_question',
+				})
+			},
+		})
 		rootSpan.setAttributes({
 			[NAMZU.RUN_ID]: ctx.runMgr.id,
 			[GENAI.AGENT_NAME]: params.agentName,
@@ -1061,6 +1139,16 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 					tools: pendingResume.response.message.toolCalls?.map((tc) => tc.function.name),
 					denied: pendingResume.denials.size,
 				})
+				// Hand the recorded answer to the already-built tool. The tool
+				// closed over its registry when the agent was constructed,
+				// long before this run existed, so the answers are copied in
+				// rather than passed down.
+				if (pendingResume.answers && params.pendingAnswers) {
+					for (const [questionId, answer] of pendingResume.answers.entries()) {
+						params.pendingAnswers.set(questionId, answer)
+					}
+				}
+
 				await applyPendingResume(pendingResume, ctx.runMgr, toolExecutor, recoveredResults)
 				yield* eventTranslator.drainPending()
 
@@ -1156,6 +1244,11 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			// WeakRef'd, settled run as the crash target for the rest of the
 			// process's life.
 			emergencyManager?.detach()
+
+			// Same reasoning for the question channel: the tools outlive the
+			// run that bound them, so leaving it attached would have a later
+			// run's question written into this run's checkpoint store.
+			params.questionParks?.unbind()
 
 			// --- Sandbox lifecycle: destroy after run ---
 			if (sandbox) {

@@ -132,6 +132,25 @@ const MAPPING: {
 		}),
 	},
 
+	user_question_asked: {
+		wire: 'question.asked',
+		transform: (e, runId) => ({
+			run_id: runId,
+			checkpoint_id: e.checkpointId,
+			question_id: e.questionId,
+			question: e.question,
+		}),
+	},
+
+	user_question_answered: {
+		wire: 'question.answered',
+		transform: (e, runId) => ({
+			run_id: runId,
+			checkpoint_id: e.checkpointId,
+			answered: e.answered,
+		}),
+	},
+
 	tool_completed: {
 		wire: 'tool.completed',
 		transform: (e, runId) => ({

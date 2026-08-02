@@ -289,6 +289,21 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				})
 				break
 
+			case 'user_question_asked':
+				log.info('Question asked — the run is parked on an answer', {
+					runId: event.runId,
+					checkpointId: event.checkpointId,
+					questionId: event.questionId,
+				})
+				break
+
+			case 'user_question_answered':
+				log.info(event.answered ? 'Question answered' : 'Question closed unanswered', {
+					runId: event.runId,
+					checkpointId: event.checkpointId,
+				})
+				break
+
 			case 'provider_retry':
 				// `warn`, not debug: this is the run going quiet for a
 				// measurable stretch, and the delay it names is still ahead.
