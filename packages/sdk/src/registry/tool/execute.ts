@@ -43,7 +43,7 @@ const SEARCH_STOP_TOKENS = new Set([
 // Weighted-scoring weights mirroring ToolCatalog.searchTools (the richer,
 // otherwise-unused catalog scorer): exact name 12, name substring 8,
 // description 5 — extended here with argument-name indexing (3), following
-// Anthropic's tool-search practice of searching argument names too.
+// argument names are searched too, not only the tool's own name.
 const SEARCH_WEIGHT_NAME_EXACT = 12
 const SEARCH_WEIGHT_NAME_PARTIAL = 8
 const SEARCH_WEIGHT_DESCRIPTION = 5
@@ -360,7 +360,7 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 
 				// Distinguish "model sent an empty/no-arg call" from
 				// "model sent partial args" — the first is most often a
-				// streaming hiccup or a definition-test ping (Anthropic
+				// streaming hiccup or a definition-test ping (a provider
 				// occasionally pings tool surfaces with `{}` while the
 				// schema is still loading), the second is a genuine
 				// programming mistake by the model. The model self-

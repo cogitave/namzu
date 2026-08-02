@@ -57,7 +57,7 @@ export interface StreamingTurnResult {
  * deltas never hit transcript.jsonl.
  *
  * Edge cases A3, A4, A5:
- * - Stream ends without `finishReason` (anthropic-sdk-typescript#842
+ * - Stream ends without `finishReason` (a known vendor-SDK failure mode
  *   dropped message_stop): we still emit `message_completed` from a
  *   finally-style fall-through path with `stopReason: 'refusal'`.
  * - `tool_input_delta` with no `toolUseId` registered yet: we drop
@@ -132,7 +132,7 @@ export async function* streamProviderTurn(
 		}
 	>()
 	// Reasoning blocks, bucketed by stream index exactly like tool calls.
-	// Order matters on replay — Anthropic wants the assistant turn echoed
+	// Order matters on replay — a provider wants the assistant turn echoed
 	// verbatim — so the map is drained in index order at the end.
 	const reasoningBuckets = new Map<
 		number,
@@ -339,7 +339,7 @@ export async function* streamProviderTurn(
 	// arrived — defensive against providers that don't yet emit it, and
 	// the load-bearing path when the provider stream ends with
 	// `stop_reason: "max_tokens"` mid-`input_json_delta`. In that case
-	// Anthropic's SSE never sends `content_block_stop` for the open
+	// A provider's stream never sends a block-stop for the open
 	// tool_use block: the upstream model ran out of completion tokens
 	// before it could close the JSON literal, so the buffered
 	// `argsBuf` ends with something like `"content":"…some prefix` —

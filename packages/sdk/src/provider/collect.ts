@@ -17,7 +17,7 @@ import type { StreamChunk } from '../types/provider/stream.js'
  * - tool calls are bucketed by `index` into the existing
  *   `Array<{ id, function: { name, arguments } }>` shape;
  * - usage and finishReason fall back to safe defaults when the provider
- *   omits them (defensive — see anthropics/anthropic-sdk-typescript#842
+ *   omits them (defensive — a known vendor-SDK failure mode
  *   where `message_stop` is occasionally dropped on connection close).
  *
  * The orchestrator does NOT call this helper — it consumes the stream

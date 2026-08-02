@@ -219,9 +219,9 @@ export interface ContainerSandboxLayoutMount {
 }
 
 /**
- * Declarative multi-mount taxonomy for a CONTAINER sandbox. Mirrors
- * the layout Anthropic's container architecture exposes to the model
- * (Claude container blueprint, Code Interpreter, "skills"):
+ * Declarative multi-mount taxonomy for a CONTAINER sandbox. A container
+ * needs one place the user will see and several the user will not, and
+ * the difference has to be legible to the model from the path alone:
  *
  *  - `outputs` — RW bind. User-visible output surface that the
  *    user consumes after the run. Default container path
@@ -264,7 +264,7 @@ export interface ContainerSandboxLayout {
 	 * not a child of it: the output collector / output watcher
 	 * scans `outputs` only, so anything the agent writes under
 	 * `scratch` is invisible to the user by construction. Mirrors the
-	 * Anthropic Cowork pattern (`/home/claude` as scratch vs.
+	 * separation between scratch space (invisible to the collector) and
 	 * `/mnt/user-data/outputs` as the user-visible output area).
 	 * Hosts that don't need a separate scratch mount may omit this.
 	 */

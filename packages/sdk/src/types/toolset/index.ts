@@ -1,6 +1,6 @@
 import type { LLMToolSchema, ToolDefinition, ToolPermission } from '../tool/index.js'
 
-export type ToolCatalogSurface = 'chat' | 'cowork' | 'managed-agent' | 'worker' | 'code'
+export type ToolCatalogSurface = 'chat' | 'supervised' | 'managed-agent' | 'worker' | 'code'
 
 export type ToolSourceKind =
 	| 'host_tool'
@@ -32,7 +32,7 @@ export interface ToolSource {
 		readonly beta?: string
 	}
 	readonly skill?: {
-		readonly type: 'anthropic' | 'custom'
+		readonly type: 'published' | 'custom'
 		readonly skillId: string
 		readonly version?: string
 	}

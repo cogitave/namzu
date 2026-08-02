@@ -1,9 +1,9 @@
 /**
  * Synthetic user prompt injected by the iteration loop when a turn
- * ends with `stop_reason: max_tokens` AND no tool_use. Mirrors
- * Claude.ai's "Continue" affordance: the loop pushes this message
- * back into the conversation and fires another iteration, letting
- * the model pick up where it was cut off.
+ * ends with `stop_reason: max_tokens` AND no tool_use. A turn cut off
+ * at the output ceiling is not a finished answer: the loop pushes this
+ * message back into the conversation and fires another iteration,
+ * letting the model pick up where it was cut off.
  *
  * The exact string is the marker used by `resolveResult` (in
  * `manager/run/persistence.ts`) to detect auto-continuation

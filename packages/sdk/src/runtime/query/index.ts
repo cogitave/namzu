@@ -173,7 +173,7 @@ export interface QueryParams {
 	 *
 	 * Narrowing `activeTools` costs a prompt-cache prefix, since tools
 	 * render at position 0 — worth it at a real phase boundary, not every
-	 * step. It does not touch `tool_choice`: Anthropic has no
+	 * step. It does not touch `tool_choice`: not every provider has an
 	 * `allowed_tools`, and moving `tool_choice` invalidates cached MESSAGE
 	 * blocks too, which is a strictly worse trade for the same effect.
 	 *

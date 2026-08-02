@@ -13,7 +13,7 @@ export interface AgentRunConfig {
 	/**
 	 * Extended-thinking request, forwarded on every model call in the run.
 	 *
-	 * Drivers that do not support it ignore the field. Note that Anthropic
+	 * Drivers that do not support it ignore the field. Note that a provider
 	 * rejects temperature/top_p/top_k while thinking is enabled, so the
 	 * driver omits them rather than sending a request it knows will 400.
 	 */

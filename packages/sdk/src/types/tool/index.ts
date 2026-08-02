@@ -14,7 +14,7 @@ export interface ToolRegistryRef {
 /**
  * Tracks which files the agent has read in the current run.
  * Write tool consults this to enforce the "read before overwrite" invariant
- * (Claude Code parity): an existing file must be read first or the write fails.
+ * an existing file must be read first or the write fails.
  * Keys are the resolved path used by the tool — sandbox-relative when a sandbox
  * is active, absolute (`workingDirectory`-resolved) otherwise.
  */

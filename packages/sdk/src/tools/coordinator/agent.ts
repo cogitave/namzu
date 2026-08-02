@@ -8,9 +8,7 @@ import { defineTool } from '../defineTool.js'
 import type { TaskLaunchedCallback } from './index.js'
 
 /**
- * Build the canonical Claude Code `Agent` tool — synchronous subagent
- * delegation that mirrors what Claude is trained against in
- * `code.claude.com/docs/en/sub-agents`.
+ * Build the `Agent` tool — synchronous subagent delegation.
  *
  * Semantics: parent calls `Agent({ description, prompt, subagent_type })`,
  * the runtime spawns the chosen subagent with its own context window,
@@ -23,10 +21,10 @@ import type { TaskLaunchedCallback } from './index.js'
  * `continue_task` / `cancel_task` trio that this package ships
  * alongside it: those are non-blocking and use a `<task-notification>`
  * callback model. The async pattern is useful for hosts that want a
- * work-queue surface, but it is not what Claude Code trained against.
- * For free agentic alignment, prefer the canonical `Agent` tool; keep
- * the legacy coordinator tools only when you genuinely need
- * fire-and-forget multi-task fan-out.
+ * work-queue surface, but it asks the model to track work it cannot
+ * see finish. Prefer the blocking `Agent` tool; keep the legacy
+ * coordinator tools only when you genuinely need fire-and-forget
+ * multi-task fan-out.
  */
 export interface AgentToolOptions {
 	gateway: TaskGateway

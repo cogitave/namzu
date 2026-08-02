@@ -54,7 +54,7 @@ describe('supervisor ledger truthfulness', () => {
 			// A worker that ended with no result is NOT a success even when the
 			// handle reports a terminal 'completed' state — this is the exact
 			// fabrication that made the supervisor claim "3 workers done" with
-			// empty outputs (cowork task 02c5cf2b).
+			// empty outputs (observed in a live supervised run).
 			const results = synthesizeTaskResults(
 				[handle({ state: 'completed', result: undefined })],
 				RUN_ID,

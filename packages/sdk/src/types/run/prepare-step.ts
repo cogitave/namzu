@@ -41,7 +41,7 @@ export interface PrepareStepResult {
 	 * it is worth doing when a phase boundary genuinely changes what the
 	 * agent should reach for — and not worth doing every step.
 	 *
-	 * Note it does NOT touch `tool_choice`. Anthropic has no `allowed_tools`
+	 * Note it does NOT touch `tool_choice`. Not every provider has an `allowed_tools`
 	 * parameter, and moving `tool_choice` invalidates cached MESSAGE blocks
 	 * as well — a strictly worse trade for the same effect.
 	 */

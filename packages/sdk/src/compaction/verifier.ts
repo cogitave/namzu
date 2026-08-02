@@ -63,7 +63,7 @@ export async function buildVerifiedSummary(
 	/**
 	 * The run's model. Required in practice: this used to send `model: ''`,
 	 * which some drivers quietly default and others reject outright — on
-	 * Bedrock the model id IS the endpoint. So compaction's verifier failed
+	 * some backends the model id IS the endpoint. So compaction's verifier failed
 	 * exactly on the providers where a long run most needs it, and the
 	 * failure surfaced as compaction killing the run it exists to save.
 	 */

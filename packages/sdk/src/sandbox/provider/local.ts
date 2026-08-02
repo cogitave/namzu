@@ -82,8 +82,6 @@ function detectEnvironment(): SandboxEnvironment {
  * Resolve a path to its canonical form so seatbelt matches correctly.
  * macOS symlinks like /var → /private/var must be resolved before use
  * in SBPL rules, because the kernel evaluates real paths.
- *
- * Reference: Anthropic sandbox-runtime normalizePathForSandbox()
  */
 function canonicalizePath(p: string): string {
 	try {
@@ -99,7 +97,6 @@ function canonicalizePath(p: string): string {
 /**
  * Build a macOS seatbelt (SBPL) profile for sandbox isolation.
  *
- * Reference: Anthropic sandbox-runtime generateSandboxProfile()
  * Key principle: (deny default) + explicit allows. Network always denied.
  */
 function buildSeatbeltProfile(sandboxRoot: string): string {

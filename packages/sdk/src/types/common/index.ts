@@ -25,7 +25,7 @@ export function accumulateTokenUsage(current: TokenUsage, addition: TokenUsage):
 /**
  * Merge two usage snapshots seen WITHIN a single streamed turn. Provider usage
  * frames over one stream are cumulative/monotonic (input set once early, output
- * grows), but a late frame can OMIT a field (report 0) — e.g. Anthropic's
+ * grows), but a late frame can OMIT a field (report 0) — e.g. a
  * `message_delta` may carry only output tokens. A naive last-write-wins
  * (`usage = chunk.usage`) then drops the earlier prompt/cache counts and
  * under-reports the turn. Taking the per-field high-water mark preserves every
@@ -39,7 +39,7 @@ export function mergeTokenUsage(current: TokenUsage, next: TokenUsage): TokenUsa
 		promptTokens,
 		completionTokens,
 		// `totalTokens` is DERIVED (`input + output`), not independent, so the
-		// per-field high-water mark is wrong for it: Anthropic reports the
+		// per-field high-water mark is wrong for it: a provider reports the
 		// input on `message_start` and the output on `message_delta`, and each
 		// frame's own total covers only the component that frame carried.
 		// Maxing those two totals returns the larger COMPONENT, not the sum —

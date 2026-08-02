@@ -4,7 +4,7 @@ export type CacheHint = 'cache' | 'ephemeral' | 'none'
 
 /**
  * An image attached to a user message (vision input). Additive: providers
- * that support vision (e.g. Anthropic) emit it as an image content block
+ * that support vision emit it as an image content block
  * alongside the text; providers that don't simply ignore it.
  */
 export interface ImageAttachment {
@@ -68,15 +68,16 @@ export interface UserMessage extends BaseMessage {
  * An opaque reasoning block produced by the model.
  *
  * Deliberately opaque: the SDK stores and replays it, never interprets it.
- * Anthropic's contract requires the preceding assistant turn to be echoed
- * back **verbatim** — thinking blocks and their cryptographic `signature`
- * included — whenever a `tool_result` follows. namzu's Anthropic driver
- * *rebuilt* each assistant turn as `[text?, ...tool_use]`, which is exactly
- * the pattern that contract prohibits, and `AssistantMessage` had nowhere
- * to keep a signature even if the driver had parsed one.
+ * A provider whose reasoning blocks are signed requires the preceding
+ * assistant turn to be echoed back **verbatim** — thinking blocks and
+ * their cryptographic `signature` included — whenever a `tool_result`
+ * follows. namzu's drivers *rebuilt* each assistant turn as
+ * `[text?, ...tool_use]`, which is exactly the pattern such a contract
+ * prohibits, and `AssistantMessage` had nowhere to keep a signature
+ * even if a driver had parsed one.
  *
- * OpenAI's Responses API has the same requirement for reasoning items,
- * with a measured multi-step regression when they are dropped.
+ * The requirement is not one vendor's quirk: dropping reasoning items
+ * costs measurable multi-step accuracy wherever they are signed.
  */
 export interface ReasoningBlock {
 	readonly type: 'thinking' | 'redacted_thinking'
@@ -131,8 +132,9 @@ export interface ToolMessage extends BaseMessage {
 	content: ToolResultContent
 	toolCallId: string
 	/**
-	 * Marks the result as a failure on the wire (`is_error` on Anthropic,
-	 * `status: 'error'` on Bedrock Converse).
+	 * Marks the result as a failure on the wire — each provider spells it
+	 * differently (`is_error`, `status: 'error'`), and every driver has
+	 * somewhere to put it.
 	 *
 	 * The executor already computed this and routed it to the SSE bridge,
 	 * the A2A bridge and the TUI — then dropped it at the provider

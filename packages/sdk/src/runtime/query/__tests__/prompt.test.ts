@@ -63,7 +63,7 @@ describe('PromptBuilder runtime context', () => {
 
 	it('includes loaded skill bodies with systemPrompt while preserving the metadata catalogue', () => {
 		const prompt = new PromptBuilder({
-			systemPrompt: 'You are a cowork supervisor.',
+			systemPrompt: 'You are a supervisor.',
 			tools: makeToolRegistry(),
 			skills: [
 				{

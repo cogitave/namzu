@@ -31,7 +31,6 @@ export const DEFAULT_ASSUMED_CONTEXT_WINDOW = 128_000
  * over a shorter one that also prefixes it.
  */
 const WINDOWS: ReadonlyArray<readonly [prefix: string, tokens: number]> = [
-	// Anthropic
 	['claude-fable-5', 200_000],
 	['claude-opus-5', 200_000],
 	['claude-sonnet-5', 200_000],
@@ -43,7 +42,6 @@ const WINDOWS: ReadonlyArray<readonly [prefix: string, tokens: number]> = [
 	['claude-3-5-haiku', 200_000],
 	['claude-3-opus', 200_000],
 	['claude-', 200_000],
-	// OpenAI
 	['gpt-5', 400_000],
 	['gpt-4.1', 1_047_576],
 	['gpt-4o', 128_000],
@@ -52,7 +50,6 @@ const WINDOWS: ReadonlyArray<readonly [prefix: string, tokens: number]> = [
 	['gpt-3.5-turbo', 16_385],
 	['o3', 200_000],
 	['o4-mini', 200_000],
-	// Google
 	['gemini-2.5-pro', 1_048_576],
 	['gemini-2.5-flash', 1_048_576],
 	['gemini-1.5-pro', 2_097_152],
@@ -70,8 +67,8 @@ const SORTED = [...WINDOWS].sort((a, b) => b[0].length - a[0].length)
 
 /**
  * Best-effort context window for a model id, or `undefined` when the id is
- * unrecognised. Bedrock/OpenRouter style prefixes (`us.anthropic.…`,
- * `anthropic/…`) are handled by substring matching rather than a strict
+ * unrecognised. Gateway-qualified ids that prefix or namespace the
+ * model name are handled by substring matching rather than a strict
  * prefix, since the same model ships under several namespaced ids.
  */
 export function lookupContextWindow(model: string | undefined): number | undefined {

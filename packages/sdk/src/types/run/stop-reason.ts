@@ -20,7 +20,7 @@ export type StopReason =
 /**
  * Per-LLM-message stop reason — distinct from the run-level {@link StopReason}.
  *
- * Mirrors the union of Anthropic and OpenAI finish reasons normalised into a
+ * The union of the finish reasons providers report, normalised into a
  * provider-agnostic vocabulary. `forced_finalize` is a Namzu-specific value
  * emitted by the orchestrator when iteration limits force a final response
  * without a model-issued stop reason.

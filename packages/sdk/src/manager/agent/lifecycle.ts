@@ -236,7 +236,7 @@ export class AgentManager {
 		let childConfig: BaseAgentConfig
 		if (definition.configBuilder) {
 			// Call the configBuilder regardless of whether factoryOptions were
-			// supplied. BYO-provider flows (Bedrock IAM, custom ProviderRegistry)
+			// supplied. BYO-provider flows (ambient cloud credentials, a custom registry)
 			// commonly omit factoryOptions because the provider resolves its own
 			// credentials; the builder still needs to run to wire provider+tools.
 			// Defaults: empty factoryOptions when omitted; configOverrides win.

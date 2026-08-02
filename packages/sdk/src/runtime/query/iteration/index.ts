@@ -179,7 +179,7 @@ export class IterationOrchestrator {
 				// supplied no hook.
 				const step = await this.prepareStep(iterationNum)
 
-				const openAITools = this.ctx.tools.toLLMTools(step.allowedTools ?? this.ctx.allowedTools)
+				const llmTools = this.ctx.tools.toLLMTools(step.allowedTools ?? this.ctx.allowedTools)
 				const stepModel = step.model ?? model
 
 				const baseMessages = forceFinalize
@@ -230,8 +230,8 @@ export class IterationOrchestrator {
 					{
 						model: stepModel,
 						messages,
-						tools: openAITools.length > 0 ? openAITools : undefined,
-						toolChoice: forceFinalize && openAITools.length > 0 ? 'none' : undefined,
+						tools: llmTools.length > 0 ? llmTools : undefined,
+						toolChoice: forceFinalize && llmTools.length > 0 ? 'none' : undefined,
 						temperature: step.temperature ?? runConfig.temperature,
 						maxTokens: step.maxResponseTokens ?? runConfig.maxResponseTokens,
 						cacheControl: { type: 'auto' },
@@ -352,11 +352,11 @@ export class IterationOrchestrator {
 					// another turn. The provider receives the partial
 					// assistant content + the continue prompt and
 					// resumes from where it left off, mirroring the
-					// Claude.ai "Continue" affordance.
+					// Auto-continuation after an output-ceiling cutoff.
 					//
 					// Guards:
 					//   - `hasContent` so we don't loop forever on an
-					//     empty cutoff (Anthropic occasionally emits
+					//     empty cutoff (a provider occasionally emits
 					//     `stop_reason: max_tokens` with no content
 					//     when an injected pre-fill blocks the model).
 					//   - `!forceFinalize` so the forced-finalize path

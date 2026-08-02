@@ -245,7 +245,7 @@ export async function runCompactionCheck(
 	// can land BETWEEN an assistant-with-toolCalls (which would be dropped into
 	// `olderMessages`) and its `tool` results (kept in `recentMessages`),
 	// leaving orphaned `tool_result` blocks at the head of the recent window.
-	// The Anthropic provider then emits a `tool_result` with no matching
+	// The provider then emits a `tool_result` with no matching
 	// `tool_use` and the API rejects the next turn with a 400 — so compaction,
 	// whose whole job is to keep a long run alive, instead kills it. Snap the
 	// boundary FORWARD to a safe point (existing `findSafeTrimIndex`, previously

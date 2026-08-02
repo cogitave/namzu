@@ -71,8 +71,8 @@ export interface AgentRuntimeContext {
 	/**
 	 * Optional working/scratch directory the runtime exposes to the
 	 * agent — sibling to `outputDirectory`, invisible to the
-	 * output collector. Mirrors the Anthropic Cowork pattern
-	 * where `/home/claude` is scratch and `/mnt/user-data/outputs` is
+	 * output collector. Follows the same separation as the container layout
+	 * where the scratch bind is invisible and `/mnt/user-data/outputs` is
 	 * user-visible.
 	 */
 	scratchDirectory?: string

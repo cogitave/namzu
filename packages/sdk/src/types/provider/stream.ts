@@ -15,9 +15,9 @@ export interface StreamChunk {
 		}>
 		/**
 		 * Provider signal that a tool-use content block has finished
-		 * streaming arguments. Translates from Anthropic's
-		 * `content_block_stop` (for tool_use blocks) and from the
-		 * equivalent end-of-tool-arguments boundary on other providers.
+		 * streaming arguments. Translates from whatever a provider uses to
+		 * close a tool-use block, and from the equivalent
+		 * end-of-tool-arguments boundary elsewhere.
 		 *
 		 * The orchestrator uses this to emit `tool_input_completed` per
 		 * tool as soon as its block closes, rather than waiting for

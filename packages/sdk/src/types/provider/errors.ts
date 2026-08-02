@@ -119,7 +119,7 @@ function readStatus(err: unknown): number | undefined {
 
 /**
  * `Retry-After` is either delta-seconds or an HTTP date. Both appear in
- * the wild; Anthropic and OpenAI send seconds.
+ * the wild; most providers send seconds.
  */
 function readRetryAfterMs(err: unknown, now: number): number | undefined {
 	const headers = (err as { headers?: unknown } | null)?.headers
@@ -187,7 +187,7 @@ function codeFromStatus(status: number): ProviderErrorCode {
 /**
  * Message sniffing is the LAST resort, used only when there is no status
  * and no errno. Vendors that tunnel a 400 through a 200 body (several
- * OpenAI-compatible gateways do) are only reachable this way.
+ * gateways do) are only reachable this way.
  */
 function codeFromMessage(message: string): ProviderErrorCode | undefined {
 	const m = message.toLowerCase()

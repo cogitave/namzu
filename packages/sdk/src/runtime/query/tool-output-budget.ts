@@ -55,7 +55,7 @@ export interface ApplyToolOutputBudgetOptions {
  * Spilling beats truncating on every axis that matters: nothing is lost,
  * tokens are paid only if the agent decides the rest is worth re-reading,
  * and retrieval uses `read`/`grep` — tools it already has — rather than a
- * new affordance. Anthropic's managed agents do the same thing above 100k
+ * new affordance. A hosted agent runtime does the same thing above 100k
  * characters. Middle-elision is the fallback for a run with no directory
  * to write to.
  *

@@ -32,7 +32,7 @@ import { AbstractAgent } from './AbstractAgent.js'
  * The earlier implementation cast `handle.state` onto the synthesized result's
  * status, letting a worker that ended without a result count toward
  * `completedTasks`. That produced fabricated "done" workers with empty outputs
- * (cowork task 02c5cf2b): the supervisor reported "3 workers done, 40KB
+ * (observed in a live supervised run): the supervisor reported "3 workers done, 40KB
  * reports" when the workers never started. Real workers (those with a present
  * `result`) are unaffected — their `result` is preserved verbatim.
  */

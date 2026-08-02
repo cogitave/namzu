@@ -15,8 +15,8 @@ export interface AgentDefinition {
 
 export interface AgentFactoryOptions {
 	/**
-	 * API key for providers that authenticate via key (OpenAI, Anthropic,
-	 * OpenRouter). Optional because BYO-provider flows (Bedrock IAM, custom
+	 * API key for providers that authenticate via a key. Optional because
+	 * BYO-provider flows (ambient cloud credentials, a custom
 	 * `ProviderRegistry.create(...)`) resolve credentials outside this object.
 	 * `configBuilder` implementations should treat an absent `apiKey` as the
 	 * BYO signal and use the provider passed via the agent config instead.

@@ -55,7 +55,7 @@ export interface ChatCompletionParams {
 	 * Extended-thinking request.
 	 *
 	 * Absent from this struct entirely before, and `buildCreateParams`
-	 * assembles the Anthropic body key-by-key with no passthrough, so
+	 * assembles the request body key-by-key with no passthrough, so
 	 * thinking could not be *requested* — while on models where it is on by
 	 * default the runtime received blocks it then discarded. Neither half
 	 * was expressible.

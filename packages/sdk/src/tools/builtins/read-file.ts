@@ -137,8 +137,7 @@ function buildStructuredBinaryGuidance(path: string, format: string, extractor: 
  * Lines returned when the caller specifies no window.
  *
  * Chosen to cover the overwhelming majority of source files whole while
- * bounding the pathological case. Claude Code uses 2000 for the same
- * reason.
+ * bounding the pathological case.
  */
 const DEFAULT_READ_LINES = 2000
 

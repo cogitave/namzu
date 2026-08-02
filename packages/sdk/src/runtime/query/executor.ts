@@ -667,7 +667,7 @@ export class ToolExecutor {
 	 *
 	 * A timeout is reported as a normal failed result, not a throw: the
 	 * model sees "this timed out" as a `tool_result` and can route around
-	 * it, which is what Pydantic AI and the OpenAI Agents SDK both do.
+	 * it. A throw would end the run over one slow tool.
 	 */
 	private async executeWithDeadline(
 		toolName: string,

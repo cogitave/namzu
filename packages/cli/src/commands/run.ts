@@ -1,7 +1,7 @@
 /**
  * `namzu run "<prompt>"` — headless one-shot. Runs a single prompt through
  * the same agent the TUI uses and prints the reply to stdout, for scripts
- * and CI (the equivalent of claude-code's `--print`). The prompt comes from
+ * and CI. The prompt comes from
  * the arguments, or from stdin when piped. Status lines go to stderr (info,
  * suppressed by `--quiet`); only the answer hits stdout.
  *
