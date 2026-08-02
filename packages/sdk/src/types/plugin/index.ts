@@ -117,6 +117,15 @@ export interface PluginHookContext {
 	readonly toolInput?: unknown
 	readonly toolResult?: ToolResult
 	readonly iteration?: number
+	/**
+	 * Aborts when this hook's deadline expires.
+	 *
+	 * The runtime stops waiting on a slow hook either way, but without a
+	 * signal the hook itself never learns it was abandoned: an HTTP request
+	 * inside it keeps a socket open and its eventual result is written into
+	 * a run that moved on without it. A hook doing I/O should forward this.
+	 */
+	readonly signal?: AbortSignal
 }
 
 export type PluginHookResult =
@@ -147,6 +156,22 @@ export function assertPluginHookResult(result: PluginHookResult): asserts result
 export interface PluginHookDefinition {
 	readonly event: PluginHookEvent
 	readonly handler: (context: PluginHookContext) => Promise<PluginHookResult>
+	/**
+	 * Lower runs first. Default 100.
+	 *
+	 * Order was install order, which is neither declared nor stable — it
+	 * depends on when each plugin happened to be installed. That is fine
+	 * for hooks that only observe, and wrong for the ones that decide:
+	 * `executeHooks` SHORT-CIRCUITS on `skip` and `error`, so a hook that
+	 * denies a dangerous command only gets to deny it if it runs before
+	 * whatever else stops the chain. A guard that fires depending on
+	 * installation history is not a guard.
+	 *
+	 * Ties keep registration order, so plugins that never set a priority
+	 * behave exactly as before. Convention: guards below 100, observers
+	 * above.
+	 */
+	readonly priority?: number
 }
 
 // ---------------------------------------------------------------------------

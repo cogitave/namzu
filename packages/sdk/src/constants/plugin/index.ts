@@ -22,4 +22,13 @@ export const MAX_PERSONAS_PER_PLUGIN = 5
 
 /** Hook execution */
 export const HOOK_TIMEOUT_MS = 5_000
+
+/**
+ * Priority a hook gets when it does not declare one.
+ *
+ * Mid-scale on purpose: a guard can sort itself decisively ahead of every
+ * existing hook without having to know what they chose, and an observer
+ * can sort itself after.
+ */
+export const DEFAULT_HOOK_PRIORITY = 100
 export const HOOK_MAX_CONCURRENT = 10

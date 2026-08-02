@@ -237,10 +237,16 @@ describe('ToolExecutor plugin hooks', () => {
 			toolRegistry: {} as any,
 			log: makeLogger(),
 		})
-		realManager['hookHandlers'].set('pre_tool_use', [
-			{ pluginId: 'p1' as any, handler: handlers[0] as any },
-			{ pluginId: 'p2' as any, handler: handlers[1] as any },
-		])
+		// Through the real registration path, so the entries are the ones
+		// dispatch actually receives.
+		realManager.registerHook('p1' as any, {
+			event: 'pre_tool_use',
+			handler: handlers[0] as any,
+		})
+		realManager.registerHook('p2' as any, {
+			event: 'pre_tool_use',
+			handler: handlers[1] as any,
+		})
 
 		const exec = new ToolExecutor(
 			{
@@ -277,22 +283,20 @@ describe('ToolExecutor plugin hooks', () => {
 			log: makeLogger(),
 		})
 		const seenInputs: unknown[] = []
-		realManager['hookHandlers'].set('pre_tool_use', [
-			{
-				pluginId: 'p1' as any,
-				handler: (async (ctx: any) => {
-					seenInputs.push(['hook1', ctx.toolInput])
-					return { action: 'modify', input: { patched: true } }
-				}) as any,
-			},
-			{
-				pluginId: 'p2' as any,
-				handler: (async (ctx: any) => {
-					seenInputs.push(['hook2', ctx.toolInput])
-					return { action: 'skip', reason: 'after patch' }
-				}) as any,
-			},
-		])
+		realManager.registerHook('p1' as any, {
+			event: 'pre_tool_use',
+			handler: (async (ctx: any) => {
+				seenInputs.push(['hook1', ctx.toolInput])
+				return { action: 'modify', input: { patched: true } }
+			}) as any,
+		})
+		realManager.registerHook('p2' as any, {
+			event: 'pre_tool_use',
+			handler: (async (ctx: any) => {
+				seenInputs.push(['hook2', ctx.toolInput])
+				return { action: 'skip', reason: 'after patch' }
+			}) as any,
+		})
 
 		const exec = new ToolExecutor(
 			{
