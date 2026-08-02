@@ -71,16 +71,35 @@ Every backend accepts the same `EgressPolicy` shape, but they do **not**
 all enforce every variant, and a backend that cannot enforce one now
 throws instead of quietly ignoring it:
 
-| Backend | `deny-all` | `allow-all` | `static` / `resolver` |
-|---|---|---|---|
-| `container:docker` | enforced (`--network none`) | enforced | **throws** — no proxy to filter through |
-| `microvm:firecracker` | enforced | enforced | enforced (host-materialised allowlist) |
+| Backend | `deny-all` | `allow-all` | `static` | `resolver` |
+|---|---|---|---|---|
+| `container:docker` | enforced (`--network none`) | enforced | **throws** — no proxy to filter through | **throws** |
+| `container:standby-pool` | **throws** | **throws** | **throws** | **throws** |
+| `microvm:firecracker` | enforced (empty allowlist) | enforced (no allowlist) | enforced | enforced — `resolve()` is called and its result forwarded |
 
-The docker row is the important one. It used to accept a restrictive
-policy and silently grant the configured network, which is worse than not
-supporting the feature: the host believes it is protected and stops
-looking. Refusing loudly is the only honest option for a control the
-backend cannot implement.
+Two rows carry the same lesson from opposite directions.
+
+The docker row used to accept a restrictive policy and silently grant the
+configured network, which is worse than not supporting the feature: the
+host believes it is protected and stops looking. Refusing loudly is the
+only honest option for a control the backend cannot implement.
+
+The standby-pool row is the same failure found later. Its claim API rejects
+every property override except a config map, so a memory cap, a process
+cap, environment variables and an egress policy have nowhere to ride
+through — and all four were accepted and dropped. Set them on the container
+group profile the pool is built from; the backend now refuses them per
+sandbox rather than pretending.
+
+The firecracker `resolver` column is a third variant of it. `allow-all` and
+`resolver` both used to encode as an omitted allowlist, so one encoding
+carried two opposite intentions and the callback that produces the
+tenant-scoped list was never called anywhere. Whichever way the
+orchestrator reads an omitted field, one of the two was always
+mis-enforced — and the one that failed **open** was the one whose entire
+purpose is restriction. Each variant now has its own encoding: `allow-all`
+omits, `deny-all` sends an explicitly empty list, `resolver` sends what
+`resolve()` returned.
 
 The shape itself:
 

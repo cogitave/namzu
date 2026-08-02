@@ -308,15 +308,17 @@ async function spawnFirecrackerSandbox(
 	options: SandboxBackendOptions,
 ): Promise<Sandbox> {
 	const endpoint = config.orchestratorEndpoint
+	const egressAllowlist = await resolveEgressAllowlist(options)
 	const createBody: OrchestratorCreateRequest = {
 		...(config.template !== undefined ? { template: config.template } : {}),
 		...(config.agentSnapshot !== undefined ? { agentSnapshot: config.agentSnapshot } : {}),
 		...(options.memoryLimitMb !== undefined ? { memoryLimitMb: options.memoryLimitMb } : {}),
 		...(options.maxProcesses !== undefined ? { maxProcesses: options.maxProcesses } : {}),
 		...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
-		...(resolveEgressAllowlist(options) !== undefined
-			? { egressAllowlist: resolveEgressAllowlist(options) }
-			: {}),
+		// Resolved once. It used to be called twice — harmless for the pure
+		// kinds, and once the resolver variant actually runs its callback,
+		// twice means two round-trips and two chances to disagree.
+		...(egressAllowlist !== undefined ? { egressAllowlist } : {}),
 	}
 
 	let created: OrchestratorCreateResponse | undefined
@@ -463,17 +465,53 @@ async function spawnFirecrackerSandbox(
 // Helpers
 // ---------------------------------------------------------------------------
 
-function resolveEgressAllowlist(options: SandboxBackendOptions): readonly string[] | undefined {
+/**
+ * Materialise an egress policy into the allowlist the orchestrator turns
+ * into firewall rules.
+ *
+ * Omitting the field means "no allowlist to apply", which the orchestrator
+ * reads as unrestricted. That makes omission the encoding for `allow-all`
+ * and ONLY for `allow-all`.
+ *
+ * `resolver` used to be omitted too, so two opposite intentions shared one
+ * encoding and the tenant-scoped allowlist the variant exists for was
+ * silently absent — with the callback that would have produced it never
+ * called anywhere in the repo. Whichever way the orchestrator reads an
+ * omitted field, one of the two variants was always mis-enforced, and the
+ * one that failed open was the one whose entire purpose is restriction.
+ *
+ * The switch is exhaustive on purpose: a new variant should fail to
+ * compile here rather than fall through to "unrestricted".
+ */
+export async function resolveEgressAllowlist(
+	options: SandboxBackendOptions,
+): Promise<readonly string[] | undefined> {
 	const egress = options.egress
 	if (!egress) return undefined
-	if (egress.kind === 'static') return egress.allowedHosts
-	// `deny-all` → empty allowlist (explicit). `allow-all` / `resolver`
-	// are resolved by the host before create when they apply; the
-	// backend forwards only the static, already-resolved shape. A
-	// resolver-shaped policy is the Vandal lifecycle's job to resolve
-	// upstream and pass as `static`.
-	if (egress.kind === 'deny-all') return []
-	return undefined
+
+	switch (egress.kind) {
+		case 'allow-all':
+			// The one intent omission is allowed to mean.
+			return undefined
+		case 'deny-all':
+			// Explicitly empty, not absent.
+			return []
+		case 'static':
+			return egress.allowedHosts
+		case 'resolver': {
+			// The callback exists to produce this list. Calling it is the
+			// whole feature; an empty result is a real deny-all and travels
+			// as one rather than collapsing back to omission.
+			const resolved = await egress.resolve()
+			return resolved
+		}
+		default: {
+			const exhaustive: never = egress
+			throw new Error(
+				`Unhandled egress policy kind: ${JSON.stringify(exhaustive)}. Refusing rather than defaulting to unrestricted network access.`,
+			)
+		}
+	}
 }
 
 /**

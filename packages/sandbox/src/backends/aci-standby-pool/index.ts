@@ -295,10 +295,51 @@ interface ArmContainerGroup {
 	}
 }
 
+/**
+ * Per-sandbox controls this backend cannot express, and must therefore
+ * refuse rather than accept.
+ *
+ * The claim API rejects every property override that is not a config map
+ * (see the note in `spawnAciSandbox`), so a memory cap, a process cap,
+ * environment variables and an egress policy have nowhere to ride through.
+ * They were accepted and dropped: a host that asked for `deny-all` and
+ * 512 MB got full outbound network and no cap, with no error and no
+ * warning — from the same call shape that IS enforced on the sibling
+ * container backend. Switching backends silently removed the
+ * blast-radius controls, which is the worst way to lose them.
+ *
+ * Refusing is the honest fix rather than a missing feature: the limits are
+ * a property of the pooled profile, so the answer is to configure them
+ * there, not to pretend they can be set per claim.
+ */
+const UNSUPPORTED_PER_SANDBOX_CONTROLS = [
+	['egress', 'network egress policy'],
+	['memoryLimitMb', 'memory limit'],
+	['maxProcesses', 'process limit'],
+	['env', 'environment variables'],
+] as const
+
+export function assertEnforceable(options: SandboxBackendOptions): void {
+	const unenforceable = UNSUPPORTED_PER_SANDBOX_CONTROLS.filter(([key]) => {
+		const value = options[key]
+		return value !== undefined && (key !== 'env' || Object.keys(value).length > 0)
+	})
+	if (unenforceable.length === 0) return
+
+	throw new Error(
+		`The standby-pool sandbox backend cannot enforce per-sandbox ${unenforceable
+			.map(([, label]) => label)
+			.join(
+				', ',
+			)}: the pool's claim API rejects every property override except a config map, so these would be accepted and silently dropped. Set them on the container group profile the pool is built from, or use a backend that applies them per sandbox. Refusing rather than silently granting more than was asked for.`,
+	)
+}
+
 async function spawnAciSandbox(
 	config: ACIStandbyPoolBackendInternalConfig,
-	_options: SandboxBackendOptions,
+	options: SandboxBackendOptions,
 ): Promise<Sandbox> {
+	assertEnforceable(options)
 	const id = generateSandboxId()
 	const prefix = config.containerNamePrefix ?? DEFAULT_CONTAINER_NAME_PREFIX
 	const cgName = `${prefix}-${id
