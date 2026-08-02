@@ -1,7 +1,7 @@
 /**
  * Trust-folder gate, shown on launch when the working directory hasn't
  * been trusted before. namzu can read, run commands in, and edit files in
- * this folder, so the user confirms first (Claude-Code style). The parent
+ * this folder, so the user confirms first. The parent
  * (App) owns the keypress handling; this component is presentational.
  */
 

@@ -107,7 +107,7 @@ describe('prepareStep shapes each step', () => {
 	})
 
 	it('does NOT touch tool_choice', async () => {
-		// Anthropic has no `allowed_tools`, and moving `tool_choice`
+		// No wire format has an `allowed_tools` parameter, and moving `tool_choice`
 		// invalidates cached MESSAGE blocks too — a strictly worse trade for
 		// the same effect.
 		const { provider } = await run({

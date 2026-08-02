@@ -12,7 +12,7 @@ import { mergeTokenUsage } from '../index.js'
 
 describe('mergeTokenUsage — totalTokens is derived, not independent', () => {
 	it('does not lose the completion tokens Anthropic reports in a later frame', () => {
-		// Anthropic reports the input on `message_start` and the output on
+		// A driver reports the input on `message_start` and the output on
 		// `message_delta`. The driver derives each frame's own total as
 		// input+output, so the two frames carry 1200 and 350 — and a max of
 		// those returns the larger COMPONENT, not the sum.

@@ -11,7 +11,7 @@
  *   `arguments` fragments for that index.
  * - Latest-wins for `finishReason` and `usage`; defaults
  *   `finishReason: 'stop'` and zero usage if the provider omits them
- *   (defensive — see anthropics/anthropic-sdk-typescript#842).
+ *   (defensive — a vendor SDK has shipped this shape before).
  * - Throws if any chunk surfaces a `chunk.error`.
  *
  * Phase 2 swaps every internal `provider.chat()` call site for

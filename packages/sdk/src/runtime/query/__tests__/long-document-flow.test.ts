@@ -23,7 +23,7 @@ interface ToolStep {
  *
  * This replaces a hand-rolled provider that never emitted `toolCallEnd`
  * and relied on end-of-stream inference to close each tool block. The
- * mock emits that boundary the way a real driver does (Anthropic's
+ * mock emits that boundary the way a real driver does (the
  * `content_block_stop`), so the collapse raises fidelity rather than
  * merely removing code.
  */

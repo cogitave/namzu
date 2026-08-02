@@ -192,7 +192,7 @@ describe('Layer-B compaction seam (ses_055 #104)', () => {
 		// (index 4) but BEFORE... no — exactly ON its tool result (index 5), which
 		// a naive slice would keep in the recent window while dropping the
 		// assistant into the summarized older set → an orphaned tool_result at the
-		// head of the recent window → Anthropic 400. The fix snaps keepStart
+		// head of the recent window → a 400 from the wire. The fix snaps keepStart
 		// forward past the complete pair.
 		const toolCall = {
 			id: 't1',

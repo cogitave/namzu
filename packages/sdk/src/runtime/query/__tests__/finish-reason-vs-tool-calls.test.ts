@@ -13,7 +13,7 @@ import { drainQuery } from '../index.js'
 
 /**
  * The turn ended on `finishReason === 'stop'` before it looked at whether
- * the model had asked for tools. Endpoints on the OpenAI wire shape —
+ * the model had asked for tools. Endpoints on the function-calling wire shape —
  * gateways and local servers especially — routinely report `stop` on the
  * same response that carries a populated `tool_calls`, and three of this
  * repo's drivers passed that value through untouched.

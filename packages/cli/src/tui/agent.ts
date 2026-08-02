@@ -195,14 +195,18 @@ async function ensureRegistered(id: ProviderId): Promise<void> {
 const EXCLUDED_BUILTINS = new Set(['verify_outputs'])
 
 // namzu's own identity. Injected as system context so the agent presents as
-// namzu — not Claude/Claude Code — even on the Anthropic OAuth path, which
-// requires a "You are Claude Code" prefix block for the token to authorize.
+// namzu, and nothing else, whatever identity the credential path needs
+// on the wire. Some OAuth token types require a fixed prefix block before
+// they will authorize; that requirement lives in the credential layer and
+// is invisible from here, which is where it belongs — an identity a token
+// demands is not an identity the agent has.
 const NAMZU_IDENTITY = [
 	"You are namzu, an AI coding agent that runs in the user's terminal via the namzu CLI.",
 	'You are built on the @namzu/sdk and act through tools (bash, read, write, edit, glob, grep).',
-	'Your name is namzu. When asked who or what you are, identify yourself as namzu —',
-	'not Claude or Claude Code — even though you may be powered by an underlying model',
-	'from Anthropic or another provider.',
+	'Your name is namzu. When asked who or what you are, identify yourself as namzu.',
+	'You may be powered by an underlying model from any provider; that model is an',
+	'implementation detail of how you run, not who you are. Never present yourself as',
+	'the model, as the assistant product that model ships under, or as any other agent.',
 	'',
 	'CRITICAL — never fabricate. Only claim to have done something if you actually did it through a tool call in THIS turn:',
 	'- Never say you ran a command, wrote/edited a file, delegated to a sub-agent, or researched something unless the corresponding tool call actually ran and returned.',
@@ -254,10 +258,10 @@ export async function createAgentSession(
 			`Failed to construct ${entry.label}: ${err instanceof Error ? err.message : String(err)}`,
 		)
 	}
-	// Claude Code OAuth access tokens are short-lived (~8h). They rarely lapse
+	// OAuth access tokens on this path are short-lived (~8h). They rarely lapse
 	// *during* a turn, but they do between turns — an idle session that sends
 	// again hours later would otherwise 401. So before each turn (see `send`)
-	// we re-read the Keychain (Claude Code may have rotated it) and refresh a
+	// we re-read the keychain (another process may have rotated it) and refresh a
 	// stale token, rebuilding the client only when the token actually changed.
 	// Gated on `det.oauth` so env / secrets credentials are never touched.
 	const keychainRefresh = prefs.provider === 'anthropic' && Boolean(det?.oauth)
@@ -354,7 +358,7 @@ export async function createAgentSession(
 			// tokens and non-keychain credentials).
 			await refreshTokenIfNeeded()
 			// namzu identity first (so it establishes who the agent is even when
-			// the Anthropic OAuth path prepends the required Claude Code prefix),
+			// the credential layer prepends whatever prefix its token requires),
 			// then memory read fresh each turn, then per-turn extra (active skills).
 			const memoryPrompt = composeMemoryPrompt(readMemory())
 			const systemPrompt =
@@ -427,7 +431,7 @@ function constructProvider(
 
 /**
  * Best-effort live model list for a detected provider, for host-UI pickers (the
- * desktop Namzu tab). Instantiates the provider (only anthropic/openai/
+ * desktop Namzu tab). Instantiates the provider (only the drivers that
  * openrouter/ollama are wired in constructProvider — others throw) and calls
  * its optional listModels(). Returns [] on any failure so a picker degrades to
  * free-text + the provider's defaultModel. Wrapped in a 3s race so a wedged

@@ -10,7 +10,7 @@ import { streamProviderTurn } from '../iteration/stream-turn.js'
 /**
  * Reasoning had no channel at all: `StreamChunk.delta` carried only
  * `content` / `toolCalls`, so `thinking_delta` and `signature_delta` fell
- * through the Anthropic driver's `default: // ignore` and the blocks could
+ * through the driver's `default: // ignore` and the blocks could
  * not be stored even in principle. Two consequences — the verbatim-echo
  * contract was unsatisfiable, and a streaming UI showed a multi-second
  * stall with zero events while the model was demonstrably working.

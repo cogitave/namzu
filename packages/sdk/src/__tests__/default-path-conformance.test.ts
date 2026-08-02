@@ -161,7 +161,7 @@ async function drain(o: IterationOrchestrator) {
 /**
  * The only question that matters: could the next provider request be sent?
  *
- * An unanswered `tool_use` is a protocol violation — Anthropic replies
+ * An unanswered `tool_use` is a protocol violation — the wire replies
  * `400 messages.N: Did not find 1 tool_result block(s)` — and with no
  * provider retry that ends the run.
  */

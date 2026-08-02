@@ -330,7 +330,7 @@ export class IterationOrchestrator {
 				// Tool calls beat the finish reason. The reason is the
 				// provider's SUMMARY of the turn and the tool calls are the
 				// turn itself, so when they disagree the calls are the fact.
-				// Several OpenAI-shaped endpoints — gateways and local servers
+				// Several function-calling endpoints — gateways and local servers
 				// especially — report `stop` alongside a populated
 				// `tool_calls`, and three of this repo's drivers pass that
 				// value through untouched.

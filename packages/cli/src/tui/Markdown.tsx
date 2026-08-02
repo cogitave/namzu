@@ -1,7 +1,8 @@
 /**
  * Renders parsed markdown blocks into Ink elements — the way assistant
  * replies are shown (code blocks, inline code, bold/italic, headings,
- * lists), modelled on how Claude Code / gemini-cli present text.
+ * lists). Only the constructs a terminal can render faithfully: a
+ * half-rendered table is harder to read than the source it came from.
  *
  * Stylistic choices:
  *  - code blocks: a dim left rule + code-colored lines (no syntax
