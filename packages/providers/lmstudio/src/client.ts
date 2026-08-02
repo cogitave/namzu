@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { LMStudioClient } from '@lmstudio/sdk'
+import { toolResultToText } from '@namzu/sdk'
 import type {
 	ChatCompletionParams,
 	ChatCompletionResponse,
@@ -54,9 +55,14 @@ function toLMStudioChat(
 	messages: ChatCompletionParams['messages'],
 ): Array<{ role: LMStudioRole; content: string }> {
 	return messages.map((m) => {
-		const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content ?? '')
+		// `toolResultToText` rather than `JSON.stringify`: stringifying a
+		// content-block array dumps an image's base64 payload into the
+		// prompt as JSON text — unreadable to the model and ruinous in
+		// tokens. The helper names the block and its size instead.
+		const content = typeof m.content === 'string' ? m.content : toolResultToText(m.content ?? '')
 		const role: LMStudioRole = m.role === 'system' || m.role === 'assistant' ? m.role : 'user'
-		// Tool messages aren't first-class in the LMStudio chat API; fold as user content with a marker.
+		// Tool messages aren't first-class in this chat API; fold them into
+		// user content behind a marker.
 		if (m.role === 'tool') {
 			return { role: 'user', content: `[tool-result] ${content}` }
 		}

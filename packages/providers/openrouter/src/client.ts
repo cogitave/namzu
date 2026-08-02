@@ -7,6 +7,7 @@ import type {
 	TokenUsage,
 	ToolChoice,
 } from '@namzu/sdk'
+import { toolResultToText } from '@namzu/sdk'
 import type { OpenRouterConfig } from './types.js'
 
 const OPENROUTER_BASE_URL = process.env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api/v1'
@@ -95,7 +96,12 @@ export class OpenRouterProvider implements LLMProvider {
 			if (msg.role === 'tool') {
 				return {
 					role: 'tool',
-					content: msg.content,
+					// Tool messages are text-only on this wire, so a content
+					// block array has to be flattened. Passing it through raw
+					// sent a malformed body; the helper degrades a non-text
+					// block to an honest placeholder naming its type and size
+					// instead of dumping base64 the model cannot decode.
+					content: toolResultToText(msg.content),
 					tool_call_id: (msg as { toolCallId?: string }).toolCallId,
 				}
 			}

@@ -8,6 +8,7 @@ import type {
 	TokenUsage,
 	ToolChoice,
 } from '@namzu/sdk'
+import { toolResultToText } from '@namzu/sdk'
 import { DialectMismatchError, type HttpConfig, type HttpDialect } from './types.js'
 
 const DEFAULT_TIMEOUT_MS = 60_000
@@ -106,7 +107,10 @@ function formatOpenAIMessages(messages: ChatCompletionParams['messages']): unkno
 		if (msg.role === 'tool') {
 			return {
 				role: 'tool',
-				content: msg.content,
+				// Text-only on this wire: flatten rather than pass an array
+				// through, and name a non-text block instead of dumping
+				// base64 the model cannot decode.
+				content: toolResultToText(msg.content),
 				tool_call_id: (msg as { toolCallId?: string }).toolCallId,
 			}
 		}
@@ -203,12 +207,20 @@ function formatAnthropicRequest(
 		}
 
 		if (msg.role === 'tool') {
-			const toolMsg = msg as { toolCallId?: string; content?: string }
+			const toolMsg = msg as {
+				toolCallId?: string
+				content: Parameters<typeof toolResultToText>[0]
+			}
 			pendingToolResults.push({
 				type: 'tool_result',
 				tool_use_id: toolMsg.toolCallId ?? 'unknown',
-				content:
-					typeof toolMsg.content === 'string' ? toolMsg.content : JSON.stringify(toolMsg.content),
+				// Flatten rather than `JSON.stringify`: stringifying a block
+				// array dumps an image's base64 payload into the prompt as
+				// JSON text, which the model cannot decode and which costs a
+				// fortune in tokens. This driver targets arbitrary endpoints
+				// speaking the dialect, so it cannot assume native image
+				// support the way a first-party driver can.
+				content: toolResultToText(toolMsg.content),
 			})
 			continue
 		}

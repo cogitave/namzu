@@ -8,6 +8,7 @@ import type {
 	ContentBlock,
 	ConversationRole,
 	ConverseStreamOutput,
+	ImageFormat,
 	SystemContentBlock,
 	Tool,
 	ToolConfiguration,
@@ -23,6 +24,7 @@ import type {
 	TokenUsage,
 	ToolChoice,
 } from '@namzu/sdk'
+import { toolResultToText } from '@namzu/sdk'
 import type { BedrockConfig } from './types.js'
 
 function extractSystemBlocks(messages: ChatCompletionParams['messages']): SystemContentBlock[] {
@@ -33,6 +35,55 @@ function extractSystemBlocks(messages: ChatCompletionParams['messages']): System
 
 function toBedrockRole(role: string): ConversationRole {
 	return role === 'assistant' ? 'assistant' : 'user'
+}
+
+/** Image media types this wire format accepts, mapped to its format name. */
+const IMAGE_FORMATS: Readonly<Record<string, ImageFormat>> = {
+	'image/png': 'png',
+	'image/jpeg': 'jpeg',
+	'image/gif': 'gif',
+	'image/webp': 'webp',
+}
+
+/**
+ * Turn a tool result into content blocks this wire format understands.
+ *
+ * Converse carries images natively, so an image block goes through as an
+ * image rather than a placeholder — a downgrade the other drivers accept
+ * only because their wire is text-only. Before this the whole content was
+ * `JSON.stringify`d, which dumped a screenshot's base64 payload into the
+ * prompt as JSON text: unreadable to the model and ruinous in tokens.
+ *
+ * A media type Converse does not accept still degrades to a named
+ * placeholder rather than being smuggled through as text.
+ */
+export function toToolResultBlocks(content: unknown): ToolResultContentBlock[] {
+	if (typeof content === 'string') return [{ text: content }]
+	if (!Array.isArray(content)) return [{ text: toolResultToText(content as never) }]
+
+	const blocks: ToolResultContentBlock[] = []
+	for (const block of content as readonly Record<string, unknown>[]) {
+		if (block.type === 'text' && typeof block.text === 'string') {
+			blocks.push({ text: block.text })
+			continue
+		}
+		if (block.type === 'image' && typeof block.data === 'string') {
+			const format = IMAGE_FORMATS[String(block.mediaType)]
+			if (format) {
+				blocks.push({ image: { format, source: { bytes: base64ToBytes(block.data) } } })
+				continue
+			}
+		}
+		// Anything else: name it honestly instead of inlining its payload.
+		blocks.push({ text: toolResultToText([block] as never) })
+	}
+
+	// A tool result must not be empty on the wire.
+	return blocks.length > 0 ? blocks : [{ text: '' }]
+}
+
+function base64ToBytes(data: string): Uint8Array {
+	return Uint8Array.from(Buffer.from(data, 'base64'))
 }
 
 /** Exported for tests: the tool-result mapping is the seam that dropped `isError`. */
@@ -52,15 +103,15 @@ export function toBedrockMessages(messages: ChatCompletionParams['messages']): B
 		if (msg.role === 'system') continue
 
 		if (msg.role === 'tool') {
-			const toolMsg = msg as { toolCallId?: string; content?: string; isError?: boolean }
-			const resultBlock: ToolResultContentBlock = {
-				text:
-					typeof toolMsg.content === 'string' ? toolMsg.content : JSON.stringify(toolMsg.content),
+			const toolMsg = msg as {
+				toolCallId?: string
+				content?: unknown
+				isError?: boolean
 			}
 			pendingToolResults.push({
 				toolResult: {
 					toolUseId: toolMsg.toolCallId ?? 'unknown',
-					content: [resultBlock],
+					content: toToolResultBlocks(toolMsg.content),
 					// Converse has a first-class `status` for a failed tool
 					// result, and it was being dropped: the executor computed
 					// `isError`, the SSE and A2A bridges carried it, and then
