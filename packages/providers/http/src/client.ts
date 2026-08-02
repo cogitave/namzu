@@ -102,6 +102,52 @@ function mapAnthropicStopReason(reason?: string | null): NamzuFinishReason {
 // OpenAI dialect — request construction
 // --------------------------------------------------------------------------------------
 
+/**
+ * Image media types the vision path carries. Anything else is named in
+ * the text rather than sent: an endpoint that cannot decode the payload
+ * would reject the whole request, and losing the turn is worse than
+ * losing sight of one image.
+ */
+const IMAGE_MEDIA_TYPES: ReadonlySet<string> = new Set([
+	'image/png',
+	'image/jpeg',
+	'image/jpg',
+	'image/webp',
+	'image/gif',
+])
+
+function unsupportedImageNote(mediaType: string): string {
+	return `[image: ${mediaType} — unsupported format, not sent]`
+}
+
+/**
+ * A user turn with images becomes a content-part array: text first, then
+ * one part per image as a `data:` URI. A turn without images keeps the
+ * plain string, so nothing about an ordinary request changes shape.
+ */
+function openAIUserContent(msg: {
+	content: unknown
+	attachments?: readonly { data: string; mediaType: string }[]
+}): unknown {
+	const text = typeof msg.content === 'string' ? msg.content : String(msg.content ?? '')
+	if (!msg.attachments || msg.attachments.length === 0) return msg.content
+
+	const parts: unknown[] = []
+	const notes: string[] = []
+	for (const attachment of msg.attachments) {
+		if (IMAGE_MEDIA_TYPES.has(attachment.mediaType.toLowerCase())) {
+			parts.push({
+				type: 'image_url',
+				image_url: { url: `data:${attachment.mediaType};base64,${attachment.data}` },
+			})
+		} else {
+			notes.push(unsupportedImageNote(attachment.mediaType))
+		}
+	}
+	const head = [text, ...notes].filter((part) => part.length > 0).join('\n')
+	return [...(head.length > 0 ? [{ type: 'text', text: head }] : []), ...parts]
+}
+
 function formatOpenAIMessages(messages: ChatCompletionParams['messages']): unknown[] {
 	return messages.map((msg) => {
 		if (msg.role === 'tool') {
@@ -124,6 +170,9 @@ function formatOpenAIMessages(messages: ChatCompletionParams['messages']): unkno
 					function: tc.function,
 				})),
 			}
+		}
+		if (msg.role === 'user') {
+			return { role: 'user', content: openAIUserContent(msg) }
 		}
 		return { role: msg.role, content: msg.content }
 	})
@@ -169,6 +218,11 @@ function buildOpenAIBody(
 // Anthropic dialect — request construction
 // --------------------------------------------------------------------------------------
 
+interface AnthropicImageBlock {
+	type: 'image'
+	source: { type: 'base64'; media_type: string; data: string }
+}
+
 interface AnthropicContentBlock {
 	type: 'text' | 'tool_use' | 'tool_result'
 	text?: string
@@ -181,7 +235,7 @@ interface AnthropicContentBlock {
 
 interface AnthropicMessage {
 	role: 'user' | 'assistant'
-	content: string | AnthropicContentBlock[]
+	content: string | Array<AnthropicContentBlock | AnthropicImageBlock>
 }
 
 function formatAnthropicRequest(
@@ -250,10 +304,34 @@ function formatAnthropicRequest(
 			continue
 		}
 
-		const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
+		const text = typeof msg.content === 'string' ? msg.content : toolResultToText(msg.content ?? '')
+		const attachments = msg.role === 'user' ? (msg.attachments ?? []) : []
+		if (attachments.length === 0) {
+			messages.push({
+				role: msg.role === 'assistant' ? 'assistant' : 'user',
+				content: text,
+			})
+			continue
+		}
+
+		// This dialect carries an image as a base64 source block beside the
+		// text, so the payload never has to be stringified into the prompt.
+		const blocks: AnthropicImageBlock[] = []
+		const notes: string[] = []
+		for (const attachment of attachments) {
+			if (IMAGE_MEDIA_TYPES.has(attachment.mediaType.toLowerCase())) {
+				blocks.push({
+					type: 'image',
+					source: { type: 'base64', media_type: attachment.mediaType, data: attachment.data },
+				})
+			} else {
+				notes.push(unsupportedImageNote(attachment.mediaType))
+			}
+		}
+		const head = [text, ...notes].filter((part) => part.length > 0).join('\n')
 		messages.push({
-			role: msg.role === 'assistant' ? 'assistant' : 'user',
-			content,
+			role: 'user',
+			content: [...(head.length > 0 ? [{ type: 'text' as const, text: head }] : []), ...blocks],
 		})
 	}
 
@@ -299,16 +377,20 @@ function formatAnthropicRequest(
 // --------------------------------------------------------------------------------------
 
 /**
- * What this DRIVER does, not what the remote endpoint could do:
- * tools pass through to the request body, but user-message image
- * `attachments` are not mapped into content parts — `supportsVision`
- * stays false until the message translation handles them.
+ * What this DRIVER does, not what the remote endpoint could do: tools
+ * pass through to the request body, and a user-message image is mapped
+ * into whichever content shape the configured dialect uses — a `data:`
+ * URI part on one, a base64 source block on the other. A format neither
+ * accepts is named in the text instead of being sent.
+ *
+ * An image inside a TOOL RESULT stays a text placeholder on both: a tool
+ * message is text-only in each dialect, so there is nowhere to put it.
  */
 export const HTTP_CAPABILITIES: ProviderCapabilities = {
 	supportsTools: true,
 	supportsStreaming: true,
 	supportsFunctionCalling: true,
-	supportsVision: false,
+	supportsVision: true,
 }
 
 export class HttpProvider implements LLMProvider {

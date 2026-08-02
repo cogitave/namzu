@@ -1,7 +1,7 @@
 ---
 title: HTTP Provider
 description: Use @namzu/http as the generic zero-dependency provider for OpenAI- or Anthropic-compatible HTTP endpoints.
-last_updated: 2026-04-18
+last_updated: 2026-08-02
 status: current
 related_packages: ["@namzu/sdk", "@namzu/http"]
 ---
@@ -102,10 +102,13 @@ The package exports `HTTP_CAPABILITIES`:
   supportsTools: true,
   supportsStreaming: true,
   supportsFunctionCalling: true,
+  supportsVision: true,
 }
 ```
 
 The actual endpoint still has to support those features correctly.
+
+An image on a user message is mapped into whichever content shape the configured dialect uses — a `data:` URI part on one, a base64 source block on the other. A format neither accepts is named in the text rather than sent. An image inside a **tool result** stays a text placeholder: a tool message is text-only in both dialects, so there is nowhere to put it.
 
 ## 8. Operational Notes
 

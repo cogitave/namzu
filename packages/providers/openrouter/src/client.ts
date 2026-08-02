@@ -49,16 +49,37 @@ function formatToolChoice(tc: ToolChoice): unknown {
 }
 
 /**
- * What this DRIVER does, not what OpenRouter could do: tools pass
- * through to the request body, but user-message image `attachments`
- * are not mapped into content parts — `supportsVision` stays false
- * until the message translation handles them.
+ * Image media types the vision path carries. Anything else is named in
+ * the text rather than sent: an endpoint that cannot decode the payload
+ * would reject the whole request, and losing the turn is worse than
+ * losing sight of one image.
+ */
+const IMAGE_MEDIA_TYPES: ReadonlySet<string> = new Set([
+	'image/png',
+	'image/jpeg',
+	'image/jpg',
+	'image/webp',
+	'image/gif',
+])
+
+function unsupportedImageNote(mediaType: string): string {
+	return `[image: ${mediaType} — unsupported format, not sent]`
+}
+
+/**
+ * What this DRIVER does, not what the gateway could do: tools pass
+ * through to the request body, and a user-message image becomes a
+ * content part carrying a `data:` URI. A format the wire does not accept
+ * is named in the text instead of being sent.
+ *
+ * An image inside a TOOL RESULT stays a text placeholder — a tool message
+ * is text-only here, so there is nowhere to put it.
  */
 export const OPENROUTER_CAPABILITIES: ProviderCapabilities = {
 	supportsTools: true,
 	supportsStreaming: true,
 	supportsFunctionCalling: true,
-	supportsVision: false,
+	supportsVision: true,
 }
 
 export class OpenRouterProvider implements LLMProvider {
@@ -114,6 +135,25 @@ export class OpenRouterProvider implements LLMProvider {
 						type: tc.type,
 						function: tc.function,
 					})),
+				}
+			}
+			if (msg.role === 'user' && msg.attachments && msg.attachments.length > 0) {
+				const parts: unknown[] = []
+				const notes: string[] = []
+				for (const attachment of msg.attachments) {
+					if (IMAGE_MEDIA_TYPES.has(attachment.mediaType.toLowerCase())) {
+						parts.push({
+							type: 'image_url',
+							image_url: { url: `data:${attachment.mediaType};base64,${attachment.data}` },
+						})
+					} else {
+						notes.push(unsupportedImageNote(attachment.mediaType))
+					}
+				}
+				const head = [msg.content, ...notes].filter((part) => part.length > 0).join('\n')
+				return {
+					role: 'user',
+					content: [...(head.length > 0 ? [{ type: 'text', text: head }] : []), ...parts],
 				}
 			}
 			return { role: msg.role, content: msg.content }

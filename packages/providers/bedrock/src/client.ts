@@ -254,10 +254,30 @@ export function toBedrockMessages(messages: ChatCompletionParams['messages']): B
 			continue
 		}
 
-		const text = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
+		const text = typeof msg.content === 'string' ? msg.content : toolResultToText(msg.content ?? '')
+		const content: ContentBlock[] = []
+		if (text.length > 0) content.push({ text })
+
+		// Attachments were dropped here entirely, so a user who attached a
+		// screenshot got a turn about nothing. This wire carries an image as
+		// raw bytes beside the text.
+		if (msg.role === 'user' && msg.attachments) {
+			for (const attachment of msg.attachments) {
+				const format = IMAGE_FORMATS[attachment.mediaType.toLowerCase()]
+				if (format) {
+					content.push({ image: { format, source: { bytes: base64ToBytes(attachment.data) } } })
+					continue
+				}
+				// A format the service rejects would fail the whole request,
+				// so it is named instead of sent.
+				content.push({ text: `[image: ${attachment.mediaType} — unsupported format, not sent]` })
+			}
+		}
+
+		// A message with no content at all is rejected on the wire.
 		out.push({
 			role: toBedrockRole(msg.role),
-			content: [{ text }],
+			content: content.length > 0 ? content : [{ text }],
 		})
 	}
 
@@ -398,16 +418,17 @@ function mapStopReason(reason?: string): NamzuFinishReason {
 }
 
 /**
- * What this DRIVER does, not what Bedrock could do: tools are mapped
- * to the Converse toolConfig, but user-message image `attachments`
- * are not mapped into image content blocks — `supportsVision` stays
- * false until the message translation handles them.
+ * What this DRIVER does, not what the service could do: tools are mapped
+ * onto the tool config, and an image — whether attached to a user message
+ * or returned inside a tool result — travels as raw bytes beside the text
+ * rather than as a placeholder. A format the service does not accept is
+ * named in the text, because sending it would fail the whole request.
  */
 export const BEDROCK_CAPABILITIES: ProviderCapabilities = {
 	supportsTools: true,
 	supportsStreaming: true,
 	supportsFunctionCalling: true,
-	supportsVision: false,
+	supportsVision: true,
 }
 
 export class BedrockProvider implements LLMProvider {
