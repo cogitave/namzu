@@ -1,7 +1,7 @@
 ---
 title: Low-Level Runtime
 description: Use query() and drainQuery() directly in @namzu/sdk when you need sandbox providers, plugin wiring, event streaming, or other query-only runtime controls.
-last_updated: 2026-05-02
+last_updated: 2026-08-03
 status: current
 related_packages: ["@namzu/sdk", "@namzu/openai"]
 ---
@@ -200,6 +200,78 @@ const resumeHandler = async (request) => {
 ```
 
 Use `autoApproveHandler` only when the runtime should continue automatically.
+
+### Remembering an approval, at a scope you choose
+
+An approval used to be recorded nowhere: approving emitted an event and
+settled. `bash` is unconditionally non-read-only and in no read-only
+allowlist, so `bash: git status` re-prompted on every batch forever — and
+the only escape was a blanket session grant that also covered every
+destructive call.
+
+```ts
+import { toolGrantKeys } from '@namzu/sdk'
+
+case 'tool_review': {
+  const call = request.toolCalls[0]
+  const keys = toolGrantKeys(call)
+
+  return {
+    action: 'approve_tools',
+    // This exact invocation, for the rest of the run:
+    remember: [keys.call],
+    // …or `[keys.tool]` for the whole tool, whatever the arguments.
+  }
+}
+```
+
+Every call in a later batch that is covered by a recorded grant skips the
+park entirely. Three properties are load-bearing:
+
+- **Nothing is remembered unless the decision says so.** A denial, a
+  non-response, or an approval that omits `remember` leaves nothing behind.
+  Non-reuse is still the default — what changed is that the *scope* is the
+  approver's to choose.
+- **Grants are run-scoped and not persisted.** An approval is a statement
+  about this run's work; carrying it into a later run would be reuse nobody
+  agreed to. The checkpointed decision remains as evidence of what was
+  approved, not as a standing permission.
+- **Argument key order does not matter.** `{path, mode}` and `{mode, path}`
+  produce the same grant key, so the same call is not asked about twice —
+  which is how an approver learns to grant the wide key instead.
+
+### Giving a park a deadline
+
+`runConfig.hitlParkTtlMs` writes an **absolute** deadline onto every park.
+Without one, a run parks for approval, the worker is redeployed, nobody
+answers, and the checkpoint stays outstanding forever — every
+approval-queue reader keeps serving it and its workspace is never
+reclaimed. The run timeout cannot cover this: it is only checked between
+iterations and a park suspends mid-iteration, so a long-lived process
+hard-stops the run immediately *after* the human finally approves, while
+across a restart the restored elapsed clock excludes parked time entirely.
+
+Expiry is enforced on read — `findPendingCheckpoint` skips an expired park
+— and swept by the host:
+
+```ts
+import { listExpiredParks } from '@namzu/sdk'
+
+for (const stale of await listExpiredParks(store, scope)) {
+  await checkpointMgr.expire(stale.id)
+}
+```
+
+`expire` records the expiry rather than deleting it: a checkpoint showing
+what was asked and that nobody answered in time is the evidence an approval
+gate is worth having. The out-of-process timer stays a host concern,
+consistent with the same decision made for retention.
+
+`deriveRunStatus({ status, park })` projects a run plus its park onto the
+session-layer `RunStatus`, and is what finally produces
+`awaiting_hitl_resolution` — a variant that has documented a "persisted
+wait after a HITL timeout" since it was declared, for a timeout nothing
+could raise.
 
 ## 8. Verification and Sandbox Boundaries
 

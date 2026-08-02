@@ -71,9 +71,44 @@ export interface Score {
 	unavailable?: boolean
 }
 
+/**
+ * How a scorer's verdict affects the case's.
+ *
+ * A single unweighted mean over every scorer, compared to one suite-wide
+ * threshold, made the two halves of the design fight each other. At the
+ * default threshold of 1 the harness never reports a false pass — but a
+ * trajectory F1 and a graded judge can essentially never reach 1, so every
+ * real suite lowers it. And every step down buys tolerance for the fuzzy
+ * scorers by buying the same tolerance for the deterministic ones: at 0.75,
+ * a trajectory score of 0 alongside three perfect scores averages to 0.75
+ * and reports **passed**. The exact regression the harness exists to catch
+ * comes back green.
+ *
+ *  - `gate` — a miss fails the case outright, whatever the mean says.
+ *    For the deterministic checks: it called the wrong tools, it did not
+ *    finish, the required phrase is absent.
+ *  - `soft` — contributes to the mean only. For the fuzzy ones, where a
+ *    number below 1 is normal and a threshold is a judgement call.
+ *
+ * Defaults to `soft`, so a suite that sets nothing behaves exactly as
+ * before.
+ */
+export type ScorerSeverity = 'gate' | 'soft'
+
 export interface Scorer {
 	name: string
 	score(run: EvalRun, evalCase: EvalCase): Score | Promise<Score>
+	/** See {@link ScorerSeverity}. Default `soft`. */
+	severity?: ScorerSeverity
+	/**
+	 * The score this scorer must reach. Defaults to the experiment's
+	 * `passThreshold`.
+	 *
+	 * Per-scorer because "good enough" is not one number across dimensions:
+	 * a trajectory match at 0.8 may be fine while a completion check at 0.8
+	 * is meaningless — it either finished or it did not.
+	 */
+	threshold?: number
 }
 
 /**
@@ -93,6 +128,14 @@ export interface CaseResult {
 	status: CaseStatus
 	/** True only for `status: 'passed'`. */
 	passed: boolean
+	/**
+	 * Gate scorers that missed their threshold, by name.
+	 *
+	 * Named rather than counted: a case reported failed with a mean of 0.75
+	 * otherwise sends somebody to read four scores and guess which one
+	 * mattered. Absent when no gate missed.
+	 */
+	failedGates?: readonly string[]
 }
 
 export interface ExperimentReport {

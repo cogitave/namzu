@@ -87,6 +87,10 @@ export function completionScorer(
 ): Scorer {
 	return {
 		name: 'completion',
+		// Binary by construction: the run either settled cleanly or it did
+		// not, so there is no score between 0 and 1 for a mean to soften.
+		// Averaged in, a hard 0 here is carried by three good fuzzy scores.
+		severity: 'gate',
 		score(run: EvalRun): Score {
 			if (run.error) {
 				return { score: 0, reason: `run failed: ${run.error}` }
@@ -130,6 +134,9 @@ export function stepBudgetScorer(maxSteps: number): Scorer {
 export function containsScorer(...required: string[]): Scorer {
 	return {
 		name: 'contains',
+		// A required fragment is required. Partial credit here reads as
+		// "most of the answer was there", which is not what was asked.
+		severity: 'gate',
 		score(run: EvalRun): Score {
 			const text = run.output ?? ''
 			const missing = required.filter((r) => !text.includes(r))

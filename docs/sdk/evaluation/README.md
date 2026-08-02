@@ -104,6 +104,40 @@ A run that **threw** still scores zero: that is a real failure of the thing unde
 - Two scorers sharing a name is an error, not a silent overwrite. Scores are keyed by name, so the second would replace the first and the mean would be computed over the wrong denominator.
 - A case that throws is a result, not a crash — a suite whose first broken case aborts tells you nothing about the other forty.
 - `concurrency` defaults to 1, so ordering is deterministic unless you ask otherwise.
+
+### Gate scorers versus soft ones
+
+A case's verdict used to be one unweighted mean over every scorer against
+one suite-wide threshold, and the two halves of that fought each other. At
+the default threshold of 1 the harness never reports a false pass — but a
+trajectory F1 and a graded judge can essentially never reach 1, so every
+real suite lowers it. And every step down buys tolerance for the fuzzy
+scorers by buying exactly the same tolerance for the deterministic ones: at
+`passThreshold: 0.75`, trajectory 0 + completion 1 + contains 1 + judge 1
+averages to 0.75 and reports **passed**. The regression the harness exists
+to catch comes back green.
+
+```ts
+{ name: 'trajectory', severity: 'gate', threshold: 0.9, score }
+```
+
+| `severity` | Effect |
+| --- | --- |
+| `gate` | A miss fails the case outright, whatever the mean says |
+| `soft` (default) | Contributes to the mean only |
+
+`threshold` is per-scorer and falls back to the suite's `passThreshold`,
+because "good enough" is not one number across dimensions: a trajectory
+match at 0.8 may be fine while a completion check at 0.8 is meaningless —
+it either finished or it did not. `completionScorer` and `containsScorer`
+ship as gates for that reason.
+
+A gate that came back **unavailable** does not fail the case: it did not
+judge the run badly, it failed to judge it, which is the inconclusive path.
+`CaseResult.failedGates` names the gates that missed, and `formatReport`
+prints them above the individual scores — a case reported failed with a
+mean of 0.75 otherwise sends somebody to read four scores and guess which
+one mattered.
 - `timeoutMs` bounds a single case. Unset means no deadline, which was the
   only behaviour available: a `run` closure that never settled blocked its
   worker and `runExperiment` never returned — no report, no partial

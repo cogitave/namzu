@@ -97,12 +97,32 @@ export async function runExperiment<TInput>(
 				.filter((s) => s.unavailable !== true)
 				.map((s) => s.score)
 			const mean = values.length === 0 ? 0 : values.reduce((a, b) => a + b, 0) / values.length
+
+			// A gate miss fails the case whatever the mean says. Averaging a
+			// hard check together with a fuzzy one lets three good scores
+			// carry a zero: trajectory 0 + completion 1 + contains 1 +
+			// judge 1 averages to 0.75 and reports passed at a threshold of
+			// 0.75 — the exact regression the harness exists to catch,
+			// reported green. An UNAVAILABLE gate does not fail the case;
+			// it did not judge the run at all, which is the inconclusive
+			// path, not a failure.
+			const failedGates = scorers
+				.filter((s) => s.severity === 'gate')
+				.filter((s) => {
+					const score = scores[s.name]
+					if (!score || score.unavailable === true) return false
+					return score.score < (s.threshold ?? threshold)
+				})
+				.map((s) => s.name)
+
 			const status: CaseStatus =
 				Object.keys(scores).length > 0 && values.length === 0
 					? 'inconclusive'
-					: mean >= threshold
-						? 'passed'
-						: 'failed'
+					: failedGates.length > 0
+						? 'failed'
+						: mean >= threshold
+							? 'passed'
+							: 'failed'
 			const result: CaseResult = {
 				case: evalCase.name,
 				run,
@@ -110,6 +130,9 @@ export async function runExperiment<TInput>(
 				mean,
 				status,
 				passed: status === 'passed',
+				// Named, not just counted: "failed" with a mean of 0.75 sends
+				// somebody to read four scores and guess which one mattered.
+				...(failedGates.length > 0 ? { failedGates } : {}),
 			}
 			results[index] = result
 			config.onCaseFinish?.(result)
@@ -280,6 +303,12 @@ export function formatReport(report: ExperimentReport): string {
 		lines.push('', 'Failures:')
 		for (const failure of failures) {
 			lines.push(`  ✗ ${failure.case} (${failure.mean.toFixed(2)})`)
+			if (failure.failedGates && failure.failedGates.length > 0) {
+				// First line under the case, because it says WHY this failed.
+				// A mean of 0.75 next to four scores leaves the reader
+				// guessing which one mattered.
+				lines.push(`      gate missed: ${failure.failedGates.join(', ')}`)
+			}
 			for (const [name, score] of Object.entries(failure.scores)) {
 				if (score.unavailable === true) {
 					lines.push(`      ${name}: not judged — ${score.reason}`)

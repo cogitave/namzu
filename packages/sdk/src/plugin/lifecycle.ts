@@ -25,7 +25,7 @@ import type { ToolDefinition, ToolRegistryContract } from '../types/tool/index.j
 import { toErrorMessage } from '../utils/error.js'
 import { generatePluginId } from '../utils/id.js'
 import type { Logger } from '../utils/logger.js'
-import { loadPluginManifest } from './loader.js'
+import { assertEnableable, loadPluginManifest } from './loader.js'
 
 interface PluginContributionRecord {
 	toolNames: string[]
@@ -148,17 +148,18 @@ export class PluginLifecycleManager {
 
 		const { manifest } = plugin
 
-		// Unsupported contribution types must fail fast (Convention #0, #5).
-		// SDK lacks removable registries / instance factories / persona loader design
-		// for these categories. Remove from manifest or upgrade runtime.
-		const unsupported: string[] = []
-		if (manifest.skills?.length) unsupported.push('skills')
-		if (manifest.connectors?.length) unsupported.push('connectors')
-		if (manifest.personas?.length) unsupported.push('personas')
-		if (unsupported.length > 0) {
-			throw new Error(
-				`Plugin "${manifest.name}": contribution type(s) [${unsupported.join(', ')}] not yet supported by the runtime. Remove from manifest or upgrade @namzu/sdk.`,
-			)
+		// The same refusal the loader applies at install, kept here as the
+		// backstop for a plugin that reached this point another way — a
+		// record written by an older build, or a host constructing one
+		// directly. Reaching it means the install-time gate was bypassed,
+		// so the plugin transitions to `error` rather than staying
+		// `installed`: a status that says the plugin is fine while it can
+		// never enable is how the next reader gets misled.
+		try {
+			assertEnableable(manifest)
+		} catch (err) {
+			this.pluginRegistry.register({ ...plugin, status: 'error' })
+			throw err
 		}
 
 		const contributions: PluginContributionRecord = { toolNames: [], mcpClients: [] }

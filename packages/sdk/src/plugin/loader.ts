@@ -49,7 +49,43 @@ export async function loadPluginManifest(pluginDir: string): Promise<PluginManif
 	const manifestPath = join(pluginDir, PLUGIN_MANIFEST_FILENAME)
 	const raw = await readFile(manifestPath, 'utf-8')
 	const parsed: unknown = JSON.parse(raw)
-	return PluginManifestSchema.parse(parsed)
+	const manifest = PluginManifestSchema.parse(parsed)
+	assertEnableable(manifest)
+	return manifest
+}
+
+/**
+ * Contribution types the manifest accepts and the runtime cannot enable.
+ *
+ * The schema validates `skills`, `connectors` and `personas` with per-type
+ * caps, and enabling then refuses all three wholesale — so a plugin
+ * shipping four tools and one skill validated clean, installed clean, and
+ * contributed zero tools. The refusal was right; its position was not.
+ */
+const UNSUPPORTED_CONTRIBUTIONS = ['skills', 'connectors', 'personas'] as const
+
+/**
+ * Refuse a manifest whose contributions can never be enabled.
+ *
+ * Checked at LOAD, not at enable. A plugin that cannot enable was being
+ * persisted as `installed` — a status that says the opposite — and the
+ * author found out only when something tried to use it, at which point
+ * every tool it also shipped went down with it. Failing where the manifest
+ * is read means the author learns at the moment they are looking at the
+ * manifest.
+ *
+ * The registries these types would need all exist and are wired to agents
+ * through host configuration; what does not exist is the manifest path
+ * into them. Naming the types is what makes that actionable.
+ */
+export function assertEnableable(manifest: PluginManifest): void {
+	const record = manifest as unknown as Record<string, unknown[] | undefined>
+	const unsupported = UNSUPPORTED_CONTRIBUTIONS.filter((key) => record[key]?.length)
+	if (unsupported.length === 0) return
+
+	throw new Error(
+		`Plugin "${manifest.name}" declares contribution type(s) [${unsupported.join(', ')}] that the runtime cannot enable, so installing it would produce a plugin that reports "installed" and contributes nothing — including its other, supported contributions. Remove them from the manifest, or configure them on the agent directly (the skill, connector and persona registries all accept them that way).`,
+	)
 }
 
 /**

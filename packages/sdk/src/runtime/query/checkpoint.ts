@@ -1,5 +1,6 @@
 import type { WorkingStateSnapshot } from '../../compaction/wire.js'
 import type { RunPersistence } from '../../manager/run/persistence.js'
+import type { SerializedSpanContext } from '../../telemetry/attributes.js'
 import { NamzuError } from '../../types/errors/index.js'
 import type {
 	ActiveNodeInfo,
@@ -9,6 +10,7 @@ import type {
 	HITLDecisionRequest,
 	HITLResumeDecision,
 	IterationCheckpoint,
+	PendingDecision,
 } from '../../types/hitl/index.js'
 import type { AssistantMessage } from '../../types/message/index.js'
 import type { CheckpointRunScope, CheckpointStore } from '../../types/run/checkpoint-store.js'
@@ -74,15 +76,49 @@ export function projectEmergencyToCheckpoint(dump: EmergencySaveData): Iteration
 export async function findPendingCheckpoint(
 	store: CheckpointStore,
 	scope: CheckpointRunScope,
+	options?: { readonly now?: number },
 ): Promise<IterationCheckpoint | null> {
 	const all = await store.listCheckpoints(scope)
+	const now = options?.now ?? Date.now()
 	// `listCheckpoints` is contractually ascending by `createdAt`; the
 	// newest outstanding park is the one a human should be answering.
 	for (let i = all.length - 1; i >= 0; i--) {
 		const cp = all[i] as IterationCheckpoint
-		if (cp.pending && cp.pending.resolvedAt === undefined) return cp
+		if (!cp.pending || cp.pending.resolvedAt !== undefined) continue
+		// An expired park is not outstanding. Serving it re-presents an
+		// approval whose window has closed, and every queue reader would
+		// keep re-presenting it forever — a redeployed worker leaves a park
+		// nobody will ever answer and nothing in-process can time out.
+		if (isExpiredPark(cp.pending, now)) continue
+		return cp
 	}
 	return null
+}
+
+/** Whether a park's absolute deadline has passed. No deadline never expires. */
+export function isExpiredPark(pending: PendingDecision, now = Date.now()): boolean {
+	return pending.deadlineAt !== undefined && now >= pending.deadlineAt
+}
+
+/**
+ * Every outstanding park in a run, expired ones included, so a host can
+ * sweep them.
+ *
+ * The out-of-process timer stays a host concern — consistent with the same
+ * decision made for retention — but a host cannot sweep what it cannot
+ * enumerate, and this is the read that makes a sweep a few lines rather
+ * than a re-implementation of the store contract.
+ */
+export async function listExpiredParks(
+	store: CheckpointStore,
+	scope: CheckpointRunScope,
+	options?: { readonly now?: number },
+): Promise<IterationCheckpoint[]> {
+	const all = await store.listCheckpoints(scope)
+	const now = options?.now ?? Date.now()
+	return all.filter(
+		(cp) => cp.pending && cp.pending.resolvedAt === undefined && isExpiredPark(cp.pending, now),
+	)
 }
 
 export class CheckpointManager {
@@ -108,6 +144,12 @@ export class CheckpointManager {
 	 */
 	private lastCreatedId?: CheckpointId
 
+	/** See {@link setTraceSource}. */
+	private traceSource?: () => SerializedSpanContext | undefined
+
+	/** See {@link setParkTtl}. */
+	private parkTtlMs?: number
+
 	/**
 	 * @param store scope-keyed checkpoint persistence. The default query
 	 *   pipeline passes the run's disk-backed store
@@ -123,6 +165,15 @@ export class CheckpointManager {
 	/** Wire compaction's state in, so every checkpoint carries a snapshot. */
 	setWorkingStateSource(source: () => WorkingStateSnapshot | undefined): void {
 		this.workingStateSource = source
+	}
+
+	/**
+	 * The run's root span, so every checkpoint records the trace it was
+	 * taken inside and a resume can join it rather than starting a second,
+	 * unlinked one.
+	 */
+	setTraceSource(source: () => SerializedSpanContext | undefined): void {
+		this.traceSource = source
 	}
 
 	async create(
@@ -151,6 +202,7 @@ export class CheckpointManager {
 			branchStack: extra?.branchStack,
 			activeNode: extra?.activeNode,
 			workingState: extra?.workingState ?? this.workingStateSource?.(),
+			traceContext: this.traceSource?.(),
 		}
 
 		await this.store.writeCheckpoint(this.scope, checkpoint)
@@ -161,6 +213,27 @@ export class CheckpointManager {
 	/** See {@link lastCreatedId}. */
 	get lastCheckpointId(): CheckpointId | undefined {
 		return this.lastCreatedId
+	}
+
+	/**
+	 * The trace a checkpoint was taken inside, for parenting a resumed run.
+	 *
+	 * Read separately and BEFORE the run's root span, because a span's
+	 * parent can only be set at creation and the root is minted before the
+	 * restore branch runs.
+	 *
+	 * Never throws. Telemetry continuity is worth a disk read; it is not
+	 * worth failing a resume over, and the restore path immediately after
+	 * will report a genuinely unreadable checkpoint far better than a
+	 * tracing helper could.
+	 */
+	async readTraceContext(checkpointId: CheckpointId): Promise<SerializedSpanContext | undefined> {
+		try {
+			const checkpoint = await this.store.readCheckpoint(this.scope, checkpointId)
+			return checkpoint?.traceContext
+		} catch {
+			return undefined
+		}
 	}
 
 	/**
@@ -181,13 +254,54 @@ export class CheckpointManager {
 	async park(
 		checkpoint: IterationCheckpoint,
 		request: HITLDecisionRequest,
+		options?: { readonly ttlMs?: number },
 	): Promise<IterationCheckpoint> {
+		const parkedAt = Date.now()
+		const ttl = options?.ttlMs ?? this.parkTtlMs
 		const parked: IterationCheckpoint = {
 			...checkpoint,
-			pending: { request, parkedAt: Date.now() },
+			pending: {
+				request,
+				parkedAt,
+				// Absolute, so it survives the process that set it. A
+				// duration plus an in-process timer cannot: the worker gets
+				// redeployed and the park becomes immortal.
+				...(ttl !== undefined && ttl > 0 ? { deadlineAt: parkedAt + ttl } : {}),
+			},
 		}
 		await this.store.writeCheckpoint(this.scope, parked)
 		return parked
+	}
+
+	/** Default time-to-live applied to every park this manager records. */
+	setParkTtl(ttlMs: number | undefined): void {
+		this.parkTtlMs = ttlMs
+	}
+
+	/**
+	 * Mark an expired park as no longer outstanding.
+	 *
+	 * Recorded rather than deleted: the checkpoint showing what was asked
+	 * and that nobody answered in time is the evidence an approval gate is
+	 * worth having, and the same reasoning already keeps a resolved
+	 * decision on the record.
+	 */
+	async expire(checkpointId: CheckpointId): Promise<IterationCheckpoint | null> {
+		const checkpoint = await this.store.readCheckpoint(this.scope, checkpointId)
+		if (!checkpoint?.pending || checkpoint.pending.resolvedAt !== undefined) return null
+
+		const expired: IterationCheckpoint = {
+			...checkpoint,
+			pending: {
+				...checkpoint.pending,
+				resolvedAt: Date.now(),
+				// The park ended by running out of time, not by a decision.
+				// An `abort` here would read as somebody having refused it.
+				decision: { action: 'pause', reason: 'The approval request expired without an answer.' },
+			},
+		}
+		await this.store.writeCheckpoint(this.scope, expired)
+		return expired
 	}
 
 	/**

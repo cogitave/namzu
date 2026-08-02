@@ -164,7 +164,14 @@ export class RunDiskStore {
 		const dir = this.requireInit()
 		const cpDir = join(dir, 'checkpoints')
 		await mkdir(cpDir, { recursive: true })
-		await atomicWriteJson(join(cpDir, `${checkpoint.id}.json`), checkpoint)
+		// Stamped, not written bare. Unstamped is read as version 1 by
+		// definition, which is correct only while version 1 is the only
+		// version there has ever been — the moment a second one exists, an
+		// unstamped file written by the newer build is read by the older one
+		// as if it were the older shape, and the refusal that exists to
+		// prevent exactly that never fires. The stamp is what gives the
+		// migration chain something to hang on.
+		await atomicWriteJson(join(cpDir, `${checkpoint.id}.json`), stamp(SCHEMA, checkpoint))
 	}
 
 	async readCheckpoint(checkpointId: CheckpointId): Promise<IterationCheckpoint | null> {
@@ -298,6 +305,36 @@ async function atomicWriteJson(filePath: string, value: unknown): Promise<void> 
  * dereferences immediately; the rest are optional and their absence is
  * survivable.
  */
+/** A finite number, not `NaN` and not `Infinity`. */
+function isCount(value: unknown): value is number {
+	return typeof value === 'number' && Number.isFinite(value)
+}
+
+/**
+ * The budget fields a resume restores before its first iteration.
+ *
+ * Checked because a resume DEREFERENCES them: a run recalled at $4.80 of a
+ * $5 cap whose `costInfo` came back malformed continues with `NaN`
+ * budgets, which compare false against every limit — so the guard that
+ * exists to stop it silently never stops it. That is a run that looks
+ * healthy and has lost its cap, which is worse than one that refuses to
+ * resume.
+ */
+function hasUsableBudgets(record: Partial<IterationCheckpoint>): boolean {
+	const usage = record.tokenUsage as Record<string, unknown> | undefined
+	const cost = record.costInfo as Record<string, unknown> | undefined
+	const guard = record.guardState as Record<string, unknown> | undefined
+	if (!usage || !cost || !guard) return false
+	return (
+		isCount(usage.promptTokens) &&
+		isCount(usage.completionTokens) &&
+		isCount(usage.totalTokens) &&
+		isCount(cost.totalCost) &&
+		isCount(guard.iterationCount) &&
+		isCount(guard.elapsedMs)
+	)
+}
+
 function parseCheckpoint(content: string, file: string): IterationCheckpoint {
 	const parsed = migrate<unknown>(SCHEMA, JSON.parse(content))
 	const record = parsed as Partial<IterationCheckpoint> | null
@@ -314,6 +351,13 @@ function parseCheckpoint(content: string, file: string): IterationCheckpoint {
 			`Checkpoint file "${file}" is not a usable checkpoint: it parsed as JSON but is missing the fields a resume needs (id, iteration, createdAt, messages). Refusing rather than resuming from it.`,
 		)
 	}
+
+	if (!hasUsableBudgets(record)) {
+		throw new Error(
+			`Checkpoint file "${file}" has malformed budget state (tokenUsage, costInfo, guardState). A resume restores these before its first iteration, so reading them as NaN or undefined produces a run that compares false against every limit and never stops. Refusing rather than resuming without a cap.`,
+		)
+	}
+
 	return record as IterationCheckpoint
 }
 

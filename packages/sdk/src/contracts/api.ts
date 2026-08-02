@@ -58,6 +58,13 @@ export type WireRunStatus =
 	| 'failed'
 	| 'cancelled'
 	| 'cancelling'
+	/**
+	 * The run's approval window closed with nobody answering.
+	 *
+	 * Set by a host sweeping expired parks — there is no domain status that
+	 * collapses onto it, because the kernel is suspended mid-iteration while
+	 * parked and never gets to observe its own deadline passing.
+	 */
 	| 'expired'
 
 // Wire-side rename of types/run/events.StopReason. Kept distinct so the HTTP

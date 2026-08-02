@@ -43,7 +43,37 @@ export interface ProviderErrorInit {
 	readonly status?: number
 	/** Server-directed backoff, derived from a `Retry-After` header. */
 	readonly retryAfterMs?: number
+	/**
+	 * Override the code's own verdict on retryability.
+	 *
+	 * Omit and the code decides, which is the normal path. Set it when
+	 * something closer to the failure already said so — see
+	 * {@link declaredRetryable}.
+	 */
+	readonly retryable?: boolean
 	readonly cause?: unknown
+}
+
+/**
+ * A `retryable` flag declared anywhere on the cause chain.
+ *
+ * Retryability was derived solely from namzu's own code set, so a provider
+ * that says outright "this one is safe to retry" was not listened to —
+ * and the code set is a second-hand inference from status and wording that
+ * necessarily lags every new failure shape a vendor invents. Read
+ * duck-typed rather than through an interface, because the flag arrives on
+ * a foreign SDK's error object that namzu does not control.
+ *
+ * The FIRST link that declares one wins: the outermost declaration is the
+ * most recent statement about the failure, made by whichever layer knew
+ * enough to make it.
+ */
+export function declaredRetryable(err: unknown): boolean | undefined {
+	for (const link of causeChain(err)) {
+		const declared = link.retryable
+		if (typeof declared === 'boolean') return declared
+	}
+	return undefined
 }
 
 /** Codes for which sending the identical request again may succeed. */
@@ -69,7 +99,13 @@ export class ProviderError extends Error {
 		this.providerId = init.providerId
 		this.status = init.status
 		this.retryAfterMs = init.retryAfterMs
-		this.retryable = RETRYABLE.has(init.code)
+		// The code decides, unless something upstream already declared
+		// otherwise. A vendor SDK that sets `retryable` on its own error is
+		// making a first-hand statement about a failure it produced; namzu's
+		// code set is a second-hand inference from status and wording, and
+		// it necessarily lags every new failure shape a provider invents.
+		// Deriving solely from the code discarded the better signal.
+		this.retryable = init.retryable ?? RETRYABLE.has(init.code)
 	}
 }
 
@@ -344,6 +380,10 @@ export function classifyProviderError(
 	// looks at the one string least likely to say anything.
 	const messages = chainMessages(err)
 	const fromMessage = messages.map(codeFromMessage).find((code) => code !== undefined)
+	// A first-hand statement from whoever produced the failure, if there
+	// is one. It outranks the code's inference, not the code itself: the
+	// classification still says WHAT went wrong.
+	const declared = declaredRetryable(err)
 
 	// The structural code first: it is the one field designed to say what
 	// went wrong, and it is more specific than the status carrying it. A
@@ -356,6 +396,7 @@ export function classifyProviderError(
 			providerId,
 			...(status !== undefined ? { status } : {}),
 			...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
+			...(declared !== undefined ? { retryable: declared } : {}),
 			cause: err,
 		})
 	}
@@ -368,6 +409,7 @@ export function classifyProviderError(
 			message,
 			providerId,
 			status,
+			...(declared !== undefined ? { retryable: declared } : {}),
 			cause: err,
 		})
 	}
@@ -379,29 +421,52 @@ export function classifyProviderError(
 			providerId,
 			status,
 			retryAfterMs,
+			...(declared !== undefined ? { retryable: declared } : {}),
 			cause: err,
 		})
 	}
 
 	if (errno !== undefined) {
 		if (TIMEOUT_ERRNOS.has(errno)) {
-			return new ProviderError({ code: 'timeout', message, providerId, cause: err })
+			return new ProviderError({
+				code: 'timeout',
+				message,
+				providerId,
+				retryable: declared,
+				cause: err,
+			})
 		}
 		if (NETWORK_ERRNOS.has(errno)) {
-			return new ProviderError({ code: 'network', message, providerId, cause: err })
+			return new ProviderError({
+				code: 'network',
+				message,
+				providerId,
+				retryable: declared,
+				cause: err,
+			})
 		}
 	}
 
 	// `fetch` rejects with a bare TypeError on transport failure.
 	if (err instanceof TypeError && /fetch|network/i.test(message)) {
-		return new ProviderError({ code: 'network', message, providerId, cause: err })
+		return new ProviderError({
+			code: 'network',
+			message,
+			providerId,
+			retryable: declared,
+			cause: err,
+		})
 	}
 
+	// The unclassified tail is where a declared flag matters most: a
+	// failure nobody has characterised lands on `unknown`, which is treated
+	// as non-retryable — even when its own author said otherwise.
 	return new ProviderError({
 		code: fromMessage ?? 'unknown',
 		message,
 		providerId,
 		retryAfterMs,
+		retryable: declared,
 		cause: err,
 	})
 }

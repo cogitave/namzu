@@ -29,6 +29,7 @@ import type { CheckpointManager } from '../../checkpoint.js'
 import type { EmitEvent } from '../../events.js'
 import type { ToolExecutor } from '../../executor.js'
 import type { GuardCoordinator } from '../../guard.js'
+import type { ToolGrantSet } from '../../tool-grants.js'
 
 export interface LaunchedTaskMeta {
 	readonly agentId: string
@@ -86,6 +87,14 @@ export interface IterationContext {
 	readonly taskStore?: TaskStore
 
 	readonly launchedTasks: Map<TaskId, LaunchedTaskMeta>
+
+	/**
+	 * Approvals a human granted earlier in this run, at a scope they chose.
+	 *
+	 * Consulted before a tool-review park so an already-approved call is not
+	 * asked about again. Absent on paths that do not review tools.
+	 */
+	readonly toolGrants?: ToolGrantSet
 
 	readonly compactionConfig?: CompactionConfig
 

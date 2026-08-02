@@ -64,8 +64,20 @@ export { ContextCache } from './runtime/query/context-cache.js'
 export {
 	CheckpointManager,
 	findPendingCheckpoint,
+	isExpiredPark,
+	listExpiredParks,
 	projectEmergencyToCheckpoint,
 } from './runtime/query/checkpoint.js'
+// Projecting what the SDK records onto the session-layer statuses. Both
+// were declared and consumed with nothing in the repo producing them, so a
+// host implementing either had to invent the mapping.
+export { deriveRunStatus } from './types/run/derive-status.js'
+// Scoped approval memory: the mechanism that lets an approver choose how
+// wide their yes is, instead of choosing between 'this one call' and
+// 'everything for the session'.
+export { ToolGrantSet, toolGrantKeys } from './runtime/query/tool-grants.js'
+export type { ToolGrantKeys } from './runtime/query/tool-grants.js'
+export { toWireRunStatus } from './contracts/run-status.js'
 // Durable run state: the snapshot a different process picks a run up from.
 export { captureRunState, loadRunState } from './runtime/query/run-state.js'
 export type { RunStateScope } from './runtime/query/run-state.js'

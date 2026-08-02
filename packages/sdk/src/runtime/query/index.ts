@@ -15,7 +15,13 @@ import { EmergencySaveManager } from '../../manager/run/emergency.js'
 import { resolveProviderCapabilities } from '../../provider/capabilities.js'
 import { type ProviderRetryConfig, withProviderRetry } from '../../provider/retry.js'
 import type { PathBuilder } from '../../session/workspace/path-builder.js'
-import { GENAI, NAMZU, agentRunSpanName, parentContext } from '../../telemetry/attributes.js'
+import {
+	GENAI,
+	NAMZU,
+	agentRunSpanName,
+	parentContext,
+	serializeSpan,
+} from '../../telemetry/attributes.js'
 import { recordRunDuration } from '../../telemetry/metrics.js'
 import { getTracer } from '../../telemetry/runtime-accessors.js'
 import { buildAdvisoryTools } from '../../tools/advisory/index.js'
@@ -85,6 +91,7 @@ import {
 	recoverCompletedCalls,
 	unansweredToolCalls,
 } from './resume-pending.js'
+import { ToolGrantSet } from './tool-grants.js'
 import { ToolingBootstrap } from './tooling.js'
 
 export interface QueryParams {
@@ -683,6 +690,9 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		taskGateway: params.taskGateway,
 		taskStore: params.taskStore,
 		launchedTasks: params.launchedTasks ?? new Map(),
+		// Run-scoped. An approval is a statement about this run's work;
+		// carrying one into a later run would be reuse nobody agreed to.
+		toolGrants: new ToolGrantSet(),
 		compactionConfig: params.compactionConfig,
 		workingStateManager,
 		workingMemoryProvider: params.workingMemoryProvider,
@@ -703,13 +713,32 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		// it is worse: the delegation structure is the thing you most want
 		// to see.
 		const runStartedAt = Date.now()
+
+		// Read before the span is minted, because a parent can only be set
+		// at creation. A resumed run used to start a brand-new trace with no
+		// link to the one that crashed, so the failure and its recovery
+		// could not be put on one timeline — the run id correlated them well
+		// enough to find both by query and not well enough to see a single
+		// waterfall, and for a replay fork (which mints a new run id) not
+		// even that. An explicit caller-supplied parent still wins: it is
+		// the more specific statement about where this run belongs.
+		const resumedTrace = params.resumeFromCheckpoint
+			? await checkpointMgr.readTraceContext(params.resumeFromCheckpoint)
+			: undefined
+
 		const rootSpan = tracer.startSpan(
 			agentRunSpanName(params.agentName),
 			{},
-			parentContext(params.parentSpan),
+			parentContext(params.parentSpan ?? resumedTrace),
 		)
 		// Hand the run span to the loop so every iteration parents to it.
 		iterationOrchestrator.setRootSpan(rootSpan)
+		// Every checkpoint from here on records the trace it was taken
+		// inside, so the next resume can join this one.
+		checkpointMgr.setTraceSource(() => serializeSpan(rootSpan))
+		// And every park it records carries an absolute deadline, so an
+		// unanswered approval cannot outlive the worker that asked for it.
+		checkpointMgr.setParkTtl(params.runConfig.hitlParkTtlMs)
 		rootSpan.setAttributes({
 			[NAMZU.RUN_ID]: ctx.runMgr.id,
 			[GENAI.AGENT_NAME]: params.agentName,

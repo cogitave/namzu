@@ -95,6 +95,21 @@ export async function* runToolReview(
 	// must not be able to release them.
 	const gateDenied = new Map<string, string>()
 
+	// Already approved, at a scope the approver chose. Consulted BEFORE the
+	// gate and before parking: re-asking about a call somebody has already
+	// said yes to is how an approval prompt becomes noise, and a noisy
+	// prompt gets answered with the widest option available. `bash: git
+	// status` re-prompted on every batch forever, and the only escape was a
+	// blanket session grant that also covered every destructive call.
+	if (ctx.toolGrants && toolCallSummaries.every((tc) => ctx.toolGrants?.covers(tc))) {
+		ctx.log.debug('Every tool call is covered by an approval already granted', {
+			tools: toolCallSummaries.map((tc) => tc.name),
+		})
+		await settle()
+		yield* ctx.drainPending()
+		return finish('executed')
+	}
+
 	if (ctx.verificationGate) {
 		const gate = ctx.verificationGate
 		const gateResults = toolCallSummaries.map((tc) => ({
@@ -234,6 +249,14 @@ export async function* runToolReview(
 
 		case 'approve_tools':
 		case 'continue': {
+			// Recorded only on an EXPLICIT approval that asked for it. A
+			// denial, a non-response, or an approval that said nothing about
+			// scope leaves nothing behind — consent stays untransferable
+			// unless the approver chose to transfer it.
+			if (reviewDecision.action === 'approve_tools' && reviewDecision.remember) {
+				ctx.toolGrants?.grant(reviewDecision.remember)
+			}
+
 			await ctx.emitEvent({
 				type: 'tool_review_completed',
 				runId: ctx.runMgr.id,

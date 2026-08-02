@@ -1,4 +1,5 @@
 import type { WorkingStateSnapshot } from '../../compaction/wire.js'
+import type { SerializedSpanContext } from '../../telemetry/attributes.js'
 import type { CostInfo, TokenUsage } from '../common/index.js'
 import type { CheckpointId, PlanId, RunId } from '../ids/index.js'
 import type { Message } from '../message/index.js'
@@ -10,7 +11,27 @@ export type HITLResumeDecision =
 	| { action: 'continue' }
 	| { action: 'approve_plan'; feedback?: string }
 	| { action: 'reject_plan'; feedback: string }
-	| { action: 'approve_tools' }
+	| {
+			action: 'approve_tools'
+			/**
+			 * Grant keys to remember, so calls covered by them are not asked
+			 * about again for the rest of the run.
+			 *
+			 * Nothing is remembered unless this says so, and only an explicit
+			 * approval can say it — a denial or a non-response leaves nothing
+			 * behind. Non-reuse was deliberate ("consent is not
+			 * transferable"); what changes is that the SCOPE becomes the
+			 * approver's to choose rather than being fixed at "this one call"
+			 * or, in the only escape available, "everything for the session".
+			 *
+			 * Keys come from {@link ToolGrantKeys}, so a grant can be as
+			 * narrow as one exact invocation or as wide as a whole tool.
+			 * `bash` is unconditionally non-read-only and in no allowlist, so
+			 * `bash: git status` re-prompted on every batch forever and the
+			 * only way out was a blanket grant that also covered `rm -rf`.
+			 */
+			remember?: readonly string[]
+	  }
 	| { action: 'modify_tools'; modifications: ToolModification[] }
 	| { action: 'reject_tools'; feedback: string }
 	| {
@@ -140,6 +161,27 @@ export interface PendingDecision {
 	/** Epoch ms at which the run parked. */
 	readonly parkedAt: number
 	/**
+	 * Epoch ms after which this park is no longer worth serving.
+	 *
+	 * Absolute, not a duration, so it survives the process that set it —
+	 * every timer in the SDK is an in-process `setTimeout` and the
+	 * park-record delay is deliberately `unref`'d, so nothing in-memory can
+	 * outlive a redeploy. Without it a run parks for approval, the worker is
+	 * replaced, nobody answers, and the checkpoint stays outstanding
+	 * forever: every approval-queue reader keeps serving it and its
+	 * workspace is never reclaimed.
+	 *
+	 * The run timeout cannot cover this. `checkLimitsDetailed` is only
+	 * reached between iterations and a park suspends mid-iteration, so a
+	 * long-lived process hard-stops the run immediately AFTER the human
+	 * finally approves, while across a restart the restored elapsed time
+	 * excludes parked time entirely — the same configuration giving two
+	 * opposite outcomes.
+	 *
+	 * Absent means no deadline, which is today's behaviour.
+	 */
+	readonly deadlineAt?: number
+	/**
 	 * Set once the decision arrives, so a resolved checkpoint stays
 	 * distinguishable from one that was never parked. A checkpoint is
 	 * outstanding when `pending` is set and `resolvedAt` is not.
@@ -184,6 +226,22 @@ export interface IterationCheckpoint {
 	 * empty manager, which is exactly today's behaviour.
 	 */
 	workingState?: WorkingStateSnapshot
+
+	/**
+	 * The trace this checkpoint was taken inside.
+	 *
+	 * A resumed run used to mint a fresh root span with a new trace id and
+	 * no link to the one that crashed, so the failure and its recovery could
+	 * not be reconstructed as one timeline. Every span carries the run id,
+	 * which is enough to find both traces by query and not enough to see one
+	 * waterfall — and even that goes away for a replay fork, which mints a
+	 * new run id.
+	 *
+	 * Absent on checkpoints written before this existed, and on runs with no
+	 * telemetry registered; in both cases the resumed run starts its own
+	 * trace, which is exactly today's behaviour.
+	 */
+	traceContext?: SerializedSpanContext
 }
 
 export function autoApproveHandler(request: HITLDecisionRequest): Promise<HITLResumeDecision> {
