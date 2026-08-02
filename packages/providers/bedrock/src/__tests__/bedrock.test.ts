@@ -155,3 +155,29 @@ describe('service exceptions reach the runtime classified', () => {
 		expect(classified.retryable).toBe(true)
 	})
 })
+
+describe('ValidationException is left to the classifier', () => {
+	const validation = (message: string) =>
+		Object.assign(new Error(message), {
+			name: 'ValidationException',
+			$metadata: { httpStatusCode: 400 },
+		})
+
+	it('reaches the overflow rescue when the body says the input is too long', () => {
+		// The driver used to pre-file this name as `invalid_request`, and the
+		// shared classifier short-circuits on an error that already carries a
+		// code — so the body was never read and the one rescue for this
+		// failure could never fire.
+		expect(classifyProviderError(validation('Input is too long for requested model.')).code).toBe(
+			'context_length_exceeded',
+		)
+	})
+
+	it('still classifies an ordinary validation failure as a bad request', () => {
+		// Nothing is lost by not pre-filing: the status in the metadata bag
+		// already maps to this.
+		const classified = classifyProviderError(validation('The model id is not valid'))
+		expect(classified.code).toBe('invalid_request')
+		expect(classified.retryable).toBe(false)
+	})
+})

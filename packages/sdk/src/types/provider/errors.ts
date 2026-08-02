@@ -234,7 +234,16 @@ function codeFromMessage(message: string): ProviderErrorCode | undefined {
 		m.includes('context_length') ||
 		m.includes('maximum context') ||
 		m.includes('too many tokens') ||
-		m.includes('prompt is too long')
+		m.includes('prompt is too long') ||
+		// Real wordings that missed every phrase above and so classified as
+		// a plain invalid request — which is not retryable, and which the
+		// overflow rescue tests for by exact equality. The run died holding
+		// the remedy.
+		m.includes('too long for') ||
+		m.includes('maximum length') ||
+		m.includes('exceeds the maximum') ||
+		m.includes('input is too large') ||
+		m.includes('too large for')
 	) {
 		return 'context_length_exceeded'
 	}
@@ -257,10 +266,54 @@ function codeFromMessage(message: string): ProviderErrorCode | undefined {
 }
 
 /**
+ * Structural failure codes providers put on the error itself, or on the
+ * `type` discriminator of a gateway's error body.
+ *
+ * These were extracted and then thrown away: the walked `code` fed only
+ * the two transport-errno sets, so a provider that said
+ * `context_length_exceeded` in the one field designed to say it was
+ * answered with a substring search that did not match, filed as a plain
+ * invalid request, and never reached the rescue that exists for exactly
+ * this failure.
+ *
+ * A code is checked BEFORE the status because it is strictly more
+ * specific: a 400 is a category, `context_length_exceeded` is the
+ * diagnosis. Only unambiguous codes belong here — anything whose meaning
+ * depends on the body stays with the message pass.
+ */
+const STRUCTURAL_CODES: Readonly<Record<string, ProviderErrorCode>> = {
+	context_length_exceeded: 'context_length_exceeded',
+	context_window_exceeded: 'context_length_exceeded',
+	max_tokens_exceeded: 'context_length_exceeded',
+	string_above_max_length: 'context_length_exceeded',
+	rate_limit_exceeded: 'rate_limit',
+	rate_limit_error: 'rate_limit',
+	insufficient_quota: 'rate_limit',
+	overloaded_error: 'overloaded',
+	content_filter: 'content_filter',
+	content_policy_violation: 'content_filter',
+	invalid_api_key: 'auth',
+	authentication_error: 'auth',
+	permission_error: 'auth',
+	model_not_found: 'not_found',
+}
+
+function codeFromStructure(err: unknown): ProviderErrorCode | undefined {
+	for (const link of causeChain(err)) {
+		for (const field of [link.code, link.type, (link.error as { type?: unknown })?.type]) {
+			if (typeof field !== 'string') continue
+			const mapped = STRUCTURAL_CODES[field.toLowerCase()]
+			if (mapped) return mapped
+		}
+	}
+	return undefined
+}
+
+/**
  * Turn whatever a driver threw into a {@link ProviderError}.
  *
- * Precedence is deliberate: HTTP status is the most reliable signal, then
- * transport errno, then message text. `context_length_exceeded` is checked
+ * Precedence is deliberate: a STRUCTURAL code is the most specific
+ * signal, then HTTP status, then transport errno, then message text. `context_length_exceeded` is checked
  * ahead of the generic 400 mapping because it is the one 4xx the runtime
  * can actually act on (shed history and retry) rather than surface.
  *
@@ -291,6 +344,21 @@ export function classifyProviderError(
 	// looks at the one string least likely to say anything.
 	const messages = chainMessages(err)
 	const fromMessage = messages.map(codeFromMessage).find((code) => code !== undefined)
+
+	// The structural code first: it is the one field designed to say what
+	// went wrong, and it is more specific than the status carrying it. A
+	// 400 is a category; `context_length_exceeded` is the diagnosis.
+	const structural = codeFromStructure(err)
+	if (structural !== undefined) {
+		return new ProviderError({
+			code: structural,
+			message,
+			providerId,
+			...(status !== undefined ? { status } : {}),
+			...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
+			cause: err,
+		})
+	}
 
 	// A 400 that is really a window overflow must not be filed as a plain
 	// invalid_request: the caller can recover from one and not the other.

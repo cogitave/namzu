@@ -25,7 +25,7 @@ import type {
 	TokenUsage,
 	ToolChoice,
 } from '@namzu/sdk'
-import { ProviderError, isAbortError, toolResultToText } from '@namzu/sdk'
+import { ProviderError, classifyProviderError, isAbortError, toolResultToText } from '@namzu/sdk'
 import type { BedrockConfig } from './types.js'
 
 /**
@@ -113,8 +113,25 @@ const EXCEPTION_CODES: Readonly<Record<string, ProviderErrorCode>> = {
 	ModelStreamErrorException: 'server_error',
 	AccessDeniedException: 'auth',
 	ResourceNotFoundException: 'not_found',
-	ValidationException: 'invalid_request',
+	// `ValidationException` is deliberately absent — see BODY_DEPENDENT.
 }
+
+/**
+ * Exception names whose meaning depends on the body rather than the name.
+ *
+ * `ValidationException` covers both a malformed request and a prompt past
+ * the model's window, and only one of those is recoverable. Pre-filing it
+ * as `invalid_request` made the recoverable one unrecoverable by
+ * construction: the shared classifier short-circuits on an error that
+ * already carries a code, so the body was never read and the overflow
+ * rescue could never fire.
+ *
+ * These are handed to the shared classifier, which reads the body and
+ * falls back to the status in the metadata bag. The result is still a
+ * `ProviderError`, so the driver's contract is unchanged — it just stops
+ * answering a question it cannot answer from the name alone.
+ */
+const BODY_DEPENDENT: ReadonlySet<string> = new Set(['ValidationException'])
 
 /**
  * Run a request, turning a named service exception into a classified
@@ -132,6 +149,8 @@ async function sendClassified<T>(send: () => Promise<T>, providerId: string): Pr
 		if (isAbortError(err)) throw err
 
 		const name = (err as { name?: string })?.name ?? ''
+		if (BODY_DEPENDENT.has(name)) throw classifyProviderError(err, providerId)
+
 		const code = EXCEPTION_CODES[name]
 		if (!code) throw err
 
