@@ -148,9 +148,11 @@ export function containsScorer(...required: string[]): Scorer {
 /**
  * Judge the run with a caller-supplied predicate.
  *
- * The escape hatch for anything the built-in scorers do not cover —
- * including a model-graded judge, which is just an async predicate that
- * happens to call a provider.
+ * The escape hatch for anything the built-in scorers do not cover. For
+ * a model-graded judge, reach for `judgeScorer` first: it handles the
+ * parts that are easy to get wrong — a rubric it refuses to run without,
+ * an ordinal scale rather than a float, disclosed truncation, and a
+ * failed call that reports as unjudged rather than as a zero.
  */
 export function customScorer(
 	name: string,

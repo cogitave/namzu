@@ -1,0 +1,112 @@
+---
+title: Evaluation
+description: Score agent behaviour with a dataset, deterministic scorers, and a model-graded judge, so a behaviour change ships with a regression signal behind it.
+last_updated: 2026-08-02
+status: current
+related_packages: ["@namzu/sdk"]
+---
+
+# Evaluation
+
+Namzu's most load-bearing behaviour is tuned by constants nobody can eyeball: how many deferred tools `search_tools` activates, when compaction fires, how long a tool description runs. Change any of them and the agent may take four tool calls where it took one — no error, no failing type, no test. The evaluation harness is what makes that visible.
+
+## 1. Surface
+
+| Piece | Owns | Main exports |
+| --- | --- | --- |
+| Dataset | inputs and what a good run looks like | `EvalCase` |
+| Run adapter | turn a real run into something scoreable | `evalRunFromQuery`, `evalRunFromRun`, `EvalRun` |
+| Deterministic scorers | pure functions over the run | `trajectoryScorer`, `completionScorer`, `stepBudgetScorer`, `containsScorer`, `customScorer` |
+| Model-graded scorer | judge an open-ended answer | `judgeScorer` |
+| Harness | run the dataset, score it, report | `runExperiment`, `formatReport` |
+
+## 2. A Minimal Suite
+
+```ts
+import {
+  completionScorer,
+  formatReport,
+  runExperiment,
+  stepBudgetScorer,
+  trajectoryScorer,
+} from '@namzu/sdk'
+
+const report = await runExperiment({
+  name: 'file-editing',
+  cases: [
+    {
+      name: 'reads before writing',
+      input: 'Fix the typo in README.md',
+      expectedTools: ['read', 'edit'],
+    },
+  ],
+  scorers: [trajectoryScorer(), completionScorer(), stepBudgetScorer(6)],
+  run: async (input) => evalRunFromQuery(query({ prompt: input, /* … */ })),
+})
+
+console.log(formatReport(report))
+```
+
+Every scorer must return a `reason`. A CI log that says `0.62` is a log that sends someone back to reproduce the failure by hand, so a scorer that cannot explain itself is one that should not exist.
+
+## 3. Trajectory, Not Just The Answer
+
+`trajectoryScorer` compares the tool sequence the run produced against the one the case expected, as F1 over the longest common **subsequence**. Order carries meaning: reading a file before editing it is not the same run as editing then reading, and a set-based comparison cannot tell them apart. Extra calls cut precision, missing calls cut recall — so a run that does the right thing wastefully and a run that skips a step score differently, which is the distinction a final-answer score collapses.
+
+## 4. The Model-Graded Judge
+
+`containsScorer` can check that a required phrase appears. It cannot tell a correct explanation from a fluent wrong one — and that is usually the dimension most worth guarding.
+
+```ts
+import { judgeScorer } from '@namzu/sdk'
+
+judgeScorer({
+  provider,
+  model: 'your-judge-model',
+  rubric: [
+    'The answer names the failing test and the file it lives in.',
+    'It states one concrete cause, not a list of possibilities.',
+  ].join('\n'),
+  scale: 4,
+})
+```
+
+Four choices in here are deliberate, because each is a place these go wrong:
+
+- **The rubric is required.** A judge asked to rate "quality" rates fluency, which correlates with little worth measuring and drifts whenever the judge model changes. `judgeScorer` throws rather than run without one.
+- **An ordinal scale, not a 0..1 float.** Models place a continuous score poorly and cluster on round numbers; a short scale against a written rubric is a judgement they can actually make. The result is divided down to 0..1 for the report. The default scale of 4 is **even** on purpose: an odd scale has a midpoint, and a midpoint is where an uncertain judge parks.
+- **Temperature 0.** Sampling noise is indistinguishable from a regression.
+- **Truncation is disclosed in the prompt.** A judge shown a silently cut answer marks it down for stopping mid-sentence, which scores the harness rather than the run.
+
+`details.judgeTokens` carries what the judging itself cost. A judge is the most expensive scorer there is, and a bill nobody can attribute is a bill nobody controls.
+
+## 5. Unavailable Is Not Zero
+
+A judge is a network call, so it can fail to answer at all — and **a failed measurement is not a measurement of zero**. Scoring a rate limit as `0` says "the run was bad" when the truth is "we do not know", and the two demand opposite responses: one is a regression to chase, the other is a broken harness to fix.
+
+So a scorer that throws returns `unavailable: true`, and:
+
+- the score is excluded from the case mean's numerator **and** its denominator;
+- a case where every scorer was unavailable is reported as `inconclusive`, neither passed nor failed;
+- `byScorer` averages each scorer over the cases it actually judged, and omits one that was never available rather than reporting it as `0`;
+- `formatReport` surfaces the inconclusive count **above** the failures, because it means every number below covers less evidence than it appears to.
+
+```ts
+if (report.inconclusive > 0) {
+  // The harness is broken, not the agent. Fix this before reading `mean`.
+}
+```
+
+A run that **threw** still scores zero: that is a real failure of the thing under test, not of the measurement.
+
+## 6. Operational Notes
+
+- Two scorers sharing a name is an error, not a silent overwrite. Scores are keyed by name, so the second would replace the first and the mean would be computed over the wrong denominator.
+- A case that throws is a result, not a crash — a suite whose first broken case aborts tells you nothing about the other forty.
+- `concurrency` defaults to 1, so ordering is deterministic unless you ask otherwise.
+
+## Related
+
+- [Runtime](../runtime/README.md)
+- [Observability](../observability/README.md)
+- [Tools](../tools/README.md)

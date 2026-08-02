@@ -448,6 +448,7 @@ export {
 	evalRunFromQuery,
 	evalRunFromRun,
 	formatReport,
+	judgeScorer,
 	runExperiment,
 	stepBudgetScorer,
 	trajectoryScorer,
