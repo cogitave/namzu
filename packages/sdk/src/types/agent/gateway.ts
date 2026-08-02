@@ -11,6 +11,19 @@ export interface TaskHandle {
 	readonly completedAt?: number
 }
 
+/**
+ * What a failed child means for the siblings still running.
+ *
+ * `'continue'` — the default, and deliberately so. Partial results are
+ * usually worth having, and tearing down healthy siblings on any failure
+ * would let one flaky child waste four good ones.
+ *
+ * `'cancel-siblings'` — stop the rest. For a fan-out whose parts only mean
+ * something together: if one leg of a comparison dies, the others are
+ * spending budget on an answer nobody can use.
+ */
+export type SiblingFailurePolicy = 'continue' | 'cancel-siblings'
+
 export interface CreateTaskOptions {
 	agentId: string
 

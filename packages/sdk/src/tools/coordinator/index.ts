@@ -156,14 +156,13 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 				runtimeContext: opts.runtimeContext,
 			})
 
-			// Industrial-standard Anthropic tool pattern: tool returns
-			// its real result as the tool_result for the dispatching
-			// tool_use. Parallel fan-out happens at the executor layer
-			// — when the supervisor emits N create_task blocks in one
-			// assistant turn, the runtime runs them with Promise.all
-			// and delivers all N tool_results together. No async
-			// envelope injection, no second tool_result for the same
-			// tool_use_id (which Anthropic rejects with 400).
+			// The tool returns its real result as the `tool_result` for the
+			// dispatching `tool_use`. Parallel fan-out happens at the executor
+			// layer: when the supervisor emits N `create_task` blocks in one
+			// assistant turn, the runtime runs them together and delivers all
+			// N `tool_result`s at once. No async envelope injection, and no
+			// second `tool_result` for the same `tool_use_id` — providers
+			// reject a duplicated id outright.
 			const completed = await gateway.waitForTask(handle.taskId)
 			const success = completed.state === 'completed'
 			const resultText =

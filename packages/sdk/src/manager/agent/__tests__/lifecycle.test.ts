@@ -582,3 +582,80 @@ describe('AgentManager.sendMessage — budget and deadline arithmetic', () => {
 		expect(context.budgetTracker.remaining).toBeLessThan(100_000)
 	})
 })
+
+/**
+ * A supervisor that fans out N tasks and watches one die had no way to say
+ * the other N-1 were now pointless. The primitive to stop them existed —
+ * every child holds an abort controller chained to the parent's — but
+ * nothing connected a failure to it.
+ */
+describe('LocalTaskGateway — what a failed child means for its siblings', () => {
+	async function fanOut(policy?: 'continue' | 'cancel-siblings') {
+		// One agent that fails, one that would run long enough to be worth
+		// cancelling.
+		let releaseSlow: (() => void) | undefined
+		const slowDone = new Promise<void>((resolve) => {
+			releaseSlow = resolve
+		})
+
+		const registry = new AgentRegistry()
+		registry.register(makeDefinition(makeAgent('fails', async () => failureResult('boom'))))
+		registry.register(
+			makeDefinition(
+				makeAgent('slow', async () => {
+					await slowDone
+					return successResult()
+				}),
+			),
+		)
+
+		const harness = await buildHarness(makeAgent('unused', async () => successResult()))
+		// Swap in the two-agent registry.
+		const manager = new AgentManager(registry, undefined, {
+			sessionStore: harness.store,
+			summaryMaterializer: harness.materializer,
+			workspaceRegistry: new WorkspaceBackendRegistry(),
+			capacity: new DefaultCapacityValidator(harness.store),
+			threadManager: harness.threadManager,
+		})
+
+		const context = buildContext(harness.parentSession.id, harness.projectId, harness.threadId)
+		const gateway = new LocalTaskGateway(
+			manager,
+			context,
+			undefined,
+			undefined,
+			policy ? { siblingFailurePolicy: policy } : undefined,
+		)
+
+		const slow = await gateway.createTask({
+			agentId: 'slow',
+			prompt: 'long work',
+			workingDirectory: '/tmp',
+		})
+		const failing = await gateway.createTask({
+			agentId: 'fails',
+			prompt: 'doomed work',
+			workingDirectory: '/tmp',
+		})
+
+		await manager.waitForCompletion(failing.taskId)
+		// Let the completion callback run.
+		await new Promise((r) => setTimeout(r, 0))
+
+		return { manager, slow, releaseSlow: releaseSlow as () => void }
+	}
+
+	it('leaves them alone by default — partial results are usually worth having', async () => {
+		const { manager, slow, releaseSlow } = await fanOut()
+		expect(manager.getInstance(slow.taskId)?.state).not.toBe('canceled')
+		releaseSlow()
+		await manager.waitForCompletion(slow.taskId)
+	})
+
+	it('cancels them when the fan-out only means something together', async () => {
+		const { manager, slow, releaseSlow } = await fanOut('cancel-siblings')
+		expect(manager.getInstance(slow.taskId)?.state).toBe('canceled')
+		releaseSlow()
+	})
+})

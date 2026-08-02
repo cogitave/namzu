@@ -1,5 +1,10 @@
 import type { AgentInput } from '../types/agent/base.js'
-import type { CreateTaskOptions, TaskGateway, TaskHandle } from '../types/agent/gateway.js'
+import type {
+	CreateTaskOptions,
+	SiblingFailurePolicy,
+	TaskGateway,
+	TaskHandle,
+} from '../types/agent/gateway.js'
 import type { AgentManagerContract } from '../types/agent/manager.js'
 import type { AgentTaskContext } from '../types/agent/task.js'
 import type { TaskId } from '../types/ids/index.js'
@@ -18,16 +23,22 @@ export class LocalTaskGateway implements TaskGateway {
 
 	private completionListeners: Set<(handle: TaskHandle) => void> = new Set()
 
+	private siblingFailurePolicy: SiblingFailurePolicy = 'continue'
+
 	constructor(
 		agentManager: AgentManagerContract,
 		taskContext: AgentTaskContext,
 		listener?: RunEventListener,
 		parentInput?: Pick<AgentInput, 'taskStore' | 'runtimeToolOverrides' | 'runtimeContext'>,
+		options?: { siblingFailurePolicy?: SiblingFailurePolicy },
 	) {
 		this.agentManager = agentManager
 		this.taskContext = taskContext
 		this.listener = listener
 		this.parentInput = parentInput
+		if (options?.siblingFailurePolicy) {
+			this.siblingFailurePolicy = options.siblingFailurePolicy
+		}
 	}
 
 	async createTask(options: CreateTaskOptions): Promise<TaskHandle> {
@@ -67,6 +78,7 @@ export class LocalTaskGateway implements TaskGateway {
 				const completed = this.agentManager.getInstance(task.taskId)
 				if (completed) {
 					const handle = toHandle(completed)
+					this.applySiblingPolicy(handle)
 					for (const cb of this.completionListeners) {
 						cb(handle)
 					}
@@ -82,6 +94,48 @@ export class LocalTaskGateway implements TaskGateway {
 			})
 
 		return toHandle(task)
+	}
+
+	/**
+	 * Decide what a failed child means for the ones still running.
+	 *
+	 * The primitive to stop them already existed — every child holds an
+	 * abort controller chained to the parent's, and `AgentManager.cancel`
+	 * uses it — but nothing connected a failure to it. So a supervisor that
+	 * fanned out five tasks and watched one die had no way to say the other
+	 * four were now pointless: they ran to completion spending budget on
+	 * work whose premise had gone.
+	 *
+	 * `'continue'` stays the default, and deliberately. Partial results are
+	 * usually worth having, and a policy that tore down healthy siblings on
+	 * any failure would make one flaky child able to waste four good ones.
+	 * The point is that the choice is now expressible, not that the answer
+	 * changed.
+	 */
+	private applySiblingPolicy(finished: TaskHandle): void {
+		if (this.siblingFailurePolicy !== 'cancel-siblings') return
+		if (!hasFailed(finished)) return
+
+		const cancelled: TaskId[] = []
+		for (const taskId of this.trackedTaskIds) {
+			if (taskId === finished.taskId) continue
+			const sibling = this.agentManager.getInstance(taskId)
+			// `cancel` is already a no-op on a terminal task, but checking
+			// here keeps the log honest about what was actually stopped.
+			if (!sibling || sibling.state === 'completed' || sibling.state === 'failed') continue
+			this.agentManager.cancel(taskId)
+			cancelled.push(taskId)
+		}
+
+		if (cancelled.length > 0) {
+			getRootLogger()
+				.child({ component: 'LocalTaskGateway' })
+				.info('Cancelled siblings after a child failed', {
+					failed: finished.taskId,
+					agentId: finished.agentId,
+					cancelled,
+				})
+		}
 	}
 
 	async waitForTask(taskId: TaskId): Promise<TaskHandle> {
@@ -121,6 +175,20 @@ export class LocalTaskGateway implements TaskGateway {
 			this.completionListeners.delete(callback)
 		}
 	}
+}
+
+/**
+ * Did this child fail?
+ *
+ * Two answers have to agree. `state` is `'failed'` only when the spawn
+ * machinery itself threw; a child whose agent RAN and returned
+ * `status: 'failed'` lands in `markCompleted` regardless, carrying the
+ * failure in its result rather than its state. Reading only the state
+ * would therefore miss the ordinary case — an agent that tried and could
+ * not — and catch only the exceptional one.
+ */
+function hasFailed(handle: TaskHandle): boolean {
+	return handle.state === 'failed' || handle.result?.status === 'failed'
 }
 
 function toHandle(task: import('../types/agent/task.js').AgentTask): TaskHandle {
