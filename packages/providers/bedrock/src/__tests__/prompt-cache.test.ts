@@ -163,16 +163,52 @@ describe('asking for the cache', () => {
 		}
 	})
 
-	it('uses at most three breakpoints, the number the wire allows', async () => {
+	it('stays within the four breakpoints the wire allows', async () => {
 		const { provider, sent } = harness()
 		await drain(provider, {
-			messages: CONVERSATION,
+			messages: [
+				...CONVERSATION,
+				{ role: 'assistant', content: 'first answer' },
+				{ role: 'user', content: 'and again' },
+				{ role: 'assistant', content: 'second answer' },
+			],
 			tools: TOOLS,
 			cacheControl: { type: 'ephemeral' },
 		})
 
+		// Tools, static system, the conversation tail, and one turn back.
 		const total = JSON.stringify(sent[0]).split('"cachePoint"').length - 1
-		expect(total).toBeLessThanOrEqual(4)
-		expect(total).toBe(3)
+		expect(total).toBe(4)
+	})
+
+	it('anchors one turn back as well as at the tail', async () => {
+		const { provider, sent } = harness()
+		await drain(provider, {
+			messages: [
+				{ role: 'user', content: 'one' },
+				{ role: 'assistant', content: 'two' },
+				{ role: 'user', content: 'three' },
+			],
+			cacheControl: { type: 'ephemeral' },
+		})
+
+		const marked = (sent[0]?.messages ?? []).filter((m) => m.content.some((b) => isCachePoint(b)))
+		// A single anchor at the tail writes a new entry every turn and reads
+		// none of them: by the next request the tail has moved. The second
+		// sits where the PREVIOUS request's tail marker was, which is the
+		// prefix already in the cache.
+		expect(marked).toHaveLength(2)
+	})
+
+	it('places only one anchor when there is only one message to anchor', async () => {
+		const { provider, sent } = harness()
+		await drain(provider, {
+			messages: [{ role: 'user', content: 'only' }],
+			cacheControl: { type: 'ephemeral' },
+		})
+
+		const messages = sent[0]?.messages ?? []
+		expect(messages).toHaveLength(1)
+		expect(messages[0]?.content.filter(isCachePoint)).toHaveLength(1)
 	})
 })

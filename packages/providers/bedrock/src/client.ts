@@ -80,12 +80,35 @@ function extractSystemBlocks(
  * skipped rather than tagged.
  */
 function applyMessageCacheBreakpoint(messages: BedrockMessage[]): void {
-	for (let i = messages.length - 1; i >= 0; i--) {
+	// Two anchors. One at the tail writes a new entry every turn and reads
+	// none of them, because by the next request the tail has moved and the
+	// marker no longer sits where the previous entry ends. The second goes
+	// one turn back — where the PREVIOUS request put its tail marker — so
+	// the next request finds a prefix that is already cached.
+	//
+	// The gap matters most where the history grows fastest: pending tool
+	// results collapse into one message, so a fan-out of parallel calls
+	// appends many blocks in a single turn and pushes the prior boundary
+	// out of reach. The tools and system tiers keep hitting through their
+	// own breakpoints, which is what made the miss invisible.
+	const anchored = markLastBlock(messages, messages.length - 1)
+	if (anchored <= 0) return
+	markLastBlock(messages, anchored - 1)
+}
+
+/**
+ * Append a breakpoint to the newest non-empty message at or before `from`,
+ * and return its index (or -1). A breakpoint may not follow an empty
+ * message, so empties are skipped.
+ */
+function markLastBlock(messages: BedrockMessage[], from: number): number {
+	for (let i = Math.min(from, messages.length - 1); i >= 0; i--) {
 		const msg = messages[i]
 		if (!msg?.content || msg.content.length === 0) continue
 		msg.content.push(CACHE_POINT)
-		return
+		return i
 	}
+	return -1
 }
 
 function toBedrockRole(role: string): ConversationRole {

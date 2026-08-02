@@ -335,20 +335,55 @@ function toAnthropicToolChoice(tc?: ToolChoice, parallelToolCalls?: boolean): un
  * (which only appends messages) reads the prior history at cache rates.
  */
 function applyMessageCacheBreakpoint(messages: AnthropicMessageParam[]): void {
-	for (let i = messages.length - 1; i >= 0; i--) {
+	// TWO anchors, not one, and the second is the point.
+	//
+	// A single breakpoint at the very tail writes a new cache entry every
+	// turn and reads none of them: by the next request the tail has moved,
+	// so the marker sits somewhere the previous entry does not cover. The
+	// tools and system tiers keep hitting through their own breakpoints, so
+	// the miss is invisible — only the messages tier silently re-bills as a
+	// write.
+	//
+	// The second anchor goes one turn back, which is where the PREVIOUS
+	// request put its tail marker. That is the prefix already in the cache,
+	// so marking it again is what turns the next request into a read.
+	//
+	// It matters most exactly where the history grows fastest: pending tool
+	// results collapse into one user message, so a fan-out of N parallel
+	// calls appends 2N content blocks in a single turn and pushes the prior
+	// boundary well out of reach.
+	//
+	// This spends the fourth of the four allowed breakpoints, which was
+	// documented as deliberately unspent. It is spent on the one tier that
+	// was never hitting.
+	const anchored = markLastBlock(messages, messages.length - 1)
+	if (anchored <= 0) return
+	markLastBlock(messages, anchored - 1)
+}
+
+/**
+ * Mark the last content block of the newest non-empty message at or before
+ * `from`, and return its index (or -1).
+ *
+ * A breakpoint cannot sit on an empty message, so empties are skipped
+ * rather than marked.
+ */
+function markLastBlock(messages: AnthropicMessageParam[], from: number): number {
+	for (let i = Math.min(from, messages.length - 1); i >= 0; i--) {
 		const msg = messages[i]
 		if (!msg) continue
 		if (typeof msg.content === 'string') {
 			if (msg.content.length === 0) continue
 			msg.content = [{ type: 'text', text: msg.content, cache_control: { type: 'ephemeral' } }]
-			return
+			return i
 		}
 		if (msg.content.length > 0) {
 			const last = msg.content[msg.content.length - 1]
 			if (last) last.cache_control = { type: 'ephemeral' }
-			return
+			return i
 		}
 	}
+	return -1
 }
 
 // --------------------------------------------------------------------------------------
