@@ -121,6 +121,22 @@ export interface ToolDefinition<TInput = unknown> {
 	name: string
 	description: string
 	inputSchema: z.ZodType<TInput, z.ZodTypeDef, unknown>
+
+	/**
+	 * The shape this tool returns, as JSON Schema, appended to the
+	 * description the model sees.
+	 *
+	 * JSON Schema rather than Zod because it is **shown, never validated**:
+	 * namzu does not check a tool's return value against it, so converting
+	 * through Zod would only cost fidelity. Native tools that want one can
+	 * render their Zod type with `renderToolSchema`.
+	 *
+	 * Optional and omitted by default — a tool whose return shape is
+	 * obvious from its description gains nothing from spending prompt on
+	 * it, and every tool schema rides in the cached prefix of every
+	 * request.
+	 */
+	outputSchema?: Record<string, unknown>
 	execute(input: TInput, context: ToolContext): Promise<ToolResult>
 	tier?: string
 	permissions?: ToolPermission[]

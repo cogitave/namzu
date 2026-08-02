@@ -21,6 +21,8 @@ export class RunPersistence {
 
 	/** See {@link recordTurnUsage}. */
 	private _lastPromptTokens?: number
+	/** See {@link lastPromptMessageCount}. */
+	private _lastPromptMessageCount?: number
 	private log: Logger
 	private readonly _sessionId: SessionId
 	private readonly _threadId: ThreadId
@@ -221,6 +223,11 @@ export class RunPersistence {
 	recordTurnUsage(usage: TokenUsage): void {
 		this.accumulateUsage(usage)
 		this._lastPromptTokens = usage.promptTokens
+		// How much of the history that number covers. The loop pushes the
+		// assistant message and its tool results AFTER this call, so without
+		// the watermark a reader cannot tell which messages the provider
+		// actually weighed — and every one appended since is invisible to it.
+		this._lastPromptMessageCount = this.run.messages.length
 	}
 
 	/**
@@ -267,6 +274,7 @@ export class RunPersistence {
 
 	clearLastPromptTokens(): void {
 		this._lastPromptTokens = undefined
+		this._lastPromptMessageCount = undefined
 	}
 
 	/**
@@ -275,6 +283,15 @@ export class RunPersistence {
 	 */
 	get lastPromptTokens(): number | undefined {
 		return this._lastPromptTokens
+	}
+
+	/**
+	 * How many messages {@link lastPromptTokens} covers. Anything at or
+	 * after this index was appended once the measurement was already taken
+	 * and has to be accounted for separately.
+	 */
+	get lastPromptMessageCount(): number | undefined {
+		return this._lastPromptMessageCount
 	}
 
 	/**

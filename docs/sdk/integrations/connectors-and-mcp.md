@@ -1,7 +1,7 @@
 ---
 title: Connectors and MCP
 description: Build connector catalogs, expose connector instances as tools, consume remote MCP servers, and bridge connected integrations back out through MCP in @namzu/sdk.
-last_updated: 2026-07-31
+last_updated: 2026-08-03
 status: current
 related_packages: ["@namzu/sdk"]
 ---
@@ -238,6 +238,51 @@ nullable (`type: ['string','null']`), descriptions and defaults.
 MCP objects default to **closed** (`additionalProperties: false`), so the
 model is not told it may invent arguments the server never declared. A
 server that explicitly sets `additionalProperties: true` is honored.
+
+**Pointers are resolved before conversion.** `$defs` + `$ref` is the default
+output of several common schema generators, and a `$ref` has no direct Zod
+equivalent — so an argument defined that way used to reach the model as
+`{}`, with no type and no shape. Worse, the permissive node it became is
+inherently optional, so a `$ref`'d field the server listed in `required`
+stopped being enforced too. Local pointers are inlined first (cycles are
+cut at the repeat, non-local and dangling pointers are left permissive), so
+the model sees the shape the server actually declared.
+
+**Validation keywords survive.** `pattern`, `minLength`/`maxLength`,
+`minimum`/`maximum`, `exclusiveMinimum`/`exclusiveMaximum`, `multipleOf`,
+`minItems`/`maxItems` and the `email` / `uri` / `uuid` / `date-time`
+formats are carried onto the converted node — shown to the model *and*
+enforced, so a bad argument is caught before the round trip rather than
+rejected by the server one turn later. Other `format` values are advisory
+in JSON Schema and are not turned into validators. `allOf` is flattened
+into a single object rather than left as an intersection, because a flat
+shape is what a model can read.
+
+### Declared return shapes
+
+A server may publish an `outputSchema` alongside a tool's inputs. No
+provider's tool wire format has a slot for it, so namzu appends it to the
+description the model sees (`Returns (JSON Schema): …`). It is **shown,
+never validated** — namzu does not check a tool's return value against it,
+which is why it is carried as JSON Schema verbatim rather than rebuilt.
+
+A server may also answer with `structuredContent` and omit the
+compatibility text block. That payload is serialized into the tool result's
+`output` when there is no text to show, and the raw
+`{ content, structuredContent }` pair is always available on `result.data`
+for host code. Without this the model received an empty result for a call
+that had succeeded — `isError` false, content array legitimately empty, and
+no diagnostic anywhere.
+
+### Paged catalogues
+
+`tools/list`, `resources/list` and `resources/templates/list` thread the
+server's cursor to the end. A server that pages its catalogue used to
+contribute only its first page: the rest were never registered, never
+namespaced, never advertised, with no error and no warning — and drift
+detection did not help, because it compared page one against page one. A
+server whose cursor never terminates is refused after 100 pages rather than
+truncated silently, since silent truncation is the failure being fixed.
 
 ## 7. Read MCP Resources and Templates
 

@@ -170,7 +170,15 @@ export {
 } from './provider/index.js'
 export type { ProviderRetryConfig, WithProviderRetryOptions } from './provider/index.js'
 
-export { LocalSandboxProvider, SandboxProviderFactory } from './sandbox/index.js'
+export {
+	assertIsolation,
+	describeIsolation,
+	isolationOf,
+	LocalSandboxProvider,
+	missingIsolation,
+	SandboxProviderFactory,
+} from './sandbox/index.js'
+export type { LocalSandboxProviderOptions } from './sandbox/index.js'
 
 export { InMemoryCredentialVault } from './vault/index.js'
 

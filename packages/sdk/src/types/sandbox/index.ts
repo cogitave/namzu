@@ -32,6 +32,32 @@ export function assertSandboxStatus(status: SandboxStatus): void {
 
 export type SandboxEnvironment = 'linux-namespace' | 'macos-seatbelt' | 'basic'
 
+/**
+ * A security control a sandbox tier either provides or does not.
+ *
+ * The environment name alone does not say what a caller actually gets:
+ * one tier denies the network outright while another leaves the host
+ * filesystem fully visible, and both used to answer to the same provider
+ * name. A caller that turned isolation on for a reason needs to state
+ * which control it is relying on, so a host that cannot supply it can
+ * refuse instead of quietly handing back less.
+ *
+ *  - `filesystem` — the spawned process cannot read or write outside the
+ *    sandbox root.
+ *  - `network` — the spawned process cannot reach the network.
+ *  - `process` — the spawned process cannot see or signal host processes.
+ */
+export type SandboxIsolationControl = 'filesystem' | 'network' | 'process'
+
+export const SANDBOX_ISOLATION_CONTROLS: readonly SandboxIsolationControl[] = [
+	'filesystem',
+	'network',
+	'process',
+]
+
+/** What a tier actually enforces, per control. */
+export type SandboxIsolationReport = Readonly<Record<SandboxIsolationControl, boolean>>
+
 export function assertSandboxEnvironment(env: SandboxEnvironment): void {
 	switch (env) {
 		case 'linux-namespace':
@@ -356,6 +382,14 @@ export const SandboxConfigSchema = z.object({
 	memoryLimitMb: z.number().positive().default(SANDBOX_DEFAULT_MEMORY_LIMIT_MB),
 	maxProcesses: z.number().positive().default(SANDBOX_DEFAULT_MAX_PROCESSES),
 	cleanupOnDestroy: z.boolean().default(true),
+	/**
+	 * Controls the run depends on. Provider construction throws when the
+	 * host cannot enforce one of them. Empty by default, which keeps
+	 * best-effort behaviour for callers that never asked for a guarantee —
+	 * but a caller that did ask now gets it or gets an error, never a
+	 * quiet downgrade.
+	 */
+	requireIsolation: z.array(z.enum(['filesystem', 'network', 'process'])).default([]),
 })
 
 export type SandboxConfig = z.infer<typeof SandboxConfigSchema>

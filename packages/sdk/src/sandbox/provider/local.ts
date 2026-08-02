@@ -27,11 +27,13 @@ import type {
 	SandboxExecOptions,
 	SandboxExecResult,
 	SandboxFileEntry,
+	SandboxIsolationControl,
 	SandboxProvider,
 	SandboxStatus,
 } from '../../types/sandbox/index.js'
 import { generateSandboxId } from '../../utils/id.js'
 import type { Logger } from '../../utils/logger.js'
+import { assertIsolation, describeIsolation } from '../isolation.js'
 
 // ---------------------------------------------------------------------------
 // Path safety
@@ -50,15 +52,28 @@ function assertInsideSandbox(sandboxRoot: string, targetPath: string): string {
 // Platform detection
 // ---------------------------------------------------------------------------
 
+/**
+ * Flags the Linux tier spawns under. Kept next to the probe so detection
+ * tests the isolation that will actually be applied, not a weaker subset.
+ */
+const LINUX_UNSHARE_FLAGS = ['--mount', '--pid', '--fork', '--map-root-user', '--net']
+
 function detectEnvironment(): SandboxEnvironment {
 	const { platform } = process
 
 	if (platform === 'linux') {
 		try {
-			execSync('unshare --version', { stdio: 'ignore' })
+			// Probe the real flags, not just the binary. `unshare --version`
+			// succeeds on a host where unprivileged user namespaces are
+			// disabled by sysctl and every actual spawn would fail — the tier
+			// would be claimed and never delivered. The other platform's probe
+			// already runs its sandbox for real; this one now does too.
+			execSync(`unshare ${LINUX_UNSHARE_FLAGS.join(' ')} -- /bin/true`, {
+				stdio: 'ignore',
+			})
 			return 'linux-namespace'
 		} catch {
-			// unshare not available
+			// unshare missing, or the host refuses the namespaces we need
 		}
 	}
 
@@ -355,7 +370,7 @@ class LocalSandbox implements Sandbox {
 			case 'linux-namespace':
 				return {
 					spawnCommand: 'unshare',
-					spawnArgs: ['--mount', '--pid', '--fork', '--map-root-user', '--', command, ...args],
+					spawnArgs: [...LINUX_UNSHARE_FLAGS, '--', command, ...args],
 				}
 
 			case 'macos-seatbelt': {
@@ -477,6 +492,15 @@ class LocalSandbox implements Sandbox {
 // LocalSandboxProvider
 // ---------------------------------------------------------------------------
 
+export interface LocalSandboxProviderOptions {
+	/**
+	 * Controls this run relies on. Construction throws when the detected
+	 * environment cannot enforce one of them, rather than downgrading to
+	 * whatever the host happens to offer.
+	 */
+	readonly requireIsolation?: readonly SandboxIsolationControl[]
+}
+
 export class LocalSandboxProvider implements SandboxProvider {
 	readonly id = 'local'
 	readonly name = 'Local Sandbox'
@@ -484,11 +508,28 @@ export class LocalSandboxProvider implements SandboxProvider {
 
 	private readonly log: Logger
 
-	constructor(log: Logger) {
+	constructor(log: Logger, options: LocalSandboxProviderOptions = {}) {
 		this.environment = detectEnvironment()
 		this.log = log.child({ component: 'LocalSandboxProvider' })
 
-		this.log.info('Initialized', { environment: this.environment })
+		assertIsolation(this.environment, options.requireIsolation ?? [])
+
+		const enforced = describeIsolation(this.environment)
+		if (this.environment === 'basic') {
+			// `warn`, not `info`. This tier confines nothing: the spawned
+			// process sees the whole host filesystem, the whole network, and
+			// every host process. The host-side controls that do survive (env
+			// scrubbed to a safe key set, cwd anchored, the SDK's own file
+			// helpers path-checked) are not process confinement, and a run
+			// that reads "sandbox created" in its log has every reason to
+			// believe otherwise.
+			this.log.warn('No isolation available on this host; commands run unconfined', {
+				environment: this.environment,
+				enforced,
+			})
+		} else {
+			this.log.info('Initialized', { environment: this.environment, enforced })
+		}
 	}
 
 	async create(config?: SandboxCreateConfig): Promise<Sandbox> {

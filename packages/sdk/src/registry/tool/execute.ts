@@ -83,6 +83,28 @@ export function assertToolName(name: string): void {
 	)
 }
 
+/**
+ * Append a tool's declared return shape to its description.
+ *
+ * No provider's tool wire format has a slot for an output schema, so the
+ * description is the only channel that reaches the model. A remote server
+ * that publishes one had it dropped at the type boundary and the model was
+ * left inferring the return shape from prose — or from the first result it
+ * happened to see, which is worse, because a tool that returns an empty
+ * list once teaches the wrong lesson permanently.
+ *
+ * Rendered from JSON Schema verbatim rather than round-tripped through
+ * anything: this is shown, never validated, so there is nothing to gain by
+ * rebuilding it and fidelity to lose.
+ */
+export function describeWithOutput(
+	description: string,
+	outputSchema: Record<string, unknown> | undefined,
+): string {
+	if (outputSchema === undefined) return description
+	return `${description}\n\nReturns (JSON Schema): ${JSON.stringify(outputSchema)}`
+}
+
 export class ToolRegistry extends ManagedRegistry<ToolDefinition> {
 	private availability: Map<string, ToolAvailability> = new Map()
 	private tierConfig?: ToolTierConfig
@@ -313,7 +335,7 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 				type: 'function' as const,
 				function: {
 					name: tool.name,
-					description,
+					description: describeWithOutput(description, tool.outputSchema),
 					parameters: renderToolSchema(tool.inputSchema),
 				},
 			}

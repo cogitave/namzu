@@ -1,7 +1,7 @@
 ---
 title: State and Persistence
 description: How @namzu/sdk models sessions, stores, checkpoints, tasks, memory, and durable run state.
-last_updated: 2026-04-18
+last_updated: 2026-08-03
 status: current
 related_packages: ["@namzu/sdk"]
 ---
@@ -59,6 +59,32 @@ The important pattern is that stores persist or retrieve data, but they do not o
 - `RunPersistence` coordinates the runtime-facing state transitions around that disk layer.
 
 The disk layout is intentionally file-oriented and append-friendly rather than database-first.
+
+### Resuming a part-executed tool batch
+
+A batch's results reach the message history only once the **whole** batch
+settles, so a hard kill part-way through loses every result that had
+already come back — and a resumed run re-executes those calls. For a
+`write_file` that is waste; for a payment or an email it is a second one.
+
+Nothing new is recorded to fix this. The executor already awaits a
+`tool_completed` per tool, inline, carrying the id, the name, the result
+and the error flag, and `transcript.jsonl` already persists it — the record
+was durable all along and simply was not read back.
+`RunDiskStore.readCompletedTools()` reads it, and the restore path feeds
+those results to `executeBatch` so an already-executed call is answered
+from the record instead of by running the tool again. The calls that never
+completed run for the first time, through the ordinary executor, so every
+guard and permission check still applies to them.
+
+The discriminator between "resume this batch" and "let the model
+re-decide" is whether the transcript holds any completion for the turn. A
+tool-review park records its checkpoint *before* any execution, so it has
+none and keeps the cheap repair — re-deciding there costs only a round
+trip, and taking the batch over would execute calls a human has not
+answered yet. A torn last line, the normal shape of a file that was being
+appended to when the process died, is skipped rather than failing the
+recovery.
 
 ## 5. Task Storage
 

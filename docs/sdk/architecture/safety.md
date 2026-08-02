@@ -1,7 +1,7 @@
 ---
 title: Safety and Operations
 description: Sandboxing, verification, bus coordination, telemetry, and operational guardrails inside @namzu/sdk.
-last_updated: 2026-04-18
+last_updated: 2026-08-03
 status: current
 related_packages: ["@namzu/sdk", "@namzu/computer-use"]
 ---
@@ -18,6 +18,7 @@ The `sandbox/` folder owns execution containment:
 | --- | --- |
 | `sandbox/factory.ts` | Build a `SandboxProvider` from config |
 | `sandbox/provider/local.ts` | Local sandbox implementation with environment detection and filesystem safety |
+| `sandbox/isolation.ts` | What each detected tier actually enforces, and the refusal when it cannot |
 
 The local provider is responsible for:
 
@@ -26,6 +27,48 @@ The local provider is responsible for:
 - process execution with timeouts and output limits
 - atomic writes inside the sandbox filesystem
 - environment filtering for safe env propagation
+
+### What a tier actually enforces
+
+The detected environment does not enforce a uniform amount of isolation,
+and the provider used to report the same `id` and `name` at every tier —
+so a host that deliberately turned isolation **on** got a tier-dependent
+amount of it under one undifferentiated name.
+
+| Environment | filesystem | network | process |
+| --- | --- | --- | --- |
+| `macos-seatbelt` | yes | yes | yes |
+| `linux-namespace` | **no** | yes | yes |
+| `basic` | no | no | no |
+
+`linux-namespace` reports `filesystem: false` deliberately: the tier
+unshares the mount namespace but never remounts anything, so the child
+still sees the whole host filesystem. A private mount table is not
+confinement.
+
+Detection runs the flags it will actually spawn under, rather than checking
+that a binary exists — a host with unprivileged user namespaces disabled by
+sysctl answers `unshare --version` happily and then fails every spawn.
+
+Constructing at the `basic` tier logs a **warning** naming it as
+unconfined. The host-side controls that do survive there (env scrubbed to a
+safe key set, cwd anchored, the SDK's own file helpers path-checked) are
+not process confinement.
+
+### Requiring a control
+
+```ts
+const provider = new LocalSandboxProvider(log, {
+  requireIsolation: ['filesystem', 'network'],
+})
+// throws on a host that cannot enforce them
+```
+
+Also settable as `sandbox.requireIsolation` in runtime config. It defaults
+to empty, so best-effort callers are unaffected — but a caller that states
+a requirement gets it or gets an error. It is never silently downgraded: a
+security control that is accepted and then not applied is worse than one
+that was never offered, because the caller stops looking.
 
 ## 2. Verification Gate
 

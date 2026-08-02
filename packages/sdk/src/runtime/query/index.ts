@@ -76,7 +76,14 @@ import { applyLifecycleHookResults } from './plugin-hooks.js'
 import { PromptBuilder } from './prompt.js'
 import type { PromptSegments } from './prompt.js'
 import { ResultAssembler } from './result.js'
-import { type PendingResumePlan, applyPendingResume, planPendingResume } from './resume-pending.js'
+import {
+	type PendingResumePlan,
+	applyPendingResume,
+	planCrashResume,
+	planPendingResume,
+	recoverCompletedCalls,
+	unansweredToolCalls,
+} from './resume-pending.js'
 import { ToolingBootstrap } from './tooling.js'
 
 export interface QueryParams {
@@ -707,6 +714,8 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		// Decided during checkpoint restore, executed after the sandbox
 		// exists — the approved tools may well need it.
 		let pendingResume: PendingResumePlan | null = null
+		/** Tool results recovered from the transcript; see the restore path. */
+		let recoveredResults: ReadonlyMap<string, { result: string; isError: boolean }> = new Map()
 		let emergencyManager: EmergencySaveManager | undefined
 
 		try {
@@ -811,6 +820,27 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 					params.pendingDecision && checkpoint.pending
 						? planPendingResume(checkpoint, params.pendingDecision, ctx.log)
 						: null
+
+				// Results of tools that finished before the process died. The
+				// executor already emits one `tool_completed` per tool inline
+				// and the transcript already persists it, so the record was
+				// durable all along — it was simply never read back, and the
+				// resumed run re-ran calls that had already charged a card or
+				// sent an email.
+				const unanswered = unansweredToolCalls(checkpoint.messages)
+				recoveredResults =
+					unanswered.length > 0
+						? await recoverCompletedCalls(ctx.runMgr, unanswered, ctx.log)
+						: new Map()
+
+				// A batch caught MID-execution is a resume, not a fresh
+				// decision: stripping the turn and letting the model re-decide
+				// would re-run everything that already ran. Only taken when
+				// the transcript proves execution had begun — a tool-review
+				// park has no completions and keeps the cheap repair below.
+				if (!pendingResume && recoveredResults.size > 0) {
+					pendingResume = planCrashResume(checkpoint, recoveredResults, ctx.log)
+				}
 
 				// A checkpoint taken at a tool-review park snapshots the
 				// assistant turn AFTER its `tool_use` blocks but BEFORE any
@@ -994,7 +1024,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 					tools: pendingResume.response.message.toolCalls?.map((tc) => tc.function.name),
 					denied: pendingResume.denials.size,
 				})
-				await applyPendingResume(pendingResume, ctx.runMgr, toolExecutor)
+				await applyPendingResume(pendingResume, ctx.runMgr, toolExecutor, recoveredResults)
 				yield* eventTranslator.drainPending()
 
 				// The decision has now actually been carried out, so the park

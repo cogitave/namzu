@@ -137,6 +137,18 @@ export interface ToolExecutionBatch {
 export type ToolCallDenials = ReadonlyMap<string, string>
 
 /**
+ * Results for calls that already ran, keyed by `toolUseId`.
+ *
+ * A batch's results reach the history only when the whole batch settles,
+ * so a hard kill part-way through loses whatever had already come back and
+ * the resumed run re-executes those calls. Supplying them here answers
+ * those `tool_use` blocks from the record instead of by running the tool
+ * again — which for a payment or an email is the difference between
+ * resuming and repeating.
+ */
+export type PriorToolResults = ReadonlyMap<string, { result: string; isError: boolean }>
+
+/**
  * Model-visible text for a tool call that was never executed.
  *
  * The reason travels INSIDE the `tool_result` rather than as a trailing
@@ -214,6 +226,7 @@ export class ToolExecutor {
 	async executeBatch(
 		response: ChatCompletionResponse,
 		denials?: ToolCallDenials,
+		prior?: PriorToolResults,
 	): Promise<ToolExecutionBatch> {
 		const toolCalls = response.message.toolCalls
 		if (!toolCalls) {
@@ -224,6 +237,7 @@ export class ToolExecutor {
 			runId: this.config.runId,
 			toolCount: toolCalls.length,
 			deniedCount: denials?.size ?? 0,
+			recoveredCount: prior?.size ?? 0,
 			tools: toolCalls.map((tc) => tc.function.name),
 		})
 
@@ -248,6 +262,21 @@ export class ToolExecutor {
 		// order independence.
 		const gate = new Semaphore(this.config.maxToolConcurrency ?? DEFAULT_TOOL_CONCURRENCY)
 		toolCalls.forEach((toolCall, i) => {
+			const recovered = prior?.get(toolCall.id)
+			if (recovered !== undefined) {
+				// This call already ran, in a process that died before the
+				// batch settled. Re-running it would be a second charge, a
+				// second email, a second row deleted — so the recorded result
+				// answers the `tool_use` block and the tool is not touched.
+				results[i] = {
+					toolCallId: toolCall.id,
+					toolName: toolCall.function.name,
+					output: recovered.result,
+					isError: recovered.isError,
+				}
+				return
+			}
+
 			const denialReason = denials?.get(toolCall.id)
 			if (denialReason !== undefined) {
 				// Denied calls never touch the tool; they still get a result

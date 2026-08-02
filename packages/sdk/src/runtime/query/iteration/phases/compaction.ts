@@ -4,6 +4,7 @@ import { serializeState } from '../../../../compaction/serializer.js'
 import { clearStaleToolResults } from '../../../../compaction/tool-result-editing.js'
 import { buildVerifiedSummary } from '../../../../compaction/verifier.js'
 import { CHARS_PER_TOKEN } from '../../../../constants/limits.js'
+import type { Message } from '../../../../types/message/index.js'
 import { createSystemMessage } from '../../../../types/message/index.js'
 import type { IterationContext } from './context.js'
 import { isWorkingMemoryMessage } from './working-memory.js'
@@ -54,9 +55,9 @@ function measureContentChars(content: unknown): number {
 	return total
 }
 
-function estimateTokens(ctx: IterationContext): number {
+function estimateMessageTokens(messages: readonly Message[]): number {
 	let chars = 0
-	for (const msg of ctx.runMgr.messages) {
+	for (const msg of messages) {
 		// `content` is `string | ToolResultBlock[]`. On an array, `.length` is
 		// the BLOCK COUNT, so a tool result carrying a 400 KB screenshot
 		// contributed 1 — and the estimate that decides when to compact read
@@ -72,6 +73,33 @@ function estimateTokens(ctx: IterationContext): number {
 }
 
 /**
+ * Tokens the tool catalogue occupies in every request.
+ *
+ * The catalogue is assembled separately from the message array and never
+ * entered the estimate, so a 30-tool registry — easily 10-20k tokens of
+ * JSON Schema — was invisible to the trigger. It is also the most stable
+ * part of the prompt, which is exactly why forgetting it biases every
+ * reading the same way rather than averaging out.
+ */
+function estimateToolCatalogTokens(ctx: IterationContext): number {
+	try {
+		const tools = ctx.tools.toLLMTools(ctx.allowedTools)
+		if (tools.length === 0) return 0
+		return Math.ceil(JSON.stringify(tools).length / CHARS_PER_TOKEN)
+	} catch {
+		// The catalogue is an optimisation of the estimate, not a
+		// precondition for compacting. A registry that cannot render is a
+		// problem for the model call, which will report it far better than
+		// a crash inside the trigger would.
+		return 0
+	}
+}
+
+function estimateTokens(ctx: IterationContext): number {
+	return estimateMessageTokens(ctx.runMgr.messages) + estimateToolCatalogTokens(ctx)
+}
+
+/**
  * How full the context is, in tokens.
  *
  * Prefer the provider's own count of the last prompt — it is a measurement,
@@ -79,6 +107,17 @@ function estimateTokens(ctx: IterationContext): number {
  * schemas, system blocks, image tokens, per-message framing). The chars/4
  * estimate remains the fallback for iteration 1, before any turn has
  * reported, and for providers that do not return usage.
+ *
+ * The measurement describes the prompt as it was SENT, so everything the
+ * turn appended afterwards — the assistant message and every one of its
+ * tool results — falls outside it. Reading it verbatim therefore reported
+ * a context one full turn stale, and staleness is largest on precisely the
+ * turns that add the most: a turn that returns 200 KB of tool output was
+ * counted as if it had returned nothing. That error and the missing tool
+ * catalogue both point the same way — under-count — so the trigger did not
+ * jitter around the threshold, it sat systematically late. The tail is
+ * estimated rather than measured because no provider in the repo exposes a
+ * token-count call; an approximate tail beats a certain omission.
  */
 function measureContext(ctx: IterationContext): {
 	tokens: number
@@ -86,7 +125,9 @@ function measureContext(ctx: IterationContext): {
 } {
 	const reported = ctx.runMgr.lastPromptTokens
 	if (reported !== undefined && reported > 0) {
-		return { tokens: reported, source: 'provider' }
+		const measuredThrough = ctx.runMgr.lastPromptMessageCount ?? ctx.runMgr.messages.length
+		const appended = ctx.runMgr.messages.slice(measuredThrough)
+		return { tokens: reported + estimateMessageTokens(appended), source: 'provider' }
 	}
 	return { tokens: estimateTokens(ctx), source: 'estimate' }
 }

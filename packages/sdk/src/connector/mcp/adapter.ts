@@ -8,6 +8,7 @@ import type {
 import type { ToolResultBlock } from '../../types/message/index.js'
 import type { ToolContext, ToolDefinition, ToolResult } from '../../types/tool/index.js'
 import type { MCPClient } from './client.js'
+import { inlineSchemaRefs } from './schema-refs.js'
 
 /**
  * Convert an MCP server's declared input schema into the Zod type namzu
@@ -24,20 +25,43 @@ import type { MCPClient } from './client.js'
  * spelled out precisely.
  */
 export function mcpJsonSchemaToZod(schema: MCPJsonSchema): z.ZodType {
-	return objectToZod(schema as unknown as Record<string, unknown>)
+	// Pointers first: a `$ref` is invisible to every branch below, and a
+	// schema whose main argument is a `$ref` was rendered to the model as
+	// "anything" — and, because the result is inherently optional in Zod,
+	// stopped being required as well.
+	const inlined = inlineSchemaRefs(schema as unknown as Record<string, unknown>)
+	return objectToZod(inlined, 0)
 }
 
-function objectToZod(schema: Record<string, unknown>): z.ZodType {
+/**
+ * Ceiling on the `objectToZod` / `jsonSchemaPropertyToZod` mutual recursion.
+ *
+ * Ref inlining already refuses to expand a cycle, but a schema can nest
+ * deeply without any `$ref` at all, and a remote server's schema is
+ * untrusted input. Past the ceiling the node is left permissive rather than
+ * the process being taken down by a stack overflow.
+ */
+const MAX_CONVERSION_DEPTH = 32
+
+function objectToZod(rawSchema: Record<string, unknown>, depth: number): z.ZodType {
+	// Flatten `allOf` here rather than only in the type switch: a root
+	// schema is converted through this function directly, so a tool whose
+	// whole input is `allOf: [...]` never reached the switch at all and was
+	// rendered as an object with no properties.
+	const allOf = rawSchema.allOf as unknown[] | undefined
+	const schema = Array.isArray(allOf) && allOf.length > 0 ? mergeAllOf(allOf, rawSchema) : rawSchema
+
 	const properties = schema.properties as Record<string, unknown> | undefined
 	if (!properties || Object.keys(properties).length === 0) {
 		return closeOrOpen(z.object({}), schema)
 	}
+	if (depth >= MAX_CONVERSION_DEPTH) return z.record(z.unknown())
 
 	const shape: Record<string, z.ZodType> = {}
 	const required = new Set((schema.required as string[] | undefined) ?? [])
 
 	for (const [key, propSchema] of Object.entries(properties)) {
-		const field = jsonSchemaPropertyToZod(propSchema)
+		const field = jsonSchemaPropertyToZod(propSchema, depth + 1)
 		shape[key] = required.has(key) ? field : field.optional()
 	}
 
@@ -58,11 +82,11 @@ function closeOrOpen(obj: z.ZodObject<z.ZodRawShape>, schema: Record<string, unk
 	return schema.additionalProperties === true ? obj.passthrough() : obj
 }
 
-function jsonSchemaPropertyToZod(prop: unknown): z.ZodType {
+function jsonSchemaPropertyToZod(prop: unknown, depth = 0): z.ZodType {
 	if (typeof prop !== 'object' || prop === null) return z.unknown()
 	const schema = prop as Record<string, unknown>
 
-	let base = baseTypeToZod(schema)
+	let base = applyConstraints(baseTypeToZod(schema, depth), schema)
 
 	// `type: ['string', 'null']` is how a JSON Schema says nullable.
 	if (Array.isArray(schema.type) && schema.type.includes('null')) {
@@ -81,7 +105,85 @@ function jsonSchemaPropertyToZod(prop: unknown): z.ZodType {
 	return base
 }
 
-function baseTypeToZod(schema: Record<string, unknown>): z.ZodType {
+const num = (value: unknown): number | undefined =>
+	typeof value === 'number' && Number.isFinite(value) ? value : undefined
+
+/**
+ * Carry the server's validation keywords onto the converted node.
+ *
+ * Only `description` and `default` used to survive, so `pattern`, the
+ * length and range bounds, `format` and `multipleOf` were all dropped —
+ * from what the model is SHOWN as much as from what is enforced. A server
+ * that carefully said "an ISO date, 10 characters, matching this pattern"
+ * had the model told "a string", and then namzu accepted whatever the model
+ * invented and let the server reject it a round trip later.
+ */
+function applyConstraints(base: z.ZodType, schema: Record<string, unknown>): z.ZodType {
+	if (base instanceof z.ZodString) {
+		let out = base
+		const minLength = num(schema.minLength)
+		const maxLength = num(schema.maxLength)
+		if (minLength !== undefined) out = out.min(minLength)
+		if (maxLength !== undefined) out = out.max(maxLength)
+		if (typeof schema.pattern === 'string') {
+			try {
+				out = out.regex(new RegExp(schema.pattern))
+			} catch {
+				// A server may use a regex dialect this engine cannot compile
+				// (named groups, lookbehind, POSIX classes). An unenforced
+				// pattern is a smaller loss than a tool that fails to register.
+			}
+		}
+		return applyStringFormat(out, schema.format)
+	}
+
+	if (base instanceof z.ZodNumber) {
+		let out = base
+		const minimum = num(schema.minimum)
+		const maximum = num(schema.maximum)
+		const exclusiveMinimum = num(schema.exclusiveMinimum)
+		const exclusiveMaximum = num(schema.exclusiveMaximum)
+		const multipleOf = num(schema.multipleOf)
+		if (minimum !== undefined) out = out.min(minimum)
+		if (maximum !== undefined) out = out.max(maximum)
+		if (exclusiveMinimum !== undefined) out = out.gt(exclusiveMinimum)
+		if (exclusiveMaximum !== undefined) out = out.lt(exclusiveMaximum)
+		if (multipleOf !== undefined && multipleOf > 0) out = out.multipleOf(multipleOf)
+		return out
+	}
+
+	if (base instanceof z.ZodArray) {
+		let out = base as z.ZodArray<z.ZodTypeAny>
+		const minItems = num(schema.minItems)
+		const maxItems = num(schema.maxItems)
+		if (minItems !== undefined) out = out.min(minItems)
+		if (maxItems !== undefined) out = out.max(maxItems)
+		return out
+	}
+
+	return base
+}
+
+function applyStringFormat(base: z.ZodString, format: unknown): z.ZodString {
+	switch (format) {
+		case 'email':
+			return base.email()
+		case 'uri':
+		case 'url':
+			return base.url()
+		case 'uuid':
+			return base.uuid()
+		case 'date-time':
+			return base.datetime({ offset: true })
+		default:
+			// Every other `format` is advisory in JSON Schema. The description
+			// already carries it to the model; inventing a validator for it
+			// would reject payloads the server would have accepted.
+			return base
+	}
+}
+
+function baseTypeToZod(schema: Record<string, unknown>, depth = 0): z.ZodType {
 	// An `enum` pins the value more tightly than `type` does, so it wins.
 	const enumValues = schema.enum
 	if (Array.isArray(enumValues) && enumValues.length > 0) {
@@ -93,10 +195,20 @@ function baseTypeToZod(schema: Record<string, unknown>): z.ZodType {
 
 	const composite = (schema.anyOf ?? schema.oneOf) as unknown[] | undefined
 	if (Array.isArray(composite) && composite.length > 0) {
-		const members = composite.map(jsonSchemaPropertyToZod)
+		const members = composite.map((member) => jsonSchemaPropertyToZod(member, depth + 1))
 		return members.length === 1
 			? (members[0] as z.ZodType)
 			: z.union(members as [z.ZodType, z.ZodType, ...z.ZodType[]])
+	}
+
+	// `allOf` is how a schema generator says "this shape, plus that one".
+	// It reached the permissive branch, so an intersection of two fully
+	// described objects was shown to the model as "anything". Merged rather
+	// than intersected: an intersection re-renders as `allOf`, and a flat
+	// object is what a model can actually read.
+	const allOf = schema.allOf as unknown[] | undefined
+	if (Array.isArray(allOf) && allOf.length > 0) {
+		return objectToZod(mergeAllOf(allOf, schema), depth)
 	}
 
 	// A union type (`['string','null']`) resolves through its non-null half;
@@ -124,11 +236,42 @@ function baseTypeToZod(schema: Record<string, unknown>): z.ZodType {
 			return z.array(items === undefined ? z.unknown() : jsonSchemaPropertyToZod(items))
 		}
 		case 'object':
-			return objectToZod(schema)
+			return objectToZod(schema, depth)
 		default:
 			return z.unknown()
 	}
 }
+
+/**
+ * Flatten `allOf` members into one object schema.
+ *
+ * Only `properties` and `required` are merged, which is what the keyword
+ * is used for in practice (a base shape plus an extension). A member that
+ * describes something else is skipped rather than approximated. On a
+ * property collision the later member wins, matching the reading order.
+ */
+function mergeAllOf(members: readonly unknown[], parent: Record<string, unknown>): JsonRecord {
+	const properties: JsonRecord = { ...((parent.properties as JsonRecord | undefined) ?? {}) }
+	const required = new Set((parent.required as string[] | undefined) ?? [])
+	let additionalProperties = parent.additionalProperties
+
+	for (const member of members) {
+		if (typeof member !== 'object' || member === null) continue
+		const part = member as Record<string, unknown>
+		Object.assign(properties, (part.properties as JsonRecord | undefined) ?? {})
+		for (const key of (part.required as string[] | undefined) ?? []) required.add(key)
+		if (part.additionalProperties !== undefined) additionalProperties = part.additionalProperties
+	}
+
+	return {
+		type: 'object',
+		properties,
+		required: [...required],
+		...(additionalProperties !== undefined ? { additionalProperties } : {}),
+	}
+}
+
+type JsonRecord = Record<string, unknown>
 
 function enumToZod(values: readonly unknown[]): z.ZodType {
 	if (values.every((v): v is string => typeof v === 'string')) {
@@ -162,6 +305,11 @@ export function mcpToolToToolDefinition(
 			? `[MCP:${serverName}] ${tool.description}`
 			: `[MCP:${serverName}] ${tool.name}`,
 		inputSchema,
+		// Carried as the server wrote it. It is shown to the model, never
+		// validated here, so rebuilding it would only lose fidelity.
+		...(tool.outputSchema
+			? { outputSchema: inlineSchemaRefs(tool.outputSchema as unknown as Record<string, unknown>) }
+			: {}),
 		category: 'network',
 		permissions: ['network_access'],
 		isReadOnly: () => tool.annotations?.readOnlyHint ?? false,
@@ -213,12 +361,38 @@ export function mcpToolResultToToolResult(result: MCPToolResult): ToolResult {
 	}
 	const hasRichContent = blocks.some((b) => b.type !== 'text')
 
+	// A server may answer with a structured payload and skip the
+	// compatibility text block. Serializing it is the difference between
+	// the model reading the answer and reading nothing at all — the call
+	// succeeded, so no error path would have caught it either. Text wins
+	// when both are present: the server wrote it for the model.
+	const output =
+		textContent.length > 0 || result.structuredContent === undefined
+			? textContent
+			: stringifyStructured(result.structuredContent)
+
 	return {
 		success: !result.isError,
-		output: textContent,
+		output,
 		...(hasRichContent ? { content: blocks } : {}),
-		data: result.content,
-		error: result.isError ? textContent : undefined,
+		// `data` is the host-side escape hatch, so it must carry what the
+		// server actually sent, not just the blocks half of it.
+		data:
+			result.structuredContent === undefined
+				? result.content
+				: { content: result.content, structuredContent: result.structuredContent },
+		error: result.isError ? output : undefined,
+	}
+}
+
+function stringifyStructured(value: unknown): string {
+	if (typeof value === 'string') return value
+	try {
+		return JSON.stringify(value, null, 2) ?? ''
+	} catch {
+		// Cyclic or otherwise unserializable. Naming it beats an empty
+		// result the model cannot distinguish from "nothing was found".
+		return '[structured result could not be serialized]'
 	}
 }
 

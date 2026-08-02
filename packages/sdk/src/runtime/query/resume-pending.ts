@@ -7,7 +7,7 @@ import type {
 import type { AssistantMessage, Message, ToolCall } from '../../types/message/index.js'
 import type { ChatCompletionResponse } from '../../types/provider/index.js'
 import type { Logger } from '../../utils/logger.js'
-import type { ToolCallDenials, ToolExecutor } from './executor.js'
+import type { PriorToolResults, ToolCallDenials, ToolExecutor } from './executor.js'
 
 /**
  * Apply a decision collected out-of-band to the tool calls a run parked on.
@@ -102,6 +102,54 @@ export function planPendingResume(
 }
 
 /**
+ * Decide whether a checkpoint left behind a batch that was PART-WAY
+ * through executing when the process died.
+ *
+ * The ordinary repair for an unanswered assistant turn — strip it and let
+ * the model re-decide — is right when nothing ran: the calls were still
+ * awaiting a decision, so re-deciding costs only a round trip. It is
+ * exactly wrong when some of them already ran, because re-deciding means
+ * re-executing, and a tool that charged a card does not become idempotent
+ * on the second attempt.
+ *
+ * The discriminator is the transcript: a tool-review park records the
+ * checkpoint BEFORE any execution, so it has no completed calls and takes
+ * the cheap path unchanged. One or more completions means execution had
+ * begun, which is a resume, not a fresh decision.
+ *
+ * The calls that did NOT complete are executed here for the first time,
+ * through the ordinary executor — so every guard, permission check and
+ * probe still applies to them.
+ */
+export function planCrashResume(
+	checkpoint: IterationCheckpoint,
+	completed: ReadonlyMap<string, unknown>,
+	log: Logger,
+): PendingResumePlan | null {
+	const assistant = lastAssistantWithUnansweredCalls(checkpoint.messages)
+	const calls = assistant?.toolCalls
+	if (!assistant || !calls || calls.length === 0) return null
+
+	const done = calls.filter((tc) => completed.has(tc.id))
+	if (done.length === 0) return null
+
+	log.warn('Checkpoint holds a tool batch that was part-way through executing', {
+		checkpointId: checkpoint.id,
+		completed: done.length,
+		total: calls.length,
+		remaining: calls.filter((tc) => !completed.has(tc.id)).map((tc) => tc.function.name),
+	})
+
+	return {
+		checkpointId: checkpoint.id,
+		assistant,
+		response: synthesizeResponse(assistant),
+		// Nothing was refused: this is a resume, not a decision.
+		denials: new Map(),
+	}
+}
+
+/**
  * Execute a resume plan, pushing the assistant turn and its results.
  *
  * The assistant message is re-pushed rather than repaired away, because
@@ -113,12 +161,52 @@ export async function applyPendingResume(
 	plan: PendingResumePlan,
 	runMgr: RunPersistence,
 	executor: ToolExecutor,
+	prior?: PriorToolResults,
 ): Promise<void> {
 	runMgr.pushMessage(plan.assistant)
-	const batch = await executor.executeBatch(plan.response, plan.denials)
+	const batch = await executor.executeBatch(plan.response, plan.denials, prior)
 	for (const msg of batch.messages) {
 		runMgr.pushMessage(msg)
 	}
+}
+
+/**
+ * Results the run already produced for calls in `toolCalls`.
+ *
+ * Read from the transcript, which records a `tool_completed` per tool as
+ * it finishes — durable long before the batch settles. Scoped to the calls
+ * being resumed so an id from an earlier turn can never answer this one.
+ *
+ * A failure to read is not fatal: the worst case is the behaviour that
+ * existed before this recovery, and refusing to resume because a log could
+ * not be read would be a strictly worse trade.
+ */
+export async function recoverCompletedCalls(
+	runMgr: RunPersistence,
+	toolCalls: readonly ToolCall[],
+	log: Logger,
+): Promise<Map<string, { result: string; isError: boolean }>> {
+	const recovered = new Map<string, { result: string; isError: boolean }>()
+	try {
+		const completed = await runMgr.getRunStore().readCompletedTools()
+		for (const call of toolCalls) {
+			const record = completed.get(call.id)
+			if (record) recovered.set(call.id, { result: record.result, isError: record.isError })
+		}
+	} catch (error) {
+		log.warn('Could not read the transcript to recover completed tool calls', {
+			error: error instanceof Error ? error.message : String(error),
+		})
+		return new Map()
+	}
+
+	if (recovered.size > 0) {
+		log.info('Recovered tool results from the transcript instead of re-executing', {
+			recovered: recovered.size,
+			ofCalls: toolCalls.length,
+		})
+	}
+	return recovered
 }
 
 /**
@@ -196,6 +284,23 @@ function synthesizeResponse(assistant: AssistantMessage): ChatCompletionResponse
 			cacheWriteTokens: 0,
 		},
 	}
+}
+
+/**
+ * Tool calls in the history that no `tool_result` answers.
+ *
+ * The set worth asking the transcript about: an already-answered call's
+ * result is in the history and needs no recovery.
+ */
+export function unansweredToolCalls(messages: readonly Message[]): ToolCall[] {
+	const assistant = lastAssistantWithUnansweredCalls(messages)
+	if (!assistant?.toolCalls) return []
+
+	const answered = new Set<string>()
+	for (const msg of messages) {
+		if (msg.role === 'tool' && msg.toolCallId) answered.add(msg.toolCallId)
+	}
+	return assistant.toolCalls.filter((tc) => !answered.has(tc.id))
 }
 
 function lastAssistantWithUnansweredCalls(messages: readonly Message[]): AssistantMessage | null {

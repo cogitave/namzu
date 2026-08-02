@@ -180,6 +180,19 @@ turn over a character heuristic, because it counts what the heuristic
 cannot see: tool schemas, system blocks, image tokens, per-message
 framing.
 
+That measurement describes the prompt as it was **sent**, so everything the
+turn appended afterwards — the assistant message and every one of its tool
+results — falls outside it. The reported number therefore has an estimate
+of that tail added to it. Reading it verbatim made the trigger one full
+turn stale, and the staleness is largest on exactly the turns that add the
+most: a turn returning 200 KB of tool output counted as if it had returned
+nothing. The character-heuristic fallback (used before any turn has
+reported, and for providers that return no usage) now includes the tool
+catalogue too — a 30-tool registry is easily 10-20k tokens of JSON Schema
+that shipped with every request and entered no estimate at all. Both
+omissions biased the same way, under-count, so the trigger did not jitter
+around the threshold; it sat systematically late.
+
 ### Clearing stale tool output first
 
 Before summarizing, the pass clears the **output** of old, large tool

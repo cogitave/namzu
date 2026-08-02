@@ -16,6 +16,14 @@ import { defineSchema, migrate, stamp } from '../schema.js'
  */
 const SCHEMA = defineSchema({ kind: 'run-store', current: 1, migrations: {} })
 
+/** One finished tool call, recovered from the transcript. */
+export interface CompletedToolRecord {
+	readonly toolUseId: string
+	readonly toolName: string
+	readonly result: string
+	readonly isError: boolean
+}
+
 export class RunDiskStore {
 	private baseDir: string
 	private runDir: string | null = null
@@ -54,6 +62,63 @@ export class RunDiskStore {
 		})}\n`
 
 		await appendFile(join(dir, 'transcript.jsonl'), line, 'utf-8')
+	}
+
+	/**
+	 * Every tool call this run has already finished, keyed by `toolUseId`.
+	 *
+	 * A batch's results are pushed onto the history only once the WHOLE
+	 * batch settles, so a hard kill part-way through loses every result
+	 * that had already come back — and the resumed run re-executes those
+	 * calls. For a `write_file` that is waste; for a payment or an email it
+	 * is a second one.
+	 *
+	 * Nothing new has to be written to make that recoverable: the executor
+	 * already awaits a `tool_completed` event per tool, inline, carrying the
+	 * id, the name, the result and the error flag, and the transcript
+	 * already persists it. The record was durable all along and simply
+	 * never read back.
+	 */
+	async readCompletedTools(): Promise<Map<string, CompletedToolRecord>> {
+		const dir = this.requireInit()
+		const completed = new Map<string, CompletedToolRecord>()
+
+		let raw: string
+		try {
+			raw = await readFile(join(dir, 'transcript.jsonl'), 'utf-8')
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === 'ENOENT') return completed
+			throw error
+		}
+
+		for (const line of raw.split('\n')) {
+			if (line.length === 0) continue
+			let event: Record<string, unknown>
+			try {
+				event = JSON.parse(line) as Record<string, unknown>
+			} catch {
+				// A torn last line is the normal shape of a file that was
+				// being appended to when the process died — which is exactly
+				// the case this method exists for. Skip it; every whole line
+				// before it is still good.
+				continue
+			}
+			if (event.type !== 'tool_completed') continue
+			const toolUseId = event.toolUseId
+			const toolName = event.toolName
+			if (typeof toolUseId !== 'string' || typeof toolName !== 'string') continue
+
+			// Last write wins: a retried tool emits one event per attempt and
+			// the final one is what actually answered the call.
+			completed.set(toolUseId, {
+				toolUseId,
+				toolName,
+				result: typeof event.result === 'string' ? event.result : '',
+				isError: event.isError === true,
+			})
+		}
+
+		return completed
 	}
 
 	async writeRunMeta(run: Run): Promise<void> {
