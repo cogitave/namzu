@@ -133,7 +133,6 @@ export type PluginHookResult =
 	| { action: 'skip'; reason: string }
 	| { action: 'modify'; input: unknown }
 	| { action: 'error'; message: string }
-	| { action: 'resume'; input: string }
 	| { action: 'retry' }
 
 export function assertPluginHookResult(result: PluginHookResult): asserts result {
@@ -143,7 +142,6 @@ export function assertPluginHookResult(result: PluginHookResult): asserts result
 		case 'skip':
 		case 'modify':
 		case 'error':
-		case 'resume':
 		case 'retry':
 			break
 		default: {

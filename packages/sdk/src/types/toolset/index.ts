@@ -12,8 +12,6 @@ export type ToolSourceKind =
 
 export type ToolLoadingMode = 'eager' | 'deferred' | 'disabled' | 'suspended'
 
-export type ToolPermissionPolicy = 'default' | 'always_allow' | 'always_ask' | 'deny'
-
 export interface ToolSource {
 	readonly id: string
 	readonly kind: ToolSourceKind
@@ -43,7 +41,6 @@ export interface ToolsetPolicy {
 	readonly enabled?: boolean
 	readonly loading?: ToolLoadingMode
 	readonly preferred?: boolean
-	readonly permissionPolicy?: ToolPermissionPolicy
 	readonly surfaces?: readonly ToolCatalogSurface[]
 	readonly providerConfig?: Record<string, unknown>
 }

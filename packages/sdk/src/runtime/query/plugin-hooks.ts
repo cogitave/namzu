@@ -26,7 +26,6 @@ export function applyLifecycleHookResults(
 			case 'skip':
 			case 'modify':
 			case 'retry':
-			case 'resume':
 				throw new Error(
 					`Plugin hook ${event} returned unsupported action '${result.action}' for a lifecycle event`,
 				)

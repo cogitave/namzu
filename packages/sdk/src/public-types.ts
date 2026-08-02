@@ -98,7 +98,7 @@ export type { ContextCacheConfig, PromptCacheInput } from './runtime/query/conte
 
 export type { LimitCheckResult, LimitCheckerState, RunReporter } from './run/index.js'
 
-export type { ConcurrencyMode, DefineAgentOptions, Disposable } from './agents/index.js'
+export type { DefineAgentOptions, Disposable } from './agents/index.js'
 
 export type {
 	ActivityEvent,

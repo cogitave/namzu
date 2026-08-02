@@ -495,7 +495,7 @@ export class PluginLifecycleManager {
 			if (result.action === 'error' || result.action === 'skip') {
 				break
 			}
-			if (result.action === 'resume' || result.action === 'retry') {
+			if (result.action === 'retry') {
 				break
 			}
 		}

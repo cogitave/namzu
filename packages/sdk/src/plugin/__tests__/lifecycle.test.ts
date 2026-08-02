@@ -269,34 +269,6 @@ describe('PluginLifecycleManager', () => {
 				expect(handler2).not.toHaveBeenCalled()
 			})
 
-			it('should short-circuit and return resume action', async () => {
-				const handler1 = vi.fn(async (): Promise<PluginHookResult> => {
-					return { action: 'resume', input: 'new_input_value' }
-				})
-
-				const handler2 = vi.fn(async (): Promise<PluginHookResult> => {
-					return { action: 'continue' }
-				})
-
-				manager.registerHook('plugin_1' as PluginId, {
-					event: 'pre_llm_call',
-					handler: handler1,
-				})
-				manager.registerHook('plugin_2' as PluginId, {
-					event: 'pre_llm_call',
-					handler: handler2,
-				})
-
-				const results = await manager.executeHooks('pre_llm_call', { runId: mockRunId })
-
-				expect(results).toHaveLength(1)
-				expect(results[0]?.action).toBe('resume')
-				if (results[0]?.action === 'resume') {
-					expect(results[0].input).toBe('new_input_value')
-				}
-				expect(handler2).not.toHaveBeenCalled()
-			})
-
 			it('should short-circuit and return retry action', async () => {
 				const handler1 = vi.fn(async (): Promise<PluginHookResult> => {
 					return { action: 'retry' }

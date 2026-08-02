@@ -19,7 +19,6 @@ describe('applyLifecycleHookResults', () => {
 		['skip', { action: 'skip', reason: 'no' } as PluginHookResult],
 		['modify', { action: 'modify', input: {} } as PluginHookResult],
 		['retry', { action: 'retry' } as PluginHookResult],
-		['resume', { action: 'resume', input: 'x' } as PluginHookResult],
 	])('throws on unsupported %s action for lifecycle event', (_, result) => {
 		expect(() => applyLifecycleHookResults('iteration_start', [result])).toThrow(
 			/unsupported action/,

@@ -832,7 +832,6 @@ export class ToolExecutor {
 						output: `Error: ${result.message}`,
 					}
 				case 'retry':
-				case 'resume':
 					throw new Error(
 						`Plugin hook pre_tool_use returned unsupported action '${result.action}' for tool ${toolName}`,
 					)
@@ -1060,7 +1059,6 @@ export class ToolExecutor {
 					continue
 				case 'skip':
 				case 'modify':
-				case 'resume':
 					throw new Error(
 						`Plugin hook post_tool_use returned unsupported action '${result.action}' for tool ${toolName}`,
 					)
