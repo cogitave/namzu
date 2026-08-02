@@ -77,6 +77,7 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 				...(config.inputGuardrails ? { inputGuardrails: config.inputGuardrails } : {}),
 				...(config.outputGuardrails ? { outputGuardrails: config.outputGuardrails } : {}),
 				...(config.checkpointStore ? { checkpointStore: config.checkpointStore } : {}),
+				...(config.parentSpan ? { parentSpan: config.parentSpan } : {}),
 				runConfig: {
 					model: config.model,
 					tokenBudget: config.tokenBudget,

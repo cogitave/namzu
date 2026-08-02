@@ -96,6 +96,12 @@ export interface ReactiveAgentConfig extends BaseAgentConfig {
 	inputGuardrails?: readonly InputGuardrailSpec[]
 	outputGuardrails?: readonly OutputGuardrailSpec[]
 	checkpointStore?: CheckpointStore
+
+	/**
+	 * Span this run should hang off, when it is a delegated one. Absent for
+	 * a top-level run, which correctly starts its own root trace.
+	 */
+	parentSpan?: import('@opentelemetry/api').Span
 }
 
 export interface ReactiveAgentResult extends BaseAgentResult {

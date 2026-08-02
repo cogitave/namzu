@@ -15,7 +15,7 @@ import { EmergencySaveManager } from '../../manager/run/emergency.js'
 import { resolveProviderCapabilities } from '../../provider/capabilities.js'
 import { type ProviderRetryConfig, withProviderRetry } from '../../provider/retry.js'
 import type { PathBuilder } from '../../session/workspace/path-builder.js'
-import { GENAI, NAMZU, agentRunSpanName } from '../../telemetry/attributes.js'
+import { GENAI, NAMZU, agentRunSpanName, parentContext } from '../../telemetry/attributes.js'
 import { getTracer } from '../../telemetry/runtime-accessors.js'
 import { buildAdvisoryTools } from '../../tools/advisory/index.js'
 import { SearchToolsTool } from '../../tools/builtins/search-tools.js'
@@ -255,6 +255,15 @@ export interface QueryParams {
 	 * that wants an unconditional audit trail).
 	 */
 	parkRecordDelayMs?: number
+
+	/**
+	 * Span this run should hang off, when it is a delegated one.
+	 *
+	 * A spawned sub-agent is part of its parent's work, and a trace that
+	 * shows the delegation is the whole reason to trace a supervisor at
+	 * all. Absent for a top-level run, which correctly starts its own root.
+	 */
+	parentSpan?: import('@opentelemetry/api').Span
 
 	/** Session scope for the run. Required — every run is attributed to a Session. */
 	sessionId: SessionId
@@ -670,7 +679,18 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 	const tracer = getTracer()
 
 	return yield* (async function* (): AsyncGenerator<RunEvent, Run> {
-		const rootSpan = tracer.startSpan(agentRunSpanName(params.agentName))
+		// Parent explicitly when a caller supplied one. Without this every
+		// run starts its OWN root trace, so a supervisor delegating to three
+		// children produced four disconnected traces instead of one tree —
+		// the same defect that made a 20-turn run show up as 21 roots before
+		// iterations were parented, except across the spawn boundary, where
+		// it is worse: the delegation structure is the thing you most want
+		// to see.
+		const rootSpan = tracer.startSpan(
+			agentRunSpanName(params.agentName),
+			{},
+			parentContext(params.parentSpan),
+		)
 		// Hand the run span to the loop so every iteration parents to it.
 		iterationOrchestrator.setRootSpan(rootSpan)
 		rootSpan.setAttributes({

@@ -260,6 +260,11 @@ export class AgentManager {
 			childConfig.threadId = context.threadId
 			childConfig.projectId = context.projectId
 			childConfig.tenantId = context.tenantId
+			// Stamp the trace parent the same way, rather than trusting every
+			// configBuilder to forward an option it may not know about.
+			if (options.configOverrides?.parentSpan) {
+				childConfig.parentSpan = options.configOverrides.parentSpan
+			}
 		} else {
 			this.log.warn('No configBuilder, using bare config', {
 				agentId: options.agentId,
@@ -269,6 +274,7 @@ export class AgentManager {
 				tokenBudget: allocatedTokens,
 				timeoutMs: options.budgetAllocation?.timeoutMs ?? this.config.childTimeoutMs,
 				temperature: options.configOverrides?.temperature,
+				parentSpan: options.configOverrides?.parentSpan,
 				maxIterations: options.configOverrides?.maxIterations,
 				maxResponseTokens: options.configOverrides?.maxResponseTokens,
 				env: options.configOverrides?.env,

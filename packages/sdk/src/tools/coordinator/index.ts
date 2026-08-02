@@ -154,6 +154,9 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 				prompt,
 				workingDirectory: cwd,
 				runtimeContext: opts.runtimeContext,
+				// Hang the child run off THIS tool's span, so the delegation
+				// shows up inside the turn that asked for it.
+				...(_context.parentSpan ? { parentSpan: _context.parentSpan } : {}),
 			})
 
 			// The tool returns its real result as the `tool_result` for the

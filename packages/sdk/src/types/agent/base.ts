@@ -58,6 +58,9 @@ export interface BaseAgentConfig {
 
 	/** Shared invocation state passed through agent hierarchies */
 	invocationState?: InvocationState
+
+	/** Span a delegated run hangs off. Absent for a top-level run. */
+	parentSpan?: import('@opentelemetry/api').Span
 }
 
 export type RuntimeToolOverrides = Record<string, ToolAvailability | 'disabled'>

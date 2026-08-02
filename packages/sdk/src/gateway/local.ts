@@ -58,6 +58,10 @@ export class LocalTaskGateway implements TaskGateway {
 				tenantId: this.taskContext.tenantId,
 				projectId: this.taskContext.projectId,
 				parentActor: this.taskContext.parentActor,
+				// Hang the child run off the span the caller supplied, so a
+				// delegated run joins the trace it belongs to instead of
+				// starting its own root.
+				...(options.parentSpan ? { configOverrides: { parentSpan: options.parentSpan } } : {}),
 			},
 			// The budget tracker is SHARED on purpose and must not be cloned.
 			// `AgentManager.spawn` debits it (`remaining -= allocatedTokens`)

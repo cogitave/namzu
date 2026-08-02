@@ -25,6 +25,13 @@ export interface TaskHandle {
 export type SiblingFailurePolicy = 'continue' | 'cancel-siblings'
 
 export interface CreateTaskOptions {
+	/**
+	 * Span the spawned run should hang off — normally the executing tool's
+	 * own span, so the delegation shows up inside the turn that asked for
+	 * it rather than as a disconnected root trace.
+	 */
+	readonly parentSpan?: import('@opentelemetry/api').Span
+
 	agentId: string
 
 	prompt: string
