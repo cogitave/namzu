@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { LMStudioClient } from '@lmstudio/sdk'
-import type { ChatHistoryData, LLMPredictionOpts, LLMTool } from '@lmstudio/sdk'
+import type { ChatHistoryData, FileType, LLMPredictionOpts, LLMTool } from '@lmstudio/sdk'
 import { toolResultToText } from '@namzu/sdk'
 import type {
 	ChatCompletionParams,
@@ -62,9 +62,16 @@ type WireToolCallPart = {
 	}
 }
 type WireToolResultPart = { type: 'toolCallResult'; content: string; toolCallId?: string }
+type WireFilePart = {
+	type: 'file'
+	name: string
+	identifier: string
+	sizeBytes: number
+	fileType: FileType
+}
 
 type WireMessage =
-	| { role: 'system' | 'user'; content: WireTextPart[] }
+	| { role: 'system' | 'user'; content: Array<WireTextPart | WireFilePart> }
 	| { role: 'assistant'; content: Array<WireTextPart | WireToolCallPart> }
 	| { role: 'tool'; content: WireToolResultPart[] }
 
@@ -101,6 +108,40 @@ function parseArguments(raw: string): Record<string, unknown> {
 }
 
 /**
+ * Image media types the vision path accepts.
+ *
+ * The upload takes a filename and the backend decides from the bytes, so
+ * an unrecognised type is left as a text note rather than uploaded and
+ * discovered to be undecodable half a turn later.
+ */
+const IMAGE_MEDIA_TYPES: ReadonlySet<string> = new Set([
+	'image/png',
+	'image/jpeg',
+	'image/jpg',
+	'image/webp',
+	'image/gif',
+])
+
+const IMAGE_EXTENSIONS: Readonly<Record<string, string>> = {
+	'image/png': 'png',
+	'image/jpeg': 'jpg',
+	'image/jpg': 'jpg',
+	'image/webp': 'webp',
+	'image/gif': 'gif',
+}
+
+/**
+ * An attachment that has been handed to the backend, keyed by the message
+ * it came from.
+ *
+ * Unlike every other wire this driver speaks, an image cannot be inlined:
+ * it is uploaded first and the message references the handle that comes
+ * back. That makes the mapping asynchronous, so the upload happens ahead
+ * of it and the mapping stays a pure function of what it is given.
+ */
+export type UploadedAttachments = ReadonlyMap<number, readonly WireFilePart[]>
+
+/**
  * Map the conversation onto the backend's native part structure.
  *
  * Tool traffic used to be flattened into user text behind a
@@ -108,12 +149,21 @@ function parseArguments(raw: string): Record<string, unknown> {
  * outright, so the model saw an answer to a question it had no record of
  * asking. The wire has first-class parts for both; this uses them.
  */
-export function toWireChat(messages: ChatCompletionParams['messages']): {
+export function toWireChat(
+	messages: ChatCompletionParams['messages'],
+	attached: {
+		uploads?: UploadedAttachments
+		/** Text standing in for an attachment that could not be sent. */
+		notes?: ReadonlyMap<number, readonly string[]>
+	} = {},
+): {
 	messages: WireMessage[]
 } {
 	const out: WireMessage[] = []
+	let index = -1
 
 	for (const msg of messages) {
+		index++
 		if (msg.role === 'tool') {
 			// `toolResultToText` rather than `JSON.stringify`: stringifying a
 			// content-block array dumps an image's base64 payload into the
@@ -155,10 +205,17 @@ export function toWireChat(messages: ChatCompletionParams['messages']): {
 			continue
 		}
 
-		const text = typeof msg.content === 'string' ? msg.content : toolResultToText(msg.content ?? '')
+		const body = typeof msg.content === 'string' ? msg.content : toolResultToText(msg.content ?? '')
+		const files = attached.uploads?.get(index) ?? []
+		const text = [body, ...(attached.notes?.get(index) ?? [])]
+			.filter((part) => part.length > 0)
+			.join('\n')
+		const parts: Array<WireTextPart | WireFilePart> = []
+		if (text.length > 0 || files.length === 0) parts.push({ type: 'text', text })
+		parts.push(...files)
 		out.push({
 			role: msg.role === 'system' ? 'system' : 'user',
-			content: [{ type: 'text', text }],
+			content: parts,
 		})
 	}
 
@@ -191,15 +248,21 @@ function normalizeBaseUrl(host: string | undefined): string | undefined {
  * tool calls as the backend parses them, and forwards reasoning
  * fragments.
  *
- * Vision stays off: an image has to be uploaded to the backend first and
- * referenced by handle, which is a round-trip this driver does not make.
- * `attachments` are dropped, so the flag says so.
+ * Vision goes through an upload: an image cannot be inlined on this wire,
+ * so each user attachment is handed to the backend first and the message
+ * references the handle that comes back. An upload that fails leaves a
+ * text note naming the image rather than taking the turn down.
+ *
+ * An image inside a TOOL RESULT stays a text placeholder: a tool message
+ * on this wire may hold result parts and nothing else, so there is nowhere
+ * to reference a handle from. Moving it into a separate user turn would
+ * put words in the user's mouth to make a picture fit.
  */
 export const LMSTUDIO_CAPABILITIES: ProviderCapabilities = {
 	supportsTools: true,
 	supportsStreaming: true,
 	supportsFunctionCalling: true,
-	supportsVision: false,
+	supportsVision: true,
 }
 
 /**
@@ -241,11 +304,76 @@ export interface ModelHandle {
 	respond(chat: { messages: WireMessage[] }, opts: PredictionOptions): PredictionHandle
 }
 
+export interface UploadedFileHandle {
+	readonly identifier: string
+	readonly type: FileType
+	readonly sizeBytes: number
+	readonly name: string
+}
+
 export interface BackendClient {
 	llm: {
 		model(id: string): Promise<ModelHandle>
 		listLoaded(): Promise<Array<{ identifier?: string; path?: string }>>
 	}
+	files: {
+		prepareImageBase64(fileName: string, contentBase64: string): Promise<UploadedFileHandle>
+	}
+}
+
+/**
+ * Hand every carriable user attachment to the backend and collect the
+ * handles, keyed by the message they belong to.
+ *
+ * An upload that fails must not take the turn down with it: the model
+ * losing sight of one image is recoverable, the run dying is not. A failed
+ * or unsupported attachment is named in the text instead, so the model
+ * knows something was there and that it cannot see it — which is a
+ * different situation from there being no image at all.
+ */
+export async function uploadAttachments(
+	client: BackendClient,
+	messages: ChatCompletionParams['messages'],
+): Promise<{ uploads: Map<number, WireFilePart[]>; notes: Map<number, string[]> }> {
+	const uploads = new Map<number, WireFilePart[]>()
+	const notes = new Map<number, string[]>()
+
+	const note = (index: number, text: string) => {
+		const list = notes.get(index) ?? []
+		list.push(text)
+		notes.set(index, list)
+	}
+
+	for (const [index, msg] of messages.entries()) {
+		if (msg.role !== 'user' || !msg.attachments || msg.attachments.length === 0) continue
+
+		for (const [n, attachment] of msg.attachments.entries()) {
+			const mediaType = attachment.mediaType.toLowerCase()
+			if (!IMAGE_MEDIA_TYPES.has(mediaType)) {
+				note(index, `[image: ${attachment.mediaType} — unsupported format, not sent]`)
+				continue
+			}
+			try {
+				const handle = await client.files.prepareImageBase64(
+					`attachment-${index}-${n}.${IMAGE_EXTENSIONS[mediaType] ?? 'png'}`,
+					attachment.data,
+				)
+				const parts = uploads.get(index) ?? []
+				parts.push({
+					type: 'file',
+					name: handle.name,
+					identifier: handle.identifier,
+					sizeBytes: handle.sizeBytes,
+					fileType: handle.type,
+				})
+				uploads.set(index, parts)
+			} catch {
+				note(index, `[image: ${attachment.mediaType} — upload failed, not sent]`)
+			}
+		}
+	}
+
+	return { uploads, notes }
 }
 
 /**
@@ -331,6 +459,9 @@ export class LMStudioProvider implements LLMProvider {
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
 		const modelId = this.resolveModel(params)
 		const model = await this.client.llm.model(modelId)
+		// Ahead of the mapping, because an image has to exist on the backend
+		// before a message can point at it.
+		const attached = await uploadAttachments(this.client, params.messages)
 		const id = randomUUID()
 
 		// Tool calls arrive through callbacks the backend fires while the
@@ -405,7 +536,7 @@ export class LMStudioProvider implements LLMProvider {
 			})
 		}
 
-		const prediction = model.respond(toWireChat(params.messages), options)
+		const prediction = model.respond(toWireChat(params.messages, attached), options)
 
 		let reasoningOpen = false
 		for await (const fragment of prediction) {

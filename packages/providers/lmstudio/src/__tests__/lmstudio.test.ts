@@ -44,15 +44,15 @@ describe('@namzu/lmstudio', () => {
 
 	describe('LMSTUDIO_CAPABILITIES', () => {
 		it('declares the expected capability flags', () => {
-			// Honest driver flags: tool schemas are sent and calls are
-			// surfaced, but an image would have to be uploaded and referenced
-			// by handle first, and this driver does not make that round-trip —
-			// so `attachments` are still dropped and vision says false.
+			// Honest driver flags: tool schemas are sent, calls are surfaced,
+			// and a user attachment is uploaded and referenced by handle. An
+			// image inside a TOOL RESULT is still a text placeholder — a tool
+			// message on this wire holds result parts and nothing else.
 			expect(LMSTUDIO_CAPABILITIES).toEqual({
 				supportsTools: true,
 				supportsStreaming: true,
 				supportsFunctionCalling: true,
-				supportsVision: false,
+				supportsVision: true,
 			})
 		})
 	})

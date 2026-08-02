@@ -28,8 +28,13 @@ type Step =
 	 */
 	| { fireAtEnd: (opts: PredictionOptions) => void }
 
-function harness(steps: Step[], stats: Record<string, unknown> = { stopReason: 'eosFound' }) {
+function harness(
+	steps: Step[],
+	stats: Record<string, unknown> = { stopReason: 'eosFound' },
+	failUpload = false,
+) {
 	const seen: { chat?: { messages: unknown[] }; opts?: PredictionOptions } = {}
+	const uploaded: Array<{ fileName: string; contentBase64: string }> = []
 
 	const client: BackendClient = {
 		llm: {
@@ -71,10 +76,22 @@ function harness(steps: Step[], stats: Record<string, unknown> = { stopReason: '
 				return []
 			},
 		},
+		files: {
+			async prepareImageBase64(fileName: string, contentBase64: string) {
+				uploaded.push({ fileName, contentBase64 })
+				if (failUpload) throw new Error('backend refused the upload')
+				return {
+					identifier: `file-${uploaded.length}`,
+					type: 'image' as const,
+					sizeBytes: contentBase64.length,
+					name: fileName,
+				}
+			},
+		},
 	}
 
 	const provider = new LMStudioProvider({ client, model: 'local-model' })
-	return { provider, seen }
+	return { provider, seen, uploaded }
 }
 
 async function drain(
@@ -404,5 +421,131 @@ describe('finish and usage', () => {
 		})
 		const usage = (await drain(provider)).at(-1)?.usage
 		expect(usage).toMatchObject({ promptTokens: 12, completionTokens: 5, totalTokens: 17 })
+	})
+})
+
+describe('images', () => {
+	const PNG = 'iVBORw0KGgo='
+
+	it('uploads the attachment and points the message at the handle', async () => {
+		const { provider, seen, uploaded } = harness([])
+		await drain(provider, {
+			messages: [
+				{
+					role: 'user',
+					content: 'what is this',
+					attachments: [{ data: PNG, mediaType: 'image/png' }],
+				},
+			],
+		})
+
+		// An image cannot be inlined on this wire; it has to exist on the
+		// backend before a message can reference it.
+		expect(uploaded).toHaveLength(1)
+		expect(uploaded[0]?.contentBase64).toBe(PNG)
+
+		const user = seen.chat?.messages[0] as {
+			content: Array<{ type: string; identifier?: string; fileType?: string; text?: string }>
+		}
+		const file = user.content.find((part) => part.type === 'file')
+		expect(file?.identifier).toBeTruthy()
+		expect(file?.fileType).toBe('image')
+		expect(user.content.find((part) => part.type === 'text')?.text).toBe('what is this')
+	})
+
+	it('names the upload with an extension matching the media type', async () => {
+		const { provider, uploaded } = harness([])
+		await drain(provider, {
+			messages: [
+				{ role: 'user', content: 'x', attachments: [{ data: PNG, mediaType: 'image/jpeg' }] },
+			],
+		})
+		expect(uploaded[0]?.fileName).toMatch(/\.jpg$/)
+	})
+
+	it('never lets the payload reach the prompt as text', async () => {
+		const { provider, seen } = harness([])
+		await drain(provider, {
+			messages: [
+				{ role: 'user', content: 'look', attachments: [{ data: PNG, mediaType: 'image/png' }] },
+			],
+		})
+		expect(JSON.stringify(seen.chat)).not.toContain(PNG)
+	})
+
+	it('does not upload a format the backend cannot decode', async () => {
+		const { provider, seen, uploaded } = harness([])
+		await drain(provider, {
+			messages: [
+				{ role: 'user', content: 'look', attachments: [{ data: PNG, mediaType: 'image/tiff' }] },
+			],
+		})
+
+		expect(uploaded).toHaveLength(0)
+		const serialized = JSON.stringify(seen.chat)
+		expect(serialized).toContain('image/tiff')
+		expect(serialized).not.toContain(PNG)
+	})
+
+	it('keeps the turn alive when the upload fails, and says the image is missing', async () => {
+		const { provider, seen } = harness([], { stopReason: 'eosFound' }, true)
+		await drain(provider, {
+			messages: [
+				{ role: 'user', content: 'look', attachments: [{ data: PNG, mediaType: 'image/png' }] },
+			],
+		})
+
+		const user = seen.chat?.messages[0] as { content: Array<{ type: string; text?: string }> }
+		expect(user.content.some((part) => part.type === 'file')).toBe(false)
+		// Losing sight of one image is recoverable; the run dying is not. And
+		// "there was an image you cannot see" is a different situation from
+		// there having been no image, so the model is told which one it is.
+		expect(user.content.find((part) => part.type === 'text')?.text).toContain('upload failed')
+	})
+
+	it('carries several attachments on one message, in order', async () => {
+		const { provider, seen, uploaded } = harness([])
+		await drain(provider, {
+			messages: [
+				{
+					role: 'user',
+					content: 'compare these',
+					attachments: [
+						{ data: PNG, mediaType: 'image/png' },
+						{ data: PNG, mediaType: 'image/webp' },
+					],
+				},
+			],
+		})
+
+		expect(uploaded).toHaveLength(2)
+		const user = seen.chat?.messages[0] as { content: Array<{ type: string }> }
+		expect(user.content.filter((part) => part.type === 'file')).toHaveLength(2)
+	})
+
+	it('attaches to the right message when only a later one has an image', async () => {
+		const { provider, seen } = harness([])
+		await drain(provider, {
+			messages: [
+				{ role: 'system', content: 'be brief' },
+				{ role: 'user', content: 'first' },
+				{ role: 'assistant', content: 'ok' },
+				{
+					role: 'user',
+					content: 'second',
+					attachments: [{ data: PNG, mediaType: 'image/png' }],
+				},
+			],
+		})
+
+		const messages = seen.chat?.messages as Array<{ content: Array<{ type: string }> }>
+		expect(messages[1]?.content.some((p) => p.type === 'file')).toBe(false)
+		expect(messages[3]?.content.some((p) => p.type === 'file')).toBe(true)
+	})
+
+	it('uploads nothing when there is nothing attached', async () => {
+		const { provider, uploaded } = harness([])
+		await drain(provider, { messages: [{ role: 'user', content: 'plain' }] })
+		expect(uploaded).toHaveLength(0)
 	})
 })

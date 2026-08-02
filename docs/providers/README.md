@@ -41,7 +41,7 @@ Every provider page follows the same runtime shape:
 | `@namzu/openrouter` | Yes | Yes | Depends on chosen upstream model |
 | `@namzu/http` | Yes | Yes | Endpoint must match declared dialect correctly |
 | `@namzu/ollama` | Yes | Yes | Also carries images; whether the loaded model can use either is the model’s business |
-| `@namzu/lmstudio` | Yes | Yes | Image attachments are dropped; the driver does not upload them |
+| `@namzu/lmstudio` | Yes | Yes | Images are uploaded and referenced by handle |
 
 ## 4. Quick Routing Guide
 

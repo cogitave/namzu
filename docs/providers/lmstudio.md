@@ -79,13 +79,13 @@ The package exports `LMSTUDIO_CAPABILITIES`:
   supportsTools: true,
   supportsStreaming: true,
   supportsFunctionCalling: true,
-  supportsVision: false,
+  supportsVision: true,
 }
 ```
 
 The driver sends tool schemas, maps the conversation onto the backend's native part structure — the assistant's own calls and each result as first-class parts rather than text folded into a user turn — and surfaces calls as the backend parses them.
 
-Vision is off because an image would have to be uploaded to the backend and referenced by handle first, and this driver does not make that round-trip. Image attachments are dropped, so the flag says so.
+An image cannot be inlined on this wire, so each user attachment is uploaded to the backend first and the message references the handle that comes back. An upload that fails leaves a text note naming the image rather than taking the turn down. An image inside a **tool result** stays a text placeholder: a tool message here may hold result parts and nothing else, so there is nowhere to reference a handle from.
 
 Whether the loaded model was trained to call tools is a separate question; these flags describe the driver.
 
