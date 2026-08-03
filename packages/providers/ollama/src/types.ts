@@ -14,6 +14,15 @@ export interface OllamaConfig {
 	fetch?: typeof fetch
 	/** Default model to use when none specified in chat params. */
 	model?: string
+	/**
+	 * Deadline for each request, in milliseconds. Absent means none, which
+	 * is what this has always done regardless of what was set here.
+	 *
+	 * Covers the whole request rather than the time to the first byte: the
+	 * failure it exists for is a local server that accepts the socket and
+	 * never answers — still loading a model, or out of memory — and bounding
+	 * only the head leaves exactly that case unbounded.
+	 */
 	timeout?: number
 }
 

@@ -12,6 +12,15 @@ export interface LMStudioConfig {
 	host?: string
 	/** Model identifier (must be loaded in LM Studio). */
 	model?: string
+	/**
+	 * Deadline for a completion, in milliseconds. Absent means none, which
+	 * is what this has always done regardless of what was set here.
+	 *
+	 * Composed with the caller cancellation rather than replacing it, and it
+	 * covers resolving the model as well as generating: the wait it exists
+	 * for is a websocket that connects while the model is still loading into
+	 * memory, which happens before a single token is produced.
+	 */
 	timeout?: number
 }
 

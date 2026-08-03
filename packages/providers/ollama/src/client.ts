@@ -15,6 +15,7 @@ import {
 	Ollama,
 	type Message as OllamaMessage,
 } from 'ollama'
+import { withRequestTimeout } from './request-timeout.js'
 import type { OllamaConfig } from './types.js'
 
 /**
@@ -130,7 +131,7 @@ export class OllamaProvider implements LLMProvider {
 		this.config = config
 		this.client = new Ollama({
 			host: resolveHost(config),
-			...(config.fetch ? { fetch: config.fetch } : {}),
+			fetch: withRequestTimeout(config.fetch, config.timeout),
 		})
 	}
 

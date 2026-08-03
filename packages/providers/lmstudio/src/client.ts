@@ -127,6 +127,27 @@ export const LMSTUDIO_CAPABILITIES: ProviderCapabilities = {
 	supportsDocuments: false,
 }
 
+/**
+ * Compose a caller's cancellation with a configured deadline.
+ *
+ * Composed rather than replaced: the caller's signal is how a run cancels
+ * mid-generation, and dropping it for the deadline would leave a local model
+ * generating after the run that asked for it has stopped.
+ */
+function withDeadline(
+	signal: AbortSignal | undefined,
+	timeoutMs: number | undefined,
+): AbortSignal | undefined {
+	if (timeoutMs === undefined) return signal
+	if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+		throw new Error(
+			`LM Studio timeout must be a positive number of milliseconds, got ${timeoutMs}. A zero or negative deadline would abort every request before it was sent.`,
+		)
+	}
+	const deadline = AbortSignal.timeout(timeoutMs)
+	return signal ? AbortSignal.any([signal, deadline]) : deadline
+}
+
 export class LMStudioProvider implements LLMProvider {
 	readonly id = 'lmstudio'
 	readonly name = 'LM Studio'
@@ -145,11 +166,13 @@ export class LMStudioProvider implements LLMProvider {
 	private clientInstance?: LMStudioClient
 	private readonly baseUrl?: string
 	private defaultModel?: string
+	private readonly timeoutMs?: number
 
 	constructor(config: LMStudioConfig = {}) {
 		const baseUrl = normalizeBaseUrl(config.host ?? process.env.LMSTUDIO_HOST)
 		if (baseUrl) this.baseUrl = baseUrl
 		this.defaultModel = config.model
+		if (config.timeout !== undefined) this.timeoutMs = config.timeout
 	}
 
 	private get client(): LMStudioClient {
@@ -173,13 +196,21 @@ export class LMStudioProvider implements LLMProvider {
 		const modelId = this.resolveModel(params)
 		try {
 			params.signal?.throwIfAborted()
-			const model = await awaitRequestStart(this.client.llm.model(modelId), params.signal)
+
+			// The caller's signal and the configured deadline, composed rather
+			// than one replacing the other. `LMStudioConfig.timeout` was
+			// declared and read by nothing, so a host that set one waited
+			// forever anyway — and the wait it exists for is specific: the
+			// websocket connects, the model is still loading into memory, and
+			// `llm.model()` never resolves.
+			const signal = withDeadline(params.signal, this.timeoutMs)
+			const model = await awaitRequestStart(this.client.llm.model(modelId), signal)
 			// Pass the caller abort so the SDK sends the real server-side cancel
 			// (LLMPredictionOpts.signal → websocket cancel). `.return()` from the
 			// for-await alone does NOT cancel the prediction, so without this a Stop
 			// leaves the local model generating. No-op when the signal never aborts.
 			const prediction = model.respond(toLMStudioChat(params.messages), {
-				signal: params.signal,
+				signal,
 			})
 
 			const id = randomUUID()
