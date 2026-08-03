@@ -267,6 +267,7 @@ export {
 	HybridExecutionContext,
 	LocalExecutionContext,
 	MCPClient,
+	MCPMethodNotFound,
 	MCPConnectorBridge,
 	MCPServer,
 	MCPToolDiscovery,

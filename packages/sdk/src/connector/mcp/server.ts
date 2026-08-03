@@ -1,3 +1,4 @@
+import { JSON_RPC_METHOD_NOT_FOUND } from '../../constants/mcp/index.js'
 import type {
 	MCPContentBlock,
 	MCPJsonRpcMessage,
@@ -9,10 +10,26 @@ import type {
 	MCPToolResult,
 	MCPTransport,
 } from '../../types/connector/index.js'
+import type { MCPPromptDefinition, MCPPromptMessage } from '../../types/connector/index.js'
 import type { MCPServerId } from '../../types/ids/index.js'
 import { toErrorMessage } from '../../utils/error.js'
 import { generateMCPServerId } from '../../utils/id.js'
 import { type Logger, getRootLogger } from '../../utils/logger.js'
+
+/**
+ * A method this server does not implement.
+ *
+ * Carried as its own error so the dispatcher can answer with the protocol's
+ * own code instead of a generic internal error. `-32603` tells a client the
+ * server broke; `-32601` tells it the server does not do this — and only the
+ * second lets a client stop asking rather than retry.
+ */
+export class MCPMethodNotFound extends Error {
+	constructor(readonly method: string) {
+		super(`Method not found: ${method}`)
+		this.name = 'MCPMethodNotFound'
+	}
+}
 
 export interface MCPServerToolProvider {
 	listTools(): MCPToolDefinition[]
@@ -24,11 +41,27 @@ export interface MCPServerResourceProvider {
 	readResource(uri: string): Promise<MCPContentBlock[]>
 }
 
+/**
+ * Prompts this server publishes.
+ *
+ * Injected as an interface like the other two, so the server owns dispatch
+ * and the host owns content. `MCPPromptDefinition` existed in the types
+ * from the start with no way to serve one.
+ */
+export interface MCPServerPromptProvider {
+	listPrompts(): MCPPromptDefinition[]
+	getPrompt(
+		name: string,
+		args?: Record<string, string>,
+	): Promise<{ description?: string; messages: MCPPromptMessage[] }>
+}
+
 export class MCPServer {
 	readonly id: MCPServerId
 	private config: MCPServerConfig
 	private toolProvider: MCPServerToolProvider
 	private resourceProvider?: MCPServerResourceProvider
+	private promptProvider?: MCPServerPromptProvider
 	private transport: MCPTransport | null = null
 	private running = false
 	private connectedClients = 0
@@ -39,11 +72,13 @@ export class MCPServer {
 		config: MCPServerConfig,
 		toolProvider: MCPServerToolProvider,
 		resourceProvider?: MCPServerResourceProvider,
+		promptProvider?: MCPServerPromptProvider,
 	) {
 		this.id = config.id ?? generateMCPServerId()
 		this.config = config
 		this.toolProvider = toolProvider
 		this.resourceProvider = resourceProvider
+		this.promptProvider = promptProvider
 		this.log = getRootLogger().child({ component: 'MCPServer', serverId: this.id })
 	}
 
@@ -100,7 +135,8 @@ export class MCPServer {
 			const result = await this.dispatch(message.method, message.params ?? {})
 			await this.respond(message.id, result)
 		} catch (err) {
-			await this.respondError(message.id, -32603, toErrorMessage(err))
+			const code = err instanceof MCPMethodNotFound ? JSON_RPC_METHOD_NOT_FOUND : -32603
+			await this.respondError(message.id, code, toErrorMessage(err))
 		}
 	}
 
@@ -116,10 +152,14 @@ export class MCPServer {
 				return this.handleResourcesList()
 			case 'resources/read':
 				return this.handleResourcesRead(params)
+			case 'prompts/list':
+				return this.handlePromptsList()
+			case 'prompts/get':
+				return this.handlePromptsGet(params)
 			case 'ping':
 				return {}
 			default:
-				throw new Error(`Unknown method: ${method}`)
+				throw new MCPMethodNotFound(method)
 		}
 	}
 
@@ -136,6 +176,13 @@ export class MCPServer {
 
 		if (this.resourceProvider) {
 			capabilities.resources = { subscribe: false, listChanged: false }
+		}
+
+		// Declared only when there is something behind it, matching resources
+		// above. A capability advertised without a provider is a promise the
+		// next call breaks.
+		if (this.promptProvider) {
+			capabilities.prompts = { listChanged: false }
 		}
 
 		return {
@@ -166,11 +213,62 @@ export class MCPServer {
 		return this.toolProvider.callTool(name, args)
 	}
 
+	/**
+	 * An empty list is what a server with NO resources returns. A server
+	 * that cannot serve resources at all has to say so differently.
+	 *
+	 * This used to answer `{ resources: [] }` when no provider was
+	 * configured, for a capability `initialize` never advertised — so a
+	 * client that asked anyway was told, in the protocol's own vocabulary,
+	 * that the answer is "none" rather than "not here". The two send a
+	 * client in opposite directions: one stops asking, the other looks for
+	 * the resource somewhere else.
+	 */
 	private handleResourcesList(): { resources: MCPResource[] } {
 		if (!this.resourceProvider) {
-			return { resources: [] }
+			throw new MCPMethodNotFound('resources/list')
 		}
 		return { resources: this.resourceProvider.listResources() }
+	}
+
+	private handlePromptsList(): { prompts: MCPPromptDefinition[] } {
+		if (!this.promptProvider) {
+			throw new MCPMethodNotFound('prompts/list')
+		}
+		return { prompts: this.promptProvider.listPrompts() }
+	}
+
+	private async handlePromptsGet(
+		params: Record<string, unknown>,
+	): Promise<{ description?: string; messages: MCPPromptMessage[] }> {
+		if (!this.promptProvider) {
+			throw new MCPMethodNotFound('prompts/get')
+		}
+		const name = params.name as string
+		if (!name) {
+			throw new Error('prompts/get requires a "name"')
+		}
+		const args = (params.arguments as Record<string, string> | undefined) ?? {}
+
+		// Required arguments are checked HERE rather than left to the
+		// provider. A prompt declares them, so a missing one is answerable
+		// from the declaration alone, and every provider would otherwise
+		// re-implement the same check or forget to.
+		const declared = this.promptProvider.listPrompts().find((p) => p.name === name)
+		if (!declared) {
+			throw new Error(`Unknown prompt: ${name}`)
+		}
+		const missing = (declared.arguments ?? [])
+			.filter((a) => a.required === true)
+			.map((a) => a.name)
+			.filter((n) => args[n] === undefined)
+		if (missing.length > 0) {
+			throw new Error(
+				`prompts/get "${name}" is missing required argument(s): ${missing.join(', ')}`,
+			)
+		}
+
+		return this.promptProvider.getPrompt(name, args)
 	}
 
 	private async handleResourcesRead(

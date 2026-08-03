@@ -134,6 +134,7 @@ export type {
 	HybridExecutionContextOptions,
 	LocalExecutionContextOptions,
 	MCPServerResourceProvider,
+	MCPServerPromptProvider,
 	MCPServerToolProvider,
 	RemoteExecutionContextOptions,
 	TenantConnectorManagerConfig,

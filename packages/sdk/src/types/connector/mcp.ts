@@ -145,6 +145,20 @@ export interface MCPPromptDefinition {
 	arguments?: MCPPromptArgument[]
 }
 
+/**
+ * One message of a prompt the server composed.
+ *
+ * Deliberately its own shape rather than the kernel's `Message`: this is
+ * what a remote server said, before anything decides whether to believe it.
+ * Converting at the boundary is what keeps a server's `role` from becoming
+ * a role in this agent's history by accident — a server that returns an
+ * `assistant` message is claiming the agent already said something.
+ */
+export interface MCPPromptMessage {
+	role: 'user' | 'assistant'
+	content: MCPContentBlock
+}
+
 export interface MCPClientCapabilities {
 	roots?: { listChanged?: boolean }
 	sampling?: Record<string, never>

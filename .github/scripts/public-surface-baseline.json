@@ -143,6 +143,7 @@
   "MAX_TOOLS_PER_PLUGIN",
   "MCPClient",
   "MCPConnectorBridge",
+  "MCPMethodNotFound",
   "MCPServer",
   "MCPToolDiscovery",
   "MCP_PROTOCOL_VERSION",
