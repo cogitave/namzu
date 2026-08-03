@@ -19,8 +19,24 @@ export interface ToolRegistryRef {
  * is active, absolute (`workingDirectory`-resolved) otherwise.
  */
 export interface FileReadTracker {
-	recordRead(key: string): void
+	/**
+	 * `content` lets the tracker fingerprint what was read, which is what
+	 * makes drift detectable later. Optional so a host that only needs the
+	 * read-before-overwrite guard can keep its existing implementation.
+	 */
+	recordRead(key: string, content?: string): void
 	hasRead(key: string): boolean
+	/**
+	 * Fingerprint of the body captured at the last read, when one was.
+	 *
+	 * A file mutation is computed against what the agent READ, and between
+	 * that read and the write the file may have moved under it — a person
+	 * editing in an editor, another process, a second agent. The in-process
+	 * lock cannot see any of those. Comparing this against the body actually
+	 * on disk at mutation time is what turns a silent lost update into a
+	 * refusal the agent can act on by re-reading.
+	 */
+	fingerprint?(key: string): string | undefined
 }
 
 export interface ToolPauseOption {

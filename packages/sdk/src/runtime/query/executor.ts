@@ -7,6 +7,7 @@ import { ProbeVetoError } from '../../probe/errors.js'
 import { type ProbeRegistry, probe as defaultProbeRegistry } from '../../probe/registry.js'
 import { renderToolSchema } from '../../registry/tool/schema.js'
 import type { ActivityStore } from '../../store/activity/memory.js'
+import { fingerprintContent } from '../../tools/builtins/content-fingerprint.js'
 import type { RunId, ToolUseId } from '../../types/ids/index.js'
 import type { InvocationState } from '../../types/invocation/index.js'
 import {
@@ -205,11 +206,18 @@ export class ToolExecutor {
 	private probes: ProbeRegistry
 	private parentSpan?: Span
 	private readonly readPaths: Set<string> = new Set()
+	private readonly readFingerprints: Map<string, string> = new Map()
 	private readonly fileReadTracker: FileReadTracker = {
-		recordRead: (key: string) => {
+		recordRead: (key: string, content?: string) => {
 			this.readPaths.add(key)
+			// Only when the reader had the body. A tool that records a read
+			// without one leaves the previous fingerprint alone rather than
+			// clearing it, so a later write is still checked against the last
+			// body anyone actually saw.
+			if (content !== undefined) this.readFingerprints.set(key, fingerprintContent(content))
 		},
 		hasRead: (key: string) => this.readPaths.has(key),
+		fingerprint: (key: string) => this.readFingerprints.get(key),
 	}
 
 	constructor(

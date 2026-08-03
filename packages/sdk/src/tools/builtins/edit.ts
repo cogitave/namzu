@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import { z } from 'zod'
 import { defineTool } from '../defineTool.js'
 import { atomicWriteFile } from './atomic-write-file.js'
+import { fingerprintContent, staleFileError } from './content-fingerprint.js'
 import { withFileMutationLock } from './file-mutation-lock.js'
 
 /**
@@ -190,6 +191,17 @@ export const EditTool = defineTool({
 			}
 
 			const content = await readFile(filePath, 'utf-8')
+
+			// The lock above serializes this runtime's writers. It cannot see
+			// a person editing in an editor, another process, or a second
+			// agent run — and an edit computed against a body that has since
+			// moved is a lost update either way. Refusing sends the agent back
+			// to re-read; proceeding would silently drop whoever wrote last.
+			const seen = context.fileReadTracker?.fingerprint?.(filePath)
+			if (seen !== undefined && seen !== fingerprintContent(content)) {
+				return { success: false as const, output: '', error: staleFileError(filePath) }
+			}
+
 			const result = applyEdit(content, normalized.operation)
 			if (!result.success) {
 				return { success: false as const, output: '', error: result.error }
@@ -199,6 +211,10 @@ export const EditTool = defineTool({
 			// one, never a half-written one. A plain `writeFile` that fails
 			// partway leaves the user's source truncated.
 			await atomicWriteFile(filePath, result.content)
+			// This runtime is now the last writer, so the next edit in the same
+			// turn compares against what we just wrote rather than the read
+			// before it.
+			context.fileReadTracker?.recordRead(filePath, result.content)
 			return {
 				success: true as const,
 				output: `Edited ${filePath}: ${result.replacements} replacement(s)`,
