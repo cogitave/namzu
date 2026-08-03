@@ -21,6 +21,7 @@ import {
 	createSystemMessage,
 	createUserMessage,
 } from '../../../types/message/index.js'
+import type { ToolChoice } from '../../../types/provider/chat.js'
 import { classifyProviderError } from '../../../types/provider/errors.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
 import type { AnswerReview } from '../../../types/run/answer-review.js'
@@ -269,7 +270,17 @@ export class IterationOrchestrator {
 						messages,
 						tools: llmTools.length > 0 ? llmTools : undefined,
 						...(enforceToolInputSchema ? { enforceToolInputSchema } : {}),
-						toolChoice: forceFinalize && llmTools.length > 0 ? 'none' : undefined,
+						// The forced-final turn wins: a step that asked to force a
+						// tool cannot override the loop's own decision to stop
+						// asking for them. Otherwise the step's choice applies —
+						// and only to this step, because the next one is prepared
+						// from scratch.
+						toolChoice:
+							forceFinalize && llmTools.length > 0
+								? 'none'
+								: llmTools.length > 0
+									? step.toolChoice
+									: undefined,
 						temperature: step.temperature ?? runConfig.temperature,
 						maxTokens: step.maxResponseTokens ?? runConfig.maxResponseTokens,
 						cacheControl: { type: 'auto' },
@@ -752,6 +763,7 @@ export class IterationOrchestrator {
 	 */
 	private async prepareStep(stepNumber: number): Promise<{
 		allowedTools?: string[]
+		toolChoice?: ToolChoice
 		model?: string
 		system?: string
 		temperature?: number
@@ -789,6 +801,7 @@ export class IterationOrchestrator {
 
 		const prepared: {
 			allowedTools?: string[]
+			toolChoice?: ToolChoice
 			model?: string
 			system?: string
 			temperature?: number
@@ -809,6 +822,7 @@ export class IterationOrchestrator {
 			}
 			prepared.allowedTools = known
 		}
+		if (result.toolChoice !== undefined) prepared.toolChoice = result.toolChoice
 		if (result.model !== undefined) prepared.model = result.model
 		if (result.system !== undefined) prepared.system = result.system
 		if (result.temperature !== undefined) prepared.temperature = result.temperature
