@@ -90,6 +90,14 @@ jobs:
         if: matrix.node-version == 24
         run: node .github/scripts/check-sdk-test-presence.mjs
 
+      # The registry verifies a provenance attestation against
+      # `repository.url` and rejects the tarball without it — at publish
+      # time, after every sibling package has already gone out. Checking it
+      # here costs a second; finding out at the registry costs a release.
+      - name: Publish-metadata gate
+        if: matrix.node-version == 24
+        run: node .github/scripts/check-publish-metadata.mjs
+
       # Pre-publish package validation — runs on every PR + every push to main.
       # Catches cross-package peer-range drift and package.json export shape
       # bugs before they reach a publish tag. Only runs on one node version
