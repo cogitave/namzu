@@ -89,6 +89,12 @@ export type { ToolGrantKeys } from './runtime/query/tool-grants.js'
 export { toWireRunStatus } from './contracts/run-status.js'
 // Durable run state: the snapshot a different process picks a run up from.
 export { captureRunState, loadRunState } from './runtime/query/run-state.js'
+// …and the driver that joins the snapshot back to a running loop. Without
+// it every host wrote the same wiring, and in practice none did.
+export { resumeRun } from './runtime/query/resume-run.js'
+export type { ResumeOutcome, ResumeRunParams } from './runtime/query/resume-run.js'
+// The scope type was internal, so a host calling `loadRunState` could not
+// name the argument it had to construct.
 export type { RunStateScope } from './runtime/query/run-state.js'
 export { prepareReplayState } from './runtime/query/replay/prepare.js'
 export { listCheckpoints } from './runtime/query/replay/list.js'
