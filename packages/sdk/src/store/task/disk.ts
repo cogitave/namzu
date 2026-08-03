@@ -440,9 +440,52 @@ export class DiskTaskStore implements TaskStore {
 		}
 	}
 
+	/**
+	 * Locate a task by id, whichever run wrote it.
+	 *
+	 * A task is written under `params.runId ?? defaultRunId` and this read
+	 * only the default, so every lookup missed as soon as the two differed
+	 * — the normal case rather than an edge one: the task tools are built
+	 * with the LIVE run id while a long-lived host constructs the store
+	 * once with a fixed default. `create` then succeeded, `list` succeeded
+	 * (it takes the run id as a filter), and `update`, `delete`, `claim`
+	 * and every dependency link answered "not found" for a task the caller
+	 * could see. The in-memory store keys by task id alone, so nothing
+	 * caught it.
+	 *
+	 * The default is tried first because it is right whenever the two
+	 * agree, which keeps the common path one stat rather than a scan.
+	 */
 	private async findTask(id: TaskId): Promise<Task | undefined> {
-		const task = await this.readTask(this.defaultRunId, id)
-		return task ?? undefined
+		const direct = await this.readTask(this.defaultRunId, id)
+		if (direct) return direct
+
+		for (const runId of await this.knownRunIds()) {
+			if (runId === this.defaultRunId) continue
+			const task = await this.readTask(runId, id)
+			if (task) return task
+		}
+		return undefined
+	}
+
+	/** Run directories that exist on disk, or none when the tree is absent. */
+	private async knownRunIds(): Promise<RunId[]> {
+		const root = this.tenantId
+			? join(this.baseDir, 'tenants', this.tenantId, 'tasks')
+			: join(this.baseDir, 'tasks')
+		try {
+			const entries = await readdir(root, { withFileTypes: true })
+			return entries.filter((e) => e.isDirectory()).map((e) => e.name as RunId)
+		} catch (err) {
+			const code = (err as NodeJS.ErrnoException).code
+			if (code !== 'ENOENT') {
+				this.log.warn('Failed to enumerate task run directories', {
+					root,
+					error: err instanceof Error ? err.message : String(err),
+				})
+			}
+			return []
+		}
 	}
 }
 

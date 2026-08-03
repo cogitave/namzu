@@ -574,12 +574,74 @@ describe('AgentManager.sendMessage — budget and deadline arithmetic', () => {
 
 		const allocated = seen.map((c) => c.tokenBudget ?? 0)
 		expect(allocated).toHaveLength(3)
-		// Strictly decreasing: each spawn sees a smaller remaining pool.
-		expect(allocated[1]).toBeLessThan(allocated[0] as number)
-		expect(allocated[2]).toBeLessThan(allocated[1] as number)
-		// And the pool is never over-committed.
-		expect(allocated.reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(100_000)
-		expect(context.budgetTracker.remaining).toBeLessThan(100_000)
+		// Never over-committed: whatever is outstanding at any moment fits
+		// in the pool.
+		expect(allocated[0]).toBeLessThanOrEqual(100_000)
+
+		// These children settle before the next one spawns and spend
+		// nothing, so each gets the same allocation from a pool that was
+		// restored. This assertion used to require a STRICT decrease, which
+		// only held because the reservation was never returned — it was
+		// measuring the leak, not the rule.
+		expect(allocated[1]).toBe(allocated[0])
+		expect(allocated[2]).toBe(allocated[0])
+	})
+
+	it('returns what a settled child did not spend', async () => {
+		// The debit is a reservation so siblings cannot each be promised the
+		// same headroom. Nothing returned it, so a pool shrank by the full
+		// allocation on every spawn no matter what the child used: at a
+		// half-pool fraction, ten delegations left a parent with a
+		// thousandth of its budget and the next spawn was refused for a
+		// budget that had barely been spent.
+		const childAgent = makeAgent('child-thrifty', async () => ({
+			...successResult(),
+			usage: { ...EMPTY_TOKEN_USAGE, totalTokens: 1_000 },
+		}))
+		const harness = await buildHarness(childAgent)
+		const context = buildContext(harness.parentSession.id, harness.projectId, harness.threadId)
+		context.budgetTracker = { total: 100_000, remaining: 100_000 }
+
+		const gateway = new LocalTaskGateway(harness.manager, context)
+		const handle = await gateway.createTask({
+			agentId: 'child-thrifty',
+			prompt: 'work',
+			workingDirectory: '/tmp',
+		})
+		await waitForTask(harness.manager, handle.taskId)
+
+		// Reserved 50_000, spent 1_000: the pool is down by what was used,
+		// not by what was set aside.
+		expect(context.budgetTracker.remaining).toBe(99_000)
+	})
+
+	it('keeps a concurrent sibling reservation until it settles', async () => {
+		// The reservation exists for exactly this: two children in flight
+		// must not each be promised the same headroom.
+		let release: (() => void) | undefined
+		const gate = new Promise<void>((resolve) => {
+			release = resolve
+		})
+		const childAgent = makeAgent('child-slow', async () => {
+			await gate
+			return successResult()
+		})
+		const harness = await buildHarness(childAgent)
+		const context = buildContext(harness.parentSession.id, harness.projectId, harness.threadId)
+		context.budgetTracker = { total: 100_000, remaining: 100_000 }
+
+		const gateway = new LocalTaskGateway(harness.manager, context)
+		const first = await gateway.createTask({
+			agentId: 'child-slow',
+			prompt: 'work',
+			workingDirectory: '/tmp',
+		})
+
+		expect(context.budgetTracker.remaining).toBe(50_000)
+
+		release?.()
+		await waitForTask(harness.manager, first.taskId)
+		expect(context.budgetTracker.remaining).toBe(100_000)
 	})
 })
 

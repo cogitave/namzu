@@ -95,21 +95,17 @@ export async function* runToolReview(
 	// must not be able to release them.
 	const gateDenied = new Map<string, string>()
 
-	// Already approved, at a scope the approver chose. Consulted BEFORE the
-	// gate and before parking: re-asking about a call somebody has already
-	// said yes to is how an approval prompt becomes noise, and a noisy
-	// prompt gets answered with the widest option available. `bash: git
-	// status` re-prompted on every batch forever, and the only escape was a
-	// blanket session grant that also covered every destructive call.
-	if (ctx.toolGrants && toolCallSummaries.every((tc) => ctx.toolGrants?.covers(tc))) {
-		ctx.log.debug('Every tool call is covered by an approval already granted', {
-			tools: toolCallSummaries.map((tc) => tc.name),
-		})
-		await settle()
-		yield* ctx.drainPending()
-		return finish('executed')
-	}
-
+	// The operator's policy runs FIRST, and a grant cannot overrule it.
+	//
+	// The grant short-circuit used to sit above this block and return, so a
+	// remembered approval skipped the gate entirely. The two are different
+	// authorities: a grant records that the USER said yes to a shape of
+	// call, and the gate encodes what the OPERATOR forbids. A tool-scoped
+	// grant matches any arguments, so approving `bash: git status` with
+	// `remember: ['bash']` — the scope the docs recommend — then let
+	// `bash: rm -rf /` through unevaluated, past a rule written to stop
+	// exactly that. The CLI already states the correct rule for its own
+	// bypass: the deny applies even when every prompt is skipped.
 	if (ctx.verificationGate) {
 		const gate = ctx.verificationGate
 		const gateResults = toolCallSummaries.map((tc) => ({
@@ -154,6 +150,26 @@ export async function* runToolReview(
 				decision: gr.gateResult.decision,
 			})),
 		})
+	}
+
+	// Already approved, at a scope the approver chose — and nothing the
+	// operator's policy denied, because `gateDenied` is checked first.
+	// Re-asking about a call somebody has already said yes to is how an
+	// approval prompt becomes noise, and a noisy prompt gets answered with
+	// the widest option available: `bash: git status` re-prompted on every
+	// batch forever, and the only escape was a blanket session grant that
+	// also covered every destructive call.
+	if (
+		ctx.toolGrants &&
+		gateDenied.size === 0 &&
+		toolCallSummaries.every((tc) => ctx.toolGrants?.covers(tc))
+	) {
+		ctx.log.debug('Every tool call is covered by an approval already granted', {
+			tools: toolCallSummaries.map((tc) => tc.name),
+		})
+		await settle()
+		yield* ctx.drainPending()
+		return finish('executed')
 	}
 
 	const reviewCheckpoint = await ctx.checkpointMgr.create(ctx.runMgr, iterationNum)

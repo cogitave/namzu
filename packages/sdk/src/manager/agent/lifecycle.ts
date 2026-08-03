@@ -152,12 +152,17 @@ export class AgentManager {
 			})
 		}
 
-		context.budgetTracker.remaining -= allocatedTokens
-
 		// Phase 6: SubSession + child Session + WorkspaceRef triple. Happens
 		// before taskId minting so a capacity failure short-circuits cleanly
 		// with no observable state change.
+		//
+		// The budget debit follows it for the same reason. It used to come
+		// first, so a spawn this call rejected still burned its allocation
+		// from a pool nobody credited back — the one state change the
+		// comment above promised there would not be.
 		const spawnRecord = await this.provisionSpawn(options, context)
+
+		context.budgetTracker.remaining -= allocatedTokens
 
 		const taskId = generateTaskId()
 
@@ -189,6 +194,7 @@ export class AgentManager {
 			childAbortController,
 			context: childContext,
 			state: 'pending',
+			budgetReservation: allocatedTokens,
 			pendingMessages: [],
 			createdAt: Date.now(),
 			runEventListener: listener,
@@ -705,10 +711,44 @@ export class AgentManager {
 		this.markCompleted(agentTask.taskId, result)
 	}
 
+	/**
+	 * Return the unspent part of a settled child's reservation.
+	 *
+	 * The debit at spawn reserves headroom so siblings cannot each be
+	 * promised the same tokens. Nothing returned it, so a pool shrank by
+	 * the full allocation on every spawn no matter what the child used: at
+	 * a half-pool fraction, ten delegations left a parent with a
+	 * thousandth of its budget and the next spawn was refused for a budget
+	 * that had barely been spent.
+	 *
+	 * Idempotent — the reservation is cleared as it is returned, so a
+	 * second terminal transition for the same task cannot credit twice.
+	 * Spend above the reservation returns nothing rather than going
+	 * negative; the child was capped at its allocation, so that case means
+	 * the accounting was already wrong and inventing headroom would hide
+	 * it.
+	 */
+	private releaseBudget(agentTask: AgentTask, spent: number): void {
+		const reserved = agentTask.budgetReservation
+		if (reserved === undefined) return
+		agentTask.budgetReservation = undefined
+
+		const unused = Math.max(0, reserved - Math.max(0, spent))
+		if (unused === 0) return
+		agentTask.context.budgetTracker.remaining += unused
+		this.log.debug('Returned unspent child budget', {
+			taskId: agentTask.taskId,
+			reserved,
+			spent,
+			returned: unused,
+		})
+	}
+
 	private markCompleted(taskId: TaskId, result: BaseAgentResult): void {
 		const agentTask = this.instances.get(taskId)
 		if (!agentTask || isTerminalAgentTaskState(agentTask.state)) return
 
+		this.releaseBudget(agentTask, result.usage?.totalTokens ?? 0)
 		agentTask.result = result
 		agentTask.completedAt = Date.now()
 		this.updateState(taskId, 'completed')
@@ -727,6 +767,11 @@ export class AgentManager {
 	private markFailed(taskId: TaskId, error: string): void {
 		const agentTask = this.instances.get(taskId)
 		if (!agentTask || isTerminalAgentTaskState(agentTask.state)) return
+
+		// A child that failed still spent whatever it spent, and holding the
+		// rest of its reservation would punish the parent twice for one
+		// failure.
+		this.releaseBudget(agentTask, agentTask.result?.usage?.totalTokens ?? 0)
 
 		agentTask.result = {
 			runId: agentTask.context.parentRunId,

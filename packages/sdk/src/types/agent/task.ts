@@ -90,6 +90,18 @@ export interface AgentTask {
 	result?: BaseAgentResult
 	progress?: AgentTaskProgress
 
+	/**
+	 * Tokens reserved from the shared pool when this child was spawned.
+	 *
+	 * A RESERVATION, not a spend: it is subtracted up front so siblings
+	 * cannot each be promised the same headroom, and the unused part is
+	 * returned when the child settles. Without the return, a pool shrank
+	 * by the full allocation every spawn regardless of what the child
+	 * actually used, so a long session ran out of budget while almost none
+	 * of it had been spent.
+	 */
+	budgetReservation?: number
+
 	pendingMessages: Message[]
 	createdAt: number
 	completedAt?: number

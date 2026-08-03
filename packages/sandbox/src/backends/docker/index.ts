@@ -281,6 +281,17 @@ async function spawnDockerSandbox(
 		if (containerStarted) {
 			await runOnceQuiet(docker, ['rm', '-f', containerName])
 		}
+		// The proxy starts BEFORE the container and its only other close is
+		// in `destroy()`, which a create that never returned can never
+		// reach. So every failure between the two — a daemon that is down, a
+		// port that could not be read, a worker that missed its readiness
+		// deadline, a label the validator rejected — left a listening server
+		// on loopback stamping real credential headers, plus a retained
+		// event-loop handle, and a retry loop left one per attempt. That is
+		// exactly the invariant this file states where the proxy is started:
+		// it must not outlive the thing it was filtering for.
+		await egressProxy?.close().catch(() => undefined)
+		egressProxy = undefined
 	}
 
 	let hostPort: number
