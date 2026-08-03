@@ -151,23 +151,27 @@ export class IterationOrchestrator {
 				{},
 				parentContext(this.ctx.rootSpan),
 			)
-			// Tool spans for this turn belong under this iteration.
-			this.ctx.toolExecutor.setParentSpan(iterSpan)
-
-			iterSpan.setAttributes({
-				[NAMZU.ITERATION]: iterationNum,
-				[NAMZU.RUN_ID]: runMgr.id,
-				[GENAI.REQUEST_MODEL]: model,
-			})
-
-			await this.ctx.emitEvent({
-				type: 'iteration_started',
-				runId: runMgr.id,
-				iteration: iterationNum,
-			})
-			yield* this.ctx.drainPending()
-
 			try {
+				// Tool spans for this turn belong under this iteration. Inside
+				// the try rather than before it: a throw from any of these left
+				// the span open, and an iteration span that never ends is a
+				// trace that never closes — the export is incomplete for exactly
+				// the run that failed.
+				this.ctx.toolExecutor.setParentSpan(iterSpan)
+
+				iterSpan.setAttributes({
+					[NAMZU.ITERATION]: iterationNum,
+					[NAMZU.RUN_ID]: runMgr.id,
+					[GENAI.REQUEST_MODEL]: model,
+				})
+
+				await this.ctx.emitEvent({
+					type: 'iteration_started',
+					runId: runMgr.id,
+					iteration: iterationNum,
+				})
+				yield* this.ctx.drainPending()
+
 				if (this.ctx.pluginManager) {
 					const hookResults = await this.ctx.pluginManager.executeHooks(
 						'iteration_start',
@@ -457,7 +461,6 @@ export class IterationOrchestrator {
 							hasToolCalls: false,
 						})
 						yield* this.ctx.drainPending()
-						iterSpan.end()
 						continue
 					}
 
@@ -475,7 +478,6 @@ export class IterationOrchestrator {
 								attempts: attempt - 1,
 							})
 							runMgr.setStopReason('structured_output_failed')
-							iterSpan.end()
 							break
 						}
 						this.ctx.log.info('Re-prompting for structured output', {
@@ -491,7 +493,6 @@ export class IterationOrchestrator {
 							hasToolCalls: false,
 						})
 						yield* this.ctx.drainPending()
-						iterSpan.end()
 						continue
 					}
 
@@ -520,7 +521,6 @@ export class IterationOrchestrator {
 									limit,
 								})
 								runMgr.setStopReason('answer_rejected')
-								iterSpan.end()
 								break
 							}
 							this.ctx.log.info('Answer rejected — returning it to the model', {
@@ -536,7 +536,6 @@ export class IterationOrchestrator {
 								hasToolCalls: false,
 							})
 							yield* this.ctx.drainPending()
-							iterSpan.end()
 							continue
 						}
 					}
@@ -564,11 +563,9 @@ export class IterationOrchestrator {
 					if (this.ctx.abortController.signal.aborted) {
 						runMgr.setStopReason('cancelled')
 						runMgr.markCancelled()
-						iterSpan.end()
 						break
 					}
 					runMgr.setStopReason('end_turn')
-					iterSpan.end()
 					break
 				}
 
@@ -590,12 +587,10 @@ export class IterationOrchestrator {
 				})
 
 				if (reviewOutcome.decision === 'stop') {
-					iterSpan.end()
 					return
 				}
 
 				if (reviewOutcome.decision === 'rejected') {
-					iterSpan.end()
 					continue
 				}
 
@@ -615,7 +610,6 @@ export class IterationOrchestrator {
 						hasToolCalls: true,
 					})
 					yield* this.ctx.drainPending()
-					iterSpan.end()
 					break
 				}
 
@@ -642,7 +636,6 @@ export class IterationOrchestrator {
 						hasToolCalls: true,
 					})
 					yield* this.ctx.drainPending()
-					iterSpan.end()
 					break
 				}
 
@@ -662,13 +655,11 @@ export class IterationOrchestrator {
 						hasToolCalls: true,
 					})
 					yield* this.ctx.drainPending()
-					iterSpan.end()
 					break
 				}
 
 				const checkpointSignal = yield* runIterationCheckpoint(this.ctx, iterationNum)
 				if (checkpointSignal === 'stop') {
-					iterSpan.end()
 					return
 				}
 
@@ -691,7 +682,6 @@ export class IterationOrchestrator {
 					hasToolCalls: true,
 				})
 				yield* this.ctx.drainPending()
-				iterSpan.end()
 			} catch (err) {
 				// A Stop that aborted the in-flight turn surfaces here as a
 				// thrown abort (the provider stream was raced against the run
@@ -703,7 +693,6 @@ export class IterationOrchestrator {
 				if (this.ctx.abortController.signal.aborted) {
 					runMgr.setStopReason('cancelled')
 					runMgr.markCancelled()
-					iterSpan.end()
 					break
 				}
 
@@ -733,7 +722,6 @@ export class IterationOrchestrator {
 						if (iterationActivity) {
 							this.ctx.activityStore.complete(iterationActivity.id)
 						}
-						iterSpan.end()
 						continue
 					}
 				}
@@ -747,8 +735,13 @@ export class IterationOrchestrator {
 					message: toErrorMessage(err),
 				})
 				iterSpan.recordException(err instanceof Error ? err : new Error(String(err)))
-				iterSpan.end()
 				throw err
+			} finally {
+				// The only place the span ends. It used to be ended at each of
+				// seventeen exits, which is a rule every future edit has to
+				// remember; a generator abandoned by its consumer never reached
+				// any of them.
+				iterSpan.end()
 			}
 		}
 	}

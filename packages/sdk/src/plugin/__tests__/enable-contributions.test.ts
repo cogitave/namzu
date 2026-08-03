@@ -11,11 +11,15 @@ const mockDisconnect = vi.fn(async (): Promise<void> => undefined)
 const mockListTools = vi.fn(async (): Promise<unknown[]> => [])
 
 vi.mock('../../connector/mcp/client.js', () => ({
-	MCPClient: vi.fn().mockImplementation(() => ({
+	MCPClient: vi.fn().mockImplementation((config: { serverName: string }) => ({
 		id: 'mcp-client-mock',
 		connect: mockConnect,
 		disconnect: mockDisconnect,
 		listTools: mockListTools,
+		// The real client has always had this; the mock did not, which went
+		// unnoticed while nothing on this path asked the client which server
+		// it was talking to. Admission does — a policy is per server name.
+		getState: () => ({ serverName: config.serverName }),
 	})),
 }))
 
