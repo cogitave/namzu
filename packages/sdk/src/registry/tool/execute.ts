@@ -375,151 +375,155 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 			: otelContext.active()
 
 		return tracer.startActiveSpan(toolSpanName(toolName), {}, parentCtx, async (span) => {
-			span.setAttributes({
-				[GENAI.TOOL_NAME]: toolName,
-				[GENAI.TOOL_TYPE]: 'function',
-			})
-
-			const tool = this.getOrThrow(toolName)
-
-			const availability = this.getAvailability(toolName)
-			if (availability !== 'active') {
-				const msg = `Tool "${toolName}" is ${availability} and cannot be executed`
-				this.log.warn(msg)
+			try {
 				span.setAttributes({
-					[NAMZU.TOOL_SUCCESS]: false,
-					[NAMZU.TOOL_ERROR]: msg,
+					[GENAI.TOOL_NAME]: toolName,
+					[GENAI.TOOL_TYPE]: 'function',
 				})
-				span.setStatus({ code: SpanStatusCode.ERROR, message: msg })
-				span.end()
-				return {
-					success: false,
-					output: '',
-					error: msg,
-				}
-			}
 
-			const mode = context.permissionContext?.mode ?? 'auto'
-			if (mode === 'plan') {
-				const isReadOnly = tool.isReadOnly ? tool.isReadOnly(rawInput) : false
-				if (!isReadOnly) {
-					const msg = `plan mode: non-read-only tool "${toolName}" blocked`
+				const tool = this.getOrThrow(toolName)
+
+				const availability = this.getAvailability(toolName)
+				if (availability !== 'active') {
+					const msg = `Tool "${toolName}" is ${availability} and cannot be executed`
+					this.log.warn(msg)
 					span.setAttributes({
 						[NAMZU.TOOL_SUCCESS]: false,
 						[NAMZU.TOOL_ERROR]: msg,
 					})
 					span.setStatus({ code: SpanStatusCode.ERROR, message: msg })
-					span.end()
 					return {
 						success: false,
 						output: '',
 						error: msg,
-						permissionDenied: true,
-						permissionMessage: msg,
 					}
 				}
-			}
 
-			const parseResult = tool.inputSchema.safeParse(rawInput)
-			if (!parseResult.success) {
-				const errorMessage = parseResult.error.issues
-					.map((i) => `${i.path.join('.')}: ${i.message}`)
-					.join('; ')
-
-				// Distinguish "model sent an empty/no-arg call" from
-				// "model sent partial args" — the first is most often a
-				// streaming hiccup or a definition-test ping (a provider
-				// occasionally pings tool surfaces with `{}` while the
-				// schema is still loading), the second is a genuine
-				// programming mistake by the model. The model self-
-				// corrects MUCH more reliably when the error tells it
-				// (a) which fields are required, (b) their types, and
-				// (c) a minimal example call. Without these hints the
-				// downstream UI just shows a red "Failed" row and the
-				// model rarely retries with the right args.
-				const isEmptyInput =
-					rawInput === null ||
-					rawInput === undefined ||
-					(typeof rawInput === 'object' &&
-						!Array.isArray(rawInput) &&
-						Object.keys(rawInput as Record<string, unknown>).length === 0)
-
-				const requiredHint = describeRequiredInput(tool.inputSchema)
-				// A conditional schema's required shape cannot be reconstructed
-				// from JSON Schema's top-level `required`, so the author gets to
-				// say what a valid retry looks like.
-				const recoveryHint = tool.validationErrorHint?.trim()
-					? ` ${tool.validationErrorHint.trim()}`
-					: ''
-
-				const enrichedMessage = isEmptyInput
-					? `Tool "${toolName}" was called with no arguments. ${requiredHint}${recoveryHint} Retry the call with the required parameters populated.`
-					: `Validation failed for "${toolName}": ${errorMessage}. ${requiredHint}${recoveryHint}`
-
-				this.log.error(`Tool input validation failed: ${toolName}`, {
-					errors: errorMessage,
-					empty: isEmptyInput,
-				})
-
-				span.setAttributes({
-					[NAMZU.TOOL_SUCCESS]: false,
-					[NAMZU.TOOL_ERROR]: `Validation: ${errorMessage}`,
-				})
-				span.setStatus({ code: SpanStatusCode.ERROR, message: errorMessage })
-				span.end()
-
-				return {
-					success: false,
-					output: '',
-					error: enrichedMessage,
-				}
-			}
-
-			const finalInput = parseResult.data
-
-			try {
-				this.log.debug(`Executing tool: ${toolName}`)
-				const startedAt = Date.now()
-				const result = await tool.execute(finalInput, context)
-				const durationMs = Date.now() - startedAt
-				this.log.debug(`Tool completed: ${toolName}`, {
-					success: result.success,
-				})
-
-				span.setAttribute(NAMZU.TOOL_SUCCESS, result.success)
-				recordToolCall(
-					toolName,
-					result.success,
-					result.success ? undefined : result.error,
-					durationMs,
-				)
-				if (!result.success && result.error) {
-					span.setAttribute(NAMZU.TOOL_ERROR, result.error)
-					span.setStatus({ code: SpanStatusCode.ERROR, message: result.error })
-				} else {
-					span.setStatus({ code: SpanStatusCode.OK })
+				const mode = context.permissionContext?.mode ?? 'auto'
+				if (mode === 'plan') {
+					const isReadOnly = tool.isReadOnly ? tool.isReadOnly(rawInput) : false
+					if (!isReadOnly) {
+						const msg = `plan mode: non-read-only tool "${toolName}" blocked`
+						span.setAttributes({
+							[NAMZU.TOOL_SUCCESS]: false,
+							[NAMZU.TOOL_ERROR]: msg,
+						})
+						span.setStatus({ code: SpanStatusCode.ERROR, message: msg })
+						return {
+							success: false,
+							output: '',
+							error: msg,
+							permissionDenied: true,
+							permissionMessage: msg,
+						}
+					}
 				}
 
-				return result
-			} catch (err) {
-				const errorMessage = toErrorMessage(err)
-				this.log.error(`Tool execution error: ${toolName}`, {
-					error: errorMessage,
-				})
+				const parseResult = tool.inputSchema.safeParse(rawInput)
+				if (!parseResult.success) {
+					const errorMessage = parseResult.error.issues
+						.map((i) => `${i.path.join('.')}: ${i.message}`)
+						.join('; ')
 
-				span.setAttributes({
-					[NAMZU.TOOL_SUCCESS]: false,
-					[NAMZU.TOOL_ERROR]: errorMessage,
-				})
-				span.setStatus({ code: SpanStatusCode.ERROR, message: errorMessage })
-				span.recordException(err instanceof Error ? err : new Error(errorMessage))
+					// Distinguish "model sent an empty/no-arg call" from
+					// "model sent partial args" — the first is most often a
+					// streaming hiccup or a definition-test ping (a provider
+					// occasionally pings tool surfaces with `{}` while the
+					// schema is still loading), the second is a genuine
+					// programming mistake by the model. The model self-
+					// corrects MUCH more reliably when the error tells it
+					// (a) which fields are required, (b) their types, and
+					// (c) a minimal example call. Without these hints the
+					// downstream UI just shows a red "Failed" row and the
+					// model rarely retries with the right args.
+					const isEmptyInput =
+						rawInput === null ||
+						rawInput === undefined ||
+						(typeof rawInput === 'object' &&
+							!Array.isArray(rawInput) &&
+							Object.keys(rawInput as Record<string, unknown>).length === 0)
 
-				return {
-					success: false,
-					output: '',
-					error: `Tool "${toolName}" execution failed: ${errorMessage}`,
+					const requiredHint = describeRequiredInput(tool.inputSchema)
+					// A conditional schema's required shape cannot be reconstructed
+					// from JSON Schema's top-level `required`, so the author gets to
+					// say what a valid retry looks like.
+					const recoveryHint = tool.validationErrorHint?.trim()
+						? ` ${tool.validationErrorHint.trim()}`
+						: ''
+
+					const enrichedMessage = isEmptyInput
+						? `Tool "${toolName}" was called with no arguments. ${requiredHint}${recoveryHint} Retry the call with the required parameters populated.`
+						: `Validation failed for "${toolName}": ${errorMessage}. ${requiredHint}${recoveryHint}`
+
+					this.log.error(`Tool input validation failed: ${toolName}`, {
+						errors: errorMessage,
+						empty: isEmptyInput,
+					})
+
+					span.setAttributes({
+						[NAMZU.TOOL_SUCCESS]: false,
+						[NAMZU.TOOL_ERROR]: `Validation: ${errorMessage}`,
+					})
+					span.setStatus({ code: SpanStatusCode.ERROR, message: errorMessage })
+
+					return {
+						success: false,
+						output: '',
+						error: enrichedMessage,
+					}
+				}
+
+				const finalInput = parseResult.data
+
+				try {
+					this.log.debug(`Executing tool: ${toolName}`)
+					const startedAt = Date.now()
+					const result = await tool.execute(finalInput, context)
+					const durationMs = Date.now() - startedAt
+					this.log.debug(`Tool completed: ${toolName}`, {
+						success: result.success,
+					})
+
+					span.setAttribute(NAMZU.TOOL_SUCCESS, result.success)
+					recordToolCall(
+						toolName,
+						result.success,
+						result.success ? undefined : result.error,
+						durationMs,
+					)
+					if (!result.success && result.error) {
+						span.setAttribute(NAMZU.TOOL_ERROR, result.error)
+						span.setStatus({ code: SpanStatusCode.ERROR, message: result.error })
+					} else {
+						span.setStatus({ code: SpanStatusCode.OK })
+					}
+
+					return result
+				} catch (err) {
+					const errorMessage = toErrorMessage(err)
+					this.log.error(`Tool execution error: ${toolName}`, {
+						error: errorMessage,
+					})
+
+					span.setAttributes({
+						[NAMZU.TOOL_SUCCESS]: false,
+						[NAMZU.TOOL_ERROR]: errorMessage,
+					})
+					span.setStatus({ code: SpanStatusCode.ERROR, message: errorMessage })
+					span.recordException(err instanceof Error ? err : new Error(errorMessage))
+
+					return {
+						success: false,
+						output: '',
+						error: `Tool "${toolName}" execution failed: ${errorMessage}`,
+					}
 				}
 			} finally {
+				// The only place this span ends. It used to be ended at three
+				// early returns and in a finally that opened below them, so
+				// anything throwing before that try — `getOrThrow` on a name the
+				// registry does not hold, for one — left the span open and the
+				// tool's trace unclosed.
 				span.end()
 			}
 		})
