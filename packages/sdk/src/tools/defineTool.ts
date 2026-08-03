@@ -19,6 +19,20 @@ export interface DefineToolOptions<S extends z.ZodType> {
 	tier?: string
 	/** Per-execution deadline; see {@link ToolDefinition.timeoutMs}. */
 	timeoutMs?: number
+	/**
+	 * In-loop retry budget for a FAILED execution; see
+	 * {@link ToolDefinition.maxRetries}.
+	 *
+	 * The executor has always read this field, and this builder — the
+	 * sanctioned way to author a tool — had no way to set it, so the
+	 * documented "the tool author opts in, per tool" was reachable only by
+	 * hand-writing the interface.
+	 */
+	maxRetries?: number
+	/** Return shape shown to the model; see {@link ToolDefinition.outputSchema}. */
+	outputSchema?: Record<string, unknown>
+	/** Settle the run with this tool's output; see {@link ToolDefinition.terminal}. */
+	terminal?: boolean
 	execute(input: z.infer<S>, context: ToolContext): Promise<ToolResult>
 }
 
@@ -33,6 +47,9 @@ export function defineTool<S extends z.ZodType>(
 		inputSchema: options.inputSchema,
 		tier: options.tier,
 		...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
+		...(options.maxRetries !== undefined ? { maxRetries: options.maxRetries } : {}),
+		...(options.outputSchema !== undefined ? { outputSchema: options.outputSchema } : {}),
+		...(options.terminal !== undefined ? { terminal: options.terminal } : {}),
 		category: options.category,
 		permissions: options.permissions,
 		isReadOnly: () => options.readOnly,

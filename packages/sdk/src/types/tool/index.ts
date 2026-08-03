@@ -172,6 +172,33 @@ export interface ToolDefinition<TInput = unknown> {
 	 */
 	maxRetries?: number
 
+	/**
+	 * This tool's output IS the run's answer: settle with it instead of
+	 * asking the model to restate it.
+	 *
+	 * Every delegation path is blocking and returns the worker's final
+	 * text as the dispatching call's result, after which the loop went
+	 * round again — so a router agent, whose entire job is to pick a
+	 * specialist, paid one extra model call per request at the parent's
+	 * full context size, the most expensive call in the run. The relay is
+	 * also LOSSY: the parent paraphrases the worker's answer through its
+	 * own (compacted) context, so what the caller receives is not what the
+	 * worker produced.
+	 *
+	 * Honoured only when the terminal call is the ONLY call in the turn
+	 * and it did not fail. A model that asked for other work in the same
+	 * turn meant to see those results, and ending the run would discard
+	 * answers it requested; that turn takes the ordinary path and the
+	 * reason is logged. A failed terminal call is not an answer either —
+	 * the error goes back to the model, which is the point of returning
+	 * errors to it at all.
+	 *
+	 * Off by default. The generic case is `structured_output`, which the
+	 * runtime has always settled on; this is that rule made available to
+	 * any tool.
+	 */
+	terminal?: boolean
+
 	isReadOnly?(input: TInput): boolean
 	isDestructive?(input: TInput): boolean
 	isConcurrencySafe?(input: TInput): boolean

@@ -601,6 +601,33 @@ export class IterationOrchestrator {
 					break
 				}
 
+				// A tool the author declared terminal settles the run with its
+				// own output, the same rule `structured_output` has always
+				// had. Without it a delegation cost the parent one more model
+				// call at full context whose only job was to restate what the
+				// worker already said — and to restate it through the parent's
+				// compacted view, so the caller did not even receive the
+				// worker's words.
+				const settled = this.terminalToolOutput(reviewOutcome.results, response)
+				if (settled !== undefined) {
+					this.ctx.log.info('Terminal tool produced the answer — ending run', {
+						runId: runMgr.id,
+						iteration: iterationNum,
+						tool: settled.toolName,
+					})
+					runMgr.setResult(settled.output)
+					runMgr.setStopReason('end_turn')
+					await this.ctx.emitEvent({
+						type: 'iteration_completed',
+						runId: runMgr.id,
+						iteration: iterationNum,
+						hasToolCalls: true,
+					})
+					yield* this.ctx.drainPending()
+					iterSpan.end()
+					break
+				}
+
 				// Evaluated AFTER the tools ran, so a predicate can see what they
 				// returned — which is what makes a terminal submit_answer tool
 				// usable without discarding its output.
@@ -860,6 +887,46 @@ export class IterationOrchestrator {
 	 * failed parse comes back as an error result and simply does not
 	 * satisfy the demand, which sends the loop round again.
 	 */
+	/**
+	 * The answer a terminal tool produced, or `undefined` to keep looping.
+	 *
+	 * Deliberately narrow. A terminal call decides the run only when it is
+	 * the ONLY call the model made in that turn: a model that asked for
+	 * other work meant to see those results, and settling here would throw
+	 * away answers it requested. Same for a failed terminal call — an
+	 * error is not an answer, and the model is the one that should read
+	 * it. Both cases fall through to the ordinary path, and both say so in
+	 * the log rather than quietly costing the relay the flag was set to
+	 * avoid.
+	 */
+	private terminalToolOutput(
+		results: readonly ToolCallOutcome[],
+		response: ChatCompletionResponse,
+	): ToolCallOutcome | undefined {
+		const terminal = results.filter((r) => this.ctx.tools.get(r.toolName)?.terminal === true)
+		if (terminal.length === 0) return undefined
+
+		const callCount = response.message.toolCalls?.length ?? 0
+		if (callCount > 1) {
+			this.ctx.log.info('Terminal tool shared its turn — relaying instead of settling', {
+				runId: this.ctx.runMgr.id,
+				tool: terminal[0]?.toolName,
+				callsInTurn: callCount,
+			})
+			return undefined
+		}
+
+		const hit = terminal[0]
+		if (!hit || hit.isError) {
+			this.ctx.log.info('Terminal tool failed — returning the error to the model', {
+				runId: this.ctx.runMgr.id,
+				tool: hit?.toolName,
+			})
+			return undefined
+		}
+		return hit
+	}
+
 	private captureStructuredOutput(results: readonly ToolCallOutcome[]): boolean {
 		if (!this.needsStructuredOutput()) return false
 		const hit = results.find((r) => r.toolName === STRUCTURED_OUTPUT_TOOL_NAME && !r.isError)

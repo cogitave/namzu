@@ -33,6 +33,18 @@ export interface AgentToolOptions {
 	allowedAgentIds: string[]
 
 	onTaskLaunched?: TaskLaunchedCallback
+
+	/**
+	 * Settle the parent run with the subagent's answer instead of looping
+	 * once more to restate it. See {@link ToolDefinition.terminal}.
+	 *
+	 * For a router — an agent whose whole job is to pick a specialist —
+	 * the relay turn is pure overhead at the parent's full context size,
+	 * and it hands the caller the parent's paraphrase rather than the
+	 * specialist's answer. Off by default: an agent that delegates as one
+	 * step of a longer plan needs the loop to continue.
+	 */
+	terminal?: boolean
 }
 
 export function buildAgentTool(opts: AgentToolOptions): ToolDefinition {
@@ -62,6 +74,7 @@ export function buildAgentTool(opts: AgentToolOptions): ToolDefinition {
 		readOnly: false,
 		destructive: false,
 		concurrencySafe: true,
+		...(opts.terminal !== undefined ? { terminal: opts.terminal } : {}),
 		async execute({ description, prompt, subagent_type }, context) {
 			// With a single registered subagent the type is optional — default to
 			// it so the model can't trip the "subagent_type required" validation.

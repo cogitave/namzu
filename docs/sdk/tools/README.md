@@ -1,7 +1,7 @@
 ---
 title: SDK Tools
 description: Define tools, register them in ToolRegistry, and understand built-in tool behavior in @namzu/sdk.
-last_updated: 2026-07-31
+last_updated: 2026-08-03
 status: current
 related_packages: ["@namzu/sdk", "@namzu/computer-use"]
 ---
@@ -53,6 +53,9 @@ const summarizeText = defineTool({
 | `destructive` | Signals whether the tool performs a risky action |
 | `concurrencySafe` | Signals whether concurrent execution is safe |
 | `timeoutMs` | Optional per-execution deadline, overriding the run default |
+| `maxRetries` | Optional in-loop retry budget for a failed execution (see §7c) |
+| `outputSchema` | Optional JSON Schema of the return shape, appended to the description the model sees |
+| `terminal` | Optional; settle the run with this tool's output instead of looping again (see §7d) |
 
 If `execute()` throws, the SDK converts that throw into a structured failed tool result instead of leaking an uncaught error through the tool boundary.
 
@@ -204,14 +207,14 @@ Relatedly, `read` returns the first 2000 lines when given no window, and says so
 sending the error back for the model to re-decide.
 
 ```ts
-const tool: ToolDefinition = {
+defineTool({
   name: 'fetch_page',
   maxRetries: 2,
   execute: async () => ({
     success: false, output: '', error: 'ECONNRESET', retryable: true,
   }),
   // …
-}
+})
 ```
 
 `maxRetries` **defaults to 0, and that default is load-bearing.** Retrying
@@ -225,6 +228,43 @@ the budget on it just delays the error the model needs to see.
 look before the error reaches the model, and may rewrite the arguments and
 the tool name. See
 [Loop Control §9](../runtime/loop-control.md#9-repairing-a-bad-tool-call).
+
+## 7d. Settling on a Tool's Output
+
+A tool declared `terminal: true` ends the run with its own output instead
+of handing control back to the model:
+
+```ts
+defineTool({
+  name: 'ask_specialist',
+  terminal: true,
+  // …
+})
+```
+
+Delegation is blocking — the worker's final text comes back as the
+dispatching call's result — so without this the loop went round once more
+purely to restate what the worker already said. That relay costs a full
+model call at the parent's context size, the most expensive call in the
+run, and it is lossy: the parent paraphrases through its own (compacted)
+view, so the caller receives the parent's summary rather than the
+specialist's answer. For a router, whose entire job is to pick a
+specialist, that doubled the cost of every request.
+
+It is honoured only when the terminal call is the **only** call in the
+turn and it did not fail. A model that asked for other work in the same
+turn meant to see those results, and ending the run would discard answers
+it requested; an error is not an answer either, and the model is the one
+that should read it. Both cases take the ordinary path and say so in the
+log.
+
+Child progress is already visible without this: a subagent's run events
+reach the same `RunEventListener` the parent was given, stamped with
+lineage depth, so a host sees the worker working rather than a silence.
+
+`buildAgentTool({ terminal: true })` sets it on the built-in `Agent`
+delegation tool. Off by default — an agent that delegates as one step of a
+longer plan needs the loop to continue.
 
 ## 8. Computer Use Is a Tool Factory, Not a Separate Runtime
 
