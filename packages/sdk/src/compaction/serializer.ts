@@ -45,8 +45,17 @@ function renderList(items: string[], evictedCount = 0): string {
 	return lines.join('\n')
 }
 
-function renderToolResults(results: { tool: string; summary: string }[]): string {
-	return results.map((r) => `- **${r.tool}**: ${r.summary}`).join('\n')
+function renderToolResults(results: { tool: string; summary: string }[], evictedCount = 0): string {
+	const lines = results.map((r) => `- **${r.tool}**: ${r.summary}`)
+	if (evictedCount > 0) {
+		// The same admission every sibling section makes. This one counted
+		// its evictions and then rendered without them, so the section that
+		// carries the most volume was the only one presenting a fragment as
+		// the whole record.
+		const noun = evictedCount === 1 ? 'result' : 'results'
+		lines.push(`- _(${evictedCount} earlier tool ${noun} dropped to stay within the state budget)_`)
+	}
+	return lines.join('\n')
 }
 
 export function serializeState(state: WorkingState): string {
@@ -89,7 +98,9 @@ export function serializeState(state: WorkingState): string {
 	}
 
 	if (state.toolResults.length > 0) {
-		sections.push(`${SECTION_HEADERS.toolResults}\n\n${renderToolResults(state.toolResults)}`)
+		sections.push(
+			`${SECTION_HEADERS.toolResults}\n\n${renderToolResults(state.toolResults, state.evicted.toolResults)}`,
+		)
 	}
 
 	if (state.failures.length > 0) {

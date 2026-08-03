@@ -91,6 +91,8 @@ export class AgentManager {
 	private log: Logger
 	private config: Readonly<AgentManagerConfig>
 	private evictionTimers: Map<TaskId, ReturnType<typeof setTimeout>> = new Map()
+	/** One provisioning at a time per parent — see {@link provisionSpawn}. */
+	private spawnLocks: Map<SessionId, Promise<void>> = new Map()
 	private deps: AgentManagerDeps
 
 	constructor(
@@ -412,7 +414,47 @@ export class AgentManager {
 		this.listeners.length = 0
 	}
 
+	/**
+	 * Serializes provisioning per parent session.
+	 *
+	 * The width cap counted existing children and then created one, with
+	 * every remaining provisioning step in between. Two concurrent spawns
+	 * under the same parent both read the same count, both saw room, and
+	 * both created — so a cap of N admitted N+1. The check and the write
+	 * that invalidates it have to be one critical section, and the parent
+	 * session is the narrowest key that makes them one: spawns under
+	 * different parents never contend.
+	 *
+	 * In-process only, which is the honest scope. Cross-process capacity is
+	 * the store's to enforce, and no store here spans processes.
+	 */
 	private async provisionSpawn(
+		options: SendMessageOptions,
+		context: AgentTaskContext,
+	): Promise<ChildSpawnRecord> {
+		const key = options.parentSessionId
+		const queued = (this.spawnLocks.get(key) ?? Promise.resolve()).then(
+			() => this.provisionSpawnUnlocked(options, context),
+			// A failed predecessor releases the lock rather than wedging every
+			// later spawn under the same parent.
+			() => this.provisionSpawnUnlocked(options, context),
+		)
+		const barrier = queued.then(
+			() => undefined,
+			() => undefined,
+		)
+		this.spawnLocks.set(key, barrier)
+		try {
+			return await queued
+		} finally {
+			// Clear the slot only if nobody queued behind us — otherwise we
+			// would drop the barrier the next waiter is chained to, and the
+			// map would leak one entry per parent if we never cleared at all.
+			if (this.spawnLocks.get(key) === barrier) this.spawnLocks.delete(key)
+		}
+	}
+
+	private async provisionSpawnUnlocked(
 		options: SendMessageOptions,
 		context: AgentTaskContext,
 	): Promise<ChildSpawnRecord> {

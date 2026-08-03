@@ -304,6 +304,53 @@ describe('AgentManager.sendMessage — Phase 6 SubSession spawn', () => {
 		).rejects.toBeInstanceOf(DelegationCapacityExceeded)
 	})
 
+	it('width: two concurrent spawns cannot both slip past the last slot', async () => {
+		const childAgent = makeAgent('child-1', async () => successResult())
+		const harness = await buildHarness(childAgent)
+
+		// Fill to one below the cap, so exactly one more child fits.
+		for (let i = 0; i < 7; i++) {
+			const sibling = await harness.store.createSession(
+				{
+					threadId: harness.threadId,
+					projectId: harness.projectId,
+					currentActor: agentActor('sibling'),
+				},
+				tenant,
+			)
+			await harness.store.createSubSession(
+				{
+					parentSessionId: harness.parentSession.id,
+					childSessionId: sibling.id,
+					kind: 'agent_spawn',
+					spawnedBy: user(),
+				},
+				tenant,
+			)
+		}
+
+		// Both read the count before either writes. The check and the write
+		// that invalidates it used to have every other provisioning step
+		// between them, so a cap of 8 admitted 9.
+		const attempts = await Promise.allSettled([
+			harness.manager.sendMessage(
+				buildOptions('child-1', harness.parentSession.id, harness.projectId),
+				buildContext(harness.parentSession.id, harness.projectId, harness.threadId),
+			),
+			harness.manager.sendMessage(
+				buildOptions('child-1', harness.parentSession.id, harness.projectId),
+				buildContext(harness.parentSession.id, harness.projectId, harness.threadId),
+			),
+		])
+
+		const rejected = attempts.filter((a) => a.status === 'rejected')
+		expect(rejected).toHaveLength(1)
+		expect((rejected[0] as PromiseRejectedResult).reason).toBeInstanceOf(DelegationCapacityExceeded)
+
+		const children = await harness.store.getChildren(harness.parentSession.id, tenant)
+		expect(children.length).toBe(8)
+	})
+
 	it('depth: ancestry chain exceeding maxDelegationDepth (4) rejects with DelegationCapacityExceeded', async () => {
 		const childAgent = makeAgent('child-1', async () => successResult())
 		const harness = await buildHarness(childAgent)

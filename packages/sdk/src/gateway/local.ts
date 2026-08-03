@@ -23,6 +23,21 @@ export class LocalTaskGateway implements TaskGateway {
 
 	private completionListeners: Set<(handle: TaskHandle) => void> = new Set()
 
+	/**
+	 * The settled summary of each task, kept past the manager's eviction.
+	 *
+	 * Terminal tasks leave the manager 30 seconds after they finish, and
+	 * `listTasks` rebuilt itself by looking every tracked id back up — so a
+	 * task that finished a minute ago simply vanished from the tool whose
+	 * whole job is the end-of-run check. A supervisor could not tell an
+	 * evicted task from one that never launched; both read as absence.
+	 *
+	 * Eviction is there to release the heavy state — messages, controllers,
+	 * spawn records — not the fact that the task ran. This is a handful of
+	 * fields per task, bounded by the number the gateway itself launched.
+	 */
+	private settledHandles: Map<TaskId, TaskHandle> = new Map()
+
 	private siblingFailurePolicy: SiblingFailurePolicy = 'continue'
 
 	constructor(
@@ -82,6 +97,9 @@ export class LocalTaskGateway implements TaskGateway {
 				const completed = this.agentManager.getInstance(task.taskId)
 				if (completed) {
 					const handle = toHandle(completed)
+					// Snapshot now, while the manager still holds it — in 30
+					// seconds eviction takes the record away.
+					this.settledHandles.set(task.taskId, handle)
 					this.applySiblingPolicy(handle)
 					for (const cb of this.completionListeners) {
 						cb(handle)
@@ -164,11 +182,28 @@ export class LocalTaskGateway implements TaskGateway {
 		return task ? toHandle(task) : undefined
 	}
 
+	/**
+	 * Snapshots a task's terminal state so it survives eviction.
+	 *
+	 * Called when the task settles, while the manager still holds it.
+	 */
+	rememberSettled(taskId: TaskId): void {
+		const task = this.agentManager.getInstance(taskId)
+		if (task) this.settledHandles.set(taskId, toHandle(task))
+	}
+
 	listTasks(): TaskHandle[] {
 		const handles: TaskHandle[] = []
 		for (const taskId of this.trackedTaskIds) {
+			// The live task wins: a remembered snapshot must never shadow
+			// state that is still being updated.
 			const task = this.agentManager.getInstance(taskId)
-			if (task) handles.push(toHandle(task))
+			if (task) {
+				handles.push(toHandle(task))
+				continue
+			}
+			const settled = this.settledHandles.get(taskId)
+			if (settled) handles.push(settled)
 		}
 		return handles
 	}

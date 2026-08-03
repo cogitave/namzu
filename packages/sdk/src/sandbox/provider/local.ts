@@ -58,6 +58,38 @@ function assertInsideSandbox(sandboxRoot: string, targetPath: string): string {
  */
 const LINUX_UNSHARE_FLAGS = ['--mount', '--pid', '--fork', '--map-root-user', '--net']
 
+/**
+ * One output stream, accumulated under a byte cap that it reports hitting.
+ *
+ * The clipping was inline and the flag was not set, so a run whose output
+ * ran past the cap returned a result that looked whole. The tool layer
+ * already renders `stdoutTruncated` when a backend sets it — this one
+ * simply never did, which is the silent truncation the contract's own doc
+ * says the kernel does not do.
+ */
+export class CappedStream {
+	private chunks = ''
+	private bytes = 0
+
+	constructor(private readonly capBytes: number) {}
+
+	push(chunk: Buffer): void {
+		if (this.bytes < this.capBytes) {
+			this.chunks += chunk.subarray(0, this.capBytes - this.bytes).toString('utf-8')
+		}
+		this.bytes += chunk.length
+	}
+
+	get text(): string {
+		return this.chunks
+	}
+
+	/** True once more arrived than was kept. */
+	get truncated(): boolean {
+		return this.bytes > this.capBytes
+	}
+}
+
 export interface LimitedSpawnRequest {
 	readonly environment: SandboxEnvironment
 	readonly command: string
@@ -473,27 +505,12 @@ class LocalSandbox implements Sandbox {
 				return
 			}
 
-			let stdout = ''
-			let stderr = ''
-			let stdoutBytes = 0
-			let stderrBytes = 0
+			const stdout = new CappedStream(SANDBOX_MAX_OUTPUT_BYTES)
+			const stderr = new CappedStream(SANDBOX_MAX_OUTPUT_BYTES)
 			let timedOut = false
 
-			child.stdout?.on('data', (chunk: Buffer) => {
-				if (stdoutBytes < SANDBOX_MAX_OUTPUT_BYTES) {
-					const remaining = SANDBOX_MAX_OUTPUT_BYTES - stdoutBytes
-					stdout += chunk.subarray(0, remaining).toString('utf-8')
-				}
-				stdoutBytes += chunk.length
-			})
-
-			child.stderr?.on('data', (chunk: Buffer) => {
-				if (stderrBytes < SANDBOX_MAX_OUTPUT_BYTES) {
-					const remaining = SANDBOX_MAX_OUTPUT_BYTES - stderrBytes
-					stderr += chunk.subarray(0, remaining).toString('utf-8')
-				}
-				stderrBytes += chunk.length
-			})
+			child.stdout?.on('data', (chunk: Buffer) => stdout.push(chunk))
+			child.stderr?.on('data', (chunk: Buffer) => stderr.push(chunk))
 
 			child.on('error', (err: NodeJS.ErrnoException) => {
 				if (err.code === 'ABORT_ERR' || ac.signal.aborted) {
@@ -516,10 +533,16 @@ class LocalSandbox implements Sandbox {
 			child.on('close', (code, signal) => {
 				resolvePromise({
 					exitCode: code ?? (timedOut ? 124 : 1),
-					stdout,
-					stderr,
+					stdout: stdout.text,
+					stderr: stderr.text,
 					signal: signal ?? undefined,
 					timedOut,
+					// The contract has carried these since the other backend
+					// needed them, and this one clipped without setting them:
+					// the model read a complete-looking result whose tail was
+					// gone. The tool layer already renders the flag.
+					stdoutTruncated: stdout.truncated,
+					stderrTruncated: stderr.truncated,
 				})
 			})
 		})

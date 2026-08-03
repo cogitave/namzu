@@ -151,3 +151,37 @@ describe('unrecognised tools get a useful summary', () => {
 		expect((mgr.getState().toolResults[0]?.summary ?? '').length).toBeGreaterThan(120)
 	})
 })
+
+describe('the tool-result section admits what it dropped', () => {
+	it('names the count once results have been evicted', () => {
+		const m = new WorkingStateManager(config({ maxToolResults: 2 }))
+		m.addToolResult({ tool: 'read', summary: 'first', timestamp: 0 })
+		m.addToolResult({ tool: 'read', summary: 'second', timestamp: 0 })
+		m.addToolResult({ tool: 'read', summary: 'third', timestamp: 0 })
+
+		const rendered = serializeState(m.getState())
+
+		// The section carrying the most volume was the only one rendering a
+		// fragment as if it were the whole record: the count was tracked and
+		// never printed.
+		expect(rendered).toContain('1 earlier tool result dropped')
+		expect(rendered).toContain('second')
+		expect(rendered).toContain('third')
+	})
+
+	it('pluralizes past one', () => {
+		const m = new WorkingStateManager(config({ maxToolResults: 1 }))
+		for (const summary of ['a', 'b', 'c']) m.addToolResult({ tool: 'read', summary, timestamp: 0 })
+
+		expect(serializeState(m.getState())).toContain('2 earlier tool results dropped')
+	})
+
+	it('says nothing when nothing was dropped', () => {
+		const m = new WorkingStateManager(config({ maxToolResults: 8 }))
+		m.addToolResult({ tool: 'read', summary: 'only', timestamp: 0 })
+
+		const rendered = serializeState(m.getState())
+		expect(rendered).toContain('only')
+		expect(rendered).not.toContain('dropped to stay within')
+	})
+})
