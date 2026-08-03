@@ -30,6 +30,7 @@ import type {
 	StepResult,
 	StopReason,
 } from '../../../types/run/index.js'
+import type { LLMToolSchema, ToolRegistryContract } from '../../../types/tool/index.js'
 import { toErrorMessage } from '../../../utils/error.js'
 import { generateMessageId } from '../../../utils/id.js'
 import type { ToolCallOutcome } from '../executor.js'
@@ -200,6 +201,7 @@ export class IterationOrchestrator {
 				const step = await this.prepareStep(iterationNum)
 
 				const llmTools = this.ctx.tools.toLLMTools(step.allowedTools ?? this.ctx.allowedTools)
+				const enforceToolInputSchema = enforcedModelInputToolNames(this.ctx.tools, llmTools)
 				const stepModel = step.model ?? model
 
 				const baseMessages = forceFinalize
@@ -266,6 +268,7 @@ export class IterationOrchestrator {
 						model: stepModel,
 						messages,
 						tools: llmTools.length > 0 ? llmTools : undefined,
+						...(enforceToolInputSchema ? { enforceToolInputSchema } : {}),
 						toolChoice: forceFinalize && llmTools.length > 0 ? 'none' : undefined,
 						temperature: step.temperature ?? runConfig.temperature,
 						maxTokens: step.maxResponseTokens ?? runConfig.maxResponseTokens,
@@ -1042,11 +1045,13 @@ export class IterationOrchestrator {
 			// tools param identical to prior iterations (cache prefix intact,
 			// no 400 on tool blocks in history) and forbid use via tool_choice.
 			const finalTools = this.ctx.tools.toLLMTools(this.ctx.allowedTools)
+			const finalEnforced = enforcedModelInputToolNames(this.ctx.tools, finalTools)
 			const response = await collect(
 				this.ctx.provider.chatStream({
 					model,
 					messages: finalMessages,
 					tools: finalTools.length > 0 ? finalTools : undefined,
+					...(finalEnforced ? { enforceToolInputSchema: finalEnforced } : {}),
 					toolChoice: finalTools.length > 0 ? 'none' : undefined,
 					temperature: this.ctx.runConfig.temperature,
 					maxTokens: this.ctx.runConfig.maxResponseTokens,
@@ -1101,4 +1106,26 @@ function subtractUsage(after: TokenUsage, before: TokenUsage): TokenUsage {
 /** Cost deltas are subtractions of floats; keep them presentable. */
 function round6(n: number): number {
 	return Math.round(n * 1e6) / 1e6
+}
+
+/**
+ * Which of the tools going out on this request have a closed model schema.
+ *
+ * A driver reads `enforceToolInputSchema` to decide which tool schemas to
+ * constrain generation against. Nothing populated it, so every driver that
+ * consumed it — three of them — was reading a permanently undefined field
+ * and `enforceModelInput: true` on a tool meant nothing end to end.
+ *
+ * Computed per request rather than once, because the allowed set changes:
+ * a deferred tool activated mid-run has to start being enforced from the
+ * next call, not the next process.
+ */
+function enforcedModelInputToolNames(
+	registry: ToolRegistryContract,
+	tools: readonly LLMToolSchema[],
+): readonly string[] | undefined {
+	const names = tools
+		.map((tool) => tool.function.name)
+		.filter((name) => registry.get(name)?.enforceModelInput === true)
+	return names.length > 0 ? names : undefined
 }

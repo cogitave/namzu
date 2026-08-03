@@ -95,8 +95,13 @@ Purpose:
 
 Notes:
 
-- accepts exactly `path`, `old_string`, `new_string`, and optional `replace_all`
-- compatibility aliases and line-based insertion fields are not accepted
+- the model is constrained to exactly `path`, `old_string`, `new_string`, and
+  optional `replace_all` — one closed shape, so it never has to choose between
+  two spellings of the same field
+- the host schema additionally accepts the `oldStr` / `newStr` aliases and
+  `insertLine`, for hosts that expose replacement under those names
+- either way the contract is closed: a field outside it is rejected, not
+  silently dropped
 - `new_string` may be empty to delete the exact match
 - fails if `old_string` is not unique unless `replace_all` is `true`
 - normalizes only consistent CRLF/LF boundaries; it does not perform fuzzy matching

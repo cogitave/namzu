@@ -47,11 +47,32 @@ export async function atomicWriteFile(
 	}
 }
 
+/**
+ * Best-effort, and only after the rename has already committed.
+ *
+ * Syncing the directory is what makes the RENAME survive a power loss on a
+ * POSIX filesystem. Not every platform permits it — opening a directory and
+ * calling fsync raises `EPERM` on Windows — and there the whole builtin was
+ * unusable: every `edit` and every `write` failed with `EPERM: operation not
+ * permitted, fsync` after correctly writing the file.
+ *
+ * Swallowing is right here and nowhere else in this file. By this point the
+ * destination already holds the complete new body; the only thing still at
+ * stake is durability across an OS-level crash, and on a platform that
+ * refuses the call there is no second way to ask. Failing the write would
+ * trade a durability refinement for a guaranteed error on every write.
+ *
+ * The sibling in `utils/atomic-write.ts` — the one the disk stores use, and
+ * the one that has run on this platform all along — does not sync the
+ * directory at all.
+ */
 async function syncDirectory(directory: string): Promise<void> {
 	let handle: FileHandle | undefined
 	try {
 		handle = await open(directory, 'r')
 		await handle.sync()
+	} catch {
+		// Unsupported on this platform; the rename already landed.
 	} finally {
 		await handle?.close().catch(() => undefined)
 	}
