@@ -73,8 +73,52 @@ If `execute()` throws, the SDK converts that throw into a structured failed tool
 | `toolRegistry` | Lets tools such as `search_tools` activate deferred tools |
 | `sandbox` | Lets sandbox-aware tools read, write, or execute inside containment |
 | `parentSpan` | Span to parent this tool's OpenTelemetry span to |
+| `report` | Say how far along you are, for a host rendering a live view |
+| `requestPause` | Raise a durable pause and wait for a human (see §3a) |
 
 This is the boundary between a simple helper function and a real runtime tool.
+
+### 3a. Pausing for a Human
+
+A tool with a real-world consequence — a spend, an outbound post, a
+destructive migration — usually wants its OWN confirmation with its own
+wording, not the generic tool-review gate:
+
+```ts
+const outcome = await context.requestPause?.({
+  name: 'target_environment',
+  prompt: 'Which environment should this deploy run against?',
+  options: [
+    { id: 'staging', label: 'Staging (Recommended)' },
+    { id: 'production', label: 'Production', description: 'Live traffic' },
+  ],
+})
+
+if (outcome?.status !== 'answered') {
+  return { success: false, output: '', error: 'no environment was chosen' }
+}
+```
+
+The pause becomes a real checkpoint, so it appears on every surface a
+tool-review park appears on and survives the process dying. On resume the
+answer is routed back **by name**, so several tools pausing in one batch
+each get their own and one call may pause more than once ("which
+environment", then "are you sure").
+
+`status` is one of `answered`, `unanswered`, or `aborted`. Silence is not
+a variant of `answered` with an empty selection: a tool that asks "may I
+charge this card" and reads silence as yes is worse than one that never
+asked, so the absence of an answer has its own shape and cannot be
+destructured into consent. An option id the tool did not offer is dropped
+for the same reason.
+
+`requestPause` is optional on the context — a host calling a tool
+directly, outside a run, provides no route to a human. Write the tool so
+it can decide what to do without one.
+
+Before this, the pause machinery was reachable from exactly four
+kernel-owned points: the plan gate, the tool-review gate, the iteration
+cadence, and the built-in `ask_user_question` tool.
 
 ## 4. Register Tools
 

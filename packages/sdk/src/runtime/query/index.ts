@@ -94,6 +94,7 @@ import {
 	unansweredToolCalls,
 } from './resume-pending.js'
 import { ToolGrantSet } from './tool-grants.js'
+import { createToolPause } from './tool-pause.js'
 import { ToolingBootstrap } from './tooling.js'
 
 export interface QueryParams {
@@ -639,6 +640,19 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			// `read`/`grep` without a new affordance.
 			...(toolOutputDir ? { toolOutputDir } : {}),
 			...(params.repairToolCall ? { repairToolCall: params.repairToolCall } : {}),
+			// The durable pause, reachable from any tool rather than from the
+			// four kernel-owned points that used to own it. Built here from
+			// the machinery the run already holds; the recorder binds a few
+			// lines below, and until it does a pause is in-process only —
+			// the same degradation the built-in question tool has.
+			toolPause: (toolUseId) =>
+				createToolPause({
+					runId: ctx.runId,
+					toolUseId,
+					parkHandler: params.resumeHandler,
+					...(params.questionParks ? { recorder: params.questionParks } : {}),
+					...(params.pendingAnswers ? { pendingAnswers: params.pendingAnswers } : {}),
+				}),
 		},
 		ctx.activityStore,
 		eventTranslator.emitEvent,

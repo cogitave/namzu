@@ -4,7 +4,7 @@ import type { RunId } from '../../types/ids/index.js'
 import type { InvocationState } from '../../types/invocation/index.js'
 import type { PermissionMode } from '../../types/permission/index.js'
 import type { RunEvent } from '../../types/run/index.js'
-import type { ToolRegistryContract } from '../../types/tool/index.js'
+import type { RequestToolPause, ToolRegistryContract } from '../../types/tool/index.js'
 import type { RepairToolCall } from '../../types/tool/repair.js'
 import type { Logger } from '../../utils/logger.js'
 import { ToolExecutor } from './executor.js'
@@ -26,6 +26,8 @@ export interface ToolingBootstrapConfig {
 	maxToolOutputChars?: number
 	toolOutputDir?: string
 	repairToolCall?: RepairToolCall
+	/** Builds the durable-pause seam for one tool call; see ToolContext.requestPause. */
+	toolPause?: (toolUseId: string) => RequestToolPause
 }
 
 export class ToolingBootstrap {
@@ -55,6 +57,7 @@ export class ToolingBootstrap {
 					: {}),
 				...(config.toolOutputDir !== undefined ? { toolOutputDir: config.toolOutputDir } : {}),
 				...(config.repairToolCall !== undefined ? { repairToolCall: config.repairToolCall } : {}),
+				...(config.toolPause !== undefined ? { toolPause: config.toolPause } : {}),
 			},
 			activityStore,
 			emitEvent,

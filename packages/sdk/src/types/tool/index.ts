@@ -23,6 +23,52 @@ export interface FileReadTracker {
 	hasRead(key: string): boolean
 }
 
+export interface ToolPauseOption {
+	readonly id: string
+	readonly label: string
+	readonly description?: string
+}
+
+export interface ToolPauseRequest {
+	/**
+	 * Names this pause within the call.
+	 *
+	 * A tool call may pause more than once — "which environment", then
+	 * "are you sure" — and the answers have to be told apart. The name is
+	 * what a resume payload is routed by, so it is the author's to choose
+	 * and should describe the decision, not the tool.
+	 */
+	readonly name: string
+	/** The question, in the words the human will read. */
+	readonly prompt: string
+	/** Short topic label, when the surface showing this has room for one. */
+	readonly header?: string
+	readonly options?: readonly ToolPauseOption[]
+	readonly multiSelect?: boolean
+	/** Defaults to true: a human who disagrees with every option can say so. */
+	readonly allowFreeText?: boolean
+}
+
+/**
+ * How a pause ended.
+ *
+ * `unanswered` is deliberately not a variant of `answered` with an empty
+ * selection. A tool that pauses to ask "may I charge this card" and reads
+ * silence as yes is worse than one that never asked, so the absence of an
+ * answer has its own shape and cannot be destructured into consent by
+ * accident.
+ */
+export type ToolPauseOutcome =
+	| {
+			readonly status: 'answered'
+			readonly selectedOptionIds: readonly string[]
+			readonly text?: string
+	  }
+	| { readonly status: 'unanswered'; readonly reason: string }
+	| { readonly status: 'aborted' }
+
+export type RequestToolPause = (request: ToolPauseRequest) => Promise<ToolPauseOutcome>
+
 export interface ToolContext {
 	runId: RunId
 	workingDirectory: string
@@ -51,6 +97,31 @@ export interface ToolContext {
 	 * Optional because not every executor path provides it yet.
 	 */
 	toolUseId?: string
+
+	/**
+	 * Raise a durable pause and wait for a human to resolve it.
+	 *
+	 * The pause machinery is excellent and was reachable from exactly four
+	 * kernel-owned points — the plan gate, the tool-review gate, the
+	 * iteration cadence, and one built-in question tool. A host-authored
+	 * tool had no seam to it, so the operations that most want their own
+	 * confirmation with their own wording (a spend, an outbound post, a
+	 * destructive migration) had to settle for the generic tool-review
+	 * gate or hand-thread a recorder and a resume callback into a private
+	 * builder, which nothing in this type suggested was possible.
+	 *
+	 * The park is a real checkpoint, so a host can see the pause on every
+	 * surface a tool-review park appears on, and the answer routes back by
+	 * name on resume — several tools pausing in one batch each get their
+	 * own, and one tool may pause more than once.
+	 *
+	 * Absent when whatever is driving the tool provides no route to a
+	 * human — a host calling a tool directly, outside a run. A tool must
+	 * treat it as optional and decide what to do without one, and must
+	 * never read an unanswered pause as consent; the outcome says which it
+	 * was, in its own shape, so silence cannot be destructured into a yes.
+	 */
+	requestPause?: RequestToolPause
 
 	/**
 	 * Span to parent this tool's `execute_tool` span to.

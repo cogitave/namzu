@@ -22,6 +22,7 @@ import type { RunEvent } from '../../types/run/index.js'
 import type { Sandbox } from '../../types/sandbox/index.js'
 import type {
 	FileReadTracker,
+	RequestToolPause,
 	ToolContext,
 	ToolRegistryContract,
 	ToolResult,
@@ -94,6 +95,15 @@ export interface ToolExecutorConfig {
 	toolTimeoutMs?: number
 	/** Max concurrently-executing concurrency-safe tools. */
 	maxToolConcurrency?: number
+
+	/**
+	 * Builds the durable-pause seam handed to one tool call.
+	 *
+	 * Absent when the run has no route to a human, which is why
+	 * {@link ToolContext.requestPause} is optional: a tool must be able to
+	 * run in a headless context and decide what to do without one.
+	 */
+	toolPause?: (toolUseId: string) => RequestToolPause
 	/**
 	 * Model-visible size cap for a single tool result. Defaults to
 	 * {@link DEFAULT_MAX_TOOL_OUTPUT_CHARS}; set `0` to disable.
@@ -321,6 +331,9 @@ export class ToolExecutor {
 			const ctx: ToolContext = {
 				...baseContext,
 				toolUseId: toolCall.id,
+				// Per-call for the same reason: a pause has to be routed back
+				// to the call that raised it, and a batch can raise several.
+				...(this.config.toolPause ? { requestPause: this.config.toolPause(toolCall.id) } : {}),
 				report: (message: string, fraction?: number) => {
 					// Fire-and-forget: a tool reporting progress must never be
 					// able to fail because the host's listener threw, and must
