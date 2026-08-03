@@ -92,6 +92,29 @@ function formatToolChoice(tc: ToolChoice | undefined): ChatCompletionToolChoiceO
 	return undefined
 }
 
+/**
+ * Refuse a document whose citations this wire cannot return.
+ *
+ * Citations are the difference between an answer you trust and one you
+ * verify, and this request format has no mechanism to carry them back.
+ * Sending the document anyway would answer the question and quietly drop
+ * the checkability the caller specifically asked for — the caller would
+ * see prose, no error, and an empty `citations` array they might read as
+ * "the model cited nothing" rather than "nobody asked".
+ */
+function assertCitationsSupported(
+	attachment: { citations?: boolean; name?: string },
+	index: number,
+): void {
+	if (!attachment.citations) return
+	const which = attachment.name ?? `attachment ${index}`
+	throw new Error(
+		`This provider cannot return citations, and ${which} asked for them. Drop ` +
+			'`citations` to send the document without them, or use a provider whose ' +
+			'capabilities include citation support.',
+	)
+}
+
 export function toOpenAIMessages(
 	messages: ChatCompletionParams['messages'],
 ): ChatCompletionMessageParam[] {
@@ -100,16 +123,32 @@ export function toOpenAIMessages(
 			return { role: 'system', content: msg.content }
 		}
 		if (msg.role === 'user') {
-			// User message with image attachments → multimodal content parts
-			// (text first, then each image as an `image_url` part carrying a
-			// base64 data URI). Mirrors the Anthropic driver's image-block
-			// mapping; plain text-only user messages keep the string form.
+			// User message with attachments → multimodal content parts, text
+			// first. Images become an `image_url` part carrying a base64 data
+			// URI; documents become a `file` part. Plain text-only user
+			// messages keep the string form.
 			if (msg.attachments && msg.attachments.length > 0) {
 				const parts: ChatCompletionContentPart[] = []
 				if (msg.content.length > 0) {
 					parts.push({ type: 'text', text: msg.content })
 				}
-				for (const att of msg.attachments) {
+				for (const [index, att] of msg.attachments.entries()) {
+					if (att.type === 'document') {
+						// A document is not an image with a different media
+						// type. Every attachment used to become an `image_url`,
+						// so a PDF went up as `data:application/pdf;base64,...`
+						// inside an image part — while the capability set
+						// claimed documents were supported.
+						assertCitationsSupported(att, index)
+						parts.push({
+							type: 'file',
+							file: {
+								file_data: `data:${att.mediaType};base64,${att.data}`,
+								...(att.name ? { filename: att.name } : {}),
+							},
+						} as ChatCompletionContentPart)
+						continue
+					}
 					parts.push({
 						type: 'image_url',
 						image_url: { url: `data:${att.mediaType};base64,${att.data}` },

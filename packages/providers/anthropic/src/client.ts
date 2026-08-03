@@ -3,6 +3,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import type {
 	ChatCompletionParams,
 	ChatCompletionResponse,
+	Citation,
 	LLMProvider,
 	ModelInfo,
 	ProviderCapabilities,
@@ -110,10 +111,22 @@ interface AnthropicToolParam {
 	cache_control?: AnthropicCacheControl
 }
 
-/** Shape of an SDK `ImageAttachment` (read structurally to avoid coupling). */
+/** Shape of an SDK `MessageAttachment` (read structurally to avoid coupling). */
 interface AttachmentLike {
+	readonly type?: 'image' | 'document'
 	readonly data: string
 	readonly mediaType: string
+	readonly name?: string
+	readonly citations?: boolean
+}
+
+interface AnthropicDocumentBlock {
+	type: 'document'
+	source: { type: 'base64'; media_type: string; data: string }
+	title?: string
+	citations?: { enabled: true }
+	/** A document is the block most worth a breakpoint, being the largest. */
+	cache_control?: AnthropicCacheControl
 }
 
 type AnthropicContentBlock =
@@ -121,6 +134,7 @@ type AnthropicContentBlock =
 	| AnthropicToolUseBlock
 	| AnthropicToolResultBlock
 	| AnthropicImageBlock
+	| AnthropicDocumentBlock
 
 interface AnthropicMessageParam {
 	role: 'user' | 'assistant'
@@ -213,6 +227,23 @@ function toAnthropicMessages(messages: ChatCompletionParams['messages']): Anthro
 			const blocks: AnthropicContentBlock[] = []
 			if (content.length > 0) blocks.push({ type: 'text', text: content })
 			for (const att of attachments) {
+				// A document is not an image with a different media type. It
+				// used to be mapped as one, so a PDF went up as an image block
+				// the API rejects — while the capability set claimed documents
+				// were supported. The native block buys page structure, OCR,
+				// and the citations the SDK contract already has a slot for.
+				if (att.type === 'document') {
+					blocks.push({
+						type: 'document',
+						source: { type: 'base64', media_type: att.mediaType, data: att.data },
+						...(att.name ? { title: att.name } : {}),
+						// Opt-in: citations cost tokens, so they are requested
+						// only when the caller asked to be able to check the
+						// answer.
+						...(att.citations ? { citations: { enabled: true as const } } : {}),
+					})
+					continue
+				}
 				blocks.push({
 					type: 'image',
 					source: { type: 'base64', media_type: att.mediaType, data: att.data },
@@ -382,6 +413,64 @@ function mapStopReason(reason?: string | null): NamzuFinishReason {
 // Stream event types
 // --------------------------------------------------------------------------------------
 
+/**
+ * A cited passage as it arrives on the wire.
+ *
+ * The location is reported three different ways depending on how the
+ * provider segmented the source, which is why the SDK's `Citation` keeps
+ * a discriminated union rather than flattening everything to a page
+ * number: two of the three shapes have no page to report.
+ */
+interface RawAnthropicCitation {
+	type?: string
+	cited_text?: string
+	document_index?: number
+	document_title?: string | null
+	start_page_number?: number
+	end_page_number?: number
+	start_char_index?: number
+	end_char_index?: number
+	start_block_index?: number
+	end_block_index?: number
+}
+
+/**
+ * Map a wire citation onto the SDK's shape.
+ *
+ * Returns undefined rather than inventing a location: a citation whose
+ * source segment cannot be named is worse than none, because it looks
+ * checkable and is not.
+ */
+function toCitation(raw: RawAnthropicCitation, index: number): Citation | undefined {
+	const citedText = raw.cited_text
+	if (!citedText) return undefined
+
+	const location = (():
+		| { kind: 'page'; start: number; end: number }
+		| { kind: 'char'; start: number; end: number }
+		| { kind: 'block'; start: number; end: number }
+		| undefined => {
+		if (raw.start_page_number !== undefined && raw.end_page_number !== undefined) {
+			return { kind: 'page', start: raw.start_page_number, end: raw.end_page_number }
+		}
+		if (raw.start_char_index !== undefined && raw.end_char_index !== undefined) {
+			return { kind: 'char', start: raw.start_char_index, end: raw.end_char_index }
+		}
+		if (raw.start_block_index !== undefined && raw.end_block_index !== undefined) {
+			return { kind: 'block', start: raw.start_block_index, end: raw.end_block_index }
+		}
+		return undefined
+	})()
+	if (!location) return undefined
+
+	return {
+		citedText,
+		documentIndex: raw.document_index ?? index,
+		...(raw.document_title ? { documentTitle: raw.document_title } : {}),
+		location,
+	}
+}
+
 interface StreamEvent {
 	type: string
 	message?: { id?: string; usage?: RawAnthropicUsage }
@@ -392,6 +481,7 @@ interface StreamEvent {
 		text?: string
 		partial_json?: string
 		stop_reason?: string | null
+		citation?: RawAnthropicCitation
 	}
 	usage?: RawAnthropicUsage
 }
@@ -643,6 +733,12 @@ export class AnthropicProvider implements LLMProvider {
 							const delta = event.delta
 							if (delta?.type === 'text_delta' && delta.text) {
 								yield { id: messageId, delta: { content: delta.text } }
+							} else if (delta?.type === 'citations_delta' && delta.citation) {
+								// Not text: a citation lands on the assistant
+								// message beside the prose, which is where the
+								// runtime's stream aggregator already puts it.
+								const citation = toCitation(delta.citation, idx)
+								if (citation) yield { id: messageId, delta: { citation } }
 							} else if (delta?.type === 'input_json_delta' && delta.partial_json !== undefined) {
 								const active = activeTools.get(idx)
 								yield {
