@@ -19,3 +19,4 @@ packages/docs/
 
 # claude-code local launch config (per-machine)
 .claude/launch.json
+eval-report.json

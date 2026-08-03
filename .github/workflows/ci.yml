@@ -63,12 +63,18 @@ jobs:
       # reach CI while the harness was a library function with no runner.
       #
       # Exit codes are load-bearing: 1 is a regression to chase, 2 is a
-      # broken harness to fix, 3 is "found nothing to run". `continue-on-
-      # error` because the repo ships no first-party suites yet; drop it
-      # the moment `evals/` has one, or this gate is decoration.
+      # broken harness to fix, 3 is "found nothing to run".
+      #
+      # Two things kept this from being a gate at all. It invoked
+      # `dist/index.js`, which is the package barrel and not the CLI, so the
+      # step ran nothing and reported success on every push since it was
+      # added. And `namzu eval` exited 0 when a suite never settled — the
+      # promise stayed pending, the event loop drained, and node ended on its
+      # default code — so even a working invocation could not have failed.
+      # Both are fixed; `continue-on-error` is gone with them, because a gate
+      # that cannot go red is decoration by its own admission above.
       - name: Evals
-        run: node packages/cli/dist/index.js eval --dir evals --out eval-report.json
-        continue-on-error: true
+        run: node packages/cli/dist/bin.js eval --dir evals --out eval-report.json
 
       # SDK coverage gate (ses_006-test-coverage-sprint).
       # Runs on one node version only — coverage output is identical across

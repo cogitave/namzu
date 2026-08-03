@@ -46,6 +46,40 @@ export const EVAL_EXIT = {
 
 const SUITE_SUFFIX = '.eval.js'
 
+/**
+ * How long one suite may take before the runner stops waiting.
+ *
+ * Generous, because a suite driving real runs is legitimately slow, and the
+ * point is not to police duration — it is that "never" has to be
+ * distinguishable from "slow". Without a deadline the two are the same
+ * observation, and the one that never finishes is the one that reports
+ * success.
+ */
+const DEFAULT_SUITE_TIMEOUT_MS = 300_000
+
+const TIMED_OUT = Symbol('eval.suite.timed-out')
+
+/**
+ * Race a suite against a deadline.
+ *
+ * The timer is cleared on the settled path so a fast suite does not hold the
+ * event loop open for the rest of the deadline — which would turn this
+ * guard into a five-minute pause at the end of every green run.
+ */
+async function withDeadline<T>(work: Promise<T>, ms: number): Promise<T | typeof TIMED_OUT> {
+	let timer: NodeJS.Timeout | undefined
+	try {
+		return await Promise.race([
+			work,
+			new Promise<typeof TIMED_OUT>((resolve) => {
+				timer = setTimeout(() => resolve(TIMED_OUT), ms)
+			}),
+		])
+	} finally {
+		if (timer) clearTimeout(timer)
+	}
+}
+
 /** A discovered suite: its stable id and how to run it. */
 interface DiscoveredSuite {
 	/**
@@ -138,6 +172,7 @@ interface EvalOptions {
 	readonly dir: string
 	readonly tag?: string
 	readonly out?: string
+	readonly timeoutMs?: number
 }
 
 async function runEval(ctx: CommandContext, options: EvalOptions): Promise<number> {
@@ -175,7 +210,28 @@ async function runEval(ctx: CommandContext, options: EvalOptions): Promise<numbe
 			continue
 		}
 
-		const report = await (mod.default as () => Promise<ExperimentReport>)()
+		const report = await withDeadline(
+			(mod.default as () => Promise<ExperimentReport>)(),
+			options.timeoutMs ?? DEFAULT_SUITE_TIMEOUT_MS,
+		)
+
+		// A suite that never settles was the worst failure this command
+		// had, because it did not look like a failure at all: the promise
+		// stayed pending, node's event loop drained, `process.exit` was
+		// never reached, and the process ended on the default code — zero.
+		// A gate that reports success by hanging is worse than no gate,
+		// since the green tick is what stops anyone looking.
+		//
+		// Inconclusive rather than failed, matching the rule the exit codes
+		// already state: nothing was judged, so there is no regression to
+		// report — there is a harness to fix.
+		if (report === TIMED_OUT) {
+			ctx.formatter.error({
+				message: `Eval suite "${suite.id}" did not finish within ${options.timeoutMs ?? DEFAULT_SUITE_TIMEOUT_MS}ms. A suite that hangs judges nothing; raise --timeout-ms if it is genuinely slow, and look for a run parked on an approval nobody is there to give if it is not.`,
+			})
+			return EVAL_EXIT.inconclusive
+		}
+
 		reports.push({ suite: suite.id, report })
 		ctx.formatter.print({ suite: suite.id, report, text: formatReport(report) })
 	}
@@ -230,6 +286,11 @@ export const evalCommand: CommandDef = {
 			.option('-d, --dir <path>', 'Directory to discover *.eval.js suites in', 'evals')
 			.option('-t, --tag <tag>', 'Only run suites declaring this tag')
 			.option('-o, --out <file>', 'Write the full JSON report to this path')
+			.option(
+				'--timeout-ms <ms>',
+				'How long one suite may run before it is called inconclusive',
+				(v) => Number.parseInt(v, 10),
+			)
 
 		try {
 			program.parse(rawArgs, { from: 'user' })
