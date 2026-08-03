@@ -16,6 +16,7 @@ import type {
 	ChatCompletionTool,
 	ChatCompletionToolChoiceOption,
 } from 'openai/resources/chat/completions'
+import { toStrictSchema } from './strict-schema.js'
 import type { OpenAIConfig } from './types.js'
 
 /**
@@ -193,16 +194,27 @@ export function toOpenAIMessages(
 	})
 }
 
-function toOpenAITools(params: ChatCompletionParams): ChatCompletionTool[] | undefined {
+function toOpenAITools(
+	params: ChatCompletionParams,
+	strict: boolean,
+): ChatCompletionTool[] | undefined {
 	if (!params.tools || params.tools.length === 0) return undefined
-	return params.tools.map((t) => ({
-		type: 'function' as const,
-		function: {
-			name: t.function.name,
-			description: t.function.description ?? '',
-			parameters: (t.function.parameters ?? {}) as Record<string, unknown>,
-		},
-	}))
+	return params.tools.map((t) => {
+		const parameters = (t.function.parameters ?? {}) as Record<string, unknown>
+		return {
+			type: 'function' as const,
+			function: {
+				name: t.function.name,
+				description: t.function.description ?? '',
+				// The transform is not optional alongside the flag: this
+				// endpoint rejects `strict: true` on a schema that has not been
+				// closed, so sending one without the other turns a correctness
+				// feature into a 400.
+				parameters: strict ? toStrictSchema(parameters) : parameters,
+				...(strict ? { strict: true } : {}),
+			},
+		}
+	})
 }
 
 export class OpenAIProvider implements LLMProvider {
@@ -212,6 +224,7 @@ export class OpenAIProvider implements LLMProvider {
 
 	private client: OpenAI
 	private defaultModel?: string
+	private readonly strictTools: boolean
 
 	constructor(config: OpenAIConfig) {
 		if (!config.apiKey) {
@@ -229,6 +242,7 @@ export class OpenAIProvider implements LLMProvider {
 
 		this.client = new OpenAI(clientOptions)
 		this.defaultModel = config.model
+		this.strictTools = config.strictTools ?? false
 	}
 
 	private resolveModel(params: ChatCompletionParams): string {
@@ -253,7 +267,7 @@ export class OpenAIProvider implements LLMProvider {
 				messages: toOpenAIMessages(params.messages),
 				stream: true,
 				stream_options: { include_usage: true },
-				tools: toOpenAITools(params),
+				tools: toOpenAITools(params, this.strictTools),
 				tool_choice: formatToolChoice(params.toolChoice),
 				parallel_tool_calls: params.parallelToolCalls,
 				// Reasoning-family models take `max_completion_tokens` and
