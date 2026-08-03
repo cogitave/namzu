@@ -54,6 +54,16 @@ export interface StreamChunk {
 			encrypted?: string
 			done?: boolean
 		}
+
+		/**
+		 * A passage the model is citing, as it arrives.
+		 *
+		 * Its own channel rather than a field on `content`, because a
+		 * citation is not text the reader sees: it lands on the assistant
+		 * message beside the prose. Drivers that cannot report one leave
+		 * this undefined and the answer simply carries none.
+		 */
+		citation?: import('../message/index.js').Citation
 	}
 	finishReason?: 'stop' | 'tool_calls' | 'length' | 'content_filter'
 	usage?: TokenUsage

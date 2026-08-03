@@ -340,6 +340,10 @@ export class IterationOrchestrator {
 					response.message.content,
 					forceFinalize ? undefined : response.message.toolCalls,
 					response.message.reasoning,
+					// Rides with the turn it belongs to, like reasoning does, so
+					// trimming or compacting the turn takes its evidence with it
+					// rather than leaving citations pointing at prose that is gone.
+					response.message.citations,
 				)
 				runMgr.pushMessage(assistantMsg)
 

@@ -208,6 +208,37 @@ letting the model answer about a file it never saw. Drivers that map
 images only degrade a document to a named placeholder, so the transcript
 says what was dropped rather than implying it arrived.
 
+### Getting the passage back
+
+Set `citations: true` on a document and the answer carries the passages
+it rests on:
+
+```ts
+const run = await agent.run(...)
+const answer = run.messages.at(-1)
+
+for (const citation of answer?.citations ?? []) {
+  console.log(citation.citedText, citation.location) // { kind: 'page', start: 4, end: 4 }
+}
+```
+
+Citations land on the assistant message, not inside its text. The text is
+what a human reads and the citations are what a checker follows; splicing
+markers into the prose would make the answer worse to read in exchange for
+making it machine-checkable. Absent and empty mean the same thing — the
+model cited nothing.
+
+`location` is a union rather than a page number, because providers segment
+differently and the segmentation is theirs: `page` for a paginated
+document, `char` for plain text, `block` for something already
+structured. Flattening all three to a page number would invent one for the
+two that have none.
+
+Opt-in per document, because it is not free: the provider splits the
+document into citable units and the answer carries the passages it leaned
+on, which costs tokens on a turn that may not need them. A driver that
+maps documents but not citations returns none.
+
 Without this, "here is the contract, answer questions about it" was
 reachable only by having a tool read the file and stringify it, which
 loses the provider's native document handling — page structure, built-in

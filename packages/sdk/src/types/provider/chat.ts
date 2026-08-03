@@ -85,6 +85,8 @@ export interface ChatCompletionResponse {
 		toolCalls?: ToolCall[]
 		/** Reasoning blocks the model emitted, in original block order. */
 		reasoning?: readonly ReasoningBlock[]
+		/** Passages this turn cites, in the order the model made them. */
+		citations?: readonly import('../message/index.js').Citation[]
 	}
 	finishReason: 'stop' | 'tool_calls' | 'length' | 'content_filter'
 	usage: TokenUsage

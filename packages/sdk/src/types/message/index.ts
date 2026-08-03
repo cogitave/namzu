@@ -32,12 +32,51 @@ export interface ImageAttachment {
  */
 export interface DocumentAttachment {
 	readonly type: 'document'
+	/**
+	 * Ask the model to cite this document when it uses it.
+	 *
+	 * Opt-in, because it is not free: the provider splits the document
+	 * into citable units and the answer carries the passages it leaned
+	 * on, which costs tokens on a turn that may not need them.
+	 *
+	 * Citations come back on the assistant message, not in its text —
+	 * see {@link Citation}.
+	 */
+	readonly citations?: boolean
 	/** Base64-encoded bytes (no `data:` URI prefix). */
 	readonly data: string
 	/** IANA media type, e.g. `application/pdf`. */
 	readonly mediaType: string
 	/** Shown to the model, so it can refer to the file by name. */
 	readonly name?: string
+}
+
+/**
+ * Where a passage the model cited came from.
+ *
+ * Sending a document buys the provider's native handling of it — page
+ * structure, built-in OCR, and the ability to say WHICH passage an
+ * answer rests on. namzu could send the document and could not receive
+ * the third: an answer about a contract arrived as prose, and checking
+ * it meant reading the contract again by hand. A citation is the
+ * difference between an answer you trust and one you verify.
+ *
+ * The location is a union rather than a page number because providers
+ * segment differently and the segmentation is theirs: pages for a
+ * paginated document, character offsets for plain text, block indices
+ * for something already structured. Flattening them all to "page" would
+ * invent a number for the two that have none.
+ */
+export interface Citation {
+	/** The passage itself, verbatim from the source. */
+	readonly citedText: string
+	/** Which attachment, by position in the message that carried it. */
+	readonly documentIndex: number
+	readonly documentTitle?: string
+	readonly location:
+		| { readonly kind: 'page'; readonly start: number; readonly end: number }
+		| { readonly kind: 'char'; readonly start: number; readonly end: number }
+		| { readonly kind: 'block'; readonly start: number; readonly end: number }
 }
 
 /** What a user message may carry alongside its text. */
@@ -152,6 +191,16 @@ export interface AssistantMessage extends BaseMessage {
 	 * {@link ReasoningBlock}.
 	 */
 	reasoning?: readonly ReasoningBlock[]
+	/**
+	 * Passages this turn rests on, when the request asked for them.
+	 *
+	 * On the message rather than inside its text: the text is what a
+	 * human reads and the citations are what a checker follows, and
+	 * splicing markers into the prose would make the answer worse to read
+	 * in exchange for making it machine-checkable. Empty and absent mean
+	 * the same thing — the model cited nothing.
+	 */
+	citations?: readonly Citation[]
 }
 
 /**
@@ -220,12 +269,14 @@ export function createAssistantMessage(
 	content: string | null,
 	toolCalls?: ToolCall[],
 	reasoning?: readonly ReasoningBlock[],
+	citations?: readonly Citation[],
 ): AssistantMessage {
 	return {
 		role: 'assistant',
 		content,
 		toolCalls,
 		...(reasoning && reasoning.length > 0 ? { reasoning } : {}),
+		...(citations && citations.length > 0 ? { citations } : {}),
 		timestamp: Date.now(),
 	}
 }

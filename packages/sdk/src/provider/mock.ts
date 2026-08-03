@@ -97,6 +97,12 @@ export class MockLLMProvider implements LLMProvider {
 			})
 		}
 
+		// Before the text, as the wire does: a citation names the passage an
+		// upcoming sentence rests on.
+		for (const citation of turn.citations ?? []) {
+			yield { id, delta: { citation } }
+		}
+
 		const text = turn.text ?? ''
 		const chunkSize = turn.chunkSize ?? 8
 		let emitted = 0

@@ -9,7 +9,7 @@ import { getTracer } from '../../../telemetry/runtime-accessors.js'
 import { mergeTokenUsage } from '../../../types/common/index.js'
 import { NamzuError } from '../../../types/errors/index.js'
 import type { ToolUseId } from '../../../types/ids/index.js'
-import type { ReasoningBlock } from '../../../types/message/index.js'
+import type { Citation, ReasoningBlock } from '../../../types/message/index.js'
 import type {
 	ChatCompletionResponse,
 	LLMProvider,
@@ -195,6 +195,11 @@ export async function* streamProviderTurn(
 		{ type: 'thinking' | 'redacted_thinking'; text: string; signature?: string; encrypted?: string }
 	>()
 
+	// Citations arrive as their own deltas, in the order the model made
+	// them, and are collected verbatim: they are evidence, so reordering or
+	// de-duplicating them would edit the record the reader checks against.
+	const citations: Citation[] = []
+
 	let streamError: string | undefined
 
 	const stream = provider.chatStream({ ...params, stream: true }) as AsyncIterable<StreamChunk>
@@ -270,6 +275,8 @@ export async function* streamProviderTurn(
 				firstDeltaSeen = true
 				recordTimeToFirstToken(params.model, Date.now() - callStartedAt)
 			}
+
+			if (chunk.delta.citation) citations.push(chunk.delta.citation)
 
 			const reasoning = chunk.delta.reasoning
 			if (reasoning) {
@@ -602,6 +609,7 @@ export async function* streamProviderTurn(
 			content: textBuf.length > 0 ? textBuf : null,
 			toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
 			...(reasoningBlocks.length > 0 ? { reasoning: reasoningBlocks } : {}),
+			...(citations.length > 0 ? { citations } : {}),
 		},
 		finishReason: effectiveFinishReason,
 		usage,

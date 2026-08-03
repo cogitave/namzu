@@ -3,6 +3,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import type {
 	ChatCompletionParams,
 	ChatCompletionResponse,
+	Citation,
 	LLMProvider,
 	ModelInfo,
 	ProviderCapabilities,
@@ -105,6 +106,7 @@ interface AnthropicDocumentBlock {
 	type: 'document'
 	source: { type: 'base64'; media_type: string; data: string }
 	title?: string
+	citations?: { enabled: boolean }
 	cache_control?: AnthropicCacheControl
 }
 
@@ -147,6 +149,7 @@ interface AttachmentLike {
 	readonly data: string
 	readonly mediaType: string
 	readonly name?: string
+	readonly citations?: boolean
 }
 
 type AnthropicContentBlock =
@@ -277,7 +280,15 @@ export function toAnthropicMessages(
 				const source = { type: 'base64' as const, media_type: att.mediaType, data: att.data }
 				blocks.push(
 					att.type === 'document'
-						? { type: 'document', source, ...(att.name ? { title: att.name } : {}) }
+						? {
+								type: 'document',
+								source,
+								...(att.name ? { title: att.name } : {}),
+								// Only when asked. Enabling it unconditionally would
+								// split every document into citable units and spend
+								// tokens on turns that never wanted a citation.
+								...(att.citations ? { citations: { enabled: true } } : {}),
+							}
 						: { type: 'image', source },
 				)
 			}
@@ -292,6 +303,66 @@ export function toAnthropicMessages(
 
 	flushToolResults()
 	return out
+}
+
+/**
+ * Translate one wire citation into namzu's shape.
+ *
+ * Three location kinds, and a fourth family this deliberately drops:
+ * search-result and web-search citations point at something that was
+ * never in the request, so there is no attachment index to resolve them
+ * against. Reporting them with a fabricated index would be worse than
+ * reporting nothing — the whole value of a citation is that the reader
+ * can go and look.
+ */
+function toCitation(raw: {
+	type?: string
+	cited_text?: string
+	document_index?: number
+	document_title?: string | null
+	start_page_number?: number
+	end_page_number?: number
+	start_char_index?: number
+	end_char_index?: number
+	start_block_index?: number
+	end_block_index?: number
+}): Citation | undefined {
+	const base = {
+		citedText: raw.cited_text ?? '',
+		documentIndex: raw.document_index ?? 0,
+		...(raw.document_title ? { documentTitle: raw.document_title } : {}),
+	}
+	switch (raw.type) {
+		case 'page_location':
+			return {
+				...base,
+				location: {
+					kind: 'page',
+					start: raw.start_page_number ?? 0,
+					end: raw.end_page_number ?? 0,
+				},
+			}
+		case 'char_location':
+			return {
+				...base,
+				location: {
+					kind: 'char',
+					start: raw.start_char_index ?? 0,
+					end: raw.end_char_index ?? 0,
+				},
+			}
+		case 'content_block_location':
+			return {
+				...base,
+				location: {
+					kind: 'block',
+					start: raw.start_block_index ?? 0,
+					end: raw.end_block_index ?? 0,
+				},
+			}
+		default:
+			return undefined
+	}
 }
 
 function toAnthropicTools(
@@ -459,6 +530,8 @@ interface StreamEvent {
 		type?: string
 		text?: string
 		partial_json?: string
+		/** `citations_delta` payload — one cited passage and where it came from. */
+		citation?: Parameters<typeof toCitation>[0]
 		stop_reason?: string | null
 		/** `thinking_delta` payload. */
 		thinking?: string
@@ -748,6 +821,9 @@ export class AnthropicProvider implements LLMProvider {
 									id: messageId,
 									delta: { reasoning: { index: idx, signature: delta.signature } },
 								}
+							} else if (delta?.type === 'citations_delta' && delta.citation) {
+								const citation = toCitation(delta.citation)
+								if (citation) yield { id: messageId, delta: { citation } }
 							} else if (delta?.type === 'input_json_delta' && delta.partial_json !== undefined) {
 								const active = activeTools.get(idx)
 								yield {

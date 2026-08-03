@@ -64,6 +64,8 @@ export interface MockToolCall {
 export interface MockTurn {
 	text?: string
 	toolCalls?: MockToolCall[]
+	/** Passages this scripted turn cites, emitted before its text. */
+	citations?: import('../message/index.js').Citation[]
 	finishReason?: 'stop' | 'tool_calls' | 'length' | 'content_filter'
 	usage?: Partial<import('../common/index.js').TokenUsage>
 	/** Text fragment size. */
