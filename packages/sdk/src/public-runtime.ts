@@ -424,6 +424,11 @@ export { MutationNotApplicableError } from './types/run/replay.js'
 export {
 	assertSandboxEnvironment,
 	assertSandboxStatus,
+	// A VALUE, not a type: the control list is iterated at runtime by
+	// anything reporting which controls a host enforces. `export type *`
+	// carried it far enough to type-check and left the import to fail on
+	// the first line of the built binary.
+	SANDBOX_ISOLATION_CONTROLS,
 } from './types/sandbox/index.js'
 // `SandboxConfigSchema` is already re-exported above from `./config/runtime.js`
 // (the project-wide config barrel surfaces it first). types/sandbox also exports

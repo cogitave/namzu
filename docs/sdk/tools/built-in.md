@@ -8,7 +8,7 @@ related_packages: ["@namzu/sdk", "@namzu/computer-use"]
 
 # Built-In Tools
 
-The SDK ships a practical built-in tool set for local agent workflows. Tool **names mirror Claude Code's canonical table verbatim** (`Bash`, `Read`, `Write`, `Edit`, `Glob`, `Grep`) so Claude's pretrained agentic instincts apply for free — no system-prompt argument needed to explain what `Read` or `Bash` does.
+The SDK ships a practical built-in tool set for local agent workflows. Tool names are the plain verb for what each one does (`Bash`, `Read`, `Write`, `Edit`, `Glob`, `Grep`). A model needs no system-prompt paragraph to work out what `Read` reads, so the naming buys prompt budget as well as legibility.
 
 ## 1. What `getBuiltinTools()` Returns
 
@@ -23,8 +23,8 @@ The SDK ships a practical built-in tool set for local agent workflows. Tool **na
 
 It does not include:
 
-- `LsTool` — Claude Code's canonical table has no `LS`; directory listing is `Bash` + `Glob`. Still exported for hosts that explicitly want it.
-- `SearchToolsTool` — no Claude analogue. Still exported for hosts that explicitly want it.
+- `LsTool` — not a default: directory listing is `Bash` + `Glob`, and a third way to list a directory is a third thing for the model to choose between. Still exported for hosts that explicitly want it.
+- `SearchToolsTool` — not a default: it exists for progressive disclosure, which a host opts into. Still exported for hosts that explicitly want it.
 - `createStructuredOutputTool()` — requires a schema per use case.
 - `createComputerUseTool()` — requires a `ComputerUseHost`.
 
@@ -136,7 +136,7 @@ Purpose:
 
 Notes:
 
-- not in `getBuiltinTools()` defaults — Claude Code's canonical table has no `LS` (directory listing is `Bash` + `Glob`). Hosts that genuinely want it can register the export explicitly.
+- not in `getBuiltinTools()` defaults — directory listing is `Bash` + `Glob`. Hosts that genuinely want it can register the export explicitly.
 - supports recursive listing, hidden files, and depth limits
 - formats file sizes for readability
 
@@ -148,7 +148,7 @@ Purpose:
 
 Notes:
 
-- not in `getBuiltinTools()` defaults — no Claude Code analogue. Available via direct export.
+- not in `getBuiltinTools()` defaults — it serves progressive disclosure, which a host opts into. Available via direct export.
 - depends on `toolRegistry` being present in tool context
 - keeps the active tool surface smaller until needed
 

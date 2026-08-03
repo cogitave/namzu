@@ -202,10 +202,10 @@ export interface Sandbox {
 //
 // Why the `Container` prefix on these types: the layout shape encodes
 // container-tier semantics (bind-mount sources, `/mnt/...` container
-// paths, RW outputs surface). MicroVM tiers (e2b, fly-machines,
-// firecracker-containerd) carry layout-equivalent state that does
-// not map onto bind-mount flags — managed snapshots, attached
-// volumes, registry-pulled rootfs. Naming the public type
+// paths, RW outputs surface). A microVM tier carries
+// layout-equivalent state that does not map onto bind-mount flags —
+// snapshots, attached volumes, a rootfs pulled from a registry.
+// Naming the public type
 // `SandboxLayout` would either (a) make every future microVM adapter
 // pretend its volume model fits a bind-mount shape, or (b) force a
 // breaking rename when we add `MicroVMSandboxLayout` later. Naming

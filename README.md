@@ -265,7 +265,7 @@ machine-emitted honesty tokens — applied here to scope, in prose.
 
 - **[`packages/sdk/README.md`](./packages/sdk/README.md)** — the kernel's complete subsystem map. If you want to know what Namzu does, this is the single best document.
 - **[`docs/`](./docs/)** — the documentation-site source: [`getting-started.md`](./docs/getting-started.md), per-package guides (`sdk/`, `providers/`, `cli/`, `computer-use/`), and `migration/` notes.
-- **`AGENTS.md` / `CLAUDE.md`** — canonical guidance for AI tools (Claude, Codex, Cursor) operating inside the repo.
+- **`AGENTS.md` / `CLAUDE.md`** — canonical guidance for any AI coding tool operating inside the repo.
 - **`docs.local/`** — detailed pattern docs and conventions. Local-only.
 - **Per-package READMEs** — every package documents its own install, auth, and usage.
 

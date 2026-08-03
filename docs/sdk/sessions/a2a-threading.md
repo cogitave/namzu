@@ -16,7 +16,7 @@ Namzu's five-layer hierarchy (`Project → Thread → Session → SubSession →
 - **A Thread is the topic-level container.** Threads are path-independent. A single Project can contain many Threads — one per objective, issue, or line-of-work (e.g. `auth-refactor`, `billing-incident`). Threads can be partitioned by device, user, or agent identity.
 - **A Session is one working interval** under a Thread, owned by one actor at a time.
 
-The Thread layer is the thing Namzu adds that is missing in most frameworks (OpenAI's Responses API, LangGraph, Temporal, Microsoft Agent Framework, Claude Agent SDK). It exists because A2A needs a connection surface that is **not** the folder and **not** an individual work interval.
+The Thread layer is the piece most often left out. It exists because A2A needs a connection surface that is **not** the folder and **not** an individual work interval.
 
 ## 2. Why Thread and Not Project?
 

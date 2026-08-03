@@ -50,9 +50,6 @@ describe('pickBackend — microvm:self-hosted', () => {
 			backend: {
 				tier: 'microvm',
 				service: 'self-hosted',
-				firecrackerBinary: '/usr/bin/firecracker',
-				kernelImage: '/golden/vmlinux',
-				rootfsImage: '/golden/rootfs.ext4',
 				orchestratorEndpoint: 'https://orchestrator.test',
 				getToken: async () => 'tok',
 				template: 'golden-rev-1',
@@ -63,28 +60,16 @@ describe('pickBackend — microvm:self-hosted', () => {
 		expect(provider.name).toContain('microvm:self-hosted')
 	})
 
-	it('still throws for the legacy local-containerd self-hosted shape (no orchestrator)', () => {
+	it('refuses the shape that reaches no orchestrator', () => {
+		// The control-plane endpoint and its bearer are required now. They
+		// used to be optional beside three REQUIRED fields belonging to a
+		// local-daemon path that was never written, so the only working
+		// configuration had to supply three values nothing reads — and
+		// omitting these two type-checked its way to a runtime throw.
 		expect(() =>
 			createSandboxProvider({
-				backend: {
-					tier: 'microvm',
-					service: 'self-hosted',
-					firecrackerBinary: '/usr/bin/firecracker',
-					kernelImage: '/k',
-					rootfsImage: '/r',
-				},
-			}),
-		).toThrow(SandboxBackendNotImplementedError)
-	})
-
-	it('still throws for microvm:e2b and microvm:fly-machines', () => {
-		expect(() =>
-			createSandboxProvider({ backend: { tier: 'microvm', service: 'e2b', apiKey: 'k' } }),
-		).toThrow(SandboxBackendNotImplementedError)
-		expect(() =>
-			createSandboxProvider({
-				backend: { tier: 'microvm', service: 'fly-machines', apiToken: 't', app: 'a', image: 'i' },
-			}),
+				backend: { tier: 'microvm', service: 'self-hosted' },
+			} as never),
 		).toThrow(SandboxBackendNotImplementedError)
 	})
 })

@@ -8,7 +8,7 @@ related_packages: ["@namzu/cli", "@namzu/sdk", "@namzu/anthropic", "@namzu/opena
 
 # namzu CLI
 
-`namzu` is the terminal face of Namzu: an interactive agent in the spirit of Claude Code / Gemini CLI / opencode, built on `@namzu/sdk`. Run `namzu` with no arguments and it launches a TUI — there is no `chat` subcommand.
+`namzu` is the terminal face of Namzu: an interactive agent in your terminal, built on `@namzu/sdk`. Run `namzu` with no arguments and it launches a TUI — there is no `chat` subcommand.
 
 ```bash
 namzu                      # launch the interactive TUI
@@ -19,7 +19,7 @@ namzu --help               # utility subcommands (doctor, providers, run, …)
 
 ## What it does
 
-- **Discovers credentials, never asks you to log in.** On first run it finds your LLM provider credentials (env vars, the clawtool secrets file, the macOS Keychain for Claude Code, or a local Ollama) and lets you pick which provider to chat through. See [Providers & credentials](./providers.md).
+- **Discovers credentials, never asks you to log in.** On first run it finds your LLM provider credentials (env vars, the clawtool secrets file, an OAuth credential in the macOS Keychain, or a local Ollama) and lets you pick which provider to chat through. See [Providers & credentials](./providers.md).
 - **Runs tools, with your approval.** The agent reads files, runs shell commands, edits code, searches, tracks a plan, and remembers — via the SDK builtins plus (deferred, on demand) the clawtool catalog. Mutating actions prompt for approval; a safety gate hard-denies catastrophic commands. See [Tools & permission](./tools.md).
 - **Remembers across sessions.** User facts in `~/.namzu/USER.md` / `MEMORY.md` are injected every turn; the agent also keeps its own structured memory. See [Memory](./memory.md).
 - **Resumes past conversations.** Every conversation is saved; `/resume` continues a previous one in this folder.

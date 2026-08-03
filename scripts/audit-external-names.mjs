@@ -66,6 +66,21 @@ const FORBIDDEN = [
 	'huggingface',
 	'pydantic',
 	'semantic kernel',
+	// Hosting and sandbox services namzu does NOT drive. They appeared as
+	// POSITIONING — "the platforms that ship this tier", "that is their
+	// entire product" — which is the most persuasive form of the thing this
+	// rule refuses: prose that explains namzu's shape by pointing at
+	// somebody else's. Deliberately absent from this list: 'render' and
+	// 'railway' collide with ordinary words (`render` a template) and would
+	// cry wolf, and 'docker' / 'firecracker' / 'azure' name mechanisms a
+	// backend actually drives, which is a wire value.
+	'northflank',
+	'replit',
+	'daytona',
+	'e2b',
+	'gvisor',
+	'fly machines',
+	'github actions',
 ]
 
 /** Directories whose contents are never scanned. */
@@ -89,6 +104,11 @@ const WIRE_VALUE_FILES = [
 	'packages/sdk/src/tools/builtins/computer-use.ts',
 	'packages/computer-use/src/',
 	'packages/cli/src/integrations/',
+	// A sandbox backend drives one containment mechanism and has to speak
+	// its API — the same category as a provider driver. The exemption stops
+	// at `backends/`: the package's own public surface is prose about
+	// namzu's tiers, and that is where the positioning had accumulated.
+	'packages/sandbox/src/backends/',
 ]
 
 const isWireValueFile = (path) => WIRE_VALUE_FILES.some((prefix) => path.startsWith(prefix))
@@ -101,8 +121,69 @@ async function* walk(dir) {
 			yield* walk(full)
 			continue
 		}
-		if (/\.(ts|tsx)$/.test(entry.name)) yield full
+		if (/\.(ts|tsx|md)$/.test(entry.name)) yield full
 	}
+}
+
+/**
+ * Markdown files whose prose is ABOUT naming a service.
+ *
+ * The published page for a driver has to say which service it drives and
+ * which model ids it takes, exactly like the driver source does. A
+ * `CHANGELOG` is a record of what shipped, generated from release notes:
+ * rewriting it would be editing history to match a rule it predates.
+ */
+const WIRE_VALUE_DOCS = [
+	'packages/providers/',
+	'docs/providers/',
+	// Credential discovery: the page's subject IS which stored credentials
+	// namzu can read, and a keychain item has the name it has. Same
+	// rationale as the CLI integration source, already exempt above.
+	'docs/cli/providers.md',
+]
+
+const isWireValueDoc = (path) =>
+	path.endsWith('CHANGELOG.md') || WIRE_VALUE_DOCS.some((prefix) => path.startsWith(prefix))
+
+/**
+ * Services namzu ships a driver for, allowed in published PROSE only.
+ *
+ * A user-facing page has a job the source does not: telling an operator
+ * which services namzu can talk to. "Use this package for that API" is
+ * interoperability written down, the same category as the driver's own
+ * name — and a catalogue that refuses to say what it connects to is
+ * useless to the person deciding whether to install it.
+ *
+ * Source comments get no such licence, and neither do the product names
+ * around these APIs. A comment explains why namzu's own code has its
+ * shape, and a vendor is never that reason; `claude`, `chatgpt`, `gemini`
+ * and `copilot` are assistants namzu does not drive, so naming one is
+ * positioning wherever it appears.
+ */
+const DRIVEN_SERVICES = new Set([
+	'anthropic',
+	'openai',
+	'bedrock',
+	'openrouter',
+	'ollama',
+	'mistral',
+	'cohere',
+])
+
+/**
+ * Strip what markdown uses for the same job a string literal does in code.
+ *
+ * An inline code span is a package path, a symbol, a model id, a CLI
+ * argument — a value the reader is meant to type verbatim, not a sentence
+ * explaining namzu by pointing at somebody else. A fenced block is a code
+ * sample, already exempt on the source side for the same reason. Link
+ * TARGETS go too: a URL is an address, and the rule is about prose.
+ */
+function stripMarkdownCode(line) {
+	return line
+		.replace(/`[^`]*`/g, '``')
+		.replace(/\]\([^)]*\)/g, ']()')
+		.replace(/https?:\/\/\S+/g, '')
 }
 
 /**
@@ -155,10 +236,20 @@ function findings(source, path) {
 	// auditing them would mean auditing the interoperability itself.
 	if (isWireValueFile(path)) return []
 
+	const isMarkdown = path.endsWith('.md')
+	if (isMarkdown && isWireValueDoc(path)) return []
+
 	const hits = []
 	let inFence = false
+	// YAML frontmatter is metadata: `related_packages` is a list of package
+	// identifiers, which is identity rather than prose.
+	let inFrontmatter = isMarkdown && source.startsWith('---')
 
 	source.split('\n').forEach((line, index) => {
+		if (inFrontmatter) {
+			if (index > 0 && line.trim() === '---') inFrontmatter = false
+			return
+		}
 		// A fenced block inside a doc comment is a code sample — API usage,
 		// which is the same category as a wire value, not prose.
 		if (line.includes('```')) {
@@ -169,6 +260,17 @@ function findings(source, path) {
 
 		// Import paths are identity, not prose.
 		if (/^\s*import\s|^\s*export\s.*\sfrom\s/.test(line)) return
+
+		if (isMarkdown) {
+			const prose = stripMarkdownCode(line)
+			for (const name of FORBIDDEN) {
+				if (DRIVEN_SERVICES.has(name)) continue
+				if (matches(name, prose)) {
+					hits.push({ path, line: index + 1, name, text: line.trim() })
+				}
+			}
+			return
+		}
 
 		const inComment = /^\s*(\/\/|\/\*|\*)/.test(line) || line.includes('//')
 		const code = stripStringLiterals(line)
@@ -185,6 +287,17 @@ function findings(source, path) {
 }
 
 const all = []
+
+// The repository's own top-level pages are the most public prose there is,
+// and they were the one surface no walk reached. Top level only, and
+// deliberately not a recursive walk from the root: `docs.local/` is
+// gitignored working memory where naming another system is the WORK — a
+// fit-gap report has to say what it compared against.
+for (const entry of await readdir(ROOT, { withFileTypes: true })) {
+	if (!entry.isFile() || !entry.name.endsWith('.md')) continue
+	all.push(...findings(await readFile(join(ROOT, entry.name), 'utf-8'), entry.name))
+}
+
 for (const dir of ['packages', 'docs', 'scripts']) {
 	try {
 		for await (const file of walk(join(ROOT, dir))) {
