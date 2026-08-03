@@ -215,7 +215,14 @@ export type { LocalSandboxProviderOptions } from './sandbox/index.js'
 // The classified provider-failure surface: a driver states what went wrong
 // first-hand, and the run boundary reads it to choose between a pause and a
 // failure.
+// `classifyProviderHttpStatus` and `bodySaysContextOverflow` are here
+// because a driver outside this repo needs the same classification the
+// first-party ones use — a status code alone does not separate a context
+// overflow from an ordinary bad request, and re-deriving that per driver
+// is how the classifications drift apart.
 export {
+	bodySaysContextOverflow,
+	classifyProviderHttpStatus,
 	isCallerAbortError,
 	isProviderRequestError,
 	providerHttpError,
