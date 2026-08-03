@@ -83,6 +83,16 @@ Conventional Commits. No AI co-author trailers. See skill: `commit`.
 
 <releases>
 Releases are driven by [Changesets](https://github.com/changesets/changesets). Every PR that touches a publishable package adds a `.changeset/<slug>.md` declaring bump intent; on merge to `main`, `changesets/action@v1` opens a "chore(release): version packages" PR; merging that PR publishes every bumped package to npm via `pnpm changeset publish` under `.github/workflows/release.yml`. Never hand-edit `package.json#version` or invoke `npm publish` directly. See skill: `release`.
+
+**Bump intent is a claim about the consumer, not about effort.** [SemVer rule 8](https://semver.org/) admits no exception: `major` for *any* backward-incompatible change to the public API — a removed or renamed export, a narrowed union, a changed default, a widened peer range. Rewriting the whole kernel without touching the public surface is `patch`.
+
+**Deprecate before you remove.** SemVer's own guidance is that a removal should be preceded by at least one minor release carrying the deprecation, so a consumer has a version where their code still compiles and warns. Applied here:
+
+- **Renaming** an exported identifier or a union member ⇒ ship the new name plus the old one marked `@deprecated` in a `minor`, and remove the old name in a later `major`. A rename with no alias is the case this rule exists for.
+- **Removing** a declaration that provably does nothing — no producer, no reader, no runtime effect — may go straight to `major`. A deprecation window exists so working code can migrate, and there is no working code to migrate off a field that was never read. Say so in the changeset.
+- **Changing a default** ⇒ `major`, and the changeset names the value that changed and what a caller does to keep the old behaviour.
+
+A changeset body is read by a stranger deciding whether to take the upgrade. Name what breaks and what to do about it, not what the work was.
 </releases>
 
 <workflow_safety>
