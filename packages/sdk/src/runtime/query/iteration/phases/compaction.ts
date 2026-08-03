@@ -326,7 +326,31 @@ export async function runCompactionCheck(
 	// only wired to the unused ConversationManager strategy classes) so no pair
 	// is split. Any message this moves out of the recent window is already
 	// represented in the extracted WorkingState the summary is built from.
-	const keepStart = findSafeTrimIndex(messages, messages.length - config.keepRecentMessages)
+	const naiveKeepStart = messages.length - config.keepRecentMessages
+	let keepStart = -1
+	for (let candidate = naiveKeepStart; candidate > systemMessages.length; candidate--) {
+		if (findSafeTrimIndex(messages, candidate) === candidate) {
+			keepStart = candidate
+			break
+		}
+	}
+
+	// No safe boundary at or below naive. Either every candidate splits a pair-set
+	// (one assistant fanning out more calls than the recent window holds), or naive
+	// itself sits inside the leading system prefix — which would otherwise
+	// duplicate those prompts into `recentMessages`. Skipping costs one iteration's
+	// worth of context headroom; cutting anyway costs the live turn. The condition
+	// is self-clearing: the next assistant message moves naive past the tool block.
+	if (keepStart < 0) {
+		ctx.log.debug('Skipping compaction — no safe cut at or below the naive boundary', {
+			runId: ctx.runMgr.id,
+			naiveKeepStart,
+			systemMessages: systemMessages.length,
+			messageCount: messages.length,
+		})
+		return
+	}
+
 	const recentMessages = messages.slice(keepStart)
 	const olderMessages = messages.slice(systemMessages.length, keepStart)
 
@@ -420,7 +444,7 @@ export async function runCompactionCheck(
 	// necessarily an estimate. Invalidate the stale reading so the next
 	// trigger check does not compare the old prompt size against the new
 	// context and compact again immediately.
-	ctx.runMgr.clearLastPromptTokens()
+	ctx.runMgr.clearLastPromptTokens?.()
 
 	// Hysteresis. A pass that only gets the context from 0.72 to 0.71 of the
 	// window leaves the trigger armed, so the next iteration compacts again
@@ -453,7 +477,7 @@ export async function runCompactionCheck(
 	// Compaction is destructive and was, until now, completely silent: no
 	// event, no transcript record, nothing a host could surface. Emit the
 	// loss so it is observable.
-	await ctx.emitEvent({
+	await ctx.emitEvent?.({
 		type: 'compaction_completed',
 		runId: ctx.runMgr.id,
 		iteration: ctx.runMgr.currentIteration,
