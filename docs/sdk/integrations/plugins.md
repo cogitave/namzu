@@ -175,6 +175,34 @@ Hook events currently available:
 - `iteration_start`
 - `iteration_end`
 
+### What a model-call hook is shown
+
+`pre_llm_call` carries `context.request` — the call the run is about to make — and `post_llm_call` carries `context.response`:
+
+```ts
+export const hooks = [
+  {
+    event: 'pre_llm_call',
+    async handler(context) {
+      // Which capabilities were exposed on this turn, and to which model.
+      audit.record(context.runId, context.request?.model, context.request?.toolNames)
+      return { action: 'continue' }
+    },
+  },
+  {
+    event: 'post_llm_call',
+    async handler(context) {
+      ledger.charge(context.runId, context.response?.usage.totalTokens ?? 0)
+      return { action: 'continue' }
+    },
+  },
+]
+```
+
+`request` is `{ model, messages, toolNames, temperature?, maxTokens? }` and `response` is `{ content, toolNames, finishReason, usage }`. Both are projections of the real request and reply, not the wire objects: driver-specific parameters stay out of the plugin contract, and tools appear as names because an audit asks which capabilities were offered, not what their schemas look like.
+
+Both are **read-only** and frozen. A hook that reshaped the request would change what every later hook sees, so the outcome would depend on installation order and the last plugin registered would silently win. Shaping a call is the job of `prepareStep`, which has a single slot and one writer by contract. The messages are frozen copies, so a write cannot reach the run's history.
+
 ## 6. Hook Ordering and Flow Control
 
 `PluginLifecycleManager.executeHooks()` has explicit ordering semantics:

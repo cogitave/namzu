@@ -1,7 +1,7 @@
 ---
 title: Replay
 description: Fork an existing run from any checkpoint with optional controlled mutations. Useful for debugging, regression tests, and counterfactual "what if" analysis.
-last_updated: 2026-07-31
+last_updated: 2026-08-03
 status: current
 related_packages: ["@namzu/sdk"]
 ---
@@ -86,7 +86,7 @@ replayRun.replayOf = prepared.attribution
 | `'latest'` | Highest `iteration` checkpoint for the run. Throws if the run has no checkpoints. |
 | `'emergency'` | Project the run's emergency dump (written on SIGINT/SIGTERM) into a synthetic checkpoint. Requires `emergencyDir` to be passed. |
 
-The `'emergency'` selector is lossy — `costInfo`, `guardState.elapsedMs`, `toolResultHashes`, `branchStack`, and `activeNode` default to zero/empty values because the emergency snapshot does not capture them. The synthetic `CheckpointId` is derived deterministically from the emergency save id (prefix `cp_emergency_`), so re-projecting the same dump yields the same id.
+The `'emergency'` selector is lossy — `costInfo`, `guardState.elapsedMs`, and `toolResultHashes` default to zero/empty values because the emergency snapshot does not capture them. The synthetic `CheckpointId` is derived deterministically from the emergency save id (prefix `cp_emergency_`), so re-projecting the same dump yields the same id.
 
 ## 4. Mutation API (v1)
 

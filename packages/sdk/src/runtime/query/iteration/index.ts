@@ -230,7 +230,22 @@ export class IterationOrchestrator {
 				if (this.ctx.pluginManager) {
 					const hookResults = await this.ctx.pluginManager.executeHooks(
 						'pre_llm_call',
-						{ runId: runMgr.id, iteration: iterationNum },
+						{
+							runId: runMgr.id,
+							iteration: iterationNum,
+							// Built inside the guard: a run with no plugins installed
+							// pays nothing for a projection nobody reads.
+							request: Object.freeze({
+								model: stepModel,
+								// Copied per turn, not handed over live: these are the
+								// run's own message objects, and a hook writing into
+								// one would edit the history the run is about to send.
+								messages: Object.freeze(messages.map((m) => Object.freeze({ ...m }))),
+								toolNames: Object.freeze(llmTools.map((t) => t.function.name)),
+								temperature: step.temperature ?? runConfig.temperature,
+								maxTokens: step.maxResponseTokens ?? runConfig.maxResponseTokens,
+							}),
+						},
 						this.ctx.emitEvent,
 					)
 					applyLifecycleHookResults('pre_llm_call', hookResults)
@@ -280,7 +295,18 @@ export class IterationOrchestrator {
 				if (this.ctx.pluginManager) {
 					const hookResults = await this.ctx.pluginManager.executeHooks(
 						'post_llm_call',
-						{ runId: runMgr.id, iteration: iterationNum },
+						{
+							runId: runMgr.id,
+							iteration: iterationNum,
+							response: Object.freeze({
+								content: response.message.content,
+								toolNames: Object.freeze(
+									(response.message.toolCalls ?? []).map((c) => c.function.name),
+								),
+								finishReason: response.finishReason,
+								usage: Object.freeze({ ...response.usage }),
+							}),
+						},
 						this.ctx.emitEvent,
 					)
 					applyLifecycleHookResults('post_llm_call', hookResults)

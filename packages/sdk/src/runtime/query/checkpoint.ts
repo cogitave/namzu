@@ -3,8 +3,6 @@ import type { RunPersistence } from '../../manager/run/persistence.js'
 import type { SerializedSpanContext } from '../../telemetry/attributes.js'
 import { NamzuError } from '../../types/errors/index.js'
 import type {
-	ActiveNodeInfo,
-	BranchStackEntry,
 	CheckpointId,
 	CheckpointSummary,
 	HITLDecisionRequest,
@@ -40,9 +38,9 @@ export function toCheckpointListEntry(cp: IterationCheckpoint): CheckpointListEn
  * shape so `replay({ fromCheckpoint: 'emergency' })` can consume it through
  * the same restore path as any other checkpoint.
  *
- * The projection is lossy: `costInfo`, `guardState.elapsedMs`,
- * `toolResultHashes`, `branchStack`, and `activeNode` are not captured at
- * emergency-save time and default to zero/empty values. The synthetic
+ * The projection is lossy: `costInfo`, `guardState.elapsedMs` and
+ * `toolResultHashes` are not captured at emergency-save time and default
+ * to zero/empty values. The synthetic
  * checkpoint id is derived deterministically from the emergency save id so
  * re-projecting the same dump yields the same {@link CheckpointId}.
  *
@@ -181,8 +179,6 @@ export class CheckpointManager {
 		iteration: number,
 		extra?: {
 			toolResults?: Array<{ toolCallId: string; toolName: string; input: unknown; output: string }>
-			branchStack?: BranchStackEntry[]
-			activeNode?: ActiveNodeInfo
 			workingState?: WorkingStateSnapshot
 		},
 	): Promise<IterationCheckpoint> {
@@ -199,8 +195,6 @@ export class CheckpointManager {
 			},
 			createdAt: Date.now(),
 			toolResultHashes: extra?.toolResults ? buildToolResultHashes(extra.toolResults) : undefined,
-			branchStack: extra?.branchStack,
-			activeNode: extra?.activeNode,
 			workingState: extra?.workingState ?? this.workingStateSource?.(),
 			traceContext: this.traceSource?.(),
 		}

@@ -9,6 +9,7 @@ import {
 	PLUGIN_NAME_MAX_LENGTH,
 } from '../../constants/plugin/index.js'
 import type { PluginId, RunId } from '../ids/index.js'
+import type { Message } from '../message/index.js'
 import type { ToolResult } from '../tool/index.js'
 
 // ---------------------------------------------------------------------------
@@ -109,6 +110,35 @@ export function assertPluginHookEvent(event: PluginHookEvent): void {
 	}
 }
 
+/**
+ * What an extension is shown about a model call it is about to make.
+ *
+ * A projection, not the live request object. The wire params carry driver
+ * concerns an extension has no business depending on, and handing them
+ * over would make every future field of that type part of the plugin
+ * contract by accident.
+ */
+export interface PluginModelRequest {
+	readonly model: string
+	readonly messages: readonly Message[]
+	/** Names only. A hook auditing tool exposure needs the set, not the schemas. */
+	readonly toolNames: readonly string[]
+	readonly temperature?: number
+	readonly maxTokens?: number
+}
+
+/** What an extension is shown about the model's reply. */
+export interface PluginModelResponse {
+	readonly content: string | null
+	readonly toolNames: readonly string[]
+	readonly finishReason: string
+	readonly usage: {
+		readonly promptTokens: number
+		readonly completionTokens: number
+		readonly totalTokens: number
+	}
+}
+
 export interface PluginHookContext {
 	readonly runId: RunId
 	readonly pluginId: PluginId
@@ -117,6 +147,33 @@ export interface PluginHookContext {
 	readonly toolInput?: unknown
 	readonly toolResult?: ToolResult
 	readonly iteration?: number
+
+	/**
+	 * The request about to be sent, on `pre_llm_call`.
+	 *
+	 * Both model-call hooks fired directly beside this data and were handed
+	 * none of it — only a run id and an iteration number — so an extension
+	 * could observe THAT a call was happening and nothing about what it
+	 * was. A redaction pass, a prompt audit, a per-tenant token ledger: all
+	 * of them needed the one thing the hook did not carry.
+	 *
+	 * Read-only. Frozen before fan-out for the same reason probe events
+	 * are: a hook that mutated the live request would change what every
+	 * later hook sees, and the last one registered would silently win.
+	 * Shaping the request stays the job of the single-slot host callback
+	 * that owns it, where one writer is the contract rather than an
+	 * accident of registration order.
+	 *
+	 * The freeze is one level deep, as elsewhere: each message is a frozen
+	 * copy, so writing to one is inert and cannot reach the run's history,
+	 * but a nested array inside a message is still the run's own.
+	 */
+	readonly request?: Readonly<PluginModelRequest>
+
+	/**
+	 * What came back, on `post_llm_call`. Read-only, same reasoning.
+	 */
+	readonly response?: Readonly<PluginModelResponse>
 	/**
 	 * Aborts when this hook's deadline expires.
 	 *

@@ -95,19 +95,13 @@ describe('CheckpointManager.listEntries', () => {
 
 	it('does not include full checkpoint payload fields', async () => {
 		const mgr = new CheckpointManager(
-			makeStoreStub([
-				makeCheckpoint({
-					toolResultHashes: { call_x: 'hash' },
-					branchStack: [{ agentId: 'a', decision: 'd', confidence: 1, timestamp: 0 }],
-				}),
-			]),
+			makeStoreStub([makeCheckpoint({ toolResultHashes: { call_x: 'hash' } })]),
 			TEST_SCOPE,
 		)
 		const [entry] = await mgr.listEntries()
 		expect(entry).not.toHaveProperty('tokenUsage')
 		expect(entry).not.toHaveProperty('costInfo')
 		expect(entry).not.toHaveProperty('toolResultHashes')
-		expect(entry).not.toHaveProperty('branchStack')
 		expect(entry).not.toHaveProperty('guardState')
 		expect(entry).not.toHaveProperty('messages')
 	})
@@ -169,10 +163,8 @@ describe('projectEmergencyToCheckpoint', () => {
 		expect(cp.guardState.elapsedMs).toBe(0)
 	})
 
-	it('leaves optional fields (toolResultHashes, branchStack, activeNode) unset', () => {
+	it('leaves the optional tool-result hashes unset', () => {
 		const cp = projectEmergencyToCheckpoint(makeEmergencyDump())
 		expect(cp.toolResultHashes).toBeUndefined()
-		expect(cp.branchStack).toBeUndefined()
-		expect(cp.activeNode).toBeUndefined()
 	})
 })

@@ -123,24 +123,6 @@ export interface CheckpointSummary {
 	lastAssistantMessage?: string
 }
 
-export interface ActiveNodeInfo {
-	agentId: string
-	agentType: 'reactive' | 'pipeline' | 'router' | 'supervisor'
-
-	nodeRef?: string
-
-	parentAgentId?: string
-
-	depth: number
-}
-
-export interface BranchStackEntry {
-	agentId: string
-	decision: string
-	confidence: number
-	timestamp: number
-}
-
 /**
  * A decision the run is parked on, recorded durably.
  *
@@ -212,10 +194,6 @@ export interface IterationCheckpoint {
 	createdAt: number
 
 	toolResultHashes?: Record<string, string>
-
-	branchStack?: BranchStackEntry[]
-
-	activeNode?: ActiveNodeInfo
 
 	/**
 	 * Compaction's accumulated working state at the moment of the
