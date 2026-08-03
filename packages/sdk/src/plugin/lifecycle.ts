@@ -2,6 +2,9 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { mcpToolToToolDefinition } from '../connector/mcp/adapter.js'
 import { MCPClient } from '../connector/mcp/client.js'
+import { MCPToolDiscovery } from '../connector/mcp/discovery.js'
+import type { MCPToolDiscoveryOptions } from '../connector/mcp/discovery.js'
+import type { MCPToolPolicy } from '../connector/mcp/policy.js'
 import {
 	DEFAULT_HOOK_PRIORITY,
 	HOOK_TIMEOUT_MS,
@@ -37,6 +40,32 @@ export interface PluginLifecycleManagerConfig {
 	toolRegistry: ToolRegistryContract
 	log: Logger
 	hookTimeoutMs?: number
+
+	/**
+	 * What each MCP server a plugin brings is allowed to contribute, keyed by
+	 * server name. `'*'` covers every server not named explicitly.
+	 *
+	 * Absent admits everything, which is what this path did unconditionally
+	 * until now. `MCPToolDiscovery` has held this boundary — and the drift
+	 * detection below — since it was written, and nothing outside its own
+	 * tests ever constructed one: `attachMCPServer` called `listTools()`
+	 * directly and registered whatever came back. So the least-privilege
+	 * check existed, was tested, was exported, and was not on the path any
+	 * real MCP server takes.
+	 */
+	mcpToolPolicies?: Readonly<Record<string, MCPToolPolicy>>
+
+	/**
+	 * Called when a server's admitted tool set differs from the last time it
+	 * was discovered.
+	 *
+	 * Reported rather than blocked, for the reason `MCPToolDiscovery`
+	 * already gives: a development server legitimately changes between runs,
+	 * while a production one changing mid-session is the rug pull — advertise
+	 * something benign at approval time, swap it afterwards. Only the host
+	 * knows which it is looking at.
+	 */
+	onMCPToolDrift?: MCPToolDiscoveryOptions['onDrift']
 }
 
 export class PluginLifecycleManager {
@@ -55,12 +84,32 @@ export class PluginLifecycleManager {
 	private pluginContributions: Map<PluginId, PluginContributionRecord> = new Map()
 	private hookTimeoutMs: number
 	private log: Logger
+	/**
+	 * The admission boundary for everything a plugin's MCP servers advertise.
+	 *
+	 * One instance for the whole manager rather than one per plugin, and that
+	 * is the part that matters: the instance is what remembers each server's
+	 * previously admitted tool set, so a server that changes between one
+	 * plugin being disabled and the next being enabled is still noticed. A
+	 * per-plugin instance would forget on every teardown, which is precisely
+	 * the window a rug pull uses.
+	 *
+	 * Its client list is deliberately left empty — `discoverFrom` takes the
+	 * client directly, so registering it here would be bookkeeping nothing
+	 * reads.
+	 */
+	private mcpDiscovery: MCPToolDiscovery
 
 	constructor(config: PluginLifecycleManagerConfig) {
 		this.pluginRegistry = config.pluginRegistry
 		this.toolRegistry = config.toolRegistry
 		this.hookTimeoutMs = config.hookTimeoutMs ?? HOOK_TIMEOUT_MS
 		this.log = config.log.child({ component: 'PluginLifecycleManager' })
+		this.mcpDiscovery = new MCPToolDiscovery([], {
+			...(config.mcpToolPolicies ? { policies: config.mcpToolPolicies } : {}),
+			...(config.onMCPToolDrift ? { onDrift: config.onMCPToolDrift } : {}),
+			logger: this.log,
+		})
 	}
 
 	/**
@@ -257,7 +306,14 @@ export class PluginLifecycleManager {
 		await client.connect()
 		contributions.mcpClients.push(client)
 
-		const mcpTools = await client.listTools()
+		// Through the boundary, not around it. This used to call
+		// `client.listTools()` and register everything the server answered
+		// with, so the remote side decided what entered the agent's registry
+		// — least privilege inverted. `discoverFrom` applies the per-server
+		// allow/deny policy and reports a tool set that changed since the
+		// last discovery.
+		const discovered = await this.mcpDiscovery.discoverFrom(client)
+		const mcpTools = discovered.map((d) => d.tool)
 		for (const mcpTool of mcpTools) {
 			const baseDef = mcpToolToToolDefinition(mcpTool, client, config.name)
 			// Double-underscore between serverName and toolName so that e.g.

@@ -38,7 +38,18 @@ export class MCPToolDiscovery {
 	private clients: MCPClient[]
 	private log: Logger
 	private options: MCPToolDiscoveryOptions
-	/** Last admitted tool set per client, for drift detection. */
+	/**
+	 * Last admitted tool set per SERVER, for drift detection.
+	 *
+	 * Keyed by server name rather than client id, and the difference is the
+	 * whole point. A client id is minted per connection, so on the path a
+	 * real MCP server actually takes — a plugin enabling, connecting, and
+	 * being disabled again — every discovery was the first one that id had
+	 * ever seen, and drift could not fire however many times the server
+	 * changed underneath. The threat is a server that advertises something
+	 * benign when a host approves it and something else afterwards, which is
+	 * a property of the SERVER across connections.
+	 */
 	private lastSeen = new Map<string, MCPToolDefinition[]>()
 
 	constructor(clients: MCPClient[], options: MCPToolDiscoveryOptions = {}) {
@@ -53,7 +64,11 @@ export class MCPToolDiscovery {
 
 	removeClient(clientId: string): void {
 		this.clients = this.clients.filter((c) => c.id !== clientId)
-		this.lastSeen.delete(clientId)
+		// The remembered tool set is deliberately NOT forgotten. Dropping it on
+		// disconnect is what made the rug pull invisible: disable, swap the
+		// server's tools, enable again, and the next discovery had nothing to
+		// compare against. What is remembered is a name and a list of tool
+		// shapes, so keeping it costs almost nothing.
 	}
 
 	async discoverAll(): Promise<MCPDiscoveredTool[]> {
@@ -119,8 +134,8 @@ export class MCPToolDiscovery {
 	}
 
 	private detectDrift(clientId: string, serverName: string, admitted: MCPToolDefinition[]): void {
-		const previous = this.lastSeen.get(clientId)
-		this.lastSeen.set(clientId, admitted)
+		const previous = this.lastSeen.get(serverName)
+		this.lastSeen.set(serverName, admitted)
 		if (!previous) return
 
 		const drift = diffTools(previous, admitted)
