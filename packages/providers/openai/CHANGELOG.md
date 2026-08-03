@@ -1,5 +1,143 @@
 # Changelog
 
+## 1.1.0
+
+### Minor Changes
+
+- 935b8f3: Documents and citations were designed in the SDK and never built in the drivers.
+
+  `DocumentAttachment` and `Citation` existed in `@namzu/sdk` with a page of documentation about why native document handling is worth having — page structure, the provider's own extraction, and the ability to say which passage an answer rests on. The stream chunk carried a citation slot, the run's stream aggregator collected them onto the assistant message, and the iteration attached them to the turn. Both these drivers declared `supportsDocuments: true`.
+
+  Neither had a document branch. Every attachment was mapped as an image — a PDF went up as an image block with `media_type: application/pdf` on one wire and as `data:application/pdf;base64,…` inside an `image_url` part on the other, shapes the APIs reject. And only the mock provider ever emitted a citation, so in a real run the slot was always empty: an answer about a contract arrived as prose, and checking it meant reading the contract again.
+
+  - **`@namzu/anthropic`** now sends a native document block carrying the media type, the optional title, and — only when the attachment asked for them, because they cost tokens — citations. It parses citation deltas back onto the stream, keeping the location as the discriminated union the SDK defines: a provider that segments by character offset has no page number, and a citation whose location cannot be named is dropped rather than given an invented one. A citation that looks checkable and is not is worse than none.
+  - **`@namzu/openai`** now sends a document as a `file` content part with its filename. That wire has no way to return citations, so a document that asks for them is refused with a message naming the document and what to do instead — answering without them would drop the checkability the caller asked for, and an empty citation list reads as "the model cited nothing" rather than "nobody asked".
+
+  The drivers that declare `supportsDocuments: false` were already honest: none of them map attachments at all, and the runtime warns (or fails under `strictCapabilities`) before the request is built.
+
+- 935b8f3: Four drivers dumped tool-result payloads into the prompt, and one ignored the strict-schema hint.
+
+  **A tool result carrying an image was `JSON.stringify`d** on four drivers, so a screenshot reached the model as a wall of quoted base64. The model paid for every character, could read none of them, and — worse — saw a serialized object where a picture should be, with nothing saying anything had been withheld. The SDK's `toolResultToText` exists for exactly this and produces a named placeholder reporting the media type and the size. All four now use it: `@namzu/bedrock`, both dialects of `@namzu/http`, and `@namzu/lmstudio`.
+
+  **`enforceToolInputSchema` was ignored by `@namzu/openai`.** It names the tools whose model-facing schema should be enforced by constrained generation rather than merely suggested; both sibling drivers consumed it. A caller who had asked for a guaranteed-valid tool input silently got a best-effort one and learned about it from a repair attempt. This is the wire the flag maps onto most directly — it takes the flag on the function itself. The existing test asserting the tools went through untouched read as "the hint is kept out of the request" and actually pinned "the hint does nothing"; it now asserts the hint is consumed and still never appears verbatim.
+
+  **An extended-thinking request is refused by `@namzu/openai` rather than dropped.** The parameter was accepted and ignored, so a caller who asked for reasoning got an ordinary completion with an empty reasoning list — which reads as "the model did not reason" rather than "nobody asked it to". Turning thinking off stays a no-op, since that is the state the driver is already in.
+
+  Eleven previously empty test files now cover these drivers, including the capability claims themselves: every driver that declares no vision, documents or tools is pinned against drift in both directions, because the runtime warns or fails on those flags before a request is built, and a flag flipped ahead of its mapping is as wrong as a mapping written without the flag.
+
+- 935b8f3: Tool arguments can be made valid by construction
+
+  namzu has a whole repair path for arguments that do not match a tool's schema — a repair hook, a bounded retry, a model-visible error. This wire format offers a mode where the endpoint constrains decoding to the schema, so invalid arguments cannot be emitted at all, which is strictly better than repairing them well.
+
+  `strictTools: true` turns it on. Off by default because it is a real trade: strict decoding requires every property to be required, so the driver rewrites each schema — objects close, every property joins `required`, and one that was optional widens to accept `null` so "leave it out" stays expressible. An optional argument therefore becomes one the model must pass explicitly as null, and that change to what the model is told belongs to the tool's author rather than the driver.
+
+  The rewrite is not separable from the flag: the endpoint rejects strict mode on a schema that has not been closed for it, so sending one without the other would turn a correctness feature into a 400.
+
+- 935b8f3: A user message can carry a document
+
+  Documents existed in the type system only in the tool-result direction, and both first-party drivers mapped images only on the input side. So "here is the contract, answer questions about it" — a mainstream workload — was reachable only by having a tool read the file and stringify it. That loses the provider's native document handling (page structure, built-in OCR, citations) and pays the text cost instead.
+
+  `UserMessage.attachments` is now `MessageAttachment[]`: an image or a document. The discriminant is optional and stays optional — an attachment without one is an image, which is what every attachment was before, so no existing caller changes.
+
+  `supportsDocuments` sits beside `supportsVision` in the driver capability declaration, and the runtime checks it the same way: a document sent to a driver that declares `false` warns before the request, or throws under `strictCapabilities`, instead of letting the model answer about a file it never saw. The two are counted separately because they are separate wire shapes and a driver can map one without the other.
+
+  The two first-party drivers map documents natively. The remaining five map images only and now say so; a document reaching them degrades to a named placeholder that says which kind was dropped, rather than one that calls a document an image.
+
+### Patch Changes
+
+- 935b8f3: Three driver defects found by auditing every provider against the same
+  contract checklist rather than one at a time.
+
+  **anthropic — a thinking block never reported its close.** `openReasoning`
+  was declared, read by the `content_block_stop` branch, and never added to:
+  three references in the whole file. The set was permanently empty, so the
+  close branch could not match and `reasoning: { done: true }` never reached
+  the consumer. A host that opens a thinking card on the first reasoning
+  delta left it spinning for the rest of the run. Stored blocks were
+  unaffected, so replay always looked correct — only the live stream was
+  broken, which is why it survived. This is the default driver.
+
+  **openai — every request to a reasoning-family model failed on turn one.**
+  `temperature` and `max_tokens` were sent unconditionally, and those models
+  reject both, requiring `max_completion_tokens`. The rejection is a 400,
+  which classifies as `invalid_request` and is not retryable, so the run
+  died immediately whenever a token cap was set — which the runtime always
+  does. Model family is now detected by id prefix, conservatively: an
+  unknown model keeps the standard parameters, because a false positive
+  silently strips `temperature` from a model that honours it while a false
+  negative produces a clear error naming the parameter.
+
+  **http — every streamed turn reported zero tokens.** The body builder never
+  requested usage on a streamed response, so a conforming endpoint sent none
+  and the (complete) parsing had nothing to parse. Cost read as free, and any
+  budget or compaction threshold keyed on usage never fired however large the
+  thread grew.
+
+- 935b8f3: Widen the message model to content blocks: multimodal tool results, `is_error`,
+  and reasoning replay.
+
+  `ToolMessage.content` was `string` and `AssistantMessage` had no slot for
+  reasoning, so three separate things died at the provider boundary. Doing them
+  as one migration is deliberate — all three need the same widening, and every
+  stored transcript, checkpoint and `messages.json` is written in the narrow
+  shape, so the cost only grows.
+
+  **Tool results can carry non-text content.** `ToolResultContent` is
+  `string | ToolResultBlock[]`, where a block is text, image or document. String
+  stays first-class: the common case is unchanged and every existing tool and
+  driver compiles untouched. `@namzu/computer-use`'s `screenshot` returned
+  ~400 KB–2.7 MB of base64 **as text** — roughly 100k–670k tokens of characters
+  no model can decode — so computer use was effectively non-functional; it now
+  returns an image block with a short textual description. MCP `image` and
+  inline `resource` blocks are passed through instead of being filtered out.
+
+  **Failures are marked on the wire.** The executor computed `isError`, routed it
+  to the SSE bridge, the A2A bridge and the TUI, then dropped it at the provider
+  boundary — so the model's trained tool-failure recovery never fired. The
+  Anthropic driver now sends `is_error: true`, and the value survives the
+  executor's result tuple, which previously narrowed to `{toolCallId, output}`
+  before the message was built.
+
+  **Reasoning is representable and replayed verbatim.** `AssistantMessage.reasoning`
+  holds opaque `ReasoningBlock`s (thinking / redacted, with signature or encrypted
+  payload). The Anthropic driver used to rebuild every assistant turn as
+  `[text?, ...tool_use]` — precisely the pattern the verbatim-echo contract
+  prohibits when a `tool_result` follows — and now emits stored reasoning blocks
+  first, signature intact.
+
+  Drivers that cannot express non-text tool results (`@namzu/openai`,
+  `@namzu/ollama`) degrade through `toolResultToText`, which renders an explicit
+  `[image: …]` placeholder rather than dumping base64 or silently dropping it.
+
+  This is the outbound half. The Anthropic driver does not yet parse thinking
+  blocks out of the stream and `ChatCompletionParams` has no `thinking` field,
+  so `reasoning` is populated only when a caller supplies it.
+
+- 935b8f3: A turn that asked for tools no longer ends because the provider said it
+  didn't.
+
+  The iteration loop ended the turn on `finishReason === 'stop'` **before**
+  looking at whether the model had asked for tools. Endpoints on the OpenAI
+  wire shape — gateways and local servers especially — routinely report `stop`
+  on the same response that carries a populated `tool_calls`, and three of
+  this repo's drivers passed that value straight through.
+
+  The damage was total and silent: every requested call skipped, an assistant
+  turn left carrying `tool_use` blocks nothing ever answered, and the run
+  settling as though it had finished the work it never started.
+
+  - **The runtime now treats tool calls as the fact and the finish reason as
+    the summary.** When they disagree, the calls win. This is the load-bearing
+    fix: it protects every driver, including ones this repo does not ship.
+  - **The three drivers that cast the reason raw now report it honestly** —
+    a stream that produced a tool call reports `tool_calls`, whatever the
+    endpoint called it. Defence in depth, and it makes the reported reason
+    true for anyone else reading it.
+
+  The existing suite could not catch this: the scripted mock reports
+  `tool_calls` whenever it emits one, which is what an honest provider does
+  and therefore never the case that breaks.
+
 ## 1.0.3
 
 ### Patch Changes

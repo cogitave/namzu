@@ -1,5 +1,146 @@
 # Changelog
 
+## 2.0.0
+
+### Major Changes
+
+- 935b8f3: Three controls a caller could set that the runtime then quietly declined to apply.
+
+  - **`toolChoice: 'none'` permitted tool calls on two drivers.** It means the model must not call a tool. One driver mapped it to the wire's "auto" and the other to `{ type: 'auto' }` — both of which say the model _may_. A caller that had forbidden tool use got a request that allowed it, with nothing in the response to say so. The runtime depends on the guarantee: an advisory consultation passes `'none'` so the advisor answers in prose, into a turn where no executor is waiting for a tool call. Both drivers now answer `'none'` by sending no tools at all, which no wire format can misread.
+
+  - **`memoryLimitMb` and `maxProcesses` were dropped by the stronger isolation tiers.** They were applied inside the unconfined tier's branch only, so asking for namespace or profile isolation silently removed the blast-radius caps — a control failing in the one direction nobody checks. They are the same shell builtin on every tier; the stronger tiers now apply them one level in, inside the wrapper they already spawn through, and keep doing their own job. The sibling backend in the sandbox package already refuses per-sandbox controls it cannot enforce rather than ignoring them; this is the same rule, satisfied by enforcing.
+
+  - **`AgentManager.dispose()` cancelled nothing.** It called `cancelAll('' as RunId)`, and `cancelAll` filters by parent run — no task has an empty parent, so it matched nothing, and the next lines cleared the instance map. Every live child was released without its abort controller firing: the work kept running, the budget kept draining, and nothing was left holding a reference to stop it. It now cancels every live child before dropping them. `cancelAll` stays scoped to one parent, which is its actual job.
+
+  `toBedrockToolConfig` and `buildLimitedSpawn` are exported so the mapping and the spawn shape can be asserted directly rather than through a live process.
+
+### Minor Changes
+
+- 935b8f3: Every driver can now see.
+
+  These three dropped `attachments` outright, so a user who attached a
+  screenshot got a turn about nothing. `supportsVision: false` said so, which
+  made the declaration honest and the driver useless — and it was the last
+  place in the estate where a namzu capability existed on one driver and
+  silently did not on another.
+
+  Each wire carries an image differently, so this is one intent and three
+  mappings:
+
+  - **Converse**: raw bytes in an image content block beside the text. The
+    tool-result path already did this; the user path never looked at
+    `attachments`.
+  - **The two-dialect HTTP driver**: a `data:` URI content part on one
+    dialect, a base64 source block on the other.
+  - **The gateway driver**: a `data:` URI content part.
+
+  Across all three: a media type the endpoint cannot decode is named in the
+  text rather than sent, because a payload it rejects fails the whole request
+  and losing the turn is worse than losing sight of one image. A message with
+  no attachments keeps its plain-string content, so nothing about an ordinary
+  request changes shape. Several attachments on one message are carried in
+  order.
+
+  An image inside a **tool result** still degrades to a text placeholder on
+  the HTTP and gateway drivers: a tool message is text-only in those dialects,
+  so there is nowhere to put it. Converse carries it, and always did.
+
+### Patch Changes
+
+- 935b8f3: Three driver defects found by auditing every provider against the same
+  contract checklist rather than one at a time.
+
+  **anthropic — a thinking block never reported its close.** `openReasoning`
+  was declared, read by the `content_block_stop` branch, and never added to:
+  three references in the whole file. The set was permanently empty, so the
+  close branch could not match and `reasoning: { done: true }` never reached
+  the consumer. A host that opens a thinking card on the first reasoning
+  delta left it spinning for the rest of the run. Stored blocks were
+  unaffected, so replay always looked correct — only the live stream was
+  broken, which is why it survived. This is the default driver.
+
+  **openai — every request to a reasoning-family model failed on turn one.**
+  `temperature` and `max_tokens` were sent unconditionally, and those models
+  reject both, requiring `max_completion_tokens`. The rejection is a 400,
+  which classifies as `invalid_request` and is not retryable, so the run
+  died immediately whenever a token cap was set — which the runtime always
+  does. Model family is now detected by id prefix, conservatively: an
+  unknown model keeps the standard parameters, because a false positive
+  silently strips `temperature` from a model that honours it while a false
+  negative produces a clear error naming the parameter.
+
+  **http — every streamed turn reported zero tokens.** The body builder never
+  requested usage on a streamed response, so a conforming endpoint sent none
+  and the (complete) parsing had nothing to parse. Cost read as free, and any
+  budget or compaction threshold keyed on usage never fired however large the
+  thread grew.
+
+- 935b8f3: Stop dumping a tool result's base64 payload into the prompt.
+
+  Four drivers mishandled a tool result carrying content blocks, each in its
+  own way: bedrock and the http driver's anthropic dialect `JSON.stringify`d
+  the whole array, putting a screenshot's base64 into the prompt as JSON
+  text; openrouter and the http driver's openai dialect passed the array
+  through raw to an endpoint expecting a string; lmstudio folded it into a
+  template literal, producing `[object Object]` per block. The model cannot
+  decode any of it, and it costs a fortune in tokens.
+
+  - The three text-only wires now flatten with the SDK's existing helper,
+    which names a non-text block and its size instead of inlining it. The
+    openai and ollama drivers already did this — the helper was there and
+    four callers were missing.
+  - **bedrock sends the image as an image.** That wire carries images
+    natively, so a placeholder would be a downgrade the other drivers accept
+    only because their format has no room for one. Text and image survive as
+    separate blocks in order, and a media type the format does not accept
+    still degrades to a named placeholder rather than being smuggled through
+    as text.
+
+- 935b8f3: Four drivers dumped tool-result payloads into the prompt, and one ignored the strict-schema hint.
+
+  **A tool result carrying an image was `JSON.stringify`d** on four drivers, so a screenshot reached the model as a wall of quoted base64. The model paid for every character, could read none of them, and — worse — saw a serialized object where a picture should be, with nothing saying anything had been withheld. The SDK's `toolResultToText` exists for exactly this and produces a named placeholder reporting the media type and the size. All four now use it: `@namzu/bedrock`, both dialects of `@namzu/http`, and `@namzu/lmstudio`.
+
+  **`enforceToolInputSchema` was ignored by `@namzu/openai`.** It names the tools whose model-facing schema should be enforced by constrained generation rather than merely suggested; both sibling drivers consumed it. A caller who had asked for a guaranteed-valid tool input silently got a best-effort one and learned about it from a repair attempt. This is the wire the flag maps onto most directly — it takes the flag on the function itself. The existing test asserting the tools went through untouched read as "the hint is kept out of the request" and actually pinned "the hint does nothing"; it now asserts the hint is consumed and still never appears verbatim.
+
+  **An extended-thinking request is refused by `@namzu/openai` rather than dropped.** The parameter was accepted and ignored, so a caller who asked for reasoning got an ordinary completion with an empty reasoning list — which reads as "the model did not reason" rather than "nobody asked it to". Turning thinking off stays a no-op, since that is the state the driver is already in.
+
+  Eleven previously empty test files now cover these drivers, including the capability claims themselves: every driver that declares no vision, documents or tools is pinned against drift in both directions, because the runtime warns or fails on those flags before a request is built, and a flag flipped ahead of its mapping is as wrong as a mapping written without the flag.
+
+- 935b8f3: A turn that asked for tools no longer ends because the provider said it
+  didn't.
+
+  The iteration loop ended the turn on `finishReason === 'stop'` **before**
+  looking at whether the model had asked for tools. Endpoints on the OpenAI
+  wire shape — gateways and local servers especially — routinely report `stop`
+  on the same response that carries a populated `tool_calls`, and three of
+  this repo's drivers passed that value straight through.
+
+  The damage was total and silent: every requested call skipped, an assistant
+  turn left carrying `tool_use` blocks nothing ever answered, and the run
+  settling as though it had finished the work it never started.
+
+  - **The runtime now treats tool calls as the fact and the finish reason as
+    the summary.** When they disagree, the calls win. This is the load-bearing
+    fix: it protects every driver, including ones this repo does not ship.
+  - **The three drivers that cast the reason raw now report it honestly** —
+    a stream that produced a tool call reports `tool_calls`, whatever the
+    endpoint called it. Defence in depth, and it makes the reported reason
+    true for anyone else reading it.
+
+  The existing suite could not catch this: the scripted mock reports
+  `tool_calls` whenever it emits one, which is what an honest provider does
+  and therefore never the case that breaks.
+
+- 935b8f3: A user message can carry a document
+
+  Documents existed in the type system only in the tool-result direction, and both first-party drivers mapped images only on the input side. So "here is the contract, answer questions about it" — a mainstream workload — was reachable only by having a tool read the file and stringify it. That loses the provider's native document handling (page structure, built-in OCR, citations) and pays the text cost instead.
+
+  `UserMessage.attachments` is now `MessageAttachment[]`: an image or a document. The discriminant is optional and stays optional — an attachment without one is an image, which is what every attachment was before, so no existing caller changes.
+
+  `supportsDocuments` sits beside `supportsVision` in the driver capability declaration, and the runtime checks it the same way: a document sent to a driver that declares `false` warns before the request, or throws under `strictCapabilities`, instead of letting the model answer about a file it never saw. The two are counted separately because they are separate wire shapes and a driver can map one without the other.
+
+  The two first-party drivers map documents natively. The remaining five map images only and now say so; a document reaching them degrades to a named placeholder that says which kind was dropped, rather than one that calls a document an image.
+
 ## 1.1.0
 
 ### Minor Changes

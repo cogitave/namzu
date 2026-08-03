@@ -1,5 +1,430 @@
 # @namzu/cli
 
+## 0.3.0
+
+### Minor Changes
+
+- 935b8f3: A bad flag is a usage error, not a broken CLI
+
+  `namzu doctor` answered 70 — sysexits `EX_SOFTWARE`, "the program itself failed" — when the caller mistyped a flag. That tells an operator to file a bug for their own typo, and it disagreed with every sibling command. It now answers 64, `EX_USAGE`, and the code is part of the documented contract.
+
+  Six published pages were also corrected against the source rather than reworded: `provider.chat()` was removed from the provider interface and is now shown as the streaming call aggregated; the built-in tool names are documented as registered (lowercase) rather than as an older capitalization that made the copy-pasteable `activate` example throw; the tool count matches what `getBuiltinTools()` returns, including the one tool no page had ever mentioned; a deleted store symbol is replaced by the one that exists; a retrieval field is named as it is declared; and two config fields documented as unavailable on the reactive agent are shown as what they are — present and forwarded.
+
+- 935b8f3: `namzu eval` — the harness's signal can finally reach CI.
+
+  The eval surface was a library function and a string formatter: no command,
+  no CI step, and `formatReport` ending at `lines.join('\n')` with no file
+  write and no exit code. Its stated purpose is to give a behaviour change a
+  regression signal, and that signal could not reach a build without every
+  consumer hand-writing the runner and the report-to-exit-code mapping.
+
+  ```bash
+  namzu eval --dir evals --out eval-report.json
+  namzu eval --tag fast
+  ```
+
+  A suite is a `*.eval.js` file that default-exports a function returning an
+  `ExperimentReport` and may export a `tags` array. The `run` callback stays
+  caller-owned, so a suite owns everything about how its runs are
+  constructed.
+
+  | Exit | Meaning                                                        |
+  | ---- | -------------------------------------------------------------- |
+  | `0`  | Every case passed                                              |
+  | `1`  | At least one case failed — a regression to chase               |
+  | `2`  | At least one case was inconclusive — a broken harness to fix   |
+  | `3`  | No suite found, one could not load, or `--tag` matched nothing |
+
+  `2` is separate from `1` for the same reason `unavailable` is not zero: a
+  suite that could not judge tells you nothing about the cases it did judge,
+  and collapsing the two sends somebody hunting a behaviour change that never
+  happened. It is checked first. `3` rather than `0` for an empty discovery,
+  because a gate that finds nothing to run must not report green — and the
+  tag filter reports how many suites it skipped, since a filter that quietly
+  matched nothing looks exactly like a passing run.
+
+  Suite ids are path-derived and posix-separated so two commits' artifacts
+  describe the same suites and can be diffed; two files resolving to one id
+  is refused rather than resolved. The artifact is the whole report, because
+  a summary cannot say which scorer moved.
+
+  The CI workflow runs it with `continue-on-error` until the repo ships its
+  first suite — noted in the workflow so the flag is removed rather than
+  forgotten.
+
+### Patch Changes
+
+- 935b8f3: Four places where namzu knew something and told no one.
+
+  **A backoff is now visible.** `withProviderRetry` logged and slept. There
+  was no run event, no wire event, and — worse than that — the sole
+  production call site never passed a logger, and every warn in the decorator
+  is guarded behind it, so the log lines were dead code too. A run could sit
+  silent for the better part of a minute between `iteration_started` and the
+  next event, or up to the 60s server-directed cap, with no signal and no
+  keepalive: a backoff was indistinguishable from a hang, and a host's
+  watchdog would cancel a run that was about to succeed.
+
+  A `provider_retry` run event now carries the attempt, the ceiling, the
+  delay, the classified code and whether the server asked for it, mapped to
+  `provider.retry` on the SSE wire and to a `running` status update over A2A.
+  It is emitted **before** the sleep, so the delay it names is still ahead —
+  which is also why it rides the stream as a delta-less chunk rather than an
+  out-of-band callback: the consumer is blocked inside the provider's
+  iterator, so a callback could not reach it until the wait was already over.
+  The omission was never principled; `tool_progress` exists to answer "is it
+  still working?" and the wire contract justifies the reasoning events on
+  exactly the same grounds.
+
+  **Two latency measurements that could not be recovered from the data.**
+  `gen_ai.client.time_to_first_token` is recorded at the first delta of any
+  kind. namzu streams, so perceived latency is dominated by that number, and
+  the one existing latency histogram measures the whole request — it cannot
+  tell a fast-first-token long generation from a stalled one, and no host
+  could reconstruct the difference in any form.
+  `gen_ai.tool.call.duration` records what the executor has measured since
+  its first version: the value was already in scope one frame above the call
+  site, emitted per call on `tool_completed`, and had no instrument. It
+  carries the same attributes as the tool-call counter, so "which tool is
+  slow" and "which tool fails" are one query rather than two that cannot be
+  joined.
+
+  **`run_failed` carries the classification it always had.** The event was a
+  bare string, and the run boundary flattened the throwable into it,
+  discarding `code`, `status`, `retryAfterMs`, `retryable`, `details` and the
+  cause chain. This was never a missing taxonomy: the provider-boundary
+  classifier already walks all of that, so a fully-populated error arrived at
+  the boundary and was thrown away one line later — and `toPlatformError`,
+  the projection written for exactly this, had no callers outside its own
+  test. `run_failed` now carries `failure` alongside `error`; the A2A bridge
+  sends it as event metadata (a peer deciding whether to retry needs the
+  flag, not prose to pattern-match) and the CLI prefixes the code. Nothing
+  had to change at the hundreds of `throw` sites.
+
+  Not fixed, and worth naming: the advisory `on_error` trigger still
+  substring-matches. Its input is tool output from the message history, which
+  has no structured code to preserve — that needs a tool-side error catalog,
+  not this change.
+
+  **The published attribute constants can no longer drift.**
+  `@namzu/telemetry/attributes` restated the attribute bags by hand and had
+  already lost `GENAI.TOKEN_TYPE`, the dimension that splits the token
+  counter by kind. The consequence was narrow — namzu emits through the
+  canonical module, so the dimension is on the data regardless — but this is
+  the entry point the observability docs steer consumers to, the package had
+  no tests at all, and the public-surface verifier only loads the SDK bundle.
+  It is now a re-export, with a parity test so a future hand-copy fails
+  immediately.
+
+- 935b8f3: namzu takes its naming from nobody, and now there is a gate that proves it.
+
+  `scripts/audit-external-names.mjs` refuses a third-party product name in a
+  comment or an identifier, and runs in CI. It found 31 real ones — most of
+  them in the TUI, where the design was being explained as "modelled on how X
+  presents text", "X-style grouping", "like X / Y".
+
+  That is the failure the rule exists for. A design explained by reference to
+  somebody else's product has handed over its rationale: the next reader
+  reaches for that product's model instead of asking what namzu is trying to
+  achieve, and when the reference changes the comment becomes a claim nobody
+  can check. Each one now states the same decision on its own terms — what it
+  accomplishes, and what breaks without it.
+
+  The kernel had eleven, all in prose explaining a wire behaviour by naming
+  the vendor whose endpoint exhibits it. A 400 for an unanswered `tool_use`
+  is a property of the protocol, not of a company; several function-calling
+  endpoints report `stop` alongside populated tool calls, and which ones is
+  not the point.
+
+  The identity prompt named the products it told the model not to be. It now
+  says the stronger thing without them: the underlying model is an
+  implementation detail of how namzu runs, not who it is.
+
+  What the audit deliberately does NOT flag, because a rule that cries wolf
+  gets switched off: wire values and the files that carry them. A
+  context-window table keyed by model id must contain real model ids or it
+  resolves nothing; a driver package is named after the service it drives.
+  The exemption is per path and narrow, and the script says where the line
+  falls. Scanning string literals was tried and rejected in the same spirit —
+  it flagged driver ids in switch statements and model ids in test fixtures
+  everywhere, which would have meant exempting half the tree.
+
+  Two matcher details worth keeping: the camelCase check is case-SENSITIVE,
+  because an `i` flag turns `[A-Z]` into `[A-Za-z]` and the rule starts
+  rejecting `coherent` for `cohere` and `strands` for the English verb. And
+  `cursor` is absent from the list entirely — it collides with the pagination
+  cursor this codebase threads through every list call.
+
+- 935b8f3: Three public identifiers named a vendor where the code was generic. Renamed,
+  and in two cases the naming was hiding a design problem worth fixing.
+
+  **`OpenRouterEmbeddingProvider` → `HttpEmbeddingProvider`** (config type
+  likewise). Nothing about the class was vendor-specific: it POSTs to
+  `{baseUrl}/embeddings` with a bearer key and reads back
+  `{ data: [{ index, embedding }] }` — the shape every hosted embeddings
+  service speaks. Only the name and a default host said otherwise.
+
+  `baseUrl` is now **required**. It defaulted to one vendor's host, which
+  meant a caller who never named an endpoint still shipped its text to one. A
+  default network destination is a decision the caller has to make out loud.
+  A trailing slash is now tolerated rather than producing a doubled path.
+
+  **`AgentFactoryOptions.provider`** was `'openrouter' | 'bedrock'` — a closed
+  two-member union in a generic factory, naming two specific services that the
+  provider registry has never been limited to and that no caller could extend.
+  It is now `string`: any registered provider type.
+
+  **`AgentFactoryOptions.bedrockConfig`** is replaced by
+  `providerConfig?: Record<string, unknown>`, passed through untouched. The
+  old field existed for exactly one service and had no construction site
+  anywhere in the workspace.
+
+  **`StorageProviderId`**: the `'anthropic-files'` member is now
+  `'provider-files'`.
+
+- 935b8f3: Reclaim context by clearing stale tool output, before summarizing
+  destructively.
+
+  Compaction was all-or-nothing: once the threshold hit, every older message
+  became a summary and the agent's own reasoning — the decisions, the false
+  starts it learned from, the exact wording of a plan — was paraphrased away
+  with it. That is a heavy price for a context problem usually caused by
+  something much dumber: a handful of enormous tool outputs the agent already
+  read, took what it needed from, and moved past.
+
+  `clearStaleToolResults` replaces the OUTPUT of old, large tool results with
+  a short placeholder that names the tool and its original size, so a result
+  that turns out to still be needed is one tool call away rather than lost.
+  It is safe where trimming is not, because nothing moves — the `tool` message
+  keeps its position and its `toolCallId`, so `tool_use` ↔ `tool_result`
+  pairing is intact by construction.
+
+  It runs first in `runCompactionCheck`; if it gets the context back under
+  `triggerThreshold`, summarization is skipped entirely and the history stays
+  verbatim. New `CompactionConfig` fields: `clearToolResults` (default
+  `true`), `keepRecentToolResults` (3), `minToolResultCharsToClear` (1000),
+  `preserveToolResultsFrom`.
+
+  Never clears an error result (the error is what steers the next turn), the
+  most recent N results (still in use), or anything below the size floor
+  (the placeholder would cost as much). Image payloads are measured by their
+  base64 size — a screenshot is the largest thing a tool result can carry and
+  exactly the kind of output an agent reads once.
+
+- 935b8f3: `--help` on `run`, `run-stream` and `history` now answers instead of
+  running.
+
+  `passThrough` turns commander's `--help` off so a command can parse it
+  itself — right for the commands that render their own. The three that do
+  not were receiving `--help` as **input**: for `run` it became the prompt to
+  send to a model, so a user asking how to use it got "no LLM provider
+  available"; for `history` it became the session to look up, so they got
+  `[]`.
+
+  `CommandDef.help` fills that in, and the registry answers before the
+  handler runs. Handling it there rather than in each command is what stops
+  the fourth one from doing the same thing. A command that renders its own
+  help sets nothing and is untouched.
+
+  Found by running the built binary. Every one of these commands had passing
+  tests — none of them invoked `--help`, because the suite tested what the
+  commands do and not what a person types first.
+
+- 935b8f3: **Breaking:** `@namzu/sandbox` declares only the backends it has.
+
+  Four of the shapes this package offered could type-check and then throw: a `process` tier, a `passthrough` tier, and two adapters to third-party managed schedulers, none of which was ever written. Each demanded required configuration for a call that was never made — the `self-hosted` microvm arm went further and required three fields belonging to a local-daemon path that does not exist, while the two fields the working path needs were optional. So the only configuration that ran had to supply three values nothing reads, and omitting the two that matter compiled its way to a runtime throw.
+
+  `SandboxTier` is now `container | microvm`. `MicroVMBackendConfig` is one shape whose `orchestratorEndpoint` and `getToken` are required. `SandboxBackendNotImplementedError` stays exported and thrown: a JS host that invents a tier gets a named refusal rather than a provider that confines nothing.
+
+  The `sandbox.platform` health check now asks the provider what this host enforces instead of answering from a table keyed on the OS name. That table had drifted both ways — it called the Linux probe unimplemented long after the provider began probing real flags, and it told a Windows operator that sandboxing is "not supported", which is true of the in-process tier and silent about the container tier that runs there. Every non-passing result now names the missing controls and what to do about them.
+
+  `SANDBOX_ISOLATION_CONTROLS` is exported as a value from `@namzu/sdk`. It was reachable only through `export type *`, so importing it type-checked and then failed on the first line of a built binary.
+
+- 935b8f3: namzu's own vocabulary, everywhere.
+
+  Comments across the kernel explained namzu's design by naming another
+  product: "mirrors X's container architecture", "reference: X's
+  `normalizePathForSandbox()`", "which is what Y and Z both do", "Claude Code
+  uses 2000 for the same reason". Behaviour was correct throughout — this is
+  about what the code says it is. A kernel that explains itself by citation
+  reads as a reimplementation of something else, and namzu is not one.
+
+  Every such comment now states the reason directly. Where a rule exists
+  because a provider requires it, the comment says what the requirement is
+  rather than whose it is — which is also more useful, since the same
+  requirement usually holds for more than one provider, and a reader who has
+  never used the named one can still follow it.
+
+  **Breaking (types only, no runtime behaviour):**
+
+  - `ToolCatalogSurface`: the `'cowork'` member is now `'supervised'`.
+  - `ToolSource.skill.type`: `'anthropic' | 'custom'` is now
+    `'published' | 'custom'`.
+
+  Both are descriptive metadata with no construction site anywhere in the
+  workspace, so nothing internal moved. An external consumer that names
+  either value gets a compile error pointing at the line.
+
+  **Deliberately unchanged**, because these are addresses rather than
+  borrowed naming: model-id prefixes in the context-window table (data the
+  runtime matches against), API-key detection patterns in the guardrail
+  presets (a pattern is worthless if you cannot tell what it detects),
+  namzu's own provider package names, and the credential-store integration in
+  the CLI, whose service name and file path are literally the other tool's.
+
+- 935b8f3: A payload that brought its own rendering now uses it in text format.
+
+  A command that wants both a structured payload — what `json` and `yaml`
+  emit, and what a CI job parses — and a human string had to choose one.
+  Passing the object meant the text format dumped a nested object graph where
+  a report was meant to be, with the readable version sitting unused in a
+  `text` field one level down. `namzu eval` did exactly that in its default
+  format.
+
+  Found by running the built binary, not by a test. The command's own tests
+  asserted on the payload, which was correct, and never on what a person
+  sees — so the failure lived in the one place the suite was not looking.
+  There is now a test for it, and `json` still emits the whole payload:
+  collapsing that to the string would trade one broken format for another.
+
+- 935b8f3: Tool names are validated, and a paged remote catalogue is read to the end.
+
+  **Every plugin-contributed tool name was illegal.** A tool name reaches the
+  provider verbatim and the major message APIs accept `[a-zA-Z0-9_-]` up to 64
+  characters — but the plugin namespace separator was `:`, so every tool a
+  plugin contributed carried a name the wire rejects. Nothing checked: names
+  are derived by concatenation at three separate construction sites and none
+  validated the result.
+
+  The rejection is a 400 on the **whole request**, not on that tool. Those
+  tools are registered deferred, so it fired the moment something activated
+  one, with nothing naming the culprit.
+
+  - `assertToolName` runs at registration, where a bad name can still be
+    attributed and costs the run nothing.
+  - **Breaking:** `PLUGIN_NAMESPACE_SEPARATOR` is now `__`, which renames every
+    plugin-contributed tool id — `fs-plugin:mcp__fs__read_file` becomes
+    `fs-plugin__mcp__fs__read_file`. A host that names one of these in an
+    allowlist, a permission rule or a preserve-list must update it. The two
+    changes have to land together: adding the check without the rename would
+    refuse every plugin tool.
+
+  One driver had already ratified passing names through untouched, on the
+  grounds that a confusing name is "a naming problem to fix in the registry,
+  not something to paper over" — which is precisely why the registry has to be
+  the one that checks.
+
+  **A paged remote catalogue is now read to the end.** `tools/list`,
+  `resources/list` and `resources/templates/list` each sent an empty params
+  object and returned the first page — never sending a cursor, never reading
+  the one that came back. A server that pages its catalogue contributed only
+  its first page: the rest were never registered, never namespaced, never
+  advertised, with no error and no warning. Drift detection did not help
+  either, since it compared page one against page one.
+
+  The symptom is a model that never uses a tool it was told about, which reads
+  as model incompetence rather than a client bug. Both clients — the SDK's and
+  the CLI's — now thread the cursor. A server whose cursor never ends is
+  refused after 100 pages rather than looping forever or stopping silently,
+  since stopping silently is the failure being fixed.
+
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [29f35c8]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+- Updated dependencies [935b8f3]
+  - @namzu/sdk@3.0.0
+  - @namzu/anthropic@1.3.0
+  - @namzu/openai@1.1.0
+  - @namzu/ollama@1.1.0
+  - @namzu/openrouter@1.1.0
+
 ## 0.2.3
 
 ### Patch Changes

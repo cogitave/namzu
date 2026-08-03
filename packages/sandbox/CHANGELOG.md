@@ -1,5 +1,239 @@
 # @namzu/sandbox
 
+## 2.0.0
+
+### Major Changes
+
+- 935b8f3: **Breaking:** `@namzu/sandbox` declares only the backends it has.
+
+  Four of the shapes this package offered could type-check and then throw: a `process` tier, a `passthrough` tier, and two adapters to third-party managed schedulers, none of which was ever written. Each demanded required configuration for a call that was never made — the `self-hosted` microvm arm went further and required three fields belonging to a local-daemon path that does not exist, while the two fields the working path needs were optional. So the only configuration that ran had to supply three values nothing reads, and omitting the two that matter compiled its way to a runtime throw.
+
+  `SandboxTier` is now `container | microvm`. `MicroVMBackendConfig` is one shape whose `orchestratorEndpoint` and `getToken` are required. `SandboxBackendNotImplementedError` stays exported and thrown: a JS host that invents a tier gets a named refusal rather than a provider that confines nothing.
+
+  The `sandbox.platform` health check now asks the provider what this host enforces instead of answering from a table keyed on the OS name. That table had drifted both ways — it called the Linux probe unimplemented long after the provider began probing real flags, and it told a Windows operator that sandboxing is "not supported", which is true of the in-process tier and silent about the container tier that runs there. Every non-passing result now names the missing controls and what to do about them.
+
+  `SANDBOX_ISOLATION_CONTROLS` is exported as a value from `@namzu/sdk`. It was reachable only through `export type *`, so importing it type-checked and then failed on the first line of a built binary.
+
+### Minor Changes
+
+- 935b8f3: The two gaps that were deferred as needing their own design session.
+
+  **A question raised inside a tool is now durable, and the answer reaches
+  the tool that asked.** `ask_user_question` parked through the raw handler
+  under a synthetic `cp_question_<toolUseId>` id that was never written
+  anywhere. The checkpoint did not exist: nothing on disk said a human owed
+  this run an answer, the pending-checkpoint lookup could never return it,
+  and a remote host could not even _observe_ the question except through the
+  in-process callback. Kill the process while somebody is looking at the card
+  and the answer could never be applied — the restore path stripped the whole
+  assistant turn, discarding work that sibling tools in the same batch had
+  already finished, and re-billed the turn.
+
+  The park is now a real checkpoint, with `user_question_asked` /
+  `user_question_answered` on the event stream, `question.asked` /
+  `question.answered` on the SSE wire, and an `input-required` A2A status —
+  the same surfaces a tool-review park has always had.
+
+  The re-entry contract was the deferred half, and it turned out to reuse
+  machinery that already exists. A question checkpoint is written
+  mid-execution, so it holds the assistant turn with its `tool_use` blocks
+  unanswered — the same shape a tool-review park leaves. Re-executing that
+  batch is _how_ the asking tool gets re-entered; a carried-answer registry
+  is what makes the re-entry return the recorded answer instead of parking a
+  second time; and every sibling that already completed is answered from the
+  transcript by the crash-resume recovery, so nothing runs twice. An answer
+  that does not name a call in this turn is refused rather than delivered to
+  whichever tool now holds that slot.
+
+  **The egress policy has a boundary to be enforced at.** Two of its four
+  shapes were honourable nowhere: the container backend refused a host
+  allowlist outright because it had nothing to filter through, so `deny-all`
+  and `allow-all` were the whole spectrum — all or nothing.
+
+  `EgressProxy` enforces the other two. Matching has exactly two forms —
+  exact host, and `.example.com` for a domain and its subdomains — and
+  substring is deliberately not one of them: `host.includes(entry)` would
+  admit `example.com.attacker.net`, and plain suffix matching would admit
+  `notexample.com`. A policy that cannot be read denies, because an allowlist
+  that fails open is not an allowlist. A request addressed to the proxy
+  itself is refused rather than forwarded — found by a test that hung instead
+  of failing, which is exactly the shape that failure takes in production.
+
+  `Sandbox.setNetworkPolicy` narrows or widens a **live** sandbox, so "clone
+  with a token, then drop to deny-all before running untrusted build scripts"
+  is expressible; it was not, because the policy was frozen at provider
+  construction. A backend that cannot enforce it throws.
+
+  And `brokeredCredentials` settles where the token lives. Any credential the
+  agent needed to reach an allowed host had to be inside the sandbox, in the
+  environment, readable by the untrusted code it is meant to be isolated from
+  — via `/proc/self/environ`, or via a prompt injection that exfiltrates it
+  over the very egress the policy permits. The real value is now held
+  host-side and applied at the boundary, scoped per host: a credential
+  attached to every request is a credential handed to whichever host the
+  agent was talked into contacting.
+
+  One limit, stated rather than hidden: a credential cannot be injected into
+  a CONNECT tunnel, because reading those bytes would mean terminating TLS
+  with a CA the sandbox trusts — a strictly larger risk than the one being
+  mitigated. A workload that needs brokering speaks plain HTTP to the proxy
+  and lets it upgrade upstream. The allowlist is enforced on CONNECT either
+  way, since the target names the host in clear text.
+
+- 935b8f3: Two blast-radius controls that were accepted and silently dropped.
+
+  **The standby-pool backend discarded every per-sandbox control.** Its create
+  function took its options parameter underscore-prefixed and never read it,
+  and the request body it assembled carried no resources, no environment
+  variables and no network policy — while the provider faithfully assembled
+  all of them first. A host that set `deny-all` and a 512 MB cap got full
+  outbound network, no memory cap and no process cap, with no error and no
+  warning, from the same call shape that **is** enforced on the sibling
+  container backend. Switching backends silently removed the controls.
+
+  The claim API rejects every property override except a config map, so these
+  genuinely cannot ride through per sandbox — which makes refusing the honest
+  fix rather than a missing feature. It now throws, naming every field it
+  cannot honour rather than the first, and saying where the limits do belong
+  (the container group profile the pool is built from). namzu already held
+  this norm next door, with the rationale in that backend's own comment: a
+  policy accepted and quietly ignored is worse than one that is refused.
+
+  **`allow-all` and `resolver` encoded identically on the microVM backend.**
+  Both resolved to an omitted allowlist, so one encoding carried two opposite
+  intentions — and the `resolve()` callback that produces a tenant-scoped list
+  was never invoked anywhere in the repo. Whichever way the orchestrator reads
+  an omitted field, one of the two was always mis-enforced, and the one that
+  failed **open** was the one whose entire purpose is restriction.
+
+  Each variant now has its own encoding: `allow-all` omits, `deny-all` sends
+  an explicitly empty list, `static` forwards its hosts, and `resolver` calls
+  `resolve()` and forwards the result — including an empty result, which is a
+  real deny-all and not an absence. The switch is exhaustive, so a new variant
+  fails to compile rather than falling through to unrestricted, and a resolver
+  that throws propagates instead of degrading to open.
+
+  The README's backend-by-policy table was wrong in both directions and is now
+  accurate. Neither backend had a test directory; both do now.
+
+### Patch Changes
+
+- 935b8f3: Four defects an adversarial audit confirmed
+
+  **A task could be created and then never found again.** `DiskTaskStore` writes under the run that created it and read only under the store's default run, so every lookup missed as soon as the two differed — the normal case, since the task tools are built with the live run id while a long-lived host constructs the store once with a fixed default. `create` succeeded, `list` succeeded, and `update`, `delete`, `claim` and every dependency link answered "not found" for a task the caller could see. The in-memory store keys by task id alone, which is why nothing caught it.
+
+  **A sub-agent's token reservation was never returned.** The debit at spawn reserves headroom so siblings cannot each be promised the same tokens, and nothing credited back the unused part — so a pool shrank by the full allocation on every spawn no matter what the child used. At a half-pool fraction, ten delegations left a parent with a thousandth of its budget and the next spawn was refused for a budget that had barely been spent. The debit also ran before provisioning, so a spawn rejected for capacity still burned its allocation — the one state change the comment there promised would not happen.
+
+  **A failed sandbox create leaked a proxy holding real credentials.** The egress proxy starts before the container and its only close was in `destroy()`, which a create that never returned can never reach. Every failure in between left a listening server on loopback stamping credential headers, plus a retained event-loop handle, one per retry.
+
+  **A remembered approval could overrule the operator.** The grant check ran before the verification gate and returned, so a remembered approval skipped the gate entirely — and because a tool-scoped grant matches any arguments, approving one harmless invocation authorised every other one, past a rule written to stop exactly that. The gate now runs first, and a grant can satisfy a review but never a denial.
+
+- 935b8f3: Stop dropping tool-failure status on Bedrock, and stop accepting a sandbox
+  egress policy this backend cannot enforce.
+
+  - **Bedrock** flattened every failed tool result into an ordinary success.
+    The executor computed `isError`, the SSE and A2A bridges carried it, and
+    the driver dropped it — even though Converse has a first-class
+    `toolResult.status`. The model's trained tool-failure recovery path keys
+    off that field, so namzu was relying on prose formatting to convey "that
+    call failed".
+
+    Scope note: the five OpenAI-shaped drivers are NOT affected, because
+    Chat Completions has no error field on a tool message at all. The error
+    reaches those models inside the result text, which is the only channel
+    the protocol has.
+
+  - **Docker sandbox** accepted `EgressPolicy` and silently ignored it. A
+    host that set `deny-all` believed the container had no network and it had
+    whatever `network` was configured. A security control that is accepted
+    and ignored is worse than one that does not exist. Now: `deny-all` maps
+    to `--network none` (which Docker enforces natively), `allow-all` keeps
+    the configured network, and `static` / `resolver` **throw** — this
+    backend has no proxy to filter hosts through, and downgrading a
+    restrictive policy to "allow everything" is exactly the failure worth
+    refusing.
+
+  - **Docker sandbox** containers now run with `--cap-drop=ALL` and
+    `--security-opt=no-new-privileges`, plus an opt-in `runAsUser`.
+    `CAP_DAC_OVERRIDE` alone walks past the read-only bind mounts the layout
+    sets up, and without `no-new-privileges` a setuid binary in the image
+    re-escalates.
+
+- 935b8f3: Five places where namzu gave up, or claimed to recover, too early.
+
+  **A transient failure now pauses instead of failing.** A 503 that survived
+  every in-turn recovery — retry with jitter, the one-shot compaction relief,
+  mid-stream salvage — settled the run as `failed`, identically to a bad API
+  key. The host could not tell them apart, and recovering meant knowing about
+  checkpoints and driving replay itself. The state was never the problem:
+  checkpoints are written every iteration by default and the failed run is
+  persisted with full messages. Only the settle and the signal were missing.
+
+  A retryable failure with a checkpoint to resume from now emits `run_paused`
+  naming that checkpoint, leaves the span OK rather than ERROR, and sets
+  `stopReason: 'paused'`. Both conditions are required — pausing on a
+  permanent error would invite a resume that cannot work, and pausing with
+  nowhere to resume from produces a run nobody can ever pick up.
+
+  **A forced compaction pass can no longer decline to do anything.** A forced
+  pass runs because the provider _rejected_ the prompt as too long, and two
+  things let it treat that as advisory. It re-applied the chars/4 estimate
+  after clearing stale tool results — the estimate the provider had just
+  refuted — and returned early if that said the context was fine. And relief
+  reported success on ANY positive shed, so clearing one short result counted
+  and the retry burned a whole model call to be told the same thing. The
+  early return is now force-gated, and a shed has to clear a floor (a
+  fraction of the prompt, at least a couple of thousand characters) to count.
+
+  Separately, the relief latch is per **stuck point**, not per run. It exists
+  to stop a second overflow immediately after a successful compaction from
+  looping; as a run-scoped flag it meant one relief at iteration 3 disarmed
+  the mechanism for the rest of the run, leaving iteration 40 to die with
+  obvious moves left. It is now cleared by a turn that actually succeeded.
+
+  **An eval case can no longer hang the suite.** `executeCase` was a bare
+  await, so a `run` closure that never settled blocked its worker and
+  `runExperiment` never returned — no report, no partial results, nothing to
+  read. `ExperimentConfig.timeoutMs` bounds a case and hands `run` an
+  `AbortSignal` as a third argument; a timed-out case is reported and the
+  suite continues, exactly like a case that threw, with its real elapsed time
+  rather than zero. Unset means no deadline, which is today's behaviour. The
+  documented path already inherits deadlines from the runtime it drives; this
+  covers what those cannot see — a closure that does not go through
+  `query()`, and a mid-iteration provider stall.
+
+  **A malformed content block is named, not smuggled.** One driver built an
+  image block by calling `String()` on whatever `data` and `mediaType`
+  happened to be, behind only a truthiness check — so a non-string `data`
+  became the literal `"[object Object]"` as the base64 payload, and the wire
+  rejected the whole request with nothing naming the block at fault. That is
+  reachable: a remote tool result is cast without validation on the way in.
+  It now type- and media-type-guards and degrades to a named placeholder,
+  matching the sibling driver that already did, and without inlining the
+  payload it refused to send.
+
+  **Failures have somewhere to grow remediation.** A stale API key surfaced
+  as whatever prose the vendor SDK happened to write: no id to grep in logs,
+  no instruction on what to change, and no growth point — a newly-observed
+  failure shape could only be given curated copy by editing the classifier.
+  `explainError` adds an ordered, id-keyed rule layer matching on
+  **structural** signals (code, status, an explicit hint) rather than
+  volatile vendor prose. `run_failed` carries the result as `explanation`;
+  `withHint(err, '…')` lets a throw site attach what only it knows, and
+  outranks every generic rule. It returns `null` when no rule claims the
+  failure — inventing advice for something uncharacterised is worse than
+  saying nothing, because it sends the reader somewhere specific and wrong.
+  The container backend's readiness, port-mapping and worker-fetch failures
+  now carry hints.
+
+- 935b8f3: Close every open code-scanning finding
+
+  **Breaking:** `LocalExecutionContext.executeCommand` no longer interprets its arguments as shell syntax. `shell` defaulted to `true`, and spawning with a shell re-joins the command and its argument array into a single `sh -c` string — so every metacharacter inside an argument became syntax. An `args` array reads argv-safe and was not. The default is now `false`; `shell: true` remains available where a caller genuinely wants a pipeline. A consumer passing `"ls -la"` as one command string, or relying on glob expansion without asking for a shell, must now pass `shell: true`.
+
+  **A sandbox timeout is bounded, and an out-of-range one is refused.** The bash tool's `timeout` argument is a number the model writes, with no ceiling of its own, and it reached both sandbox transports unmodified — so a single call could pin a container or a guest for as long as the platform's timer honours. Both transports now refuse a non-finite, non-positive or over-thirty-minute request rather than clamping it: running under a deadline the caller never chose, and never learns about, is the "accepted and silently not applied" failure this codebase treats as worse than not offering the control at all.
+
+  **Seven quadratic-backtracking regexes are now linear scans**, each on a path an attacker can reach: shell output the agent captured, a tenant-supplied connector URL, a host-supplied workspace root, a model completion, and three endpoint strings that cross the same trust boundary. The worst measured over thirty seconds on a single pathological input, on a shared event loop. Three of the seven were not flagged by the scanner — the same pattern, the same boundary — and were fixed with the rest rather than left to be rediscovered.
+
 ## 1.1.0
 
 ### Minor Changes

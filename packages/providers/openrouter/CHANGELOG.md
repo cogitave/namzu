@@ -1,5 +1,96 @@
 # Changelog
 
+## 1.1.0
+
+### Minor Changes
+
+- 935b8f3: Every driver can now see.
+
+  These three dropped `attachments` outright, so a user who attached a
+  screenshot got a turn about nothing. `supportsVision: false` said so, which
+  made the declaration honest and the driver useless — and it was the last
+  place in the estate where a namzu capability existed on one driver and
+  silently did not on another.
+
+  Each wire carries an image differently, so this is one intent and three
+  mappings:
+
+  - **Converse**: raw bytes in an image content block beside the text. The
+    tool-result path already did this; the user path never looked at
+    `attachments`.
+  - **The two-dialect HTTP driver**: a `data:` URI content part on one
+    dialect, a base64 source block on the other.
+  - **The gateway driver**: a `data:` URI content part.
+
+  Across all three: a media type the endpoint cannot decode is named in the
+  text rather than sent, because a payload it rejects fails the whole request
+  and losing the turn is worse than losing sight of one image. A message with
+  no attachments keeps its plain-string content, so nothing about an ordinary
+  request changes shape. Several attachments on one message are carried in
+  order.
+
+  An image inside a **tool result** still degrades to a text placeholder on
+  the HTTP and gateway drivers: a tool message is text-only in those dialects,
+  so there is nowhere to put it. Converse carries it, and always did.
+
+### Patch Changes
+
+- 935b8f3: Stop dumping a tool result's base64 payload into the prompt.
+
+  Four drivers mishandled a tool result carrying content blocks, each in its
+  own way: bedrock and the http driver's anthropic dialect `JSON.stringify`d
+  the whole array, putting a screenshot's base64 into the prompt as JSON
+  text; openrouter and the http driver's openai dialect passed the array
+  through raw to an endpoint expecting a string; lmstudio folded it into a
+  template literal, producing `[object Object]` per block. The model cannot
+  decode any of it, and it costs a fortune in tokens.
+
+  - The three text-only wires now flatten with the SDK's existing helper,
+    which names a non-text block and its size instead of inlining it. The
+    openai and ollama drivers already did this — the helper was there and
+    four callers were missing.
+  - **bedrock sends the image as an image.** That wire carries images
+    natively, so a placeholder would be a downgrade the other drivers accept
+    only because their format has no room for one. Text and image survive as
+    separate blocks in order, and a media type the format does not accept
+    still degrades to a named placeholder rather than being smuggled through
+    as text.
+
+- 935b8f3: A turn that asked for tools no longer ends because the provider said it
+  didn't.
+
+  The iteration loop ended the turn on `finishReason === 'stop'` **before**
+  looking at whether the model had asked for tools. Endpoints on the OpenAI
+  wire shape — gateways and local servers especially — routinely report `stop`
+  on the same response that carries a populated `tool_calls`, and three of
+  this repo's drivers passed that value straight through.
+
+  The damage was total and silent: every requested call skipped, an assistant
+  turn left carrying `tool_use` blocks nothing ever answered, and the run
+  settling as though it had finished the work it never started.
+
+  - **The runtime now treats tool calls as the fact and the finish reason as
+    the summary.** When they disagree, the calls win. This is the load-bearing
+    fix: it protects every driver, including ones this repo does not ship.
+  - **The three drivers that cast the reason raw now report it honestly** —
+    a stream that produced a tool call reports `tool_calls`, whatever the
+    endpoint called it. Defence in depth, and it makes the reported reason
+    true for anyone else reading it.
+
+  The existing suite could not catch this: the scripted mock reports
+  `tool_calls` whenever it emits one, which is what an honest provider does
+  and therefore never the case that breaks.
+
+- 935b8f3: A user message can carry a document
+
+  Documents existed in the type system only in the tool-result direction, and both first-party drivers mapped images only on the input side. So "here is the contract, answer questions about it" — a mainstream workload — was reachable only by having a tool read the file and stringify it. That loses the provider's native document handling (page structure, built-in OCR, citations) and pays the text cost instead.
+
+  `UserMessage.attachments` is now `MessageAttachment[]`: an image or a document. The discriminant is optional and stays optional — an attachment without one is an image, which is what every attachment was before, so no existing caller changes.
+
+  `supportsDocuments` sits beside `supportsVision` in the driver capability declaration, and the runtime checks it the same way: a document sent to a driver that declares `false` warns before the request, or throws under `strictCapabilities`, instead of letting the model answer about a file it never saw. The two are counted separately because they are separate wire shapes and a driver can map one without the other.
+
+  The two first-party drivers map documents natively. The remaining five map images only and now say so; a document reaching them degrades to a named placeholder that says which kind was dropped, rather than one that calls a document an image.
+
 ## 1.0.3
 
 ### Patch Changes
