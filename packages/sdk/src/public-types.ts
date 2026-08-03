@@ -157,6 +157,10 @@ export type { ToolCallContext } from './verification/index.js'
 export type { DiskSessionStoreConfig, LinkageView } from './store/session/index.js'
 
 export type {
+	ContextReducer,
+	ContextReduction,
+	ContextReductionReason,
+	SlidingWindowOptions,
 	ConversationManager,
 	CompactionStrategy,
 	DanglingResult,

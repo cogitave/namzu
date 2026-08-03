@@ -1,6 +1,7 @@
 import type { AdvisoryContext } from '../../../../advisory/context.js'
 import type { AgentBus } from '../../../../bus/index.js'
 import type { WorkingStateManager } from '../../../../compaction/manager.js'
+import type { ContextReducer } from '../../../../compaction/reducer.js'
 import type { CompactionConfig } from '../../../../config/runtime.js'
 import type { PlanManager } from '../../../../manager/plan/lifecycle.js'
 import type { RunPersistence } from '../../../../manager/run/persistence.js'
@@ -107,6 +108,12 @@ export interface IterationContext {
 	readonly compactionConfig?: CompactionConfig
 
 	readonly workingStateManager?: WorkingStateManager
+
+	/**
+	 * Host-supplied context reduction. Outranks `compactionConfig.strategy`
+	 * and replaces the structured pass for this run.
+	 */
+	readonly contextReducer?: ContextReducer
 
 	readonly workingMemoryProvider?: WorkingMemoryProvider
 

@@ -20,6 +20,12 @@ export interface SlidingWindowManagerConfig {
  * 2. Use findSafeTrimIndex to ensure tool call/result pairs remain atomic
  * 3. applyManagement runs proactively each iteration; reduceContext on overflow
  */
+/**
+ * @deprecated Use `createSlidingWindowReducer()`, or `strategy: 'sliding-window'`.
+ *
+ * Never reachable through the runtime, and `reduceContext` here computes a
+ * trim index and returns a boolean without trimming anything.
+ */
 export class SlidingWindowManager implements ConversationManager {
 	readonly name = 'sliding-window'
 	private readonly keepRecentMessages: number

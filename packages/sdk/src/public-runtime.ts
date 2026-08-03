@@ -502,6 +502,7 @@ export {
 	lookupContextWindow,
 	resolveContextWindow,
 	createConversationManager,
+	createSlidingWindowReducer,
 	extractFromAssistantMessage,
 	extractFromToolCall,
 	extractFromToolResult,

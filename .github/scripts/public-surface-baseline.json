@@ -321,6 +321,7 @@
   "createProbeRegistry",
   "createRAGTool",
   "createRunReporter",
+  "createSlidingWindowReducer",
   "createStructuredOutputTool",
   "createSystemMessage",
   "createToolCatalogFromRegistry",
