@@ -1,7 +1,7 @@
 ---
 title: Provider Operations
 description: Direct provider usage in @namzu/sdk, including chat, streaming, tool-call inspection, model listing, health checks, and capability-driven routing.
-last_updated: 2026-04-18
+last_updated: 2026-08-03
 status: current
 related_packages: ["@namzu/sdk", "@namzu/openai", "@namzu/anthropic", "@namzu/bedrock", "@namzu/openrouter", "@namzu/http", "@namzu/ollama", "@namzu/lmstudio"]
 ---
@@ -174,8 +174,44 @@ The capability object returned by `ProviderRegistry.create()` is often enough to
 | `supportsStreaming` | Turn on token-by-token or chunk-by-chunk UI |
 | `supportsTools` | Enable tool-enabled agents or direct tool-call inspection |
 | `supportsFunctionCalling` | Prefer structured tool orchestration instead of plain-text prompting |
+| `supportsVision` | Attach images to a user message |
+| `supportsDocuments` | Attach documents to a user message |
 
 This lets you branch behavior without hardcoding vendor names.
+
+### Attaching a file to a user turn
+
+A user message carries `attachments`. An attachment with no `type` is an
+image — that is what every attachment was before documents existed, so the
+discriminant stays optional and no existing caller changes:
+
+```ts
+query({
+  messages: [
+    {
+      role: 'user',
+      content: 'summarise this contract',
+      attachments: [
+        { type: 'document', data: base64Pdf, mediaType: 'application/pdf', name: 'contract.pdf' },
+        { data: base64Png, mediaType: 'image/png' },
+      ],
+    },
+  ],
+})
+```
+
+Vision and document support are declared separately because they are
+separate wire shapes and a driver can map one without the other. Sending a
+document to a driver that declares `supportsDocuments: false` warns before
+the request — or throws with `strictCapabilities: true` — instead of
+letting the model answer about a file it never saw. Drivers that map
+images only degrade a document to a named placeholder, so the transcript
+says what was dropped rather than implying it arrived.
+
+Without this, "here is the contract, answer questions about it" was
+reachable only by having a tool read the file and stringify it, which
+loses the provider's native document handling — page structure, built-in
+OCR, citations — and pays the text cost instead.
 
 ## 8. Direct Provider Calls vs Agent Runtime
 

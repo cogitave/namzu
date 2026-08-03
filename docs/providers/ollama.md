@@ -1,7 +1,7 @@
 ---
 title: Ollama Provider
 description: Configure @namzu/ollama for local Ollama-based model execution in Namzu.
-last_updated: 2026-08-02
+last_updated: 2026-08-03
 status: current
 related_packages: ["@namzu/sdk", "@namzu/ollama"]
 ---
@@ -80,6 +80,7 @@ The package exports `OLLAMA_CAPABILITIES`:
   supportsStreaming: true,
   supportsFunctionCalling: true,
   supportsVision: true,
+  supportsDocuments: false,
 }
 ```
 

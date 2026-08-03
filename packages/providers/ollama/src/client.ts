@@ -38,6 +38,10 @@ export const OLLAMA_CAPABILITIES: ProviderCapabilities = {
 	supportsStreaming: true,
 	supportsFunctionCalling: true,
 	supportsVision: true,
+	// Images only. A document degrades to a named note, and the runtime
+	// warns before the request rather than after the model answered
+	// about a file it never saw.
+	supportsDocuments: false,
 }
 
 const DEFAULT_HOST = 'http://localhost:11434'
@@ -181,7 +185,8 @@ function toWireMessages(messages: ChatCompletionParams['messages']): WireMessage
 				(attachment) => !isCarriableImage(attachment.mediaType),
 			)
 			const notes = dropped.map(
-				(attachment) => `[image: ${attachment.mediaType} — unsupported format, not sent]`,
+				(attachment) =>
+					`[${attachment.type ?? 'image'}: ${attachment.mediaType} — unsupported format, not sent]`,
 			)
 			const content = [msg.content, ...notes].filter((part) => part.length > 0).join('\n')
 			return {

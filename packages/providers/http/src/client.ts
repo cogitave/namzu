@@ -139,8 +139,8 @@ const IMAGE_MEDIA_TYPES: ReadonlySet<string> = new Set([
 	'image/gif',
 ])
 
-function unsupportedImageNote(mediaType: string): string {
-	return `[image: ${mediaType} — unsupported format, not sent]`
+function unsupportedImageNote(mediaType: string, kind: 'image' | 'document' = 'image'): string {
+	return `[${kind}: ${mediaType} — unsupported format, not sent]`
 }
 
 /**
@@ -150,7 +150,7 @@ function unsupportedImageNote(mediaType: string): string {
  */
 function openAIUserContent(msg: {
 	content: unknown
-	attachments?: readonly { data: string; mediaType: string }[]
+	attachments?: readonly { type?: 'image' | 'document'; data: string; mediaType: string }[]
 }): unknown {
 	const text = typeof msg.content === 'string' ? msg.content : String(msg.content ?? '')
 	if (!msg.attachments || msg.attachments.length === 0) return msg.content
@@ -164,7 +164,7 @@ function openAIUserContent(msg: {
 				image_url: { url: `data:${attachment.mediaType};base64,${attachment.data}` },
 			})
 		} else {
-			notes.push(unsupportedImageNote(attachment.mediaType))
+			notes.push(unsupportedImageNote(attachment.mediaType, attachment.type ?? 'image'))
 		}
 	}
 	const head = [text, ...notes].filter((part) => part.length > 0).join('\n')
@@ -414,6 +414,10 @@ export const HTTP_CAPABILITIES: ProviderCapabilities = {
 	supportsStreaming: true,
 	supportsFunctionCalling: true,
 	supportsVision: true,
+	// Images only. A document degrades to a named note, and the runtime
+	// warns before the request rather than after the model answered
+	// about a file it never saw.
+	supportsDocuments: false,
 }
 
 export class HttpProvider implements LLMProvider {

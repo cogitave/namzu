@@ -47,6 +47,7 @@ describe('@namzu/anthropic', () => {
 				supportsStreaming: true,
 				supportsFunctionCalling: true,
 				supportsVision: true,
+				supportsDocuments: true,
 			})
 		})
 

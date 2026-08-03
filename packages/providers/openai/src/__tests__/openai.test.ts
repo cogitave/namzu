@@ -47,6 +47,7 @@ describe('@namzu/openai', () => {
 				supportsStreaming: true,
 				supportsFunctionCalling: true,
 				supportsVision: true,
+				supportsDocuments: true,
 			})
 		})
 

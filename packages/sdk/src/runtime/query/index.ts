@@ -549,11 +549,18 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 	const capabilities = resolveProviderCapabilities(params.provider)
 	const registeredToolCount = params.tools.listNames().length
 	const stripToolSurfaces = !capabilities.supportsTools && registeredToolCount > 0
+	// Counted separately because they are separate wire shapes: a driver can
+	// map images and drop documents, and a vision warning would send the
+	// reader looking at the wrong half.
+	const carries = (m: (typeof params.messages)[number], kind: 'image' | 'document') =>
+		m.role === 'user' && (m.attachments ?? []).some((a) => (a.type ?? 'image') === kind)
+
 	const attachmentMessageCount = capabilities.supportsVision
 		? 0
-		: params.messages.filter(
-				(m) => m.role === 'user' && m.attachments !== undefined && m.attachments.length > 0,
-			).length
+		: params.messages.filter((m) => carries(m, 'image')).length
+	const documentMessageCount = capabilities.supportsDocuments
+		? 0
+		: params.messages.filter((m) => carries(m, 'document')).length
 
 	if (stripToolSurfaces) {
 		const message = `Provider '${params.provider.id}' declares supportsTools: false but ${registeredToolCount} tool(s) are registered — stripping all tool surfaces from the prompt and request so the model is never told about tools it cannot call. Pass strictCapabilities: true to fail instead, or use a tools-capable provider.`
@@ -582,6 +589,21 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		ctx.log.warn(`CAPABILITY MISMATCH: ${message}`, {
 			providerId: params.provider.id,
 			attachmentMessageCount,
+		})
+	}
+
+	if (documentMessageCount > 0) {
+		const message = `Provider '${params.provider.id}' declares supportsDocuments: false but ${documentMessageCount} user message(s) carry document attachments — the driver will not map them, so the model never sees the documents. Pass strictCapabilities: true to fail instead, or use a document-capable provider.`
+		if (params.strictCapabilities) {
+			throw new NamzuError({
+				code: 'capability_unavailable',
+				message,
+				details: { providerId: params.provider.id, capability: 'documents', documentMessageCount },
+			})
+		}
+		ctx.log.warn(`CAPABILITY MISMATCH: ${message}`, {
+			providerId: params.provider.id,
+			documentMessageCount,
 		})
 	}
 

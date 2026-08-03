@@ -1,7 +1,7 @@
 ---
 title: OpenRouter Provider
 description: Configure @namzu/openrouter for multi-vendor model access through OpenRouter.
-last_updated: 2026-08-02
+last_updated: 2026-08-03
 status: current
 related_packages: ["@namzu/sdk", "@namzu/openrouter"]
 ---
@@ -74,6 +74,7 @@ The package exports `OPENROUTER_CAPABILITIES`:
   supportsStreaming: true,
   supportsFunctionCalling: true,
   supportsVision: true,
+  supportsDocuments: false,
 }
 ```
 

@@ -51,6 +51,7 @@ export const OPENAI_CAPABILITIES: ProviderCapabilities = {
 	supportsStreaming: true,
 	supportsFunctionCalling: true,
 	supportsVision: true,
+	supportsDocuments: true,
 }
 
 type OpenAIFinishReason = 'stop' | 'length' | 'tool_calls' | 'content_filter' | 'function_call'
@@ -136,20 +137,28 @@ export function toOpenAIMessages(
 			return { role: 'system', content: msg.content }
 		}
 		if (msg.role === 'user') {
-			// User message with image attachments → multimodal content parts
-			// (text first, then each image as an `image_url` part carrying a
-			// base64 data URI). Mirrors the Anthropic driver's image-block
-			// mapping; plain text-only user messages keep the string form.
+			// User message with attachments → multimodal content parts (text
+			// first, then each attachment). Images ride as an `image_url`
+			// part carrying a base64 data URI; documents as a `file` part
+			// carrying the same URI shape, which is how this wire format
+			// takes file input inline. An attachment with no discriminant is
+			// an image, which is what every attachment was before documents
+			// existed. Plain text-only user messages keep the string form.
 			if (msg.attachments && msg.attachments.length > 0) {
 				const parts: ChatCompletionContentPart[] = []
 				if (msg.content.length > 0) {
 					parts.push({ type: 'text', text: msg.content })
 				}
 				for (const att of msg.attachments) {
-					parts.push({
-						type: 'image_url',
-						image_url: { url: `data:${att.mediaType};base64,${att.data}` },
-					})
+					const url = `data:${att.mediaType};base64,${att.data}`
+					if (att.type === 'document') {
+						parts.push({
+							type: 'file',
+							file: { file_data: url, ...(att.name ? { filename: att.name } : {}) },
+						})
+						continue
+					}
+					parts.push({ type: 'image_url', image_url: { url } })
 				}
 				return { role: 'user', content: parts }
 			}

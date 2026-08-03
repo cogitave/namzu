@@ -129,6 +129,13 @@ export interface ProviderCapabilities {
 	 * default — the runtime only warns when a driver explicitly says no).
 	 */
 	supportsVision?: boolean
+	/**
+	 * Whether the driver maps user-message DOCUMENT attachments into the
+	 * provider request. Separate from vision because the two are separate
+	 * wire shapes and a driver can map one without the other. Absent ⇒
+	 * treated as capable, same permissive default.
+	 */
+	supportsDocuments?: boolean
 	maxOutputTokens?: number
 }
 

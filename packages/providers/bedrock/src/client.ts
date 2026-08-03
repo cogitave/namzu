@@ -312,7 +312,9 @@ export function toBedrockMessages(messages: ChatCompletionParams['messages']): B
 				}
 				// A format the service rejects would fail the whole request,
 				// so it is named instead of sent.
-				content.push({ text: `[image: ${attachment.mediaType} — unsupported format, not sent]` })
+				content.push({
+					text: `[${attachment.type ?? 'image'}: ${attachment.mediaType} — unsupported format, not sent]`,
+				})
 			}
 		}
 
@@ -471,6 +473,10 @@ export const BEDROCK_CAPABILITIES: ProviderCapabilities = {
 	supportsStreaming: true,
 	supportsFunctionCalling: true,
 	supportsVision: true,
+	// Images only. A document degrades to a named note, and the runtime
+	// warns before the request rather than after the model answered
+	// about a file it never saw.
+	supportsDocuments: false,
 }
 
 export class BedrockProvider implements LLMProvider {

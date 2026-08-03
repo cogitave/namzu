@@ -8,11 +8,44 @@ export type CacheHint = 'cache' | 'ephemeral' | 'none'
  * alongside the text; providers that don't simply ignore it.
  */
 export interface ImageAttachment {
+	/**
+	 * Optional, and optional forever: an attachment without a discriminant
+	 * is an image, which is what every attachment was before documents
+	 * existed. Requiring it would have broken every caller to describe a
+	 * default they were already relying on.
+	 */
+	readonly type?: 'image'
 	/** Base64-encoded image bytes (no `data:` URI prefix). */
 	readonly data: string
 	/** IANA media type, e.g. `image/png`, `image/jpeg`, `image/webp`. */
 	readonly mediaType: string
 }
+
+/**
+ * A document attached to a user message.
+ *
+ * Documents existed in the type system only in the TOOL-RESULT direction,
+ * so "here is the contract, answer questions about it" was reachable only
+ * by having a tool read the file and stringify it. That loses the
+ * provider's native document handling — page structure, built-in OCR,
+ * citations — and pays the text cost instead.
+ */
+export interface DocumentAttachment {
+	readonly type: 'document'
+	/** Base64-encoded bytes (no `data:` URI prefix). */
+	readonly data: string
+	/** IANA media type, e.g. `application/pdf`. */
+	readonly mediaType: string
+	/** Shown to the model, so it can refer to the file by name. */
+	readonly name?: string
+}
+
+/** What a user message may carry alongside its text. */
+export type MessageAttachment = ImageAttachment | DocumentAttachment
+
+export const isDocumentAttachment = (
+	attachment: MessageAttachment,
+): attachment is DocumentAttachment => attachment.type === 'document'
 
 export interface ToolCall {
 	id: string
@@ -81,8 +114,8 @@ export interface SystemMessage extends BaseMessage {
 export interface UserMessage extends BaseMessage {
 	role: 'user'
 	content: string
-	/** Optional image attachments (vision input). */
-	attachments?: readonly ImageAttachment[]
+	/** Optional image or document attachments. */
+	attachments?: readonly MessageAttachment[]
 }
 
 /**
@@ -134,12 +167,7 @@ export interface AssistantMessage extends BaseMessage {
 export type ToolResultBlock =
 	| { readonly type: 'text'; readonly text: string }
 	| { readonly type: 'image'; readonly data: string; readonly mediaType: string }
-	| {
-			readonly type: 'document'
-			readonly data: string
-			readonly mediaType: string
-			readonly name?: string
-	  }
+	| DocumentAttachment
 
 /**
  * String stays a first-class shape, not a deprecated one: it is the
@@ -178,7 +206,7 @@ export function createSystemMessage(content: string, cacheHint?: CacheHint): Sys
 
 export function createUserMessage(
 	content: string,
-	attachments?: readonly ImageAttachment[],
+	attachments?: readonly MessageAttachment[],
 ): UserMessage {
 	return {
 		role: 'user',

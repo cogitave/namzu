@@ -1,7 +1,7 @@
 ---
 title: LM Studio Provider
 description: Configure @namzu/lmstudio for local LM Studio server usage in Namzu.
-last_updated: 2026-08-02
+last_updated: 2026-08-03
 status: current
 related_packages: ["@namzu/sdk", "@namzu/lmstudio"]
 ---
@@ -80,6 +80,7 @@ The package exports `LMSTUDIO_CAPABILITIES`:
   supportsStreaming: true,
   supportsFunctionCalling: true,
   supportsVision: true,
+  supportsDocuments: false,
 }
 ```
 

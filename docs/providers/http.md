@@ -1,7 +1,7 @@
 ---
 title: HTTP Provider
 description: Use @namzu/http as the generic zero-dependency provider for OpenAI- or Anthropic-compatible HTTP endpoints.
-last_updated: 2026-08-02
+last_updated: 2026-08-03
 status: current
 related_packages: ["@namzu/sdk", "@namzu/http"]
 ---
@@ -103,6 +103,7 @@ The package exports `HTTP_CAPABILITIES`:
   supportsStreaming: true,
   supportsFunctionCalling: true,
   supportsVision: true,
+  supportsDocuments: false,
 }
 ```
 

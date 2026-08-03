@@ -9,6 +9,7 @@ export interface ResolvedProviderCapabilities {
 	supportsStreaming: boolean
 	supportsFunctionCalling: boolean
 	supportsVision: boolean
+	supportsDocuments: boolean
 	maxOutputTokens?: number
 }
 
@@ -23,6 +24,7 @@ export const PERMISSIVE_PROVIDER_CAPABILITIES: ResolvedProviderCapabilities = {
 	supportsStreaming: true,
 	supportsFunctionCalling: true,
 	supportsVision: true,
+	supportsDocuments: true,
 }
 
 /**
@@ -42,6 +44,8 @@ export function resolveProviderCapabilities(
 		supportsFunctionCalling:
 			declared?.supportsFunctionCalling ?? PERMISSIVE_PROVIDER_CAPABILITIES.supportsFunctionCalling,
 		supportsVision: declared?.supportsVision ?? PERMISSIVE_PROVIDER_CAPABILITIES.supportsVision,
+		supportsDocuments:
+			declared?.supportsDocuments ?? PERMISSIVE_PROVIDER_CAPABILITIES.supportsDocuments,
 		maxOutputTokens: declared?.maxOutputTokens,
 	}
 }

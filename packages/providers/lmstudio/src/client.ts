@@ -263,6 +263,10 @@ export const LMSTUDIO_CAPABILITIES: ProviderCapabilities = {
 	supportsStreaming: true,
 	supportsFunctionCalling: true,
 	supportsVision: true,
+	// Images only. A document degrades to a named note, and the runtime
+	// warns before the request rather than after the model answered
+	// about a file it never saw.
+	supportsDocuments: false,
 }
 
 /**
@@ -350,7 +354,10 @@ export async function uploadAttachments(
 		for (const [n, attachment] of msg.attachments.entries()) {
 			const mediaType = attachment.mediaType.toLowerCase()
 			if (!IMAGE_MEDIA_TYPES.has(mediaType)) {
-				note(index, `[image: ${attachment.mediaType} — unsupported format, not sent]`)
+				note(
+					index,
+					`[${attachment.type ?? 'image'}: ${attachment.mediaType} — unsupported format, not sent]`,
+				)
 				continue
 			}
 			try {

@@ -1,7 +1,7 @@
 ---
 title: Bedrock Provider
 description: Configure @namzu/bedrock for AWS Bedrock Converse API usage with Namzu.
-last_updated: 2026-08-02
+last_updated: 2026-08-03
 status: current
 related_packages: ["@namzu/sdk", "@namzu/bedrock"]
 ---
@@ -112,6 +112,7 @@ The package exports `BEDROCK_CAPABILITIES`:
   supportsStreaming: true,
   supportsFunctionCalling: true,
   supportsVision: true,
+  supportsDocuments: false,
 }
 ```
 

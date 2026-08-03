@@ -141,10 +141,12 @@ interface AnthropicToolParam {
 	cache_control?: AnthropicCacheControl
 }
 
-/** Shape of an SDK `ImageAttachment` (read structurally to avoid coupling). */
+/** Shape of an SDK user-message attachment (read structurally to avoid coupling). */
 interface AttachmentLike {
+	readonly type?: 'image' | 'document'
 	readonly data: string
 	readonly mediaType: string
+	readonly name?: string
 }
 
 type AnthropicContentBlock =
@@ -263,17 +265,21 @@ export function toAnthropicMessages(
 		}
 
 		const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
-		// User message with image attachments → multimodal content blocks
-		// (text first, then each image as a base64 image block).
+		// User message with attachments → multimodal content blocks (text
+		// first, then each attachment as its own base64 block). An
+		// attachment with no discriminant is an image, which is what every
+		// attachment was before documents existed.
 		const attachments = (msg as { attachments?: readonly AttachmentLike[] }).attachments
 		if (msg.role === 'user' && attachments && attachments.length > 0) {
 			const blocks: AnthropicContentBlock[] = []
 			if (content.length > 0) blocks.push({ type: 'text', text: content })
 			for (const att of attachments) {
-				blocks.push({
-					type: 'image',
-					source: { type: 'base64', media_type: att.mediaType, data: att.data },
-				})
+				const source = { type: 'base64' as const, media_type: att.mediaType, data: att.data }
+				blocks.push(
+					att.type === 'document'
+						? { type: 'document', source, ...(att.name ? { title: att.name } : {}) }
+						: { type: 'image', source },
+				)
 			}
 			out.push({ role: 'user', content: blocks })
 			continue
@@ -478,6 +484,7 @@ export const ANTHROPIC_CAPABILITIES: ProviderCapabilities = {
 	supportsStreaming: true,
 	supportsFunctionCalling: true,
 	supportsVision: true,
+	supportsDocuments: true,
 }
 
 export class AnthropicProvider implements LLMProvider {

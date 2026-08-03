@@ -85,8 +85,8 @@ const IMAGE_MEDIA_TYPES: ReadonlySet<string> = new Set([
 	'image/gif',
 ])
 
-function unsupportedImageNote(mediaType: string): string {
-	return `[image: ${mediaType} — unsupported format, not sent]`
+function unsupportedImageNote(mediaType: string, kind: 'image' | 'document' = 'image'): string {
+	return `[${kind}: ${mediaType} — unsupported format, not sent]`
 }
 
 /**
@@ -103,6 +103,10 @@ export const OPENROUTER_CAPABILITIES: ProviderCapabilities = {
 	supportsStreaming: true,
 	supportsFunctionCalling: true,
 	supportsVision: true,
+	// Images only. A document degrades to a named note, and the runtime
+	// warns before the request rather than after the model answered
+	// about a file it never saw.
+	supportsDocuments: false,
 }
 
 export class OpenRouterProvider implements LLMProvider {
@@ -170,7 +174,7 @@ export class OpenRouterProvider implements LLMProvider {
 							image_url: { url: `data:${attachment.mediaType};base64,${attachment.data}` },
 						})
 					} else {
-						notes.push(unsupportedImageNote(attachment.mediaType))
+						notes.push(unsupportedImageNote(attachment.mediaType, attachment.type ?? 'image'))
 					}
 				}
 				const head = [msg.content, ...notes].filter((part) => part.length > 0).join('\n')
