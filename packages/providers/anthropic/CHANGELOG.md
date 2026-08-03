@@ -1,5 +1,285 @@
 # Changelog
 
+## 1.3.0
+
+### Minor Changes
+
+- 935b8f3: An answer can cite the document it came from
+
+  Sending a document buys the provider's native handling of it — page structure, built-in OCR, and the ability to say which passage an answer rests on. namzu could send the document and could not receive the third: an answer about a contract arrived as prose, and checking it meant reading the contract again by hand. A citation is the difference between an answer you trust and one you verify.
+
+  `citations: true` on a document attachment asks for them; they come back on the assistant message as `Citation[]`. Opt-in per document, because the provider splits the document into citable units and the answer carries the passages it leaned on — tokens a turn that never wanted a citation should not pay.
+
+  The location is a union — `page`, `char` or `block` — rather than a page number, because providers segment differently and the segmentation is theirs. Flattening all three would invent a page number for the two that have none. Web-search and search-result citations are deliberately dropped: they point at something that was never in the request, so there is no attachment to resolve them against, and a citation the reader cannot go and look at is worse than none.
+
+  Citations ride with the turn that made them, like reasoning blocks, so compaction takes a turn's evidence with it rather than leaving citations pointing at prose that is gone.
+
+- 935b8f3: Documents and citations were designed in the SDK and never built in the drivers.
+
+  `DocumentAttachment` and `Citation` existed in `@namzu/sdk` with a page of documentation about why native document handling is worth having — page structure, the provider's own extraction, and the ability to say which passage an answer rests on. The stream chunk carried a citation slot, the run's stream aggregator collected them onto the assistant message, and the iteration attached them to the turn. Both these drivers declared `supportsDocuments: true`.
+
+  Neither had a document branch. Every attachment was mapped as an image — a PDF went up as an image block with `media_type: application/pdf` on one wire and as `data:application/pdf;base64,…` inside an `image_url` part on the other, shapes the APIs reject. And only the mock provider ever emitted a citation, so in a real run the slot was always empty: an answer about a contract arrived as prose, and checking it meant reading the contract again.
+
+  - **`@namzu/anthropic`** now sends a native document block carrying the media type, the optional title, and — only when the attachment asked for them, because they cost tokens — citations. It parses citation deltas back onto the stream, keeping the location as the discriminated union the SDK defines: a provider that segments by character offset has no page number, and a citation whose location cannot be named is dropped rather than given an invented one. A citation that looks checkable and is not is worse than none.
+  - **`@namzu/openai`** now sends a document as a `file` content part with its filename. That wire has no way to return citations, so a document that asks for them is refused with a message naming the document and what to do instead — answering without them would drop the checkability the caller asked for, and an empty citation list reads as "the model cited nothing" rather than "nobody asked".
+
+  The drivers that declare `supportsDocuments: false` were already honest: none of them map attachments at all, and the runtime warns (or fails under `strictCapabilities`) before the request is built.
+
+- 935b8f3: Extended thinking, and images inside tool results.
+
+  Two more halves the SDK had specified and this driver had not built.
+
+  **Extended thinking.** The stream chunk carried a `reasoning` channel whose own comment named the failure — `thinking_delta` and `signature_delta` fell through the driver's `default: // ignore` — the run's aggregator bucketed fragments by index and closed them on `done`, and `ReasoningBlock` recorded the signature with a note that replaying it unchanged is mandatory. The driver requested no thinking, parsed none, and replayed none, so the feature was unreachable on a model where it is off by default and untunable on one where it is on.
+
+  It now sends the `thinking` request with the caller's budget, streams each block with its fragments and its signature, closes the block so the aggregator knows the signature has landed, and replays reasoning blocks verbatim and first on the next request. Verbatim is not a style choice: the signature is verified upstream, so a block re-rendered, reordered, or stripped of its signature invalidates the whole conversation rather than that block. A redacted block travels as its opaque payload.
+
+  **Images in tool results.** A tool result carrying content blocks was `JSON.stringify`d, so a screenshot reached the model as a wall of quoted base64 — the exact thing the SDK's degrade helper exists to prevent, and pure waste besides: the model paid for every character and could read none of them. This wire carries image blocks inside a tool result natively; the mapper simply never used the shape. Documents still degrade to the named placeholder, because tool results here take text and images, and the wrong block fails the request rather than just the block.
+
+  Six previously empty test files now cover this driver: document input, citations, extended thinking, tool-result content blocks, cache-breakpoint placement, and the request shapes the wire rejects outright — an empty content array, an orphan tool result, a `tool_choice` sent without tools.
+
+- 935b8f3: Widen the message model to content blocks: multimodal tool results, `is_error`,
+  and reasoning replay.
+
+  `ToolMessage.content` was `string` and `AssistantMessage` had no slot for
+  reasoning, so three separate things died at the provider boundary. Doing them
+  as one migration is deliberate — all three need the same widening, and every
+  stored transcript, checkpoint and `messages.json` is written in the narrow
+  shape, so the cost only grows.
+
+  **Tool results can carry non-text content.** `ToolResultContent` is
+  `string | ToolResultBlock[]`, where a block is text, image or document. String
+  stays first-class: the common case is unchanged and every existing tool and
+  driver compiles untouched. `@namzu/computer-use`'s `screenshot` returned
+  ~400 KB–2.7 MB of base64 **as text** — roughly 100k–670k tokens of characters
+  no model can decode — so computer use was effectively non-functional; it now
+  returns an image block with a short textual description. MCP `image` and
+  inline `resource` blocks are passed through instead of being filtered out.
+
+  **Failures are marked on the wire.** The executor computed `isError`, routed it
+  to the SSE bridge, the A2A bridge and the TUI, then dropped it at the provider
+  boundary — so the model's trained tool-failure recovery never fired. The
+  Anthropic driver now sends `is_error: true`, and the value survives the
+  executor's result tuple, which previously narrowed to `{toolCallId, output}`
+  before the message was built.
+
+  **Reasoning is representable and replayed verbatim.** `AssistantMessage.reasoning`
+  holds opaque `ReasoningBlock`s (thinking / redacted, with signature or encrypted
+  payload). The Anthropic driver used to rebuild every assistant turn as
+  `[text?, ...tool_use]` — precisely the pattern the verbatim-echo contract
+  prohibits when a `tool_result` follows — and now emits stored reasoning blocks
+  first, signature intact.
+
+  Drivers that cannot express non-text tool results (`@namzu/openai`,
+  `@namzu/ollama`) degrade through `toolResultToText`, which renders an explicit
+  `[image: …]` placeholder rather than dumping base64 or silently dropping it.
+
+  This is the outbound half. The Anthropic driver does not yet parse thinking
+  blocks out of the stream and `ChatCompletionParams` has no `thinking` field,
+  so `reasoning` is populated only when a caller supplies it.
+
+- 935b8f3: Parse reasoning out of the stream, and let a run request extended thinking.
+
+  This completes the reasoning work: the previous release added storage and
+  verbatim replay, but nothing populated it. `StreamChunk.delta` carried only
+  `content` and `toolCalls`, so the Anthropic driver's `thinking_delta` and
+  `signature_delta` events fell through its `default: // ignore` — the blocks
+  could not be captured even in principle. Two consequences: the verbatim-echo
+  contract was unsatisfiable in practice, and a streaming UI showed a
+  multi-second stall with zero events while the model was demonstrably working.
+
+  - `StreamChunk.delta.reasoning` carries fragments bucketed by block index,
+    exactly like `toolCalls[].index`, closed by `done`.
+  - `streamProviderTurn` accumulates them and attaches the finished blocks to
+    the response in **stream-index order**, not arrival order — a provider may
+    interleave blocks, and the echo contract is about the original ordering.
+  - New `reasoning_started` / `reasoning_delta` / `reasoning_completed` run
+    events, wire-mapped as `reasoning.*`. The delta is ephemeral, so the
+    transcript records the completed block rather than every fragment.
+  - The Anthropic driver handles `content_block_start` for
+    `thinking`/`redacted_thinking`, forwards `thinking_delta` and
+    `signature_delta`, and closes the block on `content_block_stop`.
+  - `AgentRunConfig.thinking` (`ThinkingConfig`) is forwarded on every model
+    call. The Anthropic driver maps it to `thinking` and **omits
+    temperature/top_p/top_k while it is enabled**, because the API rejects them
+    together — sending a request known to 400 is worse than dropping a sampling
+    knob the caller did not prioritise.
+
+  Reasoning rides on the assistant message it belongs to, so the replay contract
+  holds automatically: trimming or compacting that message takes its thinking
+  blocks with it, and no separate atomicity rule is needed in `findSafeTrimIndex`.
+
+- 935b8f3: A user message can carry a document
+
+  Documents existed in the type system only in the tool-result direction, and both first-party drivers mapped images only on the input side. So "here is the contract, answer questions about it" — a mainstream workload — was reachable only by having a tool read the file and stringify it. That loses the provider's native document handling (page structure, built-in OCR, citations) and pays the text cost instead.
+
+  `UserMessage.attachments` is now `MessageAttachment[]`: an image or a document. The discriminant is optional and stays optional — an attachment without one is an image, which is what every attachment was before, so no existing caller changes.
+
+  `supportsDocuments` sits beside `supportsVision` in the driver capability declaration, and the runtime checks it the same way: a document sent to a driver that declares `false` warns before the request, or throws under `strictCapabilities`, instead of letting the model answer about a file it never saw. The two are counted separately because they are separate wire shapes and a driver can map one without the other.
+
+  The two first-party drivers map documents natively. The remaining five map images only and now say so; a document reaching them degrades to a named placeholder that says which kind was dropped, rather than one that calls a document an image.
+
+### Patch Changes
+
+- 935b8f3: The conversation cache anchor advances, so the next request can read it.
+
+  A single breakpoint at the conversation tail writes a new cache entry every
+  turn and reads none of them: by the next request the tail has moved, so the
+  marker sits somewhere the previous entry does not cover. The tools and
+  system tiers keep hitting through their own breakpoints — which is exactly
+  what made this invisible. Only the messages tier silently re-billed as a
+  write.
+
+  Both drivers now place a second anchor one turn back, which is where the
+  previous request put its tail marker and therefore the prefix that is
+  already cached.
+
+  It matters most where the history grows fastest. Pending tool results
+  collapse into a single message, so a fan-out of ten parallel calls appends
+  twenty content blocks in one turn — far enough to push the prior boundary
+  out of reach of a backward scan that stops at the first non-empty message.
+
+  This spends the fourth of the four allowed breakpoints, previously
+  documented as deliberately unspent. It is spent on the one tier that was
+  never hitting. A conversation with a single message still gets one anchor,
+  because there is nowhere behind it to put a second.
+
+- 935b8f3: Lift the dependency floor to versions without published advisories
+
+  Eighty-two open advisories collapsed to a handful of real decisions, because most of them were the same package reached through one path.
+
+  The telemetry exporters carried a serialization library with twenty-four advisories against it, two of them critical. The exporters move from the 0.57 line to 0.221, and the stable packages beside them from 1.x to 2.x — a major bump for this package, since a consumer pinning the older peers must move with it.
+
+  The two vendor driver SDKs move to their current releases, closing the advisories that came with them.
+
+  The test runner accounted for fourteen critical advisories on its own. It is a development dependency and never reaches a published artifact, but it runs in CI against the repository's own contents, so it moves to the first patched release rather than being waved through as out-of-scope.
+
+- 935b8f3: Three driver defects found by auditing every provider against the same
+  contract checklist rather than one at a time.
+
+  **anthropic — a thinking block never reported its close.** `openReasoning`
+  was declared, read by the `content_block_stop` branch, and never added to:
+  three references in the whole file. The set was permanently empty, so the
+  close branch could not match and `reasoning: { done: true }` never reached
+  the consumer. A host that opens a thinking card on the first reasoning
+  delta left it spinning for the rest of the run. Stored blocks were
+  unaffected, so replay always looked correct — only the live stream was
+  broken, which is why it survived. This is the default driver.
+
+  **openai — every request to a reasoning-family model failed on turn one.**
+  `temperature` and `max_tokens` were sent unconditionally, and those models
+  reject both, requiring `max_completion_tokens`. The rejection is a 400,
+  which classifies as `invalid_request` and is not retryable, so the run
+  died immediately whenever a token cap was set — which the runtime always
+  does. Model family is now detected by id prefix, conservatively: an
+  unknown model keeps the standard parameters, because a false positive
+  silently strips `temperature` from a model that honours it while a false
+  negative produces a clear error naming the parameter.
+
+  **http — every streamed turn reported zero tokens.** The body builder never
+  requested usage on a streamed response, so a conforming endpoint sent none
+  and the (complete) parsing had nothing to parse. Cost read as free, and any
+  budget or compaction threshold keyed on usage never fired however large the
+  thread grew.
+
+- 935b8f3: Five places where namzu gave up, or claimed to recover, too early.
+
+  **A transient failure now pauses instead of failing.** A 503 that survived
+  every in-turn recovery — retry with jitter, the one-shot compaction relief,
+  mid-stream salvage — settled the run as `failed`, identically to a bad API
+  key. The host could not tell them apart, and recovering meant knowing about
+  checkpoints and driving replay itself. The state was never the problem:
+  checkpoints are written every iteration by default and the failed run is
+  persisted with full messages. Only the settle and the signal were missing.
+
+  A retryable failure with a checkpoint to resume from now emits `run_paused`
+  naming that checkpoint, leaves the span OK rather than ERROR, and sets
+  `stopReason: 'paused'`. Both conditions are required — pausing on a
+  permanent error would invite a resume that cannot work, and pausing with
+  nowhere to resume from produces a run nobody can ever pick up.
+
+  **A forced compaction pass can no longer decline to do anything.** A forced
+  pass runs because the provider _rejected_ the prompt as too long, and two
+  things let it treat that as advisory. It re-applied the chars/4 estimate
+  after clearing stale tool results — the estimate the provider had just
+  refuted — and returned early if that said the context was fine. And relief
+  reported success on ANY positive shed, so clearing one short result counted
+  and the retry burned a whole model call to be told the same thing. The
+  early return is now force-gated, and a shed has to clear a floor (a
+  fraction of the prompt, at least a couple of thousand characters) to count.
+
+  Separately, the relief latch is per **stuck point**, not per run. It exists
+  to stop a second overflow immediately after a successful compaction from
+  looping; as a run-scoped flag it meant one relief at iteration 3 disarmed
+  the mechanism for the rest of the run, leaving iteration 40 to die with
+  obvious moves left. It is now cleared by a turn that actually succeeded.
+
+  **An eval case can no longer hang the suite.** `executeCase` was a bare
+  await, so a `run` closure that never settled blocked its worker and
+  `runExperiment` never returned — no report, no partial results, nothing to
+  read. `ExperimentConfig.timeoutMs` bounds a case and hands `run` an
+  `AbortSignal` as a third argument; a timed-out case is reported and the
+  suite continues, exactly like a case that threw, with its real elapsed time
+  rather than zero. Unset means no deadline, which is today's behaviour. The
+  documented path already inherits deadlines from the runtime it drives; this
+  covers what those cannot see — a closure that does not go through
+  `query()`, and a mid-iteration provider stall.
+
+  **A malformed content block is named, not smuggled.** One driver built an
+  image block by calling `String()` on whatever `data` and `mediaType`
+  happened to be, behind only a truthiness check — so a non-string `data`
+  became the literal `"[object Object]"` as the base64 payload, and the wire
+  rejected the whole request with nothing naming the block at fault. That is
+  reachable: a remote tool result is cast without validation on the way in.
+  It now type- and media-type-guards and degrades to a named placeholder,
+  matching the sibling driver that already did, and without inlining the
+  payload it refused to send.
+
+  **Failures have somewhere to grow remediation.** A stale API key surfaced
+  as whatever prose the vendor SDK happened to write: no id to grep in logs,
+  no instruction on what to change, and no growth point — a newly-observed
+  failure shape could only be given curated copy by editing the classifier.
+  `explainError` adds an ordered, id-keyed rule layer matching on
+  **structural** signals (code, status, an explicit hint) rather than
+  volatile vendor prose. `run_failed` carries the result as `explanation`;
+  `withHint(err, '…')` lets a throw site attach what only it knows, and
+  outranks every generic rule. It returns `null` when no rule claims the
+  failure — inventing advice for something uncharacterised is worse than
+  saying nothing, because it sends the reader somewhere specific and wrong.
+  The container backend's readiness, port-mapping and worker-fetch failures
+  now carry hints.
+
+- 935b8f3: namzu's own vocabulary, everywhere.
+
+  Comments across the kernel explained namzu's design by naming another
+  product: "mirrors X's container architecture", "reference: X's
+  `normalizePathForSandbox()`", "which is what Y and Z both do", "Claude Code
+  uses 2000 for the same reason". Behaviour was correct throughout — this is
+  about what the code says it is. A kernel that explains itself by citation
+  reads as a reimplementation of something else, and namzu is not one.
+
+  Every such comment now states the reason directly. Where a rule exists
+  because a provider requires it, the comment says what the requirement is
+  rather than whose it is — which is also more useful, since the same
+  requirement usually holds for more than one provider, and a reader who has
+  never used the named one can still follow it.
+
+  **Breaking (types only, no runtime behaviour):**
+
+  - `ToolCatalogSurface`: the `'cowork'` member is now `'supervised'`.
+  - `ToolSource.skill.type`: `'anthropic' | 'custom'` is now
+    `'published' | 'custom'`.
+
+  Both are descriptive metadata with no construction site anywhere in the
+  workspace, so nothing internal moved. An external consumer that names
+  either value gets a compile error pointing at the line.
+
+  **Deliberately unchanged**, because these are addresses rather than
+  borrowed naming: model-id prefixes in the context-window table (data the
+  runtime matches against), API-key detection patterns in the guardrail
+  presets (a pattern is worthless if you cannot tell what it detects),
+  namzu's own provider package names, and the credential-store integration in
+  the CLI, whose service name and file path are literally the other tool's.
+
 ## 1.2.0
 
 ### Minor Changes

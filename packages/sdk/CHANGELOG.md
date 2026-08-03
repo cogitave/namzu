@@ -1,5 +1,2270 @@
 # Changelog
 
+## 3.0.0
+
+### Major Changes
+
+- 935b8f3: Retire the declarations that promised behaviour nothing implemented, and implement the ones worth keeping.
+
+  Seven fields were declared on exported types and read by nothing. Each was a contract a host could satisfy and get no result from — the worst kind of gap, because the only signal is that nothing happens.
+
+  **Implemented**
+
+  - `maxToolContentBytes` capped the rich channel of a tool result, and no caller could set it: `ToolingBootstrapConfig` had no such field, so the cap was always `0` and the capping branch was unreachable. It is now settable on `ReactiveAgentConfig` and on query params, and reaches the executor through the same chain `maxToolOutputChars` already had.
+  - `AdvisoryResult.warnings` and `.decisions` had two consumers each — the advisory phase folds decisions into working state so they survive compaction, and renders warnings back to the executing agent — and no producer at all. Advisors are now told the convention their answer is read with, and `parseAdvisoryResponse` lifts `<warnings>` / `<decisions>` blocks out of the prose. The contract is appended to a host-written prompt and a persona-assembled one too, not only the default; an advisor never told the convention would have had its warnings silently discarded.
+  - `AdvisoryBudget.maxCostPerRun` is enforced before each call against real accumulated spend, and `maxTokensPerCall` clamps the advisor's own response ceiling. Cost is now computed from a new optional `AdvisorDefinition.pricing`, and a run that sets a cost cap over unpriced advisors is **refused at construction** rather than left with a cap that could never be reached.
+
+  **Removed** — declared, never read, and not worth building:
+
+  - `AdvisoryBudget.maxCallsPerSession` and `maxCostPerSession`: the advisory stack is built once per run, so no accumulator outlived one and a per-session cap could only ever be decoration. `maxCostPerCall` went with them — a per-call cap can only be checked after the spend, which is a log line, not a budget.
+  - `AdvisoryResult.plan`, `.modelSuggestion`, `.toolGuidance`: no producer and no consumer.
+  - `ToolsetDefinition.toolPolicies`: stored on the toolset and never consulted, so a per-tool `{ enabled: false }` override was inert.
+  - `SandboxConfig.cleanupOnDestroy`: defaulted to `true` and read by nothing; `destroy()` removes unconditionally either way.
+  - `StructuredOutputConfig.enforceToolChoice`: documented a tool-choice mechanism no code implemented.
+  - `RuntimeConfig.promptCache`: caching is unconditional at both model calls, and no surface accepts a `RuntimeConfig`, so nothing could set it even in principle.
+
+  Also ports the telemetry provider to the current tracing API — `Resource` became a type with a factory, and span processors moved to the provider constructor — and lifts a run deadline inside the long-document flow test that aborted the run at 5s and read as a broken flow rather than a busy machine.
+
+- 935b8f3: Three controls a caller could set that the runtime then quietly declined to apply.
+
+  - **`toolChoice: 'none'` permitted tool calls on two drivers.** It means the model must not call a tool. One driver mapped it to the wire's "auto" and the other to `{ type: 'auto' }` — both of which say the model _may_. A caller that had forbidden tool use got a request that allowed it, with nothing in the response to say so. The runtime depends on the guarantee: an advisory consultation passes `'none'` so the advisor answers in prose, into a turn where no executor is waiting for a tool call. Both drivers now answer `'none'` by sending no tools at all, which no wire format can misread.
+
+  - **`memoryLimitMb` and `maxProcesses` were dropped by the stronger isolation tiers.** They were applied inside the unconfined tier's branch only, so asking for namespace or profile isolation silently removed the blast-radius caps — a control failing in the one direction nobody checks. They are the same shell builtin on every tier; the stronger tiers now apply them one level in, inside the wrapper they already spawn through, and keep doing their own job. The sibling backend in the sandbox package already refuses per-sandbox controls it cannot enforce rather than ignoring them; this is the same rule, satisfied by enforcing.
+
+  - **`AgentManager.dispose()` cancelled nothing.** It called `cancelAll('' as RunId)`, and `cancelAll` filters by parent run — no task has an empty parent, so it matched nothing, and the next lines cleared the instance map. Every live child was released without its abort controller firing: the work kept running, the budget kept draining, and nothing was left holding a reference to stop it. It now cancels every live child before dropping them. `cancelAll` stays scoped to one parent, which is its actual job.
+
+  `toBedrockToolConfig` and `buildLimitedSpawn` are exported so the mapping and the spawn shape can be asserted directly rather than through a live process.
+
+- 935b8f3: Three public identifiers named a vendor where the code was generic. Renamed,
+  and in two cases the naming was hiding a design problem worth fixing.
+
+  **`OpenRouterEmbeddingProvider` → `HttpEmbeddingProvider`** (config type
+  likewise). Nothing about the class was vendor-specific: it POSTs to
+  `{baseUrl}/embeddings` with a bearer key and reads back
+  `{ data: [{ index, embedding }] }` — the shape every hosted embeddings
+  service speaks. Only the name and a default host said otherwise.
+
+  `baseUrl` is now **required**. It defaulted to one vendor's host, which
+  meant a caller who never named an endpoint still shipped its text to one. A
+  default network destination is a decision the caller has to make out loud.
+  A trailing slash is now tolerated rather than producing a doubled path.
+
+  **`AgentFactoryOptions.provider`** was `'openrouter' | 'bedrock'` — a closed
+  two-member union in a generic factory, naming two specific services that the
+  provider registry has never been limited to and that no caller could extend.
+  It is now `string`: any registered provider type.
+
+  **`AgentFactoryOptions.bedrockConfig`** is replaced by
+  `providerConfig?: Record<string, unknown>`, passed through untouched. The
+  old field existed for exactly one service and had no construction site
+  anywhere in the workspace.
+
+  **`StorageProviderId`**: the `'anthropic-files'` member is now
+  `'provider-files'`.
+
+- 935b8f3: A model-graded judge, and a failed measurement that stops reading as a zero.
+
+  Every scorer in the harness was a pure function over the run, which is what
+  makes them reproducible — and what makes them unable to say whether an
+  answer is _good_. `containsScorer` can check that a required phrase appears;
+  it cannot tell a correct explanation from a fluent wrong one. The dimension
+  most worth guarding had no scorer behind it.
+
+  **`judgeScorer`** grades an open-ended answer with a model. Four choices in
+  it are deliberate, because each is where these usually go wrong:
+
+  - The **rubric is required**. A judge asked to rate "quality" rates fluency,
+    which correlates with little worth measuring and drifts whenever the judge
+    model changes. It throws rather than run without one.
+  - An **ordinal scale, not a 0..1 float**. Models place a continuous score
+    poorly and cluster on round numbers; a short scale against a written
+    rubric is a judgement they can make. The default of 4 is even on purpose —
+    an odd scale has a midpoint, and a midpoint is where an uncertain judge
+    parks.
+  - **Temperature 0**, because sampling noise is indistinguishable from a
+    regression.
+  - **Truncation disclosed in the prompt**, so the judge does not mark an
+    answer down for an ending the harness removed.
+
+  A grade outside the scale it was given is an error rather than a clamp: a
+  judge that misread the scale did not apply the rubric either.
+  `details.judgeTokens` carries what the judging cost.
+
+  **A failed measurement is no longer a measurement of zero.** A judge is a
+  network call, so it can fail to answer at all — and scoring that `0` says
+  "the run was bad" when the truth is "we do not know". One rate limit would
+  turn a green suite red and send somebody hunting a regression that never
+  happened.
+
+  - `Score.unavailable` marks a judgement that could not be produced. It is
+    excluded from the case mean's numerator **and** denominator.
+  - `CaseResult.status` is `'passed' | 'failed' | 'inconclusive'`, and a case
+    where every scorer was unavailable is inconclusive rather than failed.
+    `CaseResult.passed` remains, true only for `'passed'`.
+  - `ExperimentReport.inconclusive` counts them, and `formatReport` surfaces
+    that count **above** the failures — it means every number below covers
+    less evidence than it appears to.
+  - `byScorer` averages each scorer over the cases it actually judged, and
+    omits one that was never available rather than reporting it as `0`.
+
+  A run that **threw** still scores zero: that is a real failure of the thing
+  under test, not of the measurement.
+
+  Breaking: `CaseResult` gains a required `status`, `ExperimentReport` gains a
+  required `inconclusive`, and a scorer that throws now reports as unavailable
+  instead of scoring zero.
+
+- 935b8f3: **Breaking:** `ActiveNodeInfo` and `BranchStackEntry`, and the `activeNode` / `branchStack` checkpoint fields that carried them, are removed.
+
+  Both types described where a multi-node run stood — which agent was active, how deep, what each branch decided — and nothing ever wrote either one. `CheckpointManager.save` accepted them as optional `extra` arguments no caller passed, so every checkpoint ever written left both `undefined`, and a resume that consulted them would have found nothing to consult.
+
+  Resuming a fan-out is already covered, and by a general mechanism rather than a topology-specific one: delegation blocks and returns the worker's output as its own tool result, so a delegation is an ordinary tool call whose completion the transcript records — and the crash-resume path that answers already-executed tool calls answers delegations too. A worker that already ran does not run twice. That behaviour is now pinned by tests, so if delegation ever stops blocking, they fail.
+
+- 935b8f3: **Breaking:** three public types that promised behaviour the runtime does
+  not have are removed.
+
+  A public type that describes an absent capability is a worse defect than an
+  absent type. It reads as a feature, gets designed around, and the discovery
+  that it does nothing happens at runtime — usually in the one code path
+  nobody exercised until production.
+
+  - **`PluginHookResult`'s `{ action: 'resume' }`** — declared as a hook
+    outcome and rejected with "unsupported action" at every one of its three
+    consumers: the lifecycle-event applier, the `pre_tool_use` path and the
+    `post_tool_use` path. A plugin author reading the union had every reason
+    to think a hook could resume something. Nothing could.
+  - **`ConcurrencyMode`** (`'throw' | 'queue'`) — no API accepts it, nothing
+    calls the lock it was meant to configure, and the `queue` half describes
+    a mode that was never built. It promised a choice about concurrent
+    invocation where there is exactly one behaviour.
+  - **`ToolPermissionPolicy`** and `ToolsetPolicy.permissionPolicy` — written
+    once with a constant `'default'` and read by no runtime code. A host
+    setting `'always_ask'` on a toolset got no prompt and no error.
+
+  Migration: nothing consumed any of them, so nothing should break. If your
+  code sets `permissionPolicy`, delete the field — it never did anything; the
+  verification gate (`allow_by_name`, `custom_pattern`, `target: 'args'`) is
+  the surface that actually decides. If a hook returns `{ action: 'resume' }`,
+  it was already throwing at every call site.
+
+  Kept, and documented instead of removed: `AgentManager.continueTask` /
+  `queueMessage` / `drainMessages`. The queue they maintain is read by
+  nothing in the iteration loop — the consumer that once drained it was
+  removed — so a caller who assumes `continueTask` reaches a running agent is
+  filling a buffer only `drainMessages` empties. That is now stated on the
+  interface, along with the two mid-run routes that DO work (feedback inside
+  a tool result; `prepareStep`'s `system` string). Deleting `drainMessages`
+  would have removed the only way a host can pick those messages up and left
+  the trap in place.
+
+- 935b8f3: Close every open code-scanning finding
+
+  **Breaking:** `LocalExecutionContext.executeCommand` no longer interprets its arguments as shell syntax. `shell` defaulted to `true`, and spawning with a shell re-joins the command and its argument array into a single `sh -c` string — so every metacharacter inside an argument became syntax. An `args` array reads argv-safe and was not. The default is now `false`; `shell: true` remains available where a caller genuinely wants a pipeline. A consumer passing `"ls -la"` as one command string, or relying on glob expansion without asking for a shell, must now pass `shell: true`.
+
+  **A sandbox timeout is bounded, and an out-of-range one is refused.** The bash tool's `timeout` argument is a number the model writes, with no ceiling of its own, and it reached both sandbox transports unmodified — so a single call could pin a container or a guest for as long as the platform's timer honours. Both transports now refuse a non-finite, non-positive or over-thirty-minute request rather than clamping it: running under a deadline the caller never chose, and never learns about, is the "accepted and silently not applied" failure this codebase treats as worse than not offering the control at all.
+
+  **Seven quadratic-backtracking regexes are now linear scans**, each on a path an attacker can reach: shell output the agent captured, a tenant-supplied connector URL, a host-supplied workspace root, a model completion, and three endpoint strings that cross the same trust boundary. The worst measured over thirty seconds on a single pathological input, on a shared event loop. Three of the seven were not flagged by the scanner — the same pattern, the same boundary — and were fixed with the rest rather than left to be rediscovered.
+
+- 935b8f3: namzu's own vocabulary, everywhere.
+
+  Comments across the kernel explained namzu's design by naming another
+  product: "mirrors X's container architecture", "reference: X's
+  `normalizePathForSandbox()`", "which is what Y and Z both do", "Claude Code
+  uses 2000 for the same reason". Behaviour was correct throughout — this is
+  about what the code says it is. A kernel that explains itself by citation
+  reads as a reimplementation of something else, and namzu is not one.
+
+  Every such comment now states the reason directly. Where a rule exists
+  because a provider requires it, the comment says what the requirement is
+  rather than whose it is — which is also more useful, since the same
+  requirement usually holds for more than one provider, and a reader who has
+  never used the named one can still follow it.
+
+  **Breaking (types only, no runtime behaviour):**
+
+  - `ToolCatalogSurface`: the `'cowork'` member is now `'supervised'`.
+  - `ToolSource.skill.type`: `'anthropic' | 'custom'` is now
+    `'published' | 'custom'`.
+
+  Both are descriptive metadata with no construction site anywhere in the
+  workspace, so nothing internal moved. An external consumer that names
+  either value gets a compile error pointing at the line.
+
+  **Deliberately unchanged**, because these are addresses rather than
+  borrowed naming: model-id prefixes in the context-window table (data the
+  runtime matches against), API-key detection patterns in the guardrail
+  presets (a pattern is worthless if you cannot tell what it detects),
+  namzu's own provider package names, and the credential-store integration in
+  the CLI, whose service name and file path are literally the other tool's.
+
+- 935b8f3: Tool names are validated, and a paged remote catalogue is read to the end.
+
+  **Every plugin-contributed tool name was illegal.** A tool name reaches the
+  provider verbatim and the major message APIs accept `[a-zA-Z0-9_-]` up to 64
+  characters — but the plugin namespace separator was `:`, so every tool a
+  plugin contributed carried a name the wire rejects. Nothing checked: names
+  are derived by concatenation at three separate construction sites and none
+  validated the result.
+
+  The rejection is a 400 on the **whole request**, not on that tool. Those
+  tools are registered deferred, so it fired the moment something activated
+  one, with nothing naming the culprit.
+
+  - `assertToolName` runs at registration, where a bad name can still be
+    attributed and costs the run nothing.
+  - **Breaking:** `PLUGIN_NAMESPACE_SEPARATOR` is now `__`, which renames every
+    plugin-contributed tool id — `fs-plugin:mcp__fs__read_file` becomes
+    `fs-plugin__mcp__fs__read_file`. A host that names one of these in an
+    allowlist, a permission rule or a preserve-list must update it. The two
+    changes have to land together: adding the check without the rename would
+    refuse every plugin tool.
+
+  One driver had already ratified passing names through untouched, on the
+  grounds that a confusing name is "a naming problem to fix in the registry,
+  not something to paper over" — which is precisely why the registry has to be
+  the one that checks.
+
+  **A paged remote catalogue is now read to the end.** `tools/list`,
+  `resources/list` and `resources/templates/list` each sent an empty params
+  object and returned the first page — never sending a cursor, never reading
+  the one that came back. A server that pages its catalogue contributed only
+  its first page: the rest were never registered, never namespaced, never
+  advertised, with no error and no warning. Drift detection did not help
+  either, since it compared page one against page one.
+
+  The symptom is a model that never uses a tool it was told about, which reads
+  as model incompetence rather than a client bug. Both clients — the SDK's and
+  the CLI's — now thread the cursor. A server whose cursor never ends is
+  refused after 100 pages rather than looping forever or stopping silently,
+  since stopping silently is the failure being fixed.
+
+### Minor Changes
+
+- 935b8f3: An answer can cite the document it came from
+
+  Sending a document buys the provider's native handling of it — page structure, built-in OCR, and the ability to say which passage an answer rests on. namzu could send the document and could not receive the third: an answer about a contract arrived as prose, and checking it meant reading the contract again by hand. A citation is the difference between an answer you trust and one you verify.
+
+  `citations: true` on a document attachment asks for them; they come back on the assistant message as `Citation[]`. Opt-in per document, because the provider splits the document into citable units and the answer carries the passages it leaned on — tokens a turn that never wanted a citation should not pay.
+
+  The location is a union — `page`, `char` or `block` — rather than a page number, because providers segment differently and the segmentation is theirs. Flattening all three would invent a page number for the two that have none. Web-search and search-result citations are deliberately dropped: they point at something that was never in the request, so there is no attachment to resolve them against, and a citation the reader cannot go and look at is worse than none.
+
+  Citations ride with the turn that made them, like reasoning blocks, so compaction takes a turn's evidence with it rather than leaving citations pointing at prose that is gone.
+
+- 935b8f3: A finished run can leave something behind
+
+  The SDK could store a memory and could not form one. `MemoryStore` and its disk implementation have been here all along, and the only path into them was the model calling `save_memory` — so a run that worked out a durable fact and never thought to write it down lost it at settle, along with everything the compaction pass had already extracted and structured on the way.
+
+  The extraction was already built: compaction distils the transcript into decisions, discoveries, requirements and failures precisely because a list of facts is worth more than a summary of prose. That structure was serialized into one system message and then dropped when the run ended. `promoteMemory` is called once, at settle, with it.
+
+  A callback rather than a store the runtime writes into — what is worth remembering is a policy question the host owns, and a runtime that decided it would write a row for every run whether or not anything happened. It is called for a failed run too (the approach that failed is exactly what a later run should not pay for twice), it is awaited rather than fire-and-forget (a one-shot process exits as soon as the run returns), and a throw is swallowed and logged, because a memory that failed to form must not retract an answer that was already produced.
+
+- 935b8f3: A host can judge the **answer**, and one agent instance runs one thing at a
+  time.
+
+  **`reviewAnswer` closes the verify-then-fix loop.** `stopWhen` is evaluated
+  after each step's _tools_ have run, so it had nothing to say at the moment
+  the model stopped calling them — the run finalized with whatever it had
+  produced. Running the build, feeding the failure back, and letting the
+  model try again meant starting a whole new run and re-supplying the context
+  the first one had already assembled.
+
+  The reviewer sees the answer and the history, and either accepts or returns
+  feedback that becomes the next user turn. Three properties carry it:
+
+  - **Bounded** by `maxAnswerReviews` (default 3), stopping with
+    `stopReason: 'answer_rejected'`. The distinct reason matters: without it
+    a reviewer that never accepts ends the run on `max_iterations`, naming
+    the resource it exhausted rather than the judgement that exhausted it,
+    and the reader goes looking for a loop instead of at the reviewer.
+  - **Never on the forced-final turn**, which exists to extract a closing
+    summary under pressure. Rejecting it would spend budget the run has
+    already run out of.
+  - **A reviewer that throws ACCEPTS** — the opposite of the safety gates,
+    deliberately. Those are asked "is this dangerous", where failing closed
+    costs one refused operation; this is asked "is this good enough", where
+    failing closed hands the answer back forever and turns every run into a
+    loop. One unreviewed answer is the cheaper failure, and the throw is
+    logged at `error` so it is never mistaken for approval.
+
+  Shaped after the structured-output re-prompt directly above it in the loop,
+  which solves the same problem for one specific judge.
+
+  **The invocation lock now has a caller.** `InvocationLock`,
+  `ConcurrentInvocationError` and `acquireInvocationLock` were all defined and
+  exported, and no agent ever acquired the lock — so concurrent invocations of
+  one instance were not prevented and the error type could not be thrown by
+  anything.
+
+  They are genuinely unsafe: `abortController` and `currentRunId` are
+  _instance_ state. Two overlapping runs share one abort controller, so
+  cancelling either kills both, and the second clobbers the first's run id, so
+  a later `cancel()` cancels the wrong run. Neither failure announces itself —
+  the first run simply stops, or the wrong one does. A host that wants
+  parallelism constructs a second instance, which is cheap; sharing one was
+  never the supported shape, it merely was not refused.
+
+  This is the other half of `ConcurrencyMode`, removed earlier in this release
+  as an unreachable type promising a `queue` mode that was never built.
+
+- 935b8f3: Any tool can raise a durable pause
+
+  The pause-for-a-human machinery is durable and complete, and it was reachable from exactly four kernel-owned points: the plan gate, the tool-review gate, the iteration cadence, and the built-in question tool. A host-authored tool had no seam to it — the operations that most want their own confirmation with their own wording, a spend, an outbound post, a destructive migration, had to settle for the generic tool-review gate or hand-thread a recorder and a resume callback into a private builder, which nothing in `ToolContext` suggested was possible.
+
+  `context.requestPause({ name, prompt, options })` is that machinery behind one function. The pause is written as a real checkpoint, so it appears on every surface a tool-review park appears on and survives the process dying, and on resume the answer routes back **by name** — several tools pausing in one batch each get their own, and one call may pause more than once.
+
+  The outcome is `answered`, `unanswered`, or `aborted`. Silence is deliberately not a variant of `answered` with an empty selection: a tool that asks "may I charge this card" and reads silence as yes is worse than one that never asked, so the absence of an answer has its own shape and cannot be destructured into consent. An option id the tool never offered is dropped for the same reason.
+
+  `requestPause` is optional on the context, because a host calling a tool directly provides no route to a human.
+
+- 935b8f3: Four places where namzu knew something and told no one.
+
+  **A backoff is now visible.** `withProviderRetry` logged and slept. There
+  was no run event, no wire event, and — worse than that — the sole
+  production call site never passed a logger, and every warn in the decorator
+  is guarded behind it, so the log lines were dead code too. A run could sit
+  silent for the better part of a minute between `iteration_started` and the
+  next event, or up to the 60s server-directed cap, with no signal and no
+  keepalive: a backoff was indistinguishable from a hang, and a host's
+  watchdog would cancel a run that was about to succeed.
+
+  A `provider_retry` run event now carries the attempt, the ceiling, the
+  delay, the classified code and whether the server asked for it, mapped to
+  `provider.retry` on the SSE wire and to a `running` status update over A2A.
+  It is emitted **before** the sleep, so the delay it names is still ahead —
+  which is also why it rides the stream as a delta-less chunk rather than an
+  out-of-band callback: the consumer is blocked inside the provider's
+  iterator, so a callback could not reach it until the wait was already over.
+  The omission was never principled; `tool_progress` exists to answer "is it
+  still working?" and the wire contract justifies the reasoning events on
+  exactly the same grounds.
+
+  **Two latency measurements that could not be recovered from the data.**
+  `gen_ai.client.time_to_first_token` is recorded at the first delta of any
+  kind. namzu streams, so perceived latency is dominated by that number, and
+  the one existing latency histogram measures the whole request — it cannot
+  tell a fast-first-token long generation from a stalled one, and no host
+  could reconstruct the difference in any form.
+  `gen_ai.tool.call.duration` records what the executor has measured since
+  its first version: the value was already in scope one frame above the call
+  site, emitted per call on `tool_completed`, and had no instrument. It
+  carries the same attributes as the tool-call counter, so "which tool is
+  slow" and "which tool fails" are one query rather than two that cannot be
+  joined.
+
+  **`run_failed` carries the classification it always had.** The event was a
+  bare string, and the run boundary flattened the throwable into it,
+  discarding `code`, `status`, `retryAfterMs`, `retryable`, `details` and the
+  cause chain. This was never a missing taxonomy: the provider-boundary
+  classifier already walks all of that, so a fully-populated error arrived at
+  the boundary and was thrown away one line later — and `toPlatformError`,
+  the projection written for exactly this, had no callers outside its own
+  test. `run_failed` now carries `failure` alongside `error`; the A2A bridge
+  sends it as event metadata (a peer deciding whether to retry needs the
+  flag, not prose to pattern-match) and the CLI prefixes the code. Nothing
+  had to change at the hundreds of `throw` sites.
+
+  Not fixed, and worth naming: the advisory `on_error` trigger still
+  substring-matches. Its input is tool output from the message history, which
+  has no structured code to preserve — that needs a tool-side error catalog,
+  not this change.
+
+  **The published attribute constants can no longer drift.**
+  `@namzu/telemetry/attributes` restated the attribute bags by hand and had
+  already lost `GENAI.TOKEN_TYPE`, the dimension that splits the token
+  counter by kind. The consequence was narrow — namzu emits through the
+  canonical module, so the dimension is on the data regardless — but this is
+  the entry point the observability docs steer consumers to, the package had
+  no tests at all, and the public-surface verifier only loads the SDK bundle.
+  It is now a re-export, with a parity test so a future hand-copy fails
+  immediately.
+
+- 935b8f3: Add programmable stop conditions and a per-step record.
+
+  `GuardCoordinator` was the loop's only halt, and it consumes
+  `{aborted, totalTokens, totalCost, currentIteration, startTime}` — it never
+  sees messages, tool calls or results. So a terminal `submit_answer` /
+  `verify_outputs` tool could not end a run: the model had to be prompt-begged to
+  stop, with `maxIterations: 200` or the token budget as the only backstop, which
+  meant a finished task still burned its whole envelope. "Stop after three steps
+  without progress" and "stop when the plan is complete" were inexpressible.
+
+  **`StepResult`** records what each iteration did — model, message id, content,
+  tool calls, tool results, finish reason, per-step usage and cost delta, start
+  time, total duration and time spent inside tools. Every field was already
+  computed somewhere in the loop; none of it was reachable, because neither `Run`
+  nor `BaseAgentResult` had a `steps[]`. A host that persisted the returned `Run`
+  — the natural thing — permanently lost per-step attribution, and answering
+  "which step cost the most" meant correlating raw `RunEvent`s by iteration number
+  and diffing cumulative counters.
+
+  - `Run.steps` carries the record, including on a failed run.
+  - `onStepFinish(step)` fires as each step completes.
+  - `stopWhen` is evaluated **after** the step's tools have run, so a predicate
+    sees what they returned. That ordering is what lets a terminal tool end the
+    run _after_ executing rather than instead of executing — its output is still
+    recorded and still reaches the model's history.
+  - Helpers: `stepCountIs(n)`, `hasToolCall(...names)`, `anyOf(...conditions)`.
+    Conditions may be async.
+  - A predicate that throws is logged and treated as "do not stop": failing open
+    leaves the existing budgets in charge rather than killing a healthy run.
+  - New `StopReason: 'stop_condition'`.
+
+  `runToolReview` now returns its tool outcomes alongside its decision, so the
+  loop builds the step record from what actually ran instead of re-deriving it
+  from the messages it just pushed.
+
+- 935b8f3: Durable run state: a parked approval now survives a process boundary.
+
+  A HITL park used to exist only as a suspended `await` inside one process.
+  The checkpoint written just before it looked identical to any mid-run
+  checkpoint, so nothing in durable state said a human owed the run an
+  answer — an approval queue could not be rebuilt, and a serverless host
+  could not park a run at all, because the container holding the promise had
+  to stay alive.
+
+  - `IterationCheckpoint.pending` records the `HITLDecisionRequest` verbatim,
+    plus the answer once it arrives (kept as evidence, not erased).
+  - `findPendingCheckpoint(store, scope)` — the read an approval queue is
+    built from, in any process.
+  - `RunState` + `captureRunState` / `loadRunState` / `parseRunState`: a
+    flat, JSON-safe snapshot with a version guard, so a snapshot written by
+    one deployment cannot silently half-restore in another.
+  - `QueryParams.pendingDecision` applies a decision collected out-of-band to
+    the exact tool calls the human was shown. Without it a resumed run
+    repaired the unanswered `tool_use` blocks away and let the model
+    re-decide, so "yes, delete that row" degraded into "ask the model again
+    and hope it asks for the same thing". The decision is ignored (and the
+    repair path runs) when the checkpoint's calls no longer match the
+    recorded request — consent to one batch is not consent to another.
+  - A `pause` decision keeps the park outstanding; every other action
+    resolves it. A host that cannot block answers `pause` immediately and
+    comes back in another process.
+  - Park recording is lazy (`parkRecordDelayMs`, default 250ms) so a
+    programmatic handler never pays for it — except `pause`, which is always
+    recorded because it means the decision is still owed.
+
+- 935b8f3: Retry works on a wrapped error, and the runtime actually emits metrics.
+
+  **Every error signal is now read across the whole cause chain.** It was read
+  off the error handed in, so one layer of wrapping hid it — and wrapping is
+  the normal case, not an edge one: a vendor SDK wraps its transport error and
+  the runtime wraps again on the way out. A rate limit wrapped **once**
+  classified as `unknown`, which is treated as non-retryable, so the retry
+  policy was dead for every failure that was not the outermost throwable. A
+  socket reset two levels down was likewise unknown — the one class of failure
+  where retrying is almost always right.
+
+  Status, transport errno, `Retry-After`, and message text are all searched
+  along the chain now, outermost first, with a `seen` set so a cause cycle
+  (easy to build by accident when errors are re-wrapped in a retry loop)
+  terminates instead of hanging. Precedence is unchanged — status, then errno,
+  then message — and an unwrapped error classifies exactly as before.
+
+  **The runtime emitted spans and not one measurement.** Metrics lived in a
+  bag a host was expected to construct, and nothing in the workspace ever
+  constructed one. Worse, the bag bound its instruments eagerly, so one built
+  before `registerTelemetry()` captured the no-op meter and discarded every
+  write for the rest of its life — silently, forever, from a line of call
+  order.
+
+  - The instruments now live beside the code that records them, and the
+    runtime records token usage and model latency per call, tool outcomes per
+    call, and run duration per run.
+  - Instruments resolve **lazily** and re-resolve when a real provider is
+    installed, so registration order no longer decides whether anything is
+    measured.
+  - One token metric split by `gen_ai.token.type`, not two under two names
+    with the second invented — a dashboard aggregating the conventional name
+    was getting input tokens only and under-reporting usage by roughly half.
+  - Cache reads and writes are recorded as their own token types. They bill
+    differently, so a total that hides them cannot explain a bill.
+  - Tool calls carry an error type, so a broken tool can be told apart from
+    one whose input the model keeps getting wrong.
+  - `createPlatformMetrics()` still works and now delegates to the same
+    instruments, so host and runtime measurements aggregate instead of
+    describing the same events under two names.
+
+- 935b8f3: A delegated run now joins the trace it belongs to.
+
+  Every run started its own ROOT span, including a spawned sub-agent's. A
+  supervisor delegating to three children produced four disconnected traces
+  instead of one tree — the same defect that made a 20-turn run show up as 21
+  roots before iterations were parented, except across the spawn boundary,
+  where the delegation structure is exactly what a trace is for.
+
+  `QueryParams.parentSpan` (and `ReactiveAgentConfig.parentSpan`) parents the
+  run span when a caller supplies one. The spawning tool passes its own span,
+  so a child run lands inside the turn that asked for it:
+
+      tool span → child run → child iterations → child tool spans
+
+  A top-level run with no parent still starts its own root, which is correct:
+  it IS the root, and forcing one would be wrong.
+
+  The parent is stamped onto the child config after `configBuilder` runs
+  rather than relying on every builder to forward an option it may not know
+  about.
+
+- 935b8f3: A conversation with no turn boundary
+
+  Every other seam in this kernel is turn-based by construction: a run has iterations, an iteration sends a complete message list and reads a stream back, and a checkpoint is taken between two of them. That shape cannot describe a duplex session, where input keeps arriving while output is still being produced and "the turn" is not something either side can point at.
+
+  `BidiProvider` / `BidiSession` is a second contract rather than a widening of the first — bending `chatStream` to accept a live input channel would put a half-duplex assumption inside every consumer of the turn-based path in exchange for a duplex path that still would not fit. `startBidiRun` is the loop that runs tools against it.
+
+  Two properties matter here that the turn-based loop never needs. A tool must not block the stream: awaiting one inline would stall the very events an interruption arrives on, so calls start and are not awaited. And an interruption invalidates work in flight: a call still running when the human speaks over the model is abandoned rather than delivered, because a stale answer in a conversation that has moved on is worse than no answer.
+
+  Audio capture and playback are not here — the types carry audio, but the microphone belongs to the host. Neither is checkpoint/resume: a duplex session's state lives on the far side of a socket with no boundary to snapshot at, and checkpoints that cannot restore would be worse than none. The contract ships with a scripted driver, which is how the turn-based path is developed too.
+
+- 935b8f3: Seven places where state, consent or a verdict did not survive the boundary
+  it needed to cross.
+
+  **A checkpoint is versioned on disk, and its budgets are checked.** It was
+  written bare and read with a cast. Unstamped is read as version 1 by
+  definition, which is correct only while version 1 is the only version there
+  has ever been — the moment a second exists, a file written by the newer
+  build is read by the older one as if it were the older shape, and the
+  refusal that exists to prevent exactly that never fires. There was no chain
+  to hang a migration on. Separately, the read validated `id`, `iteration`,
+  `createdAt` and `messages` and skipped `tokenUsage` / `costInfo` /
+  `guardState` — which a resume dereferences before its first iteration. A
+  run recalled at $4.80 of a $5 cap whose cost came back malformed continued
+  with `NaN`, which compares false against every limit, so the guard that
+  exists to stop it never stopped it. Both read paths now refuse.
+
+  **A resumed run joins the trace it crashed inside.** `parentContext`
+  accepted only a live in-memory span, so a parent that had to survive a
+  process boundary could not be expressed. A run that crashed at iteration 12
+  and resumed produced two traces with different ids and no link. The run id
+  correlated them well enough to find both by query and not well enough to
+  see one waterfall — and for a replay fork, which mints a new run id, not
+  even that. Checkpoints now record a serialized span context, read back
+  _before_ the root span is minted because a parent can only be set at
+  creation. An all-zero or malformed id is refused rather than emitted, since
+  an exporter drops those silently and that would be worse than the
+  disconnected traces it replaces.
+
+  **A park can expire.** `runConfig.hitlParkTtlMs` writes an ABSOLUTE
+  deadline. Every timer in the SDK is an in-process `setTimeout` and the
+  park-record delay is deliberately `unref`'d, so nothing in memory outlives
+  a redeploy: a run parked for approval, the worker was replaced, nobody
+  answered, and the checkpoint stayed outstanding forever with every
+  approval-queue reader serving it. The run timeout cannot cover it — it is
+  checked between iterations and a park suspends mid-iteration, so a
+  long-lived process hard-stops the run immediately _after_ the human
+  approves, while across a restart the restored clock excludes parked time
+  entirely. `findPendingCheckpoint` skips an expired park, `listExpiredParks`
+  lets a host sweep, and `expire` records the expiry rather than deleting the
+  evidence.
+
+  **Two reserved statuses finally have producers.** `deriveRunStatus`
+  projects a run plus its park onto the session-layer `RunStatus`, which was
+  consumed by session derivation and handoff gating and produced by nothing —
+  `awaiting_hitl_resolution` in particular documented a "persisted wait after
+  a HITL timeout" for a timeout nothing could raise. `toWireRunStatus`
+  implements the domain→wire collapse that `WireRunStatus` had documented and
+  never had as code.
+
+  **An approval can be remembered, at a scope the approver chooses.**
+  Approving recorded nothing anywhere. `bash` is unconditionally
+  non-read-only and in no allowlist, so `bash: git status` re-prompted on
+  every batch forever, and the only escape was a blanket session grant
+  covering every destructive call. `approve_tools` now takes `remember`,
+  `toolGrantKeys(call)` offers a narrow (this exact invocation) and a wide
+  (this tool) key, and a batch fully covered by recorded grants skips the
+  park. Non-reuse stays the default — nothing is remembered unless an
+  explicit approval says so, and grants are run-scoped, never persisted.
+  Argument key order is normalised so the same call is not asked about twice.
+
+  **An eval case can fail on a gate, not just on an average.** The verdict
+  was one unweighted mean against one suite-wide threshold. At the default of
+  1 the harness never reports a false pass, but a trajectory F1 and a graded
+  judge can essentially never reach 1 — so every real suite lowers it, and
+  every step down buys the deterministic scorers the same tolerance as the
+  fuzzy ones. At 0.75, trajectory 0 alongside three perfect scores averages
+  to 0.75 and reports **passed**. `Scorer.severity: 'gate'` fails the case
+  outright; `threshold` is per-scorer. `completionScorer` and
+  `containsScorer` ship as gates. An unavailable gate does not fail a case —
+  it did not judge the run, which is the inconclusive path.
+
+  **A provider's own retryable flag is listened to, and a plugin that cannot
+  enable is refused at install.** Retryability was derived solely from
+  namzu's code set, a second-hand inference that necessarily lags every new
+  failure shape a vendor invents; a flag declared anywhere on the cause chain
+  now decides, while the code still decides what the failure _is_. And the
+  plugin manifest accepted `skills` / `connectors` / `personas` with per-type
+  caps that enabling then refused wholesale — so a plugin shipping four tools
+  and one skill validated clean, installed clean, was persisted as
+  `installed`, and contributed zero tools. The refusal moved to load time,
+  with the enable-time check kept as a backstop that transitions the plugin
+  to `error` rather than leaving a status that says it is fine.
+
+- 935b8f3: The two gaps that were deferred as needing their own design session.
+
+  **A question raised inside a tool is now durable, and the answer reaches
+  the tool that asked.** `ask_user_question` parked through the raw handler
+  under a synthetic `cp_question_<toolUseId>` id that was never written
+  anywhere. The checkpoint did not exist: nothing on disk said a human owed
+  this run an answer, the pending-checkpoint lookup could never return it,
+  and a remote host could not even _observe_ the question except through the
+  in-process callback. Kill the process while somebody is looking at the card
+  and the answer could never be applied — the restore path stripped the whole
+  assistant turn, discarding work that sibling tools in the same batch had
+  already finished, and re-billed the turn.
+
+  The park is now a real checkpoint, with `user_question_asked` /
+  `user_question_answered` on the event stream, `question.asked` /
+  `question.answered` on the SSE wire, and an `input-required` A2A status —
+  the same surfaces a tool-review park has always had.
+
+  The re-entry contract was the deferred half, and it turned out to reuse
+  machinery that already exists. A question checkpoint is written
+  mid-execution, so it holds the assistant turn with its `tool_use` blocks
+  unanswered — the same shape a tool-review park leaves. Re-executing that
+  batch is _how_ the asking tool gets re-entered; a carried-answer registry
+  is what makes the re-entry return the recorded answer instead of parking a
+  second time; and every sibling that already completed is answered from the
+  transcript by the crash-resume recovery, so nothing runs twice. An answer
+  that does not name a call in this turn is refused rather than delivered to
+  whichever tool now holds that slot.
+
+  **The egress policy has a boundary to be enforced at.** Two of its four
+  shapes were honourable nowhere: the container backend refused a host
+  allowlist outright because it had nothing to filter through, so `deny-all`
+  and `allow-all` were the whole spectrum — all or nothing.
+
+  `EgressProxy` enforces the other two. Matching has exactly two forms —
+  exact host, and `.example.com` for a domain and its subdomains — and
+  substring is deliberately not one of them: `host.includes(entry)` would
+  admit `example.com.attacker.net`, and plain suffix matching would admit
+  `notexample.com`. A policy that cannot be read denies, because an allowlist
+  that fails open is not an allowlist. A request addressed to the proxy
+  itself is refused rather than forwarded — found by a test that hung instead
+  of failing, which is exactly the shape that failure takes in production.
+
+  `Sandbox.setNetworkPolicy` narrows or widens a **live** sandbox, so "clone
+  with a token, then drop to deny-all before running untrusted build scripts"
+  is expressible; it was not, because the policy was frozen at provider
+  construction. A backend that cannot enforce it throws.
+
+  And `brokeredCredentials` settles where the token lives. Any credential the
+  agent needed to reach an allowed host had to be inside the sandbox, in the
+  environment, readable by the untrusted code it is meant to be isolated from
+  — via `/proc/self/environ`, or via a prompt injection that exfiltrates it
+  over the very egress the policy permits. The real value is now held
+  host-side and applied at the boundary, scoped per host: a credential
+  attached to every request is a credential handed to whichever host the
+  agent was talked into contacting.
+
+  One limit, stated rather than hidden: a credential cannot be injected into
+  a CONNECT tunnel, because reading those bytes would mean terminating TLS
+  with a CA the sandbox trusts — a strictly larger risk than the one being
+  mitigated. A workload that needs brokering speaks plain HTTP to the proxy
+  and lets it upgrade upstream. The allowlist is enforced on CONNECT either
+  way, since the target names the host in clear text.
+
+- 935b8f3: Two findings from a fit-gap against another agent SDK.
+
+  **A tool veto that throws now denies.** namzu has several places that can
+  stop a run, and they disagreed on what happens when the check _itself_
+  throws: a content guardrail that threw blocked the run — with a comment
+  saying why, "safety is unknown" — while a tool veto that threw was skipped
+  and the call proceeded. The same policy inverted its security posture
+  depending on which surface it was written on.
+
+  An observer probe that throws is still skipped, and that asymmetry IS
+  deliberate: an observer was never asked a question, so it has no answer to
+  withhold, and taking a run down because a metrics handler crashed would be
+  the same mistake pointing the other way.
+
+  The exposure this trades against is real and is the one the guardrail
+  already accepted: a buggy veto can refuse every call. The refusal names the
+  probe, so it is diagnosable; a wrongly permitted destructive call is not
+  recoverable at all. `docs/sdk/architecture/safety.md` now states the rule
+  for all four surfaces in one table.
+
+  The old behaviour was pinned by a test that described it and never argued
+  for it, under a header pointing at a design document that had since been
+  frozen and removed — so the instruction to "update it first" could not be
+  followed, and the fail-open kept its ratified status with no surviving
+  justification. The pointer now names a document a reader can open.
+
+  **A truncated tool result says what it took with it.** The output budget
+  takes `output: string` only, so the rich channel was never bounded — and
+  when the text half truncated, the rich half was dropped with it, silently.
+  Dropping is right, since the preview is no longer the tool's own payload
+  and an image alongside it would be illustrating something the model can no
+  longer read. Doing it silently is not: the model saw a preview with no way
+  to know an image had ever existed, and reasoned as though the tool returned
+  text only. The result now names what went, so the agent can ask for a
+  smaller region instead of retrying the same call.
+
+  `maxToolContentBytes` caps the rich channel, and is **off by default** on
+  purpose. The right number depends on what a host's tools return and on the
+  model's own image budget; inventing one here would either break screenshot
+  workflows or be so generous it bounds nothing. Over the cap the channel is
+  refused whole rather than trimmed — half a base64 payload is not a smaller
+  image, it is a corrupt one.
+
+- 935b8f3: Reclaim context by clearing stale tool output, before summarizing
+  destructively.
+
+  Compaction was all-or-nothing: once the threshold hit, every older message
+  became a summary and the agent's own reasoning — the decisions, the false
+  starts it learned from, the exact wording of a plan — was paraphrased away
+  with it. That is a heavy price for a context problem usually caused by
+  something much dumber: a handful of enormous tool outputs the agent already
+  read, took what it needed from, and moved past.
+
+  `clearStaleToolResults` replaces the OUTPUT of old, large tool results with
+  a short placeholder that names the tool and its original size, so a result
+  that turns out to still be needed is one tool call away rather than lost.
+  It is safe where trimming is not, because nothing moves — the `tool` message
+  keeps its position and its `toolCallId`, so `tool_use` ↔ `tool_result`
+  pairing is intact by construction.
+
+  It runs first in `runCompactionCheck`; if it gets the context back under
+  `triggerThreshold`, summarization is skipped entirely and the history stays
+  verbatim. New `CompactionConfig` fields: `clearToolResults` (default
+  `true`), `keepRecentToolResults` (3), `minToolResultCharsToClear` (1000),
+  `preserveToolResultsFrom`.
+
+  Never clears an error result (the error is what steers the next turn), the
+  most recent N results (still in use), or anything below the size floor
+  (the placeholder would cost as much). Image payloads are measured by their
+  base64 size — a screenshot is the largest thing a tool result can carry and
+  exactly the kind of output an agent reads once.
+
+- 935b8f3: Wire up emergency crash-save, and correct the README's claim about it.
+
+  `EmergencySaveManager.attach()` had zero call sites: the handler that writes
+  `emergency/<runId>.json` was never installed, so `replay({ fromCheckpoint:
+'emergency' })` read a file nothing ever produced — while the README marketed
+  "Emergency save on signal" as a differentiator against six competitors and
+  stated "there is no reliance on the user remembering to catch signals; the
+  kernel does it."
+
+  `query()` now installs the handlers when you pass `emergencySave: true`, and
+  removes them when the run settles.
+
+  It is opt-in rather than automatic, which is a deliberate narrowing of the old
+  README claim. `attach()` calls `process.on('SIGINT' | 'SIGTERM' |
+'uncaughtException')` with handlers that `process.exit()`; a library must not
+  seize its host's termination path by default, and an API server has its own
+  drain sequence. The manager is also a singleton whose `attach` detaches
+  whoever held it before, so under concurrent runs an automatic attach would
+  silently make the last-started run the only one ever saved. Both READMEs now
+  say so.
+
+  The `namzu` CLI opts in — it owns its process end to end, so Ctrl-C mid-run
+  leaves a dump under `.namzu/emergency/` instead of losing the turn.
+
+- 935b8f3: Five fixes where a subsystem reported more than it delivered.
+
+  **A sandbox tier now says what it actually enforces.** The local provider
+  reported `id = 'local'` / `name = 'Local Sandbox'` and logged at `info` at
+  every detected tier, but the tiers are not equivalent: one installs a
+  deny-default, deny-network profile; one unshares namespaces without
+  remounting anything, so the child still sees the whole host filesystem; and
+  one confines nothing at all. A host that deliberately turned isolation
+  **on** got a tier-dependent amount of it under one undifferentiated name,
+  and no guard, test or doc anywhere keyed on the weakest tier.
+
+  - `isolationOf(environment)` states per-tier what is enforced —
+    `filesystem`, `network`, `process` — deliberately pessimistic. The
+    namespace tier reports `filesystem: false`, because a private mount table
+    is not confinement.
+  - `sandbox.requireIsolation` (also `new LocalSandboxProvider(log, {…})`)
+    **throws** when the host cannot supply a control the caller named.
+    Refusing is the point: a control that is accepted and then not applied is
+    worse than one never offered, because the caller stops looking. Empty by
+    default, so best-effort callers are unaffected.
+  - Detection now runs the flags it will spawn under instead of checking that
+    a binary exists — a host with unprivileged user namespaces disabled
+    answers `unshare --version` happily and then fails every spawn. The
+    other platform's probe already ran its sandbox for real.
+  - The namespace tier also unshares the network, which it previously left
+    wide open while the other tier denied it unconditionally.
+  - Constructing at the unconfined tier logs a **warning** naming it as such.
+
+  **Compaction stopped measuring the context one turn late.** The provider's
+  prompt measurement describes the request as it was sent, so the assistant
+  message and every tool result the turn appended fell outside it — and the
+  reading was taken verbatim. Separately, the tool catalogue is assembled
+  apart from the message array and never entered the fallback estimate at
+  all; a 30-tool registry is easily 10-20k tokens of JSON Schema. Both errors
+  point the same way, under-count, so the trigger did not jitter around the
+  threshold — it sat systematically late, worst on the turns that grew the
+  context the most.
+
+  **A remote tool's schema keeps its shape.** `$ref` reached the converter's
+  permissive branch and became "anything": no type, no shape. Since that node
+  is inherently optional in Zod, a `$ref`'d field the server listed as
+  `required` stopped being enforced too — an empty payload validated clean and
+  was forwarded to the server instead of being rejected with the hint the
+  executor already builds. `$defs` + `$ref` is the default output of several
+  common schema generators, so a server that did everything right had its
+  main argument shown to the model as `{}`. Local pointers are now inlined
+  first (cycles cut at the repeat, dangling and non-local pointers left
+  permissive), `allOf` is flattened, and `pattern`, the length and range
+  bounds, `multipleOf` and the `email`/`uri`/`uuid`/`date-time` formats are
+  carried onto the converted node — shown to the model _and_ enforced. The
+  conversion is also depth-bounded: a remote schema is untrusted input.
+
+  **A declared return shape reaches the model, and a structured result is not
+  lost.** Servers publish `outputSchema` on a tool listing regardless of
+  negotiated protocol revision and it had no slot in the type, so the return
+  shape never reached the model at all. It is now carried verbatim —
+  shown, never validated — and appended to the description, since no
+  provider's tool format has a field for it. `ToolDefinition.outputSchema`
+  takes JSON Schema for the same reason. A server that answers with
+  `structuredContent` and omits the compatibility text block previously
+  produced an EMPTY tool result for a call that succeeded, with no diagnostic
+  anywhere; that payload is now serialized into the output, with the raw pair
+  available on `result.data`.
+
+  **A tool batch killed part-way through is resumed, not repeated.** Results
+  reach the history only when the whole batch settles, so a hard kill lost
+  everything that had already come back and the resumed run re-executed those
+  calls — for a `write_file` that is waste, for a payment or an email it is a
+  second one. Nothing new had to be recorded: the executor already awaits a
+  `tool_completed` per tool, inline, and the transcript already persists it.
+  `RunDiskStore.readCompletedTools()` reads it back and `executeBatch` accepts
+  those results, so an already-executed call is answered from the record
+  while the calls that never ran execute for the first time through the
+  ordinary executor — every guard and permission check still applies. The
+  discriminator is whether the transcript holds any completion for the turn:
+  a tool-review park records its checkpoint _before_ execution, so it has
+  none and keeps the existing repair, where re-deciding costs only a round
+  trip.
+
+- 935b8f3: Show extensions the model call they fire around
+
+  `pre_llm_call` and `post_llm_call` fired directly beside the request and the reply and were handed neither — only a run id and an iteration number. An extension could observe THAT a call was happening and nothing about what it was, so a prompt audit, a redaction pass, or a per-tenant token ledger had no way to do its job from a hook.
+
+  `PluginHookContext` now carries `request` on `pre_llm_call` (`model`, `messages`, `toolNames`, `temperature`, `maxTokens`) and `response` on `post_llm_call` (`content`, `toolNames`, `finishReason`, `usage`). Both are projections rather than the wire objects, so driver-specific parameters do not become part of the plugin contract by accident, and tools appear as names because an audit asks which capabilities were offered, not what their schemas look like.
+
+  Both are read-only and frozen, and the messages are frozen copies. A hook that reshaped the request would change what every later hook sees, making the outcome depend on installation order — shaping a call stays with `prepareStep`, which has one writer by contract.
+
+- 935b8f3: Hook order is declared, and a hook deadline stops holding the process open.
+
+  **Order was install order** — neither declared nor stable, since it depends
+  on when each plugin happened to be installed. That is fine for a hook that
+  only observes and wrong for one that decides: `executeHooks` short-circuits
+  on `skip` and `error`, so a hook that denies a dangerous command only gets
+  to deny it if it runs before whatever else stops the chain. A guard that
+  fires depending on installation history is not a guard.
+
+  `PluginHookDefinition.priority` — lower runs first, default `100`, ties
+  keeping registration order so a plugin that sets nothing behaves exactly as
+  before. Convention: guards below 100, observers above. `post_*` hooks still
+  unwind, so a guard at priority 1 runs first on `pre_tool_use` and last on
+  `post_tool_use` — the wrapping order a guard needs.
+
+  **The deadline timer was never cleared.** `setTimeout` was armed per hook
+  invocation and left running after the hook resolved, and an armed timer
+  keeps the Node event loop alive. Hooks fire on every tool call and every
+  model call, so a run of twenty tool calls left twenty live timers and the
+  process could not exit until the last one expired. Nothing failed — it just
+  hung, for up to the timeout, every time.
+
+  **`PluginHookContext.signal`** aborts when that deadline expires. The
+  runtime stops waiting on a slow hook either way, but without a signal the
+  hook never learns it was abandoned: a request inside it keeps a socket open
+  and its eventual result is written into a run that moved on.
+
+  **`registerHook(pluginId, hook)`** attaches a hook without installing a
+  plugin from disk. Registration was reachable only through `enable()`, which
+  loads a manifest and imports modules by path, so a host that wanted one
+  in-process guard had to lay out a plugin directory to get it — and this
+  class's own tests were reaching into a private map to work around it,
+  constructing entries the real path would never produce.
+
+- 935b8f3: A retried invocation can be deduplicated
+
+  A request goes out, the connection drops, the client retries. Without a key that retry is a second full run — a second set of model calls, and a second set of whatever the tools did. The invocation lock does not help: refusing the retry with `ConcurrentInvocationError` is not what the caller wanted either, because they wanted the answer.
+
+  `AgentRunConfig.idempotencyKey` makes a duplicate arriving while the first is still running await it and receive its result — the error included, because both callers asked the same question once and telling one of them something different would make the key a lie.
+
+  In-flight only. A retry that arrives after the first has settled runs again: keeping the answer would turn deduplication into caching, and how stale an answer may be is the host's judgement, not the SDK's. Instance-scoped, like the lock — deduplicating across processes needs somewhere durable to record the key, which is a store the host owns.
+
+- 935b8f3: Widen the message model to content blocks: multimodal tool results, `is_error`,
+  and reasoning replay.
+
+  `ToolMessage.content` was `string` and `AssistantMessage` had no slot for
+  reasoning, so three separate things died at the provider boundary. Doing them
+  as one migration is deliberate — all three need the same widening, and every
+  stored transcript, checkpoint and `messages.json` is written in the narrow
+  shape, so the cost only grows.
+
+  **Tool results can carry non-text content.** `ToolResultContent` is
+  `string | ToolResultBlock[]`, where a block is text, image or document. String
+  stays first-class: the common case is unchanged and every existing tool and
+  driver compiles untouched. `@namzu/computer-use`'s `screenshot` returned
+  ~400 KB–2.7 MB of base64 **as text** — roughly 100k–670k tokens of characters
+  no model can decode — so computer use was effectively non-functional; it now
+  returns an image block with a short textual description. MCP `image` and
+  inline `resource` blocks are passed through instead of being filtered out.
+
+  **Failures are marked on the wire.** The executor computed `isError`, routed it
+  to the SSE bridge, the A2A bridge and the TUI, then dropped it at the provider
+  boundary — so the model's trained tool-failure recovery never fired. The
+  Anthropic driver now sends `is_error: true`, and the value survives the
+  executor's result tuple, which previously narrowed to `{toolCallId, output}`
+  before the message was built.
+
+  **Reasoning is representable and replayed verbatim.** `AssistantMessage.reasoning`
+  holds opaque `ReasoningBlock`s (thinking / redacted, with signature or encrypted
+  payload). The Anthropic driver used to rebuild every assistant turn as
+  `[text?, ...tool_use]` — precisely the pattern the verbatim-echo contract
+  prohibits when a `tool_result` follows — and now emits stored reasoning blocks
+  first, signature intact.
+
+  Drivers that cannot express non-text tool results (`@namzu/openai`,
+  `@namzu/ollama`) degrade through `toolResultToText`, which renders an explicit
+  `[image: …]` placeholder rather than dumping base64 or silently dropping it.
+
+  This is the outbound half. The Anthropic driver does not yet parse thinking
+  blocks out of the stream and `ChatCompletionParams` has no `thinking` field,
+  so `reasoning` is populated only when a caller supplies it.
+
+- 935b8f3: Make `MockLLMProvider` a scriptable test model that can emit tool calls.
+
+  The mock accepted `{ model, responseText, responseDelayMs }` and emitted 8-char
+  text slices. It never yielded `delta.toolCalls`, and `MOCK_CAPABILITIES`
+  declared `supportsTools: false`, so capability negotiation stripped the tool
+  surface before a request was even built. A consumer writing a custom tool had
+  no supported way to test that the agent loop calls it, that its error string
+  comes back as a `tool_result`, or that the model retries — and namzu's own
+  maintainers hand-rolled **eight** `implements LLMProvider` fakes across seven
+  test files to work around it, each re-implementing the delta bucketing and
+  `toolCallEnd` framing that `streamProviderTurn` exists to hide.
+
+  `MockProviderConfig` now takes `turns: MockTurn[]`, where a turn carries text,
+  tool calls, a finish reason, usage, and failure injection. Tool calls are
+  emitted with the frame sequence a real driver produces — per-tool `index`, id
+  and name first, then argument fragments, then the block-close signal — so a
+  test exercises the real consumer path instead of a shortcut through it.
+
+  - `truncateArguments` reproduces a tool call cut off mid-JSON at `max_tokens`.
+  - `error` fails the request with a status (for retry tests);
+    `throwAfterChunks` fails mid-stream (for recovery tests).
+  - `nextTurn(params, i)` decides each turn from the request that triggered it;
+    `onRequest` and `provider.requests` capture what the runtime actually sent,
+    so a test can assert on `tools`, `toolChoice` or `cacheControl`.
+  - A script shorter than the run repeats its last turn, so a loop bug reads as
+    repetition rather than an exhausted-script crash.
+  - `supportsTools` / `supportsFunctionCalling` are now `true`.
+
+  The old `responseText` shorthand still works and becomes a one-turn script.
+
+- 935b8f3: Parse reasoning out of the stream, and let a run request extended thinking.
+
+  This completes the reasoning work: the previous release added storage and
+  verbatim replay, but nothing populated it. `StreamChunk.delta` carried only
+  `content` and `toolCalls`, so the Anthropic driver's `thinking_delta` and
+  `signature_delta` events fell through its `default: // ignore` — the blocks
+  could not be captured even in principle. Two consequences: the verbatim-echo
+  contract was unsatisfiable in practice, and a streaming UI showed a
+  multi-second stall with zero events while the model was demonstrably working.
+
+  - `StreamChunk.delta.reasoning` carries fragments bucketed by block index,
+    exactly like `toolCalls[].index`, closed by `done`.
+  - `streamProviderTurn` accumulates them and attaches the finished blocks to
+    the response in **stream-index order**, not arrival order — a provider may
+    interleave blocks, and the echo contract is about the original ordering.
+  - New `reasoning_started` / `reasoning_delta` / `reasoning_completed` run
+    events, wire-mapped as `reasoning.*`. The delta is ephemeral, so the
+    transcript records the completed block rather than every fragment.
+  - The Anthropic driver handles `content_block_start` for
+    `thinking`/`redacted_thinking`, forwards `thinking_delta` and
+    `signature_delta`, and closes the block on `content_block_stop`.
+  - `AgentRunConfig.thinking` (`ThinkingConfig`) is forwarded on every model
+    call. The Anthropic driver maps it to `thinking` and **omits
+    temperature/top_p/top_k while it is enabled**, because the API rejects them
+    together — sending a request known to 400 is worse than dropping a sampling
+    knob the caller did not prioritise.
+
+  Reasoning rides on the assistant message it belongs to, so the replay contract
+  holds automatically: trimming or compacting that message takes its thinking
+  blocks with it, and no separate atomicity rule is needed in `findSafeTrimIndex`.
+
+- 935b8f3: Add a provider failure taxonomy and retry transient model-call failures.
+
+  No driver in the estate retried anything: a single `429`, `503` or dropped
+  socket terminated the run. Nor could one be added, because every driver threw
+  its vendor SDK's raw error and the runtime had no way to tell a rate limit
+  from a malformed request — classification is the substrate a retry policy
+  stands on.
+
+  `ProviderError` gives failures a `code` (`rate_limit`, `overloaded`,
+  `server_error`, `timeout`, `network`, `auth`, `invalid_request`,
+  `context_length_exceeded`, `content_filter`, `not_found`, `unknown`), a
+  `retryable` flag, the HTTP `status`, and a server-directed `retryAfterMs`
+  parsed from `Retry-After` (both delta-seconds and HTTP-date forms).
+  `classifyProviderError` derives it from status, then transport errno, then
+  message text — so a window overflow arriving as a `400` is filed as
+  `context_length_exceeded` rather than a generic invalid request, because the
+  caller can act on one and not the other.
+
+  `withProviderRetry` wraps any `LLMProvider` with exponential backoff and full
+  jitter, honouring `Retry-After` up to a sanity cap. It retries **only before
+  the first content chunk**: once a delta has been yielded the consumer has
+  already emitted `text_delta` events, so restarting would duplicate output.
+  Aborts propagate untouched, so a Stop still settles the run as `cancelled`.
+
+  `query()` wraps its provider by default; pass `retry: false` to opt out, or a
+  partial config to tune it. The wrapper is transparent to `id`, `name` and
+  `capabilities`, so capability negotiation is unaffected.
+
+- 935b8f3: Make compaction actually fire, and make it observable.
+
+  The trigger divided the current context size by `runConfig.tokenBudget` whenever
+  `contextWindowTokens` was absent — which was always, since nothing in the estate
+  ever set it. Those are different quantities: `tokenBudget` is a cumulative spend
+  cap, and comparing a live window against it is self-defeating, because the guard
+  force-finalizes at 0.9x that number while compaction needs 0.7x of it. With the
+  shipped CLI's `tokenBudget: 1_000_000` the trigger sat at ~700k. The entire
+  subsystem — working state, extractor, serializer, dangling repair, verifier —
+  was armed and never fired.
+
+  - The divisor is now always a context **window**: `contextWindowTokens` when the
+    host sets one, otherwise resolved from the model id via a new
+    `resolveContextWindow` / `lookupContextWindow`, otherwise a conservative
+    128k default. `tokenBudget` is never the divisor.
+  - Context size prefers the provider's own `promptTokens` from the last turn — a
+    measurement that includes tool schemas, system blocks and image tokens — over
+    the chars/4 heuristic, which remains the fallback before the first turn
+    reports. `RunPersistence.recordTurnUsage()` records it; side-channel calls
+    keep using `accumulateUsage()` so they cannot corrupt the signal.
+  - Two guards (the thrash guard and prior-summary replacement) were gated behind
+    `contextWindowTokens != null` to preserve the legacy path byte-for-byte. That
+    path's actual behavior was "never fires", so the gates are removed — otherwise
+    a consumer that now compacts would accumulate one redundant summary per pass.
+  - New `compaction_completed` run event (wire: `compaction.completed`) carrying
+    before/after message counts and token sizes, whether the size was measured or
+    estimated, and which window was used. Compaction deletes history
+    irrecoverably and previously emitted nothing at all.
+
+- 935b8f3: Let `MockLLMProvider` declare capabilities and fail mid-tool-arguments.
+
+  Two small additions that let the scriptable mock absorb the last of the
+  hand-rolled test providers:
+
+  - `capabilities` overrides the declaration for one instance. Capability
+    negotiation degrades a run when a driver says it cannot do something, and
+    testing that path means being able to _say_ it — a fixed registry-level
+    declaration cannot express "a driver with no vision".
+  - `rawArguments` emits a raw string instead of serializing `args`, and
+    `throwAfterArguments` throws mid-tool-block. Together they script a provider
+    going idle while streaming tool JSON, which is precisely the failure the
+    truncated-tool-input recovery path exists for — otherwise that path can only
+    be tested by hand-rolling a provider, which is what everyone was doing.
+
+  Six of the eight `implements LLMProvider` fakes across the test suite are now
+  gone. The two that remain are in `registry.test.ts`, which checks that the
+  registry accepts arbitrary provider _constructors_; collapsing those would
+  defeat what they test.
+
+- 935b8f3: Persisted state carries a schema version, and a record from the future is
+  refused instead of half-read.
+
+  Every read from disk was `JSON.parse(raw) as T` — an unchecked cast with no
+  idea which version of the shape it was looking at. Three things followed,
+  all of them silent:
+
+  - A record written by an **older** build was read as the current shape.
+    Fields added since arrived as `undefined` and flowed into the runtime as
+    though they had been there.
+  - A record written by a **newer** build was read by an older one, which
+    understood some fields and dropped the rest. Write it back and the rest
+    are gone — the only one of these that destroys data.
+  - None of it produced an error, a warning, or a log line. A resumed session
+    that quietly lost half its state looked exactly like one that never had
+    it.
+
+  The version is stamped as a field on the record rather than wrapping it in
+  an envelope, so **every file already on disk stays readable**: a record with
+  no stamp _is_ version 1, which is exactly what those files are.
+
+  - `defineSchema` / `stamp` / `migrate` in `store/schema.ts`, adopted by the
+    session, thread, run, task and memory disk stores. Each store versions its
+    on-disk format as a unit, so no call site carries schema plumbing.
+  - A record from a version this build does not understand throws
+    `SchemaVersionError` naming what it found and what is supported. Refusing
+    is recoverable by upgrading; a partial read that gets written back is not.
+  - A gap in the migration chain is rejected when the schema is **declared**,
+    not when a stale file finally shows up — a gap found at read time is found
+    in production, by a user whose session will not open.
+  - Each line of the append-only message log carries its own stamp: such a log
+    is written by many builds over its lifetime and its lines can legitimately
+    differ in version. A line the build cannot read is refused rather than
+    skipped, because silently dropping one hands the model a conversation with
+    a hole in it.
+
+  Known limitation, stated rather than papered over: a file whose top level is
+  an array has nowhere to put a stamp that survives `JSON.stringify`, so it
+  stays unversioned. A store that needs to migrate one has to move it under an
+  object first.
+
+- 935b8f3: `prepareStep` — shape each step before the model is called.
+
+  `stopWhen` let a run decide TO STOP from what its steps produced. This is
+  the other half: deciding how the next step should look. Without it, the
+  tool surface and the model were fixed at `query()` time, so a phased agent
+  — research with search tools, write with file tools, verify with a cheaper
+  model — had to be built as three separate runs, each starting blind to the
+  last one's context.
+
+  The hook receives the run id, the step number, the full message history and
+  every completed `StepResult`, and may return `activeTools`, `model`,
+  `system` (one-step guidance), `temperature` and `maxResponseTokens`. Any
+  omitted field keeps the run's configured value.
+
+  - `system` guidance is appended to the REQUEST, never pushed onto the run's
+    history — otherwise a long run accumulates one stale phase instruction
+    per iteration.
+  - `activeTools` does NOT touch `tool_choice`. Anthropic has no
+    `allowed_tools`, and moving `tool_choice` invalidates cached MESSAGE
+    blocks as well — a strictly worse trade for the same effect. Narrowing
+    still costs the prompt-cache prefix, since tools render at position 0;
+    that is inherent, and worth paying at a real phase boundary rather than
+    every step.
+  - Unregistered tool names are dropped with a warning: a phase list that
+    outlives a tool rename should narrow the surface, not kill the agent
+    mid-run.
+  - Fails OPEN. A throwing hook leaves the step with the run's configuration
+    — same reasoning as `stopWhen`, and deliberately opposite to a guardrail,
+    because nothing unsafe gets through when step shaping is skipped.
+
+- 935b8f3: Give runtime failures a code a host can branch on.
+
+  `PlatformError` was declared and never constructed — a shape nothing
+  produced and nothing consumed — while the runtime threw bare `Error`
+  everywhere. A caller catching a failure from `query()` could not tell "the
+  model rate-limited us" from "the run was configured wrong" from "that
+  checkpoint does not exist"; matching on message text was the only recourse,
+  and message text is not an interface.
+
+  - `NamzuError` implements `PlatformError` and extends `Error`, so it still
+    behaves like one everywhere that only knows about `Error` — stack,
+    `instanceof`, `cause`.
+  - `NamzuErrorCode` stays small on purpose: each member exists because a
+    caller does something different about it (`invalid_config`,
+    `provider_error`, `tool_error`, `not_found`, `plugin_error`,
+    `capability_unavailable`, `storage_error`, `unknown`).
+  - `toPlatformError(unknown)` normalizes ANYTHING thrown into the declared
+    shape — a `NamzuError`, a `ProviderError`, a plain `Error` from a
+    dependency, or a thrown string. Without it, "handle errors from the SDK"
+    means writing the same `instanceof` ladder in every caller. A
+    `ProviderError` keeps its own classification (its code lands in
+    `details.providerCode` and its `retryable` verdict is preserved, not
+    recomputed).
+
+  Adopted at the runtime sites a host would actually branch on: strict
+  capability failures, provider stream errors, checkpoint-not-found, and
+  plugin hook errors. Exhaustiveness guards stay plain `Error` — those are
+  programmer bugs, not conditions to handle.
+
+- 935b8f3: Step shaping composes
+
+  `prepareStep` was a single slot: enough for one concern and no help with two. A host with a per-tenant system prefix _and_ a cost-based model downgrade had to hand-compose them into one callback, which puts the ordering in the host's own code where nothing can see it and makes each concern's failure the other's problem.
+
+  It now accepts an array. Stages run in **declaration order** — not registration order, and that distinction is the whole reason this is safe where a plugin-style fan-out would not be: the author writes the order down, so "who wins" is a line of their code rather than an accident of install history. Each stage sees what the ones before it decided through `context.prepared`, which is how a later stage refines an earlier one instead of guessing at it.
+
+  A stage that throws is skipped and the rest still run, because one broken concern must not silently disable the others it was declared beside. A single function behaves exactly as before.
+
+- 935b8f3: Add input/output guardrails to `query()`.
+
+  namzu had three gates on tool calls — probe veto, `VerificationGate`, HITL
+  review — and all three point the same way: they protect the world from the
+  agent. Nothing protected the user from the agent's own output, and nothing
+  looked at the prompt before a run started.
+
+  - `inputGuardrails` run before the first model call. A block settles the run
+    as `input_guardrail` having spent nothing.
+  - `outputGuardrails` run against the final result. A block settles as
+    `output_guardrail`; a `rewrite` replaces the text, so a redaction policy
+    can clean an answer instead of discarding it. Rewrites compose.
+  - A guardrail that throws **fails closed** — deliberately the opposite of
+    `stopWhen`. A broken halt predicate should not kill a healthy run; a broken
+    safety check must not wave content through.
+  - New `guardrail_triggered` run event (wire: `guardrail.triggered`).
+  - Presets: `secretRedactionGuardrail` (prefix-anchored credential patterns,
+    redact or block) and `promptInjectionGuardrail` (partial, by design).
+
+  These gate the result, not the stream: `text_delta` events have already
+  reached the host, so a rewrite arrives as a correction alongside the event.
+
+- 935b8f3: Make the loop-control surface reachable from the Agent classes, and stop
+  gating environment context on built-in tool names.
+
+  Found by auditing the one application in the estate that actually consumes
+  `@namzu/sdk`, rather than by reading the SDK again.
+
+  - **`ReactiveAgent` forwarded none of the loop-control seams.** It is what
+    `AgentManager` spawns and what real applications call, and it passed only
+    provider/tools/runConfig — so `toolTimeoutMs`, `retry`, `emergencySave`,
+    `stopWhen`, `onStepFinish`, `prepareStep`, `structuredOutput`,
+    guardrails, `repairToolCall`, `maxToolConcurrency`, `maxToolOutputChars`,
+    `resumeHandler` and `checkpointStore` were reachable only by dropping to
+    `query()` and rebuilding the run wiring by hand. A feature a consumer
+    cannot reach is a feature that does not exist for them.
+
+  - **The `<env>` block keyed on four hardcoded tool names.** A host
+    registering a filesystem tool called `read_file` — declaring
+    `category: 'filesystem'` and `permissions: ['file_read']` correctly — got
+    no environment context at all, so the model was never told its working
+    directory and the host hand-encoded paths into its system prompt. The
+    gate now reads what a tool declares, keeping the name set as a fallback.
+
+  - **Providers were handed the run's live message array.** `runMgr.messages`
+    is the live array and the loop pushes onto it after the call returns, so
+    a driver that retained its input — to log it, cache it, or replay it on
+    retry — watched it grow new turns underneath. A capture provider in the
+    estate recorded every turn as identical to the last for exactly this
+    reason. The array is now copied at the provider boundary.
+
+- 935b8f3: Five places where namzu gave up, or claimed to recover, too early.
+
+  **A transient failure now pauses instead of failing.** A 503 that survived
+  every in-turn recovery — retry with jitter, the one-shot compaction relief,
+  mid-stream salvage — settled the run as `failed`, identically to a bad API
+  key. The host could not tell them apart, and recovering meant knowing about
+  checkpoints and driving replay itself. The state was never the problem:
+  checkpoints are written every iteration by default and the failed run is
+  persisted with full messages. Only the settle and the signal were missing.
+
+  A retryable failure with a checkpoint to resume from now emits `run_paused`
+  naming that checkpoint, leaves the span OK rather than ERROR, and sets
+  `stopReason: 'paused'`. Both conditions are required — pausing on a
+  permanent error would invite a resume that cannot work, and pausing with
+  nowhere to resume from produces a run nobody can ever pick up.
+
+  **A forced compaction pass can no longer decline to do anything.** A forced
+  pass runs because the provider _rejected_ the prompt as too long, and two
+  things let it treat that as advisory. It re-applied the chars/4 estimate
+  after clearing stale tool results — the estimate the provider had just
+  refuted — and returned early if that said the context was fine. And relief
+  reported success on ANY positive shed, so clearing one short result counted
+  and the retry burned a whole model call to be told the same thing. The
+  early return is now force-gated, and a shed has to clear a floor (a
+  fraction of the prompt, at least a couple of thousand characters) to count.
+
+  Separately, the relief latch is per **stuck point**, not per run. It exists
+  to stop a second overflow immediately after a successful compaction from
+  looping; as a run-scoped flag it meant one relief at iteration 3 disarmed
+  the mechanism for the rest of the run, leaving iteration 40 to die with
+  obvious moves left. It is now cleared by a turn that actually succeeded.
+
+  **An eval case can no longer hang the suite.** `executeCase` was a bare
+  await, so a `run` closure that never settled blocked its worker and
+  `runExperiment` never returned — no report, no partial results, nothing to
+  read. `ExperimentConfig.timeoutMs` bounds a case and hands `run` an
+  `AbortSignal` as a third argument; a timed-out case is reported and the
+  suite continues, exactly like a case that threw, with its real elapsed time
+  rather than zero. Unset means no deadline, which is today's behaviour. The
+  documented path already inherits deadlines from the runtime it drives; this
+  covers what those cannot see — a closure that does not go through
+  `query()`, and a mid-iteration provider stall.
+
+  **A malformed content block is named, not smuggled.** One driver built an
+  image block by calling `String()` on whatever `data` and `mediaType`
+  happened to be, behind only a truthiness check — so a non-string `data`
+  became the literal `"[object Object]"` as the base64 payload, and the wire
+  rejected the whole request with nothing naming the block at fault. That is
+  reachable: a remote tool result is cast without validation on the way in.
+  It now type- and media-type-guards and degrades to a named placeholder,
+  matching the sibling driver that already did, and without inlining the
+  payload it refused to send.
+
+  **Failures have somewhere to grow remediation.** A stale API key surfaced
+  as whatever prose the vendor SDK happened to write: no id to grep in logs,
+  no instruction on what to change, and no growth point — a newly-observed
+  failure shape could only be given curated copy by editing the classifier.
+  `explainError` adds an ordered, id-keyed rule layer matching on
+  **structural** signals (code, status, an explicit hint) rather than
+  volatile vendor prose. `run_failed` carries the result as `explanation`;
+  `withHint(err, '…')` lets a throw site attach what only it knows, and
+  outranks every generic rule. It returns `null` when no rule claims the
+  failure — inventing advice for something uncharacterised is worse than
+  saying nothing, because it sends the reader somewhere specific and wrong.
+  The container backend's readiness, port-mapping and worker-fetch failures
+  now carry hints.
+
+- 935b8f3: A context overflow now shortens the prompt and retries instead of killing
+  the run.
+
+  `context_length_exceeded` was classified precisely and consumed by nothing.
+  It is correctly non-retryable — resending the identical prompt cannot help
+  — so the run died, holding a compaction subsystem that could have made
+  room.
+
+  This is not a hypothetical failure. Compaction fires on an ESTIMATE of how
+  full the context is, and an estimate can read low: a run carrying images,
+  or text in a language the chars-per-token ratio does not fit, reaches the
+  real window while still looking comfortable. The provider then reports
+  exactly what is wrong, which is stronger evidence than the estimate that
+  was just proven wrong.
+
+  - `relieveOverflow` forces a compaction pass, bypassing the threshold.
+  - It reports whether anything was actually shed. When nothing was — no
+    compaction configured, or nothing left to compact — the error proceeds,
+    because retrying would send the same prompt and reach the same error.
+  - Relief is attempted once per run. A second overflow after a successful
+    compaction means the prompt is irreducible, and looping would burn the
+    budget to arrive at the same place.
+
+- 935b8f3: A message can be pinned against eviction
+
+  Everything a run protected from compaction was protected by **position**: the leading system messages, the working-memory slot, the last N turns, the most recent tool results. A standing constraint stated in the middle of a conversation — "the account id is 4471; never bill a different one" — therefore aged out at the same rate as chatter. No positional rule could express it, and the working-memory slot could not either: it is host-rendered each turn and does not know what the user said.
+
+  `retain: true` on a message says it directly. The summarization rebuild carries pinned turns over verbatim, in order, between the summary and the recent window, and the in-place tool-result clearing pass leaves their content alone — clearing keeps the message and replaces its content, which is exactly the loss the marker was asked to prevent.
+
+  Protection is transitive across a tool pair: pinning a `tool_result` pins the assistant turn that issued the call, and pinning that turn pins every result answering it. Half a pair is not a smaller history, it is one the provider rejects.
+
+  Nothing caps how much may be pinned. Pinned turns are exempt from the reclaim that keeps a long run alive, so this is a budget the setter spends — a cap would have to guess which pin mattered, and dropping the wrong one quietly is worse than a run that overflows in the open.
+
+- 935b8f3: Add structured final output — and fix two bugs it uncovered on the tool-result
+  wire path.
+
+  **Structured output.** Both leaf pieces already shipped and neither was
+  reachable: `createStructuredOutputTool` is excluded from `getBuiltinTools()`
+  because it needs a schema, and `StructuredOutputConfig` was referenced by
+  exactly one non-test line — the barrel re-export. A host needing
+  `{verdict, findings}` from an agent that also uses tools had to register the
+  tool by hand and hope: nothing forced the call, nothing stopped the loop when
+  it came, and a schema mismatch surfaced as a `ZodError` _after_ the run had
+  paid for itself.
+
+  `query({ structuredOutput: { schema } })` registers the tool **from iteration
+  zero** — tools render at prefix position 0, so late injection would invalidate
+  the prompt cache for the rest of the run — validates the call, lands the parsed
+  value on `Run.structuredOutput`, and ends the run there rather than paying for
+  another turn that would only restate it. A model that answers in prose is
+  re-prompted, bounded by `maxRetries` (default 2), after which the run settles
+  with the new `StopReason: 'structured_output_failed'` instead of grinding
+  against `maxIterations`.
+
+  **Two bugs found while testing it**, both on the path between what a tool
+  returns and what reaches the provider, and both introduced by the content-block
+  migration:
+
+  - `ToolExecutor`'s final return omitted `isError`, so a failed tool was never
+    marked as failed on the message and `is_error` could not reach the wire.
+  - The executor's local `result` was typed as a narrowed literal that dropped
+    `content`, so a tool returning an image block had it discarded before the
+    mapper built to carry it ever saw it.
+
+  The mapper tests passed throughout because they set those fields by hand. A new
+  suite covers the executor→message seam directly, which is where both lived.
+
+- 935b8f3: A fan-out can now declare what a failed child means for its siblings.
+
+  The primitive to stop them already existed — every child holds an abort
+  controller chained to the parent's, and `AgentManager.cancel` uses it — but
+  nothing connected a failure to it. A supervisor that fanned out five tasks
+  and watched one die had no way to say the other four were now pointless:
+  they ran to completion, spending budget on work whose premise had gone.
+
+  `LocalTaskGateway` takes a `SiblingFailurePolicy`:
+
+  - `'continue'` — the default, and deliberately unchanged. Partial results
+    are usually worth having, and cancelling healthy siblings on any failure
+    would let one flaky child waste four good ones.
+  - `'cancel-siblings'` — for a fan-out whose parts only mean something
+    together, where one dead leg makes the rest an answer nobody can use.
+
+  Failure is judged from the result as well as the task state. A child whose
+  spawn machinery threw lands in state `'failed'`, but a child that RAN and
+  returned `status: 'failed'` is marked completed and carries the failure in
+  its result — so reading only the state would have caught the exceptional
+  case and missed the ordinary one.
+
+- 935b8f3: Cap model-visible tool output, and spill the overflow instead of losing it.
+
+  Nothing bounded tool output. `read` returned a whole file when `limit` was
+  omitted, `bash` allowed a 100 MB buffer, and the MCP adapter joined every text
+  block uncapped — so a `read` of a 2 MB lockfile became ~500k tokens in one
+  `tool_result`, the provider rejected the request, and with no retry the run
+  died with everything lost. The one existing reducer, `compressShellOutput`,
+  early-returns for any tool whose category is not `shell` and has no absolute
+  size cap at all.
+
+  - `maxToolOutputChars` (default 40k ≈ 10k tokens), overridable per run. Output
+    over budget is written to `<runDir>/tool-output/<toolUseId>.txt` and replaced
+    with a head+tail preview naming the path. Spilling beats truncating on every
+    axis: nothing is lost, tokens are paid only if the agent decides the rest is
+    worth re-reading, and retrieval uses `read`/`grep` — tools it already has.
+    Without a run directory it degrades to middle-elision rather than being
+    unbounded.
+  - `read` defaults to a 2000-line window instead of the entire file, and any
+    partial read now ends with a `[PARTIAL view — lines X-Y of Z]` notice naming
+    the exact next call. A truncated read used to be indistinguishable from a
+    short file, so the agent reasoned about a fragment as if it were the whole
+    thing.
+  - `bash` surfaces the sandbox's `stdoutTruncated` / `stderrTruncated` flags,
+    which were computed by the backend and dropped at the `SandboxExecResult`
+    type boundary — the model saw a complete-looking result that had silently
+    lost its tail. Both flags are now part of the contract, along with
+    `SandboxExecOptions.signal` so a cancelled run can reach the process.
+  - `tool_completed` carries `durationMs` (computed since the first version of
+    the executor but only ever logged), plus `outputLength`, `outputTruncated`
+    and `outputSpillPath`.
+
+- 935b8f3: Compaction's working state now rides the checkpoint, so a resumed run stops
+  deleting its own history.
+
+  Compaction replaces older messages with a summary and drops any prior
+  `[COMPACTED CONTEXT]` block, on the grounds that `serializeState` is
+  cumulative so the newer summary supersedes it. That holds inside one
+  process. Across a resume it did not: `WorkingStateManager` was constructed
+  fresh on every `query()` with no restore path, so the second compaction of
+  a resumed run produced a summary covering only post-resume activity — and
+  deleted the block that held everything before it.
+
+  The restore path deliberately carries that block forward, calling it the
+  only surviving record of the history the first pass deleted. The next pass
+  then destroyed it. This is what made the two halves agree.
+
+  - `IterationCheckpoint.workingState` — optional, so checkpoints written
+    before this field exists restore exactly as they do today.
+  - `snapshotWorkingState` / `restoreWorkingState` handle the wire shape.
+    `WorkingState.files` is a `Map`, which JSON renders as `{}`, so a naive
+    snapshot would have silently lost every tracked file. Eviction counters
+    round-trip too: a resumed summary that forgot what it had already dropped
+    would claim a completeness it does not have.
+  - State is restored directly rather than by replaying extractors over the
+    restored messages — the messages the first pass compacted away are gone,
+    so re-extraction is both lossy and non-idempotent.
+
+- 935b8f3: Harden the MCP boundary: the host decides what enters the tool registry,
+  and a server that changes its mind is noticed.
+
+  - `MCPToolDiscovery` takes per-server `allow`/`deny` policies (`'*'` for
+    servers without an entry). Discovery previously admitted whatever the
+    server offered, which put the REMOTE side in charge of what the agent
+    can call — the exact inversion of least privilege. Deny beats allow, so
+    a self-contradicting config resolves restrictively.
+  - Drift detection: the admitted tool set is fingerprinted (name +
+    description + input schema) and compared on each discovery, with an
+    `onDrift` callback reporting `added` / `removed` / `changed`. The
+    fingerprint covers descriptions and schemas, not just names, because the
+    attack shape is advertising something benign at approval time and
+    swapping its meaning afterwards — the name never moves. Reported rather
+    than blocked: a dev server legitimately changes between runs, and only
+    the host knows which kind it is looking at.
+  - Protocol negotiation is checked. A server answers `initialize` with the
+    version IT will speak; the client ignored that answer entirely, so a
+    version it could not speak looked like a healthy connection until
+    something downstream broke oddly. It now refuses a version outside
+    `MCP_SUPPORTED_PROTOCOL_VERSIONS` and names what it can speak. An
+    ABSENT version is still tolerated — a missing field is a sloppy server,
+    an unsupported version is a real incompatibility.
+
+  `MCP_PROTOCOL_VERSION` deliberately stays at the version namzu actually
+  implements. Advertising a newer one whose requirements are unimplemented is
+  worse than advertising an older one honestly, because the server tailors
+  its behavior to the claim. Raising it is a conformance task.
+
+  Hosts that configure no policy see no behavior change.
+
+- 935b8f3: Recover from a bad tool call without spending a model round trip on it.
+
+  - `QueryParams.repairToolCall` — a last chance to fix a call the model got
+    wrong, before the error reaches it. A malformed call otherwise costs a
+    full round trip: the error goes back as a `tool_result`, the model
+    re-reads the whole context, and issues a second inference to add a
+    missing brace. The hook sees the reason (`invalid_json`,
+    `schema_validation`, `unknown_tool`), the tool's JSON Schema and every
+    registered tool name, and may rewrite the arguments and the tool name —
+    nothing else. It is tried exactly once, a throw is caught, and declining
+    is normal: the original error simply proceeds as before.
+  - `ToolDefinition.maxRetries` (default `0`) + `ToolResult.retryable` — a
+    transient tool failure can now be retried in-loop instead of going back
+    to the model to be re-decided. Strictly opt-in per tool, because the SDK
+    cannot know a tool is idempotent, and only for failures the tool marked
+    retryable.
+  - `PluginHookResult` `{action:'retry'}` finally does something. It was a
+    declared variant that threw at every site that consumed it; in
+    `post_tool_use` it now re-runs the tool, bounded by the same per-tool
+    budget so a plugin cannot spin the executor. It remains an error in
+    `pre_tool_use`, where nothing has run yet for it to mean anything.
+
+  With no repairer configured and no tool opting into retries, behavior is
+  unchanged.
+
+- 935b8f3: Bound tool execution: per-tool deadlines, real cancellation, and a fan-out cap.
+
+  `ToolContext.abortSignal` was produced by the executor and consumed by nothing —
+  a repo-wide grep found only the two producer sites. A Stop tore down the model
+  stream and then parked inside `Promise.all` waiting for a tool that had no idea
+  it should quit, and there was no framework-level deadline at all: `bash`
+  defaulted to **one hour**, and the MCP stdio transport to forever.
+
+  - `ToolDefinition.timeoutMs` and `ToolExecutorConfig.toolTimeoutMs` (default
+    120s). On expiry the executor stops waiting and returns a model-visible
+    error result, so a slow dependency becomes something the agent can route
+    around rather than a turn that never comes back.
+  - The tool's `context.abortSignal` now really fires — on the deadline and on a
+    run abort — so cooperative tools stop working instead of merely being
+    detached. `bash` passes it to the child process.
+  - `bash`'s default timeout drops from 1 hour to 2 minutes. The model can still
+    request longer through the tool's own `timeout` argument.
+  - `ToolExecutorConfig.maxToolConcurrency` (default 8) bounds the parallel
+    branch of `executeBatch`, which previously fanned out without limit.
+  - MCP: `MCPClientConfig.requestTimeoutMs` (default 30s) bounds every JSON-RPC
+    round trip; in-flight requests are now rejected when the transport closes or
+    errors, not only on an explicit `disconnect()`; and a server-initiated
+    request (`sampling/createMessage`, `elicitation/create`, `roots/list`,
+    `ping`) gets a `-32601` reply instead of being silently discarded, which
+    used to leave the server waiting forever.
+
+- 935b8f3: A tool can declare that its output IS the answer
+
+  Every delegation path is blocking: the worker's final text comes back as the dispatching call's result. The loop then went round once more purely to restate what the worker had already said — a full model call at the parent's context size, the most expensive call in the run. It is also lossy, because the parent paraphrases the worker's answer through its own compacted view, so the caller receives the summary rather than the answer. For a router agent, whose entire job is to pick a specialist, that doubled the cost of every request.
+
+  `terminal: true` on a tool settles the run with that tool's output — the rule `structured_output` has always had, now available to any tool. `buildAgentTool({ terminal: true })` sets it on the built-in delegation tool.
+
+  It is honoured only when the terminal call is the only call in the turn and it did not fail. A model that asked for other work in the same turn meant to see those results, and settling would discard answers it requested; an error is not an answer either, and the model is the one that should read it. Both cases take the ordinary path and log the reason rather than quietly costing the relay the flag was set to avoid.
+
+  `defineTool` also gained `maxRetries` and `outputSchema` passthrough. Both fields were already read by the runtime, and the sanctioned way to author a tool had no way to set either — the documented "the tool author opts in, per tool" was reachable only by hand-writing the interface.
+
+- 935b8f3: A long-running tool can report progress.
+
+  Tools get a deadline of up to two minutes by default, and before this they
+  were silent for all of it: a host could show that a build, a test run or a
+  long fetch had started, and then nothing at all until it finished or timed
+  out.
+
+  - `ToolContext.report(message, fraction?)` — fire-and-forget, returns void,
+    never throws back into the tool, so it can be called without wrapping.
+  - `tool_progress` run event (wire: `tool.progress`), carrying the tool name
+    and `toolUseId` so a host rendering a concurrent batch knows whose
+    progress it is. A `fraction` outside [0,1] is clamped rather than passed
+    on.
+  - Ephemeral, like `text_delta` — excluded from `transcript.jsonl`, so a
+    tool reporting every file it compiles cannot bloat the durable record.
+
+  The model never sees these. Progress answers "is it still working?", which
+  is a question only a human asks, and putting it in the conversation would
+  spend tokens telling the model something it cannot act on.
+
+- 935b8f3: Add an evaluation harness with trajectory scoring.
+
+  There was no evaluation harness of any kind — no dataset, no scorer, no judge,
+  no trajectory assertion. So namzu's most load-bearing behavior was tuned by
+  constants nobody could measure: `search_tools` activates the top 5 deferred
+  tools, compaction fires at 0.7 of the window, six state lists cap at 25. Change
+  any of them, or a builtin tool description, or the deferred-tools prompt block,
+  and there was no way to learn the agent now takes four tool calls where it took
+  one — short of a user hitting it.
+
+  ```ts
+  import {
+    runExperiment,
+    trajectoryScorer,
+    completionScorer,
+    evalRunFromQuery,
+  } from "@namzu/sdk";
+
+  const report = await runExperiment({
+    name: "file-editing",
+    cases: [
+      {
+        name: "edits after reading",
+        input: msgs,
+        expectedTools: ["read", "edit"],
+      },
+    ],
+    scorers: [trajectoryScorer(), completionScorer()],
+    run: (input) =>
+      evalRunFromQuery(query({ provider, tools, messages: input /* … */ })),
+  });
+  ```
+
+  - **`trajectoryScorer`** scores the tool sequence as F1 over the longest common
+    _subsequence_. Subsequence, not set intersection: reading a file before
+    editing it is not the same run as editing then reading. Extra calls cut
+    precision, missing calls cut recall — so "did the right thing wastefully" and
+    "skipped a step" get different scores, which a final-answer assertion
+    collapses into one.
+  - `completionScorer`, `stepBudgetScorer`, `containsScorer`, and `customScorer`
+    for anything else — including a model-graded judge, which is just an async
+    predicate that calls a provider.
+  - **Every `Score` carries a required `reason`.** A bare number tells you a run
+    got worse without telling you how, which is exactly when you need to know;
+    `formatReport` prints those reasons for failures rather than a bare mean.
+  - A case that throws is a _result_, not a crash: a suite whose first broken
+    case aborts tells you nothing about the other forty. Same for a scorer that
+    throws.
+  - `evalRunFromRun` / `evalRunFromQuery` bridge a finished `Run` into the shape
+    scorers consume. That bridge is three lines of mapping only because
+    `Run.steps` exists — otherwise a trajectory scorer would have to correlate
+    raw `RunEvent`s by iteration number and diff cumulative counters.
+
+- 935b8f3: A user message can carry a document
+
+  Documents existed in the type system only in the tool-result direction, and both first-party drivers mapped images only on the input side. So "here is the contract, answer questions about it" — a mainstream workload — was reachable only by having a tool read the file and stringify it. That loses the provider's native document handling (page structure, built-in OCR, citations) and pays the text cost instead.
+
+  `UserMessage.attachments` is now `MessageAttachment[]`: an image or a document. The discriminant is optional and stays optional — an attachment without one is an image, which is what every attachment was before, so no existing caller changes.
+
+  `supportsDocuments` sits beside `supportsVision` in the driver capability declaration, and the runtime checks it the same way: a document sent to a driver that declares `false` warns before the request, or throws under `strictCapabilities`, instead of letting the model answer about a file it never saw. The two are counted separately because they are separate wire shapes and a driver can map one without the other.
+
+  The two first-party drivers map documents natively. The remaining five map images only and now say so; a document reaching them degrades to a named placeholder that says which kind was dropped, rather than one that calls a document an image.
+
+- 935b8f3: Stop compaction from quietly degrading the state it produces, and implement
+  `resetThreshold`.
+
+  What survives compaction is the only record of the history it replaced, so
+  silently shrinking it is the one thing that structure must not do. Three fixes:
+
+  **Capped lists keep their head.** Eviction used `shift()` — oldest-first — so
+  on a long run the 26th assistant note deleted the 1st, and "the structured
+  state that survives compaction" degraded into a rolling window over recent
+  activity. The early entries are the load-bearing ones (the original
+  requirement, the decision that set the approach); the recent ones are still in
+  the un-compacted tail of the conversation. The first `keepFirstEntries`
+  (default 3) are now pinned and eviction takes from the middle. Tool results
+  keep oldest-first eviction, because there recency genuinely wins: an old `read`
+  of a since-edited file is worse than useless.
+
+  **The summary admits what it lost.** Evictions are counted per slot and
+  rendered as `_(N entries dropped to stay within the state budget)_`. A summary
+  that presents a gap as complete is worse than one that admits the gap — the
+  model reasons about a fragment as if it were the whole record.
+
+  **Unrecognised tools get a useful summary.** Every MCP tool, custom tool and
+  connector-bridged tool fell into a flat 120-character head slice, which on JSON
+  spends the entire budget on syntax: `Ran: {"results":[{"id":"a1b2` and nothing
+  else. Unknown tools are the ones a summary can say least about from the name,
+  so they now get 400 characters and a structure-aware slice — array length and
+  element shape, or object keys — falling back to head-and-tail for plain text.
+
+  **`resetThreshold` is implemented rather than deleted.** It was declared, set
+  by the shipped CLI, and read by nothing. It is hysteresis: a pass that only
+  moves the context from 0.72 to 0.71 of the window leaves the trigger armed, so
+  the next iteration compacts again, paying a summarization call and busting the
+  prompt-cache prefix each time for nothing. A pass that cannot reach the reset
+  level now logs the shortfall, and `compaction_completed` carries
+  `reachedResetThreshold`.
+
+### Patch Changes
+
+- 935b8f3: Atomic writes stop sharing one scratch file.
+
+  The rename is what makes a write atomic — a reader sees the old file or the
+  new one, never a half-written one. The sidecar it renames _from_ has to be
+  private to that write, and in seven places it was a fixed `${path}.tmp`.
+
+  Two writers of the same record then shared one scratch file: both opened it,
+  both wrote into it, and the first rename published whatever mixture had
+  landed while the second renamed a file that was no longer there. That is the
+  exact failure atomic writes exist to prevent, reached through the mechanism
+  meant to prevent it.
+
+  Not hypothetical for this SDK: the cross-process park and unpark handoff —
+  one process suspending a run, another resuming it — is a design where two
+  processes legitimately touch the same records, and it is the feature these
+  stores exist to serve. One store already picked a private name; the other
+  seven inherited the fixed one.
+
+  - One `atomicWriteFile` in `utils/`, used by the session, thread, run, task
+    and memory stores, the retention backend and both migration writers. The
+    sidecar carries the process id, a per-process counter and random bytes —
+    distinct within a millisecond, within a process, and across hosts sharing
+    a network mount.
+  - It lives in `utils/` rather than `store/` because one of those writers was
+    _deliberately_ duplicated to avoid an inbound dependency on the store
+    layer. That instinct was right, and it is also why that copy kept the
+    fixed name after the others were fixed; somewhere everything may depend on
+    leaves nothing to duplicate.
+  - A rename contended by a concurrent writer is retried briefly. Replacing an
+    existing file by rename is unconditional on POSIX and not on Windows,
+    where a concurrent writer holding the target fails the call for as long as
+    the other rename takes — and two processes writing one record is precisely
+    what this helper is for. Bounded to five attempts, so a genuine permission
+    error still fails immediately instead of hanging.
+
+- 935b8f3: The third-party-name audit now covers prose, not just source
+
+  The rule namzu holds is that nothing here takes its naming from another system and no brand appears in prose. The guard that enforces it scanned `.ts` only — so the largest prose surface in the repository, every README and published page, was never checked, and it had accumulated exactly what the rule refuses: a competitor feature grid, a scoring table, "in the spirit of X", "our tool names mirror Y's table verbatim", and a sandbox tier matrix written as market positioning.
+
+  Markdown is scanned now, with the same distinction the source side already draws. An inline code span, a fenced block, a link target and YAML frontmatter are values a reader types verbatim — a package path, a model id, a keychain item — and they are exempt. A published page may also name a service namzu ships a driver for, because telling an operator what it connects to is the page's job; source comments get no such licence, since a vendor is never the reason namzu's own code has its shape.
+
+- 935b8f3: Four defects an adversarial audit confirmed
+
+  **A task could be created and then never found again.** `DiskTaskStore` writes under the run that created it and read only under the store's default run, so every lookup missed as soon as the two differed — the normal case, since the task tools are built with the live run id while a long-lived host constructs the store once with a fixed default. `create` succeeded, `list` succeeded, and `update`, `delete`, `claim` and every dependency link answered "not found" for a task the caller could see. The in-memory store keys by task id alone, which is why nothing caught it.
+
+  **A sub-agent's token reservation was never returned.** The debit at spawn reserves headroom so siblings cannot each be promised the same tokens, and nothing credited back the unused part — so a pool shrank by the full allocation on every spawn no matter what the child used. At a half-pool fraction, ten delegations left a parent with a thousandth of its budget and the next spawn was refused for a budget that had barely been spent. The debit also ran before provisioning, so a spawn rejected for capacity still burned its allocation — the one state change the comment there promised would not happen.
+
+  **A failed sandbox create leaked a proxy holding real credentials.** The egress proxy starts before the container and its only close was in `destroy()`, which a create that never returned can never reach. Every failure in between left a listening server on loopback stamping credential headers, plus a retained event-loop handle, one per retry.
+
+  **A remembered approval could overrule the operator.** The grant check ran before the verification gate and returned, so a remembered approval skipped the gate entirely — and because a tool-scoped grant matches any arguments, approving one harmless invocation authorised every other one, past a rule written to stop exactly that. The gate now runs first, and a grant can satisfy a review but never a denial.
+
+- 935b8f3: Retry now works on the bedrock driver, and the shared classifier reads a
+  status wherever a vendor hides it.
+
+  An unclassified error is treated as non-retryable, which is the right
+  default — but it meant the retry policy was effectively dead on this
+  driver, and the one failure most worth backing off from was the one that
+  killed the run. The service reports failures as named exception classes,
+  and the classifier looked at neither the name nor the status, because the
+  status lives in a metadata bag rather than on the error.
+
+  - `classifyProviderError` now also reads `$metadata.httpStatusCode`. A
+    status is a status wherever it hides, and this helps any driver — first
+    or third party — whose SDK reports it that way.
+  - The bedrock driver maps its own exception vocabulary to provider error
+    codes: throttling and quota to `rate_limit`, unavailable and not-ready to
+    `overloaded`, internal and stream faults to `server_error`, and the
+    non-retryable ones (`ValidationException`, `AccessDeniedException`,
+    `ResourceNotFoundException`) to their exact codes so they fail fast
+    instead of burning the retry budget.
+
+  The vocabulary lives in the driver rather than the shared classifier: a
+  driver knows its own vendor's error names, and the classifier should stay
+  generic. An unrecognised exception passes through untouched — an honest
+  unknown beats a confident wrong classification.
+
+- 935b8f3: A cancelled turn records what it spent before it stopped.
+
+  Cancel re-threw from inside the chunk loop, so everything past that point
+  was unreachable — and everything past that point is the turn's bookkeeping.
+
+  - **Silent cost under-reporting**, the load-bearing one: the usage the
+    stream had already merged was discarded wholesale, so `Run.tokenUsage`
+    and `costInfo` under-reported every cancelled turn. A cancelled turn is
+    not a free turn; the tokens were spent.
+  - The `chat {model}` span opened for the call was started and never ended,
+    so it never exported at all.
+  - The message the turn announced never got a terminator, so a host
+    consuming the message lifecycle saw a message begin and never end.
+  - The streamed text was absent from the run's messages and steps.
+
+  The stream-**error** path a few lines away already settled all of this.
+  Cancel was the one exit that skipped it, which is the opposite of what its
+  frequency deserves.
+
+  `MessageStopReason` gains `'cancelled'` so the terminator can be
+  well-formed. Settling is best-effort and never replaces the reason the turn
+  ended: the cancellation still propagates, so the run loop still settles as
+  cancelled.
+
+- 935b8f3: A damaged checkpoint is refused instead of skipped.
+
+  A checkpoint file is the **only** durable record of a park — there is no
+  separate approval store. So an unreadable one that gets logged and skipped
+  does not merely lose a resume point: `findPendingCheckpoint` reports "not
+  parked" and drops an approval a human already granted.
+
+  `listCheckpoints` wrapped every per-file read in a `catch` that warned and
+  continued, returning a silently short list that four callers treat as
+  complete:
+
+  - `'latest'` resolution and `newest()` quietly resume from an **older**
+    checkpoint, so the run re-executes a full iteration of tool calls;
+  - `findPendingCheckpoint` loses the park, as above;
+  - `prune` under-deletes, because a file the keep-count cannot see is
+    immortal.
+
+  The only signal was a `log.warn` on a line nobody watches — and the by-id
+  read next door was already strict. Two read paths disagreeing about whether
+  damage matters is how the lenient one gets trusted.
+
+  Both paths now refuse. Both also **check** the parsed shape rather than
+  casting it: `JSON.parse(content) as IterationCheckpoint` let `{}` through
+  and failed much later at the point of use, where the message names a
+  missing property rather than a damaged file.
+
+  Absent stays distinguishable from damaged: no checkpoints still returns an
+  empty list, and an unknown id still returns `null`.
+
+- 935b8f3: Compaction no longer leaves the conversation opening on an assistant turn.
+
+  After compaction the kept tail **is** the conversation: the summary is
+  written as a system message and every driver hoists system messages into
+  their own request parameter, so the first kept message becomes the first
+  message on the wire. A conversation that opens on an assistant turn is
+  rejected.
+
+  `findSafeTrimIndex` advanced past an orphaned `tool` message and never past
+  an `assistant` one. How often that bit depends on the shape of the history,
+  and the shape that matters most is the worst: in a **multi-step turn** — the
+  agent working through several tool calls without the user speaking in
+  between — the tail alternates assistant and tool with no user message in it
+  at all, so essentially every boundary landed wrong.
+
+  The failure was unrecoverable. The resulting rejection is not classified as
+  an overflow, so relief never fires and the run dies — compaction, whose
+  entire job is keeping a long run alive, becoming the thing that ends it.
+
+  The boundary now advances to a `user` turn. Where none lies ahead it falls
+  back to the nearest one behind **whose own tail is free of dangling tool
+  pairs**: two wire invariants are in play, and satisfying one by breaking the
+  other is not a fix. Where no boundary satisfies both, the input was already
+  unsendable and no cut makes it otherwise, so the prior behaviour stands
+  rather than a different invalid conversation being invented to replace it.
+
+  Also fixed alongside: the structured manager took
+  `Math.min(safeTrimIndex, desiredTrimPoint)`, and since the safe index only
+  ever moves forward of the desired one, that minimum resolved back to the
+  desired point every time — discarding the entire safety search. Whatever the
+  guard was reaching for, what it did was undo the line above it.
+
+- 935b8f3: Four arithmetic defects, each pinned by a computed counterexample.
+
+  - **`mergeTokenUsage` maxed `totalTokens` as an independent field.** It is
+    derived (`input + output`), and Anthropic reports the input on
+    `message_start` and the output on `message_delta` — so the two frames
+    carry totals of 1200 and 350, and the max returns the larger _component_
+    rather than the sum. Merged: 1200. Correct: 1550. Every completion token
+    was invisible to the token-budget hard stop, which reads only
+    `totalTokens`. The merge now also takes `prompt + completion`, so it is
+    monotone and can never under-report.
+
+  - **The compaction estimator counted array-shaped tool results by block
+    count.** `msg.content.length` on `ToolResultBlock[]` is the number of
+    blocks, so a tool result carrying a 400 KB screenshot contributed **1**
+    character — and the estimate that decides when to compact read near zero
+    for exactly the runs that need compacting most.
+
+  - **`toolsHash` omitted `annotations`.** Those carry `readOnlyHint` and
+    `destructiveHint`, which become `isReadOnly` / `isDestructive` and drive
+    whether a human reviews the call. A server could flip a tool from
+    destructive to read-only — same name, same schema, silently removed from
+    review — and the fingerprint built to catch that rug-pull produced an
+    identical hash.
+
+  - **Sub-agent budget exhaustion inverted into no budget.**
+    `floor(remaining * maxBudgetFraction)` reaches 0 once the parent drops
+    below `1 / maxBudgetFraction`, and `tokenBudget: 0` means _uncapped_
+    downstream (`LimitChecker`: `tokenBudget > 0 && …`). So the most depleted
+    parent in the tree was the one that spawned an unlimited child. Spawning
+    now refuses with a clear error; a caller who wants an uncapped child says
+    so explicitly.
+
+- 935b8f3: Parent the OpenTelemetry spans, and emit the missing `chat` span.
+
+  Every span was a root. A repo-wide grep for `context.with` / `trace.setSpan`
+  returned zero hits, so a single 20-iteration run landed in Honeycomb as 21
+  disconnected root spans plus N orphan tool spans — no waterfall, no way to see
+  which iteration a slow tool belonged to. There was no span around the model
+  call at all: `chatSpanName` existed with zero call sites, so traces carried no
+  LLM latency, and the token counts were stamped on the iteration span instead of
+  the operation that produced them.
+
+  The fix is explicit parent contexts rather than `startActiveSpan`. Every
+  span-owning body in the run loop is an async **generator**, and a generator
+  resumes on its consumer's async context — so the ambient parent is already gone
+  by the time a child span is created, and the naive conversion silently parents
+  nothing. `parentContext(span)` threads it as a value instead.
+
+  - Iteration spans parent to the run span; tool spans parent to the iteration
+    that requested them, via a new optional `ToolContext.parentSpan` (already
+    threaded to exactly the right place).
+  - A `chat {model}` span carries `gen_ai.operation.name`, request model,
+    temperature and max tokens, and on completion the response model, id,
+    finish reasons, token usage and the cache-read/write counts.
+  - `@namzu/telemetry` switches from `SimpleSpanProcessor` to
+    `BatchSpanProcessor`, so exporting a span no longer puts network latency
+    inline on the agent loop.
+
+  Adds the first telemetry tests in the repo.
+
+- 935b8f3: Carry budgets across a checkpoint resume, and count the side-channel model calls.
+
+  Budget enforcement was neither durable nor total.
+
+  **Durable.** `IterationCheckpoint` faithfully persisted `tokenUsage`, `costInfo`
+  and `guardState`, and the resume path replayed messages only — the numbers were
+  written and then discarded on the way back in. A run checkpointed at $4.80 of a
+  $5 cap came back with a brand-new $5 and a brand-new timeout clock, so a task
+  that parked five times spent 5x its cap while every invocation truthfully
+  reported itself in budget. `RunPersistence.restoreUsage()` and
+  `GuardCoordinator.restoreElapsed()` (also available as `elapsedMsOffset` at
+  construction) seed both from the checkpoint before the first iteration, so a
+  resumed run that is already over budget stops immediately.
+
+  **Total.** Three `chatStream` call sites bypassed `accumulateUsage` entirely, so
+  a run with `tokenBudget: 200_000` could send well past 200k and never trip
+  `token_budget`:
+
+  - the advisory phase — its usage was already captured for reporting and simply
+    never reached the accountant;
+  - the compaction verifier — the worst offender, since it fires exactly when the
+    context is largest. It now takes an optional `UsageSink`;
+  - `RouterAgent` — routing runs before any `RunPersistence` exists, so
+    `RoutingDecision` now carries the routing call's `usage` (summed across
+    retries) and the router folds it into the result instead of reporting the
+    delegate's usage alone.
+
+- 935b8f3: namzu takes its naming from nobody, and now there is a gate that proves it.
+
+  `scripts/audit-external-names.mjs` refuses a third-party product name in a
+  comment or an identifier, and runs in CI. It found 31 real ones — most of
+  them in the TUI, where the design was being explained as "modelled on how X
+  presents text", "X-style grouping", "like X / Y".
+
+  That is the failure the rule exists for. A design explained by reference to
+  somebody else's product has handed over its rationale: the next reader
+  reaches for that product's model instead of asking what namzu is trying to
+  achieve, and when the reference changes the comment becomes a claim nobody
+  can check. Each one now states the same decision on its own terms — what it
+  accomplishes, and what breaks without it.
+
+  The kernel had eleven, all in prose explaining a wire behaviour by naming
+  the vendor whose endpoint exhibits it. A 400 for an unanswered `tool_use`
+  is a property of the protocol, not of a company; several function-calling
+  endpoints report `stop` alongside populated tool calls, and which ones is
+  not the point.
+
+  The identity prompt named the products it told the model not to be. It now
+  says the stronger thing without them: the underlying model is an
+  implementation detail of how namzu runs, not who it is.
+
+  What the audit deliberately does NOT flag, because a rule that cries wolf
+  gets switched off: wire values and the files that carry them. A
+  context-window table keyed by model id must contain real model ids or it
+  resolves nothing; a driver package is named after the service it drives.
+  The exemption is per path and narrow, and the script says where the line
+  falls. Scanning string literals was tried and rejected in the same spirit —
+  it flagged driver ids in switch statements and model ids in test fixtures
+  everywhere, which would have meant exempting half the tree.
+
+  Two matcher details worth keeping: the camelCase check is case-SENSITIVE,
+  because an `i` flag turns `[A-Z]` into `[A-Za-z]` and the rule starts
+  rejecting `coherent` for `cohere` and `strands` for the English verb. And
+  `cursor` is absent from the list entirely — it collides with the pagination
+  cursor this codebase threads through every list call.
+
+- 935b8f3: `glob`, `grep` and `ls` stay inside the working directory, and inside the
+  sandbox when there is one.
+
+  Two independent failures, both in tools that are in the default set.
+
+  **The path escape needed no sandbox at all.** All three resolved a
+  caller-supplied `path` against the working directory bare, so
+  `path: "../../.."` landed wherever that pointed and the tool read it
+  happily. The containment rule already existed — in one private function
+  inside the local sandbox provider — and these never reached it. `grep`
+  returns file **content**, so what escaped was not a listing. For `glob` the
+  same escape also rides in on the _pattern_, since the base directory lifted
+  out of `"../../**/*.pem"` is caller-supplied too.
+
+  A refusal now reaches the model as a failed tool result carrying the reason,
+  rather than a throw, so it can correct itself.
+
+  **The sandbox was not a read boundary.** `glob` and `grep` called
+  `node:fs/promises` against the host working directory and referenced
+  `context.sandbox` nowhere, while every sibling builtin already remembered
+  the branch. With a container backend wired in they read the SDK process's
+  own filesystem. The paths they returned were host-relative too, while
+  `read` resolves what it is handed _inside_ the sandbox — so every
+  search-to-read handoff either failed or opened a different file. The two
+  roots genuinely diverge: the executor passes `workingDirectory` through
+  unchanged alongside the sandbox.
+
+  Both now route through `context.sandbox` when present. `grep` abstracts only
+  the file _source_ — enumerate and read — so matching, context lines and the
+  caps stay one implementation; duplicating the substantive half is how the
+  two paths would drift, and the sandboxed one is the one nobody runs by
+  accident.
+
+  **Sandbox paths are no longer run through the host's path module.** A
+  sandbox is a POSIX filesystem whatever the host runs, so resolving its paths
+  host-side rewrites them whenever the two disagree — on a Windows host
+  `resolve('/workspace')` becomes `C:\workspace`, and a container path stops
+  being a container path. This was found by the new tests, which returned no
+  results at all until it was fixed.
+
+- 935b8f3: Fix five wiring defects found by auditing the previous wave rather than
+  trusting it. All five had passing unit tests, because those tests
+  constructed the internal class directly and so proved the helper worked
+  while proving nothing about whether `query()` ever reached it.
+
+  - **`query({ repairToolCall })` was a no-op.** The field was spread into
+    `ToolingBootstrap.init`, whose config type has no such field and whose
+    `init` enumerates what it forwards. Object spread bypasses excess-property
+    checking, so it type-checked and did nothing.
+  - **A truncated tool-input stream never reached the repairer** — the case
+    the hook exists for. `executeSingle` answered `inputTruncated` with a
+    generic hint and returned before repair ran. The partial buffer is now
+    preserved (`ToolCall.metadata.partialArguments`) and offered to the
+    repairer, because one handed an empty object has nothing to work from.
+  - **`{action:'retry'}` from `post_tool_use` was silently discarded.** It was
+    read inside a loop bounded by the tool's `maxRetries`, which defaults to
+    0, so the loop body never ran. Hook-requested retries now get their own
+    bounded budget (`HOOK_RETRY_BUDGET`): the hook is host code reacting to
+    one specific result, a more specific signal than the tool's blanket
+    idempotency declaration.
+  - **A cross-process HITL resume never cleared the park.** The approved batch
+    executed and the checkpoint kept `pending` with no `resolvedAt`, so an
+    approval queue re-served a destructive call that had already run — the
+    exact failure recording the park exists to prevent.
+  - **Configuring an output guardrail rewrote the run's outcome.** The branch
+    called `markCompleted()` purely to materialize the produced text, so a
+    cancelled run reported `completed` merely because a safety check was
+    present. Reading and settling are now separate (`materializeResult`), and
+    `setResult` is sticky so the later `resolveResult` cannot re-expand a
+    redaction back to the raw model output.
+
+- 935b8f3: Fix five defects in the eval harness and RAG retrieval — all plain bugs
+  with correct answers, not design trade-offs.
+
+  **Eval harness — it could report green on a broken suite.**
+
+  - A case whose run THREW scored 1.0. `executeCase` catches the failure and
+    returns an empty run, and an empty run walks into every scorer's happy
+    path: `stepBudgetScorer` sees 0 steps against its allowance and returns
+    1, `trajectoryScorer` sees "no tools expected, none called" and returns
+    1. The failure was recorded on `run.error` and nothing consulted it. Any
+       run that failed now scores 0, with the error as the reason.
+  - Two scorers sharing a name silently collapsed. Scores are keyed by name,
+    so a second `containsScorer(...)` — also called `contains` — overwrote
+    the first, and the case mean's denominator became the count of distinct
+    NAMES rather than scorers run. With one scoring 0 and one scoring 1 the
+    suite reported 1.0 where the honest answer is 0.5. Duplicate names now
+    throw.
+
+  **RAG retrieval.**
+
+  - `bm25Score` implemented only the term-frequency saturation half and no
+    IDF at all — the half that discriminates. Without it every matched term
+    weighs the same, so a chunk matching three common words outranks the one
+    chunk containing the rare term the query was about. It also normalized
+    document length against a hardcoded `avgDl = 256` rather than the corpus
+    in front of it. Both now computed from the candidate set.
+  - `hybridSearch` blended bounded cosine with unbounded BM25 linearly, so
+    `hybridAlpha` did not weight the two halves — whichever scale happened to
+    be larger won. Each ranking is normalized to [0,1] first.
+  - The recursive chunker used `text.split(sep)`, which DELETES the
+    separator: splitting on `'. '` stripped every sentence terminator and
+    `'\n\n'` stripped every paragraph break, so the chunk shown to the model
+    was not what the document said.
+
+- 935b8f3: A tool call a probe vetoed now says it failed.
+
+  The probe-veto branch was the only result-producing branch in the executor
+  that left `isError` off, and `isError` being optional meant the compiler
+  could not catch it. Five lines above, the `tool_completed` event for the
+  same veto carried `isError: true` — so a run's event stream and the result
+  it returned disagreed about the same call, in the same function.
+
+  Four things degraded off that one omission:
+
+  - Two drivers emit their failure marker only when this is true, so the model
+    read a **successful** result whose body begins `Error: Probe "x" vetoed…`
+    and the failure-recovery path it was trained on never fired.
+  - The persisted step recorded a literal `isError: false`, so the run record
+    contradicted its own event stream.
+  - Compaction guards error results from being cleared; a vetoed result was
+    silently excluded from that protection.
+
+- 935b8f3: A provider fault keeps the classification its driver produced
+
+  The stream turn flattened a classified `ProviderError` to its message and threw a fresh error in its place, so `retryable`, `status` and `retryAfterMs` were all discarded — and `NamzuError`'s default for `provider_error` is not-retryable. A 429 or 529 that had exhausted its backoff therefore settled the run **failed**, where the documented behaviour is a **pause** with a checkpoint to resume from. `toPlatformError` already projects the right shape; it was simply never handed one.
+
+  The asymmetry was visible in the codebase: the same fault raised inside the compaction verifier propagates untouched and does pause, so identical faults settled oppositely depending on whether compaction happened to run that iteration. A classified failure is now rethrown as itself, and an unclassified one keeps its cause.
+
+- 935b8f3: Four places where the runtime lost information it was holding, or admitted a limit it had already exceeded.
+
+  - **A clipped sandbox stream said nothing.** `SandboxExecResult` carries `stdoutTruncated` / `stderrTruncated`, added when the other backend needed to report a clipped stream. The local backend clipped at the same cap and never set them, so the model read a complete-looking result whose tail was gone — against the contract's own note that the kernel does not truncate silently. The tool layer already renders the flag; nothing raised it. The accumulator is now a small `CappedStream` that reports hitting its cap, and reports it at the first byte past it rather than at exactly the cap.
+
+  - **Two concurrent spawns could both take the last delegation slot.** The width cap counted a parent's children and then created one, with every other provisioning step in between. Two spawns under the same parent both read the same count, both saw room, and both created, so a cap of N admitted N+1. Provisioning is now serialized per parent session — the narrowest key that makes the check and the write one critical section; spawns under different parents never contend. In-process only, which is the honest scope: cross-process capacity belongs to the store.
+
+  - **`agent_task_list` forgot finished workers.** Terminal tasks leave the manager 30 seconds after they settle, and the gateway's list was rebuilt by looking each tracked id back up — so a task that finished a minute ago vanished from the exact tool whose description says to call it before declaring multi-worker work done. A supervisor could not tell an evicted task from one that never launched; both read as absence. The gateway now snapshots each task's settled summary while the manager still holds it, and prefers the live record whenever there is one.
+
+  - **The compaction summary hid its dropped tool results.** Every capped section in the working-state summary appends a line naming what it evicted — except tool results, which counted their evictions and rendered without them. The section carrying the most volume was the only one presenting a fragment as the whole record.
+
+- 935b8f3: Clearing a tool result no longer destroys the way back to it, and skill
+  frontmatter fails loudly instead of quietly.
+
+  **A cleared tool result kept its recovery pointer.** When a result exceeds
+  the output budget its full text is written to disk and a line pointing at
+  the file is embedded _in_ the result. Compaction then replaced the whole
+  content with a placeholder — deleting that line for exactly the largest
+  outputs, and advising the model to "call the tool again", which is advice to
+  re-run something that returned megabytes. The spill line now survives, along
+  with the `read`/`grep` instruction that goes with it.
+
+  A head and tail survive too. Clearing was total, so a result just over the
+  1,000-character minimum lost 100% of itself — including the few lines the
+  agent was actively reasoning from — to reclaim a few hundred characters. A
+  result shorter than the head and tail together is kept whole, since eliding
+  it would drop content while saving nothing.
+
+  **The skill frontmatter fence is anchored to a line.** An unanchored search
+  for `---` cut the frontmatter at the first occurrence anywhere — inside a
+  quoted value, inside a URL — which both truncated the metadata and spilled
+  the remainder into the body, where it reaches the system prompt verbatim.
+
+  **YAML this reader does not implement is refused rather than mangled.** The
+  reader is a flat key/value splitter and the documented contract says "YAML
+  frontmatter" with no restriction, so an author has every reason to write a
+  block scalar or a flow sequence. `description: >-` produced the literal
+  string `">-"`, which passed validation and registered with no warning — the
+  skill existed and was never selected, because its description said nothing.
+  `[Read, Grep]` became that literal text and was interpolated into the
+  prompt. Both now name the file and the field.
+
+  That is worse for exactly one skill — the one already silently broken — and
+  better for everyone looking for it.
+
+- 935b8f3: **Breaking:** `@namzu/sandbox` declares only the backends it has.
+
+  Four of the shapes this package offered could type-check and then throw: a `process` tier, a `passthrough` tier, and two adapters to third-party managed schedulers, none of which was ever written. Each demanded required configuration for a call that was never made — the `self-hosted` microvm arm went further and required three fields belonging to a local-daemon path that does not exist, while the two fields the working path needs were optional. So the only configuration that ran had to supply three values nothing reads, and omitting the two that matter compiled its way to a runtime throw.
+
+  `SandboxTier` is now `container | microvm`. `MicroVMBackendConfig` is one shape whose `orchestratorEndpoint` and `getToken` are required. `SandboxBackendNotImplementedError` stays exported and thrown: a JS host that invents a tier gets a named refusal rather than a provider that confines nothing.
+
+  The `sandbox.platform` health check now asks the provider what this host enforces instead of answering from a table keyed on the OS name. That table had drifted both ways — it called the Linux probe unimplemented long after the provider began probing real flags, and it told a Windows operator that sandboxing is "not supported", which is true of the in-process tier and silent about the container tier that runs there. Every non-passing result now names the missing controls and what to do about them.
+
+  `SANDBOX_ISOLATION_CONTROLS` is exported as a value from `@namzu/sdk`. It was reachable only through `export type *`, so importing it type-checked and then failed on the first line of a built binary.
+
+- 29f35c8: Constrain `ask_user_question` to its canonical JSON object-array input on
+  supported providers and reject malformed compatibility shapes at runtime.
+- 935b8f3: Overflow reaches the rescue that exists for it.
+
+  Overflow is the one 4xx the runtime can act on: it sheds history and
+  retries. Everything else in the 400 family is surfaced. So the rescue is
+  gated on the code being **exactly** `context_length_exceeded`, and anything
+  that misses that gate dies holding the remedy.
+
+  Three things missed it. Measured before and after, five of six realistic
+  overflow shapes never reached relief; now all six do.
+
+  - **The structural code was extracted and then discarded.** The cause-chain
+    walk returned the first `code` it found and fed it only to the two
+    transport-errno sets, so a provider that said `context_length_exceeded` in
+    the one field designed to say it was answered with a substring search that
+    did not match. A structural code is now consulted **before** the status,
+    because it is strictly more specific: a 400 is a category, the code is the
+    diagnosis. The gateway `type` discriminator and a nested error envelope
+    are read the same way.
+  - **The phrase list missed the common wordings.** "too long for", "maximum
+    length", "exceeds the maximum", "input is too large" all fell through to a
+    plain non-retryable invalid request.
+  - **The Converse driver pre-filed `ValidationException` as
+    `invalid_request`.** That name covers both a malformed request and a
+    prompt past the model's window, and only one of those is recoverable — so
+    guessing from the name made the recoverable case unrecoverable by
+    construction, because the shared classifier short-circuits on an error
+    that already carries a code and never read the body. It now hands that one
+    name to the classifier. The result is still a `ProviderError`, so the
+    driver's contract is unchanged; it just stops answering a question it
+    cannot answer from the name alone.
+
+  The rate-limit half of the same class is fixed alongside: a provider that
+  reports `rate_limit_exceeded` structurally under a 400 is now retryable
+  instead of being filed as a bad request.
+
+- 935b8f3: Answer every `tool_use` block, and stop a human approval from overriding a gate denial.
+
+  Four tool-review paths — verification-gate all-deny, human `reject_tools`,
+  `modify_tools` with everything denied, and `modify_tools` with a _partial_
+  deny — returned without producing a `tool_result` for the calls they refused.
+  The assistant turn stayed unanswered, so the next provider request was
+  malformed (`400 … Did not find 1 tool_result block(s)`) and the run died.
+  Any host wiring a rejection decision (including the `namzu` TUI's permission
+  prompt) hit this on the first decline.
+
+  `ToolExecutor.executeBatch` now takes an optional denial map and answers
+  _every_ call in the batch: refused calls get a synthetic error `tool_result`
+  carrying the reason instead of being executed. Because there is one place
+  that turns tool calls into messages, the invariant now holds by construction.
+  The refusal reason travels inside the `tool_result` rather than as a trailing
+  `[SYSTEM]` user message, so a rejection steers the model instead of only
+  stopping it.
+
+  Alongside it, a policy-bypass fix: on the gate's _mixed_-decision path a human
+  `approve_tools` replayed the full, unfiltered response and executed the calls
+  the gate had denied. Gate denials are now threaded through every downstream
+  execution, and a `modify_tools` rewrite can no longer resurrect a denied call.
+
+  Checkpoint resume repairs unanswered tool calls (`removeDanglingMessages`)
+  before replaying history, so a run parked at a tool-review checkpoint and
+  resumed in a fresh process no longer fails on its first model call.
+
+- 935b8f3: Fix three defects in delegation and compaction that unit tests could not
+  see, because the numbers involved stay plausible-looking until you check
+  their units and their object identity.
+
+  - **A child agent's wall-clock deadline was a TOKEN count.** The fallback
+    was `context.budgetTracker.remaining` read as `timeoutMs`. It hid because
+    a six-figure token budget lands in a plausible range of milliseconds; it
+    bit at the edges, where an unlimited budget (`0`) produced a child that
+    was out of time on arrival. There is now an explicit
+    `AgentManagerConfig.childTimeoutMs` (default 5 minutes).
+  - **Sibling sub-agents each got a full share of the same pool.**
+    `LocalTaskGateway` handed every spawn a _cloned_ budget tracker, so
+    `AgentManager.spawn`'s `remaining -= allocatedTokens` debited a throwaway
+    object. N children were each allocated `maxBudgetFraction` of the
+    untouched parent total — N × 50% of a budget that only had 100% in it.
+    The tracker is shared, as the debit always assumed.
+  - **The compaction verifier sent `model: ''`.** Some drivers quietly
+    substitute a default and others reject outright — on Bedrock the model id
+    IS the endpoint. So compaction's LLM verifier failed exactly on the
+    providers where a long run most needs it, and the failure surfaced as
+    compaction killing the run it exists to save. It now receives the run's
+    model.
+
+  Each fix ships with a test that was confirmed to fail against the old code.
+
+- 935b8f3: Normalize and memoize the tool schema that goes on the wire, and stop
+  losing MCP schemas in translation.
+
+  - `$schema` (`http://json-schema.org/draft-07/schema#`) was stamped on
+    every tool's parameters and sent on every request. No provider reads it,
+    and it rides in the tools block — position 0, inside the cached prefix.
+    Stripped.
+  - `toLLMTools` re-walked every registered tool's Zod tree once per
+    iteration. Rendering is now memoized on the schema object and deeply
+    frozen, so it is both free and byte-identical across iterations — the
+    tools block heads the prompt-cache prefix, and a single reordered key
+    invalidates the whole run's cache.
+  - `mcpJsonSchemaToZod` collapsed `array` to `z.array(z.unknown())` and
+    `object` to `z.record(z.unknown())`. Because a bridged tool's schema
+    round-trips (server JSON Schema → Zod → JSON Schema on the wire), every
+    MCP tool taking a structured argument was shown to the model as "an
+    array of anything" or "an object with any keys" — nested properties,
+    item types, enums and descriptions all gone. It is now recursive and
+    faithful: nested objects, array items, enums, `const`, `anyOf`/`oneOf`,
+    nullable (`type: ['string','null']`), descriptions and defaults survive.
+  - MCP objects default to closed (`additionalProperties: false`) instead of
+    `.passthrough()`, so the model is no longer told it may invent arguments
+    the server never declared. A server that explicitly sets
+    `additionalProperties: true` is still honored.
+
+- 935b8f3: A turn that asked for tools no longer ends because the provider said it
+  didn't.
+
+  The iteration loop ended the turn on `finishReason === 'stop'` **before**
+  looking at whether the model had asked for tools. Endpoints on the OpenAI
+  wire shape — gateways and local servers especially — routinely report `stop`
+  on the same response that carries a populated `tool_calls`, and three of
+  this repo's drivers passed that value straight through.
+
+  The damage was total and silent: every requested call skipped, an assistant
+  turn left carrying `tool_use` blocks nothing ever answered, and the run
+  settling as though it had finished the work it never started.
+
+  - **The runtime now treats tool calls as the fact and the finish reason as
+    the summary.** When they disagree, the calls win. This is the load-bearing
+    fix: it protects every driver, including ones this repo does not ship.
+  - **The three drivers that cast the reason raw now report it honestly** —
+    a stream that produced a tool call reports `tool_calls`, whatever the
+    endpoint called it. Defence in depth, and it makes the reported reason
+    true for anyone else reading it.
+
+  The existing suite could not catch this: the scripted mock reports
+  `tool_calls` whenever it emits one, which is what an honest provider does
+  and therefore never the case that breaks.
+
+- 935b8f3: The question a run asked and the answer that resolved it match on the same key
+
+  `user_question_asked` carried a `question_id` and `user_question_answered` did not, so a client that keyed on the question id — the natural key, since it is what routes an answer back on resume — could not match the two halves without also having stored the checkpoint id. The answered event now carries it whenever the resolution named one.
+
+  Twelve event mappings across the SSE and agent-to-agent bridges shipped with no test: the nine event kinds added since those mappers were first written, plus the failure-classification and message-role paths. A wire transform with no test is a contract nobody checked — the field names are what a remote consumer parses, and the transforms return `Record<string, unknown>`, so renaming one is a break type-checking cannot see.
+
 ## 2.0.0
 
 ### Major Changes
