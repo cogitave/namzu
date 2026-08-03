@@ -60,10 +60,19 @@ if (missing.length > 0) {
 }
 
 if (added.length > 0) {
-	console.error(`\n⚠ PUBLIC-SURFACE WIDENED — ${added.length} names added (review intent):`)
+	console.error(`\n✗ PUBLIC-SURFACE WIDENED — ${added.length} names added:`)
 	for (const name of added) console.error(`  - ${name}`)
-	// Additions are warnings, not failures. Intentional widenings update the
-	// baseline in the same commit; silent drift is caught by reviewer.
+	console.error(
+		'\n  Regenerate the baseline in this commit (see the header of this file).\n' +
+			'  This is a failure and not a warning because a name outside the\n' +
+			'  baseline is invisible to the removal check above: the gate compares\n' +
+			'  `baseline - current`, so anything added and never recorded can be\n' +
+			'  deleted later and still read as "intact". That is not theoretical —\n' +
+			'  `classifyProviderHttpStatus` and `bodySaysContextOverflow` were added\n' +
+			'  to the surface, never entered the baseline, were dropped by a merge,\n' +
+			'  and shipped missing in a major while this gate reported no problem.',
+	)
+	failed = true
 }
 
 if (failed) process.exit(1)
