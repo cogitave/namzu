@@ -26,6 +26,21 @@ export interface SupervisorAgentConfig extends BaseAgentConfig {
 
 	skills?: Skill[]
 
+	/**
+	 * **Not consulted. The limit lives on `AgentManagerConfig.maxDepth`.**
+	 *
+	 * A supervisor does not own the recursion bound: it is enforced in
+	 * `AgentManager.sendMessage`, against the manager's own config, and a
+	 * supervisor receives a manager rather than building one. So a host that
+	 * set this got the manager's value regardless — which for a safety limit
+	 * is the worst way to be wrong, because the number in front of the
+	 * reviewer is not the number in force.
+	 *
+	 * Stated rather than removed: it is reachable from the published
+	 * typings, so it goes in the next major. Set the bound where it is read.
+	 *
+	 * @deprecated Set `maxDepth` on the `AgentManagerConfig` instead.
+	 */
 	maxDepth?: number
 
 	taskRouter?: TaskRouterConfig
