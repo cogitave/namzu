@@ -1,7 +1,7 @@
 ---
 title: Runtime
 description: Reference map for the runtime building blocks exposed by @namzu/sdk.
-last_updated: 2026-07-31
+last_updated: 2026-08-03
 status: current
 related_packages: ["@namzu/sdk"]
 ---
@@ -63,7 +63,7 @@ The SDK exports both in-memory and disk-backed implementations so you can start 
 | Generic store | `InMemoryStore` |
 | Runs and checkpoints | `RunDiskStore` |
 | Tasks | `InMemoryTaskStore`, `DiskTaskStore` |
-| Conversation state | `InMemoryConversationStore` |
+| Conversation state | `InMemoryThreadStore` |
 | Memory | `InMemoryMemoryIndex`, `InMemoryMemoryStore`, `DiskMemoryStore` |
 
 ## 5. When to Add Optional Capability Packages

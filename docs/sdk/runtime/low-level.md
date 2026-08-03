@@ -25,7 +25,7 @@ If you only need messages, tools, provider, IDs, and a final result, stay with `
 
 | Surface | Best for | Notable limits |
 | --- | --- | --- |
-| `ReactiveAgent.run()` | Standard app integrations and quickstarts | Does not expose query-only runtime fields such as `sandboxProvider` (note: `verificationGate` IS exposed on `ReactiveAgentConfig` and forwarded into `drainQuery`) |
+| `ReactiveAgent.run()` | Standard app integrations and quickstarts | Does not expose the genuinely query-only runtime fields (`pluginManager`, `taskRouter`, `agentBus`, `contextCache`). `verificationGate`, `sandboxProvider` and `compactionConfig` ARE on `ReactiveAgentConfig` and forwarded into `drainQuery` |
 | `drainQuery()` | Low-level runtime control with a final `AgentRun` result | You supply more runtime wiring yourself |
 | `query()` | Full async-generator control over every emitted event | You manage iteration over the generator directly |
 

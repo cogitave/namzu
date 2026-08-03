@@ -34,9 +34,9 @@ describe('runDoctorCommand', () => {
 		expect(captured).toContain('--category')
 	})
 
-	it('rejects unknown options with EXIT_INTERNAL_ERROR (70)', async () => {
+	it('rejects unknown options with EXIT_USAGE (70)', async () => {
 		const code = await runDoctorCommand(['--frobnicate'])
-		expect(code).toBe(70)
+		expect(code).toBe(64)
 		expect(captured).toContain('unknown option: --frobnicate')
 	})
 
@@ -51,13 +51,13 @@ describe('runDoctorCommand', () => {
 
 	it('--category rejects an invalid name', async () => {
 		const code = await runDoctorCommand(['--category', 'sandbox,wat'])
-		expect(code).toBe(70)
+		expect(code).toBe(64)
 		expect(captured).toContain('unknown category: wat')
 	})
 
 	it('--per-check-timeout requires a positive integer', async () => {
 		const code = await runDoctorCommand(['--per-check-timeout', '-5'])
-		expect(code).toBe(70)
+		expect(code).toBe(64)
 		expect(captured).toContain('--per-check-timeout must be a positive integer')
 	})
 

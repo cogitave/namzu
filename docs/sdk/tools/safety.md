@@ -1,7 +1,7 @@
 ---
 title: Tool Safety
 description: Layered tool safety in @namzu/sdk, including tool metadata, availability states, verification gates, plan mode, and sandbox boundaries.
-last_updated: 2026-04-18
+last_updated: 2026-08-03
 status: current
 related_packages: ["@namzu/sdk", "@namzu/computer-use"]
 ---
@@ -112,10 +112,10 @@ High-level agent helpers (`ReactiveAgent.run()`, `SupervisorAgent.run()`) accept
 
 Several built-in tools are sandbox-aware:
 
-- `Read`
-- `Write`
-- `Edit`
-- `Bash`
+- `read`
+- `write`
+- `edit`
+- `bash`
 
 When a sandbox is present in `ToolContext`, those tools route through sandbox APIs instead of touching the host environment directly.
 

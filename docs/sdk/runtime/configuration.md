@@ -1,7 +1,7 @@
 ---
 title: Run Configuration
 description: Required and optional runtime config for Namzu agents, including model, limits, permissions, environment, and working directory.
-last_updated: 2026-04-18
+last_updated: 2026-08-03
 status: current
 related_packages: ["@namzu/sdk"]
 ---
@@ -142,12 +142,12 @@ These are more relevant for supervisors, orchestration layers, or manager-driven
 
 `workingDirectory` affects several built-in tools directly:
 
-- `Read`
-- `Write`
-- `Edit`
-- `Glob`
-- `Grep`
-- `Bash`
+- `read`
+- `write`
+- `edit`
+- `glob`
+- `grep`
+- `bash`
 
 ## 9. Runtime Defaults at the SDK Level
 

@@ -1,7 +1,7 @@
 ---
 title: Provider Registry
 description: How provider packages register with ProviderRegistry, how to create providers safely, and how to hand them into agents.
-last_updated: 2026-07-02
+last_updated: 2026-08-03
 status: current
 related_packages: ["@namzu/sdk", "@namzu/openai", "@namzu/anthropic", "@namzu/bedrock", "@namzu/openrouter", "@namzu/http", "@namzu/ollama", "@namzu/lmstudio"]
 ---
@@ -23,7 +23,7 @@ The result is a consistent pattern:
 1. install `@namzu/sdk` and one provider package
 2. call the provider package's `register...()` function once
 3. create a provider through `ProviderRegistry.create(...)`
-4. pass the returned `provider` into a `ReactiveAgent` or call `provider.chat()` directly
+4. pass the returned `provider` into a `ReactiveAgent`, or call `collect(provider.chatStream(params))` directly
 
 ## 2. The Registration Flow
 

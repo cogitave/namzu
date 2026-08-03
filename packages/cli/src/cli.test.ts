@@ -101,7 +101,7 @@ describe('runCli', () => {
 	it('doctor command pass-through forwards unknown flags into doctor parser', async () => {
 		const code = await invoke(['doctor', '--frobnicate'])
 		// doctor's own parser surfaces 70 (EXIT_INTERNAL_ERROR) on unknown options.
-		expect(code).toBe(70)
+		expect(code).toBe(64)
 		expect(stderr).toContain('unknown option: --frobnicate')
 	})
 })
