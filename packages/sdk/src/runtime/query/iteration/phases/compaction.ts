@@ -7,6 +7,7 @@ import { serializeState } from '../../../../compaction/serializer.js'
 import { clearStaleToolResults } from '../../../../compaction/tool-result-editing.js'
 import { buildVerifiedSummary } from '../../../../compaction/verifier.js'
 import { CHARS_PER_TOKEN } from '../../../../constants/limits.js'
+import { resolveTaskModel } from '../../../../router/task-router.js'
 import type { Message } from '../../../../types/message/index.js'
 import { createSystemMessage } from '../../../../types/message/index.js'
 import type { IterationContext } from './context.js'
@@ -474,7 +475,13 @@ export async function runCompactionCheck(
 			ctx.provider,
 			config,
 			(usage) => ctx.runMgr.accumulateUsage(usage),
-			ctx.runConfig.model,
+			// The one model call a run makes that the user never asked for. It
+			// reads a transcript and writes a summary, which is the cheapest
+			// thing a small model does well, and it fires on exactly the long
+			// runs where the primary model is most expensive. `taskRouter` had
+			// been accepted, validated and threaded through four types since it
+			// was added, and nothing ever consulted it.
+			resolveTaskModel('compaction', ctx.taskRouter, ctx.runConfig.model),
 		)
 	} else {
 		compactedContent = serializeState(manager.getState())

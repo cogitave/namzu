@@ -811,6 +811,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		toolGrants: new ToolGrantSet(),
 		compactionConfig: params.compactionConfig,
 		workingStateManager,
+		taskRouter: params.taskRouter,
 		contextReducer: params.contextReducer,
 		workingMemoryProvider: params.workingMemoryProvider,
 		advisoryCtx,

@@ -15,6 +15,7 @@ import type {
 } from '../../../../types/hitl/index.js'
 import type { TaskId } from '../../../../types/ids/index.js'
 import type { LLMProvider } from '../../../../types/provider/index.js'
+import type { TaskRouterConfig } from '../../../../types/router/index.js'
 import type { ReviewAnswer } from '../../../../types/run/answer-review.js'
 import type {
 	AgentRunConfig,
@@ -104,6 +105,9 @@ export interface IterationContext {
 	 * asked about again. Absent on paths that do not review tools.
 	 */
 	readonly toolGrants?: ToolGrantSet
+
+	/** Per-task model overrides. Consulted for the compaction summary call. */
+	readonly taskRouter?: TaskRouterConfig
 
 	readonly compactionConfig?: CompactionConfig
 
