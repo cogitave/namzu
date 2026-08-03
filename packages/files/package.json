@@ -1,62 +1,71 @@
 {
-  "name": "@namzu/files",
-  "version": "0.2.0",
-  "description": "Provider-agnostic file registry contracts for Namzu runtimes.",
-  "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
-    },
-    "./inmem": {
-      "types": "./dist/inmem/index.d.ts",
-      "import": "./dist/inmem/index.js"
-    },
-    "./local": {
-      "types": "./dist/local/index.d.ts",
-      "import": "./dist/local/index.js"
-    },
-    "./postgres": {
-      "types": "./dist/postgres/index.d.ts",
-      "import": "./dist/postgres/index.js"
-    },
-    "./s3": {
-      "types": "./dist/s3/index.d.ts",
-      "import": "./dist/s3/index.js"
-    },
-    "./azure-blob": {
-      "types": "./dist/azure-blob/index.d.ts",
-      "import": "./dist/azure-blob/index.js"
-    },
-    "./gcs": {
-      "types": "./dist/gcs/index.d.ts",
-      "import": "./dist/gcs/index.js"
-    },
-    "./http": {
-      "types": "./dist/http/index.d.ts",
-      "import": "./dist/http/index.js"
-    }
-  },
-  "files": [
-    "dist"
-  ],
-  "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "test": "vitest run --passWithNoTests",
-    "typecheck": "tsc --noEmit",
-    "lint": "biome check src/"
-  },
-  "sideEffects": false,
-  "license": "MIT",
-  "dependencies": {
-    "@azure/storage-blob": "^12.27.0"
-  },
-  "devDependencies": {
-    "@biomejs/biome": "^1.9.4",
-    "@types/node": "^22.19.17",
-    "typescript": "^5.5.0",
-    "vitest": "^3.2.6"
-  }
+	"name": "@namzu/files",
+	"version": "0.2.0",
+	"description": "Provider-agnostic file registry contracts for Namzu runtimes.",
+	"type": "module",
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js"
+		},
+		"./inmem": {
+			"types": "./dist/inmem/index.d.ts",
+			"import": "./dist/inmem/index.js"
+		},
+		"./local": {
+			"types": "./dist/local/index.d.ts",
+			"import": "./dist/local/index.js"
+		},
+		"./postgres": {
+			"types": "./dist/postgres/index.d.ts",
+			"import": "./dist/postgres/index.js"
+		},
+		"./s3": {
+			"types": "./dist/s3/index.d.ts",
+			"import": "./dist/s3/index.js"
+		},
+		"./azure-blob": {
+			"types": "./dist/azure-blob/index.d.ts",
+			"import": "./dist/azure-blob/index.js"
+		},
+		"./gcs": {
+			"types": "./dist/gcs/index.d.ts",
+			"import": "./dist/gcs/index.js"
+		},
+		"./http": {
+			"types": "./dist/http/index.d.ts",
+			"import": "./dist/http/index.js"
+		}
+	},
+	"files": [
+		"dist"
+	],
+	"scripts": {
+		"build": "tsc -p tsconfig.json",
+		"test": "vitest run --passWithNoTests",
+		"typecheck": "tsc --noEmit",
+		"lint": "biome check src/"
+	},
+	"sideEffects": false,
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/cogitave/namzu.git",
+		"directory": "packages/files"
+	},
+	"homepage": "https://github.com/cogitave/namzu/tree/main/packages/files#readme",
+	"bugs": {
+		"url": "https://github.com/cogitave/namzu/issues"
+	},
+	"dependencies": {
+		"@azure/storage-blob": "^12.27.0"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^1.9.4",
+		"@types/node": "^22.19.17",
+		"typescript": "^5.5.0",
+		"vitest": "^3.2.6"
+	}
 }
