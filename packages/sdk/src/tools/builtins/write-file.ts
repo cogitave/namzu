@@ -1,8 +1,10 @@
-import { access, mkdir, writeFile } from 'node:fs/promises'
+import { access, mkdir } from 'node:fs/promises'
 import { dirname, resolve } from 'node:path'
 import { z } from 'zod'
 import type { ToolContext } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
+import { atomicWriteFile } from './atomic-write-file.js'
+import { withFileMutationLock } from './file-mutation-lock.js'
 
 const inputSchema = z
 	.object({
@@ -25,17 +27,46 @@ const inputSchema = z
 				'Alias for content. Useful for hosts that expose create/write operations as newStr. Self-budget this payload under 12000 characters before calling.',
 			),
 	})
+	.strict()
 	.refine((value) => typeof value.content === 'string' || typeof value.newStr === 'string', {
 		message: 'Either content or newStr is required.',
 	})
 
 type WriteInput = z.infer<typeof inputSchema>
 
+/**
+ * The single shape a model is constrained to emit.
+ *
+ * `newStr` is a host affordance and deliberately absent here: a model given
+ * two names for the body has to pick, and picking is what produces the
+ * half-filled calls this schema exists to prevent.
+ */
+const modelInputSchema: Record<string, unknown> = {
+	type: 'object',
+	properties: {
+		path: {
+			type: 'string',
+			description: 'Relative path to the file to write. Must not be empty.',
+		},
+		content: {
+			type: 'string',
+			description:
+				'Complete file body. Use "" only for an intentionally empty file. Keep under 12000 characters.',
+		},
+	},
+	required: ['path', 'content'],
+	additionalProperties: false,
+}
+
 export const WriteFileTool = defineTool({
 	name: 'write',
 	description:
 		'Writes a file to the local filesystem. Overwrites the existing file at the path if there is one.\n\n- If the file already exists, you must use the `read` tool on it first in this conversation, or this call will fail.\n- Prefer the `edit` tool for modifying existing files — it only sends the diff and preserves the rest of the file byte-for-byte.\n- Use `write` to create a new file or to perform a deliberate full rewrite of a file you have already read.\n- Self-budget content/newStr under 12000 characters before emitting the tool call. For long content, write a smaller opening section, then use `edit` with insertLine: "end" to extend the file section by section. Do not chain multiple `write` calls — each one overwrites the previous.',
 	inputSchema,
+	modelInputSchema,
+	enforceModelInput: true,
+	validationErrorHint:
+		'Required shape: {"path":"file.md","content":"complete file body"}. Pass the whole body, not a diff.',
 	category: 'filesystem',
 	permissions: ['file_write'],
 	readOnly: false,
@@ -43,40 +74,60 @@ export const WriteFileTool = defineTool({
 	concurrencySafe: false,
 
 	async execute(input: WriteInput, context) {
-		const content = input.content ?? input.newStr ?? ''
-		// Sandbox-aware: route through sandbox.writeFile() when available
-		if (context.sandbox) {
-			const sandboxExists = await sandboxFileExists(context, input.path)
-			if (sandboxExists) {
-				const guard = enforceReadBeforeOverwrite(context, input.path)
+		// `execute` is reachable without going through the registry, so the
+		// closed contract has to be enforced on this path too or it is not
+		// closed at all.
+		const parsed = inputSchema.safeParse(input)
+		if (!parsed.success) {
+			return {
+				success: false,
+				output: '',
+				error: `Invalid write input: ${parsed.error.issues.map((issue) => issue.message).join('; ')}`,
+			}
+		}
+		const valid = parsed.data
+		const content = valid.content ?? valid.newStr ?? ''
+		const filePath = resolve(context.workingDirectory, valid.path)
+		// The exists-check and the write are a check-then-act pair. Unlocked,
+		// two writers both see "absent", both skip the read-before-overwrite
+		// guard, and the second silently discards the first.
+		const lockKey = `${context.sandbox ? 'sandbox' : 'local'}:${filePath}`
+
+		return withFileMutationLock(lockKey, async () => {
+			if (context.sandbox) {
+				const sandboxExists = await sandboxFileExists(context, valid.path)
+				if (sandboxExists) {
+					const guard = enforceReadBeforeOverwrite(context, valid.path)
+					if (guard) return guard
+				}
+				await context.sandbox.writeFile(valid.path, content)
+				context.fileReadTracker?.recordRead(valid.path)
+				return {
+					success: true as const,
+					output: `File written successfully: ${valid.path} (${content.length} chars) [sandboxed]`,
+					data: { path: valid.path, size: content.length, sandboxed: true },
+				}
+			}
+
+			const localExists = await pathExists(filePath)
+			if (localExists) {
+				const guard = enforceReadBeforeOverwrite(context, filePath)
 				if (guard) return guard
 			}
-			await context.sandbox.writeFile(input.path, content)
-			context.fileReadTracker?.recordRead(input.path)
+
+			await mkdir(dirname(filePath), { recursive: true })
+			// Temp file, fsync, rename. A plain write that fails partway
+			// leaves the destination truncated — and this tool overwrites a
+			// whole file, so the truncation is the user's previous work.
+			await atomicWriteFile(filePath, content)
+			context.fileReadTracker?.recordRead(filePath)
+
 			return {
-				success: true,
-				output: `File written successfully: ${input.path} (${content.length} chars) [sandboxed]`,
-				data: { path: input.path, size: content.length, sandboxed: true },
+				success: true as const,
+				output: `File written successfully: ${filePath} (${content.length} chars)`,
+				data: { path: filePath, size: content.length },
 			}
-		}
-
-		const filePath = resolve(context.workingDirectory, input.path)
-
-		const localExists = await pathExists(filePath)
-		if (localExists) {
-			const guard = enforceReadBeforeOverwrite(context, filePath)
-			if (guard) return guard
-		}
-
-		await mkdir(dirname(filePath), { recursive: true })
-		await writeFile(filePath, content, 'utf-8')
-		context.fileReadTracker?.recordRead(filePath)
-
-		return {
-			success: true,
-			output: `File written successfully: ${filePath} (${content.length} chars)`,
-			data: { path: filePath, size: content.length },
-		}
+		})
 	},
 })
 

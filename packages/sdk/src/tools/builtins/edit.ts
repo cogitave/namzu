@@ -1,17 +1,37 @@
-import { readFile, writeFile } from 'node:fs/promises'
+import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { z } from 'zod'
 import { defineTool } from '../defineTool.js'
+import { atomicWriteFile } from './atomic-write-file.js'
+import { withFileMutationLock } from './file-mutation-lock.js'
 
+/**
+ * Two schemas, on purpose.
+ *
+ * `inputSchema` is what a HOST may send, and it accepts the `oldStr`/`newStr`
+ * aliases and `insertLine` because hosts that expose replacement under those
+ * names are real. `modelInputSchema` below is what a MODEL is constrained to
+ * — one closed canonical shape — because giving a model four spellings of the
+ * same field is how it learns to guess between them.
+ *
+ * `.strict()` is what makes the accepted set closed. Without it zod's default
+ * is to STRIP an unknown key, so a hallucinated or misspelled field is
+ * silently dropped and the edit proceeds against an input nobody wrote.
+ */
 const inputSchema = z
 	.object({
-		path: z.string().describe('Path to the file to edit'),
+		path: z
+			.string()
+			.refine((value) => value.trim().length > 0, 'Path must not be empty.')
+			.describe('Path to the file to edit. Must not be empty.'),
 		old_string: z
 			.string()
+			.min(1)
 			.optional()
 			.describe('The exact string to find and replace. Must be unique in the file.'),
 		oldStr: z
 			.string()
+			.min(1)
 			.optional()
 			.describe(
 				'Alias for old_string. Used by hosts that expose text replacement as oldStr/newStr.',
@@ -39,6 +59,7 @@ const inputSchema = z
 			.default(false)
 			.describe('Replace all occurrences instead of just the first unique match'),
 	})
+	.strict()
 	.refine((value) => typeof value.new_string === 'string' || typeof value.newStr === 'string', {
 		message: 'Either new_string or newStr is required.',
 	})
@@ -51,6 +72,40 @@ const inputSchema = z
 	)
 
 type EditInput = z.infer<typeof inputSchema>
+
+/**
+ * What a capable provider constrains the model to emit: one shape, closed.
+ *
+ * The aliases above exist for hosts, not for models. A model offered
+ * `old_string` and `oldStr` as separate optional fields has to guess which
+ * one this deployment wants, and `additionalProperties: false` is what turns
+ * an invented field into a generation-time refusal rather than a silent drop.
+ */
+const modelInputSchema: Record<string, unknown> = {
+	type: 'object',
+	properties: {
+		path: {
+			type: 'string',
+			description: 'Path to the file to edit. Must not be empty.',
+		},
+		old_string: {
+			type: 'string',
+			description:
+				'Exact unique text from the file, without read-tool line-number prefixes. Must not be empty.',
+		},
+		new_string: {
+			type: 'string',
+			description:
+				'Exact replacement text. May be empty to delete old_string. Keep under 12000 characters.',
+		},
+		replace_all: {
+			type: 'boolean',
+			description: 'Replace every occurrence instead of requiring one unique match.',
+		},
+	},
+	required: ['path', 'old_string', 'new_string'],
+	additionalProperties: false,
+}
 
 type NormalizedEditInput =
 	| {
@@ -71,6 +126,10 @@ export const EditTool = defineTool({
 	description:
 		'Makes targeted edits to a file using exact string find-and-replace or line insertion. THIS IS THE PREFERRED WAY TO MODIFY AN EXISTING FILE — never reach for `write` to change a file that already exists, because `write` overwrites the whole body and discards earlier work on partial failure. `edit` keeps the rest of the file byte-for-byte intact and is recoverable: if a single edit fails (old_string/oldStr ambiguous, broader restructuring needed), follow up with another `edit` instead of re-emitting the entire file via `write`. The old_string/oldStr must be unique in the file unless replace_all is true. For insertions, pass insertLine plus new_string/newStr; use insertLine: "end" to extend a file at the end. Self-budget new_string/newStr under 12000 characters before emitting the tool call; use repeated bounded edits for long sections. Preserves file formatting and indentation.',
 	inputSchema,
+	modelInputSchema,
+	enforceModelInput: true,
+	validationErrorHint:
+		'Required shape: {"path":"file.md","old_string":"exact unique text","new_string":"replacement text"}. Optional: "replace_all": true.',
 	category: 'filesystem',
 	permissions: ['file_write'],
 	readOnly: false,
@@ -78,7 +137,19 @@ export const EditTool = defineTool({
 	concurrencySafe: false,
 
 	async execute(input: EditInput, context) {
-		const normalized = normalizeEditInput(input)
+		// Re-validated here rather than trusted from the registry: `execute` is
+		// reachable directly, and the closed contract is only closed if the
+		// check runs on the path a caller can actually take.
+		const parsed = inputSchema.safeParse(input)
+		if (!parsed.success) {
+			return {
+				success: false,
+				output: '',
+				error: `Invalid edit input: ${parsed.error.issues.map((issue) => issue.message).join('; ')}`,
+			}
+		}
+
+		const normalized = normalizeEditInput(parsed.data)
 		if (!normalized.success) {
 			return { success: false, output: '', error: normalized.error }
 		}
@@ -93,38 +164,47 @@ export const EditTool = defineTool({
 			}
 		}
 
-		// Sandbox-aware: route through sandbox when available
-		if (context.sandbox) {
-			const buffer = await context.sandbox.readFile(input.path)
-			const content = buffer.toString('utf-8')
+		const filePath = resolve(context.workingDirectory, parsed.data.path)
+		// Read-modify-write is not atomic on its own: two edits to the same
+		// path interleave their reads, and the second write lands on content
+		// the first had already replaced — so one edit vanishes and the loser
+		// reports "old_string not found", blaming the model for a race. The
+		// key spans both branches because sandbox and local are distinct
+		// files even when the path string matches.
+		const lockKey = `${context.sandbox ? 'sandbox' : 'local'}:${filePath}`
 
+		return withFileMutationLock(lockKey, async () => {
+			if (context.sandbox) {
+				const buffer = await context.sandbox.readFile(parsed.data.path)
+				const result = applyEdit(buffer.toString('utf-8'), normalized.operation)
+				if (!result.success) {
+					return { success: false as const, output: '', error: result.error }
+				}
+
+				await context.sandbox.writeFile(parsed.data.path, result.content)
+				return {
+					success: true as const,
+					output: `Edited ${parsed.data.path}: ${result.replacements} replacement(s) [sandboxed]`,
+					data: { path: parsed.data.path, replacements: result.replacements, sandboxed: true },
+				}
+			}
+
+			const content = await readFile(filePath, 'utf-8')
 			const result = applyEdit(content, normalized.operation)
 			if (!result.success) {
-				return { success: false, output: '', error: result.error }
+				return { success: false as const, output: '', error: result.error }
 			}
 
-			await context.sandbox.writeFile(input.path, result.content)
+			// Temp file, fsync, rename — a reader sees the old body or the new
+			// one, never a half-written one. A plain `writeFile` that fails
+			// partway leaves the user's source truncated.
+			await atomicWriteFile(filePath, result.content)
 			return {
-				success: true,
-				output: `Edited ${input.path}: ${result.replacements} replacement(s) [sandboxed]`,
-				data: { path: input.path, replacements: result.replacements, sandboxed: true },
+				success: true as const,
+				output: `Edited ${filePath}: ${result.replacements} replacement(s)`,
+				data: { path: filePath, replacements: result.replacements },
 			}
-		}
-
-		const filePath = resolve(context.workingDirectory, input.path)
-		const content = await readFile(filePath, 'utf-8')
-
-		const result = applyEdit(content, normalized.operation)
-		if (!result.success) {
-			return { success: false, output: '', error: result.error }
-		}
-
-		await writeFile(filePath, result.content, 'utf-8')
-		return {
-			success: true,
-			output: `Edited ${filePath}: ${result.replacements} replacement(s)`,
-			data: { path: filePath, replacements: result.replacements },
-		}
+		})
 	},
 })
 
@@ -188,7 +268,9 @@ function applyEdit(
 		return applyLineInsert(content, input)
 	}
 
-	if (!content.includes(input.oldString)) {
+	const replacement = normalizeLineEndings(content, input)
+
+	if (!content.includes(replacement.oldString)) {
 		return {
 			success: false,
 			error:
@@ -196,19 +278,19 @@ function applyEdit(
 		}
 	}
 
-	if (input.replace_all) {
-		const parts = content.split(input.oldString)
+	if (replacement.replace_all) {
+		const parts = content.split(replacement.oldString)
 		const replacements = parts.length - 1
 		return {
 			success: true,
-			content: parts.join(input.newString),
+			content: parts.join(replacement.newString),
 			replacements,
 		}
 	}
 
 	// Uniqueness check: old_string/oldStr must appear exactly once
-	const firstIndex = content.indexOf(input.oldString)
-	const secondIndex = content.indexOf(input.oldString, firstIndex + 1)
+	const firstIndex = content.indexOf(replacement.oldString)
+	const secondIndex = content.indexOf(replacement.oldString, firstIndex + 1)
 
 	if (secondIndex !== -1) {
 		const lineNumber = content.slice(0, firstIndex).split('\n').length
@@ -223,8 +305,8 @@ function applyEdit(
 		success: true,
 		content:
 			content.slice(0, firstIndex) +
-			input.newString +
-			content.slice(firstIndex + input.oldString.length),
+			replacement.newString +
+			content.slice(firstIndex + replacement.oldString.length),
 		replacements: 1,
 	}
 }
@@ -250,4 +332,45 @@ function applyLineInsert(
 		content: `${lines.join('\n')}${hasTrailingNewline ? '\n' : ''}`,
 		replacements: 1,
 	}
+}
+
+/**
+ * Reconcile the caller's line endings with the file's.
+ *
+ * A model reading a CRLF file and writing back LF (or the reverse) produces
+ * an `old_string` that is correct in every visible way and matches nothing.
+ * The failure reads as "your text is wrong" when the text is right and only
+ * the invisible half of each line break differs.
+ *
+ * Only applied when the file is CONSISTENT. A mixed-ending file has no
+ * single right answer, and rewriting boundaries there would corrupt the
+ * half that was already correct.
+ */
+function normalizeLineEndings(
+	content: string,
+	input: Extract<NormalizedEditInput, { operation: 'replace' }>,
+): Extract<NormalizedEditInput, { operation: 'replace' }> {
+	const withoutCrlf = content.replaceAll('\r\n', '')
+	const usesOnlyCrlf = content.includes('\r\n') && !withoutCrlf.includes('\n')
+	if (usesOnlyCrlf) {
+		return {
+			...input,
+			oldString: content.includes(input.oldString)
+				? input.oldString
+				: input.oldString.replaceAll('\r\n', '\n').replaceAll('\n', '\r\n'),
+			newString: input.newString.replaceAll('\r\n', '\n').replaceAll('\n', '\r\n'),
+		}
+	}
+
+	const usesOnlyLf = content.includes('\n') && !content.includes('\r\n')
+	if (usesOnlyLf) {
+		return {
+			...input,
+			oldString: content.includes(input.oldString)
+				? input.oldString
+				: input.oldString.replaceAll('\r\n', '\n'),
+			newString: input.newString.replaceAll('\r\n', '\n'),
+		}
+	}
+	return input
 }
