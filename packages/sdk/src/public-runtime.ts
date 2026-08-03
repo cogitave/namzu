@@ -212,6 +212,16 @@ export {
 } from './sandbox/index.js'
 export type { LocalSandboxProviderOptions } from './sandbox/index.js'
 
+// The classified provider-failure surface: a driver states what went wrong
+// first-hand, and the run boundary reads it to choose between a pause and a
+// failure.
+export {
+	isCallerAbortError,
+	isProviderRequestError,
+	providerHttpError,
+	providerVendorError,
+} from './provider/errors.js'
+
 export { InMemoryCredentialVault } from './vault/index.js'
 
 // ─── RAG runtime (generic; createRAGTool is in public-tools.ts) ──────────

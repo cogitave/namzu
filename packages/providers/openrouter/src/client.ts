@@ -7,31 +7,14 @@ import type {
 	TokenUsage,
 	ToolChoice,
 } from '@namzu/sdk'
-import { toolResultToText } from '@namzu/sdk'
+import {
+	ProviderRequestError,
+	isCallerAbortError,
+	isProviderRequestError,
+	providerHttpError,
+	providerVendorError,
+} from '@namzu/sdk'
 import type { OpenRouterConfig } from './types.js'
-
-/**
- * Report a turn that produced tool calls as `tool_calls`, whatever the
- * endpoint called it.
- *
- * Endpoints on this wire shape — gateways and local servers especially —
- * routinely send `finish_reason: "stop"` on the same response that carries
- * a populated `tool_calls`. Passing that through says the turn is over
- * when the model has just asked for work, and a consumer that trusts the
- * reason skips every call it was handed.
- *
- * The calls are the fact and the reason is the summary, so when they
- * disagree the calls win. The tool call can also arrive in the same chunk
- * as the reason, so the current chunk is checked as well as the ones
- * before it.
- */
-function honestFinishReason(
-	reported: StreamChunk['finishReason'],
-	sawToolCall: boolean,
-): StreamChunk['finishReason'] {
-	if (reported === undefined) return undefined
-	return sawToolCall && reported === 'stop' ? 'tool_calls' : reported
-}
 
 const OPENROUTER_BASE_URL = process.env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api/v1'
 
@@ -72,40 +55,17 @@ function formatToolChoice(tc: ToolChoice): unknown {
 }
 
 /**
- * Image media types the vision path carries. Anything else is named in
- * the text rather than sent: an endpoint that cannot decode the payload
- * would reject the whole request, and losing the turn is worse than
- * losing sight of one image.
- */
-const IMAGE_MEDIA_TYPES: ReadonlySet<string> = new Set([
-	'image/png',
-	'image/jpeg',
-	'image/jpg',
-	'image/webp',
-	'image/gif',
-])
-
-function unsupportedImageNote(mediaType: string, kind: 'image' | 'document' = 'image'): string {
-	return `[${kind}: ${mediaType} — unsupported format, not sent]`
-}
-
-/**
- * What this DRIVER does, not what the gateway could do: tools pass
- * through to the request body, and a user-message image becomes a
- * content part carrying a `data:` URI. A format the wire does not accept
- * is named in the text instead of being sent.
- *
- * An image inside a TOOL RESULT stays a text placeholder — a tool message
- * is text-only here, so there is nowhere to put it.
+ * What this DRIVER does, not what OpenRouter could do: tools pass
+ * through to the request body, but user-message image `attachments`
+ * are not mapped into content parts — `supportsVision` stays false
+ * until the message translation handles them.
  */
 export const OPENROUTER_CAPABILITIES: ProviderCapabilities = {
 	supportsTools: true,
 	supportsStreaming: true,
 	supportsFunctionCalling: true,
-	supportsVision: true,
-	// Images only. A document degrades to a named note, and the runtime
-	// warns before the request rather than after the model answered
-	// about a file it never saw.
+	supportsVision: false,
+	// Images only. A document degrades to a named placeholder.
 	supportsDocuments: false,
 }
 
@@ -144,12 +104,7 @@ export class OpenRouterProvider implements LLMProvider {
 			if (msg.role === 'tool') {
 				return {
 					role: 'tool',
-					// Tool messages are text-only on this wire, so a content
-					// block array has to be flattened. Passing it through raw
-					// sent a malformed body; the helper degrades a non-text
-					// block to an honest placeholder naming its type and size
-					// instead of dumping base64 the model cannot decode.
-					content: toolResultToText(msg.content),
+					content: msg.content,
 					tool_call_id: (msg as { toolCallId?: string }).toolCallId,
 				}
 			}
@@ -162,25 +117,6 @@ export class OpenRouterProvider implements LLMProvider {
 						type: tc.type,
 						function: tc.function,
 					})),
-				}
-			}
-			if (msg.role === 'user' && msg.attachments && msg.attachments.length > 0) {
-				const parts: unknown[] = []
-				const notes: string[] = []
-				for (const attachment of msg.attachments) {
-					if (IMAGE_MEDIA_TYPES.has(attachment.mediaType.toLowerCase())) {
-						parts.push({
-							type: 'image_url',
-							image_url: { url: `data:${attachment.mediaType};base64,${attachment.data}` },
-						})
-					} else {
-						notes.push(unsupportedImageNote(attachment.mediaType, attachment.type ?? 'image'))
-					}
-				}
-				const head = [msg.content, ...notes].filter((part) => part.length > 0).join('\n')
-				return {
-					role: 'user',
-					content: [...(head.length > 0 ? [{ type: 'text', text: head }] : []), ...parts],
 				}
 			}
 			return { role: msg.role, content: msg.content }
@@ -225,9 +161,6 @@ export class OpenRouterProvider implements LLMProvider {
 	}
 
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
-		// Whether this stream has produced a tool call yet — see
-		// `honestFinishReason`.
-		let sawToolCall = false
 		const body = this.buildRequestBody(params, true)
 
 		const timeout = AbortSignal.timeout(this.config.timeout ?? 120_000)
@@ -236,20 +169,41 @@ export class OpenRouterProvider implements LLMProvider {
 		// prior `AbortSignal.timeout(...)` expression (byte-identical).
 		const signal = params.signal ? AbortSignal.any([timeout, params.signal]) : timeout
 
-		const response = await fetch(`${this.baseUrl}/chat/completions`, {
-			method: 'POST',
-			headers: this.getHeaders(),
-			body: JSON.stringify(body),
-			signal,
-		})
+		let response: Response
+		try {
+			response = await fetch(`${this.baseUrl}/chat/completions`, {
+				method: 'POST',
+				headers: this.getHeaders(),
+				body: JSON.stringify(body),
+				signal,
+			})
+		} catch (err) {
+			if (isCallerAbortError(err, params.signal)) throw params.signal?.reason ?? err
+			throw providerVendorError({ providerId: 'openrouter', error: err })
+		}
 
 		if (!response.ok) {
-			const errorBody = await response.text()
-			throw new Error(`OpenRouter API error (${response.status}): ${errorBody}`)
+			// The body is read to CLASSIFY (a 400 saying "prompt is too long" is a
+			// context overflow, any other 400 is a bad request) and then dropped. It
+			// used to be interpolated straight into the message, which is how a
+			// credential the upstream echoed back reached every log that recorded
+			// the failure — proven with a planted fake token.
+			const errorBody = await response.text().catch(() => '')
+			throw providerHttpError({
+				providerId: 'openrouter',
+				status: response.status,
+				body: errorBody,
+				retryAfter: response.headers.get('retry-after'),
+			})
 		}
 
 		if (!response.body) {
-			throw new Error('OpenRouter returned no stream body')
+			throw new ProviderRequestError({
+				kind: 'server',
+				providerId: 'openrouter',
+				status: response.status,
+				detail: 'the response contained no stream body',
+			})
 		}
 
 		const reader = response.body.getReader()
@@ -275,6 +229,7 @@ export class OpenRouterProvider implements LLMProvider {
 					try {
 						const parsed = JSON.parse(data) as {
 							id: string
+							error?: unknown
 							choices: Array<{
 								delta: {
 									content?: string
@@ -290,12 +245,16 @@ export class OpenRouterProvider implements LLMProvider {
 							usage?: RawUsage
 						}
 
+						if (parsed.error !== undefined) {
+							throw providerVendorError({
+								providerId: 'openrouter',
+								error: new Error(data),
+							})
+						}
+
 						const choice = parsed.choices[0]
 						if (!choice) continue
 
-						if (choice.delta.tool_calls && choice.delta.tool_calls.length > 0) {
-							sawToolCall = true
-						}
 						yield {
 							id: parsed.id,
 							delta: {
@@ -307,23 +266,25 @@ export class OpenRouterProvider implements LLMProvider {
 									function: tc.function,
 								})),
 							},
-							finishReason: honestFinishReason(
-								choice.finish_reason as StreamChunk['finishReason'],
-								sawToolCall,
-							),
+							finishReason: choice.finish_reason as StreamChunk['finishReason'],
 							usage: parsed.usage ? parseUsage(parsed.usage) : undefined,
 						}
 					} catch (parseErr) {
-						yield {
-							id: '',
-							delta: { content: undefined },
-							finishReason: undefined,
-							usage: undefined,
-							error: `Stream parse error: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
-						}
+						if (isProviderRequestError(parseErr)) throw parseErr
+						// JSON SyntaxError messages include a source snippet, and
+						// mapping failures may include vendor values. Drop both.
+						throw new ProviderRequestError({
+							kind: 'server',
+							providerId: 'openrouter',
+							detail: 'the provider stream returned malformed data',
+						})
 					}
 				}
 			}
+		} catch (err) {
+			if (isCallerAbortError(err, params.signal)) throw params.signal?.reason ?? err
+			if (isProviderRequestError(err)) throw err
+			throw providerVendorError({ providerId: 'openrouter', error: err })
 		} finally {
 			reader.releaseLock()
 		}

@@ -99,6 +99,11 @@ const WIRE_VALUE_FILES = [
 	'packages/providers/',
 	'packages/sdk/src/compaction/context-window.ts',
 	'packages/sdk/src/provider/registry.ts',
+	// A classifier whose whole job is to recognise OTHER parties' error
+	// shapes: which field carries the status, where the headers hang, what
+	// each client calls an overload. Naming them is the interoperability,
+	// exactly like a model-id table.
+	'packages/sdk/src/provider/errors.ts',
 	'packages/sdk/src/types/provider/config.ts',
 	'packages/sdk/src/types/computer-use/index.ts',
 	'packages/sdk/src/tools/builtins/computer-use.ts',

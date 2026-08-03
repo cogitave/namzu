@@ -76,15 +76,10 @@ import { LMSTUDIO_CAPABILITIES } from '@namzu/lmstudio'
 //   supportsTools: true,
 //   supportsStreaming: true,
 //   supportsFunctionCalling: true,
-//   supportsVision: true,
 // }
 ```
 
-The driver sends tool schemas and maps the conversation onto the backend's native part structure, so the assistant's own calls and each result travel as first-class parts rather than as text folded into a user turn.
-
-An image cannot be inlined on this wire, so a user attachment is uploaded first and the message references the handle. An image inside a tool result stays a text placeholder — a tool message here holds result parts and nothing else.
-
-Whether the loaded model was tuned for function calling is a separate question — not every open-weights model has been. Refer to the model's card.
+Tool-use support depends on the loaded model — not every open-weights model has been tuned for function calling. Refer to the model's card in LM Studio.
 
 ## Observability
 

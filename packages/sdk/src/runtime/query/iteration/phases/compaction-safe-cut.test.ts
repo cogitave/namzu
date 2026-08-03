@@ -180,7 +180,9 @@ describe('compaction — the unbounded cut', () => {
 
 		await runCompactionCheck(ctx)
 
-		const marker = messages.filter((m) => typeof m.content === 'string' && m.content.includes('UNIQUE-MARKER'))
+		const marker = messages.filter(
+			(m) => typeof m.content === 'string' && m.content.includes('UNIQUE-MARKER'),
+		)
 		expect(marker).toHaveLength(1)
 	})
 })

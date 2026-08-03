@@ -62,16 +62,13 @@ for await (const chunk of provider.chatStream({
 import { OLLAMA_CAPABILITIES } from '@namzu/ollama'
 
 // {
-//   supportsTools: true,
+//   supportsTools: false,            // varies by model — conservative default
 //   supportsStreaming: true,
-//   supportsFunctionCalling: true,
-//   supportsVision: true,
+//   supportsFunctionCalling: false,
 // }
 ```
 
-These flags describe the DRIVER: it sends tool schemas, reassembles calls off the stream, replays an assistant turn's own calls with their arguments intact, and carries image attachments as image bytes rather than as a text placeholder.
-
-Whether the model you loaded was trained to call tools or to see images is a separate question the daemon does not report. A model that cannot call tools simply will not, and the turn comes back as text.
+Ollama's tool-use support varies by model. The default is `false`; if you target a tool-capable model (e.g. `llama3.1`, `mistral-nemo`), pass `{ replace: true }` with custom capabilities, or consume tool output yourself at the call site.
 
 ## Observability
 

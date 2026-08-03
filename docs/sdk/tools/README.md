@@ -131,7 +131,7 @@ provider hint: custom `LLMProvider` implementations must consume or strip it
 instead of serializing `ChatCompletionParams` wholesale.
 
 Native Anthropic and the HTTP provider's Anthropic dialect enable strict tool
-use for documented Claude 4.5+ model identifiers. Their `strictToolUse`
+use for the model identifiers that document support for it. Their `strictToolUse`
 configuration accepts:
 
 - `"auto"` (default): enable only for recognized compatible models

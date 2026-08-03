@@ -275,6 +275,13 @@ type CoreRunEvent =
 			error: string
 			failure?: PlatformError
 			/**
+			 * The driver's own classification, when it produced one. Carried
+			 * beside `failure` rather than folded into it: this is the
+			 * provider's first-hand statement, and a consumer deciding whether
+			 * to retry reads it directly.
+			 */
+			providerError?: import('../provider/error.js').ProviderErrorInfo
+			/**
 			 * Operator-facing explanation, when a catalog rule claims this
 			 * failure: a stable `id` to grep for, and `hint` saying what to
 			 * change. Absent when no rule matched — inventing advice for an

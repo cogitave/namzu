@@ -44,16 +44,14 @@ describe('@namzu/lmstudio', () => {
 
 	describe('LMSTUDIO_CAPABILITIES', () => {
 		it('declares the expected capability flags', () => {
-			// Honest driver flags: tool schemas are sent, calls are surfaced,
-			// and a user attachment is uploaded and referenced by handle. An
-			// image inside a TOOL RESULT is still a text placeholder — a tool
-			// message on this wire holds result parts and nothing else.
+			// Honest driver flags: chatStream folds tool messages into user
+			// text and never sends tool schemas, so tools are NOT supported
+			// by this driver even though LM Studio models can call tools.
 			expect(LMSTUDIO_CAPABILITIES).toEqual({
-				supportsTools: true,
+				supportsTools: false,
 				supportsStreaming: true,
-				supportsFunctionCalling: true,
-				supportsVision: true,
-				// Images only: a document degrades to a named placeholder here.
+				supportsFunctionCalling: false,
+				supportsVision: false,
 				supportsDocuments: false,
 			})
 		})

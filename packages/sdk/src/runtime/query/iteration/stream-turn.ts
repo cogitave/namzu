@@ -1,4 +1,5 @@
 import { type Span, SpanStatusCode } from '@opentelemetry/api'
+import { isProviderRequestError } from '../../../provider/errors.js'
 import { GENAI, NAMZU, chatSpanName, parentContext } from '../../../telemetry/attributes.js'
 import {
 	recordModelDuration,
@@ -603,6 +604,9 @@ export async function* streamProviderTurn(
 		// identical faults settled oppositely depending on whether compaction
 		// happened to run that iteration.
 		if (streamCause instanceof ProviderError) throw streamCause
+		// The newer classified shape carries the same guarantee, and the run
+		// boundary reads it to decide between a pause and a failure.
+		if (isProviderRequestError(streamCause)) throw streamCause
 
 		throw new NamzuError({
 			code: 'provider_error',

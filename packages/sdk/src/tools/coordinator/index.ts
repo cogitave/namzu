@@ -343,7 +343,13 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 	// non-default gateway (one that keeps the worker process alive
 	// for follow-ups) wants to re-register it.
 	void continueTask
-	const tools: ToolDefinition[] = [createTask, cancelTask, agentTaskList]
+	// Per-task cancellation belonged to the old non-blocking worker protocol.
+	// `create_task` blocks and returns the worker output as its tool_result, so
+	// every worker is terminal by the time a later turn learns its id — the tool
+	// could only ever manufacture a "cancelled" for something already done.
+	// Host-owned interruption still uses the gateway contract directly.
+	void cancelTask
+	const tools: ToolDefinition[] = [createTask, agentTaskList]
 
 	if (getPlanManager) {
 		const approvePlan = defineTool({

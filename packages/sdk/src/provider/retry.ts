@@ -1,6 +1,7 @@
 import { classifyProviderError, isAbortError } from '../types/provider/errors.js'
 import type { ChatCompletionParams, LLMProvider, StreamChunk } from '../types/provider/index.js'
 import type { Logger } from '../utils/logger.js'
+import { isProviderRequestError } from './errors.js'
 
 export interface ProviderRetryConfig {
 	/** Retry attempts AFTER the initial try. `0` disables retrying. */
@@ -110,6 +111,11 @@ export function withProviderRetry(
 				return
 			} catch (err) {
 				if (isAbortError(err) || params.signal?.aborted) throw err
+				// A driver that already classified its own failure has said
+				// everything this layer would: re-wrapping it would replace a
+				// first-hand statement with a guess, and the run boundary reads
+				// that classification to choose between a pause and a failure.
+				if (isProviderRequestError(err)) throw err
 
 				const classified = classifyProviderError(err, provider.id)
 				const exhausted = attempt >= config.maxRetries

@@ -13,16 +13,6 @@ export interface LMStudioConfig {
 	/** Model identifier (must be loaded in LM Studio). */
 	model?: string
 	timeout?: number
-	/**
-	 * An already-connected backend client to use instead of dialing a new
-	 * one.
-	 *
-	 * The underlying SDK opens its websocket in the constructor, so a host
-	 * running several providers against the same server would otherwise
-	 * open a connection per provider and have no handle on their lifetime.
-	 * Passing one in makes the connection the host's to own.
-	 */
-	client?: import('./client.js').BackendClient
 }
 
 export interface LMStudioProviderConfig extends LMStudioConfig {

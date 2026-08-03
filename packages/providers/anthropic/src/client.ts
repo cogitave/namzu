@@ -3,13 +3,18 @@ import Anthropic from '@anthropic-ai/sdk'
 import type {
 	ChatCompletionParams,
 	ChatCompletionResponse,
-	Citation,
 	LLMProvider,
 	ModelInfo,
 	ProviderCapabilities,
 	StreamChunk,
 	TokenUsage,
 	ToolChoice,
+} from '@namzu/sdk'
+import {
+	ProviderRequestError,
+	isCallerAbortError,
+	isProviderRequestError,
+	providerVendorError,
 } from '@namzu/sdk'
 import type { AnthropicConfig } from './types.js'
 
@@ -87,46 +92,7 @@ interface AnthropicToolUseBlock {
 interface AnthropicToolResultBlock {
 	type: 'tool_result'
 	tool_use_id: string
-	/**
-	 * Anthropic accepts a string OR an array of text/image blocks here.
-	 * namzu only ever sent a string, which is why a `computer-use`
-	 * screenshot reached the model as base64 TEXT.
-	 */
-	content: string | Array<AnthropicTextBlock | AnthropicImageBlock | AnthropicDocumentBlock>
-	/**
-	 * Anthropic prescribes `is_error: true` so the model recognises a
-	 * failure and retries. namzu computed this and then dropped it at the
-	 * provider boundary, leaving prose formatting to convey failure.
-	 */
-	is_error?: boolean
-	cache_control?: AnthropicCacheControl
-}
-
-interface AnthropicDocumentBlock {
-	type: 'document'
-	source: { type: 'base64'; media_type: string; data: string }
-	title?: string
-	citations?: { enabled: boolean }
-	cache_control?: AnthropicCacheControl
-}
-
-/**
- * Extended-thinking blocks. Opaque to namzu: parsed, stored and replayed
- * verbatim, never interpreted. The signature is load-bearing — Anthropic
- * requires the preceding assistant turn to be echoed back unchanged when a
- * `tool_result` follows, and a rebuilt turn triggers ordering/signature
- * errors.
- */
-interface AnthropicThinkingBlock {
-	type: 'thinking'
-	thinking: string
-	signature?: string
-	cache_control?: AnthropicCacheControl
-}
-
-interface AnthropicRedactedThinkingBlock {
-	type: 'redacted_thinking'
-	data: string
+	content: string
 	cache_control?: AnthropicCacheControl
 }
 
@@ -140,16 +106,14 @@ interface AnthropicToolParam {
 	name: string
 	description: string
 	input_schema: unknown
+	strict?: boolean
 	cache_control?: AnthropicCacheControl
 }
 
-/** Shape of an SDK user-message attachment (read structurally to avoid coupling). */
+/** Shape of an SDK `ImageAttachment` (read structurally to avoid coupling). */
 interface AttachmentLike {
-	readonly type?: 'image' | 'document'
 	readonly data: string
 	readonly mediaType: string
-	readonly name?: string
-	readonly citations?: boolean
 }
 
 type AnthropicContentBlock =
@@ -157,9 +121,6 @@ type AnthropicContentBlock =
 	| AnthropicToolUseBlock
 	| AnthropicToolResultBlock
 	| AnthropicImageBlock
-	| AnthropicDocumentBlock
-	| AnthropicThinkingBlock
-	| AnthropicRedactedThinkingBlock
 
 interface AnthropicMessageParam {
 	role: 'user' | 'assistant'
@@ -194,10 +155,7 @@ function extractSystem(
 	return blocks
 }
 
-/** Exported for the wire-shape tests; not part of the package surface. */
-export function toAnthropicMessages(
-	messages: ChatCompletionParams['messages'],
-): AnthropicMessageParam[] {
+function toAnthropicMessages(messages: ChatCompletionParams['messages']): AnthropicMessageParam[] {
 	const out: AnthropicMessageParam[] = []
 	let pendingToolResults: AnthropicToolResultBlock[] = []
 
@@ -212,15 +170,12 @@ export function toAnthropicMessages(
 		if (msg.role === 'system') continue
 
 		if (msg.role === 'tool') {
-			const toolMsg = msg as { toolCallId?: string; content?: unknown; isError?: boolean }
+			const toolMsg = msg as { toolCallId?: string; content?: unknown }
 			pendingToolResults.push({
 				type: 'tool_result',
 				tool_use_id: toolMsg.toolCallId ?? 'unknown',
-				content: toAnthropicToolResultContent(toolMsg.content),
-				// Anthropic prescribes this so the model recognises the
-				// failure and retries; the runtime has always known it and
-				// used to discard it exactly here.
-				...(toolMsg.isError === true ? { is_error: true } : {}),
+				content:
+					typeof toolMsg.content === 'string' ? toolMsg.content : JSON.stringify(toolMsg.content),
 			})
 			continue
 		}
@@ -229,23 +184,6 @@ export function toAnthropicMessages(
 
 		if (msg.role === 'assistant' && 'toolCalls' in msg && msg.toolCalls) {
 			const blocks: AnthropicContentBlock[] = []
-			// Thinking blocks FIRST, verbatim, signature intact. Anthropic
-			// requires the assistant turn preceding a `tool_result` to be
-			// echoed back unchanged; rebuilding it as `[text, ...tool_use]`
-			// — which is what this function used to do unconditionally — is
-			// precisely the pattern that contract prohibits, and produces
-			// ordering/signature errors once extended thinking is on.
-			for (const block of readReasoning(msg)) {
-				if (block.type === 'redacted_thinking') {
-					if (block.encrypted) blocks.push({ type: 'redacted_thinking', data: block.encrypted })
-					continue
-				}
-				blocks.push({
-					type: 'thinking',
-					thinking: block.text ?? '',
-					...(block.signature ? { signature: block.signature } : {}),
-				})
-			}
 			if (msg.content && typeof msg.content === 'string') {
 				blocks.push({ type: 'text', text: msg.content })
 			}
@@ -268,29 +206,17 @@ export function toAnthropicMessages(
 		}
 
 		const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
-		// User message with attachments → multimodal content blocks (text
-		// first, then each attachment as its own base64 block). An
-		// attachment with no discriminant is an image, which is what every
-		// attachment was before documents existed.
+		// User message with image attachments → multimodal content blocks
+		// (text first, then each image as a base64 image block).
 		const attachments = (msg as { attachments?: readonly AttachmentLike[] }).attachments
 		if (msg.role === 'user' && attachments && attachments.length > 0) {
 			const blocks: AnthropicContentBlock[] = []
 			if (content.length > 0) blocks.push({ type: 'text', text: content })
 			for (const att of attachments) {
-				const source = { type: 'base64' as const, media_type: att.mediaType, data: att.data }
-				blocks.push(
-					att.type === 'document'
-						? {
-								type: 'document',
-								source,
-								...(att.name ? { title: att.name } : {}),
-								// Only when asked. Enabling it unconditionally would
-								// split every document into citable units and spend
-								// tokens on turns that never wanted a citation.
-								...(att.citations ? { citations: { enabled: true } } : {}),
-							}
-						: { type: 'image', source },
-				)
+				blocks.push({
+					type: 'image',
+					source: { type: 'base64', media_type: att.mediaType, data: att.data },
+				})
 			}
 			out.push({ role: 'user', content: blocks })
 			continue
@@ -305,76 +231,22 @@ export function toAnthropicMessages(
 	return out
 }
 
-/**
- * Translate one wire citation into namzu's shape.
- *
- * Three location kinds, and a fourth family this deliberately drops:
- * search-result and web-search citations point at something that was
- * never in the request, so there is no attachment index to resolve them
- * against. Reporting them with a fabricated index would be worse than
- * reporting nothing — the whole value of a citation is that the reader
- * can go and look.
- */
-function toCitation(raw: {
-	type?: string
-	cited_text?: string
-	document_index?: number
-	document_title?: string | null
-	start_page_number?: number
-	end_page_number?: number
-	start_char_index?: number
-	end_char_index?: number
-	start_block_index?: number
-	end_block_index?: number
-}): Citation | undefined {
-	const base = {
-		citedText: raw.cited_text ?? '',
-		documentIndex: raw.document_index ?? 0,
-		...(raw.document_title ? { documentTitle: raw.document_title } : {}),
-	}
-	switch (raw.type) {
-		case 'page_location':
-			return {
-				...base,
-				location: {
-					kind: 'page',
-					start: raw.start_page_number ?? 0,
-					end: raw.end_page_number ?? 0,
-				},
-			}
-		case 'char_location':
-			return {
-				...base,
-				location: {
-					kind: 'char',
-					start: raw.start_char_index ?? 0,
-					end: raw.end_char_index ?? 0,
-				},
-			}
-		case 'content_block_location':
-			return {
-				...base,
-				location: {
-					kind: 'block',
-					start: raw.start_block_index ?? 0,
-					end: raw.end_block_index ?? 0,
-				},
-			}
-		default:
-			return undefined
-	}
-}
-
 function toAnthropicTools(
 	params: ChatCompletionParams,
 	cachingEnabled: boolean,
+	strictToolUseEnabled: boolean,
 ): AnthropicToolParam[] | undefined {
 	if (!params.tools || params.tools.length === 0) return undefined
-	const tools: AnthropicToolParam[] = params.tools.map((t) => ({
-		name: t.function.name,
-		description: t.function.description ?? '',
-		input_schema: t.function.parameters ?? { type: 'object' },
-	}))
+	const enforcedNames = new Set(params.enforceToolInputSchema ?? [])
+	const tools: AnthropicToolParam[] = params.tools.map((t) => {
+		const strict = strictToolUseEnabled && enforcedNames.has(t.function.name)
+		return {
+			name: t.function.name,
+			description: t.function.description ?? '',
+			input_schema: t.function.parameters ?? { type: 'object' },
+			...(strict ? { strict: true } : {}),
+		}
+	})
 	if (cachingEnabled) {
 		// Breakpoint on the tools-array tail: tools render at position 0 of
 		// the cache prefix, so this caches every tool schema even when the
@@ -383,6 +255,24 @@ function toAnthropicTools(
 		if (tail) tail.cache_control = { type: 'ephemeral' }
 	}
 	return tools
+}
+
+function shouldUseStrictToolInputs(
+	model: string,
+	mode: AnthropicConfig['strictToolUse'] = 'auto',
+): boolean {
+	if (mode === 'on') return true
+	if (mode === 'off') return false
+
+	const normalized = model.toLowerCase()
+	if (/^(?:anthropic\/)?claude-mythos-preview$/.test(normalized)) return true
+	const version = normalized.match(
+		/^(?:anthropic\/)?claude-(?:haiku|sonnet|opus|fable|mythos)-(\d+)(?:[-_.](\d+))?(?:-\d{8})?$/,
+	)
+	if (!version) return false
+	const major = Number(version[1])
+	const minor = Number(version[2] ?? 0)
+	return major > 4 || (major === 4 && minor >= 5)
 }
 
 function toAnthropicToolChoice(tc?: ToolChoice, parallelToolCalls?: boolean): unknown {
@@ -412,55 +302,26 @@ function toAnthropicToolChoice(tc?: ToolChoice, parallelToolCalls?: boolean): un
  * (which only appends messages) reads the prior history at cache rates.
  */
 function applyMessageCacheBreakpoint(messages: AnthropicMessageParam[]): void {
-	// TWO anchors, not one, and the second is the point.
-	//
-	// A single breakpoint at the very tail writes a new cache entry every
-	// turn and reads none of them: by the next request the tail has moved,
-	// so the marker sits somewhere the previous entry does not cover. The
-	// tools and system tiers keep hitting through their own breakpoints, so
-	// the miss is invisible — only the messages tier silently re-bills as a
-	// write.
-	//
-	// The second anchor goes one turn back, which is where the PREVIOUS
-	// request put its tail marker. That is the prefix already in the cache,
-	// so marking it again is what turns the next request into a read.
-	//
-	// It matters most exactly where the history grows fastest: pending tool
-	// results collapse into one user message, so a fan-out of N parallel
-	// calls appends 2N content blocks in a single turn and pushes the prior
-	// boundary well out of reach.
-	//
-	// This spends the fourth of the four allowed breakpoints, which was
-	// documented as deliberately unspent. It is spent on the one tier that
-	// was never hitting.
-	const anchored = markLastBlock(messages, messages.length - 1)
-	if (anchored <= 0) return
-	markLastBlock(messages, anchored - 1)
-}
-
-/**
- * Mark the last content block of the newest non-empty message at or before
- * `from`, and return its index (or -1).
- *
- * A breakpoint cannot sit on an empty message, so empties are skipped
- * rather than marked.
- */
-function markLastBlock(messages: AnthropicMessageParam[], from: number): number {
-	for (let i = Math.min(from, messages.length - 1); i >= 0; i--) {
+	for (let i = messages.length - 1; i >= 0; i--) {
 		const msg = messages[i]
 		if (!msg) continue
 		if (typeof msg.content === 'string') {
 			if (msg.content.length === 0) continue
-			msg.content = [{ type: 'text', text: msg.content, cache_control: { type: 'ephemeral' } }]
-			return i
+			msg.content = [
+				{
+					type: 'text',
+					text: msg.content,
+					cache_control: { type: 'ephemeral' },
+				},
+			]
+			return
 		}
 		if (msg.content.length > 0) {
 			const last = msg.content[msg.content.length - 1]
 			if (last) last.cache_control = { type: 'ephemeral' }
-			return i
+			return
 		}
 	}
-	return -1
 }
 
 // --------------------------------------------------------------------------------------
@@ -525,20 +386,12 @@ interface StreamEvent {
 	type: string
 	message?: { id?: string; usage?: RawAnthropicUsage }
 	index?: number
-	content_block?: { type?: string; id?: string; name?: string; data?: string }
+	content_block?: { type?: string; id?: string; name?: string }
 	delta?: {
 		type?: string
 		text?: string
 		partial_json?: string
-		/** `citations_delta` payload — one cited passage and where it came from. */
-		citation?: Parameters<typeof toCitation>[0]
 		stop_reason?: string | null
-		/** `thinking_delta` payload. */
-		thinking?: string
-		/** `signature_delta` payload — must be replayed verbatim. */
-		signature?: string
-		/** `redacted_thinking` opaque payload. */
-		data?: string
 	}
 	usage?: RawAnthropicUsage
 }
@@ -618,14 +471,19 @@ export class AnthropicProvider implements LLMProvider {
 		// is tools → system → messages, so each later breakpoint covers all
 		// earlier sections too).
 		const cachingEnabled = params.cacheControl !== undefined
+		const model = this.resolveModel(params)
 		const system = extractSystem(params.messages, cachingEnabled)
 		const messages = toAnthropicMessages(params.messages)
 		if (cachingEnabled) applyMessageCacheBreakpoint(messages)
-		const tools = toAnthropicTools(params, cachingEnabled)
+		const tools = toAnthropicTools(
+			params,
+			cachingEnabled,
+			shouldUseStrictToolInputs(model, this.config.strictToolUse),
+		)
 		const toolChoice = toAnthropicToolChoice(params.toolChoice, params.parallelToolCalls)
 
 		const body: Record<string, unknown> = {
-			model: this.resolveModel(params),
+			model,
 			messages,
 			max_tokens: params.maxTokens ?? this.config.maxTokens ?? DEFAULT_MAX_TOKENS,
 			stream,
@@ -636,7 +494,10 @@ export class AnthropicProvider implements LLMProvider {
 			// line or Anthropic rejects the request. Emit the block-array form
 			// with the identity prefix first; cache breakpoints (if any) stay
 			// on the tagged blocks behind it, so the ordering survives.
-			const ccBlock: AnthropicTextBlock = { type: 'text', text: CLAUDE_CODE_SYSTEM_PREFIX }
+			const ccBlock: AnthropicTextBlock = {
+				type: 'text',
+				text: CLAUDE_CODE_SYSTEM_PREFIX,
+			}
 			body.system = system ? [ccBlock, ...system] : [ccBlock]
 		} else if (system) {
 			body.system = system
@@ -646,25 +507,9 @@ export class AnthropicProvider implements LLMProvider {
 		// otherwise) — this also drops a parallelToolCalls-derived choice on
 		// tool-less requests.
 		if (tools && toolChoice) body.tool_choice = toolChoice
-		if (params.thinking) {
-			// Anthropic rejects `temperature`, `top_p` and `top_k` while
-			// thinking is enabled, so they are omitted rather than passed and
-			// 400'd — the request the caller wanted is the one with thinking.
-			body.thinking =
-				params.thinking.type === 'enabled'
-					? {
-							type: 'enabled',
-							...(params.thinking.budgetTokens !== undefined
-								? { budget_tokens: params.thinking.budgetTokens }
-								: {}),
-						}
-					: { type: 'disabled' }
-		}
-		if (!params.thinking || params.thinking.type === 'disabled') {
-			if (params.temperature !== undefined) body.temperature = params.temperature
-			if (params.topP !== undefined) body.top_p = params.topP
-			if (params.topK !== undefined) body.top_k = params.topK
-		}
+		if (params.temperature !== undefined) body.temperature = params.temperature
+		if (params.topP !== undefined) body.top_p = params.topP
+		if (params.topK !== undefined) body.top_k = params.topK
 		if (params.stop) body.stop_sequences = params.stop
 
 		return body
@@ -694,18 +539,26 @@ export class AnthropicProvider implements LLMProvider {
 		const createParams = this.buildCreateParams(params, true)
 		const signal = params.signal
 
-		const stream = (await this.createRaw(createParams, { signal })) as AsyncIterable<StreamEvent>
+		let stream: AsyncIterable<StreamEvent>
+		try {
+			stream = (await this.createRaw(createParams, {
+				signal,
+			})) as AsyncIterable<StreamEvent>
+		} catch (err) {
+			// The vendor SDK builds its error message FROM the response body, so a
+			// credential the upstream echoed back is already inside `err.message`
+			// before this code runs (proven with a planted fake token). Classify from
+			// the status and drop the vendor error entirely — no re-throw, no
+			// `cause`, because a `cause` is exactly what a structured logger walks.
+			if (isCallerAbortError(err, signal)) throw signal?.reason ?? err
+			if (isProviderRequestError(err)) throw err
+			throw providerVendorError({ providerId: 'anthropic', error: err })
+		}
 
 		let messageId = ''
 		// Track active tool-use blocks by content_block index so input_json_delta
 		// fragments can reference the right tool call.
 		const activeTools = new Map<number, { id: string; name: string }>()
-
-		// Reasoning block indices still open, so `content_block_stop` knows
-
-		// whether it is closing a tool or a thinking block.
-
-		const openReasoning = new Set<number>()
 
 		// Anthropic Messages API streams over SSE. Do not impose a
 		// provider-local 90s idle cutoff by default: long reasoning or
@@ -728,9 +581,11 @@ export class AnthropicProvider implements LLMProvider {
 					new Promise<IteratorResult<StreamEvent>>((_, reject) => {
 						timer = setTimeout(() => {
 							reject(
-								new Error(
-									`Anthropic stream idle for ${Math.round(streamIdleTimeoutMs / 1000)}s — aborting so the run lifecycle can emit run_failed.`,
-								),
+								new ProviderRequestError({
+									kind: 'network',
+									providerId: 'anthropic',
+									detail: `stream idle for ${Math.round(streamIdleTimeoutMs / 1000)}s — aborting so the run lifecycle can emit run_failed`,
+								}),
 							)
 						}, streamIdleTimeoutMs)
 					}),
@@ -764,30 +619,6 @@ export class AnthropicProvider implements LLMProvider {
 						case 'content_block_start': {
 							const idx = event.index ?? 0
 							const block = event.content_block
-							// Thinking blocks used to fall through to
-							// `default: // ignore`, so they were neither surfaced nor
-							// storable — which is what made the verbatim-echo contract
-							// unsatisfiable and left the streaming UI with a silent
-							// multi-second gap while the model was demonstrably working.
-							if (block?.type === 'thinking' || block?.type === 'redacted_thinking') {
-								// Register the block so its close is recognised. Without
-								// this the set stayed empty, the `content_block_stop`
-								// branch below could never match, and `done: true` was
-								// never emitted — so a UI that opened a thinking card
-								// left it spinning for the rest of the run.
-								openReasoning.add(idx)
-								yield {
-									id: messageId,
-									delta: {
-										reasoning: {
-											index: idx,
-											type: block.type,
-											...(block.data ? { encrypted: block.data } : {}),
-										},
-									},
-								}
-								break
-							}
 							if (block?.type === 'tool_use') {
 								const toolId = block.id ?? `tool-${Date.now()}`
 								activeTools.set(idx, { id: toolId, name: block.name ?? '' })
@@ -812,18 +643,6 @@ export class AnthropicProvider implements LLMProvider {
 							const delta = event.delta
 							if (delta?.type === 'text_delta' && delta.text) {
 								yield { id: messageId, delta: { content: delta.text } }
-							} else if (delta?.type === 'thinking_delta' && delta.thinking) {
-								yield { id: messageId, delta: { reasoning: { index: idx, text: delta.thinking } } }
-							} else if (delta?.type === 'signature_delta' && delta.signature) {
-								// The signature arrives once, at the end of the block, and
-								// replaying it unchanged is what keeps the echo valid.
-								yield {
-									id: messageId,
-									delta: { reasoning: { index: idx, signature: delta.signature } },
-								}
-							} else if (delta?.type === 'citations_delta' && delta.citation) {
-								const citation = toCitation(delta.citation)
-								if (citation) yield { id: messageId, delta: { citation } }
 							} else if (delta?.type === 'input_json_delta' && delta.partial_json !== undefined) {
 								const active = activeTools.get(idx)
 								yield {
@@ -849,7 +668,7 @@ export class AnthropicProvider implements LLMProvider {
 							// Without this signal the executor sees an empty
 							// `arguments` string and rejects the call with
 							// `Error: Invalid JSON in tool arguments for "<tool>"`
-							// — exactly the failure the live supervised-run test
+							// — exactly the failure the live cowork test
 							// surfaced (Bash + Write both blank-input failed).
 							const idx = event.index ?? 0
 							const active = activeTools.get(idx)
@@ -861,14 +680,6 @@ export class AnthropicProvider implements LLMProvider {
 									},
 								}
 								activeTools.delete(idx)
-								break
-							}
-							// A reasoning block closes here too; the consumer needs the
-							// boundary to emit `reasoning_completed` rather than waiting
-							// for end-of-stream.
-							if (openReasoning.has(idx)) {
-								openReasoning.delete(idx)
-								yield { id: messageId, delta: { reasoning: { index: idx, done: true } } }
 							}
 							break
 						}
@@ -896,19 +707,31 @@ export class AnthropicProvider implements LLMProvider {
 							break
 					}
 				} catch (parseErr) {
-					yield {
-						id: messageId,
-						delta: {},
-						error: `Stream event error: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
-					}
+					if (isProviderRequestError(parseErr)) throw parseErr
+					throw new ProviderRequestError({
+						kind: 'server',
+						providerId: 'anthropic',
+						detail: 'the provider stream returned malformed data',
+					})
 				}
 			}
+		} catch (err) {
+			// A mid-stream failure arrives AFTER a 200, so the create-call wrap above
+			// never sees it: the vendor SDK's SSE reader throws its own APIError for
+			// an `event: error` frame, with the frame body as the message. Same
+			// treatment — classify, then drop.
+			//
+			// An abort is NOT a provider failure: restore the caller's signal.reason
+			// even when the SDK replaced it with its own APIUserAbortError object.
+			if (isCallerAbortError(err, signal)) throw signal?.reason ?? err
+			if (isProviderRequestError(err)) throw err
+			throw providerVendorError({ providerId: 'anthropic', error: err })
 		} finally {
 			// Always release the underlying HTTP/2 connection — both on
 			// idle-timeout rejection (bubbling up) and on normal stream
 			// end (`message_stop` returned out of the loop). Leaving
 			// the SSE connection open until OS-level timeout was the
-			// gap called out in review.
+			// gap Codex called out.
 			await iter.return?.().catch(() => undefined)
 		}
 	}
@@ -985,109 +808,4 @@ export class AnthropicProvider implements LLMProvider {
 		// want network-level verification should call `chat()` directly.
 		return Boolean(this.client) && Boolean(this.config.apiKey)
 	}
-}
-
-/** Shape of an SDK `ReasoningBlock`, read structurally to avoid coupling. */
-interface ReasoningBlockLike {
-	readonly type: 'thinking' | 'redacted_thinking'
-	readonly text?: string
-	readonly signature?: string
-	readonly encrypted?: string
-}
-
-function readReasoning(msg: unknown): readonly ReasoningBlockLike[] {
-	const blocks = (msg as { reasoning?: readonly ReasoningBlockLike[] } | null)?.reasoning
-	return Array.isArray(blocks) ? blocks : []
-}
-
-/**
- * Map namzu tool-result content onto Anthropic's `tool_result.content`.
- *
- * A plain string stays a plain string — the common case, and the shape
- * that keeps the cache prefix byte-identical for every existing run.
- * Blocks become Anthropic blocks, which is what makes a screenshot
- * actually reach the model instead of arriving as base64 text.
- */
-function toAnthropicToolResultContent(
-	content: unknown,
-): string | Array<AnthropicTextBlock | AnthropicImageBlock | AnthropicDocumentBlock> {
-	if (typeof content === 'string') return content
-	if (!Array.isArray(content)) return JSON.stringify(content)
-
-	const blocks: Array<AnthropicTextBlock | AnthropicImageBlock | AnthropicDocumentBlock> = []
-	for (const block of content as readonly Record<string, unknown>[]) {
-		switch (block.type) {
-			case 'text':
-				blocks.push({ type: 'text', text: String(block.text ?? '') })
-				break
-			case 'image': {
-				// Shape-checked, like the sibling driver next door. `String()`
-				// on a non-string `data` produced `"[object Object]"` or
-				// `"undefined"` as the base64 payload — a request the wire
-				// rejects with no indication of which block was at fault, and
-				// an unvalidated remote tool result can reach here. A media
-				// type outside the accepted set degrades to a named
-				// placeholder rather than being smuggled through as text.
-				const source = imageSource(block)
-				if (source) blocks.push(source)
-				else blocks.push({ type: 'text', text: describeUnsendableBlock(block) })
-				break
-			}
-			case 'document': {
-				const document = documentSource(block)
-				if (document) blocks.push(document)
-				else blocks.push({ type: 'text', text: describeUnsendableBlock(block) })
-				break
-			}
-		}
-	}
-	// The wire rejects an empty content array; a result that reduced to
-	// nothing still has to say something.
-	return blocks.length > 0 ? blocks : '(no content)'
-}
-
-/** Media types this wire format accepts for an image block. */
-const IMAGE_MEDIA_TYPES: ReadonlySet<string> = new Set([
-	'image/png',
-	'image/jpeg',
-	'image/gif',
-	'image/webp',
-])
-
-/** Media types this wire format accepts for a document block. */
-const DOCUMENT_MEDIA_TYPES: ReadonlySet<string> = new Set(['application/pdf'])
-
-function imageSource(block: Record<string, unknown>): AnthropicImageBlock | null {
-	if (typeof block.data !== 'string' || block.data.length === 0) return null
-	if (typeof block.mediaType !== 'string' || !IMAGE_MEDIA_TYPES.has(block.mediaType)) return null
-	return {
-		type: 'image',
-		source: { type: 'base64', media_type: block.mediaType, data: block.data },
-	}
-}
-
-function documentSource(block: Record<string, unknown>): AnthropicDocumentBlock | null {
-	if (typeof block.data !== 'string' || block.data.length === 0) return null
-	if (typeof block.mediaType !== 'string' || !DOCUMENT_MEDIA_TYPES.has(block.mediaType)) {
-		return null
-	}
-	return {
-		type: 'document',
-		source: { type: 'base64', media_type: block.mediaType, data: block.data },
-		...(typeof block.name === 'string' && block.name ? { title: block.name } : {}),
-	}
-}
-
-/**
- * Name a block this wire cannot carry, rather than inlining its payload.
- *
- * The model learns something happened and what kind of thing it was;
- * dumping the base64 in as text would cost thousands of tokens to say
- * nothing it can read.
- */
-function describeUnsendableBlock(block: Record<string, unknown>): string {
-	const kind = typeof block.type === 'string' ? block.type : 'content'
-	const mediaType = typeof block.mediaType === 'string' ? block.mediaType : 'unknown type'
-	const size = typeof block.data === 'string' ? `, ${block.data.length} base64 chars` : ''
-	return `[${kind} omitted: ${mediaType} cannot be sent to this model${size}]`
 }

@@ -41,11 +41,10 @@ describe('@namzu/ollama', () => {
 	describe('OLLAMA_CAPABILITIES', () => {
 		it('declares the expected capability flags', () => {
 			expect(OLLAMA_CAPABILITIES).toEqual({
-				supportsTools: true,
+				supportsTools: false,
 				supportsStreaming: true,
-				supportsFunctionCalling: true,
-				supportsVision: true,
-				// Images only: a document degrades to a named placeholder here.
+				supportsFunctionCalling: false,
+				supportsVision: false,
 				supportsDocuments: false,
 			})
 		})

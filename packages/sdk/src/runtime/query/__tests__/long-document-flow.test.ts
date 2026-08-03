@@ -176,5 +176,7 @@ describe('query long-document tool flow', () => {
 		expect(final).toContain('## Section 1')
 		expect(final).toContain('## Section 4')
 		expect(final).toContain('Section 4.40')
-	})
+		// Six real model turns and five file edits: ~3s alone, and it has
+		// tripped the 5s default when the whole suite runs in parallel.
+	}, 20_000)
 })

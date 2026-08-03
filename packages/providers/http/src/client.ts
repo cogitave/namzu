@@ -8,31 +8,13 @@ import type {
 	TokenUsage,
 	ToolChoice,
 } from '@namzu/sdk'
-import { toolResultToText } from '@namzu/sdk'
+import {
+	ProviderRequestError,
+	isCallerAbortError,
+	providerHttpError,
+	providerVendorError,
+} from '@namzu/sdk'
 import { DialectMismatchError, type HttpConfig, type HttpDialect } from './types.js'
-
-/**
- * Report a turn that produced tool calls as `tool_calls`, whatever the
- * endpoint called it.
- *
- * Endpoints on this wire shape — gateways and local servers especially —
- * routinely send `finish_reason: "stop"` on the same response that carries
- * a populated `tool_calls`. Passing that through says the turn is over
- * when the model has just asked for work, and a consumer that trusts the
- * reason skips every call it was handed.
- *
- * The calls are the fact and the reason is the summary, so when they
- * disagree the calls win. The tool call can also arrive in the same chunk
- * as the reason, so the current chunk is checked as well as the ones
- * before it.
- */
-function honestFinishReason(
-	reported: StreamChunk['finishReason'],
-	sawToolCall: boolean,
-): StreamChunk['finishReason'] {
-	if (reported === undefined) return undefined
-	return sawToolCall && reported === 'stop' ? 'tool_calls' : reported
-}
 
 const DEFAULT_TIMEOUT_MS = 60_000
 
@@ -99,6 +81,24 @@ function formatToolChoice(tc: ToolChoice | undefined): unknown {
 	return tc
 }
 
+function shouldUseStrictToolInputs(
+	model: string,
+	mode: HttpConfig['strictToolUse'] = 'auto',
+): boolean {
+	if (mode === 'on') return true
+	if (mode === 'off') return false
+
+	const normalized = model.toLowerCase()
+	if (/^(?:anthropic\/)?claude-mythos-preview$/.test(normalized)) return true
+	const version = normalized.match(
+		/^(?:anthropic\/)?claude-(?:haiku|sonnet|opus|fable|mythos)-(\d+)(?:[-_.](\d+))?(?:-\d{8})?$/,
+	)
+	if (!version) return false
+	const major = Number(version[1])
+	const minor = Number(version[2] ?? 0)
+	return major > 4 || (major === 4 && minor >= 5)
+}
+
 function joinUrl(base: string, path: string): string {
 	const trimmedBase = base.endsWith('/') ? base.slice(0, -1) : base
 	const trimmedPath = path.startsWith('/') ? path : `/${path}`
@@ -125,61 +125,12 @@ function mapAnthropicStopReason(reason?: string | null): NamzuFinishReason {
 // OpenAI dialect — request construction
 // --------------------------------------------------------------------------------------
 
-/**
- * Image media types the vision path carries. Anything else is named in
- * the text rather than sent: an endpoint that cannot decode the payload
- * would reject the whole request, and losing the turn is worse than
- * losing sight of one image.
- */
-const IMAGE_MEDIA_TYPES: ReadonlySet<string> = new Set([
-	'image/png',
-	'image/jpeg',
-	'image/jpg',
-	'image/webp',
-	'image/gif',
-])
-
-function unsupportedImageNote(mediaType: string, kind: 'image' | 'document' = 'image'): string {
-	return `[${kind}: ${mediaType} — unsupported format, not sent]`
-}
-
-/**
- * A user turn with images becomes a content-part array: text first, then
- * one part per image as a `data:` URI. A turn without images keeps the
- * plain string, so nothing about an ordinary request changes shape.
- */
-function openAIUserContent(msg: {
-	content: unknown
-	attachments?: readonly { type?: 'image' | 'document'; data: string; mediaType: string }[]
-}): unknown {
-	const text = typeof msg.content === 'string' ? msg.content : String(msg.content ?? '')
-	if (!msg.attachments || msg.attachments.length === 0) return msg.content
-
-	const parts: unknown[] = []
-	const notes: string[] = []
-	for (const attachment of msg.attachments) {
-		if (IMAGE_MEDIA_TYPES.has(attachment.mediaType.toLowerCase())) {
-			parts.push({
-				type: 'image_url',
-				image_url: { url: `data:${attachment.mediaType};base64,${attachment.data}` },
-			})
-		} else {
-			notes.push(unsupportedImageNote(attachment.mediaType, attachment.type ?? 'image'))
-		}
-	}
-	const head = [text, ...notes].filter((part) => part.length > 0).join('\n')
-	return [...(head.length > 0 ? [{ type: 'text', text: head }] : []), ...parts]
-}
-
 function formatOpenAIMessages(messages: ChatCompletionParams['messages']): unknown[] {
 	return messages.map((msg) => {
 		if (msg.role === 'tool') {
 			return {
 				role: 'tool',
-				// Text-only on this wire: flatten rather than pass an array
-				// through, and name a non-text block instead of dumping
-				// base64 the model cannot decode.
-				content: toolResultToText(msg.content),
+				content: msg.content,
 				tool_call_id: (msg as { toolCallId?: string }).toolCallId,
 			}
 		}
@@ -194,9 +145,6 @@ function formatOpenAIMessages(messages: ChatCompletionParams['messages']): unkno
 				})),
 			}
 		}
-		if (msg.role === 'user') {
-			return { role: 'user', content: openAIUserContent(msg) }
-		}
 		return { role: msg.role, content: msg.content }
 	})
 }
@@ -210,12 +158,6 @@ function buildOpenAIBody(
 		model: params.model || defaultModel,
 		messages: formatOpenAIMessages(params.messages),
 		stream,
-		// A conforming endpoint sends no usage object on a streamed response
-		// unless this asks for one. Without it the parsing below had nothing
-		// to parse: every streamed turn reported zero tokens, so cost read as
-		// free and any budget or compaction threshold keyed on usage never
-		// fired however large the thread grew.
-		...(stream ? { stream_options: { include_usage: true } } : {}),
 	}
 
 	if (params.tools && params.tools.length > 0) body.tools = params.tools
@@ -241,11 +183,6 @@ function buildOpenAIBody(
 // Anthropic dialect — request construction
 // --------------------------------------------------------------------------------------
 
-interface AnthropicImageBlock {
-	type: 'image'
-	source: { type: 'base64'; media_type: string; data: string }
-}
-
 interface AnthropicContentBlock {
 	type: 'text' | 'tool_use' | 'tool_result'
 	text?: string
@@ -258,17 +195,19 @@ interface AnthropicContentBlock {
 
 interface AnthropicMessage {
 	role: 'user' | 'assistant'
-	content: string | Array<AnthropicContentBlock | AnthropicImageBlock>
+	content: string | AnthropicContentBlock[]
 }
 
 function formatAnthropicRequest(
 	params: ChatCompletionParams,
 	stream: boolean,
 	defaultModel?: string,
+	strictToolUse: HttpConfig['strictToolUse'] = 'auto',
 ): Record<string, unknown> {
 	const systemParts: string[] = []
 	const messages: AnthropicMessage[] = []
 	let pendingToolResults: AnthropicContentBlock[] = []
+	const model = params.model || defaultModel
 
 	const flushToolResults = () => {
 		if (pendingToolResults.length > 0) {
@@ -284,20 +223,12 @@ function formatAnthropicRequest(
 		}
 
 		if (msg.role === 'tool') {
-			const toolMsg = msg as {
-				toolCallId?: string
-				content: Parameters<typeof toolResultToText>[0]
-			}
+			const toolMsg = msg as { toolCallId?: string; content?: string }
 			pendingToolResults.push({
 				type: 'tool_result',
 				tool_use_id: toolMsg.toolCallId ?? 'unknown',
-				// Flatten rather than `JSON.stringify`: stringifying a block
-				// array dumps an image's base64 payload into the prompt as
-				// JSON text, which the model cannot decode and which costs a
-				// fortune in tokens. This driver targets arbitrary endpoints
-				// speaking the dialect, so it cannot assume native image
-				// support the way a first-party driver can.
-				content: toolResultToText(toolMsg.content),
+				content:
+					typeof toolMsg.content === 'string' ? toolMsg.content : JSON.stringify(toolMsg.content),
 			})
 			continue
 		}
@@ -327,41 +258,17 @@ function formatAnthropicRequest(
 			continue
 		}
 
-		const text = typeof msg.content === 'string' ? msg.content : toolResultToText(msg.content ?? '')
-		const attachments = msg.role === 'user' ? (msg.attachments ?? []) : []
-		if (attachments.length === 0) {
-			messages.push({
-				role: msg.role === 'assistant' ? 'assistant' : 'user',
-				content: text,
-			})
-			continue
-		}
-
-		// This dialect carries an image as a base64 source block beside the
-		// text, so the payload never has to be stringified into the prompt.
-		const blocks: AnthropicImageBlock[] = []
-		const notes: string[] = []
-		for (const attachment of attachments) {
-			if (IMAGE_MEDIA_TYPES.has(attachment.mediaType.toLowerCase())) {
-				blocks.push({
-					type: 'image',
-					source: { type: 'base64', media_type: attachment.mediaType, data: attachment.data },
-				})
-			} else {
-				notes.push(unsupportedImageNote(attachment.mediaType))
-			}
-		}
-		const head = [text, ...notes].filter((part) => part.length > 0).join('\n')
+		const content = typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content)
 		messages.push({
-			role: 'user',
-			content: [...(head.length > 0 ? [{ type: 'text' as const, text: head }] : []), ...blocks],
+			role: msg.role === 'assistant' ? 'assistant' : 'user',
+			content,
 		})
 	}
 
 	flushToolResults()
 
 	const body: Record<string, unknown> = {
-		model: params.model || defaultModel,
+		model,
 		messages,
 		// Anthropic requires max_tokens. Default to 4096 if the caller didn't set one.
 		max_tokens: params.maxTokens ?? 4096,
@@ -375,10 +282,13 @@ function formatAnthropicRequest(
 	if (params.stop) body.stop_sequences = params.stop
 
 	if (params.tools && params.tools.length > 0) {
+		const enforcedNames = new Set(params.enforceToolInputSchema ?? [])
+		const strictEnabled = shouldUseStrictToolInputs(model ?? '', strictToolUse)
 		body.tools = params.tools.map((t) => ({
 			name: t.function.name,
 			description: t.function.description ?? '',
 			input_schema: t.function.parameters ?? { type: 'object' },
+			...(strictEnabled && enforcedNames.has(t.function.name) ? { strict: true } : {}),
 		}))
 	}
 
@@ -400,23 +310,17 @@ function formatAnthropicRequest(
 // --------------------------------------------------------------------------------------
 
 /**
- * What this DRIVER does, not what the remote endpoint could do: tools
- * pass through to the request body, and a user-message image is mapped
- * into whichever content shape the configured dialect uses — a `data:`
- * URI part on one, a base64 source block on the other. A format neither
- * accepts is named in the text instead of being sent.
- *
- * An image inside a TOOL RESULT stays a text placeholder on both: a tool
- * message is text-only in each dialect, so there is nowhere to put it.
+ * What this DRIVER does, not what the remote endpoint could do:
+ * tools pass through to the request body, but user-message image
+ * `attachments` are not mapped into content parts — `supportsVision`
+ * stays false until the message translation handles them.
  */
 export const HTTP_CAPABILITIES: ProviderCapabilities = {
 	supportsTools: true,
 	supportsStreaming: true,
 	supportsFunctionCalling: true,
-	supportsVision: true,
-	// Images only. A document degrades to a named note, and the runtime
-	// warns before the request rather than after the model answered
-	// about a file it never saw.
+	supportsVision: false,
+	// Images only. A document degrades to a named placeholder.
 	supportsDocuments: false,
 }
 
@@ -471,29 +375,58 @@ export class HttpProvider implements LLMProvider {
 		const url = this.endpoint()
 		const body =
 			this.dialect === 'anthropic'
-				? formatAnthropicRequest(params, true, this.config.model)
+				? formatAnthropicRequest(params, true, this.config.model, this.config.strictToolUse)
 				: buildOpenAIBody(params, true, this.config.model)
 
-		const response = await fetch(url, {
-			method: 'POST',
-			headers: this.getHeaders(),
-			body: JSON.stringify(body),
-			signal: this.timeoutSignal(params.signal),
-		})
+		let response: Response
+		try {
+			response = await fetch(url, {
+				method: 'POST',
+				headers: this.getHeaders(),
+				body: JSON.stringify(body),
+				signal: this.timeoutSignal(params.signal),
+			})
+		} catch (err) {
+			if (isCallerAbortError(err, params.signal)) throw params.signal?.reason ?? err
+			throw providerVendorError({ providerId: 'http', error: err })
+		}
 
 		if (!response.ok) {
-			const errorBody = await response.text()
-			throw new Error(`HttpProvider error (${response.status}) from ${url}: ${errorBody}`)
+			// Body read to CLASSIFY, then dropped. It used to be interpolated into
+			// the message together with the URL, so a credential the upstream echoed
+			// back — or one embedded in the URL — reached every log that recorded the
+			// failure. Proven with a planted fake token.
+			const errorBody = await response.text().catch(() => '')
+			throw providerHttpError({
+				providerId: 'http',
+				status: response.status,
+				body: errorBody,
+				retryAfter: response.headers.get('retry-after'),
+			})
 		}
 
 		if (!response.body) {
-			throw new Error(`HttpProvider: no stream body from ${url}`)
+			throw new ProviderRequestError({
+				kind: 'server',
+				providerId: 'http',
+				status: response.status,
+				detail: 'the response contained no stream body',
+			})
 		}
 
 		if (this.dialect === 'anthropic') {
 			yield* this.streamAnthropic(response.body, url, response.status, params.signal)
 		} else {
 			yield* this.streamOpenAI(response.body, url, response.status, params.signal)
+		}
+	}
+
+	private async readStream(reader: ReadableStreamDefaultReader<Uint8Array>, signal?: AbortSignal) {
+		try {
+			return await reader.read()
+		} catch (err) {
+			if (isCallerAbortError(err, signal)) throw signal?.reason ?? err
+			throw providerVendorError({ providerId: 'http', error: err })
 		}
 	}
 
@@ -507,14 +440,11 @@ export class HttpProvider implements LLMProvider {
 		const decoder = new TextDecoder()
 		let buffer = ''
 		let firstFrame = true
-		// Whether this stream has produced a tool call yet — see
-		// `honestFinishReason`.
-		let sawToolCall = false
 
 		try {
 			while (true) {
 				signal?.throwIfAborted()
-				const { done, value } = await reader.read()
+				const { done, value } = await this.readStream(reader, signal)
 				if (done) break
 
 				buffer += decoder.decode(value, { stream: true })
@@ -530,13 +460,22 @@ export class HttpProvider implements LLMProvider {
 					let parsed: unknown
 					try {
 						parsed = JSON.parse(data)
-					} catch (parseErr) {
-						yield {
-							id: '',
-							delta: {},
-							error: `Stream parse error: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
-						}
-						continue
+					} catch {
+						// V8 includes a source snippet in SyntaxError.message. Never
+						// place that message in a chunk or cause: the malformed frame
+						// may contain a credential or request content.
+						throw new ProviderRequestError({
+							kind: 'server',
+							providerId: 'http',
+							detail: 'the provider stream returned malformed JSON',
+						})
+					}
+
+					if (parsed && typeof parsed === 'object' && 'error' in parsed) {
+						throw providerVendorError({
+							providerId: 'http',
+							error: new Error(data),
+						})
 					}
 
 					if (firstFrame) {
@@ -571,9 +510,6 @@ export class HttpProvider implements LLMProvider {
 					const choice = obj.choices[0]
 					if (!choice) continue
 
-					if (choice.delta.tool_calls && choice.delta.tool_calls.length > 0) {
-						sawToolCall = true
-					}
 					yield {
 						id: obj.id ?? '',
 						delta: {
@@ -585,10 +521,7 @@ export class HttpProvider implements LLMProvider {
 								function: tc.function,
 							})),
 						},
-						finishReason: honestFinishReason(
-							choice.finish_reason as StreamChunk['finishReason'],
-							sawToolCall,
-						),
+						finishReason: choice.finish_reason as StreamChunk['finishReason'],
 						usage: obj.usage ? parseOpenAIUsage(obj.usage) : undefined,
 					}
 				}
@@ -616,7 +549,7 @@ export class HttpProvider implements LLMProvider {
 		try {
 			while (true) {
 				signal?.throwIfAborted()
-				const { done, value } = await reader.read()
+				const { done, value } = await this.readStream(reader, signal)
 				if (done) break
 
 				buffer += decoder.decode(value, { stream: true })
@@ -636,13 +569,14 @@ export class HttpProvider implements LLMProvider {
 					let parsed: unknown
 					try {
 						parsed = JSON.parse(data)
-					} catch (parseErr) {
-						yield {
-							id: messageId,
-							delta: {},
-							error: `Stream parse error: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`,
-						}
-						continue
+					} catch {
+						// SyntaxError.message may quote the response fragment. Replace
+						// it with an authored diagnostic and drop the raw frame.
+						throw new ProviderRequestError({
+							kind: 'server',
+							providerId: 'http',
+							detail: 'the provider stream returned malformed JSON',
+						})
 					}
 
 					if (!parsed || typeof parsed !== 'object') continue
@@ -750,12 +684,10 @@ export class HttpProvider implements LLMProvider {
 						case 'message_stop':
 							return
 						case 'error': {
-							yield {
-								id: messageId,
-								delta: {},
-								error: `Anthropic stream error: ${JSON.stringify(parsed)}`,
-							}
-							break
+							throw providerVendorError({
+								providerId: 'http',
+								error: new Error(data),
+							})
 						}
 						default:
 							// Unknown / ping events — ignore.

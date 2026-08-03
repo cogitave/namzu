@@ -1,6 +1,7 @@
 import { type Span, SpanStatusCode } from '@opentelemetry/api'
 import type { PlanManager } from '../../manager/plan/lifecycle.js'
 import type { RunPersistence } from '../../manager/run/persistence.js'
+import { isProviderRequestError } from '../../provider/errors.js'
 import type { ActivityStore } from '../../store/activity/memory.js'
 import { GENAI, NAMZU } from '../../telemetry/attributes.js'
 import { explainError } from '../../types/errors/catalog.js'
@@ -115,7 +116,17 @@ export class ResultAssembler {
 			return
 		}
 
-		runMgr.markFailed(errorMessage)
+		// The driver's classification, carried onto the run so a host can
+		// branch on WHAT failed without re-parsing a sentence.
+		const providerError = isProviderRequestError(err)
+			? {
+					kind: err.kind,
+					providerId: err.providerId,
+					...(err.status !== undefined ? { status: err.status } : {}),
+					...(err.retryAfterMs !== undefined ? { retryAfterMs: err.retryAfterMs } : {}),
+				}
+			: undefined
+		runMgr.markFailed(errorMessage, providerError)
 
 		if (planManager.isActive) {
 			planManager.failPlan(errorMessage)
@@ -132,6 +143,7 @@ export class ResultAssembler {
 			runId: runMgr.id,
 			error: errorMessage,
 			failure,
+			...(providerError ? { providerError } : {}),
 			...(explanation ? { explanation } : {}),
 		})
 		yield* drainPending()

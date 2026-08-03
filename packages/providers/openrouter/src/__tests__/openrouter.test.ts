@@ -44,8 +44,7 @@ describe('@namzu/openrouter', () => {
 				supportsTools: true,
 				supportsStreaming: true,
 				supportsFunctionCalling: true,
-				supportsVision: true,
-				// Images only: a document degrades to a named placeholder here.
+				supportsVision: false,
 				supportsDocuments: false,
 			})
 		})
