@@ -281,7 +281,12 @@ function formatAnthropicRequest(
 	if (params.topK !== undefined) body.top_k = params.topK
 	if (params.stop) body.stop_sequences = params.stop
 
-	if (params.tools && params.tools.length > 0) {
+	// 'none' means the model must not call a tool. Mapping it to the wire's
+	// 'auto' said it MAY, so a caller that had forbidden tool use got a
+	// request that permitted it. Omitting the tools is the guarantee.
+	const toolsForbidden = params.toolChoice === 'none'
+
+	if (params.tools && params.tools.length > 0 && !toolsForbidden) {
 		const enforcedNames = new Set(params.enforceToolInputSchema ?? [])
 		const strictEnabled = shouldUseStrictToolInputs(model ?? '', strictToolUse)
 		body.tools = params.tools.map((t) => ({
@@ -292,11 +297,10 @@ function formatAnthropicRequest(
 		}))
 	}
 
-	if (params.toolChoice !== undefined) {
+	if (params.toolChoice !== undefined && !toolsForbidden) {
 		const tc = params.toolChoice
 		if (tc === 'auto') body.tool_choice = { type: 'auto' }
 		else if (tc === 'required') body.tool_choice = { type: 'any' }
-		else if (tc === 'none') body.tool_choice = { type: 'auto' }
 		else if (typeof tc === 'object' && tc.type === 'function') {
 			body.tool_choice = { type: 'tool', name: tc.function.name }
 		}

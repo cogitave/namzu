@@ -58,6 +58,80 @@ function assertInsideSandbox(sandboxRoot: string, targetPath: string): string {
  */
 const LINUX_UNSHARE_FLAGS = ['--mount', '--pid', '--fork', '--map-root-user', '--net']
 
+export interface LimitedSpawnRequest {
+	readonly environment: SandboxEnvironment
+	readonly command: string
+	readonly args: readonly string[]
+	readonly rootDir: string
+	readonly memoryLimitMb?: number
+	readonly maxProcesses?: number
+}
+
+/** Single-quote for a shell, escaping any quote already inside. */
+function shellQuote(value: string): string {
+	return `'${value.replace(/'/g, "'\\''")}'`
+}
+
+/**
+ * How one command is spawned under a tier, with the resource caps applied.
+ *
+ * The caps used to live inside the unconfined tier's branch only, so a host
+ * that asked for stronger isolation had its memory and process limits
+ * silently dropped — a control failing in the one direction nobody checks.
+ * They are the same shell builtin on every tier; the only difference is
+ * that the stronger tiers apply them one level in, inside the wrapper they
+ * already spawn through.
+ */
+export function buildLimitedSpawn(request: LimitedSpawnRequest): {
+	spawnCommand: string
+	spawnArgs: string[]
+} {
+	const { environment, command, args, rootDir } = request
+
+	const limits: string[] = []
+	if (request.memoryLimitMb !== undefined) {
+		limits.push(`ulimit -v ${request.memoryLimitMb * 1024}`)
+	}
+	if (request.maxProcesses !== undefined) {
+		limits.push(`ulimit -u ${request.maxProcesses}`)
+	}
+
+	// The innermost command: either the target itself, or the target behind
+	// a shell that sets the caps first.
+	const inner: readonly string[] =
+		limits.length > 0
+			? [
+					'/bin/sh',
+					'-c',
+					`${limits.join(' && ')} && ${[command, ...args].map(shellQuote).join(' ')}`,
+				]
+			: [command, ...args]
+
+	switch (environment) {
+		case 'linux-namespace':
+			return {
+				spawnCommand: 'unshare',
+				spawnArgs: [...LINUX_UNSHARE_FLAGS, '--', ...inner],
+			}
+
+		case 'macos-seatbelt':
+			return {
+				spawnCommand: 'sandbox-exec',
+				spawnArgs: ['-p', buildSeatbeltProfile(rootDir), '--', ...inner],
+			}
+
+		case 'basic': {
+			const [head, ...rest] = inner
+			return { spawnCommand: head as string, spawnArgs: rest }
+		}
+
+		default: {
+			const _exhaustive: never = environment
+			throw new Error(`Unknown sandbox environment: ${_exhaustive}`)
+		}
+	}
+}
+
 function detectEnvironment(): SandboxEnvironment {
 	const { platform } = process
 
@@ -366,52 +440,16 @@ class LocalSandbox implements Sandbox {
 		command: string,
 		args: string[],
 	): { spawnCommand: string; spawnArgs: string[] } {
-		switch (this.environment) {
-			case 'linux-namespace':
-				return {
-					spawnCommand: 'unshare',
-					spawnArgs: [...LINUX_UNSHARE_FLAGS, '--', command, ...args],
-				}
-
-			case 'macos-seatbelt': {
-				const profile = buildSeatbeltProfile(this.rootDir)
-				return {
-					spawnCommand: 'sandbox-exec',
-					spawnArgs: ['-p', profile, '--', command, ...args],
-				}
-			}
-
-			case 'basic': {
-				const limits: string[] = []
-
-				const memoryMb = this.config.memoryLimitMb
-				if (memoryMb !== undefined) {
-					const memoryKb = memoryMb * 1024
-					limits.push(`ulimit -v ${memoryKb}`)
-				}
-
-				const maxProcs = this.config.maxProcesses
-				if (maxProcs !== undefined) {
-					limits.push(`ulimit -u ${maxProcs}`)
-				}
-
-				if (limits.length > 0) {
-					const prefix = limits.join(' && ')
-					const fullCommand = `${prefix} && ${command} ${args.map((a) => `'${a.replace(/'/g, "'\\''")}'`).join(' ')}`
-					return {
-						spawnCommand: '/bin/sh',
-						spawnArgs: ['-c', fullCommand],
-					}
-				}
-
-				return { spawnCommand: command, spawnArgs: args }
-			}
-
-			default: {
-				const _exhaustive: never = this.environment
-				throw new Error(`Unknown sandbox environment: ${_exhaustive}`)
-			}
-		}
+		return buildLimitedSpawn({
+			environment: this.environment,
+			command,
+			args,
+			rootDir: this.rootDir,
+			...(this.config.memoryLimitMb !== undefined
+				? { memoryLimitMb: this.config.memoryLimitMb }
+				: {}),
+			...(this.config.maxProcesses !== undefined ? { maxProcesses: this.config.maxProcesses } : {}),
+		})
 	}
 
 	private spawnProcess(

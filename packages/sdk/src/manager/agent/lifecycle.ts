@@ -400,7 +400,13 @@ export class AgentManager {
 		for (const taskId of this.instances.keys()) {
 			this.clearEvictionTimer(taskId)
 		}
-		this.cancelAll('' as RunId)
+		// Every live child, not the children of one parent. This used to call
+		// `cancelAll('' as RunId)`, and `cancelAll` filters by parent run —
+		// no task has an empty parent, so it matched nothing and the lines
+		// below then dropped every reference to work that was still running.
+		for (const taskId of [...this.instances.keys()]) {
+			this.cancel(taskId)
+		}
 		this.instances.clear()
 		this.spawnRecords.clear()
 		this.listeners.length = 0

@@ -131,7 +131,12 @@ function extractToolNamesFromHistory(messages: ChatCompletionParams['messages'])
 	return Array.from(names)
 }
 
-function toBedrockToolConfig(params: ChatCompletionParams): ToolConfiguration | undefined {
+export function toBedrockToolConfig(params: ChatCompletionParams): ToolConfiguration | undefined {
+	// 'none' means the model must not call a tool. This used to map to the
+	// wire's 'auto', which means it MAY — the opposite, and silent. No wire
+	// format lets a model call a tool it was never given, so send none.
+	if (params.toolChoice === 'none') return undefined
+
 	if (params.tools && params.tools.length > 0) {
 		const tools: Tool[] = params.tools.map(
 			(t) =>
@@ -170,9 +175,9 @@ function toBedrockToolConfig(params: ChatCompletionParams): ToolConfiguration | 
 	return undefined
 }
 
+/** 'none' never reaches here — it is answered by omitting the tools. */
 function formatToolChoice(tc?: ToolChoice) {
 	if (!tc || tc === 'auto') return { auto: {} }
-	if (tc === 'none') return { auto: {} }
 	if (tc === 'required') return { any: {} }
 	if (typeof tc === 'object' && tc.type === 'function') {
 		return { tool: { name: tc.function.name } }
