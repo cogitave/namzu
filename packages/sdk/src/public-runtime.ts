@@ -60,6 +60,7 @@ export { extractFinalResponse } from './utils/conversation.js'
 
 export { resolveTaskModel } from './router/task-router.js'
 export { drainQuery, query } from './runtime/query/index.js'
+export { createMockBidiProvider, startBidiRun } from './runtime/bidi/index.js'
 export { ContextCache } from './runtime/query/context-cache.js'
 export {
 	CheckpointManager,

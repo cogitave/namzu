@@ -4,6 +4,7 @@
     "index",
     "configuration",
     "loop-control",
+    "duplex",
     "testing",
     "identities",
     "low-level",
