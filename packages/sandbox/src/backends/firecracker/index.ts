@@ -66,6 +66,21 @@ import type {
 import { VsockAgentTransport } from './transport.js'
 
 /**
+ * Trim trailing slashes without a regex.
+ *
+ * `/\/+$/` backtracks quadratically on a long run of slashes, and this
+ * value crosses a trust boundary — a host-supplied endpoint on a shared
+ * event loop. The scan is linear and says the same thing.
+ */
+function stripTrailingSlashes(value: string): string {
+	let end = value.length
+	while (end > 0 && value[end - 1] === '/') {
+		end--
+	}
+	return value.slice(0, end)
+}
+
+/**
  * Async callback returning a fresh bearer token for
  * {@link FirecrackerBackendInternalConfig.orchestratorEndpoint}.
  * Invoked on every orchestrator HTTP call (mirrors ACI's
@@ -195,7 +210,7 @@ async function orchestratorCall<T>(
 	mtls?: MtlsClientMaterial,
 ): Promise<T | undefined> {
 	const token = await getToken()
-	const url = `${endpoint.replace(/\/+$/, '')}${pathSuffix}`
+	const url = `${stripTrailingSlashes(endpoint)}${pathSuffix}`
 	const payload = body !== undefined ? JSON.stringify(body) : undefined
 	const headers: Record<string, string> = {
 		Authorization: `Bearer ${token}`,

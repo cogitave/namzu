@@ -70,6 +70,19 @@ describe('HttpConnector', () => {
 			expect(fetchMock).toHaveBeenCalledWith('https://api.example.com/x', expect.any(Object))
 		})
 
+		it('strips trailing slashes in linear time (js/polynomial-redos regression)', async () => {
+			// A long run of slashes followed by one more character is the
+			// pathological case for a `/+$` regex: the tail never matches, so a
+			// backtracking engine retries the quantifier at every start position.
+			// This must stay well under the ~500ms the vulnerable regex took at
+			// this size (see connect() history) to prove the O(n) fix held.
+			const c = new HttpConnector()
+			const hostile = `https://api.example.com/${'/'.repeat(30_000)}a`
+			const start = Date.now()
+			await c.connect({ baseUrl: hostile, timeoutMs: 30_000 })
+			expect(Date.now() - start).toBeLessThan(200)
+		})
+
 		it('disconnect clears internal state; execute after disconnect treats baseUrl as empty', async () => {
 			const c = new HttpConnector()
 			await c.connect({ baseUrl: 'https://api.example.com', timeoutMs: 30_000 })

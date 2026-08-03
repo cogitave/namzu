@@ -5,6 +5,21 @@ import type {
 } from '../../types/connector/index.js'
 import { type Logger, getRootLogger } from '../../utils/logger.js'
 
+/**
+ * Trim trailing slashes without a regex.
+ *
+ * `/\/+$/` backtracks quadratically on a long run of slashes, and this
+ * value crosses a trust boundary — a host-supplied endpoint on a shared
+ * event loop. The scan is linear and says the same thing.
+ */
+function stripTrailingSlashes(value: string): string {
+	let end = value.length
+	while (end > 0 && value[end - 1] === '/') {
+		end--
+	}
+	return value.slice(0, end)
+}
+
 export class HttpSseTransport implements MCPTransport {
 	private messageHandlers: Array<(message: MCPJsonRpcMessage) => void> = []
 	private closeHandlers: Array<() => void> = []
@@ -16,7 +31,7 @@ export class HttpSseTransport implements MCPTransport {
 	private log: Logger
 
 	constructor(private readonly config: MCPHttpSseTransportConfig) {
-		const base = config.url.replace(/\/+$/, '')
+		const base = stripTrailingSlashes(config.url)
 		this.sseUrl = `${base}/sse`
 		this.postUrl = `${base}/message`
 		this.log = getRootLogger().child({ component: 'HttpSseTransport' })

@@ -62,6 +62,21 @@ const WRITE_ROOTS = normalizeRoots(
 const MAX_BODY_BYTES = Number(process.env.NAMZU_SANDBOX_MAX_BODY_BYTES || 8 * 1024 * 1024)
 const DEFAULT_MAX_OUTPUT_BYTES = 100 * 1024 * 1024
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000
+// Ceiling on the caller-supplied `timeoutMs`. `/execute`'s `timeoutMs` sets
+// how long the spawned child (and the container resources it holds — CPU,
+// memory, the open NDJSON response) stays alive; upstream this value comes
+// straight from the `bash` tool's `timeout` argument, a model-chosen number
+// with no cap of its own (see `resolveTimeoutMs` in the firecracker guest
+// agent, `agent/agent.cjs`, which guards the same unbounded value on that
+// transport). Left unbounded here, a single call can pin a container for as
+// long as Node's timer will honor (`setTimeout` clamps at ~24.8 days rather
+// than firing early), which is a resource-exhaustion vector, not a
+// convenience knob. A request above the cap is REFUSED, not quietly
+// clamped: silently running under a different deadline than the caller
+// asked for is the "accepted and not applied" shape this codebase treats
+// as worse than never offering the control — the caller stops looking,
+// and a timeout it believes it set is not the one in force.
+const MAX_TIMEOUT_MS = Number(process.env.NAMZU_SANDBOX_MAX_TIMEOUT_MS || 30 * 60 * 1000)
 // Idle timeout: if the worker sees no `/execute`, `/read-file`, or
 // `/write-file` request for this many ms, it `process.exit(0)`s. The
 // container is spawned `--rm` so the daemon collects the corpse
@@ -191,6 +206,18 @@ async function realpathWithinWorkspace(target, base) {
 	return real
 }
 
+// Mirrors `resolveTimeoutMs` in `agent/agent.cjs` — same bound, same
+// refusal, same unbounded upstream input, different transport. Throws so
+// the caller learns its request was rejected; the handler turns that into
+// a 400 beside `invalid_cwd`.
+function resolveTimeoutMs(rawTimeoutMs) {
+	const timeoutMs = rawTimeoutMs === undefined ? DEFAULT_TIMEOUT_MS : Number(rawTimeoutMs)
+	if (!Number.isFinite(timeoutMs) || timeoutMs <= 0 || timeoutMs > MAX_TIMEOUT_MS) {
+		throw new Error(`timeoutMs must be a finite number in (0, ${MAX_TIMEOUT_MS}]`)
+	}
+	return timeoutMs
+}
+
 async function handleExecute(req, res) {
 	let body
 	try {
@@ -225,7 +252,13 @@ async function handleExecute(req, res) {
 		writeJson(res, 400, { error: 'invalid_cwd', message: err.message })
 		return
 	}
-	const timeoutMs = Number(body.timeoutMs) || DEFAULT_TIMEOUT_MS
+	let timeoutMs
+	try {
+		timeoutMs = resolveTimeoutMs(body.timeoutMs)
+	} catch (err) {
+		writeJson(res, 400, { error: 'invalid_timeout', message: err.message })
+		return
+	}
 	const maxOutputBytes = Number(body.maxOutputBytes) || DEFAULT_MAX_OUTPUT_BYTES
 	const start = Date.now()
 

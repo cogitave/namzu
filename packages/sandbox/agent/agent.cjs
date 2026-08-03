@@ -70,6 +70,14 @@ const WRITE_ROOTS = normalizeRoots(
 )
 const DEFAULT_MAX_OUTPUT_BYTES = 100 * 1024 * 1024
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000
+// `body.timeoutMs` traces back to the bash tool's `timeout` argument, which
+// is model-authored input — there is no schema ceiling on it between here
+// and the LLM's tool call. Without a hard cap the caller-requested value
+// alone decided how long a spawned process could pin CPU/memory in the
+// guest, i.e. the one guard meant to bound that resource had no bound
+// itself. A request over this is refused, not silently shortened — see
+// `resolveTimeoutMs`.
+const MAX_TIMEOUT_MS = 30 * 60 * 1000
 const LENGTH_PREFIX_HEX = 8
 
 // --- framing (matches transport.ts byte-for-byte) --------------------------
@@ -180,6 +188,18 @@ async function realpathWithinWorkspace(target, base) {
 
 // --- handlers (NDJSON shapes verbatim from worker/server.js) ---------------
 
+// Pure so the loopback test can pin the ceiling without spawning a process.
+// Throws (rather than clamping) on an out-of-range request: a caller that
+// asked for more than the ceiling and silently got less would believe its
+// process was protected for the duration it asked for.
+function resolveTimeoutMs(rawTimeoutMs) {
+	const timeoutMs = rawTimeoutMs === undefined ? DEFAULT_TIMEOUT_MS : Number(rawTimeoutMs)
+	if (!Number.isFinite(timeoutMs) || timeoutMs <= 0 || timeoutMs > MAX_TIMEOUT_MS) {
+		throw new Error(`timeoutMs must be a finite number in (0, ${MAX_TIMEOUT_MS}]`)
+	}
+	return timeoutMs
+}
+
 function handleExecute(socket, body) {
 	if (!body || !body.command || typeof body.command !== 'string') {
 		writeFrame(socket, { type: 'error', error: 'missing_command' })
@@ -194,7 +214,14 @@ function handleExecute(socket, body) {
 		writeTerminator(socket)
 		return
 	}
-	const timeoutMs = Number(body.timeoutMs) || DEFAULT_TIMEOUT_MS
+	let timeoutMs
+	try {
+		timeoutMs = resolveTimeoutMs(body.timeoutMs)
+	} catch (err) {
+		writeFrame(socket, { type: 'error', error: `invalid_timeout: ${err.message}` })
+		writeTerminator(socket)
+		return
+	}
 	const maxOutputBytes = Number(body.maxOutputBytes) || DEFAULT_MAX_OUTPUT_BYTES
 	const start = Date.now()
 
@@ -472,6 +499,7 @@ module.exports = {
 	reListenOnResume,
 	resolveReadablePath,
 	resolveWritablePath,
+	resolveTimeoutMs,
 }
 
 if (require.main === module) {

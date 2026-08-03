@@ -24,6 +24,20 @@ const HttpRequestInputSchema = z.object({
 	body: z.unknown().optional(),
 })
 
+// `baseUrl` is tenant-configured and reaches this at connect time (see
+// manager/connector/tenant.ts), so it must not go through a `/+$` regex: on a
+// string that fails to match at the tail (e.g. a long run of slashes followed
+// by one more character), the engine backtracks that quantifier at every
+// starting position, which is O(n^2) work a single hostile tenant can force
+// onto the shared event loop. A manual scan is O(n) with no backtracking.
+function stripTrailingSlashes(value: string): string {
+	let end = value.length
+	while (end > 0 && value[end - 1] === '/') {
+		end--
+	}
+	return value.slice(0, end)
+}
+
 export class HttpConnector extends BaseConnector<HttpConnectorConfig> {
 	readonly id = 'conn_http' as const
 	readonly name = 'HTTP Connector'
@@ -45,7 +59,7 @@ export class HttpConnector extends BaseConnector<HttpConnectorConfig> {
 	async connect(config: HttpConnectorConfig, auth?: AuthConfig): Promise<void> {
 		this.config = config
 		this.auth = auth
-		this.baseUrl = config.baseUrl.replace(/\/+$/, '')
+		this.baseUrl = stripTrailingSlashes(config.baseUrl)
 		this.defaultHeaders = config.defaultHeaders ?? {}
 		this.timeoutMs = config.timeoutMs ?? 30_000
 

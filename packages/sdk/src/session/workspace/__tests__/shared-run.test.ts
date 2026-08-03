@@ -178,4 +178,22 @@ describe('SharedRunWorkspace', () => {
 
 		expect(() => workspace.hostPath('..', 'outside')).toThrow(/escapes root/)
 	})
+
+	it('trims a pathological run of trailing slashes in linear time', async () => {
+		const hostRoot = await mkdtemp(join(tmpdir(), 'namzu-shared-workspace-'))
+		// A long trailing-slash run with a non-slash tail is the adversarial shape for
+		// the old /\/+$/ regex: backtracking there is O(n^2) and stalls for seconds
+		// at this length. A linear trim finishes well inside the timeout.
+		const pathological = `/mnt/user-data/${'/'.repeat(200_000)}x`
+
+		const started = Date.now()
+		const workspace = await SharedRunWorkspace.create({
+			hostRoot,
+			runtimeRoot: pathological,
+		})
+		const elapsedMs = Date.now() - started
+
+		expect(workspace.runtimeRoot).toBe(pathological)
+		expect(elapsedMs).toBeLessThan(1000)
+	}, 5000)
 })

@@ -102,7 +102,12 @@ export class LocalExecutionContext extends BaseExecutionContext implements Comma
 		const cwd = options?.cwd ? resolve(this.cwd, options.cwd) : this.cwd
 		const env = { ...process.env, ...this.envVars, ...options?.env }
 		const timeoutMs = options?.timeoutMs ?? 30_000
-		const shell = options?.shell ?? this.shell ?? true
+		// node's spawn() only keeps argv separation when it execs the binary directly;
+		// with shell enabled it re-joins command+args into one unescaped string and hands
+		// it to sh/cmd.exe, so any caller-supplied arg becomes shell syntax rather than a
+		// literal value. Since `command`/`args` here are whatever a tool call passed in,
+		// shell interpretation must be an explicit opt-in, never the silent default.
+		const shell = options?.shell ?? this.shell ?? false
 
 		return new Promise<CommandResult>((resolvePromise) => {
 			const start = performance.now()

@@ -6,6 +6,21 @@ import type { EmbeddingProvider, HttpEmbeddingConfig } from '../types/rag/index.
  * embedding }] }` out. Every hosted embeddings service worth pointing at
  * speaks it, so the driver is the shape rather than any one host.
  */
+/**
+ * Trim trailing slashes without a regex.
+ *
+ * `/\/+$/` backtracks quadratically on a long run of slashes, and this
+ * value crosses a trust boundary — a host-supplied endpoint on a shared
+ * event loop. The scan is linear and says the same thing.
+ */
+function stripTrailingSlashes(value: string): string {
+	let end = value.length
+	while (end > 0 && value[end - 1] === '/') {
+		end--
+	}
+	return value.slice(0, end)
+}
+
 export class HttpEmbeddingProvider implements EmbeddingProvider {
 	readonly id = 'http-embedding'
 	readonly model: string
@@ -19,7 +34,7 @@ export class HttpEmbeddingProvider implements EmbeddingProvider {
 		this.model = config.model
 		this.dimensions = config.dimensions ?? 1536
 		this.apiKey = config.apiKey
-		this.baseUrl = config.baseUrl.replace(/\/+$/, '')
+		this.baseUrl = stripTrailingSlashes(config.baseUrl)
 		this.batchSize = config.batchSize ?? 64
 	}
 

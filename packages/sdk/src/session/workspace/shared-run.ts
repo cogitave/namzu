@@ -287,7 +287,13 @@ function safeJoin(root: string, segments: readonly string[]): string {
 
 function trimTrailingSlash(value: string): string {
 	if (value === '/') return value
-	return value.replace(/\/+$/, '')
+	// Manual scan instead of /\/+$/: that pattern is unanchored at the start, so a
+	// backtracking engine retries the trailing-slash run from every prior index
+	// once the terminal `$` fails to match, making it O(n^2) on a long run of
+	// slashes (runtimeRoot is caller-supplied and can be arbitrarily long).
+	let end = value.length
+	while (end > 0 && value.charCodeAt(end - 1) === 47 /* '/' */) end--
+	return value.slice(0, end)
 }
 
 function ensureTrailingNewline(value: string): string {
