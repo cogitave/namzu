@@ -88,6 +88,13 @@ export interface ReactiveAgentConfig extends BaseAgentConfig {
 	toolTimeoutMs?: number
 	maxToolConcurrency?: number
 	maxToolOutputChars?: number
+	/**
+	 * Cap on the RICH channel of a single tool result, in base64 characters.
+	 * `0` or absent disables it. Separate from {@link maxToolOutputChars}:
+	 * that one bounds characters the model reads, this one bounds the image
+	 * payload beside them, which no text budget ever touched.
+	 */
+	maxToolContentBytes?: number
 	repairToolCall?: RepairToolCall
 	stopWhen?: StopCondition
 	onStepFinish?: (step: StepResult) => void

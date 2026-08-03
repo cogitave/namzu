@@ -8,17 +8,22 @@ export interface AdvisoryRequest {
 	readonly includeContext?: boolean
 }
 
+/**
+ * What an advisor answered.
+ *
+ * Three more fields — a plan, a model suggestion, per-category tool guidance —
+ * were declared here with neither a producer nor a reader, so they described
+ * a shape the runtime never built and nothing ever branched on. The two that
+ * remain are produced by the parser and consumed: decisions land in working
+ * state and survive compaction, warnings are rendered back to the executing
+ * agent.
+ */
 export interface AdvisoryResult {
 	readonly advice: string
-	readonly plan?: Array<{ step: string; status?: string }>
+	/** Carried into working state, so they outlive the context they were given in. */
 	readonly decisions?: string[]
+	/** Rendered back to the executing agent under their own heading. */
 	readonly warnings?: string[]
-	readonly modelSuggestion?: string
-	readonly toolGuidance?: Array<{
-		readonly category: string
-		readonly recommendation: 'prefer' | 'avoid' | 'required'
-		readonly reason?: string
-	}>
 }
 
 export interface AdvisoryCallRecord {

@@ -133,7 +133,6 @@ export const RuntimeConfigSchema = z.object({
 	taskRouter: TaskRouterConfigSchema,
 	compaction: CompactionConfigSchema.default({}),
 	agentBus: AgentBusConfigSchema.optional(),
-	promptCache: PromptCacheConfigSchema.optional(),
 	plugins: PluginRuntimeConfigSchema.optional(),
 	sandbox: SandboxConfigSchema.optional(),
 })

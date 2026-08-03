@@ -88,6 +88,9 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 				...(config.maxToolOutputChars !== undefined
 					? { maxToolOutputChars: config.maxToolOutputChars }
 					: {}),
+				...(config.maxToolContentBytes !== undefined
+					? { maxToolContentBytes: config.maxToolContentBytes }
+					: {}),
 				...(config.repairToolCall ? { repairToolCall: config.repairToolCall } : {}),
 				...(config.stopWhen ? { stopWhen: config.stopWhen } : {}),
 				...(config.onStepFinish ? { onStepFinish: config.onStepFinish } : {}),

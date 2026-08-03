@@ -413,7 +413,6 @@ export const SandboxConfigSchema = z.object({
 	timeoutMs: z.number().positive().default(SANDBOX_DEFAULT_TIMEOUT_MS),
 	memoryLimitMb: z.number().positive().default(SANDBOX_DEFAULT_MEMORY_LIMIT_MB),
 	maxProcesses: z.number().positive().default(SANDBOX_DEFAULT_MAX_PROCESSES),
-	cleanupOnDestroy: z.boolean().default(true),
 	/**
 	 * Controls the run depends on. Provider construction throws when the
 	 * host cannot enforce one of them. Empty by default, which keeps

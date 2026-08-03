@@ -1,3 +1,5 @@
+export { assertBudgetEnforceable } from './budget.js'
+export { ADVISORY_RESPONSE_CONTRACT, parseAdvisoryResponse } from './parse.js'
 export { AdvisorRegistry } from './registry.js'
 export { AdvisoryExecutor } from './executor.js'
 export type { AdvisoryCallContext, AdvisoryExecutionResult } from './executor.js'

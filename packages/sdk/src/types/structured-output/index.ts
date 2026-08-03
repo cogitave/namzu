@@ -14,14 +14,6 @@ export interface StructuredOutputConfig<TSchema extends z.ZodType = z.ZodType> {
 	schema: TSchema
 
 	/**
-	 * Whether to force the model to use the structured_output tool.
-	 * When true, sets tool_choice to force the tool.
-	 * When false, the model may choose to call it or not.
-	 * Default: true
-	 */
-	enforceToolChoice?: boolean
-
-	/**
 	 * Turns spent re-prompting when the model answers in prose or fails
 	 * validation. Defaults to {@link DEFAULT_STRUCTURED_OUTPUT_RETRIES}.
 	 *

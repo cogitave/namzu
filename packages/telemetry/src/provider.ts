@@ -1,7 +1,7 @@
 import { type Meter, type Tracer, metrics, trace } from '@opentelemetry/api'
 import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http'
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http'
-import { Resource } from '@opentelemetry/resources'
+import { resourceFromAttributes } from '@opentelemetry/resources'
 import {
 	ConsoleMetricExporter,
 	MeterProvider,
@@ -64,12 +64,15 @@ export class TelemetryProvider {
 	 * /README.md §4).
 	 */
 	async start(): Promise<void> {
-		const resource = new Resource({
+		const resource = resourceFromAttributes({
 			'service.name': this.config.serviceName,
 			'service.version': this.config.serviceVersion ?? VERSION,
 		})
 
-		const tracerProvider = new NodeTracerProvider({ resource })
+		// Batched, not synchronous-per-span: a run emits a span per iteration,
+		// per model call and per tool, and exporting each one inline puts
+		// network latency on the agent loop.
+		const spanProcessors: BatchSpanProcessor[] = []
 		if (this.config.exporterType !== 'none') {
 			const traceExporter =
 				this.config.exporterType === 'otlp'
@@ -78,11 +81,9 @@ export class TelemetryProvider {
 							headers: this.config.otlpHeaders,
 						})
 					: new ConsoleSpanExporter()
-			// Batched, not synchronous-per-span: a run emits a span per
-			// iteration, per model call and per tool, and exporting each one
-			// inline puts network latency on the agent loop.
-			tracerProvider.addSpanProcessor(new BatchSpanProcessor(traceExporter))
+			spanProcessors.push(new BatchSpanProcessor(traceExporter))
 		}
+		const tracerProvider = new NodeTracerProvider({ resource, spanProcessors })
 		tracerProvider.register()
 		this.tracerProvider = tracerProvider
 

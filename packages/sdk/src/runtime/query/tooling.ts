@@ -24,6 +24,7 @@ export interface ToolingBootstrapConfig {
 	toolTimeoutMs?: number
 	maxToolConcurrency?: number
 	maxToolOutputChars?: number
+	maxToolContentBytes?: number
 	toolOutputDir?: string
 	repairToolCall?: RepairToolCall
 	/** Builds the durable-pause seam for one tool call; see ToolContext.requestPause. */
@@ -54,6 +55,9 @@ export class ToolingBootstrap {
 					: {}),
 				...(config.maxToolOutputChars !== undefined
 					? { maxToolOutputChars: config.maxToolOutputChars }
+					: {}),
+				...(config.maxToolContentBytes !== undefined
+					? { maxToolContentBytes: config.maxToolContentBytes }
 					: {}),
 				...(config.toolOutputDir !== undefined ? { toolOutputDir: config.toolOutputDir } : {}),
 				...(config.repairToolCall !== undefined ? { repairToolCall: config.repairToolCall } : {}),

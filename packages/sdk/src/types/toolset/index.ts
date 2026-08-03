@@ -51,7 +51,6 @@ export interface ToolsetDefinition {
 	readonly name: string
 	readonly description?: string
 	readonly defaultPolicy?: ToolsetPolicy
-	readonly toolPolicies?: Record<string, ToolsetPolicy>
 	readonly metadata?: Record<string, unknown>
 }
 

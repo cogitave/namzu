@@ -4,6 +4,7 @@ import {
 	AdvisoryContext,
 	AdvisoryExecutor,
 	TriggerEvaluator,
+	assertBudgetEnforceable,
 } from '../../advisory/index.js'
 import { findDanglingMessages, removeDanglingMessages } from '../../compaction/dangling.js'
 import { extractFromUserMessage } from '../../compaction/extractor.js'
@@ -171,6 +172,14 @@ export interface QueryParams {
 	 * agent decides the rest is worth re-reading. Set `0` to disable.
 	 */
 	maxToolOutputChars?: number
+
+	/**
+	 * Cap on the RICH channel of a single tool result, in base64 characters.
+	 * `0` or absent disables it. Separate from {@link maxToolOutputChars}:
+	 * that one bounds characters the model reads, this one bounds the image
+	 * payload beside them, which no text budget ever touched.
+	 */
+	maxToolContentBytes?: number
 
 	/**
 	 * Last chance to fix a tool call the model got wrong, before the error
@@ -645,6 +654,9 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			...(params.maxToolOutputChars !== undefined
 				? { maxToolOutputChars: params.maxToolOutputChars }
 				: {}),
+			...(params.maxToolContentBytes !== undefined
+				? { maxToolContentBytes: params.maxToolContentBytes }
+				: {}),
 			// Overflow lands beside the run's other artifacts, so it is
 			// cleaned up with the run and reachable by the model's own
 			// `read`/`grep` without a new affordance.
@@ -725,7 +737,10 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			params.advisory.advisors,
 			params.advisory.defaultAdvisorId,
 		)
-		const advisoryExecutor = new AdvisoryExecutor(ctx.log)
+		// A budget the runtime cannot measure is refused here rather than
+		// silently ignored for the length of the run.
+		assertBudgetEnforceable(params.advisory)
+		const advisoryExecutor = new AdvisoryExecutor(ctx.log, params.advisory.budget)
 		const triggerEvaluator = new TriggerEvaluator(
 			params.advisory.triggers ?? [],
 			params.advisory.budget,
