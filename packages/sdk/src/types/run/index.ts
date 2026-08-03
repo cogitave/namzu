@@ -24,3 +24,4 @@ export type {
 export { RUN_EVENT_SCHEMA_VERSION } from './schema-version.js'
 export type { RunEventSchemaVersion } from './schema-version.js'
 export type { AnswerReview, AnswerReviewContext, ReviewAnswer } from './answer-review.js'
+export type { PromoteMemory, RunMemoryCandidate } from './memory-promotion.js'

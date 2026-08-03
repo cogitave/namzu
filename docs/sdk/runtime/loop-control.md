@@ -347,6 +347,51 @@ A pass emits `compaction_completed` (wire: `compaction.completed`) with
 before/after message counts and token sizes. Compaction deletes history
 irrecoverably, so it is worth surfacing.
 
+## 6b. What a Finished Run Leaves Behind
+
+```ts
+query({
+  compactionConfig: { strategy: 'structured' },
+  promoteMemory: async (candidate) => {
+    for (const requirement of candidate.userRequirements) {
+      await memoryStore.create({ title: candidate.task, summary: requirement, content: requirement })
+    }
+  },
+})
+```
+
+The SDK could **store** a memory and could not **form** one: `MemoryStore`
+and its disk implementation have been here all along, and the only path
+into them was the model calling `save_memory`. A run that worked out a
+durable fact and never thought to write it down lost it at settle — along
+with everything the compaction pass had already extracted and structured
+on the way.
+
+The extraction is the part that was already built. Compaction distils the
+transcript into decisions, discoveries, requirements and failures
+precisely because a list of facts is worth more than a summary of prose;
+that structure was serialized into one system message and then dropped
+when the run ended. `promoteMemory` is called once, at settle, with it.
+
+A callback rather than a store the runtime writes into: what is worth
+remembering is a policy question the host owns, and a runtime that
+decided it would write a row for every run whether or not anything
+happened.
+
+- Called for a **failed** run too. A run that fell over still discovered
+  things, and the approach that failed is exactly what a later run should
+  not pay for twice.
+- **Awaited**, not fire-and-forget: a one-shot process exits as soon as
+  the run returns, so the write would be lost precisely on the shortest
+  runs.
+- A **throw is swallowed** and logged. A memory that failed to form must
+  not retract an answer that was already produced. A host that needs the
+  write to be part of the run's success should do it in its own code,
+  where it can fail loudly.
+- Requires an extractor. With no `compactionConfig` there is no working
+  state, and inventing an empty candidate would ask a host to store a
+  record of nothing.
+
 ## 7. Extended Thinking
 
 ```ts

@@ -420,6 +420,7 @@ export {
 	PluginMCPServerConfigSchema,
 } from './types/plugin/index.js'
 export { EmergencySaveConfigSchema } from './types/run/emergency.js'
+export { toMemoryCandidate } from './types/run/memory-promotion.js'
 export { MutationNotApplicableError } from './types/run/replay.js'
 export {
 	assertSandboxEnvironment,

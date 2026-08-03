@@ -446,7 +446,6 @@ Honest view. The kernel is already deep. The next three releases tighten the con
 ### v0.2 — Surface Polish (short, mostly wiring + docs)
 
 - `Run.replay(runId, { fromCheckpoint })` API on top of the existing checkpoint store
-- Memory promotion pipeline connecting compaction output to the indexed memory store via a Reflector persona
 - **AEP v1 spec** — version and document the event shapes in `bridge/sse/mapper.ts`
 - Public pattern docs for lifecycle, checkpoints, emergency save, budget / quota, verification gate, context cache, file ownership, and circuit breaker
 - `ContextCache` generalized across providers (OpenRouter today → Anthropic, Bedrock next)

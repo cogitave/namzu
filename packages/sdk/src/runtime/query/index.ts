@@ -60,6 +60,8 @@ import type {
 	StepResult,
 	StopCondition,
 } from '../../types/run/index.js'
+import type { PromoteMemory } from '../../types/run/memory-promotion.js'
+import { memoryCandidateFor } from '../../types/run/memory-promotion.js'
 import type { Sandbox, SandboxProvider } from '../../types/sandbox/index.js'
 import type { ProjectId, ThreadId } from '../../types/session/ids.js'
 import type { Skill } from '../../types/skills/index.js'
@@ -212,6 +214,14 @@ export interface QueryParams {
 	 * turn, which exists to extract a closing summary under pressure.
 	 */
 	reviewAnswer?: ReviewAnswer
+
+	/**
+	 * Decide what this run should leave behind when it settles.
+	 *
+	 * See {@link PromoteMemory}. Absent means nothing is offered and the
+	 * run behaves exactly as it did.
+	 */
+	promoteMemory?: PromoteMemory
 
 	/** Rejections allowed before the run stops. Default 3. */
 	maxAnswerReviews?: number
@@ -1306,6 +1316,24 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			// run that bound them, so leaving it attached would have a later
 			// run's question written into this run's checkpoint store.
 			params.questionParks?.unbind()
+
+			// Offer what the run learned to whoever decides what is worth
+			// keeping. In `finally` and awaited: a run that failed still
+			// discovered things, and a fire-and-forget write would race the
+			// process exiting on a one-shot CLI run. A throw here is
+			// swallowed — a memory that failed to form must not retract an
+			// answer that was already produced.
+			const candidate = memoryCandidateFor(ctx.runId, workingStateManager)
+			if (params.promoteMemory && candidate) {
+				try {
+					await params.promoteMemory(candidate)
+				} catch (promoteErr) {
+					ctx.log.error('Memory promotion threw — the run is unaffected', {
+						runId: ctx.runId,
+						error: promoteErr instanceof Error ? promoteErr.message : String(promoteErr),
+					})
+				}
+			}
 
 			// --- Sandbox lifecycle: destroy after run ---
 			if (sandbox) {
