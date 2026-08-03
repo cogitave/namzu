@@ -39,7 +39,9 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 		config: ReactiveAgentConfig,
 		listener?: RunEventListener,
 	): Promise<ReactiveAgentResult> {
-		return await this.underInvocationLock(() => this.runExclusive(input, config, listener))
+		return await this.underIdempotencyKey(config.idempotencyKey, () =>
+			this.underInvocationLock(() => this.runExclusive(input, config, listener)),
+		)
 	}
 
 	private async runExclusive(

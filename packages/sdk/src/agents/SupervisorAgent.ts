@@ -92,7 +92,9 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 		config: SupervisorAgentConfig,
 		listener?: RunEventListener,
 	): Promise<SupervisorAgentResult> {
-		return await this.underInvocationLock(() => this.runExclusive(input, config, listener))
+		return await this.underIdempotencyKey(config.idempotencyKey, () =>
+			this.underInvocationLock(() => this.runExclusive(input, config, listener)),
+		)
 	}
 
 	private async runExclusive(

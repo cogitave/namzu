@@ -48,7 +48,9 @@ export class RouterAgent extends AbstractAgent<RouterAgentConfig, RouterAgentRes
 		config: RouterAgentConfig,
 		listener?: RunEventListener,
 	): Promise<RouterAgentResult> {
-		return await this.underInvocationLock(() => this.runExclusive(input, config, listener))
+		return await this.underIdempotencyKey(config.idempotencyKey, () =>
+			this.underInvocationLock(() => this.runExclusive(input, config, listener)),
+		)
 	}
 
 	private async runExclusive(

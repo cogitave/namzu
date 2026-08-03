@@ -42,7 +42,9 @@ export class PipelineAgent extends AbstractAgent<PipelineAgentConfig, PipelineAg
 		config: PipelineAgentConfig,
 		listener?: RunEventListener,
 	): Promise<PipelineAgentResult> {
-		return await this.underInvocationLock(() => this.runExclusive(input, config, listener))
+		return await this.underIdempotencyKey(config.idempotencyKey, () =>
+			this.underInvocationLock(() => this.runExclusive(input, config, listener)),
+		)
 	}
 
 	private async runExclusive(
