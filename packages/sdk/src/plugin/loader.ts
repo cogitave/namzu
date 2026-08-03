@@ -88,23 +88,77 @@ export function assertEnableable(manifest: PluginManifest): void {
 	)
 }
 
+/** Where a plugin came from. Project plugins ship with the repo; user plugins live in the home directory. */
+export type PluginScope = 'project' | 'user'
+
 /**
- * Discovers plugin directories from both project-level and user-level locations.
- * Returns categorized arrays of absolute paths.
+ * The discovery half of {@link PluginRuntimeConfig}.
+ *
+ * Structural rather than an import so this module keeps depending on nothing
+ * — a parsed `PluginRuntimeConfig` satisfies it as-is.
+ */
+export interface PluginDiscoveryOptions {
+	/** Whether the plugin runtime is on at all. `false` discovers nothing. */
+	readonly enabled?: boolean
+	/** Whether to scan for plugins. `false` discovers nothing. */
+	readonly autoDiscovery?: boolean
+	/** Which locations may be scanned. Absent means both. */
+	readonly allowedScopes?: readonly PluginScope[]
+}
+
+/**
+ * Find plugin directories, in the locations the caller permits.
+ *
+ * `allowedScopes` is a trust boundary, not a filter applied afterwards. A
+ * plugin is arbitrary code with hooks into tool execution, and the two scopes
+ * are not equally trusted: project plugins are reviewable in the repo the
+ * agent is working on, while user plugins come from a home directory the
+ * repo's reviewers never see. `['project']` is how a host says the second
+ * kind is not allowed to run here.
+ *
+ * It was previously declared and unread — `PluginRuntimeConfig` carried
+ * `enabled`, `autoDiscovery` and `allowedScopes`, nothing anywhere consulted
+ * any of them, and this function scanned both locations unconditionally. A
+ * host who set `allowedScopes: ['project']` got user plugins anyway, from a
+ * setting that reads exactly like a boundary.
+ *
+ * A disallowed scope is NOT SCANNED rather than scanned and dropped.
+ * Filtering after the fact still reads the directory, which is both pointless
+ * work and a small disclosure — the returned count would tell a caller how
+ * many plugins live somewhere they said they would not look.
+ *
+ * Passing nothing keeps the old behaviour: both scopes, no gate. Existing
+ * callers are unaffected, and a caller who opts in gets what the config says.
  */
 export async function discoverAllPluginDirs(
 	workingDirectory?: string,
+	options?: PluginDiscoveryOptions,
 ): Promise<{ project: string[]; user: string[] }> {
+	if (options?.enabled === false || options?.autoDiscovery === false) {
+		logger.debug('Plugin discovery skipped', {
+			enabled: options.enabled,
+			autoDiscovery: options.autoDiscovery,
+		})
+		return { project: [], user: [] }
+	}
+
+	const scopes = options?.allowedScopes
+	const mayScan = (scope: PluginScope): boolean => !scopes || scopes.includes(scope)
+
 	const projectDir = workingDirectory
 		? join(workingDirectory, PROJECT_PLUGIN_DIR)
 		: join(process.cwd(), PROJECT_PLUGIN_DIR)
 	const userDir = join(homedir(), USER_PLUGIN_DIR)
 
-	const [project, user] = await Promise.all([discoverPlugins(projectDir), discoverPlugins(userDir)])
+	const [project, user] = await Promise.all([
+		mayScan('project') ? discoverPlugins(projectDir) : Promise.resolve([]),
+		mayScan('user') ? discoverPlugins(userDir) : Promise.resolve([]),
+	])
 
 	logger.debug('Plugin discovery complete', {
 		projectCount: project.length,
 		userCount: user.length,
+		...(scopes ? { allowedScopes: scopes } : {}),
 	})
 
 	return { project, user }

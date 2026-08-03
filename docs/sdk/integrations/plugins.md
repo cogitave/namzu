@@ -1,7 +1,7 @@
 ---
 title: Plugins and MCP Servers
 description: Load project or user plugins in @namzu/sdk, register namespaced tools, execute hooks, and mount plugin-managed stdio MCP servers.
-last_updated: 2026-08-03
+last_updated: 2026-08-04
 status: current
 related_packages: ["@namzu/sdk"]
 ---
@@ -101,6 +101,36 @@ for (const pluginDir of pluginDirs.project) {
   await pluginManager.enable(plugin.id)
 }
 ```
+
+### Restricting where plugins may come from
+
+`discoverAllPluginDirs` scans two locations: `.namzu/plugins` under the working
+directory, and the same path under the user's home directory. They are not
+equally trusted. A project plugin is reviewable in the repository the agent is
+working on; a user plugin comes from a home directory the repository's
+reviewers never see, and a plugin is arbitrary code with hooks into tool
+execution.
+
+Pass the discovery half of `PluginRuntimeConfig` to say which locations are
+allowed:
+
+```ts
+const pluginDirs = await discoverAllPluginDirs(process.cwd(), {
+  enabled: true,
+  allowedScopes: ['project'],
+})
+
+// `pluginDirs.user` is empty — the home directory was never read, rather than
+// read and filtered.
+```
+
+`enabled: false` or `autoDiscovery: false` discovers nothing at all. A
+disallowed scope is not scanned rather than scanned and discarded: filtering
+afterwards still reads the directory, and the returned count would tell the
+caller how many plugins live somewhere they said they would not look.
+
+Calling `discoverAllPluginDirs(cwd)` with no second argument scans both scopes,
+which is the behaviour every existing caller already had.
 
 This gives you one important invariant:
 
