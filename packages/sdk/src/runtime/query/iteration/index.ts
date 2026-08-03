@@ -5,6 +5,7 @@ import {
 	DEFAULT_STRUCTURED_OUTPUT_RETRIES,
 	STRUCTURED_OUTPUT_REPROMPT,
 } from '../../../constants/tools/index.js'
+import { renderSkillsSection } from '../../../persona/assembler.js'
 import { collect } from '../../../provider/collect.js'
 import {
 	GENAI,
@@ -31,6 +32,7 @@ import type {
 	StepResult,
 	StopReason,
 } from '../../../types/run/index.js'
+import type { Skill } from '../../../types/skills/index.js'
 import type { LLMToolSchema, ToolRegistryContract } from '../../../types/tool/index.js'
 import { toErrorMessage } from '../../../utils/error.js'
 import { generateMessageId } from '../../../utils/id.js'
@@ -230,8 +232,17 @@ export class IterationOrchestrator {
 				// exactly this reason. Shallow is enough: the defect is array
 				// mutation, and per-iteration this is trivial next to the model
 				// call it precedes.
-				const messages = step.system
-					? [...baseMessages, createSystemMessage(step.system)]
+				// A step's skills and its guidance ride the same ephemeral
+				// trailing system message. Appending leaves the cached prefix
+				// intact; rewriting the run's own prompt to carry a phase's
+				// skills would invalidate it on every iteration.
+				// `renderSkillsSection` already answers null for an empty list, so
+				// there is no length check here — a second guard for the same
+				// case is one more thing to keep in agreement with the first.
+				const stepSkills = step.skills ? renderSkillsSection([...step.skills]) : null
+				const stepPreamble = [step.system, stepSkills].filter(Boolean).join('\n\n')
+				const messages = stepPreamble
+					? [...baseMessages, createSystemMessage(stepPreamble)]
 					: [...baseMessages]
 
 				if (this.ctx.pluginManager) {
@@ -759,6 +770,7 @@ export class IterationOrchestrator {
 		toolChoice?: ToolChoice
 		model?: string
 		system?: string
+		skills?: readonly Skill[]
 		temperature?: number
 		maxResponseTokens?: number
 	}> {
@@ -797,6 +809,7 @@ export class IterationOrchestrator {
 			toolChoice?: ToolChoice
 			model?: string
 			system?: string
+			skills?: readonly Skill[]
 			temperature?: number
 			maxResponseTokens?: number
 		} = {}
@@ -818,6 +831,7 @@ export class IterationOrchestrator {
 		if (result.toolChoice !== undefined) prepared.toolChoice = result.toolChoice
 		if (result.model !== undefined) prepared.model = result.model
 		if (result.system !== undefined) prepared.system = result.system
+		if (result.skills !== undefined) prepared.skills = result.skills
 		if (result.temperature !== undefined) prepared.temperature = result.temperature
 		if (result.maxResponseTokens !== undefined) {
 			prepared.maxResponseTokens = result.maxResponseTokens

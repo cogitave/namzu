@@ -1,6 +1,7 @@
 import type { RunId } from '../ids/index.js'
 import type { Message } from '../message/index.js'
 import type { ToolChoice } from '../provider/chat.js'
+import type { Skill } from '../skills/index.js'
 import type { StepResult } from './step.js'
 
 /**
@@ -83,6 +84,33 @@ export interface PrepareStepResult {
 	 * must produce the structured answer" — and not worth it as a habit.
 	 */
 	readonly toolChoice?: ToolChoice
+
+	/**
+	 * Put these skills in front of the model for this step only.
+	 *
+	 * A run's skills are fixed at `query()` time and rendered into the cached
+	 * system prefix, so every skill a run might ever need is paid for on
+	 * every single turn. A phased agent rarely needs them all at once —
+	 * research wants the search skill, writing wants the style guide, and
+	 * neither benefits from carrying the other.
+	 *
+	 * Rendered into the same ephemeral trailing system message `system`
+	 * uses, and for the same reason: appending leaves the cached prefix
+	 * intact, where rewriting the run's prompt would invalidate it every
+	 * iteration for what is usually one phase's worth of guidance.
+	 *
+	 * ADDITIVE to the run's skills, not a replacement. A skill the run
+	 * always carries is not something a step should be able to take away by
+	 * naming a different one — that would make every step's list a complete
+	 * restatement, and a phase that forgot one would silently lose it.
+	 *
+	 * Sub-agents are deliberately NOT per-step. Which agents `create_task`
+	 * can reach is baked into that tool's input schema, so varying it would
+	 * rebuild the tool catalogue every step — a worse prompt-cache trade
+	 * than moving tools, for a narrowing a step can already express by
+	 * withholding `create_task` through {@link PrepareStepResult.activeTools}.
+	 */
+	readonly skills?: readonly Skill[]
 
 	/** Use a different model for this step. */
 	readonly model?: string
