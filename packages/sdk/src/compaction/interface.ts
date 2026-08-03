@@ -7,6 +7,19 @@ import type { Message } from '../types/message/index.js'
  * A manager applies two strategies:
  * 1. **Routine management** (applyManagement): Called after each iteration to proactively optimize context.
  * 2. **Overflow reduction** (reduceContext): Called when the LLM reports context window exceeded.
+ *
+ * @deprecated Use {@link ContextReducer}, which the runtime actually drives.
+ *
+ * This interface cannot be implemented correctly. `reduceContext` is
+ * documented as reducing the history, but it takes `Message[]` and returns
+ * `boolean` — the only way to honour the contract is to mutate the argument
+ * in place, and neither shipped implementation does. Both build a shorter
+ * array locally, discard it, and return `true`. Nothing in the runtime ever
+ * called any of it, which is why an unfulfillable contract survived.
+ *
+ * `ContextReducer` returns the new history, may be async so a reducer can
+ * call a model, and is told whether it was asked speculatively or after the
+ * provider rejected the prompt. Kept exported until the next major.
  */
 export interface ConversationManager {
 	/** Unique name for this manager (e.g., 'structured', 'sliding-window', 'disabled') */

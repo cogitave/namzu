@@ -20,6 +20,13 @@ import type { CompactionStrategy } from './types.js'
  * const trimmed = manager.applyManagement(messages)
  * ```
  */
+/**
+ * @deprecated Nothing calls this. Select a strategy with
+ * `compactionConfig.strategy`, or pass a `contextReducer` to `query()`.
+ *
+ * The factory produced managers the runtime had no seam to drive, so its
+ * return value was always dropped on the floor. See {@link ConversationManager}.
+ */
 export function createConversationManager(
 	strategy: CompactionStrategy,
 	config: CompactionConfig,

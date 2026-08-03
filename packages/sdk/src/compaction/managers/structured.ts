@@ -22,6 +22,16 @@ import { serializeState } from '../serializer.js'
  *
  * Provides maximum context preservation but more computational overhead.
  */
+/**
+ * @deprecated Not the structured strategy. `strategy: 'structured'` runs the
+ * live path in `runtime/query/iteration/phases/compaction.ts`, which this
+ * class predates and does not share code with.
+ *
+ * What is here is a weaker parallel copy: no LLM-verified summary, no stale
+ * tool-result clearing, no retention pins, no events — and a `reduceContext`
+ * that builds a shorter history into a local array and then returns a
+ * boolean, discarding it.
+ */
 export class StructuredCompactionManager implements ConversationManager {
 	readonly name = 'structured'
 	private readonly config: CompactionConfig

@@ -1,5 +1,6 @@
 import type { RunId } from '../ids/index.js'
 import type { Message } from '../message/index.js'
+import type { ToolChoice } from '../provider/chat.js'
 import type { StepResult } from './step.js'
 
 /**
@@ -51,11 +52,37 @@ export interface PrepareStepResult {
 	 * it is worth doing when a phase boundary genuinely changes what the
 	 * agent should reach for — and not worth doing every step.
 	 *
-	 * Note it does NOT touch `tool_choice`. Not every provider has an `allowed_tools`
-	 * parameter, and moving `tool_choice` invalidates cached MESSAGE blocks
-	 * as well — a strictly worse trade for the same effect.
+	 * Note it does NOT imply a `tool_choice`. Not every provider has an
+	 * `allowed_tools` parameter, and moving `tool_choice` invalidates cached
+	 * MESSAGE blocks as well — a strictly worse trade for the same effect.
+	 * When a step genuinely needs the model FORCED rather than narrowed, ask
+	 * for it explicitly through {@link PrepareStepResult.toolChoice} and pay
+	 * that cost knowingly.
 	 */
 	readonly activeTools?: readonly string[]
+
+	/**
+	 * Force this step's tool use: `'required'` to make the model call
+	 * something, `'none'` to forbid it, or a named function to demand that
+	 * one. Absent leaves the provider's default.
+	 *
+	 * **It applies to this step only, by construction.** That is the whole
+	 * reason it lives here rather than on the run config. A forced choice
+	 * that persists makes the model call a tool, see the result, and be
+	 * forced again — an agent that cannot stop. The one peer SDK that puts
+	 * `tool_choice` on persistent model settings has to undo it with a
+	 * tool-use tracker, an opt-out flag and a reset applied at two call
+	 * sites; the flag defaults to on precisely because turning it off hangs
+	 * the agent. Here there is nothing to reset and no flag to get wrong:
+	 * the next step is prepared fresh, so the force cannot outlive the step
+	 * that asked for it.
+	 *
+	 * **It costs more cache than `activeTools`.** Narrowing tools
+	 * invalidates the tool prefix; moving `tool_choice` invalidates cached
+	 * message blocks too. Worth it at a real phase boundary — "this step
+	 * must produce the structured answer" — and not worth it as a habit.
+	 */
+	readonly toolChoice?: ToolChoice
 
 	/** Use a different model for this step. */
 	readonly model?: string

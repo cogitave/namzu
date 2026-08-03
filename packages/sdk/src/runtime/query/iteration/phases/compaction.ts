@@ -1,10 +1,13 @@
 import { resolveContextWindow } from '../../../../compaction/context-window.js'
-import { findSafeTrimIndex } from '../../../../compaction/dangling.js'
+import { findDanglingMessages, findSafeTrimIndex } from '../../../../compaction/dangling.js'
+import type { ContextReducer, ContextReduction } from '../../../../compaction/reducer.js'
+import { createSlidingWindowReducer } from '../../../../compaction/reducer.js'
 import { findRetainedIndices } from '../../../../compaction/retention.js'
 import { serializeState } from '../../../../compaction/serializer.js'
 import { clearStaleToolResults } from '../../../../compaction/tool-result-editing.js'
 import { buildVerifiedSummary } from '../../../../compaction/verifier.js'
 import { CHARS_PER_TOKEN } from '../../../../constants/limits.js'
+import { resolveTaskModel } from '../../../../router/task-router.js'
 import type { Message } from '../../../../types/message/index.js'
 import { createSystemMessage } from '../../../../types/message/index.js'
 import type { IterationContext } from './context.js'
@@ -202,6 +205,78 @@ function totalChars(messages: readonly { content: unknown }[]): number {
 	return total
 }
 
+/**
+ * Run a reducer and install what it returns, or leave the history alone.
+ *
+ * Three ways to decline, all of them ending the same way — the run keeps its
+ * full history. `undefined` is the reducer saying so; a throw is treated as
+ * the same answer, because a broken reduction hook should not kill a healthy
+ * run any more than a broken `prepareStep` should; and a result that splits a
+ * tool pair is REFUSED rather than repaired.
+ *
+ * That last one is the least obvious and the most important. `tool_result`
+ * without its `tool_use` is a provider 400 on the next turn, so quietly
+ * repairing it would trade a clear "this reducer split a tool pair" for an
+ * opaque rejection a call later, with the reducer never implicated. The
+ * invariant is written on {@link ContextReducer}; enforcing it where it is
+ * violated is what makes it true rather than aspirational.
+ */
+async function applyReducer(
+	ctx: IterationContext,
+	reducer: ContextReducer,
+	reduction: ContextReduction,
+): Promise<void> {
+	const messages = ctx.runMgr.messages
+	const before = messages.length
+	const beforeChars = totalChars(messages)
+
+	let next: readonly Message[] | undefined
+	try {
+		next = await reducer(reduction)
+	} catch (error) {
+		ctx.log.warn('Context reducer threw — keeping the full history', {
+			runId: ctx.runMgr.id,
+			reason: reduction.reason,
+			error: error instanceof Error ? error.message : String(error),
+		})
+		return
+	}
+
+	if (!next || next.length >= before) {
+		ctx.log.debug('Context reducer shed nothing', {
+			runId: ctx.runMgr.id,
+			reason: reduction.reason,
+			messages: before,
+		})
+		return
+	}
+
+	if (!findDanglingMessages([...next]).isValid) {
+		ctx.log.warn('Context reducer split a tool pair — refusing its result', {
+			runId: ctx.runMgr.id,
+			reason: reduction.reason,
+			hint: 'use findSafeTrimIndex to move a cut off a tool_use/tool_result boundary',
+		})
+		return
+	}
+
+	messages.length = 0
+	for (const message of next) messages.push(message)
+
+	// The provider's count described the pre-reduction prompt. Same reasoning
+	// as the structured path: leaving it would have the next trigger check
+	// compare an old size against the new history and reduce again.
+	ctx.runMgr.clearLastPromptTokens?.()
+
+	ctx.log.info('Context reduced', {
+		runId: ctx.runMgr.id,
+		reason: reduction.reason,
+		oldMessageCount: before,
+		newMessageCount: messages.length,
+		charsShed: beforeChars - totalChars(messages),
+	})
+}
+
 export async function runCompactionCheck(
 	ctx: IterationContext,
 	options?: { force?: boolean },
@@ -209,9 +284,6 @@ export async function runCompactionCheck(
 	const config = ctx.compactionConfig
 	if (!config) return
 	if (config.strategy === 'disabled') return
-
-	const manager = ctx.workingStateManager
-	if (!manager) return
 
 	const measured = measureContext(ctx)
 	const estimatedTokens = measured.tokens
@@ -231,6 +303,29 @@ export async function runCompactionCheck(
 	// A forced pass skips the threshold: it runs because the provider
 	// rejected the prompt, which is stronger evidence than any estimate.
 	if (!options?.force && usage < config.triggerThreshold) return
+
+	// A reducer, when the run has one, OWNS reduction — the structured pass
+	// below does not also run. `strategy: 'sliding-window'` resolves to the
+	// built-in one; a host-supplied reducer outranks the strategy entirely,
+	// because someone who wrote a reducer has said what they want more
+	// specifically than an enum can.
+	const reducer =
+		ctx.contextReducer ??
+		(config.strategy === 'sliding-window' ? createSlidingWindowReducer() : undefined)
+	if (reducer) {
+		await applyReducer(ctx, reducer, {
+			messages: ctx.runMgr.messages,
+			reason: options?.force ? 'overflow' : 'threshold',
+			estimatedTokens,
+			contextWindowTokens: budget,
+			model: ctx.runConfig.model,
+			keepRecentMessages: config.keepRecentMessages,
+		})
+		return
+	}
+
+	const manager = ctx.workingStateManager
+	if (!manager) return
 
 	ctx.log.info('Compaction threshold reached — compacting context', {
 		runId: ctx.runMgr.id,
@@ -380,7 +475,13 @@ export async function runCompactionCheck(
 			ctx.provider,
 			config,
 			(usage) => ctx.runMgr.accumulateUsage(usage),
-			ctx.runConfig.model,
+			// The one model call a run makes that the user never asked for. It
+			// reads a transcript and writes a summary, which is the cheapest
+			// thing a small model does well, and it fires on exactly the long
+			// runs where the primary model is most expensive. `taskRouter` had
+			// been accepted, validated and threaded through four types since it
+			// was added, and nothing ever consulted it.
+			resolveTaskModel('compaction', ctx.taskRouter, ctx.runConfig.model),
 		)
 	} else {
 		compactedContent = serializeState(manager.getState())

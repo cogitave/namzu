@@ -9,6 +9,7 @@ import {
 import { findDanglingMessages, removeDanglingMessages } from '../../compaction/dangling.js'
 import { extractFromUserMessage } from '../../compaction/extractor.js'
 import { WorkingStateManager } from '../../compaction/manager.js'
+import type { ContextReducer } from '../../compaction/reducer.js'
 import { restoreWorkingState, snapshotWorkingState } from '../../compaction/wire.js'
 import type { CompactionConfig } from '../../config/runtime.js'
 import { TOOL_OUTPUT_DIR_NAME } from '../../constants/tools/index.js'
@@ -421,6 +422,16 @@ export interface QueryParams {
 	 */
 	workingMemoryProvider?: WorkingMemoryProvider
 
+	/**
+	 * Replace context reduction for this run.
+	 *
+	 * Outranks `compactionConfig.strategy`, and the built-in structured pass
+	 * does not also run: two mechanisms editing one history in the same pass
+	 * cannot both be reasoned about. See `ContextReducer` for the invariants a
+	 * reducer is expected to keep.
+	 */
+	contextReducer?: ContextReducer
+
 	agentBus?: import('../../bus/index.js').AgentBus
 
 	verificationGate?: VerificationGateConfig
@@ -800,6 +811,8 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		toolGrants: new ToolGrantSet(),
 		compactionConfig: params.compactionConfig,
 		workingStateManager,
+		taskRouter: params.taskRouter,
+		contextReducer: params.contextReducer,
 		workingMemoryProvider: params.workingMemoryProvider,
 		advisoryCtx,
 		agentBus: params.agentBus,

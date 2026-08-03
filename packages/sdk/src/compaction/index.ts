@@ -11,6 +11,14 @@ export type { DanglingResult } from './dangling.js'
 
 export type { ConversationManager } from './interface.js'
 
+export { createSlidingWindowReducer } from './reducer.js'
+export type {
+	ContextReducer,
+	ContextReduction,
+	ContextReductionReason,
+	SlidingWindowOptions,
+} from './reducer.js'
+
 export { WorkingStateManager } from './manager.js'
 
 export { serializeState } from './serializer.js'

@@ -5,6 +5,9 @@ import type { ConversationManager } from '../interface.js'
  * No-op conversation manager implementation.
  * Never modifies messages, useful for testing or when context management is disabled.
  */
+/**
+ * @deprecated Use `strategy: 'disabled'`, which the runtime reads.
+ */
 export class NullManager implements ConversationManager {
 	readonly name = 'null'
 
