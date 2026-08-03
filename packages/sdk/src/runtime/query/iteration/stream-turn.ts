@@ -10,6 +10,7 @@ import { mergeTokenUsage } from '../../../types/common/index.js'
 import { NamzuError } from '../../../types/errors/index.js'
 import type { ToolUseId } from '../../../types/ids/index.js'
 import type { Citation, ReasoningBlock } from '../../../types/message/index.js'
+import { ProviderError } from '../../../types/provider/errors.js'
 import type {
 	ChatCompletionResponse,
 	LLMProvider,
@@ -201,6 +202,7 @@ export async function* streamProviderTurn(
 	const citations: Citation[] = []
 
 	let streamError: string | undefined
+	let streamCause: unknown
 
 	const stream = provider.chatStream({ ...params, stream: true }) as AsyncIterable<StreamChunk>
 
@@ -449,6 +451,11 @@ export async function* streamProviderTurn(
 			throw err
 		}
 		streamError = err instanceof Error ? err.message : String(err)
+		// Kept, not just its text. The classification a driver produced —
+		// which code, which status, whether repeating the call could work —
+		// is the whole basis for settling a transient fault as PAUSED rather
+		// than failed, and flattening it to a message threw all of it away.
+		streamCause = err
 	} finally {
 		if (onAbort) signal?.removeEventListener('abort', onAbort)
 		// Release the underlying connection on every exit (natural end, error,
@@ -582,10 +589,29 @@ export async function* streamProviderTurn(
 	if (streamError && !recoveredToolInputFromStreamError) {
 		chatSpan.setStatus({ code: SpanStatusCode.ERROR, message: streamError })
 		chatSpan.end()
+
+		// A classified provider failure is rethrown AS ITSELF. Wrapping it in
+		// a fresh error dropped `retryable`, `status` and `retryAfterMs`,
+		// and `NamzuError`'s own default for `provider_error` is
+		// not-retryable — so a 429 that had exhausted its backoff settled the
+		// run FAILED, where the documented behaviour is a pause with a
+		// checkpoint to resume from. `toPlatformError` already projects this
+		// shape correctly; it was never reached.
+		//
+		// The asymmetry this fixes was visible: the same 529 raised inside
+		// the compaction verifier propagates untouched and DOES pause, so
+		// identical faults settled oppositely depending on whether compaction
+		// happened to run that iteration.
+		if (streamCause instanceof ProviderError) throw streamCause
+
 		throw new NamzuError({
 			code: 'provider_error',
 			message: `Provider stream error: ${streamError}`,
 			details: { model: params.model },
+			// Even when the cause is not classified, keeping it means a host
+			// reading the chain sees what actually happened rather than a
+			// sentence about it.
+			...(streamCause !== undefined ? { cause: streamCause } : {}),
 		})
 	}
 
