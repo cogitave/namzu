@@ -104,7 +104,7 @@ export function buildAdvisoryTools(opts: AdvisoryToolsOptions): ToolDefinition[]
 			const executionResult = await advisoryCtx.executor.consult(
 				advisor,
 				{ advisorId: advisor.id, question, domain, urgency, includeContext: include_context },
-				{ messages: [], iteration: 0 },
+				advisoryCtx.callContext(),
 			)
 
 			advisoryCtx.recordCall({
