@@ -1,5 +1,51 @@
 # Changelog
 
+## 3.1.0
+
+### Minor Changes
+
+- 8b84fdb: Refuse a file mutation computed against a body that has since moved, and stop writing over symlinks.
+
+  Two gaps the restored mutation lock does not cover, both standard practice in file-editing agents and both absent here.
+
+  **Drift between the read and the write.** The lock serializes this runtime's own writers. It cannot see a person editing in an editor, another process, or a second agent run — and an edit computed against a body that has since changed is a lost update whichever of those did the moving. Worse, it was actively misreported: an `old_string` that no longer matched came back as _"not found in file — make sure the string matches exactly"_, which tells the agent its input was wrong when the file changed underneath it, so it retries the same edit against the same moved file.
+
+  `FileReadTracker.recordRead` now optionally takes the body it read and fingerprints it, and `edit` consults that fingerprint when — and only when — its anchor fails to match. An anchor that still matches uniquely is well defined however much changed elsewhere, so a version check on the success path would reject safe edits every time anyone touched an unrelated line; the fingerprint is a diagnosis, not a gate. When the anchor does fail, it separates 'your text is wrong' from 'the file moved', and the second says what happened, that nothing was written, and to read again. A successful edit re-fingerprints, so a second edit in the same turn is not mistaken for someone else's drift. Both the extra parameter and the new `fingerprint()` accessor are optional, so a host that only needs the read-before-overwrite guard keeps its existing implementation and its existing behaviour.
+
+  **Writing over a symlink instead of through it.** `rename` replaces whatever sits at the destination, so committing onto a link path swapped the link for a regular file — the link gone, and every other path that pointed through it left reading stale content. The atomic writer resolves the destination first, so the link survives and its target is updated. A path that does not exist yet resolves to itself.
+
+### Patch Changes
+
+- 8b84fdb: Close the `ask_user_question` contract, and prove the enforcement hint reaches the wire.
+
+  The second half of the same revert. `ask_user_question` lost `.strict()` on both its root object and its option items, along with `modelInputSchema`, `enforceModelInput` and `validationErrorHint`.
+
+  The failure that specifically motivated them is a model serializing `options` — sending `"[{\"label\":\"Board\"}]"` where an array belongs. A model that does it once tends to keep doing it, and the parse error it gets back never says the array was the problem. The closed schema makes a capable provider refuse at generation time, and the recovery hint names the shape to retry with. Without `.strict()` an unknown key was silently stripped, so a misspelled field became a no-op nobody could see.
+
+  The enforcement path is now covered end to end: a request carries `enforceToolInputSchema` naming exactly the tools that opted in, follows the allowed set rather than everything registered, and omits the field entirely when nothing opted in — an empty array would read as "enforce nothing" rather than "nothing asked", and a driver cannot tell those apart. That coverage is what was missing when the producer was deleted and three drivers went on reading a field nothing set.
+
+- ce15b6e: Restore two provider-classification helpers that 3.0.0 dropped by accident.
+
+  `classifyProviderHttpStatus` and `bodySaysContextOverflow` were part of `@namzu/sdk`'s public surface in 2.0.0. Reconciling a long-running branch resolved a conflict in `public-runtime.ts` in the branch's favour, which discarded both exports, and 3.0.0 shipped without them. They are back.
+
+  Neither was removed on purpose and nothing in 3.0.0's notes claims otherwise. They exist for a driver outside this repo that needs the classification the first-party drivers use: a status code alone does not separate a context overflow from an ordinary bad request, and re-deriving that per driver is how classifications drift apart.
+
+  The gate that should have caught this now does. It compares `baseline - current`, so a name that never entered the baseline was invisible to the removal check — it could be added, dropped, and still report "intact", which is exactly what happened. Widening the surface is now a failure that demands the baseline be regenerated in the same commit, rather than a warning that let the baseline go stale.
+
+- 2175f85: Restore the file-mutation safety that 3.0.0 reverted.
+
+  Reconciling a long-running branch with `-X ours` resolved conflicts in the branch's favour, and the branch had been cut before four hardening commits landed on `main`. The result shipped: `edit.ts` and `write-file.ts` went out byte-identical to their shape from before that work, and both modules it depended on were left in the tree with zero importers.
+
+  What came back, with a test that fails without it:
+
+  - **Crash-atomic commits.** Both tools wrote with a bare `writeFile`, so a failure partway through left the destination truncated — the user's own file, in the tool that exists to avoid exactly that. They commit through `atomicWriteFile` again (temp file beside the destination, fsync, rename).
+  - **Same-path serialization.** Two concurrent edits to one path interleaved their reads and the second write landed on content the first had already replaced, so one edit vanished and the loser reported `old_string not found` — blaming the model for a race. `withFileMutationLock` wraps both the sandbox and local branches again. For `write`, the lock also closes the gap between the exists-check and the write, which is a check-then-act pair.
+  - **Closed input contracts.** `.strict()` was gone, so zod's default silently STRIPPED an unknown key: a misspelled or hallucinated field became a no-op instead of an error. `edit`, `write` and `ask_user_question` reject the unknown again — while still accepting the `oldStr`/`newStr` aliases and `insertLine`, which are declared. Closed is not the same as narrow.
+  - **`modelInputSchema` and `enforceModelInput`.** The model-facing schemas are back, and so is the producer: `enforcedModelInputToolNames()` had been deleted, so **nothing** populated `enforceToolInputSchema` and all three drivers that read it were reading a permanently undefined field.
+  - **CRLF/LF reconciliation**, so an `old_string` that is right in every visible way still matches a file whose line endings differ.
+
+  Also fixes `atomicWriteFile` on Windows, where it had never run: it fsyncs the directory after the rename, which that platform refuses with `EPERM`, and the error was not caught — so every atomic write failed after correctly writing the file. That sync is best-effort now, and only after the commit has already landed.
+
 ## 3.0.0
 
 ### Major Changes
