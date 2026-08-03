@@ -54,6 +54,6 @@
     "@namzu/sdk": "workspace:^",
     "@types/node": "^22.19.17",
     "typescript": "^5.5.0",
-    "vitest": "^2.0.0"
+    "vitest": "^3.2.6"
   }
 }
