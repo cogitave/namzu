@@ -44,7 +44,7 @@ async function getPlugin(ctx: CommandContext): Promise<ClawtoolPlugin> {
 async function runLs(ctx: CommandContext): Promise<number> {
 	const plugin = await getPlugin(ctx)
 	// Mirror what the agent actually gets: drop the tools namzu excludes from
-	// the bridged catalog (e.g. clawtool's `.claude/agents` Agent* family), so
+	// the bridged catalog (the vendor tool bridge excludes its own
 	// `tools ls` doesn't advertise tools the model can't call.
 	const tools = plugin.tools.filter((t) => !isExcludedClawtoolTool(t.name))
 	ctx.formatter.print({

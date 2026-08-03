@@ -113,7 +113,14 @@ export class DecisionParser {
 			return trimmed
 		}
 
-		const codeBlockMatch = trimmed.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/)
+		// `\s*` directly abutting a lazy `[\s\S]*?` (and again on the closing
+		// side) lets the engine split the same run of whitespace between the
+		// two constructs in many equivalent ways, so an unterminated fence
+		// with a long run of blank lines makes matching super-linear. The
+		// trailing `.trim()` below already strips leading/trailing
+		// whitespace, so the fence markers only need to bound the capture,
+		// not pre-trim it.
+		const codeBlockMatch = trimmed.match(/```(?:json)?\n?([\s\S]*?)```/)
 		if (codeBlockMatch?.[1]) {
 			return codeBlockMatch[1].trim()
 		}

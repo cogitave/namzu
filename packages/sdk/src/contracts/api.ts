@@ -58,6 +58,13 @@ export type WireRunStatus =
 	| 'failed'
 	| 'cancelled'
 	| 'cancelling'
+	/**
+	 * The run's approval window closed with nobody answering.
+	 *
+	 * Set by a host sweeping expired parks — there is no domain status that
+	 * collapses onto it, because the kernel is suspended mid-iteration while
+	 * parked and never gets to observe its own deadline passing.
+	 */
 	| 'expired'
 
 // Wire-side rename of types/run/events.StopReason. Kept distinct so the HTTP
@@ -142,7 +149,33 @@ export type StreamEventType =
 	| 'run.resuming'
 	| 'iteration.started'
 	| 'iteration.completed'
+	/**
+	 * A compaction pass replaced a span of history with a summary. Wire-
+	 * visible because the operation is destructive: a client rendering the
+	 * transcript needs to know its middle was dropped, not infer it.
+	 */
+	| 'compaction.completed'
+	/** A guardrail refused or corrected the run. */
+	| 'guardrail.triggered'
+	/**
+	 * Extended-thinking lifecycle. Wire-visible because without it a
+	 * client renders a multi-second stall with no events while the model
+	 * is demonstrably working.
+	 */
+	| 'reasoning.started'
+	| 'reasoning.delta'
+	| 'reasoning.completed'
+	/**
+	 * A model call failed transiently and is being retried after a backoff.
+	 * Wire-visible on the same grounds as `tool.progress` and the reasoning
+	 * events: without it a client sees no event and no keepalive for the
+	 * whole backoff, so a run that is about to succeed is indistinguishable
+	 * from one that has hung.
+	 */
+	| 'provider.retry'
 	| 'tool.executing'
+	/** Ephemeral progress from a long-running tool. Not in the transcript. */
+	| 'tool.progress'
 	| 'tool.completed'
 	| 'tool.error'
 	// v3 tool input lifecycle (ses_001-tool-stream-events). Additive; phase 4
@@ -156,6 +189,13 @@ export type StreamEventType =
 	| 'message.created'
 	| 'message.delta'
 	| 'message.completed'
+	/**
+	 * A tool asked the user a question and the run is parked on it. Wire-
+	 * visible for the same reason `review.requested` is: a client cannot
+	 * render an approval card for something it never hears about.
+	 */
+	| 'question.asked'
+	| 'question.answered'
 	| 'review.requested'
 	| 'review.completed'
 	| 'checkpoint.created'

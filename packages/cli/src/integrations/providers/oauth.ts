@@ -1,21 +1,23 @@
 /**
- * Claude Code OAuth token refresh.
+ * OAuth token refresh for a discovered subscription credential.
  *
  * The access token discovered from the macOS Keychain (or a clawtool secret)
- * is short-lived (~8h). When it lapses, Anthropic answers 401 and the agent
- * stream dies. Claude Code refreshes proactively against its public OAuth
- * token endpoint using the long-lived refresh token; we do the same so a
- * stale token is silently renewed before the session starts instead of
- * surfacing as an authentication error.
+ * is short-lived (~8h). When it lapses the provider answers 401 and the
+ * agent stream dies. Refreshing proactively against the public OAuth token
+ * endpoint, using the long-lived refresh token, renews a stale token before
+ * the session starts instead of surfacing it as an authentication error.
  *
  * Non-throwing: any failure (no refresh token, network down, endpoint error)
  * returns the existing token unchanged — at worst the caller hits the same
  * 401 it would have hit anyway, never a crash.
  */
 
-import { type ClaudeCodeOAuthCredential, writeClaudeCodeKeychainCredential } from './keychain.js'
+import { type AgentOAuthCredential, writeAgentKeychainCredential } from './keychain.js'
 
-/** Public Claude Code OAuth client id + token endpoint. */
+/**
+ * The public OAuth client id and token endpoint this credential was issued
+ * against. Addresses, verbatim — the refresh only succeeds against these.
+ */
 const CLIENT_ID = '9d1c250a-e61b-44d9-88ed-5944d1962f5e'
 const TOKEN_URL = 'https://console.anthropic.com/v1/oauth/token'
 
@@ -40,16 +42,16 @@ export async function ensureFreshAnthropicToken(
 	if (fresh) return accessToken
 	if (!oauth.refreshToken) return accessToken
 
-	const refreshed = await refreshClaudeCodeToken(oauth.refreshToken)
+	const refreshed = await refreshAgentOAuthToken(oauth.refreshToken)
 	if (!refreshed) return accessToken
-	writeClaudeCodeKeychainCredential(refreshed)
+	writeAgentKeychainCredential(refreshed)
 	return refreshed.accessToken
 }
 
 /** Exchange a refresh token for a new credential, or `null` on any failure. */
-export async function refreshClaudeCodeToken(
+export async function refreshAgentOAuthToken(
 	refreshToken: string,
-): Promise<ClaudeCodeOAuthCredential | null> {
+): Promise<AgentOAuthCredential | null> {
 	try {
 		const res = await fetch(TOKEN_URL, {
 			method: 'POST',

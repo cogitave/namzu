@@ -1,6 +1,6 @@
 import type { LLMToolSchema, ToolDefinition, ToolPermission } from '../tool/index.js'
 
-export type ToolCatalogSurface = 'chat' | 'cowork' | 'managed-agent' | 'worker' | 'code'
+export type ToolCatalogSurface = 'chat' | 'supervised' | 'managed-agent' | 'worker' | 'code'
 
 export type ToolSourceKind =
 	| 'host_tool'
@@ -11,8 +11,6 @@ export type ToolSourceKind =
 	| 'connector'
 
 export type ToolLoadingMode = 'eager' | 'deferred' | 'disabled' | 'suspended'
-
-export type ToolPermissionPolicy = 'default' | 'always_allow' | 'always_ask' | 'deny'
 
 export interface ToolSource {
 	readonly id: string
@@ -32,7 +30,7 @@ export interface ToolSource {
 		readonly beta?: string
 	}
 	readonly skill?: {
-		readonly type: 'anthropic' | 'custom'
+		readonly type: 'published' | 'custom'
 		readonly skillId: string
 		readonly version?: string
 	}
@@ -43,7 +41,6 @@ export interface ToolsetPolicy {
 	readonly enabled?: boolean
 	readonly loading?: ToolLoadingMode
 	readonly preferred?: boolean
-	readonly permissionPolicy?: ToolPermissionPolicy
 	readonly surfaces?: readonly ToolCatalogSurface[]
 	readonly providerConfig?: Record<string, unknown>
 }
@@ -54,7 +51,6 @@ export interface ToolsetDefinition {
 	readonly name: string
 	readonly description?: string
 	readonly defaultPolicy?: ToolsetPolicy
-	readonly toolPolicies?: Record<string, ToolsetPolicy>
 	readonly metadata?: Record<string, unknown>
 }
 

@@ -1,7 +1,7 @@
 ---
 title: Bedrock Provider
 description: Configure @namzu/bedrock for AWS Bedrock Converse API usage with Namzu.
-last_updated: 2026-04-18
+last_updated: 2026-08-03
 status: current
 related_packages: ["@namzu/sdk", "@namzu/bedrock"]
 ---
@@ -111,8 +111,14 @@ The package exports `BEDROCK_CAPABILITIES`:
   supportsTools: true,
   supportsStreaming: true,
   supportsFunctionCalling: true,
+  supportsVision: true,
+  supportsDocuments: false,
 }
 ```
+
+An image travels as raw bytes beside the text, whether it came from a user attachment or from inside a tool result. A media type the service does not accept is named in the text instead, because sending it would fail the whole request.
+
+Prompt caching is requested when the caller sets `cacheControl`, with breakpoints after the tool schemas, after the static system text, and after the last message.
 
 ## 9. Operational Notes
 

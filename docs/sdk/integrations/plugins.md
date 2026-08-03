@@ -1,7 +1,7 @@
 ---
 title: Plugins and MCP Servers
 description: Load project or user plugins in @namzu/sdk, register namespaced tools, execute hooks, and mount plugin-managed stdio MCP servers.
-last_updated: 2026-04-18
+last_updated: 2026-08-03
 status: current
 related_packages: ["@namzu/sdk"]
 ---
@@ -175,6 +175,34 @@ Hook events currently available:
 - `iteration_start`
 - `iteration_end`
 
+### What a model-call hook is shown
+
+`pre_llm_call` carries `context.request` — the call the run is about to make — and `post_llm_call` carries `context.response`:
+
+```ts
+export const hooks = [
+  {
+    event: 'pre_llm_call',
+    async handler(context) {
+      // Which capabilities were exposed on this turn, and to which model.
+      audit.record(context.runId, context.request?.model, context.request?.toolNames)
+      return { action: 'continue' }
+    },
+  },
+  {
+    event: 'post_llm_call',
+    async handler(context) {
+      ledger.charge(context.runId, context.response?.usage.totalTokens ?? 0)
+      return { action: 'continue' }
+    },
+  },
+]
+```
+
+`request` is `{ model, messages, toolNames, temperature?, maxTokens? }` and `response` is `{ content, toolNames, finishReason, usage }`. Both are projections of the real request and reply, not the wire objects: driver-specific parameters stay out of the plugin contract, and tools appear as names because an audit asks which capabilities were offered, not what their schemas look like.
+
+Both are **read-only** and frozen. A hook that reshaped the request would change what every later hook sees, so the outcome would depend on installation order and the last plugin registered would silently win. Shaping a call is the job of `prepareStep`, which has a single slot and one writer by contract. The messages are frozen copies, so a write cannot reach the run's history.
+
 ## 6. Hook Ordering and Flow Control
 
 `PluginLifecycleManager.executeHooks()` has explicit ordering semantics:
@@ -203,9 +231,19 @@ Example names:
 - plugin name `fs-plugin`
 - MCP server name `fs`
 - remote tool `read_file`
-- final tool name `fs-plugin:mcp__fs__read_file`
+- final tool name `fs-plugin__mcp__fs__read_file`
 
 That naming scheme is intentional and collision-resistant.
+
+The separator is `__` and every part of the name must match
+`[a-zA-Z0-9_-]`, up to 64 characters total. This is not a style
+preference: the name reaches the provider verbatim, the major message APIs
+accept only that character set, and they reject the **whole request** for
+one bad name rather than skipping that tool. The registry refuses a name
+outside the pattern at registration, where it can still say which tool is
+at fault — a deferred tool with an illegal name would otherwise fail the
+request at the moment something activated it, with nothing naming the
+culprit.
 
 ## 8. What Plugin `mcpServers` Do Not Do
 

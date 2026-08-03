@@ -15,6 +15,7 @@ import {
 	isProviderRequestError,
 	providerVendorError,
 } from '@namzu/sdk'
+import { toolResultToText } from '@namzu/sdk'
 import type { LMStudioConfig } from './types.js'
 
 type StopReason =
@@ -56,15 +57,19 @@ function mapUsage(stats: {
 
 type LMStudioRole = 'system' | 'user' | 'assistant'
 
-function toLMStudioChat(
+export function toLMStudioChat(
 	messages: ChatCompletionParams['messages'],
 ): Array<{ role: LMStudioRole; content: string }> {
 	return messages.map((m) => {
 		const content = typeof m.content === 'string' ? m.content : JSON.stringify(m.content ?? '')
 		const role: LMStudioRole = m.role === 'system' || m.role === 'assistant' ? m.role : 'user'
-		// Tool messages aren't first-class in the LMStudio chat API; fold as user content with a marker.
+		// Tool messages aren't first-class in this chat API; fold as user
+		// content with a marker. The content goes through the SDK's degrade
+		// helper rather than a JSON dump, so a result carrying an image
+		// arrives as a named placeholder instead of a wall of base64 the
+		// model pays for and cannot read.
 		if (m.role === 'tool') {
-			return { role: 'user', content: `[tool-result] ${content}` }
+			return { role: 'user', content: `[tool-result] ${toolResultToText(m.content ?? '')}` }
 		}
 		return { role, content }
 	})
@@ -118,6 +123,8 @@ export const LMSTUDIO_CAPABILITIES: ProviderCapabilities = {
 	supportsStreaming: true,
 	supportsFunctionCalling: false,
 	supportsVision: false,
+	// Images only. A document degrades to a named placeholder.
+	supportsDocuments: false,
 }
 
 export class LMStudioProvider implements LLMProvider {

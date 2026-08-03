@@ -102,6 +102,7 @@ describe('@namzu/http — registration', () => {
 			supportsStreaming: true,
 			supportsFunctionCalling: true,
 			supportsVision: false,
+			supportsDocuments: false,
 		})
 	})
 

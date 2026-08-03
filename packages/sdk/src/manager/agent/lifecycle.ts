@@ -20,6 +20,7 @@ import type {
 	SendMessageOptions,
 } from '../../types/agent/task.js'
 import { isTerminalAgentTaskState } from '../../types/agent/task.js'
+import { NamzuError } from '../../types/errors/index.js'
 import type { AgentId, RunId, SessionId, TaskId, TenantId } from '../../types/ids/index.js'
 import type { Message } from '../../types/message/index.js'
 import type { RunEvent, RunEventListener } from '../../types/run/events.js'
@@ -90,6 +91,8 @@ export class AgentManager {
 	private log: Logger
 	private config: Readonly<AgentManagerConfig>
 	private evictionTimers: Map<TaskId, ReturnType<typeof setTimeout>> = new Map()
+	/** One provisioning at a time per parent — see {@link provisionSpawn}. */
+	private spawnLocks: Map<SessionId, Promise<void>> = new Map()
 	private deps: AgentManagerDeps
 
 	constructor(
@@ -131,12 +134,37 @@ export class AgentManager {
 			options.budgetAllocation?.tokenBudget ?? maxAllocation,
 			maxAllocation,
 		)
-		context.budgetTracker.remaining -= allocatedTokens
+
+		// Budget exhaustion must not INVERT into no budget at all. Downstream,
+		// `tokenBudget: 0` means "uncapped" (`LimitChecker`: `tokenBudget > 0
+		// && total >= tokenBudget`), and `maxAllocation` floors to 0 as soon as
+		// the parent's remaining drops below `1 / maxBudgetFraction`. So the
+		// most depleted parent in the tree was the one that spawned an
+		// unlimited child. Refuse instead: a caller that wants an uncapped
+		// child can say so explicitly with its own `budgetAllocation`.
+		if (allocatedTokens <= 0) {
+			throw new NamzuError({
+				code: 'invalid_config',
+				message: `Cannot spawn "${options.agentId}": the parent has ${context.budgetTracker.remaining} tokens remaining, which allocates 0 to the child — and a token budget of 0 means UNLIMITED downstream.`,
+				details: {
+					agentId: options.agentId,
+					parentRemaining: context.budgetTracker.remaining,
+					maxBudgetFraction: this.config.maxBudgetFraction,
+				},
+			})
+		}
 
 		// Phase 6: SubSession + child Session + WorkspaceRef triple. Happens
 		// before taskId minting so a capacity failure short-circuits cleanly
 		// with no observable state change.
+		//
+		// The budget debit follows it for the same reason. It used to come
+		// first, so a spawn this call rejected still burned its allocation
+		// from a pool nobody credited back — the one state change the
+		// comment above promised there would not be.
 		const spawnRecord = await this.provisionSpawn(options, context)
+
+		context.budgetTracker.remaining -= allocatedTokens
 
 		const taskId = generateTaskId()
 
@@ -168,6 +196,7 @@ export class AgentManager {
 			childAbortController,
 			context: childContext,
 			state: 'pending',
+			budgetReservation: allocatedTokens,
 			pendingMessages: [],
 			createdAt: Date.now(),
 			runEventListener: listener,
@@ -215,14 +244,14 @@ export class AgentManager {
 		let childConfig: BaseAgentConfig
 		if (definition.configBuilder) {
 			// Call the configBuilder regardless of whether factoryOptions were
-			// supplied. BYO-provider flows (Bedrock IAM, custom ProviderRegistry)
+			// supplied. BYO-provider flows (ambient cloud credentials, a custom registry)
 			// commonly omit factoryOptions because the provider resolves its own
 			// credentials; the builder still needs to run to wire provider+tools.
 			// Defaults: empty factoryOptions when omitted; configOverrides win.
 			childConfig = await definition.configBuilder({
 				...(context.factoryOptions ?? {}),
 				tokenBudget: allocatedTokens,
-				timeoutMs: options.budgetAllocation?.timeoutMs ?? context.budgetTracker.remaining,
+				timeoutMs: options.budgetAllocation?.timeoutMs ?? this.config.childTimeoutMs,
 				parentRunId: context.parentRunId as string | undefined,
 				depth: context.depth + 1,
 				...options.configOverrides,
@@ -239,6 +268,11 @@ export class AgentManager {
 			childConfig.threadId = context.threadId
 			childConfig.projectId = context.projectId
 			childConfig.tenantId = context.tenantId
+			// Stamp the trace parent the same way, rather than trusting every
+			// configBuilder to forward an option it may not know about.
+			if (options.configOverrides?.parentSpan) {
+				childConfig.parentSpan = options.configOverrides.parentSpan
+			}
 		} else {
 			this.log.warn('No configBuilder, using bare config', {
 				agentId: options.agentId,
@@ -246,8 +280,9 @@ export class AgentManager {
 			childConfig = {
 				model: options.configOverrides?.model ?? 'default',
 				tokenBudget: allocatedTokens,
-				timeoutMs: options.budgetAllocation?.timeoutMs ?? context.budgetTracker.remaining,
+				timeoutMs: options.budgetAllocation?.timeoutMs ?? this.config.childTimeoutMs,
 				temperature: options.configOverrides?.temperature,
+				parentSpan: options.configOverrides?.parentSpan,
 				maxIterations: options.configOverrides?.maxIterations,
 				maxResponseTokens: options.configOverrides?.maxResponseTokens,
 				env: options.configOverrides?.env,
@@ -367,13 +402,59 @@ export class AgentManager {
 		for (const taskId of this.instances.keys()) {
 			this.clearEvictionTimer(taskId)
 		}
-		this.cancelAll('' as RunId)
+		// Every live child, not the children of one parent. This used to call
+		// `cancelAll('' as RunId)`, and `cancelAll` filters by parent run —
+		// no task has an empty parent, so it matched nothing and the lines
+		// below then dropped every reference to work that was still running.
+		for (const taskId of [...this.instances.keys()]) {
+			this.cancel(taskId)
+		}
 		this.instances.clear()
 		this.spawnRecords.clear()
 		this.listeners.length = 0
 	}
 
+	/**
+	 * Serializes provisioning per parent session.
+	 *
+	 * The width cap counted existing children and then created one, with
+	 * every remaining provisioning step in between. Two concurrent spawns
+	 * under the same parent both read the same count, both saw room, and
+	 * both created — so a cap of N admitted N+1. The check and the write
+	 * that invalidates it have to be one critical section, and the parent
+	 * session is the narrowest key that makes them one: spawns under
+	 * different parents never contend.
+	 *
+	 * In-process only, which is the honest scope. Cross-process capacity is
+	 * the store's to enforce, and no store here spans processes.
+	 */
 	private async provisionSpawn(
+		options: SendMessageOptions,
+		context: AgentTaskContext,
+	): Promise<ChildSpawnRecord> {
+		const key = options.parentSessionId
+		const queued = (this.spawnLocks.get(key) ?? Promise.resolve()).then(
+			() => this.provisionSpawnUnlocked(options, context),
+			// A failed predecessor releases the lock rather than wedging every
+			// later spawn under the same parent.
+			() => this.provisionSpawnUnlocked(options, context),
+		)
+		const barrier = queued.then(
+			() => undefined,
+			() => undefined,
+		)
+		this.spawnLocks.set(key, barrier)
+		try {
+			return await queued
+		} finally {
+			// Clear the slot only if nobody queued behind us — otherwise we
+			// would drop the barrier the next waiter is chained to, and the
+			// map would leak one entry per parent if we never cleared at all.
+			if (this.spawnLocks.get(key) === barrier) this.spawnLocks.delete(key)
+		}
+	}
+
+	private async provisionSpawnUnlocked(
 		options: SendMessageOptions,
 		context: AgentTaskContext,
 	): Promise<ChildSpawnRecord> {
@@ -467,9 +548,9 @@ export class AgentManager {
 
 		// Compensating rollback wraps every mutation after createSession so a
 		// mid-flight failure (status flip, subsession insert, workspace driver)
-		// leaves no orphan child session. Codex SPAWN-ROLLBACK critique (Phase
+		// leaves no orphan child session. spawn-rollback critique (Phase
 		// 2 review, 2026-04-18): without this, `workspaceRegistry.get().create`
-		// throwing — or a concurrent `updateSession` race — strands an
+		// throwing — or a concurrent `updateSession` race — leaves stranded an
 		// `active` child session with no subsession edge, invisible to the
 		// parent but counted against `maxDelegationWidth`.
 		let subSession: Awaited<ReturnType<typeof store.createSubSession>> | undefined
@@ -678,10 +759,44 @@ export class AgentManager {
 		this.markCompleted(agentTask.taskId, result)
 	}
 
+	/**
+	 * Return the unspent part of a settled child's reservation.
+	 *
+	 * The debit at spawn reserves headroom so siblings cannot each be
+	 * promised the same tokens. Nothing returned it, so a pool shrank by
+	 * the full allocation on every spawn no matter what the child used: at
+	 * a half-pool fraction, ten delegations left a parent with a
+	 * thousandth of its budget and the next spawn was refused for a budget
+	 * that had barely been spent.
+	 *
+	 * Idempotent — the reservation is cleared as it is returned, so a
+	 * second terminal transition for the same task cannot credit twice.
+	 * Spend above the reservation returns nothing rather than going
+	 * negative; the child was capped at its allocation, so that case means
+	 * the accounting was already wrong and inventing headroom would hide
+	 * it.
+	 */
+	private releaseBudget(agentTask: AgentTask, spent: number): void {
+		const reserved = agentTask.budgetReservation
+		if (reserved === undefined) return
+		agentTask.budgetReservation = undefined
+
+		const unused = Math.max(0, reserved - Math.max(0, spent))
+		if (unused === 0) return
+		agentTask.context.budgetTracker.remaining += unused
+		this.log.debug('Returned unspent child budget', {
+			taskId: agentTask.taskId,
+			reserved,
+			spent,
+			returned: unused,
+		})
+	}
+
 	private markCompleted(taskId: TaskId, result: BaseAgentResult): void {
 		const agentTask = this.instances.get(taskId)
 		if (!agentTask || isTerminalAgentTaskState(agentTask.state)) return
 
+		this.releaseBudget(agentTask, result.usage?.totalTokens ?? 0)
 		agentTask.result = result
 		agentTask.completedAt = Date.now()
 		this.updateState(taskId, 'completed')
@@ -700,6 +815,11 @@ export class AgentManager {
 	private markFailed(taskId: TaskId, error: string): void {
 		const agentTask = this.instances.get(taskId)
 		if (!agentTask || isTerminalAgentTaskState(agentTask.state)) return
+
+		// A child that failed still spent whatever it spent, and holding the
+		// rest of its reservation would punish the parent twice for one
+		// failure.
+		this.releaseBudget(agentTask, agentTask.result?.usage?.totalTokens ?? 0)
 
 		agentTask.result = {
 			runId: agentTask.context.parentRunId,

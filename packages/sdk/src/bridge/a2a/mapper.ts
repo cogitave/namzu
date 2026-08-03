@@ -12,6 +12,7 @@ function statusEvent(
 	isFinal: boolean,
 	contextId?: string,
 	message?: TaskStatusUpdateEvent['status']['message'],
+	metadata?: Record<string, unknown>,
 ): TaskStatusUpdateEvent {
 	return {
 		taskId,
@@ -22,6 +23,7 @@ function statusEvent(
 			timestamp: new Date().toISOString(),
 		},
 		final: isFinal,
+		...(metadata !== undefined ? { metadata } : {}),
 	}
 }
 
@@ -55,10 +57,27 @@ const MAPPING: {
 	},
 
 	run_failed: (e, ctx) =>
-		statusEvent(e.runId, 'failed', true, ctx, {
-			role: 'agent',
-			parts: [{ kind: 'text', text: e.error }],
-		}),
+		statusEvent(
+			e.runId,
+			'failed',
+			true,
+			ctx,
+			{
+				role: 'agent',
+				parts: [{ kind: 'text', text: e.error }],
+			},
+			// The classification travels as metadata rather than being
+			// flattened into the text: a remote peer deciding whether to
+			// retry needs `retryable` and the code, not prose it would have
+			// to pattern-match.
+			e.failure
+				? {
+						code: e.failure.code,
+						retryable: e.failure.retryable,
+						...(e.failure.details ? { details: e.failure.details } : {}),
+					}
+				: undefined,
+		),
 
 	// Capability degradation is host-facing diagnostics, not A2A task state.
 	capability_warning: null,
@@ -67,6 +86,24 @@ const MAPPING: {
 		statusEvent(e.runId, 'running', false, ctx, {
 			role: 'agent',
 			parts: [{ kind: 'text', text: `Iteration ${e.iteration} started` }],
+		}),
+
+	// A2A models discrete artifacts and task-status transitions; a progress
+	// tick is neither, so it has no A2A representation.
+	tool_progress: null,
+
+	// A retry IS a task-status transition in A2A's model — the task is
+	// still running and this says why nothing is arriving. Reported as
+	// working rather than failed: the call has not given up.
+	provider_retry: (e, ctx) =>
+		statusEvent(e.runId, 'running', false, ctx, {
+			role: 'agent',
+			parts: [
+				{
+					kind: 'text',
+					text: `Model call failed (${e.code}); retrying in ${e.delayMs}ms — attempt ${e.attempt} of ${e.maxRetries}`,
+				},
+			],
 		}),
 
 	tool_completed: (e, ctx) =>
@@ -80,6 +117,23 @@ const MAPPING: {
 				isError: e.isError,
 			},
 		}),
+
+	user_question_asked: (e, ctx) =>
+		statusEvent(e.runId, 'input-required', false, ctx, {
+			role: 'agent',
+			parts: [
+				{ kind: 'text', text: e.question },
+				{
+					kind: 'data',
+					data: { questionId: e.questionId, checkpointId: e.checkpointId },
+					mimeType: 'application/x-namzu-user-question',
+				},
+			],
+		}),
+
+	// The task leaves `input-required` by the next status event it emits;
+	// a second one here would only restate what the resumed run says.
+	user_question_answered: null,
 
 	tool_review_requested: (e, ctx) => {
 		const toolNames = e.toolCalls.map((tc) => tc.name).join(', ')
@@ -131,6 +185,17 @@ const MAPPING: {
 		}),
 
 	iteration_completed: null,
+	// Context management is kernel-internal bookkeeping; A2A peers model a
+	// task lifecycle, not the host runtime's memory strategy.
+	compaction_completed: null,
+	// A refusal is the run's own policy decision; the peer sees it in the
+	// terminal task state, not as a separate signal.
+	guardrail_triggered: null,
+	// Reasoning is kernel-internal: an A2A peer models a task lifecycle,
+	// not the host runtime's inner monologue.
+	reasoning_started: null,
+	reasoning_delta: null,
+	reasoning_completed: null,
 	tool_executing: null,
 	tool_review_completed: null,
 	checkpoint_created: null,
@@ -167,7 +232,7 @@ const MAPPING: {
 	// v3 message + tool-input lifecycle (ses_001-tool-stream-events). A2A's
 	// status-update model is coarse-grained, so per-delta events are dropped
 	// at this layer. `message_completed` carries the aggregated assistant
-	// content (codex A1) — A2A surfaces a single status event with the
+	// content — A2A surfaces a single status event with the
 	// full text, replacing the per-iteration `llm_response` mapping.
 	message_started: null,
 	text_delta: null,

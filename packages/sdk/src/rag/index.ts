@@ -28,7 +28,7 @@ export type {
 
 export { TextChunker, DEFAULT_CHUNKING_CONFIG } from './chunking.js'
 
-export { OpenRouterEmbeddingProvider } from './embedding.js'
+export { HttpEmbeddingProvider } from './embedding.js'
 
 export { InMemoryVectorStore, cosineSimilarity } from './vector-store.js'
 

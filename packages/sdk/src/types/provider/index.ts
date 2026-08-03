@@ -4,6 +4,7 @@ export type {
 	CacheControl,
 	ChatCompletionParams,
 	ChatCompletionResponse,
+	ThinkingConfig,
 } from './chat.js'
 export type { StreamChunk } from './stream.js'
 export type { ModelInfo } from './model.js'
@@ -17,6 +18,9 @@ export type {
 	ProviderConfigRegistry,
 	ProviderType,
 	MockProviderConfig,
+	MockScript,
+	MockToolCall,
+	MockTurn,
 	ProviderFactoryConfig,
 	ProviderCapabilities,
 	ProviderFactoryResult,
@@ -26,3 +30,4 @@ export type {
 	RegisterLazyOptions,
 	LLMProviderConstructor,
 } from './config.js'
+export type { ProviderErrorCode, ProviderErrorInit } from './errors.js'

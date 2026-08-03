@@ -40,10 +40,14 @@ import {
 	type SandboxFileEntry,
 	type SandboxId,
 	type SandboxStatus,
+	withHint,
 } from '@namzu/sdk'
+import { EgressProxy } from '../../egress/index.js'
+import type { BrokeredCredential, RunningEgressProxy } from '../../egress/index.js'
 
 import {
 	ContainerSandboxLayoutValidationError,
+	type EgressPolicy,
 	type SandboxBackend,
 	type SandboxBackendOptions,
 } from '../../index.js'
@@ -69,6 +73,30 @@ export interface DockerBackendInternalConfig {
 	 */
 	readonly layout: ResolvedContainerSandboxLayout
 	readonly dockerBinary?: string
+
+	/**
+	 * `--user` value for the container, e.g. `'1000:1000'` or `'nobody'`.
+	 *
+	 * Left unset by default because the correct uid depends on the image's
+	 * own filesystem ownership, and forcing one would break every image
+	 * that expects root at startup. Set it whenever the image supports a
+	 * non-root user — a container running as root is one bind-mount
+	 * misconfiguration away from writing the host.
+	 */
+	readonly runAsUser?: string
+
+	/**
+	 * Credentials the egress proxy stamps on, per host.
+	 *
+	 * The point is that the real value never enters the sandbox. Any token
+	 * the agent needs to reach an allowed host used to have to be in the
+	 * container's environment — readable by the untrusted code it is meant
+	 * to be isolated from, via `/proc/self/environ` or via a prompt
+	 * injection that exfiltrates it over the very egress the policy
+	 * permits. Here it is held host-side and applied at the boundary.
+	 */
+	readonly brokeredCredentials?: readonly BrokeredCredential[]
+
 	readonly network?: 'none' | 'bridge' | string
 	readonly readyPollIntervalMs?: number
 	readonly readyTimeoutMs?: number
@@ -77,8 +105,8 @@ export interface DockerBackendInternalConfig {
 	 * (vanilla Docker namespaces, what Docker Desktop ships). Linux
 	 * production deployments that have registered gVisor on the host
 	 * daemon can pass `runsc` to upgrade to a userspace-kernel trust
-	 * boundary — same primitive Modal Labs and OpenAI Code Interpreter
-	 * ship. Hosts can also pass a custom runtime name registered in
+	 * boundary — the usual primitive for running untrusted code at
+	 * scale. Hosts can also pass a custom runtime name registered in
 	 * `daemon.json`. macOS Docker Desktop has no `runsc` runtime, so
 	 * the default `runc` is the only option there; that's documented
 	 * as the local-dev tier in the package README.
@@ -133,6 +161,81 @@ export function buildDockerBackend(config: DockerBackendInternalConfig): Sandbox
 	}
 }
 
+/**
+ * Reconcile the configured docker network with the caller's egress policy.
+ *
+ * The policy used to be accepted and silently ignored, which is worse than
+ * not supporting it: a host that set `deny-all` believed the container had
+ * no network and it had the configured one. Docker can enforce `deny-all`
+ * natively (`--network none`); it cannot enforce a host allowlist without
+ * a proxy this backend does not have, so those policies are REFUSED rather
+ * than quietly downgraded to "allow everything".
+ */
+export function resolveNetwork(
+	configured: string,
+	egress: EgressPolicy | undefined,
+	hasProxy = false,
+): string {
+	if (!egress) return configured
+
+	switch (egress.kind) {
+		case 'deny-all':
+			return 'none'
+		case 'allow-all':
+			return configured
+		default:
+			// A host allowlist needs something to filter through. With the
+			// egress proxy the container keeps its network and every request
+			// crosses that boundary; without one there is nothing to enforce
+			// with, and accepting the policy would grant everything while
+			// reporting that it had been restricted.
+			if (hasProxy) return configured
+			throw new Error(
+				`The docker sandbox backend cannot enforce an egress policy of kind '${egress.kind}' without an egress proxy: it has nothing to filter hosts through. Construct the provider with one, or use 'deny-all' / 'allow-all'. Refusing rather than silently granting full network access.`,
+			)
+	}
+}
+
+/**
+ * Hosts an allowlist policy permits.
+ *
+ * Only the two filtering kinds reach here. `deny-all` is enforced by the
+ * container runtime itself and `allow-all` needs no boundary, so routing
+ * either through an allowlist would answer a question nobody asked — and
+ * for `allow-all` it would answer "nothing", denying everything.
+ */
+export async function resolveAllowedHosts(egress: EgressPolicy): Promise<readonly string[]> {
+	if (egress.kind === 'static') return egress.allowedHosts
+	if (egress.kind === 'resolver') return await egress.resolve()
+	throw new Error(
+		`Egress policy of kind "${egress.kind}" does not describe a host allowlist and must not be routed through the proxy.`,
+	)
+}
+
+/** Whether a policy needs a boundary before it can be enforced at all. */
+export function needsEgressProxy(egress: EgressPolicy | undefined): boolean {
+	return egress?.kind === 'static' || egress?.kind === 'resolver'
+}
+
+/**
+ * Confinement flags applied to every container.
+ *
+ * A sandbox whose containers run as root with the full default capability
+ * set is not confining much: `CAP_DAC_OVERRIDE` alone walks past the
+ * read-only bind mounts the layout sets up, and without
+ * `no-new-privileges` a setuid binary inside the image re-escalates. These
+ * are the defaults every container runtime hardening guide starts with,
+ * and none of them were present.
+ *
+ * `--cap-drop=ALL` is deliberately not softened by a re-add list: a
+ * workload that genuinely needs a capability should say so through
+ * `extraRunArgs` and be visible in review.
+ */
+const HARDENING_ARGS: readonly string[] = ['--cap-drop=ALL', '--security-opt=no-new-privileges']
+
+/** Name the container reaches the host-side egress proxy by. */
+const PROXY_HOST_ALIAS = 'namzu-egress'
+
 async function spawnDockerSandbox(
 	config: DockerBackendInternalConfig,
 	options: SandboxBackendOptions,
@@ -140,7 +243,28 @@ async function spawnDockerSandbox(
 	const resolvedLayout = config.layout
 	const id = generateSandboxId()
 	const docker = config.dockerBinary ?? DEFAULT_DOCKER_BINARY
-	const network = config.network ?? 'none'
+
+	// The boundary a host allowlist is actually enforced at. Started before
+	// the container so its address can be handed in as proxy environment,
+	// and torn down with the sandbox — a proxy holding real credentials
+	// must not outlive the thing it was filtering for.
+	let egressProxy: RunningEgressProxy | undefined
+	if (needsEgressProxy(options.egress) && options.egress) {
+		const policy = options.egress
+		egressProxy = await new EgressProxy({
+			// Re-resolved per request rather than captured once, so a
+			// `resolver` policy that rotates is honoured and
+			// `setNetworkPolicy` can swap it on a live sandbox.
+			allowedHosts: () => resolveAllowedHosts(policy),
+			credentials: config.brokeredCredentials ?? [],
+		}).listen()
+	}
+
+	const network = resolveNetwork(
+		config.network ?? 'none',
+		options.egress,
+		egressProxy !== undefined,
+	)
 	const runtime = config.runtime
 	const hostReachability = config.hostReachability ?? 'host-port'
 	const containerName = `namzu-sandbox-${id}`
@@ -157,6 +281,17 @@ async function spawnDockerSandbox(
 		if (containerStarted) {
 			await runOnceQuiet(docker, ['rm', '-f', containerName])
 		}
+		// The proxy starts BEFORE the container and its only other close is
+		// in `destroy()`, which a create that never returned can never
+		// reach. So every failure between the two — a daemon that is down, a
+		// port that could not be read, a worker that missed its readiness
+		// deadline, a label the validator rejected — left a listening server
+		// on loopback stamping real credential headers, plus a retained
+		// event-loop handle, and a retry loop left one per attempt. That is
+		// exactly the invariant this file states where the proxy is started:
+		// it must not outlive the thing it was filtering for.
+		await egressProxy?.close().catch(() => undefined)
+		egressProxy = undefined
 	}
 
 	let hostPort: number
@@ -180,6 +315,8 @@ async function spawnDockerSandbox(
 			containerName,
 			'--network',
 			network,
+			...HARDENING_ARGS,
+			...(config.runAsUser ? ['--user', config.runAsUser] : []),
 		]
 
 		// `--label key=value` flags. Validate first — an empty key or
@@ -207,6 +344,25 @@ async function spawnDockerSandbox(
 		// log line. A skill loader that needs the manifest will
 		// write it to a bind path the worker reads at startup —
 		// avoids env-size limits, keeps the wire shape minimal.
+		if (egressProxy) {
+			// `host-gateway` is docker's own portable name for the host from
+			// inside a container; hard-coding a bridge address would break on
+			// every platform whose bridge is numbered differently. The proxy
+			// itself binds loopback, so this alias is the only way in.
+			args.push('--add-host', `${PROXY_HOST_ALIAS}:host-gateway`)
+			const proxyUrl = `http://${PROXY_HOST_ALIAS}:${egressProxy.port}`
+			// Both spellings: tooling is split between them, and a workload
+			// that reads only the one that is missing bypasses the boundary
+			// entirely — which would look exactly like the policy working.
+			for (const key of ['HTTP_PROXY', 'http_proxy', 'HTTPS_PROXY', 'https_proxy']) {
+				args.push('--env', `${key}=${proxyUrl}`)
+			}
+			// Loopback must not be proxied, or the worker cannot talk to
+			// itself.
+			args.push('--env', 'NO_PROXY=localhost,127.0.0.1')
+			args.push('--env', 'no_proxy=localhost,127.0.0.1')
+		}
+
 		args.push('--env', `NAMZU_SANDBOX_WORKSPACE=${rootDir}`)
 		args.push('--env', `NAMZU_SANDBOX_READ_ROOTS=${renderLayoutReadRootsEnv(resolvedLayout)}`)
 		args.push('--env', `NAMZU_SANDBOX_WRITE_ROOTS=${renderLayoutWriteRootsEnv(resolvedLayout)}`)
@@ -287,6 +443,24 @@ async function spawnDockerSandbox(
 			}
 		},
 
+		async setNetworkPolicy(policy): Promise<void> {
+			// Enforceable only through the egress proxy. Without one the
+			// container's network was fixed at creation — `--network none`
+			// or not — and there is nothing to narrow: accepting the policy
+			// here and doing nothing would leave the caller believing the
+			// sandbox had been confined when it had not. Same rule the
+			// egress-kind refusal above follows.
+			if (!egressProxy) {
+				throw withHint(
+					new Error(
+						'This sandbox cannot change its network policy: it was created without an egress proxy, so its network was fixed at creation and there is nothing to narrow. Refusing rather than accepting a policy that would not be applied.',
+					),
+					'Construct the provider with an egress proxy to make the policy mutable, or create a second sandbox under the narrower policy.',
+				)
+			}
+			egressProxy.setAllowedHosts(async () => policy.allowedHosts)
+		},
+
 		async writeFile(path: string, content: string | Buffer): Promise<void> {
 			const buf = Buffer.isBuffer(content) ? content : Buffer.from(content, 'utf8')
 			let res: Response
@@ -341,6 +515,11 @@ async function spawnDockerSandbox(
 		async destroy(): Promise<void> {
 			status = 'destroyed'
 			await runOnceQuiet(docker, ['rm', '-f', containerName])
+			// The proxy holds real credentials and a live allowlist. Leaving
+			// it listening after the sandbox it was filtering for is gone
+			// means a loopback port that still stamps a token onto anything
+			// that asks — outliving the only thing that justified it.
+			await egressProxy?.close()
 			// Backend never allocates host paths — every bind source
 			// comes from the consumer-supplied layout. Container
 			// teardown is sufficient; the consumer's own lifecycle
@@ -366,8 +545,11 @@ async function readMappedPort(docker: string, containerName: string): Promise<nu
 	])
 	const port = Number(inspectOutput.trim())
 	if (!Number.isInteger(port) || port <= 0 || port > 65535) {
-		throw new Error(
-			`docker inspect returned no usable host port mapping for ${containerName}: '${inspectOutput}'`,
+		throw withHint(
+			new Error(
+				`docker inspect returned no usable host port mapping for ${containerName}: '${inspectOutput}'`,
+			),
+			'The container started but its worker port was never published. Usually the container exited immediately — check its logs — or the host had no free port to bind.',
 		)
 	}
 	return port
@@ -405,9 +587,12 @@ async function execViaWorker(
 				: cause
 					? String(cause)
 					: 'unknown'
-		throw new Error(
-			`namzu-sandbox /execute fetch failed (baseUrl=${baseUrl}): ${err instanceof Error ? err.message : String(err)} — cause: ${causeMsg}`,
-			{ cause: err },
+		throw withHint(
+			new Error(
+				`namzu-sandbox /execute fetch failed (baseUrl=${baseUrl}): ${err instanceof Error ? err.message : String(err)} — cause: ${causeMsg}`,
+				{ cause: err },
+			),
+			'The container was reachable when it started, so it has most likely exited or been killed since — an out-of-memory kill under `memoryLimitMb` is the common cause. Check the container logs and its exit code.',
 		)
 	}
 	if (!res.ok || !res.body) {
@@ -541,10 +726,17 @@ async function waitForWorkerReady(
 		}
 		await new Promise((resolve) => setTimeout(resolve, pollMs))
 	}
-	throw new Error(
-		`namzu-sandbox worker did not become ready within ${timeoutMs}ms: ${
-			lastError instanceof Error ? lastError.message : String(lastError)
-		}`,
+	// A hint attached at the throw site, where the cause is actually known.
+	// The container runtime's own message says a request failed; it cannot
+	// say that the image may not be built or the daemon may not be running,
+	// which is what a reader needs.
+	throw withHint(
+		new Error(
+			`namzu-sandbox worker did not become ready within ${timeoutMs}ms: ${
+				lastError instanceof Error ? lastError.message : String(lastError)
+			}`,
+		),
+		'Check that the container runtime is running and that the sandbox worker image is built and reachable. A cold image pull can also exceed this window — raise the readiness timeout before assuming the worker is broken.',
 	)
 }
 

@@ -170,6 +170,17 @@ export const runStreamCommand: CommandDef = {
 	name: 'run-stream',
 	description: 'Run a single prompt and stream AgentEvents as NDJSON (for host UIs)',
 	passThrough: true,
+	help: [
+		'Usage: namzu run-stream <prompt...> [--session <id>] [--cwd <path>]',
+		'',
+		'Run a single prompt and stream one JSON event per line as the turn',
+		'unfolds — text deltas, tool starts and ends, usage, then a terminal',
+		'event. Built for a host UI that renders progress rather than waiting',
+		'for a final string.',
+		'',
+		'Needs a provider. Set a credential in the environment, or run namzu',
+		'once to pick one interactively.',
+	].join('\n'),
 	handler: async ({ rawArgs }) => {
 		const write = (o: unknown): void => {
 			process.stdout.write(`${JSON.stringify(o)}\n`)
@@ -278,6 +289,15 @@ export const historyCommand: CommandDef = {
 	name: 'history',
 	description: "Print a session's persisted messages as JSON (for host UIs)",
 	passThrough: true,
+	help: [
+		'Usage: namzu history [--session <id>] [--cwd <path>]',
+		'',
+		"Print a session's persisted messages as JSON. With no session id the",
+		'most recent session for the working directory is used.',
+		'',
+		'An empty array means the session exists and has no messages yet — it',
+		'is not an error.',
+	].join('\n'),
 	handler: async ({ rawArgs }) => {
 		const key = parseRunStreamFlags(rawArgs).session
 		if (!key) {

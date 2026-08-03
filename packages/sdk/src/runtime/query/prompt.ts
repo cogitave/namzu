@@ -60,9 +60,34 @@ IMPORTANT: Always use absolute paths based on the working directory above. Befor
 	return lines.join('\n')
 }
 
+/**
+ * Does this run have a tool that needs to know where it is?
+ *
+ * Decided from what a tool DECLARES — `category: 'filesystem'` or a
+ * `file_read` / `file_write` permission — not from its name.
+ *
+ * The name set alone was a real hole: a host registering a perfectly
+ * well-formed filesystem tool called `read_file` got no `<env>` block at
+ * all, so the model was never told the working directory and the host had
+ * to hand-encode the paths into its system prompt. The structured facts
+ * were right there on the `ToolDefinition` and the gate ignored them in
+ * favour of the four built-in names.
+ *
+ * The name set is kept as a fallback for tools that declare neither.
+ */
 function hasFilesystemTools(tools: ToolRegistryContract, allowedTools?: string[]): boolean {
 	const activeTools = allowedTools ?? tools.listNames()
-	return activeTools.some((name) => FILESYSTEM_TOOLS.has(name))
+	return activeTools.some((name) => {
+		if (FILESYSTEM_TOOLS.has(name)) return true
+		const tool = tools.get?.(name)
+		if (!tool) return false
+		if (tool.category === 'filesystem' || tool.category === 'shell') return true
+		return Boolean(
+			tool.permissions?.some(
+				(p) => p === 'file_read' || p === 'file_write' || p === 'shell_execute',
+			),
+		)
+	})
 }
 
 export class PromptBuilder {

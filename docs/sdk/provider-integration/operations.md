@@ -1,7 +1,7 @@
 ---
 title: Provider Operations
 description: Direct provider usage in @namzu/sdk, including chat, streaming, tool-call inspection, model listing, health checks, and capability-driven routing.
-last_updated: 2026-07-30
+last_updated: 2026-08-03
 status: current
 related_packages: ["@namzu/sdk", "@namzu/openai", "@namzu/anthropic", "@namzu/bedrock", "@namzu/openrouter", "@namzu/http", "@namzu/ollama", "@namzu/lmstudio"]
 ---
@@ -246,14 +246,81 @@ The capability object returned by `ProviderRegistry.create()` is often enough to
 | `supportsStreaming` | Turn on token-by-token or chunk-by-chunk UI |
 | `supportsTools` | Enable tool-enabled agents or direct tool-call inspection |
 | `supportsFunctionCalling` | Prefer structured tool orchestration instead of plain-text prompting |
+| `supportsVision` | Attach images to a user message |
+| `supportsDocuments` | Attach documents to a user message |
 
 This lets you branch behavior without hardcoding vendor names.
 
-## 9. Direct Provider Calls vs Agent Runtime
+### Attaching a file to a user turn
+
+A user message carries `attachments`. An attachment with no `type` is an
+image — that is what every attachment was before documents existed, so the
+discriminant stays optional and no existing caller changes:
+
+```ts
+query({
+  messages: [
+    {
+      role: 'user',
+      content: 'summarise this contract',
+      attachments: [
+        { type: 'document', data: base64Pdf, mediaType: 'application/pdf', name: 'contract.pdf' },
+        { data: base64Png, mediaType: 'image/png' },
+      ],
+    },
+  ],
+})
+```
+
+Vision and document support are declared separately because they are
+separate wire shapes and a driver can map one without the other. Sending a
+document to a driver that declares `supportsDocuments: false` warns before
+the request — or throws with `strictCapabilities: true` — instead of
+letting the model answer about a file it never saw. Drivers that map
+images only degrade a document to a named placeholder, so the transcript
+says what was dropped rather than implying it arrived.
+
+### Getting the passage back
+
+Set `citations: true` on a document and the answer carries the passages
+it rests on:
+
+```ts
+const run = await agent.run(...)
+const answer = run.messages.at(-1)
+
+for (const citation of answer?.citations ?? []) {
+  console.log(citation.citedText, citation.location) // { kind: 'page', start: 4, end: 4 }
+}
+```
+
+Citations land on the assistant message, not inside its text. The text is
+what a human reads and the citations are what a checker follows; splicing
+markers into the prose would make the answer worse to read in exchange for
+making it machine-checkable. Absent and empty mean the same thing — the
+model cited nothing.
+
+`location` is a union rather than a page number, because providers segment
+differently and the segmentation is theirs: `page` for a paginated
+document, `char` for plain text, `block` for something already
+structured. Flattening all three to a page number would invent one for the
+two that have none.
+
+Opt-in per document, because it is not free: the provider splits the
+document into citable units and the answer carries the passages it leaned
+on, which costs tokens on a turn that may not need them. A driver that
+maps documents but not citations returns none.
+
+Without this, "here is the contract, answer questions about it" was
+reachable only by having a tool read the file and stringify it, which
+loses the provider's native document handling — page structure, built-in
+OCR, citations — and pays the text cost instead.
+
+## 8. Direct Provider Calls vs Agent Runtime
 
 | If you need... | Use |
 | --- | --- |
-| One request and one normalized answer | `provider.chat()` |
+| One request and one normalized answer | `collect(provider.chatStream(params))` |
 | Incremental output | `provider.chatStream()` |
 | Health or model discovery | `healthCheck()` / `listModels()` |
 | Tool execution loop, safety policy, and final run assembly | `ReactiveAgent.run()` or `drainQuery()` |

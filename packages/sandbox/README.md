@@ -1,73 +1,98 @@
 # @namzu/sandbox
 
-Pluggable sandbox provider for [`@namzu/sdk`](../sdk). Four tiers,
-each backed by the industrial-standard primitive for that
-deployment shape. Same `SandboxProvider` surface the SDK consumes
-across all of them — swapping tiers is a config change, not an
-integration rewrite.
+Pluggable containment for [`@namzu/sdk`](../sdk). Two tiers, one
+`SandboxProvider` surface: swapping the trust boundary is a config
+change, not an integration rewrite.
 
-## Tier matrix (2026 industrial standard)
+## Tiers
 
-| Tier | Use case | Primitive | Cold-start | Local dev |
-|---|---|---|---|---|
-| `process` | Agent runs on the developer's own host (Claude Code-style "don't read `~/.ssh`") | bubblewrap (Linux/WSL2) or Seatbelt (macOS), via [`@anthropic-ai/sandbox-runtime`](https://github.com/anthropic-experimental/sandbox-runtime) | Process spawn (~ms) | Native — no infra |
-| `container` (`docker`) | App in `docker compose` locally or single-tenant prod replica | OCI container, seccomp default profile, tmpfs workdir, no-network default | 0.5–2s | `docker compose up` |
-| `container` (`runsc`) | Trusted-tenant SaaS — what OpenAI Code Interpreter and [Modal](https://modal.com/blog/gvisor-savings-article) ship | Google [gVisor](https://gvisor.dev/docs) userspace kernel as Docker runtime | container start + ~100ms | Linux Docker only (no Docker Desktop on macOS) |
-| `microvm` (`e2b`) | Adversarial multi-tenant SaaS, Python-REPL workloads | Firecracker microVM via [E2B](https://e2b.dev/docs/sandbox) managed service | ~150ms (snapshot/restore) | E2B API key from any laptop |
-| `microvm` (`fly-machines`) | Adversarial multi-tenant SaaS, arbitrary tool-call workloads | Firecracker microVM via [Fly Machines](https://fly.io/docs/machines) | 250ms–1s | Fly API token from any laptop |
-| `microvm` (`self-hosted`) | Same threat model, host insists on owning the scheduler | [`firecracker-containerd`](https://github.com/firecracker-microvm/firecracker-containerd) on KVM-enabled Linux | <300ms with snapshot restore | Lima/Colima Linux VM on macOS |
-| `passthrough` | Tests and explicitly trusted environments | Direct host process — no isolation | n/a | n/a |
+| Tier | Trust boundary | Use it when | Cold start |
+|---|---|---|---|
+| `container` (`docker`) | Kernel namespaces + seccomp, tmpfs workdir, no network unless asked | The model is yours and the user is your customer | 0.5–2s |
+| `container` (`runsc`) | A userspace kernel serves the guest's syscalls | Same tenancy, stronger boundary, commodity Linux without nested virtualization | container start + ~100ms |
+| `container` (`aci-standby-pool`) | The managed provider's isolation host | You cannot reach a container daemon, and a ~1.5s claim is acceptable | ~1.5s from a warm pool |
+| `microvm` (`self-hosted`) | Hardware virtualization | The prompt itself is the attacker | <300ms, resuming a snapshot |
 
-## Why these tiers (and not others)
+Every shape above is implemented. That is worth stating because it
+used not to be: this package once advertised four tiers and six
+backends, and four of those shapes type-checked and then threw. A
+configuration that compiles and cannot run teaches the reader the
+wrong thing about what is here, so the ones that were never built
+are gone rather than pending.
 
-The 2026 consensus across production agent platforms (AWS
-Lambda/Fargate, Fly Machines, Replit, E2B, Modal, OpenAI Code
-Interpreter, Anthropic Code Execution, Daytona) bifurcates cleanly
-along the **trust boundary**:
+## Choosing a tier
 
-- **Adversarial multi-tenant code execution → Firecracker microVMs.**
-  AWS, Fly, Replit, E2B, Daytona all converged here. The argument
-  is in [Fly's "Sandboxing and Workload Isolation"](https://fly.io/blog/sandboxing-and-workload-isolation)
-  and the [original Firecracker paper](https://www.usenix.org/conference/nsdi20/presentation/agache):
-  KVM-backed VMs are the only mainstream primitive with a
-  kernel-level trust boundary, and `jailer` plus snapshot/restore
-  makes them boot in 125ms.
-- **Trusted-tenant or first-party workloads → gVisor.** Google's
-  GKE Sandbox, Modal, OpenAI Code Interpreter run gVisor's `runsc`.
-  Near-zero cold-start, runs on commodity Linux without nested
-  virt. Tradeoff: a userspace-kernel CVE is a tenant escape; a
-  Firecracker CVE generally is not.
-- **Single-user dev workstation → bubblewrap / Seatbelt.** What
-  Anthropic itself ships with Claude Code via
-  `@anthropic-ai/sandbox-runtime`. The threat model is "don't let
-  the agent read `~/.ssh` or run `rm -rf ~`," not "tenant A vs
-  tenant B." Process-spawn cold-start.
-- **Single-tenant or co-trusted tenants → plain Docker + seccomp.**
-  Northflank, Railway, Render, Compass-platform, GitHub Actions
-  runners. Adequate when the model is your model and the user is
-  your customer; insufficient when the prompt is the attacker.
+The question is not which tier is strongest, it is **who you are
+defending against**.
 
-`@namzu/sandbox` exposes all four as separate tiers so the host
-picks the trust boundary that matches its threat model.
+- **The prompt is the attacker** — untrusted input reaching code
+  execution, or tenants who must not reach each other. Take the
+  hardware boundary: a guest kernel per task is the only mainstream
+  primitive whose escape surface is the hypervisor rather than a
+  shared kernel, and snapshot-resume makes starting one cost
+  milliseconds rather than seconds.
+- **The tenant is trusted, the code is not** — your own model, your
+  own users, arbitrary tool calls. A userspace kernel is the good
+  trade: near-zero cold start on commodity Linux, at the cost that a
+  bug in that kernel is a tenant escape where a hypervisor bug
+  usually is not.
+- **Single tenant, or tenants who already trust each other** —
+  namespaces and a seccomp profile are adequate, and they run
+  everywhere with no special runtime.
+- **One operator on their own machine** — the threat is the agent
+  reading `~/.ssh`, not tenant A reading tenant B. That is the SDK's
+  local sandbox provider, not this package.
 
-**What we deliberately do NOT build** is yet-another Firecracker
-scheduler. That is E2B's and Fly's entire product, and writing
-our own would be a years-long detour. We adapt to theirs and
-reserve the `self-hosted` option for hosts that need to own the
-scheduler for compliance or air-gap reasons.
+namzu does not build a microVM scheduler. Starting guests fast and
+safely is an entire product on its own, and the boundary a guest
+gives is the same whoever started it — so the microvm tier is an
+interface to a scheduler, and the one it speaks to is namzu's own.
 
 ## Cloud portability
 
-The interface is cloud-agnostic. `docker` works on every cloud,
-`e2b` and `fly-machines` are managed services not tied to any
-cloud, `runsc` and `firecracker:self-hosted` need infrastructure
-the host chooses (GKE Sandbox, AWS Fargate, self-hosted KVM, etc.).
-Picking a stronger backend may imply picking a different cloud —
-that's the host's call, not the SDK's.
+The interface carries no cloud in it. The container tier over a
+local daemon runs anywhere; the managed-pool runtime and the microvm
+tier need infrastructure the host chooses. Picking a stronger
+boundary may imply picking different infrastructure — that is the
+host's call, not the SDK's.
 
 ## Egress allowlist policy
 
-Every backend supports the same `EgressPolicy` shape:
+Every backend accepts the same `EgressPolicy` shape, but they do **not**
+all enforce every variant, and a backend that cannot enforce one now
+throws instead of quietly ignoring it:
+
+| Backend | `deny-all` | `allow-all` | `static` | `resolver` |
+|---|---|---|---|---|
+| `container:docker` | enforced (`--network none`) | enforced | **throws** — no proxy to filter through | **throws** |
+| `container:standby-pool` | **throws** | **throws** | **throws** | **throws** |
+| `microvm:firecracker` | enforced (empty allowlist) | enforced (no allowlist) | enforced | enforced — `resolve()` is called and its result forwarded |
+
+Two rows carry the same lesson from opposite directions.
+
+The docker row used to accept a restrictive policy and silently grant the
+configured network, which is worse than not supporting the feature: the
+host believes it is protected and stops looking. Refusing loudly is the
+only honest option for a control the backend cannot implement.
+
+The standby-pool row is the same failure found later. Its claim API rejects
+every property override except a config map, so a memory cap, a process
+cap, environment variables and an egress policy have nowhere to ride
+through — and all four were accepted and dropped. Set them on the container
+group profile the pool is built from; the backend now refuses them per
+sandbox rather than pretending.
+
+The firecracker `resolver` column is a third variant of it. `allow-all` and
+`resolver` both used to encode as an omitted allowlist, so one encoding
+carried two opposite intentions and the callback that produces the
+tenant-scoped list was never called anywhere. Whichever way the
+orchestrator reads an omitted field, one of the two was always
+mis-enforced — and the one that failed **open** was the one whose entire
+purpose is restriction. Each variant now has its own encoding: `allow-all`
+omits, `deny-all` sends an explicitly empty list, `resolver` sends what
+`resolve()` returned.
+
+The shape itself:
 
 ```ts
 type EgressPolicy =
@@ -86,63 +111,138 @@ avoids the "where does the resolver get its context from"
 plumbing problem; the host owns the closure, the SDK runtime
 doesn't have to forward identity through `provider.create`.
 
+## Container confinement (`container:docker`)
+
+Every container is launched with:
+
+- `--cap-drop=ALL` — `CAP_DAC_OVERRIDE` alone walks past the read-only bind
+  mounts the layout sets up, so the default capability set makes the mount
+  layout advisory rather than enforced.
+- `--security-opt=no-new-privileges` — without it a setuid binary in the
+  image re-escalates after the drop.
+- `--network none` by default (see the egress table above).
+
+There is deliberately **no re-add list** for capabilities. A workload that
+genuinely needs one should say so somewhere a reviewer sees it, not inherit
+it from a default.
+
+`runAsUser` (`--user`) is opt-in rather than defaulted, because the correct
+uid depends on the image's own filesystem ownership and forcing one breaks
+every image that expects root at startup. Set it whenever the image
+supports a non-root user — a container running as root is one bind-mount
+misconfiguration away from writing the host.
+
 ## Status
 
-This package is being built out across the `ses_004-native-agentic-runtime-and-sandbox`
-design session in phases. Each phase ships one tier, fully
-implemented + tested + documented:
+Every backend this package declares is implemented, and
+`createSandboxProvider` refuses anything else BY NAME at construction
+rather than handing back a provider that confines nothing — so a
+mistake surfaces while the host is wiring, not mid-run.
 
-- ✅ **P3.0** — Public surface (this commit). Backend interfaces,
-  tier discriminator, egress policy. Factory throws
-  `SandboxBackendNotImplementedError` until backends land.
-- ⏳ **P3.1** — `container:docker` backend. Universal local-dev
-  default; ships first.
-- ⏳ **P3.2** — `EgressPolicy` plumbing + reference egress proxy
-  (compass-platform pattern: HTTP CONNECT tunnel + JWT-claim
-  allowlist).
-- ⏳ **P3.3** — `microvm:e2b` and `microvm:fly-machines` adapters.
-  Phase 2 production tier.
-- ⏳ **P3.4** — `process` backend (Anthropic sandbox-runtime
-  adapter — bubblewrap/Seatbelt).
-- ⏳ **P3.5** — `container:runsc` (gVisor) and
-  `microvm:self-hosted` (firecracker-containerd). Phase 3
-  adversarial-multi-tenant.
-
-The interface here is what every backend implements; the staged
-rollout is purely about turning each tier on, not about reshaping
-the contract.
-
-## Usage (post-implementation)
+## Usage
 
 ```ts
 import { createSandboxProvider } from '@namzu/sandbox'
 
-// Phase 1: ship now, works on every dev's laptop
-const sandbox = createSandboxProvider({
+// A container per task, on a local daemon. Runs anywhere.
+const contained = createSandboxProvider({
   backend: { tier: 'container', runtime: 'docker', image: 'namzu-worker:latest' },
-  defaultEgress: { kind: 'static', allowedHosts: ['api.openai.com', 'api.anthropic.com'] },
+  layout,
+  defaultEgress: { kind: 'static', allowedHosts: ['api.example.com'] },
 })
 
-// Phase 2: production, adversarial multi-tenant, managed Firecracker
-const sandbox = createSandboxProvider({
-  backend: { tier: 'microvm', service: 'e2b', apiKey: process.env.E2B_API_KEY! },
+// A guest per task, when the prompt itself is the attacker. The
+// allowlist is resolved per tenant, so the boundary is not fixed at
+// construction.
+const virtualized = createSandboxProvider({
+  backend: {
+    tier: 'microvm',
+    service: 'self-hosted',
+    orchestratorEndpoint: 'https://sandbox-control.internal',
+    getToken: async () => mintOrchestratorBearer(),
+    template: 'golden-rev-7',
+  },
   defaultEgress: {
     kind: 'resolver',
     resolve: async () => fetchAllowlistForTenant(tenantId),
   },
 })
 
-// Phase 3: adversarial multi-tenant, self-hosted Firecracker on KVM
-const sandbox = createSandboxProvider({
-  backend: {
-    tier: 'microvm',
-    service: 'self-hosted',
-    firecrackerBinary: '/usr/local/bin/firecracker',
-    kernelImage: '/var/lib/namzu/vmlinux',
-    rootfsImage: '/var/lib/namzu/rootfs.ext4',
-  },
-})
-
 // Wire into drainQuery / agent run config:
-//   sandboxProvider: sandbox
+//   sandboxProvider: contained
 ```
+
+## The egress boundary
+
+An egress policy could be *declared* long before it could be *enforced*.
+Only two of its four shapes were honourable anywhere: this backend refused
+a host allowlist outright because it had nothing to filter through, and
+only the microVM backend forwarded one. `deny-all` and `allow-all` were
+the whole spectrum a container-tier sandbox could express — all or nothing.
+
+`EgressProxy` is the boundary the other two shapes are enforced at. When a
+policy is `static` or `resolver`, the backend starts one on host loopback
+and points the container at it through `HTTP_PROXY` / `HTTPS_PROXY` (both
+spellings, because tooling is split between them and a workload reading
+only the missing one would bypass the boundary while looking like the
+policy worked).
+
+Matching has exactly two forms, and substring is deliberately not one of
+them:
+
+| Entry | Matches |
+| --- | --- |
+| `api.example.com` | that host only |
+| `.example.com` | that domain and any subdomain |
+
+`host.includes(entry)` is the obvious implementation and it is a hole: an
+entry of `example.com` would admit `example.com.attacker.net`, a domain
+the attacker owns. Plain suffix matching has the same hole without the
+leading dot — `notexample.com` ends with `example.com` — which is why the
+wildcard form requires it. Comparison ignores case and a trailing dot,
+because DNS does and an allowlist that did not would be bypassable by
+typing the host differently.
+
+A policy that cannot be read **denies**. An allowlist that fails open is
+not an allowlist.
+
+### Changing the policy while the sandbox runs
+
+`sandbox.setNetworkPolicy({ allowedHosts })` narrows or widens a live
+sandbox. The shape this exists for — "clone with a token, then drop to
+deny-all before running anything the repository contains" — was not
+expressible at all: the policy was frozen at provider construction, so a
+host had to build a second provider and a second sandbox and copy the work
+across.
+
+A backend that cannot enforce it **throws**. A network policy accepted and
+not applied is worse than one never offered: the caller stops looking, and
+the run proceeds believing it is confined.
+
+### Credentials that never enter the sandbox
+
+Any token the agent needed to reach an allowed host had to be inside the
+container, in the environment — readable by the untrusted code it is meant
+to be isolated from, via `/proc/self/environ`, or via a prompt injection
+that exfiltrates it over the very egress the policy permits.
+
+`brokeredCredentials` holds the real value host-side and stamps it on at
+the boundary, scoped per host:
+
+```ts
+brokeredCredentials: [
+  { host: 'api.example.com', header: 'authorization', value: process.env.TOKEN! },
+]
+```
+
+Per host, not globally: a credential attached to every request is a
+credential handed to whichever host the agent was talked into contacting.
+
+One honest limit. A credential **cannot** be injected into a CONNECT
+tunnel — by the time those bytes reach the proxy they are encrypted, and
+reading them would mean terminating TLS with a CA the sandbox trusts, which
+would let the proxy read every byte the agent sends anywhere. That is a
+strictly larger risk than the one being mitigated, so it is not built. A
+workload that needs brokering speaks plain HTTP to the proxy and lets it
+upgrade to HTTPS upstream. The allowlist is still enforced on CONNECT,
+because the target names the host in clear text.

@@ -7,12 +7,14 @@ import type {
 	StreamChunk,
 	TokenUsage,
 	ToolChoice,
+	ToolResultContent,
 } from '@namzu/sdk'
 import {
 	ProviderRequestError,
 	isCallerAbortError,
 	providerHttpError,
 	providerVendorError,
+	toolResultToText,
 } from '@namzu/sdk'
 import { DialectMismatchError, type HttpConfig, type HttpDialect } from './types.js'
 
@@ -130,7 +132,12 @@ function formatOpenAIMessages(messages: ChatCompletionParams['messages']): unkno
 		if (msg.role === 'tool') {
 			return {
 				role: 'tool',
-				content: msg.content,
+				// Tool messages are text-only on this wire. The raw content was
+				// passed straight through, so a result carrying an image put
+				// its base64 into the prompt: the model paid for every
+				// character, could read none of them, and read a serialized
+				// object where a picture should be with nothing saying so.
+				content: toolResultToText(msg.content ?? ''),
 				tool_call_id: (msg as { toolCallId?: string }).toolCallId,
 			}
 		}
@@ -223,12 +230,13 @@ function formatAnthropicRequest(
 		}
 
 		if (msg.role === 'tool') {
-			const toolMsg = msg as { toolCallId?: string; content?: string }
+			const toolMsg = msg as { toolCallId?: string; content?: ToolResultContent }
 			pendingToolResults.push({
 				type: 'tool_result',
 				tool_use_id: toolMsg.toolCallId ?? 'unknown',
-				content:
-					typeof toolMsg.content === 'string' ? toolMsg.content : JSON.stringify(toolMsg.content),
+				// Same degrade as the sibling dialect: the named placeholder
+				// rather than a JSON dump of the payload.
+				content: toolResultToText(toolMsg.content ?? ''),
 			})
 			continue
 		}
@@ -281,7 +289,12 @@ function formatAnthropicRequest(
 	if (params.topK !== undefined) body.top_k = params.topK
 	if (params.stop) body.stop_sequences = params.stop
 
-	if (params.tools && params.tools.length > 0) {
+	// 'none' means the model must not call a tool. Mapping it to the wire's
+	// 'auto' said it MAY, so a caller that had forbidden tool use got a
+	// request that permitted it. Omitting the tools is the guarantee.
+	const toolsForbidden = params.toolChoice === 'none'
+
+	if (params.tools && params.tools.length > 0 && !toolsForbidden) {
 		const enforcedNames = new Set(params.enforceToolInputSchema ?? [])
 		const strictEnabled = shouldUseStrictToolInputs(model ?? '', strictToolUse)
 		body.tools = params.tools.map((t) => ({
@@ -292,11 +305,10 @@ function formatAnthropicRequest(
 		}))
 	}
 
-	if (params.toolChoice !== undefined) {
+	if (params.toolChoice !== undefined && !toolsForbidden) {
 		const tc = params.toolChoice
 		if (tc === 'auto') body.tool_choice = { type: 'auto' }
 		else if (tc === 'required') body.tool_choice = { type: 'any' }
-		else if (tc === 'none') body.tool_choice = { type: 'auto' }
 		else if (typeof tc === 'object' && tc.type === 'function') {
 			body.tool_choice = { type: 'tool', name: tc.function.name }
 		}
@@ -320,6 +332,8 @@ export const HTTP_CAPABILITIES: ProviderCapabilities = {
 	supportsStreaming: true,
 	supportsFunctionCalling: true,
 	supportsVision: false,
+	// Images only. A document degrades to a named placeholder.
+	supportsDocuments: false,
 }
 
 export class HttpProvider implements LLMProvider {

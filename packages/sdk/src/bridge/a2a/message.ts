@@ -1,4 +1,5 @@
 import type { A2AMessage, A2AMessageRole, A2APart, TextPart } from '../../types/a2a/index.js'
+import { toolResultToText } from '../../types/message/content.js'
 import type { Message, MessageRole } from '../../types/message/index.js'
 
 function toA2ARole(role: MessageRole): A2AMessageRole {
@@ -20,7 +21,10 @@ export function messageToA2A(msg: Message): A2AMessage {
 	const parts: A2APart[] = []
 
 	if (msg.content) {
-		parts.push({ kind: 'text', text: msg.content })
+		// A2A parts are text; a tool result carrying blocks is flattened,
+		// with non-text blocks becoming an explicit placeholder rather than
+		// silently vanishing from the peer's view.
+		parts.push({ kind: 'text', text: toolResultToText(msg.content) })
 	}
 
 	if (msg.role === 'assistant' && 'toolCalls' in msg && msg.toolCalls) {

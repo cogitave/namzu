@@ -1,5 +1,10 @@
 import type { AgentInput } from '../types/agent/base.js'
-import type { CreateTaskOptions, TaskGateway, TaskHandle } from '../types/agent/gateway.js'
+import type {
+	CreateTaskOptions,
+	SiblingFailurePolicy,
+	TaskGateway,
+	TaskHandle,
+} from '../types/agent/gateway.js'
 import type { AgentManagerContract } from '../types/agent/manager.js'
 import type { AgentTaskContext } from '../types/agent/task.js'
 import type { TaskId } from '../types/ids/index.js'
@@ -18,16 +23,37 @@ export class LocalTaskGateway implements TaskGateway {
 
 	private completionListeners: Set<(handle: TaskHandle) => void> = new Set()
 
+	/**
+	 * The settled summary of each task, kept past the manager's eviction.
+	 *
+	 * Terminal tasks leave the manager 30 seconds after they finish, and
+	 * `listTasks` rebuilt itself by looking every tracked id back up — so a
+	 * task that finished a minute ago simply vanished from the tool whose
+	 * whole job is the end-of-run check. A supervisor could not tell an
+	 * evicted task from one that never launched; both read as absence.
+	 *
+	 * Eviction is there to release the heavy state — messages, controllers,
+	 * spawn records — not the fact that the task ran. This is a handful of
+	 * fields per task, bounded by the number the gateway itself launched.
+	 */
+	private settledHandles: Map<TaskId, TaskHandle> = new Map()
+
+	private siblingFailurePolicy: SiblingFailurePolicy = 'continue'
+
 	constructor(
 		agentManager: AgentManagerContract,
 		taskContext: AgentTaskContext,
 		listener?: RunEventListener,
 		parentInput?: Pick<AgentInput, 'taskStore' | 'runtimeToolOverrides' | 'runtimeContext'>,
+		options?: { siblingFailurePolicy?: SiblingFailurePolicy },
 	) {
 		this.agentManager = agentManager
 		this.taskContext = taskContext
 		this.listener = listener
 		this.parentInput = parentInput
+		if (options?.siblingFailurePolicy) {
+			this.siblingFailurePolicy = options.siblingFailurePolicy
+		}
 	}
 
 	async createTask(options: CreateTaskOptions): Promise<TaskHandle> {
@@ -47,8 +73,19 @@ export class LocalTaskGateway implements TaskGateway {
 				tenantId: this.taskContext.tenantId,
 				projectId: this.taskContext.projectId,
 				parentActor: this.taskContext.parentActor,
+				// Hang the child run off the span the caller supplied, so a
+				// delegated run joins the trace it belongs to instead of
+				// starting its own root.
+				...(options.parentSpan ? { configOverrides: { parentSpan: options.parentSpan } } : {}),
 			},
-			{ ...this.taskContext, budgetTracker: { ...this.taskContext.budgetTracker } },
+			// The budget tracker is SHARED on purpose and must not be cloned.
+			// `AgentManager.spawn` debits it (`remaining -= allocatedTokens`)
+			// so siblings divide one pool; handing each spawn a fresh copy
+			// made the debit land on a throwaway object, so every child saw
+			// the parent's untouched `remaining` and N children were each
+			// allocated `maxBudgetFraction` of the SAME number — N x 50% of a
+			// budget that only had 100% in it.
+			this.taskContext,
 			this.listener,
 		)
 
@@ -60,6 +97,10 @@ export class LocalTaskGateway implements TaskGateway {
 				const completed = this.agentManager.getInstance(task.taskId)
 				if (completed) {
 					const handle = toHandle(completed)
+					// Snapshot now, while the manager still holds it — in 30
+					// seconds eviction takes the record away.
+					this.settledHandles.set(task.taskId, handle)
+					this.applySiblingPolicy(handle)
 					for (const cb of this.completionListeners) {
 						cb(handle)
 					}
@@ -75,6 +116,48 @@ export class LocalTaskGateway implements TaskGateway {
 			})
 
 		return toHandle(task)
+	}
+
+	/**
+	 * Decide what a failed child means for the ones still running.
+	 *
+	 * The primitive to stop them already existed — every child holds an
+	 * abort controller chained to the parent's, and `AgentManager.cancel`
+	 * uses it — but nothing connected a failure to it. So a supervisor that
+	 * fanned out five tasks and watched one die had no way to say the other
+	 * four were now pointless: they ran to completion spending budget on
+	 * work whose premise had gone.
+	 *
+	 * `'continue'` stays the default, and deliberately. Partial results are
+	 * usually worth having, and a policy that tore down healthy siblings on
+	 * any failure would make one flaky child able to waste four good ones.
+	 * The point is that the choice is now expressible, not that the answer
+	 * changed.
+	 */
+	private applySiblingPolicy(finished: TaskHandle): void {
+		if (this.siblingFailurePolicy !== 'cancel-siblings') return
+		if (!hasFailed(finished)) return
+
+		const cancelled: TaskId[] = []
+		for (const taskId of this.trackedTaskIds) {
+			if (taskId === finished.taskId) continue
+			const sibling = this.agentManager.getInstance(taskId)
+			// `cancel` is already a no-op on a terminal task, but checking
+			// here keeps the log honest about what was actually stopped.
+			if (!sibling || sibling.state === 'completed' || sibling.state === 'failed') continue
+			this.agentManager.cancel(taskId)
+			cancelled.push(taskId)
+		}
+
+		if (cancelled.length > 0) {
+			getRootLogger()
+				.child({ component: 'LocalTaskGateway' })
+				.info('Cancelled siblings after a child failed', {
+					failed: finished.taskId,
+					agentId: finished.agentId,
+					cancelled,
+				})
+		}
 	}
 
 	async waitForTask(taskId: TaskId): Promise<TaskHandle> {
@@ -99,11 +182,28 @@ export class LocalTaskGateway implements TaskGateway {
 		return task ? toHandle(task) : undefined
 	}
 
+	/**
+	 * Snapshots a task's terminal state so it survives eviction.
+	 *
+	 * Called when the task settles, while the manager still holds it.
+	 */
+	rememberSettled(taskId: TaskId): void {
+		const task = this.agentManager.getInstance(taskId)
+		if (task) this.settledHandles.set(taskId, toHandle(task))
+	}
+
 	listTasks(): TaskHandle[] {
 		const handles: TaskHandle[] = []
 		for (const taskId of this.trackedTaskIds) {
+			// The live task wins: a remembered snapshot must never shadow
+			// state that is still being updated.
 			const task = this.agentManager.getInstance(taskId)
-			if (task) handles.push(toHandle(task))
+			if (task) {
+				handles.push(toHandle(task))
+				continue
+			}
+			const settled = this.settledHandles.get(taskId)
+			if (settled) handles.push(settled)
 		}
 		return handles
 	}
@@ -114,6 +214,20 @@ export class LocalTaskGateway implements TaskGateway {
 			this.completionListeners.delete(callback)
 		}
 	}
+}
+
+/**
+ * Did this child fail?
+ *
+ * Two answers have to agree. `state` is `'failed'` only when the spawn
+ * machinery itself threw; a child whose agent RAN and returned
+ * `status: 'failed'` lands in `markCompleted` regardless, carrying the
+ * failure in its result rather than its state. Reading only the state
+ * would therefore miss the ordinary case — an agent that tried and could
+ * not — and catch only the exceptional one.
+ */
+function hasFailed(handle: TaskHandle): boolean {
+	return handle.state === 'failed' || handle.result?.status === 'failed'
 }
 
 function toHandle(task: import('../types/agent/task.js').AgentTask): TaskHandle {

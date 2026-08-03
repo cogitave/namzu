@@ -34,8 +34,10 @@ export const SANDBOX_SAFE_ENV_KEYS = new Set([
 // ContainerSandboxLayout default container paths
 // ---------------------------------------------------------------------------
 //
-// Mirrors the taxonomy Anthropic's container architecture exposes to
-// the model (Claude container blueprint, Code Interpreter, "skills").
+// A container needs one place the user will see and several the user
+// will not, and the difference has to be legible to the model from the
+// path alone — otherwise everything lands in the output bind and the
+// user reads the agent's scratch work as its answer.
 // Exported so prompt-template consumers can write
 // `Outputs go to ${SANDBOX_DEFAULT_OUTPUTS_PATH}` instead of
 // hard-coding the string in two places that drift.
@@ -49,9 +51,8 @@ export const SANDBOX_DEFAULT_UPLOADS_PATH = '/mnt/user-data/uploads'
 /**
  * Default container path for the agent's working/scratch space (RW).
  * Sibling mount to {@link SANDBOX_DEFAULT_OUTPUTS_PATH} — anything
- * written here is invisible to the output collector by design,
- * mirroring the Anthropic Cowork pattern (`/home/claude` scratch vs.
- * `/mnt/user-data/outputs` user-visible).
+ * written here is invisible to the output collector by design: an
+ * agent needs somewhere to think out loud that is not the deliverable.
  */
 export const SANDBOX_DEFAULT_SCRATCH_PATH = '/mnt/user-data/scratch'
 

@@ -27,11 +27,13 @@ import type {
 	SandboxExecOptions,
 	SandboxExecResult,
 	SandboxFileEntry,
+	SandboxIsolationControl,
 	SandboxProvider,
 	SandboxStatus,
 } from '../../types/sandbox/index.js'
 import { generateSandboxId } from '../../utils/id.js'
 import type { Logger } from '../../utils/logger.js'
+import { assertIsolation, describeIsolation } from '../isolation.js'
 
 // ---------------------------------------------------------------------------
 // Path safety
@@ -50,15 +52,134 @@ function assertInsideSandbox(sandboxRoot: string, targetPath: string): string {
 // Platform detection
 // ---------------------------------------------------------------------------
 
+/**
+ * Flags the Linux tier spawns under. Kept next to the probe so detection
+ * tests the isolation that will actually be applied, not a weaker subset.
+ */
+const LINUX_UNSHARE_FLAGS = ['--mount', '--pid', '--fork', '--map-root-user', '--net']
+
+/**
+ * One output stream, accumulated under a byte cap that it reports hitting.
+ *
+ * The clipping was inline and the flag was not set, so a run whose output
+ * ran past the cap returned a result that looked whole. The tool layer
+ * already renders `stdoutTruncated` when a backend sets it — this one
+ * simply never did, which is the silent truncation the contract's own doc
+ * says the kernel does not do.
+ */
+export class CappedStream {
+	private chunks = ''
+	private bytes = 0
+
+	constructor(private readonly capBytes: number) {}
+
+	push(chunk: Buffer): void {
+		if (this.bytes < this.capBytes) {
+			this.chunks += chunk.subarray(0, this.capBytes - this.bytes).toString('utf-8')
+		}
+		this.bytes += chunk.length
+	}
+
+	get text(): string {
+		return this.chunks
+	}
+
+	/** True once more arrived than was kept. */
+	get truncated(): boolean {
+		return this.bytes > this.capBytes
+	}
+}
+
+export interface LimitedSpawnRequest {
+	readonly environment: SandboxEnvironment
+	readonly command: string
+	readonly args: readonly string[]
+	readonly rootDir: string
+	readonly memoryLimitMb?: number
+	readonly maxProcesses?: number
+}
+
+/** Single-quote for a shell, escaping any quote already inside. */
+function shellQuote(value: string): string {
+	return `'${value.replace(/'/g, "'\\''")}'`
+}
+
+/**
+ * How one command is spawned under a tier, with the resource caps applied.
+ *
+ * The caps used to live inside the unconfined tier's branch only, so a host
+ * that asked for stronger isolation had its memory and process limits
+ * silently dropped — a control failing in the one direction nobody checks.
+ * They are the same shell builtin on every tier; the only difference is
+ * that the stronger tiers apply them one level in, inside the wrapper they
+ * already spawn through.
+ */
+export function buildLimitedSpawn(request: LimitedSpawnRequest): {
+	spawnCommand: string
+	spawnArgs: string[]
+} {
+	const { environment, command, args, rootDir } = request
+
+	const limits: string[] = []
+	if (request.memoryLimitMb !== undefined) {
+		limits.push(`ulimit -v ${request.memoryLimitMb * 1024}`)
+	}
+	if (request.maxProcesses !== undefined) {
+		limits.push(`ulimit -u ${request.maxProcesses}`)
+	}
+
+	// The innermost command: either the target itself, or the target behind
+	// a shell that sets the caps first.
+	const inner: readonly string[] =
+		limits.length > 0
+			? [
+					'/bin/sh',
+					'-c',
+					`${limits.join(' && ')} && ${[command, ...args].map(shellQuote).join(' ')}`,
+				]
+			: [command, ...args]
+
+	switch (environment) {
+		case 'linux-namespace':
+			return {
+				spawnCommand: 'unshare',
+				spawnArgs: [...LINUX_UNSHARE_FLAGS, '--', ...inner],
+			}
+
+		case 'macos-seatbelt':
+			return {
+				spawnCommand: 'sandbox-exec',
+				spawnArgs: ['-p', buildSeatbeltProfile(rootDir), '--', ...inner],
+			}
+
+		case 'basic': {
+			const [head, ...rest] = inner
+			return { spawnCommand: head as string, spawnArgs: rest }
+		}
+
+		default: {
+			const _exhaustive: never = environment
+			throw new Error(`Unknown sandbox environment: ${_exhaustive}`)
+		}
+	}
+}
+
 function detectEnvironment(): SandboxEnvironment {
 	const { platform } = process
 
 	if (platform === 'linux') {
 		try {
-			execSync('unshare --version', { stdio: 'ignore' })
+			// Probe the real flags, not just the binary. `unshare --version`
+			// succeeds on a host where unprivileged user namespaces are
+			// disabled by sysctl and every actual spawn would fail — the tier
+			// would be claimed and never delivered. The other platform's probe
+			// already runs its sandbox for real; this one now does too.
+			execSync(`unshare ${LINUX_UNSHARE_FLAGS.join(' ')} -- /bin/true`, {
+				stdio: 'ignore',
+			})
 			return 'linux-namespace'
 		} catch {
-			// unshare not available
+			// unshare missing, or the host refuses the namespaces we need
 		}
 	}
 
@@ -82,8 +203,6 @@ function detectEnvironment(): SandboxEnvironment {
  * Resolve a path to its canonical form so seatbelt matches correctly.
  * macOS symlinks like /var → /private/var must be resolved before use
  * in SBPL rules, because the kernel evaluates real paths.
- *
- * Reference: Anthropic sandbox-runtime normalizePathForSandbox()
  */
 function canonicalizePath(p: string): string {
 	try {
@@ -99,7 +218,6 @@ function canonicalizePath(p: string): string {
 /**
  * Build a macOS seatbelt (SBPL) profile for sandbox isolation.
  *
- * Reference: Anthropic sandbox-runtime generateSandboxProfile()
  * Key principle: (deny default) + explicit allows. Network always denied.
  */
 function buildSeatbeltProfile(sandboxRoot: string): string {
@@ -354,52 +472,16 @@ class LocalSandbox implements Sandbox {
 		command: string,
 		args: string[],
 	): { spawnCommand: string; spawnArgs: string[] } {
-		switch (this.environment) {
-			case 'linux-namespace':
-				return {
-					spawnCommand: 'unshare',
-					spawnArgs: ['--mount', '--pid', '--fork', '--map-root-user', '--', command, ...args],
-				}
-
-			case 'macos-seatbelt': {
-				const profile = buildSeatbeltProfile(this.rootDir)
-				return {
-					spawnCommand: 'sandbox-exec',
-					spawnArgs: ['-p', profile, '--', command, ...args],
-				}
-			}
-
-			case 'basic': {
-				const limits: string[] = []
-
-				const memoryMb = this.config.memoryLimitMb
-				if (memoryMb !== undefined) {
-					const memoryKb = memoryMb * 1024
-					limits.push(`ulimit -v ${memoryKb}`)
-				}
-
-				const maxProcs = this.config.maxProcesses
-				if (maxProcs !== undefined) {
-					limits.push(`ulimit -u ${maxProcs}`)
-				}
-
-				if (limits.length > 0) {
-					const prefix = limits.join(' && ')
-					const fullCommand = `${prefix} && ${command} ${args.map((a) => `'${a.replace(/'/g, "'\\''")}'`).join(' ')}`
-					return {
-						spawnCommand: '/bin/sh',
-						spawnArgs: ['-c', fullCommand],
-					}
-				}
-
-				return { spawnCommand: command, spawnArgs: args }
-			}
-
-			default: {
-				const _exhaustive: never = this.environment
-				throw new Error(`Unknown sandbox environment: ${_exhaustive}`)
-			}
-		}
+		return buildLimitedSpawn({
+			environment: this.environment,
+			command,
+			args,
+			rootDir: this.rootDir,
+			...(this.config.memoryLimitMb !== undefined
+				? { memoryLimitMb: this.config.memoryLimitMb }
+				: {}),
+			...(this.config.maxProcesses !== undefined ? { maxProcesses: this.config.maxProcesses } : {}),
+		})
 	}
 
 	private spawnProcess(
@@ -423,27 +505,12 @@ class LocalSandbox implements Sandbox {
 				return
 			}
 
-			let stdout = ''
-			let stderr = ''
-			let stdoutBytes = 0
-			let stderrBytes = 0
+			const stdout = new CappedStream(SANDBOX_MAX_OUTPUT_BYTES)
+			const stderr = new CappedStream(SANDBOX_MAX_OUTPUT_BYTES)
 			let timedOut = false
 
-			child.stdout?.on('data', (chunk: Buffer) => {
-				if (stdoutBytes < SANDBOX_MAX_OUTPUT_BYTES) {
-					const remaining = SANDBOX_MAX_OUTPUT_BYTES - stdoutBytes
-					stdout += chunk.subarray(0, remaining).toString('utf-8')
-				}
-				stdoutBytes += chunk.length
-			})
-
-			child.stderr?.on('data', (chunk: Buffer) => {
-				if (stderrBytes < SANDBOX_MAX_OUTPUT_BYTES) {
-					const remaining = SANDBOX_MAX_OUTPUT_BYTES - stderrBytes
-					stderr += chunk.subarray(0, remaining).toString('utf-8')
-				}
-				stderrBytes += chunk.length
-			})
+			child.stdout?.on('data', (chunk: Buffer) => stdout.push(chunk))
+			child.stderr?.on('data', (chunk: Buffer) => stderr.push(chunk))
 
 			child.on('error', (err: NodeJS.ErrnoException) => {
 				if (err.code === 'ABORT_ERR' || ac.signal.aborted) {
@@ -466,10 +533,16 @@ class LocalSandbox implements Sandbox {
 			child.on('close', (code, signal) => {
 				resolvePromise({
 					exitCode: code ?? (timedOut ? 124 : 1),
-					stdout,
-					stderr,
+					stdout: stdout.text,
+					stderr: stderr.text,
 					signal: signal ?? undefined,
 					timedOut,
+					// The contract has carried these since the other backend
+					// needed them, and this one clipped without setting them:
+					// the model read a complete-looking result whose tail was
+					// gone. The tool layer already renders the flag.
+					stdoutTruncated: stdout.truncated,
+					stderrTruncated: stderr.truncated,
 				})
 			})
 		})
@@ -480,6 +553,15 @@ class LocalSandbox implements Sandbox {
 // LocalSandboxProvider
 // ---------------------------------------------------------------------------
 
+export interface LocalSandboxProviderOptions {
+	/**
+	 * Controls this run relies on. Construction throws when the detected
+	 * environment cannot enforce one of them, rather than downgrading to
+	 * whatever the host happens to offer.
+	 */
+	readonly requireIsolation?: readonly SandboxIsolationControl[]
+}
+
 export class LocalSandboxProvider implements SandboxProvider {
 	readonly id = 'local'
 	readonly name = 'Local Sandbox'
@@ -487,11 +569,28 @@ export class LocalSandboxProvider implements SandboxProvider {
 
 	private readonly log: Logger
 
-	constructor(log: Logger) {
+	constructor(log: Logger, options: LocalSandboxProviderOptions = {}) {
 		this.environment = detectEnvironment()
 		this.log = log.child({ component: 'LocalSandboxProvider' })
 
-		this.log.info('Initialized', { environment: this.environment })
+		assertIsolation(this.environment, options.requireIsolation ?? [])
+
+		const enforced = describeIsolation(this.environment)
+		if (this.environment === 'basic') {
+			// `warn`, not `info`. This tier confines nothing: the spawned
+			// process sees the whole host filesystem, the whole network, and
+			// every host process. The host-side controls that do survive (env
+			// scrubbed to a safe key set, cwd anchored, the SDK's own file
+			// helpers path-checked) are not process confinement, and a run
+			// that reads "sandbox created" in its log has every reason to
+			// believe otherwise.
+			this.log.warn('No isolation available on this host; commands run unconfined', {
+				environment: this.environment,
+				enforced,
+			})
+		} else {
+			this.log.info('Initialized', { environment: this.environment, enforced })
+		}
 	}
 
 	async create(config?: SandboxCreateConfig): Promise<Sandbox> {

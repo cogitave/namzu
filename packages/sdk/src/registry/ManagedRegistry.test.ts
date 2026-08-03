@@ -13,7 +13,7 @@
  *     throws and aborts the batch (no partial-success semantics).
  *   - `getOrThrow(id)`: returns the item; throws
  *     `new Error("Not found: <id>. Available: <csv of known ids>")`
- *     — a plain `Error`, NOT a typed `XYZNotFoundError` (Codex #1).
+ *     — a plain `Error`, NOT a typed `XYZNotFoundError`.
  *   - No start / stop lifecycle exists (design §2.3 claim was
  *     fictional).
  */

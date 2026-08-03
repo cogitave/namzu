@@ -45,6 +45,7 @@ describe('@namzu/bedrock', () => {
 				supportsStreaming: true,
 				supportsFunctionCalling: true,
 				supportsVision: false,
+				supportsDocuments: false,
 			})
 		})
 

@@ -101,9 +101,15 @@ function resultToToolResult(result: ComputerUseResult): ToolResult {
 	switch (result.type) {
 		case 'screenshot': {
 			const { data, mimeType, width, height } = result.result
+			// `output` used to BE the base64 payload, which meant the model
+			// received 400 KB–2.7 MB of undecodable characters as text —
+			// roughly 100k–670k tokens — and could not see the screen at
+			// all. The image now travels as a content block; `output` keeps
+			// the short human/transcript-facing description.
 			return {
 				success: true,
-				output: data.toString('base64'),
+				output: `Screenshot captured (${width}x${height}, ${mimeType}).`,
+				content: [{ type: 'image', data: data.toString('base64'), mediaType: mimeType }],
 				data: { mimeType, width, height, encoding: 'base64' },
 			}
 		}

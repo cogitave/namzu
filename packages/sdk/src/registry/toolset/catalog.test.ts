@@ -49,7 +49,6 @@ describe('ToolCatalog', () => {
 				enabled: true,
 				loading: 'deferred',
 				preferred: true,
-				permissionPolicy: 'always_allow',
 			},
 		})
 		catalog.registerTool({

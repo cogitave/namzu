@@ -6,17 +6,19 @@
  *     - Builds a context message block (see buildContext tests).
  *     - Concatenates `[system, ...context, user(question)]` and calls
  *       `advisor.provider.chat(...)` with `toolChoice: 'none'`.
- *     - Parses the response via a passthrough `{ advice: rawContent }`
- *       shape (no structured parsing yet — advisor.ts line 166-168).
- *     - Returns `{result, usage, cost, durationMs}`. `cost` is a
- *       zero-value `CostInfo` — pricing is provider-specific and not
- *       applied here.
+ *     - Parses the response with `parseAdvisoryResponse`, lifting any
+ *       `<warnings>` / `<decisions>` blocks out of the prose.
+ *     - Returns `{result, usage, cost, durationMs}`. `cost` is computed
+ *       from `advisor.pricing` when present, and zero-valued when the
+ *       advisor carries none.
  *
  *   - `buildSystemPrompt` priority:
- *     1. `advisor.systemPrompt` (verbatim).
+ *     1. `advisor.systemPrompt`.
  *     2. `advisor.persona` (via `assembleSystemPrompt`).
  *     3. Fallback: "You are <name>, an advisory agent." + optional
  *        domains line + "Provide concise, actionable advice..."
+ *     Every branch is followed by the response contract, so an advisor
+ *     with its own prompt is still told how its answer is read back.
  *
  *   - `buildContext`:
  *     - Returns [] when `request.includeContext === false`.
@@ -46,6 +48,7 @@ import type {
 } from '../types/provider/index.js'
 
 import { type AdvisoryCallContext, AdvisoryExecutor } from './executor.js'
+import { ADVISORY_RESPONSE_CONTRACT } from './parse.js'
 
 /**
  * Builds a minimal mock provider for advisory tests. Phase 2 of
@@ -159,12 +162,13 @@ describe('AdvisoryExecutor — consult happy path', () => {
 })
 
 describe('AdvisoryExecutor — buildSystemPrompt', () => {
-	it('uses advisor.systemPrompt verbatim when set', async () => {
+	it('keeps advisor.systemPrompt and appends the response contract', async () => {
 		const provider = mockProvider()
 		const e = new AdvisoryExecutor()
 		await e.consult(advisor({ provider, systemPrompt: 'FIXED PROMPT' }), req, ctx())
 		const call = vi.mocked(provider.chatStream).mock.calls[0]?.[0] as ChatCompletionParams
-		expect(call.messages[0]?.content).toBe('FIXED PROMPT')
+		expect(call.messages[0]?.content).toContain('FIXED PROMPT')
+		expect(call.messages[0]?.content).toContain(ADVISORY_RESPONSE_CONTRACT)
 	})
 
 	it('falls back to name + domains + boilerplate when no systemPrompt or persona', async () => {

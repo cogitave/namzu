@@ -133,16 +133,29 @@ describe('createComputerUseTool', () => {
 		expect(calls).toHaveLength(0)
 	})
 
-	it('returns base64 PNG output for screenshot', async () => {
+	it('returns the screenshot as an image BLOCK, not as base64 text', async () => {
 		const { host } = makeHost()
 		const tool = createComputerUseTool(host)
 
 		const result = await tool.execute({ type: 'screenshot' }, makeContext())
 
 		expect(result.success).toBe(true)
-		expect(Buffer.from(result.output, 'base64').slice(0, 4)).toEqual(
+
+		// `output` used to BE the base64 payload, so the model received
+		// hundreds of thousands of tokens of undecodable characters and
+		// could not see the screen at all. It is now a short description.
+		expect(result.output).toContain('1920x1080')
+		expect(result.output.length).toBeLessThan(200)
+
+		const blocks = result.content
+		expect(Array.isArray(blocks)).toBe(true)
+		const image = (blocks as Array<{ type: string; data?: string; mediaType?: string }>)[0]
+		expect(image?.type).toBe('image')
+		expect(image?.mediaType).toBe('image/png')
+		expect(Buffer.from(image?.data ?? '', 'base64').subarray(0, 4)).toEqual(
 			Buffer.from([0x89, 0x50, 0x4e, 0x47]),
 		)
+
 		expect(result.data).toMatchObject({
 			mimeType: 'image/png',
 			width: 1920,

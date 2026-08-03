@@ -8,7 +8,7 @@ import type { Message } from '../../types/message/index.js'
 import type { ProviderErrorInfo } from '../../types/provider/index.js'
 import type { CheckpointRunScope, CheckpointStore } from '../../types/run/checkpoint-store.js'
 import type { EmergencySaveData } from '../../types/run/emergency.js'
-import type { Run, RunPersistenceConfig, StopReason } from '../../types/run/index.js'
+import type { Run, RunPersistenceConfig, StepResult, StopReason } from '../../types/run/index.js'
 import type { ProjectId, ThreadId } from '../../types/session/ids.js'
 import { type ModelPricing, ZERO_COST, accumulateCost } from '../../utils/cost.js'
 import { generateEmergencySaveId } from '../../utils/id.js'
@@ -19,6 +19,11 @@ export class RunPersistence {
 	private runStore: RunDiskStore
 	private checkpointStore: CheckpointStore
 	private pricing?: ModelPricing
+
+	/** See {@link recordTurnUsage}. */
+	private _lastPromptTokens?: number
+	/** See {@link lastPromptMessageCount}. */
+	private _lastPromptMessageCount?: number
 	private log: Logger
 	private readonly _sessionId: SessionId
 	private readonly _threadId: ThreadId
@@ -204,7 +209,133 @@ export class RunPersistence {
 		}
 	}
 
+	/**
+	 * Accumulate usage from a MAIN-LOOP turn, and remember its prompt size.
+	 *
+	 * `tokenUsage.promptTokens` is cumulative across turns, so it says
+	 * nothing about how full the context currently is. The last turn's
+	 * prompt count does: it is the provider's own measurement of the
+	 * context it just received. Compaction needs that number and nothing
+	 * else gives it — a char/4 heuristic is the alternative.
+	 *
+	 * Side-channel calls (advisory, the compaction verifier, routing) use
+	 * plain {@link accumulateUsage} instead: their prompts are not the
+	 * run's context, and letting them write here would corrupt the signal.
+	 */
+	recordTurnUsage(usage: TokenUsage): void {
+		this.accumulateUsage(usage)
+		this._lastPromptTokens = usage.promptTokens
+		// How much of the history that number covers. The loop pushes the
+		// assistant message and its tool results AFTER this call, so without
+		// the watermark a reader cannot tell which messages the provider
+		// actually weighed — and every one appended since is invisible to it.
+		this._lastPromptMessageCount = this.run.messages.length
+	}
+
+	/**
+	 * Forget the last prompt measurement. Called after compaction: the
+	 * reading described the context that was just replaced, so leaving it
+	 * in place would re-trigger compaction against a window that no longer
+	 * exists.
+	 */
+	/**
+	 * Attach the loop's per-iteration record to the run so a host that
+	 * persists the returned `Run` keeps per-step attribution instead of
+	 * having to reconstruct it from raw events.
+	 */
+	/** Record the validated structured output on the run. */
+	/**
+	 * Override the assembled result.
+	 *
+	 * Used by the output-guardrail rewrite path: the run produced text, a
+	 * policy corrected it, and the corrected text is what `run_completed`
+	 * and `Run.result` must carry.
+	 */
+	/**
+	 * Override the run's final text.
+	 *
+	 * The override is sticky: `resolveResult` re-derives the result from the
+	 * message tail, and it runs again when the run settles, so without this
+	 * flag a guardrail's redaction was silently re-expanded back to the raw
+	 * model output at `markCompleted`. The previous code only survived that
+	 * by settling the run EARLY — which is what made configuring a guardrail
+	 * rewrite a cancelled run's status.
+	 */
+	setResult(result: string): void {
+		this.run.result = result
+		this.resultOverridden = true
+	}
+
+	setStructuredOutput(value: unknown): void {
+		this.run.structuredOutput = value
+	}
+
+	setSteps(steps: readonly StepResult[]): void {
+		this.run.steps = steps
+	}
+
+	clearLastPromptTokens(): void {
+		this._lastPromptTokens = undefined
+		this._lastPromptMessageCount = undefined
+	}
+
+	/**
+	 * Provider-reported size of the most recent main-loop prompt, or
+	 * `undefined` before the first turn completes.
+	 */
+	get lastPromptTokens(): number | undefined {
+		return this._lastPromptTokens
+	}
+
+	/**
+	 * How many messages {@link lastPromptTokens} covers. Anything at or
+	 * after this index was appended once the measurement was already taken
+	 * and has to be accounted for separately.
+	 */
+	get lastPromptMessageCount(): number | undefined {
+		return this._lastPromptMessageCount
+	}
+
+	/**
+	 * Seed the spend counters from a checkpoint so a resumed run continues
+	 * its budget instead of starting a fresh one.
+	 *
+	 * Without this, a run checkpointed at $4.80 of a $5 cap came back with a
+	 * brand-new $5: a task that parked five times spent 5x its cap while
+	 * every invocation truthfully reported itself in budget. The checkpoint
+	 * already persisted all three values — they were written and discarded
+	 * on the way back in.
+	 *
+	 * Restore, not accumulate: the caller holds a checkpoint's absolute
+	 * totals, and adding them to a freshly-zeroed run would be the same
+	 * arithmetic only by accident.
+	 */
+	restoreUsage(tokenUsage: TokenUsage, costInfo: CostInfo, currentIteration: number): void {
+		this.run.tokenUsage = { ...tokenUsage }
+		this.run.costInfo = { ...costInfo }
+		this.run.currentIteration = currentIteration
+	}
+
+	/**
+	 * Assemble the final assistant output WITHOUT settling the run.
+	 *
+	 * An output guardrail has to read what the run produced before it can
+	 * judge it, and the only way to materialize that used to be
+	 * `markCompleted()` — which force-marked a cancelled or paused run as
+	 * `completed` merely because a guardrail was configured. Reading and
+	 * settling are different operations; this is the read.
+	 */
+	materializeResult(): string {
+		this.resolveResult()
+		return this.run.result ?? ''
+	}
+
+	/** Set once a caller has explicitly supplied the final text. */
+	private resultOverridden = false
+
 	private resolveResult(): void {
+		if (this.resultOverridden) return
+
 		// Walk the tail of the message log to assemble the final
 		// assistant output. The iteration loop's auto-continuation
 		// path (see `runtime/query/iteration/index.ts`) inserts a

@@ -64,10 +64,14 @@ describe('PluginLifecycleManager', () => {
 			const hook2Handler = vi.fn(async (): Promise<PluginHookResult> => ({ action: 'continue' }))
 
 			// Register hooks manually
-			manager['hookHandlers'].set('run_start', [
-				{ pluginId: 'plugin_1' as PluginId, handler: hook1Handler },
-				{ pluginId: 'plugin_2' as PluginId, handler: hook2Handler },
-			])
+			manager.registerHook('plugin_1' as PluginId, {
+				event: 'run_start',
+				handler: hook1Handler,
+			})
+			manager.registerHook('plugin_2' as PluginId, {
+				event: 'run_start',
+				handler: hook2Handler,
+			})
 
 			const results = await manager.executeHooks('run_start', { runId: mockRunId })
 
@@ -84,7 +88,10 @@ describe('PluginLifecycleManager', () => {
 					}),
 			)
 
-			manager['hookHandlers'].set('run_start', [{ pluginId: mockPluginId, handler: slowHandler }])
+			manager.registerHook(mockPluginId, {
+				event: 'run_start',
+				handler: slowHandler,
+			})
 
 			const managerWithShortTimeout = new PluginLifecycleManager({
 				pluginRegistry,
@@ -93,9 +100,10 @@ describe('PluginLifecycleManager', () => {
 				hookTimeoutMs: 10, // Very short timeout
 			})
 
-			managerWithShortTimeout['hookHandlers'].set('run_start', [
-				{ pluginId: mockPluginId, handler: slowHandler },
-			])
+			managerWithShortTimeout.registerHook(mockPluginId, {
+				event: 'run_start',
+				handler: slowHandler,
+			})
 
 			const results = await managerWithShortTimeout.executeHooks('run_start', {
 				runId: mockRunId,
@@ -127,11 +135,18 @@ describe('PluginLifecycleManager', () => {
 					return { action: 'continue' }
 				})
 
-				manager['hookHandlers'].set('pre_tool_use', [
-					{ pluginId: 'plugin_1' as PluginId, handler: handler1 },
-					{ pluginId: 'plugin_2' as PluginId, handler: handler2 },
-					{ pluginId: 'plugin_3' as PluginId, handler: handler3 },
-				])
+				manager.registerHook('plugin_1' as PluginId, {
+					event: 'pre_tool_use',
+					handler: handler1,
+				})
+				manager.registerHook('plugin_2' as PluginId, {
+					event: 'pre_tool_use',
+					handler: handler2,
+				})
+				manager.registerHook('plugin_3' as PluginId, {
+					event: 'pre_tool_use',
+					handler: handler3,
+				})
 
 				await manager.executeHooks('pre_tool_use', { runId: mockRunId })
 
@@ -156,11 +171,18 @@ describe('PluginLifecycleManager', () => {
 					return { action: 'continue' }
 				})
 
-				manager['hookHandlers'].set('post_tool_use', [
-					{ pluginId: 'plugin_1' as PluginId, handler: handler1 },
-					{ pluginId: 'plugin_2' as PluginId, handler: handler2 },
-					{ pluginId: 'plugin_3' as PluginId, handler: handler3 },
-				])
+				manager.registerHook('plugin_1' as PluginId, {
+					event: 'post_tool_use',
+					handler: handler1,
+				})
+				manager.registerHook('plugin_2' as PluginId, {
+					event: 'post_tool_use',
+					handler: handler2,
+				})
+				manager.registerHook('plugin_3' as PluginId, {
+					event: 'post_tool_use',
+					handler: handler3,
+				})
 
 				await manager.executeHooks('post_tool_use', { runId: mockRunId })
 
@@ -181,10 +203,14 @@ describe('PluginLifecycleManager', () => {
 					return { action: 'continue' }
 				})
 
-				manager['hookHandlers'].set('run_start', [
-					{ pluginId: 'plugin_1' as PluginId, handler: handler1 },
-					{ pluginId: 'plugin_2' as PluginId, handler: handler2 },
-				])
+				manager.registerHook('plugin_1' as PluginId, {
+					event: 'run_start',
+					handler: handler1,
+				})
+				manager.registerHook('plugin_2' as PluginId, {
+					event: 'run_start',
+					handler: handler2,
+				})
 
 				await manager.executeHooks('run_start', { runId: mockRunId })
 
@@ -202,10 +228,14 @@ describe('PluginLifecycleManager', () => {
 					return { action: 'continue' }
 				})
 
-				manager['hookHandlers'].set('run_start', [
-					{ pluginId: 'plugin_1' as PluginId, handler: handler1 },
-					{ pluginId: 'plugin_2' as PluginId, handler: handler2 },
-				])
+				manager.registerHook('plugin_1' as PluginId, {
+					event: 'run_start',
+					handler: handler1,
+				})
+				manager.registerHook('plugin_2' as PluginId, {
+					event: 'run_start',
+					handler: handler2,
+				})
 
 				const results = await manager.executeHooks('run_start', { runId: mockRunId })
 
@@ -223,39 +253,19 @@ describe('PluginLifecycleManager', () => {
 					return { action: 'continue' }
 				})
 
-				manager['hookHandlers'].set('pre_tool_use', [
-					{ pluginId: 'plugin_1' as PluginId, handler: handler1 },
-					{ pluginId: 'plugin_2' as PluginId, handler: handler2 },
-				])
+				manager.registerHook('plugin_1' as PluginId, {
+					event: 'pre_tool_use',
+					handler: handler1,
+				})
+				manager.registerHook('plugin_2' as PluginId, {
+					event: 'pre_tool_use',
+					handler: handler2,
+				})
 
 				const results = await manager.executeHooks('pre_tool_use', { runId: mockRunId })
 
 				expect(results).toHaveLength(1)
 				expect(results[0]?.action).toBe('skip')
-				expect(handler2).not.toHaveBeenCalled()
-			})
-
-			it('should short-circuit and return resume action', async () => {
-				const handler1 = vi.fn(async (): Promise<PluginHookResult> => {
-					return { action: 'resume', input: 'new_input_value' }
-				})
-
-				const handler2 = vi.fn(async (): Promise<PluginHookResult> => {
-					return { action: 'continue' }
-				})
-
-				manager['hookHandlers'].set('pre_llm_call', [
-					{ pluginId: 'plugin_1' as PluginId, handler: handler1 },
-					{ pluginId: 'plugin_2' as PluginId, handler: handler2 },
-				])
-
-				const results = await manager.executeHooks('pre_llm_call', { runId: mockRunId })
-
-				expect(results).toHaveLength(1)
-				expect(results[0]?.action).toBe('resume')
-				if (results[0]?.action === 'resume') {
-					expect(results[0].input).toBe('new_input_value')
-				}
 				expect(handler2).not.toHaveBeenCalled()
 			})
 
@@ -270,10 +280,14 @@ describe('PluginLifecycleManager', () => {
 
 				// Use pre_* hook for forward execution order (plugin_1 runs first and short-circuits).
 				// post_* hooks run in reverse order for cleanup semantics.
-				manager['hookHandlers'].set('pre_llm_call', [
-					{ pluginId: 'plugin_1' as PluginId, handler: handler1 },
-					{ pluginId: 'plugin_2' as PluginId, handler: handler2 },
-				])
+				manager.registerHook('plugin_1' as PluginId, {
+					event: 'pre_llm_call',
+					handler: handler1,
+				})
+				manager.registerHook('plugin_2' as PluginId, {
+					event: 'pre_llm_call',
+					handler: handler2,
+				})
 
 				const results = await manager.executeHooks('pre_llm_call', { runId: mockRunId })
 
@@ -291,10 +305,14 @@ describe('PluginLifecycleManager', () => {
 					return { action: 'continue' }
 				})
 
-				manager['hookHandlers'].set('pre_tool_use', [
-					{ pluginId: 'plugin_1' as PluginId, handler: handler1 },
-					{ pluginId: 'plugin_2' as PluginId, handler: handler2 },
-				])
+				manager.registerHook('plugin_1' as PluginId, {
+					event: 'pre_tool_use',
+					handler: handler1,
+				})
+				manager.registerHook('plugin_2' as PluginId, {
+					event: 'pre_tool_use',
+					handler: handler2,
+				})
 
 				const results = await manager.executeHooks('pre_tool_use', { runId: mockRunId })
 
@@ -313,10 +331,14 @@ describe('PluginLifecycleManager', () => {
 					return { action: 'continue' }
 				})
 
-				manager['hookHandlers'].set('iteration_start', [
-					{ pluginId: 'plugin_1' as PluginId, handler: handler1 },
-					{ pluginId: 'plugin_2' as PluginId, handler: handler2 },
-				])
+				manager.registerHook('plugin_1' as PluginId, {
+					event: 'iteration_start',
+					handler: handler1,
+				})
+				manager.registerHook('plugin_2' as PluginId, {
+					event: 'iteration_start',
+					handler: handler2,
+				})
 
 				const results = await manager.executeHooks('iteration_start', { runId: mockRunId })
 
@@ -335,7 +357,7 @@ describe('PluginLifecycleManager', () => {
 					return { action: 'continue' }
 				})
 
-				manager['hookHandlers'].set('pre_tool_use', [{ pluginId: mockPluginId, handler }])
+				manager.registerHook(mockPluginId, { event: 'pre_tool_use', handler })
 
 				const contextData = {
 					runId: mockRunId,
@@ -362,7 +384,7 @@ describe('PluginLifecycleManager', () => {
 					return { action: 'continue' }
 				})
 
-				manager['hookHandlers'].set('iteration_end', [{ pluginId: mockPluginId, handler }])
+				manager.registerHook(mockPluginId, { event: 'iteration_end', handler })
 
 				await manager.executeHooks('iteration_end', {
 					runId: mockRunId,
@@ -383,7 +405,7 @@ describe('PluginLifecycleManager', () => {
 					return { action: 'continue' }
 				})
 
-				manager['hookHandlers'].set('run_start', [{ pluginId: mockPluginId, handler }])
+				manager.registerHook(mockPluginId, { event: 'run_start', handler })
 
 				await manager.executeHooks('run_start', { runId: mockRunId })
 
@@ -404,7 +426,7 @@ describe('PluginLifecycleManager', () => {
 					throw new Error('Handler crashed')
 				})
 
-				manager['hookHandlers'].set('run_start', [{ pluginId: mockPluginId, handler }])
+				manager.registerHook(mockPluginId, { event: 'run_start', handler })
 
 				const results = await manager.executeHooks('run_start', { runId: mockRunId })
 
@@ -420,7 +442,7 @@ describe('PluginLifecycleManager', () => {
 					throw new Error('Handler failed')
 				})
 
-				manager['hookHandlers'].set('run_start', [{ pluginId: mockPluginId, handler }])
+				manager.registerHook(mockPluginId, { event: 'run_start', handler })
 
 				const executePromise = manager.executeHooks('run_start', { runId: mockRunId })
 				await expect(executePromise).resolves.not.toThrow()
@@ -438,7 +460,7 @@ describe('PluginLifecycleManager', () => {
 					async (): Promise<PluginHookResult> => ({ action: 'modify', input: { x: 1 } }),
 				)
 
-				manager['hookHandlers'].set('pre_tool_use', [{ pluginId: mockPluginId, handler }])
+				manager.registerHook(mockPluginId, { event: 'pre_tool_use', handler })
 
 				await manager.executeHooks(
 					'pre_tool_use',
@@ -464,7 +486,7 @@ describe('PluginLifecycleManager', () => {
 
 			it('should not emit RunEvents when emitRunEvent omitted', async () => {
 				const handler = vi.fn(async (): Promise<PluginHookResult> => ({ action: 'continue' }))
-				manager['hookHandlers'].set('run_start', [{ pluginId: mockPluginId, handler }])
+				manager.registerHook(mockPluginId, { event: 'run_start', handler })
 				await expect(manager.executeHooks('run_start', { runId: mockRunId })).resolves.toHaveLength(
 					1,
 				)

@@ -14,7 +14,7 @@ import { ActionCapabilityError, type Adapter, AdapterUnavailableError } from './
 
 // ---------------------------------------------------------------------------
 // Key code table — AppleScript System Events `key code` for non-printable keys.
-// Covers the keys Anthropic's computer_20250124 reference uses + common extras.
+// Covers the non-printable keys a pointer-and-keyboard tool needs.
 // Printable keys go through `keystroke`, not `key code`.
 // ---------------------------------------------------------------------------
 

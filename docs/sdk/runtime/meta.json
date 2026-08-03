@@ -1,4 +1,13 @@
 {
   "title": "Runtime",
-  "pages": ["index", "configuration", "identities", "low-level", "replay"]
+  "pages": [
+    "index",
+    "configuration",
+    "loop-control",
+    "duplex",
+    "testing",
+    "identities",
+    "low-level",
+    "replay"
+  ]
 }

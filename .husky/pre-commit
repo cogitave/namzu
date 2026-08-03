@@ -36,9 +36,18 @@ sessions=$(awk -F'|' '
 
 [ -z "$sessions" ] && exit 0
 
-# Portable mtime helper (macOS uses -f %m, GNU uses -c %Y).
+# Portable mtime helper (GNU uses -c %Y, BSD/macOS uses -f %m).
+#
+# GNU stat must be tried FIRST and the result validated as an integer:
+# on GNU, `-f` means --file-system and SUCCEEDS, so a `-f`-first probe
+# never falls through and returns a block of filesystem stats instead of
+# an epoch. That silently broke this gate on Git Bash / Windows, where
+# every comparison below then failed with "integer expected".
 mtime() {
-  stat -f %m "$1" 2>/dev/null || stat -c %Y "$1" 2>/dev/null
+  m=$(stat -c %Y "$1" 2>/dev/null)
+  case "$m" in ''|*[!0-9]*) m=$(stat -f %m "$1" 2>/dev/null) ;; esac
+  case "$m" in ''|*[!0-9]*) m='' ;; esac
+  printf '%s' "$m"
 }
 
 # Newest staged-file mtime.

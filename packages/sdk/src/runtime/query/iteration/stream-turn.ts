@@ -1,6 +1,17 @@
+import { type Span, SpanStatusCode } from '@opentelemetry/api'
 import { isProviderRequestError } from '../../../provider/errors.js'
+import { GENAI, NAMZU, chatSpanName, parentContext } from '../../../telemetry/attributes.js'
+import {
+	recordModelDuration,
+	recordTimeToFirstToken,
+	recordTokenUsage,
+} from '../../../telemetry/metrics.js'
+import { getTracer } from '../../../telemetry/runtime-accessors.js'
 import { mergeTokenUsage } from '../../../types/common/index.js'
+import { NamzuError } from '../../../types/errors/index.js'
 import type { ToolUseId } from '../../../types/ids/index.js'
+import type { Citation, ReasoningBlock } from '../../../types/message/index.js'
+import { ProviderError } from '../../../types/provider/errors.js'
 import type {
 	ChatCompletionResponse,
 	LLMProvider,
@@ -52,8 +63,8 @@ export interface StreamingTurnResult {
  * end-of-message. The bus's ephemeral filter (D1) ensures these
  * deltas never hit transcript.jsonl.
  *
- * Edge cases (codex A3, A4, A5):
- * - Stream ends without `finishReason` (anthropic-sdk-typescript#842
+ * Edge cases A3, A4, A5:
+ * - Stream ends without `finishReason` (a known vendor-SDK failure mode
  *   dropped message_stop): we still emit `message_completed` from a
  *   finally-style fall-through path with `stopReason: 'refusal'`.
  * - `tool_input_delta` with no `toolUseId` registered yet: we drop
@@ -64,6 +75,55 @@ export interface StreamingTurnResult {
  *   we instead synthesize a tool call with runtime truncation metadata
  *   so the executor can return a model-readable retry hint.
  */
+/**
+ * Close out a turn that was cancelled part-way through.
+ *
+ * Everything a completed turn records, for a turn that stopped early: the
+ * usage it did accumulate, the latency it did spend, the span it opened,
+ * and a terminal event closing the message it announced.
+ *
+ * The event is emitted directly rather than yielded because this runs
+ * inside a `catch` that is about to re-throw — a `yield` there would never
+ * be pulled. Nothing here is allowed to throw over the cancellation: a
+ * failure while tidying up must not replace the reason the turn ended.
+ */
+async function settleCancelledTurn(args: {
+	emitEvent: EmitEvent
+	runId: import('../../../types/ids/index.js').RunId
+	iteration: number
+	messageId: import('../../../types/ids/index.js').MessageId
+	usage: ChatCompletionResponse['usage']
+	text: string
+	model: string
+	startedAt: number
+	span: Span
+}): Promise<void> {
+	try {
+		recordTokenUsage(args.model, args.usage)
+		recordModelDuration(args.model, Date.now() - args.startedAt)
+		args.span.setAttributes({
+			[GENAI.USAGE_INPUT_TOKENS]: args.usage.promptTokens,
+			[GENAI.USAGE_OUTPUT_TOKENS]: args.usage.completionTokens,
+			[NAMZU.CACHE_READ_TOKENS]: args.usage.cachedTokens ?? 0,
+			[NAMZU.CACHE_WRITE_TOKENS]: args.usage.cacheWriteTokens ?? 0,
+		})
+		args.span.setStatus({ code: SpanStatusCode.OK })
+		args.span.end()
+
+		await args.emitEvent({
+			type: 'message_completed',
+			runId: args.runId,
+			iteration: args.iteration,
+			messageId: args.messageId,
+			stopReason: 'cancelled',
+			usage: args.usage,
+			content: args.text || undefined,
+		})
+	} catch {
+		// Best effort. The cancellation is the news.
+	}
+}
+
 export async function* streamProviderTurn(
 	provider: LLMProvider,
 	params: import('../../../types/provider/index.js').ChatCompletionParams,
@@ -73,7 +133,24 @@ export async function* streamProviderTurn(
 	iteration: number,
 	forceFinalize: boolean,
 	log: Logger,
+	parentSpan?: Span,
 ): AsyncGenerator<RunEvent, StreamingTurnResult> {
+	// The `chat {model}` span the GenAI conventions require. There was none:
+	// `chatSpanName` existed with zero call sites, so a trace carried no LLM
+	// latency at all and the token counts landed on the iteration span
+	// instead of the operation that produced them.
+	const callStartedAt = Date.now()
+	let firstDeltaSeen = false
+	const chatSpan = getTracer().startSpan(chatSpanName(params.model), {}, parentContext(parentSpan))
+	chatSpan.setAttributes({
+		[GENAI.OPERATION_NAME]: 'chat',
+		[GENAI.REQUEST_MODEL]: params.model,
+		...(params.temperature !== undefined
+			? { [GENAI.REQUEST_TEMPERATURE]: params.temperature }
+			: {}),
+		...(params.maxTokens !== undefined ? { [GENAI.REQUEST_MAX_TOKENS]: params.maxTokens } : {}),
+	})
+
 	const messageId = generateMessageId()
 	await emitEvent({ type: 'message_started', runId, iteration, messageId })
 	yield* drainPending()
@@ -112,12 +189,23 @@ export async function* streamProviderTurn(
 			inputTruncated: boolean
 		}
 	>()
-	let streamError: Error | undefined
+	// Reasoning blocks, bucketed by stream index exactly like tool calls.
+	// Order matters on replay — a provider wants the assistant turn echoed
+	// verbatim — so the map is drained in index order at the end.
+	const reasoningBuckets = new Map<
+		number,
+		{ type: 'thinking' | 'redacted_thinking'; text: string; signature?: string; encrypted?: string }
+	>()
 
-	const stream = provider.chatStream({
-		...params,
-		stream: true,
-	}) as AsyncIterable<StreamChunk>
+	// Citations arrive as their own deltas, in the order the model made
+	// them, and are collected verbatim: they are evidence, so reordering or
+	// de-duplicating them would edit the record the reader checks against.
+	const citations: Citation[] = []
+
+	let streamError: string | undefined
+	let streamCause: unknown
+
+	const stream = provider.chatStream({ ...params, stream: true }) as AsyncIterable<StreamChunk>
 
 	// Drive the stream manually so each `.next()` can be RACED against the run
 	// abort: a Stop tears the in-flight model request down (the provider got
@@ -148,11 +236,95 @@ export async function* streamProviderTurn(
 			const res = await (aborted ? Promise.race([next, aborted]) : next)
 			if (res.done) break
 			const chunk = res.value
+
+			// A backoff notice from the retry decorator, not output. Emitted
+			// and drained here because this is the only moment the consumer
+			// runs during a retry — the decorator is about to sleep, and it
+			// is that silence a host cannot otherwise distinguish from a
+			// hang. It carries no delta, so nothing below applies to it.
+			if (chunk.retry) {
+				await emitEvent({
+					type: 'provider_retry',
+					runId,
+					iteration,
+					attempt: chunk.retry.attempt,
+					maxRetries: chunk.retry.maxRetries,
+					delayMs: chunk.retry.delayMs,
+					code: chunk.retry.code,
+					...(chunk.retry.status !== undefined ? { status: chunk.retry.status } : {}),
+					serverDirected: chunk.retry.serverDirected,
+				})
+				yield* drainPending()
+				continue
+			}
+
 			if (chunk.error) {
-				streamError = new Error(`Provider stream error: ${chunk.error}`)
+				streamError = chunk.error
 				break
 			}
 			if (!id && chunk.id) id = chunk.id
+
+			// The first delta of the turn, of ANY kind — text, reasoning or a
+			// tool call. namzu streams, so perceived latency is dominated by
+			// this number, and the request histogram measures the whole call:
+			// it cannot tell a fast-first-token long generation from a
+			// stalled one, which is exactly the distinction a streaming UI is
+			// judged on. Keyed off the delta rather than the first chunk
+			// because a provider may open with a metadata-only frame.
+			if (
+				!firstDeltaSeen &&
+				(chunk.delta.content || chunk.delta.reasoning || chunk.delta.toolCalls?.length)
+			) {
+				firstDeltaSeen = true
+				recordTimeToFirstToken(params.model, Date.now() - callStartedAt)
+			}
+
+			if (chunk.delta.citation) citations.push(chunk.delta.citation)
+
+			const reasoning = chunk.delta.reasoning
+			if (reasoning) {
+				let bucket = reasoningBuckets.get(reasoning.index)
+				if (!bucket) {
+					bucket = { type: reasoning.type ?? 'thinking', text: '' }
+					reasoningBuckets.set(reasoning.index, bucket)
+					await emitEvent({
+						type: 'reasoning_started',
+						runId,
+						iteration,
+						messageId,
+						blockIndex: reasoning.index,
+						reasoningType: bucket.type,
+					})
+					yield* drainPending()
+				}
+				if (reasoning.type) bucket.type = reasoning.type
+				if (reasoning.signature) bucket.signature = reasoning.signature
+				if (reasoning.encrypted) bucket.encrypted = reasoning.encrypted
+				if (reasoning.text) {
+					bucket.text += reasoning.text
+					await emitEvent({
+						type: 'reasoning_delta',
+						runId,
+						iteration,
+						messageId,
+						blockIndex: reasoning.index,
+						text: reasoning.text,
+					})
+					yield* drainPending()
+				}
+				if (reasoning.done) {
+					await emitEvent({
+						type: 'reasoning_completed',
+						runId,
+						iteration,
+						messageId,
+						blockIndex: reasoning.index,
+						...(bucket.text ? { text: bucket.text } : {}),
+						signed: bucket.signature !== undefined,
+					})
+					yield* drainPending()
+				}
+			}
 
 			if (chunk.delta.content) {
 				textBuf += chunk.delta.content
@@ -255,8 +427,36 @@ export async function* streamProviderTurn(
 		// An abort tears the turn down: propagate it so the run loop settles the
 		// run as cancelled rather than recording a normal (errored) turn. Any
 		// other stream error is captured into the synthesized response as before.
-		if (signal?.aborted) throw err
-		streamError = err instanceof Error ? err : new Error(String(err))
+		if (signal?.aborted) {
+			// Settle what the turn already produced BEFORE unwinding. Throwing
+			// straight from here skipped everything below: the usage merged so
+			// far was discarded wholesale, so every cancelled turn
+			// under-reported its own cost; the span opened for this call was
+			// never ended, so it never exported at all; and a host consuming
+			// the message lifecycle saw a message begin and never end.
+			//
+			// The stream-ERROR path a few lines down already does exactly
+			// this. Cancel was the one exit that skipped it, which is the
+			// opposite of what its frequency deserves.
+			await settleCancelledTurn({
+				emitEvent,
+				runId,
+				iteration,
+				messageId,
+				usage,
+				text: textBuf,
+				model: params.model,
+				startedAt: callStartedAt,
+				span: chatSpan,
+			})
+			throw err
+		}
+		streamError = err instanceof Error ? err.message : String(err)
+		// Kept, not just its text. The classification a driver produced —
+		// which code, which status, whether repeating the call could work —
+		// is the whole basis for settling a transient fault as PAUSED rather
+		// than failed, and flattening it to a message threw all of it away.
+		streamCause = err
 	} finally {
 		if (onAbort) signal?.removeEventListener('abort', onAbort)
 		// Release the underlying connection on every exit (natural end, error,
@@ -270,7 +470,7 @@ export async function* streamProviderTurn(
 	// arrived — defensive against providers that don't yet emit it, and
 	// the load-bearing path when the provider stream ends with
 	// `stop_reason: "max_tokens"` mid-`input_json_delta`. In that case
-	// Anthropic's SSE never sends `content_block_stop` for the open
+	// A provider's stream never sends a block-stop for the open
 	// tool_use block: the upstream model ran out of completion tokens
 	// before it could close the JSON literal, so the buffered
 	// `argsBuf` ends with something like `"content":"…some prefix` —
@@ -347,7 +547,13 @@ export async function* streamProviderTurn(
 				name: b.name,
 				arguments: JSON.stringify(b.parsed ?? {}),
 			},
-			...(b.inputTruncated ? { metadata: { inputTruncated: true } } : {}),
+			// Carry the partial buffer alongside the flag. `arguments` is
+			// normalized to `{}` above, so without this the only record of
+			// what the model was actually saying is gone — and a
+			// `repairToolCall` hook has nothing to repair.
+			...(b.inputTruncated
+				? { metadata: { inputTruncated: true, partialArguments: b.argsBuf } }
+				: {}),
 		}))
 
 	const recoveredToolInputFromStreamError =
@@ -359,7 +565,7 @@ export async function* streamProviderTurn(
 		log.warn('provider stream failed after tool input; surfacing tool call to executor', {
 			runId,
 			iteration,
-			error: streamError?.message ?? 'provider stream failed',
+			error: streamError,
 			toolCallCount: toolCalls.length,
 		})
 	}
@@ -382,9 +588,48 @@ export async function* streamProviderTurn(
 	yield* drainPending()
 
 	if (streamError && !recoveredToolInputFromStreamError) {
-		if (isProviderRequestError(streamError)) throw streamError
-		throw new Error(`Provider stream error: ${streamError.message}`)
+		chatSpan.setStatus({ code: SpanStatusCode.ERROR, message: streamError })
+		chatSpan.end()
+
+		// A classified provider failure is rethrown AS ITSELF. Wrapping it in
+		// a fresh error dropped `retryable`, `status` and `retryAfterMs`,
+		// and `NamzuError`'s own default for `provider_error` is
+		// not-retryable — so a 429 that had exhausted its backoff settled the
+		// run FAILED, where the documented behaviour is a pause with a
+		// checkpoint to resume from. `toPlatformError` already projects this
+		// shape correctly; it was never reached.
+		//
+		// The asymmetry this fixes was visible: the same 529 raised inside
+		// the compaction verifier propagates untouched and DOES pause, so
+		// identical faults settled oppositely depending on whether compaction
+		// happened to run that iteration.
+		if (streamCause instanceof ProviderError) throw streamCause
+		// The newer classified shape carries the same guarantee, and the run
+		// boundary reads it to decide between a pause and a failure.
+		if (isProviderRequestError(streamCause)) throw streamCause
+
+		throw new NamzuError({
+			code: 'provider_error',
+			message: `Provider stream error: ${streamError}`,
+			details: { model: params.model },
+			// Even when the cause is not classified, keeping it means a host
+			// reading the chain sees what actually happened rather than a
+			// sentence about it.
+			...(streamCause !== undefined ? { cause: streamCause } : {}),
+		})
 	}
+
+	// Drained in stream-index order: the replay contract is about the
+	// original block order, and a Map preserves insertion order, not index
+	// order, when a provider interleaves blocks.
+	const reasoningBlocks: ReasoningBlock[] = [...reasoningBuckets.entries()]
+		.sort(([a], [b]) => a - b)
+		.map(([, bucket]) => ({
+			type: bucket.type,
+			...(bucket.text ? { text: bucket.text } : {}),
+			...(bucket.signature ? { signature: bucket.signature } : {}),
+			...(bucket.encrypted ? { encrypted: bucket.encrypted } : {}),
+		}))
 
 	const response: ChatCompletionResponse = {
 		id: id || messageId,
@@ -393,9 +638,34 @@ export async function* streamProviderTurn(
 			role: 'assistant',
 			content: textBuf.length > 0 ? textBuf : null,
 			toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+			...(reasoningBlocks.length > 0 ? { reasoning: reasoningBlocks } : {}),
+			...(citations.length > 0 ? { citations } : {}),
 		},
 		finishReason: effectiveFinishReason,
 		usage,
 	}
+
+	// The same numbers as a MEASUREMENT, not only as a span attribute.
+	// A span answers "what happened in this run"; a metric answers "what is
+	// this costing across every run", and no amount of span attributes adds
+	// up to the second question without a trace backend willing to
+	// aggregate them.
+	recordTokenUsage(params.model, usage)
+	recordModelDuration(params.model, Date.now() - callStartedAt)
+
+	// Usage belongs on the span for the call that produced it, not on the
+	// iteration that happened to contain it.
+	chatSpan.setAttributes({
+		[GENAI.RESPONSE_MODEL]: response.model,
+		[GENAI.RESPONSE_ID]: response.id,
+		[GENAI.RESPONSE_FINISH_REASONS]: [response.finishReason],
+		[GENAI.USAGE_INPUT_TOKENS]: usage.promptTokens,
+		[GENAI.USAGE_OUTPUT_TOKENS]: usage.completionTokens,
+		[NAMZU.CACHE_READ_TOKENS]: usage.cachedTokens ?? 0,
+		[NAMZU.CACHE_WRITE_TOKENS]: usage.cacheWriteTokens ?? 0,
+	})
+	chatSpan.setStatus({ code: SpanStatusCode.OK })
+	chatSpan.end()
+
 	return { response, messageId }
 }

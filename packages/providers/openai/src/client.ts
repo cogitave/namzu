@@ -8,6 +8,7 @@ import type {
 	TokenUsage,
 	ToolChoice,
 } from '@namzu/sdk'
+import { toolResultToText } from '@namzu/sdk'
 import {
 	ProviderRequestError,
 	isCallerAbortError,
@@ -33,6 +34,7 @@ export const OPENAI_CAPABILITIES: ProviderCapabilities = {
 	supportsStreaming: true,
 	supportsFunctionCalling: true,
 	supportsVision: true,
+	supportsDocuments: true,
 }
 
 type OpenAIFinishReason = 'stop' | 'length' | 'tool_calls' | 'content_filter' | 'function_call'
@@ -90,6 +92,47 @@ function formatToolChoice(tc: ToolChoice | undefined): ChatCompletionToolChoiceO
 	return undefined
 }
 
+/**
+ * Refuse an extended-thinking request this driver does not implement.
+ *
+ * The parameter was accepted and dropped, so a caller who had asked for
+ * reasoning got an ordinary completion: no thinking, no reasoning blocks,
+ * no error — and the empty reasoning array reads as "the model did not
+ * reason" rather than "nobody asked it to". Turning it OFF is honoured as
+ * a no-op, because that is the state the driver is already in.
+ */
+export function assertThinkingSupported(params: {
+	thinking?: { type: 'enabled' | 'disabled' }
+}): void {
+	if (params.thinking?.type !== 'enabled') return
+	throw new Error(
+		'This provider driver does not implement extended thinking, and silently ' +
+			'ignoring the request would return an ordinary completion with an empty ' +
+			'reasoning list. Drop `thinking`, or use a driver that implements it.',
+	)
+}
+
+/**
+ * Refuse a document whose citations this wire cannot return.
+ *
+ * Citations are the difference between an answer you trust and one you
+ * verify, and this request format has no mechanism to carry them back.
+ * Sending the document anyway would answer the question and quietly drop
+ * the checkability the caller specifically asked for — the caller would
+ * see prose, no error, and an empty `citations` array they might read as
+ * "the model cited nothing" rather than "nobody asked".
+ */
+function assertCitationsSupported(
+	attachment: { citations?: boolean; name?: string },
+	index: number,
+): void {
+	if (!attachment.citations) return
+	const which = attachment.name ?? `attachment ${index}`
+	throw new Error(
+		`This provider cannot return citations, and ${which} asked for them. Drop \`citations\` to send the document without them, or use a provider whose capabilities include citation support.`,
+	)
+}
+
 export function toOpenAIMessages(
 	messages: ChatCompletionParams['messages'],
 ): ChatCompletionMessageParam[] {
@@ -98,16 +141,32 @@ export function toOpenAIMessages(
 			return { role: 'system', content: msg.content }
 		}
 		if (msg.role === 'user') {
-			// User message with image attachments → multimodal content parts
-			// (text first, then each image as an `image_url` part carrying a
-			// base64 data URI). Mirrors the Anthropic driver's image-block
-			// mapping; plain text-only user messages keep the string form.
+			// User message with attachments → multimodal content parts, text
+			// first. Images become an `image_url` part carrying a base64 data
+			// URI; documents become a `file` part. Plain text-only user
+			// messages keep the string form.
 			if (msg.attachments && msg.attachments.length > 0) {
 				const parts: ChatCompletionContentPart[] = []
 				if (msg.content.length > 0) {
 					parts.push({ type: 'text', text: msg.content })
 				}
-				for (const att of msg.attachments) {
+				for (const [index, att] of msg.attachments.entries()) {
+					if (att.type === 'document') {
+						// A document is not an image with a different media
+						// type. Every attachment used to become an `image_url`,
+						// so a PDF went up as `data:application/pdf;base64,...`
+						// inside an image part — while the capability set
+						// claimed documents were supported.
+						assertCitationsSupported(att, index)
+						parts.push({
+							type: 'file',
+							file: {
+								file_data: `data:${att.mediaType};base64,${att.data}`,
+								...(att.name ? { filename: att.name } : {}),
+							},
+						} as ChatCompletionContentPart)
+						continue
+					}
 					parts.push({
 						type: 'image_url',
 						image_url: { url: `data:${att.mediaType};base64,${att.data}` },
@@ -120,7 +179,10 @@ export function toOpenAIMessages(
 		if (msg.role === 'tool') {
 			return {
 				role: 'tool',
-				content: msg.content,
+				// Tool messages are text-only on this wire, so a content block
+				// degrades to an honest placeholder rather than having its
+				// base64 payload dumped as text.
+				content: toolResultToText(msg.content),
 				tool_call_id: msg.toolCallId,
 			}
 		}
@@ -143,14 +205,28 @@ export function toOpenAIMessages(
 	})
 }
 
-function toOpenAITools(params: ChatCompletionParams): ChatCompletionTool[] | undefined {
+/**
+ * Tool schemas, with constrained generation where the caller asked for it.
+ *
+ * `enforceToolInputSchema` names the tools whose schema should be enforced
+ * rather than suggested. Both sibling drivers consumed it; this one dropped
+ * it on the floor, so a caller who had asked for a guaranteed-valid tool
+ * input got a best-effort one — and found out from a repair attempt rather
+ * than from an error.
+ *
+ * This wire is the one the flag maps onto most directly: it takes `strict`
+ * on the function itself.
+ */
+export function toOpenAITools(params: ChatCompletionParams): ChatCompletionTool[] | undefined {
 	if (!params.tools || params.tools.length === 0) return undefined
+	const enforced = new Set(params.enforceToolInputSchema ?? [])
 	return params.tools.map((t) => ({
 		type: 'function' as const,
 		function: {
 			name: t.function.name,
 			description: t.function.description ?? '',
 			parameters: (t.function.parameters ?? {}) as Record<string, unknown>,
+			...(enforced.has(t.function.name) ? { strict: true } : {}),
 		},
 	}))
 }
@@ -193,6 +269,7 @@ export class OpenAIProvider implements LLMProvider {
 
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
 		const model = this.resolveModel(params)
+		assertThinkingSupported(params)
 
 		let stream: Awaited<ReturnType<typeof this.client.chat.completions.create>>
 		try {

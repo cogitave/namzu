@@ -47,7 +47,7 @@ Agent software should be layered like Unix. At the bottom: a **kernel** that iso
 - **Scheduling.** Per-run token, cost, wall-clock, and iteration budgets. Task router (cheap model for compaction, expensive for coding), tool tiering, limit checker.
 - **Signals.** `AbortController` tree spanning parent and children. `cancel(taskId)` and `cancelAll(parentRunId)` propagate. Runs pause, resume, and abort cleanly.
 - **Memory.** Working memory via structured compaction into a typed `WorkingState`. Long-term memory via an indexed, tag/query/status-searchable store with disk persistence. No vector database required by default.
-- **Durability.** Atomic per-iteration checkpoints, automatic emergency core-dump on SIGINT/SIGTERM, separate stores for runs / threads / conversations / activities / memories / tasks.
+- **Durability.** Atomic per-iteration checkpoints, opt-in emergency core-dump on SIGINT/SIGTERM, separate stores for runs / threads / conversations / activities / memories / tasks.
 - **IPC.** Native A2A (Google agent-to-agent) and MCP (Anthropic Model Context Protocol) — both client and server, one SDK. An internal event bus with circuit breakers, file lock manager, and edit ownership tracking.
 - **Provider abstraction.** A narrow `LLMProvider` interface + a typed `ProviderRegistry`. Concrete vendors live in sibling packages (`@namzu/anthropic`, `@namzu/openai`, `@namzu/bedrock`, `@namzu/openrouter`, `@namzu/ollama`, `@namzu/lmstudio`, `@namzu/http`). BYOK everywhere, no hidden hot paths.
 - **Multi-tenant isolation from day one.** Connector registries, vaults, configs, and stores are tenant-scoped. Two organizations share a process without cross-contamination.
@@ -126,7 +126,7 @@ const response = await provider.chat({
 console.log(response.message.content)
 ```
 
-The response is `{ id, model, message: { role, content, toolCalls? }, finishReason, usage }`. The kernel installed alone runs against `MockLLMProvider` — pre-registered, no network dependencies, good for tests.
+The response is `{ id, model, message: { role, content, toolCalls? }, finishReason, usage }`. The kernel installed alone runs against `MockLLMProvider` — pre-registered, no network dependencies, and scriptable: give it `turns` and it emits tool calls with the same stream framing a real driver produces.
 
 ## Provider Selection
 
@@ -265,7 +265,7 @@ machine-emitted honesty tokens — applied here to scope, in prose.
 
 - **[`packages/sdk/README.md`](./packages/sdk/README.md)** — the kernel's complete subsystem map. If you want to know what Namzu does, this is the single best document.
 - **[`docs/`](./docs/)** — the documentation-site source: [`getting-started.md`](./docs/getting-started.md), per-package guides (`sdk/`, `providers/`, `cli/`, `computer-use/`), and `migration/` notes.
-- **`AGENTS.md` / `CLAUDE.md`** — canonical guidance for AI tools (Claude, Codex, Cursor) operating inside the repo.
+- **`AGENTS.md` / `CLAUDE.md`** — canonical guidance for any AI coding tool operating inside the repo.
 - **`docs.local/`** — detailed pattern docs and conventions. Local-only.
 - **Per-package READMEs** — every package documents its own install, auth, and usage.
 

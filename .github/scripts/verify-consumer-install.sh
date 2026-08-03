@@ -264,20 +264,24 @@ import { registerTelemetry } from '@namzu/telemetry'
 import { trace } from '@opentelemetry/api'
 import { InMemorySpanExporter, SimpleSpanProcessor } from '@opentelemetry/sdk-trace-base'
 
-// The fixture uses exporterType: 'none' on purpose. After the Round-4
-// fix, 'none' still installs a real TracerProvider — only the exporter
-// is suppressed. We ATTACH our own InMemorySpanExporter directly to
-// the registered TracerProvider via its addSpanProcessor method. That
-// way spans emitted through @opentelemetry/api globals get captured
-// without writing to the console or needing an OTLP endpoint.
+// The fixture uses exporterType: 'none' on purpose: 'none' still
+// installs a real TracerProvider and only suppresses the exporter, so
+// our own InMemorySpanExporter captures spans emitted through the
+// @opentelemetry/api globals without writing to the console or needing
+// an OTLP endpoint.
+//
+// The processor is handed over at construction. The tracing SDK used to
+// allow attaching one to an already-registered provider and no longer
+// does, so `spanProcessors` is the only way in — which is also why the
+// telemetry package accepts it.
+const inMemory = new InMemorySpanExporter()
 const telemetry = await registerTelemetry({
   serviceName: 'verify-consumer-install',
   exporterType: 'none',
+  spanProcessors: [new SimpleSpanProcessor(inMemory)],
 })
 
-const inMemory = new InMemorySpanExporter()
 const tracerProvider = telemetry['tracerProvider']
-tracerProvider.addSpanProcessor(new SimpleSpanProcessor(inMemory))
 
 // This is THE SDK path: @namzu/sdk's internal getTracer() calls
 // trace.getTracer('namzu'). If it produces a valid span, the SDK's

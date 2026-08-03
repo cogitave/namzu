@@ -2,7 +2,11 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { mcpToolToToolDefinition } from '../connector/mcp/adapter.js'
 import { MCPClient } from '../connector/mcp/client.js'
-import { HOOK_TIMEOUT_MS, PLUGIN_NAMESPACE_SEPARATOR } from '../constants/plugin/index.js'
+import {
+	DEFAULT_HOOK_PRIORITY,
+	HOOK_TIMEOUT_MS,
+	PLUGIN_NAMESPACE_SEPARATOR,
+} from '../constants/plugin/index.js'
 import type { PluginRegistry } from '../registry/plugin/index.js'
 import type { PluginId } from '../types/ids/index.js'
 import type {
@@ -21,7 +25,7 @@ import type { ToolDefinition, ToolRegistryContract } from '../types/tool/index.j
 import { toErrorMessage } from '../utils/error.js'
 import { generatePluginId } from '../utils/id.js'
 import type { Logger } from '../utils/logger.js'
-import { loadPluginManifest } from './loader.js'
+import { assertEnableable, loadPluginManifest } from './loader.js'
 
 interface PluginContributionRecord {
 	toolNames: string[]
@@ -41,7 +45,12 @@ export class PluginLifecycleManager {
 	private listeners: PluginEventListener[] = []
 	private hookHandlers: Map<
 		PluginHookEvent,
-		Array<{ pluginId: PluginId; handler: PluginHookDefinition['handler'] }>
+		Array<{
+			pluginId: PluginId
+			handler: PluginHookDefinition['handler']
+			priority: number
+			seq: number
+		}>
 	> = new Map()
 	private pluginContributions: Map<PluginId, PluginContributionRecord> = new Map()
 	private hookTimeoutMs: number
@@ -52,6 +61,35 @@ export class PluginLifecycleManager {
 		this.toolRegistry = config.toolRegistry
 		this.hookTimeoutMs = config.hookTimeoutMs ?? HOOK_TIMEOUT_MS
 		this.log = config.log.child({ component: 'PluginLifecycleManager' })
+	}
+
+	/**
+	 * Attach a hook without installing a plugin from disk.
+	 *
+	 * Registration was reachable only through `enable()`, which loads a
+	 * manifest and imports modules by path — so a host that wanted one
+	 * in-process guard had to lay out a plugin directory to get it. That
+	 * also left this class's own tests reaching into the private map,
+	 * which is how they came to construct entries the real path would
+	 * never produce.
+	 *
+	 * Hooks are held in priority order (lower first), ties keeping
+	 * registration order.
+	 */
+	registerHook(pluginId: PluginId, hook: PluginHookDefinition): void {
+		const handlers = this.hookHandlers.get(hook.event) ?? []
+		handlers.push({
+			pluginId,
+			handler: hook.handler,
+			priority: hook.priority ?? DEFAULT_HOOK_PRIORITY,
+			// Registration index, so the sort has something stable to fall
+			// back on when priorities are equal.
+			seq: handlers.length,
+		})
+		// Sorted on insert rather than on dispatch: a chain runs on every
+		// tool call, and the order only changes when a plugin comes or goes.
+		handlers.sort((a, b) => a.priority - b.priority || a.seq - b.seq)
+		this.hookHandlers.set(hook.event, handlers)
 	}
 
 	on(listener: PluginEventListener): void {
@@ -110,17 +148,18 @@ export class PluginLifecycleManager {
 
 		const { manifest } = plugin
 
-		// Unsupported contribution types must fail fast (Convention #0, #5).
-		// SDK lacks removable registries / instance factories / persona loader design
-		// for these categories. Remove from manifest or upgrade runtime.
-		const unsupported: string[] = []
-		if (manifest.skills?.length) unsupported.push('skills')
-		if (manifest.connectors?.length) unsupported.push('connectors')
-		if (manifest.personas?.length) unsupported.push('personas')
-		if (unsupported.length > 0) {
-			throw new Error(
-				`Plugin "${manifest.name}": contribution type(s) [${unsupported.join(', ')}] not yet supported by the runtime. Remove from manifest or upgrade @namzu/sdk.`,
-			)
+		// The same refusal the loader applies at install, kept here as the
+		// backstop for a plugin that reached this point another way — a
+		// record written by an older build, or a host constructing one
+		// directly. Reaching it means the install-time gate was bypassed,
+		// so the plugin transitions to `error` rather than staying
+		// `installed`: a status that says the plugin is fine while it can
+		// never enable is how the next reader gets misled.
+		try {
+			assertEnableable(manifest)
+		} catch (err) {
+			this.pluginRegistry.register({ ...plugin, status: 'error' })
+			throw err
 		}
 
 		const contributions: PluginContributionRecord = { toolNames: [], mcpClients: [] }
@@ -162,9 +201,7 @@ export class PluginLifecycleManager {
 					}
 
 					for (const hook of mod.hooks) {
-						const handlers = this.hookHandlers.get(hook.event) ?? []
-						handlers.push({ pluginId, handler: hook.handler })
-						this.hookHandlers.set(hook.event, handlers)
+						this.registerHook(pluginId, hook)
 					}
 				}
 			}
@@ -399,16 +436,33 @@ export class PluginLifecycleManager {
 			const start = performance.now()
 			let result: PluginHookResult
 
+			// The deadline timer is captured and cleared in `finally`.
+			// Without that it stayed armed after the hook resolved, and an
+			// armed timer keeps the Node event loop alive: hooks fire on
+			// every tool call and every model call, so a run of twenty tool
+			// calls left twenty live timers and the process could not exit
+			// until the last one expired. Nothing failed — it just hung, for
+			// up to the timeout, every time.
+			const deadline = new AbortController()
+			let timer: ReturnType<typeof setTimeout> | undefined
+
 			try {
 				result = await Promise.race([
-					handlerFn(hookContext),
-					new Promise<PluginHookResult>((_, reject) =>
-						setTimeout(() => reject(new Error('Hook timeout')), this.hookTimeoutMs),
-					),
+					handlerFn({ ...hookContext, signal: deadline.signal }),
+					new Promise<PluginHookResult>((_, reject) => {
+						timer = setTimeout(() => {
+							// Told, not just abandoned: a hook holding a socket
+							// open can close it.
+							deadline.abort()
+							reject(new Error('Hook timeout'))
+						}, this.hookTimeoutMs)
+					}),
 				])
 			} catch (err) {
 				const message = toErrorMessage(err)
 				result = { action: 'error', message }
+			} finally {
+				if (timer !== undefined) clearTimeout(timer)
 			}
 
 			const durationMs = Math.round(performance.now() - start)
@@ -441,7 +495,7 @@ export class PluginLifecycleManager {
 			if (result.action === 'error' || result.action === 'skip') {
 				break
 			}
-			if (result.action === 'resume' || result.action === 'retry') {
+			if (result.action === 'retry') {
 				break
 			}
 		}

@@ -25,7 +25,26 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 		})
 	}
 
+	/**
+	 * One run at a time per instance.
+	 *
+	 * `abortController` and `currentRunId` are instance state, so two
+	 * overlapping runs share one abort controller — cancelling either kills
+	 * both — and the second clobbers the first's run id, so a later
+	 * `cancel()` cancels the wrong run. Neither failure announces itself.
+	 * A host that wants parallelism constructs a second instance.
+	 */
 	async run(
+		input: AgentInput,
+		config: ReactiveAgentConfig,
+		listener?: RunEventListener,
+	): Promise<ReactiveAgentResult> {
+		return await this.underIdempotencyKey(config.idempotencyKey, () =>
+			this.underInvocationLock(() => this.runExclusive(input, config, listener)),
+		)
+	}
+
+	private async runExclusive(
 		input: AgentInput,
 		config: ReactiveAgentConfig,
 		listener?: RunEventListener,
@@ -53,6 +72,34 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 				...(config.workingMemoryProvider
 					? { workingMemoryProvider: config.workingMemoryProvider }
 					: {}),
+				// Loop-control and resilience seams. These lived on
+				// `QueryParams` and stopped there, so every one of them was
+				// unreachable for a consumer using the Agent classes — which is
+				// what `AgentManager` spawns and what the estate's own
+				// applications call. A feature a consumer cannot reach is a
+				// feature that does not exist for them.
+				...(config.resumeHandler ? { resumeHandler: config.resumeHandler } : {}),
+				...(config.retry !== undefined ? { retry: config.retry } : {}),
+				...(config.emergencySave !== undefined ? { emergencySave: config.emergencySave } : {}),
+				...(config.toolTimeoutMs !== undefined ? { toolTimeoutMs: config.toolTimeoutMs } : {}),
+				...(config.maxToolConcurrency !== undefined
+					? { maxToolConcurrency: config.maxToolConcurrency }
+					: {}),
+				...(config.maxToolOutputChars !== undefined
+					? { maxToolOutputChars: config.maxToolOutputChars }
+					: {}),
+				...(config.maxToolContentBytes !== undefined
+					? { maxToolContentBytes: config.maxToolContentBytes }
+					: {}),
+				...(config.repairToolCall ? { repairToolCall: config.repairToolCall } : {}),
+				...(config.stopWhen ? { stopWhen: config.stopWhen } : {}),
+				...(config.onStepFinish ? { onStepFinish: config.onStepFinish } : {}),
+				...(config.prepareStep ? { prepareStep: config.prepareStep } : {}),
+				...(config.structuredOutput ? { structuredOutput: config.structuredOutput } : {}),
+				...(config.inputGuardrails ? { inputGuardrails: config.inputGuardrails } : {}),
+				...(config.outputGuardrails ? { outputGuardrails: config.outputGuardrails } : {}),
+				...(config.checkpointStore ? { checkpointStore: config.checkpointStore } : {}),
+				...(config.parentSpan ? { parentSpan: config.parentSpan } : {}),
 				runConfig: {
 					model: config.model,
 					tokenBudget: config.tokenBudget,

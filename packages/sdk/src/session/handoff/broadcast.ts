@@ -126,9 +126,9 @@ export async function executeBroadcastHandoff(
 		}
 	}
 
-	// 2. Dedupe recipients — same concern as the collab doc's Codex R: two rows
-	//    targeting the same actor would produce duplicate sub-sessions + racy
-	//    worktree paths. Reject before any side effect.
+	// 2. Dedupe recipients: two rows targeting the same actor would produce
+	//    duplicate sub-sessions and racy worktree paths. Reject before any
+	//    side effect.
 	const seen = new Set<string>()
 	for (const a of assignments) {
 		const key = recipientKey(a.recipientActor)

@@ -841,7 +841,7 @@ export function App({ ctx }: AppProps) {
 	)
 
 	// Background is left natural — we inherit the terminal's own background
-	// (like claude-code / gemini-cli) and only theme the foreground. Forcing
+	// and only theme the foreground. Forcing
 	// a filled bg left mismatched patches around bordered areas, so we don't.
 	return (
 		<Box flexDirection="column">
@@ -1032,7 +1032,9 @@ function ComposerFrame({
 	)
 }
 
-// Claude-Code-style tool call label: `Bash(ls -la)`, `Read(file.ts)`.
+// Tool call label: the tool name, then its most identifying argument —
+// `Bash(ls -la)`, `Read(file.ts)`. A bare tool name in a transcript of
+// forty calls says nothing about which one this was.
 // The `clawtool_` prefix is stripped and the name title-cased.
 function formatToolCall(toolName: string, summary: string): string {
 	const base = toolName.replace(/^clawtool_/, '')

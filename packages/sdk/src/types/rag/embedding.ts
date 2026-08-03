@@ -13,7 +13,16 @@ export interface EmbeddingConfig {
 	batchSize?: number
 }
 
-export interface OpenRouterEmbeddingConfig extends EmbeddingConfig {
+/**
+ * Config for {@link HttpEmbeddingProvider}.
+ *
+ * `baseUrl` is REQUIRED. It used to default to one vendor's host, which
+ * meant a caller who never named an endpoint still sent its text to one —
+ * a default network destination is a decision the caller has to make out
+ * loud.
+ */
+export interface HttpEmbeddingConfig extends EmbeddingConfig {
 	apiKey: string
-	baseUrl?: string
+	/** Root of an embeddings API; `/embeddings` is appended. */
+	baseUrl: string
 }

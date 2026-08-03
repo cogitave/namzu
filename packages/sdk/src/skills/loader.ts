@@ -25,13 +25,19 @@ function parseSkillMd(raw: string, dirPath: string): ParsedSkillMd {
 		throw new Error(`SKILL.md at "${dirPath}" has no YAML frontmatter`)
 	}
 
-	const endIdx = trimmed.indexOf(FRONTMATTER_DELIMITER, FRONTMATTER_DELIMITER.length)
-	if (endIdx === -1) {
+	// Anchored to a line of its own. An unanchored search found `---`
+	// anywhere — inside a quoted value, inside a URL, inside prose — and cut
+	// the frontmatter there, which both truncated the metadata AND spilled
+	// the rest of the frontmatter into `body`, where it reaches the system
+	// prompt verbatim.
+	const closing = FRONTMATTER_FENCE.exec(trimmed.slice(FRONTMATTER_DELIMITER.length))
+	if (!closing) {
 		throw new Error(`SKILL.md at "${dirPath}" has unclosed frontmatter`)
 	}
 
+	const endIdx = FRONTMATTER_DELIMITER.length + closing.index
 	const frontmatterRaw = trimmed.slice(FRONTMATTER_DELIMITER.length, endIdx).trim()
-	const body = trimmed.slice(endIdx + FRONTMATTER_DELIMITER.length).trim()
+	const body = trimmed.slice(endIdx + closing[0].length).trim()
 
 	const metadata = parseFlatYaml(frontmatterRaw, dirPath)
 
@@ -61,6 +67,8 @@ function parseFlatYaml(raw: string, dirPath: string): SkillMetadata {
 		if (colonIdx === -1) continue
 		const key = line.slice(0, colonIdx).trim()
 		const value = normalizeYamlScalar(line.slice(colonIdx + 1).trim())
+
+		assertReadableScalar(key, value, dirPath)
 
 		section = key === 'metadata' ? 'metadata' : undefined
 		if (value) kv[key] = value
@@ -105,6 +113,42 @@ function parseFlatYaml(raw: string, dirPath: string): SkillMetadata {
 
 function normalizeYamlScalar(value: string): string {
 	return value.replace(/^["']|["']$/g, '').trim()
+}
+
+/** A closing fence is a line of its own, not `---` wherever it appears. */
+const FRONTMATTER_FENCE = /^---[ \t]*$/m
+
+/**
+ * YAML this reader does not implement, refused rather than mangled.
+ *
+ * The frontmatter reader here is a flat key/value splitter, and the
+ * documented contract says "YAML frontmatter" with no restriction — so an
+ * author has every reason to write a block scalar or a flow sequence, and
+ * no reason to expect what happened next. A `description: >-` followed by
+ * an indented paragraph produced the literal string `">-"`, which passed
+ * validation and registered with no warning; the skill then existed and
+ * was never selected, because its description said nothing. A
+ * `[Read, Grep]` became that literal text and was interpolated straight
+ * into the prompt.
+ *
+ * Refusing names the line and the file. That is worse for exactly one
+ * skill — the one already silently broken — and better for everyone
+ * looking for it.
+ */
+const UNSUPPORTED_YAML = [
+	{ pattern: /^[>|][-+]?\s*$/, what: 'a block scalar (`>` or `|`)' },
+	{ pattern: /^\[.*\]$/, what: 'a flow sequence (`[a, b]`)' },
+	{ pattern: /^\{.*\}$/, what: 'a flow mapping (`{a: b}`)' },
+] as const
+
+function assertReadableScalar(key: string, rawValue: string, dirPath: string): void {
+	const value = rawValue.trim()
+	for (const { pattern, what } of UNSUPPORTED_YAML) {
+		if (!pattern.test(value)) continue
+		throw new Error(
+			`SKILL.md at "${dirPath}": "${key}" uses ${what}, which this reader does not support. Write it as a single-line value instead. Refusing rather than registering a skill whose "${key}" would read as ${JSON.stringify(value)}.`,
+		)
+	}
 }
 
 const SKILL_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/

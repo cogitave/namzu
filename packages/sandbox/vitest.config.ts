@@ -11,7 +11,7 @@ import { defineConfig } from 'vitest/config'
  *   # or, from the monorepo root:
  *   pnpm sandbox:smoke
  *
- * Smoke tests run on a dedicated GitHub Actions workflow
+ * Smoke tests run on a dedicated CI workflow
  * (`.github/workflows/sandbox-smoke.yml`) that builds the reference
  * image and exercises the leaf-permission contract; on a developer
  * machine with docker installed they can be run locally with the

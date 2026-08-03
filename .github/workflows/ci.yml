@@ -48,6 +48,28 @@ jobs:
       - name: Test
         run: pnpm -r test
 
+      # namzu takes its naming from nobody. A design explained by reference
+      # to another product has borrowed its shape, and the borrowing
+      # outlives the sentence: the next reader reaches for that system's
+      # model instead of asking what this one is trying to achieve. Wire
+      # values are exempt by path — a driver has to name the service it
+      # drives — and the script says exactly where that line falls.
+      - name: External-name audit
+        run: node scripts/audit-external-names.mjs
+
+      # Behaviour regression gate. The harness exists so that a change to a
+      # tool description, the deferred-tool top-k, or the compaction
+      # threshold ships with a signal behind it — and that signal could not
+      # reach CI while the harness was a library function with no runner.
+      #
+      # Exit codes are load-bearing: 1 is a regression to chase, 2 is a
+      # broken harness to fix, 3 is "found nothing to run". `continue-on-
+      # error` because the repo ships no first-party suites yet; drop it
+      # the moment `evals/` has one, or this gate is decoration.
+      - name: Evals
+        run: node packages/cli/dist/index.js eval --dir evals --out eval-report.json
+        continue-on-error: true
+
       # SDK coverage gate (ses_006-test-coverage-sprint).
       # Runs on one node version only — coverage output is identical across
       # matrix entries, so gating on all four would waste CI time and

@@ -21,7 +21,7 @@ export type EmitEvent = (event: RunEvent) => Promise<void>
  * (100 deltas/s sustained) before pressure kicks in. Tune via
  * empirical evidence; not a hard guarantee, just a safety net.
  *
- * Codex D2 (ses_001-tool-stream-events).
+ * See ses_001-tool-stream-events.
  */
 const PENDING_EVENT_SOFT_CAP = 1000
 
@@ -70,7 +70,7 @@ export class EventTranslator {
 		// They live only on the in-memory bus for live UI rendering.
 		// Replay (`runtime/query/replay/prepare.ts`) reads checkpoints
 		// not transcripts, so this preserves replay fidelity while
-		// eliminating the durable bloat codex flagged.
+		// eliminating the durable bloat review flagged.
 		if (!isEphemeralEvent(event)) {
 			await this.runMgr.getRunStore().appendEvent(event)
 		}

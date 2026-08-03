@@ -38,8 +38,8 @@ export interface SupervisorAgentConfig extends BaseAgentConfig {
 	 * Optional human-in-the-loop hook for tool review and run-pause
 	 * decisions. When omitted, the supervisor delegates to drainQuery's
 	 * built-in `autoApproveHandler`, which approves every tool call
-	 * without prompting — matching Anthropic's "Act without asking"
-	 * cowork mode.
+	 * without prompting — the unattended mode, where the run is expected
+	 * to finish without a human at the keyboard.
 	 *
 	 * Hosts that want "Ask before acting" behaviour pass a custom
 	 * handler that surfaces the `tool_review_requested` RunEvent to

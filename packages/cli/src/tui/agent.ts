@@ -56,7 +56,7 @@ import {
 	ensureFreshAnthropicToken,
 	findDetected,
 	isAnthropicOAuthToken,
-	readClaudeCodeKeychainCredential,
+	readAgentKeychainCredential,
 	readPreferences,
 } from '../integrations/providers/index.js'
 import { createSubagentRuntime } from '../integrations/subagents/runtime.js'
@@ -188,20 +188,25 @@ async function ensureRegistered(id: ProviderId): Promise<void> {
 	registered.add(id)
 }
 
-// Builtins we don't expose: `verify_outputs` — not part of the recognizable
-// Claude-Code tool surface, just noise in `/tools`. (`append` was removed
-// from the SDK entirely; exact replacement against a unique tail/marker covers it.)
+// Builtins we don't expose: `verify_outputs` — a host-side check rather
+// than something the model should be choosing to call, so in `/tools` it is
+// noise. (`append` was removed from the SDK entirely; `edit` with
+// insertLine:"end" covers it.)
 const EXCLUDED_BUILTINS = new Set(['verify_outputs'])
 
 // namzu's own identity. Injected as system context so the agent presents as
-// namzu — not Claude/Claude Code — even on the Anthropic OAuth path, which
-// requires a "You are Claude Code" prefix block for the token to authorize.
+// namzu, and nothing else, whatever identity the credential path needs
+// on the wire. Some OAuth token types require a fixed prefix block before
+// they will authorize; that requirement lives in the credential layer and
+// is invisible from here, which is where it belongs — an identity a token
+// demands is not an identity the agent has.
 const NAMZU_IDENTITY = [
 	"You are namzu, an AI coding agent that runs in the user's terminal via the namzu CLI.",
 	'You are built on the @namzu/sdk and act through tools (bash, read, write, edit, glob, grep).',
-	'Your name is namzu. When asked who or what you are, identify yourself as namzu —',
-	'not Claude or Claude Code — even though you may be powered by an underlying model',
-	'from Anthropic or another provider.',
+	'Your name is namzu. When asked who or what you are, identify yourself as namzu.',
+	'You may be powered by an underlying model from any provider; that model is an',
+	'implementation detail of how you run, not who you are. Never present yourself as',
+	'the model, as the assistant product that model ships under, or as any other agent.',
 	'',
 	'CRITICAL — never fabricate. Only claim to have done something if you actually did it through a tool call in THIS turn:',
 	'- Never say you ran a command, wrote/edited a file, delegated to a sub-agent, or researched something unless the corresponding tool call actually ran and returned.',
@@ -253,17 +258,17 @@ export async function createAgentSession(
 			`Failed to construct ${entry.label}: ${err instanceof Error ? err.message : String(err)}`,
 		)
 	}
-	// Claude Code OAuth access tokens are short-lived (~8h). They rarely lapse
+	// OAuth access tokens on this path are short-lived (~8h). They rarely lapse
 	// *during* a turn, but they do between turns — an idle session that sends
 	// again hours later would otherwise 401. So before each turn (see `send`)
-	// we re-read the Keychain (Claude Code may have rotated it) and refresh a
+	// we re-read the keychain (another process may have rotated it) and refresh a
 	// stale token, rebuilding the client only when the token actually changed.
 	// Gated on `det.oauth` so env / secrets credentials are never touched.
 	const keychainRefresh = prefs.provider === 'anthropic' && Boolean(det?.oauth)
 	let currentToken = det?.apiKey
 	const refreshTokenIfNeeded = async (): Promise<void> => {
 		if (!keychainRefresh) return
-		const cred = readClaudeCodeKeychainCredential()
+		const cred = readAgentKeychainCredential()
 		if (!cred) return
 		const fresh = await ensureFreshAnthropicToken(cred.accessToken, {
 			refreshToken: cred.refreshToken,
@@ -332,7 +337,7 @@ export async function createAgentSession(
 	const deferredToolCount = clawtoolTools.length
 	// Task store → query auto-registers create_task / update_task / list_tasks
 	// and emits task_created/task_updated, so the agent can track a plan for the
-	// current request (Claude-Code todo style). Tasks are run-scoped.
+	// current request. Tasks are run-scoped.
 	const taskStore: TaskStore = new DiskTaskStore({
 		baseDir: join(process.cwd(), '.namzu'),
 		defaultRunId: 'run_namzu-cli' as RunId,
@@ -353,7 +358,7 @@ export async function createAgentSession(
 			// tokens and non-keychain credentials).
 			await refreshTokenIfNeeded()
 			// namzu identity first (so it establishes who the agent is even when
-			// the Anthropic OAuth path prepends the required Claude Code prefix),
+			// the credential layer prepends whatever prefix its token requires),
 			// then memory read fresh each turn, then per-turn extra (active skills).
 			const memoryPrompt = composeMemoryPrompt(readMemory())
 			const systemPrompt =
@@ -426,7 +431,7 @@ function constructProvider(
 
 /**
  * Best-effort live model list for a detected provider, for host-UI pickers (the
- * desktop Namzu tab). Instantiates the provider (only anthropic/openai/
+ * desktop Namzu tab). Instantiates the provider (only the drivers that
  * openrouter/ollama are wired in constructProvider — others throw) and calls
  * its optional listModels(). Returns [] on any failure so a picker degrades to
  * free-text + the provider's defaultModel. Wrapped in a 3s race so a wedged
@@ -488,16 +493,29 @@ const VERIFICATION_GATE = {
 
 // Automatic context compression for long, tool-heavy turns: the structured
 // strategy summarizes old tool results / notes once the message buffer
-// crosses the trigger threshold of the token budget, keeping the most
+// crosses the trigger threshold of the MODEL CONTEXT WINDOW, keeping the most
 // recent messages verbatim. A no-op for short turns; a safety net against
 // unbounded context growth on long ones.
+//
+// `contextWindowTokens` is deliberately omitted: the SDK resolves the window
+// from `runConfig.model`, which is the value the user actually chose. Pinning
+// a number here would fix one window across every model the CLI can talk to.
 const COMPACTION_CONFIG = {
 	strategy: 'structured' as const,
 	triggerThreshold: 0.7,
 	resetThreshold: 0.4,
 	keepRecentMessages: 6,
+	// Reclaim from stale tool output before summarizing. A CLI session is
+	// exactly the shape this helps most: a few enormous file reads and shell
+	// dumps the agent already used, next to reasoning worth keeping verbatim.
+	clearToolResults: true,
+	keepRecentToolResults: 3,
+	minToolResultCharsToClear: 1_000,
 	maxToolResults: 30,
 	maxListSize: 25,
+	// Pin the opening decisions/requirements; eviction takes from the
+	// middle so a long session keeps what set its direction.
+	keepFirstEntries: 3,
 	llmVerification: false,
 	llmVerificationMaxTokens: 2048,
 	richStateThreshold: 15,
@@ -530,6 +548,10 @@ async function* runTurn(
 			...(taskGateway ? { taskGateway } : {}),
 			verificationGate: VERIFICATION_GATE,
 			compactionConfig: COMPACTION_CONFIG,
+			// The CLI owns its process end to end, so it can safely hand the
+			// termination path to the kernel: a Ctrl-C mid-run now leaves a
+			// dump under .namzu/emergency/ instead of losing the turn.
+			emergencySave: true,
 			runConfig: {
 				model,
 				timeoutMs: 600_000,
@@ -693,7 +715,14 @@ export function toAgentEvent(event: RunEvent): AgentEvent | null {
 		case 'run_completed':
 			return { kind: 'done' }
 		case 'run_failed':
-			return { kind: 'error', message: event.error }
+			// The classification is now carried on the event rather than
+			// having been flattened away upstream. Shown because "rate
+			// limited, retryable" and "your key is wrong" are the same
+			// sentence to a reader who only gets the message.
+			return {
+				kind: 'error',
+				message: event.failure ? `[${event.failure.code}] ${event.error}` : event.error,
+			}
 		default:
 			return null
 	}

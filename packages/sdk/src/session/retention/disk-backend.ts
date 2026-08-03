@@ -27,13 +27,14 @@
  */
 
 import { randomBytes } from 'node:crypto'
-import { mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, readdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { SessionId, SubSessionId, TenantId } from '../../types/ids/index.js'
 import type { ArchiveBackendRef } from '../../types/retention/archive-backend-ref.js'
 import type { SessionMessage } from '../../types/session/messages.js'
 import type { SessionSummaryRef } from '../../types/summary/ref.js'
 import type { WorkspaceRef } from '../../types/workspace/ref.js'
+import { atomicWriteFile } from '../../utils/atomic-write.js'
 import type { ArchiveBackend, ArchiveInput, ArchiveOutput } from './backend.js'
 
 /**
@@ -271,16 +272,9 @@ async function atomicWriteJson(filePath: string, value: unknown): Promise<void> 
 	await atomicWriteText(filePath, JSON.stringify(value, null, 2))
 }
 
-async function atomicWriteText(filePath: string, body: string): Promise<void> {
-	const tempPath = `${filePath}.tmp`
-	try {
-		await writeFile(tempPath, body, 'utf-8')
-		await rename(tempPath, filePath)
-	} catch (err) {
-		await unlink(tempPath).catch(() => undefined)
-		throw err
-	}
-}
+// Through the shared writer: the sidecar has to be private to this
+// write, and a fixed `.tmp` is shared by every writer of the record.
+const atomicWriteText = atomicWriteFile
 
 async function readJson<T>(path: string): Promise<T | null> {
 	try {

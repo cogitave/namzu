@@ -25,17 +25,29 @@ export function accumulateTokenUsage(current: TokenUsage, addition: TokenUsage):
 /**
  * Merge two usage snapshots seen WITHIN a single streamed turn. Provider usage
  * frames over one stream are cumulative/monotonic (input set once early, output
- * grows), but a late frame can OMIT a field (report 0) — e.g. Anthropic's
+ * grows), but a late frame can OMIT a field (report 0) — e.g. a
  * `message_delta` may carry only output tokens. A naive last-write-wins
  * (`usage = chunk.usage`) then drops the earlier prompt/cache counts and
  * under-reports the turn. Taking the per-field high-water mark preserves every
  * field. DISTINCT from {@link accumulateTokenUsage}, which SUMS across turns.
  */
 export function mergeTokenUsage(current: TokenUsage, next: TokenUsage): TokenUsage {
+	const promptTokens = Math.max(current.promptTokens, next.promptTokens)
+	const completionTokens = Math.max(current.completionTokens, next.completionTokens)
+
 	return {
-		promptTokens: Math.max(current.promptTokens, next.promptTokens),
-		completionTokens: Math.max(current.completionTokens, next.completionTokens),
-		totalTokens: Math.max(current.totalTokens, next.totalTokens),
+		promptTokens,
+		completionTokens,
+		// `totalTokens` is DERIVED (`input + output`), not independent, so the
+		// per-field high-water mark is wrong for it: a provider reports the
+		// input on `message_start` and the output on `message_delta`, and each
+		// frame's own total covers only the component that frame carried.
+		// Maxing those two totals returns the larger COMPONENT, not the sum —
+		// 1200 and 350 merge to 1200 instead of 1550, and every completion
+		// token vanishes from the run's budget. Take the max of what was
+		// reported and what the merged components imply, so the result is
+		// monotone and can never under-report.
+		totalTokens: Math.max(current.totalTokens, next.totalTokens, promptTokens + completionTokens),
 		cachedTokens: Math.max(current.cachedTokens, next.cachedTokens),
 		cacheWriteTokens: Math.max(current.cacheWriteTokens, next.cacheWriteTokens),
 	}

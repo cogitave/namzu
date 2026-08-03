@@ -1,69 +1,37 @@
 /**
- * @namzu/sandbox — pluggable sandbox provider for @namzu/sdk.
+ * @namzu/sandbox — pluggable containment for @namzu/sdk.
  *
- * The SDK already declares a `SandboxProvider` shape in
- * `@namzu/sdk` (`packages/sdk/src/types/sandbox/index.ts`). This
- * package implements that shape with concrete BACKENDS picked at
- * construction time. The set is aligned with the 2026 industrial
- * standard for AI-agent code-execution sandboxes:
+ * The SDK declares the `SandboxProvider` shape
+ * (`packages/sdk/src/types/sandbox/index.ts`); this package implements
+ * it with concrete BACKENDS chosen at construction time. A backend is
+ * named for the mechanism it drives, because that is what it has to
+ * speak on the wire — never for a system whose ideas it borrowed.
  *
- *  • `docker` — plain OCI container per task, seccomp default
- *    profile, tmpfs workdir, no-network-by-default. The universal
- *    fallback every namzu host gets locally with `docker compose`
- *    and on every Linux replica in any cloud. What Northflank /
- *    Railway / Render / Compass-platform / GitHub Actions runners
- *    actually ship for code execution. Trust boundary: namespaces.
+ * Two tiers, each a trust boundary:
  *
- *  • `e2b` — adapter for E2B's managed Firecracker microVM service
- *    (`e2b.dev`). Sub-second cold-start via snapshot/restore, full
- *    kernel-level trust boundary. The SaaS-friendly path to real
- *    Firecracker isolation without running our own scheduler.
+ *  • `container` — one OCI container per task, seccomp on, tmpfs
+ *    workdir, no network unless asked. The same path on a laptop and
+ *    on a Linux replica anywhere. The tier for trusted prompts and
+ *    contained workloads. Boundary: kernel namespaces, or a
+ *    userspace-kernel runtime where one is installed.
  *
- *  • `fly-machines` — adapter for Fly Machines (`fly.io/docs/machines`).
- *    Also Firecracker microVMs; closer to bare-metal control than
- *    E2B, useful when the workload is more "arbitrary tool calls"
- *    than "Python REPL".
+ *  • `microvm` — one hardware-virtualized guest per task. The boundary
+ *    to reach for when the prompt itself is adversarial, at the cost
+ *    of running or renting the machinery that starts them.
  *
- *  • `firecracker` — self-hosted `firecracker-containerd` on bare
- *    metal (or KVM-enabled cloud instance). For hosts that need
- *    Firecracker isolation AND insist on running the scheduler
- *    themselves. Tier 3 isolation, highest operational cost.
+ * Every shape in {@link SandboxBackendConfig} has a backend behind it,
+ * which used not to be true: a `process` tier, a `passthrough` tier and
+ * two adapters to third-party schedulers were declared here and never
+ * written, so four of the shapes this package offered could only ever
+ * type-check and then throw. They are gone rather than pending.
+ * Confining an agent to the operator's own host is the SDK's local
+ * sandbox provider, which is implemented; a host that wants no
+ * confinement configures no sandbox.
  *
- *  • `gvisor` — adapter for `runsc` runtime (Google's userspace
- *    kernel). What OpenAI Code Interpreter and Modal Labs ship.
- *    Trusted-tenant tier with near-zero cold-start; runs on
- *    commodity Linux without nested virt. Locally via Linux Docker
- *    runtime; not available on macOS Docker Desktop.
- *
- *  • `passthrough` — no isolation, runs commands directly. For
- *    tests and trusted environments only. Off by default; opt-in.
- *
- * **What we deliberately do NOT build** is yet-another Firecracker
- * scheduler — that is E2B's and Fly's entire product, and writing
- * our own is a years-long detour. We adapt to theirs.
- *
- * **Cloud portability:** the backend interface is cloud-agnostic.
- * `docker` works on every cloud; `e2b` and `fly-machines` are
- * managed services not tied to any cloud; `firecracker` and
- * `gvisor` need infrastructure the host chooses (GKE Sandbox, AWS
- * Fargate, self-hosted KVM, etc.). Picking a stronger backend may
- * imply moving cloud — that's the host's call, not the SDK's.
- *
- * **Local dev story:** Phase 1 (`docker`) runs everywhere. Phase 2
- * (`e2b` / `fly-machines`) hits the managed service from a dev
- * laptop with no infra setup. Phase 3 (`firecracker` / `gvisor`)
- * needs Lima/Colima on macOS or native KVM on Linux — only the
- * adversarial-multi-tenant prod path needs that and it's clearly
- * documented as such.
- *
- * This file is the public surface. Concrete backend implementations
- * land under `./backends/<kind>/` in subsequent commits — the
- * `SandboxBackend` interface here is the contract they implement.
- *
- * Refs: `e2b.dev/docs/sandbox`, `fly.io/docs/machines`,
- * `firecracker-microvm.github.io`, `gvisor.dev/docs`,
- * `cloud.google.com/kubernetes-engine/docs/concepts/sandbox-pods`,
- * `aws.amazon.com/blogs/aws/firecracker-lightweight-virtualization-for-serverless-computing`.
+ * namzu does not build its own microVM scheduler. That is a years-long
+ * detour from an agent kernel, and the boundary a guest gives is the
+ * same whoever started it — so the microvm tier is an interface to a
+ * scheduler, not a scheduler.
  */
 
 import type {
@@ -120,35 +88,27 @@ export {
 // ---------------------------------------------------------------------------
 
 /**
- * Top-level sandbox tier. Each tier is a use-case bucket:
+ * Top-level sandbox tier, and the trust boundary it buys:
  *
- *   - `process` — the agent runs on the developer's own host;
- *     the sandbox keeps it from reading `~/.ssh` or running
- *     `rm -rf ~`. Single-user; no multi-tenancy. What Anthropic
- *     ships with Claude Code via `@anthropic-ai/sandbox-runtime`.
+ *   - `container` — one OCI container per task. Namespaces. The
+ *     default for trusted prompts and contained workloads, and the
+ *     same code path on a laptop and on a Linux replica anywhere.
  *
- *   - `container` — the agent runs inside an OCI container per
- *     task. Same code path locally (`docker compose`) and on
- *     Linux replicas in any cloud. The default for "trusted
- *     prompts, contained workloads" — Northflank, Railway,
- *     Render, Compass-platform, GitHub Actions runners all
- *     ship this tier.
+ *   - `microvm` — one hardware-virtualized guest per task. The
+ *     boundary to reach for when the prompt itself is adversarial.
  *
- *   - `microvm` — the agent runs inside a Firecracker microVM
- *     per task. Hardware-virtualization trust boundary; the
- *     industry standard for adversarial multi-tenancy
- *     (AWS Lambda/Fargate, Fly Machines, Replit, E2B, Daytona
- *     all converged here). Sub-second cold-start via
- *     snapshot/restore.
- *
- *   - `passthrough` — no isolation; for tests and explicitly
- *     trusted environments.
+ * Two tiers, not four. A `process` tier and a `passthrough` tier were
+ * declared here and never built: every construction threw, so the
+ * only thing they offered a caller was a shape that compiles and an
+ * exception at runtime. Confining the agent to the operator's own
+ * host is the SDK's local sandbox provider, which is implemented; a
+ * host that wants no confinement configures no sandbox.
  *
  * The concrete implementation inside a tier is picked via the
- * tier-specific config (see {@link ProcessBackendConfig},
- * {@link ContainerBackendConfig}, {@link MicroVMBackendConfig}).
+ * tier-specific config (see {@link ContainerBackendConfig},
+ * {@link MicroVMBackendConfig}).
  */
-export type SandboxTier = 'process' | 'container' | 'microvm' | 'passthrough'
+export type SandboxTier = 'container' | 'microvm'
 
 /**
  * Discriminated union of sandbox backend configurations. Each
@@ -156,19 +116,17 @@ export type SandboxTier = 'process' | 'container' | 'microvm' | 'passthrough'
  * shape automatically via TS narrowing.
  */
 export type SandboxBackendConfig =
-	| ProcessBackendConfig
 	| ContainerBackendConfig
 	| ACIStandbyPoolBackendConfig
 	| MicroVMBackendConfig
-	| PassthroughBackendConfig
 
 /**
  * Azure Container Instances Standby Pool backend. Container tier,
  * managed-microvm-ish: every claim is a fresh ACI container group
  * pre-warmed in an Azure-managed standby pool (`Microsoft.StandbyPool`).
  * ~1.5 s claim latency vs ~10-30 s for cold ACI spawn. Trust boundary
- * = Microsoft's ACI isolation host (gVisor-equivalent depending on
- * SKU; AMD SEV-SNP TEE when the pool is created with sku=Confidential).
+ * = the provider's isolation host, whose strength varies by SKU; the
+ * Confidential SKU adds an AMD SEV-SNP trusted execution environment.
  *
  * No host filesystem — workspace mounts ride `azureFileShare` sources
  * (the host provisions a per-task Azure Files share upstream and
@@ -212,33 +170,16 @@ export interface ACIStandbyPoolBackendConfig {
 }
 
 /**
- * `process` tier. Auto-detects the platform's native primitive
- * unless overridden:
- *
- *   - `bubblewrap` on Linux / WSL2 (`bwrap`)
- *   - `seatbelt` on macOS (`sandbox-exec`)
- *
- * Both are what `@anthropic-ai/sandbox-runtime` ships. Cold-start
- * is process spawn (~ms). Use this when the agent runs on the
- * end-user's developer machine — Claude Code's deployment model.
- */
-export interface ProcessBackendConfig {
-	readonly tier: 'process'
-	readonly engine?: 'auto' | 'bubblewrap' | 'seatbelt'
-}
-
-/**
  * `container` tier. Two runtime options:
  *
  *   - `docker` (default) — plain OCI container on the host's
  *     Docker daemon. No special runtime required.
- *   - `runsc` — Google's gVisor userspace-kernel runtime. Stronger
- *     isolation (syscall-table separation), runs on commodity
- *     Linux without nested virt. Trusted-tenant tier; what OpenAI
- *     Code Interpreter and Modal Labs ship. Requires the
- *     `runsc` runtime installed on the Docker daemon (Linux only;
- *     Docker Desktop on macOS does not support it). See
- *     `gvisor.dev/docs/user_guide/quick_start/docker`.
+ *   - `runsc` — a userspace-kernel runtime: the guest's syscalls
+ *     are served by a user-space implementation rather than the
+ *     host kernel, which is a stronger boundary than namespaces and
+ *     runs on commodity Linux without nested virtualization.
+ *     Requires the runtime installed on the container daemon (Linux
+ *     only).
  *
  * `image` is the container image to spawn per task. The package
  * ships a reference Dockerfile (compass-platform pattern) with
@@ -286,119 +227,91 @@ export interface ContainerBackendConfig {
 }
 
 /**
- * `microvm` tier. Three concrete services, all Firecracker under
- * the hood:
+ * `microvm` tier, against namzu's own guest orchestrator.
  *
- *   - `e2b` — adapter for E2B's managed sandbox service
- *     (`e2b.dev`). TS SDK does the scheduler work; namzu wraps it.
- *     ~150ms cold-start (snapshot/restore). Apache-2.0 server side,
- *     so the same code path can run against self-hosted E2B if
- *     the host eventually wants to leave the managed service.
- *   - `fly-machines` — adapter for Fly Machines
- *     (`fly.io/docs/machines`). Closer to bare-metal control than
- *     E2B; the right tier when the workload is "arbitrary tool
- *     calls" rather than "Python REPL".
- *   - `self-hosted` — direct `firecracker-containerd` against a
- *     KVM-enabled host. For deployments where E2B and Fly are
- *     both off the table for policy reasons. Operationally the
- *     heaviest path; everything below ships first.
+ * Two adapters to third-party managed schedulers were declared here
+ * and never written: both threw on construction, and each demanded
+ * required credentials for a call that was never made. A config
+ * shape whose only reachable outcome is an exception is worse than
+ * no shape, because it type-checks.
  *
- * Local dev: `e2b` and `fly-machines` work from any laptop with
- * an API key (no infra setup). `self-hosted` requires Linux + KVM
- * (Lima/Colima on macOS).
+ * What remains is the orchestrator namzu runs: the control plane
+ * mints a guest per task and resumes it copy-on-write from a golden
+ * snapshot, so a cold start is a resume rather than a boot.
  */
-export type MicroVMBackendConfig =
-	| {
-			readonly tier: 'microvm'
-			readonly service: 'e2b'
-			readonly apiKey: string
-			readonly template?: string
-	  }
-	| {
-			readonly tier: 'microvm'
-			readonly service: 'fly-machines'
-			readonly apiToken: string
-			readonly app: string
-			readonly image: string
-			readonly region?: string
-	  }
-	| {
-			readonly tier: 'microvm'
-			readonly service: 'self-hosted'
-			readonly firecrackerBinary: string
-			readonly kernelImage: string
-			readonly rootfsImage: string
-			/**
-			 * The owned-platform seam (ses_051). When these are present the
-			 * `self-hosted` arm targets the OWNED Azure Firecracker
-			 * orchestrator (`backends/firecracker/`), not a local
-			 * `firecracker-containerd`: `orchestratorEndpoint` is the
-			 * control-plane base URL, `getToken` mints a bearer for it
-			 * (the ACI `getArmToken` closure pattern, so this package keeps
-			 * zero Azure-SDK deps), and `template` selects the golden
-			 * snapshot revision to CoW-resume.
-			 *
-			 * The legacy local-`firecracker-containerd` shape
-			 * (`firecrackerBinary`/`kernelImage`/`rootfsImage` only) is
-			 * still NOT implemented and throws
-			 * {@link SandboxBackendNotImplementedError}; supplying
-			 * `orchestratorEndpoint` is what routes to the owned backend.
-			 */
-			readonly orchestratorEndpoint?: string
-			readonly getToken?: () => Promise<string>
-			readonly template?: string
-			/**
-			 * Resume this per-agent captured snapshot (layered on its base
-			 * golden) INSTEAD of a fresh golden boot. Tier-agnostic, additive,
-			 * optional: the backend that supports it (the owned firecracker
-			 * backend) honors it; others ignore it. Absent ⇒ the create body is
-			 * byte-identical and the generic golden-resume hot path is unchanged
-			 * (the field is only ever set by the host's per-agent trigger path).
-			 * Sibling to `template` (base-golden selector) — see
-			 * {@link AgentSnapshotRef}.
-			 */
-			readonly agentSnapshot?: AgentSnapshotRef
-			/** Fixed guest AF_VSOCK port the in-VM agent listens on. */
-			readonly agentVsockPort?: number
-			readonly readyTimeoutMs?: number
-			readonly readyPollIntervalMs?: number
-			/**
-			 * NETWORK-mode mTLS client material (ses_051 P4 client-proxy
-			 * bridge). When present, the orchestrator returns an `mtls` agent
-			 * handle (host/port/sandboxId, NO cert material) and this CA/cert/key
-			 * is MERGED onto that handle before the transport dials the per-host
-			 * relay over mTLS. Injected by the consumer's runtime (the Vandal
-			 * host layer reads it from `VANDAL_SANDBOX_FC_TLS_*`), NEVER fetched
-			 * inside this package — same dependency boundary as `getToken`, so
-			 * `@namzu/sandbox` stays Azure-SDK-free. Absent for the single-host
-			 * VSOCK default (the live proofs).
-			 */
-			readonly mtls?: {
-				readonly ca: string | Buffer
-				readonly cert: string | Buffer
-				readonly key: string | Buffer
-				readonly servername?: string
-			}
-			/**
-			 * CONTROL-plane mTLS client material. When present, the orchestrator
-			 * control-plane calls (create/destroy POSTs to `orchestratorEndpoint`)
-			 * dial over mTLS — presenting this client cert and pinning this CA —
-			 * instead of plain `fetch`. Secures the control plane when
-			 * `orchestratorEndpoint` is an `https://` URL reached over the PUBLIC
-			 * internet (the non-VNet-integrated caller→FC-host hop), where the
-			 * shared-secret bearer alone would be exposed. The bearer is STILL sent
-			 * (defense in depth). Same `{ca,cert,key,servername}` shape + the same
-			 * consumer-injected dependency boundary as `mtls` (the one fleet CA
-			 * secures both planes). Absent → plain `fetch` control plane (the
-			 * single-host VSOCK default, unchanged).
-			 */
-			readonly controlPlaneMtls?: {
-				readonly ca: string | Buffer
-				readonly cert: string | Buffer
-				readonly key: string | Buffer
-				readonly servername?: string
-			}
-	  }
+export type MicroVMBackendConfig = {
+	readonly tier: 'microvm'
+	readonly service: 'self-hosted'
+	/**
+	 * Control-plane base URL, and the bearer minted for it.
+	 *
+	 * Both are REQUIRED, which is a correction: they were optional
+	 * beside three required fields (`firecrackerBinary`,
+	 * `kernelImage`, `rootfsImage`) belonging to a local-daemon shape
+	 * that was never implemented. So the only working configuration
+	 * had to supply three values nothing reads, and omitting these
+	 * two type-checked its way to a runtime throw.
+	 *
+	 * `getToken` is a closure rather than a credential, so this
+	 * package carries no cloud SDK: the host runtime owns how the
+	 * bearer is obtained.
+	 */
+	readonly orchestratorEndpoint: string
+	readonly getToken: () => Promise<string>
+	/** Golden snapshot revision to resume copy-on-write. */
+	readonly template?: string
+	/**
+	 * Resume this per-agent captured snapshot (layered on its base
+	 * golden) INSTEAD of a fresh golden boot. Tier-agnostic, additive,
+	 * optional: the backend that supports it (the owned firecracker
+	 * backend) honors it; others ignore it. Absent ⇒ the create body is
+	 * byte-identical and the generic golden-resume hot path is unchanged
+	 * (the field is only ever set by the host's per-agent trigger path).
+	 * Sibling to `template` (base-golden selector) — see
+	 * {@link AgentSnapshotRef}.
+	 */
+	readonly agentSnapshot?: AgentSnapshotRef
+	/** Fixed guest AF_VSOCK port the in-VM agent listens on. */
+	readonly agentVsockPort?: number
+	readonly readyTimeoutMs?: number
+	readonly readyPollIntervalMs?: number
+	/**
+	 * NETWORK-mode mTLS client material (ses_051 P4 client-proxy
+	 * bridge). When present, the orchestrator returns an `mtls` agent
+	 * handle (host/port/sandboxId, NO cert material) and this CA/cert/key
+	 * is MERGED onto that handle before the transport dials the per-host
+	 * relay over mTLS. Injected by the consumer's runtime (the Vandal
+	 * host layer reads it from `VANDAL_SANDBOX_FC_TLS_*`), NEVER fetched
+	 * inside this package — same dependency boundary as `getToken`, so
+	 * `@namzu/sandbox` stays Azure-SDK-free. Absent for the single-host
+	 * VSOCK default (the live proofs).
+	 */
+	readonly mtls?: {
+		readonly ca: string | Buffer
+		readonly cert: string | Buffer
+		readonly key: string | Buffer
+		readonly servername?: string
+	}
+	/**
+	 * CONTROL-plane mTLS client material. When present, the orchestrator
+	 * control-plane calls (create/destroy POSTs to `orchestratorEndpoint`)
+	 * dial over mTLS — presenting this client cert and pinning this CA —
+	 * instead of plain `fetch`. Secures the control plane when
+	 * `orchestratorEndpoint` is an `https://` URL reached over the PUBLIC
+	 * internet (the non-VNet-integrated caller→FC-host hop), where the
+	 * shared-secret bearer alone would be exposed. The bearer is STILL sent
+	 * (defense in depth). Same `{ca,cert,key,servername}` shape + the same
+	 * consumer-injected dependency boundary as `mtls` (the one fleet CA
+	 * secures both planes). Absent → plain `fetch` control plane (the
+	 * single-host VSOCK default, unchanged).
+	 */
+	readonly controlPlaneMtls?: {
+		readonly ca: string | Buffer
+		readonly cert: string | Buffer
+		readonly key: string | Buffer
+		readonly servername?: string
+	}
+}
 
 /**
  * A reference to a per-agent captured snapshot, layered on top of a base
@@ -422,14 +335,6 @@ export interface AgentSnapshotRef {
 }
 
 /**
- * `passthrough` tier. No isolation — runs commands directly in
- * the host process. Tests and trusted environments only.
- */
-export interface PassthroughBackendConfig {
-	readonly tier: 'passthrough'
-}
-
-/**
  * Egress allowlist resolution. Host-supplied policy decides whether
  * an outbound request is allowed before the proxy opens a socket.
  *
@@ -449,6 +354,17 @@ export interface PassthroughBackendConfig {
  *     problem — the host owns the closure, the SDK runtime
  *     doesn't have to forward identity through `provider.create`.
  */
+export {
+	EgressProxy,
+	isHostAllowed,
+	splitAuthority,
+} from './egress/index.js'
+export type {
+	BrokeredCredential,
+	EgressProxyOptions,
+	RunningEgressProxy,
+} from './egress/index.js'
+
 export type EgressPolicy =
 	| { readonly kind: 'deny-all' }
 	| { readonly kind: 'allow-all' }
@@ -547,7 +463,7 @@ export type SandboxProviderConfig =
 			readonly layout: ContainerSandboxLayout
 	  })
 	| (SandboxProviderConfigBase & {
-			readonly backend: ProcessBackendConfig | MicroVMBackendConfig | PassthroughBackendConfig
+			readonly backend: MicroVMBackendConfig
 	  })
 
 interface SandboxProviderConfigBase {
@@ -564,25 +480,22 @@ interface SandboxProviderConfigBase {
  * the chosen backend.
  *
  * Backends are loaded lazily — the package only imports the
- * platform-specific modules (Anthropic's sandbox-runtime, the
- * Docker SDK, the E2B SDK, …) when the corresponding backend is
+ * platform-specific modules (the host sandbox runtime, the
+ * Docker SDK, the microVM SDK, …) when the corresponding backend is
  * requested. That keeps `@namzu/sandbox` reasonable to install in
  * environments where one backend is genuinely impossible.
  *
- * **Not implemented in this commit** — this file declares the
- * surface; backends arrive in subsequent commits per the ses_004
- * phase plan:
+ * Every shape in {@link SandboxBackendConfig} has a backend behind
+ * it. That is a recent property: this file used to declare a staged
+ * roadmap of tiers and adapters, most of which threw, so the surface
+ * described a plan and the runtime described the truth. The shapes
+ * that were never built are gone rather than pending — a config that
+ * type-checks and can only throw teaches a caller the wrong thing
+ * about what this package does.
  *
- *   - **P3.1** — `container` (docker runtime). Phase 1: ship now.
- *   - **P3.2** — `EgressPolicy` plumbing + reference egress proxy.
- *   - **P3.3** — `microvm` (E2B + Fly Machines adapters). Phase 2.
- *   - **P3.4** — `process` (Anthropic sandbox-runtime adapter).
- *   - **P3.5** — `microvm` (self-hosted firecracker-containerd) +
- *     `container` (gVisor runtime). Phase 3 adversarial-multi-tenant.
- *
- * Calling this function now throws
- * {@link SandboxBackendNotImplementedError} so consumers get a
- * clear signal during the staged rollout.
+ * {@link SandboxBackendNotImplementedError} survives for the untyped
+ * caller: a JS host that invents a tier gets a named refusal instead
+ * of a provider that confines nothing.
  */
 export function createSandboxProvider(config: SandboxProviderConfig): SandboxProvider {
 	const backend = pickBackend(config)
@@ -723,13 +636,11 @@ function pickBackend(config: SandboxProviderConfig): SandboxBackend {
 /**
  * Human-readable backend label for error messages. Returns the
  * tier plus the concrete service / runtime when present, e.g.
- * `'microvm:e2b'` or `'container:runsc'`.
+ * `'microvm:self-hosted'` or `'container:runsc'`.
  */
 function describeBackend(config: SandboxBackendConfig): string {
 	if (config.tier === 'microvm') return `microvm:${config.service}`
-	if (config.tier === 'container') return `container:${config.runtime ?? 'docker'}`
-	if (config.tier === 'process') return `process:${config.engine ?? 'auto'}`
-	return config.tier
+	return `container:${config.runtime ?? 'docker'}`
 }
 
 // ---------------------------------------------------------------------------

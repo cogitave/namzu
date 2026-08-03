@@ -5,11 +5,11 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
 import type { RunPersistence } from '../../../manager/run/persistence.js'
+import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { CheckpointId, IterationCheckpoint } from '../../../types/hitl/index.js'
 import type { RunId, SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
-import type { LLMProvider, StreamChunk } from '../../../types/provider/index.js'
 import type { CheckpointRunScope, CheckpointStore } from '../../../types/run/checkpoint-store.js'
 import type { RunEvent } from '../../../types/run/index.js'
 import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
@@ -17,14 +17,6 @@ import { CheckpointManager } from '../checkpoint.js'
 import { drainQuery } from '../index.js'
 import { runIterationCheckpoint } from '../iteration/phases/checkpoint.js'
 import type { IterationContext } from '../iteration/phases/context.js'
-
-const ZERO_USAGE = {
-	promptTokens: 0,
-	completionTokens: 0,
-	totalTokens: 0,
-	cachedTokens: 0,
-	cacheWriteTokens: 0,
-}
 
 const ZERO_COST = {
 	inputCostPer1M: 0,
@@ -81,6 +73,14 @@ class InMemoryCheckpointStore implements CheckpointStore {
 	async deleteCheckpoint(scope: CheckpointRunScope, checkpointId: CheckpointId): Promise<void> {
 		this.rows.delete(this.key(scope, checkpointId))
 	}
+}
+
+const ZERO_USAGE = {
+	promptTokens: 0,
+	completionTokens: 0,
+	totalTokens: 0,
+	cachedTokens: 0,
+	cacheWriteTokens: 0,
 }
 
 function makeRunMgrStub(): RunPersistence {
@@ -226,46 +226,6 @@ describe('iteration checkpoint cadence (checkpointEvery)', () => {
 
 // ─── query()-level injection ─────────────────────────────────────────────────
 
-class OneToolCallProvider implements LLMProvider {
-	readonly id = 'one-tool-call'
-	readonly name = 'One Tool Call Provider'
-	calls = 0
-
-	async *chatStream(): AsyncIterable<StreamChunk> {
-		this.calls += 1
-
-		if (this.calls === 1) {
-			yield {
-				id: 'msg_1',
-				delta: {
-					toolCalls: [
-						{
-							index: 0,
-							id: 'toolu_echo_1',
-							type: 'function',
-							function: { name: 'echo', arguments: '{"text":"hi"}' },
-						},
-					],
-				},
-			}
-			yield {
-				id: 'msg_1',
-				delta: { toolCallEnd: { index: 0, id: 'toolu_echo_1' } },
-			}
-			yield {
-				id: 'msg_1',
-				delta: {},
-				finishReason: 'tool_calls',
-				usage: ZERO_USAGE,
-			}
-			return
-		}
-
-		yield { id: 'msg_2', delta: { content: 'done' } }
-		yield { id: 'msg_2', delta: {}, finishReason: 'stop', usage: ZERO_USAGE }
-	}
-}
-
 describe('query() with an injected checkpointStore', () => {
 	let workdirs: string[] = []
 
@@ -275,7 +235,10 @@ describe('query() with an injected checkpointStore', () => {
 	})
 
 	it('persists iteration checkpoints into the injected store, keyed by run scope', async () => {
-		const provider = new OneToolCallProvider()
+		// One tool call, then a closing text turn.
+		const provider = new MockLLMProvider({
+			turns: [{ toolCalls: [{ name: 'echo', args: { text: 'hi' } }] }, { text: 'done' }],
+		})
 		const store = new InMemoryCheckpointStore()
 		const tools = new ToolRegistry()
 		tools.register({

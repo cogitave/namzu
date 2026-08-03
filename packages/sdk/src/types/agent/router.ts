@@ -1,3 +1,4 @@
+import type { TokenUsage } from '../common/index.js'
 import type { LLMProvider } from '../provider/index.js'
 import type { BaseAgentConfig, BaseAgentResult } from './base.js'
 import type { Agent } from './core.js'
@@ -9,6 +10,16 @@ export interface RoutingDecision {
 	confidence: number
 	reasoning?: string
 	routingSource: RoutingDecisionSource
+	/**
+	 * Tokens the routing call itself spent, summed over any retries.
+	 *
+	 * Routing runs before the delegate's run exists, so it has no
+	 * `RunPersistence` to accumulate into. Reporting it here lets the
+	 * router fold it into the result it returns, instead of the caller
+	 * seeing only the delegate's usage and under-reporting every routed
+	 * run by one model call.
+	 */
+	usage?: TokenUsage
 }
 
 export interface RouteDefinition {

@@ -4,10 +4,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 // the real macOS Keychain (this suite can run on the developer's own machine).
 vi.mock('./keychain.js', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('./keychain.js')>()
-	return { ...actual, writeClaudeCodeKeychainCredential: vi.fn(() => false) }
+	return { ...actual, writeAgentKeychainCredential: vi.fn(() => false) }
 })
 
-import { ensureFreshAnthropicToken, refreshClaudeCodeToken } from './oauth.js'
+import { ensureFreshAnthropicToken, refreshAgentOAuthToken } from './oauth.js'
 
 function mockFetch(impl: typeof fetch): void {
 	vi.stubGlobal('fetch', impl)
@@ -17,7 +17,7 @@ afterEach(() => {
 	vi.unstubAllGlobals()
 })
 
-describe('refreshClaudeCodeToken', () => {
+describe('refreshAgentOAuthToken', () => {
 	it('exchanges the refresh token and maps the response', async () => {
 		mockFetch(
 			(async () =>
@@ -31,7 +31,7 @@ describe('refreshClaudeCodeToken', () => {
 				)) as typeof fetch,
 		)
 		const before = Date.now()
-		const cred = await refreshClaudeCodeToken('rt-old')
+		const cred = await refreshAgentOAuthToken('rt-old')
 		expect(cred?.accessToken).toBe('cc-new-access')
 		expect(cred?.refreshToken).toBe('rt-new')
 		expect(cred?.expiresAt).toBeGreaterThanOrEqual(before + 3600 * 1000)
@@ -42,28 +42,28 @@ describe('refreshClaudeCodeToken', () => {
 			(async () =>
 				new Response(JSON.stringify({ access_token: 'cc-new' }), { status: 200 })) as typeof fetch,
 		)
-		const cred = await refreshClaudeCodeToken('rt-old')
+		const cred = await refreshAgentOAuthToken('rt-old')
 		expect(cred?.accessToken).toBe('cc-new')
 		expect(cred?.refreshToken).toBe('rt-old')
 	})
 
 	it('returns null on a non-2xx response', async () => {
 		mockFetch((async () => new Response('nope', { status: 401 })) as typeof fetch)
-		expect(await refreshClaudeCodeToken('rt')).toBeNull()
+		expect(await refreshAgentOAuthToken('rt')).toBeNull()
 	})
 
 	it('returns null when fetch throws', async () => {
 		mockFetch((async () => {
 			throw new Error('network down')
 		}) as typeof fetch)
-		expect(await refreshClaudeCodeToken('rt')).toBeNull()
+		expect(await refreshAgentOAuthToken('rt')).toBeNull()
 	})
 
 	it('returns null when the payload lacks an access token', async () => {
 		mockFetch(
 			(async () => new Response(JSON.stringify({ foo: 'bar' }), { status: 200 })) as typeof fetch,
 		)
-		expect(await refreshClaudeCodeToken('rt')).toBeNull()
+		expect(await refreshAgentOAuthToken('rt')).toBeNull()
 	})
 })
 

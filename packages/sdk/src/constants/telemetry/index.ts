@@ -13,6 +13,14 @@ export const GENAI = {
 	USAGE_INPUT_TOKENS: 'gen_ai.usage.input_tokens',
 	USAGE_OUTPUT_TOKENS: 'gen_ai.usage.output_tokens',
 
+	/**
+	 * Which kind of token a usage measurement counts. The convention keys
+	 * one metric by this rather than minting a metric name per kind, so a
+	 * dashboard that sums the metric gets the whole picture instead of one
+	 * slice of it.
+	 */
+	TOKEN_TYPE: 'gen_ai.token.type',
+
 	TOOL_NAME: 'gen_ai.tool.name',
 	TOOL_TYPE: 'gen_ai.tool.type',
 	TOOL_CALL_ID: 'gen_ai.tool.call_id',

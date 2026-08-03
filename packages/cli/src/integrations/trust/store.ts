@@ -1,8 +1,8 @@
 /**
  * Trusted-folder store — `~/.namzu/trust.json`.
  *
- * Claude-Code-style trust gate: before namzu reads, runs commands in, or
- * edits files in a directory, the user must trust it. Trusted directories
+ * Trust gate: before namzu reads, runs commands in, or edits files in a
+ * directory, the user must trust it. Trusted directories
  * are remembered here so the prompt only appears once per folder. A folder
  * counts as trusted if it — or any ancestor — has been trusted, so
  * trusting a repo root covers its subfolders.

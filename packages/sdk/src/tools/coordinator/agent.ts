@@ -8,9 +8,7 @@ import { defineTool } from '../defineTool.js'
 import type { TaskLaunchedCallback } from './index.js'
 
 /**
- * Build the canonical Claude Code `Agent` tool — synchronous subagent
- * delegation that mirrors what Claude is trained against in
- * `code.claude.com/docs/en/sub-agents`.
+ * Build the `Agent` tool — synchronous subagent delegation.
  *
  * Semantics: parent calls `Agent({ description, prompt, subagent_type })`,
  * the runtime spawns the chosen subagent with its own context window,
@@ -19,12 +17,14 @@ import type { TaskLaunchedCallback } from './index.js'
  * subagent tool calls are isolated — only the summary surfaces to
  * the parent.
  *
- * This is **NOT** the same shape as the coordinator `create_task`
- * tool that this package ships alongside it. That tool exposes
- * Namzu's task IDs and optional planning integration, while still
- * returning results synchronously. For free agentic alignment,
- * prefer the canonical `Agent` tool; use the coordinator tool when
- * the host needs task tracking.
+ * This is **NOT** the same shape as the legacy `create_task` /
+ * `continue_task` / `cancel_task` trio that this package ships
+ * alongside it: those are non-blocking and use a `<task-notification>`
+ * callback model. The async pattern is useful for hosts that want a
+ * work-queue surface, but it asks the model to track work it cannot
+ * see finish. Prefer the blocking `Agent` tool; keep the legacy
+ * coordinator tools only when you genuinely need fire-and-forget
+ * multi-task fan-out.
  */
 export interface AgentToolOptions {
 	gateway: TaskGateway
@@ -33,6 +33,18 @@ export interface AgentToolOptions {
 	allowedAgentIds: string[]
 
 	onTaskLaunched?: TaskLaunchedCallback
+
+	/**
+	 * Settle the parent run with the subagent's answer instead of looping
+	 * once more to restate it. See {@link ToolDefinition.terminal}.
+	 *
+	 * For a router — an agent whose whole job is to pick a specialist —
+	 * the relay turn is pure overhead at the parent's full context size,
+	 * and it hands the caller the parent's paraphrase rather than the
+	 * specialist's answer. Off by default: an agent that delegates as one
+	 * step of a longer plan needs the loop to continue.
+	 */
+	terminal?: boolean
 }
 
 export function buildAgentTool(opts: AgentToolOptions): ToolDefinition {
@@ -62,6 +74,7 @@ export function buildAgentTool(opts: AgentToolOptions): ToolDefinition {
 		readOnly: false,
 		destructive: false,
 		concurrencySafe: true,
+		...(opts.terminal !== undefined ? { terminal: opts.terminal } : {}),
 		async execute({ description, prompt, subagent_type }, context) {
 			// With a single registered subagent the type is optional — default to
 			// it so the model can't trip the "subagent_type required" validation.
@@ -109,7 +122,7 @@ export function buildAgentTool(opts: AgentToolOptions): ToolDefinition {
 			// Treat the subagent as successful only when BOTH agree.
 			// Reporting a failed subagent as successful would silently
 			// hand the parent garbage output and make debugging
-			// impossible, which is what Codex flagged on the first cut.
+			// impossible, which is what review flagged on the first cut.
 			const runStatus = completed.result?.status
 			const succeeded =
 				completed.state === 'completed' && (runStatus === undefined || runStatus === 'completed')

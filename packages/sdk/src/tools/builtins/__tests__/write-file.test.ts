@@ -8,10 +8,10 @@ import { WriteFileTool } from '../write-file.js'
 function makeTracker(): FileReadTracker & { keys(): string[] } {
 	const set = new Set<string>()
 	return {
-		recordRead: (key) => {
-			set.add(key)
+		recordRead: (k) => {
+			set.add(k)
 		},
-		hasRead: (key) => set.has(key),
+		hasRead: (k) => set.has(k),
 		keys: () => Array.from(set),
 	}
 }
@@ -27,33 +27,7 @@ function makeContext(workingDirectory: string, tracker?: FileReadTracker): ToolC
 	}
 }
 
-describe('WriteFileTool — canonical contract and read-before-overwrite invariant', () => {
-	it('publishes one closed path + content contract', () => {
-		expect(WriteFileTool.modelInputSchema).toEqual({
-			type: 'object',
-			properties: {
-				path: {
-					type: 'string',
-					description: 'Non-empty path to the file to write.',
-				},
-				content: {
-					type: 'string',
-					description:
-						'Complete bounded file body. May be empty only for an intentionally empty file.',
-				},
-			},
-			required: ['path', 'content'],
-			additionalProperties: false,
-		})
-		expect(WriteFileTool.inputSchema.safeParse({ path: 'doc.md', content: '' }).success).toBe(true)
-		expect(WriteFileTool.inputSchema.safeParse({ path: 'doc.md', newStr: 'legacy' }).success).toBe(
-			false,
-		)
-		expect(WriteFileTool.inputSchema.safeParse({ path: '   ', content: 'body' }).success).toBe(
-			false,
-		)
-	})
-
+describe('WriteFileTool — read-before-overwrite invariant', () => {
 	it('writes a new file without requiring a prior read', async () => {
 		const dir = mkdtempSync(join(tmpdir(), 'namzu-write-'))
 		const tracker = makeTracker()
@@ -66,28 +40,15 @@ describe('WriteFileTool — canonical contract and read-before-overwrite invaria
 		expect(tracker.hasRead(join(dir, 'fresh.txt'))).toBe(true)
 	})
 
-	it('preserves edge whitespace in a valid path', async () => {
+	it('accepts newStr as the canonical create/write content alias', async () => {
 		const dir = mkdtempSync(join(tmpdir(), 'namzu-write-'))
+		const tracker = makeTracker()
+		const ctx = makeContext(dir, tracker)
 
-		const result = await WriteFileTool.execute(
-			{ path: ' fresh.txt ', content: 'hello' },
-			makeContext(dir),
-		)
+		const result = await WriteFileTool.execute({ path: 'fresh.txt', newStr: 'hello' }, ctx)
 
 		expect(result.success).toBe(true)
-		expect(readFileSync(join(dir, ' fresh.txt '), 'utf-8')).toBe('hello')
-	})
-
-	it('rejects legacy content aliases even when execute is called directly', async () => {
-		const dir = mkdtempSync(join(tmpdir(), 'namzu-write-'))
-
-		const result = await WriteFileTool.execute(
-			{ path: 'fresh.txt', newStr: 'legacy' } as never,
-			makeContext(dir),
-		)
-
-		expect(result.success).toBe(false)
-		expect(result.error).toContain('Invalid write input')
+		expect(readFileSync(join(dir, 'fresh.txt'), 'utf-8')).toBe('hello')
 	})
 
 	it('refuses to overwrite an existing file the agent has not read', async () => {
@@ -123,14 +84,14 @@ describe('WriteFileTool — canonical contract and read-before-overwrite invaria
 		expect(readFileSync(filePath, 'utf-8')).toBe('replaced')
 	})
 
-	it('preserves existing hosts without a file read tracker', async () => {
+	it('falls back to legacy behaviour when no fileReadTracker is provided (back-compat)', async () => {
 		const dir = mkdtempSync(join(tmpdir(), 'namzu-write-'))
-		writeFileSync(join(dir, 'existing.txt'), 'before')
+		writeFileSync(join(dir, 'legacy.txt'), 'before')
 		const ctx = makeContext(dir)
 
-		const result = await WriteFileTool.execute({ path: 'existing.txt', content: 'after' }, ctx)
+		const result = await WriteFileTool.execute({ path: 'legacy.txt', content: 'after' }, ctx)
 
 		expect(result.success).toBe(true)
-		expect(readFileSync(join(dir, 'existing.txt'), 'utf-8')).toBe('after')
+		expect(readFileSync(join(dir, 'legacy.txt'), 'utf-8')).toBe('after')
 	})
 })

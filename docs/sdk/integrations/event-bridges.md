@@ -1,7 +1,7 @@
 ---
 title: Event Bridges
 description: Bridge internal Namzu runtime events to SSE and A2A wire formats, and convert messages, runs, and agent metadata into protocol-friendly shapes.
-last_updated: 2026-04-18
+last_updated: 2026-08-03
 status: current
 related_packages: ["@namzu/sdk"]
 ---
@@ -206,9 +206,67 @@ Important runtime choices baked into the mapper:
 
 - `run_started` maps to task state `running`
 - `run_completed` maps to final task state `completed`
-- `run_failed` maps to final task state `failed`
+- `run_failed` maps to final task state `failed`, carrying the failure's
+  `code` / `retryable` / `details` as event **metadata** rather than folded
+  into the text — a peer deciding whether to retry needs the flag, not prose
+  it would have to pattern-match
+- `provider_retry` maps to `running`, because a backoff is a task still
+  working, not a failure
 - `tool_review_requested`, `plan_ready`, and `run_paused` map to `input-required`
 - many internal events intentionally map to `null`
+
+### Knowing a run is backing off, not hung
+
+`provider_retry` is emitted **before** each backoff sleep, so the delay it
+names is still ahead. With the default policy — three retries, a 16s cap —
+or a server-directed `Retry-After` up to the 60s ceiling, a run can
+otherwise sit silent for the better part of a minute between
+`iteration_started` and the next event. A host saw nothing and got no
+keepalive, so a backoff was indistinguishable from a hang and a watchdog
+would cancel a run that was about to succeed.
+
+It carries the attempt, the ceiling, the delay, the classified code and
+whether the delay was the server's idea. On the SSE wire it is
+`provider.retry`.
+
+### Reading why a run failed
+
+`run_failed` carries three things:
+
+- `error` — the flattened message, for consumers that only render a string
+- `failure` — the structured projection: `code`, `retryable`, and `details`
+  including the provider code, status and any `retryAfterMs`
+- `explanation` — an operator-facing `{ id, message, hint }`, when a
+  catalog rule claims the failure
+
+The classification is computed at the provider boundary — over status,
+errno, `Retry-After` and the whole cause chain — and used to be discarded
+one line before the event was emitted, leaving a host to guess whether
+"request failed" meant a rate limit worth retrying or a bad key worth
+stopping for.
+
+`explanation` is a separate layer on purpose: classification is structural
+and belongs at the boundary, remediation is editorial and belongs in a list
+a human appends to. Its `id` is stable and greppable; `hint` says what to
+change. It is **absent** when no rule matched — inventing advice for an
+uncharacterised failure is worse than saying nothing, because it sends the
+reader somewhere specific and wrong. Extend it by passing your own rules to
+`explainError(err, rules)`, or attach a hint at the raise point with
+`withHint(err, '…')`, which outranks every generic rule because code that
+raised a failure knows more about it than a status code does.
+
+### A run that paused instead of failing
+
+A transient failure that survived every in-turn recovery now settles as
+**paused** rather than failed, emitting `run_paused` with the checkpoint to
+resume from. A 503 and a bad API key used to be indistinguishable at the
+run boundary, and recovering meant the host knowing about checkpoints and
+driving replay itself.
+
+Two conditions, both required: the failure must classify as `retryable`,
+and a checkpoint must exist. Pausing on a permanent error would invite a
+resume that cannot work, and pausing with nowhere to resume from produces a
+run nobody can ever pick up — strictly worse than reporting the failure.
 
 That makes the A2A stream cleaner than the full internal event bus.
 

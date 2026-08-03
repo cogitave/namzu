@@ -391,14 +391,24 @@ describe('findSafeTrimIndex', () => {
 			createAssistantMessage('unmatched', ['call-3']), // Unmatched
 		]
 
-		// Try various trim points — target within bounds (excludes edge case target=messages.length
-		// where trailing unmatched assistant cannot be trimmed forward)
+		// Asserted on the KEPT side, which is the side that reaches a
+		// provider. This used to check that the DROPPED prefix was
+		// dangle-free — a proxy for "the kept tail has no leading orphan",
+		// and only ever a proxy: the prefix is summarised into prose, so an
+		// unanswered call inside it harms nothing. Checking the real
+		// property directly also covers the case the proxy missed, which is
+		// a tail that opens on an assistant turn.
 		for (let target = 0; target < messages.length; target++) {
 			const safeIdx = findSafeTrimIndex(messages, target)
-			const keptMessages = messages.slice(0, safeIdx)
+			const kept = messages.slice(safeIdx)
+			if (kept.length === 0) continue
 
-			const result = findDanglingMessages(keptMessages)
-			expect(result.isValid).toBe(true)
+			// The tail becomes the whole conversation once the summary is
+			// hoisted out as a system message, so it has to open the way a
+			// conversation opens.
+			expect(kept[0]?.role).toBe('user')
+			// And it cannot open on a result whose call was summarised away.
+			expect(kept[0]?.role).not.toBe('tool')
 		}
 	})
 

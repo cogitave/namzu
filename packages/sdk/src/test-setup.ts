@@ -11,9 +11,9 @@
  * `ToolRegistry.execute`'s zod-validation and thrown-error branches,
  * `ConnectorToolRouter.getTools`' per-instance error catch, the
  * AgentBus listener-throw handler, and every connector's `connect()`
- * info log. GitHub Actions annotates any `[ERROR]` stderr line as a
- * workflow error; silencing the root logger during tests keeps the CI
- * log clean.
+ * info log. CI annotates any `[ERROR]` stderr line as a workflow
+ * error; silencing the root logger during tests keeps the CI log
+ * clean.
  *
  * This is test-only configuration. It runs before every test file and
  * does not affect consumers.

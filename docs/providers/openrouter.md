@@ -1,7 +1,7 @@
 ---
 title: OpenRouter Provider
 description: Configure @namzu/openrouter for multi-vendor model access through OpenRouter.
-last_updated: 2026-04-18
+last_updated: 2026-08-03
 status: current
 related_packages: ["@namzu/sdk", "@namzu/openrouter"]
 ---
@@ -73,10 +73,14 @@ The package exports `OPENROUTER_CAPABILITIES`:
   supportsTools: true,
   supportsStreaming: true,
   supportsFunctionCalling: true,
+  supportsVision: true,
+  supportsDocuments: false,
 }
 ```
 
 Actual tool quality still depends on the chosen upstream model.
+
+An image on a user message becomes a content part carrying a `data:` URI. A format the wire does not accept is named in the text rather than sent. An image inside a **tool result** stays a text placeholder — a tool message is text-only here.
 
 ## 8. Operational Notes
 

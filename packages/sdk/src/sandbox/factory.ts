@@ -6,7 +6,7 @@ export class SandboxProviderFactory {
 	static create(config: SandboxConfig, log: Logger): SandboxProvider {
 		switch (config.provider) {
 			case 'local':
-				return new LocalSandboxProvider(log)
+				return new LocalSandboxProvider(log, { requireIsolation: config.requireIsolation })
 			default: {
 				const _exhaustive: never = config.provider
 				throw new Error(`Unknown sandbox provider: ${_exhaustive}`)

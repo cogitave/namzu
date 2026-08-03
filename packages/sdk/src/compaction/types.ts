@@ -9,6 +9,16 @@ export interface WorkingState {
 	toolResults: ToolResultSlot[]
 	userRequirements: string[]
 	assistantNotes: string[]
+	/**
+	 * How many entries each capped list has dropped, keyed by slot name.
+	 *
+	 * The state that survives compaction is the only record of the history
+	 * it replaced, so silently shrinking it is the one thing this structure
+	 * must not do. Counting the loss lets the serializer say so, which is
+	 * the difference between "here is the state" and "here is what is left
+	 * of the state".
+	 */
+	evicted: Record<string, number>
 }
 
 export interface PlanSlot {

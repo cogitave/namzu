@@ -29,12 +29,14 @@ const DEFAULT_LOAD_TIMEOUT_MS = 5_000
 export const CLAWTOOL_TOOL_PREFIX = 'clawtool_'
 
 /**
- * clawtool tools namzu never bridges (bare lowercased names). The `Agent*`
- * family is clawtool's on-disk `.claude/agents/*.md` persona manager — a
- * Claude-Code construct that writes into Claude Code's directory and is
- * redundant with (and confusing alongside) namzu's own in-memory dynamic
- * sub-agents. namzu owns sub-agent definition + dispatch natively, so these
- * are dropped before they reach the model.
+ * clawtool tools namzu never bridges (bare lowercased names).
+ *
+ * The `Agent*` family is clawtool's on-disk persona manager. It writes
+ * agent definitions into a third-party tool's configuration directory —
+ * a mechanism namzu neither owns nor reads, and one that is redundant with
+ * (and confusing alongside) namzu's own in-memory dynamic sub-agents.
+ * namzu defines and dispatches sub-agents natively, so these are dropped
+ * before they reach the model.
  */
 export const EXCLUDED_CLAWTOOL_TOOLS = new Set(['agentnew', 'agentlist', 'agentdetect'])
 

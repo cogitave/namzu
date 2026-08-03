@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { DefaultPathBuilder, type PathBuilder } from '../../../session/workspace/path-builder.js'
+import { posix } from '../../../test-support/paths.js'
 import type { RunId, SessionId, TenantId } from '../../../types/ids/index.js'
 import type { LLMProvider } from '../../../types/provider/index.js'
 import type { AgentRunConfig } from '../../../types/run/index.js'
@@ -74,7 +75,7 @@ describe('RunContextFactory.build', () => {
 		const ctx = RunContextFactory.build(cfg)
 
 		// Layout lives under projects/{pid}/sessions/{sid} — no `.namzu/threads/`.
-		expect(ctx.outputDir).toContain('/.namzu/projects/prj_test/sessions/ses_test')
+		expect(posix(ctx.outputDir)).toContain('/.namzu/projects/prj_test/sessions/ses_test')
 		expect(ctx.outputDir).not.toContain('threads')
 	})
 
@@ -97,6 +98,6 @@ describe('RunContextFactory.build', () => {
 	it('DefaultPathBuilder lays out runs under sessions/{sessionId}/runs', () => {
 		const builder = new DefaultPathBuilder('/base/.namzu')
 		const runDir = builder.runDir('prj_x' as ProjectId, 'ses_y' as SessionId, 'run_z' as RunId)
-		expect(runDir).toBe('/base/.namzu/projects/prj_x/sessions/ses_y/runs/run_z')
+		expect(posix(runDir)).toBe('/base/.namzu/projects/prj_x/sessions/ses_y/runs/run_z')
 	})
 })

@@ -1,6 +1,6 @@
 // Tool-name buckets used by the compaction extractor to classify
 // captured tool results. Lowercase to match the canonical builtin
-// tool names (Anthropic Claude emits `tool_use.name` lowercase, see
+// tool names (a tool-use block reports its name lowercase, see
 // ses_008-tool-name-case-fix). `edit` is grouped with `write`
 // because both mutate file content.
 export const READ_TOOLS = new Set(['read'])

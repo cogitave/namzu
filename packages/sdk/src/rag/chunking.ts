@@ -63,7 +63,12 @@ export class TextChunker implements Chunker {
 		}
 
 		for (const sep of separators) {
-			const parts = sep === '' ? [...text] : text.split(sep).filter((p) => p.trim().length > 0)
+			// Keep the separator on the piece it terminated. `text.split(sep)`
+			// DELETES it, so splitting on '. ' stripped the sentence-ending
+			// period and splitting on '\n\n' stripped the paragraph break —
+			// the retrieved chunk then no longer said what the document said.
+			const parts =
+				sep === '' ? [...text] : splitKeepingSeparator(text, sep).filter((p) => p.trim().length > 0)
 			if (parts.length <= 1) continue
 
 			const remaining = separators.slice(separators.indexOf(sep) + 1)
@@ -133,3 +138,29 @@ export class TextChunker implements Chunker {
 }
 
 export { DEFAULT_CHUNKING_CONFIG }
+
+/**
+ * Split on `sep` but keep each separator attached to the piece it ended.
+ *
+ * `String.prototype.split` discards the separator, which silently rewrites
+ * the text: a document split on '. ' comes back with its sentence-ending
+ * periods gone, and one split on '\n\n' loses every paragraph break. For a
+ * retrieval chunk that is a correctness problem, not a cosmetic one — the
+ * chunk shown to the model is no longer what the source said.
+ *
+ * Concatenating the result reproduces the input exactly.
+ */
+export function splitKeepingSeparator(text: string, sep: string): string[] {
+	if (sep === '') return [text]
+
+	const parts: string[] = []
+	let start = 0
+	for (;;) {
+		const at = text.indexOf(sep, start)
+		if (at === -1) break
+		parts.push(text.slice(start, at + sep.length))
+		start = at + sep.length
+	}
+	if (start < text.length) parts.push(text.slice(start))
+	return parts
+}

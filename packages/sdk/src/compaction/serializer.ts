@@ -33,12 +33,29 @@ function renderFiles(
 	return lines.join('\n')
 }
 
-function renderList(items: string[]): string {
-	return items.map((item) => `- ${item}`).join('\n')
+function renderList(items: string[], evictedCount = 0): string {
+	const lines = items.map((item) => `- ${item}`)
+	if (evictedCount > 0) {
+		// Say what is missing. A summary that presents a gap as complete is
+		// worse than one that admits the gap: the model reasons about a
+		// fragment as if it were the whole record.
+		const noun = evictedCount === 1 ? 'entry' : 'entries'
+		lines.push(`- _(${evictedCount} ${noun} dropped to stay within the state budget)_`)
+	}
+	return lines.join('\n')
 }
 
-function renderToolResults(results: { tool: string; summary: string }[]): string {
-	return results.map((r) => `- **${r.tool}**: ${r.summary}`).join('\n')
+function renderToolResults(results: { tool: string; summary: string }[], evictedCount = 0): string {
+	const lines = results.map((r) => `- **${r.tool}**: ${r.summary}`)
+	if (evictedCount > 0) {
+		// The same admission every sibling section makes. This one counted
+		// its evictions and then rendered without them, so the section that
+		// carries the most volume was the only one presenting a fragment as
+		// the whole record.
+		const noun = evictedCount === 1 ? 'result' : 'results'
+		lines.push(`- _(${evictedCount} earlier tool ${noun} dropped to stay within the state budget)_`)
+	}
+	return lines.join('\n')
 }
 
 export function serializeState(state: WorkingState): string {
@@ -49,7 +66,9 @@ export function serializeState(state: WorkingState): string {
 	}
 
 	if (state.userRequirements.length > 0) {
-		sections.push(`${SECTION_HEADERS.userRequirements}\n\n${renderList(state.userRequirements)}`)
+		sections.push(
+			`${SECTION_HEADERS.userRequirements}\n\n${renderList(state.userRequirements, state.evicted.userRequirements)}`,
+		)
 	}
 
 	if (state.plan.length > 0) {
@@ -57,7 +76,9 @@ export function serializeState(state: WorkingState): string {
 	}
 
 	if (state.environment.length > 0) {
-		sections.push(`${SECTION_HEADERS.environment}\n\n${renderList(state.environment)}`)
+		sections.push(
+			`${SECTION_HEADERS.environment}\n\n${renderList(state.environment, state.evicted.environment)}`,
+		)
 	}
 
 	if (state.files.size > 0) {
@@ -65,23 +86,33 @@ export function serializeState(state: WorkingState): string {
 	}
 
 	if (state.decisions.length > 0) {
-		sections.push(`${SECTION_HEADERS.decisions}\n\n${renderList(state.decisions)}`)
+		sections.push(
+			`${SECTION_HEADERS.decisions}\n\n${renderList(state.decisions, state.evicted.decisions)}`,
+		)
 	}
 
 	if (state.assistantNotes.length > 0) {
-		sections.push(`${SECTION_HEADERS.assistantNotes}\n\n${renderList(state.assistantNotes)}`)
+		sections.push(
+			`${SECTION_HEADERS.assistantNotes}\n\n${renderList(state.assistantNotes, state.evicted.assistantNotes)}`,
+		)
 	}
 
 	if (state.toolResults.length > 0) {
-		sections.push(`${SECTION_HEADERS.toolResults}\n\n${renderToolResults(state.toolResults)}`)
+		sections.push(
+			`${SECTION_HEADERS.toolResults}\n\n${renderToolResults(state.toolResults, state.evicted.toolResults)}`,
+		)
 	}
 
 	if (state.failures.length > 0) {
-		sections.push(`${SECTION_HEADERS.failures}\n\n${renderList(state.failures)}`)
+		sections.push(
+			`${SECTION_HEADERS.failures}\n\n${renderList(state.failures, state.evicted.failures)}`,
+		)
 	}
 
 	if (state.discoveries.length > 0) {
-		sections.push(`${SECTION_HEADERS.discoveries}\n\n${renderList(state.discoveries)}`)
+		sections.push(
+			`${SECTION_HEADERS.discoveries}\n\n${renderList(state.discoveries, state.evicted.discoveries)}`,
+		)
 	}
 
 	return sections.join('\n\n')

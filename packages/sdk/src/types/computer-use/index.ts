@@ -59,7 +59,7 @@ export type MouseButton = 'left' | 'right' | 'middle'
 export type ScrollDirection = 'up' | 'down' | 'left' | 'right'
 
 // ---------------------------------------------------------------------------
-// Action — discriminated union; mirrors Anthropic's computer_20250124 shape
+// Action — discriminated union over what a pointer-and-keyboard host can do
 // ---------------------------------------------------------------------------
 
 export type ComputerUseAction =

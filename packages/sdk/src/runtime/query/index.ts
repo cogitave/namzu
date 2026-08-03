@@ -1,25 +1,46 @@
+import { join } from 'node:path'
 import {
 	AdvisorRegistry,
 	AdvisoryContext,
 	AdvisoryExecutor,
 	TriggerEvaluator,
+	assertBudgetEnforceable,
 } from '../../advisory/index.js'
+import { findDanglingMessages, removeDanglingMessages } from '../../compaction/dangling.js'
 import { extractFromUserMessage } from '../../compaction/extractor.js'
 import { WorkingStateManager } from '../../compaction/manager.js'
+import { restoreWorkingState, snapshotWorkingState } from '../../compaction/wire.js'
 import type { CompactionConfig } from '../../config/runtime.js'
+import { TOOL_OUTPUT_DIR_NAME } from '../../constants/tools/index.js'
+import { EmergencySaveManager } from '../../manager/run/emergency.js'
 import { resolveProviderCapabilities } from '../../provider/capabilities.js'
+import { type ProviderRetryConfig, withProviderRetry } from '../../provider/retry.js'
 import type { PathBuilder } from '../../session/workspace/path-builder.js'
-import { GENAI, NAMZU, agentRunSpanName } from '../../telemetry/attributes.js'
+import {
+	GENAI,
+	NAMZU,
+	agentRunSpanName,
+	parentContext,
+	serializeSpan,
+} from '../../telemetry/attributes.js'
+import { recordRunDuration } from '../../telemetry/metrics.js'
 import { getTracer } from '../../telemetry/runtime-accessors.js'
 import { buildAdvisoryTools } from '../../tools/advisory/index.js'
 import { SearchToolsTool } from '../../tools/builtins/search-tools.js'
+import {
+	STRUCTURED_OUTPUT_TOOL_NAME,
+	createStructuredOutputTool,
+} from '../../tools/builtins/structuredOutput.js'
 import { buildTaskTools } from '../../tools/task/index.js'
 import type { AdvisoryConfig } from '../../types/advisory/index.js'
 import type { AgentRuntimeContext, RuntimeToolOverrides } from '../../types/agent/base.js'
 import type { AgentContextLevel } from '../../types/agent/factory.js'
 import type { WorkingMemoryProvider } from '../../types/agent/working-memory.js'
+import { NamzuError } from '../../types/errors/index.js'
+import type { InputGuardrailSpec, OutputGuardrailSpec } from '../../types/guardrail/index.js'
 import {
 	type CheckpointId,
+	type HITLResumeDecision,
 	type ResumeHandler,
 	autoApproveHandler,
 } from '../../types/hitl/index.js'
@@ -29,28 +50,54 @@ import { type Message, createSystemMessage } from '../../types/message/index.js'
 import type { AgentPersona } from '../../types/persona/index.js'
 import type { LLMProvider } from '../../types/provider/index.js'
 import type { TaskRouterConfig } from '../../types/router/index.js'
+import type { ReviewAnswer } from '../../types/run/answer-review.js'
 import type { CheckpointStore } from '../../types/run/checkpoint-store.js'
-import type { AgentRunConfig, Run, RunEvent, RunEventListener } from '../../types/run/index.js'
+import type {
+	AgentRunConfig,
+	PrepareStepChain,
+	Run,
+	RunEvent,
+	RunEventListener,
+	StepResult,
+	StopCondition,
+} from '../../types/run/index.js'
+import type { PromoteMemory } from '../../types/run/memory-promotion.js'
+import { memoryCandidateFor } from '../../types/run/memory-promotion.js'
 import type { Sandbox, SandboxProvider } from '../../types/sandbox/index.js'
 import type { ProjectId, ThreadId } from '../../types/session/ids.js'
 import type { Skill } from '../../types/skills/index.js'
+import type { StructuredOutputConfig } from '../../types/structured-output/index.js'
 import type { TaskStore } from '../../types/task/index.js'
 import type { ToolRegistryContract } from '../../types/tool/index.js'
+import type { RepairToolCall } from '../../types/tool/repair.js'
 import type { VerificationGateConfig } from '../../types/verification/index.js'
 import type { ModelPricing } from '../../utils/cost.js'
+import { getRootLogger } from '../../utils/logger.js'
 import { VerificationGate } from '../../verification/gate.js'
 import { CheckpointManager } from './checkpoint.js'
 import type { ContextCache } from './context-cache.js'
 import { RunContextFactory } from './context.js'
 import { EventTranslator } from './events.js'
 import { GuardCoordinator } from './guard.js'
+import { runInputGuardrails, runOutputGuardrails } from './guardrails.js'
 import { IterationOrchestrator } from './iteration/index.js'
 import { isCompactionMessage } from './iteration/phases/compaction.js'
 import { isWorkingMemoryMessage } from './iteration/phases/working-memory.js'
 import { applyLifecycleHookResults } from './plugin-hooks.js'
 import { PromptBuilder } from './prompt.js'
 import type { PromptSegments } from './prompt.js'
+import type { PendingAnswers, QuestionParkBinding } from './question-park.js'
 import { ResultAssembler } from './result.js'
+import {
+	type PendingResumePlan,
+	applyPendingResume,
+	planCrashResume,
+	planPendingResume,
+	recoverCompletedCalls,
+	unansweredToolCalls,
+} from './resume-pending.js'
+import { ToolGrantSet } from './tool-grants.js'
+import { createToolPause } from './tool-pause.js'
 import { ToolingBootstrap } from './tooling.js'
 
 export interface QueryParams {
@@ -59,6 +106,190 @@ export interface QueryParams {
 	skills?: Skill[]
 	basePrompt?: string
 	provider: LLMProvider
+	/**
+	 * Transient-failure policy for model calls. A single 429 or 503 used to
+	 * terminate a run outright — no driver in the estate retries. Defaults
+	 * to {@link DEFAULT_PROVIDER_RETRY}; pass `false` to opt out (e.g. when
+	 * the host already wraps the provider with its own policy).
+	 *
+	 * Only failures that happen BEFORE the first content chunk are retried;
+	 * see `withProviderRetry`.
+	 */
+	retry?: Partial<ProviderRetryConfig> | false
+
+	/**
+	 * Install process-level crash handlers that dump this run's state to
+	 * `<runDir>/../emergency/<runId>.json` on SIGINT, SIGTERM or an
+	 * uncaught exception. `replay({ fromCheckpoint: 'emergency' })` reads
+	 * that file.
+	 *
+	 * **Off by default, and it must stay that way.** `attach` registers
+	 * `process.on(...)` handlers that call `process.exit()`. A library
+	 * seizing a host's termination path is an overreach in any embedded
+	 * context (an API server has its own drain sequence), and the manager
+	 * is a singleton whose `attach` detaches whoever held it before — so
+	 * with concurrent runs the last one to start would silently become the
+	 * only one that gets saved.
+	 *
+	 * Turn it on for a process the run owns end-to-end: a CLI, a worker
+	 * that handles one run at a time. The handlers are removed when the
+	 * run settles.
+	 */
+	emergencySave?: boolean
+
+	/**
+	 * Durability for questions raised from inside a tool.
+	 *
+	 * The tool that asks is built before the run exists, so the binding is
+	 * created by whoever builds the tools and attached here — that is what
+	 * lets one tool instance be durable inside a run and inert outside one.
+	 * Without it, a question park exists only as a suspended `await`: kill
+	 * the process while somebody is looking at the card and the answer can
+	 * never be applied.
+	 */
+	questionParks?: QuestionParkBinding
+
+	/**
+	 * The registry a re-entered `ask_user_question` reads its answer from.
+	 *
+	 * Same shape as {@link questionParks}: the tool is built before the run
+	 * exists, so the instance is created by whoever builds the tools and
+	 * filled here on the resume path. Without it a resumed run re-asks a
+	 * question the user already answered.
+	 */
+	pendingAnswers?: PendingAnswers
+
+	/** Default per-tool execution deadline. See {@link ToolDefinition.timeoutMs}. */
+	toolTimeoutMs?: number
+
+	/** Max concurrently-executing concurrency-safe tools in one batch. */
+	maxToolConcurrency?: number
+
+	/**
+	 * Model-visible size cap for a single tool result. Over-budget output is
+	 * spilled to the run directory and replaced with a head+tail preview
+	 * naming the path, so nothing is lost and tokens are paid only if the
+	 * agent decides the rest is worth re-reading. Set `0` to disable.
+	 */
+	maxToolOutputChars?: number
+
+	/**
+	 * Cap on the RICH channel of a single tool result, in base64 characters.
+	 * `0` or absent disables it. Separate from {@link maxToolOutputChars}:
+	 * that one bounds characters the model reads, this one bounds the image
+	 * payload beside them, which no text budget ever touched.
+	 */
+	maxToolContentBytes?: number
+
+	/**
+	 * Last chance to fix a tool call the model got wrong, before the error
+	 * reaches it.
+	 *
+	 * A malformed call costs a full round trip otherwise: the error goes
+	 * back as a `tool_result`, the model re-reads the entire context, and
+	 * issues a second inference to add a missing brace. A host that can
+	 * repair the arguments locally — a cheap model handed the schema, or
+	 * plain string surgery — turns that into nothing.
+	 *
+	 * See {@link RepairToolCall}. Declining is normal and cheap: the
+	 * original error simply proceeds to the model as before.
+	 */
+	repairToolCall?: RepairToolCall
+
+	/**
+	 * Programmable halt condition, evaluated after each step's tools have
+	 * run so a predicate can see what they returned.
+	 *
+	 * Before this the only halt was `GuardCoordinator`, which sees four
+	 * numeric budgets and never the messages — so a terminal
+	 * `submit_answer` tool could not end a run, and the model had to be
+	 * prompt-begged to stop with `maxIterations: 200` as the only backstop.
+	 *
+	 * Helpers: `stepCountIs`, `hasToolCall`, `anyOf`.
+	 */
+	stopWhen?: StopCondition
+
+	/**
+	 * Judge the answer the run is about to settle with, and hand it back
+	 * with feedback when it is not good enough.
+	 *
+	 * `stopWhen` is only consulted after tools have run, so there was no
+	 * seam at the point the model stops calling them: the run finalized
+	 * with whatever it had. Verify-then-fix — run the build, feed the
+	 * failure back, let it try again — meant starting a new run and
+	 * re-supplying the context the first one had already assembled.
+	 *
+	 * Bounded by {@link maxAnswerReviews}. Never called on the forced-final
+	 * turn, which exists to extract a closing summary under pressure.
+	 */
+	reviewAnswer?: ReviewAnswer
+
+	/**
+	 * Decide what this run should leave behind when it settles.
+	 *
+	 * See {@link PromoteMemory}. Absent means nothing is offered and the
+	 * run behaves exactly as it did.
+	 */
+	promoteMemory?: PromoteMemory
+
+	/** Rejections allowed before the run stops. Default 3. */
+	maxAnswerReviews?: number
+
+	/** Called with each completed step, as it completes. */
+	onStepFinish?: (step: StepResult) => void
+
+	/**
+	 * Shape each step before the model is called: narrow the tool surface,
+	 * swap the model, add one-step guidance, change sampling.
+	 *
+	 * `stopWhen` let a run decide TO STOP from what its steps produced;
+	 * this is the other half — deciding how the next step should look.
+	 * Without it, the tool surface and model are fixed at `query()` time,
+	 * so a phased agent (research with search tools, write with file tools,
+	 * verify with a cheaper model) had to be three separate runs, each
+	 * starting blind to the last one's context.
+	 *
+	 * Narrowing `activeTools` costs a prompt-cache prefix, since tools
+	 * render at position 0 — worth it at a real phase boundary, not every
+	 * step. It does not touch `tool_choice`: not every provider has an
+	 * `allowed_tools`, and moving `tool_choice` invalidates cached MESSAGE
+	 * blocks too, which is a strictly worse trade for the same effect.
+	 *
+	 * Fails open — a throw leaves the step with the run's configuration.
+	 */
+	prepareStep?: PrepareStepChain
+
+	/**
+	 * Force the run to finish by calling a schema-validated tool, and land
+	 * the parsed value on `Run.structuredOutput`.
+	 *
+	 * Both leaf pieces already shipped and neither was reachable:
+	 * `createStructuredOutputTool` is excluded from the default builtin set,
+	 * and `StructuredOutputConfig` had no field on QueryParams at all. A host
+	 * needing a typed result had to register the tool by hand and hope —
+	 * nothing forced the call, and nothing stopped the loop when it came.
+	 */
+	structuredOutput?: StructuredOutputConfig
+
+	/**
+	 * Checks run BEFORE the first model call. A block settles the run as
+	 * `input_guardrail` having spent nothing.
+	 *
+	 * namzu's three tool gates all point one way — they protect the world
+	 * from the agent. These are the other direction.
+	 */
+	inputGuardrails?: readonly InputGuardrailSpec[]
+
+	/**
+	 * Checks run against the FINAL result. A block settles the run as
+	 * `output_guardrail`; a `rewrite` replaces the text (so a PII policy
+	 * can redact rather than discard the whole answer).
+	 *
+	 * These gate the result, not the stream: `text_delta` events already
+	 * reached the host, so a rewrite arrives as a correction alongside a
+	 * `guardrail_triggered` event.
+	 */
+	outputGuardrails?: readonly OutputGuardrailSpec[]
 	tools: ToolRegistryContract
 	runConfig: AgentRunConfig
 	allowedTools?: string[]
@@ -71,6 +302,46 @@ export interface QueryParams {
 	signal?: AbortSignal
 	resumeHandler: ResumeHandler
 	resumeFromCheckpoint?: CheckpointId
+
+	/**
+	 * The answer to the decision the checkpoint parked on, collected
+	 * out-of-band — typically in a different process.
+	 *
+	 * Recording a park makes the request survive a restart; this is what
+	 * makes the ANSWER survive one. Without it a resumed run repairs the
+	 * unanswered `tool_use` blocks away and lets the model re-decide, so a
+	 * human's "yes, delete that row" degrades into "ask the model again and
+	 * hope it asks for the same thing".
+	 *
+	 * Applies only to a `tool_review` park (the others leave no tool calls
+	 * to apply a decision to) and only when the checkpoint's tool calls
+	 * still match the ones the decision was made about — otherwise the
+	 * decision is ignored and the repair path runs, because consent to one
+	 * batch is not consent to a different one.
+	 */
+	pendingDecision?: HITLResumeDecision
+
+	/**
+	 * How long a HITL decision may take before the park is written to the
+	 * checkpoint store. Defaults to {@link PARK_RECORD_DELAY_MS}.
+	 *
+	 * A park is only worth persisting if a human is actually looking at it:
+	 * a programmatic handler answers in microseconds, and the iteration
+	 * gate runs on every iteration, so recording every park unconditionally
+	 * would take a long run from one full-history checkpoint write per
+	 * iteration to three. Set `0` to record every park (tests, or a host
+	 * that wants an unconditional audit trail).
+	 */
+	parkRecordDelayMs?: number
+
+	/**
+	 * Span this run should hang off, when it is a delegated one.
+	 *
+	 * A spawned sub-agent is part of its parent's work, and a trace that
+	 * shows the delegation is the whole reason to trace a supervisor at
+	 * all. Absent for a top-level run, which correctly starts its own root.
+	 */
+	parentSpan?: import('@opentelemetry/api').Span
 
 	/** Session scope for the run. Required — every run is attributed to a Session. */
 	sessionId: SessionId
@@ -182,11 +453,24 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 	const cwdForMigration = params.workingDirectory ?? process.cwd()
 	await RunContextFactory.ensureMigrated(`${cwdForMigration}/.namzu`)
 
+	// Every model call in the run — the loop's turns, the forced-final
+	// summary, advisory and compaction side calls — goes through this one
+	// wrapped provider, so the retry policy cannot be bypassed by a code
+	// path that happens to hold the raw driver.
+	// The logger is passed on purpose: `withProviderRetry` guards every one
+	// of its warns behind `options.log`, and this is its only production
+	// call site — so without it the "failed, retrying" and "failed, giving
+	// up" lines were dead code and a backoff left no trace anywhere.
+	const resilientProvider =
+		params.retry === false
+			? params.provider
+			: withProviderRetry(params.provider, { config: params.retry, log: getRootLogger() })
+
 	const ctx = RunContextFactory.build({
 		agentId: params.agentId,
 		agentName: params.agentName,
 		runConfig: params.runConfig,
-		provider: params.provider,
+		provider: resilientProvider,
 		workingDirectory: params.workingDirectory,
 		pricing: params.pricing,
 		enableActivityTracking: params.enableActivityTracking,
@@ -268,6 +552,15 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		}
 	}
 
+	// Registered HERE, before the first turn, not when the model is nearly
+	// done. Tools render at prefix position 0, so injecting one late would
+	// invalidate the whole prompt cache for the rest of the run — the same
+	// reason the forced-final turn keeps its tools array and uses
+	// `toolChoice: 'none'` instead of dropping it.
+	if (params.structuredOutput && !params.tools.has(STRUCTURED_OUTPUT_TOOL_NAME)) {
+		params.tools.register(createStructuredOutputTool(params.structuredOutput.schema))
+	}
+
 	// ─── Provider capability negotiation (before tooling bootstrap) ────────
 	// Compare what the request asks for with what the DRIVER declared it
 	// does. Undeclared capabilities resolve permissively (today's behavior
@@ -276,16 +569,27 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 	const capabilities = resolveProviderCapabilities(params.provider)
 	const registeredToolCount = params.tools.listNames().length
 	const stripToolSurfaces = !capabilities.supportsTools && registeredToolCount > 0
+	// Counted separately because they are separate wire shapes: a driver can
+	// map images and drop documents, and a vision warning would send the
+	// reader looking at the wrong half.
+	const carries = (m: (typeof params.messages)[number], kind: 'image' | 'document') =>
+		m.role === 'user' && (m.attachments ?? []).some((a) => (a.type ?? 'image') === kind)
+
 	const attachmentMessageCount = capabilities.supportsVision
 		? 0
-		: params.messages.filter(
-				(m) => m.role === 'user' && m.attachments !== undefined && m.attachments.length > 0,
-			).length
+		: params.messages.filter((m) => carries(m, 'image')).length
+	const documentMessageCount = capabilities.supportsDocuments
+		? 0
+		: params.messages.filter((m) => carries(m, 'document')).length
 
 	if (stripToolSurfaces) {
 		const message = `Provider '${params.provider.id}' declares supportsTools: false but ${registeredToolCount} tool(s) are registered — stripping all tool surfaces from the prompt and request so the model is never told about tools it cannot call. Pass strictCapabilities: true to fail instead, or use a tools-capable provider.`
 		if (params.strictCapabilities) {
-			throw new Error(message)
+			throw new NamzuError({
+				code: 'capability_unavailable',
+				message,
+				details: { providerId: params.provider.id, capability: 'tools', registeredToolCount },
+			})
 		}
 		ctx.log.warn(`CAPABILITY MISMATCH: ${message}`, {
 			providerId: params.provider.id,
@@ -296,7 +600,11 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 	if (attachmentMessageCount > 0) {
 		const message = `Provider '${params.provider.id}' declares supportsVision: false but ${attachmentMessageCount} user message(s) carry image attachments — the driver will not map them, so the model never sees the images. Pass strictCapabilities: true to fail instead, or use a vision-capable provider.`
 		if (params.strictCapabilities) {
-			throw new Error(message)
+			throw new NamzuError({
+				code: 'capability_unavailable',
+				message,
+				details: { providerId: params.provider.id, capability: 'vision', attachmentMessageCount },
+			})
 		}
 		ctx.log.warn(`CAPABILITY MISMATCH: ${message}`, {
 			providerId: params.provider.id,
@@ -304,9 +612,29 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		})
 	}
 
+	if (documentMessageCount > 0) {
+		const message = `Provider '${params.provider.id}' declares supportsDocuments: false but ${documentMessageCount} user message(s) carry document attachments — the driver will not map them, so the model never sees the documents. Pass strictCapabilities: true to fail instead, or use a document-capable provider.`
+		if (params.strictCapabilities) {
+			throw new NamzuError({
+				code: 'capability_unavailable',
+				message,
+				details: { providerId: params.provider.id, capability: 'documents', documentMessageCount },
+			})
+		}
+		ctx.log.warn(`CAPABILITY MISMATCH: ${message}`, {
+			providerId: params.provider.id,
+			documentMessageCount,
+		})
+	}
+
 	const effectiveAllowedTools = stripToolSurfaces
 		? []
 		: withDeferredDiscoveryTool(params.tools, params.allowedTools)
+
+	//  is null only when the run has no disk layout (tests,
+	// in-memory hosts); the budget then degrades to middle-elision.
+	const runDirForTools = ctx.runMgr.getRunDir()
+	const toolOutputDir = runDirForTools ? join(runDirForTools, TOOL_OUTPUT_DIR_NAME) : undefined
 
 	const toolExecutor = ToolingBootstrap.init(
 		{
@@ -319,6 +647,34 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			allowedTools: effectiveAllowedTools,
 			invocationState: params.invocationState,
 			pluginManager: params.pluginManager,
+			...(params.toolTimeoutMs !== undefined ? { toolTimeoutMs: params.toolTimeoutMs } : {}),
+			...(params.maxToolConcurrency !== undefined
+				? { maxToolConcurrency: params.maxToolConcurrency }
+				: {}),
+			...(params.maxToolOutputChars !== undefined
+				? { maxToolOutputChars: params.maxToolOutputChars }
+				: {}),
+			...(params.maxToolContentBytes !== undefined
+				? { maxToolContentBytes: params.maxToolContentBytes }
+				: {}),
+			// Overflow lands beside the run's other artifacts, so it is
+			// cleaned up with the run and reachable by the model's own
+			// `read`/`grep` without a new affordance.
+			...(toolOutputDir ? { toolOutputDir } : {}),
+			...(params.repairToolCall ? { repairToolCall: params.repairToolCall } : {}),
+			// The durable pause, reachable from any tool rather than from the
+			// four kernel-owned points that used to own it. Built here from
+			// the machinery the run already holds; the recorder binds a few
+			// lines below, and until it does a pause is in-process only —
+			// the same degradation the built-in question tool has.
+			toolPause: (toolUseId) =>
+				createToolPause({
+					runId: ctx.runId,
+					toolUseId,
+					parkHandler: params.resumeHandler,
+					...(params.questionParks ? { recorder: params.questionParks } : {}),
+					...(params.pendingAnswers ? { pendingAnswers: params.pendingAnswers } : {}),
+				}),
 		},
 		ctx.activityStore,
 		eventTranslator.emitEvent,
@@ -353,6 +709,16 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		ctx.runMgr.getRunScope(),
 	)
 
+	// Every checkpoint carries compaction's accumulated state, so a run that
+	// comes back in a new process can adopt it (see the restore block).
+	// Without it, compaction's own justification for dropping the prior
+	// `[COMPACTED CONTEXT]` block — that `serializeState` is cumulative —
+	// holds within one process and fails across a resume.
+	if (workingStateManager) {
+		const manager = workingStateManager
+		checkpointMgr.setWorkingStateSource(() => snapshotWorkingState(manager))
+	}
+
 	const resultAssembler = new ResultAssembler({
 		runMgr: ctx.runMgr,
 		planManager: ctx.planManager,
@@ -360,6 +726,9 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		log: ctx.log,
 		emitEvent: eventTranslator.emitEvent,
 		drainPending: () => eventTranslator.drainPending(),
+		// Read at settle time, not now: checkpoints are written per
+		// iteration, so the answer changes as the run proceeds.
+		resumeCheckpointId: () => checkpointMgr.lastCheckpointId,
 	})
 
 	let advisoryCtx: AdvisoryContext | undefined
@@ -368,7 +737,10 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			params.advisory.advisors,
 			params.advisory.defaultAdvisorId,
 		)
-		const advisoryExecutor = new AdvisoryExecutor(ctx.log)
+		// A budget the runtime cannot measure is refused here rather than
+		// silently ignored for the length of the run.
+		assertBudgetEnforceable(params.advisory)
+		const advisoryExecutor = new AdvisoryExecutor(ctx.log, params.advisory.budget)
 		const triggerEvaluator = new TriggerEvaluator(
 			params.advisory.triggers ?? [],
 			params.advisory.budget,
@@ -396,8 +768,17 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		: undefined
 
 	const iterationOrchestrator = new IterationOrchestrator({
-		provider: params.provider,
+		provider: resilientProvider,
 		runConfig: params.runConfig,
+		...(params.stopWhen ? { stopWhen: params.stopWhen } : {}),
+		...(params.prepareStep ? { prepareStep: params.prepareStep } : {}),
+		...(params.onStepFinish ? { onStepFinish: params.onStepFinish } : {}),
+		...(params.reviewAnswer ? { reviewAnswer: params.reviewAnswer } : {}),
+		...(params.maxAnswerReviews !== undefined ? { maxAnswerReviews: params.maxAnswerReviews } : {}),
+		...(params.structuredOutput ? { structuredOutput: params.structuredOutput } : {}),
+		...(params.parkRecordDelayMs !== undefined
+			? { parkRecordDelayMs: params.parkRecordDelayMs }
+			: {}),
 		tools: params.tools,
 		allowedTools: effectiveAllowedTools,
 		runMgr: ctx.runMgr,
@@ -414,6 +795,9 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		taskGateway: params.taskGateway,
 		taskStore: params.taskStore,
 		launchedTasks: params.launchedTasks ?? new Map(),
+		// Run-scoped. An approval is a statement about this run's work;
+		// carrying one into a later run would be reuse nobody agreed to.
+		toolGrants: new ToolGrantSet(),
 		compactionConfig: params.compactionConfig,
 		workingStateManager,
 		workingMemoryProvider: params.workingMemoryProvider,
@@ -426,7 +810,98 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 	const tracer = getTracer()
 
 	return yield* (async function* (): AsyncGenerator<RunEvent, Run> {
-		const rootSpan = tracer.startSpan(agentRunSpanName(params.agentName))
+		// Parent explicitly when a caller supplied one. Without this every
+		// run starts its OWN root trace, so a supervisor delegating to three
+		// children produced four disconnected traces instead of one tree —
+		// the same defect that made a 20-turn run show up as 21 roots before
+		// iterations were parented, except across the spawn boundary, where
+		// it is worse: the delegation structure is the thing you most want
+		// to see.
+		const runStartedAt = Date.now()
+
+		// Read before the span is minted, because a parent can only be set
+		// at creation. A resumed run used to start a brand-new trace with no
+		// link to the one that crashed, so the failure and its recovery
+		// could not be put on one timeline — the run id correlated them well
+		// enough to find both by query and not well enough to see a single
+		// waterfall, and for a replay fork (which mints a new run id) not
+		// even that. An explicit caller-supplied parent still wins: it is
+		// the more specific statement about where this run belongs.
+		const resumedTrace = params.resumeFromCheckpoint
+			? await checkpointMgr.readTraceContext(params.resumeFromCheckpoint)
+			: undefined
+
+		const rootSpan = tracer.startSpan(
+			agentRunSpanName(params.agentName),
+			{},
+			parentContext(params.parentSpan ?? resumedTrace),
+		)
+		// Hand the run span to the loop so every iteration parents to it.
+		iterationOrchestrator.setRootSpan(rootSpan)
+		// Every checkpoint from here on records the trace it was taken
+		// inside, so the next resume can join this one.
+		checkpointMgr.setTraceSource(() => serializeSpan(rootSpan))
+		// And every park it records carries an absolute deadline, so an
+		// unanswered approval cannot outlive the worker that asked for it.
+		checkpointMgr.setParkTtl(params.runConfig.hitlParkTtlMs)
+
+		// A question raised from inside a tool becomes a real checkpoint
+		// here. It used to park under a synthetic id nothing ever wrote, so
+		// the checkpoint did not exist: nothing on disk said a human owed
+		// this run an answer, and a remote host could not observe the
+		// question at all.
+		params.questionParks?.bind({
+			record: async (question) => {
+				try {
+					const checkpoint = await checkpointMgr.create(ctx.runMgr, ctx.runMgr.currentIteration)
+					const parked = await checkpointMgr.park(checkpoint, {
+						type: 'user_question',
+						runId: ctx.runMgr.id,
+						checkpointId: checkpoint.id,
+						question,
+					})
+					await eventTranslator.emitEvent({
+						type: 'user_question_asked',
+						runId: ctx.runMgr.id,
+						checkpointId: parked.id,
+						questionId: question.questionId,
+						question: question.question,
+					})
+					return parked.id
+				} catch (err) {
+					// A store that cannot record the park must not take the
+					// tool down with it: the in-process await is still valid
+					// and only the cross-process handoff is lost. Loudly,
+					// because a host building an approval queue from durable
+					// state will not see this question.
+					ctx.log.error('Failed to record a question park — it is not resumable', {
+						runId: ctx.runMgr.id,
+						questionId: question.questionId,
+						error: err instanceof Error ? err.message : String(err),
+					})
+					return null
+				}
+			},
+			resolve: async (checkpointId, decision) => {
+				await checkpointMgr.unpark(checkpointId, decision).catch((err: unknown) => {
+					ctx.log.error('Failed to clear a recorded question park', {
+						runId: ctx.runMgr.id,
+						checkpointId,
+						error: err instanceof Error ? err.message : String(err),
+					})
+					return null
+				})
+				await eventTranslator.emitEvent({
+					type: 'user_question_answered',
+					runId: ctx.runMgr.id,
+					checkpointId,
+					...(decision.action === 'answer_question' && decision.questionId !== undefined
+						? { questionId: decision.questionId }
+						: {}),
+					answered: decision.action === 'answer_question',
+				})
+			},
+		})
 		rootSpan.setAttributes({
 			[NAMZU.RUN_ID]: ctx.runMgr.id,
 			[GENAI.AGENT_NAME]: params.agentName,
@@ -436,6 +911,12 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		})
 
 		let sandbox: Sandbox | undefined
+		// Decided during checkpoint restore, executed after the sandbox
+		// exists — the approved tools may well need it.
+		let pendingResume: PendingResumePlan | null = null
+		/** Tool results recovered from the transcript; see the restore path. */
+		let recoveredResults: ReadonlyMap<string, { result: string; isError: boolean }> = new Map()
+		let emergencyManager: EmergencySaveManager | undefined
 
 		try {
 			await ctx.runMgr.init()
@@ -490,8 +971,103 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				})
 				yield* eventTranslator.drainPending()
 
+				// Budgets are properties of the RUN, not of the process hosting
+				// it. The checkpoint already carried all three; they were
+				// written and then discarded on the way back in, so a run
+				// recalled at $4.80 of a $5 cap came back with a fresh $5 and
+				// a fresh timeout clock. Restore before the first iteration so
+				// a resumed run that is already over budget stops immediately.
+				ctx.runMgr.restoreUsage(
+					checkpoint.tokenUsage,
+					checkpoint.costInfo,
+					checkpoint.guardState.iterationCount,
+				)
+				guard.restoreElapsed(checkpoint.guardState.elapsedMs)
+
+				// Adopt the working state the earlier summary was built from.
+				// The `[COMPACTED CONTEXT]` block below is preserved precisely
+				// because it is the only surviving record of the history the
+				// first pass deleted — and without this, the NEXT compaction
+				// would drop it and replace it with a summary covering only
+				// what happened after the resume, silently losing the run's
+				// first hour.
+				if (workingStateManager && checkpoint.workingState && params.compactionConfig) {
+					const revived = restoreWorkingState(checkpoint.workingState, params.compactionConfig)
+					workingStateManager.replaceState(revived.getState())
+					ctx.log.info('Restored compaction working state from checkpoint', {
+						runId: ctx.runMgr.id,
+						checkpointId: checkpoint.id,
+						slots: workingStateManager.slotCount(),
+					})
+				}
+				ctx.log.info('Restored budgets from checkpoint', {
+					runId: ctx.runMgr.id,
+					checkpointId: checkpoint.id,
+					totalTokens: checkpoint.tokenUsage.totalTokens,
+					totalCost: checkpoint.costInfo.totalCost,
+					iteration: checkpoint.guardState.iterationCount,
+					elapsedMs: checkpoint.guardState.elapsedMs,
+				})
+
 				pushSystemMessages()
-				for (const msg of checkpoint.messages) {
+
+				// A human answered the park in a different process; apply that
+				// answer to the tool calls they were actually shown. Without
+				// this the repair below throws the approval away and the model
+				// re-decides, so "yes, delete that row" degrades into "ask
+				// again and hope it asks for the same thing".
+				pendingResume =
+					params.pendingDecision && checkpoint.pending
+						? planPendingResume(checkpoint, params.pendingDecision, ctx.log)
+						: null
+
+				// Results of tools that finished before the process died. The
+				// executor already emits one `tool_completed` per tool inline
+				// and the transcript already persists it, so the record was
+				// durable all along — it was simply never read back, and the
+				// resumed run re-ran calls that had already charged a card or
+				// sent an email.
+				const unanswered = unansweredToolCalls(checkpoint.messages)
+				recoveredResults =
+					unanswered.length > 0
+						? await recoverCompletedCalls(ctx.runMgr, unanswered, ctx.log)
+						: new Map()
+
+				// A batch caught MID-execution is a resume, not a fresh
+				// decision: stripping the turn and letting the model re-decide
+				// would re-run everything that already ran. Only taken when
+				// the transcript proves execution had begun — a tool-review
+				// park has no completions and keeps the cheap repair below.
+				if (!pendingResume && recoveredResults.size > 0) {
+					pendingResume = planCrashResume(checkpoint, recoveredResults, ctx.log)
+				}
+
+				// A checkpoint taken at a tool-review park snapshots the
+				// assistant turn AFTER its `tool_use` blocks but BEFORE any
+				// `tool_result` exists, so replaying it verbatim would send a
+				// malformed request on the first model call of the resumed
+				// run. Repair the incomplete turn rather than inheriting it:
+				// the model re-decides from the last valid state.
+				//
+				// The pending-decision path uses the SAME repair: it strips
+				// the unanswered turn here and `applyPendingResume` re-appends
+				// it together with the results that answer it, so the history
+				// stays well-formed either way.
+				const dangling = findDanglingMessages(checkpoint.messages)
+				const restoredMessages = dangling.isValid
+					? checkpoint.messages
+					: removeDanglingMessages(checkpoint.messages)
+				if (!dangling.isValid && !pendingResume) {
+					ctx.log.warn('Checkpoint contained unanswered tool calls — repaired on restore', {
+						runId: ctx.runMgr.id,
+						checkpointId: checkpoint.id,
+						unansweredAssistantTurns: dangling.assistantsWithUnmatchedCalls.length,
+						orphanedToolMessages: dangling.orphanedToolMessages.length,
+						removed: checkpoint.messages.length - restoredMessages.length,
+					})
+				}
+
+				for (const msg of restoredMessages) {
 					if (msg.role === 'system') {
 						// Re-push the FRESH static/dynamic floor (done above) but PRESERVE
 						// the two system messages that carry irreplaceable run state: the
@@ -595,6 +1171,92 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				})
 			}
 
+			// Crash-save handlers live for exactly the run's lifetime, and are
+			// removed in the `finally` below. Opt-in — see `emergencySave`.
+			if (params.emergencySave) {
+				const runDir = ctx.runMgr.getRunDir()
+				if (runDir) {
+					emergencyManager = EmergencySaveManager.instance(ctx.log)
+					emergencyManager.attach(ctx.runMgr, runDir, ctx.log)
+				} else {
+					ctx.log.warn(
+						'emergencySave requested but the run has no output directory — crash dumps disabled',
+						{ runId: ctx.runId },
+					)
+				}
+			}
+
+			// Before the first model call: the cheapest place to refuse, since
+			// nothing has been spent. Previously unreachable — `run_start`
+			// fires with only `{ runId }` and `run_started` carries only the
+			// system prompt, so no hook could see the user's message.
+			const inputVerdict = await runInputGuardrails(
+				params.inputGuardrails,
+				{
+					runId: ctx.runId,
+					messages: ctx.runMgr.messages,
+					...(segments?.static ? { systemPrompt: segments.static } : {}),
+				},
+				ctx.log,
+			)
+			if (inputVerdict.blocked) {
+				await eventTranslator.emitEvent({
+					type: 'guardrail_triggered',
+					runId: ctx.runId,
+					stage: 'input',
+					action: 'block',
+					...(inputVerdict.name ? { guardrail: inputVerdict.name } : {}),
+					...(inputVerdict.reason ? { reason: inputVerdict.reason } : {}),
+				})
+				yield* eventTranslator.drainPending()
+				ctx.runMgr.setStopReason('input_guardrail')
+				ctx.runMgr.setLastError(inputVerdict.reason ?? 'blocked by an input guardrail')
+				yield* resultAssembler.completeRun(rootSpan)
+				return ctx.runMgr.getRun()
+			}
+
+			// Honor the approval a human already gave, before the loop's
+			// first model call. The sandbox exists by now, so an approved
+			// tool that needs one gets it.
+			if (pendingResume) {
+				ctx.log.info('Applying a pending HITL decision to the checkpointed tool calls', {
+					runId: ctx.runId,
+					tools: pendingResume.response.message.toolCalls?.map((tc) => tc.function.name),
+					denied: pendingResume.denials.size,
+				})
+				// Hand the recorded answer to the already-built tool. The tool
+				// closed over its registry when the agent was constructed,
+				// long before this run existed, so the answers are copied in
+				// rather than passed down.
+				if (pendingResume.answers && params.pendingAnswers) {
+					for (const [questionId, answer] of pendingResume.answers.entries()) {
+						params.pendingAnswers.set(questionId, answer)
+					}
+				}
+
+				await applyPendingResume(pendingResume, ctx.runMgr, toolExecutor, recoveredResults)
+				yield* eventTranslator.drainPending()
+
+				// The decision has now actually been carried out, so the park
+				// is no longer outstanding. Without this the checkpoint keeps
+				// reporting `pending` with no `resolvedAt`, and an approval
+				// queue re-serves a destructive call that already ran — which
+				// defeats the entire point of recording the park.
+				const resolvedCheckpointId = pendingResume.checkpointId
+				if (params.pendingDecision) {
+					await checkpointMgr
+						.unpark(resolvedCheckpointId, params.pendingDecision)
+						.catch((err: unknown) => {
+							ctx.log.error('Applied a pending decision but failed to clear the park', {
+								runId: ctx.runId,
+								checkpointId: resolvedCheckpointId,
+								error: err instanceof Error ? err.message : String(err),
+							})
+							return null
+						})
+				}
+			}
+
 			yield* iterationOrchestrator.runLoop()
 
 			if (params.pluginManager) {
@@ -607,10 +1269,90 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				yield* eventTranslator.drainPending()
 			}
 
+			// Hand the step record to the run before it settles, so the
+			// returned `Run` carries it.
+			ctx.runMgr.setSteps(iterationOrchestrator.getSteps())
+
+			// Gates the FINAL result, not the stream — `text_delta` already
+			// reached the host as the model produced it. A rewrite is
+			// therefore a correction, and the event says so; buffering every
+			// token to gate the stream itself would trade the streaming UX
+			// for the guarantee, which is the host's call, not the SDK's.
+			if (params.outputGuardrails && params.outputGuardrails.length > 0) {
+				// Read what the run produced WITHOUT settling it. This used to
+				// call `markCompleted()` just to materialize the text, which
+				// force-marked a cancelled or paused run `completed` merely
+				// because a guardrail was configured — the presence of a
+				// safety check silently rewrote the run's own outcome.
+				const produced = ctx.runMgr.materializeResult()
+				const outputVerdict = await runOutputGuardrails(
+					params.outputGuardrails,
+					{ runId: ctx.runId, output: produced, messages: ctx.runMgr.messages },
+					ctx.log,
+				)
+
+				if (outputVerdict.blocked) {
+					await eventTranslator.emitEvent({
+						type: 'guardrail_triggered',
+						runId: ctx.runId,
+						stage: 'output',
+						action: 'block',
+						...(outputVerdict.name ? { guardrail: outputVerdict.name } : {}),
+						...(outputVerdict.reason ? { reason: outputVerdict.reason } : {}),
+					})
+					yield* eventTranslator.drainPending()
+					ctx.runMgr.setStopReason('output_guardrail')
+					ctx.runMgr.setLastError(outputVerdict.reason ?? 'blocked by an output guardrail')
+					ctx.runMgr.setResult('')
+				} else if (outputVerdict.rewritten !== undefined) {
+					await eventTranslator.emitEvent({
+						type: 'guardrail_triggered',
+						runId: ctx.runId,
+						stage: 'output',
+						action: 'rewrite',
+						...(outputVerdict.name ? { guardrail: outputVerdict.name } : {}),
+						...(outputVerdict.reason ? { reason: outputVerdict.reason } : {}),
+					})
+					yield* eventTranslator.drainPending()
+					ctx.runMgr.setResult(outputVerdict.rewritten)
+				}
+			}
+
 			yield* resultAssembler.completeRun(rootSpan)
 		} catch (err) {
+			// A failed run still spent its steps; report them.
+			ctx.runMgr.setSteps(iterationOrchestrator.getSteps())
 			yield* resultAssembler.handleError(err, rootSpan)
 		} finally {
+			// Release the process's termination path as soon as this run is
+			// done with it. Leaving the handlers installed would keep a
+			// WeakRef'd, settled run as the crash target for the rest of the
+			// process's life.
+			emergencyManager?.detach()
+
+			// Same reasoning for the question channel: the tools outlive the
+			// run that bound them, so leaving it attached would have a later
+			// run's question written into this run's checkpoint store.
+			params.questionParks?.unbind()
+
+			// Offer what the run learned to whoever decides what is worth
+			// keeping. In `finally` and awaited: a run that failed still
+			// discovered things, and a fire-and-forget write would race the
+			// process exiting on a one-shot CLI run. A throw here is
+			// swallowed — a memory that failed to form must not retract an
+			// answer that was already produced.
+			const candidate = memoryCandidateFor(ctx.runId, workingStateManager)
+			if (params.promoteMemory && candidate) {
+				try {
+					await params.promoteMemory(candidate)
+				} catch (promoteErr) {
+					ctx.log.error('Memory promotion threw — the run is unaffected', {
+						runId: ctx.runId,
+						error: promoteErr instanceof Error ? promoteErr.message : String(promoteErr),
+					})
+				}
+			}
+
 			// --- Sandbox lifecycle: destroy after run ---
 			if (sandbox) {
 				const sandboxId = sandbox.id
@@ -631,6 +1373,11 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			}
 
 			unsubscribeTaskStore?.()
+			// Keyed by HOW it settled, not just that it did: a run that was
+			// cancelled and a run that hit its budget have very different
+			// duration distributions, and averaging them together describes
+			// neither.
+			recordRunDuration(ctx.runMgr.getRun().status ?? 'unknown', Date.now() - runStartedAt)
 			rootSpan.end()
 		}
 

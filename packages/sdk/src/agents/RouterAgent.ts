@@ -9,6 +9,7 @@ import type {
 	RouterAgentResult,
 	RoutingDecision,
 } from '../types/agent/index.js'
+import { type TokenUsage, accumulateTokenUsage } from '../types/common/index.js'
 import type { FallbackStrategy } from '../types/decision/index.js'
 import { deriveChildState } from '../types/invocation/index.js'
 import { createSystemMessage, createUserMessage } from '../types/message/index.js'
@@ -33,7 +34,26 @@ export class RouterAgent extends AbstractAgent<RouterAgentConfig, RouterAgentRes
 		})
 	}
 
+	/**
+	 * One run at a time per instance.
+	 *
+	 * `abortController` and `currentRunId` are instance state, so two
+	 * overlapping runs share one abort controller — cancelling either kills
+	 * both — and the second clobbers the first's run id, so a later
+	 * `cancel()` cancels the wrong run. Neither failure announces itself.
+	 * A host that wants parallelism constructs a second instance.
+	 */
 	async run(
+		input: AgentInput,
+		config: RouterAgentConfig,
+		listener?: RunEventListener,
+	): Promise<RouterAgentResult> {
+		return await this.underIdempotencyKey(config.idempotencyKey, () =>
+			this.underInvocationLock(() => this.runExclusive(input, config, listener)),
+		)
+	}
+
+	private async runExclusive(
 		input: AgentInput,
 		config: RouterAgentConfig,
 		listener?: RunEventListener,
@@ -110,7 +130,9 @@ export class RouterAgent extends AbstractAgent<RouterAgentConfig, RouterAgentRes
 			runId,
 			status: delegateResult.status,
 			stopReason: delegateResult.stopReason,
-			usage: delegateResult.usage,
+			// Routing is a model call the run paid for; reporting only the
+			// delegate's usage silently under-reports every routed run.
+			usage: accumulateTokenUsage(delegateResult.usage, decision.usage ?? EMPTY_TOKEN_USAGE),
 			cost: delegateResult.cost,
 			iterations: delegateResult.iterations + 1,
 			durationMs: Date.now() - startTime,
@@ -175,6 +197,10 @@ export class RouterAgent extends AbstractAgent<RouterAgentConfig, RouterAgentRes
 			.filter((c): c is string => c !== null)
 			.join('\n')
 
+		// Every routing attempt is a billed model call; a fallback after
+		// three failed parses still cost three calls.
+		let routingUsage: TokenUsage = { ...EMPTY_TOKEN_USAGE }
+
 		for (let attempt = 0; attempt < maxRetries; attempt++) {
 			try {
 				const response = await collect(
@@ -186,6 +212,8 @@ export class RouterAgent extends AbstractAgent<RouterAgentConfig, RouterAgentRes
 					}),
 				)
 
+				routingUsage = accumulateTokenUsage(routingUsage, response.usage)
+
 				const parseResult = parser.parse(response.message.content)
 
 				if (parseResult.ok && parseResult.source === 'parsed') {
@@ -194,6 +222,7 @@ export class RouterAgent extends AbstractAgent<RouterAgentConfig, RouterAgentRes
 						confidence: parseResult.decision.confidence,
 						reasoning: parseResult.decision.reasoning,
 						routingSource: 'provider',
+						usage: routingUsage,
 					}
 				}
 
@@ -209,6 +238,7 @@ export class RouterAgent extends AbstractAgent<RouterAgentConfig, RouterAgentRes
 							confidence: parseResult.decision.confidence,
 							reasoning: parseResult.decision.reasoning,
 							routingSource: 'fallback',
+							usage: routingUsage,
 						}
 					}
 
@@ -233,6 +263,6 @@ export class RouterAgent extends AbstractAgent<RouterAgentConfig, RouterAgentRes
 			}
 		}
 
-		return fallbackResolver.resolve(userContent, validAgentIds)
+		return { ...fallbackResolver.resolve(userContent, validAgentIds), usage: routingUsage }
 	}
 }

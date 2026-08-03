@@ -3,6 +3,7 @@ import { LocalTaskGateway } from '../gateway/local.js'
 import { ToolRegistry } from '../registry/tool/execute.js'
 import { drainQuery } from '../runtime/query/index.js'
 import type { LaunchedTaskMeta } from '../runtime/query/iteration/phases/context.js'
+import { PendingAnswers, QuestionParkBinding } from '../runtime/query/question-park.js'
 import { buildCoordinatorTools } from '../tools/coordinator/index.js'
 import type { TaskGateway, TaskHandle } from '../types/agent/gateway.js'
 import type {
@@ -32,7 +33,7 @@ import { AbstractAgent } from './AbstractAgent.js'
  * The earlier implementation cast `handle.state` onto the synthesized result's
  * status, letting a worker that ended without a result count toward
  * `completedTasks`. That produced fabricated "done" workers with empty outputs
- * (cowork task 02c5cf2b): the supervisor reported "3 workers done, 40KB
+ * (observed in a live supervised run): the supervisor reported "3 workers done, 40KB
  * reports" when the workers never started. Real workers (those with a present
  * `result`) are unaffected — their `result` is preserved verbatim.
  */
@@ -77,7 +78,26 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 		})
 	}
 
+	/**
+	 * One run at a time per instance.
+	 *
+	 * `abortController` and `currentRunId` are instance state, so two
+	 * overlapping runs share one abort controller — cancelling either kills
+	 * both — and the second clobbers the first's run id, so a later
+	 * `cancel()` cancels the wrong run. Neither failure announces itself.
+	 * A host that wants parallelism constructs a second instance.
+	 */
 	async run(
+		input: AgentInput,
+		config: SupervisorAgentConfig,
+		listener?: RunEventListener,
+	): Promise<SupervisorAgentResult> {
+		return await this.underIdempotencyKey(config.idempotencyKey, () =>
+			this.underInvocationLock(() => this.runExclusive(input, config, listener)),
+		)
+	}
+
+	private async runExclusive(
 		input: AgentInput,
 		config: SupervisorAgentConfig,
 		listener?: RunEventListener,
@@ -141,6 +161,12 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 
 		let planManagerRef: import('../manager/plan/lifecycle.js').PlanManager | undefined
 
+		// Created here because the TOOLS are created here: the durability
+		// channel has to reach the tool instance, and the run that supplies
+		// it does not exist yet. `query` binds them once it does.
+		const questionParks = new QuestionParkBinding()
+		const pendingAnswers = new PendingAnswers()
+
 		const coordinatorToolDefs = buildCoordinatorTools({
 			gateway,
 			workingDirectory: input.workingDirectory,
@@ -156,6 +182,8 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 			// ask_user_question — the model can park the run on a question
 			// routed through the same HITL channel as plan approvals.
 			...(config.resumeHandler ? { resumeHandler: config.resumeHandler } : {}),
+			questionParks,
+			pendingAnswers,
 		})
 
 		const tools = new ToolRegistry()
@@ -187,6 +215,8 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 					temperature: config.temperature,
 					env: config.env,
 				},
+				questionParks,
+				pendingAnswers,
 				agentId: this.metadata.id,
 				agentName: this.metadata.name,
 				workingDirectory: input.workingDirectory,

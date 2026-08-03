@@ -1,7 +1,7 @@
 ---
 title: Retrieval and RAG
 description: Build knowledge bases, ingest documents, retrieve context, and expose retrieval as a Namzu tool using the public @namzu/sdk RAG surface.
-last_updated: 2026-04-18
+last_updated: 2026-08-03
 status: current
 related_packages: ["@namzu/sdk"]
 ---
@@ -17,7 +17,7 @@ The public exports line up as one pipeline:
 | Stage | Owns | Main exports |
 | --- | --- | --- |
 | Chunking | split documents into searchable units | `TextChunker`, `DEFAULT_CHUNKING_CONFIG` |
-| Embeddings | convert text into vectors | `EmbeddingProvider`, `OpenRouterEmbeddingProvider` |
+| Embeddings | convert text into vectors | `EmbeddingProvider`, `HttpEmbeddingProvider` |
 | Vector store | persist searchable vectors | `InMemoryVectorStore`, `VectorStore` |
 | Retrieval | rank relevant chunks | `DefaultRetriever`, `DEFAULT_RETRIEVAL_CONFIG` |
 | Knowledge base | one scoped corpus with ingest/query methods | `DefaultKnowledgeBase` |
@@ -135,7 +135,7 @@ Important public behavior:
 | `keyword` | term-heavy exact matching | weaker semantic recall |
 | `hybrid` | mixed semantic plus lexical retrieval | more work, but the safest default for many docs corpora |
 
-You can also pass `threadMessages` in `RetrievalQuery`. The retriever expands the query with recent thread context before search, which helps when the user asks short follow-up questions.
+You can also pass `recentMessages` in `RetrievalQuery`. The retriever expands the query with recent thread context before search, which helps when the user asks short follow-up questions.
 
 ## 5. Chunking Strategy Changes the Whole System
 

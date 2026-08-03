@@ -4,7 +4,8 @@ import type { RunId } from '../../types/ids/index.js'
 import type { InvocationState } from '../../types/invocation/index.js'
 import type { PermissionMode } from '../../types/permission/index.js'
 import type { RunEvent } from '../../types/run/index.js'
-import type { ToolRegistryContract } from '../../types/tool/index.js'
+import type { RequestToolPause, ToolRegistryContract } from '../../types/tool/index.js'
+import type { RepairToolCall } from '../../types/tool/repair.js'
 import type { Logger } from '../../utils/logger.js'
 import { ToolExecutor } from './executor.js'
 
@@ -20,6 +21,14 @@ export interface ToolingBootstrapConfig {
 	allowedTools?: readonly string[]
 	invocationState?: InvocationState
 	pluginManager?: PluginLifecycleManager
+	toolTimeoutMs?: number
+	maxToolConcurrency?: number
+	maxToolOutputChars?: number
+	maxToolContentBytes?: number
+	toolOutputDir?: string
+	repairToolCall?: RepairToolCall
+	/** Builds the durable-pause seam for one tool call; see ToolContext.requestPause. */
+	toolPause?: (toolUseId: string) => RequestToolPause
 }
 
 export class ToolingBootstrap {
@@ -40,6 +49,19 @@ export class ToolingBootstrap {
 				allowedTools: config.allowedTools,
 				invocationState: config.invocationState,
 				pluginManager: config.pluginManager,
+				...(config.toolTimeoutMs !== undefined ? { toolTimeoutMs: config.toolTimeoutMs } : {}),
+				...(config.maxToolConcurrency !== undefined
+					? { maxToolConcurrency: config.maxToolConcurrency }
+					: {}),
+				...(config.maxToolOutputChars !== undefined
+					? { maxToolOutputChars: config.maxToolOutputChars }
+					: {}),
+				...(config.maxToolContentBytes !== undefined
+					? { maxToolContentBytes: config.maxToolContentBytes }
+					: {}),
+				...(config.toolOutputDir !== undefined ? { toolOutputDir: config.toolOutputDir } : {}),
+				...(config.repairToolCall !== undefined ? { repairToolCall: config.repairToolCall } : {}),
+				...(config.toolPause !== undefined ? { toolPause: config.toolPause } : {}),
 			},
 			activityStore,
 			emitEvent,

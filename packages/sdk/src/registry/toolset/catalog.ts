@@ -37,7 +37,6 @@ const DEFAULT_HOST_TOOLSET: ToolsetDefinition = {
 	defaultPolicy: {
 		enabled: true,
 		loading: 'eager',
-		permissionPolicy: 'default',
 	},
 }
 

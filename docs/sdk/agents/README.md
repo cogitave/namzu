@@ -1,7 +1,7 @@
 ---
 title: Agents and Orchestration
 description: Choose the right SDK agent class, understand delegation boundaries, and wire orchestration surfaces safely in @namzu/sdk.
-last_updated: 2026-07-31
+last_updated: 2026-08-03
 status: current
 related_packages: ["@namzu/sdk"]
 ---
@@ -238,6 +238,37 @@ This is why `SupervisorAgent` becomes much more useful once a real `AgentManager
 - parent agent chains for tracing
 
 Do not confuse it with persona or system prompt text. Prompt composition belongs in [Skills and Personas](../prompting/README.md).
+
+## 8b. One Run at a Time, and What a Retry Gets
+
+An agent instance runs one thing at a time. `abortController` and
+`currentRunId` are instance state, so two overlapping runs share one abort
+controller — cancelling either kills both — and the second clobbers the
+first's run id, so a later `cancel()` cancels the wrong run. Neither
+failure announces itself, so a second concurrent `run()` is refused with
+`ConcurrentInvocationError` instead. A host that wants parallelism
+constructs a second instance, which is cheap.
+
+That refusal is right for a *concurrent* caller and wrong for a *retrying*
+one. A request goes out, the connection drops, the client retries —
+without a key the retry is a second full run, with a second set of model
+calls and a second set of whatever the tools did; with only the lock, the
+retry gets an error instead of the answer it asked for.
+
+```ts
+await agent.run(input, { ...config, idempotencyKey: requestId })
+```
+
+A duplicate arriving while the first is still running **awaits it** and
+receives its result — the error included, because both callers asked the
+same question once and telling one of them something different would make
+the key a lie.
+
+**In-flight only.** A retry that arrives after the first has settled runs
+again. Keeping the answer would turn deduplication into caching, and how
+stale an answer may be is the host's judgement, not the SDK's.
+Instance-scoped, like the lock: deduplicating across processes needs
+somewhere durable to record the key, which is a store the host owns.
 
 ## 9. Common Mistakes
 

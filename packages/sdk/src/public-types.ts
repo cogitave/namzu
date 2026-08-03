@@ -16,10 +16,12 @@
 export type * from './types/ids/index.js'
 export type * from './types/message/index.js'
 export type * from './types/common/index.js'
+export type * from './types/bidi/index.js'
 export type * from './types/tool/index.js'
 export type * from './types/toolset/index.js'
 export type * from './types/permission/index.js'
 export type * from './types/run/index.js'
+export type * from './types/errors/index.js'
 export type * from './types/provider/index.js'
 export type * from './types/agent/index.js'
 export type * from './types/decision/index.js'
@@ -97,7 +99,7 @@ export type { ContextCacheConfig, PromptCacheInput } from './runtime/query/conte
 
 export type { LimitCheckResult, LimitCheckerState, RunReporter } from './run/index.js'
 
-export type { ConcurrencyMode, DefineAgentOptions, Disposable } from './agents/index.js'
+export type { DefineAgentOptions, Disposable } from './agents/index.js'
 
 export type {
 	ActivityEvent,
@@ -164,3 +166,5 @@ export type {
 	ToolResultSlot,
 	WorkingState,
 } from './compaction/index.js'
+export type * from './eval/index.js'
+export type * from './types/guardrail/index.js'

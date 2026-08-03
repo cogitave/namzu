@@ -5,7 +5,7 @@
  * - Writes are atomic: temp file + rename. Mode 0600 enforced on every write.
  * - `resolveApiKey(profile, env)` cascades `NAMZU_<NAME>_API_KEY` (per-
  *   profile override) → per-type vendor default (`OPENAI_API_KEY` etc.)
- *   → profile.apiKey on-disk → null. Hermes-style ergonomics.
+ *   → profile.apiKey on-disk → null.
  * - Uniqueness invariants enforced on write: no duplicate `name`; at most
  *   one profile with `default: true`.
  */

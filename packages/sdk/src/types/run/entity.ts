@@ -4,6 +4,7 @@ import type { Message } from '../message/index.js'
 import type { ProviderErrorInfo } from '../provider/index.js'
 import type { AgentRunConfig } from './config.js'
 import type { ReplayAttribution } from './replay.js'
+import type { StepResult } from './step.js'
 import type { StopReason } from './stop-reason.js'
 
 export interface RunStateMetadata {
@@ -40,6 +41,23 @@ export interface Run {
 	lastError?: string
 	lastProviderError?: ProviderErrorInfo
 	result?: string
+
+	/**
+	 * Per-iteration record of what the loop did. Absent on a run that
+	 * never entered the loop.
+	 *
+	 * A host that persists the returned `Run` used to lose all per-step
+	 * attribution: "which step cost the most" required correlating raw
+	 * RunEvents by iteration and diffing cumulative counters.
+	 */
+	steps?: readonly StepResult[]
+
+	/**
+	 * Schema-validated final output, when `structuredOutput` was requested
+	 * and the model produced one. Absent otherwise — check `stopReason`
+	 * for `structured_output_failed`.
+	 */
+	structuredOutput?: unknown
 
 	parentRunId?: RunId
 

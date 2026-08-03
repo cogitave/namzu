@@ -30,6 +30,22 @@ export {
 	findSafeTrimIndex,
 } from './dangling.js'
 
+export { findRetainedIndices } from './retention.js'
+
 export { NullManager, SlidingWindowManager, StructuredCompactionManager } from './managers/index.js'
 
 export { createConversationManager } from './factory.js'
+export {
+	DEFAULT_ASSUMED_CONTEXT_WINDOW,
+	lookupContextWindow,
+	resolveContextWindow,
+} from './context-window.js'
+export type { ResolvedContextWindow } from './context-window.js'
+
+export {
+	clearStaleToolResults,
+	isClearedToolResult,
+	DEFAULT_KEEP_RECENT_TOOL_RESULTS,
+	DEFAULT_MIN_CHARS_TO_CLEAR,
+} from './tool-result-editing.js'
+export type { ToolResultEditConfig, ToolResultEditOutcome } from './tool-result-editing.js'

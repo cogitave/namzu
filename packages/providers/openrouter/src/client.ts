@@ -65,6 +65,8 @@ export const OPENROUTER_CAPABILITIES: ProviderCapabilities = {
 	supportsStreaming: true,
 	supportsFunctionCalling: true,
 	supportsVision: false,
+	// Images only. A document degrades to a named placeholder.
+	supportsDocuments: false,
 }
 
 export class OpenRouterProvider implements LLMProvider {

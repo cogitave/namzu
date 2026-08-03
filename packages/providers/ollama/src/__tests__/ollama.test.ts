@@ -45,6 +45,7 @@ describe('@namzu/ollama', () => {
 				supportsStreaming: true,
 				supportsFunctionCalling: false,
 				supportsVision: false,
+				supportsDocuments: false,
 			})
 		})
 

@@ -1,7 +1,7 @@
 ---
 title: SDK Tools
 description: Define tools, register them in ToolRegistry, and understand built-in tool behavior in @namzu/sdk.
-last_updated: 2026-07-31
+last_updated: 2026-08-03
 status: current
 related_packages: ["@namzu/sdk", "@namzu/computer-use"]
 ---
@@ -55,6 +55,10 @@ const summarizeText = defineTool({
 | `readOnly` | Declares whether the tool should be treated as non-mutating |
 | `destructive` | Signals whether the tool performs a risky action |
 | `concurrencySafe` | Signals whether concurrent execution is safe |
+| `timeoutMs` | Optional per-execution deadline, overriding the run default |
+| `maxRetries` | Optional in-loop retry budget for a failed execution (see §7c) |
+| `outputSchema` | Optional JSON Schema of the return shape, appended to the description the model sees |
+| `terminal` | Optional; settle the run with this tool's output instead of looping again (see §7d) |
 
 If `execute()` throws, the SDK converts that throw into a structured failed tool result instead of leaking an uncaught error through the tool boundary.
 
@@ -127,7 +131,7 @@ provider hint: custom `LLMProvider` implementations must consume or strip it
 instead of serializing `ChatCompletionParams` wholesale.
 
 Native Anthropic and the HTTP provider's Anthropic dialect enable strict tool
-use for documented Claude 4.5+ model identifiers. Their `strictToolUse`
+use for the model identifiers that document support for it. Their `strictToolUse`
 configuration accepts:
 
 - `"auto"` (default): enable only for recognized compatible models
@@ -154,8 +158,53 @@ in schema property names, enum/const values, or regex patterns.
 | `permissionContext` | Runtime permission mode information |
 | `toolRegistry` | Lets tools such as `search_tools` activate deferred tools |
 | `sandbox` | Lets sandbox-aware tools read, write, or execute inside containment |
+| `parentSpan` | Span to parent this tool's OpenTelemetry span to |
+| `report` | Say how far along you are, for a host rendering a live view |
+| `requestPause` | Raise a durable pause and wait for a human (see §3a) |
 
 This is the boundary between a simple helper function and a real runtime tool.
+
+### 3a. Pausing for a Human
+
+A tool with a real-world consequence — a spend, an outbound post, a
+destructive migration — usually wants its OWN confirmation with its own
+wording, not the generic tool-review gate:
+
+```ts
+const outcome = await context.requestPause?.({
+  name: 'target_environment',
+  prompt: 'Which environment should this deploy run against?',
+  options: [
+    { id: 'staging', label: 'Staging (Recommended)' },
+    { id: 'production', label: 'Production', description: 'Live traffic' },
+  ],
+})
+
+if (outcome?.status !== 'answered') {
+  return { success: false, output: '', error: 'no environment was chosen' }
+}
+```
+
+The pause becomes a real checkpoint, so it appears on every surface a
+tool-review park appears on and survives the process dying. On resume the
+answer is routed back **by name**, so several tools pausing in one batch
+each get their own and one call may pause more than once ("which
+environment", then "are you sure").
+
+`status` is one of `answered`, `unanswered`, or `aborted`. Silence is not
+a variant of `answered` with an empty selection: a tool that asks "may I
+charge this card" and reads silence as yes is worse than one that never
+asked, so the absence of an answer has its own shape and cannot be
+destructured into consent. An option id the tool did not offer is dropped
+for the same reason.
+
+`requestPause` is optional on the context — a host calling a tool
+directly, outside a run, provides no route to a human. Write the tool so
+it can decide what to do without one.
+
+Before this, the pause machinery was reachable from exactly four
+kernel-owned points: the plan gate, the tool-review gate, the iteration
+cadence, and the built-in `ask_user_question` tool.
 
 ## 4. Register Tools
 
@@ -215,9 +264,33 @@ That gives the runtime:
 - cheap discovery tools immediately
 - stronger mutation tools only when the agent can justify loading them
 
-## 7. Structured Output Tool
+## 7. Structured Output
 
-`createStructuredOutputTool(schema)` is a tool factory used when the final answer must match a schema. Instead of asking the model to format JSON in plain text, the runtime can force the model to call a schema-bound tool.
+Pass `structuredOutput` to `query()` when the final answer must match a schema. The runtime registers a schema-bound tool, validates the call, puts the parsed value on `Run.structuredOutput`, and ends the run there.
+
+```ts
+const run = await runToCompletion(
+  query({
+    provider,
+    tools,
+    structuredOutput: {
+      schema: z.object({
+        verdict: z.enum(['pass', 'fail']),
+        findings: z.array(z.string()),
+      }),
+      // Re-prompts before giving up. Default: 2.
+      maxRetries: 2,
+    },
+    // …
+  }),
+)
+
+run.structuredOutput // { verdict, findings } — already validated
+```
+
+A model that answers in prose instead is re-prompted. If it still will not comply within `maxRetries`, the run settles with `stopReason: 'structured_output_failed'` rather than grinding against `maxIterations` — you get a clear failure instead of an expensive one.
+
+The tool is registered from iteration zero, never injected late. Tools render at prompt-cache prefix position 0, so adding one mid-run would invalidate the cached prefix for every remaining turn.
 
 This is especially useful for:
 
@@ -225,6 +298,125 @@ This is especially useful for:
 - classification outputs
 - MCP-friendly machine-readable responses
 - UI payload generation
+
+`createStructuredOutputTool(schema)` remains exported if you want to register and drive the tool yourself.
+
+## 7a. Tool Results Can Carry More Than Text
+
+`ToolResult.output` is the text form — what the host, the transcript and compaction see. When the model needs something a string cannot carry, set `content` as well:
+
+```ts
+return {
+  success: true,
+  output: 'Screenshot captured (1920x1080, image/png).',
+  content: [
+    { type: 'text', text: 'Screenshot captured.' },
+    { type: 'image', data: base64Png, mediaType: 'image/png' },
+  ],
+}
+```
+
+The two channels are separate on purpose: a host UI wants the description, the model wants the pixels. Drivers that cannot express non-text results (`@namzu/openai`, `@namzu/ollama`) degrade to an explicit `[image: …]` placeholder rather than dumping base64 into the conversation.
+
+Failed results are marked on the wire as well — `is_error` on Anthropic, `status: 'error'` on Bedrock — so the model's tool-failure recovery behavior fires instead of relying on prose formatting.
+
+## 7b. Deadlines and Output Budgets
+
+Two runtime bounds apply to every tool, with no configuration required.
+
+**Deadline.** Tools get 120 seconds by default (`toolTimeoutMs` on `query()`, or `timeoutMs` per tool). On expiry the executor stops waiting and returns a model-visible error result, so the agent can route around a slow dependency instead of losing the turn. `context.abortSignal` fires at the same moment, so a cooperative tool actually stops working — `bash` passes it to the child process.
+
+**Output budget.** A single tool result is capped at 40,000 model-visible characters (`maxToolOutputChars`; `0` disables). Over-budget output is written to `<runDir>/tool-output/<toolUseId>.txt` and replaced with a head+tail preview naming the path, so nothing is lost and tokens are paid only if the agent decides the rest is worth re-reading — with `read` and `grep`, tools it already has.
+
+Relatedly, `read` returns the first 2000 lines when given no window, and says so with a `[PARTIAL view — lines X-Y of Z]` notice naming the exact next call. A truncated read that looks like a short file is the most expensive silent failure a read tool can have.
+
+## 7c. Failing and Recovering
+
+**Retryable failures.** A tool may declare `maxRetries` and mark a result
+`retryable: true`, and the executor will re-run it in-loop instead of
+sending the error back for the model to re-decide.
+
+```ts
+defineTool({
+  name: 'fetch_page',
+  maxRetries: 2,
+  execute: async () => ({
+    success: false, output: '', error: 'ECONNRESET', retryable: true,
+  }),
+  // …
+})
+```
+
+`maxRetries` **defaults to 0, and that default is load-bearing.** Retrying
+is only safe if the tool is idempotent, and the SDK cannot know that:
+silently re-running a write, a `git push` or a payment call is worse than
+never retrying at all. Even opted in, only failures marked `retryable` are
+retried — a missing file will not appear on the second attempt, and burning
+the budget on it just delays the error the model needs to see.
+
+**Repairing a malformed call.** `query({ repairToolCall })` gets a last
+look before the error reaches the model, and may rewrite the arguments and
+the tool name. See
+[Loop Control §9](../runtime/loop-control.md#9-repairing-a-bad-tool-call).
+
+## 7c-bis. Making a Malformed Call Impossible
+
+§7c repairs a call whose arguments do not match the schema. Some
+endpoints can make that unnecessary: they constrain decoding to the
+schema, so invalid arguments cannot be emitted at all.
+
+```ts
+new OpenAIProvider({ apiKey, strictTools: true })
+```
+
+Off by default, and the reason is a real trade rather than caution.
+Strict decoding requires **every** property to be required, so the driver
+rewrites each schema: objects close, every property joins `required`, and
+one that was optional widens to accept `null` so "leave it out" stays
+expressible. An optional argument therefore becomes one the model must
+pass explicitly as null — a change to what the model is told, which
+belongs to the tool's author rather than the driver.
+
+The rewrite is not separable from the flag: the endpoint rejects strict
+mode on a schema that has not been closed for it, so sending one without
+the other turns a correctness feature into a 400.
+
+## 7d. Settling on a Tool's Output
+
+A tool declared `terminal: true` ends the run with its own output instead
+of handing control back to the model:
+
+```ts
+defineTool({
+  name: 'ask_specialist',
+  terminal: true,
+  // …
+})
+```
+
+Delegation is blocking — the worker's final text comes back as the
+dispatching call's result — so without this the loop went round once more
+purely to restate what the worker already said. That relay costs a full
+model call at the parent's context size, the most expensive call in the
+run, and it is lossy: the parent paraphrases through its own (compacted)
+view, so the caller receives the parent's summary rather than the
+specialist's answer. For a router, whose entire job is to pick a
+specialist, that doubled the cost of every request.
+
+It is honoured only when the terminal call is the **only** call in the
+turn and it did not fail. A model that asked for other work in the same
+turn meant to see those results, and ending the run would discard answers
+it requested; an error is not an answer either, and the model is the one
+that should read it. Both cases take the ordinary path and say so in the
+log.
+
+Child progress is already visible without this: a subagent's run events
+reach the same `RunEventListener` the parent was given, stamped with
+lineage depth, so a host sees the worker working rather than a silence.
+
+`buildAgentTool({ terminal: true })` sets it on the built-in `Agent`
+delegation tool. Off by default — an agent that delegates as one step of a
+longer plan needs the loop to continue.
 
 ## 8. Computer Use Is a Tool Factory, Not a Separate Runtime
 

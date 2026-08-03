@@ -17,7 +17,7 @@ import {
 } from '../registry.js'
 
 // Simulate a downstream provider package's type registration via module augmentation.
-// This is the pattern @namzu/bedrock, @namzu/openai, etc. use in their own code.
+// This is the pattern every driver package uses in its own code.
 interface TestProviderConfig {
 	type: 'test'
 	value?: string

@@ -90,6 +90,18 @@ export interface AgentTask {
 	result?: BaseAgentResult
 	progress?: AgentTaskProgress
 
+	/**
+	 * Tokens reserved from the shared pool when this child was spawned.
+	 *
+	 * A RESERVATION, not a spend: it is subtracted up front so siblings
+	 * cannot each be promised the same headroom, and the unused part is
+	 * returned when the child settles. Without the return, a pool shrank
+	 * by the full allocation every spawn regardless of what the child
+	 * actually used, so a long session ran out of budget while almost none
+	 * of it had been spent.
+	 */
+	budgetReservation?: number
+
 	pendingMessages: Message[]
 	createdAt: number
 	completedAt?: number
@@ -149,4 +161,18 @@ export interface AgentManagerConfig {
 	evictionMs: number
 
 	maxBudgetFraction: number
+
+	/**
+	 * Wall-clock deadline given to a spawned child when the caller supplies
+	 * no `budgetAllocation.timeoutMs`.
+	 *
+	 * This exists because the fallback used to be
+	 * `context.budgetTracker.remaining` — a TOKEN count read as
+	 * milliseconds. The unit error hid for so long because a typical
+	 * six-figure token budget lands in a plausible-looking range of
+	 * milliseconds; it only bites at the edges, where an unlimited budget
+	 * (`0`) became a zero-millisecond deadline and a small budget became a
+	 * child that died in under a second.
+	 */
+	childTimeoutMs: number
 }

@@ -16,7 +16,7 @@ export async function launchTui(ctx: TuiContext): Promise<void> {
 	// logger for the lifetime of the TUI.
 	configureLogger({ level: 'silent' })
 	// Take over the terminal: clear the screen + scrollback and home the
-	// cursor so namzu opens on a clean canvas (like claude-code / gemini-cli)
+	// cursor so namzu opens on a clean canvas
 	// rather than below leftover shell output. Stays in the normal buffer so
 	// native scrollback still works as the transcript grows.
 	if (process.stdout.isTTY) {

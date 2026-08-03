@@ -1,6 +1,6 @@
-import { SpanStatusCode } from '@opentelemetry/api'
-import { zodToJsonSchema } from 'zod-to-json-schema'
+import { SpanStatusCode, context as otelContext, trace } from '@opentelemetry/api'
 import { GENAI, NAMZU, toolSpanName } from '../../telemetry/attributes.js'
+import { recordToolCall } from '../../telemetry/metrics.js'
 import { getTracer } from '../../telemetry/runtime-accessors.js'
 import type {
 	LLMToolSchema,
@@ -13,6 +13,7 @@ import type {
 } from '../../types/tool/index.js'
 import { toErrorMessage } from '../../utils/error.js'
 import { ManagedRegistry } from '../ManagedRegistry.js'
+import { renderToolSchema } from './schema.js'
 
 export type { ToolExecutionResult }
 
@@ -43,22 +44,73 @@ const SEARCH_STOP_TOKENS = new Set([
 // Weighted-scoring weights mirroring ToolCatalog.searchTools (the richer,
 // otherwise-unused catalog scorer): exact name 12, name substring 8,
 // description 5 — extended here with argument-name indexing (3), following
-// Anthropic's tool-search practice of searching argument names too.
+// argument names are searched too, not only the tool's own name.
 const SEARCH_WEIGHT_NAME_EXACT = 12
 const SEARCH_WEIGHT_NAME_PARTIAL = 8
 const SEARCH_WEIGHT_DESCRIPTION = 5
 const SEARCH_WEIGHT_ARGUMENT = 3
+
+/**
+ * What a tool name may be, everywhere it comes from.
+ *
+ * A tool name reaches the provider verbatim, and the major message APIs
+ * accept `[a-zA-Z0-9_-]` up to 64 characters. Nothing checked it: names
+ * were derived by concatenation at three separate construction sites —
+ * the remote-tool bridge, the plugin bridge, the CLI bridge — and any of
+ * them could produce something the wire rejects.
+ *
+ * The rejection is a 400 on the WHOLE request rather than on that tool,
+ * and the tools most likely to carry a bad name are registered deferred,
+ * so it fired the moment one was activated with nothing naming the
+ * culprit. Failing at registration instead names the tool, at the moment
+ * something can still be done about it, and costs the run nothing.
+ *
+ * One driver already ratified passing names through untouched, on the
+ * grounds that a confusing name is "a naming problem to fix in the
+ * registry, not something to paper over" — which is precisely why the
+ * registry has to be the one that checks.
+ */
+export const TOOL_NAME_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/
+
+export function assertToolName(name: string): void {
+	if (TOOL_NAME_PATTERN.test(name)) return
+	const reason =
+		name.length > 64
+			? `it is ${name.length} characters, over the 64-character limit`
+			: 'it contains characters outside [a-zA-Z0-9_-]'
+	throw new Error(
+		`Tool name "${name}" cannot be sent to a provider: ${reason}. Providers reject the whole request for one bad name, so this is refused at registration where it can still be attributed.`,
+	)
+}
+
+/**
+ * Append a tool's declared return shape to its description.
+ *
+ * No provider's tool wire format has a slot for an output schema, so the
+ * description is the only channel that reaches the model. A remote server
+ * that publishes one had it dropped at the type boundary and the model was
+ * left inferring the return shape from prose — or from the first result it
+ * happened to see, which is worse, because a tool that returns an empty
+ * list once teaches the wrong lesson permanently.
+ *
+ * Rendered from JSON Schema verbatim rather than round-tripped through
+ * anything: this is shown, never validated, so there is nothing to gain by
+ * rebuilding it and fidelity to lose.
+ */
+export function describeWithOutput(
+	description: string,
+	outputSchema: Record<string, unknown> | undefined,
+): string {
+	if (outputSchema === undefined) return description
+	return `${description}\n\nReturns (JSON Schema): ${JSON.stringify(outputSchema)}`
+}
 
 export class ToolRegistry extends ManagedRegistry<ToolDefinition> {
 	private availability: Map<string, ToolAvailability> = new Map()
 	private tierConfig?: ToolTierConfig
 
 	constructor(config?: ToolRegistryConfig) {
-		super({
-			componentName: 'ToolRegistry',
-			idField: 'name',
-			logger: config?.logger,
-		})
+		super({ componentName: 'ToolRegistry', idField: 'name', logger: config?.logger })
 		this.tierConfig = config?.tierConfig
 	}
 
@@ -92,6 +144,11 @@ export class ToolRegistry extends ManagedRegistry<ToolDefinition> {
 	}
 
 	private registerOne(id: string, tool: ToolDefinition, state: ToolAvailability): void {
+		assertToolName(id)
+		// A model-facing schema is what the constraint is applied TO, so
+		// asking for enforcement without one is a request that cannot be
+		// honoured. Refusing at registration puts the error where the author
+		// can fix it rather than at the first request.
 		if (tool.enforceModelInput && !tool.modelInputSchema) {
 			throw new Error(
 				`Tool "${id}" enables enforceModelInput but does not define modelInputSchema. Constrained input generation requires an explicit provider-safe model schema.`,
@@ -287,13 +344,10 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 				type: 'function' as const,
 				function: {
 					name: tool.name,
-					description,
+					description: describeWithOutput(description, tool.outputSchema),
 					parameters:
 						(tool.modelInputSchema ? structuredClone(tool.modelInputSchema) : undefined) ??
-						(zodToJsonSchema(tool.inputSchema, {
-							target: 'jsonSchema7',
-							$refStrategy: 'none',
-						}) as Record<string, unknown>),
+						renderToolSchema(tool.inputSchema),
 				},
 			}
 		})
@@ -310,7 +364,17 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 	): Promise<ToolExecutionResult> {
 		const tracer = getTracer()
 
-		return tracer.startActiveSpan(toolSpanName(toolName), async (span) => {
+		// Explicit parent, not the ambient context. Every span-owning body
+		// upstream is an async generator, and a generator resumes on its
+		// consumer's async context — so by the time a tool executes, whatever
+		// `startActiveSpan` established upstream is long gone and this span
+		// would emit as a root. `context.parentSpan` is threaded through
+		// `ToolContext`, which already reaches here.
+		const parentCtx = context.parentSpan
+			? trace.setSpan(otelContext.active(), context.parentSpan)
+			: otelContext.active()
+
+		return tracer.startActiveSpan(toolSpanName(toolName), {}, parentCtx, async (span) => {
 			span.setAttributes({
 				[GENAI.TOOL_NAME]: toolName,
 				[GENAI.TOOL_TYPE]: 'function',
@@ -364,7 +428,7 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 
 				// Distinguish "model sent an empty/no-arg call" from
 				// "model sent partial args" — the first is most often a
-				// streaming hiccup or a definition-test ping (Anthropic
+				// streaming hiccup or a definition-test ping (a provider
 				// occasionally pings tool surfaces with `{}` while the
 				// schema is still loading), the second is a genuine
 				// programming mistake by the model. The model self-
@@ -381,6 +445,9 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 						Object.keys(rawInput as Record<string, unknown>).length === 0)
 
 				const requiredHint = describeRequiredInput(tool.inputSchema)
+				// A conditional schema's required shape cannot be reconstructed
+				// from JSON Schema's top-level `required`, so the author gets to
+				// say what a valid retry looks like.
 				const recoveryHint = tool.validationErrorHint?.trim()
 					? ` ${tool.validationErrorHint.trim()}`
 					: ''
@@ -412,12 +479,20 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 
 			try {
 				this.log.debug(`Executing tool: ${toolName}`)
+				const startedAt = Date.now()
 				const result = await tool.execute(finalInput, context)
+				const durationMs = Date.now() - startedAt
 				this.log.debug(`Tool completed: ${toolName}`, {
 					success: result.success,
 				})
 
 				span.setAttribute(NAMZU.TOOL_SUCCESS, result.success)
+				recordToolCall(
+					toolName,
+					result.success,
+					result.success ? undefined : result.error,
+					durationMs,
+				)
 				if (!result.success && result.error) {
 					span.setAttribute(NAMZU.TOOL_ERROR, result.error)
 					span.setStatus({ code: SpanStatusCode.ERROR, message: result.error })
@@ -479,18 +554,25 @@ export function toolDiscoveryHint(description: string, maxLength = 100): string 
  */
 function listArgumentNames(tool: ToolDefinition): string[] {
 	try {
-		const json =
-			tool.modelInputSchema ??
-			(zodToJsonSchema(tool.inputSchema, {
-				target: 'jsonSchema7',
-				$refStrategy: 'none',
-			}) as Record<string, unknown>)
+		// The model-facing schema when there is one: that is what the model
+		// was shown, so it is what a search over "which tool takes this
+		// argument" has to match against.
+		const json = tool.modelInputSchema ?? renderToolSchema(tool.inputSchema)
 		return [...collectSchemaPropertyNames(json)].map((key) => key.toLowerCase())
 	} catch {
 		return []
 	}
 }
 
+/**
+ * Every property name a schema can accept, including the ones that only
+ * appear inside a branch.
+ *
+ * A conditional schema puts its real arguments under `anyOf`/`oneOf`, so
+ * reading the top-level `properties` alone finds nothing and the tool is
+ * unfindable by the very argument it takes. `seen` guards a schema that
+ * refers back to itself.
+ */
 function collectSchemaPropertyNames(
 	schema: unknown,
 	names: Set<string> = new Set(),
@@ -527,7 +609,7 @@ function collectSchemaPropertyNames(
  */
 function describeRequiredInput(schema: { _def?: unknown }): string {
 	try {
-		const json = zodToJsonSchema(schema as never) as {
+		const json = renderToolSchema(schema as never) as {
 			properties?: Record<string, { type?: string; description?: string }>
 			required?: string[]
 		}

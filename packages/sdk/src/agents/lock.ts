@@ -3,8 +3,6 @@
  * Uses a simple boolean flag with RAII-style cleanup via Disposable pattern.
  */
 
-export type ConcurrencyMode = 'throw' | 'queue'
-
 export interface Disposable {
 	[Symbol.dispose](): void
 }

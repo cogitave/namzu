@@ -7,9 +7,12 @@ import type { VerificationGateConfig } from '../types/verification/index.js'
  * The model: the sandbox is the safety boundary. Anything that
  * stays inside the sandbox auto-approves. Things that try to escape
  * (network reach, shell tricks the dangerous-pattern list catches)
- * fall through to a human review prompt. This mirrors Codex CLI's
- * `workspace-write` + `on-request` default and Claude Code's
- * sandboxed permission mode.
+ * fall through to a human review prompt.
+ *
+ * The boundary is chosen deliberately: it is the one line a tool cannot
+ * blur. "Is this edit risky?" has no stable answer, but "does this leave
+ * the sandbox?" does — so the gate asks the question it can answer, and
+ * asks a human about the rest.
  *
  * What this enables:
  * - `allowReadOnlyTools` — anything `tool.isReadOnly(input)` reports

@@ -1,7 +1,7 @@
 ---
 title: LM Studio Provider
 description: Configure @namzu/lmstudio for local LM Studio server usage in Namzu.
-last_updated: 2026-04-18
+last_updated: 2026-08-03
 status: current
 related_packages: ["@namzu/sdk", "@namzu/lmstudio"]
 ---
@@ -68,6 +68,7 @@ console.log(response.message.content)
 | `host` | No | LM Studio server URL |
 | `model` | No | Default loaded model identifier |
 | `timeout` | No | Request timeout in milliseconds |
+| `client` | No | An already-connected backend client to use instead of dialing a new one |
 
 ## 8. Capability Snapshot
 
@@ -78,10 +79,16 @@ The package exports `LMSTUDIO_CAPABILITIES`:
   supportsTools: true,
   supportsStreaming: true,
   supportsFunctionCalling: true,
+  supportsVision: true,
+  supportsDocuments: false,
 }
 ```
 
-Practical behavior still depends on the loaded model.
+The driver sends tool schemas, maps the conversation onto the backend's native part structure — the assistant's own calls and each result as first-class parts rather than text folded into a user turn — and surfaces calls as the backend parses them.
+
+An image cannot be inlined on this wire, so each user attachment is uploaded to the backend first and the message references the handle that comes back. An upload that fails leaves a text note naming the image rather than taking the turn down. An image inside a **tool result** stays a text placeholder: a tool message here may hold result parts and nothing else, so there is nowhere to reference a handle from.
+
+Whether the loaded model was trained to call tools is a separate question; these flags describe the driver.
 
 ## 9. Operational Notes
 

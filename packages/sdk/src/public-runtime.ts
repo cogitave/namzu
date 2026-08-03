@@ -68,11 +68,28 @@ export { extractFinalResponse } from './utils/conversation.js'
 
 export { resolveTaskModel } from './router/task-router.js'
 export { drainQuery, query } from './runtime/query/index.js'
+export { createMockBidiProvider, startBidiRun } from './runtime/bidi/index.js'
 export { ContextCache } from './runtime/query/context-cache.js'
 export {
 	CheckpointManager,
+	findPendingCheckpoint,
+	isExpiredPark,
+	listExpiredParks,
 	projectEmergencyToCheckpoint,
 } from './runtime/query/checkpoint.js'
+// Projecting what the SDK records onto the session-layer statuses. Both
+// were declared and consumed with nothing in the repo producing them, so a
+// host implementing either had to invent the mapping.
+export { deriveRunStatus } from './types/run/derive-status.js'
+// Scoped approval memory: the mechanism that lets an approver choose how
+// wide their yes is, instead of choosing between 'this one call' and
+// 'everything for the session'.
+export { ToolGrantSet, toolGrantKeys } from './runtime/query/tool-grants.js'
+export type { ToolGrantKeys } from './runtime/query/tool-grants.js'
+export { toWireRunStatus } from './contracts/run-status.js'
+// Durable run state: the snapshot a different process picks a run up from.
+export { captureRunState, loadRunState } from './runtime/query/run-state.js'
+export type { RunStateScope } from './runtime/query/run-state.js'
 export { prepareReplayState } from './runtime/query/replay/prepare.js'
 export { listCheckpoints } from './runtime/query/replay/list.js'
 export { DecisionParser, FallbackResolver } from './runtime/decision/index.js'
@@ -164,30 +181,46 @@ export { LocalTaskGateway } from './gateway/local.js'
 // ─── providers, sandbox, vault ───────────────────────────────────────────
 
 export {
-	bodySaysContextOverflow,
-	classifyProviderHttpStatus,
+	classifyProviderError,
+	DEFAULT_PROVIDER_RETRY,
 	DuplicateProviderError,
-	isCallerAbortError,
-	isProviderRequestError,
+	isAbortError,
+	isProviderError,
 	LazyProviderLoadError,
 	LazyProviderSyncCreateError,
 	MOCK_CAPABILITIES,
 	MockLLMProvider,
 	parseRetryAfterMs,
 	PERMISSIVE_PROVIDER_CAPABILITIES,
-	providerHttpError,
-	providerVendorError,
+	ProviderError,
 	ProviderRegistry,
 	ProviderRequestError,
 	registerMock,
 	resolveProviderCapabilities,
 	UnknownProviderError,
+	withProviderRetry,
 } from './provider/index.js'
+export type { ProviderRetryConfig, WithProviderRetryOptions } from './provider/index.js'
 
 export {
+	assertIsolation,
+	describeIsolation,
+	isolationOf,
 	LocalSandboxProvider,
+	missingIsolation,
 	SandboxProviderFactory,
 } from './sandbox/index.js'
+export type { LocalSandboxProviderOptions } from './sandbox/index.js'
+
+// The classified provider-failure surface: a driver states what went wrong
+// first-hand, and the run boundary reads it to choose between a pause and a
+// failure.
+export {
+	isCallerAbortError,
+	isProviderRequestError,
+	providerHttpError,
+	providerVendorError,
+} from './provider/errors.js'
 
 export { InMemoryCredentialVault } from './vault/index.js'
 
@@ -203,7 +236,7 @@ export {
 	DefaultKnowledgeBase,
 	DefaultRetriever,
 	InMemoryVectorStore,
-	OpenRouterEmbeddingProvider,
+	HttpEmbeddingProvider,
 	TextChunker,
 } from './rag/index.js'
 
@@ -413,6 +446,9 @@ export {
 	createAssistantMessage,
 	createSystemMessage,
 	createToolMessage,
+	hasNonTextBlocks,
+	toToolResultBlocks,
+	toolResultToText,
 	createUserMessage,
 } from './types/message/index.js'
 export { isTerminalPlanStatus } from './types/plan/index.js'
@@ -426,10 +462,16 @@ export {
 	PluginMCPServerConfigSchema,
 } from './types/plugin/index.js'
 export { EmergencySaveConfigSchema } from './types/run/emergency.js'
+export { toMemoryCandidate } from './types/run/memory-promotion.js'
 export { MutationNotApplicableError } from './types/run/replay.js'
 export {
 	assertSandboxEnvironment,
 	assertSandboxStatus,
+	// A VALUE, not a type: the control list is iterated at runtime by
+	// anything reporting which controls a host enforces. `export type *`
+	// carried it far enough to type-check and left the import to fail on
+	// the first line of the built binary.
+	SANDBOX_ISOLATION_CONTROLS,
 } from './types/sandbox/index.js'
 // `SandboxConfigSchema` is already re-exported above from `./config/runtime.js`
 // (the project-wide config barrel surfaces it first). types/sandbox also exports
@@ -443,6 +485,9 @@ export { assertTaskStatus, isTerminalTaskStatus } from './types/task/index.js'
 
 export {
 	buildVerifiedSummary,
+	DEFAULT_ASSUMED_CONTEXT_WINDOW,
+	lookupContextWindow,
+	resolveContextWindow,
 	createConversationManager,
 	extractFromAssistantMessage,
 	extractFromToolCall,
@@ -450,6 +495,7 @@ export {
 	extractFromUserMessage,
 	findDanglingMessages,
 	findSafeTrimIndex,
+	findRetainedIndices,
 	NullManager,
 	removeDanglingMessages,
 	serializeState,
@@ -457,3 +503,61 @@ export {
 	StructuredCompactionManager,
 	WorkingStateManager,
 } from './compaction/index.js'
+
+// ─── loop control ────────────────────────────────────────────────────────
+
+export { anyOf, hasToolCall, stepCountIs } from './types/run/step.js'
+
+// ─── evaluation harness ──────────────────────────────────────────────────
+
+export {
+	completionScorer,
+	containsScorer,
+	customScorer,
+	evalRunFromQuery,
+	evalRunFromRun,
+	formatReport,
+	judgeScorer,
+	runExperiment,
+	stepBudgetScorer,
+	trajectoryScorer,
+} from './eval/index.js'
+
+// ─── metrics ─────────────────────────────────────────────────────────────
+//
+// Exported so a host can record its own measurements onto the same series
+// the runtime uses, rather than defining a parallel set under different
+// names that never aggregate.
+
+export {
+	recordModelDuration,
+	recordRunDuration,
+	recordTokenUsage,
+	recordToolCall,
+	resetRuntimeMetrics,
+} from './telemetry/metrics.js'
+export type { TokenUsageSample } from './telemetry/metrics.js'
+
+// ─── guardrails ──────────────────────────────────────────────────────────
+
+export {
+	promptInjectionGuardrail,
+	secretRedactionGuardrail,
+} from './runtime/query/guardrail-presets.js'
+
+// Error taxonomy. `toPlatformError` is the load-bearing one: it normalizes
+// ANYTHING thrown into the declared `PlatformError` shape, so a host writes
+// one handler instead of an `instanceof` ladder per call site.
+export { NamzuError, isNamzuError, toPlatformError } from './types/errors/index.js'
+// The remediation layer above it: classification says what KIND of failure
+// it is, the catalog says what a person should do about it. Separate on
+// purpose — the first is structural and belongs at the boundary, the second
+// is editorial and belongs in a list a human appends to.
+export {
+	DEFAULT_ERROR_RULES,
+	explainError,
+	factsOf,
+	readHint,
+	withHint,
+} from './types/errors/catalog.js'
+export type { ErrorCatalogRule, ErrorExplanation, ErrorFacts } from './types/errors/catalog.js'

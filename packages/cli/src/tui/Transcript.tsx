@@ -120,7 +120,8 @@ function MessageRow({
 	const glyphColor =
 		message.glyphColor ?? (glyph === '⎿' ? theme.text.muted : glyphColorForRole(message.role))
 	// One blank line before each entry, except the first and `⎿` result rows,
-	// which hug the `⏺` tool call above them (Claude-Code-style grouping).
+	// which hug the `⏺` tool call above them, so a result reads as
+	// belonging to the call that produced it rather than as free-standing.
 	const gap = !prev || message.glyph === '⎿' ? 0 : 1
 	return (
 		<Box flexDirection="column" marginTop={gap}>
@@ -162,7 +163,7 @@ function DetailBlock({
 	const shown = expanded ? lines : lines.slice(0, COLLAPSE_LINES)
 	const hidden = lines.length - shown.length
 	// A dim left rule (`▏`) under the gutter frames the output as a block,
-	// the way Claude Code / Warp set tool output apart from the prose.
+	// so tool output is visibly not the assistant speaking.
 	const Rule = () => (
 		<Box width={2} flexShrink={0}>
 			<Text color={theme.text.muted}>▏</Text>

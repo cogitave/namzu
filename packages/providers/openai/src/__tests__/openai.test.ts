@@ -47,6 +47,7 @@ describe('@namzu/openai', () => {
 				supportsStreaming: true,
 				supportsFunctionCalling: true,
 				supportsVision: true,
+				supportsDocuments: true,
 			})
 		})
 
@@ -179,7 +180,22 @@ describe('@namzu/openai', () => {
 			// Drain the test stream.
 		}
 
+		// The hint is not a wire field, so it must never appear verbatim —
+		// that is what "keeps it out of the request" means.
 		expect(requestBody).not.toHaveProperty('enforceToolInputSchema')
-		expect(requestBody?.tools).toEqual(tools)
+		// It is consumed, not ignored. This used to assert the tools went
+		// through untouched, which read as "the hint is kept out" and
+		// actually pinned "the hint does nothing".
+		expect(requestBody?.tools).toEqual([
+			{
+				type: 'function',
+				function: {
+					name: 'edit',
+					description: 'Edit',
+					parameters: { type: 'object' },
+					strict: true,
+				},
+			},
+		])
 	})
 })

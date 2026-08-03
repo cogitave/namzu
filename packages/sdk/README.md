@@ -30,7 +30,7 @@ Namzu is a single-process TypeScript kernel with the following responsibilities:
 - **Signals.** `AbortController` tree spanning parent and children. `cancel(taskId)` and `cancelAll(parentRunId)` propagate. Runs can be paused and resumed, aborted cleanly, and emit lifecycle events for every transition.
 - **Memory management.** Working memory via structured compaction to a typed `WorkingState`. Long-term memory via an indexed, tag/query/status-searchable store with disk persistence. No vector database required by default.
 - **Durability.** Atomic per-iteration checkpoints, automatic emergency core-dump on SIGINT/SIGTERM, separate storage for runs, threads, conversations, activities, memories, and tasks.
-- **IPC.** Native A2A (Google agent-to-agent) and MCP (Anthropic Model Context Protocol) — both client and server, one SDK. An internal event bus with circuit breakers, file lock manager, and edit ownership tracking so concurrent agents do not stomp on each other.
+- **IPC.** Native A2A (agent-to-agent) and MCP (Model Context Protocol) — both client and server, one SDK. An internal event bus with circuit breakers, file lock manager, and edit ownership tracking so concurrent agents do not stomp on each other.
 - **Capability system.** Tools are first-class, typed, permissioned, and progressively disclosed. The LLM does not see the full tool catalog; tools start deferred, get activated on demand, and can be suspended. Each tool declares `readOnly`, `destructive`, `concurrencySafe`, `permissions`, `category`.
 - **Syscall filtering.** Every tool call goes through a verification gate — allow / deny / ask, with built-in rules for read-only allowlist and dangerous pattern deny-list, plus custom regex rules. This is separate from sandbox isolation; it is the decision layer, the sandbox is the enforcement layer.
 - **Retrieval-augmented context (RAG).** A full pipeline: chunking, embedding providers, ingestion, knowledge base storage, vector store, retriever, context assembler, and a first-class `rag-tool`.
@@ -64,40 +64,39 @@ The goal of that list is not to be minimal — the kernel is plenty rich. The go
 
 ---
 
-## The Complete Feature Map
+## What the Kernel Provides
 
-How Namzu compares, category by category. Framework category tells you what job the project actually does.
+Category by category, with the symbol that implements it. This list
+exists to be checked against the source, not against anybody else.
 
-| | **Namzu** | LangGraph | CrewAI | Mastra | Vercel AI SDK | OpenAI Agents SDK |
-|---|---|---|---|---|---|---|
-| Category | **Agent Kernel** | Graph framework | Crew framework | TS app framework | Frontend-first SDK | Vendor SDK |
-| Language | TypeScript | Python/JS | Python | TypeScript | TypeScript | Python/JS |
-| Process sandbox (OS-level) | ✅ Seatbelt + NS | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Multi-tenant from day 1 | ✅ | ❌ | ❌ | partial | ❌ | ❌ |
-| Sub-agent spawn (`fork`/`exec`) | ✅ parent/child/depth/budget | via graph | crews | ✅ | ❌ | handoffs |
-| Signal propagation tree | ✅ AbortController + cancelAll | ❌ | ❌ | partial | ❌ | ❌ |
-| Checkpoint + resume | ✅ per-iteration | ✅ per-superstep | ❌ | partial | ❌ | sessions |
-| Emergency save on signal | ✅ `EmergencySaveManager` | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Resource quotas (token / cost / time) | ✅ per run + per child | manual | manual | manual | ❌ | manual |
-| Provider prompt cache wired | ✅ `ContextCache` + telemetry | ❌ | ❌ | partial | ❌ | ✅ |
-| Thread ↔ Run separation | ✅ | ❌ | ❌ | ✅ | ❌ | partial |
-| Native A2A protocol | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Native MCP (client + server) | ✅ | plugin | ❌ | ✅ | ❌ | client only |
-| RAG built into the kernel | ✅ full pipeline | via integrations | via integrations | plugin | ❌ | via tools |
-| Persona inheritance (YAML) | ✅ merge-based | ❌ | role strings | partial | ❌ | instructions |
-| Advisory system (multi-advisor) | ✅ provider-agnostic | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Structured context compaction | ✅ WorkingState | ❌ | ❌ | partial | ❌ | ❌ |
-| Tool tiering (cost-aware) | ✅ user-defined | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Task routing (per-task model) | ✅ fallback chains | manual | manual | manual | ❌ | manual |
-| Progressive tool disclosure | ✅ deferred/active/suspended | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Tool-call verification gate | ✅ allow/deny/ask + custom | ❌ | task-level scope | ❌ | tool approval | ❌ |
-| File ownership / edit locking | ✅ `EditOwnershipTracker` | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Circuit breakers on the bus | ✅ `CircuitBreaker` | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Skills system (separate from tools) | ✅ disclosure-tiered | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Plugin system with lifecycle | ✅ | ❌ | ❌ | partial | ❌ | ❌ |
-| Vault / BYOK | ✅ tenant-scoped | ❌ | ❌ | ❌ | ❌ | ❌ |
-| Telemetry (OpenTelemetry) | ✅ native | via LangSmith | CrewAI+ | partial | ❌ | built-in tracing |
-| Provider lock-in | none | low | low | low | low | OpenAI-first |
+| Capability | What it is here |
+|---|---|
+| Process sandbox (OS-level) | Seatbelt profiles or mount + PID namespaces, refusing when a requested control cannot be enforced |
+| Multi-tenancy | Tenant, project, thread and run are separate identities from day one, not a field added later |
+| Sub-agent spawn | Parent/child with depth, budget and a shared pool the parent debits |
+| Signal propagation | One abort tree; cancelling a parent tears down every descendant |
+| Checkpoint and resume | Per iteration, versioned, written atomically, with the trace context to rejoin |
+| Emergency save | Opt-in snapshot on a fatal signal, replayable through the ordinary restore path |
+| Resource quotas | Token, cost and wall-clock caps per run and per child |
+| Prompt cache | Cache anchors placed by the runtime and reported in telemetry |
+| Thread ↔ Run separation | A conversation outlives the runs inside it |
+| Agent-to-agent protocol | Client and server, in the kernel |
+| Model Context Protocol | Client and server, in the kernel |
+| Retrieval | A full pipeline in the kernel rather than an integration |
+| Persona inheritance | Merge-based, declared in YAML |
+| Advisory | Multiple advisors, each on whichever provider suits it |
+| Context compaction | Structured working state, safe trim points, pinned messages |
+| Tool tiering | Cost-aware, author-defined |
+| Task routing | Per-task model with fallback chains |
+| Progressive tool disclosure | Deferred, active and suspended tool states |
+| Tool-call verification | Allow, deny or ask, with custom gates |
+| File ownership | Edit locking so two concurrent writes cannot clobber |
+| Circuit breakers | On the internal bus |
+| Skills | Disclosure-tiered, separate from tools |
+| Plugins | Install, enable, disable, with a hook lifecycle |
+| Vault / BYOK | Tenant-scoped |
+| Telemetry | OpenTelemetry natively, with GenAI conventions |
+| Provider lock-in | None; the driver is a config choice |
 
 ---
 
@@ -107,7 +106,7 @@ Every folder under `src/` maps to a traditional OS concept. This section walks t
 
 ### 1. The Boundary: Sandbox (`sandbox/`)
 
-Sandboxing is the foundation. Tools do not execute in the host process; they execute inside an OS-enforced jail with deny-default file I/O and scoped network access. macOS uses Seatbelt profiles in SBPL format (the same mechanism Apple's own apps use). Linux uses lightweight mount + PID namespaces, without requiring Docker, systemd, or any container runtime. The `SandboxProvider` abstraction (`sandbox/factory.ts`, `sandbox/provider/`) means you can swap in a Firecracker or gVisor-backed provider later without touching the rest of the kernel.
+Sandboxing is the foundation. Tools do not execute in the host process; they execute inside an OS-enforced jail with deny-default file I/O and scoped network access. macOS uses Seatbelt profiles in SBPL format (the same mechanism Apple's own apps use). Linux uses lightweight mount + PID namespaces, without requiring Docker, systemd, or any container runtime. The `SandboxProvider` abstraction (`sandbox/factory.ts`, `sandbox/provider/`) means you can swap in a virtualization-backed or userspace-kernel-backed provider later without touching the rest of the kernel.
 
 The kernel enforces memory, timeout, and max-process limits on top of whatever the sandbox gives you. The goal: a rogue or hallucinated tool call should never wipe your filesystem or exfiltrate arbitrary data, even if the LLM tries very hard.
 
@@ -115,7 +114,7 @@ The kernel enforces memory, timeout, and max-process limits on top of whatever t
 
 Two layers here, with different jobs.
 
-**Bridge** is cross-process and cross-agent communication. The `bridge/a2a/` folder speaks Google's Agent-to-Agent protocol: your agents can publish agent cards describing their capabilities and can discover and invoke other agents' capabilities. The `bridge/mcp/` folder speaks Anthropic's Model Context Protocol, both as a client (consume MCP servers as tools) and as a server (expose your Namzu tools to any MCP-speaking agent). The `bridge/sse/` folder contains the event mapper that turns in-process events into Server-Sent Events for any consumer on the other side of HTTP. `bridge/tools/` wires it all into the tool system.
+**Bridge** is cross-process and cross-agent communication. The `bridge/a2a/` folder speaks the Agent-to-Agent protocol: your agents can publish agent cards describing their capabilities and can discover and invoke other agents' capabilities. The `bridge/mcp/` folder speaks the Model Context Protocol, both as a client (consume MCP servers as tools) and as a server (expose your Namzu tools to any MCP-speaking agent). The `bridge/sse/` folder contains the event mapper that turns in-process events into Server-Sent Events for any consumer on the other side of HTTP. `bridge/tools/` wires it all into the tool system.
 
 **Bus** is in-process. This is where the kernel's internal nervous system lives. The bus emits typed `AgentBusEvent`s for every meaningful transition: run started, iteration begun, checkpoint created, tool call dispatched, tool result returned, agent paused, agent canceled, plan requested, plan approved, error thrown. On top of raw event fan-out, the bus offers three kernel-grade primitives:
 
@@ -215,7 +214,9 @@ The kernel assumes processes crash. Two layers make sure that when they do, you 
 
 **Checkpoints** (`store/run/disk.ts`) are atomic per-iteration snapshots. Each `IterationCheckpoint` captures the run state at a super-step boundary — messages, working state, tool-call state, usage, cost, iteration index. Writes are atomic via write-temp-rename (Convention #8). You can read them, list them, and delete them. A future `Run.replay(runId, { fromCheckpoint })` API will build on top of this; the storage is already there.
 
-**Emergency save** (`manager/run/emergency.ts`) is the kernel's core-dump. `EmergencySaveManager` installs handlers for SIGINT and SIGTERM. When the process is dying, every active run gets its `toEmergencySnapshot()` flushed atomically to an `emergency/` directory. On the next boot you can inspect or resume the saved state. There is no reliance on the user remembering to catch signals; the kernel does it.
+**Emergency save** (`manager/run/emergency.ts`) is the kernel's core-dump. Pass `emergencySave: true` to `query()` and `EmergencySaveManager` installs handlers for SIGINT, SIGTERM and `uncaughtException`; when the process is dying the run's `toEmergencySnapshot()` is flushed atomically to an `emergency/` directory, and `replay({ fromCheckpoint: 'emergency' })` reads it back. The handlers are removed when the run settles.
+
+It is **opt-in on purpose.** Attaching means calling `process.on(...)` with handlers that `process.exit()` — a library must not seize a host's termination path by default, and the manager is a singleton, so with concurrent runs the last one to attach would silently become the only one saved. Turn it on for a process that owns its run end to end (a CLI, a single-run worker); leave it off inside a server that has its own drain sequence.
 
 Together these give Namzu durable execution without requiring a database. Runs resume across crashes, across reboots, across graceful shutdowns.
 
@@ -255,7 +256,7 @@ Pieces:
 - `advisory/executor.ts` — `AdvisoryExecutor`, runs the advisor, collects its output, and feeds it back.
 - `advisory/context.ts` — `AdvisoryContext`, the payload passed to advisors.
 
-Unlike Anthropic's advisor tool (Claude-only, single advisor), Namzu's is **provider-agnostic** and **multi-advisor**: put a security advisor on Bedrock, an architecture advisor on OpenRouter, a legal advisor on Anthropic, and the agent decides who to consult. This is one of the things that most cleanly separates Namzu from the pack.
+Advisors are **provider-agnostic** and there can be many: put a security advisor on one provider, an architecture advisor on another, a legal advisor on a third, and let the agent decide who to consult. A single advisor pinned to one vendor cannot express "ask the model that is actually good at this".
 
 ### 14. Human-in-the-Loop (`types/hitl/`, `manager/plan/lifecycle.ts`, `types/decision/`)
 
@@ -326,7 +327,7 @@ pnpm add @namzu/sdk
 
 Requirements: Node ≥ 20, TypeScript strict mode, ESM.
 
-The SDK ships the kernel only. Pick an LLM backend by adding a provider package — `@namzu/anthropic`, `@namzu/openai`, `@namzu/ollama`, `@namzu/bedrock`, `@namzu/openrouter`, `@namzu/lmstudio`, or the zero-dep `@namzu/http`. The kernel alone runs against `MockLLMProvider`, which is pre-registered and good for tests.
+The SDK ships the kernel only. Pick an LLM backend by adding a provider package — `@namzu/anthropic`, `@namzu/openai`, `@namzu/ollama`, `@namzu/bedrock`, `@namzu/openrouter`, `@namzu/lmstudio`, or the zero-dep `@namzu/http`. The kernel alone runs against `MockLLMProvider`, which is pre-registered and scriptable — pass `turns` to script tool calls, failures and mid-stream errors. See [Testing Agents](../../docs/sdk/runtime/testing.md).
 
 ## Quick Start
 
@@ -426,19 +427,15 @@ Namzu is not a toy. It is meant for real workloads.
 
 ## Quality Bar
 
-On architectural fundamentals, Namzu scores at the top of open-source agent frameworks.
+The architectural bar this kernel holds itself to is written down in
+its own terms: dependency direction is one-way and enforced, every
+public type has a producer and a consumer, a control that cannot be
+enforced is refused rather than downgraded, and a gate says which way
+it fails. Those are checkable in the source, which is the only kind of
+claim worth making.
 
-| Criterion | Namzu | LangChain/LangGraph | CrewAI | OpenAI Agents SDK | Vercel AI SDK |
-|---|---|---|---|---|---|
-| Type Safety | 9 | 5 | 7 | 7 | 9 |
-| Modularity | 9 | 5 | 7 | 8 | 9 |
-| Interface Segregation | 8 | 4 | 6 | 8 | 8 |
-| Extensibility | 9 | 7 | 6 | 6 | 7 |
-| Convention Consistency | 8 | 5 | 7 | 8 | 8 |
-| Dependency Direction | 9 | 4 | 6 | 8 | 8 |
-| **Overall** | **8.7** | **5.0** | **6.5** | **7.5** | **8.2** |
-
-Scores are informed from public docs, community reports, and direct codebase analysis — not a definitive ranking. Where we know we have work to do: test coverage is not where the architecture deserves. Helping close that gap is the highest-leverage contribution today.
+Where the work is: test coverage is not yet where the architecture
+deserves. Closing that gap is the highest-leverage contribution today.
 
 ---
 
@@ -449,7 +446,6 @@ Honest view. The kernel is already deep. The next three releases tighten the con
 ### v0.2 — Surface Polish (short, mostly wiring + docs)
 
 - `Run.replay(runId, { fromCheckpoint })` API on top of the existing checkpoint store
-- Memory promotion pipeline connecting compaction output to the indexed memory store via a Reflector persona
 - **AEP v1 spec** — version and document the event shapes in `bridge/sse/mapper.ts`
 - Public pattern docs for lifecycle, checkpoints, emergency save, budget / quota, verification gate, context cache, file ownership, and circuit breaker
 - `ContextCache` generalized across providers (OpenRouter today → Anthropic, Bedrock next)

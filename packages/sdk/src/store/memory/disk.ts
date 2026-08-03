@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { MemoryId } from '../../types/ids/index.js'
 import type {
@@ -9,9 +9,21 @@ import type {
 	MemorySearchResult,
 	MemoryStore,
 } from '../../types/memory/index.js'
+import { atomicWriteFile } from '../../utils/atomic-write.js'
 import { generateMemoryId } from '../../utils/id.js'
 import { type Logger, getRootLogger } from '../../utils/logger.js'
+import { defineSchema, migrate, stamp } from '../schema.js'
 import { InMemoryMemoryIndex } from './index.js'
+
+/**
+ * This store's on-disk format, versioned as a unit — which is how a
+ * migration would actually be written and shipped, and it keeps every call
+ * site free of schema plumbing.
+ *
+ * Bump `current` and add the migration for the step you are leaving when
+ * the shape changes.
+ */
+const SCHEMA = defineSchema({ kind: 'memory-store', current: 1, migrations: {} })
 
 export interface DiskMemoryStoreConfig {
 	baseDir: string
@@ -48,7 +60,7 @@ export class DiskMemoryStore implements MemoryStore {
 
 		try {
 			const raw = await readFile(this.indexPath, 'utf-8')
-			const entries = JSON.parse(raw) as MemoryIndexEntry[]
+			const entries = migrate<MemoryIndexEntry[]>(SCHEMA, JSON.parse(raw))
 			this.index.rebuild(entries)
 			this.log.info('Memory index loaded', { count: entries.length })
 		} catch (err) {
@@ -105,7 +117,7 @@ export class DiskMemoryStore implements MemoryStore {
 
 		try {
 			const raw = await readFile(this.contentPath(id), 'utf-8')
-			return JSON.parse(raw) as MemoryContent
+			return migrate<MemoryContent>(SCHEMA, JSON.parse(raw))
 		} catch {
 			this.log.warn('Failed to read memory content', { memoryId: id })
 			return undefined
@@ -141,7 +153,7 @@ export class DiskMemoryStore implements MemoryStore {
 		) {
 			try {
 				const raw = await readFile(this.contentPath(id), 'utf-8')
-				const existingContent = JSON.parse(raw) as MemoryContent
+				const existingContent = migrate<MemoryContent>(SCHEMA, JSON.parse(raw))
 
 				const updatedContent: MemoryContent = {
 					...existingContent,
@@ -189,17 +201,6 @@ export class DiskMemoryStore implements MemoryStore {
 	}
 }
 
-async function atomicWriteFile(filePath: string, content: string): Promise<void> {
-	const tempPath = `${filePath}.tmp`
-	try {
-		await writeFile(tempPath, content, 'utf-8')
-		await rename(tempPath, filePath)
-	} catch (err) {
-		await unlink(tempPath).catch(() => undefined)
-		throw err
-	}
-}
-
 async function atomicWriteJson(filePath: string, value: unknown): Promise<void> {
-	await atomicWriteFile(filePath, JSON.stringify(value, null, 2))
+	await atomicWriteFile(filePath, JSON.stringify(stamp(SCHEMA, value), null, 2))
 }

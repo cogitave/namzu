@@ -30,6 +30,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { buildFirecrackerBackend } from '../index.js'
+import { localIpcPath } from './fixtures/ipc-path.js'
 import {
 	CA_CRT,
 	CLIENT_CRT,
@@ -39,6 +40,13 @@ import {
 	SERVER_CRT,
 	SERVER_KEY,
 } from './fixtures/mtls-pki.js'
+// The loopback agent under test is the guest-side agent for a Linux microVM:
+// it spawns `/bin/sh` to run commands, and that binary does not exist on
+// Windows. These cases assert behavior the platform cannot produce, so they
+// skip there rather than leaving the suite permanently red for Windows
+// contributors. The socket-address fixture IS platform-correct, so the
+// transport is still exercised wherever it can be.
+const IS_WINDOWS = process.platform === 'win32'
 
 const require_ = createRequire(import.meta.url)
 
@@ -54,7 +62,7 @@ let agent: AgentModule
 
 beforeEach(() => {
 	workDir = mkdtempSync(join(tmpdir(), 'fc-cp-mtls-'))
-	sockPath = join(workDir, 'agent.sock')
+	sockPath = localIpcPath(workDir)
 	process.env.NAMZU_SANDBOX_WORKSPACE = workDir
 	delete require_.cache[require_.resolve('../../../../agent/agent.cjs')]
 	agent = require_('../../../../agent/agent.cjs') as AgentModule
@@ -143,7 +151,7 @@ function startMtlsOrchestrator(handlePath: string): Promise<{
 	})
 }
 
-describe('buildFirecrackerBackend (control-plane mTLS dial)', () => {
+describe.skipIf(IS_WINDOWS)('buildFirecrackerBackend (control-plane mTLS dial)', () => {
 	it('create POST succeeds over mTLS and round-trips an exec', async () => {
 		agentServer = await startAgent()
 		const orch = await startMtlsOrchestrator(sockPath)

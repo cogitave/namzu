@@ -5,8 +5,8 @@
  * upstream CLI's exact wire format.
  *
  * The clawtool server passes through the upstream agent's NDJSON frames
- * verbatim. Different families (claude, codex, gemini, …) emit different
- * shapes. We do **best-effort normalization**: extract any `text` /
+ * verbatim, and each upstream family emits a different shape. We do
+ * **best-effort normalization**: extract any `text` /
  * `content` string fields as visible deltas; collapse `error` lines into
  * error events; everything else (tool_use, tool_result, ping, message
  * envelopes) is silently consumed for now — tool-call surfacing lands
@@ -144,13 +144,13 @@ function parseFrame(line: string): DispatchEvent | null {
 function extractText(frame: Record<string, unknown>): string | null {
 	if (typeof frame.text === 'string') return frame.text
 	if (typeof frame.content === 'string') return frame.content
-	// Anthropic streaming shape: { type: 'content_block_delta', delta: { text: '...' } }
+	// Block-delta shape: { type: 'content_block_delta', delta: { text: '...' } }
 	if (frame.delta && typeof frame.delta === 'object') {
 		const delta = frame.delta as Record<string, unknown>
 		if (typeof delta.text === 'string') return delta.text
 		if (typeof delta.content === 'string') return delta.content
 	}
-	// OpenAI-compatible: { choices: [{ delta: { content: '...' } }] }
+	// Choice-delta shape: { choices: [{ delta: { content: '...' } }] }
 	const choices = frame.choices as Array<{ delta?: { content?: unknown } }> | undefined
 	if (Array.isArray(choices) && choices[0]?.delta?.content) {
 		const v = choices[0].delta.content

@@ -1,14 +1,14 @@
 ---
 title: Built-In Tools
 description: Reference for the built-in tools exported by @namzu/sdk, including their purpose, safety shape, and common usage patterns.
-last_updated: 2026-07-31
+last_updated: 2026-08-03
 status: current
 related_packages: ["@namzu/sdk", "@namzu/computer-use"]
 ---
 
 # Built-In Tools
 
-The SDK ships a practical built-in tool set for local agent workflows. Tool **names mirror Claude Code's canonical table verbatim** (`Bash`, `Read`, `Write`, `Edit`, `Glob`, `Grep`) so Claude's pretrained agentic instincts apply for free — no system-prompt argument needed to explain what `Read` or `Bash` does.
+The SDK ships a practical built-in tool set for local agent workflows. Tool names are the plain verb for what each one does (`bash`, `read`, `write`, `edit`, `glob`, `grep`). A model needs no system-prompt paragraph to work out what `read` reads, so the naming buys prompt budget as well as legibility.
 
 ## 1. What `getBuiltinTools()` Returns
 
@@ -19,12 +19,13 @@ The SDK ships a practical built-in tool set for local agent workflows. Tool **na
 - `GlobTool`
 - `GrepTool`
 - `ReadFileTool`
+- `VerifyOutputsTool` — read-only; confirms a written artifact is where the agent said it is
 - `WriteFileTool`
 
 It does not include:
 
-- `LsTool` — Claude Code's canonical table has no `LS`; directory listing is `Bash` + `Glob`. Still exported for hosts that explicitly want it.
-- `SearchToolsTool` — no Claude analogue. Still exported for hosts that explicitly want it.
+- `LsTool` — not a default: directory listing is `bash` + `glob`, and a third way to list a directory is a third thing for the model to choose between. Still exported for hosts that explicitly want it.
+- `SearchToolsTool` — not a default: it exists for progressive disclosure, which a host opts into. Still exported for hosts that explicitly want it.
 - `createStructuredOutputTool()` — requires a schema per use case.
 - `createComputerUseTool()` — requires a `ComputerUseHost`.
 
@@ -32,12 +33,12 @@ It does not include:
 
 | Tool | Tool name | Category | Permissions | Read-only | Typical use |
 | --- | --- | --- | --- | --- | --- |
-| `BashTool` | `Bash` | `shell` | `shell_execute` | No | Run shell commands |
-| `ReadFileTool` | `Read` | `filesystem` | `file_read` | Yes | Inspect file contents with optional line slicing |
-| `WriteFileTool` | `Write` | `filesystem` | `file_write` | No | Create or overwrite files |
-| `EditTool` | `Edit` | `filesystem` | `file_write` | No | Apply exact-string replacements |
-| `GlobTool` | `Glob` | `filesystem` | `file_read` | Yes | Find files by pattern |
-| `GrepTool` | `Grep` | `analysis` | `file_read` | Yes | Search file contents by regex |
+| `BashTool` | `bash` | `shell` | `shell_execute` | No | Run shell commands |
+| `ReadFileTool` | `read` | `filesystem` | `file_read` | Yes | Inspect file contents with optional line slicing |
+| `WriteFileTool` | `write` | `filesystem` | `file_write` | No | Create or overwrite files |
+| `EditTool` | `edit` | `filesystem` | `file_write` | No | Apply exact-string replacements |
+| `GlobTool` | `glob` | `filesystem` | `file_read` | Yes | Find files by pattern |
+| `GrepTool` | `grep` | `analysis` | `file_read` | Yes | Search file contents by regex |
 | `LsTool` | `Ls` | `filesystem` | `file_read` | Yes | List directory contents (off-canonical, opt-in) |
 | `SearchToolsTool` | `search_tools` | `analysis` | none | Yes | Activate deferred tools by query (off-canonical, opt-in) |
 
@@ -45,18 +46,18 @@ It does not include:
 
 Filesystem-oriented built-ins resolve paths relative to `workingDirectory`:
 
-- `Read`
-- `Write`
-- `Edit`
-- `Glob`
-- `Grep`
-- `Bash`
+- `read`
+- `write`
+- `edit`
+- `glob`
+- `grep`
+- `bash`
 
 That means the choice of `workingDirectory` in `AgentInput` is a real execution decision, not a cosmetic field.
 
 ## 4. Tool-by-Tool Notes
 
-### 4.1 `Read`
+### 4.1 `read`
 
 Purpose:
 
@@ -68,7 +69,7 @@ Notes:
 - returns numbered lines for easier downstream reasoning
 - uses sandbox file reads when a sandbox is available
 
-### 4.2 `Write`
+### 4.2 `write`
 
 Purpose:
 
@@ -86,7 +87,7 @@ Notes:
   sandbox `writeFile` implementations carry the same atomic replacement
   contract
 
-### 4.3 `Edit`
+### 4.3 `edit`
 
 Purpose:
 
@@ -110,7 +111,7 @@ monotonically (`{{CHUNK_001}}` → `{{CHUNK_002}}`) so retrying a completed edit
 fails safely instead of duplicating content. Distributed hosts must still
 assign one writer per file or provide storage-level compare-and-swap.
 
-### 4.4 `Bash`
+### 4.4 `bash`
 
 Purpose:
 
@@ -122,7 +123,7 @@ Notes:
 - sandbox execution is used when a sandbox exists
 - command output is returned as `STDOUT` and `STDERR` sections
 
-### 4.5 `Glob`
+### 4.5 `glob`
 
 Purpose:
 
@@ -133,7 +134,7 @@ Notes:
 - auto-expands simple patterns into recursive search
 - caps result count to keep output manageable
 
-### 4.6 `Grep`
+### 4.6 `grep`
 
 Purpose:
 
@@ -153,7 +154,7 @@ Purpose:
 
 Notes:
 
-- not in `getBuiltinTools()` defaults — Claude Code's canonical table has no `LS` (directory listing is `Bash` + `Glob`). Hosts that genuinely want it can register the export explicitly.
+- not in `getBuiltinTools()` defaults — directory listing is `bash` + `glob`. Hosts that genuinely want it can register the export explicitly.
 - supports recursive listing, hidden files, and depth limits
 - formats file sizes for readability
 
@@ -165,7 +166,7 @@ Purpose:
 
 Notes:
 
-- not in `getBuiltinTools()` defaults — no Claude Code analogue. Available via direct export.
+- not in `getBuiltinTools()` defaults — it serves progressive disclosure, which a host opts into. Available via direct export.
 - depends on `toolRegistry` being present in tool context
 - keeps the active tool surface smaller until needed
 

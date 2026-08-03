@@ -22,12 +22,12 @@ import { WriteFileTool } from './write-file.js'
 // because it requires a schema parameter and is created per-use case.
 //
 // `LsTool` and `SearchToolsTool` are still exported for direct use but are
-// NOT in the default builtin set. Claude Code's training distribution (per
-// `code.claude.com/docs/en/tools-reference`) does NOT include `LS` —
-// directory listing is canonical `Bash` + `Glob`. `search_tools` has no
-// Claude analogue at all. Including these in the defaults gives the model
-// tools that look right but degrade alignment. File extension uses canonical
-// exact replacement against a unique tail or deterministic marker.
+// NOT in the default builtin set. A directory listing is already reachable
+// through `bash` + `glob`, and `search_tools` answers a question the tool
+// catalog in the prompt has already answered. Offering a model two ways to
+// do one thing costs a decision on every turn and buys nothing. File
+// extension is canonical `edit` with `insertLine: "end"` — the legacy
+// `Append` tool is gone.
 // Hosts that genuinely want LS/search can still register them explicitly.
 
 export function getBuiltinTools(): ToolDefinition[] {

@@ -4,7 +4,7 @@
  *   This file pins the live mutation boundary that `src/advisory/*` tests
  *   intentionally do NOT cover: the advisory phase IS where advisories
  *   inject user messages into the run via `ctx.runMgr.pushMessage(...)`
- *   (Codex #6). A regression that drops the `pushMessage` call — silently
+ *  . A regression that drops the `pushMessage` call — silently
  *   dropping all advisor output — would pass `src/advisory` tests,
  *   typecheck, and lint. This file is the only thing that catches it.
  *
@@ -142,6 +142,9 @@ function makeCtx(options: MockCtxOptions = {}): {
 		runMgr: {
 			id: 'run_1' as RunId,
 			messages: [],
+			// An advisory call is a billed model call on the run's budget;
+			// the phase now reports it so the guard can see it.
+			accumulateUsage: vi.fn(),
 			tokenUsage: {
 				promptTokens: 0,
 				completionTokens: 0,

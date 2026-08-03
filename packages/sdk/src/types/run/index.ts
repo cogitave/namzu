@@ -1,3 +1,5 @@
+export * from './step.js'
+export * from './prepare-step.js'
 export * from './stop-reason.js'
 export * from './config.js'
 export * from './checkpoint-store.js'
@@ -11,6 +13,7 @@ export * from './status.js'
 export * from './events.js'
 export * from './metadata.js'
 export * from './emergency.js'
+export * from './state.js'
 export type { Lineage } from './lineage.js'
 export type {
 	SubsessionIdledEvent,
@@ -20,3 +23,5 @@ export type {
 } from './subsession-events.js'
 export { RUN_EVENT_SCHEMA_VERSION } from './schema-version.js'
 export type { RunEventSchemaVersion } from './schema-version.js'
+export type { AnswerReview, AnswerReviewContext, ReviewAnswer } from './answer-review.js'
+export type { PromoteMemory, RunMemoryCandidate } from './memory-promotion.js'

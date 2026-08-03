@@ -1,8 +1,19 @@
 const STACK_FRAME_RE =
 	/^\s+at\s+|^\s+File\s+"[^"]+",\s+line\s+\d+|^\s+at\s+[\w.$]+\(|^\s+\d+:\s+\w|^\s+from\s+\//
 
+// This line is tested against every line of shell output, which is
+// attacker-reachable (e.g. bash stdout can carry bytes the run itself never
+// typed — a fetched file, a piped response). The first alternative used to
+// open with an unbounded `[\s...]+` hunting for a PASS/ok marker that may
+// not exist: on a long run of bullet/whitespace characters with nothing to
+// match, the engine restarts that scan at every offset, and the per-offset
+// scan itself walks the remaining string — quadratic in line length (a
+// single crafted line was enough to hang the process). Capping the run
+// bounds the per-offset work to a constant, so the unavoidable per-offset
+// restart stays linear overall. 40 is generous for the checkmark/indent
+// prefixes real tool output produces; nothing legitimate needs more.
 const PASS_LINE_RE =
-	/[\s✓✔√●∙·►▸▹]+\s*(PASS|pass|ok|OK|✓|✔|√)\s|^\s*(PASS|ok)\s+[\w/.-]+|^ok\s+\d+\s|PASSED\s*$|^---\s*PASS:|^test\s+\S+\s+\.\.\.\s+ok\s*$/
+	/[\s✓✔√●∙·►▸▹]{1,40}(PASS|pass|ok|OK|✓|✔|√)\s|^\s*(PASS|ok)\s+[\w/.-]+|^ok\s+\d+\s|PASSED\s*$|^---\s*PASS:|^test\s+\S+\s+\.\.\.\s+ok\s*$/
 
 const NOISE_RE =
 	/^\s*[\\\/|─━░▓█▒■□◻◼⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏⣾⣽⣻⢿⡿⣟⣯⣷]+\s*$|^\s*\d+%\s*[|█▓░]+|^(Downloading|Fetching|Installing|Resolving|Compiling)\b.*\.\.\./

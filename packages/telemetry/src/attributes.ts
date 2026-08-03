@@ -1,37 +1,22 @@
-export const GENAI = {
-	OPERATION_NAME: 'gen_ai.operation.name',
-	SYSTEM: 'gen_ai.system',
-
-	REQUEST_MODEL: 'gen_ai.request.model',
-	REQUEST_TEMPERATURE: 'gen_ai.request.temperature',
-	REQUEST_MAX_TOKENS: 'gen_ai.request.max_tokens',
-
-	RESPONSE_MODEL: 'gen_ai.response.model',
-	RESPONSE_FINISH_REASONS: 'gen_ai.response.finish_reasons',
-	RESPONSE_ID: 'gen_ai.response.id',
-
-	USAGE_INPUT_TOKENS: 'gen_ai.usage.input_tokens',
-	USAGE_OUTPUT_TOKENS: 'gen_ai.usage.output_tokens',
-
-	TOOL_NAME: 'gen_ai.tool.name',
-	TOOL_TYPE: 'gen_ai.tool.type',
-	TOOL_CALL_ID: 'gen_ai.tool.call_id',
-
-	AGENT_NAME: 'gen_ai.agent.name',
-	AGENT_ID: 'gen_ai.agent.id',
-} as const
-
-export const NAMZU = {
-	RUN_ID: 'namzu.run.id',
-	RUN_STATUS: 'namzu.run.status',
-	ITERATION: 'namzu.iteration',
-	TOOL_SUCCESS: 'namzu.tool.success',
-	TOOL_ERROR: 'namzu.tool.error',
-	COST_TOTAL: 'namzu.cost.total',
-	CACHE_READ_TOKENS: 'namzu.cache.read_tokens',
-	CACHE_WRITE_TOKENS: 'namzu.cache.write_tokens',
-	CACHE_DISCOUNT: 'namzu.cache.discount',
-} as const
+/**
+ * The attribute bags, re-exported from the SDK rather than restated here.
+ *
+ * This file used to be a hand-maintained copy, and it had already drifted:
+ * it was missing `GENAI.TOKEN_TYPE`, the dimension that splits the token
+ * counter by kind. Nothing caught it — this package had no tests, and the
+ * public-surface verifier only loads the SDK bundle.
+ *
+ * The consequence was narrow (namzu emits through the canonical module, so
+ * the dimension is on the data regardless, and the constant is reachable
+ * from the SDK root barrel) but the shape of the defect is not: a second
+ * copy of a constant bag drifts by default, and this is the entry point the
+ * observability docs steer consumers to. `@namzu/sdk` is already a peer
+ * dependency, so a re-export costs nothing and cannot fall behind.
+ *
+ * The span-name helpers below are NOT re-exports — the SDK publishes none
+ * of them, so this subpath is their only home.
+ */
+export { GENAI, NAMZU } from '@namzu/sdk'
 
 export function agentRunSpanName(agentName: string): string {
 	return `namzu.agent.run ${agentName}`

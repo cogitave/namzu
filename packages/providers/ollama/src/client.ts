@@ -7,6 +7,7 @@ import type {
 	StreamChunk,
 	TokenUsage,
 } from '@namzu/sdk'
+import { toolResultToText } from '@namzu/sdk'
 import { isCallerAbortError, isProviderRequestError, providerVendorError } from '@namzu/sdk'
 import {
 	type AbortableAsyncIterator,
@@ -28,6 +29,8 @@ export const OLLAMA_CAPABILITIES: ProviderCapabilities = {
 	supportsStreaming: true,
 	supportsFunctionCalling: false,
 	supportsVision: false,
+	// Images only. A document degrades to a named placeholder.
+	supportsDocuments: false,
 }
 
 const DEFAULT_HOST = 'http://localhost:11434'
@@ -42,7 +45,9 @@ function resolveHost(config: OllamaConfig): string {
 function toOllamaMessages(messages: ChatCompletionParams['messages']): OllamaMessage[] {
 	return messages.map((msg) => ({
 		role: msg.role,
-		content: typeof msg.content === 'string' ? msg.content : (msg.content ?? ''),
+		// A tool result can be content BLOCKS now; this wire takes text, so
+		// flatten rather than hand it an array it cannot read.
+		content: typeof msg.content === 'string' ? msg.content : toolResultToText(msg.content ?? ''),
 	}))
 }
 

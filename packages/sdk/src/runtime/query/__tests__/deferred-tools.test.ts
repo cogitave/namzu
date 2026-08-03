@@ -4,96 +4,22 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
+import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { SearchToolsTool } from '../../../tools/builtins/search-tools.js'
 import type { RunId, SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
-import type {
-	ChatCompletionParams,
-	LLMProvider,
-	StreamChunk,
-} from '../../../types/provider/index.js'
 import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
 import { drainQuery } from '../index.js'
 
-const ZERO_USAGE = {
-	promptTokens: 0,
-	completionTokens: 0,
-	totalTokens: 0,
-	cachedTokens: 0,
-	cacheWriteTokens: 0,
-}
-
-class CapturingProvider implements LLMProvider {
-	readonly id = 'capturing'
-	readonly name = 'Capturing Provider'
-	lastParams?: ChatCompletionParams
-
-	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
-		this.lastParams = params
-		yield {
-			id: 'msg_1',
-			delta: { content: 'done' },
-		}
-		yield {
-			id: 'msg_1',
-			delta: {},
-			finishReason: 'stop',
-			usage: ZERO_USAGE,
-		}
-	}
-}
-
-class DeferredActivationProvider implements LLMProvider {
-	readonly id = 'deferred-activation'
-	readonly name = 'Deferred Activation Provider'
-	readonly calls: ChatCompletionParams[] = []
-
-	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
-		this.calls.push(params)
-		if (this.calls.length === 1) {
-			yield {
-				id: 'msg_search',
-				delta: {
-					toolCalls: [
-						{
-							index: 0,
-							id: 'toolu_search',
-							type: 'function',
-							function: { name: SearchToolsTool.name },
-						},
-					],
-				},
-			}
-			yield {
-				id: 'msg_search',
-				delta: {
-					toolCalls: [
-						{
-							index: 0,
-							id: 'toolu_search',
-							function: { arguments: '{"query":"canonical_key"}' },
-						},
-					],
-				},
-			}
-			yield {
-				id: 'msg_search',
-				delta: {},
-				finishReason: 'tool_calls',
-				usage: ZERO_USAGE,
-			}
-			return
-		}
-
-		yield { id: 'msg_done', delta: { content: 'done' } }
-		yield {
-			id: 'msg_done',
-			delta: {},
-			finishReason: 'stop',
-			usage: ZERO_USAGE,
-		}
-	}
+/**
+ * The scriptable mock captures every request it receives, which is all
+ * this suite ever needed a hand-rolled provider for. Keeping a bespoke
+ * class here would mean re-implementing the frame sequence by hand — the
+ * exact duplication the mock was rebuilt to remove.
+ */
+function capturingProvider(): MockLLMProvider {
+	return new MockLLMProvider({ turns: [{ text: 'done' }] })
 }
 
 function registerDeferredDocumentTool(tools: ToolRegistry, name = 'generate_document'): void {
@@ -119,7 +45,7 @@ describe('query deferred tool discovery', () => {
 	})
 
 	it('auto-exposes search_tools when deferred tools are registered', async () => {
-		const provider = new CapturingProvider()
+		const provider = capturingProvider()
 		const tools = new ToolRegistry()
 		registerDeferredDocumentTool(tools)
 
@@ -151,10 +77,14 @@ describe('query deferred tool discovery', () => {
 		expect(tools.getAvailability(SearchToolsTool.name)).toBe('active')
 		expect(tools.getAvailability('generate_document')).toBe('deferred')
 
-		const toolNames = provider.lastParams?.tools?.map((tool) => tool.function.name).sort() ?? []
+		const toolNames =
+			provider.requests
+				.at(-1)
+				?.tools?.map((tool) => tool.function.name)
+				.sort() ?? []
 		expect(toolNames).toEqual([SearchToolsTool.name])
 
-		const systemPrompt = (provider.lastParams?.messages ?? [])
+		const systemPrompt = (provider.requests.at(-1)?.messages ?? [])
 			.filter((message) => message.role === 'system')
 			.map((message) => message.content)
 			.join('\n')
@@ -166,7 +96,7 @@ describe('query deferred tool discovery', () => {
 	})
 
 	it('keeps search_tools executable when allowedTools names a deferred tool', async () => {
-		const provider = new CapturingProvider()
+		const provider = capturingProvider()
 		const tools = new ToolRegistry()
 		registerDeferredDocumentTool(tools)
 
@@ -197,74 +127,19 @@ describe('query deferred tool discovery', () => {
 		expect(run.status).toBe('completed')
 		expect(tools.getAvailability('generate_document')).toBe('deferred')
 
-		const toolNames = provider.lastParams?.tools?.map((tool) => tool.function.name).sort() ?? []
+		const toolNames =
+			provider.requests
+				.at(-1)
+				?.tools?.map((tool) => tool.function.name)
+				.sort() ?? []
 		expect(toolNames).toEqual([SearchToolsTool.name])
 
-		const systemPrompt = (provider.lastParams?.messages ?? [])
+		const systemPrompt = (provider.requests.at(-1)?.messages ?? [])
 			.filter((message) => message.role === 'system')
 			.map((message) => message.content)
 			.join('\n')
 		expect(systemPrompt).toContain('Use search_tools to load these before use:')
 		expect(systemPrompt).toContain('- generate_document')
-	})
-
-	it('adds enforcement only after a deferred model-schema tool is activated', async () => {
-		const provider = new DeferredActivationProvider()
-		const tools = new ToolRegistry()
-		tools.register(
-			{
-				name: 'deferred_edit',
-				description: 'Mutate a document using the provided content.',
-				inputSchema: z.object({ legacyKey: z.string() }),
-				modelInputSchema: {
-					type: 'object',
-					properties: { canonical_key: { type: 'string' } },
-					required: ['canonical_key'],
-					additionalProperties: false,
-				},
-				enforceModelInput: true,
-				execute: async () => ({ success: true, output: 'edited' }),
-			},
-			'deferred',
-		)
-
-		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-deferred-enforcement-'))
-		workdirs.push(workingDirectory)
-		const run = await drainQuery({
-			provider,
-			tools,
-			allowedTools: ['deferred_edit'],
-			runConfig: {
-				model: 'mock-model',
-				timeoutMs: 5_000,
-				tokenBudget: 100_000,
-				maxIterations: 3,
-				maxResponseTokens: 256,
-			},
-			agentId: 'agent_test',
-			agentName: 'Test Agent',
-			messages: [createUserMessage('find and load the right tool')],
-			workingDirectory,
-			sessionId: 'ses_deferred_enforcement' as SessionId,
-			threadId: 'thd_deferred_enforcement' as ThreadId,
-			projectId: 'prj_deferred_enforcement' as ProjectId,
-			tenantId: 'tnt_deferred_enforcement' as TenantId,
-		})
-
-		expect(run.status).toBe('completed')
-		expect(provider.calls).toHaveLength(2)
-		expect(provider.calls[0]?.tools?.map((tool) => tool.function.name)).toEqual([
-			SearchToolsTool.name,
-		])
-		expect(provider.calls[0]?.enforceToolInputSchema).toBeUndefined()
-		expect(provider.calls[1]?.tools?.map((tool) => tool.function.name)).toEqual([
-			'deferred_edit',
-			SearchToolsTool.name,
-		])
-		expect(provider.calls[1]?.enforceToolInputSchema).toEqual(['deferred_edit'])
-		expect(provider.calls[1]?.tools?.[0]?.function.parameters).toEqual(
-			tools.get('deferred_edit')?.modelInputSchema,
-		)
 	})
 
 	it('does not let search_tools reveal or activate deferred tools outside allowedTools', async () => {

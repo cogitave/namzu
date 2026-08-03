@@ -11,7 +11,12 @@ const execAsync = promisify(exec)
 // but Namzu shouldn't read a consumer's env name. Consumers can
 // still alias their own var to `NAMZU_BASH_TIMEOUT_MS` at deploy
 // time if they want a unified knob.
-const DEFAULT_BASH_TIMEOUT_MS = readPositiveIntEnv('NAMZU_BASH_TIMEOUT_MS', 60 * 60 * 1000)
+// Two minutes, not an hour. The old default meant a wedged command held
+// the turn — and, before per-tool deadlines existed, the whole run — for
+// up to 3600s while ignoring Stop entirely. The model can still ask for
+// longer via the tool's own `timeout` argument when it knows a build is
+// slow; the point is that the DEFAULT is survivable.
+const DEFAULT_BASH_TIMEOUT_MS = readPositiveIntEnv('NAMZU_BASH_TIMEOUT_MS', 2 * 60 * 1000)
 const DEFAULT_BASH_MAX_BUFFER_BYTES = readPositiveIntEnv(
 	'NAMZU_BASH_MAX_BUFFER_BYTES',
 	100 * 1024 * 1024,
@@ -22,7 +27,7 @@ const inputSchema = z.object({
 		.string()
 		.min(1)
 		.describe(
-			'The bash command to execute. Required, non-empty. Single command per call (use `&&` / `;` chaining for compound commands). Avoid heredocs that span more than a few hundred bytes — create large content with bounded write plus exact marker-advancing edit calls instead.',
+			'The bash command to execute. Required, non-empty. Single command per call (use `&&` / `;` chaining for compound commands). Avoid heredocs that span more than a few hundred bytes — large content should be created with `write`, then extended with `edit` insertLine: "end", not piped into bash.',
 		),
 	timeout: z
 		.preprocess(
@@ -41,7 +46,7 @@ function isDangerousCommand(command: string): boolean {
 export const BashTool = defineTool({
 	name: 'bash',
 	description:
-		'Executes a bash command and returns stdout/stderr output. Command timeout is configurable. The `command` parameter is required — never call this tool with empty arguments. For very long content, prefer a bounded write with a deterministic marker followed by exact marker-advancing edit calls over a heredoc.',
+		'Executes a bash command and returns stdout/stderr output. Command timeout is configurable. The `command` parameter is required — never call this tool with empty arguments. For very long content (e.g. building a large file), prefer `write` for the opening and `edit` with insertLine: "end" for follow-up chunks over a heredoc to avoid hitting the output token limit mid-stream.',
 	inputSchema,
 	category: 'shell',
 	permissions: ['shell_execute'],
@@ -79,6 +84,9 @@ export const BashTool = defineTool({
 			const result = await context.sandbox.exec('/bin/sh', ['-c', input.command], {
 				timeout: input.timeout,
 				env: context.env,
+				// Same reason as the host path below: a Stop must reach the
+				// process, not just the promise waiting on it.
+				signal: context.abortSignal,
 			})
 
 			if (result.timedOut) {
@@ -89,9 +97,21 @@ export const BashTool = defineTool({
 				}
 			}
 
+			// The sandbox reports when IT clipped a stream. Dropping those
+			// flags meant the model saw a complete-looking result that had
+			// silently lost its tail — and the kernel's own convention is
+			// that it does not truncate silently.
+			const clipped = [
+				result.stdoutTruncated ? 'stdout' : '',
+				result.stderrTruncated ? 'stderr' : '',
+			].filter(Boolean)
+
 			const output = [
 				result.stdout ? `STDOUT:\n${result.stdout}` : '',
 				result.stderr ? `STDERR:\n${result.stderr}` : '',
+				clipped.length > 0
+					? `[${clipped.join(' and ')} was truncated by the sandbox output cap — re-run with a filter (grep/head/tail) to see the rest]`
+					: '',
 			]
 				.filter(Boolean)
 				.join('\n\n')
@@ -99,16 +119,26 @@ export const BashTool = defineTool({
 			return {
 				success: result.exitCode === 0,
 				output: output || '(no output)',
-				data: { exitCode: result.exitCode, sandboxed: true },
+				data: {
+					exitCode: result.exitCode,
+					sandboxed: true,
+					stdoutTruncated: result.stdoutTruncated ?? false,
+					stderrTruncated: result.stderrTruncated ?? false,
+				},
 				error: result.exitCode !== 0 ? `Command exited with code ${result.exitCode}` : undefined,
 			}
 		}
 
+		// Thread the run/deadline signal into the child process. Without it
+		// a Stop tore down the model stream and left the command running,
+		// and the executor's deadline could only ever DETACH from the tool
+		// rather than end the work it started.
 		const { stdout, stderr } = await execAsync(input.command, {
 			cwd: context.workingDirectory,
 			timeout: input.timeout,
 			env: { ...process.env, ...context.env },
 			maxBuffer: DEFAULT_BASH_MAX_BUFFER_BYTES,
+			signal: context.abortSignal,
 		})
 
 		const output = [stdout ? `STDOUT:\n${stdout}` : '', stderr ? `STDERR:\n${stderr}` : '']

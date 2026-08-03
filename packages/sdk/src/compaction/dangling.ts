@@ -317,5 +317,52 @@ export function findSafeTrimIndex(messages: Message[], targetIndex: number): num
 		}
 	}
 
-	return Math.min(currentIndex, messages.length)
+	return alignToUserTurn(messages, Math.min(currentIndex, messages.length))
+}
+
+/**
+ * Move the boundary onto a `user` message.
+ *
+ * The loop above advances past an orphaned `tool` message but never past
+ * an `assistant` one, and after compaction the kept tail IS the start of
+ * the conversation: the summary is written as a system message and the
+ * drivers hoist every system message into its own request parameter, so
+ * the first kept message becomes the first message on the wire. A
+ * conversation that opens with an assistant turn is rejected outright.
+ *
+ * How often depends on the shape of the history, and the shape that
+ * matters most is the worst: in a multi-step turn — the agent working
+ * through several tool calls without the user speaking in between — the
+ * tail alternates assistant/tool with no user message anywhere in it, so
+ * essentially every boundary lands wrong. The failure is unrecoverable
+ * too, because the resulting rejection is not classified as an overflow
+ * and so never reaches relief. Compaction, whose whole job is keeping a
+ * long run alive, becomes the thing that ends it.
+ *
+ * Landing on a `user` message also settles the orphan question for free:
+ * a user message is never a tool result, and everything skipped past is
+ * dropped along with the assistant turn that owned it.
+ */
+function alignToUserTurn(messages: Message[], index: number): number {
+	let forward = index
+	while (forward < messages.length && messages[forward]?.role !== 'user') {
+		forward++
+	}
+	if (forward < messages.length) return forward
+
+	// Nothing ahead. Falling back keeps MORE than asked, which costs context
+	// but stays valid — except that reaching further back can re-admit the
+	// dangling pairs the loop above just walked past, so a candidate only
+	// counts if its own suffix is clean. Two wire invariants are in play and
+	// satisfying one by breaking the other is not a fix.
+	for (let back = Math.min(index, messages.length) - 1; back >= 0; back--) {
+		if (messages[back]?.role !== 'user') continue
+		if (findDanglingMessages(messages.slice(back)).isValid) return back
+	}
+
+	// No boundary satisfies both. The input was already unsendable, and
+	// there is no cut that makes it otherwise — so keep the prior
+	// behaviour of trimming past the end rather than inventing a different
+	// invalid conversation to replace it with.
+	return forward
 }

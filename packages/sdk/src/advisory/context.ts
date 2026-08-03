@@ -34,6 +34,11 @@ export class AdvisoryContext {
 		return { remaining, total, used }
 	}
 
+	/** Advisory spend so far this run, summed from the recorded calls. */
+	spentCost(): number {
+		return this.callHistory.reduce((sum, call) => sum + call.cost.totalCost, 0)
+	}
+
 	checkBudget(): { allowed: boolean; reason?: string } {
 		const { remaining, total } = this.getBudgetStatus()
 		if (remaining !== undefined && remaining <= 0) {
@@ -42,6 +47,20 @@ export class AdvisoryContext {
 				reason: `Advisory budget exhausted: ${total} calls used of ${total} allowed per run`,
 			}
 		}
+
+		// Checked before the call, not after: a cap that only reports
+		// overspend once it has happened is a log line, not a budget.
+		const costCap = this.budget?.maxCostPerRun
+		if (costCap !== undefined) {
+			const spent = this.spentCost()
+			if (spent >= costCap) {
+				return {
+					allowed: false,
+					reason: `Advisory budget exhausted: cost ${spent} of ${costCap} allowed per run`,
+				}
+			}
+		}
+
 		return { allowed: true }
 	}
 }

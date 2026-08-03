@@ -1,7 +1,7 @@
 /**
  * Current-code invariants asserted (2026-04-21, ses_006 Phase 4):
  *
- *   - `OpenRouterEmbeddingProvider`:
+ *   - `HttpEmbeddingProvider`:
  *     - Defaults: dimensions = 1536; baseUrl = openrouter.ai/api/v1;
  *       batchSize = 64.
  *     - `embed(texts)` batches into `batchSize` slices and concatenates
@@ -18,9 +18,9 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { OpenRouterEmbeddingProvider } from './embedding.js'
+import { HttpEmbeddingProvider } from './embedding.js'
 
-describe('OpenRouterEmbeddingProvider', () => {
+describe('HttpEmbeddingProvider', () => {
 	let fetchMock: ReturnType<typeof vi.fn>
 
 	beforeEach(() => {
@@ -33,7 +33,11 @@ describe('OpenRouterEmbeddingProvider', () => {
 	})
 
 	it('carries model / dimensions defaults + batchSize', () => {
-		const p = new OpenRouterEmbeddingProvider({ apiKey: 'k', model: 'm' })
+		const p = new HttpEmbeddingProvider({
+			apiKey: 'k',
+			model: 'm',
+			baseUrl: 'https://embeddings.test/v1',
+		})
 		expect(p.model).toBe('m')
 		expect(p.dimensions).toBe(1536)
 	})
@@ -43,7 +47,7 @@ describe('OpenRouterEmbeddingProvider', () => {
 			ok: true,
 			json: async () => ({ data: [{ index: 0, embedding: [1, 2, 3] }] }),
 		})
-		const p = new OpenRouterEmbeddingProvider({
+		const p = new HttpEmbeddingProvider({
 			apiKey: 'k',
 			model: 'm',
 			dimensions: 256,
@@ -76,9 +80,10 @@ describe('OpenRouterEmbeddingProvider', () => {
 				],
 			}),
 		})
-		const p = new OpenRouterEmbeddingProvider({
+		const p = new HttpEmbeddingProvider({
 			apiKey: 'k',
 			model: 'm',
+			baseUrl: 'https://embeddings.test/v1',
 			batchSize: 2,
 		})
 		await p.embed(['a', 'b', 'c', 'd'])
@@ -96,7 +101,11 @@ describe('OpenRouterEmbeddingProvider', () => {
 				],
 			}),
 		})
-		const p = new OpenRouterEmbeddingProvider({ apiKey: 'k', model: 'm' })
+		const p = new HttpEmbeddingProvider({
+			apiKey: 'k',
+			model: 'm',
+			baseUrl: 'https://embeddings.test/v1',
+		})
 		expect(await p.embed(['a', 'b', 'c'])).toEqual([[1], [2], [3]])
 	})
 
@@ -105,7 +114,11 @@ describe('OpenRouterEmbeddingProvider', () => {
 			ok: true,
 			json: async () => ({ data: [{ index: 0, embedding: [9, 9] }] }),
 		})
-		const p = new OpenRouterEmbeddingProvider({ apiKey: 'k', model: 'm' })
+		const p = new HttpEmbeddingProvider({
+			apiKey: 'k',
+			model: 'm',
+			baseUrl: 'https://embeddings.test/v1',
+		})
 		expect(await p.embedQuery('hi')).toEqual([9, 9])
 	})
 
@@ -114,7 +127,11 @@ describe('OpenRouterEmbeddingProvider', () => {
 			ok: true,
 			json: async () => ({ data: [] }),
 		})
-		const p = new OpenRouterEmbeddingProvider({ apiKey: 'k', model: 'm' })
+		const p = new HttpEmbeddingProvider({
+			apiKey: 'k',
+			model: 'm',
+			baseUrl: 'https://embeddings.test/v1',
+		})
 		await expect(p.embedQuery('hi')).rejects.toThrow(/no results/)
 	})
 
@@ -124,7 +141,45 @@ describe('OpenRouterEmbeddingProvider', () => {
 			status: 503,
 			text: async () => 'service unavailable',
 		})
-		const p = new OpenRouterEmbeddingProvider({ apiKey: 'k', model: 'm' })
+		const p = new HttpEmbeddingProvider({
+			apiKey: 'k',
+			model: 'm',
+			baseUrl: 'https://embeddings.test/v1',
+		})
 		await expect(p.embed(['hi'])).rejects.toThrow(/503.*service unavailable/)
+	})
+})
+
+describe('the endpoint is the caller\u2019s decision', () => {
+	it('appends the path to whatever root the caller named', async () => {
+		const fetchMock = vi.fn().mockResolvedValue({
+			ok: true,
+			json: async () => ({ data: [{ index: 0, embedding: [1] }] }),
+		})
+		global.fetch = fetchMock as unknown as typeof fetch
+
+		await new HttpEmbeddingProvider({
+			apiKey: 'k',
+			model: 'm',
+			baseUrl: 'https://vectors.internal/v2',
+		}).embed(['x'])
+
+		expect(fetchMock.mock.calls[0]?.[0]).toBe('https://vectors.internal/v2/embeddings')
+	})
+
+	it('tolerates a trailing slash instead of building a double one', async () => {
+		const fetchMock = vi.fn().mockResolvedValue({
+			ok: true,
+			json: async () => ({ data: [{ index: 0, embedding: [1] }] }),
+		})
+		global.fetch = fetchMock as unknown as typeof fetch
+
+		await new HttpEmbeddingProvider({
+			apiKey: 'k',
+			model: 'm',
+			baseUrl: 'https://vectors.internal/v2/',
+		}).embed(['x'])
+
+		expect(fetchMock.mock.calls[0]?.[0]).toBe('https://vectors.internal/v2/embeddings')
 	})
 })

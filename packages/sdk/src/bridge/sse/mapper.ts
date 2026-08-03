@@ -33,6 +33,65 @@ const MAPPING: {
 		transform: (e, runId) => ({ run_id: runId, iteration: e.iteration }),
 	},
 
+	reasoning_started: {
+		wire: 'reasoning.started',
+		transform: (e, runId) => ({
+			run_id: runId,
+			iteration: e.iteration,
+			message_id: e.messageId,
+			block_index: e.blockIndex,
+			reasoning_type: e.reasoningType,
+		}),
+	},
+
+	reasoning_delta: {
+		wire: 'reasoning.delta',
+		transform: (e, runId) => ({
+			run_id: runId,
+			message_id: e.messageId,
+			block_index: e.blockIndex,
+			text: e.text,
+		}),
+	},
+
+	reasoning_completed: {
+		wire: 'reasoning.completed',
+		transform: (e, runId) => ({
+			run_id: runId,
+			iteration: e.iteration,
+			message_id: e.messageId,
+			block_index: e.blockIndex,
+			text: e.text,
+			signed: e.signed,
+		}),
+	},
+
+	guardrail_triggered: {
+		wire: 'guardrail.triggered',
+		transform: (e, runId) => ({
+			run_id: runId,
+			stage: e.stage,
+			action: e.action,
+			guardrail: e.guardrail,
+			reason: e.reason,
+		}),
+	},
+
+	compaction_completed: {
+		wire: 'compaction.completed',
+		transform: (e, runId) => ({
+			run_id: runId,
+			iteration: e.iteration,
+			messages_before: e.messagesBefore,
+			messages_after: e.messagesAfter,
+			tokens_before: e.tokensBefore,
+			tokens_after: e.tokensAfter,
+			measured_by: e.measuredBy,
+			context_window_tokens: e.contextWindowTokens,
+			window_source: e.windowSource,
+		}),
+	},
+
 	tool_executing: {
 		wire: 'tool.executing',
 		transform: (e, runId) => ({
@@ -40,6 +99,56 @@ const MAPPING: {
 			tool_use_id: e.toolUseId,
 			tool_name: e.toolName,
 			input: e.input,
+		}),
+	},
+
+	// Ephemeral, like text_delta: a live view wants it, the durable record
+	// does not, and a chatty tool must not be able to bloat transcript.jsonl.
+	tool_progress: {
+		wire: 'tool.progress',
+		transform: (e, runId) => ({
+			run_id: runId,
+			tool_use_id: e.toolUseId,
+			tool_name: e.toolName,
+			message: e.message,
+			fraction: e.fraction,
+		}),
+	},
+
+	// Same reason as `tool_progress`, for the other half of a run's wall
+	// clock: a backoff can run for the better part of a minute, and without
+	// this the client gets no event and no keepalive for its duration.
+	provider_retry: {
+		wire: 'provider.retry',
+		transform: (e, runId) => ({
+			run_id: runId,
+			iteration: e.iteration,
+			attempt: e.attempt,
+			max_retries: e.maxRetries,
+			delay_ms: e.delayMs,
+			code: e.code,
+			status: e.status,
+			server_directed: e.serverDirected,
+		}),
+	},
+
+	user_question_asked: {
+		wire: 'question.asked',
+		transform: (e, runId) => ({
+			run_id: runId,
+			checkpoint_id: e.checkpointId,
+			question_id: e.questionId,
+			question: e.question,
+		}),
+	},
+
+	user_question_answered: {
+		wire: 'question.answered',
+		transform: (e, runId) => ({
+			run_id: runId,
+			checkpoint_id: e.checkpointId,
+			question_id: e.questionId ?? null,
+			answered: e.answered,
 		}),
 	},
 

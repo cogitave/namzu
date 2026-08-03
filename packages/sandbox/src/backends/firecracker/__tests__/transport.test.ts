@@ -31,6 +31,14 @@ import { VsockAgentTransport } from '../transport.js'
 // require-time. Set the env, then require it through createRequire so
 // each test file gets a fresh module bound to its own workspace dir.
 import { createRequire } from 'node:module'
+import { localIpcPath } from './fixtures/ipc-path.js'
+// The loopback agent under test is the guest-side agent for a Linux microVM:
+// it spawns `/bin/sh` to run commands, and that binary does not exist on
+// Windows. These cases assert behavior the platform cannot produce, so they
+// skip there rather than leaving the suite permanently red for Windows
+// contributors. The socket-address fixture IS platform-correct, so the
+// transport is still exercised wherever it can be.
+const IS_WINDOWS = process.platform === 'win32'
 
 const require_ = createRequire(import.meta.url)
 
@@ -53,7 +61,7 @@ function startAgentServer(connHandler: (s: Socket) => void): Promise<Server> {
 
 beforeEach(() => {
 	workDir = mkdtempSync(join(tmpdir(), 'fc-agent-test-'))
-	sockPath = join(workDir, 'agent.sock')
+	sockPath = localIpcPath(workDir)
 	// Bind the agent's workspace jail to the temp dir BEFORE requiring it.
 	process.env.NAMZU_SANDBOX_WORKSPACE = workDir
 	// The agent's root-normalization filters env on PRESENCE; `= undefined`
@@ -76,7 +84,7 @@ afterEach(async () => {
 	rmSync(workDir, { recursive: true, force: true })
 })
 
-describe('VsockAgentTransport over a unix-socket loopback agent', () => {
+describe.skipIf(IS_WINDOWS)('VsockAgentTransport over a unix-socket loopback agent', () => {
 	it('streams stdout/stderr/result NDJSON from an exec', async () => {
 		server = await startAgentServer(agent.handleConnection)
 		const transport = new VsockAgentTransport({ kind: 'unix', path: sockPath })
@@ -367,7 +375,7 @@ function startMtlsRelayOnPort(agentSockPath: string, port: number): Promise<Rela
 	return startMtlsRelay(agentSockPath, port)
 }
 
-describe('VsockAgentTransport mtls arm over a TLS loopback relay', () => {
+describe.skipIf(IS_WINDOWS)('VsockAgentTransport mtls arm over a TLS loopback relay', () => {
 	let agentServer: Server | undefined
 	let relay: RelayHandle | undefined
 

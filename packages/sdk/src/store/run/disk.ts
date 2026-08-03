@@ -1,8 +1,28 @@
-import { appendFile, mkdir, readFile, readdir, rename, unlink, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, readFile, readdir, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { CheckpointId, IterationCheckpoint } from '../../types/hitl/index.js'
 import type { Run, RunEvent, RunStoreConfig } from '../../types/run/index.js'
+import { atomicWriteFile } from '../../utils/atomic-write.js'
 import { type Logger, getRootLogger } from '../../utils/logger.js'
+import { defineSchema, migrate, stamp } from '../schema.js'
+
+/**
+ * This store's on-disk format, versioned as a unit — which is how a
+ * migration would actually be written and shipped, and it keeps every call
+ * site free of schema plumbing.
+ *
+ * Bump `current` and add the migration for the step you are leaving when
+ * the shape changes.
+ */
+const SCHEMA = defineSchema({ kind: 'run-store', current: 1, migrations: {} })
+
+/** One finished tool call, recovered from the transcript. */
+export interface CompletedToolRecord {
+	readonly toolUseId: string
+	readonly toolName: string
+	readonly result: string
+	readonly isError: boolean
+}
 
 export class RunDiskStore {
 	private baseDir: string
@@ -42,6 +62,63 @@ export class RunDiskStore {
 		})}\n`
 
 		await appendFile(join(dir, 'transcript.jsonl'), line, 'utf-8')
+	}
+
+	/**
+	 * Every tool call this run has already finished, keyed by `toolUseId`.
+	 *
+	 * A batch's results are pushed onto the history only once the WHOLE
+	 * batch settles, so a hard kill part-way through loses every result
+	 * that had already come back — and the resumed run re-executes those
+	 * calls. For a `write_file` that is waste; for a payment or an email it
+	 * is a second one.
+	 *
+	 * Nothing new has to be written to make that recoverable: the executor
+	 * already awaits a `tool_completed` event per tool, inline, carrying the
+	 * id, the name, the result and the error flag, and the transcript
+	 * already persists it. The record was durable all along and simply
+	 * never read back.
+	 */
+	async readCompletedTools(): Promise<Map<string, CompletedToolRecord>> {
+		const dir = this.requireInit()
+		const completed = new Map<string, CompletedToolRecord>()
+
+		let raw: string
+		try {
+			raw = await readFile(join(dir, 'transcript.jsonl'), 'utf-8')
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === 'ENOENT') return completed
+			throw error
+		}
+
+		for (const line of raw.split('\n')) {
+			if (line.length === 0) continue
+			let event: Record<string, unknown>
+			try {
+				event = JSON.parse(line) as Record<string, unknown>
+			} catch {
+				// A torn last line is the normal shape of a file that was
+				// being appended to when the process died — which is exactly
+				// the case this method exists for. Skip it; every whole line
+				// before it is still good.
+				continue
+			}
+			if (event.type !== 'tool_completed') continue
+			const toolUseId = event.toolUseId
+			const toolName = event.toolName
+			if (typeof toolUseId !== 'string' || typeof toolName !== 'string') continue
+
+			// Last write wins: a retried tool emits one event per attempt and
+			// the final one is what actually answered the call.
+			completed.set(toolUseId, {
+				toolUseId,
+				toolName,
+				result: typeof event.result === 'string' ? event.result : '',
+				isError: event.isError === true,
+			})
+		}
+
+		return completed
 	}
 
 	async writeRunMeta(run: Run): Promise<void> {
@@ -87,14 +164,21 @@ export class RunDiskStore {
 		const dir = this.requireInit()
 		const cpDir = join(dir, 'checkpoints')
 		await mkdir(cpDir, { recursive: true })
-		await atomicWriteJson(join(cpDir, `${checkpoint.id}.json`), checkpoint)
+		// Stamped, not written bare. Unstamped is read as version 1 by
+		// definition, which is correct only while version 1 is the only
+		// version there has ever been — the moment a second one exists, an
+		// unstamped file written by the newer build is read by the older one
+		// as if it were the older shape, and the refusal that exists to
+		// prevent exactly that never fires. The stamp is what gives the
+		// migration chain something to hang on.
+		await atomicWriteJson(join(cpDir, `${checkpoint.id}.json`), stamp(SCHEMA, checkpoint))
 	}
 
 	async readCheckpoint(checkpointId: CheckpointId): Promise<IterationCheckpoint | null> {
 		const dir = this.requireInit()
 		try {
 			const content = await readFile(join(dir, 'checkpoints', `${checkpointId}.json`), 'utf-8')
-			return JSON.parse(content) as IterationCheckpoint
+			return parseCheckpoint(content, `${checkpointId}.json`)
 		} catch (err) {
 			if (isFileNotFound(err)) return null
 			throw err
@@ -109,12 +193,20 @@ export class RunDiskStore {
 			const checkpoints: IterationCheckpoint[] = []
 			for (const file of files) {
 				if (!file.endsWith('.json')) continue
-				try {
-					const content = await readFile(join(cpDir, file), 'utf-8')
-					checkpoints.push(JSON.parse(content) as IterationCheckpoint)
-				} catch {
-					this.log.warn(`Failed to parse checkpoint file: ${file}`)
-				}
+				// An unreadable checkpoint used to be logged and skipped, so
+				// this returned a silently short list that four callers treat
+				// as complete. A missing NEWEST checkpoint quietly resumes
+				// from an older point and re-runs a whole iteration of tool
+				// calls; a missing PARKED one reports "not parked" and drops
+				// an approval a human already granted, because the file is
+				// the only durable record of a park. Pruning under-deletes
+				// too: a file the keep-count cannot see is immortal.
+				//
+				// The by-id read next door was already strict. Two read paths
+				// disagreeing about whether damage matters is how the lenient
+				// one gets trusted.
+				const content = await readFile(join(cpDir, file), 'utf-8')
+				checkpoints.push(parseCheckpoint(content, file))
 			}
 			return checkpoints.sort((a, b) => a.createdAt - b.createdAt)
 		} catch (err) {
@@ -144,7 +236,7 @@ export class RunDiskStore {
 		try {
 			const indexPath = join(baseDir, 'index.json')
 			const content = await readFile(indexPath, 'utf-8')
-			return JSON.parse(content)
+			return migrate(SCHEMA, JSON.parse(content))
 		} catch (err) {
 			if (isFileNotFound(err)) return []
 			throw err
@@ -168,7 +260,7 @@ export class RunDiskStore {
 
 			try {
 				const content = await readFile(indexPath, 'utf-8')
-				index = JSON.parse(content)
+				index = migrate(SCHEMA, JSON.parse(content))
 			} catch (err) {
 				if (!isFileNotFound(err)) throw err
 			}
@@ -199,19 +291,74 @@ export class RunDiskStore {
 	}
 }
 
-async function atomicWriteFile(filePath: string, content: string): Promise<void> {
-	const tempPath = `${filePath}.tmp`
-	try {
-		await writeFile(tempPath, content, 'utf-8')
-		await rename(tempPath, filePath)
-	} catch (err) {
-		await unlink(tempPath).catch(() => undefined)
-		throw err
-	}
+async function atomicWriteJson(filePath: string, value: unknown): Promise<void> {
+	await atomicWriteFile(filePath, JSON.stringify(stamp(SCHEMA, value), null, 2))
 }
 
-async function atomicWriteJson(filePath: string, value: unknown): Promise<void> {
-	await atomicWriteFile(filePath, JSON.stringify(value, null, 2))
+/**
+ * Parse a checkpoint, checking it is one.
+ *
+ * Both read paths were `JSON.parse(content) as IterationCheckpoint` — a
+ * cast, not a check, so `{}` passed both and failed much later at the
+ * point of use, where the message names a missing property rather than a
+ * damaged file. The fields checked here are the ones the resume path
+ * dereferences immediately; the rest are optional and their absence is
+ * survivable.
+ */
+/** A finite number, not `NaN` and not `Infinity`. */
+function isCount(value: unknown): value is number {
+	return typeof value === 'number' && Number.isFinite(value)
+}
+
+/**
+ * The budget fields a resume restores before its first iteration.
+ *
+ * Checked because a resume DEREFERENCES them: a run recalled at $4.80 of a
+ * $5 cap whose `costInfo` came back malformed continues with `NaN`
+ * budgets, which compare false against every limit — so the guard that
+ * exists to stop it silently never stops it. That is a run that looks
+ * healthy and has lost its cap, which is worse than one that refuses to
+ * resume.
+ */
+function hasUsableBudgets(record: Partial<IterationCheckpoint>): boolean {
+	const usage = record.tokenUsage as Record<string, unknown> | undefined
+	const cost = record.costInfo as Record<string, unknown> | undefined
+	const guard = record.guardState as Record<string, unknown> | undefined
+	if (!usage || !cost || !guard) return false
+	return (
+		isCount(usage.promptTokens) &&
+		isCount(usage.completionTokens) &&
+		isCount(usage.totalTokens) &&
+		isCount(cost.totalCost) &&
+		isCount(guard.iterationCount) &&
+		isCount(guard.elapsedMs)
+	)
+}
+
+function parseCheckpoint(content: string, file: string): IterationCheckpoint {
+	const parsed = migrate<unknown>(SCHEMA, JSON.parse(content))
+	const record = parsed as Partial<IterationCheckpoint> | null
+
+	if (
+		record === null ||
+		typeof record !== 'object' ||
+		typeof record.id !== 'string' ||
+		typeof record.iteration !== 'number' ||
+		typeof record.createdAt !== 'number' ||
+		!Array.isArray(record.messages)
+	) {
+		throw new Error(
+			`Checkpoint file "${file}" is not a usable checkpoint: it parsed as JSON but is missing the fields a resume needs (id, iteration, createdAt, messages). Refusing rather than resuming from it.`,
+		)
+	}
+
+	if (!hasUsableBudgets(record)) {
+		throw new Error(
+			`Checkpoint file "${file}" has malformed budget state (tokenUsage, costInfo, guardState). A resume restores these before its first iteration, so reading them as NaN or undefined produces a run that compares false against every limit and never stops. Refusing rather than resuming without a cap.`,
+		)
+	}
+
+	return record as IterationCheckpoint
 }
 
 function isFileNotFound(err: unknown): boolean {

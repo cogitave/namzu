@@ -77,50 +77,28 @@ describe('createSandboxProvider', () => {
 		expect(provider.id).toContain('docker')
 	})
 
-	it('throws SandboxBackendNotImplementedError for microvm:e2b until P3.3 lands', () => {
-		expect(() =>
-			createSandboxProvider({
-				backend: { tier: 'microvm', service: 'e2b', apiKey: 'test' },
-			}),
-		).toThrow(SandboxBackendNotImplementedError)
+	it('builds the userspace-kernel runtime rather than refusing it', () => {
+		// This case was pinned by a test shaped `try { … } catch (e) { expect(e) }`
+		// with no failure branch, so once the runtime landed the test kept
+		// passing while asserting nothing at all.
+		const provider = createSandboxProvider({
+			backend: { tier: 'container', runtime: 'runsc', image: 'i' },
+			layout: validLayout(),
+		})
 
-		try {
-			createSandboxProvider({
-				backend: { tier: 'microvm', service: 'fly-machines', apiToken: 't', app: 'a', image: 'i' },
-			})
-		} catch (err) {
-			expect(err).toBeInstanceOf(SandboxBackendNotImplementedError)
-			expect((err as SandboxBackendNotImplementedError).backend).toBe('microvm:fly-machines')
-		}
+		expect(provider.name).toContain('container:runsc')
 	})
 
-	it('throws for process tier until P3.4 lands, naming the engine in the label', () => {
+	it('refuses a tier it does not implement, by name', () => {
+		// Reachable only from untyped callers now that every shape in the
+		// union has an implementation — which is the point of keeping it: a
+		// JS host that invents a tier gets a named refusal, not a provider
+		// that silently confines nothing.
 		try {
-			createSandboxProvider({ backend: { tier: 'process', engine: 'bubblewrap' } })
+			createSandboxProvider({ backend: { tier: 'passthrough' } } as never)
+			expect.unreachable('a tier with no backend must not construct')
 		} catch (err) {
 			expect(err).toBeInstanceOf(SandboxBackendNotImplementedError)
-			expect((err as SandboxBackendNotImplementedError).backend).toBe('process:bubblewrap')
-		}
-	})
-
-	it('throws for container:runsc until P3.5 lands', () => {
-		try {
-			createSandboxProvider({
-				backend: { tier: 'container', runtime: 'runsc', image: 'i' },
-				layout: validLayout(),
-			})
-		} catch (err) {
-			expect(err).toBeInstanceOf(SandboxBackendNotImplementedError)
-			expect((err as SandboxBackendNotImplementedError).backend).toBe('container:runsc')
-		}
-	})
-
-	it('throws for passthrough tier until it lands', () => {
-		try {
-			createSandboxProvider({ backend: { tier: 'passthrough' } })
-		} catch (err) {
-			expect(err).toBeInstanceOf(SandboxBackendNotImplementedError)
-			expect((err as SandboxBackendNotImplementedError).backend).toBe('passthrough')
 		}
 	})
 
@@ -437,7 +415,7 @@ describe('serializeSandboxError — transport-safe error envelope', () => {
 		expect(serializeSandboxError(true).message).toBe('true')
 	})
 
-	// Codex round 5 (C): the envelope must defend against values that
+	// the envelope must defend against values that
 	// JSON.stringify either drops silently or that structuredClone
 	// throws on. Each of these cases asserts a specific envelope shape
 	// AND that the result survives both transport channels.
@@ -484,7 +462,7 @@ describe('serializeSandboxError — transport-safe error envelope', () => {
 		}
 	})
 
-	// Codex round 5 (B): cycle guard. The previous round-4 implementation
+	// cycle guard. The previous round-4 implementation
 	// recursed unconditionally on `cause`, so a cycle would either
 	// stack-overflow (synchronous) or trip JSON.stringify's circular
 	// detection (async via the receiver). The WeakSet path replaces
@@ -561,7 +539,7 @@ describe('serializeSandboxError — transport-safe error envelope', () => {
 })
 
 describe('public exports — runtime import paths', () => {
-	// Codex round 4 (E): Vandal-side prompt template generators must
+	// Vandal-side prompt template generators must
 	// be able to import the default-path constants from the sandbox
 	// package via the SDK's root barrel. `@namzu/sdk` exposes only
 	// `"."` in its package.json `exports`; subpath imports like

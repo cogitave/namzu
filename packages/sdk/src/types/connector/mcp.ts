@@ -85,6 +85,15 @@ export interface MCPToolDefinition {
 	name: string
 	description?: string
 	inputSchema: MCPJsonSchema
+	/**
+	 * The shape the tool returns, as the server declares it.
+	 *
+	 * Servers publish this on a tool listing regardless of negotiated
+	 * protocol revision, and it had no slot here — so a declared return
+	 * shape never reached the model at all, which was left inferring one
+	 * from prose or from whatever the first call happened to return.
+	 */
+	outputSchema?: MCPJsonSchema
 	annotations?: MCPToolAnnotations
 }
 
@@ -96,6 +105,18 @@ export type MCPContentBlock =
 export interface MCPToolResult {
 	content: MCPContentBlock[]
 	isError?: boolean
+	/**
+	 * A machine-readable payload alongside (or instead of) the content
+	 * blocks.
+	 *
+	 * A server may return this and omit the compatibility text block. The
+	 * field survived the wire cast and was read by nothing, so that call
+	 * produced an empty tool result for a request that succeeded — with no
+	 * diagnostic anywhere, since `isError` was false and the content array
+	 * was legitimately empty.
+	 */
+	structuredContent?: unknown
+	_meta?: Record<string, unknown>
 }
 
 export interface MCPResource {
@@ -158,6 +179,14 @@ export interface MCPClientConfig {
 	transport: MCPTransportUnion
 	capabilities?: MCPClientCapabilities
 	clientInfo?: { name: string; version: string }
+	/**
+	 * Deadline for a single JSON-RPC round trip. Defaults to
+	 * `DEFAULT_MCP_REQUEST_TIMEOUT_MS`.
+	 *
+	 * Without one, a wedged stdio server left every caller pending
+	 * forever — no error, no failure, just a run that stopped.
+	 */
+	requestTimeoutMs?: number
 }
 
 export interface MCPClientState {

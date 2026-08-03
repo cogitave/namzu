@@ -97,10 +97,19 @@ export class DefaultRetriever implements Retriever {
 		})
 
 		const queryTerms = this.tokenize(query)
+
+		// BM25 needs corpus statistics, so tokenize the whole candidate set
+		// first: document frequency per term for IDF, and the real average
+		// document length for the length normalization. Both used to be
+		// missing — IDF entirely, and `avgDl` as a hardcoded 256 that had
+		// nothing to do with these documents.
+		const tokenized = vectorResults.map((result) => this.tokenize(result.chunk.content))
+		const stats = buildCorpusStats(tokenized)
+
 		return vectorResults
-			.map((result) => ({
+			.map((result, i) => ({
 				...result,
-				score: this.bm25Score(queryTerms, this.tokenize(result.chunk.content)),
+				score: bm25Score(queryTerms, tokenized[i] as string[], stats),
 			}))
 			.filter((r) => r.score > 0)
 			.sort((a, b) => b.score - a.score)
@@ -122,14 +131,17 @@ export class DefaultRetriever implements Retriever {
 
 		const scoreMap = new Map<string, { chunk: VectorSearchResult['chunk']; score: number }>()
 
-		for (const result of vectorResults) {
+		// Put both rankings on the same scale before blending. Cosine is
+		// bounded, BM25 is not, so the raw mix let the larger scale win
+		// regardless of `alpha`.
+		for (const result of normalizeByMax(vectorResults)) {
 			scoreMap.set(result.chunk.id, {
 				chunk: result.chunk,
 				score: alpha * result.score,
 			})
 		}
 
-		for (const result of keywordResults) {
+		for (const result of normalizeByMax(keywordResults)) {
 			const existing = scoreMap.get(result.chunk.id)
 			if (existing) {
 				existing.score += (1 - alpha) * result.score
@@ -151,27 +163,86 @@ export class DefaultRetriever implements Retriever {
 			.split(/\s+/)
 			.filter((t) => t.length > 1)
 	}
+}
 
-	private bm25Score(queryTerms: string[], docTerms: string[]): number {
-		const k1 = 1.2
-		const b = 0.75
-		const avgDl = 256
-		const dl = docTerms.length
+interface CorpusStats {
+	/** Number of documents in the candidate set. */
+	readonly n: number
+	/** Mean document length, in tokens. */
+	readonly avgDl: number
+	/** How many documents contain each term. */
+	readonly df: ReadonlyMap<string, number>
+}
 
-		const termFreq = new Map<string, number>()
-		for (const term of docTerms) {
-			termFreq.set(term, (termFreq.get(term) ?? 0) + 1)
+function buildCorpusStats(docs: readonly string[][]): CorpusStats {
+	const df = new Map<string, number>()
+	let totalLength = 0
+
+	for (const doc of docs) {
+		totalLength += doc.length
+		for (const term of new Set(doc)) {
+			df.set(term, (df.get(term) ?? 0) + 1)
 		}
-
-		let score = 0
-		for (const term of queryTerms) {
-			const tf = termFreq.get(term) ?? 0
-			if (tf === 0) continue
-			const numerator = tf * (k1 + 1)
-			const denominator = tf + k1 * (1 - b + b * (dl / avgDl))
-			score += numerator / denominator
-		}
-
-		return score
 	}
+
+	return { n: docs.length, avgDl: docs.length === 0 ? 1 : totalLength / docs.length, df }
+}
+
+/**
+ * Okapi BM25.
+ *
+ * The previous implementation had the term-frequency saturation half and no
+ * IDF at all, which is the half that does the discriminating: without it
+ * every matched term is worth the same, so a chunk matching three common
+ * words outscores the one chunk containing the rare term the query was
+ * actually about. It also normalized document length against a hardcoded
+ * `avgDl = 256` rather than the corpus in front of it, so the `b` term was
+ * measuring against a number with no relationship to these documents.
+ *
+ * IDF uses the standard Robertson/Sparck-Jones form with 0.5 smoothing,
+ * wrapped in `ln(1 + x)` so a term appearing in EVERY document scores a
+ * small positive weight rather than the negative one the unwrapped form
+ * produces when `df > n/2`.
+ */
+function bm25Score(queryTerms: string[], docTerms: string[], stats: CorpusStats): number {
+	const k1 = 1.2
+	const b = 0.75
+	const dl = docTerms.length
+
+	const termFreq = new Map<string, number>()
+	for (const term of docTerms) {
+		termFreq.set(term, (termFreq.get(term) ?? 0) + 1)
+	}
+
+	let score = 0
+	for (const term of queryTerms) {
+		const tf = termFreq.get(term) ?? 0
+		if (tf === 0) continue
+
+		const df = stats.df.get(term) ?? 0
+		const idf = Math.log(1 + (stats.n - df + 0.5) / (df + 0.5))
+
+		const numerator = tf * (k1 + 1)
+		const denominator = tf + k1 * (1 - b + b * (dl / stats.avgDl))
+		score += idf * (numerator / denominator)
+	}
+
+	return score
+}
+
+/**
+ * Rescale scores into [0, 1] by their maximum.
+ *
+ * Cosine similarity is bounded and BM25 is not, so blending them with a
+ * fixed `alpha` compared quantities on different scales — a BM25 of 7.4
+ * against a cosine of 0.83 meant `alpha` did not weight the two halves, it
+ * just let whichever scale happened to be larger win. Normalizing each
+ * ranking to its own maximum makes `alpha` mean what its name says.
+ */
+function normalizeByMax(
+	results: readonly VectorSearchResult[],
+): { chunk: VectorSearchResult['chunk']; score: number }[] {
+	const max = results.reduce((m, r) => Math.max(m, r.score), 0)
+	if (max <= 0) return results.map((r) => ({ chunk: r.chunk, score: 0 }))
+	return results.map((r) => ({ chunk: r.chunk, score: r.score / max }))
 }

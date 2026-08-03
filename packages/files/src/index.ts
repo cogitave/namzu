@@ -28,7 +28,7 @@ export type StorageProviderId =
 	| 's3'
 	| 'azure-blob'
 	| 'gcs'
-	| 'anthropic-files'
+	| 'provider-files'
 	| (string & {})
 
 export interface StorageRef {

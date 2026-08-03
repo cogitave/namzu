@@ -132,7 +132,7 @@ const result = await agent.run(
 
 ## 7. Why Thread, Not Just Project
 
-If you are coming from OpenAI Assistants, LangGraph, or another framework, you may not have seen a Thread layer before. Most frameworks collapse Project and Thread into one. Namzu separates them because the **Thread is where A2A connections attach**:
+A Thread layer is not universal, and its absence is easy to miss: a runtime without one collapses Project and Thread into a single identity. Namzu separates them because the **Thread is where A2A connections attach**:
 
 - **Project** is folder-bound. Shared as a folder or workspace URL.
 - **Thread** is path-independent. Shared as a topic surface that external agents can join without seeing every Thread in the Project.

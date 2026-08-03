@@ -16,6 +16,9 @@
 
 import type { McpCallResult, McpToolDescriptor } from './types.js'
 
+/** Runaway guard for a server whose cursor never ends. */
+const MAX_LIST_PAGES = 100
+
 export const MCP_PROTOCOL_VERSION = '2024-11-05'
 
 export class McpProtocolError extends Error {
@@ -54,6 +57,8 @@ interface JsonRpcResponse<T> {
 
 interface ListToolsResult {
 	tools: McpToolDescriptor[]
+	/** Opaque continuation token; absent on the last page. */
+	nextCursor?: string
 }
 
 export class ClawtoolMcpClient {
@@ -83,8 +88,29 @@ export class ClawtoolMcpClient {
 
 	async listTools(): Promise<McpToolDescriptor[]> {
 		await this.initialize()
-		const result = await this.rpc<ListToolsResult>('tools/list', {})
-		return result.tools
+
+		// Paged to the end. Sending no cursor and ignoring the one that
+		// comes back returns only the first page, so a server that pages
+		// its catalogue contributes part of it and nothing says so — the
+		// symptom is a model that never uses a tool it was told about.
+		const tools: McpToolDescriptor[] = []
+		let cursor: string | undefined
+		for (let page = 1; ; page++) {
+			const result = await this.rpc<ListToolsResult>(
+				'tools/list',
+				cursor === undefined ? {} : { cursor },
+			)
+			if (Array.isArray(result.tools)) tools.push(...result.tools)
+
+			const next = result.nextCursor
+			if (typeof next !== 'string' || next.length === 0) return tools
+			if (page >= MAX_LIST_PAGES) {
+				throw new Error(
+					`tools/list did not stop paging after ${MAX_LIST_PAGES} pages (${tools.length} tools so far).`,
+				)
+			}
+			cursor = next
+		}
 	}
 
 	async callTool(name: string, args: Record<string, unknown>): Promise<McpCallResult> {

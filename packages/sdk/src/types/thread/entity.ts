@@ -44,9 +44,8 @@ export type ThreadStatus = 'open' | 'archived'
  * - **Sessions are the immediate work unit.** A user or agent enters a
  *   Thread and opens/resumes Sessions for the concrete interval of work.
  *
- * This is the mental model ses_001 ratified (Phase 0, 2026-04-18). Industry
- * frameworks (OpenAI Responses, LangGraph, Claude Agent SDK, Temporal) do
- * not have an exact analogue for the Thread layer — it is Namzu's answer to
+ * This is the mental model ses_001 ratified (Phase 0, 2026-04-18). The
+ * Thread layer has no counterpart elsewhere — it is Namzu's answer to
  * the question "how do you expose a multi-session topic to A2A without
  * coupling it to the Project's filesystem identity?".
  *

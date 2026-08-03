@@ -78,6 +78,12 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				log.error('Run failed', {
 					runId: event.runId,
 					error: event.error,
+					// A greppable id and a sentence saying what to change,
+					// where before there was only whatever prose the vendor
+					// SDK happened to write.
+					code: event.failure?.code,
+					reason: event.explanation?.id,
+					hint: event.explanation?.hint,
 				})
 				break
 
@@ -225,12 +231,90 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				})
 				break
 
+			case 'reasoning_started':
+			case 'reasoning_delta':
+				// High-frequency and content-bearing; the completed block
+				// below carries everything a log needs.
+				break
+
+			case 'reasoning_completed':
+				log.debug('Reasoning block completed', {
+					runId: event.runId,
+					iteration: event.iteration,
+					blockIndex: event.blockIndex,
+					signed: event.signed,
+					chars: event.text?.length ?? 0,
+				})
+				break
+
+			case 'guardrail_triggered':
+				log.warn('Guardrail triggered', {
+					runId: event.runId,
+					stage: event.stage,
+					action: event.action,
+					guardrail: event.guardrail,
+					reason: event.reason,
+				})
+				break
+
+			case 'compaction_completed':
+				log.info('Context compacted', {
+					runId: event.runId,
+					iteration: event.iteration,
+					messagesDropped: event.messagesBefore - event.messagesAfter,
+					tokensBefore: event.tokensBefore,
+					tokensAfter: event.tokensAfter,
+					measuredBy: event.measuredBy,
+					contextWindowTokens: event.contextWindowTokens,
+					windowSource: event.windowSource,
+				})
+				break
+
 			case 'capability_warning':
 				log.warn('Provider capability mismatch', {
 					runId: event.runId,
 					capability: event.capability,
 					providerId: event.providerId,
 					message: event.message,
+				})
+				break
+
+			case 'tool_progress':
+				// Debug, not info: a long tool can emit many of these and they
+				// are a live-view signal, not a run milestone.
+				log.debug(`Tool progress: ${event.toolName}`, {
+					runId: event.runId,
+					tool: event.toolName,
+					message: event.message,
+				})
+				break
+
+			case 'user_question_asked':
+				log.info('Question asked — the run is parked on an answer', {
+					runId: event.runId,
+					checkpointId: event.checkpointId,
+					questionId: event.questionId,
+				})
+				break
+
+			case 'user_question_answered':
+				log.info(event.answered ? 'Question answered' : 'Question closed unanswered', {
+					runId: event.runId,
+					checkpointId: event.checkpointId,
+				})
+				break
+
+			case 'provider_retry':
+				// `warn`, not debug: this is the run going quiet for a
+				// measurable stretch, and the delay it names is still ahead.
+				log.warn(`Model call failed — retrying in ${event.delayMs}ms`, {
+					runId: event.runId,
+					iteration: event.iteration,
+					attempt: event.attempt,
+					maxRetries: event.maxRetries,
+					code: event.code,
+					status: event.status,
+					serverDirected: event.serverDirected,
 				})
 				break
 

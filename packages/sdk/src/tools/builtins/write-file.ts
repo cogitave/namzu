@@ -1,53 +1,41 @@
-import { access } from 'node:fs/promises'
-import { resolve } from 'node:path'
+import { access, mkdir, writeFile } from 'node:fs/promises'
+import { dirname, resolve } from 'node:path'
 import { z } from 'zod'
 import type { ToolContext } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
-import { atomicWriteFile } from './atomic-write-file.js'
-import { withFileMutationLock } from './file-mutation-lock.js'
 
 const inputSchema = z
 	.object({
 		path: z
 			.string()
-			.refine((value) => value.trim().length > 0, 'Path must not be empty.')
+			.min(1)
 			.describe(
-				'Relative path to the file to write (e.g. "outputs/report.md"). Must not be empty.',
+				'Relative path to the file to write (e.g. "outputs/report.md"). Required. Must be a non-empty string.',
 			),
 		content: z
 			.string()
+			.optional()
 			.describe(
-				'Complete bounded file body. Use "" only for an intentionally empty file. Keep under 12000 characters. For longer documents, include a deterministic marker such as {{CHUNK_001}} and advance it with exact edit calls.',
+				'Full file body to write. Required (use "" only for an intentionally empty file). The file is fully overwritten — pass the COMPLETE intended content for this bounded chunk, not a diff. Self-budget content under 12000 characters before calling; if the intended body is longer, write a smaller opening section here, then use `edit` with insertLine: "end" to extend the file section by section. Do NOT try to chain multiple `write` calls, since each one overwrites the previous.',
+			),
+		newStr: z
+			.string()
+			.optional()
+			.describe(
+				'Alias for content. Useful for hosts that expose create/write operations as newStr. Self-budget this payload under 12000 characters before calling.',
 			),
 	})
-	.strict()
+	.refine((value) => typeof value.content === 'string' || typeof value.newStr === 'string', {
+		message: 'Either content or newStr is required.',
+	})
 
 type WriteInput = z.infer<typeof inputSchema>
-
-const modelInputSchema: Record<string, unknown> = {
-	type: 'object',
-	properties: {
-		path: {
-			type: 'string',
-			description: 'Non-empty path to the file to write.',
-		},
-		content: {
-			type: 'string',
-			description: 'Complete bounded file body. May be empty only for an intentionally empty file.',
-		},
-	},
-	required: ['path', 'content'],
-	additionalProperties: false,
-}
 
 export const WriteFileTool = defineTool({
 	name: 'write',
 	description:
-		'Writes a complete bounded file body. Pass exactly path + content. If the file exists, read it first; prefer edit for targeted changes. Self-budget content under 12000 characters. For longer documents, write an opening with a deterministic marker such as {{CHUNK_001}}, then use exact edit calls that advance the marker one chunk at a time. Do not chain write calls because each overwrites the file.',
+		'Writes a file to the local filesystem. Overwrites the existing file at the path if there is one.\n\n- If the file already exists, you must use the `read` tool on it first in this conversation, or this call will fail.\n- Prefer the `edit` tool for modifying existing files — it only sends the diff and preserves the rest of the file byte-for-byte.\n- Use `write` to create a new file or to perform a deliberate full rewrite of a file you have already read.\n- Self-budget content/newStr under 12000 characters before emitting the tool call. For long content, write a smaller opening section, then use `edit` with insertLine: "end" to extend the file section by section. Do not chain multiple `write` calls — each one overwrites the previous.',
 	inputSchema,
-	modelInputSchema,
-	enforceModelInput: true,
-	validationErrorHint: 'Required shape: {"path":"file.md","content":"complete bounded file body"}.',
 	category: 'filesystem',
 	permissions: ['file_write'],
 	readOnly: false,
@@ -55,52 +43,40 @@ export const WriteFileTool = defineTool({
 	concurrencySafe: false,
 
 	async execute(input: WriteInput, context) {
-		const parsed = inputSchema.safeParse(input)
-		if (!parsed.success) {
-			return {
-				success: false,
-				output: '',
-				error: `Invalid write input: ${parsed.error.issues.map((issue) => issue.message).join('; ')}`,
-			}
-		}
-		const canonicalInput = parsed.data
-
-		const filePath = resolve(context.workingDirectory, canonicalInput.path)
-		const lockKey = `${context.sandbox ? 'sandbox' : 'local'}:${filePath}`
-		return withFileMutationLock(lockKey, async () => {
-			if (context.sandbox) {
-				const sandboxExists = await sandboxFileExists(context, canonicalInput.path)
-				if (sandboxExists) {
-					const guard = enforceReadBeforeOverwrite(context, canonicalInput.path)
-					if (guard) return guard
-				}
-				await context.sandbox.writeFile(canonicalInput.path, canonicalInput.content)
-				context.fileReadTracker?.recordRead(canonicalInput.path)
-				return {
-					success: true as const,
-					output: `File written successfully: ${canonicalInput.path} (${canonicalInput.content.length} chars) [sandboxed]`,
-					data: {
-						path: canonicalInput.path,
-						size: canonicalInput.content.length,
-						sandboxed: true,
-					},
-				}
-			}
-
-			const localExists = await pathExists(filePath)
-			if (localExists) {
-				const guard = enforceReadBeforeOverwrite(context, filePath)
+		const content = input.content ?? input.newStr ?? ''
+		// Sandbox-aware: route through sandbox.writeFile() when available
+		if (context.sandbox) {
+			const sandboxExists = await sandboxFileExists(context, input.path)
+			if (sandboxExists) {
+				const guard = enforceReadBeforeOverwrite(context, input.path)
 				if (guard) return guard
 			}
-
-			await atomicWriteFile(filePath, canonicalInput.content)
-			context.fileReadTracker?.recordRead(filePath)
+			await context.sandbox.writeFile(input.path, content)
+			context.fileReadTracker?.recordRead(input.path)
 			return {
-				success: true as const,
-				output: `File written successfully: ${filePath} (${canonicalInput.content.length} chars)`,
-				data: { path: filePath, size: canonicalInput.content.length },
+				success: true,
+				output: `File written successfully: ${input.path} (${content.length} chars) [sandboxed]`,
+				data: { path: input.path, size: content.length, sandboxed: true },
 			}
-		})
+		}
+
+		const filePath = resolve(context.workingDirectory, input.path)
+
+		const localExists = await pathExists(filePath)
+		if (localExists) {
+			const guard = enforceReadBeforeOverwrite(context, filePath)
+			if (guard) return guard
+		}
+
+		await mkdir(dirname(filePath), { recursive: true })
+		await writeFile(filePath, content, 'utf-8')
+		context.fileReadTracker?.recordRead(filePath)
+
+		return {
+			success: true,
+			output: `File written successfully: ${filePath} (${content.length} chars)`,
+			data: { path: filePath, size: content.length },
+		}
 	},
 })
 

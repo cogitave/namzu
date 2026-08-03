@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
+import { AGENT_MANAGER_DEFAULTS } from '../../../constants/agent/index.js'
 import { EMPTY_TOKEN_USAGE } from '../../../constants/limits.js'
+import { LocalTaskGateway } from '../../../gateway/local.js'
 import { AgentRegistry } from '../../../registry/agent/definitions.js'
 import {
 	DefaultCapacityValidator,
@@ -302,6 +304,53 @@ describe('AgentManager.sendMessage — Phase 6 SubSession spawn', () => {
 		).rejects.toBeInstanceOf(DelegationCapacityExceeded)
 	})
 
+	it('width: two concurrent spawns cannot both slip past the last slot', async () => {
+		const childAgent = makeAgent('child-1', async () => successResult())
+		const harness = await buildHarness(childAgent)
+
+		// Fill to one below the cap, so exactly one more child fits.
+		for (let i = 0; i < 7; i++) {
+			const sibling = await harness.store.createSession(
+				{
+					threadId: harness.threadId,
+					projectId: harness.projectId,
+					currentActor: agentActor('sibling'),
+				},
+				tenant,
+			)
+			await harness.store.createSubSession(
+				{
+					parentSessionId: harness.parentSession.id,
+					childSessionId: sibling.id,
+					kind: 'agent_spawn',
+					spawnedBy: user(),
+				},
+				tenant,
+			)
+		}
+
+		// Both read the count before either writes. The check and the write
+		// that invalidates it used to have every other provisioning step
+		// between them, so a cap of 8 admitted 9.
+		const attempts = await Promise.allSettled([
+			harness.manager.sendMessage(
+				buildOptions('child-1', harness.parentSession.id, harness.projectId),
+				buildContext(harness.parentSession.id, harness.projectId, harness.threadId),
+			),
+			harness.manager.sendMessage(
+				buildOptions('child-1', harness.parentSession.id, harness.projectId),
+				buildContext(harness.parentSession.id, harness.projectId, harness.threadId),
+			),
+		])
+
+		const rejected = attempts.filter((a) => a.status === 'rejected')
+		expect(rejected).toHaveLength(1)
+		expect((rejected[0] as PromiseRejectedResult).reason).toBeInstanceOf(DelegationCapacityExceeded)
+
+		const children = await harness.store.getChildren(harness.parentSession.id, tenant)
+		expect(children.length).toBe(8)
+	})
+
 	it('depth: ancestry chain exceeding maxDelegationDepth (4) rejects with DelegationCapacityExceeded', async () => {
 		const childAgent = makeAgent('child-1', async () => successResult())
 		const harness = await buildHarness(childAgent)
@@ -471,3 +520,251 @@ describe('AgentManager.sendMessage — Phase 6 SubSession spawn', () => {
 // unconditional required. Prior `describe('AgentManager.sendMessage — legacy
 // mode (no session deps)')` block deleted; every spawn now produces a
 // SubSession + Session + WorkspaceRef triple (Convention #0).
+
+/**
+ * Two unit errors in the delegation path that no test covered, because the
+ * numbers involved stay plausible-looking until you check their units and
+ * their identity.
+ */
+describe('AgentManager.sendMessage — budget and deadline arithmetic', () => {
+	it('does not derive the child deadline from the TOKEN budget', async () => {
+		// The fallback used to be `context.budgetTracker.remaining` — a token
+		// count read as milliseconds. It hid for so long because a six-figure
+		// token budget lands in a plausible range of milliseconds.
+		const seen: BaseAgentConfig[] = []
+		const childAgent = makeAgent('child-deadline', async (_input, config) => {
+			seen.push(config)
+			return successResult()
+		})
+		const harness = await buildHarness(childAgent)
+		const context = buildContext(harness.parentSession.id, harness.projectId, harness.threadId)
+		context.budgetTracker = { total: 100_000, remaining: 100_000 }
+
+		const task = await harness.manager.sendMessage(
+			buildOptions('child-deadline', harness.parentSession.id, harness.projectId),
+			context,
+		)
+		await waitForTask(harness.manager, task.taskId)
+
+		expect(seen).toHaveLength(1)
+		// Before the fix this was the post-debit token remainder (50_000).
+		expect(seen[0]?.timeoutMs).toBe(AGENT_MANAGER_DEFAULTS.childTimeoutMs)
+	})
+
+	it('a nearly-exhausted parent still gives its child a real deadline', async () => {
+		// The edge where the unit error bit hardest: a tiny token remainder
+		// read as milliseconds produced a child that was out of time on
+		// arrival.
+		const seen: BaseAgentConfig[] = []
+		const childAgent = makeAgent('child-small', async (_input, config) => {
+			seen.push(config)
+			return successResult()
+		})
+		const harness = await buildHarness(childAgent)
+		const context = buildContext(harness.parentSession.id, harness.projectId, harness.threadId)
+		context.budgetTracker = { total: 100_000, remaining: 20 }
+
+		const task = await harness.manager.sendMessage(
+			buildOptions('child-small', harness.parentSession.id, harness.projectId),
+			context,
+		)
+		await waitForTask(harness.manager, task.taskId)
+
+		// Old code: floor(20 * 0.5) = 10 tokens, read as 10 MILLISECONDS.
+		expect(seen[0]?.timeoutMs).toBe(AGENT_MANAGER_DEFAULTS.childTimeoutMs)
+	})
+
+	it('refuses to spawn when the allocation would floor to zero', async () => {
+		// Because `tokenBudget: 0` means UNLIMITED downstream
+		// (`LimitChecker`: `tokenBudget > 0 && total >= tokenBudget`), the
+		// most depleted parent in the tree was the one that spawned an
+		// uncapped child. Budget exhaustion must not invert into no budget.
+		const childAgent = makeAgent('child-broke', async () => successResult())
+		const harness = await buildHarness(childAgent)
+		const context = buildContext(harness.parentSession.id, harness.projectId, harness.threadId)
+		context.budgetTracker = { total: 100_000, remaining: 1 }
+
+		await expect(
+			harness.manager.sendMessage(
+				buildOptions('child-broke', harness.parentSession.id, harness.projectId),
+				context,
+			),
+		).rejects.toThrow(/allocates 0 to the child/)
+	})
+
+	it('siblings divide ONE budget pool when spawned THROUGH THE GATEWAY', async () => {
+		// `spawn` debits the shared tracker. A caller that hands each spawn a
+		// cloned tracker makes the debit land on a throwaway object, so N
+		// children are each allocated maxBudgetFraction of the SAME number.
+		const seen: BaseAgentConfig[] = []
+		const childAgent = makeAgent('child-budget', async (_input, config) => {
+			seen.push(config)
+			return successResult()
+		})
+		const harness = await buildHarness(childAgent)
+		const context = buildContext(harness.parentSession.id, harness.projectId, harness.threadId)
+		context.budgetTracker = { total: 100_000, remaining: 100_000 }
+
+		// Go through the GATEWAY, which is where the clone was: calling
+		// `manager.sendMessage` directly always shared the tracker, so a test
+		// at that level proves nothing about the defect.
+		const gateway = new LocalTaskGateway(harness.manager, context)
+
+		for (let i = 0; i < 3; i++) {
+			const handle = await gateway.createTask({
+				agentId: 'child-budget',
+				prompt: 'work',
+				workingDirectory: '/tmp',
+			})
+			await waitForTask(harness.manager, handle.taskId)
+		}
+
+		const allocated = seen.map((c) => c.tokenBudget ?? 0)
+		expect(allocated).toHaveLength(3)
+		// Never over-committed: whatever is outstanding at any moment fits
+		// in the pool.
+		expect(allocated[0]).toBeLessThanOrEqual(100_000)
+
+		// These children settle before the next one spawns and spend
+		// nothing, so each gets the same allocation from a pool that was
+		// restored. This assertion used to require a STRICT decrease, which
+		// only held because the reservation was never returned — it was
+		// measuring the leak, not the rule.
+		expect(allocated[1]).toBe(allocated[0])
+		expect(allocated[2]).toBe(allocated[0])
+	})
+
+	it('returns what a settled child did not spend', async () => {
+		// The debit is a reservation so siblings cannot each be promised the
+		// same headroom. Nothing returned it, so a pool shrank by the full
+		// allocation on every spawn no matter what the child used: at a
+		// half-pool fraction, ten delegations left a parent with a
+		// thousandth of its budget and the next spawn was refused for a
+		// budget that had barely been spent.
+		const childAgent = makeAgent('child-thrifty', async () => ({
+			...successResult(),
+			usage: { ...EMPTY_TOKEN_USAGE, totalTokens: 1_000 },
+		}))
+		const harness = await buildHarness(childAgent)
+		const context = buildContext(harness.parentSession.id, harness.projectId, harness.threadId)
+		context.budgetTracker = { total: 100_000, remaining: 100_000 }
+
+		const gateway = new LocalTaskGateway(harness.manager, context)
+		const handle = await gateway.createTask({
+			agentId: 'child-thrifty',
+			prompt: 'work',
+			workingDirectory: '/tmp',
+		})
+		await waitForTask(harness.manager, handle.taskId)
+
+		// Reserved 50_000, spent 1_000: the pool is down by what was used,
+		// not by what was set aside.
+		expect(context.budgetTracker.remaining).toBe(99_000)
+	})
+
+	it('keeps a concurrent sibling reservation until it settles', async () => {
+		// The reservation exists for exactly this: two children in flight
+		// must not each be promised the same headroom.
+		let release: (() => void) | undefined
+		const gate = new Promise<void>((resolve) => {
+			release = resolve
+		})
+		const childAgent = makeAgent('child-slow', async () => {
+			await gate
+			return successResult()
+		})
+		const harness = await buildHarness(childAgent)
+		const context = buildContext(harness.parentSession.id, harness.projectId, harness.threadId)
+		context.budgetTracker = { total: 100_000, remaining: 100_000 }
+
+		const gateway = new LocalTaskGateway(harness.manager, context)
+		const first = await gateway.createTask({
+			agentId: 'child-slow',
+			prompt: 'work',
+			workingDirectory: '/tmp',
+		})
+
+		expect(context.budgetTracker.remaining).toBe(50_000)
+
+		release?.()
+		await waitForTask(harness.manager, first.taskId)
+		expect(context.budgetTracker.remaining).toBe(100_000)
+	})
+})
+
+/**
+ * A supervisor that fans out N tasks and watches one die had no way to say
+ * the other N-1 were now pointless. The primitive to stop them existed —
+ * every child holds an abort controller chained to the parent's — but
+ * nothing connected a failure to it.
+ */
+describe('LocalTaskGateway — what a failed child means for its siblings', () => {
+	async function fanOut(policy?: 'continue' | 'cancel-siblings') {
+		// One agent that fails, one that would run long enough to be worth
+		// cancelling.
+		let releaseSlow: (() => void) | undefined
+		const slowDone = new Promise<void>((resolve) => {
+			releaseSlow = resolve
+		})
+
+		const registry = new AgentRegistry()
+		registry.register(makeDefinition(makeAgent('fails', async () => failureResult('boom'))))
+		registry.register(
+			makeDefinition(
+				makeAgent('slow', async () => {
+					await slowDone
+					return successResult()
+				}),
+			),
+		)
+
+		const harness = await buildHarness(makeAgent('unused', async () => successResult()))
+		// Swap in the two-agent registry.
+		const manager = new AgentManager(registry, undefined, {
+			sessionStore: harness.store,
+			summaryMaterializer: harness.materializer,
+			workspaceRegistry: new WorkspaceBackendRegistry(),
+			capacity: new DefaultCapacityValidator(harness.store),
+			threadManager: harness.threadManager,
+		})
+
+		const context = buildContext(harness.parentSession.id, harness.projectId, harness.threadId)
+		const gateway = new LocalTaskGateway(
+			manager,
+			context,
+			undefined,
+			undefined,
+			policy ? { siblingFailurePolicy: policy } : undefined,
+		)
+
+		const slow = await gateway.createTask({
+			agentId: 'slow',
+			prompt: 'long work',
+			workingDirectory: '/tmp',
+		})
+		const failing = await gateway.createTask({
+			agentId: 'fails',
+			prompt: 'doomed work',
+			workingDirectory: '/tmp',
+		})
+
+		await manager.waitForCompletion(failing.taskId)
+		// Let the completion callback run.
+		await new Promise((r) => setTimeout(r, 0))
+
+		return { manager, slow, releaseSlow: releaseSlow as () => void }
+	}
+
+	it('leaves them alone by default — partial results are usually worth having', async () => {
+		const { manager, slow, releaseSlow } = await fanOut()
+		expect(manager.getInstance(slow.taskId)?.state).not.toBe('canceled')
+		releaseSlow()
+		await manager.waitForCompletion(slow.taskId)
+	})
+
+	it('cancels them when the fan-out only means something together', async () => {
+		const { manager, slow, releaseSlow } = await fanOut('cancel-siblings')
+		expect(manager.getInstance(slow.taskId)?.state).toBe('canceled')
+		releaseSlow()
+	})
+})

@@ -52,6 +52,7 @@ describe('@namzu/lmstudio', () => {
 				supportsStreaming: true,
 				supportsFunctionCalling: false,
 				supportsVision: false,
+				supportsDocuments: false,
 			})
 		})
 	})

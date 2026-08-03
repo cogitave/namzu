@@ -17,9 +17,10 @@
  *    again"; a corrupt marker is safer to retry than to honor as valid.
  */
 
-import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import type { ProjectId } from '../../types/session/ids.js'
+import { atomicWriteFile } from '../../utils/atomic-write.js'
 
 /**
  * Marker payload. `migratedThreads` preserves the legacy → new mapping so
@@ -93,14 +94,9 @@ export async function writeMarker(path: string, marker: MigrationMarker): Promis
 			newProjectId: m.newProjectId as string,
 		})),
 	}
-	const tmp = `${path}.write.tmp`
-	try {
-		await writeFile(tmp, JSON.stringify(serialized, null, 2), 'utf-8')
-		await rename(tmp, path)
-	} catch (err) {
-		await unlink(tmp).catch(() => undefined)
-		throw err
-	}
+	// Through the shared writer, which picks a sidecar no other writer
+	// can pick. A fixed name is shared by every writer of the record.
+	await atomicWriteFile(path, JSON.stringify(serialized, null, 2))
 }
 
 /**

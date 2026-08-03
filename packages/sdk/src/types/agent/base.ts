@@ -24,6 +24,23 @@ export interface BaseAgentConfig {
 	env?: Record<string, string>
 
 	/**
+	 * Deduplicate a retried invocation instead of running it twice.
+	 *
+	 * The failure this exists for: a caller sends a request, the
+	 * connection drops, the caller retries. Without a key the retry is a
+	 * second full run — a second set of model calls, and a second set of
+	 * whatever the tools did. A duplicate arriving while the first is
+	 * still running awaits it and receives its result, error included.
+	 *
+	 * In-flight only. A retry that arrives after the first has settled
+	 * runs again, because keeping the answer would turn deduplication
+	 * into caching and staleness is the host's judgement, not the SDK's.
+	 * Instance-scoped, like the invocation lock: deduplicating across
+	 * processes needs somewhere durable to record the key.
+	 */
+	idempotencyKey?: string
+
+	/**
 	 * Long-lived goal scope for the run. Required at runtime — agents reject
 	 * configs missing this (`'X requires sessionId, projectId, and tenantId
 	 * in config'`).
@@ -58,6 +75,9 @@ export interface BaseAgentConfig {
 
 	/** Shared invocation state passed through agent hierarchies */
 	invocationState?: InvocationState
+
+	/** Span a delegated run hangs off. Absent for a top-level run. */
+	parentSpan?: import('@opentelemetry/api').Span
 }
 
 export type RuntimeToolOverrides = Record<string, ToolAvailability | 'disabled'>
@@ -68,8 +88,8 @@ export interface AgentRuntimeContext {
 	/**
 	 * Optional working/scratch directory the runtime exposes to the
 	 * agent — sibling to `outputDirectory`, invisible to the
-	 * output collector. Mirrors the Anthropic Cowork pattern
-	 * where `/home/claude` is scratch and `/mnt/user-data/outputs` is
+	 * output collector. Follows the same separation as the container layout
+	 * where the scratch bind is invisible and `/mnt/user-data/outputs` is
 	 * user-visible.
 	 */
 	scratchDirectory?: string

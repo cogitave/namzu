@@ -96,7 +96,7 @@ describe('mapRunToA2AEvent — mapped variants', () => {
 		}
 	})
 
-	it('message_completed with content → running status + text part (codex M5)', () => {
+	it('message_completed with content → running status + text part', () => {
 		const event: RunEvent = {
 			type: 'message_completed',
 			runId: RID,

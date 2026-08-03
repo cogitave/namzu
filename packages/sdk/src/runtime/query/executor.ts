@@ -1,13 +1,20 @@
+import type { Span } from '@opentelemetry/api'
 import { extractFromToolCall, extractFromToolResult } from '../../compaction/extractor.js'
 import type { WorkingStateManager } from '../../compaction/manager.js'
 import type { PluginLifecycleManager } from '../../plugin/lifecycle.js'
 import { buildProbeContext } from '../../probe/context.js'
 import { ProbeVetoError } from '../../probe/errors.js'
 import { type ProbeRegistry, probe as defaultProbeRegistry } from '../../probe/registry.js'
+import { renderToolSchema } from '../../registry/tool/schema.js'
 import type { ActivityStore } from '../../store/activity/memory.js'
-import type { RunId } from '../../types/ids/index.js'
+import type { RunId, ToolUseId } from '../../types/ids/index.js'
 import type { InvocationState } from '../../types/invocation/index.js'
-import { type Message, type ToolCall, createToolMessage } from '../../types/message/index.js'
+import {
+	type Message,
+	type ToolCall,
+	type ToolResultContent,
+	createToolMessage,
+} from '../../types/message/index.js'
 import type { PermissionMode } from '../../types/permission/index.js'
 import type { PluginHookResult } from '../../types/plugin/index.js'
 import type { ChatCompletionResponse } from '../../types/provider/index.js'
@@ -15,14 +22,63 @@ import type { RunEvent } from '../../types/run/index.js'
 import type { Sandbox } from '../../types/sandbox/index.js'
 import type {
 	FileReadTracker,
+	RequestToolPause,
 	ToolContext,
 	ToolRegistryContract,
 	ToolResult,
 } from '../../types/tool/index.js'
+import type {
+	RepairToolCall,
+	ToolCallRepair,
+	ToolCallRepairReason,
+} from '../../types/tool/repair.js'
+import { toErrorMessage } from '../../utils/error.js'
 import type { Logger } from '../../utils/logger.js'
 import { compressShellOutput } from '../../utils/shell-compress.js'
+import {
+	DEFAULT_MAX_TOOL_OUTPUT_CHARS,
+	applyToolOutputBudget,
+	describeDroppedContent,
+	measureContentBytes,
+} from './tool-output-budget.js'
 
 export type EmitEvent = (event: RunEvent) => Promise<void>
+
+/**
+ * Default per-tool deadline. Long enough for a real build or test run,
+ * short enough that a wedged tool does not hold a turn open indefinitely.
+ * A tool that legitimately runs longer declares its own `timeoutMs`.
+ */
+export const DEFAULT_TOOL_TIMEOUT_MS = 120_000
+
+/**
+ * Cap on tools executing at once within a single batch.
+ *
+ * `executeBatch` used to `Promise.all` an unbounded fan-out, so a model
+ * emitting fifty parallel reads opened fifty file handles and fifty
+ * activity records at once. The serial chain is unaffected — it is
+ * already one-at-a-time by construction.
+ */
+export const DEFAULT_TOOL_CONCURRENCY = 8
+
+/**
+ * Re-runs granted to a `post_tool_use` hook that returns `{action:'retry'}`
+ * on a tool which did not opt into {@link ToolDefinition.maxRetries}.
+ *
+ * Small on purpose. The hook is host code reacting to one specific result,
+ * which is a more specific signal than the tool's blanket idempotency
+ * declaration — but the tool still never said it was safe to re-run, so
+ * this buys one correction, not a loop.
+ */
+export const HOOK_RETRY_BUDGET = 1
+
+/**
+ * An empty arguments string means "no arguments", not "malformed" — the
+ * shape a no-parameter tool arrives in.
+ */
+function parseArguments(raw: string): unknown {
+	return JSON.parse(raw || '{}')
+}
 
 export interface ToolExecutorConfig {
 	tools: ToolRegistryContract
@@ -35,6 +91,55 @@ export interface ToolExecutorConfig {
 	sandbox?: Sandbox
 	invocationState?: InvocationState
 	pluginManager?: PluginLifecycleManager
+	/** Run-level default deadline; per-tool `timeoutMs` overrides it. */
+	toolTimeoutMs?: number
+	/** Max concurrently-executing concurrency-safe tools. */
+	maxToolConcurrency?: number
+
+	/**
+	 * Builds the durable-pause seam handed to one tool call.
+	 *
+	 * Absent when the run has no route to a human, which is why
+	 * {@link ToolContext.requestPause} is optional: a tool must be able to
+	 * run in a headless context and decide what to do without one.
+	 */
+	toolPause?: (toolUseId: string) => RequestToolPause
+	/**
+	 * Model-visible size cap for a single tool result. Defaults to
+	 * {@link DEFAULT_MAX_TOOL_OUTPUT_CHARS}; set `0` to disable.
+	 */
+	maxToolOutputChars?: number
+
+	/**
+	 * Cap on the RICH channel of a single tool result, in base64
+	 * characters. `0` or absent disables it.
+	 *
+	 * Separate from {@link maxToolOutputChars} because the two are different
+	 * quantities with different costs: the text budget bounds characters the
+	 * model reads, and an image block of any size passed it untouched — the
+	 * single largest payload a tool result can carry was the one thing not
+	 * bounded on the turn that produced it.
+	 *
+	 * **Off by default, deliberately.** The right number depends entirely on
+	 * what a host's tools return and on the model's own image budget, and
+	 * inventing one here would either break screenshot workflows or be so
+	 * generous it bounds nothing. A host that knows its payloads sets it;
+	 * the steady state is already bounded, because reclamation clears
+	 * image-bearing results first.
+	 */
+	maxToolContentBytes?: number
+
+	/**
+	 * Where over-budget output is spilled so the model can read it back
+	 * with `read`/`grep`. Absent ⇒ over-budget output is middle-elided and
+	 * the overflow is lost.
+	 */
+	toolOutputDir?: string
+	/**
+	 * Last chance to fix a tool call the model got wrong, before the error
+	 * reaches it. See {@link RepairToolCall}.
+	 */
+	repairToolCall?: RepairToolCall
 }
 
 type PreToolHookOutcome =
@@ -42,9 +147,53 @@ type PreToolHookOutcome =
 	| { kind: 'skip'; input: unknown; output: string }
 	| { kind: 'error'; input: unknown; output: string }
 
+/** What one tool call produced, before it becomes a message. */
+export interface ToolCallOutcome {
+	toolCallId: string
+	/** Which tool produced it. */
+	toolName: string
+	/** Text form — what the host, the transcript and compaction see. */
+	output: string
+	/** Rich form for the model, when the tool supplied one. */
+	content?: ToolResultContent
+	isError?: boolean
+}
+
 export interface ToolExecutionBatch {
 	messages: Message[]
-	results: Array<{ toolCallId: string; output: string }>
+	results: ToolCallOutcome[]
+}
+
+/**
+ * Denial reasons keyed by `tool_use` id. Any id present here is answered
+ * with a synthetic `tool_result` carrying the reason INSTEAD of being
+ * executed — see {@link ToolExecutor.executeBatch}.
+ */
+export type ToolCallDenials = ReadonlyMap<string, string>
+
+/**
+ * Results for calls that already ran, keyed by `toolUseId`.
+ *
+ * A batch's results reach the history only when the whole batch settles,
+ * so a hard kill part-way through loses whatever had already come back and
+ * the resumed run re-executes those calls. Supplying them here answers
+ * those `tool_use` blocks from the record instead of by running the tool
+ * again — which for a payment or an email is the difference between
+ * resuming and repeating.
+ */
+export type PriorToolResults = ReadonlyMap<string, { result: string; isError: boolean }>
+
+/**
+ * Model-visible text for a tool call that was never executed.
+ *
+ * The reason travels INSIDE the `tool_result` rather than as a trailing
+ * user message: a `tool_use` block must be answered by a `tool_result`
+ * with the same id, and a denial is an answer, not an omission. Putting
+ * the reason here is also what makes rejection *steer* — the model reads
+ * it in the slot it already attends to for tool outcomes.
+ */
+export function deniedToolOutput(toolName: string, reason: string): string {
+	return `Error: Tool "${toolName}" was not executed. ${reason}`
 }
 
 export class ToolExecutor {
@@ -54,6 +203,7 @@ export class ToolExecutor {
 	private log: Logger
 	private workingStateManager?: WorkingStateManager
 	private probes: ProbeRegistry
+	private parentSpan?: Span
 	private readonly readPaths: Set<string> = new Set()
 	private readonly fileReadTracker: FileReadTracker = {
 		recordRead: (key: string) => {
@@ -84,7 +234,35 @@ export class ToolExecutor {
 		this.config = { ...this.config, sandbox }
 	}
 
-	async executeBatch(response: ChatCompletionResponse): Promise<ToolExecutionBatch> {
+	/**
+	 * Span that this executor's tool spans should hang off — the current
+	 * iteration. Re-set each turn by the orchestrator, because a tool span
+	 * belongs under the iteration that requested it.
+	 */
+	setParentSpan(span: Span | undefined): void {
+		this.parentSpan = span
+	}
+
+	/**
+	 * Answer every `tool_use` block in `response` with exactly one
+	 * `tool_result`.
+	 *
+	 * `denials` marks ids that must NOT run: each is answered with a
+	 * synthetic error result carrying the caller's reason instead of being
+	 * executed. This is what makes the invariant hold by construction —
+	 * a gate denial, a human rejection and a partial approval all leave
+	 * the history valid, because there is exactly one place that turns a
+	 * batch of tool calls into messages and it always covers all of them.
+	 *
+	 * Answering with `is_error` semantics rather than dropping the call is
+	 * the universal contract across providers: an unanswered `tool_use`
+	 * is a protocol violation, not a decline.
+	 */
+	async executeBatch(
+		response: ChatCompletionResponse,
+		denials?: ToolCallDenials,
+		prior?: PriorToolResults,
+	): Promise<ToolExecutionBatch> {
 		const toolCalls = response.message.toolCalls
 		if (!toolCalls) {
 			return { messages: [], results: [] }
@@ -93,6 +271,8 @@ export class ToolExecutor {
 		this.log.debug('Executing tool batch', {
 			runId: this.config.runId,
 			toolCount: toolCalls.length,
+			deniedCount: denials?.size ?? 0,
+			recoveredCount: prior?.size ?? 0,
 			tools: toolCalls.map((tc) => tc.function.name),
 		})
 
@@ -108,13 +288,76 @@ export class ToolExecutor {
 		// turn apply one-after-another instead of racing read→modify→write
 		// (which let the last writer clobber the rest). Results are written by
 		// index to preserve the original tool-call order.
-		const results: Array<{ toolCallId: string; output: string }> = new Array(toolCalls.length)
+		const results: ToolCallOutcome[] = new Array(toolCalls.length)
 		const parallel: Promise<void>[] = []
 		let serial: Promise<void> = Promise.resolve()
+		// Bounded fan-out. A model emitting fifty parallel reads used to open
+		// fifty file handles and fifty activity records simultaneously; the
+		// gate keeps that at a working-set size while preserving completion
+		// order independence.
+		const gate = new Semaphore(this.config.maxToolConcurrency ?? DEFAULT_TOOL_CONCURRENCY)
 		toolCalls.forEach((toolCall, i) => {
-			const ctx = { ...baseContext, toolUseId: toolCall.id }
+			const recovered = prior?.get(toolCall.id)
+			if (recovered !== undefined) {
+				// This call already ran, in a process that died before the
+				// batch settled. Re-running it would be a second charge, a
+				// second email, a second row deleted — so the recorded result
+				// answers the `tool_use` block and the tool is not touched.
+				results[i] = {
+					toolCallId: toolCall.id,
+					toolName: toolCall.function.name,
+					output: recovered.result,
+					isError: recovered.isError,
+				}
+				return
+			}
+
+			const denialReason = denials?.get(toolCall.id)
+			if (denialReason !== undefined) {
+				// Denied calls never touch the tool; they still get a result
+				// message so the assistant turn stays fully answered. Run them
+				// on the parallel branch — they perform no side effects, so
+				// serialization would only add latency.
+				parallel.push(
+					this.recordDenial(toolCall, denialReason).then((r) => {
+						results[i] = r
+					}),
+				)
+				return
+			}
+			// Per-call, because the event has to name which call it is about:
+			// a batch can run several tools at once and a host rendering them
+			// side by side needs to know whose progress this is.
+			const ctx: ToolContext = {
+				...baseContext,
+				toolUseId: toolCall.id,
+				// Per-call for the same reason: a pause has to be routed back
+				// to the call that raised it, and a batch can raise several.
+				...(this.config.toolPause ? { requestPause: this.config.toolPause(toolCall.id) } : {}),
+				report: (message: string, fraction?: number) => {
+					// Fire-and-forget: a tool reporting progress must never be
+					// able to fail because the host's listener threw, and must
+					// never have to await the emit mid-work.
+					void this.emitEvent({
+						type: 'tool_progress',
+						runId: this.config.runId,
+						toolUseId: toolCall.id as ToolUseId,
+						toolName: toolCall.function.name,
+						message,
+						...(fraction !== undefined ? { fraction: Math.min(1, Math.max(0, fraction)) } : {}),
+					}).catch(() => {})
+				},
+			}
 			const run = async () => {
 				results[i] = await this.executeSingle(toolCall, ctx)
+			}
+			const gated = async () => {
+				await gate.acquire()
+				try {
+					await run()
+				} finally {
+					gate.release()
+				}
 			}
 			let input: unknown = {}
 			try {
@@ -124,12 +367,37 @@ export class ToolExecutor {
 			}
 			const safe =
 				this.config.tools.get(toolCall.function.name)?.isConcurrencySafe?.(input) === true
-			if (safe) parallel.push(run())
+			if (safe) parallel.push(gated())
 			else serial = serial.then(run)
 		})
 		await Promise.all([...parallel, serial])
 
-		const messages: Message[] = results.map((r) => createToolMessage(r.output, r.toolCallId))
+		// Whatever failed above left a hole in `results`; fill every one, so
+		// the invariant holds by construction rather than by everything having
+		// gone well.
+		for (let i = 0; i < toolCalls.length; i++) {
+			if (results[i]) continue
+			const toolCall = toolCalls[i] as ToolCall
+			const toolName = toolCall.function.name
+			const message = `Error: Tool "${toolName}" did not complete — the batch failed before it produced a result.`
+			results[i] = { toolCallId: toolCall.id, toolName, output: message, isError: true }
+			await this.emitEvent({
+				type: 'tool_completed',
+				runId: this.config.runId,
+				toolUseId: toolCall.id,
+				toolName,
+				result: message,
+				isError: true,
+			})
+		}
+
+		// isError and rich content were computed and then discarded here: the
+		// tuple narrowed to {toolCallId, output} BEFORE the message was built,
+		// so the failure signal and any image block were structurally lost at
+		// the last possible moment.
+		const messages: Message[] = results.map((r) =>
+			createToolMessage(r.content ?? r.output, r.toolCallId, r.isError),
+		)
 
 		return { messages, results }
 	}
@@ -151,16 +419,27 @@ export class ToolExecutor {
 			allowedTools: this.config.allowedTools,
 			sandbox: this.config.sandbox,
 			fileReadTracker: this.fileReadTracker,
+			...(this.parentSpan ? { parentSpan: this.parentSpan } : {}),
 		}
 	}
 
 	private async executeSingle(
 		toolCall: ToolCall,
 		toolContext: ToolContext,
-	): Promise<{ toolCallId: string; output: string }> {
-		const toolName = toolCall.function.name
+	): Promise<ToolCallOutcome> {
+		let toolName = toolCall.function.name
 
-		if (toolCall.metadata?.inputTruncated === true) {
+		// A stream that cut off mid-JSON is the case `repairToolCall` exists
+		// for, and it used to be the one case that never reached it: this
+		// branch returned before `resolveCall` ran, so the motivating failure
+		// was answered with a generic hint while the configured repairer sat
+		// unused. Offer it the partial buffer first.
+		const truncationRepair =
+			toolCall.metadata?.inputTruncated === true
+				? await this.repairTruncatedCall(toolCall, toolName)
+				: null
+
+		if (toolCall.metadata?.inputTruncated === true && !truncationRepair) {
 			const message = truncatedToolInputMessage(toolName)
 			await this.emitEvent({
 				type: 'tool_executing',
@@ -177,19 +456,34 @@ export class ToolExecutor {
 				result: message,
 				isError: true,
 			})
-			return { toolCallId: toolCall.id, output: message }
+			return { toolCallId: toolCall.id, toolName, output: message, isError: true }
 		}
 
-		let input: unknown
+		// A malformed call used to cost a full model round trip to fix: the
+		// error went back as a `tool_result`, the model re-read the whole
+		// context and tried again. A host that can repair it locally turns
+		// that into nothing. No-op when no repairer is configured.
+		const resolved = await this.resolveCall(
+			truncationRepair
+				? {
+						...toolCall,
+						function: {
+							...toolCall.function,
+							name: truncationRepair.toolName ?? toolName,
+							arguments: truncationRepair.arguments,
+						},
+						metadata: {},
+					}
+				: toolCall,
+		)
+		toolName = resolved.toolName
 
-		try {
-			input = JSON.parse(toolCall.function.arguments)
-		} catch {
-			// Codex M2: malformed JSON args used to return without ever
+		if (!resolved.ok) {
+			// malformed JSON args used to return without ever
 			// emitting tool_executing or tool_completed, leaving UI cards
 			// orphaned in `streaming_input`. Emit the executing→completed
 			// terminal pair so the card lifecycle closes.
-			const message = `Error: Invalid JSON in tool arguments for "${toolName}"`
+			const message = resolved.message
 			await this.emitEvent({
 				type: 'tool_executing',
 				runId: this.config.runId,
@@ -205,8 +499,10 @@ export class ToolExecutor {
 				result: message,
 				isError: true,
 			})
-			return { toolCallId: toolCall.id, output: message }
+			return { toolCallId: toolCall.id, toolName, output: message, isError: true }
 		}
+
+		let input: unknown = resolved.input
 
 		const preOutcome = await this.runPreToolHook(toolName, input)
 		if (preOutcome.kind === 'skip' || preOutcome.kind === 'error') {
@@ -256,7 +552,7 @@ export class ToolExecutor {
 			if (activity) {
 				this.activityStore.fail(activity.id, veto.message)
 			}
-			// Codex M1: probe veto used to skip tool_completed entirely.
+			// probe veto used to skip tool_completed entirely.
 			// Emit the terminal event with isError so UI cards finalize.
 			await this.emitEvent({
 				type: 'tool_completed',
@@ -268,7 +564,22 @@ export class ToolExecutor {
 			})
 			return {
 				toolCallId: toolCall.id,
+				toolName,
 				output: `Error: ${veto.message}`,
+				// The event emitted just above says this failed; the RESULT
+				// has to say so too. This was the only result-producing
+				// branch in the file that left it off, and `isError` being
+				// optional meant the compiler could not notice.
+				//
+				// Four things degraded off the omission, not one. Two drivers
+				// emit their failure marker only when this is true, so the
+				// model read a SUCCESSFUL result whose body begins "Error: …"
+				// and the failure-recovery path it was trained on never
+				// fired. The persisted step recorded a literal
+				// `isError: false`, so the run record contradicted its own
+				// event stream. And compaction's guard against clearing error
+				// results silently excluded vetoed ones.
+				isError: true,
 			}
 		}
 
@@ -277,21 +588,49 @@ export class ToolExecutor {
 		}
 
 		const startMs = Date.now()
-		// Codex M4: an unhandled throw from `tools.execute(...)` used to
+		// an unhandled throw from `tools.execute(...)` used to
 		// propagate up to `result.ts` as `run_failed` without emitting a
 		// terminal `tool_completed`, leaving UI cards stuck in `executing`.
 		// Wrap so any throw materialises as an error result.
-		let result: { success: boolean; output: string; error?: string }
-		try {
-			result = await this.config.tools.execute(toolName, input, toolContext)
-		} catch (err) {
-			const message = err instanceof Error ? err.message : String(err)
-			this.log.warn('Tool execution threw', {
+		// Typed as the full ToolResult, not a narrowed literal: the narrow
+		// version silently DROPPED `content`, so a tool returning an image
+		// block had it discarded here — before the wire mapper that was
+		// built to carry it ever saw it.
+		let result: ToolResult = await this.runOnce(toolName, input, toolContext)
+		let post = await this.runPostToolHook(toolName, input, result)
+
+		// In-loop retry. A transient failure used to cost a full model round
+		// trip: the error went back as a `tool_result`, the model read it and
+		// decided (or didn't) to call again. Strictly opt-in per tool,
+		// because the SDK cannot know a tool is idempotent — silently
+		// re-running a write or a payment is worse than never retrying.
+		const maxRetries = Math.max(0, this.config.tools.get(toolName)?.maxRetries ?? 0)
+		for (let attempt = 1; ; attempt++) {
+			// A missing file will not appear on the second attempt; burning
+			// the budget on it only delays the error the model needs to see.
+			const toolWants = !result.success && result.retryable === true
+			// A `post_tool_use` hook asking for a retry gets its OWN budget.
+			// Bounding it by `maxRetries` made it a silent no-op at the
+			// shipped default of 0: the hook's answer was read and discarded
+			// on every tool that had not separately opted in. The hook is
+			// host code looking at this specific result — a more specific
+			// signal than the tool's blanket idempotency declaration — so it
+			// is honored, but still bounded so a plugin cannot spin the
+			// executor.
+			if (!toolWants && !post.retry) break
+			const budget = post.retry ? Math.max(maxRetries, HOOK_RETRY_BUDGET) : maxRetries
+			if (attempt > budget) break
+
+			this.log.info('Retrying a failed tool call', {
 				runId: this.config.runId,
 				tool: toolName,
-				error: message,
+				attempt,
+				budget,
+				requestedByHook: post.retry,
+				error: result.error,
 			})
-			result = { success: false, output: '', error: message }
+			result = await this.runOnce(toolName, input, toolContext)
+			post = await this.runPostToolHook(toolName, input, result)
 		}
 		const durationMs = Date.now() - startMs
 
@@ -301,7 +640,44 @@ export class ToolExecutor {
 
 		let output = result.success ? this.maybeCompress(toolName, rawOutput) : rawOutput
 
-		const postOverride = await this.runPostToolHook(toolName, input, result)
+		// Compression is opportunistic and shell-only; the budget is the
+		// hard bound that applies to every tool. Runs after compression so
+		// a result that shrinks under the cap is never spilled needlessly.
+		const budgeted = applyToolOutputBudget({
+			toolName,
+			toolUseId: toolCall.id,
+			output,
+			maxChars: this.config.maxToolOutputChars ?? DEFAULT_MAX_TOOL_OUTPUT_CHARS,
+			spillDir: this.config.toolOutputDir,
+			onError: (message) =>
+				this.log.warn('Failed to spill oversized tool output', {
+					runId: this.config.runId,
+					tool: toolName,
+					error: message,
+				}),
+		})
+		if (budgeted.truncated) {
+			this.log.warn('Tool output exceeded the model-visible budget', {
+				runId: this.config.runId,
+				tool: toolName,
+				originalLength: budgeted.originalLength,
+				spillPath: budgeted.spillPath,
+			})
+		}
+		output = budgeted.output
+
+		// A truncated text half drops the rich half with it — the preview is
+		// no longer the tool's own payload, so an image alongside it would be
+		// illustrating something the model can no longer read. Dropping is
+		// right; doing it SILENTLY is not. The model saw a preview and had no
+		// way to know an image existed at all, so it reasoned as though the
+		// tool had returned text only.
+		if (budgeted.truncated && result.content !== undefined) {
+			const dropped = describeDroppedContent(result.content)
+			if (dropped) output = `${output}\n\n${dropped}`
+		}
+
+		const postOverride = post.override
 		if (postOverride !== null) {
 			output = postOverride
 		}
@@ -343,9 +719,130 @@ export class ToolExecutor {
 			toolName,
 			result: output,
 			isError: effectiveIsError,
+			durationMs,
+			// Pre-truncation size, so a host can show "returned 2.1 MB" even
+			// though the model only ever saw a preview.
+			outputLength: budgeted.originalLength,
+			...(budgeted.truncated ? { outputTruncated: true } : {}),
+			...(budgeted.spillPath ? { outputSpillPath: budgeted.spillPath } : {}),
 		})
 
-		return { toolCallId: toolCall.id, output }
+		return {
+			toolCallId: toolCall.id,
+			toolName,
+			output,
+			isError: effectiveIsError,
+			// A plugin override replaces what the model sees, and a spilled
+			// preview is no longer the tool's own payload — neither may carry
+			// rich content through.
+			...(result.content !== undefined && postOverride === null && !budgeted.truncated
+				? { content: this.budgetContent(result.content, toolName) }
+				: {}),
+		}
+	}
+
+	/**
+	 * Run a tool under a deadline, with the run abort folded in.
+	 *
+	 * `ToolContext.abortSignal` existed but was produced and consumed by
+	 * nothing: a Stop tore down the model stream and then parked inside
+	 * `Promise.all` waiting for a tool that had no idea it should quit. A
+	 * hung MCP stdio server or a `bash` with the old one-hour default
+	 * could hold a turn open long after the user cancelled.
+	 *
+	 * Two mechanisms, because neither alone is enough:
+	 *
+	 * 1. The composed signal (run abort OR deadline) is handed to the tool
+	 *    so a cooperative tool actually stops working.
+	 * 2. The `race` bounds the *executor's* wait regardless, so an
+	 *    uncooperative tool becomes detached rather than blocking.
+	 *
+	 * A timeout is reported as a normal failed result, not a throw: the
+	 * model sees "this timed out" as a `tool_result` and can route around
+	 * it. A throw would end the run over one slow tool.
+	 */
+	private async executeWithDeadline(
+		toolName: string,
+		input: unknown,
+		toolContext: ToolContext,
+	): Promise<ToolResult> {
+		const timeoutMs =
+			this.config.tools.get(toolName)?.timeoutMs ??
+			this.config.toolTimeoutMs ??
+			DEFAULT_TOOL_TIMEOUT_MS
+
+		if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+			return this.config.tools.execute(toolName, input, toolContext)
+		}
+
+		const controller = new AbortController()
+		const runSignal = this.config.abortSignal
+		const onRunAbort = () => controller.abort(runSignal.reason)
+		if (runSignal.aborted) controller.abort(runSignal.reason)
+		else runSignal.addEventListener('abort', onRunAbort, { once: true })
+
+		let timer: ReturnType<typeof setTimeout> | undefined
+		let timedOut = false
+
+		try {
+			const expired = new Promise<'timeout'>((resolve) => {
+				timer = setTimeout(() => {
+					timedOut = true
+					controller.abort(new Error(`Tool "${toolName}" exceeded ${timeoutMs}ms`))
+					resolve('timeout')
+				}, timeoutMs)
+			})
+
+			const aborted = new Promise<'aborted'>((resolve) => {
+				if (controller.signal.aborted && !timedOut) {
+					resolve('aborted')
+					return
+				}
+				controller.signal.addEventListener(
+					'abort',
+					() => {
+						if (!timedOut) resolve('aborted')
+					},
+					{ once: true },
+				)
+			})
+
+			const execution = this.config.tools.execute(toolName, input, {
+				...toolContext,
+				abortSignal: controller.signal,
+			})
+			// The loser of the race may still reject later; neutralize it so
+			// it is never an unhandled rejection.
+			execution.catch(() => {})
+
+			const outcome = await Promise.race([execution, expired, aborted])
+
+			if (outcome === 'timeout') {
+				this.log.warn('Tool timed out', {
+					runId: this.config.runId,
+					tool: toolName,
+					timeoutMs,
+				})
+				return {
+					success: false,
+					output: '',
+					error: `Tool "${toolName}" timed out after ${timeoutMs}ms and was abandoned. It may still be running. Try a narrower input, or a different approach.`,
+				}
+			}
+
+			if (outcome === 'aborted') {
+				return {
+					success: false,
+					output: '',
+					error: `Tool "${toolName}" was cancelled.`,
+				}
+			}
+
+			return outcome
+		} finally {
+			if (timer !== undefined) clearTimeout(timer)
+			runSignal.removeEventListener('abort', onRunAbort)
+		}
 	}
 
 	private async runPreToolHook(toolName: string, input: unknown): Promise<PreToolHookOutcome> {
@@ -384,7 +881,6 @@ export class ToolExecutor {
 						output: `Error: ${result.message}`,
 					}
 				case 'retry':
-				case 'resume':
 					throw new Error(
 						`Plugin hook pre_tool_use returned unsupported action '${result.action}' for tool ${toolName}`,
 					)
@@ -397,18 +893,204 @@ export class ToolExecutor {
 		return { kind: 'continue', input: currentInput }
 	}
 
+	/**
+	 * Turn the call the model issued into a name and a parsed input, giving
+	 * a configured repairer one chance to fix it first.
+	 *
+	 * Exactly one chance: a repairer that produces a call which is still
+	 * broken will not do better on a second look, and an unbounded loop
+	 * here is a hang rather than a degradation.
+	 *
+	 * `invalid_json` is the ONLY failure that stops the call here, and it
+	 * stopped it before this function existed too. `unknown_tool` and
+	 * `schema_validation` merely OFFER the repair and otherwise fall
+	 * through to the registry, which reports both with better messages —
+	 * its schema error already ships a "Required: <field>: <type>" hint the
+	 * model can self-correct from. So with no repairer configured this is
+	 * behaviorally identical to the bare `JSON.parse` it replaced.
+	 */
+	private async resolveCall(
+		toolCall: ToolCall,
+	): Promise<
+		| { ok: true; toolName: string; input: unknown }
+		| { ok: false; toolName: string; message: string }
+	> {
+		let toolName = toolCall.function.name
+		let raw = toolCall.function.arguments
+
+		for (let attempt = 0; ; attempt++) {
+			const failure = this.inspectCall(toolName, raw)
+			if (!failure) return { ok: true, toolName, input: parseArguments(raw) }
+
+			const repair =
+				attempt === 0 && this.config.repairToolCall
+					? await this.requestRepair(toolCall, toolName, failure)
+					: null
+
+			if (!repair) {
+				if (failure.reason === 'invalid_json') {
+					return { ok: false, toolName, message: failure.message }
+				}
+				return { ok: true, toolName, input: parseArguments(raw) }
+			}
+
+			this.log.info('Repaired a malformed tool call', {
+				runId: this.config.runId,
+				tool: toolName,
+				reason: failure.reason,
+				...(repair.toolName && repair.toolName !== toolName ? { repairedTo: repair.toolName } : {}),
+			})
+			toolName = repair.toolName ?? toolName
+			raw = repair.arguments
+		}
+	}
+
+	/**
+	 * What is wrong with this call, or `null` if nothing is.
+	 *
+	 * JSON is checked before the tool is looked up: an unparseable argument
+	 * string is broken regardless of which tool it was aimed at, and it is
+	 * the one problem the executor itself has to answer.
+	 */
+	private async repairTruncatedCall(
+		toolCall: ToolCall,
+		toolName: string,
+	): Promise<ToolCallRepair | null> {
+		if (!this.config.repairToolCall) return null
+
+		// Present the PARTIAL buffer, not the normalized `"{}"` — a repairer
+		// handed an empty object has nothing to work from.
+		const partial = toolCall.metadata?.partialArguments ?? ''
+		const repair = await this.requestRepair(
+			{ ...toolCall, function: { ...toolCall.function, arguments: partial } },
+			toolName,
+			{ reason: 'invalid_json', message: truncatedToolInputMessage(toolName) },
+		)
+		if (repair) {
+			this.log.info('Repaired a tool call whose input stream was truncated', {
+				runId: this.config.runId,
+				tool: toolName,
+				partialLength: partial.length,
+			})
+		}
+		return repair
+	}
+
+	private inspectCall(
+		toolName: string,
+		raw: string,
+	): { reason: ToolCallRepairReason; message: string } | null {
+		let parsed: unknown
+		try {
+			parsed = parseArguments(raw)
+		} catch {
+			return {
+				reason: 'invalid_json',
+				message: `Error: Invalid JSON in tool arguments for "${toolName}"`,
+			}
+		}
+
+		const tool = this.config.tools.get?.(toolName)
+		if (!tool) {
+			// Either the model named a tool that does not exist, or this
+			// registry does not implement `get`. Both are the registry's to
+			// answer; a repairer still gets offered the `unknown_tool` case.
+			return { reason: 'unknown_tool', message: `Error: Unknown tool "${toolName}"` }
+		}
+
+		// A registry that hands back a tool with no schema has nothing to
+		// validate against; that is not a repairable condition, just an
+		// unvalidatable one.
+		const validation = tool.inputSchema?.safeParse(parsed)
+		if (validation && !validation.success) {
+			return {
+				reason: 'schema_validation',
+				message: `Error: Invalid arguments for "${toolName}": ${validation.error.issues
+					.map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
+					.join('; ')}`,
+			}
+		}
+
+		return null
+	}
+
+	private async requestRepair(
+		toolCall: ToolCall,
+		toolName: string,
+		failure: { reason: ToolCallRepairReason; message: string },
+	): Promise<ToolCallRepair | null> {
+		const repairToolCall = this.config.repairToolCall
+		if (!repairToolCall) return null
+
+		const tool = this.config.tools.get(toolName)
+		try {
+			return await repairToolCall({
+				toolCall,
+				reason: failure.reason,
+				message: failure.message,
+				...(tool ? { tool, jsonSchema: renderToolSchema(tool.inputSchema) } : {}),
+				availableTools: this.config.tools.listNames(),
+			})
+		} catch (err) {
+			// A broken repairer must not turn a recoverable tool error into a
+			// failed run: the original error is still a perfectly good answer
+			// to give the model.
+			this.log.error('repairToolCall threw — falling back to the original error', {
+				runId: this.config.runId,
+				tool: toolName,
+				error: toErrorMessage(err),
+			})
+			return null
+		}
+	}
+
+	/**
+	 * One execution attempt, with a throw materialized as an error result.
+	 *
+	 * an unhandled throw from `tools.execute(...)` used to
+	 * propagate up to `result.ts` as `run_failed` without emitting a
+	 * terminal `tool_completed`, leaving UI cards stuck in `executing`.
+	 *
+	 * The return is the full `ToolResult`, not a narrowed literal: the
+	 * narrow version silently DROPPED `content`, so a tool returning an
+	 * image block had it discarded here — before the wire mapper built to
+	 * carry it ever saw it.
+	 */
+	private async runOnce(
+		toolName: string,
+		input: unknown,
+		toolContext: ToolContext,
+	): Promise<ToolResult> {
+		try {
+			return await this.executeWithDeadline(toolName, input, toolContext)
+		} catch (err) {
+			const message = toErrorMessage(err)
+			this.log.warn('Tool execution threw', {
+				runId: this.config.runId,
+				tool: toolName,
+				error: message,
+			})
+			return { success: false, output: '', error: message }
+		}
+	}
+
+	/**
+	 * @returns `override` — text replacing the tool's output, or `null`.
+	 *   `retry` — the hook asked for the tool to run again.
+	 */
 	private async runPostToolHook(
 		toolName: string,
 		input: unknown,
 		toolResult: ToolResult,
-	): Promise<string | null> {
-		if (!this.config.pluginManager) return null
+	): Promise<{ override: string | null; retry: boolean }> {
+		if (!this.config.pluginManager) return { override: null, retry: false }
 		const results = await this.config.pluginManager.executeHooks(
 			'post_tool_use',
 			{ runId: this.config.runId, toolName, toolInput: input, toolResult },
 			this.emitEvent,
 		)
 		let override: string | null = null
+		let retry = false
 		for (const result of results) {
 			switch (result.action) {
 				case 'continue':
@@ -416,10 +1098,16 @@ export class ToolExecutor {
 				case 'error':
 					override = `Error: ${result.message}`
 					continue
+				// `retry` was a declared variant with no implementation: every
+				// site that consumed it threw. Here it finally means something
+				// — the hook saw the result and wants the tool run again —
+				// and it is bounded by the same per-tool retry budget, so a
+				// plugin cannot spin the executor.
+				case 'retry':
+					retry = true
+					continue
 				case 'skip':
 				case 'modify':
-				case 'retry':
-				case 'resume':
 					throw new Error(
 						`Plugin hook post_tool_use returned unsupported action '${result.action}' for tool ${toolName}`,
 					)
@@ -429,7 +1117,62 @@ export class ToolExecutor {
 				}
 			}
 		}
-		return override
+		return { override, retry }
+	}
+
+	/**
+	 * Answer a tool call that policy or a human refused, without executing
+	 * it. Emits the same `tool_executing` → `tool_completed` pair as a real
+	 * execution so UI cards reach a terminal state instead of hanging in
+	 * `executing`, and records a failed activity for the trace.
+	 */
+	private async recordDenial(toolCall: ToolCall, reason: string): Promise<ToolCallOutcome> {
+		const toolName = toolCall.function.name
+		let input: unknown = {}
+		try {
+			input = JSON.parse(toolCall.function.arguments || '{}')
+		} catch {
+			input = toolCall.function.arguments
+		}
+
+		const output = deniedToolOutput(toolName, reason)
+
+		this.log.info('Tool call denied — synthesizing tool_result', {
+			runId: this.config.runId,
+			tool: toolName,
+			toolUseId: toolCall.id,
+			reason,
+		})
+
+		const activity = this.activityStore.create({
+			type: 'tool_call',
+			description: toolName,
+			input,
+			toolName,
+			toolCallId: toolCall.id,
+		})
+		if (activity) {
+			this.activityStore.start(activity.id)
+			this.activityStore.fail(activity.id, output)
+		}
+
+		await this.emitEvent({
+			type: 'tool_executing',
+			runId: this.config.runId,
+			toolUseId: toolCall.id,
+			toolName,
+			input,
+		})
+		await this.emitEvent({
+			type: 'tool_completed',
+			runId: this.config.runId,
+			toolUseId: toolCall.id,
+			toolName,
+			result: output,
+			isError: true,
+		})
+
+		return { toolCallId: toolCall.id, toolName, output, isError: true }
 	}
 
 	private async recordSyntheticHookOutcome(
@@ -437,7 +1180,7 @@ export class ToolExecutor {
 		toolName: string,
 		input: unknown,
 		outcome: { kind: 'skip' | 'error'; output: string },
-	): Promise<{ toolCallId: string; output: string }> {
+	): Promise<ToolCallOutcome> {
 		const activity = this.activityStore.create({
 			type: 'tool_call',
 			description: toolName,
@@ -468,7 +1211,46 @@ export class ToolExecutor {
 			result: outcome.output,
 			isError: outcome.kind === 'error',
 		})
-		return { toolCallId, output: outcome.output }
+		return { toolCallId, toolName, output: outcome.output, isError: outcome.kind === 'error' }
+	}
+
+	/**
+	 * Bound the rich channel, or leave it alone when no cap is configured.
+	 *
+	 * Refused whole rather than trimmed: half a base64 payload is not a
+	 * smaller image, it is a corrupt one, and a driver handed it would
+	 * either fail the request or show the model noise. The text half stays
+	 * untouched, so the result still says what happened — and the
+	 * replacement names what was withheld and how big it was, which is what
+	 * lets the agent ask for a smaller region instead of retrying the same
+	 * call.
+	 */
+	private budgetContent(
+		content: import('../../types/message/index.js').ToolResultContent,
+		toolName: string,
+	): import('../../types/message/index.js').ToolResultContent {
+		const cap = this.config.maxToolContentBytes ?? 0
+		if (cap <= 0) return content
+
+		const size = measureContentBytes(content)
+		if (size <= cap) return content
+
+		this.log.warn('Tool result content exceeded the rich-content budget', {
+			runId: this.config.runId,
+			tool: toolName,
+			contentBytes: size,
+			cap,
+		})
+
+		const described = describeDroppedContent(content)
+		return [
+			{
+				type: 'text',
+				text: `[rich content withheld: ${size} base64 chars exceeds this run's ${cap} cap${
+					described ? ` — ${described}` : ''
+				}]`,
+			},
+		] as import('../../types/message/index.js').ToolResultContent
 	}
 
 	private maybeCompress(toolName: string, output: string): string {
@@ -487,6 +1269,32 @@ export class ToolExecutor {
 			})
 		}
 		return compressed
+	}
+}
+
+/** Minimal counting semaphore. FIFO, no timeout — the deadline is per-tool. */
+class Semaphore {
+	private available: number
+	private readonly waiters: Array<() => void> = []
+
+	constructor(permits: number) {
+		this.available = Math.max(1, permits)
+	}
+
+	acquire(): Promise<void> {
+		if (this.available > 0) {
+			this.available--
+			return Promise.resolve()
+		}
+		return new Promise<void>((resolve) => {
+			this.waiters.push(resolve)
+		})
+	}
+
+	release(): void {
+		const next = this.waiters.shift()
+		if (next) next()
+		else this.available++
 	}
 }
 

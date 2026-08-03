@@ -1,7 +1,7 @@
 ---
 title: Extensions and Integrations
 description: How @namzu/sdk exposes providers, connectors, plugins, personas, skills, tools, and RAG as extension surfaces.
-last_updated: 2026-04-18
+last_updated: 2026-08-02
 status: current
 related_packages: ["@namzu/sdk", "@namzu/computer-use"]
 ---
@@ -75,6 +75,22 @@ These modules are adapters. They should translate and map, not become a second o
 - `lifecycle.ts` runs plugin hooks over runtime phases.
 
 The runtime pipeline calls into the plugin lifecycle at defined hook points instead of letting plugins patch arbitrary runtime internals.
+
+### Hook order
+
+A hook declares a `priority`; **lower runs first**, ties keep registration order, and the default is `100`.
+
+This matters because `executeHooks` **short-circuits** on `skip` and `error`. A hook that denies a dangerous command only gets to deny it if it runs before whatever else stops the chain — so with order determined by installation history, a guard fires or does not depending on which plugin the user happened to install first. Put guards below `100` and observers above.
+
+`post_*` hooks unwind: the array runs in reverse, so whichever hook opened first closes last. A guard at priority `1` therefore runs first on `pre_tool_use` and last on `post_tool_use` — the wrapping order a guard needs.
+
+### Hook deadlines
+
+Each hook runs against `hookTimeoutMs` (default 5s). The context carries a `signal` that aborts when that deadline expires: the runtime stops waiting either way, but without forwarding the signal a hook doing I/O never learns it was abandoned and its socket stays open for a run that moved on.
+
+### Registering a hook in process
+
+`registerHook(pluginId, hook)` attaches a hook without installing a plugin directory, for a host that wants one in-process guard rather than a manifest on disk.
 
 ## 6. Personas and Skills
 

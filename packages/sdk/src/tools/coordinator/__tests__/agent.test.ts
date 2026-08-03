@@ -4,7 +4,7 @@
  * - Reports `success: true` only when BOTH the gateway task state and
  *   the underlying `BaseAgentResult.status` say completed.
  * - Reports `success: false` and surfaces `lastError` when either
- *   layer disagrees — the canonical bug Codex caught was that a
+ *   layer disagrees — the canonical bug review caught was that a
  *   failed subagent could be reported as successful when the gateway
  *   forwarded `state: 'completed'` from a manager that did not
  *   propagate the run's `status: 'failed'`.
@@ -152,7 +152,7 @@ describe('buildAgentTool', () => {
 	it("does not accept a taskStore or runId — plan-task lifecycle is the parent's job", () => {
 		// Compile-time pin: AgentToolOptions must NOT include `taskStore`
 		// or `runId`. The Agent tool used to manage a per-call plan task
-		// internally and Codex caught a leak: when the subagent failed,
+		// internally and review caught a leak: when the subagent failed,
 		// the plan task stayed `'in_progress'` forever because
 		// `TaskStatus` has no `'failed'` value to flip to. Drop the
 		// integration entirely; if a host wants to track delegations as

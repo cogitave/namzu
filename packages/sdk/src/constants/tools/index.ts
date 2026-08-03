@@ -32,3 +32,23 @@ export const DANGEROUS_PATTERNS = [
 ]
 
 export const FILESYSTEM_TOOLS = new Set(['glob', 'read', 'write', 'bash'])
+
+/**
+ * Subdirectory of a run directory holding tool output that exceeded the
+ * model-visible budget. Kept beside the run so it is cleaned up with the
+ * run and reachable by the agent through its own `read`/`grep`.
+ */
+export const TOOL_OUTPUT_DIR_NAME = 'tool-output'
+
+/**
+ * Turns the loop will spend asking again for a valid structured output
+ * before giving up with `stop_reason: 'structured_output_failed'`.
+ *
+ * Bounded on purpose: a model that cannot satisfy the schema should fail
+ * loudly and cheaply, not iterate against `maxIterations`.
+ */
+export const DEFAULT_STRUCTURED_OUTPUT_RETRIES = 2
+
+/** What the loop sends when the model tries to finish in prose instead. */
+export const STRUCTURED_OUTPUT_REPROMPT =
+	'[SYSTEM] This task requires a structured result. Call the `structured_output` tool with your final answer, matching its schema exactly. Do not answer in prose.'

@@ -1,12 +1,15 @@
 import { CHARS_PER_TOKEN } from '../constants/limits.js'
 import { assembleSystemPrompt } from '../persona/assembler.js'
 import { collect } from '../provider/collect.js'
-import type { AdvisorDefinition } from '../types/advisory/config.js'
+
+import type { AdvisorDefinition, AdvisoryBudget } from '../types/advisory/config.js'
 import type { AdvisoryRequest, AdvisoryResult } from '../types/advisory/result.js'
 import type { CostInfo, TokenUsage } from '../types/common/index.js'
 import { type Message, createSystemMessage, createUserMessage } from '../types/message/index.js'
 import type { LLMToolSchema } from '../types/tool/index.js'
+import { calculateCost } from '../utils/cost.js'
 import { type Logger, getRootLogger } from '../utils/logger.js'
+import { ADVISORY_RESPONSE_CONTRACT, parseAdvisoryResponse } from './parse.js'
 
 export interface AdvisoryCallContext {
 	readonly messages: Message[]
@@ -24,9 +27,23 @@ export interface AdvisoryExecutionResult {
 
 export class AdvisoryExecutor {
 	private readonly logger: Logger
+	private readonly budget: AdvisoryBudget | undefined
 
-	constructor(logger?: Logger) {
+	constructor(logger?: Logger, budget?: AdvisoryBudget) {
 		this.logger = (logger ?? getRootLogger()).child({ component: 'AdvisoryExecutor' })
+		this.budget = budget
+	}
+
+	/**
+	 * The response ceiling for one call: the tighter of what the advisor
+	 * asks for and what the budget allows. An advisor that names no ceiling
+	 * still gets the budget's, which is the whole point of a per-call cap.
+	 */
+	private responseTokenCeiling(advisor: AdvisorDefinition): number | undefined {
+		const cap = this.budget?.maxTokensPerCall
+		if (cap === undefined) return advisor.maxResponseTokens
+		if (advisor.maxResponseTokens === undefined) return cap
+		return Math.min(advisor.maxResponseTokens, cap)
 	}
 
 	async consult(
@@ -57,16 +74,16 @@ export class AdvisoryExecutor {
 				model: advisor.model,
 				messages,
 				temperature: advisor.temperature,
-				maxTokens: advisor.maxResponseTokens,
+				maxTokens: this.responseTokenCeiling(advisor),
 				toolChoice: 'none',
 			}),
 		)
 
 		const durationMs = Date.now() - startMs
 
-		const result = this.parseResult(response.message.content ?? '')
+		const result = parseAdvisoryResponse(response.message.content ?? '')
 
-		const cost = this.computeCost(response.usage)
+		const cost = this.computeCost(advisor, response.usage)
 
 		this.logger.info('advisory call completed', {
 			advisorId: advisor.id,
@@ -84,6 +101,13 @@ export class AdvisoryExecutor {
 	}
 
 	private buildSystemPrompt(advisor: AdvisorDefinition): string {
+		// The contract is appended to every branch, not folded into the
+		// default: an advisor with its own prompt or a persona is still read
+		// back by the same parser, and used to be the one never told so.
+		return `${this.describeAdvisor(advisor)}\n\n${ADVISORY_RESPONSE_CONTRACT}`
+	}
+
+	private describeAdvisor(advisor: AdvisorDefinition): string {
 		if (advisor.systemPrompt) {
 			return advisor.systemPrompt
 		}
@@ -170,28 +194,16 @@ export class AdvisoryExecutor {
 	}
 
 	/**
-	 * Parses the raw LLM response into an AdvisoryResult.
+	 * Cost for one call, from the advisor's own pricing.
 	 *
-	 * Phase 1: text-only extraction. Structured parsing comes later.
+	 * Zero when the advisor carries none — which is honest, not a
+	 * placeholder: a cost CAP over unpriced advisors is refused at
+	 * construction, so nothing enforces against this zero.
 	 */
-	private parseResult(rawContent: string): AdvisoryResult {
-		return {
-			advice: rawContent,
+	private computeCost(advisor: AdvisorDefinition, usage: TokenUsage): CostInfo {
+		if (!advisor.pricing) {
+			return { inputCostPer1M: 0, outputCostPer1M: 0, totalCost: 0, cacheDiscount: 0 }
 		}
-	}
-
-	/**
-	 * Computes cost from token usage.
-	 *
-	 * Returns zero-value cost since pricing is provider-specific.
-	 * Callers with pricing data can recompute via calculateCost().
-	 */
-	private computeCost(_usage: TokenUsage): CostInfo {
-		return {
-			inputCostPer1M: 0,
-			outputCostPer1M: 0,
-			totalCost: 0,
-			cacheDiscount: 0,
-		}
+		return calculateCost(usage, advisor.pricing)
 	}
 }

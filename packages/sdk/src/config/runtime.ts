@@ -26,21 +26,66 @@ export const CompactionConfigSchema = z.object({
 	 * `tokenBudget` unlimited (0) set this so compaction fires on
 	 * window-pressure instead of being a silent no-op.
 	 */
-	// Every field below counts something — tokens, messages, characters,
-	// sentences. `z.number().positive()` was the wrong validator for all of them:
-	// Zod's base number check rejects only non-numbers and NaN, so `Infinity` and
-	// `0.5` both passed. `Infinity` is the dangerous one, because it turns a bound
-	// into a no-op rather than an error — `convoTextBudget: Infinity` makes the
-	// verifier's `charCount > budget` test never true, so `truncateMessages` stops
-	// truncating and the WHOLE history is pasted into the verification prompt.
-	// A fraction is merely nonsense (`keepRecentMessages: 2.5`). `.int()` rejects
-	// both: `Number.isInteger` is false for Infinity and for any fraction.
 	contextWindowTokens: z.number().int().positive().optional(),
+	/** Fraction of the context window at which a compaction pass fires. */
 	triggerThreshold: z.number().min(0).max(1).default(0.7),
+	/**
+	 * Fraction the pass must get the context BELOW to be worth keeping.
+	 *
+	 * This is hysteresis, and without it compaction can thrash: a pass that
+	 * only shaves the context from 0.72 to 0.71 of the window leaves the
+	 * trigger armed, so the next iteration compacts again — paying a
+	 * summarization call and busting the prompt-cache prefix each time, for
+	 * nothing. A pass that cannot reach this level logs the shortfall and
+	 * the run continues rather than repeating a move that does not work.
+	 *
+	 * The field was declared and set by the shipped CLI but read by nothing;
+	 * the choice was to implement it or delete it, and thrash is a real
+	 * failure mode once the trigger actually fires.
+	 */
 	resetThreshold: z.number().min(0).max(1).default(0.4),
 	keepRecentMessages: z.number().int().positive().default(4),
+
+	/**
+	 * Before summarizing destructively, clear the OUTPUT of old, large tool
+	 * results in place.
+	 *
+	 * Compaction paraphrases the agent's own reasoning away — the decisions,
+	 * the false starts it learned from, the exact wording of a plan. That is
+	 * a heavy price for a context problem usually caused by something much
+	 * dumber: a few enormous tool outputs the agent already read and moved
+	 * past. Clearing those reclaims most of the same tokens while keeping
+	 * every message verbatim, and it is safe where trimming is not, because
+	 * nothing moves — the `tool_use` ↔ `tool_result` pairing is untouched by
+	 * construction.
+	 *
+	 * If the clear gets the context back under `triggerThreshold`, the
+	 * summarization pass is skipped entirely. Set `false` to go straight to
+	 * summarization.
+	 */
+	clearToolResults: z.boolean().default(true),
+	/** Most recent tool results left alone — the agent is likely still using them. */
+	keepRecentToolResults: z.number().min(0).default(3),
+	/**
+	 * Don't clear results smaller than this. Below it the placeholder is
+	 * comparable in size to the output, so the churn buys nothing and costs
+	 * the model a confusing hole in its history.
+	 */
+	minToolResultCharsToClear: z.number().min(0).default(1_000),
+	/** Tools whose output is never cleared, by name. */
+	preserveToolResultsFrom: z.array(z.string()).optional(),
+
 	maxToolResults: z.number().int().positive().default(30),
 	maxListSize: z.number().int().positive().default(25),
+	/**
+	 * Entries pinned at the head of each capped list, never evicted.
+	 *
+	 * Eviction used to drop the OLDEST entry, so a long run silently
+	 * deleted the decision that set its approach while keeping the last
+	 * twenty-five incidental notes. The early entries are the load-bearing
+	 * ones and the recent ones are still in the un-compacted tail.
+	 */
+	keepFirstEntries: z.number().min(0).default(3),
 	llmVerification: z.boolean().default(true),
 	llmVerificationMaxTokens: z.number().int().positive().default(2048),
 	richStateThreshold: z.number().int().positive().default(15),
@@ -55,11 +100,11 @@ export type CompactionConfig = z.infer<typeof CompactionConfigSchema>
 
 export const AgentBusConfigSchema = z.object({
 	enabled: z.boolean().default(false),
-	lockTimeoutMs: z.number().positive().default(60_000),
-	lockAcquireTimeoutMs: z.number().positive().default(5_000),
-	maxLocksPerAgent: z.number().positive().default(10),
-	breakerFailureThreshold: z.number().positive().default(5),
-	breakerResetTimeoutMs: z.number().positive().default(30_000),
+	lockTimeoutMs: z.number().int().positive().default(60_000),
+	lockAcquireTimeoutMs: z.number().int().positive().default(5_000),
+	maxLocksPerAgent: z.number().int().positive().default(10),
+	breakerFailureThreshold: z.number().int().positive().default(5),
+	breakerResetTimeoutMs: z.number().int().positive().default(30_000),
 })
 
 export type AgentBusConfig = z.infer<typeof AgentBusConfigSchema>
@@ -73,7 +118,7 @@ export const PluginRuntimeConfigSchema = z.object({
 	enabled: z.boolean().default(false),
 	autoDiscovery: z.boolean().default(true),
 	allowedScopes: z.array(z.enum(['project', 'user'])).default(['project', 'user']),
-	hookTimeoutMs: z.number().positive().default(HOOK_TIMEOUT_MS),
+	hookTimeoutMs: z.number().int().positive().default(HOOK_TIMEOUT_MS),
 })
 
 export type PluginRuntimeConfig = z.infer<typeof PluginRuntimeConfigSchema>
@@ -82,13 +127,12 @@ export const RuntimeConfigSchema = z.object({
 	model: z.string().default('qwen/qwen3.6-plus:free'),
 	temperature: z.number().min(0).max(2).default(0.3),
 	tokenBudget: z.number().nonnegative().default(100_000),
-	maxResponseTokens: z.number().positive().default(8192),
-	timeoutMs: z.number().positive().default(600_000),
-	maxIterations: z.number().positive().default(200),
+	maxResponseTokens: z.number().int().positive().default(8192),
+	timeoutMs: z.number().int().positive().default(600_000),
+	maxIterations: z.number().int().positive().default(200),
 	taskRouter: TaskRouterConfigSchema,
 	compaction: CompactionConfigSchema.default({}),
 	agentBus: AgentBusConfigSchema.optional(),
-	promptCache: PromptCacheConfigSchema.optional(),
 	plugins: PluginRuntimeConfigSchema.optional(),
 	sandbox: SandboxConfigSchema.optional(),
 })

@@ -15,8 +15,8 @@ export interface AgentDefinition {
 
 export interface AgentFactoryOptions {
 	/**
-	 * API key for providers that authenticate via key (OpenAI, Anthropic,
-	 * OpenRouter). Optional because BYO-provider flows (Bedrock IAM, custom
+	 * API key for providers that authenticate via a key. Optional because
+	 * BYO-provider flows (ambient cloud credentials, a custom
 	 * `ProviderRegistry.create(...)`) resolve credentials outside this object.
 	 * `configBuilder` implementations should treat an absent `apiKey` as the
 	 * BYO signal and use the provider passed via the agent config instead.
@@ -33,14 +33,20 @@ export interface AgentFactoryOptions {
 
 	systemPrompt?: string
 
-	provider?: 'openrouter' | 'bedrock'
+	/**
+	 * Which registered provider to build. Any type registered with
+	 * `ProviderRegistry` is valid — this was a closed two-member union
+	 * naming two specific services, which the registry has never been
+	 * limited to and which no caller could extend.
+	 */
+	provider?: string
 
-	bedrockConfig?: {
-		region?: string
-		accessKeyId?: string
-		secretAccessKey?: string
-		sessionToken?: string
-	}
+	/**
+	 * Extra construction config for the chosen provider, passed through
+	 * untouched. Replaces a field that existed for exactly one service and
+	 * had no construction site anywhere.
+	 */
+	providerConfig?: Record<string, unknown>
 
 	agentDefinitions?: AgentDefinition[]
 

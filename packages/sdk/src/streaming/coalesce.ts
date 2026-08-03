@@ -19,7 +19,7 @@ interface CoalesceOptions {
  * The orchestrator does NOT use this — it emits raw deltas. SSE adapters
  * and other slow consumers opt in. A 16ms window roughly aligns with one
  * UI animation frame at 60fps, which is the empirically derived default
- * for cowork's stream route.
+ * for a live stream route.
  *
  * Backpressure semantics: this helper does not drop events. If the
  * upstream produces faster than the consumer drains, the helper still

@@ -1,0 +1,22 @@
+# Line endings are LF everywhere, in the repository AND in the working tree.
+#
+# Without this, a Windows contributor with `core.autocrlf=true` — the default
+# from the Git installer — checks every file out as CRLF while Biome's
+# formatter expects LF. The result is a lint failure on files nobody touched,
+# and a wall of "LF will be replaced by CRLF" on every commit. `eol=lf` pins
+# the checkout, so the same bytes land on every platform.
+* text=auto eol=lf
+
+# Binary: never touch these.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.pdf binary
+
+# Lockfiles are generated; keep them out of diffs and reviews.
+pnpm-lock.yaml linguist-generated=true -diff

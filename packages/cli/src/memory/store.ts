@@ -1,5 +1,5 @@
 /**
- * Persistent memory under `~/.namzu/` — Hermes-parity flat markdown.
+ * Persistent memory under `~/.namzu/` as flat markdown.
  *
  * - `USER.md`   — durable facts about the user (role, preferences).
  * - `MEMORY.md` — durable facts/decisions the agent should carry across

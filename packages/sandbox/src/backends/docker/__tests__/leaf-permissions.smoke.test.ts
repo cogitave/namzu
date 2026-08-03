@@ -1,7 +1,7 @@
 /**
  * Docker smoke test — leaf-mount permission semantics.
  *
- * Concern Codex flagged: the Dockerfile pre-creates only the parent
+ * Concern raised in review: the Dockerfile pre-creates only the parent
  * dirs (`/mnt`, `/mnt/user-data`, `/mnt/skills`) as root-owned 0555.
  * The runtime claim is that:
  *

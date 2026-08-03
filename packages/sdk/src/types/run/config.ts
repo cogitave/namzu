@@ -9,6 +9,15 @@ export interface AgentRunConfig {
 	model: string
 	timeoutMs: number
 	maxResponseTokens?: number
+
+	/**
+	 * Extended-thinking request, forwarded on every model call in the run.
+	 *
+	 * Drivers that do not support it ignore the field. Note that a provider
+	 * rejects temperature/top_p/top_k while thinking is enabled, so the
+	 * driver omits them rather than sending a request it knows will 400.
+	 */
+	thinking?: import('../provider/index.js').ThinkingConfig
 	tokenBudget: number
 	costLimitUsd?: number
 	maxIterations?: number
@@ -41,6 +50,32 @@ export interface AgentRunConfig {
 	 * history) without this.
 	 */
 	pruneKeepLast?: number
+
+	/**
+	 * How long a human-in-the-loop park stays worth serving, in ms.
+	 *
+	 * Written onto the park as an ABSOLUTE deadline, so it survives the
+	 * process that set it. Every timer in the SDK is an in-process
+	 * `setTimeout` and the park-record delay is deliberately `unref`'d, so
+	 * nothing in memory can outlive a redeploy: without this a run parks for
+	 * approval, the worker is replaced, nobody answers, and the checkpoint
+	 * stays outstanding forever — every approval-queue reader keeps serving
+	 * it and its workspace is never reclaimed.
+	 *
+	 * The run timeout does not cover this. It is only checked between
+	 * iterations and a park suspends mid-iteration, so a long-lived process
+	 * hard-stops the run immediately *after* the human finally approves,
+	 * while across a restart the restored elapsed clock excludes parked time
+	 * entirely — the same configuration producing two opposite outcomes.
+	 *
+	 * Expiry is enforced on READ (`findPendingCheckpoint` skips an expired
+	 * park) and by a host sweep (`listExpiredParks` + `CheckpointManager
+	 * .expire`). An out-of-process timer stays a host concern, consistent
+	 * with the same decision made for retention.
+	 *
+	 * Default `undefined` — no deadline, today's behaviour.
+	 */
+	hitlParkTtlMs?: number
 }
 
 /**

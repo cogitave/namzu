@@ -1,6 +1,6 @@
 import type { ActivityStatus, ActivityType } from '../activity/index.js'
 import type { BaseAgentResult } from '../agent/base.js'
-import type { CostInfo, TokenUsage } from '../common/index.js'
+import type { CostInfo, PlatformError, TokenUsage } from '../common/index.js'
 import type { CheckpointId, ToolCallSummary } from '../hitl/index.js'
 import type {
 	ActivityId,
@@ -14,7 +14,6 @@ import type {
 } from '../ids/index.js'
 import type { PlanStep } from '../plan/index.js'
 import type { PluginHookEvent, PluginHookResult } from '../plugin/index.js'
-import type { ProviderErrorInfo } from '../provider/index.js'
 import type { TaskStatus } from '../task/index.js'
 import type { Lineage } from './lineage.js'
 import type { MessageStopReason } from './stop-reason.js'
@@ -55,12 +54,95 @@ type CoreRunEvent =
 			iteration: number
 			hasToolCalls: boolean
 	  }
+	/**
+	 * A compaction pass replaced a span of history with a summary.
+	 *
+	 * Compaction deletes messages irrecoverably and previously emitted
+	 * nothing at all — a host could not show the user that context was
+	 * dropped, and `transcript.jsonl` recorded a conversation that silently
+	 * lost its middle. Every field here is measured, not estimated, where
+	 * the provider reported it (`measuredBy`).
+	 */
+	| {
+			type: 'compaction_completed'
+			runId: RunId
+			iteration: number
+			/** Messages before and after the pass. */
+			messagesBefore: number
+			messagesAfter: number
+			/** Context size in tokens before and after. */
+			tokensBefore: number
+			tokensAfter: number
+			/** Whether `tokensBefore` came from the provider or a heuristic. */
+			measuredBy: 'provider' | 'estimate'
+			/** The window the trigger measured against, and where it came from. */
+			contextWindowTokens: number
+			windowSource: 'config' | 'model-table' | 'default'
+			/**
+			 * False when the pass could not get the context below
+			 * `resetThreshold` — the trigger is still armed, and a host may
+			 * want to surface that the run is running tight.
+			 */
+			reachedResetThreshold?: boolean
+	  }
 	| {
 			type: 'tool_executing'
 			runId: RunId
 			toolUseId: ToolUseId
 			toolName: string
 			input: unknown
+	  }
+	/**
+	 * A tool saying how far along it is.
+	 *
+	 * Ephemeral — excluded from `transcript.jsonl`, like `text_delta`. It is
+	 * for a host rendering a live view, not part of the conversation, and a
+	 * chatty tool must not be able to bloat the durable record.
+	 *
+	 * Tools get a deadline of up to two minutes by default, so before this
+	 * a build, a test run or a long fetch was simply silent for its whole
+	 * duration: the host could show that a tool had started and then nothing
+	 * at all until it either finished or timed out. The model never sees
+	 * these; they answer "is it still working?", which is a question only a
+	 * human asks.
+	 */
+	| {
+			type: 'tool_progress'
+			runId: RunId
+			toolUseId: ToolUseId
+			toolName: string
+			/** Human-readable, e.g. "compiled 40/120 files". */
+			message: string
+			/** Optional completion in [0,1] when the tool genuinely knows it. */
+			fraction?: number
+	  }
+	/**
+	 * A model call failed transiently and is being retried after a backoff.
+	 *
+	 * Answers the same question `tool_progress` answers — "is it still
+	 * working?" — for the other half of a run's wall clock. With the default
+	 * policy, or a server-directed delay up to the cap, a run can sit silent
+	 * for the better part of a minute between `iteration_started` and the
+	 * next event. A host saw literally nothing and no keepalive, so a
+	 * backoff was indistinguishable from a hang and a watchdog would cancel
+	 * a run that was about to succeed.
+	 *
+	 * Emitted before the sleep, so the delay it names is the one still
+	 * ahead.
+	 */
+	| {
+			type: 'provider_retry'
+			runId: RunId
+			iteration: number
+			/** 1-based attempt that just failed. */
+			attempt: number
+			maxRetries: number
+			delayMs: number
+			/** Classified failure code, as the boundary classifier reports it. */
+			code: string
+			status?: number
+			/** The delay came from the server's own `Retry-After`. */
+			serverDirected: boolean
 	  }
 	| {
 			type: 'tool_completed'
@@ -69,6 +151,63 @@ type CoreRunEvent =
 			toolName: string
 			result: string
 			isError: boolean
+			/**
+			 * Wall-clock the tool took. Computed since the first version of
+			 * the executor but only ever logged; a host asking "which tool
+			 * was slow" had to reconstruct it from event timestamps.
+			 */
+			durationMs?: number
+			/**
+			 * Size of the tool's output BEFORE the model-visible budget was
+			 * applied, so a host can report "returned 2.1 MB" even though
+			 * `result` is a preview.
+			 */
+			outputLength?: number
+			/** True when `result` is a preview rather than the whole output. */
+			outputTruncated?: boolean
+			/** Where the full output was written, when it was spilled. */
+			outputSpillPath?: string
+	  }
+	/**
+	 * A tool asked the user a question and the run is parked on it.
+	 *
+	 * The question used to park through the raw handler under a synthetic
+	 * checkpoint id that was never written, so a remote host could not
+	 * observe it at all — the in-process callback was the only channel, and
+	 * a tool review with the same shape had an event, a bridge mapping and
+	 * a durable record. This is that surface, for the other kind of park.
+	 */
+	| {
+			type: 'user_question_asked'
+			runId: RunId
+			checkpointId: CheckpointId
+			/** The asking `tool_use_id`, so an answer can be matched back. */
+			questionId: string
+			question: string
+	  }
+	/**
+	 * The question was resolved.
+	 *
+	 * `answered: false` covers a decline and a non-response. Distinguished
+	 * because the asking tool refuses to invent consent from either, and a
+	 * host rendering the card needs the same distinction.
+	 */
+	| {
+			type: 'user_question_answered'
+			runId: RunId
+			checkpointId: CheckpointId
+			/**
+			 * Which question, when the resolution named one.
+			 *
+			 * Its sibling `user_question_asked` carries this and the answer
+			 * did not, so a client that keyed on the question id — the
+			 * natural key, since it is what routes an answer back on resume
+			 * — could not match the two halves without also having stored
+			 * the checkpoint id. Absent when the pause was resolved without
+			 * an answer.
+			 */
+			questionId?: string
+			answered: boolean
 	  }
 	| {
 			type: 'tool_review_requested'
@@ -98,12 +237,58 @@ type CoreRunEvent =
 			runId: RunId
 			fromCheckpointId: CheckpointId
 	  }
+	/**
+	 * A guardrail blocked or rewrote the run.
+	 *
+	 * Emitted so a host can show WHY a run refused, and — for a rewrite —
+	 * so a consumer that already rendered `text_delta` events knows the
+	 * text it displayed has been corrected.
+	 */
+	| {
+			type: 'guardrail_triggered'
+			runId: RunId
+			stage: 'input' | 'output'
+			action: 'block' | 'rewrite'
+			guardrail?: string
+			reason?: string
+	  }
 	| { type: 'run_completed'; runId: RunId; result: string }
+	/**
+	 * The run failed.
+	 *
+	 * `error` is the flattened message, kept for every consumer that only
+	 * ever rendered a string. `failure` is the structured projection, and
+	 * it is the point: namzu already classifies at the provider boundary —
+	 * over status, errno, `Retry-After` and the whole cause chain — so a
+	 * fully-populated error genuinely arrived here and was flattened one
+	 * line later, discarding `code`, `status`, `retryAfterMs`, `retryable`
+	 * and `details`.
+	 *
+	 * The damage was self-inflicted downstream: one consumer substring-
+	 * matched the flattened message to decide whether an error had
+	 * occurred, and the iteration loop re-ran the classifier to recover
+	 * structure that had already been computed upstream.
+	 */
 	| {
 			type: 'run_failed'
 			runId: RunId
 			error: string
-			providerError?: ProviderErrorInfo
+			failure?: PlatformError
+			/**
+			 * The driver's own classification, when it produced one. Carried
+			 * beside `failure` rather than folded into it: this is the
+			 * provider's first-hand statement, and a consumer deciding whether
+			 * to retry reads it directly.
+			 */
+			providerError?: import('../provider/error.js').ProviderErrorInfo
+			/**
+			 * Operator-facing explanation, when a catalog rule claims this
+			 * failure: a stable `id` to grep for, and `hint` saying what to
+			 * change. Absent when no rule matched — inventing advice for an
+			 * uncharacterised failure is worse than saying nothing, because
+			 * it sends the reader somewhere specific and wrong.
+			 */
+			explanation?: { id: string; message: string; hint: string }
 	  }
 	// Additive 2026-07 (provider capability negotiation): emitted once per
 	// run when the request asks for something the provider DRIVER declared
@@ -239,6 +424,41 @@ type CoreRunEvent =
 			iteration: number
 			messageId: MessageId
 	  }
+	/**
+	 * The model began emitting a reasoning block.
+	 *
+	 * Without these, extended thinking looked to a streaming UI like a
+	 * multi-second stall with no events at all — the run was working, and
+	 * the host had no way to say so.
+	 */
+	| {
+			type: 'reasoning_started'
+			runId: RunId
+			iteration: number
+			messageId: MessageId
+			blockIndex: number
+			reasoningType: 'thinking' | 'redacted_thinking'
+	  }
+	/** Ephemeral — excluded from `transcript.jsonl`, like `text_delta`. */
+	| {
+			type: 'reasoning_delta'
+			runId: RunId
+			iteration: number
+			messageId: MessageId
+			blockIndex: number
+			text: string
+	  }
+	| {
+			type: 'reasoning_completed'
+			runId: RunId
+			iteration: number
+			messageId: MessageId
+			blockIndex: number
+			/** Present only when the provider returned readable thinking. */
+			text?: string
+			/** True when the block carried a signature that must be replayed. */
+			signed: boolean
+	  }
 	| {
 			type: 'text_delta'
 			runId: RunId
@@ -326,6 +546,13 @@ export type RunEventListener = (event: RunEvent) => void | Promise<void>
 const EPHEMERAL_EVENT_TYPES: ReadonlySet<RunEvent['type']> = new Set<RunEvent['type']>([
 	'text_delta',
 	'tool_input_delta',
+	// The completed block carries the full text; the deltas would only
+	// duplicate it into the transcript at scale.
+	'reasoning_delta',
+	// Answers "is it still working?", which only a live view asks. A tool
+	// reporting every file it compiles must not be able to write thousands
+	// of lines into the durable record.
+	'tool_progress',
 ])
 
 export function isEphemeralEvent(event: RunEvent): boolean {

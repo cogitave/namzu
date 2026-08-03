@@ -2,7 +2,7 @@ import type { DoctorCategory, DoctorCheckRecord, DoctorReport, DoctorStatus } fr
 
 import { builtInDoctorChecks } from '../doctor/checks/index.js'
 import { type RunDoctorOptions, createDoctorRegistry, runDoctor } from '../doctor/registry.js'
-import { EXIT_INTERNAL_ERROR } from '../exit-codes.js'
+import { EXIT_INTERNAL_ERROR, EXIT_USAGE } from '../exit-codes.js'
 import type { CommandDef } from './types.js'
 
 const VALID_CATEGORIES: readonly DoctorCategory[] = [
@@ -197,7 +197,10 @@ export async function runDoctorCommand(args: readonly string[]): Promise<number>
 	const parsed = parseArgs(args)
 	if (parsed.error) {
 		process.stderr.write(`Error: ${parsed.error}\n\n${HELP}\n`)
-		return EXIT_INTERNAL_ERROR
+		// The caller's arguments are wrong, not this command. Answering 70
+		// here told an operator the CLI had broken and sent them to file a
+		// bug for a typo.
+		return EXIT_USAGE
 	}
 	if (parsed.help) {
 		process.stdout.write(`${HELP}\n`)

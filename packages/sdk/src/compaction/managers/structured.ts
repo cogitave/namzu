@@ -97,12 +97,13 @@ export class StructuredCompactionManager implements ConversationManager {
 			const desiredTrimPoint = result.length - this.config.keepRecentMessages
 			const safeTrimIdx = findSafeTrimIndex(result, desiredTrimPoint)
 
-			// Always keep the injected system message
-			const trimPoint = Math.min(
-				safeTrimIdx,
-				Math.max(0, result.length - this.config.keepRecentMessages),
-			)
-			return result.slice(trimPoint)
+			// The safe index is the answer, not a suggestion. This used to
+			// take `Math.min(safeTrimIdx, desiredTrimPoint)` — and since the
+			// safe index only ever moves FORWARD of the desired one, that
+			// minimum resolved back to the desired point every time and
+			// discarded the entire safety search. Whatever the guard was
+			// reaching for, what it did was undo the thing above it.
+			return result.slice(safeTrimIdx)
 		}
 
 		return result

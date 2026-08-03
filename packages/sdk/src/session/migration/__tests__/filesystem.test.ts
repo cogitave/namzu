@@ -2,6 +2,7 @@ import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/pr
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { IS_WINDOWS } from '../../../test-support/paths.js'
 import { UNKNOWN_TENANT_ID } from '../../../types/ids/index.js'
 import { FilesystemMigrationError } from '../errors.js'
 import {
@@ -241,23 +242,29 @@ describe('DefaultFilesystemMigrator.migrate', () => {
 		expect(await pathExists(newRunDir)).toBe(true)
 	})
 
-	it('error path: unwritable marker directory surfaces FilesystemMigrationError', async () => {
-		// Make the rootDir read-only so write_marker fails on the noop branch
-		// (simplest repro — no legacy threads needed).
-		await chmod(root, 0o555)
+	// chmod 0o555 does not prevent directory writes on Windows, so the
+	// failure this asserts cannot be induced there. Skip rather than leave
+	// the suite permanently red for Windows contributors.
+	it.skipIf(IS_WINDOWS)(
+		'error path: unwritable marker directory surfaces FilesystemMigrationError',
+		async () => {
+			// Make the rootDir read-only so write_marker fails on the noop branch
+			// (simplest repro — no legacy threads needed).
+			await chmod(root, 0o555)
 
-		const migrator = new DefaultFilesystemMigrator()
-		try {
-			await migrator.migrate(root)
-			expect.fail('expected migrate() to throw')
-		} catch (err) {
-			expect(err).toBeInstanceOf(FilesystemMigrationError)
-			const details = (err as FilesystemMigrationError).details
-			expect(details.op).toBe('write_marker')
-			expect(details.path).toContain('v0.2.0')
-		} finally {
-			// restore perms so afterEach can clean up
-			await chmod(root, 0o755).catch(() => undefined)
-		}
-	})
+			const migrator = new DefaultFilesystemMigrator()
+			try {
+				await migrator.migrate(root)
+				expect.fail('expected migrate() to throw')
+			} catch (err) {
+				expect(err).toBeInstanceOf(FilesystemMigrationError)
+				const details = (err as FilesystemMigrationError).details
+				expect(details.op).toBe('write_marker')
+				expect(details.path).toContain('v0.2.0')
+			} finally {
+				// restore perms so afterEach can clean up
+				await chmod(root, 0o755).catch(() => undefined)
+			}
+		},
+	)
 })

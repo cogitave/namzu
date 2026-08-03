@@ -28,11 +28,85 @@ export type ProviderFactoryConfig = {
 	[K in ProviderType]: ProviderConfigRegistry[K]
 }[ProviderType]
 
-export interface MockProviderConfig {
-	type: 'mock'
+/** One scripted tool call within a {@link MockTurn}. */
+export interface MockToolCall {
+	name: string
+	/** Serialized to JSON and streamed in fragments. */
+	args?: Record<string, unknown>
+	/** Defaults to a deterministic `call_<turn>_<index>`. */
+	id?: string
+	/** Fragment size for the argument JSON; smaller exercises more buffering. */
+	argChunkSize?: number
+	/**
+	 * Omit the block-close signal and stop mid-JSON, reproducing the
+	 * provider cutting a tool call off at `max_tokens`. The consumer should
+	 * mark the call `inputTruncated` rather than crashing on a parse.
+	 */
+	truncateArguments?: boolean
+	/**
+	 * Emit this raw string as the argument payload instead of serializing
+	 * `args`. For scripting malformed or partial JSON the model could
+	 * plausibly produce.
+	 */
+	rawArguments?: string
+	/**
+	 * Throw after the argument fragments, mid-tool-block.
+	 *
+	 * This is the failure the truncated-tool-input recovery path exists
+	 * for — a provider going idle while streaming tool JSON — so it has to
+	 * be scriptable, or that path can only be tested by hand-rolling a
+	 * provider.
+	 */
+	throwAfterArguments?: string
+}
+
+/** One assistant turn the mock provider plays. */
+export interface MockTurn {
+	text?: string
+	toolCalls?: MockToolCall[]
+	/** Passages this scripted turn cites, emitted before its text. */
+	citations?: import('../message/index.js').Citation[]
+	finishReason?: 'stop' | 'tool_calls' | 'length' | 'content_filter'
+	usage?: Partial<import('../common/index.js').TokenUsage>
+	/** Text fragment size. */
+	chunkSize?: number
+	/** Fail the request outright, before any chunk — e.g. a 429. */
+	error?: { message: string; status?: number }
+	/** Fail mid-stream after N text chunks, to exercise recovery paths. */
+	throwAfterChunks?: number
+	throwMessage?: string
+}
+
+/**
+ * The scripted behavior itself, without the registry discriminant, so a
+ * test can `new MockLLMProvider({ turns: [...] })` directly.
+ */
+export interface MockScript {
 	model?: string
+	/** Shorthand for a single text-only turn. */
 	responseText?: string
 	responseDelayMs?: number
+	/**
+	 * Scripted turns. A script shorter than the run repeats its last entry,
+	 * so a loop bug shows up as repetition rather than a crash.
+	 */
+	turns?: MockTurn[]
+	/** Full control: decide each turn from the request that triggered it. */
+	nextTurn?: (params: import('./chat.js').ChatCompletionParams, turnIndex: number) => MockTurn
+	/**
+	 * Override the capability declaration for this instance.
+	 *
+	 * Capability negotiation degrades a run when a driver says it cannot do
+	 * something, and testing that path means being able to SAY it — a fixed
+	 * registry-level declaration cannot express "a driver with no vision".
+	 */
+	capabilities?: ProviderCapabilities
+	/** Observe every request (assert on tools, toolChoice, cacheControl…). */
+	onRequest?: (params: import('./chat.js').ChatCompletionParams) => void
+}
+
+export interface MockProviderConfig extends MockScript {
+	type: 'mock'
 }
 
 /**
@@ -57,6 +131,13 @@ export interface ProviderCapabilities {
 	 * default — the runtime only warns when a driver explicitly says no).
 	 */
 	supportsVision?: boolean
+	/**
+	 * Whether the driver maps user-message DOCUMENT attachments into the
+	 * provider request. Separate from vision because the two are separate
+	 * wire shapes and a driver can map one without the other. Absent ⇒
+	 * treated as capable, same permissive default.
+	 */
+	supportsDocuments?: boolean
 	maxOutputTokens?: number
 }
 

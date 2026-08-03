@@ -21,16 +21,7 @@
  * path lives in Phase 7 of the overall roadmap.
  */
 
-import {
-	appendFile,
-	mkdir,
-	readFile,
-	readdir,
-	rename,
-	rm,
-	unlink,
-	writeFile,
-} from 'node:fs/promises'
+import { appendFile, mkdir, readFile, readdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { TenantIsolationError } from '../../session/errors.js'
 import { SessionAlreadySummarizedError } from '../../session/summary/errors.js'
@@ -54,14 +45,26 @@ import type {
 	SessionSummaryOutcome,
 	SessionSummaryRef,
 } from '../../types/summary/ref.js'
+import { atomicWriteFile } from '../../utils/atomic-write.js'
 import {
 	generateMessageId,
 	generateProjectId,
 	generateSessionId,
 	generateSubSessionId,
 } from '../../utils/id.js'
+import { defineSchema, migrate, stamp } from '../schema.js'
 import { getAncestry, getChildren, orderChildren } from './linkage.js'
 import type { LinkageView } from './linkage.js'
+
+/**
+ * This store's on-disk format, versioned as a unit — which is how a
+ * migration would actually be written and shipped, and it keeps every call
+ * site free of schema plumbing.
+ *
+ * Bump `current` and add the migration for the step you are leaving when
+ * the shape changes.
+ */
+const SCHEMA = defineSchema({ kind: 'session-store', current: 1, migrations: {} })
 
 /**
  * Config for {@link DiskSessionStore}. `rootDir` is absolute; all files live
@@ -503,7 +506,14 @@ export class DiskSessionStore implements SessionStore {
 			message,
 			at: new Date().toISOString(),
 		}
-		await appendFile(join(located.path, 'messages.jsonl'), `${JSON.stringify(entry)}\n`, 'utf-8')
+		// Each line is a whole record, so each line carries its own stamp: an
+		// append-only log is written by many builds over its lifetime and its
+		// lines can legitimately differ in version.
+		await appendFile(
+			join(located.path, 'messages.jsonl'),
+			`${JSON.stringify(stamp(SCHEMA, entry))}\n`,
+			'utf-8',
+		)
 		return id
 	}
 
@@ -534,7 +544,7 @@ export class DiskSessionStore implements SessionStore {
 		}
 		const lines = raw.split('\n').filter((l) => l.length > 0)
 		return lines.map((line) => {
-			const persisted = JSON.parse(line) as PersistedMessageLine
+			const persisted = migrate<PersistedMessageLine>(SCHEMA, JSON.parse(line))
 			return {
 				id: persisted.id,
 				sessionId: persisted.sessionId,
@@ -949,7 +959,11 @@ function deserializeSummary(s: PersistedSummary): SessionSummaryRef {
 async function readJson<T>(path: string): Promise<T | null> {
 	try {
 		const raw = await readFile(path, 'utf-8')
-		return JSON.parse(raw) as T
+		// Through the schema rather than a bare cast: a record from an older
+		// build is brought forward, and one from a NEWER build is refused
+		// instead of read partially and written back with the difference
+		// gone.
+		return migrate<T>(SCHEMA, JSON.parse(raw))
 	} catch (err) {
 		const code = (err as NodeJS.ErrnoException).code
 		if (code === 'ENOENT') return null
@@ -958,14 +972,9 @@ async function readJson<T>(path: string): Promise<T | null> {
 }
 
 async function atomicWriteJson(filePath: string, value: unknown): Promise<void> {
-	const tempPath = `${filePath}.tmp`
-	try {
-		await writeFile(tempPath, JSON.stringify(value, null, 2), 'utf-8')
-		await rename(tempPath, filePath)
-	} catch (err) {
-		await unlink(tempPath).catch(() => undefined)
-		throw err
-	}
+	// Through the shared writer: the sidecar name has to be private to this
+	// write, and a fixed `.tmp` is shared by every writer of the record.
+	await atomicWriteFile(filePath, JSON.stringify(stamp(SCHEMA, value), null, 2))
 }
 
 // Note: messages are append-only `messages.jsonl` (not write-tmp-rename).
