@@ -8,6 +8,7 @@ import type { RunId, TaskId } from '../../types/ids/index.js'
 import type { TaskStore } from '../../types/task/index.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
+import { resolvePlanDependencies } from './plan-dependencies.js'
 
 export type TaskLaunchedCallback = (
 	agentTaskId: TaskId,
@@ -437,6 +438,15 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 					}
 				}
 
+				// Resolve BEFORE touching the plan manager. A refusal here has to
+				// leave no half-built plan behind: `startGenerating` replaces the
+				// current plan, so failing after it would discard a plan that was
+				// fine in favour of one that never completes.
+				const dependencies = resolvePlanDependencies(steps, (index) => `step_${index + 1}`)
+				if (!dependencies.ok) {
+					return { success: false, output: '', error: dependencies.error }
+				}
+
 				pm.startGenerating(title)
 				for (let i = 0; i < steps.length; i++) {
 					const step = steps[i]
@@ -445,7 +455,10 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 						id: `step_${i + 1}`,
 						description: step.description,
 						toolName: step.agent_id ? 'create_task' : undefined,
-						dependsOn: [],
+						// Was `[]` unconditionally, which dropped every ordering
+						// constraint the model was invited to express — and put an
+						// empty dependency list in front of the human approving it.
+						dependsOn: [...(dependencies.dependsOn[i] ?? [])],
 						order: i + 1,
 					})
 				}

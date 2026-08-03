@@ -11,6 +11,19 @@ import { calculateCost } from '../utils/cost.js'
 import { type Logger, getRootLogger } from '../utils/logger.js'
 import { ADVISORY_RESPONSE_CONTRACT, parseAdvisoryResponse } from './parse.js'
 
+/**
+ * What the advisor is told about how urgent the caller said this is.
+ *
+ * `'normal'` says nothing on purpose. A sentence asserting the ordinary case
+ * is prompt weight that changes no answer, and stating it on every call
+ * would make the two that matter harder to notice.
+ */
+const URGENCY_DIRECTION: Record<'low' | 'normal' | 'high', string | undefined> = {
+	high: 'This request is marked URGENT. Lead with the single most important action and keep the reasoning to what is needed to justify it.',
+	normal: undefined,
+	low: 'This request is marked low urgency. There is room to note secondary considerations and alternatives worth weighing.',
+}
+
 export interface AdvisoryCallContext {
 	readonly messages: Message[]
 	readonly workingStateSummary?: string
@@ -53,7 +66,7 @@ export class AdvisoryExecutor {
 	): Promise<AdvisoryExecutionResult> {
 		const startMs = Date.now()
 
-		const systemPrompt = this.buildSystemPrompt(advisor)
+		const systemPrompt = this.buildSystemPrompt(advisor, request.urgency)
 		const contextMessages = this.buildContext(advisor, request, callCtx)
 
 		const messages: Message[] = [
@@ -100,11 +113,25 @@ export class AdvisoryExecutor {
 		}
 	}
 
-	private buildSystemPrompt(advisor: AdvisorDefinition): string {
+	private buildSystemPrompt(
+		advisor: AdvisorDefinition,
+		urgency?: AdvisoryRequest['urgency'],
+	): string {
 		// The contract is appended to every branch, not folded into the
 		// default: an advisor with its own prompt or a persona is still read
 		// back by the same parser, and used to be the one never told so.
-		return `${this.describeAdvisor(advisor)}\n\n${ADVISORY_RESPONSE_CONTRACT}`
+		const parts = [this.describeAdvisor(advisor), ADVISORY_RESPONSE_CONTRACT]
+
+		// The caller is invited to say how urgent this is, and the value used
+		// to reach exactly one debug log line — `urgency: 'high'` and
+		// `urgency: 'low'` produced byte-identical requests. Telling the
+		// ADVISOR is the honest minimum: it is the party that can act on the
+		// answer, and it costs one sentence rather than a routing policy this
+		// kernel has no business inventing.
+		const direction = URGENCY_DIRECTION[urgency ?? 'normal']
+		if (direction) parts.push(direction)
+
+		return parts.join('\n\n')
 	}
 
 	private describeAdvisor(advisor: AdvisorDefinition): string {

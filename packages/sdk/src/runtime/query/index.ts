@@ -10,6 +10,7 @@ import { findDanglingMessages, removeDanglingMessages } from '../../compaction/d
 import { extractFromUserMessage } from '../../compaction/extractor.js'
 import { WorkingStateManager } from '../../compaction/manager.js'
 import type { ContextReducer } from '../../compaction/reducer.js'
+import { serializeState as serializeWorkingState } from '../../compaction/serializer.js'
 import { restoreWorkingState, snapshotWorkingState } from '../../compaction/wire.js'
 import type { CompactionConfig } from '../../config/runtime.js'
 import { TOOL_OUTPUT_DIR_NAME } from '../../constants/tools/index.js'
@@ -762,6 +763,31 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			triggerEvaluator,
 			params.advisory.budget,
 		)
+
+		// What the run looks like when the MODEL consults an advisor, as
+		// opposed to when a trigger does. The trigger path has always passed
+		// this; the tool path passed an empty context, so an advisor the model
+		// asked for help saw the question and nothing else.
+		//
+		// `includeToolCatalog` and `useCompactedContext` are read here and
+		// nowhere else. Both were declared on `AdvisoryConfig` /
+		// `AdvisorDefinition` and consulted by nothing, so a host who turned
+		// the catalogue off still paid for it in every advisory prompt.
+		const advisoryConfig = params.advisory
+		advisoryCtx.setCallContextProvider(() => {
+			const summary =
+				workingStateManager && advisoryConfig.advisors.some((a) => a.useCompactedContext)
+					? serializeWorkingState(workingStateManager.getState())
+					: undefined
+			return {
+				messages: ctx.runMgr.messages,
+				...(summary !== undefined ? { workingStateSummary: summary } : {}),
+				...(advisoryConfig.includeToolCatalog
+					? { toolCatalog: params.tools.toLLMTools(effectiveAllowedTools) }
+					: {}),
+				iteration: ctx.runMgr.currentIteration,
+			}
+		})
 
 		if (params.advisory.enableAgentTool) {
 			const advisoryTools = buildAdvisoryTools({ advisoryCtx })
