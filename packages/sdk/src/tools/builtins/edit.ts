@@ -192,18 +192,31 @@ export const EditTool = defineTool({
 
 			const content = await readFile(filePath, 'utf-8')
 
-			// The lock above serializes this runtime's writers. It cannot see
-			// a person editing in an editor, another process, or a second
-			// agent run — and an edit computed against a body that has since
-			// moved is a lost update either way. Refusing sends the agent back
-			// to re-read; proceeding would silently drop whoever wrote last.
-			const seen = context.fileReadTracker?.fingerprint?.(filePath)
-			if (seen !== undefined && seen !== fingerprintContent(content)) {
-				return { success: false as const, output: '', error: staleFileError(filePath) }
-			}
-
 			const result = applyEdit(content, normalized.operation)
 			if (!result.success) {
+				// The anchor did not match what is on disk. Two very different
+				// situations produce that, and the difference is the whole
+				// value of the fingerprint:
+				//
+				// The file is as the agent left it, and the anchor is simply
+				// wrong — "not found, match the whitespace exactly" is the
+				// right thing to say.
+				//
+				// Or the file moved after the read — a person in an editor,
+				// another process, a second agent — and the same message is a
+				// lie that sends the agent to re-check text that was never the
+				// problem, so it retries the identical edit against the same
+				// moved file.
+				//
+				// Deliberately NOT a gate on the successful path. An anchor
+				// that still matches uniquely is well defined however much
+				// changed elsewhere in the file, and refusing there would
+				// reject safe edits every time anyone touched an unrelated
+				// line.
+				const seen = context.fileReadTracker?.fingerprint?.(filePath)
+				if (seen !== undefined && seen !== fingerprintContent(content)) {
+					return { success: false as const, output: '', error: staleFileError(filePath) }
+				}
 				return { success: false as const, output: '', error: result.error }
 			}
 

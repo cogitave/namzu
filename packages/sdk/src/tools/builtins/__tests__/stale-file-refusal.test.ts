@@ -52,8 +52,8 @@ describe('an edit against a file that moved is refused, not applied', () => {
 		const tracker = trackerOver(store)
 		tracker.recordRead(file, 'alpha\nbeta\n')
 
-		// Somebody else writes between the read and the edit.
-		writeFileSync(file, 'alpha\nbeta\nsomeone else was here\n')
+		// Somebody else rewrites the very line this edit anchors on.
+		writeFileSync(file, 'alpha\nBETA WAS REWRITTEN\n')
 
 		const result = await EditTool.execute(
 			{ path: 'doc.md', old_string: 'beta', new_string: 'gamma', replace_all: false },
@@ -66,7 +66,7 @@ describe('an edit against a file that moved is refused, not applied', () => {
 		// part that stops the agent re-running the same edit blind.
 		expect(result.error).toContain('Read the file again')
 		expect(result.error).toContain('Nothing was written')
-		expect(readFileSync(file, 'utf-8')).toBe('alpha\nbeta\nsomeone else was here\n')
+		expect(readFileSync(file, 'utf-8')).toBe('alpha\nBETA WAS REWRITTEN\n')
 	})
 
 	it('applies normally when the file is untouched', async () => {
@@ -186,5 +186,73 @@ describe('an atomic commit writes through a symlink rather than over it', () => 
 		await atomicWriteFile(fresh, 'created\n')
 
 		expect(readFileSync(fresh, 'utf-8')).toBe('created\n')
+	})
+})
+
+describe('drift that does not touch the anchor is not a conflict', () => {
+	it('applies when someone changed an unrelated part of the file', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'namzu-stale-'))
+		const file = join(dir, 'doc.md')
+		writeFileSync(file, 'alpha\nbeta\n')
+
+		const tracker = trackerOver(new Map())
+		tracker.recordRead(file, 'alpha\nbeta\n')
+
+		// Someone appends a line. The edit's anchor is untouched, so the edit
+		// is still exactly as well defined as when it was computed —
+		// refusing here would reject a safe edit every time anybody wrote
+		// anywhere in the file.
+		writeFileSync(file, 'alpha\nbeta\nan unrelated new line\n')
+
+		const result = await EditTool.execute(
+			{ path: 'doc.md', old_string: 'beta', new_string: 'gamma', replace_all: false },
+			contextWith(dir, tracker),
+		)
+
+		expect(result.success).toBe(true)
+		expect(readFileSync(file, 'utf-8')).toBe('alpha\ngamma\nan unrelated new line\n')
+	})
+
+	it('reports a genuinely wrong anchor as wrong, not as drift', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'namzu-stale-'))
+		const file = join(dir, 'doc.md')
+		writeFileSync(file, 'alpha\nbeta\n')
+
+		const tracker = trackerOver(new Map())
+		tracker.recordRead(file, 'alpha\nbeta\n')
+
+		// Nothing moved. The anchor is simply not in the file, and telling
+		// the agent to re-read would send it to look for a change that never
+		// happened.
+		const result = await EditTool.execute(
+			{ path: 'doc.md', old_string: 'nowhere', new_string: 'x', replace_all: false },
+			contextWith(dir, tracker),
+		)
+
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('not found in file')
+		expect(result.error).not.toContain('changed on disk')
+	})
+
+	it('reports drift when the anchor became ambiguous because of it', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'namzu-stale-'))
+		const file = join(dir, 'doc.md')
+		writeFileSync(file, 'alpha\nbeta\n')
+
+		const tracker = trackerOver(new Map())
+		tracker.recordRead(file, 'alpha\nbeta\n')
+
+		// A second copy of the anchor appears. "not unique — add more
+		// context" would send the agent to widen an anchor that was unique
+		// when it read the file.
+		writeFileSync(file, 'alpha\nbeta\nbeta\n')
+
+		const result = await EditTool.execute(
+			{ path: 'doc.md', old_string: 'beta', new_string: 'gamma', replace_all: false },
+			contextWith(dir, tracker),
+		)
+
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('changed on disk')
 	})
 })
