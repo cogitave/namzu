@@ -368,3 +368,71 @@ describe('coordinator ask_user_question decision -> output mapping', () => {
 		expect(result.output).toBe('User answered "Who is the audience?": "Board"')
 	})
 })
+
+describe('the question contract is closed, not merely shaped', () => {
+	const noopHandler: ResumeHandler = async () => ({ action: 'continue' })
+
+	it('publishes one closed model-facing schema', () => {
+		const tool = askTool(noopHandler)
+
+		expect(tool.modelInputSchema).toMatchObject({
+			type: 'object',
+			required: ['question', 'options'],
+			additionalProperties: false,
+		})
+		// The whole point of the array declaration: a model that serializes
+		// its options once tends to keep doing it, and a closed schema makes
+		// a capable provider refuse at generation time instead of after.
+		const properties = (tool.modelInputSchema as { properties: Record<string, { type: string }> })
+			.properties
+		expect(properties.options?.type).toBe('array')
+		expect(tool.enforceModelInput).toBe(true)
+	})
+
+	it('rejects a serialized options string and other malformed option shapes', () => {
+		const tool = askTool(noopHandler)
+
+		for (const options of [
+			'<options><option><label>Board</label></option></options>',
+			'[{"label":"Board"},{"label":"Engineering"}]',
+			[42, { label: 'Engineering' }],
+			[{ description: 'Missing label' }, { label: 'Engineering' }],
+			[{ label: 'Board', description: 42 }, { label: 'Engineering' }],
+		]) {
+			expect(
+				tool.inputSchema.safeParse({ question: 'Who is the audience?', options }).success,
+				JSON.stringify(options),
+			).toBe(false)
+		}
+	})
+
+	it('rejects a field it does not declare, rather than dropping it', () => {
+		const tool = askTool(noopHandler)
+		const valid = {
+			question: 'Who is the audience?',
+			options: [{ label: 'Board' }, { label: 'Engineering' }],
+		}
+
+		expect(tool.inputSchema.safeParse(valid).success).toBe(true)
+
+		// Without `.strict()` zod strips these, so the call proceeds as if the
+		// caller had never written them — a misspelling becomes a silent no-op.
+		for (const extra of [
+			{ ...valid, multiSelct: true },
+			{ ...valid, choices: ['a', 'b'] },
+			{
+				...valid,
+				options: [{ label: 'Board', reason: 'why' }, { label: 'Engineering' }],
+			},
+		]) {
+			expect(tool.inputSchema.safeParse(extra).success, JSON.stringify(extra)).toBe(false)
+		}
+	})
+
+	it('carries a recovery hint that names the shape to retry with', () => {
+		const tool = askTool(noopHandler)
+
+		expect(tool.validationErrorHint).toContain('"options" must be a JSON array')
+		expect(tool.validationErrorHint).toContain('never a string')
+	})
+})

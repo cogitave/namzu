@@ -55,7 +55,10 @@ export const ReadFileTool = defineTool({
 
 			const numberedLines = selectedLines.map((line, i) => `${start + i + 1}\t${line}`).join('\n')
 
-			context.fileReadTracker?.recordRead(input.path)
+			// The WHOLE body, not the selected window: a later edit is checked
+			// against the file, and a partial read must not fingerprint a
+			// fragment as if it were the file.
+			context.fileReadTracker?.recordRead(input.path, content)
 
 			const partial = selectedLines.length < lines.length
 			return {
@@ -92,7 +95,7 @@ export const ReadFileTool = defineTool({
 
 		const numberedLines = selectedLines.map((line, i) => `${start + i + 1}\t${line}`).join('\n')
 
-		context.fileReadTracker?.recordRead(filePath)
+		context.fileReadTracker?.recordRead(filePath, content)
 
 		const isPartial = selectedLines.length < lines.length
 

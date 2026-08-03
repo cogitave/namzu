@@ -44,6 +44,26 @@ const NO_VISION_CAPABILITIES: ProviderCapabilities = {
 	supportsVision: false,
 }
 
+/**
+ * A tool that opts in to constrained generation, which is the only thing
+ * that makes `enforceToolInputSchema` non-empty on the wire.
+ */
+function registerEnforcedTool(tools: ToolRegistry, name: string): void {
+	tools.register({
+		name,
+		description: `${name} tool`,
+		inputSchema: z.object({ new_string: z.string().optional(), newStr: z.string().optional() }),
+		modelInputSchema: {
+			type: 'object',
+			properties: { new_string: { type: 'string' } },
+			required: ['new_string'],
+			additionalProperties: false,
+		},
+		enforceModelInput: true,
+		execute: async () => ({ success: true, output: 'ok' }),
+	})
+}
+
 function registerEchoTool(tools: ToolRegistry): void {
 	tools.register({
 		name: 'echo',
@@ -228,5 +248,54 @@ describe('query() capability negotiation', () => {
 				strictCapabilities: true,
 			}),
 		).rejects.toThrow(/supportsVision: false/)
+	})
+
+	it('names the enforced tools on the request, so a driver can constrain them', async () => {
+		const provider = capturingProvider()
+		const tools = new ToolRegistry()
+		registerEnforcedTool(tools, 'edit')
+		registerEnforcedTool(tools, 'write')
+		registerEchoTool(tools)
+
+		const run = await drainQuery({
+			...baseParams(provider, tools, await mkWorkdir()),
+			messages: [createUserMessage('hello')],
+		})
+
+		expect(run.status).toBe('completed')
+		// The producer was deleted, so this was undefined on every request and
+		// the three drivers that read it were reading a field nothing ever
+		// set — `enforceModelInput` on a tool meant nothing end to end.
+		expect(provider.requests.at(-1)?.enforceToolInputSchema).toEqual(['edit', 'write'])
+	})
+
+	it('omits the field entirely when no tool opts in', async () => {
+		const provider = capturingProvider()
+		const tools = new ToolRegistry()
+		registerEchoTool(tools)
+
+		await drainQuery({
+			...baseParams(provider, tools, await mkWorkdir()),
+			messages: [createUserMessage('hello')],
+		})
+
+		// An empty array would read as "enforce nothing" rather than "nothing
+		// asked", and a driver cannot tell those two apart.
+		expect(provider.requests.at(-1)?.enforceToolInputSchema).toBeUndefined()
+	})
+
+	it('follows the allowed set rather than everything registered', async () => {
+		const provider = capturingProvider()
+		const tools = new ToolRegistry()
+		registerEnforcedTool(tools, 'edit')
+		registerEnforcedTool(tools, 'excluded')
+
+		await drainQuery({
+			...baseParams(provider, tools, await mkWorkdir()),
+			allowedTools: ['edit'],
+			messages: [createUserMessage('hello')],
+		})
+
+		expect(provider.requests.at(-1)?.enforceToolInputSchema).toEqual(['edit'])
 	})
 })

@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import { z } from 'zod'
 import { defineTool } from '../defineTool.js'
 import { atomicWriteFile } from './atomic-write-file.js'
+import { fingerprintContent, staleFileError } from './content-fingerprint.js'
 import { withFileMutationLock } from './file-mutation-lock.js'
 
 /**
@@ -190,8 +191,32 @@ export const EditTool = defineTool({
 			}
 
 			const content = await readFile(filePath, 'utf-8')
+
 			const result = applyEdit(content, normalized.operation)
 			if (!result.success) {
+				// The anchor did not match what is on disk. Two very different
+				// situations produce that, and the difference is the whole
+				// value of the fingerprint:
+				//
+				// The file is as the agent left it, and the anchor is simply
+				// wrong — "not found, match the whitespace exactly" is the
+				// right thing to say.
+				//
+				// Or the file moved after the read — a person in an editor,
+				// another process, a second agent — and the same message is a
+				// lie that sends the agent to re-check text that was never the
+				// problem, so it retries the identical edit against the same
+				// moved file.
+				//
+				// Deliberately NOT a gate on the successful path. An anchor
+				// that still matches uniquely is well defined however much
+				// changed elsewhere in the file, and refusing there would
+				// reject safe edits every time anyone touched an unrelated
+				// line.
+				const seen = context.fileReadTracker?.fingerprint?.(filePath)
+				if (seen !== undefined && seen !== fingerprintContent(content)) {
+					return { success: false as const, output: '', error: staleFileError(filePath) }
+				}
 				return { success: false as const, output: '', error: result.error }
 			}
 
@@ -199,6 +224,10 @@ export const EditTool = defineTool({
 			// one, never a half-written one. A plain `writeFile` that fails
 			// partway leaves the user's source truncated.
 			await atomicWriteFile(filePath, result.content)
+			// This runtime is now the last writer, so the next edit in the same
+			// turn compares against what we just wrote rather than the read
+			// before it.
+			context.fileReadTracker?.recordRead(filePath, result.content)
 			return {
 				success: true as const,
 				output: `Edited ${filePath}: ${result.replacements} replacement(s)`,

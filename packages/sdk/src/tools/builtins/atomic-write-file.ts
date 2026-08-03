@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { type FileHandle, mkdir, open, rename, stat, unlink } from 'node:fs/promises'
+import { type FileHandle, mkdir, open, realpath, rename, stat, unlink } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
 
 interface AtomicWriteHooks {
@@ -14,10 +14,17 @@ interface AtomicWriteHooks {
  * filesystem. A failed pre-commit write leaves the original untouched.
  */
 export async function atomicWriteFile(
-	filePath: string,
+	requestedPath: string,
 	content: string,
 	hooks: AtomicWriteHooks = {},
 ): Promise<void> {
+	// Write THROUGH a symlink, not over it. `rename` replaces whatever sits
+	// at the destination, so committing onto a link path swaps the link for
+	// a regular file: the link is gone, and every other path that pointed
+	// through it now reads stale content. Resolving first keeps the link and
+	// updates what it points at, which is what a caller editing a linked
+	// file means. A path that does not exist yet resolves to itself.
+	const filePath = await realpath(requestedPath).catch(() => requestedPath)
 	const directory = dirname(filePath)
 	await mkdir(directory, { recursive: true })
 
