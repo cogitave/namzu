@@ -880,6 +880,9 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 					type: 'user_question_answered',
 					runId: ctx.runMgr.id,
 					checkpointId,
+					...(decision.action === 'answer_question' && decision.questionId !== undefined
+						? { questionId: decision.questionId }
+						: {}),
 					answered: decision.action === 'answer_question',
 				})
 			},

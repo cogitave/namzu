@@ -147,6 +147,7 @@ const MAPPING: {
 		transform: (e, runId) => ({
 			run_id: runId,
 			checkpoint_id: e.checkpointId,
+			question_id: e.questionId ?? null,
 			answered: e.answered,
 		}),
 	},

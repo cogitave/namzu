@@ -196,6 +196,17 @@ type CoreRunEvent =
 			type: 'user_question_answered'
 			runId: RunId
 			checkpointId: CheckpointId
+			/**
+			 * Which question, when the resolution named one.
+			 *
+			 * Its sibling `user_question_asked` carries this and the answer
+			 * did not, so a client that keyed on the question id — the
+			 * natural key, since it is what routes an answer back on resume
+			 * — could not match the two halves without also having stored
+			 * the checkpoint id. Absent when the pause was resolved without
+			 * an answer.
+			 */
+			questionId?: string
 			answered: boolean
 	  }
 	| {
