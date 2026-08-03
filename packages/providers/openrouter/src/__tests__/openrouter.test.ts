@@ -69,4 +69,37 @@ describe('@namzu/openrouter', () => {
 			expect(capabilities).toEqual(OPENROUTER_CAPABILITIES)
 		})
 	})
+
+	it('keeps the Namzu enforcement hint out of the OpenRouter request body', () => {
+		const provider = new OpenRouterProvider({ apiKey: 'test-key' })
+		const tools = [
+			{
+				type: 'function' as const,
+				function: {
+					name: 'edit',
+					description: 'Edit',
+					parameters: { type: 'object' },
+				},
+			},
+		]
+		const body = (
+			provider as unknown as {
+				buildRequestBody(
+					params: import('@namzu/sdk').ChatCompletionParams,
+					stream: boolean,
+				): Record<string, unknown>
+			}
+		).buildRequestBody(
+			{
+				model: 'anthropic/claude-sonnet-5',
+				messages: [{ role: 'user', content: 'edit' }],
+				tools,
+				enforceToolInputSchema: ['edit'],
+			},
+			true,
+		)
+
+		expect(body).not.toHaveProperty('enforceToolInputSchema')
+		expect(body.tools).toEqual(tools)
+	})
 })

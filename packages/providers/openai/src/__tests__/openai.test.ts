@@ -98,8 +98,14 @@ describe('@namzu/openai', () => {
 				role: 'user',
 				content: [
 					{ type: 'text', text: 'what is in this image?' },
-					{ type: 'image_url', image_url: { url: 'data:image/png;base64,aGVsbG8=' } },
-					{ type: 'image_url', image_url: { url: 'data:image/jpeg;base64,d29ybGQ=' } },
+					{
+						type: 'image_url',
+						image_url: { url: 'data:image/png;base64,aGVsbG8=' },
+					},
+					{
+						type: 'image_url',
+						image_url: { url: 'data:image/jpeg;base64,d29ybGQ=' },
+					},
 				],
 			})
 		})
@@ -116,7 +122,12 @@ describe('@namzu/openai', () => {
 			const [mapped] = toOpenAIMessages(messages)
 			expect(mapped).toEqual({
 				role: 'user',
-				content: [{ type: 'image_url', image_url: { url: 'data:image/webp;base64,aGVsbG8=' } }],
+				content: [
+					{
+						type: 'image_url',
+						image_url: { url: 'data:image/webp;base64,aGVsbG8=' },
+					},
+				],
 			})
 		})
 
@@ -124,5 +135,52 @@ describe('@namzu/openai', () => {
 			const messages: ChatCompletionParams['messages'] = [{ role: 'user', content: 'hello' }]
 			expect(toOpenAIMessages(messages)).toEqual([{ role: 'user', content: 'hello' }])
 		})
+	})
+
+	it('keeps the Namzu enforcement hint out of the OpenAI SDK request', async () => {
+		const provider = new OpenAIProvider({ apiKey: 'test-key' })
+		let requestBody: Record<string, unknown> | undefined
+		;(provider as unknown as { client: unknown }).client = {
+			chat: {
+				completions: {
+					create: async (body: Record<string, unknown>) => {
+						requestBody = body
+						return (async function* () {
+							yield {
+								id: 'msg_done',
+								choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+								usage: {
+									prompt_tokens: 1,
+									completion_tokens: 0,
+									total_tokens: 1,
+								},
+							}
+						})()
+					},
+				},
+			},
+		}
+		const tools = [
+			{
+				type: 'function' as const,
+				function: {
+					name: 'edit',
+					description: 'Edit',
+					parameters: { type: 'object' },
+				},
+			},
+		]
+
+		for await (const _chunk of provider.chatStream({
+			model: 'gpt-5',
+			messages: [{ role: 'user', content: 'edit' }],
+			tools,
+			enforceToolInputSchema: ['edit'],
+		})) {
+			// Drain the test stream.
+		}
+
+		expect(requestBody).not.toHaveProperty('enforceToolInputSchema')
+		expect(requestBody?.tools).toEqual(tools)
 	})
 })

@@ -179,4 +179,20 @@ describe('coordinator agent_task_list tool', () => {
 		expect(names).toContain('agent_task_list')
 		expect(names).not.toContain('task_list')
 	})
+
+	it('does not advertise per-task cancellation on the blocking coordinator surface', () => {
+		const coordinatorTools = buildCoordinatorTools({
+			gateway: gatewayWith([]),
+			workingDirectory: '/tmp/test',
+			allowedAgentIds: ['solution-architecture'],
+		})
+		const names = coordinatorTools.map((tool) => tool.name)
+
+		// create_task returns only after the worker is terminal, so the
+		// supervisor cannot know a live task id in a later model turn.
+		// Keeping cancel_task here only manufactured success for missing
+		// or terminal ids because every gateway cancellation is a void
+		// no-op in those states.
+		expect(names).not.toContain('cancel_task')
+	})
 })

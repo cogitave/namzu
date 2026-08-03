@@ -46,6 +46,7 @@ const { provider } = ProviderRegistry.create({
   baseURL: 'https://api.anthropic.com/v1',
   apiKey: process.env.ANTHROPIC_API_KEY!,
   dialect: 'anthropic',
+  strictToolUse: 'auto',
 })
 
 await provider.chat({
@@ -54,6 +55,12 @@ await provider.chat({
   maxTokens: 1024, // REQUIRED for Anthropic
 })
 ```
+
+For Anthropic-dialect tools declared with `modelInputSchema` and
+`enforceModelInput: true`, `strictToolUse: 'auto'` enables constrained inputs
+on recognized Claude 4.5+ models. Use `'on'` for a compatible proxy alias or
+`'off'` to disable the mapping. The option has no effect on the OpenAI dialect,
+and Namzu's non-wire enforcement hint is never forwarded as an HTTP field.
 
 ### Local Ollama (OpenAI-compat endpoint)
 

@@ -91,6 +91,7 @@ const { provider } = ProviderRegistry.create({
 | `dialect` | No | `openai` or `anthropic`; defaults to `openai` |
 | `headers` | No | Extra HTTP headers |
 | `model` | No | Default model when omitted from chat params |
+| `strictToolUse` | No | Anthropic-dialect constrained tool-input policy: `auto` (default), `on`, or `off` |
 | `timeout` | No | Request timeout in milliseconds |
 
 ## 7. Capability Snapshot
@@ -115,6 +116,8 @@ An image on a user message is mapped into whichever content shape the configured
 
 - The package exports `DialectMismatchError`, which is thrown when the declared dialect does not match the actual response shape.
 - Use `dialect: 'anthropic'` only for native Anthropic-style endpoints.
+- With `dialect: 'anthropic'`, `auto` maps tools marked with `enforceModelInput: true` to `strict: true` on recognized Claude 4.5+ identifiers. Use `on` only for a compatible proxy alias, or `off` to disable the mapping.
+- `strictToolUse` has no effect on the OpenAI dialect. The Namzu enforcement hint is never serialized as an HTTP request field.
 - This package is a good fit for self-hosted gateways, vLLM, TGI, Groq-style OpenAI-compatible APIs, and similar targets.
 - The provider also implements `listModels()` and `healthCheck()`.
 

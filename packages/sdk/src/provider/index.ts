@@ -1,4 +1,19 @@
 export {
+	ProviderRequestError,
+	isCallerAbortError,
+	isProviderRequestError,
+	classifyProviderHttpStatus,
+	bodySaysContextOverflow,
+	parseRetryAfterMs,
+	providerHttpError,
+	providerVendorError,
+} from './errors.js'
+export type {
+	ProviderErrorInfo,
+	ProviderErrorKind,
+	ProviderRequestErrorInit,
+} from './errors.js'
+export {
 	ProviderRegistry,
 	UnknownProviderError,
 	DuplicateProviderError,

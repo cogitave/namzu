@@ -65,7 +65,7 @@ describe('@namzu/anthropic', () => {
 		})
 
 		it('throws when constructed without an apiKey or authToken', () => {
-			expect(() => new AnthropicProvider({} as any)).toThrow(/apiKey.*or.*authToken.*required/)
+			expect(() => new AnthropicProvider({})).toThrow(/apiKey.*or.*authToken.*required/)
 		})
 
 		it('accepts an authToken instead of an apiKey (OAuth path)', () => {
@@ -89,7 +89,7 @@ describe('@namzu/anthropic', () => {
 				apiKey: 'test-key',
 				model: 'claude-sonnet-4-5-20250929',
 			})
-			;(provider as any).client = {
+			;(provider as unknown as { client: unknown }).client = {
 				messages: {
 					create: async () => delayedAnthropicStream(10),
 				},
@@ -113,7 +113,7 @@ describe('@namzu/anthropic', () => {
 				model: 'claude-sonnet-4-5-20250929',
 				streamIdleTimeoutMs: 1,
 			})
-			;(provider as any).client = {
+			;(provider as unknown as { client: unknown }).client = {
 				messages: {
 					create: async () => delayedAnthropicStream(20),
 				},
@@ -135,24 +135,43 @@ describe('@namzu/anthropic', () => {
 })
 
 describe('AnthropicProvider — buildCreateParams', () => {
+	type AnthropicRequestBody = Record<string, unknown> & {
+		tools?: Record<string, unknown>[]
+	}
+
 	const buildParams = (
 		provider: AnthropicProvider,
 		params: ChatCompletionParams,
 		stream = false,
-	): Record<string, any> =>
-		(provider as any).buildCreateParams(params, stream) as Record<string, any>
+	): AnthropicRequestBody =>
+		(
+			provider as unknown as {
+				buildCreateParams(input: ChatCompletionParams, useStream: boolean): AnthropicRequestBody
+			}
+		).buildCreateParams(params, stream)
 
 	const makeProvider = () =>
-		new AnthropicProvider({ apiKey: 'test-key', model: 'claude-sonnet-4-5-20250929' })
+		new AnthropicProvider({
+			apiKey: 'test-key',
+			model: 'claude-sonnet-4-5-20250929',
+		})
 
 	const tools: LLMToolSchema[] = [
 		{
 			type: 'function',
-			function: { name: 'alpha', description: 'first', parameters: { type: 'object' } },
+			function: {
+				name: 'alpha',
+				description: 'first',
+				parameters: { type: 'object' },
+			},
 		},
 		{
 			type: 'function',
-			function: { name: 'beta', description: 'second', parameters: { type: 'object' } },
+			function: {
+				name: 'beta',
+				description: 'second',
+				parameters: { type: 'object' },
+			},
 		},
 	]
 
@@ -205,7 +224,139 @@ describe('AnthropicProvider — buildCreateParams', () => {
 				tools,
 				parallelToolCalls: false,
 			})
-			expect(body.tool_choice).toEqual({ type: 'auto', disable_parallel_tool_use: true })
+			expect(body.tool_choice).toEqual({
+				type: 'auto',
+				disable_parallel_tool_use: true,
+			})
+		})
+	})
+
+	describe('strict tool input mapping', () => {
+		const base = (model: string): ChatCompletionParams => ({
+			model,
+			messages: [{ role: 'user', content: 'hi' }],
+			tools,
+			enforceToolInputSchema: ['alpha'],
+		})
+
+		it.each([
+			'claude-haiku-4-5-20251001',
+			'claude-sonnet-4-6',
+			'claude-opus-5',
+			'anthropic/claude-fable-5',
+			'claude-mythos-preview',
+		])('enables only named tools for supported model %s', (model) => {
+			const body = buildParams(makeProvider(), base(model))
+			expect(body.tools?.[0]).toMatchObject({ name: 'alpha', strict: true })
+			expect(body.tools?.[1]).toEqual({
+				name: 'beta',
+				description: 'second',
+				input_schema: { type: 'object' },
+			})
+		})
+
+		it.each([
+			'claude-3-5-sonnet-20241022',
+			'proxy-production-alias',
+			'proxy-production-claude-opus-5-legacy',
+			'not-claude-sonnet-4-5-compatible',
+			'claude-mythos-preview-shadow',
+		])('falls back to runtime validation for unsupported or unknown model %s', (model) => {
+			const body = buildParams(makeProvider(), base(model))
+			expect(JSON.stringify(body.tools)).not.toContain('"strict"')
+		})
+
+		it('uses the per-call model instead of the configured default in auto mode', () => {
+			const provider = new AnthropicProvider({
+				apiKey: 'test-key',
+				model: 'claude-opus-5',
+			})
+			const body = buildParams(provider, base('proxy-production-alias'))
+			expect(JSON.stringify(body.tools)).not.toContain('"strict"')
+		})
+
+		it('supports explicit on/off overrides for compatible aliases and proxies', () => {
+			const on = new AnthropicProvider({
+				apiKey: 'test-key',
+				model: 'proxy-production-alias',
+				strictToolUse: 'on',
+			})
+			expect(
+				buildParams(on, {
+					...base(''),
+					model: '',
+				}).tools?.[0],
+			).toMatchObject({ strict: true })
+
+			const off = new AnthropicProvider({
+				apiKey: 'test-key',
+				model: 'claude-opus-5',
+				strictToolUse: 'off',
+			})
+			expect(JSON.stringify(buildParams(off, base('claude-opus-5')).tools)).not.toContain(
+				'"strict"',
+			)
+		})
+
+		it('ignores empty and unknown enforcement names', () => {
+			for (const names of [[], ['unknown_tool']]) {
+				const body = buildParams(makeProvider(), {
+					...base('claude-opus-5'),
+					enforceToolInputSchema: names,
+				})
+				expect(JSON.stringify(body.tools)).not.toContain('"strict"')
+			}
+		})
+
+		it('serializes the reviewed model schema unchanged without unsupported constraints', () => {
+			const schema = {
+				type: 'object',
+				properties: {
+					path: { type: 'string' },
+					old_string: { type: 'string' },
+					new_string: { type: 'string' },
+					replace_all: { type: 'boolean' },
+				},
+				required: ['path', 'old_string', 'new_string'],
+				additionalProperties: false,
+			}
+			const body = buildParams(makeProvider(), {
+				model: 'claude-opus-5',
+				messages: [{ role: 'user', content: 'append' }],
+				tools: [
+					{
+						type: 'function',
+						function: {
+							name: 'edit',
+							description: 'Edit',
+							parameters: schema,
+						},
+					},
+				],
+				enforceToolInputSchema: ['edit'],
+			})
+
+			expect(body.tools?.[0]).toEqual({
+				name: 'edit',
+				description: 'Edit',
+				input_schema: schema,
+				strict: true,
+			})
+			expect(JSON.stringify(body.tools)).not.toContain('"minimum"')
+		})
+
+		it('coexists with cache_control on the tools-array tail', () => {
+			const body = buildParams(makeProvider(), {
+				...base('claude-opus-5'),
+				enforceToolInputSchema: ['beta'],
+				cacheControl: { type: 'auto' },
+			})
+			expect(body.tools?.[0]).not.toHaveProperty('strict')
+			expect(body.tools?.[1]).toMatchObject({
+				name: 'beta',
+				strict: true,
+				cache_control: { type: 'ephemeral' },
+			})
 		})
 	})
 
@@ -236,7 +387,11 @@ describe('AnthropicProvider — buildCreateParams', () => {
 		it('preserves system segment boundaries and marks only the cache-tagged block', () => {
 			const body = buildParams(makeProvider(), cachedParams())
 			expect(body.system).toEqual([
-				{ type: 'text', text: 'STATIC PREFIX', cache_control: { type: 'ephemeral' } },
+				{
+					type: 'text',
+					text: 'STATIC PREFIX',
+					cache_control: { type: 'ephemeral' },
+				},
 				{ type: 'text', text: 'DYNAMIC SEGMENT' },
 			])
 		})
@@ -262,7 +417,11 @@ describe('AnthropicProvider — buildCreateParams', () => {
 					role: 'assistant',
 					content: null,
 					toolCalls: [
-						{ id: 'tu_1', type: 'function', function: { name: 'alpha', arguments: '{}' } },
+						{
+							id: 'tu_1',
+							type: 'function',
+							function: { name: 'alpha', arguments: '{}' },
+						},
 					],
 				},
 				{ role: 'tool', content: 'tool says hi', toolCallId: 'tu_1' },
@@ -282,7 +441,10 @@ describe('AnthropicProvider — buildCreateParams', () => {
 		it('keeps the Claude Code identity block FIRST on the OAuth path', () => {
 			const provider = new AnthropicProvider({ authToken: 'cc-oauth-token' })
 			const body = buildParams(provider, cachedParams())
-			const system = body.system as Array<{ text: string; cache_control?: unknown }>
+			const system = body.system as Array<{
+				text: string
+				cache_control?: unknown
+			}>
 			expect(system[0]?.text).toMatch(/^You are Claude Code/)
 			expect(system[0]?.cache_control).toBeUndefined()
 			expect(system[1]).toEqual({

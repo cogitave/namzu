@@ -1,7 +1,7 @@
 ---
 title: Anthropic Provider
 description: Configure @namzu/anthropic for the Anthropic Messages API through Namzu.
-last_updated: 2026-04-18
+last_updated: 2026-07-30
 status: current
 related_packages: ["@namzu/sdk", "@namzu/anthropic"]
 ---
@@ -102,6 +102,7 @@ const result = await agent.run(
 | `timeout` | No | Request timeout in milliseconds |
 | `defaultHeaders` | No | Extra headers appended to every request |
 | `maxTokens` | No | Default `max_tokens` value; Anthropic requires this field at request time |
+| `strictToolUse` | No | Constrained tool-input policy: `auto` (default), `on`, or `off` |
 
 ## 8. Capability Snapshot
 
@@ -118,6 +119,8 @@ The package exports `ANTHROPIC_CAPABILITIES`:
 ## 9. Operational Notes
 
 - Anthropic requires `max_tokens`, so setting `maxTokens` at provider creation time is a good default.
+- In `auto` mode, tools marked with `enforceModelInput: true` are sent with `strict: true` on recognized Claude 4.5+ model identifiers. Use `on` only for a compatible proxy alias, or `off` to disable constrained tool inputs.
+- Strict generation narrows model output, but `ToolRegistry` still applies the tool's runtime Zod schema before execution.
 - `baseURL` can point at proxies or gateways, but for Bedrock-hosted Anthropic models [`@namzu/bedrock`](./bedrock.md) is the better fit.
 - The provider also implements `listModels()` and `healthCheck()`.
 

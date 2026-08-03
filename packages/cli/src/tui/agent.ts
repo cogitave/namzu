@@ -768,11 +768,11 @@ export function previewToolInput(toolName: string, input: unknown): readonly str
 		if (content !== undefined) return previewLines(content, 8)
 	}
 	if (name === 'edit') {
-		const oldStr = str('old_string') ?? str('oldStr')
-		const newStr = str('new_string') ?? str('newStr')
+		const oldString = str('old_string')
+		const newString = str('new_string')
 		const lines: string[] = []
-		if (oldStr) for (const l of previewLines(oldStr, 4)) lines.push(`- ${l}`)
-		if (newStr) for (const l of previewLines(newStr, 4)) lines.push(`+ ${l}`)
+		if (oldString) for (const line of previewLines(oldString, 4)) lines.push(`- ${line}`)
+		if (newString) for (const line of previewLines(newString, 4)) lines.push(`+ ${line}`)
 		if (lines.length > 0) return lines
 	}
 	return undefined
@@ -807,11 +807,11 @@ export function toolStartDetail(toolName: string, input: unknown): readonly stri
 		return content !== undefined ? clampLines(content) : undefined
 	}
 	if (name === 'edit') {
-		const oldStr = str('old_string') ?? str('oldStr')
-		const newStr = str('new_string') ?? str('newStr')
+		const oldString = str('old_string')
+		const newString = str('new_string')
 		const lines: string[] = []
-		if (oldStr) for (const l of clampLines(oldStr)) lines.push(`- ${l}`)
-		if (newStr) for (const l of clampLines(newStr)) lines.push(`+ ${l}`)
+		if (oldString) for (const line of clampLines(oldString)) lines.push(`- ${line}`)
+		if (newString) for (const line of clampLines(newString)) lines.push(`+ ${line}`)
 		return lines.length > 0 ? lines : undefined
 	}
 	return undefined

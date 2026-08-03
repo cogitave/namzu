@@ -1,5 +1,111 @@
 # Changelog
 
+## 2.0.0
+
+### Major Changes
+
+- 6b0fbfd: Replace the built-in filesystem mutation contracts with one strict canonical
+  shape per tool: `edit` accepts `path`, `old_string`, `new_string`, and optional
+  `replace_all`; `write` accepts `path` and `content`. Remove line insertion and
+  legacy aliases, serialize same-process mutations by resolved path, and document
+  replay-safe marker advancement for bounded long-document writes. Local writes
+  commit through same-directory temp files and atomic rename; sandbox
+  implementations are required to provide the same atomic replacement contract.
+
+### Minor Changes
+
+- 11167dd: Separate runtime tool validation from canonical model-facing JSON Schema,
+  propagate constrained-input hints through the agent loop, and map reviewed
+  schemas to Anthropic strict tool use with capability-aware overrides. The
+  built-in edit tool advertises only canonical arguments.
+
+## 1.4.0
+
+### Minor Changes
+
+- 3fd2524: Normalize request-start and mid-stream failures across all seven provider
+  drivers with the new public `ProviderRequestError` taxonomy. Errors expose
+  `kind` (`throttle`, `network`, `auth`, `context_overflow`, `bad_request`, or
+  `server`), `providerId`, and optional `status` / `retryAfterMs`, with
+  `isProviderRequestError` available for structural narrowing across package
+  copies.
+
+  Provider error messages and metadata deliberately omit vendor response bodies,
+  URLs, messages, and causes because upstream errors can echo credentials. HTTP
+  dialect-mismatch diagnostics now keep only the endpoint origin and status.
+  Caller-owned aborts remain unchanged instead of being reclassified.
+
+  The runtime preserves the classified error through streaming and publishes its
+  safe metadata as `Run.lastProviderError` and
+  `run_failed.providerError`. Bedrock stream-exception events and provider
+  iterator/SSE failures no longer appear as clean end-of-stream.
+
+  `retryAfterMs` is metadata only; this change does not add retries or alter vendor
+  SDK retry settings. Provider packages now require `@namzu/sdk >=1.3.0`, the
+  first SDK release containing these runtime helpers and types.
+
+  Ollama now maps `done_reason: "length"` truthfully so runtime continuation can
+  run. LM Studio treats content-free `contextLengthReached` as context overflow,
+  while preserving `"length"` after partial content, and creates its WebSocket
+  client lazily on first use.
+
+### Patch Changes
+
+- c7cf4c7: Compaction can no longer delete the turn it is compacting.
+
+  The recent-window boundary was snapped FORWARD to avoid splitting a tool pair,
+  but that walk skips leading `tool` messages with no stop short of the end of the
+  transcript. Whenever the whole suffix from the naive boundary is `tool` messages —
+  one assistant turn fanning out at least `keepRecentMessages` parallel calls,
+  measured at the start of the very next iteration, which is exactly where the
+  compaction check runs — the boundary landed on `messages.length`, the recent
+  window came back empty, and the rebuilt transcript held no non-system message at
+  all. The model was then asked to answer a conversation whose last turn, including
+  the user's own message, had been removed. The existing older-message floor guard
+  cannot catch it: in that shape the older half is the whole transcript.
+
+  The boundary is now the largest safe one AT OR BELOW naive, so a pass never
+  removes more than the naive cut would and at least `keepRecentMessages` original
+  messages always survive verbatim. When no safe boundary exists the pass is
+  skipped and the transcript is left intact — one iteration of context headroom is
+  cheaper than the live turn, and the condition clears itself as soon as the next
+  assistant message moves the boundary past the tool block. The same change stops
+  the leading system prompts being duplicated into the recent window when the naive
+  boundary lands inside the system prefix. `findSafeTrimIndex` is unchanged and is
+  reused as the safety predicate.
+
+  Two smaller silent losses in the same area:
+
+  An empty verification reply is now treated like `COMPLETE`. A truncated turn, a
+  refusal, or an exhausted `llmVerificationMaxTokens` produced an empty string,
+  which fell through to the append path and stamped a bare
+  `## LLM Verification Additions` heading with nothing under it — an empty promise
+  that then rode in every subsequent system prompt for the rest of the run.
+
+  Every compaction count is `z.number().int().positive()` instead of
+  `z.number().positive()`. Zod's base number check rejects only non-numbers and
+  `NaN`, so `Infinity` and fractional values both parsed. `Infinity` was the
+  dangerous one: it disarms the budget it guards rather than failing, so
+  `convoTextBudget: Infinity` made `truncateMessages` a no-op and the entire older
+  history was pasted into the verification prompt.
+
+- f002c44: Add tool-specific validation recovery guidance and use it to show complete,
+  safe `edit` call shapes when a model omits `path` or supplies an invalid
+  `insertLine`.
+- e9c974c: Remove the model-facing `cancel_task` coordinator tool from the default
+  blocking worker protocol. A supervisor learns a `create_task` id only after
+  that worker is terminal, and the old tool manufactured a successful
+  "cancelled" result even when the gateway silently ignored a missing or
+  terminal id. Host-owned run interruption remains available through the task
+  gateway.
+
+  Tighten the builtin `edit` contract so `insertLine` accepts only a
+  non-negative JSON integer or the exact string `"end"`. Headings, anchors,
+  numeric strings, `null`, and empty strings are rejected before execution;
+  schema-bypassing callers receive the same refusal. This prevents `null` and
+  empty values from being coerced to line `0` and silently inserting content at
+  the beginning of a file.
+
 ## 1.3.0
 
 ### Minor Changes

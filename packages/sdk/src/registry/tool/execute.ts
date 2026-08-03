@@ -145,6 +145,15 @@ export class ToolRegistry extends ManagedRegistry<ToolDefinition> {
 
 	private registerOne(id: string, tool: ToolDefinition, state: ToolAvailability): void {
 		assertToolName(id)
+		// A model-facing schema is what the constraint is applied TO, so
+		// asking for enforcement without one is a request that cannot be
+		// honoured. Refusing at registration puts the error where the author
+		// can fix it rather than at the first request.
+		if (tool.enforceModelInput && !tool.modelInputSchema) {
+			throw new Error(
+				`Tool "${id}" enables enforceModelInput but does not define modelInputSchema. Constrained input generation requires an explicit provider-safe model schema.`,
+			)
+		}
 		if (tool.tier && this.tierConfig) {
 			const validIds = this.tierConfig.tiers.map((t) => t.id)
 			if (!validIds.includes(tool.tier)) {
@@ -336,7 +345,9 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 				function: {
 					name: tool.name,
 					description: describeWithOutput(description, tool.outputSchema),
-					parameters: renderToolSchema(tool.inputSchema),
+					parameters:
+						(tool.modelInputSchema ? structuredClone(tool.modelInputSchema) : undefined) ??
+						renderToolSchema(tool.inputSchema),
 				},
 			}
 		})
@@ -434,10 +445,16 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 						Object.keys(rawInput as Record<string, unknown>).length === 0)
 
 				const requiredHint = describeRequiredInput(tool.inputSchema)
+				// A conditional schema's required shape cannot be reconstructed
+				// from JSON Schema's top-level `required`, so the author gets to
+				// say what a valid retry looks like.
+				const recoveryHint = tool.validationErrorHint?.trim()
+					? ` ${tool.validationErrorHint.trim()}`
+					: ''
 
 				const enrichedMessage = isEmptyInput
-					? `Tool "${toolName}" was called with no arguments. ${requiredHint} Retry the call with the required parameters populated.`
-					: `Validation failed for "${toolName}": ${errorMessage}. ${requiredHint}`
+					? `Tool "${toolName}" was called with no arguments. ${requiredHint}${recoveryHint} Retry the call with the required parameters populated.`
+					: `Validation failed for "${toolName}": ${errorMessage}. ${requiredHint}${recoveryHint}`
 
 				this.log.error(`Tool input validation failed: ${toolName}`, {
 					errors: errorMessage,
@@ -537,11 +554,45 @@ export function toolDiscoveryHint(description: string, maxLength = 100): string 
  */
 function listArgumentNames(tool: ToolDefinition): string[] {
 	try {
-		const json = renderToolSchema(tool.inputSchema) as { properties?: Record<string, unknown> }
-		return Object.keys(json.properties ?? {}).map((key) => key.toLowerCase())
+		// The model-facing schema when there is one: that is what the model
+		// was shown, so it is what a search over "which tool takes this
+		// argument" has to match against.
+		const json = tool.modelInputSchema ?? renderToolSchema(tool.inputSchema)
+		return [...collectSchemaPropertyNames(json)].map((key) => key.toLowerCase())
 	} catch {
 		return []
 	}
+}
+
+/**
+ * Every property name a schema can accept, including the ones that only
+ * appear inside a branch.
+ *
+ * A conditional schema puts its real arguments under `anyOf`/`oneOf`, so
+ * reading the top-level `properties` alone finds nothing and the tool is
+ * unfindable by the very argument it takes. `seen` guards a schema that
+ * refers back to itself.
+ */
+function collectSchemaPropertyNames(
+	schema: unknown,
+	names: Set<string> = new Set(),
+	seen: Set<object> = new Set(),
+): Set<string> {
+	if (!schema || typeof schema !== 'object' || Array.isArray(schema)) return names
+	if (seen.has(schema)) return names
+	seen.add(schema)
+
+	const record = schema as Record<string, unknown>
+	const properties = record.properties
+	if (properties && typeof properties === 'object' && !Array.isArray(properties)) {
+		for (const name of Object.keys(properties)) names.add(name)
+	}
+	for (const keyword of ['anyOf', 'oneOf', 'allOf'] as const) {
+		const branches = record[keyword]
+		if (!Array.isArray(branches)) continue
+		for (const branch of branches) collectSchemaPropertyNames(branch, names, seen)
+	}
+	return names
 }
 
 /**

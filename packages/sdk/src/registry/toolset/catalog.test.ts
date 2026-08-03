@@ -16,6 +16,18 @@ function makeTool(name: string, description = `${name} tool`): ToolDefinition {
 	}
 }
 
+function makeCatalog(): ToolCatalog {
+	const catalog = new ToolCatalog()
+	catalog.registerSource({ id: 'host', kind: 'host_tool', name: 'Host' })
+	catalog.registerToolset({
+		id: 'tools',
+		sourceId: 'host',
+		name: 'Tools',
+		defaultPolicy: { enabled: true, loading: 'eager' },
+	})
+	return catalog
+}
+
 describe('ToolCatalog', () => {
 	it('keeps sources, toolsets, and tools as separate records', () => {
 		const catalog = new ToolCatalog()
@@ -160,5 +172,111 @@ describe('ToolCatalog', () => {
 		expect(catalog.getTool('web_search')?.policy.loading).toBe('deferred')
 		expect(catalog.getTool('write_file')?.policy.loading).toBe('suspended')
 		expect(catalog.toLLMTools({ loading: ['suspended'] })).toEqual([])
+	})
+
+	it('rejects catalog, definition, and LLM schema name mismatches', () => {
+		const catalog = makeCatalog()
+		expect(() =>
+			catalog.registerTool({
+				name: 'edit',
+				description: 'Edit a file',
+				sourceId: 'host',
+				toolsetId: 'tools',
+				policy: { enabled: true, loading: 'eager' },
+				definition: makeTool('write'),
+			}),
+		).toThrow(/definition name mismatch/)
+
+		expect(() =>
+			catalog.registerTool({
+				name: 'edit',
+				description: 'Edit a file',
+				sourceId: 'host',
+				toolsetId: 'tools',
+				policy: { enabled: true, loading: 'eager' },
+				llmSchema: {
+					type: 'function',
+					function: {
+						name: 'write',
+						description: 'Write',
+						parameters: { type: 'object' },
+					},
+				},
+			}),
+		).toThrow(/LLM schema name mismatch/)
+	})
+
+	it('rejects an explicit LLM schema that could replace an enforced definition schema', () => {
+		const catalog = makeCatalog()
+		const definition: ToolDefinition = {
+			...makeTool('edit'),
+			modelInputSchema: {
+				type: 'object',
+				properties: { path: { type: 'string' } },
+				required: ['path'],
+				additionalProperties: false,
+			},
+			enforceModelInput: true,
+		}
+
+		expect(() =>
+			catalog.registerTool({
+				name: 'edit',
+				description: 'Edit a file',
+				sourceId: 'host',
+				toolsetId: 'tools',
+				policy: { enabled: true, loading: 'eager' },
+				definition,
+				llmSchema: {
+					type: 'function',
+					function: {
+						name: 'edit',
+						description: 'Unsafe override',
+						parameters: { type: 'object' },
+					},
+				},
+			}),
+		).toThrow(/cannot combine an explicit llmSchema with enforceModelInput/)
+	})
+
+	it('rejects an enforced catalog definition without an explicit model schema', () => {
+		const catalog = makeCatalog()
+		expect(() =>
+			catalog.registerTool({
+				name: 'edit',
+				description: 'Edit a file',
+				sourceId: 'host',
+				toolsetId: 'tools',
+				policy: { enabled: true, loading: 'eager' },
+				definition: {
+					...makeTool('edit'),
+					enforceModelInput: true,
+				},
+			}),
+		).toThrow(/enforceModelInput.*modelInputSchema/)
+	})
+
+	it('uses a definition model schema when no explicit catalog schema overrides it', () => {
+		const registry = new ToolRegistry()
+		const modelInputSchema = {
+			type: 'object',
+			properties: { new_string: { type: 'string' } },
+			required: ['new_string'],
+			additionalProperties: false,
+		}
+		registry.register({
+			...makeTool('edit'),
+			modelInputSchema,
+		})
+
+		const catalog = createToolCatalogFromRegistry(registry)
+		const firstSchema = catalog.toLLMTools()[0]?.function.parameters
+		expect(firstSchema).toEqual(modelInputSchema)
+		expect(firstSchema).not.toBe(modelInputSchema)
+		;(firstSchema?.properties as Record<string, unknown>).newStr = { type: 'string' }
+
+		const nextSchema = catalog.toLLMTools()[0]?.function.parameters
+		expect(nextSchema).toEqual(modelInputSchema)
+		expect(JSON.stringify(nextSchema)).not.toContain('newStr')
 	})
 })

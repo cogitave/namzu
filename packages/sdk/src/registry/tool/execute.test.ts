@@ -98,6 +98,17 @@ describe('ToolRegistry — register + availability', () => {
 		expect(() => r.register('oops', 'not-a-tool' as never)).toThrow(/requires a ToolDefinition/)
 	})
 
+	it('rejects enforced model input without an explicit model schema', () => {
+		const r = new ToolRegistry()
+		expect(() =>
+			r.register(
+				makeTool('unsafe_strict', {
+					enforceModelInput: true,
+				}),
+			),
+		).toThrow(/enforceModelInput.*modelInputSchema/)
+	})
+
 	it('getAvailability returns active for unknown names (current default)', () => {
 		const r = new ToolRegistry()
 		expect(r.getAvailability('never-registered')).toBe('active')
@@ -228,7 +239,10 @@ describe('ToolRegistry — searchDeferred', () => {
 		r.register(
 			[
 				makeTool('send_invoice', {
-					inputSchema: z.object({ customerEmail: z.string(), amount: z.number() }),
+					inputSchema: z.object({
+						customerEmail: z.string(),
+						amount: z.number(),
+					}),
 				}),
 			],
 			'deferred',
@@ -237,10 +251,50 @@ describe('ToolRegistry — searchDeferred', () => {
 		expect(r.searchDeferred('customerEmail').map((t) => t.name)).toEqual(['send_invoice'])
 	})
 
+	it('indexes canonical model-schema branches without re-advertising runtime aliases', () => {
+		const r = new ToolRegistry()
+		r.register(
+			[
+				makeTool('edit_document', {
+					inputSchema: z.object({ oldStr: z.string(), newStr: z.string() }),
+					modelInputSchema: {
+						type: 'object',
+						properties: {
+							path: { type: 'string' },
+							old_string: { type: 'string' },
+							new_string: { type: 'string' },
+						},
+						required: ['path', 'new_string'],
+						additionalProperties: false,
+						anyOf: [
+							{
+								type: 'object',
+								properties: {
+									path: { type: 'string' },
+									old_string: { type: 'string' },
+									new_string: { type: 'string' },
+								},
+								required: ['path', 'old_string', 'new_string'],
+								additionalProperties: false,
+							},
+						],
+					},
+				}),
+			],
+			'deferred',
+		)
+		expect(r.searchDeferred('old_string').map((t) => t.name)).toEqual(['edit_document'])
+		expect(r.searchDeferred('oldStr')).toEqual([])
+	})
+
 	it('stops generic CRUD verbs so they cannot activate catalog slices', () => {
 		const r = new ToolRegistry()
 		r.register(
-			[makeTool('list_deals', { description: 'List the deals in an account.' })],
+			[
+				makeTool('list_deals', {
+					description: 'List the deals in an account.',
+				}),
+			],
 			'deferred',
 		)
 		r.register([makeTool('list_workflows', { description: 'List workflows.' })], 'deferred')
@@ -370,6 +424,34 @@ describe('ToolRegistry — toPromptSection + toLLMTools', () => {
 		expect(names).toEqual(['a', 'c'])
 	})
 
+	it('toLLMTools: prefers a canonical model schema over runtime compatibility aliases', () => {
+		const r = new ToolRegistry()
+		const modelInputSchema = {
+			type: 'object',
+			properties: { new_string: { type: 'string' } },
+			required: ['new_string'],
+			additionalProperties: false,
+		}
+		r.register(
+			makeTool('edit', {
+				inputSchema: z.object({
+					new_string: z.string().optional(),
+					newStr: z.string().optional(),
+				}),
+				modelInputSchema,
+			}),
+		)
+
+		const firstSchema = r.toLLMTools()[0]?.function.parameters
+		expect(firstSchema).toEqual(modelInputSchema)
+		expect(firstSchema).not.toBe(modelInputSchema)
+		;(firstSchema?.properties as Record<string, unknown>).newStr = { type: 'string' }
+
+		const nextSchema = r.toLLMTools()[0]?.function.parameters
+		expect(nextSchema).toEqual(modelInputSchema)
+		expect(JSON.stringify(nextSchema)).not.toContain('newStr')
+	})
+
 	it('toLLMTools: prefixes description with tier label when labelInDescription is true', () => {
 		const tierConfig: ToolTierConfig = {
 			tiers: [{ id: 'safe', label: 'Safe', priority: 1 }],
@@ -398,7 +480,11 @@ describe('ToolRegistry — execute', () => {
 			'write',
 			{},
 			makeContext({
-				permissionContext: { mode: 'plan', runId: 'run_1', workingDirectory: '/tmp' },
+				permissionContext: {
+					mode: 'plan',
+					runId: 'run_1',
+					workingDirectory: '/tmp',
+				},
 			}),
 		)
 		expect(result.success).toBe(false)
@@ -413,7 +499,11 @@ describe('ToolRegistry — execute', () => {
 			'read',
 			{},
 			makeContext({
-				permissionContext: { mode: 'plan', runId: 'run_1', workingDirectory: '/tmp' },
+				permissionContext: {
+					mode: 'plan',
+					runId: 'run_1',
+					workingDirectory: '/tmp',
+				},
 			}),
 		)
 		expect(result.success).toBe(true)
@@ -433,11 +523,28 @@ describe('ToolRegistry — execute', () => {
 		expect(result.error).toContain('Expected string, received number')
 	})
 
+	it('appends a tool-specific recovery hint to validation failures', async () => {
+		const r = new ToolRegistry()
+		r.register(
+			makeTool('strict', {
+				inputSchema: z.object({ required: z.string() }),
+				validationErrorHint: 'Retry with {"required":"value"}.',
+			}),
+		)
+		const result = await r.execute('strict', { required: 123 }, makeContext())
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('Required: required: string.')
+		expect(result.error).toContain('Retry with {"required":"value"}.')
+	})
+
 	it('empty-args validation lists required params with descriptions', async () => {
 		const r = new ToolRegistry()
 		r.register(
 			makeTool('needs', {
-				inputSchema: z.object({ q: z.string().describe('the query'), n: z.number() }),
+				inputSchema: z.object({
+					q: z.string().describe('the query'),
+					n: z.number(),
+				}),
 			}),
 		)
 		const result = await r.execute('needs', {}, makeContext())
@@ -458,7 +565,10 @@ describe('ToolRegistry — execute', () => {
 	it('validation hint tolerates a schema it cannot introspect', async () => {
 		const r = new ToolRegistry()
 		const bogusSchema = {
-			safeParse: () => ({ success: false, error: { issues: [{ path: [], message: 'nope' }] } }),
+			safeParse: () => ({
+				success: false,
+				error: { issues: [{ path: [], message: 'nope' }] },
+			}),
 		}
 		r.register(makeTool('weird', { inputSchema: bogusSchema as never }))
 		const result = await r.execute('weird', { a: 1 }, makeContext())
@@ -516,7 +626,11 @@ describe('ToolRegistry — execute', () => {
 			'mutate',
 			{},
 			makeContext({
-				permissionContext: { mode: 'plan', runId: 'run_1', workingDirectory: '/tmp' },
+				permissionContext: {
+					mode: 'plan',
+					runId: 'run_1',
+					workingDirectory: '/tmp',
+				},
 			}),
 		)
 		expect(result.success).toBe(false)

@@ -30,6 +30,12 @@ export interface AnthropicConfig {
 	/** Default max_tokens (Anthropic requires this field). Default: 64000. */
 	maxTokens?: number
 	/**
+	 * Constrained tool-input policy. `auto` enables strict tool use for known
+	 * Claude 4.5+ model identifiers, `on` opts a compatible proxy alias in,
+	 * and `off` disables it. Default: `auto`.
+	 */
+	strictToolUse?: 'auto' | 'on' | 'off'
+	/**
 	 * Bearer-style OAuth access token (mutually exclusive with `apiKey`).
 	 * Use when the credential is an Anthropic OAuth or Claude Code OAuth
 	 * token rather than an `sk-ant-api-*` console key. The underlying SDK

@@ -57,6 +57,52 @@ describe('@namzu/bedrock', () => {
 			expect(provider.capabilities).toEqual(BEDROCK_CAPABILITIES)
 		})
 	})
+
+	it('keeps the Namzu enforcement hint out of the Bedrock command', async () => {
+		const provider = new BedrockProvider({ region: 'us-east-1' })
+		let commandInput: Record<string, unknown> | undefined
+		;(provider as unknown as { client: unknown }).client = {
+			send: async (command: { input: Record<string, unknown> }) => {
+				commandInput = command.input
+				return {
+					$metadata: { requestId: 'request-test' },
+					stream: (async function* () {})(),
+				}
+			},
+		}
+
+		for await (const _chunk of provider.chatStream({
+			model: 'anthropic.claude-sonnet-5-v1:0',
+			messages: [{ role: 'user', content: 'edit' }],
+			tools: [
+				{
+					type: 'function',
+					function: {
+						name: 'edit',
+						description: 'Edit',
+						parameters: { type: 'object' },
+					},
+				},
+			],
+			enforceToolInputSchema: ['edit'],
+		})) {
+			// Drain the empty test stream.
+		}
+
+		expect(commandInput).not.toHaveProperty('enforceToolInputSchema')
+		expect(commandInput?.toolConfig).toEqual({
+			tools: [
+				{
+					toolSpec: {
+						name: 'edit',
+						description: 'Edit',
+						inputSchema: { json: { type: 'object' } },
+					},
+				},
+			],
+			toolChoice: { auto: {} },
+		})
+	})
 })
 
 describe('Converse tool results carry failure status', () => {

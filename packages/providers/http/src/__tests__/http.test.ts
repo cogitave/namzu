@@ -46,6 +46,21 @@ function mockSseResponse(frames: string[], status = 200): Response {
 	})
 }
 
+function mockAnthropicDoneSse(): Response {
+	return mockSseResponse([
+		'event: message_start\ndata: {"type":"message_start","message":{"id":"msg_done","usage":{"input_tokens":1,"output_tokens":0}}}',
+		'event: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":1,"output_tokens":0}}',
+		'event: message_stop\ndata: {"type":"message_stop"}',
+	])
+}
+
+function mockOpenAiDoneSse(): Response {
+	return mockSseResponse([
+		'data: {"id":"msg_done","choices":[{"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":0,"total_tokens":1}}',
+		'data: [DONE]',
+	])
+}
+
 async function collectStream<T>(iter: AsyncIterable<T>): Promise<T[]> {
 	const out: T[] = []
 	for await (const x of iter) out.push(x)
@@ -93,7 +108,10 @@ describe('@namzu/http — registration', () => {
 	})
 
 	it('exposes capabilities on the provider instance for runtime negotiation', () => {
-		const provider = new HttpProvider({ baseURL: 'https://example.com/v1', apiKey: 'test' })
+		const provider = new HttpProvider({
+			baseURL: 'https://example.com/v1',
+			apiKey: 'test',
+		})
 		expect(provider.capabilities).toEqual(HTTP_CAPABILITIES)
 	})
 
@@ -119,7 +137,12 @@ describe('@namzu/http — request construction', () => {
 			mockJsonResponse({
 				id: 'x',
 				model: 'gpt-4o',
-				choices: [{ message: { role: 'assistant', content: 'hi' }, finish_reason: 'stop' }],
+				choices: [
+					{
+						message: { role: 'assistant', content: 'hi' },
+						finish_reason: 'stop',
+					},
+				],
 				usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
 			}),
 		)
@@ -141,9 +164,15 @@ describe('@namzu/http — request construction', () => {
 		)
 
 		expect(fetchMock).toHaveBeenCalledTimes(1)
-		const call = fetchMock.mock.calls[0]!
+		const call = fetchMock.mock.calls[0]
+		expect(call).toBeDefined()
+		if (!call) throw new Error('expected fetch call')
 		const url = call[0] as string
-		const init = call[1] as { method: string; headers: Record<string, string>; body: string }
+		const init = call[1] as {
+			method: string
+			headers: Record<string, string>
+			body: string
+		}
 		expect(url).toBe('https://api.openai.com/v1/chat/completions')
 		expect(init.method).toBe('POST')
 		expect(init.headers['Content-Type']).toBe('application/json')
@@ -186,9 +215,15 @@ describe('@namzu/http — request construction', () => {
 			}),
 		)
 
-		const call = fetchMock.mock.calls[0]!
+		const call = fetchMock.mock.calls[0]
+		expect(call).toBeDefined()
+		if (!call) throw new Error('expected fetch call')
 		const url = call[0] as string
-		const init = call[1] as { method: string; headers: Record<string, string>; body: string }
+		const init = call[1] as {
+			method: string
+			headers: Record<string, string>
+			body: string
+		}
 		expect(url).toBe('https://api.anthropic.com/v1/messages')
 		expect(init.headers['x-api-key']).toBe('anthropic-key')
 		expect(init.headers['anthropic-version']).toBe('2023-06-01')
@@ -210,7 +245,12 @@ describe('@namzu/http — request construction', () => {
 			mockJsonResponse({
 				id: 'x',
 				model: 'llama3',
-				choices: [{ message: { role: 'assistant', content: 'hi' }, finish_reason: 'stop' }],
+				choices: [
+					{
+						message: { role: 'assistant', content: 'hi' },
+						finish_reason: 'stop',
+					},
+				],
 			}),
 		)
 		vi.stubGlobal('fetch', fetchMock)
@@ -221,10 +261,15 @@ describe('@namzu/http — request construction', () => {
 		})
 
 		await collect(
-			provider.chatStream({ model: 'llama3', messages: [{ role: 'user', content: 'hi' }] }),
+			provider.chatStream({
+				model: 'llama3',
+				messages: [{ role: 'user', content: 'hi' }],
+			}),
 		)
 
-		const init = fetchMock.mock.calls[0]![1] as { headers: Record<string, string> }
+		const init = fetchMock.mock.calls[0]?.[1] as {
+			headers: Record<string, string>
+		}
 		expect(init.headers.Authorization).toBeUndefined()
 	})
 
@@ -233,7 +278,12 @@ describe('@namzu/http — request construction', () => {
 			mockJsonResponse({
 				id: 'x',
 				model: 'm',
-				choices: [{ message: { role: 'assistant', content: 'hi' }, finish_reason: 'stop' }],
+				choices: [
+					{
+						message: { role: 'assistant', content: 'hi' },
+						finish_reason: 'stop',
+					},
+				],
 			}),
 		)
 		vi.stubGlobal('fetch', fetchMock)
@@ -244,9 +294,192 @@ describe('@namzu/http — request construction', () => {
 			headers: { 'X-Custom-Tenant': 'team-42' },
 		})
 
-		await collect(provider.chatStream({ model: 'm', messages: [{ role: 'user', content: 'hi' }] }))
-		const init = fetchMock.mock.calls[0]![1] as { headers: Record<string, string> }
+		await collect(
+			provider.chatStream({
+				model: 'm',
+				messages: [{ role: 'user', content: 'hi' }],
+			}),
+		)
+		const init = fetchMock.mock.calls[0]?.[1] as {
+			headers: Record<string, string>
+		}
 		expect(init.headers['X-Custom-Tenant']).toBe('team-42')
+	})
+
+	it('anthropic dialect maps enforced tools to strict without leaking the provider hint', async () => {
+		const fetchMock = vi.fn().mockImplementation(async () => mockAnthropicDoneSse())
+		vi.stubGlobal('fetch', fetchMock)
+		const provider = new HttpProvider({
+			baseURL: 'https://api.anthropic.com/v1',
+			apiKey: 'test',
+			dialect: 'anthropic',
+		})
+		const editSchema = {
+			type: 'object',
+			properties: {
+				path: { type: 'string' },
+				old_string: { type: 'string' },
+				new_string: { type: 'string' },
+				replace_all: { type: 'boolean' },
+			},
+			required: ['path', 'old_string', 'new_string'],
+			additionalProperties: false,
+		}
+
+		await collectStream(
+			provider.chatStream({
+				model: 'claude-opus-5',
+				messages: [{ role: 'user', content: 'edit' }],
+				tools: [
+					{
+						type: 'function',
+						function: {
+							name: 'edit',
+							description: 'Edit',
+							parameters: editSchema,
+						},
+					},
+					{
+						type: 'function',
+						function: {
+							name: 'read',
+							description: 'Read',
+							parameters: { type: 'object' },
+						},
+					},
+				],
+				enforceToolInputSchema: ['edit'],
+			}),
+		)
+
+		const init = fetchMock.mock.calls[0]?.[1] as { body: string }
+		const body = JSON.parse(init.body)
+		expect(body).not.toHaveProperty('enforceToolInputSchema')
+		expect(body.tools).toEqual([
+			{
+				name: 'edit',
+				description: 'Edit',
+				input_schema: editSchema,
+				strict: true,
+			},
+			{
+				name: 'read',
+				description: 'Read',
+				input_schema: { type: 'object' },
+			},
+		])
+	})
+
+	it('anthropic dialect applies per-call model precedence and auto/on/off overrides', async () => {
+		const fetchMock = vi.fn().mockImplementation(async () => mockAnthropicDoneSse())
+		vi.stubGlobal('fetch', fetchMock)
+		const tools = [
+			{
+				type: 'function' as const,
+				function: {
+					name: 'edit',
+					description: 'Edit',
+					parameters: {
+						type: 'object',
+						properties: { path: { type: 'string' } },
+						required: ['path'],
+						additionalProperties: false,
+					},
+				},
+			},
+		]
+		const call = async (provider: HttpProvider, model: string) => {
+			await collectStream(
+				provider.chatStream({
+					model,
+					messages: [{ role: 'user', content: 'edit' }],
+					tools,
+					enforceToolInputSchema: ['edit'],
+				}),
+			)
+		}
+
+		await call(
+			new HttpProvider({
+				baseURL: 'https://proxy.example/v1',
+				dialect: 'anthropic',
+				model: 'claude-opus-5',
+			}),
+			'proxy-model-alias',
+		)
+		await call(
+			new HttpProvider({
+				baseURL: 'https://proxy.example/v1',
+				dialect: 'anthropic',
+				model: 'proxy-model-alias',
+				strictToolUse: 'on',
+			}),
+			'',
+		)
+		await call(
+			new HttpProvider({
+				baseURL: 'https://proxy.example/v1',
+				dialect: 'anthropic',
+				strictToolUse: 'off',
+			}),
+			'claude-opus-5',
+		)
+		await call(
+			new HttpProvider({
+				baseURL: 'https://proxy.example/v1',
+				dialect: 'anthropic',
+			}),
+			'proxy-production-claude-opus-5-legacy',
+		)
+		await call(
+			new HttpProvider({
+				baseURL: 'https://proxy.example/v1',
+				dialect: 'anthropic',
+			}),
+			'not-claude-sonnet-4-5-compatible',
+		)
+
+		const bodies = fetchMock.mock.calls.map((entry) =>
+			JSON.parse((entry[1] as { body: string }).body),
+		)
+		expect(bodies[0]?.tools[0]).not.toHaveProperty('strict')
+		expect(bodies[1]?.tools[0]).toMatchObject({ strict: true })
+		expect(bodies[2]?.tools[0]).not.toHaveProperty('strict')
+		expect(bodies[3]?.tools[0]).not.toHaveProperty('strict')
+		expect(bodies[4]?.tools[0]).not.toHaveProperty('strict')
+	})
+
+	it('openai dialect strips the non-wire enforcement hint from the request body', async () => {
+		const fetchMock = vi.fn().mockImplementation(async () => mockOpenAiDoneSse())
+		vi.stubGlobal('fetch', fetchMock)
+		const provider = new HttpProvider({
+			baseURL: 'https://api.openai.com/v1',
+			apiKey: 'test',
+			dialect: 'openai',
+		})
+		const tools = [
+			{
+				type: 'function' as const,
+				function: {
+					name: 'edit',
+					description: 'Edit',
+					parameters: { type: 'object' },
+				},
+			},
+		]
+
+		await collectStream(
+			provider.chatStream({
+				model: 'gpt-5',
+				messages: [{ role: 'user', content: 'edit' }],
+				tools,
+				enforceToolInputSchema: ['edit'],
+			}),
+		)
+
+		const body = JSON.parse((fetchMock.mock.calls[0]?.[1] as { body: string }).body)
+		expect(body).not.toHaveProperty('enforceToolInputSchema')
+		expect(body.tools).toEqual(tools)
 	})
 })
 
@@ -320,7 +553,12 @@ describe('@namzu/http — response parsing', () => {
 					model: 'claude-sonnet-4',
 					content: [
 						{ type: 'text', text: 'Let me search.' },
-						{ type: 'tool_use', id: 'tu_1', name: 'search', input: { q: 'cats' } },
+						{
+							type: 'tool_use',
+							id: 'tu_1',
+							name: 'search',
+							input: { q: 'cats' },
+						},
 					],
 					stop_reason: 'tool_use',
 					usage: { input_tokens: 8, output_tokens: 4 },
@@ -397,7 +635,12 @@ describe('@namzu/http — DialectMismatchError', () => {
 				mockJsonResponse({
 					id: 'x',
 					model: 'm',
-					choices: [{ message: { role: 'assistant', content: 'hi' }, finish_reason: 'stop' }],
+					choices: [
+						{
+							message: { role: 'assistant', content: 'hi' },
+							finish_reason: 'stop',
+						},
+					],
 				}),
 			),
 		)
@@ -409,7 +652,12 @@ describe('@namzu/http — DialectMismatchError', () => {
 		})
 
 		await expect(
-			collect(provider.chatStream({ model: 'm', messages: [{ role: 'user', content: 'hi' }] })),
+			collect(
+				provider.chatStream({
+					model: 'm',
+					messages: [{ role: 'user', content: 'hi' }],
+				}),
+			),
 		).rejects.toThrowError(DialectMismatchError)
 	})
 
@@ -434,7 +682,12 @@ describe('@namzu/http — DialectMismatchError', () => {
 		})
 
 		await expect(
-			collect(provider.chatStream({ model: 'm', messages: [{ role: 'user', content: 'hi' }] })),
+			collect(
+				provider.chatStream({
+					model: 'm',
+					messages: [{ role: 'user', content: 'hi' }],
+				}),
+			),
 		).rejects.toThrowError(DialectMismatchError)
 	})
 
@@ -452,7 +705,10 @@ describe('@namzu/http — DialectMismatchError', () => {
 
 		try {
 			await collect(
-				provider.chatStream({ model: 'm', messages: [{ role: 'user', content: 'hi' }] }),
+				provider.chatStream({
+					model: 'm',
+					messages: [{ role: 'user', content: 'hi' }],
+				}),
 			)
 			expect.fail('expected throw')
 		} catch (err) {
@@ -579,7 +835,10 @@ describe('@namzu/http — streaming', () => {
 
 		await expect(
 			collectStream(
-				provider.chatStream({ model: 'm', messages: [{ role: 'user', content: 'hi' }] }),
+				provider.chatStream({
+					model: 'm',
+					messages: [{ role: 'user', content: 'hi' }],
+				}),
 			),
 		).rejects.toThrowError(DialectMismatchError)
 	})

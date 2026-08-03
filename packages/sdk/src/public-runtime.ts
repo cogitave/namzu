@@ -47,11 +47,19 @@ export * from './utils/id.js'
 
 // ─── utility helpers ─────────────────────────────────────────────────────
 
-export { accumulateCost, calculateCost, formatCost, ZERO_COST } from './utils/cost.js'
+export {
+	accumulateCost,
+	calculateCost,
+	formatCost,
+	ZERO_COST,
+} from './utils/cost.js'
 export { toErrorMessage } from './utils/error.js'
 export { configureLogger, getRootLogger, Logger } from './utils/logger.js'
 export { buildToolResultHashes, hashToolResult } from './utils/hash.js'
-export { compressShellOutput, compressShellOutputFull } from './utils/shell-compress.js'
+export {
+	compressShellOutput,
+	compressShellOutputFull,
+} from './utils/shell-compress.js'
 export { createChildAbortController } from './utils/abort.js'
 export { memoizeAsync } from './utils/memoize.js'
 export { extractFinalResponse } from './utils/conversation.js'
@@ -93,8 +101,17 @@ export {
 
 // ─── personas, skills, advisory ──────────────────────────────────────────
 
-export { assembleSystemPrompt, mergePersonas, withSessionContext } from './persona/index.js'
-export { discoverSkills, loadSkill, resolveSkillChain, SkillRegistry } from './skills/index.js'
+export {
+	assembleSystemPrompt,
+	mergePersonas,
+	withSessionContext,
+} from './persona/index.js'
+export {
+	discoverSkills,
+	loadSkill,
+	resolveSkillChain,
+	SkillRegistry,
+} from './skills/index.js'
 export {
 	AdvisorRegistry,
 	AdvisoryContext,
@@ -173,9 +190,11 @@ export {
 	LazyProviderSyncCreateError,
 	MOCK_CAPABILITIES,
 	MockLLMProvider,
+	parseRetryAfterMs,
 	PERMISSIVE_PROVIDER_CAPABILITIES,
 	ProviderError,
 	ProviderRegistry,
+	ProviderRequestError,
 	registerMock,
 	resolveProviderCapabilities,
 	UnknownProviderError,
@@ -257,7 +276,10 @@ export {
 	runToA2ATask,
 } from './bridge/a2a/index.js'
 
-export { mapRunToStreamEvent, mapSessionToStreamEvent } from './bridge/sse/index.js'
+export {
+	mapRunToStreamEvent,
+	mapSessionToStreamEvent,
+} from './bridge/sse/index.js'
 
 // ─── bus, verification ───────────────────────────────────────────────────
 
@@ -390,10 +412,19 @@ export {
 // ─── runtime helpers colocated with shapes under `types/` (§1.5) ─────────
 
 export { A2AProtocolError } from './types/a2a/index.js'
-export { isTerminalActivityStatus, resolveActivityTracking } from './types/activity/index.js'
+export {
+	isTerminalActivityStatus,
+	resolveActivityTracking,
+} from './types/activity/index.js'
 export { isTerminalAgentTaskState } from './types/agent/task.js'
-export { accumulateTokenUsage, isTerminalStatus } from './types/common/index.js'
-export { assertComputerUseActionType, assertDisplayServer } from './types/computer-use/index.js'
+export {
+	accumulateTokenUsage,
+	isTerminalStatus,
+} from './types/common/index.js'
+export {
+	assertComputerUseActionType,
+	assertDisplayServer,
+} from './types/computer-use/index.js'
 export { isConnectorActive } from './types/connector/core.js'
 export { CONNECTOR_SCOPE_ORDER } from './types/connector/scope.js'
 export { RoutingResponseSchema } from './types/decision/index.js'

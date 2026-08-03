@@ -4,13 +4,90 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
-import { MockLLMProvider } from '../../../provider/mock.js'
+import { ProviderRequestError } from '../../../provider/errors.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
+import type { LLMProvider, StreamChunk } from '../../../types/provider/index.js'
 import type { RunEvent } from '../../../types/run/index.js'
 import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
 import { drainQuery } from '../index.js'
+
+const ZERO_USAGE = {
+	promptTokens: 0,
+	completionTokens: 0,
+	totalTokens: 0,
+	cachedTokens: 0,
+	cacheWriteTokens: 0,
+}
+
+class IdleDuringToolInputProvider implements LLMProvider {
+	readonly id = 'idle-during-tool-input'
+	readonly name = 'Idle During Tool Input Provider'
+	calls = 0
+
+	async *chatStream(): AsyncIterable<StreamChunk> {
+		this.calls += 1
+
+		if (this.calls === 1) {
+			yield {
+				id: 'msg_1',
+				delta: {
+					toolCalls: [
+						{
+							index: 0,
+							id: 'toolu_write_1',
+							type: 'function',
+							function: { name: 'write_file' },
+						},
+					],
+				},
+			}
+			yield {
+				id: 'msg_1',
+				delta: {
+					toolCalls: [
+						{
+							index: 0,
+							id: 'toolu_write_1',
+							function: {
+								arguments: '{"path":"/tmp/out.md","content":"partial',
+							},
+						},
+					],
+				},
+			}
+			throw new Error('Anthropic stream idle for 90s')
+		}
+
+		yield {
+			id: 'msg_2',
+			delta: { content: 'Recovered after retry guidance.' },
+		}
+		yield {
+			id: 'msg_2',
+			delta: {},
+			finishReason: 'stop',
+			usage: ZERO_USAGE,
+		}
+	}
+}
+
+class ClassifiedFailureProvider implements LLMProvider {
+	readonly id = 'classified-failure'
+	readonly name = 'Classified Failure Provider'
+
+	async *chatStream(): AsyncIterable<StreamChunk> {
+		yield await Promise.reject(
+			new ProviderRequestError({
+				kind: 'throttle',
+				providerId: 'classified-failure',
+				status: 429,
+				retryAfterMs: 2000,
+			}),
+		)
+	}
+}
 
 describe('query stream recovery', () => {
 	let workdirs: string[] = []
@@ -21,25 +98,11 @@ describe('query stream recovery', () => {
 	})
 
 	it('turns an idle stream with partial tool JSON into retryable tool feedback', async () => {
-		// The provider goes idle mid-tool-JSON — the exact failure the
-		// truncated-tool-input recovery path exists for — then recovers on
-		// the retry the runtime prompts for.
-		const provider = new MockLLMProvider({
-			turns: [
-				{
-					toolCalls: [
-						{
-							name: 'write_file',
-							id: 'toolu_write_1',
-							rawArguments: '{"path":"/tmp/out.md","content":"partial',
-							throwAfterArguments: 'Anthropic stream idle for 90s',
-						},
-					],
-				},
-				{ text: 'Recovered after retry guidance.' },
-			],
-		})
-		const actualWrite = vi.fn(async () => ({ success: true, output: 'should not run' }))
+		const provider = new IdleDuringToolInputProvider()
+		const actualWrite = vi.fn(async () => ({
+			success: true,
+			output: 'should not run',
+		}))
 		const tools = new ToolRegistry()
 		tools.register({
 			name: 'write_file',
@@ -81,8 +144,7 @@ describe('query stream recovery', () => {
 
 		expect(run.status).toBe('completed')
 		expect(run.result).toBe('Recovered after retry guidance.')
-		// The failed turn plus the recovery turn.
-		expect(provider.requests).toHaveLength(2)
+		expect(provider.calls).toBe(2)
 		expect(actualWrite).not.toHaveBeenCalled()
 
 		expect(events.some((event) => event.type === 'run_failed')).toBe(false)
@@ -108,7 +170,50 @@ describe('query stream recovery', () => {
 			'call was cut off',
 		)
 		expect(completedTool?.type === 'tool_completed' ? completedTool.result : '').toContain(
-			'extend it with edit using insertLine',
+			'advance that marker with bounded exact edit calls',
 		)
+	})
+
+	it('preserves classified provider metadata through the primary run boundary', async () => {
+		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-provider-error-'))
+		workdirs.push(workingDirectory)
+		const events: RunEvent[] = []
+
+		const run = await drainQuery(
+			{
+				provider: new ClassifiedFailureProvider(),
+				tools: new ToolRegistry(),
+				runConfig: {
+					model: 'mock-model',
+					timeoutMs: 5_000,
+					tokenBudget: 100_000,
+					maxIterations: 1,
+					maxResponseTokens: 256,
+				},
+				agentId: 'agent_test',
+				agentName: 'Test Agent',
+				messages: [createUserMessage('fail with classified metadata')],
+				workingDirectory,
+				sessionId: 'ses_provider_error' as SessionId,
+				threadId: 'thd_provider_error' as ThreadId,
+				projectId: 'prj_provider_error' as ProjectId,
+				tenantId: 'tnt_provider_error' as TenantId,
+			},
+			(event) => {
+				events.push(event)
+			},
+		)
+
+		expect(run.status).toBe('failed')
+		expect(run.lastProviderError).toEqual({
+			kind: 'throttle',
+			providerId: 'classified-failure',
+			status: 429,
+			retryAfterMs: 2000,
+		})
+		expect(events.find((event) => event.type === 'run_failed')).toMatchObject({
+			type: 'run_failed',
+			providerError: run.lastProviderError,
+		})
 	})
 })

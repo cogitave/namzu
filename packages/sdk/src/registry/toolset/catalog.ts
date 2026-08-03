@@ -1,3 +1,4 @@
+import { zodToJsonSchema } from 'zod-to-json-schema'
 import type { ToolRegistryContract } from '../../types/tool/index.js'
 import type { LLMToolSchema, ToolAvailability, ToolDefinition } from '../../types/tool/index.js'
 import type {
@@ -9,7 +10,6 @@ import type {
 	ToolsetDefinition,
 	ToolsetPolicy,
 } from '../../types/toolset/index.js'
-import { renderToolSchema } from '../tool/schema.js'
 
 export interface ToolCatalogSearchOptions {
 	readonly loading?: readonly ToolLoadingMode[]
@@ -62,6 +62,26 @@ export class ToolCatalog {
 		}
 		if (!this.toolsets.has(tool.toolsetId)) {
 			throw new Error(`Tool "${tool.name}" references unknown toolset "${tool.toolsetId}"`)
+		}
+		if (tool.definition && tool.definition.name !== tool.name) {
+			throw new Error(
+				`Tool "${tool.name}" definition name mismatch: received "${tool.definition.name}"`,
+			)
+		}
+		if (tool.llmSchema && tool.llmSchema.function.name !== tool.name) {
+			throw new Error(
+				`Tool "${tool.name}" LLM schema name mismatch: received "${tool.llmSchema.function.name}"`,
+			)
+		}
+		if (tool.definition?.enforceModelInput && !tool.definition.modelInputSchema) {
+			throw new Error(
+				`Tool "${tool.name}" enables enforceModelInput but does not define modelInputSchema.`,
+			)
+		}
+		if (tool.definition?.enforceModelInput && tool.llmSchema) {
+			throw new Error(
+				`Tool "${tool.name}" cannot combine an explicit llmSchema with enforceModelInput. Put the provider-safe schema on definition.modelInputSchema so enforcement and schema precedence stay paired.`,
+			)
 		}
 		this.tools.set(tool.name, tool)
 	}
@@ -225,7 +245,12 @@ function toolDefinitionToLLMTool(definition: ToolDefinition | undefined): LLMToo
 		function: {
 			name: definition.name,
 			description: definition.description,
-			parameters: renderToolSchema(definition.inputSchema),
+			parameters:
+				(definition.modelInputSchema ? structuredClone(definition.modelInputSchema) : undefined) ??
+				(zodToJsonSchema(definition.inputSchema, {
+					target: 'jsonSchema7',
+					$refStrategy: 'none',
+				}) as Record<string, unknown>),
 		},
 	}
 }

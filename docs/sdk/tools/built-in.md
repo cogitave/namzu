@@ -1,7 +1,7 @@
 ---
 title: Built-In Tools
 description: Reference for the built-in tools exported by @namzu/sdk, including their purpose, safety shape, and common usage patterns.
-last_updated: 2026-05-02
+last_updated: 2026-07-31
 status: current
 related_packages: ["@namzu/sdk", "@namzu/computer-use"]
 ---
@@ -77,21 +77,38 @@ Purpose:
 
 Notes:
 
+- accepts exactly `path` and `content`; compatibility aliases are not accepted
 - destructive by declaration
 - not concurrency-safe
 - sandbox-aware when a sandbox is present
+- serializes same-process mutations by resolved path
+- commits local writes through a same-directory temp file and atomic rename;
+  sandbox `writeFile` implementations carry the same atomic replacement
+  contract
 
 ### 4.3 `Edit`
 
 Purpose:
 
-- apply exact-string replacements
+- apply one exact-string replacement
 
 Notes:
 
-- fails if `old_string` is missing
+- accepts exactly `path`, `old_string`, `new_string`, and optional `replace_all`
+- compatibility aliases and line-based insertion fields are not accepted
+- `new_string` may be empty to delete the exact match
 - fails if `old_string` is not unique unless `replace_all` is `true`
+- normalizes only consistent CRLF/LF boundaries; it does not perform fuzzy matching
+- serializes same-process mutations by resolved path
+- commits local writes atomically; sandbox writes rely on the `Sandbox`
+  interface's atomic replacement guarantee
 - useful for targeted edits without rewriting entire files
+
+To append or assemble a long document, write a unique deterministic marker and
+replace it with the bounded chunk plus the next marker. Advance markers
+monotonically (`{{CHUNK_001}}` → `{{CHUNK_002}}`) so retrying a completed edit
+fails safely instead of duplicating content. Distributed hosts must still
+assign one writer per file or provide storage-level compare-and-swap.
 
 ### 4.4 `Bash`
 

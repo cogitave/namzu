@@ -26,7 +26,7 @@ export const CompactionConfigSchema = z.object({
 	 * `tokenBudget` unlimited (0) set this so compaction fires on
 	 * window-pressure instead of being a silent no-op.
 	 */
-	contextWindowTokens: z.number().positive().optional(),
+	contextWindowTokens: z.number().int().positive().optional(),
 	/** Fraction of the context window at which a compaction pass fires. */
 	triggerThreshold: z.number().min(0).max(1).default(0.7),
 	/**
@@ -44,7 +44,7 @@ export const CompactionConfigSchema = z.object({
 	 * failure mode once the trigger actually fires.
 	 */
 	resetThreshold: z.number().min(0).max(1).default(0.4),
-	keepRecentMessages: z.number().positive().default(4),
+	keepRecentMessages: z.number().int().positive().default(4),
 
 	/**
 	 * Before summarizing destructively, clear the OUTPUT of old, large tool
@@ -75,8 +75,8 @@ export const CompactionConfigSchema = z.object({
 	/** Tools whose output is never cleared, by name. */
 	preserveToolResultsFrom: z.array(z.string()).optional(),
 
-	maxToolResults: z.number().positive().default(30),
-	maxListSize: z.number().positive().default(25),
+	maxToolResults: z.number().int().positive().default(30),
+	maxListSize: z.number().int().positive().default(25),
 	/**
 	 * Entries pinned at the head of each capped list, never evicted.
 	 *
@@ -87,24 +87,24 @@ export const CompactionConfigSchema = z.object({
 	 */
 	keepFirstEntries: z.number().min(0).default(3),
 	llmVerification: z.boolean().default(true),
-	llmVerificationMaxTokens: z.number().positive().default(2048),
-	richStateThreshold: z.number().positive().default(15),
-	convoTextBudget: z.number().positive().default(12_000),
-	maxSentencesPerTurn: z.number().positive().default(5),
-	maxCharsPerNote: z.number().positive().default(500),
-	maxCharsPerRequirement: z.number().positive().default(300),
-	maxCharsPerTask: z.number().positive().default(400),
+	llmVerificationMaxTokens: z.number().int().positive().default(2048),
+	richStateThreshold: z.number().int().positive().default(15),
+	convoTextBudget: z.number().int().positive().default(12_000),
+	maxSentencesPerTurn: z.number().int().positive().default(5),
+	maxCharsPerNote: z.number().int().positive().default(500),
+	maxCharsPerRequirement: z.number().int().positive().default(300),
+	maxCharsPerTask: z.number().int().positive().default(400),
 })
 
 export type CompactionConfig = z.infer<typeof CompactionConfigSchema>
 
 export const AgentBusConfigSchema = z.object({
 	enabled: z.boolean().default(false),
-	lockTimeoutMs: z.number().positive().default(60_000),
-	lockAcquireTimeoutMs: z.number().positive().default(5_000),
-	maxLocksPerAgent: z.number().positive().default(10),
-	breakerFailureThreshold: z.number().positive().default(5),
-	breakerResetTimeoutMs: z.number().positive().default(30_000),
+	lockTimeoutMs: z.number().int().positive().default(60_000),
+	lockAcquireTimeoutMs: z.number().int().positive().default(5_000),
+	maxLocksPerAgent: z.number().int().positive().default(10),
+	breakerFailureThreshold: z.number().int().positive().default(5),
+	breakerResetTimeoutMs: z.number().int().positive().default(30_000),
 })
 
 export type AgentBusConfig = z.infer<typeof AgentBusConfigSchema>
@@ -118,7 +118,7 @@ export const PluginRuntimeConfigSchema = z.object({
 	enabled: z.boolean().default(false),
 	autoDiscovery: z.boolean().default(true),
 	allowedScopes: z.array(z.enum(['project', 'user'])).default(['project', 'user']),
-	hookTimeoutMs: z.number().positive().default(HOOK_TIMEOUT_MS),
+	hookTimeoutMs: z.number().int().positive().default(HOOK_TIMEOUT_MS),
 })
 
 export type PluginRuntimeConfig = z.infer<typeof PluginRuntimeConfigSchema>
@@ -127,9 +127,9 @@ export const RuntimeConfigSchema = z.object({
 	model: z.string().default('qwen/qwen3.6-plus:free'),
 	temperature: z.number().min(0).max(2).default(0.3),
 	tokenBudget: z.number().nonnegative().default(100_000),
-	maxResponseTokens: z.number().positive().default(8192),
-	timeoutMs: z.number().positive().default(600_000),
-	maxIterations: z.number().positive().default(200),
+	maxResponseTokens: z.number().int().positive().default(8192),
+	timeoutMs: z.number().int().positive().default(600_000),
+	maxIterations: z.number().int().positive().default(200),
 	taskRouter: TaskRouterConfigSchema,
 	compaction: CompactionConfigSchema.default({}),
 	agentBus: AgentBusConfigSchema.optional(),
