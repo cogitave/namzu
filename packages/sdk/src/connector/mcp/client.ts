@@ -3,8 +3,12 @@ import type {
 	MCPClientState,
 	MCPConnectionStatus,
 	MCPContentBlock,
+	MCPEventListener,
 	MCPInitializeResult,
 	MCPJsonRpcMessage,
+	MCPLifecycleEvent,
+	MCPPromptDefinition,
+	MCPPromptMessage,
 	MCPResource,
 	MCPResourceTemplate,
 	MCPServerCapabilities,
@@ -52,6 +56,7 @@ export class MCPClient {
 	private nextRequestId = 1
 	private notificationHandlers: Array<(method: string, params?: Record<string, unknown>) => void> =
 		[]
+	private lifecycleListeners: MCPEventListener[] = []
 	private log: Logger
 	private readonly config: MCPClientConfig
 
@@ -74,12 +79,14 @@ export class MCPClient {
 			this.transport.onClose(() => {
 				this.status = 'disconnected'
 				this.log.info('MCP transport closed')
+				this.emitLifecycle({ type: 'mcp_client_disconnected', clientId: this.id })
 				this.rejectAllPending(`MCP transport to "${this.config.serverName}" closed`)
 			})
 			this.transport.onError((err) => {
 				this.status = 'error'
 				this.error = err.message
 				this.log.error('MCP transport error', { error: err.message })
+				this.emitLifecycle({ type: 'mcp_client_error', clientId: this.id, error: err.message })
 				this.rejectAllPending(`MCP transport to "${this.config.serverName}" failed: ${err.message}`)
 			})
 
@@ -116,6 +123,11 @@ export class MCPClient {
 
 			this.status = 'connected'
 			this.connectedAt = Date.now()
+			this.emitLifecycle({
+				type: 'mcp_client_connected',
+				clientId: this.id,
+				serverName: this.config.serverName,
+			})
 			this.log.info(`Connected to MCP server: ${result.serverInfo.name}`)
 
 			return result
@@ -123,6 +135,7 @@ export class MCPClient {
 			this.status = 'error'
 			this.error = toErrorMessage(err)
 			this.log.error('MCP connection failed', { error: this.error })
+			this.emitLifecycle({ type: 'mcp_client_error', clientId: this.id, error: this.error })
 			throw err
 		}
 	}
@@ -136,6 +149,7 @@ export class MCPClient {
 		this.status = 'disconnected'
 		this.connectedAt = undefined
 		this.log.info('MCP client disconnected')
+		this.emitLifecycle({ type: 'mcp_client_disconnected', clientId: this.id })
 	}
 
 	isConnected(): boolean {
@@ -179,6 +193,48 @@ export class MCPClient {
 			contents: MCPContentBlock[]
 		}
 		return result.contents
+	}
+
+	/**
+	 * The prompts a server publishes.
+	 *
+	 * A prompt is the server's own wording for a task it knows how to set
+	 * up — the half of MCP that is not tools. `MCPPromptDefinition` and
+	 * `MCPPromptArgument` were declared when the types were written and no
+	 * method ever asked for one, so a server offering prompts had them
+	 * silently ignored.
+	 *
+	 * Paged through the same reader as every other list, which is the point
+	 * of it being generic: a server that pages its prompts does not get
+	 * silently truncated to page one the way the tool list once was.
+	 */
+	async listPrompts(): Promise<MCPPromptDefinition[]> {
+		this.requireConnected()
+		return await this.listAllPages('prompts/list', 'prompts')
+	}
+
+	/**
+	 * Fetch one prompt, with its arguments filled in.
+	 *
+	 * Returns the messages the SERVER composed. They are data to be shown to
+	 * a model, never instructions to this client: a prompt arriving from a
+	 * remote server is exactly the untrusted-content case, and treating its
+	 * text as direction would let a server steer the agent by publishing a
+	 * prompt nobody asked to run.
+	 */
+	async getPrompt(
+		name: string,
+		args?: Record<string, string>,
+	): Promise<{ description?: string; messages: MCPPromptMessage[] }> {
+		this.requireConnected()
+		const result = (await this.request('prompts/get', {
+			name,
+			arguments: args ?? {},
+		})) as { description?: string; messages?: MCPPromptMessage[] }
+		return {
+			...(result.description !== undefined ? { description: result.description } : {}),
+			messages: result.messages ?? [],
+		}
 	}
 
 	async listResourceTemplates(): Promise<MCPResourceTemplate[]> {
@@ -229,6 +285,45 @@ export class MCPClient {
 
 	onNotification(handler: (method: string, params?: Record<string, unknown>) => void): void {
 		this.notificationHandlers.push(handler)
+	}
+
+	/**
+	 * Watch this client come up, go down, or fail.
+	 *
+	 * `MCPLifecycleEvent` and `MCPEventListener` were declared with the rest
+	 * of the MCP types and nothing ever emitted one, so a host could observe
+	 * a server dying only by noticing that calls had started failing. The
+	 * four transitions below already existed and already mutated `status`;
+	 * this adds no state, it just says out loud what the client already
+	 * knew.
+	 *
+	 * Returns an unsubscribe. `onNotification` above does not, which is the
+	 * bug this avoids repeating: a listener that cannot be removed keeps a
+	 * disposed host object alive for as long as the client lives.
+	 */
+	onLifecycle(listener: MCPEventListener): () => void {
+		this.lifecycleListeners.push(listener)
+		return () => {
+			const index = this.lifecycleListeners.indexOf(listener)
+			if (index >= 0) this.lifecycleListeners.splice(index, 1)
+		}
+	}
+
+	/**
+	 * A listener that throws must not take the transport down with it.
+	 *
+	 * These fire from inside transport callbacks and from the failure path
+	 * of `connect`, so an exception here would surface as a connection
+	 * error — blaming the server for a bug in the host's own observer.
+	 */
+	private emitLifecycle(event: MCPLifecycleEvent): void {
+		for (const listener of this.lifecycleListeners) {
+			try {
+				listener(event)
+			} catch (err) {
+				this.log.warn('MCP lifecycle listener threw', { error: toErrorMessage(err) })
+			}
+		}
 	}
 
 	private createTransport(config: MCPTransportUnion): MCPTransport {

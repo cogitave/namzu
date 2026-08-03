@@ -17,8 +17,12 @@ export { MCPToolDiscovery } from './discovery.js'
 
 export { MCPConnectorBridge } from '../../bridge/mcp/connector/adapter.js'
 
-export { MCPServer } from './server.js'
-export type { MCPServerToolProvider, MCPServerResourceProvider } from './server.js'
+export { MCPServer, MCPMethodNotFound } from './server.js'
+export type {
+	MCPServerToolProvider,
+	MCPServerResourceProvider,
+	MCPServerPromptProvider,
+} from './server.js'
 
 export type { MCPToolDiscoveryOptions } from './discovery.js'
 export { applyToolPolicy, diffTools, hasDrift, toolsHash } from './policy.js'
