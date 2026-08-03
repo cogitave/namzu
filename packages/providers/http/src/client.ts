@@ -7,12 +7,14 @@ import type {
 	StreamChunk,
 	TokenUsage,
 	ToolChoice,
+	ToolResultContent,
 } from '@namzu/sdk'
 import {
 	ProviderRequestError,
 	isCallerAbortError,
 	providerHttpError,
 	providerVendorError,
+	toolResultToText,
 } from '@namzu/sdk'
 import { DialectMismatchError, type HttpConfig, type HttpDialect } from './types.js'
 
@@ -130,7 +132,12 @@ function formatOpenAIMessages(messages: ChatCompletionParams['messages']): unkno
 		if (msg.role === 'tool') {
 			return {
 				role: 'tool',
-				content: msg.content,
+				// Tool messages are text-only on this wire. The raw content was
+				// passed straight through, so a result carrying an image put
+				// its base64 into the prompt: the model paid for every
+				// character, could read none of them, and read a serialized
+				// object where a picture should be with nothing saying so.
+				content: toolResultToText(msg.content ?? ''),
 				tool_call_id: (msg as { toolCallId?: string }).toolCallId,
 			}
 		}
@@ -223,12 +230,13 @@ function formatAnthropicRequest(
 		}
 
 		if (msg.role === 'tool') {
-			const toolMsg = msg as { toolCallId?: string; content?: string }
+			const toolMsg = msg as { toolCallId?: string; content?: ToolResultContent }
 			pendingToolResults.push({
 				type: 'tool_result',
 				tool_use_id: toolMsg.toolCallId ?? 'unknown',
-				content:
-					typeof toolMsg.content === 'string' ? toolMsg.content : JSON.stringify(toolMsg.content),
+				// Same degrade as the sibling dialect: the named placeholder
+				// rather than a JSON dump of the payload.
+				content: toolResultToText(toolMsg.content ?? ''),
 			})
 			continue
 		}

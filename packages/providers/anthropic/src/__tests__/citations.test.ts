@@ -200,7 +200,7 @@ describe('citations are requested only when the caller asked to check the answer
 		} as unknown as ChatCompletionParams)) {
 			// drain
 		}
-		const messages = seen.body?.messages as Array<{ content: Array<Record<string, unknown>> }>
+		const messages = seen.body?.messages as Array<{ content: Record<string, unknown>[] }>
 		return messages[0]?.content.find((b) => b.type === 'document') ?? {}
 	}
 

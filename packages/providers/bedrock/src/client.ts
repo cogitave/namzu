@@ -24,6 +24,8 @@ import type {
 	TokenUsage,
 	ToolChoice,
 } from '@namzu/sdk'
+import type { ToolResultContent } from '@namzu/sdk'
+import { toolResultToText } from '@namzu/sdk'
 import {
 	ProviderRequestError,
 	isCallerAbortError,
@@ -42,7 +44,7 @@ function toBedrockRole(role: string): ConversationRole {
 	return role === 'assistant' ? 'assistant' : 'user'
 }
 
-function toBedrockMessages(messages: ChatCompletionParams['messages']): BedrockMessage[] {
+export function toBedrockMessages(messages: ChatCompletionParams['messages']): BedrockMessage[] {
 	const out: BedrockMessage[] = []
 
 	let pendingToolResults: ContentBlock[] = []
@@ -58,10 +60,14 @@ function toBedrockMessages(messages: ChatCompletionParams['messages']): BedrockM
 		if (msg.role === 'system') continue
 
 		if (msg.role === 'tool') {
-			const toolMsg = msg as { toolCallId?: string; content?: string }
+			const toolMsg = msg as { toolCallId?: string; content?: ToolResultContent }
+			// `JSON.stringify` used to run here, so a tool result carrying an
+			// image sent the model a wall of quoted base64: unreadable, and
+			// paid for by the character. This driver does not map image
+			// content, so the honest form is the SDK's named placeholder —
+			// which says what was there and how big it was.
 			const resultBlock: ToolResultContentBlock = {
-				text:
-					typeof toolMsg.content === 'string' ? toolMsg.content : JSON.stringify(toolMsg.content),
+				text: toolResultToText(toolMsg.content ?? ''),
 			}
 			pendingToolResults.push({
 				toolResult: {
@@ -193,7 +199,7 @@ interface RawBedrockUsage {
 	cacheWriteInputTokenCount?: number
 }
 
-function parseUsage(raw?: RawBedrockUsage): TokenUsage {
+export function parseBedrockUsage(raw?: RawBedrockUsage): TokenUsage {
 	if (!raw) {
 		return {
 			promptTokens: 0,
@@ -414,7 +420,7 @@ export class BedrockProvider implements LLMProvider {
 					}
 
 					if ('metadata' in event && event.metadata?.usage) {
-						const usage = parseUsage(event.metadata.usage as RawBedrockUsage)
+						const usage = parseBedrockUsage(event.metadata.usage as RawBedrockUsage)
 						yield {
 							id: requestId,
 							delta: {},

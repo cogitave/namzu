@@ -50,9 +50,9 @@ async function bodyFor(params: Partial<ChatCompletionParams>): Promise<Record<st
 }
 
 /** The first user message's content blocks, as sent. */
-function blocksOf(body: Record<string, unknown>): Array<Record<string, unknown>> {
+function blocksOf(body: Record<string, unknown>): Record<string, unknown>[] {
 	const messages = body.messages as Array<{ content: unknown }>
-	return messages[0]?.content as Array<Record<string, unknown>>
+	return messages[0]?.content as Record<string, unknown>[]
 }
 
 function withAttachments(attachments: unknown[]): Partial<ChatCompletionParams> {

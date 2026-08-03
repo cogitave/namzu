@@ -93,6 +93,26 @@ function formatToolChoice(tc: ToolChoice | undefined): ChatCompletionToolChoiceO
 }
 
 /**
+ * Refuse an extended-thinking request this driver does not implement.
+ *
+ * The parameter was accepted and dropped, so a caller who had asked for
+ * reasoning got an ordinary completion: no thinking, no reasoning blocks,
+ * no error — and the empty reasoning array reads as "the model did not
+ * reason" rather than "nobody asked it to". Turning it OFF is honoured as
+ * a no-op, because that is the state the driver is already in.
+ */
+export function assertThinkingSupported(params: {
+	thinking?: { type: 'enabled' | 'disabled' }
+}): void {
+	if (params.thinking?.type !== 'enabled') return
+	throw new Error(
+		'This provider driver does not implement extended thinking, and silently ' +
+			'ignoring the request would return an ordinary completion with an empty ' +
+			'reasoning list. Drop `thinking`, or use a driver that implements it.',
+	)
+}
+
+/**
  * Refuse a document whose citations this wire cannot return.
  *
  * Citations are the difference between an answer you trust and one you
@@ -109,9 +129,7 @@ function assertCitationsSupported(
 	if (!attachment.citations) return
 	const which = attachment.name ?? `attachment ${index}`
 	throw new Error(
-		`This provider cannot return citations, and ${which} asked for them. Drop ` +
-			'`citations` to send the document without them, or use a provider whose ' +
-			'capabilities include citation support.',
+		`This provider cannot return citations, and ${which} asked for them. Drop \`citations\` to send the document without them, or use a provider whose capabilities include citation support.`,
 	)
 }
 
@@ -187,14 +205,28 @@ export function toOpenAIMessages(
 	})
 }
 
-function toOpenAITools(params: ChatCompletionParams): ChatCompletionTool[] | undefined {
+/**
+ * Tool schemas, with constrained generation where the caller asked for it.
+ *
+ * `enforceToolInputSchema` names the tools whose schema should be enforced
+ * rather than suggested. Both sibling drivers consumed it; this one dropped
+ * it on the floor, so a caller who had asked for a guaranteed-valid tool
+ * input got a best-effort one — and found out from a repair attempt rather
+ * than from an error.
+ *
+ * This wire is the one the flag maps onto most directly: it takes `strict`
+ * on the function itself.
+ */
+export function toOpenAITools(params: ChatCompletionParams): ChatCompletionTool[] | undefined {
 	if (!params.tools || params.tools.length === 0) return undefined
+	const enforced = new Set(params.enforceToolInputSchema ?? [])
 	return params.tools.map((t) => ({
 		type: 'function' as const,
 		function: {
 			name: t.function.name,
 			description: t.function.description ?? '',
 			parameters: (t.function.parameters ?? {}) as Record<string, unknown>,
+			...(enforced.has(t.function.name) ? { strict: true } : {}),
 		},
 	}))
 }
@@ -237,6 +269,7 @@ export class OpenAIProvider implements LLMProvider {
 
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
 		const model = this.resolveModel(params)
+		assertThinkingSupported(params)
 
 		let stream: Awaited<ReturnType<typeof this.client.chat.completions.create>>
 		try {

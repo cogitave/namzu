@@ -43,13 +43,13 @@ async function bodyFor(params: Partial<ChatCompletionParams>): Promise<Record<st
 	return seen.body ?? {}
 }
 
-type WireMessage = { role: string; content: string | Array<Record<string, unknown>> }
+type WireMessage = { role: string; content: string | Record<string, unknown>[] }
 
 function messagesOf(body: Record<string, unknown>): WireMessage[] {
 	return (body.messages ?? []) as WireMessage[]
 }
 
-function allBlocks(body: Record<string, unknown>): Array<Record<string, unknown>> {
+function allBlocks(body: Record<string, unknown>): Record<string, unknown>[] {
 	return messagesOf(body).flatMap((m) => (Array.isArray(m.content) ? m.content : []))
 }
 
@@ -132,7 +132,7 @@ describe('tool results are grouped into one user turn, in order', () => {
 		)
 		expect(resultTurns).toHaveLength(1)
 		expect(
-			(resultTurns[0]?.content as Array<Record<string, unknown>>).map((b) => b.tool_use_id),
+			(resultTurns[0]?.content as Record<string, unknown>[]).map((b) => b.tool_use_id),
 		).toEqual(['call_1', 'call_2'])
 	})
 

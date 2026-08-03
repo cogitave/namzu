@@ -215,7 +215,7 @@ describe('a reasoned turn is replayed verbatim on the next request', () => {
 			content: 'because of that',
 			reasoning: [{ type: 'thinking', text: 'step one', signature: 'sig-abc' }],
 		})
-		const blocks = messages[1]?.content as Array<Record<string, unknown>>
+		const blocks = messages[1]?.content as Record<string, unknown>[]
 
 		expect(blocks[0]).toEqual({ type: 'thinking', thinking: 'step one', signature: 'sig-abc' })
 	})
@@ -226,7 +226,7 @@ describe('a reasoned turn is replayed verbatim on the next request', () => {
 			content: 'because of that',
 			reasoning: [{ type: 'thinking', text: 'step one', signature: 'sig' }],
 		})
-		const blocks = messages[1]?.content as Array<Record<string, unknown>>
+		const blocks = messages[1]?.content as Record<string, unknown>[]
 
 		expect(blocks.map((b) => b.type)).toEqual(['thinking', 'text'])
 	})
@@ -238,7 +238,7 @@ describe('a reasoned turn is replayed verbatim on the next request', () => {
 			reasoning: [{ type: 'thinking', text: 'i should read it', signature: 'sig' }],
 			toolCalls: [{ id: 'call_1', type: 'function', function: { name: 'read', arguments: '{}' } }],
 		})
-		const blocks = messages[1]?.content as Array<Record<string, unknown>>
+		const blocks = messages[1]?.content as Record<string, unknown>[]
 
 		expect(blocks.map((b) => b.type)).toEqual(['thinking', 'tool_use'])
 	})
@@ -249,7 +249,7 @@ describe('a reasoned turn is replayed verbatim on the next request', () => {
 			content: 'answer',
 			reasoning: [{ type: 'redacted_thinking', encrypted: 'opaque-bytes' }],
 		})
-		const blocks = messages[1]?.content as Array<Record<string, unknown>>
+		const blocks = messages[1]?.content as Record<string, unknown>[]
 
 		expect(blocks[0]).toEqual({ type: 'redacted_thinking', data: 'opaque-bytes' })
 	})

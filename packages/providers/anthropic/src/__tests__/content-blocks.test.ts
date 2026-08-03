@@ -54,7 +54,7 @@ async function toolResultFor(content: unknown): Promise<Record<string, unknown>>
 	} as unknown as ChatCompletionParams)) {
 		// drain
 	}
-	const messages = seen.body?.messages as Array<{ content: Array<Record<string, unknown>> }>
+	const messages = seen.body?.messages as Array<{ content: Record<string, unknown>[] }>
 	const block = messages
 		.flatMap((m) => (Array.isArray(m.content) ? m.content : []))
 		.find((b) => b.type === 'tool_result')
@@ -67,7 +67,7 @@ describe('an image in a tool result is sent as an image', () => {
 			{ type: 'text', text: 'captured' },
 			{ type: 'image', mediaType: 'image/png', data: PNG },
 		])
-		const blocks = result.content as Array<Record<string, unknown>>
+		const blocks = result.content as Record<string, unknown>[]
 
 		expect(blocks.find((b) => b.type === 'image')?.source).toEqual({
 			type: 'base64',
@@ -90,7 +90,7 @@ describe('an image in a tool result is sent as an image', () => {
 			{ type: 'text', text: 'captured' },
 			{ type: 'image', mediaType: 'image/png', data: PNG },
 		])
-		const blocks = result.content as Array<Record<string, unknown>>
+		const blocks = result.content as Record<string, unknown>[]
 
 		expect(blocks.map((b) => b.type)).toEqual(['text', 'image'])
 		expect(blocks[0]?.text).toBe('captured')
@@ -101,7 +101,7 @@ describe('an image in a tool result is sent as an image', () => {
 			{ type: 'image', mediaType: 'image/png', data: PNG },
 			{ type: 'image', mediaType: 'image/jpeg', data: 'other' },
 		])
-		const blocks = result.content as Array<Record<string, unknown>>
+		const blocks = result.content as Record<string, unknown>[]
 
 		expect(blocks.filter((b) => b.type === 'image')).toHaveLength(2)
 	})
@@ -112,7 +112,7 @@ describe('what this wire cannot carry degrades to a named placeholder', () => {
 		const result = await toolResultFor([
 			{ type: 'document', mediaType: 'application/pdf', data: 'JVBER', name: 'lease.pdf' },
 		])
-		const blocks = result.content as Array<Record<string, unknown>>
+		const blocks = result.content as Record<string, unknown>[]
 
 		expect(blocks[0]?.type).toBe('text')
 		expect(blocks[0]?.text).toContain('lease.pdf')
@@ -125,7 +125,7 @@ describe('what this wire cannot carry degrades to a named placeholder', () => {
 		const result = await toolResultFor([
 			{ type: 'document', mediaType: 'application/pdf', data: 'A'.repeat(4096) },
 		])
-		const blocks = result.content as Array<Record<string, unknown>>
+		const blocks = result.content as Record<string, unknown>[]
 
 		expect(blocks[0]?.text).toMatch(/\d+(\.\d+)? (B|KB|MB)/)
 	})
@@ -138,7 +138,7 @@ describe('the plain cases are unchanged', () => {
 
 	it('sends text-only blocks as a text block', async () => {
 		const result = await toolResultFor([{ type: 'text', text: 'only words' }])
-		const blocks = result.content as Array<Record<string, unknown>>
+		const blocks = result.content as Record<string, unknown>[]
 
 		expect(blocks).toEqual([{ type: 'text', text: 'only words' }])
 	})

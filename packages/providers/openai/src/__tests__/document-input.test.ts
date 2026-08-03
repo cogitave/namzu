@@ -22,7 +22,7 @@ function partsFor(attachments: unknown[], content = 'summarize this') {
 	const [message] = toOpenAIMessages([
 		{ role: 'user', content, attachments },
 	] as unknown as ChatCompletionParams['messages'])
-	return message?.content as unknown as Array<Record<string, unknown>>
+	return message?.content as unknown as Record<string, unknown>[]
 }
 
 describe('a document attachment reaches the wire as a file', () => {
