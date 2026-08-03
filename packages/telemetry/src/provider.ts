@@ -11,6 +11,7 @@ import {
 	BatchSpanProcessor,
 	ConsoleSpanExporter,
 	NodeTracerProvider,
+	type SpanProcessor,
 } from '@opentelemetry/sdk-trace-node'
 import type { TelemetryConfig } from './types.js'
 import { VERSION } from './version.js'
@@ -72,7 +73,12 @@ export class TelemetryProvider {
 		// Batched, not synchronous-per-span: a run emits a span per iteration,
 		// per model call and per tool, and exporting each one inline puts
 		// network latency on the agent loop.
-		const spanProcessors: BatchSpanProcessor[] = []
+		const spanProcessors: SpanProcessor[] = [
+			// The host's own processors go in first, so they still see spans
+			// under `exporterType: 'none'` — which suppresses the exporter,
+			// not the pipeline.
+			...((this.config.spanProcessors ?? []) as readonly SpanProcessor[]),
+		]
 		if (this.config.exporterType !== 'none') {
 			const traceExporter =
 				this.config.exporterType === 'otlp'
