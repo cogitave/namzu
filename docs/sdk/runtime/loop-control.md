@@ -241,6 +241,35 @@ Four things worth knowing:
   warning — a phase list that outlives a tool rename should narrow the
   surface, not kill the agent mid-run.
 
+### More than one concern
+
+A single slot is enough for one concern and no help with two. Pass an
+array and each stage runs in **declaration order**, seeing what the ones
+before it decided:
+
+```ts
+query({
+  prepareStep: [
+    ({ runId }) => ({ system: tenantPrefixFor(runId) }),
+    ({ steps, prepared }) =>
+      spend(steps) > budget && prepared.model === undefined
+        ? { model: 'cheaper-model' }
+        : {},
+  ],
+})
+```
+
+Declaration order, not registration order — that distinction is why this
+is safe where a plugin-style fan-out would not be. The author writes the
+order down, so "who wins" is a line of their code rather than an accident
+of install history. A later stage overriding a field is last-writer-wins,
+visibly; `context.prepared` is how an earlier decision gets refined
+rather than guessed at, and it is empty for the first stage.
+
+A stage that throws is skipped and **the rest still run**: one broken
+concern must not silently disable the others it was declared beside. A
+single function still works exactly as before.
+
 ## 6. Context Compaction
 
 Compaction triggers on **window pressure**, measured against the model's

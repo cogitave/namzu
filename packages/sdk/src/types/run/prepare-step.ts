@@ -21,6 +21,16 @@ export interface PrepareStepContext {
 	readonly messages: readonly Message[]
 	/** Every completed step, in order. */
 	readonly steps: readonly StepResult[]
+
+	/**
+	 * What the stages before this one decided, when several were supplied.
+	 *
+	 * Empty for the first stage, and empty for a single `prepareStep`.
+	 * Reading it is how a later stage refines an earlier one — narrowing a
+	 * tool set that has already been narrowed, or leaving a model alone
+	 * because something upstream had a reason to change it.
+	 */
+	readonly prepared: Readonly<PrepareStepResult>
 }
 
 /**
@@ -76,3 +86,24 @@ export interface PrepareStepResult {
 export type PrepareStep = (
 	context: PrepareStepContext,
 ) => PrepareStepResult | undefined | Promise<PrepareStepResult | undefined>
+
+/**
+ * One shaping stage, or several applied in order.
+ *
+ * A single slot is enough for one concern and no help with two. A host
+ * with a per-tenant system prefix AND a cost-based model downgrade had to
+ * hand-compose them into one callback, which puts the ordering in the
+ * host's code where nothing can see it and makes each concern's failure
+ * the other's problem.
+ *
+ * An ARRAY is ordered by declaration, not by registration. That
+ * distinction is the whole reason this is safe where a plugin-style
+ * fan-out would not be: the author writes the order down, so "who wins"
+ * is a line of their code rather than an accident of install history.
+ * Each stage sees what the ones before it decided, and a later stage
+ * overrides a field an earlier one set — last writer wins, visibly.
+ *
+ * A stage that throws is skipped and the rest still run, so one broken
+ * concern cannot silently disable the others.
+ */
+export type PrepareStepChain = PrepareStep | readonly PrepareStep[]

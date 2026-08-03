@@ -754,26 +754,35 @@ export class IterationOrchestrator {
 		temperature?: number
 		maxResponseTokens?: number
 	}> {
-		const hook = this.ctx.prepareStep
-		if (!hook) return {}
+		const configured = this.ctx.prepareStep
+		if (!configured) return {}
+		const stages = Array.isArray(configured) ? configured : [configured]
 
-		let result: PrepareStepResult | undefined
-		try {
-			result = await hook({
-				runId: this.ctx.runMgr.id,
-				stepNumber,
-				messages: this.ctx.runMgr.messages,
-				steps: this.steps,
-			})
-		} catch (err) {
-			this.ctx.log.error('prepareStep threw — continuing with the run configuration', {
-				runId: this.ctx.runMgr.id,
-				stepNumber,
-				error: toErrorMessage(err),
-			})
-			return {}
+		// Folded in DECLARATION order, each stage seeing what the ones
+		// before it decided. A later stage overriding a field is last-writer
+		// wins — visibly, because the order is a line in the host's code
+		// rather than an accident of install history.
+		let result: PrepareStepResult = {}
+		for (const stage of stages) {
+			try {
+				const decided = await stage({
+					runId: this.ctx.runMgr.id,
+					stepNumber,
+					messages: this.ctx.runMgr.messages,
+					steps: this.steps,
+					prepared: result,
+				})
+				if (decided) result = { ...result, ...decided }
+			} catch (err) {
+				// Skipped, and the rest still run: one broken concern must
+				// not silently disable the others it was declared beside.
+				this.ctx.log.error('a prepareStep stage threw — skipping it', {
+					runId: this.ctx.runMgr.id,
+					stepNumber,
+					error: toErrorMessage(err),
+				})
+			}
 		}
-		if (!result) return {}
 
 		const prepared: {
 			allowedTools?: string[]

@@ -6,7 +6,7 @@ import type { ResumeHandler } from '../hitl/index.js'
 import type { AgentPersona } from '../persona/index.js'
 import type { LLMProvider } from '../provider/index.js'
 import type { CheckpointStore } from '../run/checkpoint-store.js'
-import type { PrepareStep, StepResult, StopCondition } from '../run/index.js'
+import type { PrepareStepChain, StepResult, StopCondition } from '../run/index.js'
 import type { SandboxProvider } from '../sandbox/index.js'
 import type { Skill } from '../skills/index.js'
 import type { StructuredOutputConfig } from '../structured-output/index.js'
@@ -91,7 +91,7 @@ export interface ReactiveAgentConfig extends BaseAgentConfig {
 	repairToolCall?: RepairToolCall
 	stopWhen?: StopCondition
 	onStepFinish?: (step: StepResult) => void
-	prepareStep?: PrepareStep
+	prepareStep?: PrepareStepChain
 	structuredOutput?: StructuredOutputConfig
 	inputGuardrails?: readonly InputGuardrailSpec[]
 	outputGuardrails?: readonly OutputGuardrailSpec[]

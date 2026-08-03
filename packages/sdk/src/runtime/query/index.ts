@@ -53,7 +53,7 @@ import type { ReviewAnswer } from '../../types/run/answer-review.js'
 import type { CheckpointStore } from '../../types/run/checkpoint-store.js'
 import type {
 	AgentRunConfig,
-	PrepareStep,
+	PrepareStepChain,
 	Run,
 	RunEvent,
 	RunEventListener,
@@ -248,7 +248,7 @@ export interface QueryParams {
 	 *
 	 * Fails open — a throw leaves the step with the run's configuration.
 	 */
-	prepareStep?: PrepareStep
+	prepareStep?: PrepareStepChain
 
 	/**
 	 * Force the run to finish by calling a schema-validated tool, and land

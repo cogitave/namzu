@@ -17,7 +17,7 @@ import type { LLMProvider } from '../../../../types/provider/index.js'
 import type { ReviewAnswer } from '../../../../types/run/answer-review.js'
 import type {
 	AgentRunConfig,
-	PrepareStep,
+	PrepareStepChain,
 	RunEvent,
 	StepResult,
 	StopCondition,
@@ -125,7 +125,7 @@ export interface IterationContext {
 	readonly parkRecordDelayMs?: number
 
 	/** Host hook that shapes each step before the model call. */
-	readonly prepareStep?: PrepareStep
+	readonly prepareStep?: PrepareStepChain
 }
 
 export type PhaseSignal = 'continue' | 'stop'
