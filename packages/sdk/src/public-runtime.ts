@@ -447,6 +447,7 @@ export {
 	extractFromUserMessage,
 	findDanglingMessages,
 	findSafeTrimIndex,
+	findRetainedIndices,
 	NullManager,
 	removeDanglingMessages,
 	serializeState,

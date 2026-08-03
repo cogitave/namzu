@@ -1,5 +1,6 @@
 import { resolveContextWindow } from '../../../../compaction/context-window.js'
 import { findSafeTrimIndex } from '../../../../compaction/dangling.js'
+import { findRetainedIndices } from '../../../../compaction/retention.js'
 import { serializeState } from '../../../../compaction/serializer.js'
 import { clearStaleToolResults } from '../../../../compaction/tool-result-editing.js'
 import { buildVerifiedSummary } from '../../../../compaction/verifier.js'
@@ -371,7 +372,20 @@ export async function runCompactionCheck(
 	const preservedSystem = systemMessages.filter(
 		(m) => !isCompactionMessage(typeof m.content === 'string' ? m.content : null),
 	)
-	const newMessages = [...preservedSystem, compactionMessage, ...recentMessages]
+
+	// Pinned turns from the older window survive verbatim, in order, between
+	// the summary and the recent window. They are also described by the
+	// summary, which is the point rather than a waste: a paraphrase is what
+	// the pin exists to refuse.
+	const retained = findRetainedIndices(messages)
+	const retainedOlder =
+		retained.size === 0
+			? []
+			: messages
+					.slice(systemMessages.length, keepStart)
+					.filter((_, offset) => retained.has(systemMessages.length + offset))
+
+	const newMessages = [...preservedSystem, compactionMessage, ...retainedOlder, ...recentMessages]
 
 	// OPAQUE survival guard (ses_055 D1): the pinned working-memory slot is a
 	// leading system message, so it is kept in `preservedSystem` (the compaction

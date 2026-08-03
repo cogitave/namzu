@@ -307,6 +307,42 @@ turn), the most recent N, and anything under the size floor. Image payloads
 are measured by their base64 size — a screenshot is the largest thing a
 tool result can carry and exactly the kind of output an agent reads once.
 
+### Pinning a message against eviction
+
+Set `retain: true` on a message and neither the summarization rebuild nor
+the in-place clearing pass will touch it:
+
+```ts
+query({
+  messages: [
+    { role: 'user', content: 'the account id is 4471; never bill a different one', retain: true },
+    { role: 'user', content: 'draft the invoice' },
+  ],
+})
+```
+
+Everything else the run protects is protected by **position** — the
+leading system messages, the working-memory slot, the last N turns, the
+most recent tool results. A standing constraint stated in the middle of a
+conversation therefore aged out at the same rate as chatter, and no
+positional rule could express it. The working-memory slot cannot either:
+it is host-rendered each turn and does not know what the user said.
+
+Protection is transitive across a tool pair. Pinning a `tool_result` also
+pins the assistant turn that issued the call, and pinning that turn pins
+every result answering it — half a pair is not a smaller history, it is
+one the provider rejects.
+
+Pinned turns survive verbatim, in order, between the summary and the
+recent window. They are also described by the summary, which is the point
+rather than a waste: a paraphrase is what the pin exists to refuse.
+
+Nothing caps how much you may pin. Pinned turns are exempt from the
+reclaim that keeps a long run alive, so pinning the whole transcript makes
+compaction useless — a cap would have to guess which pin mattered, and
+dropping the wrong one quietly is worse than a run that overflows in the
+open.
+
 A pass emits `compaction_completed` (wire: `compaction.completed`) with
 before/after message counts and token sizes. Compaction deletes history
 irrecoverably, so it is worth surfacing.

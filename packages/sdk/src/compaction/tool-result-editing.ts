@@ -1,6 +1,7 @@
 import { SPILL_MARKER } from '../runtime/query/tool-output-budget.js'
 import { toolResultToText } from '../types/message/content.js'
 import type { Message, ToolMessage, ToolResultBlock } from '../types/message/index.js'
+import { findRetainedIndices } from './retention.js'
 
 /**
  * Clear stale tool OUTPUT in place, without touching the conversation's
@@ -157,12 +158,19 @@ export function clearStaleToolResults(
 	// would protect EVERY result when the caller asked to protect none.
 	const protectedFromEnd = new Set(keepRecent === 0 ? [] : toolIndices.slice(-keepRecent))
 
+	// A pinned result is pinned against THIS too. Clearing keeps the message
+	// and replaces its content, which is exactly the loss `retain` was asked
+	// to prevent — a placeholder where the account id used to be reads as an
+	// answer, not as an omission.
+	const retained = findRetainedIndices(messages)
+
 	let clearedCount = 0
 	let charsReclaimed = 0
 
 	const edited = messages.map((msg, index) => {
 		if (msg.role !== 'tool') return msg
 		if (protectedFromEnd.has(index)) return msg
+		if (retained.has(index)) return msg
 
 		const tool = msg as ToolMessage
 		// An error result is small and it STEERS — it is the thing the model

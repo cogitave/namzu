@@ -30,6 +30,8 @@ export {
 	findSafeTrimIndex,
 } from './dangling.js'
 
+export { findRetainedIndices } from './retention.js'
+
 export { NullManager, SlidingWindowManager, StructuredCompactionManager } from './managers/index.js'
 
 export { createConversationManager } from './factory.js'
