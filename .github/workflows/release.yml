@@ -95,3 +95,20 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.CHANGESETS_TOKEN || secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_CONFIG_PROVENANCE: true
+
+      # The action inlines a package's whole changelog entry as the release
+      # body, and GitHub rejects a body over 125,000 characters. A release
+      # that batches many changesets crosses that on its largest package and
+      # the step fails — after the publish, so the packages are live and only
+      # the notes are missing. `@namzu/sdk@3.0.0` lost its release that way
+      # while its ten siblings got theirs.
+      #
+      # `always()` because the interesting case is precisely the one where
+      # the step above failed. Additive by construction: a tag that already
+      # has a release is skipped, so this can only fill gaps, never replace
+      # what the action wrote.
+      - name: Backfill release notes the size limit rejected
+        if: always()
+        run: node .github/scripts/backfill-github-releases.mjs
+        env:
+          GH_TOKEN: ${{ secrets.CHANGESETS_TOKEN || secrets.GITHUB_TOKEN }}
