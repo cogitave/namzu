@@ -103,7 +103,7 @@ pnpm add @namzu/sdk @namzu/ollama
 ```
 
 ```typescript
-import { ProviderRegistry, createUserMessage } from '@namzu/sdk'
+import { ProviderRegistry, runAgent } from '@namzu/sdk'
 import { registerOllama } from '@namzu/ollama'
 
 // Register once at startup. Swap this line for another vendor:
@@ -118,15 +118,41 @@ const { provider } = ProviderRegistry.create({
   host: 'http://localhost:11434',
 })
 
-const response = await provider.chat({
+const { output } = await runAgent({
+  provider,
   model: 'llama3.2',
-  messages: [createUserMessage('What is the capital of France?')],
+  prompt: 'What is the capital of France?',
 })
 
-console.log(response.message.content)
+console.log(output)
 ```
 
-The response is `{ id, model, message: { role, content, toolCalls? }, finishReason, usage }`. The kernel installed alone runs against `MockLLMProvider` — pre-registered, no network dependencies, and scriptable: give it `turns` and it emits tool calls with the same stream framing a real driver produces.
+That is an agent run, not a chat call: the loop, the tool scheduler, budget
+enforcement, checkpointing and the event stream are all in it. `runAgent`
+supplies the parts a single-tenant local run has no opinion about — it
+generates the session identity, defaults the budgets, and points the working
+directory at the process's own — and hands the identity back on the result so
+the next turn continues the same session:
+
+```typescript
+const first = await runAgent({ provider, model, prompt: 'My name is Ada.' })
+
+const second = await runAgent({
+  provider,
+  model,
+  ...first.identity,
+  prompt: [...first.run.messages, createUserMessage('What is my name?')],
+})
+```
+
+Give it `tools` and the same call runs a tool loop. When you outgrow the
+defaults — a real tenant, your own budgets, human-in-the-loop review,
+compaction policy — every option is a `drainQuery` parameter and you drop down
+to `drainQuery` itself without changing engines.
+
+The kernel installed alone runs against `MockLLMProvider` — pre-registered, no
+network dependencies, and scriptable: give it `turns` and it emits tool calls
+with the same stream framing a real driver produces.
 
 ## Provider Selection
 

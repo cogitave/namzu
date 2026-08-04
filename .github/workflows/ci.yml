@@ -74,7 +74,7 @@ jobs:
       # Both are fixed; `continue-on-error` is gone with them, because a gate
       # that cannot go red is decoration by its own admission above.
       - name: Evals
-        run: node packages/cli/dist/bin.js eval --dir evals --out eval-report.json
+        run: node packages/cli/dist/bin.js eval --dir packages/evals --out eval-report.json
 
       # SDK coverage gate (ses_006-test-coverage-sprint).
       # Runs on one node version only — coverage output is identical across

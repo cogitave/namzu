@@ -1,8 +1,5 @@
 packages:
   - "packages/*"
-  # First-party eval suites. A workspace member so a suite can import
-  # `@namzu/sdk` by name; private, never published.
-  - "evals"
   - "packages/providers/*"
   # Exclude gitignored application packages. They exist locally for dev
   # (root scripts run them via `tsx packages/<x>/src/index.ts` directly)

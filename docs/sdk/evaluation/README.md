@@ -191,7 +191,7 @@ code. Without it the harness's signal could not reach CI: every consumer
 had to hand-write the runner and the report-to-exit-code mapping.
 
 ```bash
-namzu eval --dir evals --out eval-report.json
+namzu eval --dir packages/evals --out eval-report.json
 namzu eval --tag fast          # only suites declaring this tag
 ```
 

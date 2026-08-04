@@ -139,6 +139,9 @@ export {
 	PipelineAgent,
 	ReactiveAgent,
 	RouterAgent,
+	// The short path: provider + model + prompt. Assembles the identity and
+	// budgets `drainQuery` requires and hands the generated identity back.
+	runAgent,
 	SupervisorAgent,
 } from './agents/index.js'
 

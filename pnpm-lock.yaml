@@ -27,15 +27,6 @@ importers:
         specifier: ^5.5.0
         version: 5.9.3
 
-  evals:
-    dependencies:
-      '@namzu/sdk':
-        specifier: workspace:*
-        version: link:../packages/sdk
-      zod:
-        specifier: ^3.25.76
-        version: 3.25.76
-
   packages/cli:
     dependencies:
       '@namzu/anthropic':
@@ -99,6 +90,15 @@ importers:
       vitest:
         specifier: ^3.2.6
         version: 3.2.7(@types/node@22.19.17)
+
+  packages/evals:
+    dependencies:
+      '@namzu/sdk':
+        specifier: workspace:*
+        version: link:../sdk
+      zod:
+        specifier: ^3.25.76
+        version: 3.25.76
 
   packages/files:
     dependencies:
