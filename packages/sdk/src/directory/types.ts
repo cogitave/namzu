@@ -1,11 +1,8 @@
-import type {
-	AgentIdentity,
-	LLMProvider,
-	Message,
-	RunAgentOptions,
-	Skill,
-	ToolDefinition,
-} from '@namzu/sdk'
+import type { AgentIdentity, RunAgentOptions } from '../agents/runAgent.js'
+import type { Message } from '../types/message/index.js'
+import type { LLMProvider } from '../types/provider/index.js'
+import type { Skill } from '../types/skills/index.js'
+import type { ToolDefinition } from '../types/tool/index.js'
 
 /**
  * A directory in the convention this package reads.
@@ -20,9 +17,9 @@ import type {
  * question — does a convention belong outside the kernel — was answered yes
  * and stands; the shape question had simply never been asked.
  */
-export type ProjectSlot = 'agent' | 'instructions' | 'tools' | 'skills' | 'agents'
+export type DirectorySlot = 'agent' | 'instructions' | 'tools' | 'skills' | 'agents'
 
-export const ALL_SLOTS: readonly ProjectSlot[] = [
+export const ALL_SLOTS: readonly DirectorySlot[] = [
 	'agent',
 	'instructions',
 	'tools',
@@ -35,7 +32,7 @@ export const ALL_SLOTS: readonly ProjectSlot[] = [
  *
  * `'evaluate'` imports every module-backed file, and importing a module RUNS
  * it — a top-level side effect in `tools/search.ts` happens during
- * `loadProject`, in this process, with this process's privileges.
+ * `loadDirectory`, in this process, with this process's privileges.
  *
  * `'skip'` imports nothing. The manifest still carries the full structural
  * truth — every path, the instructions, the skills, duplicate and ambiguity
@@ -60,7 +57,7 @@ export type SourceOutcome =
 	 *
 	 * NOT a synonym for `'failed'`. `import()` cannot be cancelled: the module
 	 * is still executing, may still complete, and its top-level side effects
-	 * may land after `loadProject` has returned. Node then caches it, so a
+	 * may land after `loadDirectory` has returned. Node then caches it, so a
 	 * second load in the same process can see the same file succeed instantly.
 	 * A distinct outcome because "we stopped waiting" and "it did not work"
 	 * lead a reader to different places.
@@ -72,15 +69,15 @@ export interface SourceRef {
 	readonly path: string
 	/** Posix, relative to the project root: `tools/search.ts`. */
 	readonly relativePath: string
-	readonly slot: ProjectSlot
+	readonly slot: DirectorySlot
 	/** Path-derived, extension stripped. `tools/search.ts` → `search`. */
 	readonly id: string
 	readonly outcome: SourceOutcome
 }
 
-export type DiagnosticSeverity = 'error' | 'warning'
+export type DirectoryDiagnosticSeverity = 'error' | 'warning'
 
-export type DiagnosticCode =
+export type DirectoryDiagnosticCode =
 	| 'instructions_missing'
 	| 'instructions_empty'
 	| 'module_load_failed'
@@ -105,9 +102,9 @@ export type DiagnosticCode =
  * and its reason, and an inspector can render the list without re-reading the
  * directory.
  */
-export interface ProjectDiagnostic {
-	readonly code: DiagnosticCode
-	readonly severity: DiagnosticSeverity
+export interface DirectoryDiagnostic {
+	readonly code: DirectoryDiagnosticCode
+	readonly severity: DirectoryDiagnosticSeverity
 	readonly message: string
 	/** Absolute path, when the diagnostic is about a file. */
 	readonly path?: string
@@ -140,7 +137,7 @@ export interface ToolEntry {
 export interface SubAgentEntry {
 	readonly source: SourceRef
 	/** The delegate's own manifest — its instructions, tools and config. */
-	readonly manifest: ProjectManifest
+	readonly manifest: DirectoryManifest
 	/** Directory-derived, and the id a supervisor delegates to. */
 	readonly id: string
 }
@@ -155,7 +152,7 @@ export interface SkillEntry {
  *
  * Deliberately a plain object, default-exported, with no authoring helper. A
  * `defineAgent` here would collide with the SDK's existing export of that
- * name, and `export default { model: 'x' } satisfies ProjectConfig` already
+ * name, and `export default { model: 'x' } satisfies DirectoryConfig` already
  * gets the type checking a helper would provide.
  *
  * There is no factory form. It would buy environment-conditioned config that
@@ -163,7 +160,7 @@ export interface SkillEntry {
  * evaluated anyway, and it would cost a user-function-invocation phase with a
  * hang mode outside what `moduleTimeoutMs` promises to bound.
  */
-export interface ProjectConfig {
+export interface DirectoryConfig {
 	readonly model?: string
 	readonly temperature?: number
 	readonly maxIterations?: number
@@ -175,7 +172,7 @@ export interface ProjectConfig {
 	readonly metadata?: Readonly<Record<string, string>>
 }
 
-export interface ProjectManifest {
+export interface DirectoryManifest {
 	/** Absolute, canonical path to the `agent/` directory. */
 	readonly root: string
 	/**
@@ -190,7 +187,7 @@ export interface ProjectManifest {
 	readonly name: string
 	/** Verbatim `instructions.md`, trailing whitespace removed. */
 	readonly instructions: string
-	readonly config: ProjectConfig
+	readonly config: DirectoryConfig
 	readonly tools: readonly ToolEntry[]
 	readonly skills: readonly SkillEntry[]
 	/** Delegates this project declares. Empty unless it has an `agents/` slot. */
@@ -198,13 +195,13 @@ export interface ProjectManifest {
 	/** Every file considered, with its outcome. An inspector's ground truth. */
 	readonly sources: readonly SourceRef[]
 	/** Which slots were scanned. What `ok` is scoped to. */
-	readonly included: readonly ProjectSlot[]
+	readonly included: readonly DirectorySlot[]
 	readonly modules: ModuleMode
 }
 
-export interface ProjectLoadResult {
-	readonly manifest: ProjectManifest
-	readonly diagnostics: readonly ProjectDiagnostic[]
+export interface DirectoryLoadResult {
+	readonly manifest: DirectoryManifest
+	readonly diagnostics: readonly DirectoryDiagnostic[]
 	/**
 	 * True when no diagnostic is an error.
 	 *
@@ -215,7 +212,7 @@ export interface ProjectLoadResult {
 	readonly ok: boolean
 }
 
-export interface LoadProjectOptions {
+export interface LoadDirectoryOptions {
 	/** See {@link ModuleMode}. Default `'evaluate'`. */
 	readonly modules?: ModuleMode
 	/**
@@ -237,7 +234,7 @@ export interface LoadProjectOptions {
 	 * when empty is the fail-open shape this estate removed elsewhere; here an
 	 * empty list scans nothing, which is the closed reading.
 	 */
-	readonly include?: readonly [ProjectSlot, ...ProjectSlot[]]
+	readonly include?: readonly [DirectorySlot, ...DirectorySlot[]]
 	/**
 	 * Per-module deadline. Default 10_000ms.
 	 *

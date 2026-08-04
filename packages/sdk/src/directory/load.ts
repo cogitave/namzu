@@ -1,18 +1,18 @@
 import { readFile } from 'node:fs/promises'
 import { pathToFileURL } from 'node:url'
 
-import { loadSkill } from '@namzu/sdk'
-import type { ToolDefinition } from '@namzu/sdk'
+import { loadSkill } from '../skills/loader.js'
+import type { ToolDefinition } from '../types/tool/index.js'
 
 import { canonicalRoot, scanSlot } from './scan.js'
 import type {
-	LoadProjectOptions,
+	DirectoryConfig,
+	DirectoryDiagnostic,
+	DirectoryLoadResult,
+	DirectorySlot,
+	LoadDirectoryOptions,
 	ModuleImporter,
 	ModuleMode,
-	ProjectConfig,
-	ProjectDiagnostic,
-	ProjectLoadResult,
-	ProjectSlot,
 	SkillEntry,
 	SourceOutcome,
 	SourceRef,
@@ -28,7 +28,7 @@ const DEFAULT_MODULE_TIMEOUT_MS = 10_000
  *
  * `import()` cannot be cancelled. When this races out, the module is still
  * executing: it may finish, its top-level side effects may land after
- * `loadProject` has returned, and Node caches the result — so a second load in
+ * `loadDirectory` has returned, and Node caches the result — so a second load in
  * the same process can see the same file resolve instantly. That was verified
  * rather than assumed, and it is why `'abandoned'` exists as an outcome
  * separate from `'failed'`.
@@ -138,7 +138,11 @@ function defaultExport(module: unknown): unknown {
 	return (module as { default?: unknown }).default
 }
 
-function readConfig(value: unknown, diagnostics: ProjectDiagnostic[], path: string): ProjectConfig {
+function readConfig(
+	value: unknown,
+	diagnostics: DirectoryDiagnostic[],
+	path: string,
+): DirectoryConfig {
 	if (value === undefined) return {}
 	if (typeof value !== 'object' || value === null || Array.isArray(value)) {
 		diagnostics.push({
@@ -214,7 +218,7 @@ function readConfig(value: unknown, diagnostics: ProjectDiagnostic[], path: stri
 			}
 		}
 	}
-	return config as ProjectConfig
+	return config as DirectoryConfig
 }
 
 /**
@@ -228,10 +232,10 @@ function readConfig(value: unknown, diagnostics: ProjectDiagnostic[], path: stri
  * malformed config all come back as diagnostics, because a loader that throws
  * on the first bad file tells you about one problem when you wanted the list.
  */
-export async function loadProject(
+export async function loadDirectory(
 	dir: string,
-	options: LoadProjectOptions = {},
-): Promise<ProjectLoadResult> {
+	options: LoadDirectoryOptions = {},
+): Promise<DirectoryLoadResult> {
 	return loadAt(dir, options, 0)
 }
 
@@ -249,11 +253,11 @@ const MAX_DEPTH = 1
 
 async function loadAt(
 	dir: string,
-	options: LoadProjectOptions,
+	options: LoadDirectoryOptions,
 	depth: number,
-): Promise<ProjectLoadResult> {
+): Promise<DirectoryLoadResult> {
 	if (typeof dir !== 'string' || dir.length === 0) {
-		throw new TypeError('loadProject(dir): dir must be a non-empty string.')
+		throw new TypeError('loadDirectory(dir): dir must be a non-empty string.')
 	}
 
 	const modules: ModuleMode = options.modules ?? 'evaluate'
@@ -262,14 +266,14 @@ async function loadAt(
 	// `?? ALL_SLOTS`, never `|| ALL_SLOTS`: an empty list means "scan nothing",
 	// which is the closed reading of an allow-list. The tuple type keeps a
 	// TypeScript caller from writing it at all.
-	const included: readonly ProjectSlot[] = options.include ?? ALL_SLOTS
+	const included: readonly DirectorySlot[] = options.include ?? ALL_SLOTS
 
-	const diagnostics: ProjectDiagnostic[] = []
+	const diagnostics: DirectoryDiagnostic[] = []
 	const sources: SourceRef[] = []
 	const tools: ToolEntry[] = []
 	const skills: SkillEntry[] = []
 	const agents: SubAgentEntry[] = []
-	let config: ProjectConfig = {}
+	let config: DirectoryConfig = {}
 	let instructions = ''
 
 	const root = await canonicalRoot(dir)
@@ -299,7 +303,7 @@ async function loadAt(
 
 	const record = (
 		file: { path: string; relativePath: string; id: string },
-		slot: ProjectSlot,
+		slot: DirectorySlot,
 		outcome: SourceOutcome,
 	): SourceRef => {
 		const ref: SourceRef = { ...file, slot, outcome }

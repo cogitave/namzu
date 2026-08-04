@@ -8,6 +8,7 @@
 			"bus",
 			"compaction",
 			"connector",
+			"directory",
 			"manager",
 			"plugin",
 			"probe",
@@ -59,6 +60,10 @@
 		"connector": {
 			"line": 47,
 			"branch": 84
+		},
+		"directory": {
+			"line": 85,
+			"branch": 82
 		},
 		"rag": {
 			"line": 92,

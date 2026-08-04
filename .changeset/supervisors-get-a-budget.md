@@ -1,9 +1,8 @@
 ---
 '@namzu/sdk': minor
-'@namzu/project': patch
 ---
 
-a project-derived supervisor now has a token budget, a wall clock, and its skills
+a directory-derived supervisor now has a token budget, a wall clock, and its skills
 
 `BaseAgentConfig` declares `tokenBudget` and `timeoutMs` as **required**.
 `deriveSupervisorOptions` supplied them only when `agent.ts` happened to name

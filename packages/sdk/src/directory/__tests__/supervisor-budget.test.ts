@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import { deriveSupervisorOptions } from '../derive-supervisor.js'
-import { loadProject } from '../load.js'
+import { loadDirectory } from '../load.js'
 
 /**
  * `BaseAgentConfig` declares `tokenBudget` and `timeoutMs` as REQUIRED, and
@@ -45,7 +45,7 @@ const MINIMAL = {
 
 describe('a derived supervisor always has a budget and a clock', () => {
 	it('defaults both when agent.ts names neither', async () => {
-		const { manifest } = await loadProject(tree(MINIMAL))
+		const { manifest } = await loadDirectory(tree(MINIMAL))
 		const { config } = deriveSupervisorOptions(manifest, { provider, agentManager })
 
 		// The exact numbers matter less than that they are finite: a NaN or an
@@ -57,8 +57,12 @@ describe('a derived supervisor always has a budget and a clock', () => {
 	})
 
 	it('uses the same defaults the SDK front door uses', async () => {
-		const { DEFAULT_TIMEOUT_MS, DEFAULT_TOKEN_BUDGET } = await import('@namzu/sdk')
-		const { manifest } = await loadProject(tree(MINIMAL))
+		// Imported from the module that owns them rather than through the
+		// package entry: this file now lives inside that package, and a
+		// self-import resolves to the built `dist`, not to the source under
+		// test — which is how a stale build reads as a passing test.
+		const { DEFAULT_TIMEOUT_MS, DEFAULT_TOKEN_BUDGET } = await import('../../agents/runAgent.js')
+		const { manifest } = await loadDirectory(tree(MINIMAL))
 		const { config } = deriveSupervisorOptions(manifest, { provider, agentManager })
 
 		// Two front doors that default differently is a difference nobody would
@@ -68,7 +72,7 @@ describe('a derived supervisor always has a budget and a clock', () => {
 	})
 
 	it('still honours what agent.ts declares', async () => {
-		const { manifest } = await loadProject(
+		const { manifest } = await loadDirectory(
 			tree({
 				...MINIMAL,
 				'agent.js': 'export default { model: "m", tokenBudget: 1234, timeoutMs: 5678 }',
@@ -81,7 +85,7 @@ describe('a derived supervisor always has a budget and a clock', () => {
 	})
 
 	it('lets an override win over both', async () => {
-		const { manifest } = await loadProject(tree(MINIMAL))
+		const { manifest } = await loadDirectory(tree(MINIMAL))
 		const { config } = deriveSupervisorOptions(manifest, {
 			provider,
 			agentManager,
@@ -94,7 +98,7 @@ describe('a derived supervisor always has a budget and a clock', () => {
 
 describe('a derived supervisor carries the skills it loaded', () => {
 	it('passes skills through instead of dropping them', async () => {
-		const { manifest } = await loadProject(
+		const { manifest } = await loadDirectory(
 			tree({
 				...MINIMAL,
 				'skills/plan-a-trip/SKILL.md':

@@ -18,6 +18,14 @@ export type * from './types/message/index.js'
 export type * from './types/common/index.js'
 export type * from './types/bidi/index.js'
 export type * from './types/tool/index.js'
+// The directory convention: what a loaded `agent/` directory is, and what the
+// loader reports about the files it could not use.
+export type * from './directory/types.js'
+export type {
+	DelegatePlan,
+	DeriveSupervisorInput,
+	SupervisorPlan,
+} from './directory/derive-supervisor.js'
 export type * from './types/toolset/index.js'
 export type * from './types/permission/index.js'
 export type * from './types/run/index.js'

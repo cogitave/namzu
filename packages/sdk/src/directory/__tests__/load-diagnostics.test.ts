@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-import { loadProject } from '../load.js'
+import { loadDirectory } from '../load.js'
 
 /**
  * Three refusals this loader claimed to make and did not.
@@ -40,7 +40,7 @@ export default {
 `,
 		})
 
-		const { manifest, diagnostics, ok } = await loadProject(root)
+		const { manifest, diagnostics, ok } = await loadDirectory(root)
 
 		expect(ok).toBe(false)
 		expect(diagnostics.map((d) => d.code)).toContain('not_a_tool')
@@ -61,7 +61,7 @@ export default {
 `,
 		})
 
-		const { manifest, ok } = await loadProject(root)
+		const { manifest, ok } = await loadDirectory(root)
 
 		expect(ok).toBe(true)
 		expect(manifest.tools).toHaveLength(1)
@@ -80,7 +80,7 @@ export default { name: 'x', description: 'x', inputSchema: {}, execute: async ()
 `,
 		})
 
-		const { diagnostics } = await loadProject(root)
+		const { diagnostics } = await loadDirectory(root)
 
 		const failed = diagnostics.find((d) => d.code === 'module_load_failed')
 		expect(failed).toBeDefined()
@@ -97,7 +97,7 @@ describe('agent.ts metadata is checked, not assumed', () => {
 			'agent.js': 'export default { model: "m", metadata: { count: 1 } }',
 		})
 
-		const { diagnostics, ok } = await loadProject(root)
+		const { diagnostics, ok } = await loadDirectory(root)
 
 		expect(ok).toBe(false)
 		expect(diagnostics.some((d) => d.code === 'invalid_config')).toBe(true)
@@ -108,7 +108,7 @@ describe('agent.ts metadata is checked, not assumed', () => {
 			'agent.js': 'export default { model: "m", metadata: ["a", "b"] }',
 		})
 
-		const { ok } = await loadProject(root)
+		const { ok } = await loadDirectory(root)
 
 		expect(ok).toBe(false)
 	})
@@ -118,7 +118,7 @@ describe('agent.ts metadata is checked, not assumed', () => {
 			'agent.js': 'export default { model: "m", metadata: { team: "core" } }',
 		})
 
-		const { manifest, ok } = await loadProject(root)
+		const { manifest, ok } = await loadDirectory(root)
 
 		expect(ok).toBe(true)
 		expect(manifest.config.metadata).toEqual({ team: 'core' })

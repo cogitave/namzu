@@ -1,8 +1,8 @@
 ---
-'@namzu/project': minor
+'@namzu/sdk': minor
 ---
 
-A project can declare delegates, and `deriveSupervisorOptions` turns them into
+An agent directory can declare delegates, and `deriveSupervisorOptions` turns them into
 a `SupervisorAgent` configuration.
 
 `SupervisorAgent` needs an `agentIds` roster and a manager that can spawn them.

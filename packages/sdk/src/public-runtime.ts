@@ -135,6 +135,24 @@ export {
 	resolveSkillChain,
 	SkillRegistry,
 } from './skills/index.js'
+
+// ─── the agent directory ─────────────────────────────────────────────────
+//
+// Reading a conventional `agent/` directory — its instructions, tools, skills
+// and delegates — into the same options `runAgent` and `SupervisorAgent`
+// already take. A loader, not a second engine: everything it produces is an
+// ordinary option, so a caller who outgrows the convention passes overrides
+// or stops calling it and keeps everything else.
+//
+// It shipped briefly as its own package. The name was the tell — nothing fit,
+// because a directory reader that needs the kernel to be useful is a function
+// of the kernel, not a product beside it.
+export {
+	ALL_SLOTS,
+	deriveRunOptions,
+	deriveSupervisorOptions,
+	loadDirectory,
+} from './directory/index.js'
 export {
 	AdvisorRegistry,
 	AdvisoryContext,

@@ -2,9 +2,9 @@ import type { Dirent } from 'node:fs'
 import { lstat, readdir, realpath } from 'node:fs/promises'
 import { basename, extname, join, relative, sep } from 'node:path'
 
-import { resolveWithinReal } from '@namzu/sdk'
+import { resolveWithinReal } from '../tools/paths.js'
 
-import type { ProjectDiagnostic, ProjectSlot } from './types.js'
+import type { DirectoryDiagnostic, DirectorySlot } from './types.js'
 
 /** Extensions Node can import directly, given its own type stripping. */
 const CODE_EXTENSIONS = new Set(['.ts', '.mts', '.cts', '.js', '.mjs', '.cjs'])
@@ -17,7 +17,7 @@ export interface ScannedFile {
 
 export interface ScanResult {
 	readonly files: readonly ScannedFile[]
-	readonly diagnostics: readonly ProjectDiagnostic[]
+	readonly diagnostics: readonly DirectoryDiagnostic[]
 }
 
 /**
@@ -42,12 +42,12 @@ export interface ScanResult {
  */
 export async function scanSlot(
 	root: string,
-	slot: ProjectSlot,
+	slot: DirectorySlot,
 	dirName: string,
 ): Promise<ScanResult> {
 	const dir = join(root, dirName)
 	const files: ScannedFile[] = []
-	const diagnostics: ProjectDiagnostic[] = []
+	const diagnostics: DirectoryDiagnostic[] = []
 
 	let entries: Dirent[]
 	try {

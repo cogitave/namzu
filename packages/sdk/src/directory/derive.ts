@@ -1,7 +1,7 @@
-import { ToolRegistry } from '@namzu/sdk'
-import type { RunAgentOptions } from '@namzu/sdk'
+import type { RunAgentOptions } from '../agents/runAgent.js'
+import { ToolRegistry } from '../registry/tool/execute.js'
 
-import type { DeriveRunOptionsInput, ProjectManifest } from './types.js'
+import type { DeriveRunOptionsInput, DirectoryManifest } from './types.js'
 
 /**
  * Turn a loaded project into the options `runAgent` takes.
@@ -12,7 +12,7 @@ import type { DeriveRunOptionsInput, ProjectManifest } from './types.js'
  * reachable only through the convention.
  */
 export function deriveRunOptions(
-	manifest: ProjectManifest,
+	manifest: DirectoryManifest,
 	input: DeriveRunOptionsInput,
 ): RunAgentOptions {
 	if (manifest.modules === 'skip') {

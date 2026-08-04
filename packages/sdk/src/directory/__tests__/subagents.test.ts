@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
 import { deriveSupervisorOptions } from '../derive-supervisor.js'
-import { loadProject } from '../load.js'
+import { loadDirectory } from '../load.js'
 
 /**
  * `SupervisorAgent` needs an `agentIds` roster and a manager that can spawn
@@ -49,7 +49,7 @@ const SYSTEM = {
 
 describe('a project that declares delegates', () => {
 	it('loads each one as a project in its own right', async () => {
-		const { manifest, ok, diagnostics } = await loadProject(tree(SYSTEM))
+		const { manifest, ok, diagnostics } = await loadDirectory(tree(SYSTEM))
 
 		expect(ok, JSON.stringify(diagnostics)).toBe(true)
 		expect(manifest.agents.map((a) => a.id).sort()).toEqual(['researcher', 'writer'])
@@ -64,7 +64,7 @@ describe('a project that declares delegates', () => {
 		// A delegate that could not load is a fact about THIS project. A caller
 		// reading one list should not have to walk the tree to discover the run
 		// will be short a specialist.
-		const { manifest, ok, diagnostics } = await loadProject(
+		const { manifest, ok, diagnostics } = await loadDirectory(
 			tree({ ...SYSTEM, 'agents/writer/tools/bad.js': 'this is not valid !!!' }),
 		)
 
@@ -75,7 +75,7 @@ describe('a project that declares delegates', () => {
 	})
 
 	it('refuses to read a second level of delegates', async () => {
-		const { manifest, diagnostics } = await loadProject(
+		const { manifest, diagnostics } = await loadDirectory(
 			tree({
 				...SYSTEM,
 				'agents/researcher/agents/deeper/instructions.md': 'You are too deep.',
@@ -88,7 +88,7 @@ describe('a project that declares delegates', () => {
 	})
 
 	it('imports nothing under modules: skip, delegates included', async () => {
-		const { manifest, ok } = await loadProject(
+		const { manifest, ok } = await loadDirectory(
 			tree({
 				'instructions.md': 'hi',
 				'agents/x/instructions.md': 'hi',
@@ -104,7 +104,7 @@ describe('a project that declares delegates', () => {
 
 describe('deriving supervisor options', () => {
 	it('builds the roster from the directory', async () => {
-		const { manifest } = await loadProject(tree(SYSTEM))
+		const { manifest } = await loadDirectory(tree(SYSTEM))
 
 		const { config, delegates } = deriveSupervisorOptions(manifest, { provider, agentManager })
 
@@ -117,7 +117,7 @@ describe('deriving supervisor options', () => {
 	it('lets a delegate keep its own model and inherit when it has none', async () => {
 		// A cheap model for a narrow job is the common case; inheriting
 		// unconditionally would bill every specialist at the coordinator rate.
-		const { manifest } = await loadProject(tree(SYSTEM))
+		const { manifest } = await loadDirectory(tree(SYSTEM))
 		const { delegates } = deriveSupervisorOptions(manifest, { provider, agentManager })
 
 		expect(delegates.find((d) => d.id === 'researcher')?.model).toBe('cheap-model')
@@ -125,7 +125,7 @@ describe('deriving supervisor options', () => {
 	})
 
 	it('carries each delegate its own instructions and tools', async () => {
-		const { manifest } = await loadProject(tree(SYSTEM))
+		const { manifest } = await loadDirectory(tree(SYSTEM))
 		const { delegates } = deriveSupervisorOptions(manifest, { provider, agentManager })
 
 		const researcher = delegates.find((d) => d.id === 'researcher')
@@ -136,7 +136,7 @@ describe('deriving supervisor options', () => {
 	it('refuses a project with no delegates', async () => {
 		// An empty roster makes create_task unmountable, so the result would be
 		// a coordinator that cannot coordinate — and the caller asked for one.
-		const { manifest } = await loadProject(
+		const { manifest } = await loadDirectory(
 			tree({ 'instructions.md': 'hi', 'agent.js': 'export default { model: "m" }' }),
 		)
 
@@ -146,7 +146,7 @@ describe('deriving supervisor options', () => {
 	})
 
 	it('refuses a manifest whose modules were never loaded', async () => {
-		const { manifest } = await loadProject(tree(SYSTEM), { modules: 'skip' })
+		const { manifest } = await loadDirectory(tree(SYSTEM), { modules: 'skip' })
 
 		expect(() => deriveSupervisorOptions(manifest, { provider, agentManager })).toThrow(
 			/modules: "skip"/,

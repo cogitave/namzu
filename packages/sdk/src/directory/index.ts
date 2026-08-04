@@ -1,4 +1,4 @@
-export { loadProject } from './load.js'
+export { loadDirectory } from './load.js'
 export { deriveRunOptions } from './derive.js'
 export { deriveSupervisorOptions } from './derive-supervisor.js'
 export type {
@@ -8,16 +8,16 @@ export type {
 } from './derive-supervisor.js'
 export type {
 	DeriveRunOptionsInput,
-	DiagnosticCode,
-	DiagnosticSeverity,
-	LoadProjectOptions,
+	DirectoryDiagnosticCode,
+	DirectoryDiagnosticSeverity,
+	LoadDirectoryOptions,
 	ModuleImporter,
 	ModuleMode,
-	ProjectConfig,
-	ProjectDiagnostic,
-	ProjectLoadResult,
-	ProjectManifest,
-	ProjectSlot,
+	DirectoryConfig,
+	DirectoryDiagnostic,
+	DirectoryLoadResult,
+	DirectoryManifest,
+	DirectorySlot,
 	SkillEntry,
 	SourceOutcome,
 	SourceRef,

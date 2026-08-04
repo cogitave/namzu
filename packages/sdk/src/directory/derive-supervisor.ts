@@ -1,7 +1,10 @@
-import { DEFAULT_TIMEOUT_MS, DEFAULT_TOKEN_BUDGET, ToolRegistry } from '@namzu/sdk'
-import type { AgentIdentity, LLMProvider, SupervisorAgentConfig } from '@namzu/sdk'
+import { DEFAULT_TIMEOUT_MS, DEFAULT_TOKEN_BUDGET } from '../agents/runAgent.js'
+import type { AgentIdentity } from '../agents/runAgent.js'
+import { ToolRegistry } from '../registry/tool/execute.js'
+import type { SupervisorAgentConfig } from '../types/agent/supervisor.js'
+import type { LLMProvider } from '../types/provider/index.js'
 
-import type { ProjectManifest, SubAgentEntry } from './types.js'
+import type { DirectoryManifest, SubAgentEntry } from './types.js'
 
 export interface DeriveSupervisorInput {
 	readonly provider: LLMProvider
@@ -38,14 +41,14 @@ export interface SupervisorPlan {
 
 export interface DelegatePlan {
 	readonly id: string
-	readonly manifest: ProjectManifest
+	readonly manifest: DirectoryManifest
 	/** The delegate's own instructions, tools and model, already assembled. */
 	readonly systemPrompt: string
 	readonly tools: ToolRegistry
 	readonly model: string
 }
 
-function toolsOf(manifest: ProjectManifest): ToolRegistry {
+function toolsOf(manifest: DirectoryManifest): ToolRegistry {
 	const tools = new ToolRegistry()
 	for (const entry of manifest.tools) tools.register(entry.definition)
 	return tools
@@ -78,7 +81,7 @@ function delegatePlan(entry: SubAgentEntry, fallbackModel: string): DelegatePlan
  * can see exactly what it just gained.
  */
 export function deriveSupervisorOptions(
-	manifest: ProjectManifest,
+	manifest: DirectoryManifest,
 	input: DeriveSupervisorInput,
 ): SupervisorPlan {
 	if (manifest.modules === 'skip') {
