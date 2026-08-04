@@ -20,7 +20,6 @@
     { "path": "./packages/files" },
     { "path": "./packages/sdk" },
     { "path": "./packages/cli" },
-    { "path": "./packages/project" },
 		{ "path": "./packages/telemetry" },
     { "path": "./packages/computer-use" },
     { "path": "./packages/providers/bedrock" },

@@ -19,7 +19,7 @@ admitted as a plugin directory and its manifest read from there — the director
 listed was not the directory loaded (CWE-59). It now uses `lstat` and refuses a
 link with a warning naming the path.
 
-Found by comparing the plugin loader against `@namzu/project`'s scanner, which
+Found by comparing the plugin loader against `@namzu/sdk`'s scanner, which
 was written this week with both protections. The subsystem that had them was
 the one loading code the repo's own reviewers wrote; the one without them was
 the one loading code from a home directory those reviewers never see.

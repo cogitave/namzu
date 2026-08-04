@@ -1,6 +1,5 @@
 ---
 '@namzu/sdk': minor
-'@namzu/project': patch
 ---
 
 runAgent forwards skills and the verification gate
@@ -10,7 +9,7 @@ not load-bearing — removing it typechecks clean — but while it was there the
 kernel seam was unchecked in both directions, and two options the kernel
 accepts were never forwarded.
 
-**`skills`** is the one with a caller. `@namzu/project` reads a whole `skills/`
+**`skills`** is the one with a caller. `@namzu/sdk` reads a whole `skills/`
 directory, puts them on the options, and every one was dropped: the run was
 assembled without them and nothing reported it. If you passed `skills` to
 `runAgent` and wondered why the model behaved as though it had never seen them,
@@ -24,7 +23,7 @@ it.
 
 Both are optional and default to today's behaviour, so nothing breaks.
 
-Three fixes in `@namzu/project`, each a check that existed and read the wrong
+Three fixes in `@namzu/sdk`, each a check that existed and read the wrong
 thing:
 
 - **A tool with no `inputSchema` is refused.** It used to pass `isToolDefinition`

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-import { loadProject } from '../load.js'
+import { loadDirectory } from '../load.js'
 
 /**
  * Every case builds a real directory and reads it. A fixture object standing
@@ -53,7 +53,7 @@ describe('reading a project directory', () => {
 			'tools/search.js': TOOL('search'),
 		})
 
-		const { manifest, ok, diagnostics } = await loadProject(root)
+		const { manifest, ok, diagnostics } = await loadDirectory(root)
 
 		expect(ok, JSON.stringify(diagnostics)).toBe(true)
 		expect(manifest.instructions).toBe('You are helpful.')
@@ -68,7 +68,7 @@ describe('reading a project directory', () => {
 			'tools/broken.js': 'this is not valid javascript !!!',
 		})
 
-		const { manifest, ok, diagnostics } = await loadProject(root)
+		const { manifest, ok, diagnostics } = await loadDirectory(root)
 
 		expect(ok).toBe(false)
 		// The good one still loaded — one bad file does not lose the rest.
@@ -85,7 +85,7 @@ describe('reading a project directory', () => {
 			'tools/b.js': TOOL('search'),
 		})
 
-		const { manifest, ok, diagnostics } = await loadProject(root)
+		const { manifest, ok, diagnostics } = await loadDirectory(root)
 
 		expect(ok).toBe(false)
 		expect(diagnostics.some((d) => d.code === 'duplicate_tool_name')).toBe(true)
@@ -99,7 +99,7 @@ describe('reading a project directory', () => {
 			'tools/x.js': 'export default { hello: 1 }',
 		})
 
-		const { ok, diagnostics } = await loadProject(root)
+		const { ok, diagnostics } = await loadDirectory(root)
 
 		expect(ok).toBe(false)
 		expect(diagnostics.some((d) => d.code === 'not_a_tool')).toBe(true)
@@ -110,7 +110,7 @@ describe('reading a project directory', () => {
 		// to overrule the kernel about what a valid agent is.
 		const root = project({ 'tools/a.js': TOOL('a') })
 
-		const { ok, diagnostics } = await loadProject(root)
+		const { ok, diagnostics } = await loadDirectory(root)
 
 		expect(ok).toBe(true)
 		expect(diagnostics.find((d) => d.code === 'instructions_missing')?.severity).toBe('warning')
@@ -119,7 +119,7 @@ describe('reading a project directory', () => {
 	it('errors on an instructions file that says nothing', async () => {
 		const root = project({ 'instructions.md': '   \n' })
 
-		const { ok, diagnostics } = await loadProject(root)
+		const { ok, diagnostics } = await loadDirectory(root)
 
 		expect(ok).toBe(false)
 		expect(diagnostics.find((d) => d.code === 'instructions_empty')?.severity).toBe('error')
@@ -131,7 +131,7 @@ describe('reading a project directory', () => {
 			'agent.js': 'export default { model: 42 }',
 		})
 
-		const { ok, diagnostics } = await loadProject(root)
+		const { ok, diagnostics } = await loadDirectory(root)
 
 		expect(ok).toBe(false)
 		expect(diagnostics.find((d) => d.code === 'invalid_config')?.message).toContain('"model"')
@@ -145,7 +145,7 @@ describe('reading a project directory', () => {
 			'tools/.hidden.js': TOOL('hidden'),
 		})
 
-		const { manifest, ok, diagnostics } = await loadProject(root)
+		const { manifest, ok, diagnostics } = await loadDirectory(root)
 
 		expect(ok).toBe(true)
 		expect(manifest.tools.map((t) => t.definition.name)).toEqual(['real'])
@@ -158,20 +158,20 @@ describe('reading a project directory', () => {
 			'tools/nested/deep.js': TOOL('deep'),
 		})
 
-		const { diagnostics } = await loadProject(root)
+		const { diagnostics } = await loadDirectory(root)
 
 		expect(diagnostics.find((d) => d.code === 'unscanned_directory')?.message).toContain('nested')
 	})
 
 	it('reports a missing directory rather than throwing', async () => {
-		const { ok, diagnostics } = await loadProject(join(tmpdir(), 'namzu-does-not-exist-xyz'))
+		const { ok, diagnostics } = await loadDirectory(join(tmpdir(), 'namzu-does-not-exist-xyz'))
 
 		expect(ok).toBe(false)
 		expect(diagnostics[0]?.code).toBe('root_missing')
 	})
 
 	it('throws only on programmer error', async () => {
-		await expect(loadProject('' as string)).rejects.toThrow(TypeError)
+		await expect(loadDirectory('' as string)).rejects.toThrow(TypeError)
 	})
 })
 
@@ -185,7 +185,7 @@ describe('modules: skip', () => {
 			'tools/a.js': 'throw new Error("tool executed")',
 		})
 
-		const { manifest, ok } = await loadProject(root, { modules: 'skip' })
+		const { manifest, ok } = await loadDirectory(root, { modules: 'skip' })
 
 		expect(ok).toBe(true)
 		expect(manifest.instructions).toBe('You are helpful.')
@@ -203,7 +203,7 @@ describe('include is an allow-list', () => {
 	it('scans only what was asked for', async () => {
 		const root = project({ 'instructions.md': 'hi', 'tools/a.js': TOOL('a') })
 
-		const { manifest } = await loadProject(root, { include: ['tools'] })
+		const { manifest } = await loadDirectory(root, { include: ['tools'] })
 
 		expect(manifest.included).toEqual(['tools'])
 		expect(manifest.instructions).toBe('')
@@ -215,7 +215,7 @@ describe('include is an allow-list', () => {
 		// shape this estate removed elsewhere.
 		const root = project({ 'instructions.md': 'hi', 'tools/a.js': TOOL('a') })
 
-		const { manifest } = await loadProject(root, {
+		const { manifest } = await loadDirectory(root, {
 			include: [] as unknown as ['tools'],
 		})
 
@@ -234,7 +234,7 @@ describe('symlinks are refused, not followed', () => {
 		})
 		symlinkSync(join(outside, 'evil.js'), join(root, 'tools', 'linked.js'), 'file')
 
-		const { manifest, diagnostics } = await loadProject(root)
+		const { manifest, diagnostics } = await loadDirectory(root)
 
 		// The file that would be imported is not the file that was listed.
 		expect(manifest.tools.map((t) => t.definition.name)).toEqual(['real'])
