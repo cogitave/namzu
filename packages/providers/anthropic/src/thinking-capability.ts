@@ -29,19 +29,41 @@ import type { ModelIdGrammar, ReasoningEffort, ThinkingConfig } from '@namzu/sdk
  * mode for a newer one is a clear vendor 400 rather than a silently altered
  * request.
  */
+/**
+ * The effort levels a model accepts — a SET, not a flag.
+ *
+ * Modelling this as a boolean was wrong in the same way `oneOf` under strict
+ * was wrong: the vendor rejects a level a model does not have rather than
+ * clamping it, so `xhigh` on a 4.6 and `max` on a 4.5 were 400s this driver
+ * forwarded without noticing. The ceiling moved twice — `xhigh` arrived with
+ * 4.7, and `max` is absent below 4.6 — so there is no single answer to encode.
+ *
+ * Empty means the model takes no `effort` field at all.
+ */
+export type EffortLevels = readonly ReasoningEffort[]
+
+const NO_EFFORT: EffortLevels = []
+/** Everything from 4.7 onward, plus the always-on families. */
+const FULL_EFFORT: EffortLevels = ['low', 'medium', 'high', 'xhigh', 'max']
+/** 4.6: `max` exists, `xhigh` does not — it arrived with 4.7. */
+const EFFORT_WITHOUT_XHIGH: EffortLevels = ['low', 'medium', 'high', 'max']
+/** 4.5: neither `xhigh` nor `max`. */
+const EFFORT_BASE: EffortLevels = ['low', 'medium', 'high']
+
 export interface ThinkingCapability {
 	readonly adaptive: boolean
 	readonly manual: boolean
 	/** False on models that cannot turn thinking off. */
 	readonly canDisable: boolean
-	readonly effort: boolean
+	/** Which `effort` levels this model accepts; empty means none. */
+	readonly effort: EffortLevels
 }
 
 const MANUAL_ONLY: ThinkingCapability = {
 	adaptive: false,
 	manual: true,
 	canDisable: true,
-	effort: false,
+	effort: NO_EFFORT,
 }
 
 /**
@@ -69,7 +91,7 @@ export function resolveThinkingCapability(model: string): ThinkingCapability {
 	// parser can compare, and it is the one model supporting both modes while
 	// refusing to be switched off.
 	if (/^(?:anthropic\/)?claude-mythos-preview$/.test(normalized)) {
-		return { adaptive: true, manual: true, canDisable: false, effort: true }
+		return { adaptive: true, manual: true, canDisable: false, effort: FULL_EFFORT }
 	}
 
 	const parsed = parseVersionedModelId(model, MODEL_ID_GRAMMAR)
@@ -79,23 +101,25 @@ export function resolveThinkingCapability(model: string): ThinkingCapability {
 
 	// Always-on families: thinking cannot be disabled at any version.
 	if (family === 'fable' || family === 'mythos') {
-		return { adaptive: true, manual: false, canDisable: false, effort: true }
+		return { adaptive: true, manual: false, canDisable: false, effort: FULL_EFFORT }
 	}
 
 	// 4.7 and later dropped manual mode outright.
 	if (major > 4 || (major === 4 && minor >= 7)) {
-		return { adaptive: true, manual: false, canDisable: true, effort: true }
+		return { adaptive: true, manual: false, canDisable: true, effort: FULL_EFFORT }
 	}
 
 	// 4.6 accepts both; manual is deprecated there but still functional.
 	if (major === 4 && minor === 6) {
-		return { adaptive: true, manual: true, canDisable: true, effort: true }
+		return { adaptive: true, manual: true, canDisable: true, effort: EFFORT_WITHOUT_XHIGH }
 	}
 
 	// 4.5 and earlier are manual-only. Opus 4.5 is the one that also takes
-	// effort, where effort shapes the answer and the budget sets depth.
+	// effort, where effort shapes the answer and the budget sets depth — and it
+	// takes only the first three levels: `xhigh` did not exist yet and `max`
+	// is rejected there.
 	const isOpus45 = family === 'opus' && major === 4 && minor === 5
-	return { ...MANUAL_ONLY, effort: isOpus45 }
+	return { ...MANUAL_ONLY, effort: isOpus45 ? EFFORT_BASE : NO_EFFORT }
 }
 
 /** The `thinking` body value, or `undefined` to send no thinking field. */
@@ -154,20 +178,30 @@ export function resolveThinkingBody(
 /**
  * Whether `effort` may ride on this request.
  *
- * One interaction the table alone does not cover: on Opus 5 and later,
+ * Two things get checked, and the second used to be missed entirely.
+ *
+ * The LEVEL has to be one this model has. The ceiling moved twice — `xhigh`
+ * arrived with 4.7, and `max` does not exist below 4.6 — so `capability.effort`
+ * is a set rather than a flag. It was a flag, which meant `xhigh` on a 4.6 and
+ * `max` on a 4.5 were forwarded to a vendor that rejects an unknown level
+ * rather than clamping it. Dropping the field is right where the level does
+ * not exist: `effort` shapes an answer the model will still produce, so a
+ * request without it is the same request at the model's own default, whereas
+ * refusing would fail a call that has a correct answer.
+ *
+ * The COMBINATION has to be legal. On Opus 5 and later,
  * `thinking: {type: "disabled"}` is accepted at effort `high` or below and
  * **rejected at `xhigh`/`max`**, enforced per request. Rather than encode
- * "Opus 5 and later" as a second version comparison, this refuses the
- * combination on every model that can disable thinking — the pairing is
- * incoherent anyway, since it asks a model not to think and then to think as
- * hard as possible.
+ * "Opus 5 and later" as a second version comparison, this refuses the pairing
+ * on every model that can disable thinking — it is incoherent anyway, since it
+ * asks a model not to think and then to think as hard as possible.
  */
 export function resolveEffort(
 	effort: ReasoningEffort | undefined,
 	thinkingBody: ResolvedThinkingBody,
 	capability: ThinkingCapability,
 ): ReasoningEffort | undefined {
-	if (effort === undefined || !capability.effort) return undefined
+	if (effort === undefined || !capability.effort.includes(effort)) return undefined
 	if (thinkingBody?.type === 'disabled' && (effort === 'xhigh' || effort === 'max')) {
 		return undefined
 	}

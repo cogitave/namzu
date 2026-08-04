@@ -18,21 +18,40 @@ import {
  * prose would be the thing that drifts.
  */
 
-/** [model, adaptive, manual, canDisable, effort] */
-const TABLE: readonly [string, boolean, boolean, boolean, boolean][] = [
-	['claude-fable-5', true, false, false, true],
-	['claude-mythos-5', true, false, false, true],
-	['claude-mythos-preview', true, true, false, true],
-	['claude-opus-5', true, false, true, true],
-	['claude-opus-4-8', true, false, true, true],
-	['claude-opus-4-7', true, false, true, true],
-	['claude-sonnet-5', true, false, true, true],
-	['claude-opus-4-6', true, true, true, true],
-	['claude-sonnet-4-6', true, true, true, true],
-	['claude-opus-4-5', false, true, true, true],
-	['claude-haiku-4-5', false, true, true, false],
-	['claude-sonnet-4-5', false, true, true, false],
-	['claude-opus-4-1', false, true, true, false],
+const ALL = ['low', 'medium', 'high', 'xhigh', 'max']
+/** 4.6 has `max` but not `xhigh` — `xhigh` arrived with 4.7. */
+const NO_XHIGH = ['low', 'medium', 'high', 'max']
+/** 4.5 has neither. */
+const BASE = ['low', 'medium', 'high']
+const NONE: string[] = []
+
+/**
+ * [model, adaptive, manual, canDisable, effort levels]
+ *
+ * Every currently-served model, plus the legacy ones a gateway may still be
+ * pointed at. `effort` is the accepted LEVELS, not a flag: the ceiling moved
+ * twice, so a boolean could not say that `xhigh` is rejected on 4.6 and `max`
+ * is rejected on 4.5 — which is exactly what it failed to say.
+ */
+const TABLE: readonly [string, boolean, boolean, boolean, string[]][] = [
+	// Always-on families: thinking cannot be switched off at any version.
+	['claude-fable-5', true, false, false, ALL],
+	['claude-mythos-5', true, false, false, ALL],
+	['claude-mythos-preview', true, true, false, ALL],
+	// 4.7 and later: adaptive only, and it can still be disabled.
+	['claude-opus-5', true, false, true, ALL],
+	['claude-sonnet-5', true, false, true, ALL],
+	['claude-opus-4-8', true, false, true, ALL],
+	['claude-opus-4-7', true, false, true, ALL],
+	// 4.6: both modes, manual deprecated but working — and no `xhigh`.
+	['claude-opus-4-6', true, true, true, NO_XHIGH],
+	['claude-sonnet-4-6', true, true, true, NO_XHIGH],
+	// 4.5 and earlier: manual only. Opus 4.5 is the one that takes effort,
+	// and only the first three levels.
+	['claude-opus-4-5', false, true, true, BASE],
+	['claude-haiku-4-5', false, true, true, NONE],
+	['claude-sonnet-4-5', false, true, true, NONE],
+	['claude-opus-4-1', false, true, true, NONE],
 ]
 
 describe('what each model accepts', () => {
@@ -53,6 +72,21 @@ describe('what each model accepts', () => {
 		})
 	})
 
+	it('does not read a date suffix as the minor version', () => {
+		// The row this table did not have. Every dated id it listed carried a
+		// REAL minor (`4-5-20250929`), so the `<family>-<major>-<DATE>` shape —
+		// a dated id naming no minor — was never exercised, and the matcher
+		// parsed its date as minor 20250514. That compared as enormously newer
+		// than 4.1, so these two were classified adaptive-only and had their
+		// caller's thinking budget silently discarded.
+		for (const model of ['claude-sonnet-4-20250514', 'claude-opus-4-20250514']) {
+			expect(resolveThinkingCapability(model), model).toMatchObject({
+				adaptive: false,
+				manual: true,
+			})
+		}
+	})
+
 	it('treats an unrecognised model as manual-only', () => {
 		// The pre-existing behaviour, and the safe answer for a name this
 		// table has not seen: an older model behind a gateway keeps working,
@@ -62,7 +96,7 @@ describe('what each model accepts', () => {
 			adaptive: false,
 			manual: true,
 			canDisable: true,
-			effort: false,
+			effort: [],
 		})
 	})
 })
@@ -146,5 +180,27 @@ describe('when effort rides along', () => {
 		expect(resolveEffort('xhigh', { type: 'disabled' }, adaptiveOnly)).toBeUndefined()
 		expect(resolveEffort('max', { type: 'disabled' }, adaptiveOnly)).toBeUndefined()
 		expect(resolveEffort('high', { type: 'disabled' }, adaptiveOnly)).toBe('high')
+	})
+
+	it('drops a level this model does not have', () => {
+		// The ceiling moved twice, so "does this model take effort?" was never
+		// a yes/no question. While it was modelled as one, `xhigh` on a 4.6 and
+		// `max` on a 4.5 went to the wire, and the vendor rejects an unknown
+		// level rather than clamping it.
+		const v46 = resolveThinkingCapability('claude-opus-4-6')
+		expect(resolveEffort('xhigh', { type: 'adaptive' }, v46)).toBeUndefined()
+		expect(resolveEffort('max', { type: 'adaptive' }, v46)).toBe('max')
+
+		const opus45 = resolveThinkingCapability('claude-opus-4-5')
+		expect(resolveEffort('max', { type: 'enabled' }, opus45)).toBeUndefined()
+		expect(resolveEffort('xhigh', { type: 'enabled' }, opus45)).toBeUndefined()
+		expect(resolveEffort('high', { type: 'enabled' }, opus45)).toBe('high')
+	})
+
+	it('takes every level on a current model', () => {
+		const opus5 = resolveThinkingCapability('claude-opus-5')
+		for (const level of ['low', 'medium', 'high', 'xhigh', 'max'] as const) {
+			expect(resolveEffort(level, { type: 'adaptive' }, opus5), level).toBe(level)
+		}
 	})
 })
