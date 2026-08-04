@@ -14,10 +14,20 @@ import { OPENAI_CAPABILITIES, assertThinkingSupported } from '../client.js'
  * delivered rather than deliver something else quietly.
  */
 
-describe('an extended-thinking request is refused, not dropped', () => {
+describe('a thinking request is refused, not dropped', () => {
+	it('refuses adaptive for the same reason it refuses manual', () => {
+		// Both are a request to think, and this driver would answer either
+		// with an ordinary completion and an empty reasoning list.
+		expect(() => assertThinkingSupported({ thinking: { type: 'adaptive' } })).toThrow(
+			/does not implement thinking/i,
+		)
+	})
+
 	it('throws when thinking is asked for', () => {
+		// Names the driver, which is what turns a bug report about the model
+		// into a one-line configuration fix in a multi-provider setup.
 		expect(() => assertThinkingSupported({ thinking: { type: 'enabled' } })).toThrow(
-			/extended thinking/i,
+			/OpenAIProvider does not implement thinking/i,
 		)
 	})
 

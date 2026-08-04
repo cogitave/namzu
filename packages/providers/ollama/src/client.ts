@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { assertThinkingUnsupported } from '@namzu/sdk'
 import type {
 	ChatCompletionParams,
 	LLMProvider,
@@ -156,6 +157,7 @@ export class OllamaProvider implements LLMProvider {
 	}
 
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
+		assertThinkingUnsupported('OllamaProvider', params)
 		const model = this.resolveModel(params)
 		const messages = toOllamaMessages(params.messages)
 		const options = this.buildOptions(params)

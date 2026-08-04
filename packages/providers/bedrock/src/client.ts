@@ -25,7 +25,7 @@ import type {
 	ToolChoice,
 } from '@namzu/sdk'
 import type { ToolResultContent } from '@namzu/sdk'
-import { toolResultToText } from '@namzu/sdk'
+import { assertThinkingUnsupported, toolResultToText } from '@namzu/sdk'
 import {
 	ProviderRequestError,
 	isCallerAbortError,
@@ -282,6 +282,7 @@ export class BedrockProvider implements LLMProvider {
 	}
 
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
+		assertThinkingUnsupported('BedrockProvider', params)
 		const system = extractSystemBlocks(params.messages)
 		const messages = toBedrockMessages(params.messages)
 		const toolConfig = toBedrockToolConfig(params)

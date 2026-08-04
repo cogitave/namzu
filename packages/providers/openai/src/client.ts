@@ -8,6 +8,8 @@ import type {
 	TokenUsage,
 	ToolChoice,
 } from '@namzu/sdk'
+import { assertThinkingUnsupported } from '@namzu/sdk'
+import type { ThinkingConfig } from '@namzu/sdk'
 import { toolResultToText } from '@namzu/sdk'
 import {
 	ProviderRequestError,
@@ -104,16 +106,12 @@ function formatToolChoice(tc: ToolChoice | undefined): ChatCompletionToolChoiceO
 export function assertThinkingSupported(params: {
 	thinking?: { type: 'adaptive' | 'enabled' | 'disabled' }
 }): void {
-	// `adaptive` refuses for the same reason `enabled` does. It is a request
-	// to think, and this driver would answer it with an ordinary completion
-	// and an empty reasoning list — a silence that reads as "the model did
-	// not reason" rather than "this driver cannot ask it to".
-	if (params.thinking?.type !== 'enabled' && params.thinking?.type !== 'adaptive') return
-	throw new Error(
-		'This provider driver does not implement extended thinking, and silently ' +
-			'ignoring the request would return an ordinary completion with an empty ' +
-			'reasoning list. Drop `thinking`, or use a driver that implements it.',
-	)
+	// Delegates now. The rule was decided here and then applied only here,
+	// while five sibling drivers went on dropping the field silently — so it
+	// moved to the SDK where a new driver inherits it instead of re-deciding
+	// it. Kept as a named export because it is one, and removing it would
+	// break a caller for no gain.
+	assertThinkingUnsupported('OpenAIProvider', params as { thinking?: ThinkingConfig })
 }
 
 /**

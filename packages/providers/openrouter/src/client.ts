@@ -9,6 +9,7 @@ import type {
 } from '@namzu/sdk'
 import {
 	ProviderRequestError,
+	assertThinkingUnsupported,
 	isCallerAbortError,
 	isProviderRequestError,
 	providerHttpError,
@@ -161,6 +162,7 @@ export class OpenRouterProvider implements LLMProvider {
 	}
 
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
+		assertThinkingUnsupported('OpenRouterProvider', params)
 		const body = this.buildRequestBody(params, true)
 
 		const timeout = AbortSignal.timeout(this.config.timeout ?? 120_000)

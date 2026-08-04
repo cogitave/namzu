@@ -11,6 +11,7 @@ import type {
 } from '@namzu/sdk'
 import {
 	ProviderRequestError,
+	assertThinkingUnsupported,
 	isCallerAbortError,
 	providerHttpError,
 	providerVendorError,
@@ -384,6 +385,7 @@ export class HttpProvider implements LLMProvider {
 	}
 
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
+		assertThinkingUnsupported('HttpProvider', params)
 		const url = this.endpoint()
 		const body =
 			this.dialect === 'anthropic'

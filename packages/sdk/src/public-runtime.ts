@@ -67,6 +67,9 @@ export { extractFinalResponse } from './utils/conversation.js'
 // ─── router, runtime, run ────────────────────────────────────────────────
 
 export { resolveTaskModel } from './router/task-router.js'
+// Every driver accepts `thinking`; one that does not implement it must
+// refuse rather than drop it. Shared so a new driver inherits the rule.
+export { assertThinkingUnsupported } from './provider/thinking-support.js'
 export { drainQuery, query } from './runtime/query/index.js'
 // Mid-run guidance. A host holds the channel and the loop drains it at the
 // tool-result boundary; see the module for why that is the only legal slot.

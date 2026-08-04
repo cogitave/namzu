@@ -11,6 +11,7 @@ import type {
 } from '@namzu/sdk'
 import {
 	ProviderRequestError,
+	assertThinkingUnsupported,
 	isCallerAbortError,
 	isProviderRequestError,
 	providerVendorError,
@@ -193,6 +194,7 @@ export class LMStudioProvider implements LLMProvider {
 	}
 
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
+		assertThinkingUnsupported('LMStudioProvider', params)
 		const modelId = this.resolveModel(params)
 		try {
 			params.signal?.throwIfAborted()
