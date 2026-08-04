@@ -1,5 +1,84 @@
 # Changelog
 
+## 3.0.1
+
+### Patch Changes
+
+- f25ebce: a model id's date suffix is no longer read as its minor version
+
+  Three copies of one regular expression matched Claude model ids — the capability
+  table plus two drivers — and all three had the same defect: the minor-version
+  group was `(\d+)`, which swallowed the 8-digit date suffix.
+
+  Measured against the shipped pattern:
+
+  ```
+  claude-sonnet-4-20250514   ->  major=4  minor=20250514
+  claude-opus-4-1-20250805   ->  major=4  minor=1
+  ```
+
+  So a dated id naming no minor version compared as enormously _newer_ than one
+  that does, and every capability gate keyed on `minor >= n` inverted for exactly
+  those ids. `claude-sonnet-4-20250514` was classified as a 4.7+ model: the driver
+  sent it `thinking: {type: 'adaptive'}`, silently discarding a caller's
+  `budgetTokens`, and cleared the 4.5 gate that enables strict tool inputs.
+
+  `parseClaudeModelVersion` and `claudeVersionAtLeast` are now exported from
+  `@namzu/sdk` and used by both drivers and the capability table. A real minor
+  version is one to three digits; a date is eight, and the group is bounded
+  accordingly. An id the parser does not recognise makes `claudeVersionAtLeast`
+  return `false` — a capability gate must not open for a name it does not
+  understand.
+
+  The comment above the old parser warned that "a second, subtly different model
+  matcher is how two capability decisions drift apart on the same model name."
+  There were three.
+
+- 61ca851: a tool whose schema cannot carry the guarantee it asks for is refused at registration
+
+  The previous release fixed the `edit` tool's schema and added a check in the
+  Anthropic driver. That caught the bug, but in the wrong place: per request, in
+  one of the **two** drivers that mark tools strict, and only once something
+  actually ran.
+
+  `ToolRegistry` already refused `enforceModelInput` without a
+  `modelInputSchema`, and the comment above that check states the principle
+  exactly — _"Refusing at registration puts the error where the author can fix it
+  rather than at the first request."_ The rule was written down; the new check was
+  somewhere else.
+
+  It is now beside its sibling. One asks whether a model schema **exists**; the
+  other asks whether it can **carry the guarantee the tool just requested**. A
+  tool that asks for constrained generation and supplies a schema the constrained
+  dialect cannot express is wrong at the moment it is declared, whichever model it
+  later meets — so it never registers, and can never reach a request.
+
+  ```
+  Tool "edit" is marked for strict input validation, but its model-facing schema
+  uses 1 construct(s) the strict subset does not accept…
+    edit.properties.insertLine.oneOf — use `anyOf` — for disjoint branches the two are equivalent
+  ```
+
+  This is the only path that matters in practice: the kernel builds its tool list
+  with `ToolRegistry.toLLMTools()`, so every tool reaching a driver through the
+  normal loop passed the gate.
+
+  **A tool that never asked for the guarantee is untouched.** Without
+  `enforceModelInput` nothing is marked strict, the schema is sent as ordinary
+  JSON Schema, and `oneOf` is perfectly legal there. Refusing it would break
+  working setups for no reason.
+
+  `@namzu/http` also marks tools strict and had no check at all — the same bug
+  was reachable through it. It now has the driver-level check the Anthropic driver
+  already carried. Both remain as a second boundary for a host that hand-builds
+  `ChatCompletionParams` and calls a provider directly, bypassing the registry.
+
+  **If you author a tool with `enforceModelInput: true`,** a schema using `oneOf`,
+  `not`, `if`/`then`/`else`, numeric or length bounds, `patternProperties`, or an
+  `additionalProperties` other than `false` now throws at registration instead of
+  failing the first request that carries it. The message names the path and the
+  replacement.
+
 ## 3.0.0
 
 ### Major Changes

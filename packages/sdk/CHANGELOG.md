@@ -1,5 +1,366 @@
 # Changelog
 
+## 5.2.0
+
+### Minor Changes
+
+- 604a56a: completed is not succeeded — run_completed says why it stopped, and namzu run exits accordingly
+
+  `run_failed` is emitted from exactly one place in the kernel: the throw path.
+  Every other way a run can end badly arrives as `run_completed` — the token
+  budget, the timeout, the iteration cap, a cancellation, a rejected plan, a
+  refused structured output, and both guardrails.
+
+  Measured: a `max_iterations` stop reports `status: 'completed'`, and the event
+  carried nothing that distinguished it from an answered question.
+
+  **SDK.** `run_completed` now carries `stopReason`. It is optional and additive,
+  so nothing breaks; a consumer that wants to tell "answered" from "ran out of
+  budget" no longer has to hold the `Run` alongside the event stream.
+
+  **CLI — read this before upgrading if you script `namzu run`.** The command
+  exited `0` for all of those. The sharp case is the output guardrail: an answer
+  that was _refused_ exited `0` with empty text, so
+
+  ```sh
+  namzu run "write the release notes" > notes.md && publish notes.md
+  ```
+
+  published an empty file and reported success. `namzu run` now exits `1` when
+  the run did not finish normally, and names the reason on stderr. The text still
+  prints — partial output is real output, and a caller who piped it wants what
+  there is — but `$?` can now say it is partial.
+
+  If you have a script that depends on `namzu run` exiting 0 for a truncated run,
+  it was depending on not being told. Check `$?` and read the stderr line.
+
+  Also in the CLI, internally: the `done` agent event's `finishReason?: string`
+  had no producer and no reader anywhere in the package, and the name belonged to
+  a different concept — a "finish reason" here is `MessageStopReason`, reported
+  per model message, not the run-level `StopReason` a caller asks about at the end
+  of a turn. Replaced by `stopReason`. The type is not exported from the package
+  entry, so this is internal.
+
+- f25ebce: a model id's date suffix is no longer read as its minor version
+
+  Three copies of one regular expression matched Claude model ids — the capability
+  table plus two drivers — and all three had the same defect: the minor-version
+  group was `(\d+)`, which swallowed the 8-digit date suffix.
+
+  Measured against the shipped pattern:
+
+  ```
+  claude-sonnet-4-20250514   ->  major=4  minor=20250514
+  claude-opus-4-1-20250805   ->  major=4  minor=1
+  ```
+
+  So a dated id naming no minor version compared as enormously _newer_ than one
+  that does, and every capability gate keyed on `minor >= n` inverted for exactly
+  those ids. `claude-sonnet-4-20250514` was classified as a 4.7+ model: the driver
+  sent it `thinking: {type: 'adaptive'}`, silently discarding a caller's
+  `budgetTokens`, and cleared the 4.5 gate that enables strict tool inputs.
+
+  `parseClaudeModelVersion` and `claudeVersionAtLeast` are now exported from
+  `@namzu/sdk` and used by both drivers and the capability table. A real minor
+  version is one to three digits; a date is eight, and the group is bounded
+  accordingly. An id the parser does not recognise makes `claudeVersionAtLeast`
+  return `false` — a capability gate must not open for a name it does not
+  understand.
+
+  The comment above the old parser warned that "a second, subtly different model
+  matcher is how two capability decisions drift apart on the same model name."
+  There were three.
+
+- 5496fb2: the agent-directory loader is part of the SDK
+
+  It shipped briefly as a separate package. The name was the tell: nothing fit.
+  `project` collided with `ProjectId`, the tenancy bucket every run already
+  carries, and it described a scope that no longer existed once `channels/` and
+  `schedules/` were cut. `agent-dir` was a hyphenated abbreviation, out of family
+  with `skills`, `plugin`, `registry`, `sandbox`.
+
+  A directory reader that needs the kernel to be useful is a function of the
+  kernel, not a product beside it. So it is one now:
+
+  ```ts
+  import { loadDirectory, deriveRunOptions, runAgent } from "@namzu/sdk";
+
+  const { manifest, ok, diagnostics } = await loadDirectory("./agent");
+  if (!ok) console.error(diagnostics);
+
+  const { output } = await runAgent(
+    deriveRunOptions(manifest, { provider, prompt: "What is the weather?" })
+  );
+  ```
+
+  Nothing about the convention changed — the same `agent.ts`, `instructions.md`,
+  `tools/`, `skills/`, `agents/` layout, the same `modules: 'skip'` mode, the same
+  diagnostics, the same `deriveSupervisorOptions` for a directory that declares
+  delegates. Only the import path and the names.
+
+  **Nobody has to migrate.** The package was never published — a `@namzu/project`
+  install has always 404'd — so there is no consumer to move and no deprecation
+  window owed. The rename that would have cost a major after publishing cost
+  nothing before it.
+
+  Renames, if you were following the source: `loadProject` → `loadDirectory`,
+  `ProjectManifest` → `DirectoryManifest`, `ProjectConfig` → `DirectoryConfig`,
+  `ProjectSlot` → `DirectorySlot`, `ProjectLoadResult` → `DirectoryLoadResult`,
+  `ProjectDiagnostic` → `DirectoryDiagnostic`, `LoadProjectOptions` →
+  `LoadDirectoryOptions`. `DiagnosticCode` and `DiagnosticSeverity` gained a
+  `Directory` prefix as well — bare, in a shared namespace, they read as the
+  SDK's own diagnostic vocabulary rather than one loader's.
+
+  A side effect worth naming: `@namzu/project` was the one package the release
+  pipeline could not publish, so every release since `#102` ended red on its
+  `E404`. That failure goes with it.
+
+- ca64062: runAgent forwards skills and the verification gate
+
+  `runAgent` built its `drainQuery` call with an `as never` cast. The cast was
+  not load-bearing — removing it typechecks clean — but while it was there the
+  kernel seam was unchecked in both directions, and two options the kernel
+  accepts were never forwarded.
+
+  **`skills`** is the one with a caller. `@namzu/sdk` reads a whole `skills/`
+  directory, puts them on the options, and every one was dropped: the run was
+  assembled without them and nothing reported it. If you passed `skills` to
+  `runAgent` and wondered why the model behaved as though it had never seen them,
+  this is why. No change needed on your side — the field now arrives.
+
+  **`verificationGate`** is the safety one. The kernel builds a `VerificationGate`
+  from it and consults it on every tool call; the front door had no way to supply
+  one, so a `runAgent` run was strictly less mediated than a `drainQuery` run. A
+  host that hands `runAgent` an agent directory it did not write should now set
+  it.
+
+  Both are optional and default to today's behaviour, so nothing breaks.
+
+  Three fixes in `@namzu/sdk`, each a check that existed and read the wrong
+  thing:
+
+  - **A tool with no `inputSchema` is refused.** It used to pass `isToolDefinition`
+    — which checked only `name` and `execute` — register clean, then die inside
+    `toLLMTools()` on `inputSchema._def`, in a `TypeError` naming neither the tool
+    file nor the loader. The check is now the four fields `ToolDefinition`
+    declares as required, and no more: demanding `defineTool`'s extras would make
+    the loader refuse an object the SDK's own published type accepts. A directory
+    that previously loaded with `ok: true` and crashed on first use now loads with
+    `ok: false` and a `not_a_tool` diagnostic naming the file.
+  - **Import failures explain themselves again.** `explainImportFailure` chose its
+    hint by matching Node's error code against `err.message`, and Node does not
+    put the code in the message — probed: `ERR_MODULE_NOT_FOUND` arrives as
+    "Cannot find module …". Every hint in the function was unreachable. It reads
+    `err.code` now, and a Node too old for type stripping gets a hint of its own.
+  - **`metadata` values are checked.** Typed `Record<string, string>` and admitted
+    on `typeof === 'object'` alone, which an array also satisfies and which says
+    nothing about the values, so `{ count: 1 }` and `["a"]` both reached a
+    consumer that had been promised strings.
+
+- 61ca851: a tool whose schema cannot carry the guarantee it asks for is refused at registration
+
+  The previous release fixed the `edit` tool's schema and added a check in the
+  Anthropic driver. That caught the bug, but in the wrong place: per request, in
+  one of the **two** drivers that mark tools strict, and only once something
+  actually ran.
+
+  `ToolRegistry` already refused `enforceModelInput` without a
+  `modelInputSchema`, and the comment above that check states the principle
+  exactly — _"Refusing at registration puts the error where the author can fix it
+  rather than at the first request."_ The rule was written down; the new check was
+  somewhere else.
+
+  It is now beside its sibling. One asks whether a model schema **exists**; the
+  other asks whether it can **carry the guarantee the tool just requested**. A
+  tool that asks for constrained generation and supplies a schema the constrained
+  dialect cannot express is wrong at the moment it is declared, whichever model it
+  later meets — so it never registers, and can never reach a request.
+
+  ```
+  Tool "edit" is marked for strict input validation, but its model-facing schema
+  uses 1 construct(s) the strict subset does not accept…
+    edit.properties.insertLine.oneOf — use `anyOf` — for disjoint branches the two are equivalent
+  ```
+
+  This is the only path that matters in practice: the kernel builds its tool list
+  with `ToolRegistry.toLLMTools()`, so every tool reaching a driver through the
+  normal loop passed the gate.
+
+  **A tool that never asked for the guarantee is untouched.** Without
+  `enforceModelInput` nothing is marked strict, the schema is sent as ordinary
+  JSON Schema, and `oneOf` is perfectly legal there. Refusing it would break
+  working setups for no reason.
+
+  `@namzu/http` also marks tools strict and had no check at all — the same bug
+  was reachable through it. It now has the driver-level check the Anthropic driver
+  already carried. Both remain as a second boundary for a host that hand-builds
+  `ChatCompletionParams` and calls a provider directly, bypassing the registry.
+
+  **If you author a tool with `enforceModelInput: true`,** a schema using `oneOf`,
+  `not`, `if`/`then`/`else`, numeric or length bounds, `patternProperties`, or an
+  `additionalProperties` other than `false` now throws at registration instead of
+  failing the first request that carries it. The message names the path and the
+  replacement.
+
+- f25ebce: the edit tool's schema could not be sent under strict validation
+
+  Strict tool input is not "JSON Schema, enforced" — it is a **subset** of JSON
+  Schema, and a keyword outside that subset is not degraded. The vendor rejects
+  the whole request, so one unexpressible field in one tool takes every other
+  tool down with it and the turn dies before producing a token.
+
+  The `edit` tool declared its integer-or-`"end"` field with `oneOf`, which is
+  outside the subset while the equivalent `anyOf` is inside it. Measured against
+  the live API:
+
+  | body                      | result                                           |
+  | ------------------------- | ------------------------------------------------ |
+  | `strict: true` + `oneOf`  | **400** — `Schema type 'oneOf' is not supported` |
+  | `strict: false` + `oneOf` | accepted                                         |
+  | `strict: true` + `anyOf`  | accepted                                         |
+
+  The middle row is why nothing caught it. Neither half is wrong on its own — the
+  schema is valid JSON Schema, and marking the tool strict is correct policy — so
+  no test of either one failed. Only the pairing did, and the pairing had no
+  owner. Every agent using the built-in `edit` tool on a model at or above the
+  strict gate lost its first tool-carrying turn to a 400.
+
+  `oneOf` is now `anyOf` (equivalent here — the branches are disjoint), and
+  `minimum` is gone from the model-facing schema for the same reason: numeric
+  bounds are outside the subset too. The bound is not lost, the execution schema
+  still enforces it.
+
+  **The general fix is the second half.** `assertStrictSchema` and
+  `findStrictSchemaViolations` are exported from `@namzu/sdk`, and the driver now
+  checks every schema it is about to mark strict — refusing with the exact path
+  and the remedy rather than letting the request go and getting back an error
+  that names the keyword but not where it lives:
+
+  ```
+  Tool "edit" is marked for strict input validation, but its model-facing schema
+  uses 1 construct(s) the strict subset does not accept…
+    edit.properties.insertLine.oneOf — use `anyOf` — for disjoint branches the two are equivalent
+  ```
+
+  A test sweeps every built-in tool that asks for strict validation, so the next
+  one is caught in the suite rather than in production.
+
+- f25ebce: a directory-derived supervisor now has a token budget, a wall clock, and its skills
+
+  `BaseAgentConfig` declares `tokenBudget` and `timeoutMs` as **required**.
+  `deriveSupervisorOptions` supplied them only when `agent.ts` happened to name
+  them — the uncommon case — and an `as SupervisorAgentConfig` made that compile.
+  The returned object was therefore typed `tokenBudget: number` while holding
+  `undefined`.
+
+  That is not a type-level nicety. `buildLimitConfig` defaults only
+  `maxIterations`, so an undefined budget and timeout disable **both** hard stops:
+  a supervisor derived from a directory ran with no token cap and no wall clock.
+  And the child-spawn guard computes a delegate's allocation from the parent
+  budget, so `undefined` became `NaN` — and `NaN <= 0` is `false`, meaning the
+  refusal that exists to stop an unfunded child let it through with a `NaN`
+  budget.
+
+  Both now default to the same numbers `runAgent` uses, which are exported as
+  `DEFAULT_TOKEN_BUDGET`, `DEFAULT_TIMEOUT_MS` and `DEFAULT_MAX_ITERATIONS` so the
+  two front doors cannot drift. Anything `agent.ts` declares still wins, and
+  `overrides` still wins over that.
+
+  The cast is now `satisfies`, so the next missing required field is a compile
+  error rather than a run with its limits quietly switched off.
+
+  Same file, same cast: `skills` were loaded from the project's `skills/`
+  directory, put on the manifest, and then left out of the config the supervisor
+  actually ran with. `SupervisorAgentConfig` accepts them and the kernel drives
+  them; they are now supplied.
+
+- c6b8aa8: An agent directory can declare delegates, and `deriveSupervisorOptions` turns them into
+  a `SupervisorAgent` configuration.
+
+  `SupervisorAgent` needs an `agentIds` roster and a manager that can spawn them.
+  Nothing led from a directory to either, so a multi-agent system could be
+  described on disk and not run.
+
+  A directory under `agents/` is read by the same loader that read the root — a
+  delegate has the same shape as its parent, so this is recursion rather than a
+  new concept.
+
+  ```
+  agent/
+  ├── instructions.md
+  └── agents/
+      ├── researcher/   ← its own agent.ts, instructions.md, tools/
+      └── writer/
+  ```
+
+  `deriveSupervisorOptions` supplies the roster and leaves the manager to the
+  host, the same contract `deriveRunOptions` follows: it converts, it does not
+  run. Delegates come back as plans rather than registered agents, because
+  registration mutates the host's manager and a function that quietly mutates an
+  object it was handed for reference is the surprise this package avoids.
+
+  A delegate may name its own model and inherits the coordinator's only when it
+  does not — a cheap model for a narrow job is the common case, and inheriting
+  unconditionally would bill every specialist at the coordinator's rate.
+
+  **One level only.** A delegate may not declare delegates of its own. How deep a
+  system fans out is a topology decision that belongs to whoever composes it, and
+  answering it by default is how a directory layout ends up deciding a system's
+  shape. It also removes the cycle: `agents/a/agents/b/agents/a` cannot be built
+  if the second level is never read.
+
+  A delegate that fails to load is reported in the parent's diagnostics, prefixed
+  with its path, and is not offered in the roster. A caller reading one list
+  should not have to walk the tree to find out the run will be short a specialist.
+
+### Patch Changes
+
+- f25ebce: the fork-bomb entry in the dangerous-command list could not match a fork bomb
+
+  `DANGEROUS_PATTERNS` is what the `deny_dangerous_patterns` verification rule
+  consults, and what `namzu run`'s own docstring means when it promises that in a
+  non-interactive run "the safety gate still hard-denies catastrophic commands".
+
+  The fork-bomb entry was written `/:(){ :\|:& };:/`. In a regular expression
+  `()` is an empty capture group, not two literal parentheses — so that pattern
+  described the string `:{ :|:& };:`, which is not valid shell and which nobody
+  would ever type. Probed: it returned `false` for `:(){ :|:& };:` and for every
+  other spelling of it.
+
+  The replacement matches on **self-reference** rather than on one literal
+  spelling — a fork bomb is a function whose own name appears on both sides of a
+  pipe, is backgrounded, and is then invoked. So `bomb(){ bomb|bomb& }; bomb` is
+  denied along with the `:` form, while `watch(){ tail -f log | grep E & }` — a
+  function that merely contains a pipe and a background job — is not.
+
+  No test named a fork bomb before this change, which is how it survived. There
+  are now sixteen.
+
+- c8672ed: The plugin subsystem contains its paths. It had none, and it is the part of
+  this SDK that loads third-party code.
+
+  **A manifest could name any file on disk.** `PluginLifecycleManager` built its
+  import path with `join(plugin.rootDir, toolPath)`, and `toolPath` comes out of
+  the plugin's own manifest — a file the plugin author writes. A manifest reading
+  `"tools": ["../../../../somewhere/evil.js"]` left the plugin directory entirely
+  and was imported, which is to say executed, in-process. The same held for
+  `hooks`. Both now resolve through `resolveWithinReal`, so a path that escapes
+  the plugin root is refused before anything is imported.
+
+  **Discovery followed symlinks.** `discoverPlugins` used `stat`, which reports
+  on a link's _target_, so a symlinked entry pointing anywhere on disk was
+  admitted as a plugin directory and its manifest read from there — the directory
+  listed was not the directory loaded (CWE-59). It now uses `lstat` and refuses a
+  link with a warning naming the path.
+
+  Found by comparing the plugin loader against `@namzu/sdk`'s scanner, which
+  was written this week with both protections. The subsystem that had them was
+  the one loading code the repo's own reviewers wrote; the one without them was
+  the one loading code from a home directory those reviewers never see.
+
+  If you ship a plugin whose manifest points outside its own directory, it now
+  fails at enable with a message naming the path. Move the file inside the plugin.
+
 ## 5.1.0
 
 ### Minor Changes
