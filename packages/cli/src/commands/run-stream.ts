@@ -54,17 +54,39 @@ interface RunStreamFlags {
 	model: string | null
 	provider: string | null
 	instance: string | null
+	/** Where the session store and skills are read from. Defaults to `process.cwd()`. */
+	cwd: string | null
 	skills: string[]
+	/**
+	 * `--flags` this parser does not know.
+	 *
+	 * Collected rather than folded into `rest`, because `rest` becomes the
+	 * PROMPT. `--cwd` was in this command's own help text and never parsed, so
+	 * the documented invocation sent the model a prompt beginning
+	 * `--cwd /path …` and silently used the process's own directory. Anything
+	 * unrecognised is now refused instead of being quietly said out loud to a
+	 * model — a typo'd flag is a mistake, and reading it aloud is the worst
+	 * available response to one.
+	 */
+	unknown: string[]
 	rest: string[]
 }
 
-function parseRunStreamFlags(rawArgs: readonly string[]): RunStreamFlags {
+/**
+ * Exported for tests only — `src/index.ts` does not re-export it, so this is
+ * module visibility rather than public surface. Driving the handler far enough
+ * to observe a parse means reaching stdin and a provider probe, which is a
+ * worse test of a pure function than calling it.
+ */
+export function parseRunStreamFlags(rawArgs: readonly string[]): RunStreamFlags {
 	const out: RunStreamFlags = {
 		session: null,
 		model: null,
 		provider: null,
 		instance: null,
+		cwd: null,
 		skills: [],
+		unknown: [],
 		rest: [],
 	}
 	const take = (a: string, name: string, set: (v: string) => void, i: { v: number }): boolean => {
@@ -80,6 +102,24 @@ function parseRunStreamFlags(rawArgs: readonly string[]): RunStreamFlags {
 	}
 	for (const idx = { v: 0 }; idx.v < rawArgs.length; idx.v++) {
 		const a = rawArgs[idx.v]
+		// End of options. Everything after it is prompt, verbatim — the escape
+		// for a prompt that legitimately begins with a dash, which is the only
+		// case the refusal below would otherwise take away.
+		if (a === '--') {
+			out.rest.push(...rawArgs.slice(idx.v + 1))
+			break
+		}
+		if (
+			take(
+				a,
+				'cwd',
+				(v) => {
+					out.cwd = v.trim() || null
+				},
+				idx,
+			)
+		)
+			continue
 		if (
 			take(
 				a,
@@ -138,6 +178,10 @@ function parseRunStreamFlags(rawArgs: readonly string[]): RunStreamFlags {
 			)
 		)
 			continue
+		if (a.startsWith('--')) {
+			out.unknown.push(a.split('=')[0])
+			continue
+		}
 		out.rest.push(a)
 	}
 	return out
@@ -192,7 +236,13 @@ export const runStreamCommand: CommandDef = {
 		}
 
 		const flags = parseRunStreamFlags(rawArgs)
+		if (flags.unknown.length > 0) {
+			return fail(
+				`unknown option(s): ${flags.unknown.join(', ')} — pass \`--\` before a prompt that starts with a dash`,
+			)
+		}
 		const sessionKey = flags.session
+		const cwd = flags.cwd ?? process.cwd()
 		const prompt = flags.rest.join(' ').trim()
 		if (!prompt) return fail('no prompt — pass it as an argument')
 
@@ -204,7 +254,7 @@ export const runStreamCommand: CommandDef = {
 		let prior: Message[] = []
 		if (sessionKey) {
 			try {
-				cli = await openSessions(process.cwd())
+				cli = await openSessions(cwd)
 				conversationId = await resolveConversation(cli, sessionKey)
 				prior = await loadConversation(cli, conversationId as never)
 			} catch {
@@ -240,7 +290,7 @@ export const runStreamCommand: CommandDef = {
 				const { discoverSkills, loadSkillBody, composeSkillsPrompt } = await import(
 					'../skills/store.js'
 				)
-				const all = discoverSkills({ cwd: process.cwd() })
+				const all = discoverSkills({ cwd })
 				const wanted = new Set(flags.skills)
 				const active = all
 					.filter((s) => wanted.has(s.name))
@@ -299,13 +349,18 @@ export const historyCommand: CommandDef = {
 		'is not an error.',
 	].join('\n'),
 	handler: async ({ rawArgs }) => {
-		const key = parseRunStreamFlags(rawArgs).session
+		const flags = parseRunStreamFlags(rawArgs)
+		const key = flags.session
 		if (!key) {
 			process.stdout.write('[]\n')
 			return 0
 		}
 		try {
-			const cli = await openSessions(process.cwd())
+			// `--cwd` is in this command's help too, and picks the `.namzu` store
+			// the session is read from. Reading the process's own directory
+			// instead means a host asking about a session in another checkout is
+			// told `[]` — indistinguishable from a session with no messages.
+			const cli = await openSessions(flags.cwd ?? process.cwd())
 			const map = await import('../integrations/sessions/store.js')
 			// Resolve WITHOUT creating: only emit history for an existing mapping.
 			const existing = await resolveExisting(cli, key)
