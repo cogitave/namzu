@@ -76,18 +76,74 @@ export interface ChatCompletionParams {
 	 * Drivers that do not support it ignore the field.
 	 */
 	thinking?: ThinkingConfig
+
+	/**
+	 * How much work to put into the response. See {@link ReasoningEffort}.
+	 *
+	 * Drivers that do not support it ignore the field.
+	 */
+	effort?: ReasoningEffort
 }
 
 export interface ThinkingConfig {
-	type: 'enabled' | 'disabled'
-	/** Token allowance for the thinking pass. */
-	budgetTokens?: number
 	/**
-	 * Whether the provider should return full thinking text or a summary.
-	 * Purely a request hint; the runtime stores whatever comes back.
+	 * Which thinking mode to ask for.
+	 *
+	 * `'adaptive'` lets the model decide whether and how deeply to think per
+	 * request; depth is steered by {@link ChatCompletionParams.effort} rather
+	 * than a token budget. `'enabled'` is the older manual mode, where
+	 * {@link budgetTokens} fixes the depth and the model thinks on every
+	 * request.
+	 *
+	 * **These are not interchangeable, and a driver must not guess.** Vendors
+	 * reject the wrong one for a given model outright rather than degrading:
+	 * newer models refuse `'enabled'`, older ones refuse `'adaptive'`, and
+	 * some refuse `'disabled'` because they cannot stop thinking at all. A
+	 * driver that sends a mode the model does not accept produces a failed
+	 * request, not a worse answer — which is why this is a declared intent
+	 * that each driver resolves against the model it is about to call.
 	 */
-	display?: 'full' | 'summarized'
+	type: 'adaptive' | 'enabled' | 'disabled'
+
+	/**
+	 * Token allowance for the thinking pass. Manual mode only — the adaptive
+	 * mode has no budget, and depth is set by `effort`.
+	 */
+	budgetTokens?: number
+
+	/**
+	 * Whether the thinking text comes back or only its signature.
+	 *
+	 * `'omitted'` returns the blocks with an empty body and a signature, which
+	 * is enough to replay them on the next turn (see `replayReasoning`) while
+	 * keeping the text out of the response. `'summarized'` returns a summary
+	 * of the reasoning.
+	 *
+	 * Worth setting explicitly. This defaults to `'omitted'` on newer models,
+	 * so a caller that wants to show reasoning and does not ask for it gets
+	 * thinking blocks whose text is empty and no indication why.
+	 *
+	 * The values were `'full' | 'summarized'` here, and `'full'` was never a
+	 * value any vendor accepted — a declared option that could only ever have
+	 * been rejected, next to a real one that was missing.
+	 */
+	display?: 'summarized' | 'omitted'
 }
+
+/**
+ * How much work the model should put into a response.
+ *
+ * A sibling of {@link ChatCompletionParams.thinking}, not a field inside it,
+ * because it is not exclusively a thinking control: it shapes the whole
+ * response, and at least one manual-mode model accepts it alongside a token
+ * budget, where effort shapes the answer and the budget sets thinking depth.
+ * Nesting it under `thinking` would have made that combination unsayable.
+ *
+ * In adaptive mode it is the primary depth lever — low effort may skip
+ * thinking entirely on easy input. In manual mode `budgetTokens` sets depth
+ * and effort does not move it.
+ */
+export type ReasoningEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max'
 
 export interface ChatCompletionResponse {
 	id: string

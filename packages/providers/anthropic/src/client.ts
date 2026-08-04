@@ -20,6 +20,11 @@ import {
 	providerVendorError,
 	toolResultToText,
 } from '@namzu/sdk'
+import {
+	resolveEffort,
+	resolveThinkingBody,
+	resolveThinkingCapability,
+} from './thinking-capability.js'
 import type { AnthropicConfig } from './types.js'
 
 // Floor for `max_tokens` when neither the request nor the provider
@@ -451,6 +456,15 @@ interface RawAnthropicUsage {
 	output_tokens?: number
 	cache_read_input_tokens?: number | null
 	cache_creation_input_tokens?: number | null
+	/**
+	 * Reasoning share of the output, when the vendor reports it.
+	 *
+	 * Counted INSIDE `output_tokens`, so it is carried as a breakdown rather
+	 * than added to the total. When streaming, this arrives only on the final
+	 * `message_delta` — earlier events carry no breakdown at all, which is why
+	 * an absent value has to mean "not reported" and not "zero".
+	 */
+	output_tokens_details?: { thinking_tokens?: number } | null
 }
 
 function emptyUsage(): TokenUsage {
@@ -467,12 +481,17 @@ function parseUsage(raw?: RawAnthropicUsage): TokenUsage {
 	if (!raw) return emptyUsage()
 	const input = raw.input_tokens ?? 0
 	const output = raw.output_tokens ?? 0
+	const thinking = raw.output_tokens_details?.thinking_tokens
 	return {
 		promptTokens: input,
 		completionTokens: output,
 		totalTokens: input + output,
 		cachedTokens: raw.cache_read_input_tokens ?? 0,
 		cacheWriteTokens: raw.cache_creation_input_tokens ?? 0,
+		// Only when reported. Defaulting to 0 would say "this turn did no
+		// thinking" about every turn on every driver that stays silent, and
+		// about every streamed event before the last one.
+		...(thinking !== undefined ? { reasoningTokens: thinking } : {}),
 	}
 }
 
@@ -686,20 +705,25 @@ export class AnthropicProvider implements LLMProvider {
 		// otherwise) — this also drops a parallelToolCalls-derived choice on
 		// tool-less requests.
 		if (tools && toolChoice) body.tool_choice = toolChoice
-		if (params.thinking) {
-			// Thinking could not be REQUESTED at all before this: on a model
-			// where it is off by default the feature was unreachable, and on
-			// one where it is on by default its budget could not be tuned.
-			body.thinking =
-				params.thinking.type === 'enabled'
-					? {
-							type: 'enabled',
-							...(params.thinking.budgetTokens !== undefined
-								? { budget_tokens: params.thinking.budgetTokens }
-								: {}),
-						}
-					: { type: 'disabled' }
-		}
+		// Resolved against the model rather than sent verbatim. This used to
+		// map `enabled` straight through and everything else to `disabled`,
+		// which fails outright on current models: `thinking.type.enabled` is
+		// rejected with a 400 from 4.7 onward, `adaptive` is rejected on 4.5
+		// and earlier, and the always-on models reject `disabled`. One body
+		// for every model is not a compromise here, it is a failed request.
+		//
+		// `display` is carried through now too. It defaults to `omitted` on
+		// newer models, so a caller who wanted to show reasoning and never
+		// serialized the field received thinking blocks with empty text and
+		// nothing to explain why.
+		const capability = resolveThinkingCapability(params.model)
+		const thinkingBody = resolveThinkingBody(params.thinking, capability)
+		if (thinkingBody) body.thinking = thinkingBody
+
+		// A sibling of `thinking`, not a field inside it — and gated on the
+		// model, since only some accept it at all.
+		const effort = resolveEffort(params.effort, thinkingBody, capability)
+		if (effort) body.output_config = { effort }
 		if (params.temperature !== undefined) body.temperature = params.temperature
 		if (params.topP !== undefined) body.top_p = params.topP
 		if (params.topK !== undefined) body.top_k = params.topK

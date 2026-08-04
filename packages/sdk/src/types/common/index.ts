@@ -10,6 +10,19 @@ export interface TokenUsage {
 	totalTokens: number
 	cachedTokens: number
 	cacheWriteTokens: number
+
+	/**
+	 * Output tokens the model spent on internal reasoning.
+	 *
+	 * A SUBSET of `completionTokens`, not an addition to it — reasoning is
+	 * billed as output, so adding these to a total would double-count. Present
+	 * so a caller can see what share of a turn went to thinking, which is the
+	 * question budgeting and cost attribution actually ask.
+	 *
+	 * Optional because most drivers do not report it. Absent means unknown,
+	 * not zero.
+	 */
+	reasoningTokens?: number
 }
 
 export function accumulateTokenUsage(current: TokenUsage, addition: TokenUsage): TokenUsage {
@@ -19,6 +32,13 @@ export function accumulateTokenUsage(current: TokenUsage, addition: TokenUsage):
 		totalTokens: current.totalTokens + addition.totalTokens,
 		cachedTokens: current.cachedTokens + addition.cachedTokens,
 		cacheWriteTokens: current.cacheWriteTokens + addition.cacheWriteTokens,
+		// Summed only when at least one side reported it. Coercing absent to
+		// zero would turn 'this driver does not tell us' into 'it spent none',
+		// and a run mixing a reporting driver with a silent one would read as
+		// though the silent turns did no thinking.
+		...(current.reasoningTokens !== undefined || addition.reasoningTokens !== undefined
+			? { reasoningTokens: (current.reasoningTokens ?? 0) + (addition.reasoningTokens ?? 0) }
+			: {}),
 	}
 }
 

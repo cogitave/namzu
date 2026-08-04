@@ -102,9 +102,13 @@ function formatToolChoice(tc: ToolChoice | undefined): ChatCompletionToolChoiceO
  * a no-op, because that is the state the driver is already in.
  */
 export function assertThinkingSupported(params: {
-	thinking?: { type: 'enabled' | 'disabled' }
+	thinking?: { type: 'adaptive' | 'enabled' | 'disabled' }
 }): void {
-	if (params.thinking?.type !== 'enabled') return
+	// `adaptive` refuses for the same reason `enabled` does. It is a request
+	// to think, and this driver would answer it with an ordinary completion
+	// and an empty reasoning list — a silence that reads as "the model did
+	// not reason" rather than "this driver cannot ask it to".
+	if (params.thinking?.type !== 'enabled' && params.thinking?.type !== 'adaptive') return
 	throw new Error(
 		'This provider driver does not implement extended thinking, and silently ' +
 			'ignoring the request would return an ordinary completion with an empty ' +
