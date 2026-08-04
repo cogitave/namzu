@@ -362,12 +362,83 @@ function codeFromStructure(err: unknown): ProviderErrorCode | undefined {
  *
  * Aborts are passed through untouched — see {@link isAbortError}.
  */
+/**
+ * Every `ProviderErrorKind`, mapped to what the runtime acts on.
+ *
+ * Read structurally rather than with `instanceof`: a driver in one package
+ * throws this and the runtime in another reads it, and two copies of the SDK
+ * in one process make `instanceof` unreliable — the same reason
+ * `isProviderRequestError` exists.
+ *
+ * `retryable` here is about whether resending the SAME request could succeed.
+ * `context_overflow` is correctly false — an identical prompt overflows
+ * identically — and it maps to `context_length_exceeded` so the loop can reach
+ * for compaction, which is a different remedy than a retry.
+ */
+const KIND_TO_CODE: Readonly<Record<string, { code: ProviderErrorCode; retryable: boolean }>> = {
+	throttle: { code: 'rate_limit', retryable: true },
+	network: { code: 'network', retryable: true },
+	server: { code: 'server_error', retryable: true },
+	auth: { code: 'auth', retryable: false },
+	context_overflow: { code: 'context_length_exceeded', retryable: false },
+	bad_request: { code: 'invalid_request', retryable: false },
+}
+
+function classifyFromProviderRequestError(
+	err: unknown,
+	providerId: string | undefined,
+	now: number,
+): ProviderError | undefined {
+	if (!(err instanceof Error) || err.name !== 'ProviderRequestError') return undefined
+	const candidate = err as Error & {
+		kind?: unknown
+		providerId?: unknown
+		status?: unknown
+		retryAfterMs?: unknown
+	}
+	if (typeof candidate.kind !== 'string') return undefined
+	const mapped = KIND_TO_CODE[candidate.kind]
+	if (!mapped) return undefined
+
+	const retryAfterMs =
+		typeof candidate.retryAfterMs === 'number' ? candidate.retryAfterMs : readRetryAfterMs(err, now)
+
+	return new ProviderError({
+		code: mapped.code,
+		message: err.message,
+		retryable: mapped.retryable,
+		cause: err,
+		...(typeof candidate.providerId === 'string'
+			? { providerId: candidate.providerId }
+			: providerId !== undefined
+				? { providerId }
+				: {}),
+		...(typeof candidate.status === 'number' ? { status: candidate.status } : {}),
+		...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
+	})
+}
+
 export function classifyProviderError(
 	err: unknown,
 	providerId?: string,
 	now: number = Date.now(),
 ): ProviderError {
 	if (isProviderError(err)) return err
+
+	// A driver that already classified its own failure is read FIRST, and by
+	// its `kind` — the field it set on purpose.
+	//
+	// Without this the classifier fell through to the status heuristics, where
+	// a `ProviderRequestError` carrying `kind: 'context_overflow'` and a 400
+	// became `invalid_request`, non-retryable. Three of the six kinds landed
+	// wrong that way, and the consequences were not cosmetic: the loop's
+	// overflow branch tests for `context_length_exceeded`, so compaction relief
+	// — the one provider failure this kernel can actually do something about —
+	// was unreachable for exactly the drivers that had diagnosed it correctly.
+	// A driver that classified its own error came out worse than one that did
+	// not, which is the opposite of the incentive the type was created for.
+	const fromKind = classifyFromProviderRequestError(err, providerId, now)
+	if (fromKind) return fromKind
 
 	const message = err instanceof Error ? err.message : String(err)
 	const status = readStatus(err)

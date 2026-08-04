@@ -182,6 +182,11 @@ describe('query stream recovery', () => {
 		const run = await drainQuery(
 			{
 				provider: new ClassifiedFailureProvider(),
+				// Retry off: this pins METADATA at the boundary, and a throttle
+				// is genuinely retryable — leaving retry on would spend the run's
+				// whole timeout backing off and settle it as a timeout instead,
+				// testing the retry policy rather than the thing named here.
+				retry: { maxRetries: 0 },
 				tools: new ToolRegistry(),
 				runConfig: {
 					model: 'mock-model',
