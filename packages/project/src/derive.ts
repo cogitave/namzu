@@ -66,5 +66,5 @@ export function deriveRunOptions(
 		...(manifest.config.timeoutMs !== undefined ? { timeoutMs: manifest.config.timeoutMs } : {}),
 		...(input.identity ?? {}),
 		...(input.overrides ?? {}),
-	} as RunAgentOptions
+	}
 }

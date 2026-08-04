@@ -4,7 +4,9 @@ import type { ProjectId, SessionId, TenantId, ThreadId } from '../types/ids/inde
 import type { Message } from '../types/message/index.js'
 import type { LLMProvider } from '../types/provider/index.js'
 import type { Run, RunEventListener } from '../types/run/index.js'
+import type { Skill } from '../types/skills/index.js'
 import type { ToolRegistryContract } from '../types/tool/index.js'
+import type { VerificationGateConfig } from '../types/verification/index.js'
 import {
 	generateProjectId,
 	generateSessionId,
@@ -50,6 +52,28 @@ export interface RunAgentOptions extends AgentIdentity {
 	model: string
 
 	tools?: ToolRegistryContract
+
+	/**
+	 * Skills to put in front of the model.
+	 *
+	 * The kernel has taken these since it had a prompt builder; this door did
+	 * not forward them, so a caller who assembled skills — `@namzu/project`
+	 * reads a whole `skills/` directory — handed them over and got a run that
+	 * had never heard of them. Silent, because the `drainQuery` call below was
+	 * cast, and a cast seam reports nothing when a field goes missing.
+	 */
+	skills?: Skill[]
+
+	/**
+	 * Operator policy for tool calls: which ones need review before they run.
+	 *
+	 * Absent means every tool runs unreviewed, which is the right default for a
+	 * library front door and the wrong one for a host that hands this an agent
+	 * directory it did not write. The kernel builds a `VerificationGate` from
+	 * this and consults it on every call; without it there is nothing to
+	 * consult, so a front-door run is strictly less mediated than a kernel one.
+	 */
+	verificationGate?: VerificationGateConfig
 
 	/** Defaults to the current working directory. */
 	workingDirectory?: string
@@ -170,8 +194,10 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
 			agentName: options.name ?? 'Agent',
 			...(options.instructions ? { systemPrompt: options.instructions } : {}),
 			...(options.signal ? { signal: options.signal } : {}),
+			...(options.skills ? { skills: options.skills } : {}),
+			...(options.verificationGate ? { verificationGate: options.verificationGate } : {}),
 			...identity,
-		} as never,
+		},
 		options.listener,
 	)
 
