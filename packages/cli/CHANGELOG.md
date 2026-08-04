@@ -1,5 +1,28 @@
 # @namzu/cli
 
+## 0.4.2
+
+### Patch Changes
+
+- a2cedfd: `namzu eval` now defaults `--dir` to `packages/evals`.
+
+  The eval package moved there from the repository root. It is `@namzu/evals`, a
+  private workspace member like every other package, and it was the only one
+  living outside `packages/` — so `packages/*` in the workspace file now covers
+  it and the explicit entry is gone.
+
+  Pass `--dir` if your suites live elsewhere; the flag is unchanged.
+
+- Updated dependencies [1cd1094]
+- Updated dependencies [19d6a0f]
+- Updated dependencies [1500973]
+- Updated dependencies [a2cedfd]
+  - @namzu/sdk@5.0.0
+  - @namzu/anthropic@2.0.0
+  - @namzu/openrouter@2.0.0
+  - @namzu/ollama@2.0.0
+  - @namzu/openai@1.1.0
+
 ## 0.4.1
 
 ### Patch Changes
