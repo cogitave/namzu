@@ -146,6 +146,12 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 					remaining: config.tokenBudget,
 				},
 				factoryOptions: mergedFactoryOptions,
+				// The supervisor already hands this to its OWN run and its own
+				// coordinator tools; handing it to the spawn context is what
+				// makes a worker ask the same person the supervisor asks.
+				// Without it the two disagreed: the supervisor paused for a
+				// human and the workers it launched approved themselves.
+				...(config.resumeHandler ? { resumeHandler: config.resumeHandler } : {}),
 				tenantId,
 				threadId,
 				sessionId,

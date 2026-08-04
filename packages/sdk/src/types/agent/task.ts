@@ -1,6 +1,7 @@
 import type { ActorRef } from '../../types/session/actor.js'
 import type { WorkspaceBackendKind } from '../../types/workspace/ref.js'
 import type { TokenUsage } from '../common/index.js'
+import type { ResumeHandler } from '../hitl/index.js'
 import type { RunId, SessionId, TaskId, TenantId } from '../ids/index.js'
 import type { Message } from '../message/index.js'
 import type { RunEventListener } from '../run/events.js'
@@ -40,6 +41,23 @@ export interface AgentTaskContext {
 	budgetTracker: AgentTaskBudget
 
 	factoryOptions?: AgentFactoryOptions
+
+	/**
+	 * The parent's channel to whoever can answer a decision it cannot make
+	 * alone, handed down so a child asks the same person.
+	 *
+	 * Passed as the function itself, which works because delegation is
+	 * in-process: `LocalTaskGateway` is the only `TaskGateway` in the tree.
+	 * A gateway that dispatched across a process boundary could not carry a
+	 * closure and would have to proxy the request onto the parent's event
+	 * stream and route the answer back by request id — the upward half of
+	 * which already exists, since `wrapChildListener` stamps lineage on
+	 * every child event the parent sees.
+	 *
+	 * Absent means the child auto-approves, exactly as every child did
+	 * before this existed.
+	 */
+	resumeHandler?: ResumeHandler
 
 	/** Isolation boundary. Required per session-hierarchy.md §12.1. */
 	tenantId: TenantId

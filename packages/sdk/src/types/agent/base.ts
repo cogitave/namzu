@@ -1,4 +1,5 @@
 import type { AgentStatus, CostInfo, TokenUsage } from '../common/index.js'
+import type { ResumeHandler } from '../hitl/index.js'
 import type { RunId, SessionId, TenantId } from '../ids/index.js'
 import type { InvocationState } from '../invocation/index.js'
 import type { Message } from '../message/index.js'
@@ -78,6 +79,32 @@ export interface BaseAgentConfig {
 
 	/** Span a delegated run hangs off. Absent for a top-level run. */
 	parentSpan?: import('@opentelemetry/api').Span
+
+	/**
+	 * Where this agent takes a decision it cannot make alone — a tool that
+	 * needs approval, a question for a human, a plan to sign off.
+	 *
+	 * Declared HERE, on the base config, rather than only on the agent
+	 * shapes that happened to want it. `AgentManager` builds a child as a
+	 * `BaseAgentConfig` and `SendMessageOptions.configOverrides` is a
+	 * `Partial` of it, so a field further down the hierarchy is one a
+	 * spawn cannot express AT THE TYPE LEVEL — and that is what happened:
+	 * every delegated child fell through to the SDK's `autoApproveHandler`
+	 * however carefully its parent had been wired.
+	 *
+	 * What that cost is narrower than "no gate in children" and worth
+	 * stating exactly. A `VerificationGate` DENY still bites inside a
+	 * child, because denials are threaded into the executor and no later
+	 * approval releases them. What was lost is the REVIEW tier: every call
+	 * the gate left undecided went to the resume handler, and for a child
+	 * that handler auto-approved. So a host running "ask before acting"
+	 * had a human review `write` at the top level and never see the same
+	 * `write` issued one hop down.
+	 *
+	 * Absent still means auto-approve, so a host that never wired one is
+	 * unaffected.
+	 */
+	resumeHandler?: ResumeHandler
 }
 
 export type RuntimeToolOverrides = Record<string, ToolAvailability | 'disabled'>
