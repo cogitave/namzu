@@ -47,6 +47,11 @@ export class ResultAssembler {
 			type: 'run_completed',
 			runId: runMgr.id,
 			result: runMgr.getRun().result ?? '',
+			// Read AFTER `markCompleted`, which is where a run that was stopped
+			// mid-flight has its reason settled. Carried on the event so a
+			// consumer can tell "answered" from "ran out of budget" without
+			// holding the `Run`.
+			...(runMgr.getRun().stopReason ? { stopReason: runMgr.getRun().stopReason } : {}),
 		})
 		yield* drainPending()
 

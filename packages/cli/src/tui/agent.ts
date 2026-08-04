@@ -34,6 +34,7 @@ import {
 	type RunId,
 	SearchToolsTool,
 	type SessionId,
+	type StopReason,
 	type TaskGateway,
 	type TaskStore,
 	type TenantId,
@@ -84,7 +85,17 @@ export type AgentEvent =
 	  }
 	| { readonly kind: 'usage'; readonly totalTokens: number; readonly costUsd: number }
 	| { readonly kind: 'task'; readonly subject: string; readonly status: string }
-	| { readonly kind: 'done'; readonly finishReason?: string }
+	/**
+	 * The turn ended without throwing — which is not the same as succeeding.
+	 *
+	 * `stopReason` replaces a `finishReason?: string` that had no producer and
+	 * no reader anywhere in this package. The name was also wrong for what is
+	 * needed here: a "finish reason" in this codebase is `MessageStopReason`,
+	 * reported per model message, while the question a caller has at the end of
+	 * a turn is the run-level `StopReason` — did it answer, or did it run out
+	 * of budget, iterations, time, or permission to say what it produced.
+	 */
+	| { readonly kind: 'done'; readonly stopReason?: StopReason }
 	| { readonly kind: 'error'; readonly message: string }
 
 /** A single tool the model wants to run, surfaced to the user for approval. */
@@ -713,7 +724,12 @@ export function toAgentEvent(event: RunEvent): AgentEvent | null {
 				? { kind: 'task', subject: event.subject, status: event.status }
 				: null
 		case 'run_completed':
-			return { kind: 'done' }
+			// Carried through rather than dropped: `run_failed` fires only from
+			// the throw path, so this event is also how a budget stop, a
+			// timeout, a cancellation and a blocked output guardrail arrive. A
+			// consumer that reads this as success reports one for a run whose
+			// answer was refused.
+			return { kind: 'done', ...(event.stopReason ? { stopReason: event.stopReason } : {}) }
 		case 'run_failed':
 			// The classification is now carried on the event rather than
 			// having been flattened away upstream. Shown because "rate

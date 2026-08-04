@@ -11,6 +11,7 @@
  */
 
 import { configureLogger } from '@namzu/sdk'
+import type { StopReason } from '@namzu/sdk'
 
 import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
 import type { CommandDef } from './types.js'
@@ -75,6 +76,7 @@ export const runCommand: CommandDef = {
 
 		let text = ''
 		let failed: string | null = null
+		let stopReason: StopReason | undefined
 		for await (const event of session.send([
 			{ role: 'user', content: prompt, timestamp: Date.now() },
 		])) {
@@ -82,13 +84,30 @@ export const runCommand: CommandDef = {
 			else if (event.kind === 'tool-start')
 				ctx.formatter.info(`⏺ ${event.toolName} ${event.summary}`)
 			else if (event.kind === 'error') failed = event.message
+			else if (event.kind === 'done') stopReason = event.stopReason
 		}
 
 		if (failed) {
 			ctx.formatter.error({ message: failed })
 			return 1
 		}
+
+		// The text prints either way. Partial output is real output, and a
+		// caller who piped it wants what there is — but `$?` has to be able to
+		// tell them it is partial, which it could not: `run_failed` is emitted
+		// only from the throw path, so a run stopped by its token budget, its
+		// timeout, its iteration cap, a cancellation, or a blocking output
+		// guardrail all arrived as `run_completed` and exited 0. Measured: a
+		// `max_iterations` stop reports `status: 'completed'`. The sharp case is
+		// the guardrail — a REFUSED answer exited 0 with empty text, so
+		// `namzu run … > out.txt && deploy` proceeded on the empty file.
 		ctx.formatter.print(ctx.formatter.name === 'json' ? { text: text.trim() } : text.trim())
+		if (stopReason && stopReason !== 'end_turn') {
+			ctx.formatter.error({
+				message: `run did not finish normally: ${stopReason}${text.trim() ? ' — the output above is partial' : ''}`,
+			})
+			return 1
+		}
 		return 0
 	},
 }
