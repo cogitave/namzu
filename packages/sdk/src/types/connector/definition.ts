@@ -17,9 +17,19 @@ export interface ConnectorDefinition<TConfig = unknown> {
 	version?: string
 	category?: ConnectorCategory
 	connectionType: ConnectionType
+	/**
+	 * **Not consulted.** A connector declaring this is not checked against
+	 * the auth an instance is actually configured with, so a mismatch
+	 * surfaces as a 401 from the upstream rather than as a refusal here.
+	 *
+	 * Worth wiring where instances are created, not at request time: the
+	 * point of declaring supported schemes is to reject a misconfiguration
+	 * before anything is sent.
+	 */
 	supportedAuth?: AuthType[]
 	configSchema: z.ZodType<TConfig, z.ZodTypeDef, unknown>
 	methods: ConnectorMethod[]
+	/** Declared, not implemented — see {@link ConnectorTrigger}. */
 	triggers?: ConnectorTrigger[]
 }
 

@@ -140,8 +140,12 @@ describe('HttpConnector', () => {
 			expect(headers.Authorization).toBe(`Basic ${btoa('alice:pw')}`)
 		})
 
-		it('none / oauth2 / custom add no auth headers', async () => {
-			for (const type of ['none', 'oauth2', 'custom'] as const) {
+		it('none / custom add no auth headers', async () => {
+			// `oauth2` was in this list, and that is what the defect was: it
+			// meant a connector configured for OAuth2 reached the upstream with
+			// no credential at all. `none` and `custom` belong here — the first
+			// asks for no auth, the second says the host attaches its own.
+			for (const type of ['none', 'custom'] as const) {
 				const c = new HttpConnector()
 				await c.connect({ baseUrl: 'https://api.example.com' }, { type, credentials: {} })
 				fetchMock.mockResolvedValueOnce(makeResponse({ status: 200, body: {} }))
@@ -150,6 +154,28 @@ describe('HttpConnector', () => {
 				expect(headers.Authorization).toBeUndefined()
 				expect(headers['X-API-Key']).toBeUndefined()
 			}
+		})
+
+		it('oauth2 refuses rather than reaching the upstream unauthenticated', async () => {
+			const c = new HttpConnector()
+
+			await expect(
+				c.connect({ baseUrl: 'https://api.example.com' }, { type: 'oauth2', credentials: {} }),
+			).rejects.toThrow(/accessToken/)
+		})
+
+		it('oauth2 sends the access token it was given', async () => {
+			const c = new HttpConnector()
+			await c.connect(
+				{ baseUrl: 'https://api.example.com' },
+				{ type: 'oauth2', credentials: { accessToken: 'tok_1' } },
+			)
+			fetchMock.mockResolvedValueOnce(makeResponse({ status: 200, body: {} }))
+
+			await c.execute('request', { method: 'GET', path: 'x' })
+
+			const headers = fetchMock.mock.calls.at(-1)?.[1].headers as Record<string, string>
+			expect(headers.Authorization).toBe('Bearer tok_1')
 		})
 
 		it('api_key throws when apiKey is missing', async () => {
