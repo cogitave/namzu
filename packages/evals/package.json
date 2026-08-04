@@ -1,11 +1,38 @@
 {
   "name": "@namzu/evals",
   "version": "0.0.6",
-  "private": true,
+  "description": "Namzu's own kernel behaviour suites, runnable with `namzu eval` against an installed kernel.",
+  "license": "FSL-1.1-MIT",
   "type": "module",
-  "description": "First-party behaviour suites, run by `namzu eval` as a CI gate.",
+  "homepage": "https://github.com/cogitave/namzu#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/cogitave/namzu.git",
+    "directory": "packages/evals"
+  },
+  "bugs": {
+    "url": "https://github.com/cogitave/namzu/issues"
+  },
+  "exports": {
+    "./kernel/*": "./kernel/*"
+  },
+  "files": [
+    "kernel",
+    "LICENSE.md",
+    "README.md",
+    "CHANGELOG.md"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "peerDependencies": {
+    "@namzu/sdk": ">=5.0.0"
+  },
   "dependencies": {
-    "@namzu/sdk": "workspace:*",
     "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@namzu/sdk": "workspace:*"
   }
 }

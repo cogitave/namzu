@@ -93,12 +93,13 @@ importers:
 
   packages/evals:
     dependencies:
-      '@namzu/sdk':
-        specifier: workspace:*
-        version: link:../sdk
       zod:
         specifier: ^3.25.76
         version: 3.25.76
+    devDependencies:
+      '@namzu/sdk':
+        specifier: workspace:*
+        version: link:../sdk
 
   packages/files:
     dependencies:
