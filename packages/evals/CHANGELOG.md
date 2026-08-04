@@ -1,5 +1,13 @@
 # @namzu/evals
 
+## 0.0.5
+
+### Patch Changes
+
+- Updated dependencies [8dbb98b]
+- Updated dependencies [7ac89da]
+  - @namzu/sdk@5.1.0
+
 ## 0.0.4
 
 ### Patch Changes
