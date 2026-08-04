@@ -1,4 +1,3 @@
-import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { mcpToolToToolDefinition } from '../connector/mcp/adapter.js'
 import { MCPClient } from '../connector/mcp/client.js'
@@ -12,6 +11,7 @@ import {
 	PLUGIN_NAMESPACE_SEPARATOR,
 } from '../constants/plugin/index.js'
 import type { PluginRegistry } from '../registry/plugin/index.js'
+import { resolveWithinReal } from '../tools/paths.js'
 import type { PluginId } from '../types/ids/index.js'
 import type {
 	PluginDefinition,
@@ -218,7 +218,7 @@ export class PluginLifecycleManager {
 			// Load tools
 			if (manifest.tools && manifest.tools.length > 0) {
 				for (const toolPath of manifest.tools) {
-					const absolutePath = join(plugin.rootDir, toolPath)
+					const absolutePath = await resolveWithinReal(plugin.rootDir, toolPath)
 					const fileUrl = pathToFileURL(absolutePath).href
 					const mod = (await import(fileUrl)) as { tools?: ToolDefinition[] }
 
@@ -240,7 +240,7 @@ export class PluginLifecycleManager {
 			// Load hooks
 			if (manifest.hooks && manifest.hooks.length > 0) {
 				for (const hookPath of manifest.hooks) {
-					const absolutePath = join(plugin.rootDir, hookPath)
+					const absolutePath = await resolveWithinReal(plugin.rootDir, hookPath)
 					const fileUrl = pathToFileURL(absolutePath).href
 					const mod = (await import(fileUrl)) as { hooks?: PluginHookDefinition[] }
 

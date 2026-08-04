@@ -1,4 +1,4 @@
-import { readFile, readdir, stat } from 'node:fs/promises'
+import { lstat, readFile, readdir, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -23,7 +23,17 @@ export async function discoverPlugins(parentDir: string): Promise<string[]> {
 		for (const entry of entries) {
 			if (entry.startsWith('.') || entry.startsWith('_')) continue
 			const fullPath = join(parentDir, entry)
-			const s = await stat(fullPath)
+			// `lstat`, not `stat`: `stat` follows the link and reports on its
+			// TARGET, so a symlinked entry pointing anywhere on disk was
+			// admitted as a plugin directory and its manifest read from there.
+			// A plugins directory holds third-party code by definition, which
+			// makes following a link out of it the worse half of CWE-59 — the
+			// directory listed is not the directory loaded.
+			const s = await lstat(fullPath)
+			if (s.isSymbolicLink()) {
+				logger.warn('Refusing a symlinked plugin directory', { path: fullPath })
+				continue
+			}
 			if (!s.isDirectory()) continue
 
 			const manifestPath = join(fullPath, PLUGIN_MANIFEST_FILENAME)
