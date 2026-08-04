@@ -17,7 +17,27 @@ export const DANGEROUS_PATTERNS = [
 	/rm\s+-rf\s+\//,
 	/mkfs/,
 	/dd\s+if=/,
-	/:(){ :\|:& };:/,
+	/**
+	 * Fork bomb.
+	 *
+	 * The previous entry was `/:(){ :\|:& };:/`, which could not match one. In
+	 * a regular expression `()` is an empty capture group, not two literal
+	 * parentheses, so that pattern described the string `:{ :|:& };:` — which
+	 * is not valid shell and which nobody would ever type. Probed: it returned
+	 * false for `:(){ :|:& };:` and every spelling of it, while `run.ts`'s own
+	 * docstring promised "the safety gate still hard-denies catastrophic
+	 * commands".
+	 *
+	 * Matched on SELF-REFERENCE rather than on one literal spelling: a fork
+	 * bomb is a function whose own name appears on both sides of a pipe, is
+	 * backgrounded, and is then invoked. That is what separates it from a
+	 * function that merely contains a pipe — `watch(){ tail -f log | grep E & }`
+	 * does not match, and `bomb(){ bomb|bomb& }; bomb` does.
+	 *
+	 * The name is bounded rather than `+` so a long input cannot make the
+	 * backreference backtrack quadratically; shell function names are short.
+	 */
+	/([\w.]{1,32}|:)\s*\(\s*\)\s*\{\s*\1\s*\|\s*\1\s*&\s*;?\s*\}\s*;?\s*\1/,
 	// Privilege escalation + world-writable chmod on /.
 	/\bsudo\b/,
 	/\bsu\s+-/,

@@ -12,6 +12,7 @@ import type {
 import {
 	ProviderRequestError,
 	assertThinkingUnsupported,
+	claudeVersionAtLeast,
 	isCallerAbortError,
 	providerHttpError,
 	providerVendorError,
@@ -93,13 +94,9 @@ function shouldUseStrictToolInputs(
 
 	const normalized = model.toLowerCase()
 	if (/^(?:anthropic\/)?claude-mythos-preview$/.test(normalized)) return true
-	const version = normalized.match(
-		/^(?:anthropic\/)?claude-(?:haiku|sonnet|opus|fable|mythos)-(\d+)(?:[-_.](\d+))?(?:-\d{8})?$/,
-	)
-	if (!version) return false
-	const major = Number(version[1])
-	const minor = Number(version[2] ?? 0)
-	return major > 4 || (major === 4 && minor >= 5)
+	// Shared matcher — see the note in the Anthropic driver. This copy carried
+	// the same date-as-minor defect.
+	return claudeVersionAtLeast(normalized, 4, 5)
 }
 
 function joinUrl(base: string, path: string): string {

@@ -1,4 +1,4 @@
-import { ToolRegistry } from '@namzu/sdk'
+import { DEFAULT_TIMEOUT_MS, DEFAULT_TOKEN_BUDGET, ToolRegistry } from '@namzu/sdk'
 import type { AgentIdentity, LLMProvider, SupervisorAgentConfig } from '@namzu/sdk'
 
 import type { ProjectManifest, SubAgentEntry } from './types.js'
@@ -112,19 +112,35 @@ export function deriveSupervisorOptions(
 		agentIds: delegates.map((d) => d.id),
 		systemPrompt: manifest.instructions,
 		tools: toolsOf(manifest),
+		// Skills were loaded and then dropped. The manifest reads a whole
+		// `skills/` directory and `SupervisorAgentConfig` takes them, and the
+		// cast that used to close this object meant nobody was told the field
+		// had never been supplied.
+		...(manifest.skills.length > 0 ? { skills: manifest.skills.map((s) => s.skill) } : {}),
+		// `tokenBudget` and `timeoutMs` are REQUIRED by `BaseAgentConfig`, and
+		// this object supplied them only when `agent.ts` happened to declare
+		// them — which is the uncommon case. The `as SupervisorAgentConfig`
+		// below made that compile, so a directory that named no budget produced
+		// a config typed `tokenBudget: number` holding `undefined`, and
+		// `buildLimitConfig` then disabled BOTH hard stops: no token cap, no
+		// wall clock. Worse, the child-spawn refusal computes its allocation
+		// from the parent budget, so `undefined` became `NaN`, and `NaN <= 0`
+		// is false — the guard that exists to refuse an unfunded child let it
+		// through with a NaN budget.
+		//
+		// Defaulted to the same numbers `runAgent` uses rather than to a local
+		// guess, so the two front doors cannot drift.
+		tokenBudget: manifest.config.tokenBudget ?? DEFAULT_TOKEN_BUDGET,
+		timeoutMs: manifest.config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
 		...(manifest.config.temperature !== undefined
 			? { temperature: manifest.config.temperature }
 			: {}),
 		...(manifest.config.maxIterations !== undefined
 			? { maxIterations: manifest.config.maxIterations }
 			: {}),
-		...(manifest.config.tokenBudget !== undefined
-			? { tokenBudget: manifest.config.tokenBudget }
-			: {}),
-		...(manifest.config.timeoutMs !== undefined ? { timeoutMs: manifest.config.timeoutMs } : {}),
 		...(input.identity ?? {}),
 		...(input.overrides ?? {}),
-	} as SupervisorAgentConfig
+	} satisfies SupervisorAgentConfig
 
 	return { config, delegates }
 }

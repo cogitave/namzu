@@ -70,6 +70,14 @@ export { resolveTaskModel } from './router/task-router.js'
 // Every driver accepts `thinking`; one that does not implement it must
 // refuse rather than drop it. Shared so a new driver inherits the rule.
 export { assertThinkingUnsupported } from './provider/thinking-support.js'
+// One matcher for Claude model ids. Shared because there were three copies of
+// it and all three read an 8-digit date suffix as the MINOR version, which
+// inverted every capability decision keyed on it.
+export {
+	claudeVersionAtLeast,
+	parseClaudeModelVersion,
+} from './provider/claude-model-version.js'
+export type { ClaudeFamily, ClaudeModelVersion } from './provider/claude-model-version.js'
 export { drainQuery, query } from './runtime/query/index.js'
 // Mid-run guidance. A host holds the channel and the loop drains it at the
 // tool-result boundary; see the module for why that is the only legal slot.
@@ -145,6 +153,9 @@ export {
 	// The short path: provider + model + prompt. Assembles the identity and
 	// budgets `drainQuery` requires and hands the generated identity back.
 	runAgent,
+	DEFAULT_MAX_ITERATIONS,
+	DEFAULT_TIMEOUT_MS,
+	DEFAULT_TOKEN_BUDGET,
 	SupervisorAgent,
 } from './agents/index.js'
 

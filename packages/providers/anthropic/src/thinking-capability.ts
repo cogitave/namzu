@@ -1,3 +1,4 @@
+import { parseClaudeModelVersion } from '@namzu/sdk'
 import type { ReasoningEffort, ThinkingConfig } from '@namzu/sdk'
 
 /**
@@ -44,25 +45,16 @@ const MANUAL_ONLY: ThinkingCapability = {
 }
 
 /**
- * Parse `claude-<family>-<major>[.<minor>]`, tolerating a vendor prefix and a
- * date suffix.
+ * The matcher lives in `@namzu/sdk` now.
  *
- * Deliberately the same shape the driver's `shouldUseStrictToolInputs` already
- * parses. A second, subtly different model matcher in the same file is how two
- * capability decisions drift apart on the same model name.
+ * The comment that stood here warned that "a second, subtly different model
+ * matcher in the same file is how two capability decisions drift apart on the
+ * same model name" — and there were three copies of it, in this file and in
+ * two drivers, all carrying the same defect: the minor group was `\d+`, so it
+ * swallowed the 8-digit date suffix and `claude-sonnet-4-20250514` parsed as
+ * minor 20250514. The warning was right and the answer to it was not another
+ * careful copy.
  */
-function parseModel(model: string): { family: string; major: number; minor: number } | undefined {
-	const normalized = model.toLowerCase()
-	const match = normalized.match(
-		/^(?:anthropic\/)?claude-(haiku|sonnet|opus|fable|mythos)-(\d+)(?:[-_.](\d+))?(?:-\d{8})?$/,
-	)
-	if (!match) return undefined
-	return {
-		family: match[1] as string,
-		major: Number(match[2]),
-		minor: Number(match[3] ?? 0),
-	}
-}
 
 export function resolveThinkingCapability(model: string): ThinkingCapability {
 	const normalized = model.toLowerCase()
@@ -74,7 +66,7 @@ export function resolveThinkingCapability(model: string): ThinkingCapability {
 		return { adaptive: true, manual: true, canDisable: false, effort: true }
 	}
 
-	const parsed = parseModel(model)
+	const parsed = parseClaudeModelVersion(model)
 	if (!parsed) return MANUAL_ONLY
 
 	const { family, major, minor } = parsed

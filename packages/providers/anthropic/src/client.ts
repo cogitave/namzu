@@ -15,6 +15,7 @@ import type {
 } from '@namzu/sdk'
 import {
 	ProviderRequestError,
+	claudeVersionAtLeast,
 	isCallerAbortError,
 	isProviderRequestError,
 	providerVendorError,
@@ -389,13 +390,11 @@ function shouldUseStrictToolInputs(
 
 	const normalized = model.toLowerCase()
 	if (/^(?:anthropic\/)?claude-mythos-preview$/.test(normalized)) return true
-	const version = normalized.match(
-		/^(?:anthropic\/)?claude-(?:haiku|sonnet|opus|fable|mythos)-(\d+)(?:[-_.](\d+))?(?:-\d{8})?$/,
-	)
-	if (!version) return false
-	const major = Number(version[1])
-	const minor = Number(version[2] ?? 0)
-	return major > 4 || (major === 4 && minor >= 5)
+	// Shared matcher. The copy that stood here read the 8-digit date suffix as
+	// the minor version, so `claude-sonnet-4-20250514` compared as 4.20250514
+	// and cleared this 4.5 gate — strict tool inputs were enabled for a model
+	// below the threshold.
+	return claudeVersionAtLeast(normalized, 4, 5)
 }
 
 function toAnthropicToolChoice(tc?: ToolChoice, parallelToolCalls?: boolean): unknown {
