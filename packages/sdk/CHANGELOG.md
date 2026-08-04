@@ -1,5 +1,49 @@
 # Changelog
 
+## 3.3.0
+
+### Minor Changes
+
+- 635ffa9: A human's approval now crosses the spawn boundary.
+
+  `BaseAgentConfig` carried no resume handler. `SendMessageOptions.configOverrides` is a `Partial` of it, so a parent could not hand its decision channel to a child **at the type level** — and no runtime path could carry one either. Every delegated child fell through to the SDK's `autoApproveHandler`, however carefully its parent had been wired.
+
+  **What that cost, exactly.** A `VerificationGate` _deny_ still bit inside a child: denials are threaded into the executor and no later approval releases them. What was lost is the **review** tier — every call the gate left undecided reached the resume handler, and for a child that handler auto-approved. So a host running "ask before acting" had a human review `write` at the top level and never see the same `write` issued one hop down. The shipped CLI encodes the workaround as policy: its sub-agent prompt says _"do not ask the parent questions; make reasonable assumptions"_, because a question had nowhere to go.
+
+  `AgentTaskContext.resumeHandler` carries the parent's channel and `AgentManager` stamps it onto the child config — beside the trace parent and the tenant triple, for the same reason: a `configBuilder` is written by whoever registered the agent and cannot be trusted to forward something it was never told about. An explicit `configOverrides.resumeHandler` still wins, so one child can be given a different channel or none. `SupervisorAgent` now puts its own handler on the spawn context; it already gave that handler to its own run and its own coordinator tools, so the two had disagreed — the supervisor paused for a human while the workers it launched approved themselves.
+
+  Absent still means auto-approve. A host that never wired a handler is unaffected.
+
+  The handler is passed as the function itself, which works because delegation is in-process — `LocalTaskGateway` is the only gateway in the tree. A gateway dispatching across a process boundary could not carry a closure and would have to proxy the request onto the parent's event stream and route the answer back by request id. The upward half of that already exists: `wrapChildListener` stamps lineage on every child event the parent sees, and `user_question_asked` / `tool_review_requested` / `run_paused` are already typed events.
+
+- 6015989: A published MCP prompt reaches the model.
+
+  `listPrompts` and `getPrompt` landed on the client and server last release and stopped there: a server could publish prompts, the SDK could fetch them, and nothing ever put one in front of a model. That shipped the protocol half without the consumer half — the same primitive-with-no-driver shape this series exists to remove, created by the fix for it.
+
+  A prompt is now adapted into a tool the model can call, `mcp_prompt_<server>_<name>`, with an input schema built from the arguments the prompt declares.
+
+  **Why a tool and not system content.** Folding a prompt into the system prompt puts remote text in the cached prefix, so every turn pays for it and the cache breaks whenever the server changes its wording — and system position _reads_ as instruction, which is the last thing text from a remote party should read as. A slash command would route through the host's UI, so a headless run could never use one. A tool call is explicit, auditable, passes the same admission policy and `allowedTools` filter as every other capability, and its answer arrives as a `tool_result`, which a model already treats as data returned by something rather than as direction.
+
+  The result is wrapped in an envelope naming the server and the prompt, and saying the content is material to work with rather than instructions. Untrusted content arriving through a tool result is the standard injection surface, and the mitigation that survives contact is saying plainly whose words these are. A server that returns an `assistant` message has that role reported inside the envelope, never turned into an assistant turn in the run's own history.
+
+  Prompts pass the **same admission policy** as tools, via a shared name check — a server publishing a prompt is the same trust question as one publishing a tool, and two copies of an allow/deny rule are two chances for one to drift permissive. They are namespaced apart from tools, since a server may publish both under one name and collapsing them would let whichever registered second replace the first.
+
+  A fetch that fails is returned to the model rather than thrown: a read-only lookup that a server cannot answer is something an agent can work around, and ending the run over it is the wrong trade.
+
+### Patch Changes
+
+- 82888c6: One `chat` span per model call, not two.
+
+  3.2.0 shipped a second `chat {model}` span. `stream-turn.ts` already opened one — with the same justification, that `chatSpanName` had no call sites — and 3.2.0 added another beside it, same name, same parent, both carrying token counts. A consumer summing spans double-counted latency and tokens.
+
+  Verified by execution rather than by reading: one scripted model call produced two `chat mock-model` spans, both with `gen_ai.usage.input_tokens`.
+
+  The one added in 3.2.0 is removed and the earlier one kept, because it is strictly better — it wraps the call itself and records time to first delta, which the later one did not.
+
+  **How it shipped, since that matters more than the fix.** The search that concluded "zero call sites" covered `telemetry/attributes.ts` and `constants/telemetry/` and never the runtime. Then the test asserting `toHaveLength(1)` failed with `2`, and the failure was explained away — attributed to a forced-final turn — and relaxed to `>= 1`. That relaxation is now reverted to an exact count, and a mutation confirms it catches a re-introduced duplicate as well as a removed span. The reasoning is recorded next to the assertion so the next person to see it fail with `2` reads the history instead of re-deriving the same wrong explanation.
+
+  Reported by a consuming host reading 3.2.0 against its own telemetry.
+
 ## 3.2.0
 
 ### Minor Changes
