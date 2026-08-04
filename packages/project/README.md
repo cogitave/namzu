@@ -12,9 +12,14 @@ my-agent/agent/
 ├── instructions.md   # optional — the system prompt
 ├── tools/
 │   └── search.ts     # default-exports defineTool(…)
-└── skills/
-    └── plan-a-trip/
-        └── SKILL.md
+├── skills/
+│   └── plan-a-trip/
+│       └── SKILL.md
+└── agents/            # optional — delegates, each a project of its own
+    └── researcher/
+        ├── agent.ts
+        ├── instructions.md
+        └── tools/
 ```
 
 ```ts
@@ -32,6 +37,37 @@ const { output } = await runAgent(
 `deriveRunOptions` produces ordinary `RunAgentOptions`. There is no second code
 path — a caller who outgrows the convention passes `overrides`, or stops using
 this package and keeps everything else.
+
+## Delegates
+
+A directory under `agents/` is read by the same loader that read the root — a
+delegate has the same shape as its parent, so this is recursion rather than a
+new concept. `deriveSupervisorOptions` turns that into a `SupervisorAgent`
+configuration:
+
+```ts
+const { manifest } = await loadProject('./agent')
+
+const { config, delegates } = deriveSupervisorOptions(manifest, {
+  provider,
+  agentManager, // yours — a lifecycle object, never built here
+})
+
+for (const d of delegates) agentManager.register(d.id, d)
+await new SupervisorAgent(metadata).run(input, config)
+```
+
+Delegates come back as plans rather than registered agents, because
+registration mutates your manager and a function that quietly mutates an object
+you handed it for reference is the surprise this package exists to avoid.
+
+A delegate may name its own model and inherits the coordinator's only when it
+does not — a cheap model for a narrow job is the common case, and inheriting
+unconditionally bills every specialist at the coordinator's rate.
+
+**One level only.** A delegate may not declare delegates of its own. How deep a
+system fans out is a topology decision, and a directory layout should not make
+it by default.
 
 ## Importing a directory runs it
 

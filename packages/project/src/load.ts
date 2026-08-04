@@ -16,6 +16,7 @@ import type {
 	SkillEntry,
 	SourceOutcome,
 	SourceRef,
+	SubAgentEntry,
 	ToolEntry,
 } from './types.js'
 import { ALL_SLOTS } from './types.js'
@@ -160,6 +161,26 @@ export async function loadProject(
 	dir: string,
 	options: LoadProjectOptions = {},
 ): Promise<ProjectLoadResult> {
+	return loadAt(dir, options, 0)
+}
+
+/**
+ * Depth 0 is the project the caller named; 1 is a delegate it declares.
+ *
+ * A delegate does not get delegates of its own. The cap is a real decision,
+ * not a missing feature: unbounded nesting is a topology question — who may
+ * spawn whom, and how deep a run may fan out — and answering it by default is
+ * how a directory layout ends up deciding a system's shape. It also removes
+ * the cycle: `agents/a/agents/b/agents/a` cannot be built if the second level
+ * is never read.
+ */
+const MAX_DEPTH = 1
+
+async function loadAt(
+	dir: string,
+	options: LoadProjectOptions,
+	depth: number,
+): Promise<ProjectLoadResult> {
 	if (typeof dir !== 'string' || dir.length === 0) {
 		throw new TypeError('loadProject(dir): dir must be a non-empty string.')
 	}
@@ -176,6 +197,7 @@ export async function loadProject(
 	const sources: SourceRef[] = []
 	const tools: ToolEntry[] = []
 	const skills: SkillEntry[] = []
+	const agents: SubAgentEntry[] = []
 	let config: ProjectConfig = {}
 	let instructions = ''
 
@@ -194,6 +216,7 @@ export async function loadProject(
 				config: {},
 				tools: [],
 				skills: [],
+				agents: [],
 				sources: [],
 				included,
 				modules,
@@ -395,6 +418,42 @@ export async function loadProject(
 		}
 	}
 
+	// ─── agents (delegates) ───────────────────────────────────────────────
+	if (included.includes('agents')) {
+		const scan = await scanSlot(root, 'agents', 'agents')
+		diagnostics.push(...scan.diagnostics)
+		for (const entry of scan.files) {
+			if (depth >= MAX_DEPTH) {
+				diagnostics.push({
+					code: 'subagent_too_deep',
+					severity: 'warning',
+					message:
+						entry.relativePath +
+						' was not loaded: a delegate may not declare delegates of its own.',
+					path: entry.path,
+				})
+				record(entry, 'agents', 'skipped')
+				continue
+			}
+			const child = await loadAt(entry.path, options, depth + 1)
+			// The child's diagnostics are the parent's. A delegate that could
+			// not load is a fact about THIS project, and a caller reading one
+			// list should not have to walk the tree to find out the run will be
+			// short a specialist.
+			for (const d of child.diagnostics) {
+				diagnostics.push({ ...d, message: entry.relativePath + ': ' + d.message })
+			}
+			if (!child.ok) {
+				record(entry, 'agents', 'failed')
+				continue
+			}
+			agents.push({
+				source: record(entry, 'agents', 'loaded'),
+				manifest: child.manifest,
+				id: entry.id,
+			})
+		}
+	}
 	const name = config.name ?? basenameOf(root)
 
 	return {
@@ -405,6 +464,7 @@ export async function loadProject(
 			config,
 			tools,
 			skills,
+			agents,
 			sources,
 			included,
 			modules,
