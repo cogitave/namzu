@@ -48,6 +48,7 @@ export {
 } from './mcp/adapter.js'
 
 export { MCPToolDiscovery } from './mcp/discovery.js'
+export { mcpPromptToToolDefinition, renderPromptMessages } from './mcp/prompt-adapter.js'
 
 export { MCPConnectorBridge } from '../bridge/mcp/connector/adapter.js'
 

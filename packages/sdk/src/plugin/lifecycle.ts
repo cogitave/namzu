@@ -5,6 +5,7 @@ import { MCPClient } from '../connector/mcp/client.js'
 import { MCPToolDiscovery } from '../connector/mcp/discovery.js'
 import type { MCPToolDiscoveryOptions } from '../connector/mcp/discovery.js'
 import type { MCPToolPolicy } from '../connector/mcp/policy.js'
+import { mcpPromptToToolDefinition } from '../connector/mcp/prompt-adapter.js'
 import {
 	DEFAULT_HOOK_PRIORITY,
 	HOOK_TIMEOUT_MS,
@@ -322,6 +323,16 @@ export class PluginLifecycleManager {
 			const namespacedName = `${pluginName}${PLUGIN_NAMESPACE_SEPARATOR}mcp__${config.name}__${mcpTool.name}`
 			const namespacedTool: ToolDefinition = { ...baseDef, name: namespacedName }
 			this.toolRegistry.register(namespacedTool, 'deferred')
+			contributions.toolNames.push(namespacedName)
+		}
+
+		// Prompts, through the same gate. A server publishing one is the same
+		// trust question as a server publishing a tool.
+		const prompts = await this.mcpDiscovery.discoverPromptsFrom(client)
+		for (const prompt of prompts) {
+			const baseDef = mcpPromptToToolDefinition(prompt, client, config.name)
+			const namespacedName = `${pluginName}${PLUGIN_NAMESPACE_SEPARATOR}${baseDef.name}`
+			this.toolRegistry.register({ ...baseDef, name: namespacedName }, 'deferred')
 			contributions.toolNames.push(namespacedName)
 		}
 	}

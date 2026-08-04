@@ -271,6 +271,8 @@ export {
 	MCPConnectorBridge,
 	MCPServer,
 	MCPToolDiscovery,
+	mcpPromptToToolDefinition,
+	renderPromptMessages,
 	mcpJsonSchemaToZod,
 	mcpToolResultToToolResult,
 	mcpToolToToolDefinition,

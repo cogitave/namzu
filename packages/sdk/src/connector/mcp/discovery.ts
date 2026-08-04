@@ -1,4 +1,8 @@
-import type { MCPDiscoveredTool, MCPToolDefinition } from '../../types/connector/index.js'
+import type {
+	MCPDiscoveredTool,
+	MCPPromptDefinition,
+	MCPToolDefinition,
+} from '../../types/connector/index.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
 import { toErrorMessage } from '../../utils/error.js'
 import { type Logger, getRootLogger } from '../../utils/logger.js'
@@ -7,6 +11,7 @@ import type { MCPClient } from './client.js'
 import {
 	type MCPToolDrift,
 	type MCPToolPolicy,
+	applyNamePolicy,
 	applyToolPolicy,
 	diffTools,
 	hasDrift,
@@ -120,6 +125,48 @@ export class MCPToolDiscovery {
 			clientId: client.id,
 			serverName: state.serverName,
 		}))
+	}
+
+	/**
+	 * The prompts a server publishes, through the same admission gate its
+	 * tools go through.
+	 *
+	 * A server publishing a prompt is the same trust question as one
+	 * publishing a tool: the remote side must not decide what enters the
+	 * agent's registry. Policy is matched on the prompt's own name, as the
+	 * server reports it, before any namespacing.
+	 *
+	 * A server that does not implement prompts answers method-not-found;
+	 * that is an ordinary answer, not a failure, so it yields none rather
+	 * than taking discovery down.
+	 */
+	async discoverPromptsFrom(client: MCPClient): Promise<MCPPromptDefinition[]> {
+		const state = client.getState()
+
+		let advertised: MCPPromptDefinition[]
+		try {
+			advertised = await client.listPrompts()
+		} catch (err) {
+			this.log.debug('MCP server published no prompts', {
+				serverName: state.serverName,
+				clientId: client.id,
+				reason: toErrorMessage(err),
+			})
+			return []
+		}
+
+		const policy = this.options.policies?.[state.serverName] ?? this.options.policies?.['*']
+		const { admitted, refused } = applyNamePolicy(advertised, policy)
+
+		if (refused.length > 0) {
+			this.log.warn('MCP prompts refused by policy', {
+				serverName: state.serverName,
+				clientId: client.id,
+				refused: refused.map((r) => `${r.name} (${r.reason})`),
+			})
+		}
+
+		return admitted
 	}
 
 	async toToolDefinitions(): Promise<ToolDefinition[]> {

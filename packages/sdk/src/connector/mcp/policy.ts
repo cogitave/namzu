@@ -36,26 +36,41 @@ export function applyToolPolicy(
 	tools: readonly MCPToolDefinition[],
 	policy: MCPToolPolicy | undefined,
 ): MCPToolPolicyDecision {
+	return applyNamePolicy(tools, policy)
+}
+
+/**
+ * The same admission decision, for anything a server advertises by name.
+ *
+ * Factored out because prompts need it too. A server publishing a prompt is
+ * the same trust question as one publishing a tool — the remote side must
+ * not decide what enters the agent's registry — and two copies of an
+ * allow/deny check are two chances for one of them to drift permissive.
+ */
+export function applyNamePolicy<T extends { readonly name: string }>(
+	items: readonly T[],
+	policy: MCPToolPolicy | undefined,
+): { admitted: T[]; refused: Array<{ name: string; reason: 'not_allowed' | 'denied' }> } {
 	if (!policy || (!policy.allow && !policy.deny)) {
-		return { admitted: [...tools], refused: [] }
+		return { admitted: [...items], refused: [] }
 	}
 
 	const allow = policy.allow ? new Set(policy.allow) : null
 	const deny = new Set(policy.deny ?? [])
 
-	const admitted: MCPToolDefinition[] = []
+	const admitted: T[] = []
 	const refused: Array<{ name: string; reason: 'not_allowed' | 'denied' }> = []
 
-	for (const tool of tools) {
-		if (deny.has(tool.name)) {
-			refused.push({ name: tool.name, reason: 'denied' })
+	for (const item of items) {
+		if (deny.has(item.name)) {
+			refused.push({ name: item.name, reason: 'denied' })
 			continue
 		}
-		if (allow && !allow.has(tool.name)) {
-			refused.push({ name: tool.name, reason: 'not_allowed' })
+		if (allow && !allow.has(item.name)) {
+			refused.push({ name: item.name, reason: 'not_allowed' })
 			continue
 		}
-		admitted.push(tool)
+		admitted.push(item)
 	}
 
 	return { admitted, refused }
