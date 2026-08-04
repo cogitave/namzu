@@ -188,9 +188,33 @@ export class HttpConnector extends BaseConnector<HttpConnectorConfig> {
 				const encoded = btoa(`${username}:${password}`)
 				return { Authorization: `Basic ${encoded}` }
 			}
-			case 'none':
-			case 'oauth2':
+			case 'oauth2': {
+				// Grouped with `none` until now, so a connector configured for
+				// OAuth2 sent an UNAUTHENTICATED request — every other auth type
+				// throws on a missing credential, and this one quietly did not.
+				// The upstream answers 401 and the failure reads as a bad token
+				// rather than as no token at all.
+				//
+				// The token exchange itself is not implemented here: a client
+				// credentials or authorization-code flow needs a token endpoint,
+				// refresh handling and a place to keep the result, none of which
+				// belong in a request-header helper. What is supported is an
+				// access token the host already holds, which is the case a
+				// connector config can actually express today.
+				const token = creds.accessToken ?? creds.token
+				if (!token) {
+					throw new Error(
+						'AuthConfig oauth2: missing required credential "accessToken". This connector holds no token endpoint, so an access token obtained elsewhere has to be supplied — sending the request without one would reach the upstream unauthenticated.',
+					)
+				}
+				return { Authorization: `Bearer ${token}` }
+			}
 			case 'custom':
+				// Deliberately empty, unlike `oauth2` above: `custom` means the
+				// host attaches its own headers, so there is nothing here to
+				// omit and nothing to refuse.
+				return {}
+			case 'none':
 				return {}
 			default: {
 				const _exhaustive: never = auth.type
