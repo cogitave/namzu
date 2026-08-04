@@ -16,7 +16,7 @@ import type { PlanStep } from '../plan/index.js'
 import type { PluginHookEvent, PluginHookResult } from '../plugin/index.js'
 import type { TaskStatus } from '../task/index.js'
 import type { Lineage } from './lineage.js'
-import type { MessageStopReason } from './stop-reason.js'
+import type { MessageStopReason, StopReason } from './stop-reason.js'
 import type {
 	SubsessionIdledEvent,
 	SubsessionMessagedEvent,
@@ -252,7 +252,20 @@ type CoreRunEvent =
 			guardrail?: string
 			reason?: string
 	  }
-	| { type: 'run_completed'; runId: RunId; result: string }
+	/**
+	 * The run reached its end without throwing.
+	 *
+	 * `completed` is not `succeeded`. A run stopped by its token budget, its
+	 * timeout, its iteration cap, a cancellation or a blocking output guardrail
+	 * all arrive here — `run_failed` is emitted only from the throw path — so a
+	 * consumer that treated this event as success reported one for a run whose
+	 * answer was refused. Measured: `max_iterations` produces
+	 * `status: 'completed'` with `result` holding whatever partial text existed.
+	 *
+	 * `stopReason` is what separates them, and it is on the event because the
+	 * alternative is asking every consumer to hold the `Run` as well.
+	 */
+	| { type: 'run_completed'; runId: RunId; result: string; stopReason?: StopReason }
 	/**
 	 * The run failed.
 	 *
