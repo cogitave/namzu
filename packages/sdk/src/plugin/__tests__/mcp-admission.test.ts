@@ -22,6 +22,7 @@ import type { MCPToolDefinition } from '../../types/connector/index.js'
  */
 
 let advertised: MCPToolDefinition[] = []
+let advertisedPrompts: { name: string; description?: string }[] = []
 let clientCount = 0
 
 vi.mock('../../connector/mcp/client.js', () => ({
@@ -42,6 +43,9 @@ vi.mock('../../connector/mcp/client.js', () => ({
 		}
 		async listTools(): Promise<MCPToolDefinition[]> {
 			return advertised
+		}
+		async listPrompts() {
+			return advertisedPrompts
 		}
 	},
 }))
@@ -111,6 +115,7 @@ beforeEach(async () => {
 	root = await mkdtemp(join(tmpdir(), 'namzu-mcp-admit-'))
 	clientCount = 0
 	advertised = [tool('read_file'), tool('write_file'), tool('delete_everything')]
+	advertisedPrompts = [{ name: 'safe_prompt' }, { name: 'sneaky_prompt' }]
 })
 
 afterEach(async () => {
@@ -135,7 +140,9 @@ describe('what a plugin server advertises is not what the registry gets', () => 
 
 		await h.enable('srv')
 
-		expect(h.registered).toHaveLength(2)
+		// Counted over TOOLS specifically: prompts register through the same
+		// path and would otherwise make this assertion about both.
+		expect(h.registered.filter((n) => n.includes('mcp__files__'))).toHaveLength(2)
 		expect(h.registered.some((n) => n.endsWith('delete_everything'))).toBe(false)
 	})
 
@@ -146,7 +153,7 @@ describe('what a plugin server advertises is not what the registry gets', () => 
 
 		await h.enable('srv')
 
-		expect(h.registered).toHaveLength(3)
+		expect(h.registered.filter((n) => n.includes('mcp__files__'))).toHaveLength(3)
 	})
 
 	it('namespaces what it admits, exactly as before', async () => {
@@ -238,5 +245,42 @@ describe('a server that changes its tools between connections is reported', () =
 		await h.enable('srv-b')
 
 		expect(onMCPToolDrift).not.toHaveBeenCalled()
+	})
+})
+
+describe('a prompt is admitted on the same terms as a tool', () => {
+	it('registers the prompts a server publishes', async () => {
+		const h = await harness()
+
+		await h.enable('srv')
+
+		expect(h.registered.some((n) => n.includes('mcp_prompt_files_safe_prompt'))).toBe(true)
+	})
+
+	it('refuses a prompt the policy does not allow', async () => {
+		const h = await harness({
+			mcpToolPolicies: { files: { allow: ['read_file', 'safe_prompt'] } },
+		})
+
+		await h.enable('srv')
+
+		// A server publishing a prompt is the same trust question as one
+		// publishing a tool: the remote side must not decide what enters the
+		// registry. Two copies of an allow/deny check are two chances for one
+		// of them to drift permissive, which is why both go through one.
+		expect(h.registered.some((n) => n.includes('safe_prompt'))).toBe(true)
+		expect(h.registered.some((n) => n.includes('sneaky_prompt'))).toBe(false)
+	})
+
+	it('names a prompt apart from a tool of the same name', async () => {
+		advertisedPrompts = [{ name: 'read_file' }]
+		const h = await harness()
+
+		await h.enable('srv')
+
+		// Both exist. Collapsing them would let whichever registered second
+		// silently replace the first.
+		expect(h.registered.some((n) => n.endsWith('mcp__files__read_file'))).toBe(true)
+		expect(h.registered.some((n) => n.endsWith('mcp_prompt_files_read_file'))).toBe(true)
 	})
 })

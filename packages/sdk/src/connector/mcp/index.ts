@@ -14,6 +14,7 @@ export {
 } from './adapter.js'
 
 export { MCPToolDiscovery } from './discovery.js'
+export { mcpPromptToToolDefinition, renderPromptMessages } from './prompt-adapter.js'
 
 export { MCPConnectorBridge } from '../../bridge/mcp/connector/adapter.js'
 
@@ -25,5 +26,5 @@ export type {
 } from './server.js'
 
 export type { MCPToolDiscoveryOptions } from './discovery.js'
-export { applyToolPolicy, diffTools, hasDrift, toolsHash } from './policy.js'
+export { applyNamePolicy, applyToolPolicy, diffTools, hasDrift, toolsHash } from './policy.js'
 export type { MCPToolDrift, MCPToolPolicy, MCPToolPolicyDecision } from './policy.js'
