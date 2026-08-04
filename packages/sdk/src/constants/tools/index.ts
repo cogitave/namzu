@@ -34,10 +34,17 @@ export const DANGEROUS_PATTERNS = [
 	 * function that merely contains a pipe — `watch(){ tail -f log | grep E & }`
 	 * does not match, and `bomb(){ bomb|bomb& }; bomb` does.
 	 *
-	 * The name is bounded rather than `+` so a long input cannot make the
-	 * backreference backtrack quadratically; shell function names are short.
+	 * EVERY run is bounded, not just the name. The first version bounded the
+	 * name and left the gaps as `\s*`, and static analysis caught what a hand
+	 * probe did not: a chain of unbounded runs backtracks polynomially, and
+	 * this list is matched against SERIALIZED TOOL INPUT — model output, which
+	 * a prompt injection can shape. A denial of service in the check that
+	 * exists to prevent one is the wrong way round.
+	 *
+	 * `[ \t]` rather than `\s`, because a shell function definition of this
+	 * shape lives on one line, and the bound is generous for real spacing.
 	 */
-	/([\w.]{1,32}|:)\s*\(\s*\)\s*\{\s*\1\s*\|\s*\1\s*&\s*;?\s*\}\s*;?\s*\1/,
+	/([\w.]{1,32}|:)[ \t]{0,8}\([ \t]{0,8}\)[ \t]{0,8}\{[ \t]{0,8}\1[ \t]{0,8}\|[ \t]{0,8}\1[ \t]{0,8}&[ \t]{0,8};?[ \t]{0,8}\}[ \t]{0,8};?[ \t]{0,8}\1/,
 	// Privilege escalation + world-writable chmod on /.
 	/\bsudo\b/,
 	/\bsu\s+-/,
