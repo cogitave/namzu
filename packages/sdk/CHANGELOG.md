@@ -1,5 +1,182 @@
 # Changelog
 
+## 3.2.0
+
+### Minor Changes
+
+- 480892a: Context reduction is a real seam now, and `strategy` has three behaviours instead of two.
+
+  `compactionConfig.strategy` accepted `'structured' | 'sliding-window' | 'disabled'`, and the runtime asked one question about it: is it `'disabled'`. So `'sliding-window'` — the value a host picks precisely to avoid paying for summarization — ran the full structured pass, LLM verification call included. The config lied, and it lied in the direction of spending money.
+
+  `'sliding-window'` now trims: it keeps the recent turns, drops what precedes them, and summarizes nothing. Every survivor is verbatim. For an agent whose state lives outside the transcript — a task queue, a file it keeps editing, a working-memory block the host renders each turn — the paraphrase was only ever cost.
+
+  **A host can also supply their own.** `query({ contextReducer })` takes a function: messages and why it is being asked (`'threshold'` — the estimate says the window is filling; `'overflow'` — the provider already rejected the prompt), returning the shorter history or `undefined` for "I cannot shorten this". It may be async, so a reducer can call a model of its own. A reducer outranks the strategy and fully owns reduction for that run; the structured pass does not also run, because two mechanisms editing one history in the same pass cannot both be reasoned about.
+
+  Three ways a reducer's answer is declined, and the third is the interesting one. `undefined` is the reducer itself declining. A throw is treated as the same answer and logged — a broken reduction hook should not kill a healthy run, the same way a broken `prepareStep` does not. And a result that leaves a `tool_result` without its `tool_use` is **refused rather than repaired**: installing it would trade a nameable "your reducer split a tool pair" for an opaque provider rejection a call later, with the reducer never implicated.
+
+  The built-in reducer keeps the three invariants the type documents: the leading system floor stays, tool pairs stay together, and messages marked `retain` survive. Where no cut below the requested window is safe it takes one above rather than declining — in a multi-step turn every boundary lands on an assistant or tool message, so declining there would fail exactly when the history is longest.
+
+  `ConversationManager`, `createConversationManager`, `SlidingWindowManager`, `StructuredCompactionManager` and `NullManager` are **deprecated** and still exported. That interface cannot be implemented correctly: `reduceContext` is documented as reducing the history but takes `Message[]` and returns `boolean`, so the only way to honour it is in-place mutation — and neither shipped implementation does. Both build a shorter array locally, discard it, and return `true`. Nothing in the runtime ever called any of it, which is how an unfulfillable contract survived this long. Use `ContextReducer`.
+
+- 480892a: Deprecate `ToolCatalogSurface` and `ToolsetPolicy.surfaces`.
+
+  Neither does anything. No code constructs a member of the union, and nothing reads the field that carries it — setting `surfaces` on a toolset policy has no effect and never had one.
+
+  It is also the wrong axis. Which tools a run may use is already expressible four ways, and all of them are per-run and dynamic where this is fixed at definition time: `allowedTools` on the query, `ToolAvailability` (`active` / `deferred` / `suspended`) with mid-run activation through tool search, `runtimeToolOverrides`, and capability negotiation stripping tools a driver cannot carry. `allowedTools` says the same thing, per run.
+
+  The member names — `chat`, `managed-agent`, `worker` — encode deployment shapes this kernel does not own, which is the deeper reason not to keep them. A host's surfaces are the host's to name.
+
+  Deprecated rather than removed because both are reachable from the published typings, so removing them is a breaking change. They go in the next major. This is the deprecation cycle the release policy asks for: a version where the code still compiles and warns.
+
+- beacf2d: Three things the model or the host was invited to say, and the kernel discarded.
+
+  **Plan step dependencies.** `approve_plan` shows the model `depends_on` on every step, described as "Step descriptions this depends on", and then passed `dependsOn: []` for all of them. The declared ordering was dropped at the one place it entered the system. The visible cost is not scheduling — `PlanManager.getNextPendingStep` holds the dependency gate and currently has no callers — it is the **approval**: `dependsOn` is serialized into the `plan_approval` payload a human reads before saying yes, so a reviewer was shown a plan whose steps all looked independent however carefully the model had ordered them.
+
+  Descriptions now resolve to step ids, matched case- and whitespace-insensitively because a model does not reproduce its own strings byte-for-byte. Four things are **refused rather than dropped**, each with the offending text named so the model can correct it and call again: a dependency naming no step, one that two steps could answer, a step depending on itself, and a cycle. The cycle check matters most — no step in a loop can ever start, so the plan does not error, it simply stops making progress with nothing to observe. A diamond is not a cycle and is accepted.
+
+  **Advisory context.** Two paths reach an advisor. The trigger path always passed the live messages, working state and tool catalogue. The tool path — the one the _model_ uses — passed `{ messages: [], iteration: 0 }`, a literal empty context. So an advisor the model consulted about a situation could not see the situation, and the model's own `include_context: true` had nothing to include. The runtime now supplies the live context through a provider function, read at call time rather than captured at construction, because the tool is built once per run and called at an unknown later point.
+
+  That is also where `AdvisoryConfig.includeToolCatalog` and `AdvisorDefinition.useCompactedContext` are read for the first time. Both were declared and consulted by nothing, so a host who turned the catalogue off still paid for it in every advisory prompt.
+
+  **Advisory urgency.** `urgency` reached exactly one debug log line, so `'high'` and `'low'` produced byte-identical requests. The advisor is now told, because it is the party that can act on it — one sentence rather than a routing policy this kernel has no business inventing. `'normal'` appends nothing at all: a sentence asserting the ordinary case is prompt weight that changes no answer and makes the two that matter harder to notice.
+
+- e1a5e2d: The MCP admission boundary is on the path a real server takes.
+
+  `MCPToolDiscovery` has held two checks since it was written: a per-server allow/deny policy deciding what a server may contribute, and detection for a server whose tool set changed since it was last seen. It was implemented, tested and publicly exported, and **nothing outside its own tests ever constructed one**.
+
+  `PluginLifecycleManager.attachMCPServer` — the only code in the tree that connects a real MCP server — called `client.listTools()` and registered whatever came back. So the remote side decided what entered the agent's tool registry, which is least privilege inverted at the one place it matters. Tools land as `deferred` and a run's `allowedTools` filters the model-visible catalogue, so this was never "arbitrary tools reach the model immediately" — but the check written for exactly this was not consulted.
+
+  `PluginLifecycleManagerConfig` takes `mcpToolPolicies` and `onMCPToolDrift`, and discovery now runs through the boundary. Passing neither admits everything, exactly as before: adding a boundary must not turn a working plugin into a broken one.
+
+  **Drift is keyed by server name rather than client id, and that is what makes it fire at all.** A client id is minted per connection, so on the path a real server takes — a plugin enabling, connecting, being disabled, another enabling — every discovery was the first that id had ever seen and drift could not fire however many times the server changed underneath. The threat it exists for is a server that advertises something benign while a host is deciding and something else afterwards, which is a property of the _server_ across connections. For the same reason a disconnect no longer forgets what a server last advertised: forgetting on teardown is precisely the window that swap uses.
+
+  Drift compares what was **admitted**, not what was advertised, so a tool the policy refuses either way does not raise a warning. A warning that fires for something already refused trains a host to ignore the one that matters.
+
+- b807b0d: MCP prompts, server lifecycle events, and an honest "not here".
+
+  **Prompts.** `MCPPromptDefinition` and `MCPPromptArgument` were declared when the MCP types were written; no client method ever asked a server for one and no server branch ever served one, so a server publishing prompts had them silently ignored. `MCPClient` gains `listPrompts()` and `getPrompt(name, args)`, and `MCPServer` takes an optional `MCPServerPromptProvider` alongside the tool and resource ones.
+
+  Prompts page through the same reader as every other list, which is the point of that reader being generic — a server that pages its prompts does not get silently truncated to page one the way the tool list once was. Required arguments are checked against the prompt's own declaration in the server rather than left to each provider to re-implement or forget.
+
+  The messages a prompt returns are the **server's** composition, carried in their own `MCPPromptMessage` shape rather than the kernel's `Message`. A prompt arriving from a remote server is exactly the untrusted-content case: converting at the boundary is what stops a server's `assistant` message from becoming a claim that this agent already said something.
+
+  **Lifecycle events.** `MCPLifecycleEvent` and `MCPEventListener` were declared beside the prompt types and nothing ever emitted one, so a host learned a server had died by noticing that calls had started failing. `MCPClient.onLifecycle(listener)` emits from the four transitions that already existed and already mutated `status` — no new state, the client just says out loud what it already knew. It returns an unsubscribe, which `onNotification` does not: a listener that cannot be removed keeps a disposed host object alive for the life of the client. A listener that throws is logged and the rest still run, because these fire from inside transport callbacks and an escaping exception would surface as a connection error, blaming the server for a bug in the host's observer.
+
+  **"None" and "not here" are different answers.** `resources/list` returned `{ resources: [] }` when no provider was configured, for a capability `initialize` never advertised — telling a client, in the protocol's own vocabulary, that the answer is "none" when the truth is "this server does not do that". The two send a client in opposite directions: one stops asking, the other looks elsewhere. Unimplemented methods now answer with the protocol's method-not-found code via the exported `MCPMethodNotFound`, while a provider that throws still reports an internal error — a broken provider is not an absent feature, and collapsing them tells a client to stop asking for something that works tomorrow.
+
+- 9d2b927: The model call has a span.
+
+  There was none. `chatSpanName` shipped in the telemetry attributes with zero call sites, so a run's traces carried no LLM latency at all — and the one thing anybody opens a trace to find, which turn was slow and why, was the one thing not in it. The token counts landed on the iteration span, one level above the operation that spent them.
+
+  Each model call now opens `chat {model}` under its iteration span, parented explicitly because the loop body is an async generator and the ambient context at resume time belongs to the consumer, not to whoever created the run span.
+
+  It carries the request as sent — operation, provider, model, temperature, max tokens — and, once the turn settles, what came back: response model, response id, input and output tokens, the finish reason as an array per the convention, and cache read/write tokens. `RESPONSE_MODEL`, `RESPONSE_ID`, `REQUEST_TEMPERATURE`, `REQUEST_MAX_TOKENS`, `CACHE_READ_TOKENS` and `CACHE_WRITE_TOKENS` were all declared constants that nothing ever set.
+
+  The span closes on every path, including one the call threw on, using the same `finally` the iteration span now uses — with the duration still measured at the successful close so a healthy turn is not reported as lasting the whole iteration.
+
+  The iteration span keeps its own token attributes rather than having them moved. Something may already read them, and with one turn per iteration the two agree.
+
+- 7370f6d: An OAuth2 connector no longer reaches the upstream unauthenticated.
+
+  `'oauth2'` was grouped with `'none'` and `'custom'` in the HTTP connector's header resolver, returning no headers. Every other auth type throws on a missing credential; this one quietly did not, so a connector configured for OAuth2 sent its request with no credential at all. The upstream's 401 then reads as a bad token rather than as no token, which sends whoever is debugging to look at the token.
+
+  An access token supplied in `credentials.accessToken` (or `token`) is now sent as a bearer. Without one the connector **refuses**, naming what is missing.
+
+  The token exchange itself is deliberately not implemented here: a client-credentials or authorization-code flow needs a token endpoint, refresh handling and somewhere to keep the result, none of which belong in a request-header helper. What is supported is the case a connector config can express today — a token the host already holds.
+
+  `'custom'` keeps returning nothing, and that is not the same omission: it means the host attaches its own headers, so there is nothing to leave out and nothing to refuse.
+
+  **Three connector declarations are now documented as not consulted** rather than left to be discovered. `ConnectorTrigger` and `ConnectorDefinition.triggers` are declared and unimplemented — no inbound event starts a run — and the note says what the missing half actually needs: cross-process de-duplication of a retried webhook, which requires a compare-and-set claim that this repo's only durable write primitive (an atomic file replace, last-writer-wins) cannot express, plus a release path so a claim held by a process that dies does not drop the event forever. It also names the two existing pieces to reuse rather than rebuild. `ConnectorMethod.outputSchema` is unread, with a pointer to how the tool layer already solved the same problem. `ConnectorDefinition.supportedAuth` is unchecked, with a note that the right place to check it is instance creation, not request time.
+
+- ea2148c: A step can put a skill in front of the model.
+
+  `PrepareStepResult.skills` renders the named skills into the same ephemeral trailing system message `system` already uses. A run's skills are fixed at `query()` time and rendered into the cached system prefix, so every skill a run might ever need is paid for on every single turn — and a phased agent rarely needs them all at once. Research wants the search skill, writing wants the style guide, and neither benefits from carrying the other.
+
+  Appending rather than rewriting is the point: the run's own prompt stays byte-stable, so the cached prefix survives, where folding a phase's skills into it would invalidate the cache every iteration.
+
+  It is **additive** to the run's skills, not a replacement. A skill a run always carries should not be removable by a step naming a different one — that would make every step's list a complete restatement, and a phase that forgot one would silently lose it.
+
+  **Sub-agents are deliberately not per-step.** A peer runtime resolves instructions, model, tools, skills and subagents from context at run time; this closes the fourth of those and states why the fifth stays out. Which agents `create_task` can reach is baked into that tool's input schema, so varying it per step would rebuild the tool catalogue every turn — a worse prompt-cache trade than moving tools around, for a narrowing a step can already express by withholding `create_task` through `activeTools`.
+
+- 480892a: A step can force the model's tool use, and the force cannot outlive that step.
+
+  `PrepareStepResult.toolChoice` accepts `'required'`, `'none'`, or a named function. Until now the loop set `tool_choice` only internally, only to `'none'`, and only on the forced-final turn — so a caller could narrow _which_ tools a step may reach for, but never make it actually call one. The clearest cost was structured output: the model answers in prose, the loop pays another full billed turn re-prompting, and after the retry limit the run dies — where one forced choice would have produced the object on the first turn.
+
+  **Why it lives on the step and not on the run config.** A forced choice that persists makes the model call a tool, read the result, and be forced again — an agent that cannot stop. Studying how a peer SDK handles this was the useful part: it puts `tool_choice` on persistent model settings and then needs three moving parts to undo it — a tool-use tracker, an opt-out flag, and a reset applied at two separate call sites — with the flag defaulting to on precisely because turning it off hangs the agent. Two other peer runtimes ship no forced choice at all.
+
+  Putting the knob on `prepareStep` removes that failure instead of managing it. The next step is prepared from scratch, so the force cannot carry forward: there is nothing to reset and no flag to get wrong. The loop still keeps the last word — the forced-final turn's `'none'` wins, so a run that must stop can still stop — and a choice is dropped when no tools are registered, because providers reject `tool_choice` sent without a tool list.
+
+  It costs more prompt cache than `activeTools` does: narrowing tools invalidates the tool prefix, moving `tool_choice` invalidates cached message blocks too. That trade is documented on the field so it is paid knowingly, at a phase boundary, rather than by habit.
+
+- 9bbb8be: `allowedScopes` is a trust boundary now instead of a comment.
+
+  `discoverAllPluginDirs` scans two locations — `.namzu/plugins` under the working directory, and the same path under the user's home directory — and they are not equally trusted. A project plugin is reviewable in the repository the agent is working on; a user plugin comes from a home directory the repository's reviewers never see, and a plugin is arbitrary code with hooks into tool execution.
+
+  `PluginRuntimeConfig` has carried `enabled`, `autoDiscovery` and `allowedScopes` for as long as it has existed. Nothing anywhere read any of the three, and discovery scanned both locations unconditionally, so a host who set `allowedScopes: ['project']` got user plugins anyway — from a setting that reads exactly like a boundary.
+
+  `discoverAllPluginDirs(cwd, { enabled: true, allowedScopes: ['project'] })` now honours it. A disallowed scope is **not scanned** rather than scanned and filtered: reading a directory you have been told not to look in is pointless work, and the returned count would disclose how many plugins live there. `enabled: false` or `autoDiscovery: false` discovers nothing at all, and a parsed `PluginRuntimeConfig` satisfies the options type as-is.
+
+  Calling it with no second argument scans both scopes, exactly as before — every existing caller is unaffected, and a caller who opts in gets what the config says.
+
+- 480892a: Ship the driver that picks a run back up in another process.
+
+  Every piece of a cross-process resume already existed. `CheckpointManager` wrote the history, budgets, working state, trace context and any human-decision park; `loadRunState` read them back; `query` accepted `runId` + `resumeFromCheckpoint` and restored all of it — budgets included, so a run recalled at $4.80 of a $5 cap does not come back with a fresh $5.
+
+  Nothing joined them. `resumeFromCheckpoint` had no caller anywhere outside `packages/sdk/src`, so the whole path shipped untravelled: every host was expected to write the same wiring and none did.
+
+  `resumeRun` is that wiring. The division of labour is the one the mechanism already implies — the caller brings what cannot be serialized (the provider client, the tool registry, the sandbox, the working directory), the store brings the state. A snapshot deliberately holds no socket and no open file, so it could never have carried the first half.
+
+  It refuses at both failure points rather than guessing:
+
+  - **No checkpoint** returns `{ resumed: false, reason: 'no-checkpoint' }`. Starting a fresh run here would be a different run wearing a recycled id, with the original's budget reset.
+  - **An outstanding park** returns the `PendingDecision` itself, so the host has what to put in front of a person, instead of resuming past a question the run is waiting on. A park with `resolvedAt` already set is an ordinary resume — blocking on an answered one would strand the run permanently.
+
+  `RunStateScope` is exported alongside it. It was internal, so a host calling the already-public `loadRunState` could not name the argument it had to construct.
+
+- 8518b40: A retrieval namespace partitions what a query can see.
+
+  `TenantScope.namespace` and `KnowledgeBaseConfig.namespace` were declared from the start and neither reached storage. Ingestion copied `scope.tenantId` onto every chunk and dropped the namespace; the store filtered on tenant alone. So a partition a host asked for did not exist, and every namespace inside a tenant saw every other one's documents.
+
+  The namespace is now stamped onto each chunk at ingest and matched at search, across all three retrieval modes.
+
+  **An omitted namespace means the default partition, not the absence of a filter.** That distinction is the whole boundary: reading absence as "no filter" is how one leaks, because a caller who never asked for a namespace would then see every namespaced chunk in the tenant — the opposite of what partitioning is for. A caller who genuinely wants everything asks for each namespace it holds.
+
+  This is a behaviour change for existing data. Chunks ingested under a namespace before this release carry none, so they now answer only to a query with no namespace. Re-ingest to place them in a partition.
+
+  `RetrievalQuery.projectId` is **deprecated and documented as not consulted**. No chunk carries a project — ingestion stamps a tenant and a namespace, and `KnowledgeBaseConfig` has no project field to stamp a third from. Wiring one end of an isolation dimension is worse than wiring neither: a query filtering against a value nothing writes returns zero rows, and "no results" reads as "nothing matched" rather than "this scope was never stored".
+
+- 480892a: `taskRouter` now routes something.
+
+  The compaction summary is the only model call a run makes that nobody asked for: it reads the older half of a transcript and writes a paraphrase, and it fires on exactly the long runs where the primary model costs the most. It was hardwired to that primary model. Meanwhile `taskRouter` had been accepted, schema-validated and threaded through four types since it was added, with `resolveTaskModel` exported and never called from anywhere — so a host who pointed compaction at a cheap model kept paying the expensive one, with nothing to indicate the setting was decoration.
+
+  `taskRouter: { compaction: 'a-small-model' }` now takes effect, falling back to `taskRouter.default` and then to the run's model.
+
+  The remaining keys are documented on `TaskRouterConfig` as **not consulted**, which is the point of the change as much as the wiring is. `coding`, `exploration`, `planning`, `verification` and `summarization` describe sub-agent routing; the supervisor already threads the config down to the agent factory, but nothing classifies a spawned task as exploration or coding, and inventing a classifier would put a wrong model behind a right-looking config. `advisory` is deliberately left alone because an advisor already carries its own `model`, and routing would override an explicit choice with a general one. An inert key is worse than an absent one — saying which is which converts a silent lie into a stated limit.
+
+### Patch Changes
+
+- 05b4103: Two timeouts that did nothing, and a recursion limit that was not the one in force.
+
+  **`OllamaConfig.timeout` and `LMStudioConfig.timeout`** were declared with no doc comment and read by nothing — both constructors forwarded the host and the model and never looked at them, so a host that set a timeout waited forever anyway. The wait they exist for is specific to a local server: the process is up, the socket accepts, and the model never answers because it is still loading or the machine is out of memory.
+
+  Both are composed with the caller's cancellation rather than replacing it. The caller's signal is how a run stops mid-generation, and dropping it for a deadline would leave a local model generating after the run that asked for it has stopped. Absent means no deadline, exactly as before.
+
+  The deadline covers the whole request rather than the time to the first byte, because the failure it exists for is a server that accepts and then never finishes — bounding only the head leaves precisely that case unbounded. A zero or negative value is refused at construction, since it would abort every request rather than bound it.
+
+  **`SupervisorAgentConfig.maxDepth` is deprecated** and documented as not consulted. The recursion bound is enforced in `AgentManager.sendMessage` against the manager's own config, and a supervisor receives a manager rather than building one — so a host setting it on the supervisor got the manager's value regardless. For a safety limit that is the worst way to be wrong: the number in front of the reviewer is not the number in force. Set it on `AgentManagerConfig`, where it is read. Tests now pin both halves, so a change that starts consulting the supervisor's copy fails rather than shipping quietly.
+
+- e1a5e2d: A span closes however its work leaves.
+
+  Two sites had the same shape: `end()` called at every exit the author could see. The iteration loop had seventeen of them; the tool executor had three early returns plus a `finally` that opened below them. That makes span closure a rule every future edit has to remember, and it was already broken in both places.
+
+  In the iteration loop, the span was created and then four statements ran before the `try` — attaching the tool parent span, stamping attributes, emitting `iteration_started`, draining pending events. A throw from any of those left the span open. The loop body is also an async generator, so a consumer that abandons it reached no exit at all.
+
+  In the tool executor, `getOrThrow(toolName)` sat outside the `try` that owned the `finally`. The path where a model invents a tool name — the most likely way that throw happens — opened a span and never closed it.
+
+  An iteration span that never ends is a trace that never closes, so the export is incomplete for exactly the run that failed and is hardest to debug from the outside.
+
+  Both now end in a single `finally`. No status or exception recording moved; only the moment of closing.
+
 ## 3.1.0
 
 ### Minor Changes
