@@ -1,5 +1,5 @@
-import { parseClaudeModelVersion } from '@namzu/sdk'
-import type { ReasoningEffort, ThinkingConfig } from '@namzu/sdk'
+import { parseVersionedModelId } from '@namzu/sdk'
+import type { ModelIdGrammar, ReasoningEffort, ThinkingConfig } from '@namzu/sdk'
 
 /**
  * What a given model will actually accept for thinking.
@@ -45,16 +45,22 @@ const MANUAL_ONLY: ThinkingCapability = {
 }
 
 /**
- * The matcher lives in `@namzu/sdk` now.
+ * The vocabulary this driver's ids are spelled in.
  *
- * The comment that stood here warned that "a second, subtly different model
- * matcher in the same file is how two capability decisions drift apart on the
- * same model name" — and there were three copies of it, in this file and in
- * two drivers, all carrying the same defect: the minor group was `\d+`, so it
- * swallowed the 8-digit date suffix and `claude-sonnet-4-20250514` parsed as
- * minor 20250514. The warning was right and the answer to it was not another
- * careful copy.
+ * The matcher itself is `parseVersionedModelId` in the kernel; only these
+ * words are local, because only this package knows them. The comment that
+ * stood here warned that "a second, subtly different model matcher in the same
+ * file is how two capability decisions drift apart on the same model name" —
+ * and there were three copies of it, this file and two drivers, all with the
+ * same defect: the minor group was `\d+`, so it swallowed the 8-digit date
+ * suffix and a dated id naming no minor parsed as minor 20250514. The warning
+ * was right, and the answer to it was not another careful copy.
  */
+export const MODEL_ID_GRAMMAR: ModelIdGrammar = {
+	product: 'claude',
+	families: ['haiku', 'sonnet', 'opus', 'fable', 'mythos'],
+	routingPrefix: 'anthropic/',
+}
 
 export function resolveThinkingCapability(model: string): ThinkingCapability {
 	const normalized = model.toLowerCase()
@@ -66,7 +72,7 @@ export function resolveThinkingCapability(model: string): ThinkingCapability {
 		return { adaptive: true, manual: true, canDisable: false, effort: true }
 	}
 
-	const parsed = parseClaudeModelVersion(model)
+	const parsed = parseVersionedModelId(model, MODEL_ID_GRAMMAR)
 	if (!parsed) return MANUAL_ONLY
 
 	const { family, major, minor } = parsed

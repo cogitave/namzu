@@ -2,6 +2,7 @@ import type {
 	ChatCompletionParams,
 	ChatCompletionResponse,
 	LLMProvider,
+	ModelIdGrammar,
 	ModelInfo,
 	ProviderCapabilities,
 	StreamChunk,
@@ -12,8 +13,8 @@ import type {
 import {
 	ProviderRequestError,
 	assertThinkingUnsupported,
-	claudeVersionAtLeast,
 	isCallerAbortError,
+	modelVersionAtLeast,
 	providerHttpError,
 	providerVendorError,
 	toolResultToText,
@@ -85,6 +86,21 @@ function formatToolChoice(tc: ToolChoice | undefined): unknown {
 	return tc
 }
 
+/**
+ * The vocabulary this gateway's ids may be spelled in.
+ *
+ * Declared here rather than imported from the dedicated driver because
+ * drivers are siblings and nothing may import across that level. Duplicating
+ * five words is the cost of the dependency direction; the MATCHER is shared,
+ * which is what mattered — this file's own copy of it read the 8-digit date
+ * suffix as the minor version.
+ */
+const MODEL_ID_GRAMMAR: ModelIdGrammar = {
+	product: 'claude',
+	families: ['haiku', 'sonnet', 'opus', 'fable', 'mythos'],
+	routingPrefix: 'anthropic/',
+}
+
 function shouldUseStrictToolInputs(
 	model: string,
 	mode: HttpConfig['strictToolUse'] = 'auto',
@@ -94,9 +110,7 @@ function shouldUseStrictToolInputs(
 
 	const normalized = model.toLowerCase()
 	if (/^(?:anthropic\/)?claude-mythos-preview$/.test(normalized)) return true
-	// Shared matcher — see the note in the Anthropic driver. This copy carried
-	// the same date-as-minor defect.
-	return claudeVersionAtLeast(normalized, 4, 5)
+	return modelVersionAtLeast(normalized, MODEL_ID_GRAMMAR, 4, 5)
 }
 
 function joinUrl(base: string, path: string): string {

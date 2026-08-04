@@ -39,7 +39,7 @@ describe('EditTool', () => {
 						'Exact replacement text. May be empty to delete old_string. Keep under 12000 characters.',
 				},
 				insertLine: {
-					oneOf: [{ type: 'integer', minimum: 0 }, { const: 'end' }],
+					anyOf: [{ type: 'integer' }, { const: 'end' }],
 					description:
 						'Insert instead of replacing. The new_string goes after this 1-indexed line; 0 inserts before the first line; "end" appends. Omit for a find-and-replace.',
 				},

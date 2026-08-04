@@ -70,12 +70,18 @@ describe('the model can emit the idiom the description recommends', () => {
 	})
 
 	it('admits only "end" as a string, so a synonym cannot be generated', () => {
-		const insert = (schema().properties as Record<string, { oneOf?: unknown[] }>).insertLine
+		const insert = (schema().properties as Record<string, { anyOf?: unknown[] }>).insertLine
 
 		// The schema is where the synonym problem is solved for a provider that
 		// constrains: `"EOF"` is not emittable because `"end"` is the only
 		// string the union admits.
-		expect(insert?.oneOf).toEqual([{ type: 'integer', minimum: 0 }, { const: 'end' }])
+		//
+		// `anyOf`, not `oneOf`: strict tool use validates against a subset of
+		// JSON Schema that excludes `oneOf`, and the vendor rejects the whole
+		// request rather than one field — so the spelling here is load-bearing,
+		// not stylistic. The two are equivalent for disjoint branches.
+		// `minimum` is gone for the same reason; the execution schema keeps it.
+		expect(insert?.anyOf).toEqual([{ type: 'integer' }, { const: 'end' }])
 	})
 })
 

@@ -15,13 +15,15 @@ import type {
 } from '@namzu/sdk'
 import {
 	ProviderRequestError,
-	claudeVersionAtLeast,
+	assertStrictSchema,
 	isCallerAbortError,
 	isProviderRequestError,
+	modelVersionAtLeast,
 	providerVendorError,
 	toolResultToText,
 } from '@namzu/sdk'
 import {
+	MODEL_ID_GRAMMAR,
 	resolveEffort,
 	resolveThinkingBody,
 	resolveThinkingCapability,
@@ -364,6 +366,12 @@ function toAnthropicTools(
 	const enforcedNames = new Set(params.enforceToolInputSchema ?? [])
 	const tools: AnthropicToolParam[] = params.tools.map((t) => {
 		const strict = strictToolUseEnabled && enforcedNames.has(t.function.name)
+		// Checked exactly where the pairing is made, because this is the only
+		// place both facts are in hand: that this schema is going out, and that
+		// this driver is about to vouch for it. A schema outside the strict
+		// subset is not degraded by the vendor — the whole request is rejected,
+		// so one unexpressible field takes down every other tool with it.
+		if (strict) assertStrictSchema(t.function.name, t.function.parameters)
 		return {
 			name: t.function.name,
 			description: t.function.description ?? '',
@@ -394,7 +402,7 @@ function shouldUseStrictToolInputs(
 	// the minor version, so `claude-sonnet-4-20250514` compared as 4.20250514
 	// and cleared this 4.5 gate — strict tool inputs were enabled for a model
 	// below the threshold.
-	return claudeVersionAtLeast(normalized, 4, 5)
+	return modelVersionAtLeast(normalized, MODEL_ID_GRAMMAR, 4, 5)
 }
 
 function toAnthropicToolChoice(tc?: ToolChoice, parallelToolCalls?: boolean): unknown {

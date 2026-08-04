@@ -102,12 +102,30 @@ const modelInputSchema: Record<string, unknown> = {
 		},
 		insertLine: {
 			// The union the execution schema already accepts, stated so a
-			// constrained decoder can emit it. Declaring it as `oneOf` of an
+			// constrained decoder can emit it. Stating it as a union of an
 			// integer and the literal `"end"` also makes the synonym problem
 			// structurally impossible: `"EOF"`, `"append"` and `"last"` are
 			// not emittable, because `"end"` is the only string the schema
 			// admits.
-			oneOf: [{ type: 'integer', minimum: 0 }, { const: 'end' }],
+			//
+			// `anyOf`, NOT `oneOf`. Strict tool use validates against a SUBSET
+			// of JSON Schema, and `oneOf` is not in it — the vendor rejects the
+			// whole request with `tools.N.custom: Schema type 'oneOf' is not
+			// supported`, so the tool never mounts and the turn dies before a
+			// single token. Measured against the live API: strict + `oneOf` is
+			// a 400, strict + `anyOf` is accepted, and non-strict + `oneOf` is
+			// accepted — which is why nothing caught it. Both halves were
+			// individually fine; only their combination fails, and strict is on
+			// for every model at or above the gate.
+			//
+			// The two branches are disjoint, so `anyOf` and `oneOf` mean the
+			// same thing here — nothing is loosened.
+			//
+			// `minimum` is gone for the same reason: numeric constraints are
+			// outside the strict subset too. The bound is not lost — the
+			// execution schema still enforces it, which is where a value that
+			// crosses a boundary should be checked anyway.
+			anyOf: [{ type: 'integer' }, { const: 'end' }],
 			description:
 				'Insert instead of replacing. The new_string goes after this 1-indexed line; 0 inserts before the first line; "end" appends. Omit for a find-and-replace.',
 		},
