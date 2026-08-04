@@ -4,6 +4,7 @@ export type {
 	CacheControl,
 	ChatCompletionParams,
 	ChatCompletionResponse,
+	ReasoningEffort,
 	ThinkingConfig,
 } from './chat.js'
 export type { StreamChunk } from './stream.js'

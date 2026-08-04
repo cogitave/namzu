@@ -1132,6 +1132,7 @@
     "ReactiveAgentResult",
     "ReadFileTool",
     "ReasoningBlock",
+    "ReasoningEffort",
     "RegisterLazyOptions",
     "RegisterOptions",
     "RegisterSharedRunPlanInput",
