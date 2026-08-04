@@ -40,7 +40,8 @@ async function importWithDeadline(
 ): Promise<
 	| { status: 'loaded'; module: unknown }
 	| { status: 'abandoned' }
-	| { status: 'failed'; cause: string }
+	/** `code` is Node's `err.code`, which its `message` does not contain. */
+	| { status: 'failed'; cause: string; code?: string }
 > {
 	let timer: ReturnType<typeof setTimeout> | undefined
 	const deadline = new Promise<{ status: 'abandoned' }>((resolve) => {
@@ -56,9 +57,11 @@ async function importWithDeadline(
 		])
 		return result
 	} catch (err) {
+		const code = (err as { code?: unknown } | null)?.code
 		return {
 			status: 'failed',
 			cause: err instanceof Error ? err.message : String(err),
+			...(typeof code === 'string' ? { code } : {}),
 		}
 	} finally {
 		if (timer) clearTimeout(timer)
@@ -73,24 +76,60 @@ async function importWithDeadline(
  * decorator, a parameter property) — stripping erases types, it does not
  * transform code, and no flag rescues those. That is a different problem from
  * a plain syntax error, and pointing at the wrong one costs an author an hour.
+ *
+ * That sentence was true and this function still matched on `cause`, which is
+ * `err.message` — and Node does not put the code in the message. Probed:
+ * `ERR_MODULE_NOT_FOUND` arrives as *"Cannot find module …"*, and
+ * `ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX` as *"TypeScript enum is not supported in
+ * strip-only mode"*. Neither contains its code, so every branch below was
+ * unreachable and every author got the bare message the doc-comment was
+ * explaining why not to give them. The code is read from `err.code` now, which
+ * is where it always was.
  */
-function explainImportFailure(cause: string): string {
-	if (cause.includes('ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX')) {
+function explainImportFailure(cause: string, code?: string): string {
+	if (code === 'ERR_UNSUPPORTED_TYPESCRIPT_SYNTAX') {
 		return `${cause}\n\nNode strips types, it does not compile them: enums, decorators, parameter properties and runtime namespaces have no stripped form. Rewrite as plain TypeScript, or pass \`importModule\` with a transforming loader.`
 	}
-	if (cause.includes('ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING')) {
+	if (code === 'ERR_UNSUPPORTED_NODE_MODULES_TYPE_STRIPPING') {
 		return `${cause}\n\nNode refuses to strip types from any .ts file resolved under node_modules/. If this is a workspace package, have it ship built .js.`
 	}
-	if (cause.includes('ERR_MODULE_NOT_FOUND')) {
+	if (code === 'ERR_MODULE_NOT_FOUND') {
 		return `${cause}\n\nRelative imports need their real extension here — write "./util.ts", not "./util". tsconfig "paths" aliases are not resolved; pass \`importModule\` if you need them.`
+	}
+	// Node ≥20 but <22.6 has no type stripping at all, so the golden path — a
+	// `.ts` tool — dies here rather than at any of the codes above.
+	if (code === 'ERR_UNKNOWN_FILE_EXTENSION' && /\.[cm]?ts"?$/.test(cause)) {
+		return `${cause}\n\nThis Node cannot run TypeScript directly. Use Node 22.18 or newer, or pass \`importModule\` with a loader that transpiles.`
 	}
 	return cause
 }
 
+/**
+ * The fields `ToolDefinition` declares without a `?`.
+ *
+ * Checking `name` and `execute` alone was not a weaker version of this check,
+ * it was a check that let the failure through and moved it: a default export
+ * with no `inputSchema` passed here, registered clean, and then died inside
+ * `toLLMTools()` reading `inputSchema._def` — a `TypeError` naming a file this
+ * loader never mentions, at a point where the author is no longer looking at
+ * their tool. A loader whose job is to report bad files must reject the ones
+ * that crash later, not only the ones that are obviously not tools.
+ *
+ * Exactly the required set, and no more. `isReadOnly`, `isDestructive` and the
+ * other `defineTool` niceties are not on the interface, so demanding them would
+ * make this loader refuse a hand-written object that satisfies the SDK's own
+ * published type — the loader overruling the SDK.
+ */
 function isToolDefinition(value: unknown): value is ToolDefinition {
 	if (typeof value !== 'object' || value === null) return false
-	const candidate = value as { name?: unknown; execute?: unknown }
-	return typeof candidate.name === 'string' && typeof candidate.execute === 'function'
+	const c = value as Record<string, unknown>
+	return (
+		typeof c.name === 'string' &&
+		typeof c.description === 'string' &&
+		typeof c.execute === 'function' &&
+		typeof c.inputSchema === 'object' &&
+		c.inputSchema !== null
+	)
 }
 
 /** The default export, tolerating a namespace that only has named exports. */
@@ -142,7 +181,39 @@ function readConfig(value: unknown, diagnostics: ProjectDiagnostic[], path: stri
 	take('maxIterations', isNumber, 'finite number')
 	take('tokenBudget', isNumber, 'finite number')
 	take('timeoutMs', isNumber, 'finite number')
-	if (raw.metadata && typeof raw.metadata === 'object') config.metadata = raw.metadata
+
+	// `metadata` is typed `Record<string, string>` and was admitted on
+	// `typeof === 'object'` alone — which an array also satisfies, and which
+	// says nothing about the values. So `{ tags: ['a'] }` and `{ n: 1 }` both
+	// reached a consumer that had been promised strings, and the type was a
+	// claim this loader did not keep. Every other field here is checked; this
+	// one is the reason to check the values too, since it is the only field
+	// whose contents are forwarded verbatim to an inspector.
+	if (raw.metadata !== undefined) {
+		const m = raw.metadata
+		if (typeof m !== 'object' || m === null || Array.isArray(m)) {
+			diagnostics.push({
+				code: 'invalid_config',
+				severity: 'error',
+				message: `agent.ts: "metadata" must be an object of string values, received ${Array.isArray(m) ? 'array' : typeof m}.`,
+				path,
+			})
+		} else {
+			const bad = Object.entries(m).filter(([, v]) => typeof v !== 'string')
+			if (bad.length > 0) {
+				diagnostics.push({
+					code: 'invalid_config',
+					severity: 'error',
+					message: `agent.ts: "metadata" values must be strings; ${bad
+						.map(([k, v]) => `"${k}" is ${v === null ? 'null' : typeof v}`)
+						.join(', ')}.`,
+					path,
+				})
+			} else {
+				config.metadata = m
+			}
+		}
+	}
 	return config as ProjectConfig
 }
 
@@ -301,7 +372,7 @@ async function loadAt(
 						severity: 'error',
 						message: 'agent.ts could not be imported.',
 						path: found.path,
-						cause: explainImportFailure(outcome.cause),
+						cause: explainImportFailure(outcome.cause, outcome.code),
 					})
 					record(found, 'agent', 'failed')
 				}
@@ -341,7 +412,7 @@ async function loadAt(
 					severity: 'error',
 					message: `${file.relativePath} could not be imported.`,
 					path: file.path,
-					cause: explainImportFailure(outcome.cause),
+					cause: explainImportFailure(outcome.cause, outcome.code),
 				})
 				record(file, 'tools', 'failed')
 				continue
