@@ -90,7 +90,12 @@ describe('buildAgentTool', () => {
 		)
 
 		expect(result.success).toBe(true)
-		expect(result.output).toBe('final report text')
+		// The subagent's text is present and unaltered, inside a frame that
+		// says whose text it is. A host reading the result programmatically
+		// gets it verbatim off `data.result` instead.
+		expect(result.output).toContain('final report text')
+		expect(result.output.startsWith('<namzu-untrusted kind="agent-result"')).toBe(true)
+		expect(result.data).toMatchObject({ result: 'final report text' })
 	})
 
 	it('reports failure when run status is failed even though task state is completed', async () => {

@@ -4,6 +4,7 @@ import type { AgentRuntimeContext } from '../../types/agent/base.js'
 import type { TaskGateway } from '../../types/agent/gateway.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
+import { wrapUntrusted } from '../untrusted-envelope.js'
 
 import type { TaskLaunchedCallback } from './index.js'
 
@@ -199,12 +200,26 @@ export function buildAgentTool(opts: AgentToolOptions): ToolDefinition {
 				}
 			}
 
+			// Framed for the same reason `create_task` frames its result: a
+			// subagent is the component most likely to have consumed material
+			// nobody here wrote, and its final text lands straight in this
+			// parent's context, where the parent usually holds the broader
+			// tool grant. `data.result` keeps it verbatim for a host reading
+			// the result programmatically.
 			return {
 				success: true,
-				output: resultText || '(subagent returned no text)',
+				output: wrapUntrusted(
+					{
+						kind: 'agent-result',
+						attributes: { agent: agentId, task: handle.taskId },
+						provenance: `This is the output of the delegated subagent "${agentId}", not this agent's own work.`,
+					},
+					resultText || '(subagent returned no text)',
+				),
 				data: {
 					task_id: handle.taskId,
 					subagent_type: agentId,
+					result: resultText,
 					state: completed.state,
 					status: runStatus,
 				},

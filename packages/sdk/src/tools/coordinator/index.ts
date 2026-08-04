@@ -8,6 +8,7 @@ import type { RunId, TaskId } from '../../types/ids/index.js'
 import type { TaskStore } from '../../types/task/index.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
+import { wrapUntrusted } from '../untrusted-envelope.js'
 import { resolvePlanDependencies } from './plan-dependencies.js'
 
 export type TaskLaunchedCallback = (
@@ -301,11 +302,34 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 
 			return {
 				success,
-				output: resultText,
+				// Framed, because a delegated worker is the component MOST
+				// likely to have consumed something nobody here wrote. It was
+				// handed a task like "read these files and report", it ran
+				// `read` and `grep` and possibly `fetch` over material the user
+				// did not author, and its final text lands directly in this
+				// parent's context — where the parent typically holds a broader
+				// tool grant than the child that produced the text. An
+				// unlabelled block there reads as the parent's own reasoning.
+				//
+				// This is the same treatment connector-supplied prompts already
+				// get, applied to the surface that had none.
+				//
+				// `data.result` keeps the worker's text verbatim, so a host
+				// reading the result programmatically is unaffected; only the
+				// model-facing `output` is framed.
+				output: wrapUntrusted(
+					{
+						kind: 'agent-result',
+						attributes: { agent: agent_id, task: handle.taskId },
+						provenance: `This is the output of the delegated agent "${agent_id}", not this agent's own work.`,
+					},
+					resultText,
+				),
 				data: {
 					task_id: handle.taskId,
 					agent_id,
 					description,
+					result: resultText,
 					state: completed.state,
 					plan_task_id: resolvedPlanTaskId,
 				},
