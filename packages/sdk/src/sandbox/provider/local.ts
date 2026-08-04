@@ -384,11 +384,23 @@ class LocalSandbox implements Sandbox {
 
 		this.log.debug('Executing command', { command, args, timeout, environment: this.environment })
 
+		// The caller's cancellation and this call's own deadline both have to
+		// reach `spawn`, and `spawn` takes exactly one signal.
+		//
+		// Only the deadline used to. `SandboxExecOptions.signal` is declared,
+		// documented, and exported, and every backend dropped it — so a Stop
+		// abandoned the *wait* and left the sandboxed process running, which is
+		// verbatim the failure the option's own docstring says it exists to
+		// prevent. `AbortSignal.any` is what makes both reach the child: it
+		// aborts as soon as either does, and — unlike an `addEventListener`
+		// bridge — it does not retain a listener on the caller's long-lived
+		// signal after this call settles.
 		const ac = new AbortController()
 		const timeoutId = setTimeout(() => ac.abort(), timeout)
+		const spawnSignal = opts?.signal ? AbortSignal.any([ac.signal, opts.signal]) : ac.signal
 
 		try {
-			const result = await this.spawnProcess(spawnCommand, spawnArgs, cwd, env, ac)
+			const result = await this.spawnProcess(spawnCommand, spawnArgs, cwd, env, ac, spawnSignal)
 			return { ...result, durationMs: Date.now() - startTime }
 		} finally {
 			clearTimeout(timeoutId)
@@ -484,12 +496,22 @@ class LocalSandbox implements Sandbox {
 		})
 	}
 
+	/**
+	 * @param ac      this call's own deadline — still the thing that decides
+	 *                whether a termination is reported as `timedOut`.
+	 * @param signal  what actually reaches `spawn`: the deadline, merged with
+	 *                the caller's cancellation when one was passed. Two
+	 *                parameters because they answer different questions —
+	 *                "should this process die" and "did it die because it ran
+	 *                too long" — and a cancelled run did not time out.
+	 */
 	private spawnProcess(
 		command: string,
 		args: string[],
 		cwd: string,
 		env: Record<string, string>,
 		ac: AbortController,
+		signal: AbortSignal = ac.signal,
 	): Promise<Omit<SandboxExecResult, 'durationMs'>> {
 		return new Promise((resolvePromise, rejectPromise) => {
 			let child: ReturnType<typeof spawn>
@@ -498,7 +520,7 @@ class LocalSandbox implements Sandbox {
 					cwd,
 					env,
 					stdio: ['pipe', 'pipe', 'pipe'],
-					signal: ac.signal,
+					signal,
 				})
 			} catch (err) {
 				rejectPromise(err)
@@ -513,8 +535,12 @@ class LocalSandbox implements Sandbox {
 			child.stderr?.on('data', (chunk: Buffer) => stderr.push(chunk))
 
 			child.on('error', (err: NodeJS.ErrnoException) => {
-				if (err.code === 'ABORT_ERR' || ac.signal.aborted) {
-					timedOut = true
+				if (err.code === 'ABORT_ERR' || signal.aborted) {
+					// `timedOut` means the DEADLINE fired. A caller-cancelled
+					// run is aborted but not late, and reporting it as a
+					// timeout would tell the model to retry with a longer
+					// budget for something a human just stopped.
+					timedOut = ac.signal.aborted
 					// Give process a grace period, then SIGKILL
 					if (child.pid) {
 						setTimeout(() => {

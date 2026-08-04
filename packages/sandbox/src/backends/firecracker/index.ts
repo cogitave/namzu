@@ -421,6 +421,16 @@ async function spawnFirecrackerSandbox(
 			argv?: string[],
 			opts?: SandboxExecOptions,
 		): Promise<SandboxExecResult> {
+			// `opts.signal` is deliberately not forwarded, and the reason is
+			// worth writing down because the obvious "fix" is worse than the
+			// gap. There is no cancel op on this wire — the guest agent takes
+			// an execute frame and answers when the command is done. Aborting
+			// the socket here would abandon the WAIT while the process keeps
+			// running inside the microVM, which is verbatim the failure
+			// `SandboxExecOptions.signal` exists to prevent, except it would
+			// then look honoured. Honouring it means a cancel op in the guest
+			// protocol; until then, ignoring it is the truthful behaviour the
+			// option's own contract allows.
 			status = 'busy'
 			try {
 				return await transport.execute({

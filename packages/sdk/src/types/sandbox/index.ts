@@ -110,6 +110,16 @@ export interface SandboxExecOptions {
 	 * Without it a Stop (or a per-tool deadline) could only ever abandon
 	 * the *wait* — the sandboxed process kept running after the host
 	 * believed the run had been cancelled.
+	 *
+	 * **Who honours it.** The in-process local sandbox does: the signal is
+	 * merged with the call's own deadline and reaches `spawn`, so the child
+	 * dies. The remote backends do not, and deliberately: their wire has no
+	 * cancel op, so aborting the request would abandon the wait and leave the
+	 * command running — the failure above, wearing the appearance of a fix.
+	 * They will honour it when their protocols carry a cancel.
+	 *
+	 * Passing it is therefore always safe and never harmful; whether it takes
+	 * effect depends on the backend.
 	 */
 	readonly signal?: AbortSignal
 }

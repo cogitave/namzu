@@ -17,14 +17,28 @@ import type { TaskLaunchedCallback } from './index.js'
  * subagent tool calls are isolated — only the summary surfaces to
  * the parent.
  *
- * This is **NOT** the same shape as the legacy `create_task` /
- * `continue_task` / `cancel_task` trio that this package ships
- * alongside it: those are non-blocking and use a `<task-notification>`
- * callback model. The async pattern is useful for hosts that want a
- * work-queue surface, but it asks the model to track work it cannot
- * see finish. Prefer the blocking `Agent` tool; keep the legacy
- * coordinator tools only when you genuinely need fire-and-forget
- * multi-task fan-out.
+ * **How this relates to `create_task`.** This paragraph used to say the two
+ * were different shapes — that `create_task` / `continue_task` /
+ * `cancel_task` were a non-blocking trio driven by a `<task-notification>`
+ * callback, and that the blocking `Agent` tool should be preferred. None of
+ * that is true any more. `create_task` blocks and returns the worker's output
+ * as its own `tool_result`, exactly like this tool; `continue_task` and
+ * `cancel_task` are still defined in `./index.ts` but are deliberately not
+ * registered, because a blocking launch leaves every worker terminal by the
+ * time a later turn learns its id. So a reader following the old advice was
+ * choosing between two tools on a distinction that no longer existed.
+ *
+ * What actually separates them is the surface, not the timing:
+ *
+ * - `create_task` arrives with the rest of the coordinator surface —
+ *   `agent_task_list`, and `approve_plan` / `ask_user_question` when their
+ *   dependencies are wired. That is the supervisor's toolkit.
+ * - This builds one tool and nothing else, for an agent whose only delegation
+ *   need is "hand this to a specialist". `terminal: true` additionally lets a
+ *   pure router settle on the specialist's answer instead of spending a turn
+ *   at full parent context to paraphrase it.
+ *
+ * Neither is legacy. Pick by how much of the coordinator surface you want.
  */
 export interface AgentToolOptions {
 	gateway: TaskGateway

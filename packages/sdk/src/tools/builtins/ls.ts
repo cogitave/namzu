@@ -1,8 +1,11 @@
 import { readdir, stat } from 'node:fs/promises'
 import { join, relative } from 'node:path'
 import { z } from 'zod'
+import type { Sandbox } from '../../types/sandbox/index.js'
+import type { ToolResult } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
 import { resolveWithin } from '../paths.js'
+import { joinPosix, relativePosix, resolveWithinPosix } from '../posix-path.js'
 
 const inputSchema = z.object({
 	path: z.string().default('.').describe('Directory path to list. Defaults to working directory.'),
@@ -105,6 +108,101 @@ async function listRecursive(
 	}
 }
 
+/**
+ * Enumerate inside the sandbox.
+ *
+ * This tool read the HOST filesystem through `node:fs` and referenced
+ * `context.sandbox` nowhere, so with a container or microVM backend wired in
+ * it enumerated the host — in the one builtin whose entire job is telling the
+ * model what exists. `glob` carried the identical defect, was fixed, and its
+ * fix notes that "every sibling builtin already remembers this branch". This
+ * was the sibling that did not, which is why the claim needed checking rather
+ * than reading.
+ *
+ * Worse than a leak on its own: the paths it returned were host-relative,
+ * while `read`, `grep` and `glob` all resolve INSIDE the sandbox. So every
+ * ls-to-read handoff either failed or opened a different file than the one
+ * listed. This returns the sandbox-relative coordinates the others speak.
+ *
+ * `listFiles` reports files, not directories — every backend implements it as
+ * a recursive file walk — so directories are derived from the paths. A
+ * directory holding nothing is therefore invisible here, which is a real
+ * difference from the host branch and the honest cost of having one
+ * enumeration primitive rather than one per backend.
+ */
+async function listInSandbox(
+	input: { path: string; all: boolean; recursive: boolean; max_depth: number },
+	sandbox: Sandbox,
+): Promise<ToolResult> {
+	const root = resolveWithinPosix(sandbox.rootDir, input.path)
+	const entries = await sandbox.listFiles(root)
+
+	// Relative to the LISTED directory, in the sandbox's own coordinates.
+	const relativePaths: { segments: string[]; size: number }[] = []
+	for (const entry of entries) {
+		const rel = relativePosix(root, joinPosix(root, entry.path))
+		if (!rel || rel.startsWith('..')) continue
+		const segments = rel.split('/').filter(Boolean)
+		if (segments.length === 0) continue
+		if (!input.all && segments.some((s) => s.startsWith('.'))) continue
+		relativePaths.push({ segments, size: entry.size })
+	}
+
+	if (!input.recursive) {
+		// One level: a single segment is a file, more than one means the
+		// first segment is a directory.
+		const files = new Map<string, number>()
+		const dirs = new Set<string>()
+		for (const { segments, size } of relativePaths) {
+			const head = segments[0] as string
+			if (segments.length === 1) files.set(head, size)
+			else dirs.add(head)
+		}
+
+		const lines = [
+			...[...dirs].sort().map((name) => `${name}/`),
+			...[...files.entries()]
+				.sort(([a], [b]) => a.localeCompare(b))
+				.map(([name, size]) => `${name}\t${formatSize(size)}`),
+		]
+
+		return {
+			success: true,
+			output: lines.length > 0 ? lines.join('\n') : '(empty directory)',
+			data: { count: lines.length, sandboxed: true },
+		}
+	}
+
+	const seenDirs = new Set<string>()
+	const lines: string[] = []
+	let count = 0
+	for (const { segments, size } of relativePaths.sort((a, b) =>
+		a.segments.join('/').localeCompare(b.segments.join('/')),
+	)) {
+		if (segments.length > input.max_depth) continue
+		// Emit each parent directory once, before anything inside it.
+		for (let depth = 1; depth < segments.length; depth++) {
+			const dir = segments.slice(0, depth).join('/')
+			if (seenDirs.has(dir)) continue
+			seenDirs.add(dir)
+			if (count >= MAX_ENTRIES) break
+			lines.push(`./${dir}/`)
+			count++
+		}
+		if (count >= MAX_ENTRIES) break
+		lines.push(`./${segments.join('/')} (${formatSize(size)})`)
+		count++
+	}
+
+	const truncated = count >= MAX_ENTRIES ? `\n(truncated at ${MAX_ENTRIES} entries)` : ''
+
+	return {
+		success: true,
+		output: lines.length > 0 ? lines.join('\n') + truncated : '(empty directory)',
+		data: { count, truncated: count >= MAX_ENTRIES, sandboxed: true },
+	}
+}
+
 export const LsTool = defineTool({
 	name: 'ls',
 	description:
@@ -117,6 +215,10 @@ export const LsTool = defineTool({
 	concurrencySafe: true,
 
 	async execute(input, context) {
+		if (context.sandbox) {
+			return await listInSandbox(input, context.sandbox)
+		}
+
 		// Contained, not merely resolved — see `resolveWithin`.
 		const targetPath = resolveWithin(context.workingDirectory, input.path)
 
