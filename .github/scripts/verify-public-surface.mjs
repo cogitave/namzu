@@ -2,78 +2,142 @@
 /**
  * Public-surface regression guard for @namzu/sdk.
  *
- * Loads every key exported by the built `@namzu/sdk` root barrel and
- * compares against the baseline captured at the tip of commit f8cb129
- * (the final commit of ses_010-sdk-type-layering, pre-ses_011).
+ * Compares two views of the built root barrel against a recorded baseline:
  *
- * Fails if any baseline name disappears from the public surface.
+ *  - **runtime** — `Object.keys()` of `dist/index.js`. Catches dropped error
+ *    classes, schemas, and side-effect import chains that a `.d.ts` text diff
+ *    reads straight past.
+ *  - **declared** — every export of `dist/index.d.ts`, resolved through the
+ *    TypeScript checker. Catches the other half.
  *
- * Why this exists: `.d.ts` text diffs catch type-name regressions but do
- * not catch runtime-only regressions (dropped error classes, schemas,
- * side-effect import chains). ses_011's four-commit barrel refactor is
- * the first time we moved ~380 public names to new home files; without
- * this guard, a missed `export` inside `public-runtime.ts` ships silent
- * breakage. See
+ * The declared view was added after this gate let a public type removal go by
+ * unremarked. `Object.keys()` sees values; an `export type` or
+ * `export interface` is erased before it ever reaches a runtime module object.
+ * At the time that was found, 496 names were under the gate and 1155 were
+ * exported — so more than half of what a consumer can import had never been
+ * guarded at all, in an SDK whose public API is mostly types. `ToolCatalogSurface`
+ * could be deleted, and was, with the gate reporting the surface intact.
+ *
+ * Both directions fail. A name that disappears is a break; a name that appears
+ * and is never recorded is invisible to the removal check, because the check
+ * compares `baseline - current`. That is not theoretical:
+ * `classifyProviderHttpStatus` and `bodySaysContextOverflow` were added to the
+ * surface, never entered the baseline, were dropped by a merge, and shipped
+ * missing in a major while this gate reported no problem.
+ *
+ * Baseline captured at the tip of commit f8cb129 (the final commit of
+ * ses_010-sdk-type-layering, pre-ses_011). See
  * `docs.local/sessions/ses_011-sdk-public-surface/design.md#4.5`.
  *
- * Extension: if a commit intentionally widens the public surface, regenerate
- * the baseline via:
+ * Extension: if a commit intentionally changes the public surface, regenerate
+ * the baseline in that same commit:
  *
- *   cd packages/sdk && pnpm build
- *   node --input-type=module --eval "\
- *     import('./dist/index.js').then(s => { \
- *       const names = Object.keys(s).sort(); \
- *       require('node:fs').writeFileSync( \
- *         '../../.github/scripts/public-surface-baseline.json', \
- *         JSON.stringify(names, null, 2) + '\\n' \
- *       ); \
- *     })"
+ *   pnpm --filter @namzu/sdk build
+ *   node .github/scripts/verify-public-surface.mjs --write
  */
 
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { dirname, join } from 'node:path'
+import ts from 'typescript'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const baselinePath = join(__dirname, 'public-surface-baseline.json')
-const sdkDistPath = join(__dirname, '..', '..', 'packages', 'sdk', 'dist', 'index.js')
+const distDir = join(__dirname, '..', '..', 'packages', 'sdk', 'dist')
+const sdkDistPath = join(distDir, 'index.js')
+const sdkTypesPath = join(distDir, 'index.d.ts')
 
-const baseline = JSON.parse(readFileSync(baselinePath, 'utf8'))
+/** Runtime exports: what survives to a module object. */
 // `import()` of an absolute path only works on POSIX; on Windows a bare
-// `C:\...` is parsed as a URL scheme. Go through a file:// URL so the
-// gate is runnable locally on every platform, not just in CI.
+// `C:\...` is parsed as a URL scheme. Go through a file:// URL so the gate is
+// runnable locally on every platform, not just in CI.
 const sdk = await import(pathToFileURL(sdkDistPath).href)
-const current = Object.keys(sdk).sort()
+const currentRuntime = Object.keys(sdk).sort()
 
-const missing = baseline.filter((name) => !current.includes(name))
-const added = current.filter((name) => !baseline.includes(name))
+/**
+ * Declared exports: values AND types, as a consumer sees them.
+ *
+ * Resolved through the checker rather than parsed out of the `.d.ts` text.
+ * The barrel is a chain of `export * from` / `export type * from`, so a
+ * regex would have to re-implement module resolution to follow it, and would
+ * report whatever it failed to follow as "absent" — a gate that fails open.
+ */
+function declaredExports() {
+	const program = ts.createProgram([sdkTypesPath], {
+		noEmit: true,
+		skipLibCheck: true,
+		target: ts.ScriptTarget.ESNext,
+		module: ts.ModuleKind.NodeNext,
+		moduleResolution: ts.ModuleResolutionKind.NodeNext,
+	})
+	const source = program.getSourceFile(sdkTypesPath)
+	if (!source) throw new Error(`Could not load ${sdkTypesPath} — run the SDK build first.`)
+	const checker = program.getTypeChecker()
+	const moduleSymbol = checker.getSymbolAtLocation(source)
+	if (!moduleSymbol) throw new Error(`${sdkTypesPath} resolved to no module symbol.`)
+	return checker
+		.getExportsOfModule(moduleSymbol)
+		.map((symbol) => symbol.getName())
+		.sort()
+}
 
-console.log(`baseline: ${baseline.length} names`)
-console.log(`current:  ${current.length} names`)
+const currentDeclared = declaredExports()
+
+if (process.argv.includes('--write')) {
+	writeFileSync(
+		baselinePath,
+		`${JSON.stringify({ runtime: currentRuntime, declared: currentDeclared }, null, 2)}\n`,
+	)
+	console.log(
+		`baseline written: ${currentRuntime.length} runtime, ${currentDeclared.length} declared`,
+	)
+	process.exit(0)
+}
+
+const raw = JSON.parse(readFileSync(baselinePath, 'utf8'))
+// The baseline was a bare array of runtime names before the declared view
+// existed. Reading that shape still works, and reports the declared view as
+// entirely new — which is the correct thing to say about a surface nothing
+// had recorded.
+const baseline = Array.isArray(raw) ? { runtime: raw, declared: [] } : raw
+
+const VIEWS = [
+	{ label: 'runtime', baseline: baseline.runtime ?? [], current: currentRuntime },
+	{ label: 'declared', baseline: baseline.declared ?? [], current: currentDeclared },
+]
 
 let failed = false
 
-if (missing.length > 0) {
-	console.error(`\n✗ PUBLIC-SURFACE REGRESSION — ${missing.length} names dropped:`)
-	for (const name of missing) console.error(`  - ${name}`)
-	failed = true
+for (const view of VIEWS) {
+	console.log(`${view.label}: baseline ${view.baseline.length}, current ${view.current.length}`)
+
+	const missing = view.baseline.filter((name) => !view.current.includes(name))
+	const added = view.current.filter((name) => !view.baseline.includes(name))
+
+	if (missing.length > 0) {
+		console.error(`\n✗ PUBLIC-SURFACE REGRESSION (${view.label}) — ${missing.length} names dropped:`)
+		for (const name of missing) console.error(`  - ${name}`)
+		failed = true
+	}
+
+	if (added.length > 0) {
+		console.error(`\n✗ PUBLIC-SURFACE WIDENED (${view.label}) — ${added.length} names added:`)
+		for (const name of added) console.error(`  - ${name}`)
+		failed = true
+	}
 }
 
-if (added.length > 0) {
-	console.error(`\n✗ PUBLIC-SURFACE WIDENED — ${added.length} names added:`)
-	for (const name of added) console.error(`  - ${name}`)
+if (failed) {
 	console.error(
-		'\n  Regenerate the baseline in this commit (see the header of this file).\n' +
-			'  This is a failure and not a warning because a name outside the\n' +
-			'  baseline is invisible to the removal check above: the gate compares\n' +
-			'  `baseline - current`, so anything added and never recorded can be\n' +
-			'  deleted later and still read as "intact". That is not theoretical —\n' +
-			'  `classifyProviderHttpStatus` and `bodySaysContextOverflow` were added\n' +
-			'  to the surface, never entered the baseline, were dropped by a merge,\n' +
-			'  and shipped missing in a major while this gate reported no problem.',
+		'\n  Regenerate the baseline in this commit:\n' +
+			'    pnpm --filter @namzu/sdk build\n' +
+			'    node .github/scripts/verify-public-surface.mjs --write\n' +
+			'\n  Widening fails rather than warns because a name outside the baseline\n' +
+			'  is invisible to the removal check: it compares `baseline - current`, so\n' +
+			'  anything added and never recorded can be deleted later and still read\n' +
+			'  as "intact".',
 	)
-	failed = true
+	process.exit(1)
 }
 
-if (failed) process.exit(1)
 console.log('\n✓ public surface intact')

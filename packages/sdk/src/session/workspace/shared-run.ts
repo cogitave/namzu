@@ -31,6 +31,37 @@ export interface RegisterSharedRunPlanInput {
 	status?: SharedRunWorkspacePlan['status']
 }
 
+/**
+ * A `_work` directory a run's agents share — files, a manifest, a plan and
+ * per-agent records — offered to hosts and applied by none of them.
+ *
+ * **Nothing in this SDK calls it, and that is the design, not an omission.**
+ * It was flagged as a primitive exported without a driver, which is a real
+ * defect class and the reason most of this module's siblings were wired up.
+ * This one is the exception, and the distinguishing question is whose decision
+ * the thing encodes.
+ *
+ * Look at what {@link SharedRunWorkspaceConfig} asks for: `hostRoot`, where
+ * the directory lives on the machine running the kernel, and `runtimeRoot`,
+ * the path an agent will see — `/mnt/user-data/outputs/_work` under one
+ * container layout, the same directory as `hostRoot` in a local run, a bind
+ * target somewhere else entirely under a third. Those two roots are a
+ * deployment shape. A kernel that picked them would be choosing a filesystem
+ * layout for a host that has already chosen one, and would then have to be
+ * argued back out of it — the same reason `ToolCatalogSurface` was removed
+ * rather than made to work: a host's deployment surfaces are the host's to
+ * name.
+ *
+ * So the contract here is `runtimeRoot` and the paths {@link refs} derives
+ * from it. Those strings are what a host puts in a prompt and what an agent's
+ * `read` and `write` calls resolve against, which makes them an interface
+ * between three parties — and stable for that reason, not incidentally.
+ *
+ * A host wires it by calling {@link create} with both roots, passing
+ * `refs()` into its agents' runtime notes, and reading the manifest back when
+ * the run ends. If a future default gateway grows an opinion about where
+ * `_work` belongs, this is the thing it should call rather than reimplement.
+ */
 export class SharedRunWorkspace {
 	readonly hostRoot: string
 	readonly runtimeRoot: string
