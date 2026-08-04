@@ -119,6 +119,24 @@ importers:
         specifier: ^3.2.6
         version: 3.2.7(@types/node@22.19.17)
 
+  packages/project:
+    devDependencies:
+      '@biomejs/biome':
+        specifier: ^1.9.4
+        version: 1.9.4
+      '@namzu/sdk':
+        specifier: workspace:^
+        version: link:../sdk
+      '@types/node':
+        specifier: ^22.19.17
+        version: 22.19.17
+      typescript:
+        specifier: ^5.5.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.6
+        version: 3.2.7(@types/node@22.19.17)
+
   packages/providers/anthropic:
     dependencies:
       '@anthropic-ai/sdk':

@@ -12,6 +12,10 @@
 // ─── Tool definition primitive ───────────────────────────────────────────
 
 export { defineTool } from './tools/defineTool.js'
+// Containment, for a host or sibling package that resolves caller-supplied
+// paths against a root. Both were internal while three call sites outside
+// this file needed them.
+export { isWithin, resolveWithin, resolveWithinReal } from './tools/paths.js'
 // A host that surfaces its own untrusted content to a model needs the same
 // framing the kernel applies to connector prompts and delegated results.
 export { neutralizeEnvelopeDelimiter, wrapUntrusted } from './tools/untrusted-envelope.js'
