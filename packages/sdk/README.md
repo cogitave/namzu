@@ -29,7 +29,7 @@ Namzu is a single-process TypeScript kernel with the following responsibilities:
 - **Scheduling.** Per-run token, cost, wall-clock, and iteration budgets. Limit checker, task router (cheap model for compaction, expensive for coding), tool tiering (LLM learns to prefer cheaper tools first).
 - **Signals.** `AbortController` tree spanning parent and children. `cancel(taskId)` and `cancelAll(parentRunId)` propagate. Runs can be paused and resumed, aborted cleanly, and emit lifecycle events for every transition.
 - **Memory management.** Working memory via structured compaction to a typed `WorkingState`. Long-term memory via an indexed, tag/query/status-searchable store with disk persistence. No vector database required by default.
-- **Durability.** Atomic per-iteration checkpoints, automatic emergency core-dump on SIGINT/SIGTERM, separate storage for runs, threads, conversations, activities, memories, and tasks.
+- **Durability.** Atomic per-iteration checkpoints, an opt-in emergency core-dump on SIGINT/SIGTERM (`emergencySave: true` — a library must not seize a host process termination path by default), separate storage for runs, threads, conversations, activities, memories, and tasks.
 - **IPC.** Native A2A (agent-to-agent) and MCP (Model Context Protocol) — both client and server, one SDK. An internal event bus with circuit breakers, file lock manager, and edit ownership tracking so concurrent agents do not stomp on each other.
 - **Capability system.** Tools are first-class, typed, permissioned, and progressively disclosed. The LLM does not see the full tool catalog; tools start deferred, get activated on demand, and can be suspended. Each tool declares `readOnly`, `destructive`, `concurrencySafe`, `permissions`, `category`.
 - **Syscall filtering.** Every tool call goes through a verification gate — allow / deny / ask, with built-in rules for read-only allowlist and dangerous pattern deny-list, plus custom regex rules. This is separate from sandbox isolation; it is the decision layer, the sandbox is the enforcement layer.
@@ -375,7 +375,7 @@ const result = await agent.run(
 )
 ```
 
-That is a complete, sandbox-isolated, checkpointed, telemetrized agent run with prompt caching, progressive tool disclosure, structured compaction, and emergency save all wired in by default. Those are not features you enable; they are how the kernel runs. Swap `registerOpenRouter()` for `registerOllama()`, `registerAnthropic()`, `registerBedrock()`, `registerOpenAI()`, `registerLMStudio()`, or `registerHttp()` — the code below the registration line stays identical.
+That is a complete, sandbox-isolated, checkpointed, telemetrized agent run with prompt caching, progressive tool disclosure, and structured compaction all wired in by default — those are not features you enable, they are how the kernel runs. Emergency save is the exception and is opt-in: pass `emergencySave: true` when the process owns its run end to end. Swap `registerOpenRouter()` for `registerOllama()`, `registerAnthropic()`, `registerBedrock()`, `registerOpenAI()`, `registerLMStudio()`, or `registerHttp()` — the code below the registration line stays identical.
 
 Examples for `PipelineAgent`, `RouterAgent`, and `SupervisorAgent` are in `src/agents/`.
 
