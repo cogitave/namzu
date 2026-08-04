@@ -1,5 +1,21 @@
 # @namzu/evals
 
+## 0.0.6
+
+### Patch Changes
+
+- Updated dependencies [604a56a]
+- Updated dependencies [f25ebce]
+- Updated dependencies [5496fb2]
+- Updated dependencies [f25ebce]
+- Updated dependencies [ca64062]
+- Updated dependencies [61ca851]
+- Updated dependencies [c8672ed]
+- Updated dependencies [f25ebce]
+- Updated dependencies [f25ebce]
+- Updated dependencies [c6b8aa8]
+  - @namzu/sdk@5.2.0
+
 ## 0.0.5
 
 ### Patch Changes

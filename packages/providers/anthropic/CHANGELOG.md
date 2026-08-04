@@ -1,5 +1,119 @@
 # Changelog
 
+## 2.0.1
+
+### Patch Changes
+
+- f25ebce: a model id's date suffix is no longer read as its minor version
+
+  Three copies of one regular expression matched Claude model ids — the capability
+  table plus two drivers — and all three had the same defect: the minor-version
+  group was `(\d+)`, which swallowed the 8-digit date suffix.
+
+  Measured against the shipped pattern:
+
+  ```
+  claude-sonnet-4-20250514   ->  major=4  minor=20250514
+  claude-opus-4-1-20250805   ->  major=4  minor=1
+  ```
+
+  So a dated id naming no minor version compared as enormously _newer_ than one
+  that does, and every capability gate keyed on `minor >= n` inverted for exactly
+  those ids. `claude-sonnet-4-20250514` was classified as a 4.7+ model: the driver
+  sent it `thinking: {type: 'adaptive'}`, silently discarding a caller's
+  `budgetTokens`, and cleared the 4.5 gate that enables strict tool inputs.
+
+  `parseClaudeModelVersion` and `claudeVersionAtLeast` are now exported from
+  `@namzu/sdk` and used by both drivers and the capability table. A real minor
+  version is one to three digits; a date is eight, and the group is bounded
+  accordingly. An id the parser does not recognise makes `claudeVersionAtLeast`
+  return `false` — a capability gate must not open for a name it does not
+  understand.
+
+  The comment above the old parser warned that "a second, subtly different model
+  matcher is how two capability decisions drift apart on the same model name."
+  There were three.
+
+- f25ebce: an effort level a model does not have is no longer sent
+
+  `ThinkingCapability.effort` was a boolean — "does this model take an effort
+  hint?" — and that was never the question. The ceiling moved twice: `xhigh`
+  arrived with 4.7, and `max` does not exist below 4.6. The accepted levels are a
+  **set**, and a flag could not say that `xhigh` is rejected on a 4.6 or that
+  `max` is rejected on a 4.5.
+
+  While it was a flag, both of those went to the wire, and the vendor rejects an
+  unknown level rather than clamping it — so a caller who set `effort: 'xhigh'`
+  and pointed at a 4.6 got a failed request, not a slightly different answer.
+
+  The driver now checks the level against the model:
+
+  | model                                     | accepted levels                     |
+  | ----------------------------------------- | ----------------------------------- |
+  | 4.7 and later, and the always-on families | `low` `medium` `high` `xhigh` `max` |
+  | 4.6                                       | `low` `medium` `high` `max`         |
+  | Opus 4.5                                  | `low` `medium` `high`               |
+  | everything else                           | none                                |
+
+  A level the model does not have is dropped rather than refused: `effort` shapes
+  an answer the model will still produce, so a request without it is the same
+  request at the model's own default — whereas refusing would fail a call that
+  has a correct answer. The existing rule about disabled thinking at `xhigh`/`max`
+  is unchanged.
+
+  `patch`, not `minor` or `major`: `ThinkingCapability` is internal to this
+  package. The entry point exports `registerAnthropic`, `AnthropicProvider`,
+  `ANTHROPIC_CAPABILITIES` and two config types, and the changed field is
+  reachable from none of them — so no consumer's code compiles differently. What
+  a consumer sees is only that a request that used to fail now succeeds.
+
+  The capability table's tests now cover every currently-served model with its
+  level set, plus the dated-id shape that previously parsed a release date as a
+  minor version.
+
+- f25ebce: the edit tool's schema could not be sent under strict validation
+
+  Strict tool input is not "JSON Schema, enforced" — it is a **subset** of JSON
+  Schema, and a keyword outside that subset is not degraded. The vendor rejects
+  the whole request, so one unexpressible field in one tool takes every other
+  tool down with it and the turn dies before producing a token.
+
+  The `edit` tool declared its integer-or-`"end"` field with `oneOf`, which is
+  outside the subset while the equivalent `anyOf` is inside it. Measured against
+  the live API:
+
+  | body                      | result                                           |
+  | ------------------------- | ------------------------------------------------ |
+  | `strict: true` + `oneOf`  | **400** — `Schema type 'oneOf' is not supported` |
+  | `strict: false` + `oneOf` | accepted                                         |
+  | `strict: true` + `anyOf`  | accepted                                         |
+
+  The middle row is why nothing caught it. Neither half is wrong on its own — the
+  schema is valid JSON Schema, and marking the tool strict is correct policy — so
+  no test of either one failed. Only the pairing did, and the pairing had no
+  owner. Every agent using the built-in `edit` tool on a model at or above the
+  strict gate lost its first tool-carrying turn to a 400.
+
+  `oneOf` is now `anyOf` (equivalent here — the branches are disjoint), and
+  `minimum` is gone from the model-facing schema for the same reason: numeric
+  bounds are outside the subset too. The bound is not lost, the execution schema
+  still enforces it.
+
+  **The general fix is the second half.** `assertStrictSchema` and
+  `findStrictSchemaViolations` are exported from `@namzu/sdk`, and the driver now
+  checks every schema it is about to mark strict — refusing with the exact path
+  and the remedy rather than letting the request go and getting back an error
+  that names the keyword but not where it lives:
+
+  ```
+  Tool "edit" is marked for strict input validation, but its model-facing schema
+  uses 1 construct(s) the strict subset does not accept…
+    edit.properties.insertLine.oneOf — use `anyOf` — for disjoint branches the two are equivalent
+  ```
+
+  A test sweeps every built-in tool that asks for strict validation, so the next
+  one is caught in the suite rather than in production.
+
 ## 2.0.0
 
 ### Major Changes
