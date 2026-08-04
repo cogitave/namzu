@@ -111,12 +111,19 @@ export function withProviderRetry(
 				return
 			} catch (err) {
 				if (isAbortError(err) || params.signal?.aborted) throw err
-				// A driver that already classified its own failure has said
-				// everything this layer would: re-wrapping it would replace a
-				// first-hand statement with a guess, and the run boundary reads
-				// that classification to choose between a pause and a failure.
-				if (isProviderRequestError(err)) throw err
-
+				// A driver that already classified its own failure keeps that
+				// classification — `classifyProviderError` reads its `kind`
+				// first and does not re-guess.
+				//
+				// This used to rethrow such an error outright. The stated reason
+				// was sound and the code did more than it said: preserving a
+				// first-hand classification is one thing, and skipping the retry
+				// loop is another. A first-party driver that correctly reported
+				// a 429 as `kind: 'throttle'` got ZERO attempts, while the same
+				// failure from a driver that classified nothing got the full
+				// backoff — so diagnosing your own error was punished. Whether
+				// to retry is now decided the same way for both, by the
+				// classification's own `retryable`.
 				const classified = classifyProviderError(err, provider.id)
 				const exhausted = attempt >= config.maxRetries
 
@@ -133,7 +140,16 @@ export function withProviderRetry(
 								? 'retries exhausted'
 								: 'not retryable',
 					})
-					throw classified
+					// The ORIGINAL escapes when the driver classified it. Two
+					// different consumers want two different things and both are
+					// right: this loop needs a retryable verdict, which the
+					// classification supplies, and the run boundary reports
+					// `lastProviderError` as the driver's own `{kind, status,
+					// retryAfterMs}`, which only survives if the error itself
+					// does. Wrapping here would have kept the retry fix and lost
+					// the vendor's `kind` at the boundary — the existing
+					// stream-recovery test caught exactly that.
+					throw isProviderRequestError(err) ? err : classified
 				}
 
 				const serverDirected = classified.retryAfterMs
