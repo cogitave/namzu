@@ -84,6 +84,29 @@ export function assertToolName(name: string): void {
 }
 
 /**
+ * Two sources contributed the same tool name and neither may take it.
+ *
+ * Named, and carrying the name, for the reason `DuplicateProviderError` is:
+ * a host that wants to handle this — fall back to its own tool, log and
+ * continue, surface it in a config error — has to be able to catch it
+ * narrowly rather than match on message text. It also names both remedies,
+ * because a hard collision policy without a way to decline would make
+ * shadowing-by-name the only way to say "I do not want this tool", which is
+ * precisely what now throws.
+ */
+export class ToolNameCollisionError extends Error {
+	readonly toolName: string
+
+	constructor(toolName: string, context: string) {
+		super(
+			`Tool name "${toolName}" is already registered by this host, and ${context} will not replace it. Rename the host tool, or decline the one being mounted with runtimeToolOverrides: { "${toolName}": "disabled" }.`,
+		)
+		this.name = 'ToolNameCollisionError'
+		this.toolName = toolName
+	}
+}
+
+/**
  * Append a tool's declared return shape to its description.
  *
  * No provider's tool wire format has a slot for an output schema, so the

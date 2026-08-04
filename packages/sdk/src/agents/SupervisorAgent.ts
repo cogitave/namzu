@@ -1,6 +1,6 @@
 import { EMPTY_TOKEN_USAGE } from '../constants/limits.js'
 import { LocalTaskGateway } from '../gateway/local.js'
-import { ToolRegistry } from '../registry/tool/execute.js'
+import { ToolNameCollisionError, ToolRegistry } from '../registry/tool/execute.js'
 import { drainQuery } from '../runtime/query/index.js'
 import type { LaunchedTaskMeta } from '../runtime/query/iteration/phases/context.js'
 import { PendingAnswers, QuestionParkBinding } from '../runtime/query/question-park.js'
@@ -211,30 +211,42 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 		// A run that must not delegate had prompt text and a gateway refusal as
 		// its only defences.
 		//
-		// Collision REFUSES rather than overwrites. Two sources contributed the
-		// same tool name and nothing in this SDK ranks them: the coordinator
-		// tools are the kernel's, and `config.tools` is the embedding host's —
-		// the most trusted party present, not a plugin whose shadowing can be
-		// dropped on trust grounds. `ManagedRegistry` resolves it by warning and
-		// replacing, which is a sane registry default and the wrong answer for a
-		// contract surface: the model keeps a `create_task` whose behaviour
-		// silently depends on registration order, and a log warning is not
-		// something a host can act on before the run starts. Refusing an
-		// ambiguous authorization rather than guessing at it is fail-safe
-		// defaults (Saltzer & Schroeder 1975, §3.A.2), and it is what peer
-		// runtimes do for the same shape: an agent SDK raises on duplicate tool
-		// names contributed by two connector servers rather than picking one,
-		// and a second raises when its namespacing cannot disambiguate two
-		// dynamic providers, naming the manual fix in the message. This does the
-		// same — and the fix it names is a mechanism this SDK already has.
+		// Collision REFUSES rather than overwrites, and the principle is
+		// complete mediation rather than fail-safe defaults: "proposals to gain
+		// performance by remembering the result of an authority check [must] be
+		// examined skeptically. If a change in authority occurs, such remembered
+		// results must be systematically updated" (Saltzer & Schroeder 1975,
+		// §I.A.3(c)). A registry entry is a remembered binding of a name to an
+		// authority, and a later write that rebinds the name leaves every
+		// decision made about the old binding stale.
+		//
+		// The counter-argument is that today the host's tool merely loses
+		// quietly and the run still works, so six reserved names is a real cost
+		// on a name a consumer may have chosen long ago. It does not hold,
+		// because "loses quietly" is not what happens. `registerOne` ends with
+		// `availability.set(id, state)` and this call passes no state, so a tool
+		// the host registered `deferred` or `suspended` is silently PROMOTED to
+		// active under someone else's implementation; and because the store is a
+		// Map, the replacement inherits the host's insertion position in the
+		// prompt-cache prefix. That is a different authorization surface, not a
+		// lost registration. CWE-390 is the shape `ManagedRegistry` has here —
+		// detection of an error condition without action — and CWE-694's own
+		// mitigation is nearly this fix: do not operate any resource with a
+		// non-unique identifier, and report the error.
+		//
+		// Refusing is also what the peer set does. One runtime's registry
+		// primitive throws on both duplicate and reserved names; another refuses
+		// its injected delegation name in a pre-flight that tells the author to
+		// rename. Closer to home, `ProviderRegistry.register` already throws
+		// unless the caller passes `{ replace: true }` — declared intent is what
+		// separates a legitimate replacement from an accidental one, and no such
+		// intent is expressible here.
 		const overrides = input.runtimeToolOverrides
 		for (const tool of coordinatorToolDefs) {
 			const override = overrides?.[tool.name]
 			if (override === 'disabled') continue
 			if (config.tools?.has(tool.name)) {
-				throw new Error(
-					`Coordinator tool "${tool.name}" collides with a tool this host already registered. The kernel will not replace it. Rename the host tool, or decline the coordinator one with runtimeToolOverrides: { "${tool.name}": "disabled" }.`,
-				)
+				throw new ToolNameCollisionError(tool.name, 'the supervisor coordinator surface')
 			}
 			tools.register(tool, override ?? 'active')
 		}

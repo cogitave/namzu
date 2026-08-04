@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
 import { MockLLMProvider } from '../../provider/mock.js'
-import { ToolRegistry } from '../../registry/tool/execute.js'
+import { ToolNameCollisionError, ToolRegistry } from '../../registry/tool/execute.js'
 import { defineTool } from '../../tools/defineTool.js'
 import { SupervisorAgent } from '../SupervisorAgent.js'
 
@@ -123,8 +123,12 @@ describe('supervisor coordinator-tool registration', () => {
 	})
 
 	it('refuses to take a name the host already registered', async () => {
+		// Named and carrying the name, so a host can catch it narrowly rather
+		// than match on message text — the shape `DuplicateProviderError`
+		// already set in this repo.
+		await expect(runWith({ hostTools: ['create_task'] })).rejects.toThrow(ToolNameCollisionError)
 		await expect(runWith({ hostTools: ['create_task'] })).rejects.toThrow(
-			/collides with a tool this host already registered/,
+			/runtimeToolOverrides: \{ "create_task": "disabled" \}/,
 		)
 	})
 

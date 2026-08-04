@@ -51,8 +51,25 @@ export function buildAgentTool(opts: AgentToolOptions): ToolDefinition {
 	const { gateway, allowedAgentIds: agentIds, onTaskLaunched } = opts
 	const cwd = opts.workingDirectory
 
-	const subagentTypeEnum =
-		agentIds.length > 0 ? z.enum(agentIds as [string, ...string[]]) : z.string()
+	// This tool IS the delegation surface — it is the only thing this builder
+	// returns — so "do not mount it on an empty roster" collapses to "do not
+	// build it". Refusing at construction is therefore coherent here in a way
+	// it is not for `buildCoordinatorTools`, whose other tools remain useful
+	// with no delegates.
+	//
+	// It carried the same widen-to-string fallback `create_task` did: an empty
+	// roster, which is the one input meaning "delegate to nobody", produced the
+	// one schema accepting anybody. Saltzer & Schroeder's own reason for
+	// checking the twin applies — "in a large system some objects will be
+	// inadequately considered, so a default of lack of permission is safer"
+	// (§I.A.3(b)) — and shipping the closed reading in one delegation surface
+	// while leaving it open in the exported one is exactly that oversight.
+	if (agentIds.length === 0) {
+		throw new Error(
+			'buildAgentTool requires at least one entry in allowedAgentIds. An empty roster means this run may delegate to nobody, so there is no subagent the tool could name — do not build the tool.',
+		)
+	}
+	const subagentTypeEnum = z.enum(agentIds as [string, ...string[]])
 
 	return defineTool({
 		name: 'Agent',
@@ -84,6 +101,21 @@ export function buildAgentTool(opts: AgentToolOptions): ToolDefinition {
 					success: false,
 					output: '',
 					error: `subagent_type is required — choose one of: ${agentIds.join(', ')}`,
+				}
+			}
+			// The roster is enforced here as well as in the schema. `execute` is
+			// reachable without going through the registry — this repo's own
+			// callers do it — so a schema-only check leaves the roster
+			// unenforced on that path, and the id would reach the gateway to be
+			// resolved against an AgentManager that is typically shared and may
+			// well hold an agent this run's roster deliberately omits. Every
+			// access checked for authority, not only the mediated one
+			// (Saltzer & Schroeder §I.A.3(c), complete mediation).
+			if (!agentIds.includes(agentId)) {
+				return {
+					success: false,
+					output: '',
+					error: `Unknown subagent_type "${agentId}" — choose one of: ${agentIds.join(', ')}`,
 				}
 			}
 			const handle = await gateway.createTask({

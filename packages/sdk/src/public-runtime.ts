@@ -158,6 +158,7 @@ export {
 	PluginRegistry,
 	Registry,
 	ToolCatalog,
+	ToolNameCollisionError,
 	ToolRegistry,
 	createToolCatalogFromRegistry,
 	loadingFromAvailability,

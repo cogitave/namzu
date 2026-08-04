@@ -244,6 +244,7 @@
   "ThreadManager",
   "ToolCatalog",
   "ToolGrantSet",
+  "ToolNameCollisionError",
   "ToolRegistry",
   "TriggerEvaluator",
   "UNKNOWN_TENANT_ID",
