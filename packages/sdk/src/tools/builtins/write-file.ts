@@ -1,8 +1,9 @@
 import { access, mkdir } from 'node:fs/promises'
-import { dirname, resolve } from 'node:path'
+import { dirname } from 'node:path'
 import { z } from 'zod'
 import type { ToolContext } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
+import { resolveWithinReal } from '../paths.js'
 import { atomicWriteFile } from './atomic-write-file.js'
 import { withFileMutationLock } from './file-mutation-lock.js'
 
@@ -93,11 +94,17 @@ export const WriteFileTool = defineTool({
 		}
 		const valid = parsed.data
 		const content = valid.content ?? valid.newStr ?? ''
-		const filePath = resolve(context.workingDirectory, valid.path)
+		// Host-side containment, on the host branch only. The sandbox has its
+		// own root and its own resolver; canonicalizing a sandbox-relative
+		// path against the HOST filesystem asks a question about the wrong
+		// machine and answers it with whatever happens to exist there.
+		const filePath = context.sandbox
+			? undefined
+			: await resolveWithinReal(context.workingDirectory, valid.path)
 		// The exists-check and the write are a check-then-act pair. Unlocked,
 		// two writers both see "absent", both skip the read-before-overwrite
 		// guard, and the second silently discards the first.
-		const lockKey = `${context.sandbox ? 'sandbox' : 'local'}:${filePath}`
+		const lockKey = context.sandbox ? `sandbox:${valid.path}` : `local:${filePath as string}`
 
 		return withFileMutationLock(lockKey, async () => {
 			if (context.sandbox) {
@@ -115,23 +122,24 @@ export const WriteFileTool = defineTool({
 				}
 			}
 
-			const localExists = await pathExists(filePath)
+			const hostPath = filePath as string
+			const localExists = await pathExists(hostPath)
 			if (localExists) {
-				const guard = enforceReadBeforeOverwrite(context, filePath)
+				const guard = enforceReadBeforeOverwrite(context, hostPath)
 				if (guard) return guard
 			}
 
-			await mkdir(dirname(filePath), { recursive: true })
+			await mkdir(dirname(hostPath), { recursive: true })
 			// Temp file, fsync, rename. A plain write that fails partway
 			// leaves the destination truncated — and this tool overwrites a
 			// whole file, so the truncation is the user's previous work.
-			await atomicWriteFile(filePath, content)
-			context.fileReadTracker?.recordRead(filePath)
+			await atomicWriteFile(hostPath, content)
+			context.fileReadTracker?.recordRead(hostPath)
 
 			return {
 				success: true as const,
-				output: `File written successfully: ${filePath} (${content.length} chars)`,
-				data: { path: filePath, size: content.length },
+				output: `File written successfully: ${hostPath} (${content.length} chars)`,
+				data: { path: hostPath, size: content.length },
 			}
 		})
 	},
@@ -150,9 +158,9 @@ function enforceReadBeforeOverwrite(
 	}
 }
 
-async function pathExists(filePath: string): Promise<boolean> {
+async function pathExists(hostPath: string): Promise<boolean> {
 	try {
-		await access(filePath)
+		await access(hostPath)
 		return true
 	} catch {
 		return false

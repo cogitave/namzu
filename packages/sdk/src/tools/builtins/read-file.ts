@@ -1,7 +1,8 @@
 import { readFile } from 'node:fs/promises'
-import { extname, resolve } from 'node:path'
+import { extname } from 'node:path'
 import { z } from 'zod'
 import { defineTool } from '../defineTool.js'
+import { resolveWithinReal } from '../paths.js'
 
 const inputSchema = z.object({
 	path: z.string().describe('Path to the file to read (absolute or relative)'),
@@ -74,7 +75,7 @@ export const ReadFileTool = defineTool({
 			}
 		}
 
-		const filePath = resolve(context.workingDirectory, input.path)
+		const filePath = await resolveWithinReal(context.workingDirectory, input.path)
 		const buffer = await readFile(filePath)
 		const binaryGuidance = describeStructuredBinaryRead(filePath, buffer)
 		if (binaryGuidance) {
