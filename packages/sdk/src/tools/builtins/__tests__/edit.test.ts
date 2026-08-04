@@ -19,7 +19,7 @@ function makeContext(workingDirectory: string): ToolContext {
 }
 
 describe('EditTool', () => {
-	it('publishes one closed canonical replacement contract', () => {
+	it('publishes one closed contract covering both operations', () => {
 		const schema = EditTool.modelInputSchema
 		expect(schema).toEqual({
 			type: 'object',
@@ -38,12 +38,20 @@ describe('EditTool', () => {
 					description:
 						'Exact replacement text. May be empty to delete old_string. Keep under 12000 characters.',
 				},
+				insertLine: {
+					oneOf: [{ type: 'integer', minimum: 0 }, { const: 'end' }],
+					description:
+						'Insert instead of replacing. The new_string goes after this 1-indexed line; 0 inserts before the first line; "end" appends. Omit for a find-and-replace.',
+				},
 				replace_all: {
 					type: 'boolean',
 					description: 'Replace every occurrence instead of requiring one unique match.',
 				},
 			},
-			required: ['path', 'old_string', 'new_string'],
+			//  left out on purpose: an insert has no text to match,
+			// and requiring it is what made the append idiom the tool's own
+			// description recommends unexpressible under constrained decoding.
+			required: ['path', 'new_string'],
 			additionalProperties: false,
 		})
 
