@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { TaskGateway } from '../../../types/agent/gateway.js'
 import type {
 	HITLDecisionRequest,
@@ -172,6 +173,63 @@ describe('coordinator ask_user_question input schema', () => {
 				header: 'Audience',
 			}).success,
 		).toBe(true)
+	})
+})
+
+/**
+ * The model-facing schema is a module-level object shared by every tool this
+ * builder produces, so it is copied on the way out — TWICE, at two independent
+ * boundaries, and each test below pins exactly one of them. The builder clones
+ * when it attaches the schema to the definition; the registry clones again
+ * when it renders a definition for the wire. Removing either clone fails one
+ * of these and not the other, which is how they were confirmed non-vacuous.
+ *
+ * Both clones survived a version in which neither test did: the defences were
+ * still in the source and nothing pinned them, which is precisely the state
+ * where a later edit drops one and no gate objects.
+ *
+ * The failure they prevent is not hypothetical. A caller that mutates a schema
+ * it received — normalizing it for one provider, adding a legacy alias — would
+ * otherwise be editing the object every OTHER tool instance in the process is
+ * also handing out, including definitions already registered in another run.
+ */
+describe('coordinator ask_user_question canonical schema isolation', () => {
+	const noopHandler: ResumeHandler = async () => ({ action: 'continue' })
+
+	it('returns a fresh schema on every render from the registry boundary', () => {
+		const registry = new ToolRegistry()
+		registry.register(askTool(noopHandler))
+
+		const first = registry.toLLMTools()[0]?.function.parameters
+		expect(first).toEqual(askTool(noopHandler).modelInputSchema)
+		const firstProperties = first?.properties as Record<string, unknown>
+		firstProperties.legacy_options = { type: 'string' }
+
+		const next = registry.toLLMTools()[0]?.function.parameters
+		expect(JSON.stringify(next)).not.toContain('legacy_options')
+		expect(next).toEqual(askTool(noopHandler).modelInputSchema)
+	})
+
+	it('isolates the schema between two results of the public builder', () => {
+		const first = askTool(noopHandler)
+		const second = askTool(noopHandler)
+		expect(first.modelInputSchema).not.toBe(second.modelInputSchema)
+
+		const firstProperties = first.modelInputSchema?.properties as Record<string, unknown>
+		firstProperties.legacy_options = { type: 'string' }
+
+		expect(JSON.stringify(second.modelInputSchema)).not.toContain('legacy_options')
+	})
+
+	it('rejects an unknown property inside an option, not only at the root', () => {
+		const tool = askTool(noopHandler)
+
+		expect(
+			tool.inputSchema.safeParse({
+				...baseInput,
+				options: [{ label: 'A', weight: 3 }, { label: 'B' }],
+			}).success,
+		).toBe(false)
 	})
 })
 
