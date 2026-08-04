@@ -109,10 +109,14 @@ describe('the model call has a span of its own', () => {
 	it('opens one named for the model', async () => {
 		await runOnce([{ text: 'done' }])
 
-		// One per model call. A run makes at least one, and a forced-final
-		// turn makes another — both are model calls and both deserve a span.
-		expect(chatSpans().length).toBeGreaterThanOrEqual(1)
-		for (const s of chatSpans()) expect(s.name).toBe('chat mock-model')
+		// EXACTLY one. This was written as `toHaveLength(1)`, failed with 2,
+		// and was relaxed to `>= 1` under a plausible-sounding explanation
+		// about forced-final turns. The 2 was real: a second span with the
+		// same name and the same parent had been added beside the one
+		// `stream-turn.ts` already opened, so a naive sum double-counted both
+		// latency and tokens. Relaxing the assertion is what let that ship.
+		expect(chatSpans()).toHaveLength(1)
+		expect(chatSpans()[0]?.name).toBe('chat mock-model')
 	})
 
 	it('closes it', async () => {
@@ -168,11 +172,13 @@ describe('the model call has a span of its own', () => {
 		expect(attrs).toHaveProperty('namzu.cache.write_tokens')
 	})
 
-	it('opens one per turn, not one per run', async () => {
+	it('opens exactly one per model call, however many turns a run takes', async () => {
 		await runOnce([{ text: 'first' }, { text: 'second' }])
 
-		// A run with several turns is exactly the case a trace is opened for.
-		expect(chatSpans().length).toBeGreaterThanOrEqual(1)
+		// The count has to track model calls, not runs and not iterations —
+		// which is the only way a duplicate is visible at all.
+		const calls = spans.filter((s) => s.name.includes('iteration')).length
+		expect(chatSpans().length).toBeLessThanOrEqual(calls)
 	})
 
 	it('nests under the iteration span rather than emitting as a root', async () => {

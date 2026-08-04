@@ -11,7 +11,6 @@ import {
 	GENAI,
 	NAMZU,
 	agentIterationSpanName,
-	chatSpanName,
 	parentContext,
 } from '../../../telemetry/attributes.js'
 import { getTracer } from '../../../telemetry/runtime-accessors.js'
@@ -154,9 +153,6 @@ export class IterationOrchestrator {
 				{},
 				parentContext(this.ctx.rootSpan),
 			)
-			// Declared out here so the iteration's own finally can close it on
-			// any path that does not reach its success branch.
-			let chatSpan: Span | undefined
 			try {
 				// Tool spans for this turn belong under this iteration. Inside
 				// the try rather than before it: a throw from any of these left
@@ -282,27 +278,6 @@ export class IterationOrchestrator {
 				// aggregated `ChatCompletionResponse` for the legacy
 				// downstream paths (assistantMsg construction, working
 				// state extraction, telemetry attribute stamping).
-				// The model call gets its own span. There was none at all —
-				// `chatSpanName` shipped with zero call sites — so a run's traces
-				// carried no LLM latency whatsoever, and the one thing anybody
-				// opens a trace to find (which turn was slow, and why) was the
-				// one thing not in it.
-				chatSpan = tracer.startSpan(chatSpanName(stepModel), {}, parentContext(iterSpan))
-				chatSpan.setAttributes({
-					[GENAI.OPERATION_NAME]: 'chat',
-					[GENAI.SYSTEM]: this.ctx.provider.id,
-					[GENAI.REQUEST_MODEL]: stepModel,
-					...((step.temperature ?? runConfig.temperature) !== undefined
-						? { [GENAI.REQUEST_TEMPERATURE]: (step.temperature ?? runConfig.temperature) as number }
-						: {}),
-					...((step.maxResponseTokens ?? runConfig.maxResponseTokens) !== undefined
-						? {
-								[GENAI.REQUEST_MAX_TOKENS]: (step.maxResponseTokens ??
-									runConfig.maxResponseTokens) as number,
-							}
-						: {}),
-				})
-
 				const { response, messageId } = yield* streamProviderTurn(
 					this.ctx.provider,
 					{
@@ -338,27 +313,6 @@ export class IterationOrchestrator {
 					this.ctx.log,
 					iterSpan,
 				)
-
-				// Stamped on the call that produced them. The token counts also
-				// stay on the iteration span below, where they have always been:
-				// moving them would silently break whatever reads them today,
-				// and one turn per iteration makes the two agree.
-				chatSpan.setAttributes({
-					[GENAI.RESPONSE_MODEL]: response.model || stepModel,
-					[GENAI.RESPONSE_ID]: response.id,
-					[GENAI.USAGE_INPUT_TOKENS]: response.usage.promptTokens,
-					[GENAI.USAGE_OUTPUT_TOKENS]: response.usage.completionTokens,
-					// An array, per the semantic convention: one call can finish
-					// several ways when a provider returns more than one choice.
-					[GENAI.RESPONSE_FINISH_REASONS]: [response.finishReason ?? 'stop'],
-					[NAMZU.CACHE_READ_TOKENS]: response.usage.cachedTokens ?? 0,
-					[NAMZU.CACHE_WRITE_TOKENS]: response.usage.cacheWriteTokens ?? 0,
-				})
-				chatSpan.setStatus({ code: SpanStatusCode.OK })
-				chatSpan.end()
-				// Closed here for an accurate duration, and cleared so the
-				// iteration finally does not close it a second time.
-				chatSpan = undefined
 
 				// Main-loop turn: also records the prompt size compaction reads.
 				runMgr.recordTurnUsage(response.usage)
@@ -794,8 +748,6 @@ export class IterationOrchestrator {
 				iterSpan.recordException(err instanceof Error ? err : new Error(String(err)))
 				throw err
 			} finally {
-				// A model call that threw never reached its own close above.
-				chatSpan?.end()
 				// The only place the iteration span ends. It used to be ended at each of
 				// seventeen exits, which is a rule every future edit has to
 				// remember; a generator abandoned by its consumer never reached
