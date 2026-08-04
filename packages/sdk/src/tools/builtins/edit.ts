@@ -1,7 +1,8 @@
 import { readFile } from 'node:fs/promises'
-import { resolve } from 'node:path'
+
 import { z } from 'zod'
 import { defineTool } from '../defineTool.js'
+import { resolveWithinReal } from '../paths.js'
 import { atomicWriteFile } from './atomic-write-file.js'
 import { fingerprintContent, staleFileError } from './content-fingerprint.js'
 import { withFileMutationLock } from './file-mutation-lock.js'
@@ -193,14 +194,20 @@ export const EditTool = defineTool({
 			}
 		}
 
-		const filePath = resolve(context.workingDirectory, parsed.data.path)
+		// Host-side containment, on the host branch only. The sandbox has its
+		// own root and its own resolver; canonicalizing a sandbox-relative
+		// path against the HOST filesystem asks a question about the wrong
+		// machine, and answers it with whatever happens to exist there.
+		const filePath = context.sandbox
+			? undefined
+			: await resolveWithinReal(context.workingDirectory, parsed.data.path)
 		// Read-modify-write is not atomic on its own: two edits to the same
 		// path interleave their reads, and the second write lands on content
 		// the first had already replaced — so one edit vanishes and the loser
 		// reports "old_string not found", blaming the model for a race. The
 		// key spans both branches because sandbox and local are distinct
 		// files even when the path string matches.
-		const lockKey = `${context.sandbox ? 'sandbox' : 'local'}:${filePath}`
+		const lockKey = context.sandbox ? `sandbox:${parsed.data.path}` : `local:${filePath as string}`
 
 		return withFileMutationLock(lockKey, async () => {
 			if (context.sandbox) {
@@ -218,7 +225,8 @@ export const EditTool = defineTool({
 				}
 			}
 
-			const content = await readFile(filePath, 'utf-8')
+			const hostPath = filePath as string
+			const content = await readFile(hostPath, 'utf-8')
 
 			const result = applyEdit(content, normalized.operation)
 			if (!result.success) {
@@ -241,9 +249,9 @@ export const EditTool = defineTool({
 				// changed elsewhere in the file, and refusing there would
 				// reject safe edits every time anyone touched an unrelated
 				// line.
-				const seen = context.fileReadTracker?.fingerprint?.(filePath)
+				const seen = context.fileReadTracker?.fingerprint?.(hostPath)
 				if (seen !== undefined && seen !== fingerprintContent(content)) {
-					return { success: false as const, output: '', error: staleFileError(filePath) }
+					return { success: false as const, output: '', error: staleFileError(hostPath) }
 				}
 				return { success: false as const, output: '', error: result.error }
 			}
@@ -251,15 +259,15 @@ export const EditTool = defineTool({
 			// Temp file, fsync, rename — a reader sees the old body or the new
 			// one, never a half-written one. A plain `writeFile` that fails
 			// partway leaves the user's source truncated.
-			await atomicWriteFile(filePath, result.content)
+			await atomicWriteFile(hostPath, result.content)
 			// This runtime is now the last writer, so the next edit in the same
 			// turn compares against what we just wrote rather than the read
 			// before it.
-			context.fileReadTracker?.recordRead(filePath, result.content)
+			context.fileReadTracker?.recordRead(hostPath, result.content)
 			return {
 				success: true as const,
-				output: `Edited ${filePath}: ${result.replacements} replacement(s)`,
-				data: { path: filePath, replacements: result.replacements },
+				output: `Edited ${hostPath}: ${result.replacements} replacement(s)`,
+				data: { path: hostPath, replacements: result.replacements },
 			}
 		})
 	},
