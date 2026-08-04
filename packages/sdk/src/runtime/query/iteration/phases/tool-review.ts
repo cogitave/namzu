@@ -2,6 +2,7 @@ import type { ChatCompletionResponse } from '../../../../types/provider/index.js
 import type { RunEvent } from '../../../../types/run/index.js'
 import type { VerificationGate } from '../../../../verification/index.js'
 import type { ToolCallDenials } from '../../executor.js'
+import { attachSteering } from '../../steering.js'
 import { type IterationContext, awaitDecisionDurably } from './context.js'
 
 interface VerificationAwareContext extends IterationContext {
@@ -82,7 +83,12 @@ export async function* runToolReview(
 		const batch = await ctx.toolExecutor.executeBatch(response, denials)
 		toolMs += Date.now() - startedAt
 		executed = batch.results
-		for (const msg of batch.messages) {
+		// Guidance the host queued while this batch was running rides out on
+		// the last result. This is the only legal slot for it: a `tool_use`
+		// block must be answered by a `tool_result` with the same id, so a
+		// user message wedged between them is rejected by the provider. Same
+		// delivery a denial already uses, without the refusal.
+		for (const msg of attachSteering(batch.messages, ctx.steering)) {
 			ctx.runMgr.pushMessage(msg)
 		}
 	}

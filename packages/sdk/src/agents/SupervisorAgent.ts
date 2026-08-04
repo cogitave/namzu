@@ -300,6 +300,12 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 				// auto-approve. drainQuery falls back to autoApproveHandler
 				// when resumeHandler is omitted (= same behaviour as before).
 				...(config.resumeHandler ? { resumeHandler: config.resumeHandler } : {}),
+				// Forwarded for the same reason the handler is. A capability the
+				// kernel honours in `drainQuery` but that never reaches the
+				// surface a host actually constructs is a capability nobody can
+				// use — which is the shape of defect this file has already been
+				// corrected for twice.
+				...(config.steering ? { steering: config.steering } : {}),
 				...(config.verificationGate ? { verificationGate: config.verificationGate } : {}),
 				...(config.sandboxProvider ? { sandboxProvider: config.sandboxProvider } : {}),
 				// Working-memory / compaction seam (optional; absent => unchanged

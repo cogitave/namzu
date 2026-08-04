@@ -1,4 +1,5 @@
 import type { CompactionConfig } from '../../config/runtime.js'
+import type { SteeringChannel } from '../../runtime/query/steering.js'
 import type { AdvisoryConfig } from '../advisory/index.js'
 import type { ResumeHandler } from '../hitl/index.js'
 import type { LLMProvider } from '../provider/index.js'
@@ -62,6 +63,15 @@ export interface SupervisorAgentConfig extends BaseAgentConfig {
 	 * approves, rejects, or modifies the call.
 	 */
 	resumeHandler?: ResumeHandler
+
+	/**
+	 * Channel a host uses to hand guidance to the supervisor's running turn.
+	 *
+	 * Present here for the same reason `resumeHandler` is: a capability the
+	 * kernel honours in `drainQuery` and not on the surface hosts actually
+	 * construct is a capability nobody can reach.
+	 */
+	steering?: SteeringChannel
 
 	/**
 	 * Optional declarative gate evaluated before tool execution. When

@@ -98,6 +98,7 @@ import {
 	recoverCompletedCalls,
 	unansweredToolCalls,
 } from './resume-pending.js'
+import type { SteeringChannel } from './steering.js'
 import { ToolGrantSet } from './tool-grants.js'
 import { createToolPause } from './tool-pause.js'
 import { ToolingBootstrap } from './tooling.js'
@@ -150,6 +151,16 @@ export interface QueryParams {
 	 * never be applied.
 	 */
 	questionParks?: QuestionParkBinding
+
+	/**
+	 * Channel a host uses to hand guidance to the running turn.
+	 *
+	 * Optional and additive: absent leaves the loop byte-identical. Present,
+	 * anything queued during a tool batch is appended to that batch's last
+	 * tool result — the only slot a provider will accept text in mid-batch,
+	 * and the one the model already reads for tool outcomes.
+	 */
+	steering?: SteeringChannel
 
 	/**
 	 * The registry a re-entered `ask_user_question` reads its answer from.
@@ -827,6 +838,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		abortController: ctx.abortController,
 		log: ctx.log,
 		resumeHandler: params.resumeHandler,
+		...(params.steering ? { steering: params.steering } : {}),
 		checkpointMgr,
 		planManager: ctx.planManager,
 		taskGateway: params.taskGateway,

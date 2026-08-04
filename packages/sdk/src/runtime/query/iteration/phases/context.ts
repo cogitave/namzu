@@ -32,6 +32,7 @@ import type { CheckpointManager } from '../../checkpoint.js'
 import type { EmitEvent } from '../../events.js'
 import type { ToolExecutor } from '../../executor.js'
 import type { GuardCoordinator } from '../../guard.js'
+import type { SteeringChannel } from '../../steering.js'
 import type { ToolGrantSet } from '../../tool-grants.js'
 
 export interface LaunchedTaskMeta {
@@ -89,6 +90,14 @@ export interface IterationContext {
 	readonly abortController: AbortController
 	readonly log: Logger
 	readonly resumeHandler: ResumeHandler
+
+	/**
+	 * Guidance a host may hand to the turn while it runs.
+	 *
+	 * Absent means the loop behaves exactly as it always has — nothing is
+	 * drained and no tool result is extended.
+	 */
+	readonly steering?: SteeringChannel
 	readonly checkpointMgr: CheckpointManager
 	readonly planManager: PlanManager
 

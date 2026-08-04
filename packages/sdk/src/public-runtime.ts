@@ -68,6 +68,10 @@ export { extractFinalResponse } from './utils/conversation.js'
 
 export { resolveTaskModel } from './router/task-router.js'
 export { drainQuery, query } from './runtime/query/index.js'
+// Mid-run guidance. A host holds the channel and the loop drains it at the
+// tool-result boundary; see the module for why that is the only legal slot.
+export { SteeringBinding, attachSteering, formatSteeringNote } from './runtime/query/steering.js'
+export type { SteeringChannel } from './runtime/query/steering.js'
 export { createMockBidiProvider, startBidiRun } from './runtime/bidi/index.js'
 export { ContextCache } from './runtime/query/context-cache.js'
 export {
