@@ -1,5 +1,185 @@
 # Changelog
 
+## 5.0.0
+
+### Major Changes
+
+- 1cd1094: Thinking is now resolved per model, `effort` is sendable, and thinking tokens
+  are reported.
+
+  **Thinking on a current model was a failed request, not a degraded one.** The
+  driver mapped `type: 'enabled'` straight to the wire and everything else to
+  `disabled`. The vendor rejects a mismatched mode with a 400 rather than
+  falling back: `thinking.type.enabled` is refused from Claude 4.7 onward,
+  `adaptive` is refused on 4.5 and earlier, and the always-on models refuse
+  `disabled`. One body for every model does not compromise quality, it fails.
+
+  `ThinkingConfig.type` gains `'adaptive'`, and the Anthropic driver resolves the
+  declared intent against the model it is about to call — sending the mode that
+  model accepts, dropping a budget where budgets have no meaning, and omitting
+  the field entirely rather than asking an always-on model to stop thinking. An
+  unrecognised model is treated as manual-only, which is the previous behaviour
+  and keeps a gateway serving an older model working.
+
+  **`ThinkingConfig.display` is narrowed to `'summarized' | 'omitted'`**, and now
+  actually reaches the wire. It was `'full' | 'summarized'`: `'full'` is not a
+  value any vendor accepts — a declared option that could only ever have been
+  rejected — and `'omitted'` was missing. It also was not serialized at all,
+  which matters more than it sounds: `display` defaults to `'omitted'` on newer
+  models, so a caller wanting to show reasoning received thinking blocks with
+  empty text and nothing to explain why.
+
+  **`effort` is new on `ChatCompletionParams`** — `'low' | 'medium' | 'high' |
+'xhigh' | 'max'`. It goes out as `output_config.effort`, a _sibling_ of
+  `thinking` rather than a field inside it, because it shapes the whole response
+  and one manual-mode model accepts it alongside a token budget; nesting it would
+  have made that combination unsayable. It is dropped on models that do not
+  accept it, and refused in the one combination the vendor rejects — thinking
+  disabled at `xhigh`/`max`.
+
+  **`TokenUsage.reasoningTokens`** carries `output_tokens_details.thinking_tokens`
+  when the vendor reports it. It is a _subset_ of `completionTokens`, not an
+  addition — reasoning is billed as output, so summing it into a total would
+  double-count. Absent means not reported, never zero: coercing would claim every
+  turn on every silent driver did no thinking, and streamed events carry the
+  breakdown only on the final delta.
+
+  **Migration.** `display: 'full'` no longer compiles — use `'summarized'`, which
+  is what it meant. Code passing `thinking: { type: 'enabled', budgetTokens }`
+  keeps working and is now translated per model instead of rejected by newer
+  ones. `assertThinkingSupported` in `@namzu/openai` refuses `'adaptive'` as it
+  already refused `'enabled'`, since that driver implements neither.
+
+  Not changed: a report accompanying this work claimed `temperature`, `top_p` and
+  `top_k` are rejected on 5-series models and should be dropped by the driver.
+  The Messages reference, the extended-thinking page and the thinking
+  troubleshooting page document no such restriction, so nothing was implemented —
+  silently dropping sampling parameters that would have worked is its own defect.
+
+### Minor Changes
+
+- 19d6a0f: A host can now steer a turn that is already running.
+
+  `AgentManager.queueMessage` and `drainMessages` have existed for a while and
+  nothing in the iteration loop ever read them — the type said so outright. So a
+  host watching a run go the wrong way had two options, both worse than they
+  sound: cancel and start over, throwing away every tool result already paid
+  for; or reject through the review gate, which only works when a call happens
+  to be pending approval and says "no" when the host meant "yes, but read this
+  first".
+
+  `SteeringChannel` is the delivery that was missing. A host holds one, passes
+  it as `steering` on `drainQuery` params or `SupervisorAgentConfig`, and calls
+  `steer(text)` whenever it likes. Anything queued while a tool batch is running
+  is appended to that batch's **last tool result**.
+
+  That slot is not a stylistic choice. A `tool_use` block must be answered by a
+  `tool_result` with the same id, so a user message wedged between them is
+  rejected by the provider — there is no legal place to insert one mid-batch.
+  The tool result is the slot that already exists, and this SDK had already
+  reached that conclusion for the neighbouring case: a denied call carries its
+  reason inside the `tool_result`, precisely because that is where the model
+  looks for tool outcomes. Steering is the same delivery with the refusal taken
+  out.
+
+  It deliberately does not interrupt. The batch in flight finishes and the
+  guidance lands where the model reads next; a host that wants the current work
+  stopped wants `AbortSignal`, which is a different question. Conflating them is
+  how "also check the tests" ends up killing a half-written file.
+
+  Details worth knowing:
+
+  - Repeated calls before a drain accumulate in order rather than replacing each
+    other — two corrections typed a second apart are two things the model should
+    see.
+  - Guidance is labelled as coming from the operator. Unlabelled it would read
+    as something the tool said, so "stop and ask me first" would look like
+    output from `bash`. This is not the untrusted-content envelope: the operator
+    is the one party whose words the agent _should_ act on.
+  - A turn that called no tools has nothing in flight, so guidance stays queued
+    for the next one instead of being dropped.
+
+  Absent, the loop is byte-identical to before.
+
+- 1500973: Every driver that cannot think now says so instead of dropping the request.
+
+  `thinking` sits on `ChatCompletionParams`, so every driver accepts it. Five of
+  them — Bedrock, OpenRouter, HTTP, Ollama, LM Studio — implemented none of it
+  and dropped the field: the caller got an ordinary completion with an empty
+  `reasoning` array, which is indistinguishable from a model that simply chose
+  not to reason. The request looked honoured and the answer looked like an
+  answer.
+
+  The OpenAI driver already refused instead, with the reasoning written out
+  beside it. So the rule had been decided once and applied once, while five
+  siblings went on being silent. It moves to `@namzu/sdk` as
+  `assertThinkingUnsupported(driverName, params)`, and a new driver now inherits
+  it rather than re-deciding it.
+
+  The error names the driver, which in a multi-provider setup is the difference
+  between a bug report about the model and a one-line configuration fix.
+
+  **Turning thinking off stays a no-op** on all of them, because that is the
+  state a driver without thinking is already in — a config shared across
+  providers saying `{ type: 'disabled' }` should not fail on the ones that were
+  never going to think.
+
+  `assertThinkingSupported` in `@namzu/openai` is unchanged as an export and now
+  delegates to the shared helper. Its message changed: it no longer says
+  "extended thinking", because `adaptive` is refused too and calling that
+  extended would be wrong.
+
+  **Migration.** If you passed `thinking` to any of the five and relied on it
+  being ignored, remove it — you were receiving a non-thinking answer either way,
+  and now you find out at the call instead of by inspecting an empty array.
+
+  Not in this change: implementing thinking natively on Bedrock, which serves the
+  same Claude models through a different wire and deserves the per-model
+  resolution the Anthropic driver just gained. That needs the Converse request
+  and response shapes verified against the reference first, and is not something
+  to guess at.
+
+- a2cedfd: Adds `runAgent` — a provider, a model and a prompt is now a complete agent run.
+
+  `drainQuery` is the kernel's entry point and takes eleven required parameters,
+  four of which are identity fields that throw when missing. That is the right
+  shape for a kernel: a run with no tenant is a run no auditor can attribute. It
+  is the wrong shape for the first thing anybody writes, and the proof was
+  in-tree — the eval suites, the test files and the CLI each hand-assembled the
+  same block, which is what a missing front door looks like from the inside.
+
+  ```ts
+  const { output } = await runAgent({
+    provider,
+    model,
+    prompt: "What is 2 + 2?",
+  });
+  ```
+
+  It supplies an environment rather than a new engine: it generates the session
+  identity a single-tenant local run has no opinion about, defaults the budgets,
+  and points the working directory at the process's own. Everything it fills in
+  is an ordinary `drainQuery` parameter, so there is no second code path — a
+  caller who outgrows it passes more options until they are calling `drainQuery`
+  in all but name.
+
+  The identity comes back on the result, and that pairing is the point.
+  Generating one silently would make each call its own session — right for a
+  one-shot and wrong for a conversation, where turn two would start with no
+  history and nothing would say so. Spread `result.identity` into the next call
+  to continue the same session.
+
+  `model` stays required. `LLMProvider` carries no model — a driver may have been
+  constructed with one, but the interface does not expose it, so anything
+  inferred here would be a guess billed to the caller.
+
+  Defaults are safe rather than generous, because nobody reads them before their
+  first runaway loop: 16 iterations, a 200k token budget, a 5-minute timeout.
+  Each is overridable and named on the option.
+
+  The README quick start now shows this instead of a bare `provider.chat()` call
+  — that example demonstrated an HTTP client, not the kernel.
+
 ## 4.0.0
 
 ### Major Changes
