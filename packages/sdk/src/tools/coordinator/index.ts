@@ -161,6 +161,47 @@ function normalizeApprovePlanSteps(value: unknown): unknown {
 	}))
 }
 
+/**
+ * The delegate roster, as a closed set — including when it is empty.
+ *
+ * This used to be `agentIds.length > 0 ? z.enum(agentIds) : z.string()`, so
+ * the one input that means "this run may delegate to nobody" became "this run
+ * may name anything". An allow-list *is* the enumeration of the conditions
+ * under which access is permitted; an empty one enumerates nothing and so
+ * admits nothing. Degrading it to an open string instead is **failing open**
+ * (CWE-636: falling back to a state less secure than the alternatives
+ * available, in order to keep functioning) — and CWE-183, *Permissive List of
+ * Allowed Inputs*, catalogues the limit case where the list admits something
+ * unsafe. Saltzer & Schroeder named the underlying rule in 1975 as **fail-safe
+ * defaults**: "the default situation is lack of access, and the protection
+ * scheme identifies conditions under which access is permitted"
+ * (*The Protection of Information in Computer Systems*, §I.A.3(b)). The same
+ * paragraph states the asymmetry that decides it — a mechanism granting
+ * explicit permission tends to fail by refusing, which is detected quickly,
+ * while one enumerating refusals tends to fail by allowing, "a failure which
+ * may go unnoticed in normal use".
+ *
+ * The primary control is that `create_task` is not mounted at all on an empty
+ * roster (see the assembly at the end of this builder). This branch is
+ * defence-in-depth for a definition constructed directly, and should normally
+ * never render: `z.never()` renders as `{"not":{}}`, which is valid draft-07
+ * but sits outside the keyword subset some strict tool-schema validators
+ * accept, and a rejected tool schema fails the whole request rather than the
+ * one tool. `z.enum([])` is no better — it renders an empty `enum` array,
+ * equally outside some validators' subsets.
+ */
+function delegateSchema(agentIds: readonly string[]): z.ZodType<string> {
+	if (agentIds.length === 0) {
+		return z.never({
+			errorMap: () => ({
+				message:
+					'This run has no delegates configured, so it cannot launch a task. That is the configured state, not a missing argument.',
+			}),
+		}) as unknown as z.ZodType<string>
+	}
+	return z.enum(agentIds as [string, ...string[]])
+}
+
 export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefinition[] {
 	const {
 		gateway,
@@ -181,7 +222,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 	const cwd = opts.workingDirectory
 	void opts.onTaskLaunched
 
-	const agentIdEnum = agentIds.length > 0 ? z.enum(agentIds as [string, ...string[]]) : z.string()
+	const agentIdEnum = delegateSchema(agentIds)
 
 	const createTask = defineTool({
 		name: 'create_task',
@@ -403,7 +444,25 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 	// could only ever manufacture a "cancelled" for something already done.
 	// Host-owned interruption still uses the gateway contract directly.
 	void cancelTask
-	const tools: ToolDefinition[] = [createTask, agentTaskList]
+	// An empty roster withholds `create_task` rather than mounting an
+	// unsatisfiable one. Mounting it and refusing at parse time reaches the
+	// same verdict, but it reaches it the expensive way: the model is shown a
+	// tool every turn whose description reads "Available agents: ." and whose
+	// one required parameter no value can satisfy, and it pays a turn to find
+	// that out. That is the shape this codebase already criticises for
+	// per-call denial — the denial is correct and the cost is prompt-prefix
+	// tokens plus an iteration per attempt. Not offering the capability is
+	// least functionality (NIST SP 800-53 Rev. 5 CM-7: provide only
+	// mission-essential capabilities; SC-7(5) states the same rule under the
+	// name "deny by default, allow by exception").
+	//
+	// `create_task` is the only coordinator tool that reads the roster, so the
+	// withholding is exactly one tool wide. "No delegates, but still planning
+	// and a human channel" stays a supported configuration, which is why this
+	// omits rather than refusing to build: a caller asking this builder for
+	// `ask_user_question` with no roster is doing something legitimate.
+	const tools: ToolDefinition[] =
+		agentIds.length > 0 ? [createTask, agentTaskList] : [agentTaskList]
 
 	if (getPlanManager) {
 		const approvePlan = defineTool({
