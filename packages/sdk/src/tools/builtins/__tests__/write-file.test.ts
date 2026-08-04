@@ -27,6 +27,86 @@ function makeContext(workingDirectory: string, tracker?: FileReadTracker): ToolC
 	}
 }
 
+/**
+ * The published contract, pinned exactly.
+ *
+ * This was dropped when the tool gained `newStr`, and dropping it is what let
+ * the two contracts drift apart silently. They are deliberately NOT the same
+ * contract, and that is the thing worth recording: a host driving `execute`
+ * directly may pass `newStr`, and a model may not — because a model given two
+ * names for the body has to choose, and choosing is what produces the
+ * half-filled calls the closed model schema exists to prevent. Nothing said
+ * that out loud once the test asserting it was rewritten to assert the
+ * opposite.
+ */
+describe('WriteFileTool — the published contract', () => {
+	it('publishes one closed path + content shape to the model', () => {
+		expect(WriteFileTool.modelInputSchema).toEqual({
+			type: 'object',
+			properties: {
+				path: {
+					type: 'string',
+					description: 'Relative path to the file to write. Must not be empty.',
+				},
+				content: {
+					type: 'string',
+					description:
+						'Complete file body. Use "" only for an intentionally empty file. Keep under 12000 characters.',
+				},
+			},
+			required: ['path', 'content'],
+			additionalProperties: false,
+		})
+		expect(WriteFileTool.enforceModelInput).toBe(true)
+	})
+
+	it('keeps newStr off the model surface while accepting it from a host', () => {
+		const modelProperties = WriteFileTool.modelInputSchema?.properties as Record<string, unknown>
+		expect(Object.keys(modelProperties)).not.toContain('newStr')
+
+		// The execution schema is the wider one, on purpose.
+		expect(WriteFileTool.inputSchema.safeParse({ path: 'doc.md', newStr: 'body' }).success).toBe(
+			true,
+		)
+	})
+
+	it('requires a body under one name or the other', () => {
+		expect(WriteFileTool.inputSchema.safeParse({ path: 'doc.md' }).success).toBe(false)
+		// An empty string is a body — an intentionally empty file is legal.
+		expect(WriteFileTool.inputSchema.safeParse({ path: 'doc.md', content: '' }).success).toBe(true)
+	})
+
+	it('refuses a whitespace-only path but not a path with edge whitespace', async () => {
+		expect(WriteFileTool.inputSchema.safeParse({ path: '   ', content: 'body' }).success).toBe(
+			false,
+		)
+
+		// The refusal above must not over-reach: ' fresh.txt ' is a legal name
+		// on every filesystem this runs on, and trimming it would write to a
+		// different file than the caller asked for.
+		const dir = mkdtempSync(join(tmpdir(), 'namzu-write-'))
+		const result = await WriteFileTool.execute(
+			{ path: ' fresh.txt ', content: 'hello' },
+			makeContext(dir),
+		)
+
+		expect(result.success).toBe(true)
+		expect(readFileSync(join(dir, ' fresh.txt '), 'utf-8')).toBe('hello')
+	})
+
+	it('rejects an undeclared field even when execute is called directly', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'namzu-write-'))
+
+		const result = await WriteFileTool.execute(
+			{ path: 'fresh.txt', content: 'hello', append: true } as never,
+			makeContext(dir),
+		)
+
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('Invalid write input')
+	})
+})
+
 describe('WriteFileTool — read-before-overwrite invariant', () => {
 	it('writes a new file without requiring a prior read', async () => {
 		const dir = mkdtempSync(join(tmpdir(), 'namzu-write-'))
