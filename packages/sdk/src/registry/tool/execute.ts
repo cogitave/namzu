@@ -1,4 +1,5 @@
 import { SpanStatusCode, context as otelContext, trace } from '@opentelemetry/api'
+import { assertStrictSchema } from '../../provider/strict-schema.js'
 import { GENAI, NAMZU, toolSpanName } from '../../telemetry/attributes.js'
 import { recordToolCall } from '../../telemetry/metrics.js'
 import { getTracer } from '../../telemetry/runtime-accessors.js'
@@ -176,6 +177,21 @@ export class ToolRegistry extends ManagedRegistry<ToolDefinition> {
 			throw new Error(
 				`Tool "${id}" enables enforceModelInput but does not define modelInputSchema. Constrained input generation requires an explicit provider-safe model schema.`,
 			)
+		}
+		// …and the schema has to be one a constrained decoder can actually be
+		// given. The check above asks whether a model schema EXISTS; this asks
+		// whether it can carry the guarantee the tool just requested.
+		//
+		// Both belong here for the reason the comment above already states.
+		// Strict validation runs against a SUBSET of JSON Schema, and a keyword
+		// outside it is not degraded — the request is rejected whole, so one
+		// unexpressible field takes down every other tool in the call. The
+		// first version of this check lived in a provider driver, which meant
+		// it fired per request, in one driver, long after the author had moved
+		// on. A tool that asks for a guarantee its own schema cannot carry is
+		// wrong at the moment it is declared, whichever model it later meets.
+		if (tool.enforceModelInput) {
+			assertStrictSchema(id, tool.modelInputSchema)
 		}
 		if (tool.tier && this.tierConfig) {
 			const validIds = this.tierConfig.tiers.map((t) => t.id)

@@ -12,6 +12,7 @@ import type {
 } from '@namzu/sdk'
 import {
 	ProviderRequestError,
+	assertStrictSchema,
 	assertThinkingUnsupported,
 	isCallerAbortError,
 	modelVersionAtLeast,
@@ -309,12 +310,21 @@ function formatAnthropicRequest(
 	if (params.tools && params.tools.length > 0 && !toolsForbidden) {
 		const enforcedNames = new Set(params.enforceToolInputSchema ?? [])
 		const strictEnabled = shouldUseStrictToolInputs(model ?? '', strictToolUse)
-		body.tools = params.tools.map((t) => ({
-			name: t.function.name,
-			description: t.function.description ?? '',
-			input_schema: t.function.parameters ?? { type: 'object' },
-			...(strictEnabled && enforcedNames.has(t.function.name) ? { strict: true } : {}),
-		}))
+		body.tools = params.tools.map((t) => {
+			const strict = strictEnabled && enforcedNames.has(t.function.name)
+			// The registry refuses an unexpressible schema at declaration, which
+			// is where the fix belongs. This is the second boundary: a host may
+			// build `ChatCompletionParams` by hand and never touch the registry,
+			// and a strict flag on a schema the subset cannot express does not
+			// degrade one field — the vendor rejects the whole request.
+			if (strict) assertStrictSchema(t.function.name, t.function.parameters)
+			return {
+				name: t.function.name,
+				description: t.function.description ?? '',
+				input_schema: t.function.parameters ?? { type: 'object' },
+				...(strict ? { strict: true } : {}),
+			}
+		})
 	}
 
 	if (params.toolChoice !== undefined && !toolsForbidden) {
