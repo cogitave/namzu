@@ -273,6 +273,17 @@ export class AgentManager {
 			if (options.configOverrides?.parentSpan) {
 				childConfig.parentSpan = options.configOverrides.parentSpan
 			}
+			// Stamped for the same reason as the trace parent above: a
+			// `configBuilder` is written by whoever registered the agent and
+			// cannot be trusted to forward something it was never told about.
+			// An explicit override still wins, so a host can hand one child a
+			// different channel — or none.
+			//
+			// Without this every delegated child fell through to
+			// `autoApproveHandler`, so a host's "ask before acting" gate
+			// covered the top-level run and nothing it delegated.
+			const inheritedHandler = options.configOverrides?.resumeHandler ?? context.resumeHandler
+			if (inheritedHandler) childConfig.resumeHandler = inheritedHandler
 		} else {
 			this.log.warn('No configBuilder, using bare config', {
 				agentId: options.agentId,
@@ -292,6 +303,7 @@ export class AgentManager {
 				tenantId: context.tenantId,
 				parentRunId: context.parentRunId,
 				depth: context.depth + 1,
+				resumeHandler: options.configOverrides?.resumeHandler ?? context.resumeHandler,
 			}
 		}
 
