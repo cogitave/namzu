@@ -20,9 +20,15 @@ import type {
  * question — does a convention belong outside the kernel — was answered yes
  * and stands; the shape question had simply never been asked.
  */
-export type ProjectSlot = 'agent' | 'instructions' | 'tools' | 'skills'
+export type ProjectSlot = 'agent' | 'instructions' | 'tools' | 'skills' | 'agents'
 
-export const ALL_SLOTS: readonly ProjectSlot[] = ['agent', 'instructions', 'tools', 'skills']
+export const ALL_SLOTS: readonly ProjectSlot[] = [
+	'agent',
+	'instructions',
+	'tools',
+	'skills',
+	'agents',
+]
 
 /**
  * Whether the loader executes the project's code.
@@ -88,6 +94,8 @@ export type DiagnosticCode =
 	| 'path_escapes_root'
 	| 'unscanned_directory'
 	| 'root_missing'
+	| 'subagent_load_failed'
+	| 'subagent_too_deep'
 
 /**
  * Something the loader could not do, reported rather than dropped.
@@ -117,6 +125,24 @@ export interface ProjectDiagnostic {
 export interface ToolEntry {
 	readonly source: SourceRef
 	readonly definition: ToolDefinition
+}
+
+/**
+ * A delegate this project declares, loaded as a project in its own right.
+ *
+ * Recursion rather than a new concept: a sub-agent directory has the same
+ * shape as its parent, so `agents/researcher/` is read by the same loader
+ * that read the root. One level only — a delegate may not declare delegates of its
+ * own in this version. Unbounded nesting is a topology decision (who may
+ * spawn whom, and how deep) that belongs to whoever composes the system, and
+ * shipping it before that decision means shipping a default nobody chose.
+ */
+export interface SubAgentEntry {
+	readonly source: SourceRef
+	/** The delegate's own manifest — its instructions, tools and config. */
+	readonly manifest: ProjectManifest
+	/** Directory-derived, and the id a supervisor delegates to. */
+	readonly id: string
 }
 
 export interface SkillEntry {
@@ -167,6 +193,8 @@ export interface ProjectManifest {
 	readonly config: ProjectConfig
 	readonly tools: readonly ToolEntry[]
 	readonly skills: readonly SkillEntry[]
+	/** Delegates this project declares. Empty unless it has an `agents/` slot. */
+	readonly agents: readonly SubAgentEntry[]
 	/** Every file considered, with its outcome. An inspector's ground truth. */
 	readonly sources: readonly SourceRef[]
 	/** Which slots were scanned. What `ok` is scoped to. */

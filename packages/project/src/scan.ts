@@ -82,9 +82,12 @@ export async function scanSlot(
 			continue
 		}
 
+		// Two slots hold DIRECTORIES rather than files: a skill is a folder
+		// with a SKILL.md, and a delegate is a whole project directory.
+		const directorySlot = slot === 'skills' || slot === 'agents'
+
 		if (stats.isDirectory()) {
-			// `skills/` is the one slot whose entries ARE directories.
-			if (slot === 'skills') {
+			if (directorySlot) {
 				files.push({
 					path: candidate,
 					relativePath: `${dirName}/${name}`,
@@ -102,7 +105,9 @@ export async function scanSlot(
 		}
 
 		if (!stats.isFile()) continue
-		if (slot === 'skills') continue
+		// A loose file in a directory slot is not an error worth a diagnostic —
+		// a README beside the skill folders is normal.
+		if (directorySlot) continue
 
 		if (!CODE_EXTENSIONS.has(extname(name))) {
 			diagnostics.push({
