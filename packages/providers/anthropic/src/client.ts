@@ -15,12 +15,15 @@ import type {
 } from '@namzu/sdk'
 import {
 	ProviderRequestError,
+	assertStrictSchema,
 	isCallerAbortError,
 	isProviderRequestError,
+	modelVersionAtLeast,
 	providerVendorError,
 	toolResultToText,
 } from '@namzu/sdk'
 import {
+	MODEL_ID_GRAMMAR,
 	resolveEffort,
 	resolveThinkingBody,
 	resolveThinkingCapability,
@@ -363,6 +366,12 @@ function toAnthropicTools(
 	const enforcedNames = new Set(params.enforceToolInputSchema ?? [])
 	const tools: AnthropicToolParam[] = params.tools.map((t) => {
 		const strict = strictToolUseEnabled && enforcedNames.has(t.function.name)
+		// Checked exactly where the pairing is made, because this is the only
+		// place both facts are in hand: that this schema is going out, and that
+		// this driver is about to vouch for it. A schema outside the strict
+		// subset is not degraded by the vendor — the whole request is rejected,
+		// so one unexpressible field takes down every other tool with it.
+		if (strict) assertStrictSchema(t.function.name, t.function.parameters)
 		return {
 			name: t.function.name,
 			description: t.function.description ?? '',
@@ -389,13 +398,11 @@ function shouldUseStrictToolInputs(
 
 	const normalized = model.toLowerCase()
 	if (/^(?:anthropic\/)?claude-mythos-preview$/.test(normalized)) return true
-	const version = normalized.match(
-		/^(?:anthropic\/)?claude-(?:haiku|sonnet|opus|fable|mythos)-(\d+)(?:[-_.](\d+))?(?:-\d{8})?$/,
-	)
-	if (!version) return false
-	const major = Number(version[1])
-	const minor = Number(version[2] ?? 0)
-	return major > 4 || (major === 4 && minor >= 5)
+	// Shared matcher. The copy that stood here read the 8-digit date suffix as
+	// the minor version, so `claude-sonnet-4-20250514` compared as 4.20250514
+	// and cleared this 4.5 gate — strict tool inputs were enabled for a model
+	// below the threshold.
+	return modelVersionAtLeast(normalized, MODEL_ID_GRAMMAR, 4, 5)
 }
 
 function toAnthropicToolChoice(tc?: ToolChoice, parallelToolCalls?: boolean): unknown {

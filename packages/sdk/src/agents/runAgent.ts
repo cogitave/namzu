@@ -114,9 +114,9 @@ export interface RunAgentResult {
  * dollars, and an iteration cap that stops a tool-calling loop well before a
  * context window does. Every one is overridable and named on the option.
  */
-const DEFAULT_MAX_ITERATIONS = 16
-const DEFAULT_TOKEN_BUDGET = 200_000
-const DEFAULT_TIMEOUT_MS = 300_000
+export const DEFAULT_MAX_ITERATIONS = 16
+export const DEFAULT_TOKEN_BUDGET = 200_000
+export const DEFAULT_TIMEOUT_MS = 300_000
 
 /**
  * Run an agent, without assembling a kernel by hand.
