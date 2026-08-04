@@ -161,6 +161,36 @@ function normalizeApprovePlanSteps(value: unknown): unknown {
 	}))
 }
 
+/**
+ * The delegate roster, as a closed set — including when it is empty.
+ *
+ * This used to be `agentIds.length > 0 ? z.enum(agentIds) : z.string()`, so
+ * the one input that means "this run may delegate to nobody" became "this run
+ * may name anything". An allow-list that admits everything when it is empty is
+ * the failure Saltzer & Schroeder named in 1975 as the violation of
+ * **fail-safe defaults** — "the default situation is lack of access, and the
+ * protection scheme identifies conditions under which access is permitted"
+ * (§3.A.2, *The Protection of Information in Computer Systems*). CWE-183,
+ * *Permissive List of Allowed Inputs*, is the same defect catalogued.
+ *
+ * `z.never()` is the closed reading: every value fails, so an empty roster
+ * refuses every delegation, and the refusal lands at the tool's own boundary
+ * with a message naming the cause — rather than travelling on to
+ * `AgentManager`'s registry, which fails later and reports a missing agent
+ * instead of an empty roster.
+ */
+function delegateSchema(agentIds: readonly string[]): z.ZodType<string> {
+	if (agentIds.length === 0) {
+		return z.never({
+			errorMap: () => ({
+				message:
+					'This run has no delegates configured, so it cannot launch a task. That is the configured state, not a missing argument.',
+			}),
+		}) as unknown as z.ZodType<string>
+	}
+	return z.enum(agentIds as [string, ...string[]])
+}
+
 export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefinition[] {
 	const {
 		gateway,
@@ -181,7 +211,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 	const cwd = opts.workingDirectory
 	void opts.onTaskLaunched
 
-	const agentIdEnum = agentIds.length > 0 ? z.enum(agentIds as [string, ...string[]]) : z.string()
+	const agentIdEnum = delegateSchema(agentIds)
 
 	const createTask = defineTool({
 		name: 'create_task',

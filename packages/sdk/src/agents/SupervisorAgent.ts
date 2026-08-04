@@ -198,8 +198,45 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 				tools.register(tool, config.tools.getAvailability(tool.name))
 			}
 		}
+		// Registered the way every other kernel-mounted tool in this SDK is
+		// registered: honouring `runtimeToolOverrides`, and refusing to take a
+		// name the host already used.
+		//
+		// Both halves were missing here and nowhere else. `runtimeToolOverrides`
+		// is declared on `AgentInput`, is forwarded into this very `drainQuery`
+		// call below, and is consulted for the task tools and for the advisory
+		// tools — but the coordinator tools were registered before that and
+		// unconditionally, so `{ create_task: 'disabled' }` was honoured
+		// everywhere except the one surface a host would most want to decline.
+		// A run that must not delegate had prompt text and a gateway refusal as
+		// its only defences.
+		//
+		// Collision REFUSES rather than overwrites. Two sources contributed the
+		// same tool name and nothing in this SDK ranks them: the coordinator
+		// tools are the kernel's, and `config.tools` is the embedding host's —
+		// the most trusted party present, not a plugin whose shadowing can be
+		// dropped on trust grounds. `ManagedRegistry` resolves it by warning and
+		// replacing, which is a sane registry default and the wrong answer for a
+		// contract surface: the model keeps a `create_task` whose behaviour
+		// silently depends on registration order, and a log warning is not
+		// something a host can act on before the run starts. Refusing an
+		// ambiguous authorization rather than guessing at it is fail-safe
+		// defaults (Saltzer & Schroeder 1975, §3.A.2), and it is what peer
+		// runtimes do for the same shape: an agent SDK raises on duplicate tool
+		// names contributed by two connector servers rather than picking one,
+		// and a second raises when its namespacing cannot disambiguate two
+		// dynamic providers, naming the manual fix in the message. This does the
+		// same — and the fix it names is a mechanism this SDK already has.
+		const overrides = input.runtimeToolOverrides
 		for (const tool of coordinatorToolDefs) {
-			tools.register(tool)
+			const override = overrides?.[tool.name]
+			if (override === 'disabled') continue
+			if (config.tools?.has(tool.name)) {
+				throw new Error(
+					`Coordinator tool "${tool.name}" collides with a tool this host already registered. The kernel will not replace it. Rename the host tool, or decline the coordinator one with runtimeToolOverrides: { "${tool.name}": "disabled" }.`,
+				)
+			}
+			tools.register(tool, override ?? 'active')
 		}
 
 		const childInvocationState = deriveChildState(
