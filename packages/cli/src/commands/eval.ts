@@ -283,7 +283,7 @@ export const evalCommand: CommandDef = {
 		const program = new Command('eval')
 			.exitOverride()
 			.description('Run eval suites and set an exit code')
-			.option('-d, --dir <path>', 'Directory to discover *.eval.js suites in', 'evals')
+			.option('-d, --dir <path>', 'Directory to discover *.eval.js suites in', 'packages/evals')
 			.option('-t, --tag <tag>', 'Only run suites declaring this tag')
 			.option('-o, --out <file>', 'Write the full JSON report to this path')
 			.option(
