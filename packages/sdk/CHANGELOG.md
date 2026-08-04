@@ -1,5 +1,255 @@
 # Changelog
 
+## 4.0.0
+
+### Major Changes
+
+- c3cb587: `read`, `write` and `edit` are now contained to the working directory.
+
+  All three called `resolve(workingDirectory, input.path)` bare, so
+  `path: "../../.."` reached whatever sits above the working directory and the
+  tool used it. No sandbox had to be misconfigured for this — it holds with no
+  sandbox at all, which is the common case, so a model that asks for a parent
+  directory got one. `resolveWithin` existed the whole time and these three
+  never reached it; the search tools (`glob`, `grep`, `ls`) did.
+
+  A lexical check alone would not have been the fix. `atomicWriteFile` resolves
+  its destination and writes _through_ a symlink deliberately, so that editing a
+  linked file updates the target rather than replacing the link with a regular
+  file. Paired with a lexical check that is check-then-follow: a link inside the
+  working directory pointing outside it climbs nothing on paper, and the write
+  lands outside anyway (CWE-59). Containment is therefore decided after
+  canonicalization, which is the ordering CWE-22 states as the mitigation for
+  the family: canonicalize, then validate the canonical form.
+
+  Two details the new resolver has to get right, because getting either wrong
+  breaks ordinary use rather than failing safe:
+
+  - The root can itself be a symlink — `os.tmpdir()` is one on macOS — so both
+    sides are canonicalized. Canonicalizing only the candidate would refuse
+    every path under a temp directory.
+  - The target may not exist yet, and `realpath` throws on a missing path. The
+    deepest existing ancestor is canonicalized and the remainder appended
+    lexically; the remainder cannot hide a link because nothing is there to be
+    one.
+
+  This does not claim TOCTOU safety. A component swapped for a symlink between
+  the check and the open would still be followed — closing that needs
+  per-component `openat`/`O_NOFOLLOW`, which Node does not expose. The threat
+  addressed is a link that is already present.
+
+  **Migration.** If a host relied on these tools reaching outside
+  `workingDirectory` — reading a config beside the repo, writing to a sibling
+  output directory — those calls now fail with "Path escapes the working
+  directory". Point `workingDirectory` at a root that contains everything the
+  run legitimately needs. Sandboxed runs are unaffected: the sandbox has its own
+  root and its own resolver, and the host-side canonicalization deliberately
+  does not run on that branch.
+
+- a1f67f3: Two allow-lists in the delegation surface stop failing open, and a host can
+  now decline a coordinator tool.
+
+  ## An empty delegate roster means nobody
+
+  `create_task` derived its `agent_id` parameter from `allowedAgentIds` but
+  widened it from the roster enum to a bare string whenever that roster was
+  empty — so the one configuration meaning "this run may delegate to nobody" was
+  the only one that let the model name anybody. An allow-list _is_ the
+  enumeration of what is permitted; an empty one enumerates nothing and admits
+  nothing. Degrading it to an open string to keep functioning is failing open
+  (CWE-636), and the rule it breaks is fail-safe defaults (Saltzer & Schroeder
+  1975, §I.A.3(b)), restated in NIST SP 800-53 Rev. 5 as SC-7(5) "deny by
+  default, allow by exception".
+
+  What that reached is why this is worth a break. The id was not merely rejected
+  downstream: it went to the gateway, which resolves against an `AgentManager`
+  that is typically **shared**, so an agent the host deliberately left out of
+  `agentIds` could still launch if it happened to be registered there. When it
+  was not registered, the failure text listed every registered agent id back to
+  the model, and the plan row was left stranded at `in_progress` because the
+  store write precedes the gateway call while the reconciling update follows it.
+
+  `create_task` is now **not mounted** when the roster is empty, rather than
+  mounted with a schema nothing satisfies — refusing per call reaches the same
+  verdict while paying prompt-prefix tokens and an iteration for it (NIST SP
+  800-53 CM-7, least functionality). It is the only coordinator tool that reads
+  the roster, so `agent_task_list`, `approve_plan` and `ask_user_question` are
+  untouched: "no delegates, but still planning and a human channel" remains a
+  supported configuration. The schema stays closed underneath as defence in
+  depth. If you construct a supervisor with `agentIds: []` and expected
+  `create_task` to be callable, populate the roster — there is no flag that
+  restores the old shape, because the old shape could not correctly succeed.
+
+  `buildAgentTool` carried the identical fallback and now throws at construction
+  instead: it returns exactly one tool and that tool _is_ the delegation surface,
+  so "do not mount it" and "do not build it" are the same statement. It also
+  never checked `subagent_type` against the roster inside `execute`, which is
+  reachable without going through the registry; it does now.
+
+  ## A host can decline a coordinator tool
+
+  `runtimeToolOverrides` is this SDK's declared way to decline a kernel-mounted
+  tool. It is honoured for the task tools and the advisory tools, and
+  `SupervisorAgent` forwards it into its own `drainQuery` call — but it
+  registered the coordinator tools before that, unconditionally, so
+  `{ create_task: 'disabled' }` was obeyed everywhere except the one surface a
+  host would most want to decline. A run that must not delegate had prompt text
+  and a gateway refusal as its only defences. This half is pure gap-closure: the
+  mechanism, the type and two other call sites already existed, and coordinator
+  registration now uses the same idiom.
+
+  ## Collisions refuse instead of overwriting
+
+  This half is new policy, not a gap-closure. Registration now throws
+  `ToolNameCollisionError` (exported, carrying `toolName`) when a coordinator
+  tool's name is already registered on the supervisor's `tools`, instead of the
+  registry's warn-and-overwrite. The reserved names are `create_task`,
+  `agent_task_list`, `approve_plan`, and `ask_user_question` — grep for those
+  four.
+
+  The old behaviour was not "the host's tool quietly loses and the run works".
+  `registerOne` ends by setting availability, and the coordinator call passed
+  none, so a tool the host registered `deferred` or `suspended` was silently
+  promoted to `active` under someone else's implementation; and because the
+  backing store is a `Map`, the replacement inherited the host's insertion
+  position in the prompt-cache prefix. That is a different authorization surface,
+  not a lost registration — detection of an error condition without action
+  (CWE-390), where CWE-694's own mitigation is nearly this fix. Complete
+  mediation is the principle (§I.A.3(c)): a registry entry is a remembered
+  binding of a name to an authority, and rebinding it leaves every decision made
+  about the old binding stale.
+
+  To migrate: rename your tool, or keep your name and decline the coordinator one
+  with `runtimeToolOverrides: { "create_task": "disabled" }`. The error names
+  both routes.
+
+- df07db8: Removes `ToolCatalogSurface` and `ToolsetPolicy.surfaces`.
+
+  Both were deprecated in 3.2.0 and shipped deprecated again in 3.3.0, so the
+  window SemVer asks for — at least one minor release in which working code
+  compiles and warns — has been served twice. The deprecation said "slated for
+  removal in the next major"; this is that major, and letting it pass would move
+  the promise to 5.0.0.
+
+  Nothing produced or read either one. No code constructed a member of the
+  union, and `surfaces` was the only field carrying it and was never consulted,
+  so there is no runtime behaviour to change and no working code to migrate:
+  setting it did nothing before and the field is gone now. Under this repo's
+  release rule that is the case where a removal may go straight to major, and it
+  is being said here as that rule asks.
+
+  It was also the wrong axis. Which tools a run may use is already expressible
+  four ways, all per-run and dynamic where this was fixed at definition:
+  `allowedTools` on the query, `ToolAvailability` (`active` / `deferred` /
+  `suspended`) with mid-run activation, `runtimeToolOverrides`, and capability
+  negotiation stripping tools a driver cannot carry. If you set `surfaces`,
+  `allowedTools` is the replacement — it says the same thing per run.
+
+  `SharedRunWorkspace` is unchanged and stays exported without an SDK-side
+  caller. That is deliberate and now documented on the class: its config asks for
+  a host filesystem root and the path an agent will see, which is a deployment
+  shape the kernel does not own. `runtimeRoot` and the paths `refs()` derives
+  from it are the contract.
+
+- 19f390a: A delegated agent's output is now framed as untrusted material, and the
+  framing itself can no longer be forged.
+
+  **Why the child→parent return.** A delegated worker is the component most
+  likely to have consumed something nobody in the run authored: it was handed a
+  task like "read these files and report", it ran `read`, `grep`, possibly a
+  connector fetch over material the user did not write, and its final text
+  landed directly in the parent's context — where the parent typically holds a
+  broader tool grant than the child that produced the text. An unlabelled block
+  there reads as the parent's own reasoning. Connector-supplied prompts already
+  got this treatment; the delegation surface had none.
+
+  `create_task` and the `Agent` tool now wrap their `output` in a
+  `<namzu-untrusted kind="agent-result">` frame naming the agent and task, with
+  one line saying the content is material rather than direction. The worker's
+  text is unaltered inside it, and `data.result` carries it verbatim, so a host
+  reading the result programmatically is unaffected — only the model-facing
+  string changed.
+
+  **The framing was forgeable, and that is fixed.** The existing envelope around
+  connector prompts built its tag by hand and interpolated remote text straight
+  into the body. A prompt whose content contained `</mcp-prompt>` closed the
+  block early, and everything the server wrote after that read as unlabelled —
+  which is to say, as this agent's own instructions. The label was the entire
+  mitigation and the labelled party could remove it. `wrapUntrusted` now defangs
+  the delimiter case-insensitively (a model reads `</NAMZU-UNTRUSTED>` as the
+  same tag) and escapes attribute values, so a source name carrying a quote
+  cannot rewrite the tag it appears in.
+
+  Two decisions worth stating because the obvious alternatives are wrong:
+
+  - **No length threshold.** Skipping short payloads to save tokens leaves the
+    cheapest carrier unframed; an instruction fits in a tweet.
+  - **No "already wrapped, skip it" fast path.** That check is forgeable —
+    content merely beginning with the opening tag would pass through with no
+    framing at all. Wrapping twice is harmless; not wrapping once is not.
+
+  `wrapUntrusted`, `neutralizeEnvelopeDelimiter` and `UntrustedEnvelope` are
+  exported, so a host surfacing its own untrusted content to a model can use the
+  same framing rather than inventing one.
+
+  **Migration.** If you assert on `create_task` or `Agent` output text, read
+  `data.result` instead — it is the worker's text with nothing added. If you
+  call `renderPromptMessages` directly, its output opens with
+  `<namzu-untrusted kind="mcp-prompt" …>` rather than `<mcp-prompt …>`.
+
+### Minor Changes
+
+- 2b9d90e: `edit` can do the thing its own description tells the model to do.
+
+  The tool description says _"For insertions, pass insertLine … use `insertLine: "end"` to extend a file at the end"_, and `write-file` and `bash` point at the same idiom. But `modelInputSchema` advertised only `path`/`old_string`/`new_string`/`replace_all` with `additionalProperties: false`, and `enforceModelInput: true` — so under constrained decoding the append idiom the prompt recommends was the one idiom a model could not emit. A consuming host measured the result over seven days on one tenant: **94 of 159 tool failures** were `edit` rejecting an `insertLine` whose spelling the model had guessed.
+
+  `insertLine` is now in the model-facing schema as `oneOf: [integer ≥ 0, "end"]`. Declaring the union that way also removes the synonym problem at its source: for a provider that constrains generation, `"EOF"` is not emittable, because `"end"` is the only string the schema admits.
+
+  `old_string` leaves `required`, because an insert has no text to match — requiring it is exactly what made the idiom unexpressible. Which of `old_string` / `insertLine` is present is decided by the two refinements the execution schema already carries. That is deliberate over a top-level `oneOf`: strict structured-output modes are least surprising with a flat object, and a discriminated union at the root is the construct most likely to be rejected or quietly ignored. The cost is that an incomplete call is now expressible and caught at execution rather than generation — paid knowingly, since the alternative is a working capability nothing can reach.
+
+  For providers that do **not** constrain, `insertLine` also accepts `eof`, `append`, `last` and `end_of_file`. Liberal at execution and strict in the schema is the right way round: none of those is ambiguous, and refusing one bought strictness at the price of a full model round trip. The rejection message now names the value it received.
+
+  Also here, same file family: **`write` refuses a whitespace-only path**, which `edit` has always refused. `.min(1)` admits `"   "`, which resolves to the working directory and fails as an unreadable directory-write error. Two mutating tools disagreeing about the same input is the kind of gap a model finds and a reviewer does not.
+
+- 4be54ca: Three sandbox and delegation gaps, all of the same kind: something declared,
+  threaded through types, and never driven.
+
+  **`SandboxExecOptions.signal` now works — on the backend where it can.** The
+  option was declared, documented and exported, with a docstring stating that
+  without it "a Stop could only ever abandon the _wait_ — the sandboxed process
+  kept running after the host believed the run had been cancelled". Every
+  backend dropped it, so that is exactly what happened. The local sandbox now
+  merges the caller's signal with the call's own deadline and hands the result to
+  `spawn`, so the child actually dies; a cancelled run is no longer reported as
+  `timedOut`, because a run someone stopped did not run too long, and telling the
+  model otherwise invites a retry with a bigger budget.
+
+  The remote backends still ignore it, now explicitly and with the reason in the
+  source. Their wire has no cancel op, so aborting the request would abandon the
+  wait while the command kept running — the original failure, wearing the
+  appearance of a fix. `SandboxExecOptions.signal` documents which backends
+  honour it.
+
+  **`ls` respects the sandbox.** It read the host through `node:fs` and named
+  `context.sandbox` nowhere, in the one builtin whose whole job is telling the
+  model what exists — so under a container or microVM backend the model's picture
+  of the filesystem was the host's. Its paths were host-relative too, while
+  `read`, `grep` and `glob` all resolve inside the sandbox, so an ls-to-read
+  handoff either failed or opened a different file than the one listed. `glob`
+  had the identical defect, was fixed, and its fix notes that "every sibling
+  builtin already remembers this branch"; this was the sibling that did not.
+
+  One behaviour difference worth knowing: inside a sandbox, directories are
+  derived from file paths, because `listFiles` reports files. An empty directory
+  is invisible there.
+
+  **The `Agent` tool's header described a design that no longer exists.** It told
+  readers to prefer `Agent` because `create_task` was a non-blocking trio driven
+  by notification callbacks. `create_task` blocks and returns the worker's output
+  as its own result, and `continue_task` / `cancel_task` are not registered at
+  all. The two tools are separated by how much of the coordinator surface they
+  bring, not by timing.
+
 ## 3.3.0
 
 ### Minor Changes
