@@ -32,6 +32,7 @@ import {
 	isProviderRequestError,
 	providerVendorError,
 } from '@namzu/sdk'
+import { assertModelReachable } from './model-reachability.js'
 import type { BedrockConfig } from './types.js'
 
 function extractSystemBlocks(messages: ChatCompletionParams['messages']): SystemContentBlock[] {
@@ -283,6 +284,10 @@ export class BedrockProvider implements LLMProvider {
 
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
 		assertThinkingUnsupported('BedrockProvider', params)
+		// Before any AWS call: an unreachable model id fails here with the
+		// reason and the fix, rather than as an opaque validation error from
+		// a service that was asked for something this wire does not carry.
+		assertModelReachable(params.model)
 		const system = extractSystemBlocks(params.messages)
 		const messages = toBedrockMessages(params.messages)
 		const toolConfig = toBedrockToolConfig(params)
