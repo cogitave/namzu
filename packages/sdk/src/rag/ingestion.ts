@@ -48,6 +48,7 @@ export class DefaultIngestionPipeline implements IngestionPipeline {
 			documentId,
 			knowledgeBaseId,
 			tenantId: scope.tenantId,
+			...(scope.namespace !== undefined ? { namespace: scope.namespace } : {}),
 			content: cc.content,
 			index: cc.index,
 			tokenCount: estimateTokens(cc.content),

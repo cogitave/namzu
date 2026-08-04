@@ -76,6 +76,7 @@ export class DefaultRetriever implements Retriever {
 			embedding,
 			topK: config.topK,
 			tenantId: scope.tenantId,
+			...(scope.namespace !== undefined ? { namespace: scope.namespace } : {}),
 			knowledgeBaseId,
 			minScore: config.minScore,
 		})
@@ -92,6 +93,7 @@ export class DefaultRetriever implements Retriever {
 			embedding,
 			topK: config.topK * 2,
 			tenantId: scope.tenantId,
+			...(scope.namespace !== undefined ? { namespace: scope.namespace } : {}),
 			knowledgeBaseId,
 			minScore: 0,
 		})
