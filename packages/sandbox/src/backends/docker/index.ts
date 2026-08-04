@@ -561,6 +561,12 @@ async function execViaWorker(
 	argv: string[] | undefined,
 	opts: SandboxExecOptions | undefined,
 ): Promise<SandboxExecResult> {
+	// `opts.signal` is deliberately NOT passed to `fetch`. It would abort the
+	// request and leave the worker running the command — abandoning the wait
+	// while the process lives on is the exact failure
+	// `SandboxExecOptions.signal` exists to prevent, and wiring it here would
+	// make the option look honoured while delivering that failure. Honouring
+	// it needs a cancel endpoint on the worker.
 	const start = Date.now()
 	let res: Response
 	try {

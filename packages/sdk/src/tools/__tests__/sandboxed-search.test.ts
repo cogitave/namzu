@@ -4,6 +4,7 @@ import type { Sandbox } from '../../types/sandbox/index.js'
 import type { ToolContext } from '../../types/tool/index.js'
 import { GlobTool } from '../builtins/glob.js'
 import { GrepTool } from '../builtins/grep.js'
+import { LsTool } from '../builtins/ls.js'
 
 /**
  * Both tools reached `node:fs` directly and referenced `context.sandbox`
@@ -134,6 +135,71 @@ describe('grep inside a sandbox', () => {
 	it('refuses a path that climbs out of the sandbox root', async () => {
 		const sandbox = fakeSandbox({ 'a.ts': 'needle\n' })
 		const result = await GrepTool.execute(args({ path: '../../etc' }), context(sandbox))
+		expect(result.success).toBe(false)
+		expect(result.error).toMatch(/escapes the working directory/)
+	})
+})
+
+/**
+ * `ls` was the sibling `glob`'s fix claimed already remembered this branch.
+ * It did not: it read the host through `node:fs` and named `context.sandbox`
+ * nowhere — in the one builtin whose entire job is telling the model what
+ * exists, so the model's picture of the filesystem was the host's.
+ */
+describe('ls inside a sandbox', () => {
+	const lsArgs = (over: Record<string, unknown> = {}) =>
+		({ path: '.', all: false, recursive: false, max_depth: 3, ...over }) as never
+
+	it('enumerates through the sandbox, not the host', async () => {
+		const sandbox = fakeSandbox({ 'src/a.ts': 'a', 'README.md': 'r' })
+		const result = await LsTool.execute(lsArgs(), context(sandbox))
+
+		expect(sandbox.listFiles).toHaveBeenCalled()
+		expect(result.data).toMatchObject({ sandboxed: true })
+		expect(result.output).not.toContain(HOST_ROOT)
+	})
+
+	it('shows one level: a nested file appears as its directory', async () => {
+		const sandbox = fakeSandbox({ 'src/a.ts': 'a', 'README.md': 'r' })
+		const result = await LsTool.execute(lsArgs(), context(sandbox))
+
+		expect(result.output).toContain('src/')
+		expect(result.output).toContain('README.md')
+		// One level means one level — the nested file is not listed here.
+		expect(result.output).not.toContain('a.ts')
+	})
+
+	it('returns paths the sandbox-side reader can actually open', async () => {
+		const sandbox = fakeSandbox({ 'src/a.ts': 'a' })
+		const result = await LsTool.execute(lsArgs({ recursive: true }), context(sandbox))
+
+		expect(result.output).toContain('./src/a.ts')
+		expect(result.output).not.toContain(HOST_ROOT)
+	})
+
+	it('respects max_depth when recursing', async () => {
+		const sandbox = fakeSandbox({ 'a/b/c/deep.ts': 'd', 'a/shallow.ts': 's' })
+		const result = await LsTool.execute(lsArgs({ recursive: true, max_depth: 2 }), context(sandbox))
+
+		expect(result.output).toContain('./a/shallow.ts')
+		expect(result.output).not.toContain('deep.ts')
+	})
+
+	it('hides dotfiles unless asked, at any depth', async () => {
+		const sandbox = fakeSandbox({ '.env': 'SECRET=1', 'src/.hidden/x.ts': 'x', 'src/a.ts': 'a' })
+
+		const hidden = await LsTool.execute(lsArgs({ recursive: true }), context(sandbox))
+		expect(hidden.output).not.toContain('.env')
+		expect(hidden.output).not.toContain('.hidden')
+
+		const shown = await LsTool.execute(lsArgs({ recursive: true, all: true }), context(sandbox))
+		expect(shown.output).toContain('.env')
+	})
+
+	it('refuses a path that climbs out of the sandbox root', async () => {
+		const sandbox = fakeSandbox({ 'a.ts': 'a' })
+
+		const result = await LsTool.execute(lsArgs({ path: '../../etc' }), context(sandbox))
 		expect(result.success).toBe(false)
 		expect(result.error).toMatch(/escapes the working directory/)
 	})
