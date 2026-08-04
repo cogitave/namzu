@@ -30,10 +30,17 @@ export interface AgentManagerContract {
 	 *
 	 * Kept, and documented rather than deleted, because `drainMessages` is
 	 * the only way a host can pick these up at all — removing it would take
-	 * away the escape hatch and leave the trap. Two delivery routes that DO
-	 * work today: reject/modify feedback rides inside a tool result, and
-	 * `prepareStep`'s `system` string is appended to the next model call
-	 * from a hook that sees live history.
+	 * away the escape hatch and leave the trap.
+	 *
+	 * **For mid-run guidance, use `SteeringChannel` instead.** That is the
+	 * delivery handshake this queue was missing: text queued on it is
+	 * appended to the running batch's last `tool_result`, which is the only
+	 * slot a provider accepts mid-batch, and the loop drains it. Pass one as
+	 * `steering` on `drainQuery` params or on `SupervisorAgentConfig`.
+	 *
+	 * Two other routes also work: reject/modify feedback rides inside a tool
+	 * result, and `prepareStep`'s `system` string is appended to the next
+	 * model call from a hook that sees live history.
 	 */
 	continueTask(taskId: TaskId, message: string): Promise<void>
 	/** See {@link continueTask} — queued, not delivered. */
