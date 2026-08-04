@@ -14,6 +14,22 @@ export interface RetrievalConfig {
 
 export interface RetrievalQuery {
 	text: string
+	/**
+	 * **Not consulted.** No chunk carries a project, so there is nothing to
+	 * match it against: ingestion stamps a tenant and a namespace, and
+	 * `KnowledgeBaseConfig` has no project field to stamp a third from.
+	 *
+	 * Left declared and said out loud rather than quietly filtering on it.
+	 * Wiring one end of an isolation dimension is worse than wiring
+	 * neither — a query that filters against a value nothing writes returns
+	 * zero rows, and "no results" reads as "nothing matched" rather than
+	 * "this scope does not exist". Partition with
+	 * {@link TenantScope.namespace}, which is stamped at ingest and matched
+	 * at search.
+	 *
+	 * @deprecated Use `TenantScope.namespace` until a project reaches
+	 * ingestion.
+	 */
 	projectId?: ProjectId
 	recentMessages?: string[]
 	config?: Partial<RetrievalConfig>

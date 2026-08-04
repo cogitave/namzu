@@ -16,6 +16,15 @@ export interface Chunk {
 	documentId: DocumentId
 	knowledgeBaseId: KnowledgeBaseId
 	tenantId: TenantId
+	/**
+	 * The partition this chunk was ingested into, from `TenantScope`.
+	 *
+	 * `TenantScope.namespace` and `KnowledgeBaseConfig.namespace` were both
+	 * declared from the start and neither reached storage: ingestion copied
+	 * `scope.tenantId` onto every chunk and dropped the namespace, so a
+	 * partition a host had asked for did not exist at all.
+	 */
+	namespace?: string
 	content: string
 	index: number
 	tokenCount: number

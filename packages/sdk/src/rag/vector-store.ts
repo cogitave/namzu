@@ -20,6 +20,11 @@ export class InMemoryVectorStore implements VectorStore {
 
 		for (const chunk of this.chunks.values()) {
 			if (chunk.tenantId !== query.tenantId) continue
+			// Equality INCLUDING absence: an omitted namespace is the default
+			// partition, not the absence of a filter. Treating it as no filter
+			// is how the boundary leaks — a caller who never asked for a
+			// namespace would see every namespaced chunk in the tenant.
+			if (chunk.namespace !== query.namespace) continue
 			if (query.knowledgeBaseId && chunk.knowledgeBaseId !== query.knowledgeBaseId) continue
 			if (!chunk.embedding) continue
 
