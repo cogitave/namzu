@@ -99,12 +99,40 @@ const modelInputSchema: Record<string, unknown> = {
 			description:
 				'Exact replacement text. May be empty to delete old_string. Keep under 12000 characters.',
 		},
+		insertLine: {
+			// The union the execution schema already accepts, stated so a
+			// constrained decoder can emit it. Declaring it as `oneOf` of an
+			// integer and the literal `"end"` also makes the synonym problem
+			// structurally impossible: `"EOF"`, `"append"` and `"last"` are
+			// not emittable, because `"end"` is the only string the schema
+			// admits.
+			oneOf: [{ type: 'integer', minimum: 0 }, { const: 'end' }],
+			description:
+				'Insert instead of replacing. The new_string goes after this 1-indexed line; 0 inserts before the first line; "end" appends. Omit for a find-and-replace.',
+		},
 		replace_all: {
 			type: 'boolean',
 			description: 'Replace every occurrence instead of requiring one unique match.',
 		},
 	},
-	required: ['path', 'old_string', 'new_string'],
+	// `old_string` is deliberately NOT required, and this is the fix.
+	//
+	// The tool's own description tells the model to append with `insertLine`,
+	// and this schema forbade the field while `enforceModelInput` was on — so
+	// the idiom the prompt ordered was the one idiom a constrained model could
+	// not express. Requiring `old_string` reintroduces that, since an insert
+	// has no text to match.
+	//
+	// Which of `old_string` / `insertLine` is present is decided by the two
+	// refinements on the execution schema, which already exist and name what
+	// is missing. That is a deliberate choice over a top-level `oneOf`: strict
+	// structured-output modes are least surprising with a flat object, and a
+	// discriminated union at the root is the construct most likely to be
+	// rejected or quietly ignored by a provider. The cost is that an
+	// incomplete call is now expressible and caught at execution rather than
+	// at generation — paid knowingly, because the alternative is that a
+	// working capability stays unreachable.
+	required: ['path', 'new_string'],
 	additionalProperties: false,
 }
 
@@ -130,7 +158,7 @@ export const EditTool = defineTool({
 	modelInputSchema,
 	enforceModelInput: true,
 	validationErrorHint:
-		'Required shape: {"path":"file.md","old_string":"exact unique text","new_string":"replacement text"}. Optional: "replace_all": true.',
+		'Two shapes. Replace: {"path":"file.md","old_string":"exact unique text","new_string":"replacement text"} (optional "replace_all": true). Insert: {"path":"file.md","insertLine":"end","new_string":"text to add"} where insertLine is a non-negative line number or "end". Exactly one of old_string or insertLine.',
 	category: 'filesystem',
 	permissions: ['file_write'],
 	readOnly: false,
@@ -274,16 +302,35 @@ function normalizeEditInput(
 	}
 }
 
+/**
+ * Spellings of "the end of the file" a model reaches for.
+ *
+ * Liberal here and strict in the schema, which is the right way round: the
+ * schema makes `"end"` the only emittable string for a provider that
+ * constrains, and this catches the rest for one that does not. None of these
+ * is ambiguous — accepting them is not guessing at intent, it is declining to
+ * spend a round trip on a synonym.
+ */
+const END_ALIASES = new Set(['end', 'eof', 'append', 'last', 'end_of_file', 'end-of-file'])
+
 function normalizeInsertLine(
 	value: string | number,
 ): { success: true; value: number | 'end' } | { success: false; error: string } {
 	if (typeof value === 'string') {
-		if (value.trim().toLowerCase() === 'end') return { success: true, value: 'end' }
+		const normalized = value.trim().toLowerCase()
+		// `"end"` is the only spelling the model-facing schema admits, so a
+		// constrained decoder cannot produce anything else. These aliases are
+		// for the providers that do not constrain: a model reading "appends to
+		// the file" reaches for the word it knows, and every one of these says
+		// the same unambiguous thing. Refusing them bought strictness and cost
+		// a full model round trip per occurrence — measured by a consuming host
+		// as the single largest source of tool-call waste in its runs.
+		if (END_ALIASES.has(normalized)) return { success: true, value: 'end' }
 		const parsed = Number(value)
 		if (Number.isInteger(parsed) && parsed >= 0) return { success: true, value: parsed }
 		return {
 			success: false,
-			error: 'insertLine must be a non-negative line number or "end".',
+			error: `insertLine must be a non-negative line number or "end" (also accepted: ${[...END_ALIASES].filter((a) => a !== 'end').join(', ')}). Received ${JSON.stringify(value)}.`,
 		}
 	}
 	return { success: true, value }

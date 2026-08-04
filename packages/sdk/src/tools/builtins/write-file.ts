@@ -11,6 +11,12 @@ const inputSchema = z
 		path: z
 			.string()
 			.min(1)
+			// `.min(1)` alone admits `"   "`, which resolves to the working
+			// directory itself and turns a write into a directory-write error
+			// nobody can read. `edit` has refused this since it was written;
+			// the two tools disagreeing on the same input is the kind of gap a
+			// model finds and a reviewer does not.
+			.refine((value) => value.trim().length > 0, 'Path must not be empty.')
 			.describe(
 				'Relative path to the file to write (e.g. "outputs/report.md"). Required. Must be a non-empty string.',
 			),
