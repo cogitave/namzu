@@ -22,6 +22,18 @@ actually available. `detail` now carries the provider's message, truncated to
 credential-named JSON fields replaced by `[redacted]`. The same text reaches
 `message`, so a log line that prints only the message is enough to act on.
 
+It reaches the run too. `ProviderErrorInfo` — the metadata on failed runs and
+`run_failed` events — had no `detail` field, so the sentence stopped at the
+error object and a host rendering `run.lastProviderError` still had to parse
+`error` to learn which parameter was rejected. That is the re-parsing the
+structured field exists to avoid, so `detail` is on it now:
+
+```ts
+if (run.lastProviderError?.kind === 'bad_request') {
+  console.error(run.lastProviderError.detail)
+}
+```
+
 **Breaking.** The previous contract — "the response body is never interpolated
 into the error message" — was documented, and code may depend on it. Two tests
 in this repository did. If you log `ProviderRequestError.message` somewhere the
