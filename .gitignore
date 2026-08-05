@@ -20,3 +20,8 @@ packages/docs/
 # claude-code local launch config (per-machine)
 .claude/launch.json
 eval-report.json
+
+# Agent worktrees: a background agent gets its own checkout here. It is a
+# nested git repository, so committing it would embed a gitlink nobody can
+# clone.
+.claude/worktrees/
