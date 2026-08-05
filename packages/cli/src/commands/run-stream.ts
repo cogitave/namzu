@@ -29,6 +29,8 @@ import {
 	openSessions,
 	resolveConversation,
 } from '../integrations/sessions/store.js'
+import { resolvePermissionMode } from '../permissions/mode.js'
+import { compilePermissions } from '../permissions/rules.js'
 import {
 	loadSkillsContext,
 	parseRunFlags,
@@ -84,10 +86,13 @@ export const runStreamCommand: CommandDef = {
 		'event. Built for a host UI that renders progress rather than waiting',
 		'for a final string.',
 		'',
+		'Takes the same options as `namzu run`, including --permission-mode and',
+		'the [permissions] table from the config file.',
+		'',
 		'Needs a provider. Set a credential in the environment, or run namzu',
 		'once to pick one interactively.',
 	].join('\n'),
-	handler: async ({ rawArgs }) => {
+	handler: async ({ ctx, rawArgs }) => {
 		const write = (o: unknown): void => {
 			process.stdout.write(`${JSON.stringify(o)}\n`)
 		}
@@ -139,10 +144,35 @@ export const runStreamCommand: CommandDef = {
 		if (flags.provider) prefs = { ...prefs, provider: flags.provider as ProviderId }
 		if (flags.model) prefs = { ...prefs, model: flags.model }
 
-		// The resolved `--cwd` is what the agent's tools resolve against, not
-		// just where the session store lives — a run told to work in another
-		// checkout has to glob, read and edit files there.
-		const session = await createAgentSession(prefs, probe.detected, { cwd })
+		// The operator's rules and mode reach this command too. They did not:
+		// `[permissions]` was compiled for `run` and never for `run-stream`, so a
+		// host UI ran with an empty rule list whatever the config said — the same
+		// shape as a flag that parses and does nothing, one level larger, and
+		// silent in exactly the same way.
+		const modeResult = resolvePermissionMode({
+			flag: flags.permissionMode,
+			skipPermissions: flags.skipPermissions,
+			interactive: false,
+		})
+		if ('error' in modeResult) return fail(modeResult.error)
+
+		const permissions = compilePermissions(ctx.config.permissions)
+		for (const d of permissions.diagnostics) {
+			const where = d.pattern ? `permissions.${d.tool}."${d.pattern}"` : `permissions.${d.tool}`
+			// In band, because a host line-scanning stdout has no other channel —
+			// and a permission the operator believes is in force must never be
+			// dropped without saying so.
+			write({ kind: 'error', message: `${where}: ${d.message}` })
+		}
+
+		// The resolved `--cwd` is what the agent's tools resolve against, not just
+		// where the session store lives — a run told to work in another checkout
+		// has to glob, read and edit files there.
+		const session = await createAgentSession(prefs, probe.detected, {
+			cwd,
+			rules: permissions.rules,
+			permissionMode: modeResult.mode,
+		})
 		if (!session.hasProvider) return fail(session.errorHint ?? 'agent is not ready')
 
 		// --skills <a,b,c>: load the named skills' bodies and inject them as the
