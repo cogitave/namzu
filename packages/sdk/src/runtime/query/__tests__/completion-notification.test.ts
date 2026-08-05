@@ -459,15 +459,112 @@ describe('a run that ends some other way still hands over what finished', () => 
 		// The extra turn is the point: the model was asked again, once.
 		expect(provider.calls, 'the model never got a turn to use the result').toBe(2)
 
-		// And the observable cost of that turn, pinned rather than engineered
-		// around. `stopWhen` is consulted only AFTER a tool batch — deliberately,
-		// so a predicate can see what the tools returned — and the extra turn
-		// here is prose, so the run ends by the ordinary route and reports
-		// `end_turn` rather than `stop_condition`. The host's stop still
-		// happened; the reason describes how the last turn ended. A host that
-		// branches on `stop_condition` should read this as "it stopped", with
-		// the notification in the transcript explaining the extra turn.
-		expect(run.stopReason).toBe('end_turn')
+		// And the run says WHY it is over. The extra turn is prose, and
+		// `stopWhen` is consulted only after a tool batch — deliberately, so a
+		// predicate can see what the tools returned — so the predicate is never
+		// asked again and the run leaves by the ordinary route. Reporting
+		// `end_turn` there would name the shape of the last message rather than
+		// the host's decision, and this repo carries thirteen `StopReason`
+		// values precisely so a run that ends for a nameable reason names it.
+		expect(run.stopReason).toBe('stop_condition')
+	}, 60_000)
+
+	it('forgets the deferral if the extra turn did not end the run', async () => {
+		// The lifetime is the whole safety of the flag. It is set at the end of
+		// one iteration and read by the next, and the next clears it whether or
+		// not anything read it — so a deferral cannot colour a stop reason two
+		// turns later, when the predicate has since been asked again and said
+		// no. A flag that outlived its continuation would put `stop_condition`
+		// on a run the host had stopped asking to stop.
+		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-defer-life-'))
+		workdirs.push(workingDirectory)
+
+		const inbox = new CompletionInbox()
+		let announce: ((h: TaskHandle) => void) | undefined
+		inbox.attach({
+			onTaskCompleted: (cb: (h: TaskHandle) => void) => {
+				announce = cb
+				return () => {
+					announce = undefined
+				}
+			},
+			getTask: () => undefined,
+		} as never)
+		inbox.expect('tsk_slow' as TaskId)
+
+		const tools = new ToolRegistry()
+		tools.register(
+			defineTool({
+				name: 'finisher',
+				description: 'launches, then does nothing',
+				inputSchema: z.object({}),
+				category: 'analysis',
+				permissions: [],
+				readOnly: true,
+				destructive: false,
+				concurrencySafe: true,
+				async execute() {
+					setTimeout(() => announce?.(completed('tsk_slow', 'LATE RESULT')), 20).unref?.()
+					return { success: true, output: 'ok' }
+				},
+			}),
+		)
+
+		/** Tool, tool, prose — so the predicate is asked twice. */
+		class ToolToolProse implements LLMProvider {
+			readonly id = 'tool-tool-prose'
+			readonly name = 'Tool Tool Prose'
+			calls = 0
+			async *chatStream(): AsyncIterable<StreamChunk> {
+				this.calls += 1
+				if (this.calls <= 2) {
+					yield {
+						id: `m${this.calls}`,
+						delta: {
+							toolCalls: [
+								{
+									index: 0,
+									id: `toolu_${this.calls}`,
+									type: 'function',
+									function: { name: 'finisher', arguments: '{}' },
+								},
+							],
+						},
+					}
+					yield { id: `m${this.calls}`, delta: {}, finishReason: 'tool_calls', usage: ZERO_USAGE }
+					return
+				}
+				yield { id: 'm3', delta: { content: 'Done.' } }
+				yield { id: 'm3', delta: {}, finishReason: 'stop', usage: ZERO_USAGE }
+			}
+		}
+
+		// True once — the deferral — then never again.
+		let asked = 0
+		const run = await drainQuery({
+			provider: new ToolToolProse(),
+			tools,
+			completionInbox: inbox,
+			agentId: 'agent_test',
+			agentName: 'Test Agent',
+			messages: [createUserMessage('go')],
+			workingDirectory,
+			stopWhen: () => ++asked === 1,
+			runConfig: {
+				model: 'mock-model',
+				timeoutMs: 20_000,
+				tokenBudget: 100_000,
+				maxIterations: 6,
+				maxResponseTokens: 256,
+			},
+			sessionId: 'ses_completion' as SessionId,
+			threadId: 'thd_completion' as ThreadId,
+			projectId: 'prj_completion' as ProjectId,
+			tenantId: 'tnt_completion' as TenantId,
+		} as never)
+
+		expect(asked, 'the predicate was never asked a second time').toBeGreaterThan(1)
+		expect(run.stopReason, 'a spent deferral coloured a later stop reason').toBe('end_turn')
 	}, 60_000)
 
 	it('names the work it walked away from, without cancelling it', async () => {

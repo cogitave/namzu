@@ -32,10 +32,14 @@ like the ordinary final-answer exit — a precedence rule chosen here, not
 something `stopWhen` implies — and costs exactly one extra turn, after which
 the predicate fires again with nothing pending.
 
-One observable consequence of that extra turn: `stopWhen` is consulted only
-after a tool batch, so if the extra turn is prose the run ends by the ordinary
-route and reports `stopReason: 'end_turn'` rather than `'stop_condition'`. The
-stop still happened; the reason describes how the final turn ended.
+The stop reason survives that extra turn. `stopWhen` is consulted only after a
+tool batch, so when the extra turn is prose the predicate is never asked again
+and the run leaves by the ordinary route — which would have reported
+`stopReason: 'end_turn'`, naming the shape of the last message rather than the
+host's decision. A run that ends because a host said stop now reports
+`'stop_condition'` whether or not a delegated result delayed it by a turn. If
+the extra turn instead runs more tools, the predicate is asked again and
+answers for itself.
 
 A run that ends with a worker still running now says so on
 `Run.abandonedTaskIds` rather than leaving the impression the result arrived.

@@ -321,7 +321,7 @@ Which exits wait depends on whether a turn can still follow:
 | exit | waits? |
 | --- | --- |
 | model answers with no tool calls | yes |
-| host's `stopWhen` | yes — one extra turn, then the predicate stops it |
+| host's `stopWhen` | yes — one extra turn, then the predicate stops it, still reporting `stop_condition` |
 | a `terminal` tool, or a captured structured output | no; the answer is already decided |
 
 Every exit **delivers what has already arrived**, whether or not it waits.

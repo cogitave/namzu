@@ -129,6 +129,21 @@ export class IterationOrchestrator {
 	private ctx: IterationContext
 	/** Rejections so far. See {@link DEFAULT_ANSWER_REVIEW_LIMIT}. */
 	private answerReviewAttempts = 0
+	/**
+	 * The previous iteration held a `stopWhen` decision open for a worker.
+	 *
+	 * Set when the stop predicate fired and the run took one extra turn to
+	 * read a delegated result, so the turn that then ends the run can report
+	 * WHY it is over. Without it the outcome was right and the record was
+	 * wrong: the run stopped because the host said so and reported `end_turn`,
+	 * and this repo carries thirteen `StopReason` values precisely so that a
+	 * run which ends for a nameable reason names it.
+	 *
+	 * Lives for exactly one iteration — see the read-and-clear at the top of
+	 * the loop, which is the only site that touches it besides the one that
+	 * sets it.
+	 */
+	private stopDeferredForOutstandingWork = false
 
 	constructor(ctx: IterationContext) {
 		this.ctx = ctx
@@ -175,6 +190,20 @@ export class IterationOrchestrator {
 		// no post-loop block reaches.
 		try {
 		while (true) {
+				// Read AND clear, in that order, in this one place.
+				//
+				// The flag is set by the previous iteration and read by this
+				// one, so a clear that ran before the read would wipe it
+				// before anything could use it — the obvious spelling of
+				// "clear it at the top" is the broken one. Taking the value
+				// into a local first gives the flag a lifetime of exactly one
+				// iteration, which is the property that makes this cheap: no
+				// path has to remember to clear it, because the next iteration
+				// does so whether or not anything read it, and there is no
+				// path by which a stale deferral can reach a later turn.
+				const stopWasDeferredForOutstandingWork = this.stopDeferredForOutstandingWork
+				this.stopDeferredForOutstandingWork = false
+
 			const guardResult = this.ctx.guard.beforeIteration(runMgr, this.ctx.abortController.signal)
 
 			if (guardResult.shouldStop) {
@@ -667,7 +696,18 @@ export class IterationOrchestrator {
 						runMgr.markCancelled()
 						break
 					}
-					runMgr.setStopReason('end_turn')
+						// The host's stop predicate, if the previous turn deferred it
+						// to let the model read a delegated result. That extra turn
+						// is prose, and `stopWhen` is consulted only after a tool
+						// batch, so the predicate is never asked again — reporting
+						// `end_turn` would name the shape of the last message rather
+						// than the reason the run is over.
+						//
+						// Only here. A terminal tool and a captured structured output
+						// also settle as `end_turn`, and there the deferred predicate
+						// is not why the run ended: those decided the answer
+						// themselves.
+						runMgr.setStopReason(stopWasDeferredForOutstandingWork ? 'stop_condition' : 'end_turn')
 					break
 				}
 
@@ -763,6 +803,10 @@ export class IterationOrchestrator {
 						// nothing pending and the run stops. Exactly one extra
 						// turn, and `maxIterations` bounds it regardless.
 						if (yield* this.holdForOutstandingWork(iterationNum, true)) {
+							// Remember WHY the next turn exists, so the turn that
+							// ends the run can name the host's decision instead of
+							// reporting the shape of the last message.
+							this.stopDeferredForOutstandingWork = true
 							continue
 						}
 
