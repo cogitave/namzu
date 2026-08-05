@@ -80,12 +80,17 @@ describe('the violation report names the exact path', () => {
 		expect(findStrictSchemaViolations(schema)).toEqual([])
 	})
 
-	it('reports numeric and string bounds, which are also outside the subset', () => {
+	it('reports the bounds the wire refuses, and only those', () => {
+		// Measured against the live API rather than read off a page. The first
+		// version of this list was derived from documentation and was wrong in
+		// both directions: it refused `maxLength`, which the wire accepts, and
+		// permitted `prefixItems`, which it rejects.
 		const schema = {
 			type: 'object',
 			properties: {
 				n: { type: 'integer', minimum: 0 },
 				s: { type: 'string', maxLength: 10 },
+				a: { type: 'array', items: { type: 'string' }, maxItems: 3, minItems: 1 },
 			},
 		}
 
@@ -93,7 +98,58 @@ describe('the violation report names the exact path', () => {
 			findStrictSchemaViolations(schema)
 				.map((v) => v.keyword)
 				.sort(),
-		).toEqual(['maxLength', 'minimum'])
+		).toEqual(['maxItems', 'minimum'])
+	})
+
+	it('leaves string length alone, because strict accepts it', () => {
+		// The false positive that would have refused tools which work.
+		expect(
+			findStrictSchemaViolations({ s: { type: 'string', minLength: 1, maxLength: 9 } }),
+		).toEqual([])
+	})
+
+	it('catches a tuple in either spelling, because strict admits neither', () => {
+		// The interaction worth pinning, and the one a `prefixItems` entry alone
+		// got wrong. This check runs at REGISTRATION, on the schema as rendered
+		// — draft-07, where a tuple is `items: [a, b]` — while the wire sees the
+		// `prefixItems` the driver converts it to. So denying only `prefixItems`
+		// was a guard that could not fire on the path that produces tuples.
+		//
+		// Measured, strict rejects both, which is why a tool that is both strict
+		// and tuple-shaped cannot be expressed at all. Converting it only
+		// changes which error comes back.
+		for (const items of [
+			{ prefixItems: [{ type: 'integer' }, { type: 'integer' }] },
+			{ items: [{ type: 'integer' }, { type: 'integer' }] },
+		]) {
+			const violations = findStrictSchemaViolations({
+				properties: { range: { type: 'array', ...items } },
+			})
+
+			expect(violations, JSON.stringify(items)).toHaveLength(1)
+			expect(violations[0]?.remedy).toContain('tuple cannot be expressed')
+		}
+	})
+
+	it('leaves an ordinary array alone, where `items` is one schema', () => {
+		// The false positive the tuple rule must not become: `items` is the
+		// normal spelling for a homogeneous array and strict accepts it. Only
+		// the array-of-schemas form is a tuple.
+		expect(findStrictSchemaViolations({ type: 'array', items: { type: 'string' } })).toEqual([])
+	})
+
+	it('admits minItems at 0 or 1 and refuses it above, as the wire does', () => {
+		// A blanket denial here was a false positive with a real cost: it
+		// refuses `z.array(...).nonempty()`, which renders `minItems: 1` and
+		// which the wire accepts. The constraint is on the VALUE, and the
+		// vendor's error says so — "'minItems' values other than 0 or 1 are not
+		// supported".
+		expect(findStrictSchemaViolations({ type: 'array', minItems: 0 })).toEqual([])
+		expect(findStrictSchemaViolations({ type: 'array', minItems: 1 })).toEqual([])
+
+		const violations = findStrictSchemaViolations({ type: 'array', minItems: 2 })
+		expect(violations).toHaveLength(1)
+		expect(violations[0]?.keyword).toBe('minItems')
 	})
 
 	it('admits additionalProperties only as false', () => {

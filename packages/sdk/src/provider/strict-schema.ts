@@ -28,12 +28,21 @@
  * A deny-list rather than an allow-list, deliberately. An allow-list would have
  * to enumerate every annotation a schema may carry — `description`, `title`,
  * `examples`, vendor extensions — and would refuse a schema for saying
- * something harmless. These are the constructs documented as outside the
- * subset; each one names what to write instead.
+ * something harmless. Each entry names what to write instead.
+ *
+ * MEASURED against the live API, not read off a page. The first version of this
+ * list was derived from documentation and was wrong in both directions: it
+ * refused `minLength`/`maxLength`, which the wire accepts, and it permitted
+ * `prefixItems`, which the wire rejects. A deny-list nobody probed is a guess
+ * with a confident tone, and this one would have refused working tools while
+ * still letting a broken one through.
+ *
+ * The probe lives in the live contract test; run it against a new model before
+ * trusting this list on that model.
  */
 const NO_CONDITIONALS = 'strict mode has no conditional schemas; flatten the object'
 const NO_NUMERIC_BOUNDS = 'numeric bounds are not in the subset; enforce at execution'
-const NO_LENGTH_BOUNDS = 'length bounds are not in the subset; enforce at execution'
+const NO_ARRAY_BOUNDS = 'array bounds are not in the subset; enforce at execution'
 
 // A Map rather than an object literal, because one of the keys is `then`: an
 // ordinary object carrying a `then` property is a thenable, and awaiting it
@@ -50,16 +59,39 @@ const UNSUPPORTED: ReadonlyMap<string, string> = new Map([
 	['exclusiveMinimum', NO_NUMERIC_BOUNDS],
 	['exclusiveMaximum', NO_NUMERIC_BOUNDS],
 	['multipleOf', NO_NUMERIC_BOUNDS],
-	['minLength', NO_LENGTH_BOUNDS],
-	['maxLength', NO_LENGTH_BOUNDS],
-	['minItems', NO_LENGTH_BOUNDS],
-	['maxItems', NO_LENGTH_BOUNDS],
-	['uniqueItems', 'array constraints are not in the subset; enforce at execution'],
+	// `minLength`/`maxLength` are NOT here. The first version of this list put
+	// them here on documentation alone, and measurement says the wire accepts
+	// both — so the list was refusing tools that would have worked. A deny-list
+	// derived from prose and never probed is a guess with a confident tone.
+	// `minItems` is NOT a flat denial — see MIN_ITEMS_ALLOWED below. The wire
+	// accepts 0 and 1 and refuses everything above, naming the value in the
+	// error, so a blanket entry here would refuse `.nonempty()` on a schema the
+	// wire would have taken.
+	['maxItems', NO_ARRAY_BOUNDS],
+	['uniqueItems', NO_ARRAY_BOUNDS],
+	// The other direction of the same mistake: this was missing, and it is the
+	// one that interacts with the dialect conversion. A tuple becomes
+	// `prefixItems` for the 2020-12 wire — and strict rejects `prefixItems`
+	// outright, so a tool that is BOTH strict AND tuple-shaped cannot be
+	// expressed at all. Better to say that at registration than to convert a
+	// schema into a different rejection.
+	['prefixItems', 'strict arrays take one `items` schema; a tuple cannot be expressed'],
 	['patternProperties', 'name the properties explicitly'],
 	['propertyNames', 'name the properties explicitly'],
 	['dependentSchemas', 'flatten the object and validate at execution'],
 	['dependentRequired', 'flatten the object and validate at execution'],
 ])
+
+/**
+ * The only `minItems` values the strict subset admits.
+ *
+ * Measured: `minItems: 0` and `minItems: 1` are accepted, `minItems: 2` comes
+ * back *"For 'array' type, 'minItems' values other than 0 or 1 are not
+ * supported"*. So the constraint is on the VALUE, not the keyword, and that is
+ * the whole difference between refusing a required-non-empty array — the
+ * ordinary spelling of `z.array(...).nonempty()` — and letting it through.
+ */
+const MIN_ITEMS_ALLOWED = new Set([0, 1])
 
 export interface StrictSchemaViolation {
 	/** Dotted path to the offending keyword, e.g. `properties.insertLine.oneOf`. */
@@ -97,6 +129,31 @@ export function findStrictSchemaViolations(schema: unknown, path = ''): StrictSc
 				path: here,
 				keyword,
 				remedy: 'strict objects must set `additionalProperties: false`',
+			})
+			continue
+		}
+		// A tuple in the OTHER spelling. This check runs at registration, on the
+		// schema as rendered — which is draft-07, where a tuple is `items: [a,
+		// b]` — while the wire sees the 2020-12 `prefixItems` the driver
+		// converts it to. So a `prefixItems` entry alone never fires on the
+		// path that produces tuples, and the entry added to catch this case was
+		// dead for exactly the case it was added for.
+		//
+		// Both spellings mean the same thing and strict admits neither, so this
+		// names the tuple rather than the dialect it happens to be written in.
+		if (keyword === 'items' && Array.isArray(value)) {
+			found.push({
+				path: here,
+				keyword,
+				remedy: 'strict arrays take one `items` schema; a tuple cannot be expressed',
+			})
+			continue
+		}
+		if (keyword === 'minItems' && typeof value === 'number' && !MIN_ITEMS_ALLOWED.has(value)) {
+			found.push({
+				path: here,
+				keyword,
+				remedy: 'strict accepts `minItems` of 0 or 1 only; enforce a larger bound at execution',
 			})
 			continue
 		}

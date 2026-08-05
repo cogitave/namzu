@@ -18,6 +18,7 @@ import {
 	modelVersionAtLeast,
 	providerHttpError,
 	providerVendorError,
+	toSchemaDialect,
 	toolResultToText,
 } from '@namzu/sdk'
 import { DialectMismatchError, type HttpConfig, type HttpDialect } from './types.js'
@@ -321,7 +322,16 @@ function formatAnthropicRequest(
 			return {
 				name: t.function.name,
 				description: t.function.description ?? '',
-				input_schema: t.function.parameters ?? { type: 'object' },
+				// The Anthropic dialect parses draft 2020-12 while the renderer
+				// emits draft-07; they disagree about tuples and the wire
+				// rejects the whole request over it. Only the OpenAI branch of
+				// this file is left alone — that wire has not been measured, and
+				// assuming one dialect fits every wire is the mistake being
+				// fixed here.
+				input_schema: toSchemaDialect(
+					(t.function.parameters as Record<string, unknown> | undefined) ?? { type: 'object' },
+					'2020-12',
+				),
 				...(strict ? { strict: true } : {}),
 			}
 		})

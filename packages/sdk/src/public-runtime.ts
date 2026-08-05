@@ -78,6 +78,13 @@ export { modelVersionAtLeast, parseVersionedModelId } from './provider/model-ver
 // Strict tool input is a SUBSET of JSON Schema, and a keyword outside it makes
 // the vendor reject the whole request rather than degrade one field.
 export { assertStrictSchema, findStrictSchemaViolations } from './provider/strict-schema.js'
+// A tool has one schema; what changes per provider is the DIALECT the wire
+// parses, which is the wire's property. Rendered once, converted at the driver.
+export { findDraft07Only, toSchemaDialect } from './registry/tool/dialect.js'
+export type { JsonSchemaDialect } from './registry/tool/dialect.js'
+// The renderer itself, so a driver or a contract test can ask what a tool will
+// actually put on the wire without reaching into the registry.
+export { renderToolSchema } from './registry/tool/schema.js'
 export type { StrictSchemaViolation } from './provider/strict-schema.js'
 export type { ModelIdGrammar, ModelVersion } from './provider/model-version.js'
 export { drainQuery, query } from './runtime/query/index.js'

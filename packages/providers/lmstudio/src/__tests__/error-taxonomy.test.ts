@@ -150,12 +150,19 @@ describe('@namzu/lmstudio — connection lifecycle and provider taxonomy', () =>
 		})
 	})
 
-	it('classifies and sanitizes a raw client failure', async () => {
-		const secret = 'lmstudio-secret-FAKE-DO-NOT-LOG'
+	it('classifies a raw client failure, keeping the complaint and scrubbing the credential', async () => {
+		// The assertion here used to be that the whole message was dropped.
+		// Scrubbing credential SHAPES and keeping the sentence is the trade that
+		// was actually available: "websocket failed" is the half an operator
+		// needs, and deleting it to protect a token that may not be there buys
+		// nothing. `cause` is still never attached — that is the channel a
+		// logger would serialize the raw body through no matter what the message
+		// says.
+		const token = 'sk-live-AbCdEfGhIjKlMnOpQrStUv'
 		const provider = new LMStudioProvider({ model: 'qwen3-8b' })
 		;(provider as unknown as { clientInstance: unknown }).clientInstance = {
 			llm: {
-				model: async () => Promise.reject(new Error(`websocket failed for ${secret}`)),
+				model: async () => Promise.reject(new Error(`websocket failed for ${token}`)),
 			},
 		}
 
@@ -166,7 +173,8 @@ describe('@namzu/lmstudio — connection lifecycle and provider taxonomy', () =>
 			kind: 'network',
 			providerId: 'lmstudio',
 		})
-		expect((err as Error).message).not.toContain(secret)
+		expect((err as Error).message).toContain('websocket failed')
+		expect((err as Error).message).not.toContain(token)
 		expect('cause' in (err as object)).toBe(false)
 	})
 

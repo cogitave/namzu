@@ -1,4 +1,3 @@
-import { zodToJsonSchema } from 'zod-to-json-schema'
 import type { ToolRegistryContract } from '../../types/tool/index.js'
 import type { LLMToolSchema, ToolAvailability, ToolDefinition } from '../../types/tool/index.js'
 import type {
@@ -10,6 +9,7 @@ import type {
 	ToolsetDefinition,
 	ToolsetPolicy,
 } from '../../types/toolset/index.js'
+import { renderToolSchema } from '../tool/schema.js'
 
 export interface ToolCatalogSearchOptions {
 	readonly loading?: readonly ToolLoadingMode[]
@@ -245,12 +245,17 @@ function toolDefinitionToLLMTool(definition: ToolDefinition | undefined): LLMToo
 		function: {
 			name: definition.name,
 			description: definition.description,
+			// Through `renderToolSchema`, not a second inline conversion. The
+			// options were already identical, so this was not a different
+			// rendering — it was the same rendering without the guarantees:
+			// no `$schema` stripping (that key rides in the tools block, which
+			// sits at position 0 inside the prompt-cache prefix), no memoization,
+			// and no freeze. Two paths that agree today are two paths that can
+			// disagree tomorrow, and a tool reaching the wire through the catalog
+			// rather than the registry is not a different tool.
 			parameters:
 				(definition.modelInputSchema ? structuredClone(definition.modelInputSchema) : undefined) ??
-				(zodToJsonSchema(definition.inputSchema, {
-					target: 'jsonSchema7',
-					$refStrategy: 'none',
-				}) as Record<string, unknown>),
+				renderToolSchema(definition.inputSchema),
 		},
 	}
 }

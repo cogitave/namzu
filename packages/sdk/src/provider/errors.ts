@@ -11,11 +11,19 @@
  *
  * So the contract here is deliberately narrow:
  *
- *  - the message is built from the STATUS LINE and the classified `kind`. The
- *    response body is read to classify and then dropped. It is never
- *    interpolated, never re-thrown, and never attached as `cause` — a `cause`
- *    survives every logger that serializes an error chain, which defeats the
- *    point.
+ *  - the message is built from the STATUS LINE, the classified `kind`, and the
+ *    provider's own complaint in `detail` — truncated and scrubbed of anything
+ *    credential-shaped. The raw body is never re-thrown and never attached as
+ *    `cause`; a `cause` survives every logger that serializes an error chain,
+ *    which defeats the point.
+ *
+ *    The body used to be dropped entirely. That was over-corrected: a provider
+ *    rejecting a request names the exact offending field, and deleting that
+ *    sentence turned a one-line diagnosis into hypothesis elimination against a
+ *    live API — once at the cost of a day of production downtime, while the
+ *    wire had been saying `tools.0.custom.input_schema: … must match JSON
+ *    Schema draft 2020-12` the entire time. Scrubbing what looks like a
+ *    credential keeps the safety and returns the sentence.
  *  - `retryAfterMs` is DATA. Nothing in this module sleeps, backs off or
  *    retries. A retry loop inside a driver burns the run's wall clock and hides
  *    the failure from the layer that should decide.
@@ -50,6 +58,22 @@ export class ProviderRequestError extends Error {
 	public readonly providerId: string
 	public readonly status?: number
 	public readonly retryAfterMs?: number
+	/**
+	 * What the provider said was wrong, truncated and redacted.
+	 *
+	 * `ProviderRequestErrorInit` has declared this field all along and the
+	 * constructor never read it, so every caller that set it was writing to
+	 * nothing. That is not a cosmetic gap: a provider rejecting a request
+	 * usually names the exact offending field, and losing that sentence turns
+	 * a one-line diagnosis into hypothesis elimination against a live API. It
+	 * did — a tool schema in the wrong JSON Schema dialect cost a day of
+	 * production downtime while the wire had been saying
+	 * `tools.0.custom.input_schema: … must match JSON Schema draft 2020-12`
+	 * the whole time.
+	 *
+	 * See {@link vendorDetail} for what is kept and what is scrubbed.
+	 */
+	public readonly detail?: string
 
 	constructor(init: ProviderRequestErrorInit) {
 		super(buildProviderErrorMessage(init))
@@ -58,7 +82,80 @@ export class ProviderRequestError extends Error {
 		this.providerId = init.providerId
 		if (init.status !== undefined) this.status = init.status
 		if (init.retryAfterMs !== undefined) this.retryAfterMs = init.retryAfterMs
+		if (init.detail !== undefined) this.detail = init.detail
 	}
+}
+
+/** Longest detail worth carrying. A provider's complaint is a sentence. */
+const DETAIL_MAX = 400
+
+/**
+ * Credential shapes to scrub before a provider's words are kept.
+ *
+ * The original decision to discard the body outright was not paranoia — an
+ * error body can echo the request, and a request can carry a key. The answer
+ * is to scrub what looks like a credential rather than to throw away the
+ * sentence that names the broken field.
+ */
+const SECRET_PATTERNS: readonly RegExp[] = [
+	/\b(?:sk|pk|rk)[-_][A-Za-z0-9_-]{12,}/g,
+	/\bnpm_[A-Za-z0-9]{20,}/g,
+	/\bgh[pousr]_[A-Za-z0-9]{20,}/g,
+	/\bBearer\s+[A-Za-z0-9._~+/-]{12,}=*/gi,
+	/\bAKIA[0-9A-Z]{16}\b/g,
+	/("(?:api[_-]?key|authorization|token|secret|password)"\s*:\s*)"[^"]*"/gi,
+]
+
+/**
+ * The provider's own account of what was wrong, safe to log.
+ *
+ * Prefers the structured `error.message` a JSON body carries, because that is
+ * the field vendors put the actionable sentence in and it is bounded; falls
+ * back to the raw text. Truncated, and every credential shape replaced.
+ */
+export function vendorDetail(body: unknown): string | undefined {
+	if (body === undefined || body === null) return undefined
+
+	let text: string
+	if (typeof body === 'string') {
+		try {
+			text = pickMessage(JSON.parse(body)) ?? body
+		} catch {
+			text = body
+		}
+	} else {
+		text = pickMessage(body) ?? ''
+	}
+
+	const cleaned = redactSecrets(text.trim())
+	if (cleaned.length === 0) return undefined
+	return cleaned.length > DETAIL_MAX ? `${cleaned.slice(0, DETAIL_MAX)}…` : cleaned
+}
+
+export function redactSecrets(text: string): string {
+	let out = text
+	for (const pattern of SECRET_PATTERNS) {
+		out = out.replace(pattern, (_match, prefix?: string) =>
+			prefix === undefined ? '[redacted]' : `${prefix}"[redacted]"`,
+		)
+	}
+	return out
+}
+
+function pickMessage(value: unknown): string | undefined {
+	if (typeof value === 'string') return value
+	if (typeof value !== 'object' || value === null) return undefined
+	const node = value as Record<string, unknown>
+	// `{ error: { message } }` is what every wire in this tree uses; the rest
+	// are the shapes seen in the drivers' own fixtures.
+	const nested = node.error
+	if (typeof nested === 'string') return nested
+	if (typeof nested === 'object' && nested !== null) {
+		const message = (nested as Record<string, unknown>).message
+		if (typeof message === 'string') return message
+	}
+	if (typeof node.message === 'string') return node.message
+	return undefined
 }
 
 /** Is this a classified provider failure, whichever SDK copy threw it? */
@@ -312,11 +409,13 @@ export function providerVendorError(input: {
 		input.retryAfter ?? vendorRetryAfter(error),
 		input.now ?? Date.now(),
 	)
+	const detail = vendorDetail(message)
 	return new ProviderRequestError({
 		kind,
 		providerId: input.providerId,
 		...(status !== undefined ? { status } : {}),
 		...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
+		...(detail !== undefined ? { detail } : {}),
 	})
 }
 
@@ -335,10 +434,12 @@ export function providerHttpError(input: {
 }): ProviderRequestError {
 	const kind = classifyProviderHttpStatus(input.status, input.body)
 	const retryAfterMs = parseRetryAfterMs(input.retryAfter, input.now ?? Date.now())
+	const detail = vendorDetail(input.body)
 	return new ProviderRequestError({
 		kind,
 		providerId: input.providerId,
 		status: input.status,
 		...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
+		...(detail !== undefined ? { detail } : {}),
 	})
 }

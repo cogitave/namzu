@@ -49,6 +49,21 @@ function hasArnVersion(modelId: string): boolean {
 	return /-v\d+(?::\d+)?$/.test(modelId)
 }
 
+/**
+ * Whether this id names a model Anthropic serves.
+ *
+ * Converse is a multi-vendor wire — the same request shape carries Claude,
+ * Llama, Mistral and more — so a property of the Anthropic models is not a
+ * property of the wire. Tool input schemas are one: Anthropic's serving layer
+ * validates them against JSON Schema 2020-12 regardless of which front door the
+ * request came through, while nothing says the other vendors on this wire do.
+ * Rendering the dialect Anthropic requires, only for the models that require
+ * it, is the claim that can actually be defended.
+ */
+export function isAnthropicServedModel(modelId: string): boolean {
+	return stripProfilePrefix(modelId.trim().toLowerCase()).startsWith('anthropic.')
+}
+
 export function assertModelReachable(modelId: string): void {
 	const bare = stripProfilePrefix(modelId.trim().toLowerCase())
 	if (!bare.startsWith('anthropic.')) return
