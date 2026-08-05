@@ -381,6 +381,95 @@ describe('a run that ends some other way still hands over what finished', () => 
 		).toBe(true)
 	})
 
+	it('lets a worker that has not arrived yet outrank the host stop predicate, once', async () => {
+		// A chosen precedence, not something `stopWhen` implies. A stop
+		// predicate is a programmable halt that says nothing about whether the
+		// answer is complete — unlike a terminal tool or a captured structured
+		// output, which decide the result and leave no turn to use anything in.
+		// So this one waits, delivers, and gives the model the turn; the
+		// predicate fires again next turn with nothing pending and stops. One
+		// extra turn, bounded.
+		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-stopwhen-hold-'))
+		workdirs.push(workingDirectory)
+
+		const inbox = new CompletionInbox()
+		let announce: ((h: TaskHandle) => void) | undefined
+		inbox.attach({
+			onTaskCompleted: (cb: (h: TaskHandle) => void) => {
+				announce = cb
+				return () => {
+					announce = undefined
+				}
+			},
+			getTask: () => undefined,
+		} as never)
+		// OUTSTANDING, not arrived: the exit-time delivery has nothing to hand
+		// over, so only a hold can produce this result.
+		inbox.expect('tsk_slow' as TaskId)
+
+		const tools = new ToolRegistry()
+		tools.register(
+			defineTool({
+				name: 'finisher',
+				description: 'the worker is still going when this returns',
+				inputSchema: z.object({}),
+				category: 'analysis',
+				permissions: [],
+				readOnly: true,
+				destructive: false,
+				concurrencySafe: true,
+				async execute() {
+					setTimeout(() => announce?.(completed('tsk_slow', 'LATE WORKER RESULT')), 20).unref?.()
+					return { success: true, output: 'launched' }
+				},
+			}),
+		)
+
+		const provider = new CallsFinisherProvider()
+		const run = await drainQuery({
+			provider,
+			tools,
+			completionInbox: inbox,
+			agentId: 'agent_test',
+			agentName: 'Test Agent',
+			messages: [createUserMessage('go')],
+			workingDirectory,
+			stopWhen: () => true,
+			runConfig: {
+				model: 'mock-model',
+				timeoutMs: 20_000,
+				tokenBudget: 100_000,
+				maxIterations: 4,
+				maxResponseTokens: 256,
+			},
+			sessionId: 'ses_completion' as SessionId,
+			threadId: 'thd_completion' as ThreadId,
+			projectId: 'prj_completion' as ProjectId,
+			tenantId: 'tnt_completion' as TenantId,
+		} as never)
+
+		const userText = (run.messages as { role: string; content: unknown }[])
+			.filter((m) => m.role === 'user')
+			.map((m) => (typeof m.content === 'string' ? m.content : ''))
+
+		expect(
+			userText.some((m) => m.includes('LATE WORKER RESULT')),
+			'the stop predicate discarded a worker that had not landed yet',
+		).toBe(true)
+		// The extra turn is the point: the model was asked again, once.
+		expect(provider.calls, 'the model never got a turn to use the result').toBe(2)
+
+		// And the observable cost of that turn, pinned rather than engineered
+		// around. `stopWhen` is consulted only AFTER a tool batch — deliberately,
+		// so a predicate can see what the tools returned — and the extra turn
+		// here is prose, so the run ends by the ordinary route and reports
+		// `end_turn` rather than `stop_condition`. The host's stop still
+		// happened; the reason describes how the last turn ended. A host that
+		// branches on `stop_condition` should read this as "it stopped", with
+		// the notification in the transcript explaining the extra turn.
+		expect(run.stopReason).toBe('end_turn')
+	}, 60_000)
+
 	it('names the work it walked away from, without cancelling it', async () => {
 		// The other half of the principle. Delivering what arrived is honest;
 		// staying silent about what did not is the false impression the whole

@@ -637,38 +637,10 @@ export class IterationOrchestrator {
 					//
 					// Settling here would throw away the very thing the launch
 					// existed to produce: the supervisor said "launched", the
-					// worker had not finished, and the run closed over it. So
-						// the run is held open — bounded by the run's own remaining
-						// time (see `settleGraceMs`) and by `maxIterations` above,
-						// so a worker that never finishes cannot keep it open
-						// forever — and the completion arrives as a notification
-						// the next turn reads.
-					if (!forceFinalize && this.ctx.completionInbox?.hasPendingWork) {
-							// Read HERE rather than from `forceFinalize` above: that
-							// flag was sampled at the top of the iteration, and an
-							// iteration that has since crossed the finalize point
-							// must not open a wait against a reserve it has
-							// already entered.
-							const graceMs = settleGraceMs(this.ctx.guard.remainingBeforeFinalizeMs())
-						this.ctx.log.info('Holding the run open for a background task', {
-							runId: runMgr.id,
-							iteration: iterationNum,
-								graceMs,
-						})
-							await this.ctx.completionInbox.waitForArrival(graceMs)
-						const arrived = this.ctx.completionInbox.drain()
-						if (arrived.length > 0) {
-							runMgr.pushMessage(createUserMessage(formatCompletionNotification(arrived)))
-							await this.ctx.emitEvent({
-								type: 'iteration_completed',
-								runId: runMgr.id,
-								iteration: iterationNum,
-								hasToolCalls: false,
-							})
-							yield* this.ctx.drainPending()
+						// worker had not finished, and the run closed over it.
+						if (!forceFinalize && (yield* this.holdForOutstandingWork(iterationNum, false))) {
 							continue
 						}
-					}
 
 					if (!hasContent && !forceFinalize) {
 						this.ctx.log.warn('Empty completion detected — requesting final summary', {
@@ -773,6 +745,27 @@ export class IterationOrchestrator {
 				// returned — which is what makes a terminal submit_answer tool
 				// usable without discarding its output.
 				if (await this.shouldStop()) {
+						// Outstanding delegated work outranks the host's stop
+						// predicate, exactly once.
+						//
+						// This is a precedence rule chosen here, not something
+						// `stopWhen` implies — a stop predicate is a programmable
+						// halt and says nothing about whether the answer is
+						// complete, which is what separates it from a terminal
+						// tool or a captured structured output. Those decide the
+						// result, so no turn follows and a hold would buy nothing.
+						// This one only says "stop", and stopping one turn later
+						// with the worker's result in hand is a better reading of
+						// the host's intent than stopping now and discarding it.
+						//
+						// Bounded: after the notification is delivered the inbox
+						// is drained, so the predicate fires again next turn with
+						// nothing pending and the run stops. Exactly one extra
+						// turn, and `maxIterations` bounds it regardless.
+						if (yield* this.holdForOutstandingWork(iterationNum, true)) {
+							continue
+						}
+
 					this.ctx.log.info('Stop condition met', {
 						runId: runMgr.id,
 						iteration: iterationNum,
@@ -906,6 +899,48 @@ export class IterationOrchestrator {
 		} finally {
 			this.settleOutstandingWork()
 		}
+	}
+
+	/**
+	 * Hold the run open for a worker that has not finished, and deliver it.
+	 *
+	 * Returns whether a completion arrived and was put in the transcript — the
+	 * caller continues the loop on `true`, so the model gets a turn in which to
+	 * USE the result. That turn is the entire justification for waiting, which
+	 * is why only the exits that can still take one call this.
+	 *
+	 * Bounded by `settleGraceMs` and by `maxIterations`, so a worker that never
+	 * finishes cannot keep the run open.
+	 */
+	private async *holdForOutstandingWork(
+		iterationNum: number,
+		hasToolCalls: boolean,
+	): AsyncGenerator<RunEvent, boolean> {
+		if (!this.ctx.completionInbox?.hasPendingWork) return false
+
+		// Read HERE rather than from `forceFinalize`, which was sampled at the
+		// top of the iteration: one that has since crossed the finalize point
+		// must not open a wait against a reserve it has already entered.
+		const graceMs = settleGraceMs(this.ctx.guard.remainingBeforeFinalizeMs())
+		this.ctx.log.info('Holding the run open for a background task', {
+			runId: this.ctx.runMgr.id,
+			iteration: iterationNum,
+			graceMs,
+		})
+		await this.ctx.completionInbox.waitForArrival(graceMs)
+
+		const arrived = this.ctx.completionInbox.drain()
+		if (arrived.length === 0) return false
+
+		this.ctx.runMgr.pushMessage(createUserMessage(formatCompletionNotification(arrived)))
+		await this.ctx.emitEvent({
+			type: 'iteration_completed',
+			runId: this.ctx.runMgr.id,
+			iteration: iterationNum,
+			hasToolCalls,
+		})
+		yield* this.ctx.drainPending()
+		return true
 	}
 
 	/**

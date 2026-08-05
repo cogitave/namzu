@@ -221,8 +221,9 @@ Current hard requirements:
 > **Changed in `@namzu/sdk` 7.0.0.** A delegate's output is now framed as
 > untrusted material on every path the model reads it; the settle hold is
 > derived from the run's own budget instead of a fixed two minutes; an inbox
-> only hears about tasks its own run launched; and `background` is offered only
-> when an inbox is present.
+> only hears about tasks its own run launched; `background` is offered only
+> when an inbox is present; and a run that ends over a still-running worker
+> names it on `Run.abandonedTaskIds`.
 
 `create_task` blocks by default and returns the worker's output as that call's
 `tool_result`. To fan out, emit several `create_task` blocks in one assistant
@@ -285,11 +286,20 @@ owns it.
 - **Without an inbox, `background` is not offered at all.** `create_task` still
   blocks and still works; the parameter is simply absent from its schema and
   its description, because nothing would deliver the notification it promises.
+  A `background: true` that reaches `execute` some other way is refused rather
+  than quietly made blocking, and the messages a tool returns when a wait is
+  abandoned stop promising a notification that cannot come.
 - **An inbox hears only about the tasks its own run launched.**
   `onTaskCompleted` is a broadcast and a gateway can be shared between runs, so
   `create_task` tells the inbox about every launch it makes. If you launch
   tasks by some other route and want notifications for them, call
-  `inbox.launched(taskId)` after the launch.
+  `inbox.launched(taskId)` after the launch — ownership may be claimed after
+  the completion has already been announced, so the order does not matter.
+- **A host gateway should still know about a task it has just settled.**
+  `getTask` is asked about a completion announced before its owner could be
+  recorded, in the rare case the inbox's own buffer could not hold it. A
+  gateway that forgets immediately still works; see the note on
+  `TaskGateway.getTask`.
 
 #### Holding the run open
 
@@ -297,15 +307,28 @@ A run will not settle while a background task it launched is still running: it
 holds open long enough for the result to arrive, then injects the notification
 and gives the model a turn to use it.
 
-The hold is **half of the run's remaining time**, capped at
-`DELEGATION_TIMEOUT_MS`. It is derived rather than fixed so that a run with a
-short `timeoutMs` cannot overrun its own deadline waiting, and a run with a
-long one does not abandon a worker that was still going. Half rather than all,
+The hold is **half of the time left before the run must start finishing** (90%
+of `timeoutMs`, the point at which the run guard stops asking for more work),
+capped at `DELEGATION_TIMEOUT_MS`. Derived rather than fixed, so a run with a
+short `timeoutMs` cannot overrun its own deadline waiting and a run with a long
+one does not abandon a worker that was still going. Half rather than all,
 because delivering the result costs a turn and that turn has to fit in what is
-left. A run with no time remaining does not hold at all — but a completion that
-has already arrived is delivered regardless, on every way the loop can exit,
-including a terminal tool, a captured structured output and the host's
-`stopWhen`.
+left; and measured against the finalize point rather than the deadline, so the
+wait cannot eat the slice reserved for the closing answer.
+
+Which exits wait depends on whether a turn can still follow:
+
+| exit | waits? |
+| --- | --- |
+| model answers with no tool calls | yes |
+| host's `stopWhen` | yes — one extra turn, then the predicate stops it |
+| a `terminal` tool, or a captured structured output | no; the answer is already decided |
+
+Every exit **delivers what has already arrived**, whether or not it waits.
+A run that ends with a worker still running lists those ids on
+`Run.abandonedTaskIds`. They are not cancelled — giving up on a wait is a
+statement about the waiter, not the work — so a host that wants them stopped
+uses `cancel_task` or the run's abort controller.
 
 ## 7. What `AgentManager` Actually Owns
 
