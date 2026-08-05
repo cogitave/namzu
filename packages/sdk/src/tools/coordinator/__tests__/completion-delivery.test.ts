@@ -126,6 +126,14 @@ describe('the supervisor has a tool for every move it needs', () => {
 		expect(harness().tools.map((t) => t.name)).toContain('cancel_task')
 	})
 
+	it('gives the launching tool a deadline a real worker can meet', () => {
+		// The run default is two minutes; a delegated worker doing real work
+		// takes longer, and every expiry past that point produced the state
+		// this whole change exists to repair. Not firing at all beats
+		// recovering well.
+		expect(toolNamed(harness().tools, 'create_task').timeoutMs).toBeGreaterThan(120_000)
+	})
+
 	it('gives the waiting tool a deadline longer than the executor default', () => {
 		// A tool whose entire job is to wait must not be killed for waiting.
 		// `ToolExecutor` reads `timeoutMs` before falling back to the run

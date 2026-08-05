@@ -1,7 +1,7 @@
 ---
 title: Agents and Orchestration
 description: Choose the right SDK agent class, understand delegation boundaries, and wire orchestration surfaces safely in @namzu/sdk.
-last_updated: 2026-08-03
+last_updated: 2026-08-05
 status: current
 related_packages: ["@namzu/sdk"]
 ---
@@ -215,6 +215,49 @@ Current hard requirements:
   are available. Its model contract requires `options` to be a JSON array of
   2–4 objects with a `label` (and optional `description`); capable providers
   constrain that shape, while the runtime decoder remains authoritative.
+
+### Waiting for a worker, and being told when one finishes
+
+`create_task` blocks by default and returns the worker's output as that call's
+`tool_result`. To fan out, emit several `create_task` blocks in one assistant
+turn — the runtime runs them together and delivers every result at once.
+
+Pass `background: true` when the supervisor has other work to do meanwhile. It
+returns a `task_id` immediately and the result arrives later as a task
+notification in the transcript:
+
+```
+<task-notification>
+task_id: tsk_…
+agent: reviewer
+state: completed
+duration_ms: 143000
+
+…the worker's output…
+</task-notification>
+```
+
+Anything a tool did **not** hand over inline arrives this way — a background
+launch, or a blocking launch whose deadline passed while the worker kept
+going. A result the launching call already delivered is never announced twice.
+
+The supervisor can also reach a task itself:
+
+| tool | use |
+| --- | --- |
+| `wait_for_task` | block until a running task finishes and return its output |
+| `agent_task_list` | every task with its state, timing and — for finished ones — its output |
+| `cancel_task` | stop a task the supervisor no longer needs |
+
+Prefer `wait_for_task` over listing in a loop: it costs one call and no waiting
+turns.
+
+A run will not settle while a background task it launched is still running; it
+holds open for a bounded grace period so the result is not discarded. If you
+build the coordinator surface yourself rather than through `SupervisorAgent`,
+pass the same `CompletionInbox` to `buildCoordinatorTools` and to `drainQuery`
+— the tools claim what they deliver and the loop delivers what is left, so both
+need the same instance.
 
 ## 7. What `AgentManager` Actually Owns
 

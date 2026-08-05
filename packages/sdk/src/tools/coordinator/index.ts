@@ -276,6 +276,14 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 		readOnly: false,
 		destructive: false,
 		concurrencySafe: true,
+		// A delegated worker doing real work takes minutes, and the run
+		// default is two. Every expiry past that point produced the state
+		// this change exists to repair — the model told "it may still be
+		// running" with no id, and a finished result nothing could reach.
+		// The notification now recovers that, but not firing at all is
+		// better than recovering well, and `ToolExecutor` reads a tool's own
+		// deadline before the run default precisely so a tool can say this.
+		timeoutMs: 600_000,
 		async execute({ agent_id, prompt, description, plan_task_id, background }, _context) {
 			let resolvedPlanTaskId = plan_task_id
 
@@ -343,9 +351,14 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 			// Whether this call is still the live path decides who delivers the
 			// result. If the executor already gave up on us — its deadline
 			// passed and the model was told "timed out, it may still be
-			// running" — then whatever we return now is discarded, and leaving
-			// the completion UNCLAIMED is what routes it to the transcript as a
-			// notification instead. Claiming it here would delete the output.
+			// running" — then NOT claiming is what routes this completion to the
+			// transcript as a notification. Claiming it would delete the output.
+			//
+			// The returned value below goes nowhere: the executor won its race
+			// and returned already, so this result is discarded. It is written
+			// out anyway because a bare `return` here would read as an oversight,
+			// and because a host reading tool outcomes off its own instrumentation
+			// should find the reason rather than an empty string.
 			if (_context.abortSignal?.aborted) {
 				return {
 					success: false,
