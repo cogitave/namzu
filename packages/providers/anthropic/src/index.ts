@@ -24,3 +24,21 @@ export function registerAnthropic(options?: RegisterOptions): void {
 
 export { ANTHROPIC_CAPABILITIES, AnthropicProvider } from './client.js'
 export type { AnthropicConfig, AnthropicProviderConfig } from './types.js'
+
+// The driver's reading of which effort levels each model accepts, exported so
+// a caller can build a control that offers only what will be honoured. The
+// preferred path is `provider.effortLevelsFor(model, thinking)` — it is
+// provider-agnostic and cannot return the wrong one of the two sets. This is
+// the fuller picture for a caller that also needs to know whether thinking can
+// be switched off at all, and it is exported rather than copied because the
+// ceiling has moved twice and a copy would go stale silently.
+export {
+	resolveThinkingCapability,
+	resolveThinkingBody,
+	resolveEffort,
+} from './thinking-capability.js'
+export type {
+	ThinkingCapability,
+	EffortLevels,
+	ResolvedThinkingBody,
+} from './thinking-capability.js'

@@ -42,25 +42,54 @@ interface WireResult {
 	readonly message: string
 }
 
+/**
+ * Statuses that mean "ask again", not "this request is wrong".
+ *
+ * These tests assert a CONTRACT: that a given schema is or is not expressible
+ * on this wire. A 529 says the service is busy and answers nothing about the
+ * schema — so reporting it as a contract failure claims something the run did
+ * not establish. That happened twice in one day, and both times cost a manual
+ * re-run to discover the wire had no opinion.
+ *
+ * Retried rather than reported inconclusive because a test that sometimes
+ * declines to check is a test nobody trusts, and the retry is cheap: these
+ * requests set `max_tokens: 1` and are rejected or accepted at validation.
+ */
+const TRANSIENT = new Set([429, 500, 502, 503, 529])
+
+async function post(body: unknown): Promise<{ ok: boolean; status: number; message: string }> {
+	let last = { ok: false, status: 0, message: 'no attempt made' }
+	for (let attempt = 1; attempt <= 4; attempt += 1) {
+		const res = await fetch('https://api.anthropic.com/v1/messages', {
+			method: 'POST',
+			headers: {
+				'x-api-key': KEY as string,
+				'anthropic-version': '2023-06-01',
+				'content-type': 'application/json',
+			},
+			body: JSON.stringify(body),
+		})
+		const parsed: unknown = await res.json().catch(() => ({}))
+		const message =
+			(parsed as { error?: { message?: string } } | null)?.error?.message ??
+			(res.ok ? '' : 'unknown')
+		last = { ok: res.ok, status: res.status, message }
+		if (!TRANSIENT.has(res.status)) return last
+		await new Promise((resolve) => setTimeout(resolve, 1_500 * attempt))
+	}
+	// Exhausted. Returned rather than thrown so the assertion names the status
+	// — a bare failure here reads as a rejected schema, which is the confusion
+	// this whole helper exists to prevent.
+	return last
+}
+
 async function offerTools(tools: unknown[]): Promise<WireResult> {
-	const res = await fetch('https://api.anthropic.com/v1/messages', {
-		method: 'POST',
-		headers: {
-			'x-api-key': KEY as string,
-			'anthropic-version': '2023-06-01',
-			'content-type': 'application/json',
-		},
-		body: JSON.stringify({
-			model: MODEL,
-			max_tokens: 1,
-			messages: [{ role: 'user', content: 'hi' }],
-			tools,
-		}),
+	return post({
+		model: MODEL,
+		max_tokens: 1,
+		messages: [{ role: 'user', content: 'hi' }],
+		tools,
 	})
-	const body: unknown = await res.json().catch(() => ({}))
-	const message =
-		(body as { error?: { message?: string } } | null)?.error?.message ?? (res.ok ? '' : 'unknown')
-	return { ok: res.ok, status: res.status, message }
 }
 
 /** A tool as this driver would put it on the wire. */
@@ -245,26 +274,16 @@ describe.skipIf(!KEY)('the positional shape a bridged tool now emits', () => {
 })
 
 describe.skipIf(!KEY)('effort is a per-model SET, and this wire says so itself', () => {
-	async function withEffort(model: string, effort: string): Promise<WireResult> {
-		const res = await fetch('https://api.anthropic.com/v1/messages', {
-			method: 'POST',
-			headers: {
-				'x-api-key': KEY as string,
-				'anthropic-version': '2023-06-01',
-				'content-type': 'application/json',
-			},
-			body: JSON.stringify({
-				model,
-				max_tokens: 16,
-				messages: [{ role: 'user', content: 'Say OK.' }],
-				output_config: { effort },
-			}),
+	// Through the same retrying helper: a 529 here would read as "this model
+	// refuses that level", which is the exact claim these tests exist to make
+	// and the exact claim an overloaded service cannot support.
+	const withEffort = (model: string, effort: string): Promise<WireResult> =>
+		post({
+			model,
+			max_tokens: 16,
+			messages: [{ role: 'user', content: 'Say OK.' }],
+			output_config: { effort },
 		})
-		const body: unknown = await res.json().catch(() => ({}))
-		const message =
-			(body as { error?: { message?: string } } | null)?.error?.message ?? (res.ok ? '' : 'unknown')
-		return { ok: res.ok, status: res.status, message }
-	}
 
 	it('takes all five levels on a model the table says has all five', async () => {
 		for (const effort of ['low', 'medium', 'high', 'xhigh', 'max']) {
