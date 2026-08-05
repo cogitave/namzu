@@ -915,6 +915,25 @@ export class IterationOrchestrator {
 		const unheard = this.ctx.completionInbox?.drain() ?? []
 		if (unheard.length === 0) return
 
+		// Fix the run's answer BEFORE appending anything after it.
+		//
+		// `RunPersistence.resolveResult` walks the message tail backwards and
+		// stops at the first non-assistant message, and it runs at
+		// `markCompleted` — which is AFTER this. So a notification appended
+		// after the final assistant turn makes the run's own answer
+		// unreachable. Measured, on a run whose model had just said "THIS IS
+		// THE RUN ANSWER.": `run.result` came back `undefined`. That trades a
+		// lost worker result for a lost RUN result, which is strictly worse
+		// than the defect this delivery exists to fix.
+		//
+		// Materialising resolves it while the tail is still the assistant's;
+		// pinning it means the later re-resolution cannot undo the fix. Only
+		// when there is something to pin: on the cancelled and thrown paths
+		// there may be no answer, and pinning an empty string there would
+		// suppress whatever the error path assembles.
+		const answer = this.ctx.runMgr.materializeResult()
+		if (answer.length > 0) this.ctx.runMgr.setResult(answer)
+
 		this.ctx.log.info('Delivering task completions the run would have settled over', {
 			runId: this.ctx.runMgr.id,
 			tasks: unheard.map((h) => h.taskId),
