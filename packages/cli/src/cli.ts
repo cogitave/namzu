@@ -29,6 +29,7 @@ import type { CommandContext } from './commands/types.js'
 import { loadConfig } from './config/load.js'
 import { EXIT_INTERNAL_ERROR } from './exit-codes.js'
 import { type FormatName, createFormatter, isFormatName } from './output/index.js'
+import { compilePermissions } from './permissions/rules.js'
 
 /** sysexits EX_USAGE — command-line argument error. */
 const EX_USAGE = 64
@@ -124,8 +125,22 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		if (process.stdout.isTTY) {
 			const launchOpts = program.opts<{ dangerouslySkipPermissions?: boolean; yolo?: boolean }>()
 			const skipPermissions = Boolean(launchOpts.dangerouslySkipPermissions || launchOpts.yolo)
+			// The same three lines `run` and `run-stream` use. The TUI compiled
+			// nothing at all, so a `permissions` table in a config file did nothing
+			// in the mode most people actually use.
+			const tuiCtx = getContext()
+			const permissions = compilePermissions(tuiCtx.config.permissions)
+			for (const d of permissions.diagnostics) {
+				const where = d.pattern ? `permissions.${d.tool}."${d.pattern}"` : `permissions.${d.tool}`
+				tuiCtx.formatter.error({ message: `${where}: ${d.message}` })
+			}
 			const { launchTui } = await import('./tui/index.js')
-			await launchTui({ cwd: process.cwd(), version: CLI_VERSION, skipPermissions })
+			await launchTui({
+				cwd: process.cwd(),
+				version: CLI_VERSION,
+				skipPermissions,
+				rules: permissions.rules,
+			})
 			const code = await Promise.resolve(0)
 			setExitCode(code)
 			return

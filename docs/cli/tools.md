@@ -1,6 +1,6 @@
 ---
 title: Tools & permission
-description: Builtin tools, agent memory + task tools, deferred tools and search_tools, how a tool call is decided, permission modes, the safety gate, and bypass mode.
+description: Builtin tools, agent memory + task tools, deferred tools and search_tools, how a tool call is decided, the permissions file, the safety gate, and bypass mode.
 last_updated: 2026-08-05
 status: current
 related_packages: ["@namzu/cli", "@namzu/sdk"]
@@ -44,7 +44,15 @@ A sub-agent runs without a task store, so it has nothing deferred, and `search_t
 
 Every call goes through the same two stages, in this order.
 
-**1. The verification gate** answers `allow`, `deny`, or `review`. It hard-denies a narrow set of catastrophic shell patterns (see [The safety gate](#the-safety-gate)) and allows tools that only observe. Everything else comes back `review` — the gate has no opinion, and the decision moves on.
+**1. The verification gate** answers `allow`, `deny`, or `review`, consulting three things in this order:
+
+1. **The safety floor** — a narrow set of catastrophic shell patterns is denied outright and outranks everything below (see [The safety gate](#the-safety-gate)).
+2. **Your rules** — the [`permissions` table](#the-permissions-file), if you wrote one. An `allow` or `deny` here settles the call.
+3. **The read-only allowance** — a tool that only observes is allowed.
+
+Anything still undecided comes back `review` — the gate has no opinion, and the decision moves on.
+
+Your rules are consulted *before* the read-only allowance, which is what makes `read: ask` reachable: were the order reversed, a rule asking to be prompted about a read would be silently unreachable.
 
 **2. The mode** decides what happens to a `review`. Which mode is in force depends on where you are:
 
@@ -56,7 +64,58 @@ Every call goes through the same two stages, in this order.
 
 `--permission-mode` is a headless flag — see [Headless runs](./headless.md#permission-modes). The TUI is `prompt` unless you launched it with bypass.
 
-**A mode never reopens what the gate closed.** A denied call was already stopped and an allowed one never asked, so neither reaches the mode. That is why `--yolo` cannot run a catastrophic command: the denial happens a stage earlier.
+**A mode never reopens what the gate closed.** A denied call was already stopped and an allowed one never asked, so neither reaches the mode. That is why `--yolo` cannot run a catastrophic command: the denial happens a stage earlier — and equally why a `deny` you wrote is not something bypass can undo.
+
+## The permissions file
+
+A `permissions` table says what a tool may do without asking. namzu reads two
+config files, and the later one wins:
+
+| File | Scope |
+| --- | --- |
+| `~/.namzu/config.yaml` | you, everywhere |
+| `./namzu.config.json` | this project |
+
+```yaml
+# ~/.namzu/config.yaml
+permissions:
+  read: allow
+  bash:
+    "git status": allow
+    "git push*": deny
+  write: deny
+```
+
+```json
+// ./namzu.config.json
+{
+  "permissions": {
+    "read": "allow",
+    "bash": { "git status": "allow", "git push*": "deny" }
+  }
+}
+```
+
+An effect is `allow`, `ask` or `deny`, either for a whole tool or per argument
+pattern. More specific patterns are matched first.
+
+**`ask` is the default, so writing it changes nothing** — an unmatched call is
+already asked about. It is spelled out so a table can say what it means rather
+than leaving a reader to infer it from an absence, and it is why there is no way
+to widen by omission: the only way to allow something is to say so.
+
+**The table is replaced, not merged.** A project file's `permissions` overrides
+a user file's entirely rather than combining key by key, so a project config that
+sets one rule does not inherit the rest.
+
+**It applies to the interactive TUI as well as `run` and `run-stream`** (since
+0.7.0 — before that the table was dropped before it reached any of them). A
+`deny` in an interactive session means the call is refused outright rather than
+prompted, which is the point of writing one: it protects you from approving by
+reflex.
+
+For what happens to calls no rule covered, see
+[permission modes](./headless.md#permission-modes).
 
 ## The permission prompt
 

@@ -4,6 +4,8 @@
  * the React/Ink layer.
  */
 
+import type { VerificationRule } from '@namzu/sdk'
+
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool'
 
 export interface TranscriptMessage {
@@ -26,4 +28,15 @@ export interface TuiContext {
 	readonly version: string
 	/** When true, tools run without the approval prompt (--dangerously-skip-permissions / --yolo). */
 	readonly skipPermissions?: boolean
+	/**
+	 * The operator's `permissions` table, compiled to kernel rules.
+	 *
+	 * A config file belongs to the user, not to a command: someone who writes
+	 * `bash = "deny"` and then types `namzu` expects it to hold. Interactive
+	 * mode having a human present is an argument about the default, not a
+	 * licence to drop a rule they wrote — and `deny` in a session means "do not
+	 * even ask me", which is exactly what protects someone from approving by
+	 * reflex.
+	 */
+	readonly rules?: readonly VerificationRule[]
 }
