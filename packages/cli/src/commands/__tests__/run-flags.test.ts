@@ -215,3 +215,17 @@ describe('the pipe reaches the model, not just the composer', () => {
 		})
 	})
 })
+
+describe('a flag that was never read is refused, not swallowed', () => {
+	// `--instance` was parsed into a field nothing anywhere in the repo read.
+	// A host passing it got the persona selection it asked for exactly never,
+	// and was told exactly nothing — which is worse than an absent flag,
+	// because an absent flag says so immediately.
+	it('refuses --instance now that it means nothing', async () => {
+		const { code, errors } = await run(['--instance', 'namzu-2', 'hello'])
+
+		expect(code).toBe(EXIT_USAGE)
+		expect(errors.join('')).toContain('--instance')
+		expect(seen.prompt).toBeNull()
+	})
+})
