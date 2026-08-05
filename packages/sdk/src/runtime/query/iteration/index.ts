@@ -218,7 +218,13 @@ export class IterationOrchestrator {
 				// supplied no hook.
 				const step = await this.prepareStep(iterationNum)
 
-				const llmTools = this.ctx.tools.toLLMTools(step.allowedTools ?? this.ctx.allowedTools)
+				const stepAllowedTools = step.allowedTools ?? this.ctx.allowedTools
+				const llmTools = this.ctx.tools.toLLMTools(stepAllowedTools)
+				// The same list the request was built from now also bounds what
+				// may run. Narrowing only the request left the restriction
+				// presentational — the model was shown fewer tools and could
+				// still call any of them by name.
+				this.ctx.toolExecutor.setStepAllowedTools(stepAllowedTools)
 				const enforceToolInputSchema = enforcedModelInputToolNames(this.ctx.tools, llmTools)
 				const stepModel = step.model ?? model
 

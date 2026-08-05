@@ -100,6 +100,19 @@ export interface ToolContext {
 	invocationState?: InvocationState
 
 	toolRegistry?: ToolRegistryRef
+	/**
+	 * The names this turn may call, if the turn was narrowed.
+	 *
+	 * Enforced at dispatch, not only used to decide which schemas the model is
+	 * shown. It was the latter alone for a while, which made the narrowing
+	 * presentational: a step could withhold a tool from the request and the
+	 * executor would still run it when the model named it anyway — from
+	 * repeated context, from a gateway with its own tool memory, or from a
+	 * replayed prefix.
+	 *
+	 * Absent means no narrowing, which is not the same as an empty list: an
+	 * empty list is a turn that may call nothing.
+	 */
 	allowedTools?: readonly string[]
 	sandbox?: Sandbox
 	fileReadTracker?: FileReadTracker

@@ -438,6 +438,41 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 					}
 				}
 
+				// A turn that was narrowed may only call what it was narrowed to.
+				//
+				// This used to be enforced nowhere. `allowedTools` decided which
+				// schemas went into the request and was then carried into this
+				// context and read by nothing, so the restriction was a statement
+				// about the menu rather than about the kitchen: a model that named
+				// a withheld tool — from earlier context, from a gateway holding
+				// its own tool list, from a replayed cache prefix — had it run.
+				// The type says "restrict which tools the model may call"; this is
+				// the line that makes that true.
+				//
+				// Absent means unrestricted. An EMPTY list does not: it is a turn
+				// that may call nothing, and treating it as "no restriction" is
+				// the fail-open reading this codebase has already been bitten by
+				// once, in the delegate roster.
+				const allowed = context.allowedTools
+				if (allowed !== undefined && !allowed.includes(toolName)) {
+					const msg = `Tool "${toolName}" is not available on this step. Available: ${allowed.length > 0 ? allowed.join(', ') : '(none)'}`
+					this.log.warn('Blocked a tool outside the step allow-list', {
+						tool: toolName,
+						allowed: allowed.length,
+					})
+					span.setAttributes({
+						[NAMZU.TOOL_SUCCESS]: false,
+						[NAMZU.TOOL_ERROR]: msg,
+					})
+					span.setStatus({ code: SpanStatusCode.ERROR, message: msg })
+					return {
+						success: false,
+						output: '',
+						error: msg,
+						permissionDenied: true,
+					}
+				}
+
 				const mode = context.permissionContext?.mode ?? 'auto'
 				if (mode === 'plan') {
 					const isReadOnly = tool.isReadOnly ? tool.isReadOnly(rawInput) : false
