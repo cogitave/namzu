@@ -206,3 +206,32 @@ The direction is deliberate. The config file is written once, read by whoever
 reviews the repository, and changed on purpose; a flag is typed in a hurry by
 someone who wants to get on with it. A prohibition a flag can lift is not a
 prohibition.
+
+## Resuming a conversation
+
+```bash
+namzu run --continue "and now the integration tests"
+namzu run --resume ses_abc123 "what did we decide about the cache?"
+```
+
+`--continue` takes the most recent conversation in the working directory;
+`--resume <id>` takes the one you name and no other. `namzu history` lists what
+is there.
+
+**Both refuse when the conversation cannot be reopened, and say why. Neither
+ever falls back to starting a new one.**
+
+That is deliberate, and it is the important part. Someone who types `--resume`
+is asking for *that* conversation. Silently starting a fresh one hands back
+something indistinguishable from what they asked for, and they discover it
+several turns later having already acted on an agent that has no idea what they
+are referring to. Resuming with a partial transcript is worse still: a
+half-context is not a degraded context, it is a different context that lies
+about being complete.
+
+The refusal names the cause, because the causes have different fixes — "no
+previous conversation in /path" points at `--cwd`, which is usually the real
+mistake, while a bad id lists how many other conversations are there.
+
+There is no way to spell "resume if you can, otherwise start". Run the command
+with no flag if that is what you want.
