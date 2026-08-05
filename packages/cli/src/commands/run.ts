@@ -21,6 +21,7 @@ import type { StopReason } from '@namzu/sdk'
 
 import { EXIT_USAGE } from '../exit-codes.js'
 import type { DetectedProvider, Preferences, ProviderId } from '../integrations/providers/index.js'
+import { compilePermissions } from '../permissions/rules.js'
 import {
 	loadSkillsContext,
 	parseRunFlags,
@@ -176,7 +177,19 @@ export const runCommand: CommandDef = {
 		if (flags.provider) prefs = { ...prefs, provider: flags.provider as ProviderId }
 		if (flags.model) prefs = { ...prefs, model: flags.model }
 
-		const session = await createAgentSession(prefs, probe.detected, { cwd: resolved.cwd })
+		// A permission the operator wrote and which was silently dropped is the
+		// worst outcome available here: they believe a control is in force and it
+		// is not. So a bad line is reported and the rest still load.
+		const permissions = compilePermissions(ctx.config.permissions)
+		for (const d of permissions.diagnostics) {
+			const where = d.pattern ? `permissions.${d.tool}."${d.pattern}"` : `permissions.${d.tool}`
+			ctx.formatter.error({ message: `${where}: ${d.message}` })
+		}
+
+		const session = await createAgentSession(prefs, probe.detected, {
+			cwd: resolved.cwd,
+			rules: permissions.rules,
+		})
 		if (!session.hasProvider) {
 			ctx.formatter.error({ message: session.errorHint ?? 'agent is not ready' })
 			return 1

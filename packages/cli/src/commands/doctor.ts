@@ -2,7 +2,7 @@ import type { DoctorCategory, DoctorCheckRecord, DoctorReport, DoctorStatus } fr
 
 import { builtInDoctorChecks } from '../doctor/checks/index.js'
 import { type RunDoctorOptions, createDoctorRegistry, runDoctor } from '../doctor/registry.js'
-import { EXIT_INTERNAL_ERROR, EXIT_USAGE } from '../exit-codes.js'
+import { EXIT_USAGE } from '../exit-codes.js'
 import type { CommandDef } from './types.js'
 
 const VALID_CATEGORIES: readonly DoctorCategory[] = [
