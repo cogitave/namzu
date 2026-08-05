@@ -48,7 +48,7 @@
 		"knip": "knip",
 		"knip:production": "knip --production",
 		"prepublishOnly": "pnpm lint && pnpm typecheck && pnpm build",
-		"test:proc": "vitest run --config vitest.proc.config.ts"
+		"test:proc": "tsc --build && vitest run --config vitest.proc.config.ts"
 	},
 	"peerDependencies": {
 		"@opentelemetry/api": "^1.9.0",

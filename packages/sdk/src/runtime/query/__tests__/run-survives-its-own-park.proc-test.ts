@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 
 /**
@@ -24,6 +25,12 @@ import { afterEach, describe, expect, it } from 'vitest'
  * existing test passed throughout. If you are tempted to rewrite this as an
  * ordinary `drainQuery` call because spawning is slow, that rewrite is the
  * bug coming back.
+ *
+ * It loads the BUILT entry point, because that is what a consumer loads and
+ * because a child process cannot resolve TypeScript. The `test:proc` script
+ * therefore builds first — a stale `dist` reports a failure that has nothing
+ * to do with the code under test, and would report a pass just as
+ * confidently.
  */
 
 const workdirs: string[] = []
@@ -99,10 +106,12 @@ describe('a run outlives its own HITL park', () => {
 		const script = join(dir, 'run.mjs')
 		writeFileSync(script, SCRIPT)
 
-		const sdkEntry = new URL('../../../../dist/index.js', import.meta.url).pathname.replace(
-			/^\//,
-			'',
-		)
+		// `fileURLToPath`, not `pathname` with the leading slash stripped. That
+		// stripping is right on Windows, where `pathname` is `/C:/…`, and wrong
+		// everywhere else, where it turns an absolute POSIX path into a
+		// relative one — which is how this passed locally and failed in CI with
+		// the repo root pasted in front of itself.
+		const sdkEntry = fileURLToPath(new URL('../../../../dist/index.js', import.meta.url))
 		const zodEntry = require.resolve('zod')
 
 		const out = execFileSync(process.execPath, [script, sdkEntry, zodEntry, dir], {
