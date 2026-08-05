@@ -26,6 +26,33 @@ export type PlanEventListener = (event: PlanEvent) => void
 
 export type PlanApprovalHandler = (request: PlanApprovalRequest) => Promise<PlanApprovalResponse>
 
+/**
+ * The plan a run declares, and the gate a host approves it through.
+ *
+ * **The kernel deliberately drives only part of this class.** It builds a plan
+ * (`approve_plan` calls `startGenerating` / `addStep` / `markReady`), gates it
+ * (`iteration/phases/context.ts` calls `approve` and `startExecution`),
+ * translates its events onto the run stream (`EventTranslator.wirePlanManager`),
+ * and settles it on failure (`runtime/query/result.ts` calls `failPlan`). It
+ * never reports a step outcome and never settles a plan that succeeded.
+ *
+ * That is a split, not an omission — `drainQuery` hands the manager to the host
+ * through `onContextCreated({ planManager })` BEFORE the iteration loop starts,
+ * precisely so a host can drive the half the kernel does not. So a grep for
+ * callers of `updateStepStatus` or `completePlan` inside this package finds
+ * none, and that is not evidence the methods are dead: the callers are hosts,
+ * and they are outside the repository. `PlanManager` is exported from
+ * `public-runtime.ts` for this reason.
+ *
+ * Recorded here because the absence has already been read once as a dead layer
+ * and proposed for deletion. What it would have deleted is a working
+ * human-in-the-loop approval gate.
+ *
+ * The one genuine gap in the split is tracked separately: nothing settles a
+ * plan that SUCCEEDED, so its status can reach `failed` or stay `executing`
+ * but never `completed`. Fixing that needs a decision about what a
+ * kernel-built plan's steps mean, not a guessed status — see `completePlan`.
+ */
 export class PlanManager {
 	private currentPlan: Plan | null = null
 	private runId: RunId
@@ -185,8 +212,42 @@ export class PlanManager {
 		return step
 	}
 
+	/**
+	 * Settle the plan, computing its outcome from its steps.
+	 *
+	 * A step that is still `pending` or `running` used to land here as
+	 * **`failed`**, because the test was "is every step completed or skipped"
+	 * and anything else fell to the same branch. So a caller that added steps,
+	 * did the work, and settled the plan without reporting each step got
+	 * `failed` for a plan that fully succeeded — and `addStep` defaults every
+	 * step to `pending`, so that is the path of least effort, not an unusual
+	 * one.
+	 *
+	 * The two cases are different facts and want different responses. A step
+	 * that FAILED is an outcome: the plan failed, report it. A step nobody
+	 * reported on is not an outcome at all — it says the caller and this plan
+	 * disagree about whether the work is over, and answering "failed" resolves
+	 * that disagreement by inventing a result.
+	 *
+	 * So an unfinished step is refused rather than scored. The message names
+	 * the steps and the two ways out, because a caller in this position either
+	 * forgot to report progress or called too early, and only they know which.
+	 */
 	completePlan(): Plan | null {
 		if (!this.currentPlan) return null
+
+		const unfinished = this.currentPlan.steps.filter(
+			(s) => s.status === 'pending' || s.status === 'running',
+		)
+		if (unfinished.length > 0) {
+			const named = unfinished.slice(0, 3).map((s) => s.description)
+			const rest = unfinished.length - named.length
+			const listed = rest > 0 ? `${named.join('; ')}, and ${rest} more` : named.join('; ')
+			const counted = `${unfinished.length} of ${this.currentPlan.steps.length} steps`
+			throw new Error(
+				`Cannot complete plan "${this.currentPlan.title}": ${counted} have not reported an outcome (${listed}). Report each step with updateStepStatus — 'skipped' is a valid outcome — or call failPlan if the plan is being abandoned. Scoring an unreported step as a failure would report a plan that succeeded as one that did not.`,
+			)
+		}
 
 		const allDone = this.currentPlan.steps.every(
 			(s) => s.status === 'completed' || s.status === 'skipped',
