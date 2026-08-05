@@ -54,6 +54,13 @@ jobs:
       # model instead of asking what this one is trying to achieve. Wire
       # values are exempt by path — a driver has to name the service it
       # drives — and the script says exactly where that line falls.
+      # Spawns a real node process, so it cannot live in the unit suite: the
+      # spawn competes for CPU hard enough to flake the timing-sensitive tests
+      # beside it. It proves the one thing an in-process test cannot — that a
+      # run survives on its own event-loop footprint, with no test runner
+      # holding the loop open for it.
+      - name: Process-level regression tests
+        run: pnpm --filter @namzu/sdk test:proc
       - name: External-name audit
         run: node scripts/audit-external-names.mjs
 
