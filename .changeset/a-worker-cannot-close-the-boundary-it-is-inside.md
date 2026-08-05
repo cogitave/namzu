@@ -31,8 +31,10 @@ transcript rather than as a delegate's material.
   replacements (`task_notification`, `namzu_untrusted`) share no substring with
   the tokens they replace — a replacement that still contains the token is found
   again by a second pass or by any looser matcher downstream.
-- A truncated notification is about 600 characters longer than before. The cost
-  is fixed, not proportional to the output.
+- A notification is 257 characters longer than before — measured, both for a
+  five-character result and for a truncated 4 kB one, so the cost is fixed
+  rather than proportional to the output. It grows only with the length of the
+  agent id and task id, which appear in the envelope's attributes.
 
 `data.result` on both tools is unchanged, so a host reading results
 programmatically is unaffected. If you match on the model-facing text of either
