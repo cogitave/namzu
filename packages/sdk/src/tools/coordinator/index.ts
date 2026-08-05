@@ -11,6 +11,7 @@ import type { ToolDefinition } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
 import { wrapUntrusted } from '../untrusted-envelope.js'
 import { resolvePlanDependencies } from './plan-dependencies.js'
+import { describeWaitTimeout, waitForTaskWithBounds } from './wait-with-idle-bound.js'
 
 export type TaskLaunchedCallback = (
 	agentTaskId: TaskId,
@@ -259,6 +260,33 @@ const LISTED_RESULT_LIMIT = 2_000
  */
 export const DELEGATION_TIMEOUT_MS = 60 * 60 * 1000
 
+/**
+ * How long a delegated worker may say nothing before the wait gives up.
+ *
+ * The hour above answers "how long is too long". It cannot also answer
+ * "how quiet is too quiet", because it has to be generous enough for a
+ * child doing real work — which makes it useless as a stall detector. A
+ * worker wedged in its second minute held the supervisor for another
+ * fifty-eight under that number alone.
+ *
+ * Five minutes of silence, because a worker between tool calls can be
+ * quiet for a while legitimately — a long model turn emits nothing until
+ * it starts streaming — and the cost of guessing low is killing a wait on
+ * a worker that was fine. Guessing high only delays a diagnosis. Set
+ * `NAMZU_DELEGATION_IDLE_MS` to change it.
+ *
+ * Only armed when the gateway can report progress at all; see
+ * `TaskGateway.onTaskProgress`.
+ */
+export const DELEGATION_IDLE_MS = readPositiveIntEnv('NAMZU_DELEGATION_IDLE_MS', 5 * 60 * 1000)
+
+function readPositiveIntEnv(key: string, fallback: number): number {
+	const value = process.env[key]?.trim()
+	if (!value) return fallback
+	const parsed = Number(value)
+	return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback
+}
+
 export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefinition[] {
 	const {
 		gateway,
@@ -379,7 +407,23 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 			// assistant turn, the runtime runs them together and delivers all
 			// N `tool_result`s at once. No second `tool_result` for the
 			// same `tool_use_id` — providers reject a duplicated id outright.
-			const completed = await gateway.waitForTask(handle.taskId)
+			// Bounded by two clocks rather than one. The wait gives up on a
+			// worker that has gone quiet long before the hour is out, and says
+			// which of the two ran out — the caller acts on that difference.
+			// Giving up does NOT cancel the child: it keeps going, and its
+			// result still reaches the supervisor as a notification.
+			const outcome = await waitForTaskWithBounds(gateway, handle.taskId, {
+				runMs: DELEGATION_TIMEOUT_MS,
+				idleMs: DELEGATION_IDLE_MS,
+			})
+			if (outcome.kind === 'timeout') {
+				return {
+					success: false,
+					output: describeWaitTimeout(outcome),
+					data: { task_id: handle.taskId, agent_id, timed_out: outcome.cause },
+				}
+			}
+			const completed = outcome.handle
 
 			// Whether this call is still the live path decides who delivers the
 			// result. If the executor already gave up on us — its deadline
@@ -533,7 +577,18 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 				}
 			}
 
-			const completed = await gateway.waitForTask(task_id as TaskId)
+			const outcome = await waitForTaskWithBounds(gateway, task_id as TaskId, {
+				runMs: DELEGATION_TIMEOUT_MS,
+				idleMs: DELEGATION_IDLE_MS,
+			})
+			if (outcome.kind === 'timeout') {
+				return {
+					success: false,
+					output: describeWaitTimeout(outcome),
+					data: { task_id, timed_out: outcome.cause },
+				}
+			}
+			const completed = outcome.handle
 			if (_context.abortSignal?.aborted) {
 				return {
 					success: false,
