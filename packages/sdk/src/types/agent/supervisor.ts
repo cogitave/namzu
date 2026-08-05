@@ -19,6 +19,34 @@ export interface SupervisorAgentConfig extends BaseAgentConfig {
 
 	agentIds: string[]
 
+	/**
+	 * May this run invoke subagents at all? Defaults to `true`.
+	 *
+	 * `agentIds` answers WHO may be called; this answers WHETHER, and they are
+	 * different questions. A run whose own persona is the single agent on the
+	 * list has a non-empty list and still must not call anyone.
+	 *
+	 * It cannot be derived. Comparing the list against the executing agent
+	 * fails where a host substitutes a specialist's persona into the
+	 * supervisor shell — the two ids differ, so the predicate says "can
+	 * delegate" about a run that cannot. And no predicate over `agentIds`
+	 * could work, because a supervisor whose list holds one specialist and a
+	 * run that IS that specialist are indistinguishable in it. The fact lives
+	 * with the caller, so the caller states it.
+	 *
+	 * Positive polarity on purpose: `allowDelegation: false` reads correctly
+	 * the first time, where a `delegationDisabled` spelling inverts twice at
+	 * every site that consults it.
+	 *
+	 * **Absolute.** `runtimeToolOverrides` cannot put the delegation tools
+	 * back — the override pass runs over the tools this flag already declined
+	 * to build, and both values come from the same caller in the same call, so
+	 * "must not delegate" plus "give it `create_task`" is a contradiction
+	 * rather than extra knowledge. This matches `agentIds: []`, which is
+	 * absolute today for the same reason.
+	 */
+	allowDelegation?: boolean
+
 	gateway?: TaskGateway
 	agentManager?: AgentManagerContract
 	tools?: ToolRegistryContract

@@ -55,6 +55,7 @@ const hostTool = (name: string) =>
 async function runWith(options: {
 	hostTools?: string[]
 	runtimeToolOverrides?: Record<string, 'active' | 'deferred' | 'disabled'>
+	allowDelegation?: boolean
 }) {
 	const agent = new SupervisorAgent({
 		id: 'supervisor',
@@ -80,6 +81,9 @@ async function runWith(options: {
 		{
 			provider,
 			agentIds: ['worker'],
+			...(options.allowDelegation !== undefined
+				? { allowDelegation: options.allowDelegation }
+				: {}),
 			agentManager: stubManager(),
 			tools,
 			systemPrompt: 'You coordinate.',
@@ -144,5 +148,38 @@ describe('supervisor coordinator-tool registration', () => {
 		// Overwriting also leaves the name present, so a membership check
 		// alone passes against the very behaviour this replaces.
 		expect(describedAs('create_task')).toBe(HOST_TOOL_DESCRIPTION)
+	})
+})
+
+/**
+ * The one hop between `SupervisorAgentConfig.allowDelegation` and the builder
+ * that acts on it.
+ *
+ * These go through `SupervisorAgent` rather than calling the builder directly,
+ * and that is the entire point. The builder has its own unit tests, and they
+ * pass whether or not the supervisor actually forwards the flag — measured:
+ * deleting the forward left the type-check clean and all 143 coordinator and
+ * agent tests green, with the field settable, documented, and read by nobody.
+ * That is the shape of a declaration this repository has had to go and delete
+ * before, so it gets a test that fails when the road is cut.
+ */
+describe('allowDelegation reaches the tool surface', () => {
+	it('withholds the delegation tools when the run declines to delegate', async () => {
+		const { names } = await runWith({ allowDelegation: false })
+
+		expect(names, 'the flag never reached buildCoordinatorTools').not.toContain('create_task')
+		expect(names).not.toContain('wait_for_task')
+		expect(names).not.toContain('cancel_task')
+	})
+
+	it('keeps the listing, so a non-delegating run can still see what is running', async () => {
+		expect((await runWith({ allowDelegation: false })).names).toContain('agent_task_list')
+	})
+
+	it('leaves an opting-in run exactly as it was', async () => {
+		const { names } = await runWith({ allowDelegation: true })
+
+		expect(names).toContain('create_task')
+		expect(names).toContain('agent_task_list')
 	})
 })
