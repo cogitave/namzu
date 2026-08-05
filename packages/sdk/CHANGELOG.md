@@ -1,5 +1,442 @@
 # Changelog
 
+## 8.0.0
+
+### Major Changes
+
+- 9ac8dd4: A delegate's output is framed as untrusted material on every path the model reads it, and it can no longer end the frame early
+
+  Blocking `create_task` and `wait_for_task` wrap a worker's text in the
+  `<namzu-untrusted>` envelope. Two other paths carried the same bytes and did
+  not: the completion notification injected into the transcript, and
+  `agent_task_list`'s rendered output. So whether a worker's words arrived as
+  material or as the parent's own reasoning depended on how the model happened to
+  fetch them — and the two unframed paths are the ones reached when a wait was
+  abandoned, which is when a run is already off its expected course.
+
+  Worse, the notification's own delimiter was forgeable. Measured: worker output
+  containing `</task-notification>` produced two closing tags in one message, with
+  attacker-controlled text sitting outside the first — reading as ordinary
+  transcript rather than as a delegate's material.
+
+  **What changed on the wire the model sees.**
+
+  - The notification now nests a `<namzu-untrusted kind="agent-result">` block
+    inside `<task-notification>`. Kernel metadata (`task_id`, `agent`, `state`,
+    `duration_ms`) stays OUTSIDE it — framing this kernel's own statements as
+    untrusted would tell the model to discount the only part of the message it
+    can rely on — and so does the truncation notice, which is an instruction
+    about how to fetch the rest.
+  - `agent_task_list` wraps each finished task's output the same way, with the
+    same `agent` and `task` attributes the blocking path uses.
+  - Both delimiters are defanged inside worker text, case-insensitively. The
+    replacements (`task_notification`, `namzu_untrusted`) share no substring with
+    the tokens they replace — a replacement that still contains the token is found
+    again by a second pass or by any looser matcher downstream.
+  - A notification is 257 characters longer than before — measured, both for a
+    five-character result and for a truncated 4 kB one, so the cost is fixed
+    rather than proportional to the output. It grows only with the length of the
+    agent id and task id, which appear in the envelope's attributes.
+
+  `data.result` on both tools is unchanged, so a host reading results
+  programmatically is unaffected. If you match on the model-facing text of either
+  tool, expect the envelope.
+
+- 9ac8dd4: A completion inbox hears only about the tasks its own run launched, and a supervisor releases the gateway it borrowed
+
+  `TaskGateway.onTaskCompleted` is a broadcast and `TaskHandle` carries no run id,
+  so every inbox attached to a gateway was handed every completion on it.
+  Measured: two inboxes on one gateway, one run launches a task, and the OTHER
+  run drains it — it would have been told "a task you launched has finished", a
+  false statement, over another run's worker output. A shared gateway is not an
+  abuse of the API: `SupervisorAgentConfig.gateway` takes one, and a host that
+  owns a gateway reuses it.
+
+  Separately, nothing ever called `CompletionInbox.close()`. Three sequential
+  `SupervisorAgent` runs against one host gateway left three live subscriptions,
+  each still holding its run's handles, and the set only grew.
+
+  **Breaking, and what to do.**
+
+  - `CompletionInbox` now ignores a completion for a task it was not told about.
+    If you drive `buildCoordinatorTools` there is nothing to do — `create_task`
+    declares every launch, blocking and background alike. If you launch tasks
+    some other way and expect notifications, call `inbox.launched(taskId)` after
+    the launch. `inbox.expect(taskId)` already implies it.
+  - `SupervisorAgent` closes the inbox it created when the run ends, including
+    when setup throws. An inbox you construct yourself is still yours to close.
+  - `close()` now clears what the inbox owned and claimed as well as what it
+    queued, so a closed inbox cannot be re-armed through a stale reference.
+
+  The ordering that would otherwise turn this into lost results is handled in
+  two layers. `gateway.createTask` resolves one microtask before its caller can
+  say who owns the task, so a worker that finishes inside that window is
+  announced first. An unowned announcement is therefore BUFFERED rather than
+  dropped, and ownership may be claimed retroactively; the buffer is bounded at
+  32 entries so that on a shared gateway it cannot accumulate every other run's
+  worker output, and an eviction is logged at WARN so a dropped completion is
+  never inferable only from an absence. Where the buffer could not hold an entry,
+  `launched()` also asks `gateway.getTask` — an assumption that a just-settled
+  task is still findable, now stated on `TaskGateway.getTask` itself so a host
+  that cannot meet it knows it is the one paying.
+
+- 9ac8dd4: `create_task` offers `background: true` only when there is somewhere for the result to arrive
+
+  A background launch returns a task id and tells the model its result will come
+  "later, as a task notification". The `CompletionInbox` is the only thing that
+  delivers one — it holds the run open for the outstanding worker and puts the
+  completion into the transcript. `buildCoordinatorTools` mounted the parameter
+  whether or not it was given an inbox, so a host without one had a tool
+  advertising a channel that did not exist. Nothing failed loudly, because the
+  launch itself succeeded; the result simply never arrived.
+
+  Without a `completionInbox`, `create_task` no longer declares `background` and
+  its description no longer mentions it. Everything else is unchanged: the
+  blocking path, `wait_for_task`, `cancel_task` and `agent_task_list` are all
+  still mounted. Pass a `completionInbox` — to `buildCoordinatorTools` **and** to
+  `drainQuery` — to get background launching back. `SupervisorAgent` does both
+  already, so a host using it sees no change.
+
+  A `background: true` that reaches `execute` some other way — a directly
+  constructed definition — is REFUSED, naming the missing piece, rather than
+  quietly turned into a blocking call: the caller asked for something that
+  returns immediately, and giving them a different thing is accepting work whose
+  stated terms cannot be met. The abandoned-wait messages on `create_task` and
+  `wait_for_task` no longer promise a notification either, and
+  `agent_task_list` stops telling the model to avoid the listing when the
+  listing is the only route left.
+
+  The parameter is withheld rather than refused per call, and rather than thrown
+  at construction. A parameter the model is never shown costs nothing; one it is shown and then
+  denied costs prompt-prefix tokens plus an iteration per attempt. And a throw
+  would break a caller doing something legitimate — an inbox-less coordinator
+  surface is a supported configuration. This is the same reasoning that made an
+  empty roster withhold `create_task` rather than refuse to build.
+
+### Minor Changes
+
+- a39c2ed: A compaction pass now reports both of its outcomes.
+
+  Two gaps, in opposite directions, in the same function.
+
+  **A compaction that sheds nothing was invisible to everyone.** All three decline
+  paths — the reducer throws, it returns no fewer messages than it was given, or
+  its result splits a `tool_use` from its `tool_result` and is refused wholesale —
+  reached a log line and stopped there. A host that silences its logger, which
+  every command-line entry point does, made a failed compaction invisible to the
+  user, to the host _and_ to the model at once. The run then continued at full
+  context toward a provider rejection several turns later that named none of this.
+  A shed that did not happen is exactly as consequential as one that did, and only
+  one of them was on the wire.
+
+  New `compaction_failed` event (wire: `compaction.failed`) carrying `cause`
+  (`reducer_threw` | `shed_nothing` | `split_tool_pair`), the unchanged message
+  count, and the reducer's error where there was one. The cause is on the event
+  because the three want different responses: one may succeed next pass, one will
+  decline identically every time, and one is a reducer bug that `findSafeTrimIndex`
+  exists to prevent.
+
+  **And a compaction that succeeded was invisible on the path most hosts take.**
+  `compaction_completed` was emitted only from the structured working-state path.
+  The reducer path — taken by any host-supplied `contextReducer` and by
+  `strategy: 'sliding-window'` — emitted nothing at all, so the event whose own
+  documentation says it exists because "a host could not show the user that context
+  was dropped" never reached the hosts most likely to need it. It is emitted from
+  both paths now.
+
+  That second one was found by a test written for the first: asserting that a
+  successful compaction does _not_ report a failure is what showed it reported
+  nothing.
+
+  **If you switch exhaustively over `RunEvent`, you need a case for
+  `compaction_failed`.** Nothing else changes: no existing event's shape moved, and
+  a host that ignores unknown events is unaffected. The A2A bridge deliberately
+  does not forward either compaction event — a peer models a task lifecycle and
+  cannot act on how this runtime manages its own context.
+
+- f6e0594: `token_usage_updated` now carries the current context size and the window it is measured against.
+
+  A host built a context indicator, and it could not have been right. The event
+  carried `usage` — **cumulative run spend**, summed over every turn, monotonically
+  increasing and untouched by compaction — and nothing about the size of the
+  conversation being sent. So the host divided cumulative spend by a context
+  window guessed from a substring of the model name, and rendered the result as an
+  unqualified percentage, continuously.
+
+  Both terms were wrong, and the numerator was the worse of the two. A guessed
+  window is wrong by a bounded factor. Cumulative spend has three properties that
+  make it not merely imprecise but actively misleading:
+
+  - It **never decreases**, by explicit design — the accumulator is documented as
+    monotone so it can never under-report a bill. Compaction does not reduce it.
+  - It grows **superlinearly in turn count**, because every turn re-sends the whole
+    history and counts those prompt tokens again. Ten turns over a 50k context
+    accumulate roughly 500k.
+  - It measures **spend**, which is the right quantity for cost and the wrong one
+    for occupancy.
+
+  So an indicator built on it saturates at full long before the context is, and it
+  is **anti-correlated with what it claims in exactly the regime a user cares
+  about**: a long conversation reads FULL while the real context may be a fifth of
+  the window. That alarms people into compacting or restarting when they have
+  room — worse than showing nothing, because silence does not tell you something
+  false in red. In the other direction, a driver that reports no usage shows 0%
+  for a conversation that is really there.
+
+  The kernel already computed the right numbers on every iteration and kept them
+  to itself. `measureContext()` is now exported, and the event carries four new
+  optional fields: `contextTokens`, `contextMeasuredBy` (`'provider' | 'estimate'`),
+  `contextWindowTokens` and `windowSource` (`'config' | 'model-table' | 'default'`).
+  They are named apart from the cumulative figures beside them deliberately —
+  reaching for the wrong one should be a visible mistake, not a plausible guess.
+
+  **They are absent when the run has no compaction configuration**, because nothing
+  then resolves a window and inventing one would be the guess this replaces. A
+  surface should show what it can name rather than a fraction it cannot ground.
+
+  **A fraction is only as honest as the weaker of its terms.** `contextMeasuredBy`
+  and `windowSource` exist so a surface can pass that on rather than presenting an
+  estimate as a measurement. Nothing existing changes: `usage` and `cost` are
+  untouched, and the new fields are additive and optional.
+
+- a39c2ed: A verification rule can name one tool and one argument.
+
+  Every pattern rule an operator could write was one of two wrong things.
+
+  `custom_pattern` carries no tool scope, so a rule written about `bash` decided
+  `edit` calls as well — `target: 'both'` prefixes the tool name to the subject
+  rather than requiring it, which is not a scope. And `target: 'args'` tests
+  `JSON.stringify(toolInput)`, so the subject is the JSON _text_ of the whole
+  argument object: the natural, anchored thing to write, `^git push`, is tested
+  against `{"command":"git push origin main"}` and can never match. The rule then
+  decides nothing, silently. Pinning the tool cost the anchor; anchoring cost the
+  tool scope.
+
+  New `argument_pattern` rule — `toolNames`, `argument`, `pattern`, `decision` —
+  whose subject is the named argument's own value, so an anchored pattern means
+  what it looks like it means. The refusal names the argument as well as the
+  pattern, which is what tells a model whether a different value could get through.
+
+  It deliberately decides nothing in three cases: the tool was not called, the
+  argument is absent, or the argument holds an object or an array. No string a
+  pattern could match says anything true about a structured value, and serialising
+  one to try would put this rule back where `custom_pattern` already is. To refuse
+  a tool over the _shape_ of its input, deny it by name. Numbers and booleans are
+  matched rather than skipped — they render unambiguously, and a rule about a
+  numeric argument is a reasonable thing to write.
+
+  `custom_pattern` is unchanged and not deprecated: matching anywhere in the
+  serialised input without caring where is a real use, and it is now documented as
+  being that rather than reading as something it never was. The trap was the name,
+  not the behaviour.
+
+- 9ac8dd4: A run that ends any way other than a plain final answer no longer throws away a finished worker's output
+
+  The iteration loop consulted its completion inbox at exactly one place: the
+  branch where the model stops calling tools and answers. It leaves by eight other
+  routes, and three of them are ordinary ways for a run to END — a tool the author
+  marked `terminal`, a captured `structured_output`, and the host's `stopWhen`.
+  A background or abandoned worker that finished while any of those was deciding
+  had its result dropped: the gateway held it, the run closed, nothing read it.
+  Measured before the fix — terminal-tool exit and `stopWhen` exit both delivered
+  nothing; the final-answer exit delivered in 44 ms.
+
+  Delivery now happens in a `finally` around the loop, so it does not depend on
+  each exit remembering — including the two `return`s and a generator abandoned by
+  its consumer, which no post-loop statement reaches.
+
+  **What you may observe.** On those exits `Run.messages` can now end with a
+  `task-notification` user message after the assistant's last message. The answer
+  is on `Run.result`, as before. If you were reading the answer off the last
+  element of `Run.messages`, that assumption was already unsafe whenever a
+  notification landed mid-run; it is now unsafe in three more places.
+
+  **Which exits wait, and which only deliver.** A hold buys the model a turn in
+  which to use a result, so it is only worth paying where a turn can still
+  happen. A terminal tool and a captured `structured_output` have decided the
+  answer, so those deliver what arrived and stop. `stopWhen` is a programmable
+  halt that says nothing about whether the answer is complete, so it now HOLDS
+  like the ordinary final-answer exit — a precedence rule chosen here, not
+  something `stopWhen` implies — and costs exactly one extra turn, after which
+  the predicate fires again with nothing pending.
+
+  The stop reason survives that extra turn. `stopWhen` is consulted only after a
+  tool batch, so when the extra turn is prose the predicate is never asked again
+  and the run leaves by the ordinary route — which would have reported
+  `stopReason: 'end_turn'`, naming the shape of the last message rather than the
+  host's decision. A run that ends because a host said stop now reports
+  `'stop_condition'` whether or not a delegated result delayed it by a turn. If
+  the extra turn instead runs more tools, the predicate is asked again and
+  answers for itself.
+
+  A run that ends with a worker still running now says so on
+  `Run.abandonedTaskIds` rather than leaving the impression the result arrived.
+
+- 9ac8dd4: A run that ends over a still-running worker says so, and the untrusted envelope's own label can no longer close it
+
+  Three things an adversarial review of the completion path found.
+
+  **`Run.abandonedTaskIds`.** A run can settle while a worker it launched is
+  still going — the model answered, a terminal tool decided the result, a
+  `stopWhen` fired. Until now nothing said so, which left the impression the
+  worker's result had been delivered. The run now names those task ids.
+
+  They are **named, not cancelled**, and that is the decision: giving up on a
+  wait is a statement about the waiter, not about the work — the rule this
+  subsystem already applies to `wait_for_task` — and "the parent answered early"
+  is a weaker warrant for killing a child than "the clock ran out", not a
+  stronger one. A worker mid-write is not the kernel's to judge. A host that
+  wants the work stopped has `cancel_task` and the run's abort controller, and
+  now has the ids to use them on.
+
+  **`wrapUntrusted` neutralises its own delimiter inside `provenance`.** The body
+  was defanged and the attributes escaped; the provenance line was interpolated
+  raw, and every caller in the SDK builds it from a value it did not author — an
+  agent id from a roster, a server name from a connector manifest. A provenance
+  carrying `</namzu-untrusted>` ended the block before the content it was
+  introducing. This affects the blocking `create_task`, `wait_for_task` and the
+  `Agent` tool as well as the two paths framed in this release.
+
+  **`background: true` with no inbox is refused, not silently made blocking**,
+  and the sentences match. The abandoned-wait messages on `create_task` and
+  `wait_for_task` promised "its result will arrive separately as a task
+  notification" unconditionally — false with no inbox, and a model told to expect
+  a message waits for it. They now say where the result actually is. The
+  `agent_task_list` description likewise stops telling the model not to use the
+  listing when, without an inbox, the listing is the only route left to an
+  abandoned launch's output.
+
+  `CompletionInbox` gains `outstandingTaskIds`, which reads the ids and cancels
+  nothing.
+
+- 9ac8dd4: A run holding for a background worker waits a share of its own budget, not a fixed two minutes
+
+  `BACKGROUND_TASK_GRACE_MS = 120_000` was unrelated to the run it bounded, and
+  wrong in both directions at once. Measured: a run configured `timeoutMs: 20_000`
+  was held open for **120,267 ms** — six times its own budget — because the hold
+  sits inside an iteration and the run guard only checks between them, so nothing
+  could interrupt it. In the other direction, on a run with hours left the same
+  two minutes abandoned delegated workers observed at 4m21s, 5m58s and 8m04s, all
+  comfortably inside the hour `DELEGATION_TIMEOUT_MS` already declares.
+
+  The hold is now `min(remainingBeforeFinalize × 0.5, DELEGATION_TIMEOUT_MS)`,
+  where `remainingBeforeFinalize` is the time left before the run guard stops
+  asking for more work and asks for a closing summary (90% of `timeoutMs`), less
+  what the run has spent — carried across a resume, so a checkpointed run sizes
+  the hold from what is left of the RUN rather than of the process now hosting
+  it, and read when the wait starts rather than at the top of the iteration.
+
+  - **Half, not all.** The hold exists to put a worker's result where the model
+    can read it, and reading it costs a turn. Spending everything remaining would
+    deliver a notification into a run with no turn left to act on it — the same
+    failure the mechanism exists to prevent.
+  - **Bounded against the boundary that binds.** Measuring to the DEADLINE was
+    the first attempt and it looked safe: a hold cannot outlive the deadline
+    either way. But half of the time-to-deadline, started just under the warning
+    threshold, ends at 95% of the budget — so the slice the guard keeps for the
+    run to produce a closing answer is half spent waiting for the result that
+    answer was supposed to use. Against the finalize point the hold cannot reach
+    that reserve at all, which is what makes the guard's inability to interrupt
+    a hold a non-issue rather than a smaller issue.
+  - **A floor of zero, deliberately.** A run with no time left before it must
+    start finishing has no turn in which to read a notification. Nothing is
+    dropped by it: the wait returns before it looks at its timer when a
+    completion is already in hand.
+
+  **What changes for you.** A run with a short `timeoutMs` finishes when it said
+  it would instead of overrunning by minutes. A run with a long one keeps its
+  worker instead of abandoning it. If you were relying on a fixed two-minute
+  settle regardless of run configuration, set `timeoutMs` to about four and a half minutes to
+  get the same hold.
+
+- 585a592: A caller can ask which effort levels a model accepts.
+
+  The answer existed, was modelled carefully, and was reachable only from inside
+  one driver. That matters because effort is **refused, not clamped**: a level a
+  model does not have makes the vendor reject the request, so a control offering
+  the wrong one produces a run that fails at the start rather than a quieter one.
+
+  Every option open to a caller without the answer was bad. Offering all five
+  breaks some models. Offering the intersection hides `xhigh` and `max` from every
+  model that has them, which is most of the reason to build such a control. And
+  copying the table looks fine and is worst: the ceiling has moved twice already,
+  so a copy goes stale on the next model and goes stale **silently**, surfacing as
+  a vendor rejection rather than a failing build.
+
+  **New optional `LLMProvider.effortLevelsFor(model, thinking?)`.** Three states,
+  each meaning something different: the method absent means the driver has no
+  effort concept at all and setting one will be refused; an empty array means the
+  driver implements effort and this model has none; a non-empty array is the set
+  to offer.
+
+  **`thinking` is a parameter, and that is the point.** At least one model family
+  accepts a narrower set while thinking is disabled than while it is on — so an
+  API returning two sibling arrays invites a caller to render a picker from one
+  and send the other, a combination the vendor rejects, on exactly one family.
+  Passing the configuration you will actually send makes that unspellable: there
+  is one answer and it is the one for your request.
+
+  The driver's implementation shares the same two resolution steps the request
+  path uses, so a caller's picker and the request it produces cannot disagree.
+
+  `@namzu/anthropic` also now exports `resolveThinkingCapability`,
+  `resolveThinkingBody`, `resolveEffort` and their types, for a caller that needs
+  the fuller picture — whether thinking can be switched off at all, not only which
+  effort levels apply. Prefer `effortLevelsFor` where it suffices: it is
+  provider-agnostic and cannot return the wrong one of the two sets.
+
+  Separately, the live wire-contract suite now retries a transient status rather
+  than reporting it as a contract failure. A 529 says the service is busy and
+  answers nothing about whether a schema is expressible — so a test named "every
+  shipped tool is expressible on this wire" was claiming something the run had not
+  established. That cost two manual re-runs in one day to discover the wire had no
+  opinion.
+
+### Patch Changes
+
+- 9ac8dd4: A background task whose completion arrived early no longer holds the run open forever
+
+  `CompletionInbox.drain()` handed the completion over and marked it claimed, but
+  left the task on the OUTSTANDING set. That set is meant to hold ids that are
+  still running, and only the gateway's completion listener takes an id off it —
+  so if the listener ran BEFORE the launching call said `expect()`, the id was
+  added to a set nothing would ever clear.
+
+  That order is reachable rather than theoretical: `expect()` runs one microtask
+  after `gateway.createTask()` resolves, and a worker that finishes fast is
+  announced in between. The result of it was `hasPendingWork === true` for the
+  rest of the run, with an empty inbox — so every attempt to settle waited out the
+  full background grace period for a result that was already in the transcript,
+  and did it again on the next turn, and the next.
+
+  Nothing to do on upgrade. If you were seeing runs pause for two minutes before
+  their final answer with no background work outstanding, this was why.
+
+- 3d4315e: `PrepareStepResult.activeTools` documented the opposite of what it does.
+
+  Its comment promised that unregistered names are dropped so a phase list
+  outliving a tool rename would "narrow the surface, not kill the agent mid-run".
+  Since the list began bounding what may RUN rather than only what the model is
+  shown, dropping every name leaves the step able to call nothing — so the code
+  and its own documentation had said different things.
+
+  **The behaviour is right and the comment was wrong.** This list means "only
+  these": when a rename outlives it, the only set satisfying "only the tools that
+  no longer exist" is the empty one. Widening back to the run's list would grant
+  precisely the tools the caller asked to exclude, on the grounds that their own
+  list failed — a control that stops applying because it was aged out, which is
+  worse than a step that answers from what it already has. The run continues
+  either way; nothing crashes.
+
+  The warning now distinguishes the two cases, because they have different
+  consequences: some names dropped narrows the step, and all of them dropped
+  leaves it unable to call anything. "Ignoring them" was accurate for the first
+  and misleading for the second.
+
+  **Worth knowing if you rely on this:** the warning goes to the logger, so a host
+  that silences its logger sees a phase quietly stop doing anything. That is a real
+  gap and it is named here rather than papered over.
+
 ## 7.0.0
 
 ### Major Changes
