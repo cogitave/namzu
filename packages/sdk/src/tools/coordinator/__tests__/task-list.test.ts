@@ -180,7 +180,7 @@ describe('coordinator agent_task_list tool', () => {
 		expect(names).not.toContain('task_list')
 	})
 
-	it('does not advertise per-task cancellation on the blocking coordinator surface', () => {
+	it('advertises per-task cancellation now that a task can outlive its launch', () => {
 		const coordinatorTools = buildCoordinatorTools({
 			gateway: gatewayWith([]),
 			workingDirectory: '/tmp/test',
@@ -188,11 +188,17 @@ describe('coordinator agent_task_list tool', () => {
 		})
 		const names = coordinatorTools.map((tool) => tool.name)
 
-		// create_task returns only after the worker is terminal, so the
-		// supervisor cannot know a live task id in a later model turn.
-		// Keeping cancel_task here only manufactured success for missing
-		// or terminal ids because every gateway cancellation is a void
-		// no-op in those states.
-		expect(names).not.toContain('cancel_task')
+		// This assertion used to be its own inverse, and the reasoning was
+		// correct at the time: create_task returned only after the worker was
+		// terminal, so the supervisor could never hold a LIVE task id in a
+		// later turn, and cancel_task could only manufacture success for
+		// something already finished.
+		//
+		// `background: true` reinstates the precondition that argument rested
+		// on. A background launch hands back an id while the worker is still
+		// running, and a supervisor able to start one it cannot stop is a
+		// hole — so the tool comes back with the capability that makes it
+		// mean something.
+		expect(names).toContain('cancel_task')
 	})
 })

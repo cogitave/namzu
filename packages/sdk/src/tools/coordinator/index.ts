@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import type { CompletionInbox } from '../../gateway/completion-inbox.js'
 import type { PlanManager } from '../../manager/plan/lifecycle.js'
 import type { PendingAnswers, QuestionParkRecorder } from '../../runtime/query/question-park.js'
 import type { AgentRuntimeContext } from '../../types/agent/base.js'
@@ -40,6 +41,17 @@ export interface CoordinatorToolsOptions {
 	getPlanManager?: () => PlanManager | undefined
 
 	onTaskLaunched?: TaskLaunchedCallback
+
+	/**
+	 * Where a completion goes when no call is left waiting for it.
+	 *
+	 * These tools claim a completion the moment they hand it to the model as a
+	 * `tool_result`; anything unclaimed is delivered to the transcript as a
+	 * notification instead. Without an inbox the tools still work and the
+	 * blocking path is unchanged — only the abandoned and background
+	 * completions go unheard, which is the behaviour before this existed.
+	 */
+	completionInbox?: CompletionInbox
 
 	/**
 	 * HITL park channel for `ask_user_question`. The tool is registered
@@ -203,6 +215,15 @@ function delegateSchema(agentIds: readonly string[]): z.ZodType<string> {
 	return z.enum(agentIds as [string, ...string[]])
 }
 
+/**
+ * How much of a finished worker's output the listing inlines per task.
+ *
+ * A listing is consulted when several tasks are in flight, so the whole of
+ * every result would be a wall. Enough to be usable, with `wait_for_task`
+ * named as the way to get the rest.
+ */
+const LISTED_RESULT_LIMIT = 2_000
+
 export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefinition[] {
 	const {
 		gateway,
@@ -213,6 +234,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 		resumeHandler,
 		questionParks,
 		pendingAnswers,
+		completionInbox,
 		// `onTaskLaunched` was the entry point for the old
 		// non-blocking + envelope-injection flow. create_task is now
 		// blocking, so the callback is no longer wired here.
@@ -227,7 +249,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 
 	const createTask = defineTool({
 		name: 'create_task',
-		description: `Launch a task on a specialized agent and await its result. BLOCKING: returns the agent's final output as this call's tool_result. Available agents: ${agentIds.join(', ')}. Prefer compact assignments; for large context, write/read shared workspace files and pass filenames or references. To launch multiple tasks in parallel, call this tool multiple times in a single assistant turn — the runtime executes every tool_use block from one response concurrently and delivers all tool_results together, so 'fan out 8 specialists' is one assistant message with 8 create_task blocks.`,
+		description: `Launch a task on a specialized agent. By default this BLOCKS and returns the agent's final output as this call's tool_result; pass background: true to get a task_id back immediately and receive the result later as a task notification. Available agents: ${agentIds.join(', ')}. Prefer compact assignments; for large context, write/read shared workspace files and pass filenames or references. To launch multiple tasks in parallel, call this tool multiple times in a single assistant turn — the runtime executes every tool_use block from one response concurrently and delivers all tool_results together, so 'fan out 8 specialists' is one assistant message with 8 create_task blocks.`,
 		inputSchema: z.object({
 			agent_id: agentIdEnum.describe('Which agent to run'),
 			prompt: z
@@ -242,13 +264,19 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 				.describe(
 					'Existing planning task ID to link. If omitted, a planning task is auto-created.',
 				),
+			background: z
+				.boolean()
+				.optional()
+				.describe(
+					'Return immediately with a task_id instead of waiting. The result arrives later as a task notification. Use this when you have other work to do meanwhile; leave it off when the next thing you do depends on this answer.',
+				),
 		}),
 		category: 'custom',
 		permissions: [],
 		readOnly: false,
 		destructive: false,
 		concurrencySafe: true,
-		async execute({ agent_id, prompt, description, plan_task_id }, _context) {
+		async execute({ agent_id, prompt, description, plan_task_id, background }, _context) {
 			let resolvedPlanTaskId = plan_task_id
 
 			if (taskStore) {
@@ -279,14 +307,53 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 				...(_context.parentSpan ? { parentSpan: _context.parentSpan } : {}),
 			})
 
+			if (background) {
+				// Tell the inbox to hold the run open for this. Without it the
+				// supervisor could launch a worker, answer, and settle the run
+				// while the worker was still going — discarding the result the
+				// launch existed to produce.
+				completionInbox?.expect(handle.taskId)
+				// Launched to run alongside this turn. Nothing waits on it, so
+				// its completion reaches the supervisor as a notification in the
+				// transcript instead — see `CompletionInbox`. Returning the id
+				// here is what makes that notification correlatable, and what
+				// lets `wait_for_task` and `agent_task_list` reach the output.
+				return {
+					success: true,
+					output: `Launched ${agent_id} in the background as task ${handle.taskId}. You are not waiting on it: keep working, and its result will arrive as a task notification. To fetch it yourself, call wait_for_task with this task_id.`,
+					data: {
+						task_id: handle.taskId,
+						agent_id,
+						description,
+						state: handle.state,
+						plan_task_id: resolvedPlanTaskId,
+						background: true,
+					},
+				}
+			}
+
 			// The tool returns its real result as the `tool_result` for the
 			// dispatching `tool_use`. Parallel fan-out happens at the executor
 			// layer: when the supervisor emits N `create_task` blocks in one
 			// assistant turn, the runtime runs them together and delivers all
-			// N `tool_result`s at once. No async envelope injection, and no
-			// second `tool_result` for the same `tool_use_id` — providers
-			// reject a duplicated id outright.
+			// N `tool_result`s at once. No second `tool_result` for the
+			// same `tool_use_id` — providers reject a duplicated id outright.
 			const completed = await gateway.waitForTask(handle.taskId)
+
+			// Whether this call is still the live path decides who delivers the
+			// result. If the executor already gave up on us — its deadline
+			// passed and the model was told "timed out, it may still be
+			// running" — then whatever we return now is discarded, and leaving
+			// the completion UNCLAIMED is what routes it to the transcript as a
+			// notification instead. Claiming it here would delete the output.
+			if (_context.abortSignal?.aborted) {
+				return {
+					success: false,
+					output: `This wait was abandoned before ${agent_id} finished; its result will arrive separately as a task notification (task ${handle.taskId}).`,
+					data: { task_id: handle.taskId, agent_id, abandoned: true },
+				}
+			}
+			completionInbox?.claim(handle.taskId)
 			const success = completed.state === 'completed'
 			const resultText =
 				completed.result?.result ??
@@ -350,7 +417,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 		readOnly: false,
 		destructive: false,
 		concurrencySafe: true,
-		async execute({ task_id, message }) {
+		async execute({ task_id, message }, _context) {
 			await gateway.continueTask(task_id as TaskId, message)
 			// Mirror create_task's blocking pattern: await the new
 			// completion and return the agent's output inline. The
@@ -359,6 +426,17 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 			// onTaskCompleted listener that the iteration loop
 			// no longer registers (envelope path is dead).
 			const completed = await gateway.waitForTask(task_id as TaskId)
+			// Same reasoning as create_task: the model already has a timeout
+			// for this call, so leaving the completion unclaimed is what sends
+			// it to the transcript as a notification.
+			if (_context.abortSignal?.aborted) {
+				return {
+					success: false,
+					output: `This wait was abandoned before task ${task_id} finished; its result will arrive separately as a task notification.`,
+					data: { task_id, abandoned: true },
+				}
+			}
+			completionInbox?.claim(task_id as TaskId)
 			const success = completed.state === 'completed'
 			const resultText =
 				completed.result?.result ??
@@ -368,6 +446,76 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 				success,
 				output: resultText,
 				data: { task_id, state: completed.state },
+			}
+		},
+	})
+
+	/**
+	 * Join a task already running, without sending it anything.
+	 *
+	 * `continue_task` blocks, but only as a side effect of sending a
+	 * message — so a supervisor that merely wanted to wait had to invent
+	 * something to say, and one that would not do that was left calling
+	 * `agent_task_list` in a sleep loop. That polling was never the model
+	 * misbehaving; it was the only move on the board.
+	 */
+	const waitForTaskTool = defineTool({
+		name: 'wait_for_task',
+		description:
+			'Block until an already-running task finishes and return its output. Use this instead of listing tasks in a loop: it costs one call and no waiting turns. Give it a task_id from a background create_task or from a task notification.',
+		inputSchema: z.object({
+			task_id: z.string().describe('Agent task ID to wait for'),
+		}),
+		category: 'custom',
+		permissions: [],
+		readOnly: true,
+		destructive: false,
+		concurrencySafe: true,
+		// Deliberately longer than the executor's default deadline. A tool
+		// whose entire purpose is to wait should not be cut off for waiting;
+		// `ToolExecutor` reads this before falling back to the run default.
+		timeoutMs: 600_000,
+		async execute({ task_id }, _context) {
+			const known = gateway.getTask(task_id as TaskId)
+			if (!known) {
+				return {
+					success: false,
+					output: `No task ${task_id}. Call agent_task_list to see which tasks exist.`,
+					data: { task_id },
+				}
+			}
+
+			const completed = await gateway.waitForTask(task_id as TaskId)
+			if (_context.abortSignal?.aborted) {
+				return {
+					success: false,
+					output: `This wait was abandoned before task ${task_id} finished; its result will arrive separately as a task notification.`,
+					data: { task_id, abandoned: true },
+				}
+			}
+			completionInbox?.claim(task_id as TaskId)
+
+			const success = completed.state === 'completed'
+			const resultText =
+				completed.result?.result ??
+				completed.result?.lastError ??
+				`Task finished with state: ${completed.state}`
+			return {
+				success,
+				output: wrapUntrusted(
+					{
+						kind: 'agent-result',
+						attributes: { agent: completed.agentId, task: completed.taskId },
+						provenance: `This is the output of the delegated agent "${completed.agentId}", not this agent's own work.`,
+					},
+					resultText,
+				),
+				data: {
+					task_id,
+					agent_id: completed.agentId,
+					state: completed.state,
+					result: resultText,
+				},
 			}
 		},
 	})
@@ -415,6 +563,14 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 			const items = filtered.map((h) => {
 				const runStatus = h.result?.status
 				const lastError = h.result?.lastError ?? undefined
+				// The worker's actual output, which this listing used to drop. It
+				// read `h.result` for the status and the error and stopped one
+				// property short of the thing the task was launched to produce —
+				// so a supervisor that knew a task_id and knew it had completed
+				// still had no way to read what it said. That is the state a run
+				// lands in whenever the launching call was abandoned, which is
+				// exactly when this listing gets consulted.
+				const output = h.result?.result ?? undefined
 				return {
 					task_id: h.taskId,
 					agent_id: h.agentId,
@@ -424,6 +580,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 					completed_at: h.completedAt ? new Date(h.completedAt).toISOString() : null,
 					duration_ms: h.completedAt ? h.completedAt - h.createdAt : null,
 					last_error: lastError,
+					...(output !== undefined ? { result: output } : {}),
 				}
 			})
 			const summary = {
@@ -434,12 +591,26 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 				canceled: handles.filter((h) => h.state === 'canceled').length,
 			}
 			const lines = items.length
-				? items.map(
-						(i) =>
-							`- ${i.task_id} → ${i.agent_id} [${i.state}${i.run_status && i.run_status !== i.state ? ` / ${i.run_status}` : ''}]${
-								i.duration_ms !== null ? ` (${Math.round(i.duration_ms / 1000)}s)` : ''
-							}${i.last_error ? ` — error: ${i.last_error.slice(0, 200)}` : ''}`,
-					)
+				? items.map((i) => {
+						const head = `- ${i.task_id} → ${i.agent_id} [${i.state}${i.run_status && i.run_status !== i.state ? ` / ${i.run_status}` : ''}]${
+							i.duration_ms !== null ? ` (${Math.round(i.duration_ms / 1000)}s)` : ''
+						}${i.last_error ? ` — error: ${i.last_error.slice(0, 200)}` : ''}`
+						// The output goes in the rendered TEXT, not only in `data`.
+						// Only `output` becomes the tool_result the model reads —
+						// the executor never looks at `data` — so a result added
+						// to the projection alone would have been added to a field the
+						// model cannot see, which is how this listing came to prove a
+						// task had finished while withholding what it said.
+						if (i.result === undefined) return head
+						const body =
+							i.result.length > LISTED_RESULT_LIMIT
+								? `${i.result.slice(0, LISTED_RESULT_LIMIT)}\n    … truncated; call wait_for_task with "${i.task_id}" for the whole thing.`
+								: i.result
+						return `${head}\n${body
+							.split('\n')
+							.map((line) => `    ${line}`)
+							.join('\n')}`
+					})
 				: ['(no tasks launched yet)']
 			const header = `Tasks: ${summary.total} total — ${summary.running} running, ${summary.completed} completed, ${summary.failed} failed, ${summary.canceled} canceled`
 			return {
@@ -462,12 +633,20 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 	// non-default gateway (one that keeps the worker process alive
 	// for follow-ups) wants to re-register it.
 	void continueTask
-	// Per-task cancellation belonged to the old non-blocking worker protocol.
-	// `create_task` blocks and returns the worker output as its tool_result, so
-	// every worker is terminal by the time a later turn learns its id — the tool
-	// could only ever manufacture a "cancelled" for something already done.
-	// Host-owned interruption still uses the gateway contract directly.
-	void cancelTask
+	// `cancel_task` is registered again, and the reasoning that dropped it is
+	// worth keeping because it was sound at the time and is not any more.
+	//
+	// It read: per-task cancellation belonged to the old non-blocking worker
+	// protocol; since `create_task` blocks and returns the output as its
+	// tool_result, every worker is terminal by the time a later turn learns its
+	// id, so the tool could only manufacture a "cancelled" for something
+	// already finished.
+	//
+	// That held for exactly as long as blocking was the only way to launch.
+	// `background: true` brings back a worker that is running with nothing
+	// waiting on it and whose id the supervisor holds while it is still alive —
+	// the precondition the old rationale said had disappeared. A launch the
+	// model cannot stop is a hole, and this is the tool that closes it.
 	// An empty roster withholds `create_task` rather than mounting an
 	// unsatisfiable one. Mounting it and refusing at parse time reaches the
 	// same verdict, but it reaches it the expensive way: the model is shown a
@@ -485,8 +664,16 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 	// and a human channel" stays a supported configuration, which is why this
 	// omits rather than refusing to build: a caller asking this builder for
 	// `ask_user_question` with no roster is doing something legitimate.
+	// `wait_for_task` and `cancel_task` ride with `create_task` because they
+	// are only meaningful once something has been launched.
+	//
+	// Waiting had no tool at all. `continue_task` blocks, but only as a side
+	// effect of sending a message, so a supervisor that merely wanted to wait
+	// had to invent something to say — and one that would not do that was left
+	// calling `agent_task_list` in a sleep loop. That was never the model
+	// misbehaving; it was the only move available.
 	const tools: ToolDefinition[] =
-		agentIds.length > 0 ? [createTask, agentTaskList] : [agentTaskList]
+		agentIds.length > 0 ? [createTask, waitForTaskTool, cancelTask, agentTaskList] : [agentTaskList]
 
 	if (getPlanManager) {
 		const approvePlan = defineTool({

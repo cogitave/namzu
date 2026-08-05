@@ -232,6 +232,10 @@ export {
 export { InMemoryThreadStore } from './store/thread/memory.js'
 
 export { LocalTaskGateway } from './gateway/local.js'
+// Exported because `buildCoordinatorTools` is: a host that builds the
+// coordinator surface itself needs the same inbox the loop drains, or its
+// abandoned completions go unheard exactly as they did before.
+export { CompletionInbox, formatCompletionNotification } from './gateway/completion-inbox.js'
 
 // ─── providers, sandbox, vault ───────────────────────────────────────────
 

@@ -5,6 +5,7 @@ import {
 	DEFAULT_STRUCTURED_OUTPUT_RETRIES,
 	STRUCTURED_OUTPUT_REPROMPT,
 } from '../../../constants/tools/index.js'
+import { formatCompletionNotification } from '../../../gateway/completion-inbox.js'
 import { renderSkillsSection } from '../../../persona/assembler.js'
 import { collect } from '../../../provider/collect.js'
 import {
@@ -60,6 +61,16 @@ export type { ToolReviewOutcome } from './phases/index.js'
  * on the thing that actually went wrong.
  */
 const DEFAULT_ANSWER_REVIEW_LIMIT = 3
+
+/**
+ * How long a finishing run waits for a background worker it launched.
+ *
+ * Long enough to be worth having — a delegated worker doing real work takes
+ * minutes — and bounded because a worker that never finishes must not hold
+ * the run open forever. `maxIterations` bounds how many times this can
+ * happen, and the run's own timeout bounds the whole thing regardless.
+ */
+const BACKGROUND_TASK_GRACE_MS = 120_000
 
 export class IterationOrchestrator {
 	private ctx: IterationContext
@@ -551,6 +562,36 @@ export class IterationOrchestrator {
 						}
 					}
 
+					// A background worker is still out there, and this turn was
+					// about to end the run.
+					//
+					// Settling here would throw away the very thing the launch
+					// existed to produce: the supervisor said "launched", the
+					// worker had not finished, and the run closed over it. So
+					// the run is held open — bounded by the deadline below and
+					// by `maxIterations` above, so a worker that never finishes
+					// cannot keep it open forever — and the completion arrives
+					// as a notification the next turn reads.
+					if (!forceFinalize && this.ctx.completionInbox?.hasPendingWork) {
+						this.ctx.log.info('Holding the run open for a background task', {
+							runId: runMgr.id,
+							iteration: iterationNum,
+						})
+						await this.ctx.completionInbox.waitForArrival(BACKGROUND_TASK_GRACE_MS)
+						const arrived = this.ctx.completionInbox.drain()
+						if (arrived.length > 0) {
+							runMgr.pushMessage(createUserMessage(formatCompletionNotification(arrived)))
+							await this.ctx.emitEvent({
+								type: 'iteration_completed',
+								runId: runMgr.id,
+								iteration: iterationNum,
+								hasToolCalls: false,
+							})
+							yield* this.ctx.drainPending()
+							continue
+						}
+					}
+
 					if (!hasContent && !forceFinalize) {
 						this.ctx.log.warn('Empty completion detected — requesting final summary', {
 							iteration: iterationNum,
@@ -672,6 +713,35 @@ export class IterationOrchestrator {
 				const checkpointSignal = yield* runIterationCheckpoint(this.ctx, iterationNum)
 				if (checkpointSignal === 'stop') {
 					return
+				}
+
+				// Workers that finished with nobody listening.
+				//
+				// A completion normally reaches the supervisor as the
+				// `tool_result` of the `create_task` that launched it. Two
+				// cases have no such call: a launch made in the background on
+				// purpose, and a blocking launch whose deadline passed — the
+				// model was told "timed out, it may still be running" and the
+				// worker then finished, holding a result nothing would read.
+				//
+				// This is the channel that was removed in `dc16d58` because it
+				// double-delivered: it fired for completions the blocking tool
+				// had already handed over, so the supervisor saw each result
+				// twice. The inbox restores it with the distinction that was
+				// missing — a tool that delivers a completion claims it, and
+				// only unclaimed ones arrive here.
+				//
+				// Placed beside the advisory phase deliberately: that is the
+				// established seam for putting a user message in after tool
+				// results and before the next turn.
+				const unheard = this.ctx.completionInbox?.drain() ?? []
+				if (unheard.length > 0) {
+					this.ctx.log.info('Delivering unawaited task completions', {
+						runId: runMgr.id,
+						iteration: iterationNum,
+						tasks: unheard.map((h) => h.taskId),
+					})
+					runMgr.pushMessage(createUserMessage(formatCompletionNotification(unheard)))
 				}
 
 				await runAdvisoryPhase(this.ctx, iterationNum, response)

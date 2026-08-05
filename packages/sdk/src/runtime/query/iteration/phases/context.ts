@@ -3,6 +3,7 @@ import type { AgentBus } from '../../../../bus/index.js'
 import type { WorkingStateManager } from '../../../../compaction/manager.js'
 import type { ContextReducer } from '../../../../compaction/reducer.js'
 import type { CompactionConfig } from '../../../../config/runtime.js'
+import type { CompletionInbox } from '../../../../gateway/completion-inbox.js'
 import type { PlanManager } from '../../../../manager/plan/lifecycle.js'
 import type { RunPersistence } from '../../../../manager/run/persistence.js'
 import type { ActivityStore } from '../../../../store/activity/memory.js'
@@ -102,6 +103,15 @@ export interface IterationContext {
 	readonly planManager: PlanManager
 
 	readonly taskGateway?: TaskGateway
+
+	/**
+	 * Completions no call is waiting for, on their way to the transcript.
+	 *
+	 * Absent means the loop behaves exactly as it did before this existed:
+	 * a blocking `create_task` still delivers its own result, and a
+	 * completion nobody awaited is simply never mentioned.
+	 */
+	readonly completionInbox?: CompletionInbox
 
 	readonly taskStore?: TaskStore
 

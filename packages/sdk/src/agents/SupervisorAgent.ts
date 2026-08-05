@@ -1,4 +1,5 @@
 import { EMPTY_TOKEN_USAGE } from '../constants/limits.js'
+import { CompletionInbox } from '../gateway/completion-inbox.js'
 import { LocalTaskGateway } from '../gateway/local.js'
 import { ToolNameCollisionError, ToolRegistry } from '../registry/tool/execute.js'
 import { drainQuery } from '../runtime/query/index.js'
@@ -173,8 +174,20 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 		const questionParks = new QuestionParkBinding()
 		const pendingAnswers = new PendingAnswers()
 
+		// Created here for the same reason: both ends are here. The tools claim
+		// a completion when they deliver it as a `tool_result`, and the loop
+		// drains whatever is left over into the transcript — so the inbox has
+		// to be the same object on both sides, and this is the only place that
+		// sees both.
+		//
+		// It attaches through `onTaskCompleted`, which every gateway already
+		// implements, so a host gateway needs no change to take part.
+		const completionInbox = new CompletionInbox()
+		completionInbox.attach(gateway)
+
 		const coordinatorToolDefs = buildCoordinatorTools({
 			gateway,
+			completionInbox,
 			workingDirectory: input.workingDirectory,
 			runtimeContext: input.runtimeContext,
 			allowedAgentIds: config.agentIds,
@@ -292,6 +305,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 				runtimeToolOverrides: input.runtimeToolOverrides,
 				runtimeContext: input.runtimeContext,
 				taskGateway: gateway,
+				completionInbox,
 				launchedTasks,
 				advisory: config.advisory,
 				invocationState: childInvocationState,
