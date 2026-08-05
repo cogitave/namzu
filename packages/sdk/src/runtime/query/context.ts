@@ -134,7 +134,22 @@ export class RunContextFactory {
 	static build(config: RunContextConfig): RunContext {
 		const abortController = new AbortController()
 		if (config.signal) {
-			config.signal.addEventListener('abort', () => abortController.abort(), { once: true })
+			// Forward the caller's REASON, not just the fact of the abort.
+			//
+			// This used to be a bare `abort()`. Every word a host attached to
+			// its stop — a deadline name, a budget, an operator's message —
+			// died one frame above the executor, so the most a tool result
+			// could say was "was cancelled". A run that ends for a nameable
+			// reason is a run someone can debug; this is the frame where the
+			// name was being thrown away.
+			//
+			// `createChildAbortController` already does exactly this, but it
+			// takes an AbortController and what arrives here is a bare
+			// AbortSignal, so the reason is forwarded by hand rather than by
+			// reaching for a helper that does not fit.
+			config.signal.addEventListener('abort', () => abortController.abort(config.signal?.reason), {
+				once: true,
+			})
 		}
 
 		const cwd = config.workingDirectory ?? process.cwd()

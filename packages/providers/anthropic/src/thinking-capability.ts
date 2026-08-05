@@ -111,8 +111,29 @@ export function resolveThinkingCapability(model: string): ThinkingCapability {
 			adaptive: true,
 			manual: true,
 			canDisable: false,
-			effort: FULL_EFFORT,
-			effortWhenDisabled: FULL_EFFORT,
+			// `max` but NOT `xhigh` — the combination it is easy to assume
+			// away, because reading the levels as a ladder makes anything
+			// accepting the top rung look like it accepts the one below. That
+			// reading is what put all five levels on this row, and it sends a
+			// level the wire refuses.
+			//
+			// SOURCED, NOT MEASURED, and the distinction is recorded because
+			// this file has been wrong from exactly this evidence class
+			// before. The reference states this model's availability twice: it
+			// is in the `max` list both times and in the `xhigh` list neither,
+			// and it says outright that some models supporting `max` do not
+			// support `xhigh`. The model is not reachable from the tenant used
+			// for the live contract suite (404), so no probe can confirm it
+			// here.
+			//
+			// What IS measured is that the pairing exists and this wire reports
+			// it exactly this way — `claude-sonnet-4-6` answers `xhigh` with
+			// "This model does not support effort level 'xhigh'. Supported
+			// levels: high, low, max, medium." and accepts `max`. So the row
+			// below is not a guess about a shape nobody has seen; it is a
+			// documented instance of a shape the wire demonstrably has.
+			effort: EFFORT_WITHOUT_XHIGH,
+			effortWhenDisabled: EFFORT_WITHOUT_XHIGH,
 		}
 	}
 

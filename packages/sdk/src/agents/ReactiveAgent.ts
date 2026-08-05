@@ -110,6 +110,11 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 					costLimitUsd: config.costLimitUsd,
 					permissionMode: config.permissionMode,
 					env: config.env,
+					// Hand-listed, so anything not named here is dropped in silence.
+					// That is how both of these came to be unreachable from every
+					// entry point except the raw kernel one.
+					...(config.thinking ? { thinking: config.thinking } : {}),
+					...(config.effort ? { effort: config.effort } : {}),
 				},
 				agentId: this.metadata.id,
 				agentName: this.metadata.name,

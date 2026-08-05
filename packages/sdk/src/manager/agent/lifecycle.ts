@@ -296,6 +296,12 @@ export class AgentManager {
 				parentSpan: options.configOverrides?.parentSpan,
 				maxIterations: options.configOverrides?.maxIterations,
 				maxResponseTokens: options.configOverrides?.maxResponseTokens,
+				// A delegate spawned without a configBuilder lands here, and this
+				// list is the only thing it inherits. Omitting these meant a child
+				// silently ran at the default depth and effort its parent had
+				// deliberately moved off.
+				thinking: options.configOverrides?.thinking,
+				effort: options.configOverrides?.effort,
 				env: options.configOverrides?.env,
 				sessionId: spawnRecord.childSessionId,
 				threadId: context.threadId,

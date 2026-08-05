@@ -317,6 +317,7 @@ export class IterationOrchestrator {
 						maxTokens: step.maxResponseTokens ?? runConfig.maxResponseTokens,
 						cacheControl: { type: 'auto' },
 						...(runConfig.thinking ? { thinking: runConfig.thinking } : {}),
+						...(runConfig.effort ? { effort: runConfig.effort } : {}),
 						// Thread the run abort into the model call so a Stop tears the
 						// in-flight turn down (provider passes it to fetch; the consumer
 						// also races it). Inert when never aborted.
@@ -1154,6 +1155,10 @@ export class IterationOrchestrator {
 					maxTokens: this.ctx.runConfig.maxResponseTokens,
 					cacheControl: { type: 'auto' },
 					...(this.ctx.runConfig.thinking ? { thinking: this.ctx.runConfig.thinking } : {}),
+					// This turn is a hand-maintained duplicate of the one above, which
+					// is exactly the shape a field goes missing from — so it is tested
+					// separately rather than assumed to have been kept in step.
+					...(this.ctx.runConfig.effort ? { effort: this.ctx.runConfig.effort } : {}),
 					// Cancellable too: a Stop during the closing summary must not
 					// stream to completion.
 					signal: this.ctx.abortController.signal,

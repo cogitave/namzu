@@ -2,6 +2,10 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { MockLLMProvider } from '../../provider/mock.js'
+import { ToolRegistry } from '../../registry/tool/execute.js'
+import { drainQuery } from '../../runtime/query/index.js'
+import { createUserMessage } from '../../types/message/index.js'
 
 /**
  * There was no span around the model call at all.
@@ -72,12 +76,25 @@ afterEach(async () => {
 	workdirs = []
 })
 
+/**
+ * These four are imported at module scope on purpose, and must stay there.
+ *
+ * They used to be `await import(...)` inside this function, which meant the
+ * query runtime's module graph — 75 imports deep — was loaded on the clock of
+ * whichever test called it first. Measured: that test took 1349ms on an idle
+ * machine while its eight siblings took 13-16ms, and under CPU load it hit
+ * vitest's 5000ms default and went red. Nothing about it was racy and nothing
+ * about it was slow; a load cost was simply billed to the wrong clock.
+ *
+ * At module scope the same work happens during collection, which carries no
+ * per-test deadline, so the wall time is unchanged and the deadline is not.
+ *
+ * Safe because `vi.mock` is hoisted above every import in this file, so a
+ * static import still receives the mocked `runtime-accessors`. That is a
+ * property of the transform rather than of import order — verified by running,
+ * not assumed, since no other file in this package had done it this way.
+ */
 async function runOnce(turns: { text?: string }[]): Promise<void> {
-	const { MockLLMProvider } = await import('../../provider/mock.js')
-	const { ToolRegistry } = await import('../../registry/tool/execute.js')
-	const { drainQuery } = await import('../../runtime/query/index.js')
-	const { createUserMessage } = await import('../../types/message/index.js')
-
 	const dir = await mkdtemp(join(tmpdir(), 'namzu-chatspan-'))
 	workdirs.push(dir)
 

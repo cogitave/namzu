@@ -33,6 +33,7 @@ import type {
 	ToolCallRepair,
 	ToolCallRepairReason,
 } from '../../types/tool/repair.js'
+import { abortReasonText } from '../../utils/abort.js'
 import { toErrorMessage } from '../../utils/error.js'
 import type { Logger } from '../../utils/logger.js'
 import { compressShellOutput } from '../../utils/shell-compress.js'
@@ -859,10 +860,19 @@ export class ToolExecutor {
 			}
 
 			if (outcome === 'aborted') {
+				// Say WHY, when the caller said why. The reason has been
+				// available on this signal all along — it is forwarded into
+				// `controller` a few lines above — and the message threw it
+				// away, so a deadline, a budget and an operator pressing stop
+				// were all reported to the model with the same four words.
+				// Those want different next moves.
+				const why = abortReasonText(controller.signal.reason)
 				return {
 					success: false,
 					output: '',
-					error: `Tool "${toolName}" was cancelled.`,
+					error: why
+						? `Tool "${toolName}" was cancelled: ${why}`
+						: `Tool "${toolName}" was cancelled.`,
 				}
 			}
 

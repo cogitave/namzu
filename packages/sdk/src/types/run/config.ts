@@ -18,6 +18,32 @@ export interface AgentRunConfig {
 	 * driver omits them rather than sending a request it knows will 400.
 	 */
 	thinking?: import('../provider/index.js').ThinkingConfig
+
+	/**
+	 * How much work the model should spend on each call in the run.
+	 *
+	 * A SIBLING of {@link AgentRunConfig.thinking}, not a field inside it.
+	 * On some models the two are independent controls that apply together —
+	 * effort shapes the answer while a budget sets thinking depth — so
+	 * nesting one inside the other would make that combination unsayable.
+	 *
+	 * The failure this closes is the one this codebase keeps finding: the
+	 * field existed on the provider params, a driver already read it and
+	 * wrote it to the wire, and nothing in the kernel ever set it. So a
+	 * caller could not reach it at all, and the symptom — every request
+	 * going out at the model's default — reads as "this model ignores
+	 * effort" rather than "nobody plumbed it through".
+	 *
+	 * Run-level rather than per-step, deliberately. It is a property of what
+	 * the run is FOR, and a value that moves between steps buys a different
+	 * answer shape at the cost of the prompt-cache prefix on every step that
+	 * changes it.
+	 *
+	 * A driver that cannot honour it REFUSES rather than dropping it, on the
+	 * same reasoning as `thinking`: paying for a run you believe was
+	 * high-effort and silently was not is worse than a startup error.
+	 */
+	effort?: import('../provider/index.js').ReasoningEffort
 	tokenBudget: number
 	costLimitUsd?: number
 	maxIterations?: number

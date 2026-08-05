@@ -213,6 +213,81 @@ describe.skipIf(!KEY)('the strict subset is what the deny-list says it is', () =
 	}, 180_000)
 })
 
+describe.skipIf(!KEY)('the positional shape a bridged tool now emits', () => {
+	it('is accepted once converted', async () => {
+		// The MCP adapter emits a tuple ONLY where the server pinned the arity
+		// and closed the tail, because that renders as bounded `prefixItems`.
+		// The narrowness is the design rather than caution: a tool schema this
+		// wire refuses fails the WHOLE request instead of degrading one tool,
+		// so a faithful conversion it will not take is strictly worse than a
+		// lossy one it will.
+		//
+		// The refusal half of this pair is already asserted above, on the
+		// unconverted spelling — so this says something the sweep does not:
+		// that the shape we CHOSE to emit is one the wire takes.
+		const pinned = {
+			type: 'object',
+			properties: {
+				pair: {
+					type: 'array',
+					minItems: 2,
+					maxItems: 2,
+					items: [{ type: 'string' }, { type: 'number' }],
+				},
+			},
+			required: ['pair'],
+			additionalProperties: false,
+		}
+
+		const result = await offerTools([wireTool('pinned_pair', pinned, false)])
+		expect(result.ok, result.message).toBe(true)
+	}, 180_000)
+})
+
+describe.skipIf(!KEY)('effort is a per-model SET, and this wire says so itself', () => {
+	async function withEffort(model: string, effort: string): Promise<WireResult> {
+		const res = await fetch('https://api.anthropic.com/v1/messages', {
+			method: 'POST',
+			headers: {
+				'x-api-key': KEY as string,
+				'anthropic-version': '2023-06-01',
+				'content-type': 'application/json',
+			},
+			body: JSON.stringify({
+				model,
+				max_tokens: 16,
+				messages: [{ role: 'user', content: 'Say OK.' }],
+				output_config: { effort },
+			}),
+		})
+		const body: unknown = await res.json().catch(() => ({}))
+		const message =
+			(body as { error?: { message?: string } } | null)?.error?.message ?? (res.ok ? '' : 'unknown')
+		return { ok: res.ok, status: res.status, message }
+	}
+
+	it('takes all five levels on a model the table says has all five', async () => {
+		for (const effort of ['low', 'medium', 'high', 'xhigh', 'max']) {
+			const result = await withEffort('claude-sonnet-5', effort)
+			expect(result.ok, `${effort}: ${result.message}`).toBe(true)
+		}
+	}, 180_000)
+
+	it('refuses a level a model lacks, and names the set it has', async () => {
+		// The pairing the capability table exists to express: `max` WITHOUT
+		// `xhigh`. A boolean could not have said this, and reading the levels
+		// as a ladder — where anything taking the top rung takes the one below
+		// — gets it backwards. That reading is how a row in that table came to
+		// claim a level this wire rejects.
+		const refused = await withEffort('claude-sonnet-4-6', 'xhigh')
+		expect(refused.ok).toBe(false)
+		expect(refused.message).toContain('xhigh')
+
+		const accepted = await withEffort('claude-sonnet-4-6', 'max')
+		expect(accepted.ok, accepted.message).toBe(true)
+	}, 180_000)
+})
+
 describe('what can be checked without a key', () => {
 	it('leaves no draft-07-only construct in any shipped tool', () => {
 		// The offline half of the same guarantee, so a contributor without a
