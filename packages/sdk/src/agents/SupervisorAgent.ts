@@ -300,6 +300,12 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 					},
 					questionParks,
 					pendingAnswers,
+					// How wide a fan-out actually runs. Absent leaves the kernel
+					// default — the same forwarding ReactiveAgent has always done,
+					// missing from the one agent whose job is delegation.
+					...(config.maxToolConcurrency !== undefined
+						? { maxToolConcurrency: config.maxToolConcurrency }
+						: {}),
 					agentId: this.metadata.id,
 					agentName: this.metadata.name,
 					workingDirectory: input.workingDirectory,

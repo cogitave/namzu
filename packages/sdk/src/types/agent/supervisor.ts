@@ -72,6 +72,23 @@ export interface SupervisorAgentConfig extends BaseAgentConfig {
 	 */
 	maxDepth?: number
 
+	/**
+	 * How many tools may execute at once in one turn — which, for a
+	 * supervisor, is how wide a fan-out actually runs.
+	 *
+	 * The kernel has honoured this all along and `ReactiveAgent` forwards it.
+	 * It was missing here, so the agent whose entire job is delegation could
+	 * not set the gate that bounds delegation, while the agent that does not
+	 * delegate could. A host wanting a narrower fan-out had to reach past the
+	 * supervisor to `drainQuery`.
+	 *
+	 * Absent leaves the kernel default. Note what it does and does not bound:
+	 * it limits how many delegated children run CONCURRENTLY, not how many a
+	 * turn may launch — a model that emits twenty `create_task` blocks still
+	 * launches twenty, and they queue.
+	 */
+	maxToolConcurrency?: number
+
 	taskRouter?: TaskRouterConfig
 
 	factoryOptions?: AgentFactoryOptions

@@ -183,6 +183,15 @@ export class InMemoryTaskStore implements TaskStore {
 		if (!blocked.blockedBy.includes(blockerId)) {
 			blocked.blockedBy.push(blockerId)
 		}
+
+		// Announce BOTH ends. The edge was written and nothing said so, which
+		// left the graph observable only by polling: a listener saw a unit
+		// created and never learned that something now waits on it. Both sides
+		// changed, so both are announced — a host tracking only one would draw
+		// half the edge.
+		const now = Date.now()
+		this.emit({ type: 'task.updated', taskId: blockerId, task: blocker, timestamp: now })
+		this.emit({ type: 'task.updated', taskId: blockedId, task: blocked, timestamp: now })
 	}
 
 	async reset(): Promise<void> {

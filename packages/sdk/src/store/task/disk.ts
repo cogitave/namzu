@@ -399,7 +399,16 @@ export class DiskTaskStore implements TaskStore {
 			}
 			if (!mutated) {
 				this.log.debug('block(): edge already exists', { blockerId, blockedId })
+				return
 			}
+
+			// Announce BOTH ends, and only when something actually changed. The
+			// edge was written and nothing said so, so the graph was observable
+			// only by polling — a listener saw a unit created and never learned
+			// that something now waits on it.
+			const now = Date.now()
+			this.emit({ type: 'task.updated', taskId: blockerId, task: blocker, timestamp: now })
+			this.emit({ type: 'task.updated', taskId: blockedId, task: blocked, timestamp: now })
 		})
 	}
 

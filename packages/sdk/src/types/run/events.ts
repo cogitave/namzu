@@ -461,6 +461,21 @@ type CoreRunEvent =
 			taskId: TaskId
 			subject: string
 			status: TaskStatus
+			/**
+			 * What this unit waits on, and who claims it.
+			 *
+			 * The store maintains a full dependency graph — `blocks` and
+			 * `blockedBy` are mirrored on both ends, written under a lock, and
+			 * deadlock-avoided — and none of it reached the wire. So a host
+			 * could show a flat list of units and nothing about their order,
+			 * while the model was already maintaining the order.
+			 *
+			 * Absent rather than empty when the unit depends on nothing, so a
+			 * reader can tell "no dependencies" from an emitter that predates
+			 * these fields.
+			 */
+			blockedBy?: readonly TaskId[]
+			owner?: string
 	  }
 	| {
 			type: 'task_updated'
@@ -469,6 +484,8 @@ type CoreRunEvent =
 			subject: string
 			status: TaskStatus
 			owner?: string
+			/** See `task_created`. Carried on updates because an edge can be added later. */
+			blockedBy?: readonly TaskId[]
 	  }
 	| {
 			type: 'plugin_hook_executing'
