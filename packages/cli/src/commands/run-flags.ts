@@ -26,7 +26,6 @@ export interface RunFlags {
 	session: string | null
 	model: string | null
 	provider: string | null
-	instance: string | null
 	/** Where the agent works: filesystem tools, sub-agents, session store, skills. */
 	cwd: string | null
 	/** How calls no `[permissions]` rule decided are resolved: prompt/auto/strict. */
@@ -55,7 +54,6 @@ export function parseRunFlags(rawArgs: readonly string[]): RunFlags {
 		session: null,
 		model: null,
 		provider: null,
-		instance: null,
 		cwd: null,
 		permissionMode: null,
 		skipPermissions: false,
@@ -151,17 +149,6 @@ export function parseRunFlags(rawArgs: readonly string[]): RunFlags {
 				'provider',
 				trimmed((v) => {
 					out.provider = v
-				}),
-				idx,
-			)
-		)
-			continue
-		if (
-			take(
-				a,
-				'instance',
-				trimmed((v) => {
-					out.instance = v
 				}),
 				idx,
 			)
