@@ -33,6 +33,10 @@ export interface RunFlags {
 	permissionMode: string | null
 	/** --yolo / --dangerously-skip-permissions was given. */
 	skipPermissions: boolean
+	/** --continue: pick up the most recent conversation here. */
+	continueLast: boolean
+	/** --resume <id>: pick up this conversation and no other. */
+	resume: string | null
 	skills: string[]
 	/**
 	 * `--flags` this parser does not know.
@@ -55,6 +59,8 @@ export function parseRunFlags(rawArgs: readonly string[]): RunFlags {
 		cwd: null,
 		permissionMode: null,
 		skipPermissions: false,
+		continueLast: false,
+		resume: null,
 		skills: [],
 		unknown: [],
 		rest: [],
@@ -97,6 +103,21 @@ export function parseRunFlags(rawArgs: readonly string[]): RunFlags {
 				'permission-mode',
 				trimmed((v) => {
 					out.permissionMode = v
+				}),
+				idx,
+			)
+		)
+			continue
+		if (a === '--continue' || a === '-c') {
+			out.continueLast = true
+			continue
+		}
+		if (
+			take(
+				a,
+				'resume',
+				trimmed((v) => {
+					out.resume = v
 				}),
 				idx,
 			)

@@ -17,12 +17,14 @@
  */
 
 import { configureLogger } from '@namzu/sdk'
-import type { StopReason } from '@namzu/sdk'
+import type { Message, StopReason } from '@namzu/sdk'
 
 import { EXIT_USAGE } from '../exit-codes.js'
 import type { DetectedProvider, Preferences, ProviderId } from '../integrations/providers/index.js'
+import { openSessions } from '../integrations/sessions/store.js'
 import { resolvePermissionMode } from '../permissions/mode.js'
 import { compilePermissions } from '../permissions/rules.js'
+import { resolveResume } from './resume.js'
 import {
 	loadSkillsContext,
 	parseRunFlags,
@@ -123,6 +125,8 @@ export const runCommand: CommandDef = {
 		'  --provider <id>       Provider to answer with',
 		'  --model <id>          Model to answer with',
 		'  --skills <a,b,c>      Load these skills as context for the turn',
+		'  --continue, -c        Resume the most recent conversation here',
+		'  --resume <id>         Resume that conversation, and no other',
 		'  --permission-mode <m> prompt | auto | strict — what happens to a call',
 		'                        no [permissions] rule decided (default: auto)',
 		'  --                    End of options; the rest is the prompt verbatim',
@@ -132,6 +136,10 @@ export const runCommand: CommandDef = {
 		'strict for an unattended run that must refuse anything no rule allowed.',
 		'',
 		'A mode only decides calls no rule decided: it can never reopen a deny.',
+		'',
+		'--continue and --resume refuse when the conversation cannot be reopened,',
+		'and say why. Neither ever falls back to starting a new one: run with no',
+		'flag if that is what you want.',
 		'',
 		'Needs a provider. Set a credential in the environment, or run namzu',
 		'once to pick one interactively.',
@@ -218,11 +226,39 @@ export const runCommand: CommandDef = {
 
 		const extraSystem = await loadSkillsContext(resolved.cwd, flags.skills)
 
+		// A conversation the TUI could reopen could not be reopened from a
+		// script: the store, the reader and the picker all existed and only the
+		// entry point was missing.
+		let sessions: Awaited<ReturnType<typeof openSessions>> | null = null
+		if (flags.continueLast || flags.resume) {
+			try {
+				sessions = await openSessions(resolved.cwd)
+			} catch {
+				sessions = null // reported by resolveResume, which knows what was asked for
+			}
+		}
+		const resume = await resolveResume(
+			sessions,
+			{ continueLast: flags.continueLast, sessionId: flags.resume },
+			resolved.cwd,
+		)
+		if (resume.kind === 'error') {
+			// Refused, never silently started fresh. Someone who asked for a
+			// specific conversation and got a new one that looks the same finds
+			// out several turns later, having already acted on it.
+			ctx.formatter.error({ message: resume.message })
+			return EXIT_USAGE
+		}
+		const prior: readonly Message[] = resume.kind === 'resumed' ? resume.messages : []
+		if (resume.kind === 'resumed') {
+			ctx.formatter.info(`resuming ${resume.sessionId} · ${prior.length} messages`)
+		}
+
 		let text = ''
 		let failed: string | null = null
 		let stopReason: StopReason | undefined
 		for await (const event of session.send(
-			[{ role: 'user', content: prompt, timestamp: Date.now() }],
+			[...prior, { role: 'user', content: prompt, timestamp: Date.now() }],
 			extraSystem ? { extraSystem } : undefined,
 		)) {
 			if (event.kind === 'delta') text += event.text
