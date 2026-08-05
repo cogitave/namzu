@@ -111,6 +111,16 @@ export class IterationOrchestrator {
 		const planSignal = yield* runPlanGate(this.ctx)
 		if (planSignal === 'stop') return
 
+		// A `finally` rather than a line at each exit, for the reason written
+		// beside `iterSpan.end()` below: this loop leaves by eight `break`s,
+		// two `return`s and a `throw`, and a rule every future edit has to
+		// remember is a rule that gets forgotten — measured, it had been. Only
+		// the ordinary final-answer exit consulted the inbox, so a run that
+		// ended on a terminal tool, a structured output or the host's
+		// `stopWhen` settled over a finished worker's output and threw it away.
+		// A `finally` also covers a generator abandoned by its consumer, which
+		// no post-loop block reaches.
+		try {
 		while (true) {
 			const guardResult = this.ctx.guard.beforeIteration(runMgr, this.ctx.abortController.signal)
 
@@ -832,6 +842,36 @@ export class IterationOrchestrator {
 				iterSpan.end()
 			}
 		}
+		} finally {
+			this.deliverArrivedCompletions()
+		}
+	}
+
+	/**
+	 * Put whatever finished into the transcript on the way out.
+	 *
+	 * Only the completions that have ALREADY arrived. This does not wait, and
+	 * that is the decision rather than an omission: a hold buys the model a
+	 * turn in which to USE a worker's result, and on an exit whose answer is
+	 * already decided — a terminal tool's output, a captured structured
+	 * output, a host's `stopWhen` — there is no such turn, so waiting would
+	 * only delay a settled answer to append text this run will not read.
+	 * Delivering what is already in hand costs nothing and is pure loss to
+	 * drop: the message rides out on `Run.messages`, so a host reads it and
+	 * the next turn of a continued thread starts with it.
+	 *
+	 * The bounded hold stays where it was, on the one exit that does have a
+	 * turn left.
+	 */
+	private deliverArrivedCompletions(): void {
+		const unheard = this.ctx.completionInbox?.drain() ?? []
+		if (unheard.length === 0) return
+
+		this.ctx.log.info('Delivering task completions the run would have settled over', {
+			runId: this.ctx.runMgr.id,
+			tasks: unheard.map((h) => h.taskId),
+		})
+		this.ctx.runMgr.pushMessage(createUserMessage(formatCompletionNotification(unheard)))
 	}
 
 	/**
