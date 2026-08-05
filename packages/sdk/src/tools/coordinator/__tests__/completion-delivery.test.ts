@@ -4,7 +4,7 @@ import { CompletionInbox } from '../../../gateway/completion-inbox.js'
 import type { TaskGateway, TaskHandle } from '../../../types/agent/gateway.js'
 import type { TaskId } from '../../../types/ids/index.js'
 import type { ToolDefinition } from '../../../types/tool/index.js'
-import { buildCoordinatorTools } from '../index.js'
+import { DELEGATION_TIMEOUT_MS, buildCoordinatorTools } from '../index.js'
 
 /**
  * Who claims a completion, and who is left to announce it.
@@ -131,14 +131,14 @@ describe('the supervisor has a tool for every move it needs', () => {
 		// takes longer, and every expiry past that point produced the state
 		// this whole change exists to repair. Not firing at all beats
 		// recovering well.
-		expect(toolNamed(harness().tools, 'create_task').timeoutMs).toBeGreaterThan(120_000)
+		expect(toolNamed(harness().tools, 'create_task').timeoutMs).toBe(DELEGATION_TIMEOUT_MS)
 	})
 
 	it('gives the waiting tool a deadline longer than the executor default', () => {
 		// A tool whose entire job is to wait must not be killed for waiting.
 		// `ToolExecutor` reads `timeoutMs` before falling back to the run
 		// default, so declaring one here is the supported way to say so.
-		expect(toolNamed(harness().tools, 'wait_for_task').timeoutMs).toBeGreaterThan(120_000)
+		expect(toolNamed(harness().tools, 'wait_for_task').timeoutMs).toBe(DELEGATION_TIMEOUT_MS)
 	})
 
 	it('mounts none of them when there is no roster to delegate to', () => {
