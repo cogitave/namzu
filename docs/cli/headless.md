@@ -19,8 +19,36 @@ and differ only in how they report:
 ```bash
 namzu run "fix the failing test"
 echo "summarise this" | namzu run
+cat notes.txt | namzu run "summarise this"
 namzu run-stream --session ses_42 "what changed?"
 ```
+
+### Piped input
+
+`namzu run` uses a pipe and a prompt argument together, rather than choosing
+between them:
+
+| Invocation | Prompt the model receives |
+| --- | --- |
+| `namzu run "question"` | the argument |
+| `echo "question" \| namzu run` | the piped text |
+| `cat file \| namzu run "question"` | the argument, then the file fenced in a `<stdin>` block |
+| `namzu run -` | the piped text (explicit stdin sentinel) |
+
+Fencing is what lets the model tell the request from the material it is about;
+without a boundary the last line of a long paste runs into the question.
+
+When the prompt came from an argument, namzu waits up to 250ms for the first
+byte of piped input and then proceeds without it — otherwise `namzu run "hello"`
+would wait forever in any context where stdin is open and silent, such as a CI
+step. Once input starts arriving it is read to the end with no deadline, so a
+large or slow producer is never truncated. With no prompt argument the wait is
+unbounded, because the caller has said the prompt is coming.
+
+`run-stream` reads stdin differently on purpose: without `--session` it expects a
+JSON `Message[]` of prior conversation there, not prompt text. That is the one
+input channel the two commands do not share, because it means two different
+things to their two different callers.
 
 Both need a provider. Set a credential in the environment, or run `namzu` once
 and pick one — see [Providers & credentials](./providers.md).

@@ -29,11 +29,70 @@ import {
 } from './run-flags.js'
 import type { CommandDef } from './types.js'
 
-async function readStdin(): Promise<string> {
+/**
+ * How long to wait for the FIRST byte of piped input when the prompt was
+ * already given as an argument.
+ *
+ * Once a byte arrives the read runs to end-of-input with no deadline, so a
+ * slow or large producer is never truncated. The bound only covers the case
+ * where nothing is coming at all.
+ *
+ * It exists because "is anything being piped in?" is not answerable without
+ * reading: on Windows a real pipe, an inherited-but-idle pipe, and a test
+ * runner's stdin are indistinguishable to `fstat` — all three report neither
+ * FIFO nor file. Measured. So a command that unconditionally waited for
+ * end-of-input would hang forever whenever stdin was open and silent, which is
+ * the ordinary state of a CI step or a test process. Waiting a quarter second
+ * is invisible to a person and instant for a pipe that has data ready.
+ */
+const FIRST_BYTE_DEADLINE_MS = 250
+
+async function readStdin(opts: { readonly deadline?: boolean } = {}): Promise<string> {
 	if (process.stdin.isTTY) return ''
 	const chunks: Buffer[] = []
-	for await (const chunk of process.stdin) chunks.push(chunk as Buffer)
+	const collect = async (): Promise<void> => {
+		for await (const chunk of process.stdin) chunks.push(chunk as Buffer)
+	}
+	if (!opts.deadline) {
+		await collect()
+		return Buffer.concat(chunks).toString('utf8')
+	}
+	let timer: NodeJS.Timeout | undefined
+	const firstByte = new Promise<void>((resolve) => {
+		timer = setTimeout(() => resolve(), FIRST_BYTE_DEADLINE_MS)
+		process.stdin.once('readable', () => resolve())
+		process.stdin.once('end', () => resolve())
+	})
+	await firstByte
+	if (timer) clearTimeout(timer)
+	if (process.stdin.readableEnded || process.stdin.readableLength > 0) await collect()
 	return Buffer.concat(chunks).toString('utf8')
+}
+
+/**
+ * The prompt, from the arguments and the pipe together.
+ *
+ * Piped input used to be read only when there was no argument prompt, so
+ *
+ *     cat notes.txt | namzu run "summarise this"
+ *
+ * sent the model three words and silently dropped the file. Nothing reported
+ * it: the run succeeded, and the answer was about nothing. A pipe and a
+ * question are the ordinary way to ask about a document, and taking only one
+ * of the two is the worst reading of that command.
+ *
+ * The piped text is fenced in a tag so the model can tell the instruction from
+ * the material it is about — without a boundary, a long paste runs into the
+ * question and the last line of a file reads as part of the request.
+ *
+ * Pure so it can be tested without a pipe; the reading happens in the handler.
+ */
+export function composePrompt(fromArgs: string, piped: string): string {
+	const question = fromArgs.trim()
+	const material = piped.trim()
+	if (!question) return material
+	if (!material) return question
+	return `${question}\n\n<stdin>\n${material}\n</stdin>`
 }
 
 function defaultPrefs(detected: readonly DetectedProvider[]): Preferences | null {
@@ -48,10 +107,14 @@ export const runCommand: CommandDef = {
 	help: [
 		'Usage: namzu run [options] <prompt...>',
 		'       echo "<prompt>" | namzu run',
+		'       cat file.txt | namzu run "summarise this"',
 		'',
 		'Run a single prompt headlessly and print the reply. Everything that is',
-		'not an option is the prompt; when none is given it is read from stdin,',
-		'so this composes with a pipe.',
+		'not an option is the prompt.',
+		'',
+		'Piped input is used too, not discarded: with no prompt argument it IS',
+		'the prompt, and alongside one it is appended as material the question',
+		'is about. `namzu run -` reads the prompt from stdin explicitly.',
 		'',
 		'Options (the same ones run-stream takes):',
 		'  --cwd <path>          Directory the agent works in (default: this one)',
@@ -78,8 +141,17 @@ export const runCommand: CommandDef = {
 			ctx.formatter.error({ message: unknownOptionMessage(flags.unknown) })
 			return EXIT_USAGE
 		}
-		let prompt = flags.rest.join(' ').trim()
-		if (!prompt) prompt = (await readStdin()).trim()
+		// `-` on its own means "the prompt is on stdin", the usual spelling for
+		// it. Before, it was sent to the model as a one-character question.
+		const fromArgs = flags.rest.join(' ').trim() === '-' ? '' : flags.rest.join(' ').trim()
+		// With no prompt argument, piped input IS the prompt and is waited for
+		// as long as it takes — that is the existing contract for `echo … |
+		// namzu run` and for the `-` sentinel. Alongside a prompt it is extra
+		// material, so it gets the first-byte deadline instead: a caller who
+		// asked a complete question should never be left waiting on a pipe
+		// they did not mean to open.
+		const piped = await readStdin({ deadline: Boolean(fromArgs) })
+		const prompt = composePrompt(fromArgs, piped)
 		if (!prompt) {
 			ctx.formatter.error({ message: 'no prompt — pass it as an argument or pipe it via stdin' })
 			return 2
