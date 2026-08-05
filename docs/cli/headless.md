@@ -166,9 +166,28 @@ every line on stdout is a valid event.
 | `tool-start` | `toolUseId`, `toolName`, `summary`, optional `detail` lines |
 | `tool-end` | `toolUseId`, `toolName`, `isError`, `summary`, optional `detail` lines |
 | `usage` | `totalTokens`, `costUsd` |
+| `context` | `text`, `shed` — a compaction pass ran (see below) |
 | `task` | `subject`, `status` — the agent's own plan items |
 | `error` | `message` |
 | `done` | optional `stopReason` |
+
+### `context`, and why it is on the stream at all
+
+A long turn compacts: the runtime discards old history to keep the conversation
+inside the model's window. That deletion is irreversible, and until it was
+reported the first a user knew of it was the agent having forgotten something
+they were relying on — which reads as the model being stupid rather than as the
+harness dropping context.
+
+`shed` distinguishes the two outcomes. `true` means history was discarded and
+`text` says which counts became which. `false` means a pass ran and declined, so
+**the history is unchanged** — worth surfacing rather than swallowing, because a
+run that could not shed carries on at full context toward a provider rejection
+several turns later that will name none of this. `text` says which of the three
+declines it was.
+
+Render both. A host that shows only `shed: true` reproduces the original silence
+on exactly the runs that are in trouble.
 
 Two read-only helpers exist for a host building pickers, both taking `--cwd` and
 both printing `[]` rather than failing:

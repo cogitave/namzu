@@ -271,11 +271,22 @@ Four more things worth knowing:
   `allowed_tools` parameter, and moving `tool_choice` invalidates cached
   *message* blocks as well: a strictly worse trade for the same effect.
 - **The hook fails open; the list does not.** A throwing hook leaves the step
-  with the run's configuration. But a list the hook *returned* is enforced, and
-  names that are not registered are dropped from it with a warning — so a phase
-  list that outlives a tool rename narrows further than you wrote it. Keep at
-  least one live name in every list: if every name is dropped, what reaches the
-  step is the empty list, which means *may call nothing*.
+  with the run's configuration. A list the hook *returned* is enforced, and
+  names that are not registered are dropped from it with a warning.
+
+  **Dropping every name leaves the step able to call nothing, and that is
+  deliberate.** The list means *only these*: if a rename outlives a phase list,
+  the only set satisfying "only the tools that no longer exist" is the empty
+  one. Widening back to the run's list would grant precisely the tools the
+  caller excluded, on the grounds that their own list failed — a step that can
+  call nothing is constrained, while a step that can call everything is a
+  control that stopped applying. The step is constrained, not crashed: the model
+  answers from what it has and the run continues.
+
+  The warning is the part to watch. It goes to the logger, and it distinguishes
+  some-names-dropped from all-names-dropped because those have different
+  consequences — but a host that silences its logger sees a phase quietly stop
+  doing anything.
 
 ### More than one concern
 
@@ -443,6 +454,36 @@ If you switch exhaustively over `RunEvent`, `compaction_failed` needs a case. A
 host that ignores unknown events is unaffected. Neither compaction event is
 forwarded over the A2A bridge: a peer models a task lifecycle and cannot act on
 how this runtime manages its own context.
+
+### How full the context is, between passes
+
+Compaction events tell you when history was shed. `token_usage_updated` tells
+you how much room there is the rest of the time:
+
+| Field | Is |
+| --- | --- |
+| `contextTokens` | the size of the conversation being sent **right now** — it falls when a compaction sheds |
+| `contextWindowTokens` | the ceiling that size is measured against |
+| `contextMeasuredBy` | `provider` if the prompt was counted, `estimate` if it was not |
+| `windowSource` | `config`, `model-table` or `default` |
+
+**These are a different quantity from the `usage` beside them, and the naming is
+deliberate because confusing the two is a category error this estate shipped.**
+`usage` is *cumulative spend*: prompt plus completion tokens summed across every
+turn, monotonically increasing, and untouched by compaction. Dividing it by a
+context window produces an indicator that climbs toward full on any long run no
+matter how much room the conversation actually has — most wrong precisely on the
+runs where someone is watching it. `contextTokens` is the numerator that
+question wants.
+
+Both provenance fields exist because **a fraction is only as honest as the
+weaker of its two numbers.** A surface rendering these owes its reader the same
+distinction rather than presenting an estimate as a measurement.
+
+All four are **absent when the run has no compaction configuration** — nothing
+then resolves a window, and inventing one would be the guess these fields exist
+to replace. `measureContext` is exported for a host that wants to compute the
+same figure itself.
 
 ## 6b. What a Finished Run Leaves Behind
 

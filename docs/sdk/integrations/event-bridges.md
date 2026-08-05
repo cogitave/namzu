@@ -85,6 +85,16 @@ toward a provider rejection several turns later that will name none of this.
 `compaction.failed` carries a `cause` saying which of the three declines
 happened — see [Loop Control](../runtime/loop-control.md).
 
+`token.usage` carries `context_tokens` and `context_window_tokens` alongside the
+cumulative `usage`, each with its provenance (`context_measured_by`,
+`window_source`). **Build a context-fullness indicator from `context_tokens`,
+never from `usage`** — the latter is cumulative spend across every turn and is
+untouched by compaction, so dividing it by a window yields a gauge that climbs
+toward full on any long run regardless of how much room the conversation has. A
+remote surface has exactly the same opportunity to make that mistake as a local
+one and no more information with which to notice it, which is why both numbers
+are named apart on the wire as well as in the type.
+
 ## 3. Important SSE Limitation
 
 Not every `RunEvent` maps to an SSE event, and the final completion does not come from the mapper.
