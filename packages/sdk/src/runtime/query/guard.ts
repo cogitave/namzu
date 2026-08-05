@@ -55,6 +55,24 @@ export class GuardCoordinator {
 		this.startTime = Date.now() - Math.max(0, elapsedMs)
 	}
 
+	/**
+	 * Wall-clock left before this run's own timeout, never below zero.
+	 *
+	 * The checks above run BETWEEN iterations, so anything that waits inside
+	 * one cannot be stopped by them. A caller sizing such a wait needs the
+	 * number the deadline is made of rather than a constant of its own: a
+	 * fixed two-minute hold measured against a run configured for twenty
+	 * seconds kept it open for 120,267 ms, six times its budget, and the
+	 * guard had no opportunity to object.
+	 *
+	 * Reads through the same `startTime` the limit checks use, so a run
+	 * resumed from a checkpoint (see `restoreElapsed`) reports the time left
+	 * on the RUN rather than on the process now hosting it.
+	 */
+	remainingMs(): number {
+		return Math.max(0, this.limitConfig.timeoutMs - (Date.now() - this.startTime))
+	}
+
 	beforeIteration(runMgr: RunPersistence, abortSignal: AbortSignal): GuardCheckResult {
 		const limitState = {
 			aborted: abortSignal.aborted,

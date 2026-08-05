@@ -16,6 +16,7 @@ import {
 } from '../../../telemetry/attributes.js'
 import { getTracer } from '../../../telemetry/runtime-accessors.js'
 import { STRUCTURED_OUTPUT_TOOL_NAME } from '../../../tools/builtins/structuredOutput.js'
+import { DELEGATION_TIMEOUT_MS } from '../../../tools/coordinator/index.js'
 import type { CostInfo, TokenUsage } from '../../../types/common/index.js'
 import type { MessageId } from '../../../types/ids/index.js'
 import {
@@ -63,14 +64,58 @@ export type { ToolReviewOutcome } from './phases/index.js'
 const DEFAULT_ANSWER_REVIEW_LIMIT = 3
 
 /**
+ * The share of a run's REMAINING time a settle-hold may take.
+ *
+ * The rule is borrowed from `AGENT_MANAGER_DEFAULTS.maxBudgetFraction`, which
+ * gives a spawned child at most half of what its parent has left: one
+ * sub-activity may take a share of the remainder, never the remainder. The
+ * value is written out here rather than imported, because that field is a
+ * host-tunable knob about TOKEN allocation and coupling the two would let a
+ * host lowering one silently change the other.
+ *
+ * Half, specifically, because the hold is not the last thing the run does.
+ * Its whole purpose is to put a worker's result where the model can read it,
+ * and reading it costs a turn. A hold that spent everything remaining would
+ * deliver a notification into a run with no turn left to act on it — the same
+ * "the result exists and the model is never told" failure this mechanism was
+ * built to close, wearing a different costume.
+ */
+const SETTLE_GRACE_FRACTION = 0.5
+
+/**
  * How long a finishing run waits for a background worker it launched.
  *
- * Long enough to be worth having — a delegated worker doing real work takes
- * minutes — and bounded because a worker that never finishes must not hold
- * the run open forever. `maxIterations` bounds how many times this can
- * happen, and the run's own timeout bounds the whole thing regardless.
+ * Derived from the run rather than fixed, because a constant is wrong in both
+ * directions at once. The 120 seconds this replaces held a run configured for
+ * a twenty-second timeout open for 120,267 ms — six times its own budget, and
+ * unreachable by the guard, which only checks between iterations — while on an
+ * hour-long run it abandoned workers measured at 4m21s, 5m58s and 8m04s, all
+ * of them well inside the hour the delegation tools themselves declare.
+ *
+ * **Bounded by construction, which is the property that matters.** Half of
+ * what is left cannot outlive the deadline, so the guard's inability to
+ * interrupt a hold stops being a gap that needs a new interrupt seam: the
+ * arithmetic has already settled it.
+ *
+ * **The floor of zero is a decision, not a clamp artefact.** A run with no
+ * time left has no turn in which to read a notification, so waiting could only
+ * delay a stop that is already due. Nothing is lost by it either:
+ * `CompletionInbox.waitForArrival` returns before it looks at its timer when a
+ * completion is already in hand, so a zero grace still delivers everything
+ * that has arrived. No minimum is invented, because this codebase already
+ * answers "when is it too late to start more work" — `budgetWarningThreshold`
+ * (0.9) makes the guard ask for a closing summary, and the hold below is
+ * gated on `!forceFinalize`, so the last tenth of a run never holds at all.
+ * The degenerately-short grace is therefore only reachable when an iteration
+ * itself overran that tenth, and there zero is the right answer.
+ *
+ * **The ceiling is the longest anything in this subsystem waits for a
+ * delegated worker.** It binds only for a host whose run timeout exceeds two
+ * hours; below that the fraction is the smaller number.
  */
-const BACKGROUND_TASK_GRACE_MS = 120_000
+export function settleGraceMs(remainingRunMs: number): number {
+	return Math.min(Math.floor(remainingRunMs * SETTLE_GRACE_FRACTION), DELEGATION_TIMEOUT_MS)
+}
 
 export class IterationOrchestrator {
 	private ctx: IterationContext
@@ -585,16 +630,19 @@ export class IterationOrchestrator {
 					// Settling here would throw away the very thing the launch
 					// existed to produce: the supervisor said "launched", the
 					// worker had not finished, and the run closed over it. So
-					// the run is held open — bounded by the deadline below and
-					// by `maxIterations` above, so a worker that never finishes
-					// cannot keep it open forever — and the completion arrives
-					// as a notification the next turn reads.
+						// the run is held open — bounded by the run's own remaining
+						// time (see `settleGraceMs`) and by `maxIterations` above,
+						// so a worker that never finishes cannot keep it open
+						// forever — and the completion arrives as a notification
+						// the next turn reads.
 					if (!forceFinalize && this.ctx.completionInbox?.hasPendingWork) {
+							const graceMs = settleGraceMs(this.ctx.guard.remainingMs())
 						this.ctx.log.info('Holding the run open for a background task', {
 							runId: runMgr.id,
 							iteration: iterationNum,
+								graceMs,
 						})
-						await this.ctx.completionInbox.waitForArrival(BACKGROUND_TASK_GRACE_MS)
+							await this.ctx.completionInbox.waitForArrival(graceMs)
 						const arrived = this.ctx.completionInbox.drain()
 						if (arrived.length > 0) {
 							runMgr.pushMessage(createUserMessage(formatCompletionNotification(arrived)))
