@@ -63,6 +63,34 @@ export function evaluateRule(
 			return compiledPattern.test(target) ? rule.decision : null
 		}
 
+		case 'argument_pattern': {
+			if (!compiledPattern) return null
+			if (!nameSet?.has(toolName)) return null
+
+			if (typeof toolInput !== 'object' || toolInput === null) return null
+			const value = (toolInput as Record<string, unknown>)[rule.argument]
+
+			// The subject is the argument's own value, which is the whole point
+			// — `^git push` here means what a reader expects, where the same
+			// pattern against the serialised object could never match.
+			//
+			// Numbers and booleans are rendered rather than skipped, because
+			// `String(4000)` is unambiguous and anchorable. Objects and arrays
+			// are NOT: no string a pattern could match says anything true about
+			// a structured value, and serialising one would put us back where
+			// `custom_pattern` already is. A rule about the shape of an input
+			// is a rule about the tool, and `deny_by_name` is where it belongs.
+			const subject =
+				typeof value === 'string'
+					? value
+					: typeof value === 'number' || typeof value === 'boolean'
+						? String(value)
+						: undefined
+			if (subject === undefined) return null
+
+			return compiledPattern.test(subject) ? rule.decision : null
+		}
+
 		case 'allow_by_tier': {
 			if (toolDef?.tier && rule.tiers.includes(toolDef.tier)) {
 				return 'allow'

@@ -85,6 +85,48 @@ type CoreRunEvent =
 			 */
 			reachedResetThreshold?: boolean
 	  }
+	/**
+	 * A compaction pass ran and shed nothing, so the history is unchanged.
+	 *
+	 * A shed that did not happen is exactly as consequential as one that did,
+	 * and until this existed only one of them was on the wire. The three
+	 * decline paths all reached a log line — and a host that silences its
+	 * logger, which every command-line entry point does, made a failed
+	 * compaction invisible to the user, to the host AND to the model. The run
+	 * then continued at full context toward a provider rejection several turns
+	 * later that named none of this.
+	 *
+	 * The history is guaranteed untouched on every one of these: the reducer's
+	 * result is installed whole or not at all, so there is no partial state to
+	 * reason about. That is the property that makes reporting sufficient and a
+	 * repair unnecessary.
+	 */
+	| {
+			type: 'compaction_failed'
+			runId: RunId
+			iteration: number
+			/**
+			 * Which decline path was taken. These want different responses, so
+			 * a single "it failed" would put the reader back where the silence
+			 * did:
+			 *
+			 * - `reducer_threw` — the reducer raised. Usually a bug or a failed
+			 *   model call inside a summarising reducer; the next pass may work.
+			 * - `shed_nothing` — it returned no fewer messages than it was
+			 *   given. The history is already at its floor, or the reducer's
+			 *   own threshold disagrees with the trigger's, and every later
+			 *   pass will decline identically.
+			 * - `split_tool_pair` — its result separated a `tool_use` from its
+			 *   `tool_result`, so it was refused wholesale rather than sent to
+			 *   a provider that rejects the pairing. A reducer bug, and one
+			 *   `findSafeTrimIndex` exists to prevent.
+			 */
+			cause: 'reducer_threw' | 'shed_nothing' | 'split_tool_pair'
+			/** Unchanged, and stated so a reader need not infer it. */
+			messages: number
+			/** Present only for `reducer_threw`. */
+			error?: string
+	  }
 	| {
 			type: 'tool_executing'
 			runId: RunId

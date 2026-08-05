@@ -270,6 +270,18 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				})
 				break
 
+			case 'compaction_failed':
+				// warn rather than info: the run is now continuing at a context
+				// size it had already decided was too large.
+				log.warn('Context compaction shed nothing', {
+					runId: event.runId,
+					iteration: event.iteration,
+					cause: event.cause,
+					messages: event.messages,
+					...(event.error !== undefined ? { error: event.error } : {}),
+				})
+				break
+
 			case 'capability_warning':
 				log.warn('Provider capability mismatch', {
 					runId: event.runId,
