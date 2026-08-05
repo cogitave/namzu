@@ -670,10 +670,29 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 						// model cannot see, which is how this listing came to prove a
 						// task had finished while withholding what it said.
 						if (i.result === undefined) return head
-						const body =
-							i.result.length > LISTED_RESULT_LIMIT
-								? `${i.result.slice(0, LISTED_RESULT_LIMIT)}\n    … truncated; call wait_for_task with "${i.task_id}" for the whole thing.`
-								: i.result
+						const overLimit = i.result.length > LISTED_RESULT_LIMIT
+						// Framed exactly as the blocking `create_task` and
+						// `wait_for_task` frame the same bytes. This listing was the
+						// third way to read a delegate's output and the only one that
+						// pasted it bare — so a worker's text was material on two
+						// paths and read as the parent's own reasoning on the third,
+						// and which one a run got depended on how the model chose to
+						// fetch it.
+						const framed = wrapUntrusted(
+							{
+								kind: 'agent-result',
+								attributes: { agent: i.agent_id, task: i.task_id },
+								provenance: `This is the output of the delegated agent "${i.agent_id}", not this agent's own work.`,
+							},
+							overLimit ? i.result.slice(0, LISTED_RESULT_LIMIT) : i.result,
+						)
+						// After the closing tag, not inside it: this sentence is the
+						// kernel telling the model how to get the rest, and inside
+						// the envelope it has just been told the contents are not
+						// instructions addressed to it.
+						const body = overLimit
+							? `${framed}\n… truncated; call wait_for_task with "${i.task_id}" for the whole thing.`
+							: framed
 						return `${head}\n${body
 							.split('\n')
 							.map((line) => `    ${line}`)

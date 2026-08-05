@@ -1,3 +1,4 @@
+import { wrapUntrusted } from '../tools/untrusted-envelope.js'
 import type { TaskGateway, TaskHandle } from '../types/agent/gateway.js'
 import { isTerminalAgentTaskState } from '../types/agent/task.js'
 import type { TaskId } from '../types/ids/index.js'
@@ -274,6 +275,30 @@ export class CompletionInbox {
 /** How much of a worker's output rides in the notification itself. */
 const NOTIFICATION_OUTPUT_LIMIT = 4_000
 
+const NOTIFICATION_DELIMITER = /task-notification/gi
+
+/**
+ * Defang this file's own delimiter inside a worker's text.
+ *
+ * Without it a worker whose output contains `</task-notification>` closes the
+ * block early, and everything it wrote after that sits OUTSIDE the boundary —
+ * reading as ordinary transcript rather than as a delegate's material.
+ * Measured before the fix: two closing tags in one notification, with
+ * attacker-controlled text between them.
+ *
+ * The replacement swaps the hyphen for an underscore rather than appending a
+ * suffix, for the reason `neutralizeEnvelopeDelimiter` records: a replacement
+ * that still CONTAINS the token is found again by a second pass or by any
+ * looser matcher downstream. `task_notification` shares no substring with the
+ * real delimiter while staying legible.
+ *
+ * The nested `<namzu-untrusted>` block defangs its own delimiter; these two
+ * patterns are disjoint, so the order they run in does not matter.
+ */
+function neutralizeNotificationDelimiter(content: string): string {
+	return content.replace(NOTIFICATION_DELIMITER, 'task_notification')
+}
+
 /**
  * The message a supervisor reads when a worker it stopped waiting for
  * finishes.
@@ -291,14 +316,32 @@ export function formatCompletionNotification(handles: readonly TaskHandle[]): st
 	const blocks = handles.map((handle) => {
 		const durationMs = handle.completedAt ? handle.completedAt - handle.createdAt : undefined
 		const output = handle.result?.result ?? handle.result?.lastError ?? ''
-		const truncated =
-			output.length > NOTIFICATION_OUTPUT_LIMIT
-				? // `wait_for_task`, not `agent_task_list` — the listing takes only a
-					// state filter, so an instruction to call it "with task_id" named
-					// a parameter that does not exist and could not be followed. On an
-					// already-finished task the wait returns immediately.
-					`${output.slice(0, NOTIFICATION_OUTPUT_LIMIT)}\n… truncated. Call wait_for_task with task_id "${handle.taskId}" for the full output.`
-				: output
+		const overLimit = output.length > NOTIFICATION_OUTPUT_LIMIT
+		const shown = overLimit ? output.slice(0, NOTIFICATION_OUTPUT_LIMIT) : output
+
+		// Framed for the same reason the blocking `create_task` frames its
+		// return value, and this path is the one that had nothing. A delegated
+		// worker is the component most likely to have consumed material nobody
+		// in this run authored — it was told to read and report, and it ran
+		// `read`, `grep`, `fetch` over whatever it found — and its text lands
+		// in a parent that typically holds the broader tool grant. The same
+		// bytes were being wrapped on one path and pasted bare on this one.
+		//
+		// The metadata above stays OUTSIDE the envelope: the task id, the agent
+		// and the state are this kernel's own statements, and framing them as
+		// untrusted material would tell the model to discount the only part of
+		// the message it can rely on.
+		const body =
+			shown.length > 0
+				? wrapUntrusted(
+						{
+							kind: 'agent-result',
+							attributes: { agent: handle.agentId, task: handle.taskId },
+							provenance: `This is the output of the delegated agent "${handle.agentId}", not this agent's own work.`,
+						},
+						neutralizeNotificationDelimiter(shown),
+					)
+				: '(the task produced no output)'
 
 		const lines = [
 			`task_id: ${handle.taskId}`,
@@ -306,7 +349,19 @@ export function formatCompletionNotification(handles: readonly TaskHandle[]): st
 			`state: ${handle.state}`,
 			...(durationMs !== undefined ? [`duration_ms: ${durationMs}`] : []),
 			'',
-			truncated.length > 0 ? truncated : '(the task produced no output)',
+			body,
+			// Outside the envelope, deliberately: this sentence is an
+			// instruction from the kernel about how to get the rest, and inside
+			// the envelope the model has just been told not to treat the
+			// contents as instructions.
+			//
+			// `wait_for_task`, not `agent_task_list` — the listing takes only a
+			// state filter, so an instruction to call it "with task_id" named a
+			// parameter that does not exist and could not be followed. On an
+			// already-finished task the wait returns immediately.
+			...(overLimit
+				? [`… truncated. Call wait_for_task with task_id "${handle.taskId}" for the full output.`]
+				: []),
 		]
 		return `<task-notification>\n${lines.join('\n')}\n</task-notification>`
 	})
