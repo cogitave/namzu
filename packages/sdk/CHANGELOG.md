@@ -1,5 +1,245 @@
 # Changelog
 
+## 7.0.0
+
+### Major Changes
+
+- 062624c: A bridged tool's positional array is no longer flattened to "an array of
+  anything".
+
+  `mcpJsonSchemaToZod` collapsed every positional array — both the draft-07
+  spelling (`items` holding a list) and the 2020-12 one (`prefixItems`) — to
+  `z.array(z.unknown())`. The schema makes a round trip, server JSON Schema → Zod
+  → JSON Schema on the wire, so what was dropped was dropped from what the MODEL
+  is shown: a server that spelled out `[string, number]` had the model told
+  nothing about the positions, their types, or their order.
+
+  **Why this is a major.** Where the server pinned the arity and closed the tail,
+  the converted schema is now a tuple, so input that a looser array accepted is
+  refused locally. It is only ever refused where the server itself declared it
+  invalid — the error moves from the server's response to the local validator —
+  but a host driving a bridged tool directly can see a validation failure it did
+  not see before, and code branching on the converted type (`instanceof
+z.ZodArray`) will take a different branch. If you relied on the permissive
+  shape, the fix is to send what the server's schema declares.
+
+  **The tuple is deliberately narrow, and that is the whole design.** A rejected
+  tool schema fails the entire request rather than degrading one tool, taking down
+  every run that offered the toolset — so a faithful conversion the wire will not
+  accept is strictly worse than a lossy one it will. A tuple is therefore emitted
+  only where the server pinned the arity AND closed the tail, because that renders
+  as bounded `prefixItems`, which is the one positional shape measured as
+  accepted and the same shape a first-party builtin already ships. Every looser
+  positional array keeps today's permissive array and gains its shape in the
+  description instead, appended to whatever the server wrote rather than replacing
+  it.
+
+  The inversion worth knowing if you write these schemas: positional members do
+  not constrain LENGTH. Without `minItems` a server is permitting a shorter array,
+  which a tuple cannot express — so an absent lower bound is a reason to keep the
+  loose form, not a detail to round up.
+
+  **Also fixed, and reachable from any bridged server:** the conversion's depth
+  ceiling never fired. `MAX_CONVERSION_DEPTH` was compared against in one branch
+  that a pure array or union never reaches, and the counter was not even passed
+  down the array path — so a deeply nested schema from a remote tool listing took
+  the process down with a stack overflow instead of being left permissive as the
+  ceiling's own comment promised.
+
+### Minor Changes
+
+- bf0999d: a policy rule you wrote is actually consulted, and a refusal says what it said
+
+  Two defects in the verification gate, found while designing an operator-facing
+  permission surface on top of it.
+
+  **A rule could be silently unreachable.** `allowReadOnlyTools` was expanded
+  into a rule ahead of the operator's own, and the gate stops at the first match
+  — so a rule like "prompt me before every read" was never consulted while that
+  flag was on. Not rejected, not warned about, just never reached. Someone who
+  writes a control and is silently ignored gets the worst outcome available: they
+  believe it is in force and it is not.
+
+  The read-only allowance now goes LAST, which makes it what it always was in
+  substance — a default for tools nobody wrote a rule about, rather than an
+  override of the rules they did write. **The dangerous-pattern denial still goes
+  first and still outranks everything**, so an operator rule cannot open what the
+  floor closes.
+
+  **A refusal told the model nothing it could use.** The reason was built as
+  `Matched rule: ${rule.type}`, so a denial arrived as _"Blocked by the
+  verification gate: Matched rule: deny_by_name"_ — the KIND of rule and nothing
+  about it. Not which tool, not which pattern, not whether a different input
+  would fare better.
+
+  That difference is behavioural, not cosmetic. Told only that it was denied, a
+  model rewords the same call and tries again, because nothing says the retry is
+  pointless. Told that a pattern rule denies `git push*`, or that a by-name
+  denial is about the tool rather than the input, it can stop and say so. A
+  refusal that cannot be reasoned about produces thrashing; one that can produces
+  a route around it.
+
+  `describeRule` is exported, so a host rendering its own approval UI can show
+  the same sentence the model got.
+
+- cb772c7: Export `describeRule` alongside `evaluateRule`.
+
+  `evaluateRule` has been public for some time and answers only whether a rule
+  matched. A host driving the rules directly — rather than through
+  `VerificationGate` — was left holding a verdict with no words for it, and the
+  only way to say anything about a refusal was to switch on the rule's `type`.
+  That names the KIND of rule and nothing about what it said: not which tool, not
+  which pattern, not whether a different input could ever help.
+
+  That is the same defect the gate itself carried until its `reason` stopped
+  being `Matched rule: <type>`, and it was left open one layer up for anyone
+  using the rule primitives without the gate. The two now travel together.
+
+  Nothing is removed and no behaviour changes. If you were deriving your own
+  denial text from `rule.type`, `describeRule(rule)` is the sentence the gate
+  uses, and it is worth reading before you keep your own.
+
+- 062624c: `effort` can be set on a run — and so, for the first time, can `thinking`.
+
+  `effort` was on the provider params, exported, and read by a driver that wrote
+  it to the wire, and nothing in the kernel ever set it. Every request went out at
+  the model's default, which reads as "this model ignores effort" rather than
+  "nobody plumbed it through".
+
+  `AgentRunConfig` gains `effort`, a sibling of `thinking` rather than a field
+  inside it — on some models the two are independent controls that apply together,
+  and nesting would make that combination unsayable. It is run-level rather than
+  per-step because the provider documents that changing effort between requests
+  does not preserve a cached prefix, so a value that moves between steps buys a
+  different answer shape at the cost of the cache on every step that changes it.
+
+  **`thinking` turned out to have the same defect, and had shipped with it.** It
+  was settable only through `drainQuery`. Every ergonomic entry point — `runAgent`,
+  `ReactiveAgent`, `SupervisorAgent`, and the agent manager's bare-config branch —
+  builds its run config by hand-listing fields, so a field nobody remembered to add
+  is dropped in silence, with no cast to blame and no error to see. A caller could
+  set `thinking` on an agent config and get a run that never asked for it. Both
+  fields now live on `BaseAgentConfig` and are forwarded by all four.
+
+  This was found by watching an actual HTTP body from a real run. The unit tests
+  passed throughout, because they drive the kernel directly, and the kernel was
+  never the half that was broken.
+
+  **A driver that cannot honour `effort` now refuses rather than dropping it**,
+  the rule `thinking` already had. Effort is the worse silence of the two: a
+  dropped `thinking` leaves an empty reasoning list someone might notice, while a
+  dropped `effort` leaves a perfectly ordinary answer, so a run requested at `max`
+  is indistinguishable from one at the default — including in what it cost.
+  Nothing existing breaks, because the field could not be set until now.
+
+  Two driver-side corrections ride along, both verified against the live wire:
+
+  - The preview model's capability row claimed all five effort levels. It takes
+    `max` and not `xhigh`. That model is not reachable from the tenant the live
+    suite runs against, so the row is sourced from the reference rather than
+    measured — but the pairing itself is now measured, on a model that has it:
+    `claude-sonnet-4-6` answers `xhigh` with _"This model does not support effort
+    level 'xhigh'. Supported levels: high, low, max, medium"_ and accepts `max`.
+    Reading the levels as a ladder, where anything taking the top rung takes the
+    one below, is what produced the wrong row.
+  - `output_config` is now merged rather than assigned. It is a shared envelope on
+    that wire — a structured-output format and a task budget live in it too — so
+    assigning meant whoever wired the next one would silently delete effort, or
+    have effort delete theirs, depending only on which line ran last.
+
+- bf0999d: a delegated worker is bounded by how long it has been quiet, not only by how long it has run
+
+  `DELEGATION_TIMEOUT_MS` gave the supervisor an hour to wait, which fixed the
+  two-minute deadline that made the blocking path structurally unreachable. An
+  hour of wall clock is still the wrong quantity to measure: it says nothing
+  about whether the worker is doing anything.
+
+  One number cannot answer both questions. It has to be generous enough for a
+  child doing real work, which is exactly what makes it useless as a stall
+  detector — so a worker wedged in its second minute held the supervisor for
+  another fifty-eight, and a worker making steady progress at minute fifty-nine
+  was cut off for being slow rather than for being stuck.
+
+  There are two clocks now:
+
+  - **the run bound**, elapsed time, never refreshed, still an hour. For a worker
+    that stays busy forever.
+  - **the idle bound**, time since the worker last did anything, reset on every
+    progress signal. Five minutes, overridable with `NAMZU_DELEGATION_IDLE_MS`.
+    For a worker that stopped.
+
+  Whichever fires first ends the wait, and **the result says which** — "it went
+  quiet" and "it ran too long" are different diagnoses that lead to different
+  next moves, and the message is what a model acts on.
+
+  Giving up on the wait does not cancel the worker. The child keeps going and its
+  completion still arrives as a task notification, because a wait that ran out is
+  a statement about the waiter, not about the work. Losing an eight-minute
+  worker's output because a clock expired is the shape of the bug this whole area
+  has been unpicking.
+
+  **`TaskGateway.onTaskProgress` is new and OPTIONAL.** The idle bound needs a
+  signal that a task did something, and only a gateway can see it. It is optional
+  because hosts implement `TaskGateway` and not all of them can observe their
+  children — a gateway without it is bounded by the wall clock alone, exactly as
+  before. That degradation is deliberately visible rather than silent: the
+  timeout result carries `idleBoundArmed`, and the message says outright that
+  this gateway cannot tell a busy worker from a stuck one.
+
+- 69d609a: six declarations that drive nothing are marked for removal
+
+  An audit of the kernel found primitives that are declared, reachable from the
+  published typings, and read by no code at all. None is deleted yet — they are
+  on the public surface, so they get the deprecation release the repository's own
+  policy asks for, and go in the next major.
+
+  They are worth naming individually, because a dead declaration is not merely
+  untidy. Each of these tells a reader something false:
+
+  - `HOOK_MAX_CONCURRENT` reads as a concurrency cap that is in force. Hooks run
+    sequentially and always have, so a reviewer reasons about batching that does
+    not happen. Do not "fix" it by batching — ordering is the contract hooks are
+    written against.
+  - `MAX_RECENT_ACTIVITIES` — no list is trimmed to it.
+  - `AgentTask.progress` and the `progress_updated` lifecycle variant are a whole
+    reporting channel with **no producer**. A host that switches on the event has
+    written a branch that cannot run; one that waits for progress waits forever.
+  - `IterationCheckpoint.planStatus` is never set, so a host restoring a
+    checkpoint to find out whether the plan was approved gets `undefined` for
+    every run — approved or not — and cannot tell the two apart. Ask the plan
+    manager.
+  - `ProbeOptions.otel` is unimplemented: setting it changes nothing.
+
+  Each now carries `@deprecated` and a note saying which of "unused",
+  "no producer" or "unimplemented" applies, so the next reader does not have to
+  re-derive it.
+
+### Patch Changes
+
+- bf0999d: `continue_task` is deleted rather than left defined and unreachable
+
+  It was written, documented, and never returned from the coordinator builder —
+  so no model could call it. The question was reopened when `background: true`
+  made a live task id reachable again, since the reason it was dropped had been
+  that a blocking launch leaves every worker terminal before a later turn learns
+  its id, and the manager refuses `continue` on a terminal task.
+
+  Measured instead of assumed, and it fails on the other side. On a LIVE task the
+  manager accepts the call and pushes onto `pendingMessages` — and **nothing
+  drains that queue during a run**. The codebase already knew: `steering.ts` says
+  in as many words that `queueMessage`/`drainMessages` were never read by the
+  iteration loop, and `SteeringChannel` exists because of it, delivering guidance
+  on a tool result instead — a `tool_use` must be answered by a `tool_result`
+  with the same id, so there is no legal slot for a user message mid-batch.
+
+  So the tool had no state it worked in: terminal tasks refuse it, live tasks
+  accept it into a queue nobody reads. Registering it would have handed the model
+  a call that silently does nothing, which is worse than an unreachable
+  definition — an unreachable one at least cannot be called.
+
+  If follow-ups on a live worker are wanted, the work is a consumer for the queue
+  or a steering channel that reaches a child. Not this tool.
+
 ## 6.2.0
 
 ### Minor Changes

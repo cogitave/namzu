@@ -1,5 +1,269 @@
 # @namzu/cli
 
+## 0.6.0
+
+### Minor Changes
+
+- 08b915f: `namzu run --continue` and `--resume <id>` reopen a previous conversation
+
+  The store, the reader and the picker all existed — a conversation you could
+  reopen inside the TUI with `/resume` could not be reopened from a script,
+  because only the entry point was missing.
+
+  `--continue` takes the most recent conversation in the working directory;
+  `--resume <id>` takes the one you name.
+
+  **Both refuse when the conversation cannot be reopened, and neither ever falls
+  back to starting a new one.** Someone who types `--resume` is asking for _that_
+  conversation; silently starting a fresh one hands back something
+  indistinguishable from what they asked for, and they find out several turns
+  later having already acted on it. Resuming with a partial transcript is worse
+  still — a half-context is not a degraded context, it is a different context that
+  lies about being complete.
+
+  The refusal names the cause rather than the outcome, because the causes have
+  different fixes: "no previous conversation in /path" points at `--cwd`, which is
+  usually the real mistake, while an unknown id says how many others are there.
+
+  There is deliberately no way to spell "resume if you can, otherwise start" — run
+  with no flag for that.
+
+- 724c8f6: `--permission-mode` decides what happens to the calls no rule covered
+
+  The `[permissions]` table says what a tool may do. This says what happens to
+  everything it did not cover: `prompt` asks, `auto` approves, `strict` refuses.
+
+  `strict` is the one that did not exist. An unattended run could only be `auto`,
+  so a CI job either trusted the agent with every tool it might reach for or could
+  not use it. Under `strict` nothing runs unless a rule allowed it by name or
+  pattern, and the refusal tells the model that asking again will not help — so it
+  stops rather than rewording.
+
+  `--yolo` and `--dangerously-skip-permissions` now mean `--permission-mode auto`.
+  They were accepted and documented as doing nothing, which was true and
+  unsatisfying.
+
+  **Precedence, stated once:** a mode only governs calls no rule decided, so it can
+  never reopen what a rule closed. `--permission-mode auto` cannot run something
+  the config says `deny`, and neither can `--yolo`; the dangerous-pattern floor is
+  above both. The config file is written once and reviewed; a flag is typed in a
+  hurry. A prohibition a flag can lift is not a prohibition.
+
+- b2d90ad: an operator can say which tools may run without asking
+
+  The kernel has had a permission engine for as long as the gate has existed —
+  `VerificationRule[]` with allow/deny/review, seven rule types, evaluated
+  first-match-wins. The CLI passed `rules: []`. So the engine ran with nothing in
+  it and every mutating call fell through to the same prompt, whether it was
+  `git status` or `rm -rf`.
+
+  A `[permissions]` table in the CLI config is now compiled into that array:
+
+  ```toml
+  [permissions]
+  read = "allow"
+  bash = { "git status*" = "allow", "git push*" = "deny", "*" = "ask" }
+  ```
+
+  **A tool nobody wrote a rule about is still asked about.** `ask` deliberately
+  emits no rule, because the gate's fallback for an unmatched call is already
+  `review` — if `ask` emitted something it would have to mean something different
+  from silence, and it does not. There is no way to spell "allow by omission":
+  widening the default has to be something an operator typed. A newly bridged
+  tool that appears tomorrow prompts, exactly as it did before this existed.
+
+  Patterns are ordered most-specific-first at compile time, because the kernel
+  stops at the first match — `{ "*" = "ask", "git push*" = "deny" }` would
+  otherwise read as a prohibition while being none. A trailing `" *"` also matches
+  the bare command, so `git push *` catches `git push`.
+
+  A line that cannot be read is reported and the rest still load. A permission
+  someone wrote and which was silently dropped is the worst outcome available
+  here: they believe a control is in force and it is not.
+
+- 7c66bf2: `--instance` is removed, because it never did anything
+
+  `run` and `run-stream` parsed `--instance <name>` into a field that nothing in
+  the repository read. Its own comment said it chose "which namzu persona
+  answers"; no persona selection exists. A host that passed it got the behaviour
+  it asked for exactly never, and was told exactly nothing.
+
+  That is worse than an absent flag. An absent flag reports itself the moment you
+  use it. A flag that parses and is discarded reports nothing until someone
+  notices the behaviour they asked for never happened — which for a persona
+  selector could be a long time, or never.
+
+  **What breaks:** `namzu run --instance x "…"` and `namzu run-stream --instance x
+"…"` now fail with `unknown option(s): --instance` — exit 64 for `run`, an
+  in-band error event for `run-stream`. Remove the flag from the invocation;
+  nothing else changes, because nothing else ever depended on it.
+
+  **Why no deprecation window.** SemVer's guidance is to precede a removal with a
+  release that warns, so working code has a version where it still compiles. That
+  exists to protect code that WORKS. There is no working code to protect here: the
+  flag had no producer, no reader and no runtime effect, and the repository's
+  release rule says such a declaration may be removed outright provided the
+  changeset says so. This one says so.
+
+  It was not wired instead, because wiring it would mean inventing persona
+  selection to justify a flag that was already there — which is how dead
+  configuration gets written rather than removed.
+
+- 5391d93: `namzu run` takes the options `run-stream` takes, instead of reading them out to the model
+
+  The two headless one-shots are the same command with different output — `run`
+  prints the reply for a shell, `run-stream` emits one JSON event per line for a
+  host UI — and they accepted different input. `run` parsed nothing at all and
+  joined every argument into the prompt, so
+
+  ```
+  namzu run --cwd /projects/foo "fix the failing test"
+  ```
+
+  sent the model a prompt beginning `--cwd /projects/foo` and ran in this
+  directory anyway. That is the defect fixed in `run-stream` one release ago,
+  still live in its sibling.
+
+  `run` now accepts `--cwd`, `--provider`, `--model`, `--skills` and `--`, parsed
+  by the same function `run-stream` uses, so the two cannot drift again.
+
+  **What breaks.** `run` refuses an option it does not recognise instead of
+  treating it as prompt text:
+
+  - `namzu run --temperature 0.5 "hello"` used to run, with `--temperature 0.5` as
+    the first three words of the prompt, and exit 0. It now prints
+    `unknown option(s): --temperature` and exits **64**.
+  - A prompt that genuinely starts with a dash needs `--` in front of it:
+    `namzu run -- --force means what?`. A single leading `-` was never an option
+    and still is not.
+
+  To keep the old behaviour for a prompt containing flag-shaped text, put `--`
+  before it. There is no way to get back the old reading of an unrecognised
+  `--flag` as prompt text, and that is the point of the change.
+
+  Classified minor, not major: SemVer §4 puts 0.x outside the stable-API
+  guarantee, and this matches how the same narrowing was classified for
+  `run-stream`.
+
+  `--yolo` / `--dangerously-skip-permissions` are accepted on both commands and do
+  nothing there, which is now stated in `--help` rather than left to be inferred:
+  a headless turn has nobody to ask for approval, so it never prompts, so there is
+  no prompt to skip. The safety gate that refuses catastrophic shell commands is
+  unaffected and cannot be bypassed by either flag.
+
+### Patch Changes
+
+- 5391d93: `namzu run` stops discarding piped input when a prompt is also given
+
+  ```
+  cat notes.txt | namzu run "summarise this"
+  ```
+
+  sent the model three words. The file was read by nothing: piped input was
+  consulted only when there was no prompt argument at all. The run succeeded, exit
+  0, and the answer was about nothing — a pipe and a question are the ordinary way
+  to ask about a document, and taking only one of the two is the worst available
+  reading of that command.
+
+  Piped input is now used in both cases. With no prompt argument it IS the prompt,
+  as before. Alongside one it is appended as the material the question is about,
+  fenced so the model can tell the request from the content:
+
+  ```
+  summarise this
+
+  <stdin>
+  …the file…
+  </stdin>
+  ```
+
+  `namzu run -` reads the prompt from stdin explicitly. Previously `-` was sent to
+  the model as a one-character question.
+
+  **On waiting.** Whether anything is being piped in cannot be answered without
+  reading: a real pipe, an inherited-but-idle pipe and a test runner's stdin are
+  indistinguishable to `fstat` on Windows — all three report neither FIFO nor
+  file. So when the prompt came from an argument, the read waits up to 250ms for
+  the first byte and then gives up; once a byte arrives it reads to end-of-input
+  with no deadline, so a slow or large producer is never truncated. Without the
+  bound, `namzu run "hello"` would hang forever in any context where stdin is open
+  and silent, which is the ordinary state of a CI step. When there is no prompt
+  argument the wait is unbounded, exactly as before — that path is a caller who
+  has already said the prompt is coming.
+
+- 663cde5: `run-stream` obeys the permission rules and mode it was given, instead of parsing them and running unrestricted
+
+  `[permissions]` was compiled for `namzu run` and never for `namzu run-stream`, so
+  a host UI ran with an empty rule list whatever the config said. `--permission-mode`
+  had the same shape one level smaller: the shared parser accepted it, the command
+  started, nothing failed, and the mode did nothing.
+
+  Both are the defect the working-directory fix was about, in the change that was
+  supposed to be about not making it again: **the run did not fail, it succeeded
+  while quietly not doing what the operator said.** It is worse here, because the
+  flag that silently does nothing is a SAFETY flag — someone reaches for `strict`
+  precisely when they do not trust what the agent might do, and got an unrestricted
+  run that looked like it had obeyed.
+
+  `run-stream` now compiles the same table, resolves the same mode, and refuses a
+  mode it does not recognise rather than proceeding. A rule that cannot be read is
+  reported as an in-band error event, which is the only channel a host scanning
+  stdout has.
+
+- 5391d93: the agent works in the directory `--cwd` names, instead of searching this one and reporting nothing
+
+  `--cwd` reached the session store and the skill search and stopped there. The
+  run itself was started with the process's own directory, so:
+
+  ```
+  namzu run-stream --cwd /projects/foo "read notes.txt and edit it"
+  ```
+
+  made the model call `glob`, which answered
+
+  ```
+  No files found matching pattern "**/notes.txt" in /wherever/namzu/was/launched
+  ```
+
+  `notes.txt` exists. The agent looked somewhere else and reported the file
+  missing, which is the worst available way to be wrong about a path — a user
+  reads it as "that file is not there" rather than "I searched the wrong tree".
+  Nothing was edited and the run still exited 0.
+
+  The resolved directory is now what the whole session is built on: every
+  filesystem tool, the sub-agent runtime, the task store and the memory store. It
+  is threaded in as an argument (`createAgentSession(prefs, detected, { cwd })`)
+  rather than read from `process.cwd()` at each of those four points, which is how
+  the value went missing at exactly one of them.
+
+  `--cwd` is also resolved to an absolute path and checked before the run starts.
+  A path that is not there is refused instead of falling back to this directory —
+  the silent fallback is what turned a typo into a run that searched somewhere
+  else and found nothing.
+
+  `namzu skills-json --cwd <path>` reads that directory's project skills too. It
+  was the last command still ignoring the flag, so a host could be offered a skill
+  for one checkout and then find that a turn in that same checkout could not load
+  it.
+
+  **Why no test caught it.** No test ran a file tool against a directory that was
+  not the process's own, so the two were the same string in every assertion. The
+  regression test executes the real `glob` builtin against a temporary directory
+  and asserts it finds a file that exists nowhere else.
+
+- Updated dependencies [062624c]
+- Updated dependencies [bf0999d]
+- Updated dependencies [bf0999d]
+- Updated dependencies [cb772c7]
+- Updated dependencies [062624c]
+- Updated dependencies [bf0999d]
+- Updated dependencies [69d609a]
+  - @namzu/sdk@7.0.0
+  - @namzu/anthropic@3.0.1
+  - @namzu/ollama@2.0.0
+  - @namzu/openai@1.1.0
+  - @namzu/openrouter@2.0.0
+
 ## 0.5.1
 
 ### Patch Changes
