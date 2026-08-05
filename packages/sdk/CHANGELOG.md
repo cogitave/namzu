@@ -1,5 +1,126 @@
 # Changelog
 
+## 6.2.0
+
+### Minor Changes
+
+- 9d4cf61: a supervisor can decline to delegate without lying about its roster
+
+  `SupervisorAgentConfig` gains `allowDelegation?: boolean`, default `true`.
+
+  The roster answered WHO a run may call. Nothing answered WHETHER it may call
+  anyone, and the two are different questions. A host that runs one specialist by
+  putting its persona into the supervisor shell and its id into the roster has a
+  non-empty roster and must still delegate to nobody — and got the full
+  delegation surface, discovering the refusal only by spending a turn on it.
+
+  It cannot be derived. Comparing the roster against the executing agent fails in
+  exactly that arrangement, because the ids differ. And no predicate over the
+  roster could work: a supervisor whose roster holds one specialist and a run
+  that IS that specialist are indistinguishable in it. So the caller states the
+  fact and the SDK decides what it implies for its own tool surface — which also
+  means the implied list cannot go stale, the way a caller-held list of tool
+  names silently did when this surface went from two tools to four.
+
+  Details worth knowing:
+
+  - **`agent_task_list` stays.** A run that may not launch anything may still want
+    to see what is running.
+  - **`approve_plan` and `ask_user_question` are untouched.** They are the
+    human-in-the-loop surface, not delegation.
+  - **`allowDelegation: false` is absolute.** `runtimeToolOverrides` cannot put
+    the tools back: the override pass runs over the tools this flag declined to
+    build, and both values come from the same caller in the same call, so
+    "must not delegate" plus "give it `create_task`" is a contradiction rather
+    than extra knowledge. `agentIds: []` has always worked this way.
+  - **Absent and `true` are identical**, so adopting the flag cannot change a
+    caller that opts in explicitly.
+
+### Patch Changes
+
+- 9d4cf61: cancelling a task no longer deletes a result it had already produced
+
+  `CompletionInbox.forget` cleared both the outstanding-work set and the queue of
+  completions waiting to be announced. The second was wrong.
+
+  A background worker finishes, its completion is queued for the next drain, and
+  the model — told nothing yet, and reading a tool that says it cancels a
+  _running_ task — cancels it. The run then reported `cancelled` over work that
+  had been done, and the output existed nowhere else: not announced, not
+  claimable, not readable through the listing.
+
+  `forget` is about pending work, and a finished result is not pending work. It
+  now narrows to the outstanding set. The asymmetry with `claim`, which does clear
+  the queue, is deliberate: there a tool has just handed the model the same
+  result.
+
+- 6961d3b: a failing shell command now says what happened, and its own deadline is the one that fires
+
+  **The failure path threw away everything useful.** The host branch of `bash`
+  called `exec` with no `catch`, and `exec` rejects on a non-zero exit. So the two
+  things an agent runs a shell for most — a test run and a build — both threw, the
+  registry turned the throw into "the tool failed", and the stdout, stderr and
+  exit code that explain why were discarded. The rejection carries all three.
+
+  The sandbox branch a few lines above already reported them, so the same command
+  told the model two different amounts depending on where it happened to run. It
+  now reports the exit code, both streams, and — separately — whether the command
+  ran out of time, because "timed out" and "exited 1" lead to different next moves
+  and the model acts on the message.
+
+  A caller-owned abort still propagates as an abort rather than being reported as
+  a command failure.
+
+  **Two clocks, one of them undeclared.** `bash` enforces the `timeout` it is
+  given; the executor enforces a separate per-tool deadline, and with none
+  declared here it fell back to its generic default — also two minutes. The two
+  agreed by coincidence and diverged the moment a model asked for longer because
+  it knew a build was slow: it got two minutes, from a clock it had not been told
+  about, reported as an abandoned tool rather than as a command that ran out of
+  time.
+
+  The tool now declares a deadline above the ceiling its input accepts, so its own
+  clock is the one that fires. A request past the ceiling is **refused** rather
+  than silently clamped — a number the model was not told had changed is how it
+  learns to distrust its own arguments. The ceiling is ten minutes, overridable
+  with `NAMZU_BASH_MAX_TIMEOUT_MS`.
+
+  **And it now has tests.** The only builtin that runs a shell had none, which is
+  how the swallowed failure shipped. Thirteen cases, mutation-checked: neutralising
+  the failure path fails four of them.
+
+- 06fb51b: a run no longer kills its own process while waiting, mid-turn, and report success
+
+  `namzu run` and `namzu run-stream` could not finish a turn. The first tool call
+  completed and the process ended: no second turn, nothing written, no terminal
+  event, **exit code 0**. A user asking for a two-step task was told nothing had
+  gone wrong while nothing had been done.
+
+  Every human-in-the-loop park went through a timer that was deliberately
+  `unref`'d, so a pending park-recorder could never hold a process open after the
+  run settled. The hazard is real and the intent was right; the scope was wrong.
+  That promise is **awaited during the run**, on every park, including the
+  automatic ones a headless run resolves instantly. An `unref`'d timer does not
+  keep Node's event loop alive — so once the decision resolved and the run sat out
+  the rest of the delay, the loop had nothing left in it that counted, and the
+  process exited from under the run.
+
+  The timer is cancelled now instead of unref'd. It stays ref'd while the run is
+  genuinely waiting on it, and is cleared the moment the decision arrives, so
+  nothing dangles past the run either. A park that had already begun recording is
+  still awaited, so the unpark cannot race it.
+
+  Measured before and after on the same command: before, three events and an
+  unchanged file; after, the edit applied and a terminal event.
+
+  **Why no test caught it.** A test runner holds the event loop open for the whole
+  file, which is exactly the prop this bug hides behind — the entire suite passed
+  throughout, including tests that drive real runs against a live provider. The
+  regression test therefore spawns a real `node` process with nothing else in it,
+  and lives in its own suite (`pnpm --filter @namzu/sdk test:proc`, run as its own
+  CI step) because the spawn competes for CPU hard enough to flake the
+  timing-sensitive tests beside it.
+
 ## 6.1.0
 
 ### Minor Changes
