@@ -1,7 +1,7 @@
 ---
 title: Connectors and MCP
 description: Build connector catalogs, expose connector instances as tools, consume remote MCP servers, and bridge connected integrations back out through MCP in @namzu/sdk.
-last_updated: 2026-08-03
+last_updated: 2026-08-05
 status: current
 related_packages: ["@namzu/sdk"]
 ---
@@ -257,6 +257,48 @@ rejected by the server one turn later. Other `format` values are advisory
 in JSON Schema and are not turned into validators. `allOf` is flattened
 into a single object rather than left as an intersection, because a flat
 shape is what a model can read.
+
+**Positional arrays keep their positions.** A server that spells out
+`[string, number]` — in either the draft-07 form, where `items` holds a list, or
+the 2020-12 one, where `prefixItems` does — used to reach the model as "an array
+of anything". The positions, their types and their order were all dropped from
+what the model *reads*, not merely from what is validated.
+
+What is emitted now depends on how tightly the server pinned it:
+
+| The server's schema | What the model gets |
+| --- | --- |
+| arity pinned (`minItems` equals the member count) **and** tail closed (`additionalItems: false`, `items: false`, or `maxItems` equal to the count), up to 32 members | a **tuple** |
+| anything looser | a permissive array, plus `Positional array — [0] string, [1] number.` appended to its description |
+
+The gate is narrow on purpose, and the reason is the round trip rather than
+fidelity. A tool schema the receiving wire rejects fails the **entire request**,
+taking down every other tool in the call — so a faithful conversion that cannot
+be sent is strictly worse than a lossy one that can. A pinned, closed tuple
+renders as bounded `prefixItems`, which is the one positional shape measured as
+accepted and the same shape a first-party builtin already ships. Everything
+looser keeps today's permissive array and carries its shape in prose instead,
+appended to whatever description the server wrote rather than replacing it.
+
+If you author these schemas, the inversion worth knowing is that positional
+members **do not constrain length**. Without `minItems` a server is permitting a
+*shorter* array, which a tuple cannot express — so an absent lower bound is a
+reason to keep the loose form, not a detail to round up. Set `minItems` and
+close the tail if you want the model to see the real signature.
+
+**A word on what this means for a host.** Where the server pinned the arity, the
+converted schema is now a tuple, so input a permissive array accepted is refused
+locally. It is only ever refused where the server itself declared it invalid —
+the error moves from the server's response to the local validator — but a host
+driving a bridged tool directly can see a validation failure it did not see
+before, and code branching on the converted type (`instanceof z.ZodArray`) takes
+a different branch.
+
+**Depth is bounded.** Conversion stops at 32 levels and leaves anything deeper
+permissive. That ceiling existed before and never fired: it was compared against
+in one branch that a pure array or a union never reaches, and the counter was
+not passed down the array path at all, so a deeply nested schema from a remote
+tool listing took the process down with a stack overflow instead.
 
 ### Declared return shapes
 

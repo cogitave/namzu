@@ -373,6 +373,18 @@ Two runtime bounds apply to every tool, with no configuration required.
 
 **Deadline.** Tools get 120 seconds by default (`toolTimeoutMs` on `query()`, or `timeoutMs` per tool). On expiry the executor stops waiting and returns a model-visible error result, so the agent can route around a slow dependency instead of losing the turn. `context.abortSignal` fires at the same moment, so a cooperative tool actually stops working — `bash` passes it to the child process.
 
+A tool that legitimately runs longer declares its own `timeoutMs`, and the ones that need to already do: `bash` declares a deadline above the ten-minute ceiling its own input accepts, and `create_task` — which runs an entire agent — declares an hour. A tool that runs long without declaring anything inherits the 120-second default, which is how a delegated child that finished in eight minutes was reported to its parent as an abandoned tool at two.
+
+**A cancellation says what stopped it.** If the host aborted with a reason, that reason reaches the tool result:
+
+```
+Tool "bash" was cancelled: run budget exhausted
+```
+
+A cancellation and a deadline arrive by the same mechanism and mean opposite things to whoever reads the result. "Was cancelled" tells a model that something outside it decided and nothing about what — so an operator pressing stop, a budget running out, and a parent abandoning a child were all reported identically, and every one of those wants a different next move.
+
+Two kinds of reason are deliberately reported as *no* reason, so today's honest silence is not replaced by a fake explanation: a bare `abort()` fills `reason` with a platform `AbortError`, which is nobody's message, and a non-`Error` reason is dropped rather than rendered (a bare string `'canceled'` would read as `was cancelled: canceled`). Pass an `Error` with a sentence in it if you want the model to see one.
+
 **Output budget.** A single tool result is capped at 40,000 model-visible characters (`maxToolOutputChars`; `0` disables). Over-budget output is written to `<runDir>/tool-output/<toolUseId>.txt` and replaced with a head+tail preview naming the path, so nothing is lost and tokens are paid only if the agent decides the rest is worth re-reading — with `read` and `grep`, tools it already has.
 
 Relatedly, `read` returns the first 2000 lines when given no window, and says so with a `[PARTIAL view — lines X-Y of Z]` notice naming the exact next call. A truncated read that looks like a short file is the most expensive silent failure a read tool can have.

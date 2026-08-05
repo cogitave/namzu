@@ -1,7 +1,7 @@
 ---
 title: Run Configuration
-description: Required and optional runtime config for Namzu agents, including model, limits, permissions, environment, and working directory.
-last_updated: 2026-08-03
+description: Required and optional runtime config for Namzu agents, including model, limits, thinking and effort, permissions, environment, and working directory.
+last_updated: 2026-08-05
 status: current
 related_packages: ["@namzu/sdk"]
 ---
@@ -114,8 +114,77 @@ These settings shape the runtime loop, not only the provider call.
 | `persona` | Structured prompt identity |
 | `skills` | Structured skill bundle list |
 | `advisory` | Advisor configuration |
+| `thinking` | Whether the model reasons before answering, and with how large a budget |
+| `effort` | How much work the model spends on each call |
 
 These fields change how the runtime assembles prompt context before it calls the provider.
+
+### `thinking` and `effort`
+
+Both are declared on `BaseAgentConfig`, which every agent config extends, so they
+are set the same way whichever entry point you use:
+
+```ts
+// Assume `provider`, `tools`, `model`, `projectId`, `sessionId` and `tenantId`
+// were prepared by your runtime bootstrap, as in section 2.
+const agent = new ReactiveAgent()
+
+await agent.run(
+  {
+    messages: [{ role: 'user', content: 'Reconcile these two ledgers.' }],
+    workingDirectory: process.cwd(),
+  },
+  {
+    provider,
+    tools,
+    model,
+    tokenBudget: 32_768,
+    timeoutMs: 120_000,
+    projectId,
+    sessionId,
+    tenantId,
+    thinking: { type: 'adaptive' },
+    effort: 'high',
+  },
+)
+```
+
+They are **siblings**, not one nested in the other. On some models the two are
+independent controls that apply together — effort shapes the answer while a
+token budget sets how deep the reasoning goes — and nesting `effort` inside
+`thinking` would make that combination unsayable.
+
+Which of the two does the work depends on the thinking mode:
+
+| `thinking.type` | Depth is set by | `effort` |
+| --- | --- | --- |
+| `adaptive` | the model, per request | the primary depth lever — low effort may skip thinking entirely on easy input |
+| `enabled` | `budgetTokens` | shapes the answer; does not move thinking depth |
+| `disabled` | — | still applies on models that accept it |
+
+The modes are not interchangeable and a driver must not guess between them:
+newer models refuse `enabled`, older ones refuse `adaptive`, and some refuse
+`disabled` because they cannot stop reasoning at all. What you set here is a
+declared intent, resolved by each driver against the model it is about to call.
+
+Both fields are **run-level rather than per-step.** Effort in particular is a
+property of what the run is *for*, and a value that moves between steps buys a
+different answer shape at the cost of the prompt-cache prefix on every step that
+changes it: the provider does not preserve a cached prefix across a change of
+effort.
+
+**A driver that cannot honour either one refuses the run rather than dropping
+the field.** That is the rule for both, and effort is the reason it matters
+most: a dropped `thinking` leaves an empty reasoning list that someone might
+notice, while a dropped `effort` leaves a perfectly ordinary answer — so a run
+requested at `max` is indistinguishable from one at the default, including in
+what it cost. Turning a capability *off* is not a refusal, so a
+`thinking: { type: 'disabled' }` config shared across models does not fail on
+the ones that were never going to reason anyway.
+
+Which levels a model accepts is the driver's to know; see
+[Anthropic Provider](../../providers/anthropic.md) for how one driver resolves
+them per model.
 
 ## 7. Hierarchy and Advanced Fields
 
