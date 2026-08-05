@@ -8,7 +8,9 @@ import type {
 	ModelInfo,
 	ProviderCapabilities,
 	ReasoningBlock,
+	ReasoningEffort,
 	StreamChunk,
+	ThinkingConfig,
 	TokenUsage,
 	ToolChoice,
 	ToolResultContent,
@@ -1087,5 +1089,24 @@ export class AnthropicProvider implements LLMProvider {
 		// check is sufficient here — a real request costs tokens. Callers that
 		// want network-level verification should call `chat()` directly.
 		return Boolean(this.client) && Boolean(this.config.apiKey)
+	}
+
+	/**
+	 * The levels this model will accept, under the thinking configuration the
+	 * caller intends to send.
+	 *
+	 * Deliberately built from the SAME two functions the request path uses —
+	 * `resolveThinkingCapability` then `resolveThinkingBody` — rather than
+	 * reading `capability.effort` directly. Reading the field would answer the
+	 * question for adaptive thinking and silently give the wrong answer while
+	 * thinking is disabled, which is precisely the trap this method exists to
+	 * remove. Sharing the resolution means a caller's picker and the request
+	 * it produces cannot disagree: if they ever do, they do so together, and
+	 * the capability tests catch it.
+	 */
+	effortLevelsFor(model: string, thinking?: ThinkingConfig): readonly ReasoningEffort[] {
+		const capability = resolveThinkingCapability(model)
+		const body = resolveThinkingBody(thinking, capability)
+		return body?.type === 'disabled' ? capability.effortWhenDisabled : capability.effort
 	}
 }
