@@ -202,10 +202,21 @@ describe('@namzu/bedrock — provider error taxonomy', () => {
 		})
 	})
 
-	it('drops a secret-bearing validation stream event without retaining cause', async () => {
-		const secret = 'aws-secret-FAKE-DO-NOT-LOG'
+	it('keeps a validation stream event’s complaint, scrubbed, and still retains no cause', async () => {
+		// This test used to assert the opposite half: that the vendor's sentence
+		// was dropped whole. That was the safe-looking reading of "an error body
+		// can echo a credential", and it cost a day of production downtime —
+		// the wire had been naming the exact offending field the entire time and
+		// the SDK deleted the sentence before anyone could read it.
+		//
+		// So the guarantee changed shape rather than weakening: what is scrubbed
+		// is anything CREDENTIAL-SHAPED, and what survives is the complaint. The
+		// `cause` half is unchanged and still matters — a `cause` survives every
+		// logger that serializes an error chain, which is how the raw body would
+		// get out regardless of what the message says.
+		const key = 'AKIAIOSFODNN7EXAMPLE'
 		const aws = new ValidationException({
-			message: `invalid request echoed ${secret}`,
+			message: `inputSchema is invalid, echoed from key ${key}`,
 			$metadata: { httpStatusCode: 400 },
 		})
 
@@ -216,7 +227,8 @@ describe('@namzu/bedrock — provider error taxonomy', () => {
 			kind: 'bad_request',
 			providerId: 'bedrock',
 		})
-		expect((err as Error).message).not.toContain(secret)
+		expect((err as Error).message).toContain('inputSchema is invalid')
+		expect((err as Error).message).not.toContain(key)
 		expect('cause' in (err as object)).toBe(false)
 	})
 

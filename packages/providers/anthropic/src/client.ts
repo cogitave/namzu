@@ -20,6 +20,7 @@ import {
 	isProviderRequestError,
 	modelVersionAtLeast,
 	providerVendorError,
+	toSchemaDialect,
 	toolResultToText,
 } from '@namzu/sdk'
 import {
@@ -375,7 +376,16 @@ function toAnthropicTools(
 		return {
 			name: t.function.name,
 			description: t.function.description ?? '',
-			input_schema: t.function.parameters ?? { type: 'object' },
+			// This wire parses draft 2020-12, and the renderer emits draft-07.
+			// The two disagree about tuples — draft-07 puts the positional
+			// schemas in `items`, 2020-12 in `prefixItems` — and the wire
+			// rejects the WHOLE request for it, not the one field. Converting
+			// here rather than in the renderer keeps the dialect where the
+			// knowledge is: only this file knows which wire it is talking to.
+			input_schema: toSchemaDialect(
+				(t.function.parameters as Record<string, unknown> | undefined) ?? { type: 'object' },
+				'2020-12',
+			),
 			...(strict ? { strict: true } : {}),
 		}
 	})

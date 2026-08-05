@@ -33,31 +33,38 @@ const NONE: string[] = []
  * twice, so a boolean could not say that `xhigh` is rejected on 4.6 and `max`
  * is rejected on 4.5 — which is exactly what it failed to say.
  */
-const TABLE: readonly [string, boolean, boolean, boolean, string[]][] = [
+const CAPPED = BASE // opus 5+ with thinking off
+const TABLE: readonly [string, boolean, boolean, boolean, string[], string[]][] = [
 	// Always-on families: thinking cannot be switched off at any version.
-	['claude-fable-5', true, false, false, ALL],
-	['claude-mythos-5', true, false, false, ALL],
-	['claude-mythos-preview', true, true, false, ALL],
+	['claude-fable-5', true, false, false, ALL, ALL],
+	['claude-mythos-5', true, false, false, ALL, ALL],
+	['claude-mythos-preview', true, true, false, ALL, ALL],
 	// 4.7 and later: adaptive only, and it can still be disabled.
-	['claude-opus-5', true, false, true, ALL],
-	['claude-sonnet-5', true, false, true, ALL],
-	['claude-opus-4-8', true, false, true, ALL],
-	['claude-opus-4-7', true, false, true, ALL],
+	['claude-opus-5', true, false, true, ALL, CAPPED],
+	['claude-sonnet-5', true, false, true, ALL, ALL],
+	['claude-opus-4-8', true, false, true, ALL, ALL],
+	['claude-opus-4-7', true, false, true, ALL, ALL],
 	// 4.6: both modes, manual deprecated but working — and no `xhigh`.
-	['claude-opus-4-6', true, true, true, NO_XHIGH],
-	['claude-sonnet-4-6', true, true, true, NO_XHIGH],
+	['claude-opus-4-6', true, true, true, NO_XHIGH, NO_XHIGH],
+	['claude-sonnet-4-6', true, true, true, NO_XHIGH, NO_XHIGH],
 	// 4.5 and earlier: manual only. Opus 4.5 is the one that takes effort,
 	// and only the first three levels.
-	['claude-opus-4-5', false, true, true, BASE],
-	['claude-haiku-4-5', false, true, true, NONE],
-	['claude-sonnet-4-5', false, true, true, NONE],
-	['claude-opus-4-1', false, true, true, NONE],
+	['claude-opus-4-5', false, true, true, BASE, BASE],
+	['claude-haiku-4-5', false, true, true, NONE, NONE],
+	['claude-sonnet-4-5', false, true, true, NONE, NONE],
+	['claude-opus-4-1', false, true, true, NONE, NONE],
 ]
 
 describe('what each model accepts', () => {
-	for (const [model, adaptive, manual, canDisable, effort] of TABLE) {
+	for (const [model, adaptive, manual, canDisable, effort, effortWhenDisabled] of TABLE) {
 		it(`resolves ${model}`, () => {
-			expect(resolveThinkingCapability(model)).toEqual({ adaptive, manual, canDisable, effort })
+			expect(resolveThinkingCapability(model)).toEqual({
+				adaptive,
+				manual,
+				canDisable,
+				effort,
+				effortWhenDisabled,
+			})
 		})
 	}
 
@@ -97,6 +104,7 @@ describe('what each model accepts', () => {
 			manual: true,
 			canDisable: true,
 			effort: [],
+			effortWhenDisabled: [],
 		})
 	})
 })
@@ -174,12 +182,28 @@ describe('when effort rides along', () => {
 		expect(resolveEffort('high', { type: 'enabled', budget_tokens: 8000 }, opus45)).toBe('high')
 	})
 
-	it('refuses the combination the vendor rejects', () => {
-		// Thinking off at effort xhigh/max is a 400 on Opus 5 and later, and
-		// is incoherent anyway: do not think, and think as hard as possible.
-		expect(resolveEffort('xhigh', { type: 'disabled' }, adaptiveOnly)).toBeUndefined()
-		expect(resolveEffort('max', { type: 'disabled' }, adaptiveOnly)).toBeUndefined()
-		expect(resolveEffort('high', { type: 'disabled' }, adaptiveOnly)).toBe('high')
+	it('caps effort with thinking off only where the wire caps it', () => {
+		// This rule used to be blanket: thinking off at `xhigh`/`max` was
+		// refused on every model that can disable thinking, reasoning that the
+		// pairing is incoherent anyway. Measured against the live API, that was
+		// too wide — only the Opus 5 family rejects it:
+		//
+		//   claude-opus-5   + disabled + max   -> 400 "not supported when thinking is disabled"
+		//   claude-sonnet-5 + disabled + max   -> accepted
+		//   claude-opus-4-8 + disabled + max   -> accepted
+		//
+		// So the blanket rule was dropping an effort the caller asked for and
+		// the wire would have honoured. Looking incoherent is not the same as
+		// being rejected, and only the wire decides which.
+		const opus5 = resolveThinkingCapability('claude-opus-5')
+		expect(resolveEffort('max', { type: 'disabled' }, opus5)).toBeUndefined()
+		expect(resolveEffort('xhigh', { type: 'disabled' }, opus5)).toBeUndefined()
+		expect(resolveEffort('high', { type: 'disabled' }, opus5)).toBe('high')
+		// …and uncapped with thinking on, on the same model.
+		expect(resolveEffort('max', { type: 'adaptive' }, opus5)).toBe('max')
+
+		// `adaptiveOnly` here is Sonnet 5, which the wire does not cap.
+		expect(resolveEffort('max', { type: 'disabled' }, adaptiveOnly)).toBe('max')
 	})
 
 	it('drops a level this model does not have', () => {

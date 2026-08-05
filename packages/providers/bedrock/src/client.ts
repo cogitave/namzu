@@ -24,15 +24,15 @@ import type {
 	TokenUsage,
 	ToolChoice,
 } from '@namzu/sdk'
-import type { ToolResultContent } from '@namzu/sdk'
-import { assertThinkingUnsupported, toolResultToText } from '@namzu/sdk'
+import type { JsonSchemaDialect, ToolResultContent } from '@namzu/sdk'
+import { assertThinkingUnsupported, toSchemaDialect, toolResultToText } from '@namzu/sdk'
 import {
 	ProviderRequestError,
 	isCallerAbortError,
 	isProviderRequestError,
 	providerVendorError,
 } from '@namzu/sdk'
-import { assertModelReachable } from './model-reachability.js'
+import { assertModelReachable, isAnthropicServedModel } from './model-reachability.js'
 import type { BedrockConfig } from './types.js'
 
 function extractSystemBlocks(messages: ChatCompletionParams['messages']): SystemContentBlock[] {
@@ -145,6 +145,13 @@ export function toBedrockToolConfig(params: ChatCompletionParams): ToolConfigura
 	if (params.toolChoice === 'none') return undefined
 
 	if (params.tools && params.tools.length > 0) {
+		// Claude reached through Converse is still Claude: its serving layer
+		// validates `inputSchema.json` as JSON Schema 2020-12, so a tuple
+		// rendered in draft-07's `items: [a, b]` spelling fails here for the
+		// same reason it fails on the direct wire. Converse carries other
+		// vendors too, and nothing says they read 2020-12, so the conversion
+		// follows the model rather than the endpoint.
+		const dialect: JsonSchemaDialect = isAnthropicServedModel(params.model) ? '2020-12' : 'draft-07'
 		const tools: Tool[] = params.tools.map(
 			(t) =>
 				({
@@ -152,7 +159,10 @@ export function toBedrockToolConfig(params: ChatCompletionParams): ToolConfigura
 						name: t.function.name,
 						description: t.function.description ?? '',
 						inputSchema: {
-							json: (t.function.parameters ?? {}) as Record<string, unknown>,
+							json: toSchemaDialect(
+								(t.function.parameters ?? {}) as Record<string, unknown>,
+								dialect,
+							),
 						},
 					},
 				}) as Tool,

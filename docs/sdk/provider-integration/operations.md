@@ -1,7 +1,7 @@
 ---
 title: Provider Operations
 description: Direct provider usage in @namzu/sdk, including chat, streaming, tool-call inspection, model listing, health checks, and capability-driven routing.
-last_updated: 2026-08-03
+last_updated: 2026-08-05
 status: current
 related_packages: ["@namzu/sdk", "@namzu/openai", "@namzu/anthropic", "@namzu/bedrock", "@namzu/openrouter", "@namzu/http", "@namzu/ollama", "@namzu/lmstudio"]
 ---
@@ -122,9 +122,29 @@ try {
     providerId: error.providerId,
     status: error.status,
     retryAfterMs: error.retryAfterMs,
+    detail: error.detail,
   })
 }
 ```
+
+### `detail` — the provider's own account, scrubbed
+
+`detail` carries what the provider said was wrong, which is usually the one
+thing that identifies the failure: the exact field it rejected. It is truncated
+to 400 characters, and anything credential-shaped — API-key prefixes, bearer
+headers, cloud access-key ids, credential-named JSON fields — is replaced with
+`[redacted]`. The same text appears in `message`, so a log line that prints only
+the message is enough to act on.
+
+The raw response body is still **never** attached as `cause`. A `cause` survives
+every logger that serializes an error chain, which is the channel that would
+leak a body regardless of what the message says.
+
+> **Changed in `@namzu/sdk` 6.0.0.** Earlier versions parsed the body to
+> classify the failure and then dropped it, so `detail` was always `undefined`
+> and the message never quoted the provider. If you log `message` somewhere the
+> provider's words must not appear, build the string from `kind`, `status` and
+> `providerId` instead — those are unchanged.
 
 `kind` is one of:
 
@@ -142,11 +162,12 @@ HTTP response or preserves retry headers. They are metadata only: Namzu does not
 sleep or retry when constructing the error. In particular, the Ollama client
 discards response headers before its driver sees an error.
 
-Provider errors deliberately omit vendor messages, response bodies, URLs, and
-`cause`. Those surfaces may contain credentials echoed by an upstream service.
-The normalized message and structured fields are safe to record. A caller-owned
-abort remains the caller's original abort error and is not converted into a
-provider failure.
+Provider errors carry the vendor's own complaint in `detail` and `message`,
+scrubbed and truncated as described above, and deliberately omit the raw
+response body, URLs, and `cause`. Those surfaces may contain credentials echoed
+by an upstream service, and unlike a message they are not scrubbable in any
+bounded way. A caller-owned abort remains the caller's original abort error and
+is not converted into a provider failure.
 
 When using `query()` or `drainQuery()`, the same safe metadata also appears on
 failed runs and `run_failed` events; see

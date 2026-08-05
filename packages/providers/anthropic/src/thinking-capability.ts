@@ -57,6 +57,21 @@ export interface ThinkingCapability {
 	readonly canDisable: boolean
 	/** Which `effort` levels this model accepts; empty means none. */
 	readonly effort: EffortLevels
+	/**
+	 * The levels still accepted when thinking is switched off.
+	 *
+	 * Usually the same set. The Opus 5 family is the exception: it refuses
+	 * `xhigh` and `max` alongside `thinking: {type:"disabled"}` — *"effort 'max'
+	 * is not supported when thinking is disabled"* — while accepting `high`.
+	 *
+	 * This started as a blanket rule applied to every model that can disable
+	 * thinking, on the reasoning that the pairing is incoherent anyway. Measured,
+	 * that was too wide: Sonnet 5 and Opus 4.8 both accept `disabled` + `max`,
+	 * so the blanket rule was silently dropping an effort the caller asked for
+	 * and the wire would have honoured. Incoherent-looking is not the same as
+	 * rejected, and only the wire gets to say which.
+	 */
+	readonly effortWhenDisabled: EffortLevels
 }
 
 const MANUAL_ONLY: ThinkingCapability = {
@@ -64,6 +79,7 @@ const MANUAL_ONLY: ThinkingCapability = {
 	manual: true,
 	canDisable: true,
 	effort: NO_EFFORT,
+	effortWhenDisabled: NO_EFFORT,
 }
 
 /**
@@ -91,7 +107,13 @@ export function resolveThinkingCapability(model: string): ThinkingCapability {
 	// parser can compare, and it is the one model supporting both modes while
 	// refusing to be switched off.
 	if (/^(?:anthropic\/)?claude-mythos-preview$/.test(normalized)) {
-		return { adaptive: true, manual: true, canDisable: false, effort: FULL_EFFORT }
+		return {
+			adaptive: true,
+			manual: true,
+			canDisable: false,
+			effort: FULL_EFFORT,
+			effortWhenDisabled: FULL_EFFORT,
+		}
 	}
 
 	const parsed = parseVersionedModelId(model, MODEL_ID_GRAMMAR)
@@ -101,17 +123,42 @@ export function resolveThinkingCapability(model: string): ThinkingCapability {
 
 	// Always-on families: thinking cannot be disabled at any version.
 	if (family === 'fable' || family === 'mythos') {
-		return { adaptive: true, manual: false, canDisable: false, effort: FULL_EFFORT }
+		return {
+			adaptive: true,
+			manual: false,
+			canDisable: false,
+			effort: FULL_EFFORT,
+			effortWhenDisabled: FULL_EFFORT,
+		}
 	}
 
 	// 4.7 and later dropped manual mode outright.
 	if (major > 4 || (major === 4 && minor >= 7)) {
-		return { adaptive: true, manual: false, canDisable: true, effort: FULL_EFFORT }
+		// The Opus 5 family alone caps effort while thinking is off. Measured,
+		// not inferred: `claude-opus-5` refuses `disabled` + `xhigh`/`max` and
+		// accepts `disabled` + `high`, while `claude-sonnet-5` and
+		// `claude-opus-4-8` accept `disabled` + `max`. A version comparison of
+		// "5 and later" would have caught Sonnet 5 too and dropped an effort
+		// that wire honours.
+		const opus5Plus = family === 'opus' && major >= 5
+		return {
+			adaptive: true,
+			manual: false,
+			canDisable: true,
+			effort: FULL_EFFORT,
+			effortWhenDisabled: opus5Plus ? EFFORT_BASE : FULL_EFFORT,
+		}
 	}
 
 	// 4.6 accepts both; manual is deprecated there but still functional.
 	if (major === 4 && minor === 6) {
-		return { adaptive: true, manual: true, canDisable: true, effort: EFFORT_WITHOUT_XHIGH }
+		return {
+			adaptive: true,
+			manual: true,
+			canDisable: true,
+			effort: EFFORT_WITHOUT_XHIGH,
+			effortWhenDisabled: EFFORT_WITHOUT_XHIGH,
+		}
 	}
 
 	// 4.5 and earlier are manual-only. Opus 4.5 is the one that also takes
@@ -119,7 +166,8 @@ export function resolveThinkingCapability(model: string): ThinkingCapability {
 	// takes only the first three levels: `xhigh` did not exist yet and `max`
 	// is rejected there.
 	const isOpus45 = family === 'opus' && major === 4 && minor === 5
-	return { ...MANUAL_ONLY, effort: isOpus45 ? EFFORT_BASE : NO_EFFORT }
+	const base = isOpus45 ? EFFORT_BASE : NO_EFFORT
+	return { ...MANUAL_ONLY, effort: base, effortWhenDisabled: base }
 }
 
 /** The `thinking` body value, or `undefined` to send no thinking field. */
@@ -189,21 +237,25 @@ export function resolveThinkingBody(
  * request without it is the same request at the model's own default, whereas
  * refusing would fail a call that has a correct answer.
  *
- * The COMBINATION has to be legal. On Opus 5 and later,
- * `thinking: {type: "disabled"}` is accepted at effort `high` or below and
- * **rejected at `xhigh`/`max`**, enforced per request. Rather than encode
- * "Opus 5 and later" as a second version comparison, this refuses the pairing
- * on every model that can disable thinking — it is incoherent anyway, since it
- * asks a model not to think and then to think as hard as possible.
+ * The COMBINATION has to be legal, and the legal set is per model rather than
+ * universal. Opus 5 accepts `thinking: {type: "disabled"}` at `high` or below
+ * and **rejects it at `xhigh`/`max`** — so this asks the capability for the set
+ * that applies when thinking is off, instead of the set that applies generally.
+ *
+ * That distinction was earned. The rule started as a blanket refusal on every
+ * model that can disable thinking, on the reasoning that the pairing is
+ * incoherent anyway — asking a model not to think and then to think as hard as
+ * possible. Measured, Sonnet 5 and Opus 4.8 both accept it, so the blanket rule
+ * was discarding an effort the caller asked for and the wire would have
+ * honoured. Incoherent-looking is not the same as rejected.
  */
 export function resolveEffort(
 	effort: ReasoningEffort | undefined,
 	thinkingBody: ResolvedThinkingBody,
 	capability: ThinkingCapability,
 ): ReasoningEffort | undefined {
-	if (effort === undefined || !capability.effort.includes(effort)) return undefined
-	if (thinkingBody?.type === 'disabled' && (effort === 'xhigh' || effort === 'max')) {
-		return undefined
-	}
-	return effort
+	if (effort === undefined) return undefined
+	const allowed =
+		thinkingBody?.type === 'disabled' ? capability.effortWhenDisabled : capability.effort
+	return allowed.includes(effort) ? effort : undefined
 }

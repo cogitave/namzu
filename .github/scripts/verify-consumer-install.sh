@@ -3,11 +3,12 @@
 # extended by ses_004-sdk-dependency-diet with @namzu/telemetry + the
 # single-@opentelemetry/api-instance invariant).
 #
-# Packs every publishable @namzu/* package tarball at its current workspace
-# version, then installs them all together into a fresh throwaway project.
-# If any peer range has drifted such that the new tarballs cannot resolve
-# each other cleanly, `npm install` errors with ERESOLVE and this script
-# exits non-zero — gating the Changesets publish step.
+# Applies any pending changesets to a snapshot-protected copy of the
+# manifests, packs every publishable @namzu/* package tarball at the version
+# it will actually ship at, then installs them all together into a fresh
+# throwaway project. If any peer range has drifted such that the new tarballs
+# cannot resolve each other cleanly, `npm install` errors with ERESOLVE and
+# this script exits non-zero — gating the Changesets publish step.
 #
 # After the SDK + consumer install, runs two additional assertions for
 # @namzu/telemetry:
@@ -32,11 +33,78 @@ set -euo pipefail
 WORKSPACE_ROOT="${GITHUB_WORKSPACE:-$(pwd)}"
 PACK_DIR=$(mktemp -d -t namzu-pack.XXXXXX)
 CONSUMER_DIR=$(mktemp -d -t namzu-consumer.XXXXXX)
+VERSION_SNAPSHOT=""
+
+restore_versions() {
+  # Put back exactly the manifests and changesets that were here on entry.
+  # A snapshot rather than `git checkout`, because this script is documented
+  # as runnable locally and a developer's uncommitted manifest edit is not
+  # this script's to discard.
+  if [ -n "$VERSION_SNAPSHOT" ] && [ -d "$VERSION_SNAPSHOT" ]; then
+    rm -rf "$WORKSPACE_ROOT/.changeset"
+    (cd "$VERSION_SNAPSHOT" && tar cf - .) | (cd "$WORKSPACE_ROOT" && tar xf -)
+  fi
+}
 
 cleanup() {
-  rm -rf "$PACK_DIR" "$CONSUMER_DIR"
+  restore_versions
+  rm -rf "$PACK_DIR" "$CONSUMER_DIR" "$VERSION_SNAPSHOT"
 }
 trap cleanup EXIT
+
+# ---------------------------------------------------------------------------
+# Verify the versions that will SHIP, not the ones sitting in the tree.
+# ---------------------------------------------------------------------------
+#
+# On the release path this script runs after Changesets has bumped every
+# version, so packing the workspace packs what publishes. On a PR it does not:
+# the manifests still carry the previous release's versions, and packing them
+# verifies a combination that will never exist on the registry.
+#
+# That difference is not cosmetic — it made the gate structurally unable to
+# accept a NARROWED peer range. A driver that starts calling a kernel function
+# added in the release it ships with has to say `>=<that version>`, and that
+# version does not exist until Changesets computes it, so the pre-bump install
+# always failed with ERESOLVE. The gate was rejecting the correct range for
+# being correct, and the only way to satisfy it was to keep declaring a range
+# the package had already outgrown.
+#
+# Applying the pending changesets first is what "pre-publish" was supposed to
+# mean. The manifests are restored on exit, including on failure.
+PENDING_CHANGESETS=$(find "$WORKSPACE_ROOT/.changeset" -maxdepth 1 -name '*.md' ! -name 'README.md' 2>/dev/null | head -1)
+
+if [ -n "$PENDING_CHANGESETS" ]; then
+  echo "=== Applying pending changesets to preview the shipping versions ==="
+  VERSION_SNAPSHOT=$(mktemp -d -t namzu-preversion.XXXXXX)
+  (
+    cd "$WORKSPACE_ROOT"
+    # `git ls-files` rather than a glob: it finds every tracked manifest and
+    # changelog wherever a package lives, so a new package directory does not
+    # silently fall outside the snapshot and survive the restore.
+    git ls-files -z 'packages/**/package.json' 'packages/**/CHANGELOG.md' '.changeset/*' \
+      | tar --null -cf - -T -
+  ) | (cd "$VERSION_SNAPSHOT" && tar xf -)
+
+  pnpm --dir "$WORKSPACE_ROOT" exec changeset version
+  echo ""
+  echo "  Shipping versions:"
+  node -e '
+    const {readFileSync, existsSync} = require("fs")
+    for (const dir of process.argv.slice(1)) {
+      // A glob over `packages/providers/*` also catches the loose files
+      // that live beside the package directories, so ask for the manifest
+      // rather than assuming every match is a package.
+      const manifest = dir + "/package.json"
+      if (!existsSync(manifest)) continue
+      const pkg = JSON.parse(readFileSync(manifest, "utf8"))
+      const peer = (pkg.peerDependencies || {})["@namzu/sdk"]
+      console.log("   ", pkg.name.padEnd(22), pkg.version.padEnd(10), peer ? `peer @namzu/sdk ${peer}` : "")
+    }
+  ' "$WORKSPACE_ROOT/packages/sdk" "$WORKSPACE_ROOT"/packages/providers/*
+  echo ""
+else
+  echo "=== No pending changesets; the tree already holds the shipping versions ==="
+fi
 
 echo "=== Packing publishable Namzu packages ==="
 PUBLISHABLE=(

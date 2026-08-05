@@ -1,7 +1,7 @@
 ---
 title: Low-Level Runtime
 description: Use query() and drainQuery() directly in @namzu/sdk when you need sandbox providers, plugin wiring, event streaming, or other query-only runtime controls.
-last_updated: 2026-08-03
+last_updated: 2026-08-05
 status: current
 related_packages: ["@namzu/sdk", "@namzu/openai"]
 ---
@@ -324,8 +324,23 @@ if (run.lastProviderError?.kind === 'throttle') {
 
 `providerError` and `lastProviderError` are present only when the failure came
 from a provider as a classified `ProviderRequestError`. Other runtime failures
-continue to use the ordinary `error` / `lastError` fields. The provider metadata
-never includes a response body, vendor message, URL, or error `cause`.
+continue to use the ordinary `error` / `lastError` fields.
+
+The metadata never includes a raw response body, URL, or error `cause`. It does
+carry `detail` — what the provider itself said was wrong, truncated to 400
+characters with anything credential-shaped replaced by `[redacted]`. That field
+usually names the exact rejected parameter, so a failure UI can show the cause
+without parsing the message string:
+
+```ts
+if (run.lastProviderError?.kind === 'bad_request') {
+  console.error(run.lastProviderError.detail)
+  // e.g. "tools.0.custom.input_schema: JSON schema is invalid. …"
+}
+```
+
+> **Changed in `@namzu/sdk` 6.0.0.** `detail` was previously absent from this
+> metadata and always `undefined` on the error itself.
 
 ## 10. Common Mistakes
 
