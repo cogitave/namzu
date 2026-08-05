@@ -185,6 +185,12 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 		const completionInbox = new CompletionInbox()
 		completionInbox.attach(gateway)
 
+		// From here to the return in a try/finally, so the listener is released
+		// on every way out. The registration loop below can throw
+		// ToolNameCollisionError, and a host that hits that fixes its config and
+		// runs again — which is how a leak of one listener per run becomes a leak
+		// of one per ATTEMPT.
+		try {
 		const coordinatorToolDefs = buildCoordinatorTools({
 			gateway,
 			completionInbox,
@@ -360,6 +366,9 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 			taskResults,
 			completedTasks,
 			totalTasks: taskResults.length,
+		}
+		} finally {
+			completionInbox.close()
 		}
 	}
 }

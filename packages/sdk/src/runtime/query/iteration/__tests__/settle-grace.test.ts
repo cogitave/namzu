@@ -122,8 +122,13 @@ describe('the hold a run pays is the one its own budget allows', () => {
 		workdirs.push(workingDirectory)
 
 		const inbox = new CompletionInbox()
-		inbox.attach({ onTaskCompleted: () => () => {} } as never)
+		// `getTask` because the inbox asks the gateway about a task whose
+		// completion may have been announced before the launch was recorded.
+		// A double that omits a method the interface requires is not a smaller
+		// gateway, it is a broken one.
+		inbox.attach({ onTaskCompleted: () => () => {}, getTask: () => undefined } as never)
 		// Outstanding and never settling: the worst case the bound exists for.
+		// `expect` records the launch as well, so the inbox owns this task.
 		inbox.expect('tsk_never' as TaskId)
 
 		const startedAt = Date.now()
@@ -181,6 +186,7 @@ describe('the hold a run pays is the one its own budget allows', () => {
 					announce = undefined
 				}
 			},
+			getTask: () => undefined,
 		} as never)
 		inbox.expect('tsk_soon' as TaskId)
 		const timer = setTimeout(() => {

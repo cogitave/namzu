@@ -376,6 +376,14 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 				...(_context.parentSpan ? { parentSpan: _context.parentSpan } : {}),
 			})
 
+			// Whose task this is. The inbox ignores completions for anything it
+			// was not told about, because `onTaskCompleted` is a broadcast and a
+			// gateway shared between two supervisors would otherwise hand each
+			// of them the other's worker output. Said on BOTH paths: the
+			// blocking one needs it too, because the case the inbox exists for
+			// is exactly the blocking launch whose wait was abandoned.
+			completionInbox?.launched(handle.taskId)
+
 			if (background) {
 				// Tell the inbox to hold the run open for this. Without it the
 				// supervisor could launch a worker, answer, and settle the run

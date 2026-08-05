@@ -196,11 +196,16 @@ async function runWith(
 /** Settled before the turn ended, with nothing waiting on it. */
 function inboxHolding(taskId: string, result: string): CompletionInbox {
 	const inbox = new CompletionInbox()
+	// Said before the announcement because `create_task` says it on every
+	// launch: an inbox only hears about tasks its own run started, so a
+	// gateway shared between two supervisors cannot cross-deliver.
+	inbox.launched(taskId as TaskId)
 	inbox.attach({
 		onTaskCompleted: (cb: (h: TaskHandle) => void) => {
 			cb(completed(taskId, result))
 			return () => {}
 		},
+		getTask: () => undefined,
 	} as never)
 	return inbox
 }
@@ -294,6 +299,7 @@ describe('a run that ends some other way still hands over what finished', () => 
 		workdirs.push(workingDirectory)
 
 		const inbox = new CompletionInbox()
+		inbox.launched('tsk_bg' as TaskId)
 		let announce: ((h: TaskHandle) => void) | undefined
 		inbox.attach({
 			onTaskCompleted: (cb: (h: TaskHandle) => void) => {
@@ -302,6 +308,7 @@ describe('a run that ends some other way still hands over what finished', () => 
 					announce = undefined
 				}
 			},
+			getTask: () => undefined,
 		} as never)
 
 		// Settles from inside the tool call, so the completion is in hand

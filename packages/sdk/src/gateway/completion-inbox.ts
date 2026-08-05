@@ -1,4 +1,5 @@
 import type { TaskGateway, TaskHandle } from '../types/agent/gateway.js'
+import { isTerminalAgentTaskState } from '../types/agent/task.js'
 import type { TaskId } from '../types/ids/index.js'
 
 /**
@@ -37,8 +38,25 @@ export class CompletionInbox {
 	private readonly claimed = new Set<TaskId>()
 	/** Launched with nothing waiting on it, and not settled yet. */
 	private readonly outstanding = new Set<TaskId>()
+	/**
+	 * Tasks THIS run launched.
+	 *
+	 * `onTaskCompleted` is a broadcast and `TaskHandle` carries no run id, so
+	 * a gateway shared between two supervisors hands every completion to both
+	 * of their inboxes. Measured: with two inboxes on one gateway, the run
+	 * that launched nothing drained the other run's task and would have been
+	 * told "a task you launched has finished" — a claim that was false, over
+	 * another run's worker output, in a transcript whose model then has to
+	 * account for it.
+	 *
+	 * A shared gateway is not an abuse of the API: `SupervisorAgentConfig`
+	 * takes one, and a host that owns a gateway naturally reuses it.
+	 */
+	private readonly ours = new Set<TaskId>()
 	private readonly arrivals = new Set<() => void>()
 	private detach?: () => void
+	/** Kept for {@link launched}: the source of truth about a task's state. */
+	private gateway?: TaskGateway
 
 	/**
 	 * Start listening.
@@ -50,7 +68,11 @@ export class CompletionInbox {
 	 */
 	attach(gateway: TaskGateway): () => void {
 		if (this.detach) return this.detach
+		this.gateway = gateway
 		this.detach = gateway.onTaskCompleted((handle) => {
+			// Another run's worker, on a gateway both runs share. Not this
+			// inbox's to queue, hold open, or announce.
+			if (!this.ours.has(handle.taskId)) return
 			// A completion claimed before it was announced — a tool that
 			// finished its wait faster than the listener ran — is already
 			// delivered. Nothing to queue.
@@ -63,15 +85,45 @@ export class CompletionInbox {
 	}
 
 	/**
+	 * Say that this run launched the task.
+	 *
+	 * Required before anything about the task can reach this inbox — see
+	 * {@link ours}. Every launch says it, whether or not something is waiting
+	 * on the result, because the case the inbox exists for is precisely the
+	 * one where the waiter gave up.
+	 *
+	 * **The late-announcement branch is not defensive.** `gateway.createTask`
+	 * resolves one microtask before its caller can say who owns the task, and
+	 * a worker that finishes inside that window is announced first — the same
+	 * ordering that used to leave a permanent pending flag. Without this the
+	 * ownership check would turn that race from a stale flag into a lost
+	 * result. Asking the gateway is deliberate rather than buffering every
+	 * unowned announcement on the chance one turns out to be ours: a buffer
+	 * would retain other runs' worker output, which is the thing being closed.
+	 */
+	launched(taskId: TaskId): void {
+		if (this.ours.has(taskId)) return
+		this.ours.add(taskId)
+
+		if (this.claimed.has(taskId) || this.unheard.has(taskId)) return
+		const settled = this.gateway?.getTask(taskId)
+		if (!settled || !isTerminalAgentTaskState(settled.state)) return
+		this.unheard.set(taskId, settled)
+		for (const wake of [...this.arrivals]) wake()
+	}
+
+	/**
 	 * Say that a task was launched with nothing waiting on it.
 	 *
-	 * Without this the inbox can only see completions that have already
-	 * happened, and a run whose supervisor launched a background worker and
-	 * then answered would settle while the worker was still going — throwing
-	 * away the very result the launch existed to produce. Knowing a task is
-	 * outstanding is what lets the loop hold the run open for it.
+	 * {@link launched} plus the statement that no call will deliver the
+	 * result. Without the second half the inbox can only see completions that
+	 * have already happened, and a run whose supervisor launched a background
+	 * worker and then answered would settle while the worker was still going —
+	 * throwing away the very result the launch existed to produce. Knowing a
+	 * task is outstanding is what lets the loop hold the run open for it.
 	 */
 	expect(taskId: TaskId): void {
+		this.launched(taskId)
 		if (this.claimed.has(taskId)) return
 		this.outstanding.add(taskId)
 	}
@@ -194,12 +246,24 @@ export class CompletionInbox {
 		for (const wake of [...this.arrivals]) wake()
 	}
 
-	/** Stop listening. Safe to call more than once. */
+	/**
+	 * Stop listening. Safe to call more than once.
+	 *
+	 * A run that ends without this leaves its listener on the gateway
+	 * forever. On a gateway the host reuses that is measurable — three
+	 * sequential runs left three live subscriptions, each still holding its
+	 * run's handles — and the listener set only grows. Ownership stops a
+	 * retained listener from DELIVERING another run's work; closing is what
+	 * stops it existing.
+	 */
 	close(): void {
 		this.detach?.()
 		this.detach = undefined
+		this.gateway = undefined
 		this.unheard.clear()
 		this.outstanding.clear()
+		this.ours.clear()
+		this.claimed.clear()
 		// Release anyone still waiting. A closed inbox would otherwise hold
 		// them to their own deadline for a completion that can no longer come.
 		for (const wake of [...this.arrivals]) wake()

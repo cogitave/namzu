@@ -33,22 +33,34 @@ function handleFor(taskId: string, result?: string): TaskHandle {
 	}
 }
 
-/** A gateway that only does the one thing the inbox uses. */
+/**
+ * A gateway shaped like the real ones: one listener set, broadcast to all.
+ *
+ * `getTask` is here because the inbox asks it about a task whose completion
+ * was announced before anyone said whose the task was — a real ordering, not a
+ * defensive branch. `listTasks` and the rest stay off: the inbox uses two
+ * methods and pretending otherwise would hide which.
+ */
 function fakeGateway(): {
 	gateway: TaskGateway
 	settle: (h: TaskHandle) => void
 	listeners: number
 } {
 	const listeners = new Set<(h: TaskHandle) => void>()
+	const known = new Map<string, TaskHandle>()
 	const gateway = {
 		onTaskCompleted(cb: (h: TaskHandle) => void) {
 			listeners.add(cb)
 			return () => listeners.delete(cb)
 		},
+		getTask(taskId: string) {
+			return known.get(taskId)
+		},
 	} as unknown as TaskGateway
 	return {
 		gateway,
 		settle: (h) => {
+			known.set(h.taskId, h)
 			for (const cb of listeners) cb(h)
 		},
 		get listeners() {
@@ -57,11 +69,23 @@ function fakeGateway(): {
 	}
 }
 
+/**
+ * What `create_task` says on every launch, blocking or background.
+ *
+ * Spelled out in each test rather than folded into `settle`, because it is the
+ * statement under test in the scoping block below: an inbox hears about a task
+ * only when its own run launched it.
+ */
+function launch(inbox: CompletionInbox, taskId: string): void {
+	inbox.launched(taskId as TaskId)
+}
+
 describe('a completion nobody waited for reaches the transcript', () => {
 	it('queues a settled task and hands it over once', () => {
 		const { gateway, settle } = fakeGateway()
 		const inbox = new CompletionInbox()
 		inbox.attach(gateway)
+		launch(inbox, 'tsk_1')
 
 		settle(handleFor('tsk_1', 'the report'))
 
@@ -91,6 +115,7 @@ describe('a completion the tool already delivered is never delivered twice', () 
 		const { gateway, settle } = fakeGateway()
 		const inbox = new CompletionInbox()
 		inbox.attach(gateway)
+		launch(inbox, 'tsk_1')
 
 		settle(handleFor('tsk_1', 'the report'))
 		inbox.claim('tsk_1' as TaskId)
@@ -107,6 +132,7 @@ describe('a completion the tool already delivered is never delivered twice', () 
 		const { gateway, settle } = fakeGateway()
 		const inbox = new CompletionInbox()
 		inbox.attach(gateway)
+		launch(inbox, 'tsk_1')
 
 		inbox.claim('tsk_1' as TaskId)
 		settle(handleFor('tsk_1', 'the report'))
@@ -119,6 +145,8 @@ describe('a completion the tool already delivered is never delivered twice', () 
 		const { gateway, settle } = fakeGateway()
 		const inbox = new CompletionInbox()
 		inbox.attach(gateway)
+		launch(inbox, 'tsk_awaited')
+		launch(inbox, 'tsk_abandoned')
 
 		settle(handleFor('tsk_awaited', 'delivered inline'))
 		settle(handleFor('tsk_abandoned', 'nobody heard this'))
@@ -134,6 +162,7 @@ describe('a completion the tool already delivered is never delivered twice', () 
 		const inbox = new CompletionInbox()
 		inbox.attach(gateway)
 		inbox.attach(gateway)
+		launch(inbox, 'tsk_1')
 
 		settle(handleFor('tsk_1', 'once'))
 
@@ -360,5 +389,93 @@ describe('the inbox does not require anything of a host gateway', () => {
 		inbox.attach({ onTaskCompleted } as unknown as TaskGateway)
 
 		expect(onTaskCompleted).toHaveBeenCalledTimes(1)
+	})
+})
+
+/**
+ * One gateway, two runs.
+ *
+ * `onTaskCompleted` is a broadcast and `TaskHandle` carries no run id, so
+ * every attached inbox saw every completion — including one from a supervisor
+ * it shares nothing with but the gateway object. A shared gateway is not an
+ * abuse of the API: `SupervisorAgentConfig.gateway` takes one, and a host that
+ * owns a gateway naturally reuses it across runs.
+ */
+describe('an inbox hears only about the tasks its own run launched', () => {
+	it(`ignores another run's worker on the same gateway`, () => {
+		const { gateway, settle } = fakeGateway()
+		const mine = new CompletionInbox()
+		const theirs = new CompletionInbox()
+		mine.attach(gateway)
+		theirs.attach(gateway)
+
+		launch(theirs, 'tsk_theirs')
+		settle(handleFor('tsk_theirs', "another supervisor's worker output"))
+
+		expect(mine.drain(), 'a run was handed a completion for a task it never launched').toEqual([])
+		expect(theirs.drain().map((h) => h.taskId)).toEqual(['tsk_theirs'])
+	})
+
+	it('does not hold a run open for work it did not start', () => {
+		// The sharper half. A false notification is a lie the model has to
+		// account for; a false pending flag makes the run pay the settle grace
+		// for somebody else's worker.
+		const { gateway, settle } = fakeGateway()
+		const mine = new CompletionInbox()
+		mine.attach(gateway)
+
+		settle(handleFor('tsk_theirs', 'not mine'))
+
+		expect(mine.hasPendingWork).toBe(false)
+		expect(mine.hasUnheard).toBe(false)
+	})
+
+	it('still hears a completion announced before the launch was recorded', () => {
+		// The ordering the ownership check would otherwise turn from a stale
+		// flag into a LOST RESULT: `gateway.createTask` resolves one microtask
+		// before its caller can say who owns the task, and a fast worker is
+		// announced inside that window. The inbox asks the gateway rather than
+		// buffering every unowned announcement, because a buffer would retain
+		// other runs' worker output — the thing being closed here.
+		const { gateway, settle } = fakeGateway()
+		const inbox = new CompletionInbox()
+		inbox.attach(gateway)
+
+		settle(handleFor('tsk_fast', 'finished before the launch call returned'))
+		launch(inbox, 'tsk_fast')
+
+		expect(
+			inbox.drain().map((h) => h.result?.result),
+			'a worker that finished too quickly was lost',
+		).toEqual(['finished before the launch call returned'])
+	})
+
+	it('does not resurrect a task that is still running', () => {
+		// `launched` asking the gateway must not queue a live task as if it
+		// had finished — that would announce a result that does not exist.
+		const running: TaskHandle = { ...handleFor('tsk_live'), state: 'running' }
+		const { gateway, settle } = fakeGateway()
+		const inbox = new CompletionInbox()
+		inbox.attach(gateway)
+		settle(running)
+
+		launch(inbox, 'tsk_live')
+
+		expect(inbox.hasUnheard).toBe(false)
+	})
+
+	it('forgets everything it owned when it closes', () => {
+		// Closing is what stops the listener existing; clearing ownership is
+		// what stops a closed inbox from being re-armed by a stale reference.
+		const { gateway, settle } = fakeGateway()
+		const inbox = new CompletionInbox()
+		inbox.attach(gateway)
+		launch(inbox, 'tsk_1')
+		inbox.close()
+
+		settle(handleFor('tsk_1', 'too late'))
+
+		expect(inbox.drain()).toEqual([])
+		expect(inbox.hasPendingWork).toBe(false)
 	})
 })
