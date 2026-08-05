@@ -16,6 +16,7 @@ import {
 } from '../../../telemetry/attributes.js'
 import { getTracer } from '../../../telemetry/runtime-accessors.js'
 import { STRUCTURED_OUTPUT_TOOL_NAME } from '../../../tools/builtins/structuredOutput.js'
+import { DELEGATION_TIMEOUT_MS } from '../../../tools/coordinator/index.js'
 import type { CostInfo, TokenUsage } from '../../../types/common/index.js'
 import type { MessageId } from '../../../types/ids/index.js'
 import {
@@ -63,19 +64,86 @@ export type { ToolReviewOutcome } from './phases/index.js'
 const DEFAULT_ANSWER_REVIEW_LIMIT = 3
 
 /**
+ * The share of a run's REMAINING time a settle-hold may take.
+ *
+ * The rule is borrowed from `AGENT_MANAGER_DEFAULTS.maxBudgetFraction`, which
+ * gives a spawned child at most half of what its parent has left: one
+ * sub-activity may take a share of the remainder, never the remainder. The
+ * value is written out here rather than imported, because that field is a
+ * host-tunable knob about TOKEN allocation and coupling the two would let a
+ * host lowering one silently change the other.
+ *
+ * Half, specifically, because the hold is not the last thing the run does.
+ * Its whole purpose is to put a worker's result where the model can read it,
+ * and reading it costs a turn. A hold that spent everything remaining would
+ * deliver a notification into a run with no turn left to act on it — the same
+ * "the result exists and the model is never told" failure this mechanism was
+ * built to close, wearing a different costume.
+ */
+const SETTLE_GRACE_FRACTION = 0.5
+
+/**
  * How long a finishing run waits for a background worker it launched.
  *
- * Long enough to be worth having — a delegated worker doing real work takes
- * minutes — and bounded because a worker that never finishes must not hold
- * the run open forever. `maxIterations` bounds how many times this can
- * happen, and the run's own timeout bounds the whole thing regardless.
+ * Derived from the run rather than fixed, because a constant is wrong in both
+ * directions at once. The 120 seconds this replaces held a run configured for
+ * a twenty-second timeout open for 120,267 ms — six times its own budget, and
+ * unreachable by the guard, which only checks between iterations — while on an
+ * hour-long run it abandoned workers measured at 4m21s, 5m58s and 8m04s, all
+ * of them well inside the hour the delegation tools themselves declare.
+ *
+ * **Bounded by construction, and against the right boundary.** The input is
+ * time-to-FINALIZE, not time-to-deadline (see
+ * `GuardCoordinator.remainingBeforeFinalizeMs`). Measuring to the deadline was
+ * the first attempt and it was wrong in a way that looked safe: a hold cannot
+ * outlive the deadline either way, but half of the time-to-deadline started
+ * just under the warning threshold ends at 95% of the budget — so the slice
+ * that exists for the run to produce a closing answer is half spent waiting
+ * for the result that answer was supposed to use. Against the finalize point
+ * the hold cannot reach the reserve at all, which is what makes the guard's
+ * inability to interrupt a hold a non-issue rather than a smaller issue.
+ *
+ * **The floor of zero is a decision, not a clamp artefact.** A run with no
+ * time left before it must start finishing has no turn in which to read a
+ * notification, so waiting could only delay a stop that is already due.
+ * Nothing is lost by it: `CompletionInbox.waitForArrival` returns before it
+ * looks at its timer when a completion is already in hand, so a zero grace
+ * still delivers everything that has arrived. No minimum is invented on top,
+ * because zero is exactly what a run past the threshold should wait — and
+ * reading the remainder at hold time rather than trusting `forceFinalize`,
+ * which is sampled at the top of the iteration, is what makes a long iteration
+ * that crossed the line in between compute it.
+ *
+ * **The ceiling is the longest anything in this subsystem waits for a
+ * delegated worker.** It binds only for a host whose run timeout exceeds
+ * roughly two and a quarter hours; below that the fraction is smaller.
  */
-const BACKGROUND_TASK_GRACE_MS = 120_000
+export function settleGraceMs(remainingBeforeFinalizeMs: number): number {
+	return Math.min(
+		Math.floor(remainingBeforeFinalizeMs * SETTLE_GRACE_FRACTION),
+		DELEGATION_TIMEOUT_MS,
+	)
+}
 
 export class IterationOrchestrator {
 	private ctx: IterationContext
 	/** Rejections so far. See {@link DEFAULT_ANSWER_REVIEW_LIMIT}. */
 	private answerReviewAttempts = 0
+	/**
+	 * The previous iteration held a `stopWhen` decision open for a worker.
+	 *
+	 * Set when the stop predicate fired and the run took one extra turn to
+	 * read a delegated result, so the turn that then ends the run can report
+	 * WHY it is over. Without it the outcome was right and the record was
+	 * wrong: the run stopped because the host said so and reported `end_turn`,
+	 * and this repo carries thirteen `StopReason` values precisely so that a
+	 * run which ends for a nameable reason names it.
+	 *
+	 * Lives for exactly one iteration — see the read-and-clear at the top of
+	 * the loop, which is the only site that touches it besides the one that
+	 * sets it.
+	 */
+	private stopDeferredForOutstandingWork = false
 
 	constructor(ctx: IterationContext) {
 		this.ctx = ctx
@@ -111,453 +179,434 @@ export class IterationOrchestrator {
 		const planSignal = yield* runPlanGate(this.ctx)
 		if (planSignal === 'stop') return
 
-		while (true) {
-			const guardResult = this.ctx.guard.beforeIteration(runMgr, this.ctx.abortController.signal)
+		// A `finally` rather than a line at each exit, for the reason written
+		// beside `iterSpan.end()` below: this loop leaves by eight `break`s,
+		// two `return`s and a `throw`, and a rule every future edit has to
+		// remember is a rule that gets forgotten — measured, it had been. Only
+		// the ordinary final-answer exit consulted the inbox, so a run that
+		// ended on a terminal tool, a structured output or the host's
+		// `stopWhen` settled over a finished worker's output and threw it away.
+		// A `finally` also covers a generator abandoned by its consumer, which
+		// no post-loop block reaches.
+		try {
+			while (true) {
+				// Read AND clear, in that order, in this one place.
+				//
+				// The flag is set by the previous iteration and read by this
+				// one, so a clear that ran before the read would wipe it
+				// before anything could use it — the obvious spelling of
+				// "clear it at the top" is the broken one. Taking the value
+				// into a local first gives the flag a lifetime of exactly one
+				// iteration, which is the property that makes this cheap: no
+				// path has to remember to clear it, because the next iteration
+				// does so whether or not anything read it, and there is no
+				// path by which a stale deferral can reach a later turn.
+				const stopWasDeferredForOutstandingWork = this.stopDeferredForOutstandingWork
+				this.stopDeferredForOutstandingWork = false
 
-			if (guardResult.shouldStop) {
-				if (guardResult.isCancelled) {
-					this.ctx.log.info('Run cancelled by signal', { runId: runMgr.id })
-					runMgr.setStopReason('cancelled')
-					runMgr.markCancelled()
+				const guardResult = this.ctx.guard.beforeIteration(runMgr, this.ctx.abortController.signal)
+
+				if (guardResult.shouldStop) {
+					if (guardResult.isCancelled) {
+						this.ctx.log.info('Run cancelled by signal', { runId: runMgr.id })
+						runMgr.setStopReason('cancelled')
+						runMgr.markCancelled()
+						break
+					}
+
+					const stopReason = guardResult.stopReason ?? 'end_turn'
+					this.ctx.log.info('Guard enforcing stop', {
+						runId: runMgr.id,
+						stopReason,
+						iteration: runMgr.currentIteration,
+						inputTokens: runMgr.tokenUsage.promptTokens,
+						outputTokens: runMgr.tokenUsage.completionTokens,
+					})
+					await this.requestFinalResponse(model, stopReason)
+					yield* this.ctx.drainPending()
+					runMgr.setStopReason(stopReason)
 					break
 				}
 
-				const stopReason = guardResult.stopReason ?? 'end_turn'
-				this.ctx.log.info('Guard enforcing stop', {
-					runId: runMgr.id,
-					stopReason,
-					iteration: runMgr.currentIteration,
-					inputTokens: runMgr.tokenUsage.promptTokens,
-					outputTokens: runMgr.tokenUsage.completionTokens,
-				})
-				await this.requestFinalResponse(model, stopReason)
-				yield* this.ctx.drainPending()
-				runMgr.setStopReason(stopReason)
-				break
-			}
-
-			const forceFinalize = guardResult.forceFinalize
-			const iterationNum = runMgr.incrementIteration()
-			this.ctx.log.debug('Iteration started', {
-				runId: runMgr.id,
-				iteration: iterationNum,
-				model,
-				forceFinalize,
-				messageCount: runMgr.messages.length,
-			})
-
-			const iterationActivity = this.ctx.activityStore.create({
-				type: 'llm_turn',
-				description: `LLM iteration ${iterationNum}`,
-			})
-			if (iterationActivity) {
-				this.ctx.activityStore.start(iterationActivity.id)
-			}
-
-			// Parent explicitly: this body is an async generator, so the
-			// ambient context at resume time belongs to the CONSUMER, not to
-			// whoever created the run span. Without this every iteration
-			// emits as its own root and a 20-turn run shows up as 21
-			// disconnected traces.
-			const iterSpan = tracer.startSpan(
-				agentIterationSpanName(iterationNum),
-				{},
-				parentContext(this.ctx.rootSpan),
-			)
-			try {
-				// Tool spans for this turn belong under this iteration. Inside
-				// the try rather than before it: a throw from any of these left
-				// the span open, and an iteration span that never ends is a
-				// trace that never closes — the export is incomplete for exactly
-				// the run that failed.
-				this.ctx.toolExecutor.setParentSpan(iterSpan)
-
-				iterSpan.setAttributes({
-					[NAMZU.ITERATION]: iterationNum,
-					[NAMZU.RUN_ID]: runMgr.id,
-					[GENAI.REQUEST_MODEL]: model,
-				})
-
-				await this.ctx.emitEvent({
-					type: 'iteration_started',
+				const forceFinalize = guardResult.forceFinalize
+				const iterationNum = runMgr.incrementIteration()
+				this.ctx.log.debug('Iteration started', {
 					runId: runMgr.id,
 					iteration: iterationNum,
-				})
-				yield* this.ctx.drainPending()
-
-				if (this.ctx.pluginManager) {
-					const hookResults = await this.ctx.pluginManager.executeHooks(
-						'iteration_start',
-						{ runId: runMgr.id, iteration: iterationNum },
-						this.ctx.emitEvent,
-					)
-					applyLifecycleHookResults('iteration_start', hookResults)
-					yield* this.ctx.drainPending()
-				}
-
-				// Re-pin the working-memory block from ground truth at the primacy
-				// edge BEFORE compaction runs (so the refreshed slot is what
-				// compaction preserves). No-op when no provider is configured.
-				await refreshWorkingMemory(this.ctx)
-				await runCompactionCheck(this.ctx)
-
-				// Cache discipline: keep the tools param byte-stable even on the
-				// forced-final iteration and forbid tool use via tool_choice
-				// 'none' instead. Dropping the tools array would invalidate the
-				// entire prompt-cache prefix (tools render at position 0) and
-				// risks a 400 because the history still carries
-				// tool_use/tool_result blocks.
-				// Snapshot the cumulative counters so the step can report ITS
-				// own usage rather than the run total.
-				const stepStartedAt = Date.now()
-				const usageBefore = { ...runMgr.tokenUsage }
-				const costBefore = { ...runMgr.costInfo }
-
-				// Shape this step before calling the model. `stopWhen` decides
-				// whether to keep going; this decides HOW. No-op when the host
-				// supplied no hook.
-				const step = await this.prepareStep(iterationNum)
-
-				const stepAllowedTools = step.allowedTools ?? this.ctx.allowedTools
-				const llmTools = this.ctx.tools.toLLMTools(stepAllowedTools)
-				// The same list the request was built from now also bounds what
-				// may run. Narrowing only the request left the restriction
-				// presentational — the model was shown fewer tools and could
-				// still call any of them by name.
-				this.ctx.toolExecutor.setStepAllowedTools(stepAllowedTools)
-				const enforceToolInputSchema = enforcedModelInputToolNames(this.ctx.tools, llmTools)
-				const stepModel = step.model ?? model
-
-				const baseMessages = forceFinalize
-					? [
-							...runMgr.messages,
-							createUserMessage(
-								'[SYSTEM] You are approaching your resource limits. Provide your final, comprehensive response now based on everything you have gathered so far. Do not request any more tool calls.',
-							),
-						]
-					: runMgr.messages
-
-				// Step guidance is appended to the REQUEST, never pushed onto
-				// the run's history: it applies to this step only, and pushing
-				// it would accumulate one stale instruction per iteration.
-				// Copy before it crosses the provider boundary. `runMgr.messages`
-				// is the LIVE run array, and the loop pushes onto it after the
-				// call returns — so a driver that retains what it was handed
-				// (to log it, cache it, or replay it on retry) watched its own
-				// input grow new turns underneath it. A capture provider in the
-				// estate recorded every turn as identical to the last for
-				// exactly this reason. Shallow is enough: the defect is array
-				// mutation, and per-iteration this is trivial next to the model
-				// call it precedes.
-				// A step's skills and its guidance ride the same ephemeral
-				// trailing system message. Appending leaves the cached prefix
-				// intact; rewriting the run's own prompt to carry a phase's
-				// skills would invalidate it on every iteration.
-				// `renderSkillsSection` already answers null for an empty list, so
-				// there is no length check here — a second guard for the same
-				// case is one more thing to keep in agreement with the first.
-				const stepSkills = step.skills ? renderSkillsSection([...step.skills]) : null
-				const stepPreamble = [step.system, stepSkills].filter(Boolean).join('\n\n')
-				const messages = stepPreamble
-					? [...baseMessages, createSystemMessage(stepPreamble)]
-					: [...baseMessages]
-
-				if (this.ctx.pluginManager) {
-					const hookResults = await this.ctx.pluginManager.executeHooks(
-						'pre_llm_call',
-						{
-							runId: runMgr.id,
-							iteration: iterationNum,
-							// Built inside the guard: a run with no plugins installed
-							// pays nothing for a projection nobody reads.
-							request: Object.freeze({
-								model: stepModel,
-								// Copied per turn, not handed over live: these are the
-								// run's own message objects, and a hook writing into
-								// one would edit the history the run is about to send.
-								messages: Object.freeze(messages.map((m) => Object.freeze({ ...m }))),
-								toolNames: Object.freeze(llmTools.map((t) => t.function.name)),
-								temperature: step.temperature ?? runConfig.temperature,
-								maxTokens: step.maxResponseTokens ?? runConfig.maxResponseTokens,
-							}),
-						},
-						this.ctx.emitEvent,
-					)
-					applyLifecycleHookResults('pre_llm_call', hookResults)
-					yield* this.ctx.drainPending()
-				}
-
-				// Phase 4 (ses_001-tool-stream-events): consume the
-				// streaming response natively, emitting message and
-				// tool-input lifecycle events as deltas arrive. The
-				// helper yields RunEvents through drainPending() so SSE
-				// consumers see live progress; its return value is the
-				// aggregated `ChatCompletionResponse` for the legacy
-				// downstream paths (assistantMsg construction, working
-				// state extraction, telemetry attribute stamping).
-				const { response, messageId } = yield* streamProviderTurn(
-					this.ctx.provider,
-					{
-						model: stepModel,
-						messages,
-						tools: llmTools.length > 0 ? llmTools : undefined,
-						...(enforceToolInputSchema ? { enforceToolInputSchema } : {}),
-						// The forced-final turn wins: a step that asked to force a
-						// tool cannot override the loop's own decision to stop
-						// asking for them. Otherwise the step's choice applies —
-						// and only to this step, because the next one is prepared
-						// from scratch.
-						toolChoice:
-							forceFinalize && llmTools.length > 0
-								? 'none'
-								: llmTools.length > 0
-									? step.toolChoice
-									: undefined,
-						temperature: step.temperature ?? runConfig.temperature,
-						maxTokens: step.maxResponseTokens ?? runConfig.maxResponseTokens,
-						cacheControl: { type: 'auto' },
-						...(runConfig.thinking ? { thinking: runConfig.thinking } : {}),
-						...(runConfig.effort ? { effort: runConfig.effort } : {}),
-						// Thread the run abort into the model call so a Stop tears the
-						// in-flight turn down (provider passes it to fetch; the consumer
-						// also races it). Inert when never aborted.
-						signal: this.ctx.abortController.signal,
-					},
-					this.ctx.emitEvent,
-					this.ctx.drainPending,
-					runMgr.id,
-					iterationNum,
+					model,
 					forceFinalize,
-					this.ctx.log,
-					iterSpan,
-				)
-
-				// Main-loop turn: also records the prompt size compaction reads.
-				runMgr.recordTurnUsage(response.usage)
-
-				// The turn went through, so the run is not sitting on an
-				// irreducible prompt any more. Re-arm relief for the next one.
-				overflowRelieved = false
-
-				if (this.ctx.pluginManager) {
-					const hookResults = await this.ctx.pluginManager.executeHooks(
-						'post_llm_call',
-						{
-							runId: runMgr.id,
-							iteration: iterationNum,
-							response: Object.freeze({
-								content: response.message.content,
-								toolNames: Object.freeze(
-									(response.message.toolCalls ?? []).map((c) => c.function.name),
-								),
-								finishReason: response.finishReason,
-								usage: Object.freeze({ ...response.usage }),
-							}),
-						},
-						this.ctx.emitEvent,
-					)
-					applyLifecycleHookResults('post_llm_call', hookResults)
-					yield* this.ctx.drainPending()
-				}
-
-				this.ctx.log.debug('LLM response received', {
-					runId: runMgr.id,
-					iteration: iterationNum,
-					finishReason: response.finishReason,
-					hasContent: response.message.content !== null && response.message.content.length > 0,
-					toolCallCount: response.message.toolCalls?.length ?? 0,
-					promptTokens: response.usage.promptTokens,
-					completionTokens: response.usage.completionTokens,
-					totalTokens: runMgr.tokenUsage.totalTokens,
-					totalCost: runMgr.costInfo.totalCost,
+					messageCount: runMgr.messages.length,
 				})
 
-				await this.ctx.emitEvent({
-					type: 'token_usage_updated',
-					runId: runMgr.id,
-					usage: runMgr.tokenUsage,
-					cost: runMgr.costInfo,
+				const iterationActivity = this.ctx.activityStore.create({
+					type: 'llm_turn',
+					description: `LLM iteration ${iterationNum}`,
 				})
-
-				// Reasoning rides along with the turn it belongs to, so the
-				// replay contract holds automatically: trimming or compacting
-				// the assistant message takes its thinking blocks with it,
-				// and no separate atomicity rule is needed.
-				const assistantMsg = createAssistantMessage(
-					response.message.content,
-					forceFinalize ? undefined : response.message.toolCalls,
-					response.message.reasoning,
-					// Rides with the turn it belongs to, like reasoning does, so
-					// trimming or compacting the turn takes its evidence with it
-					// rather than leaving citations pointing at prose that is gone.
-					response.message.citations,
-				)
-				runMgr.pushMessage(assistantMsg)
-
-				if (this.ctx.workingStateManager && this.ctx.compactionConfig && assistantMsg.content) {
-					extractFromAssistantMessage(
-						this.ctx.workingStateManager,
-						assistantMsg.content,
-						this.ctx.compactionConfig,
-					)
-				}
-
-				yield* this.ctx.drainPending()
-
-				iterSpan.setAttributes({
-					[GENAI.USAGE_INPUT_TOKENS]: response.usage.promptTokens,
-					[GENAI.USAGE_OUTPUT_TOKENS]: response.usage.completionTokens,
-				})
-				iterSpan.setStatus({ code: SpanStatusCode.OK })
-
 				if (iterationActivity) {
-					this.ctx.activityStore.complete(iterationActivity.id, {
-						content: response.message.content,
-						hasToolCalls: forceFinalize ? false : !!response.message.toolCalls?.length,
-					})
+					this.ctx.activityStore.start(iterationActivity.id)
 				}
 
-				// Tool calls beat the finish reason. The reason is the
-				// provider's SUMMARY of the turn and the tool calls are the
-				// turn itself, so when they disagree the calls are the fact.
-				// Several function-calling endpoints — gateways and local servers
-				// especially — report `stop` alongside a populated
-				// `tool_calls`, and three of this repo's drivers pass that
-				// value through untouched.
-				//
-				// Reading `stop` first meant the turn ended with every
-				// requested call silently skipped, an assistant message
-				// carrying tool_use blocks that were never answered, and a
-				// run that settled `end_turn` having done nothing it was
-				// asked to do. Checking the calls first costs nothing when
-				// the provider is honest and is the only thing that saves the
-				// run when it is not.
-				const hasToolCalls = (response.message.toolCalls?.length ?? 0) > 0
+				// Parent explicitly: this body is an async generator, so the
+				// ambient context at resume time belongs to the CONSUMER, not to
+				// whoever created the run span. Without this every iteration
+				// emits as its own root and a 20-turn run shows up as 21
+				// disconnected traces.
+				const iterSpan = tracer.startSpan(
+					agentIterationSpanName(iterationNum),
+					{},
+					parentContext(this.ctx.rootSpan),
+				)
+				try {
+					// Tool spans for this turn belong under this iteration. Inside
+					// the try rather than before it: a throw from any of these left
+					// the span open, and an iteration span that never ends is a
+					// trace that never closes — the export is incomplete for exactly
+					// the run that failed.
+					this.ctx.toolExecutor.setParentSpan(iterSpan)
 
-				if (forceFinalize || !hasToolCalls) {
-					// Every task-dispatch tool (create_task, continue_task, Agent)
-					// is BLOCKING: the worker's output returns as the dispatching
-					// tool_use's canonical tool_result, so by the time the model
-					// ends its turn nothing launched by this run should still be
-					// in flight. A running task here is an orphan (interrupted
-					// tool execution, cancel race) with no delivery path back to
-					// the parent — the <task-notification> producer was removed
-					// in dc16d58, so waiting on the queue could only ever time
-					// out. Log the orphans honestly and end the turn normally.
-					if (!forceFinalize && this.hasRunningAgentTasks()) {
-						this.ctx.log.warn(
-							'LLM ended turn with agent tasks still running — ending run without waiting (orphan tasks have no delivery path)',
+					iterSpan.setAttributes({
+						[NAMZU.ITERATION]: iterationNum,
+						[NAMZU.RUN_ID]: runMgr.id,
+						[GENAI.REQUEST_MODEL]: model,
+					})
+
+					await this.ctx.emitEvent({
+						type: 'iteration_started',
+						runId: runMgr.id,
+						iteration: iterationNum,
+					})
+					yield* this.ctx.drainPending()
+
+					if (this.ctx.pluginManager) {
+						const hookResults = await this.ctx.pluginManager.executeHooks(
+							'iteration_start',
+							{ runId: runMgr.id, iteration: iterationNum },
+							this.ctx.emitEvent,
+						)
+						applyLifecycleHookResults('iteration_start', hookResults)
+						yield* this.ctx.drainPending()
+					}
+
+					// Re-pin the working-memory block from ground truth at the primacy
+					// edge BEFORE compaction runs (so the refreshed slot is what
+					// compaction preserves). No-op when no provider is configured.
+					await refreshWorkingMemory(this.ctx)
+					await runCompactionCheck(this.ctx)
+
+					// Cache discipline: keep the tools param byte-stable even on the
+					// forced-final iteration and forbid tool use via tool_choice
+					// 'none' instead. Dropping the tools array would invalidate the
+					// entire prompt-cache prefix (tools render at position 0) and
+					// risks a 400 because the history still carries
+					// tool_use/tool_result blocks.
+					// Snapshot the cumulative counters so the step can report ITS
+					// own usage rather than the run total.
+					const stepStartedAt = Date.now()
+					const usageBefore = { ...runMgr.tokenUsage }
+					const costBefore = { ...runMgr.costInfo }
+
+					// Shape this step before calling the model. `stopWhen` decides
+					// whether to keep going; this decides HOW. No-op when the host
+					// supplied no hook.
+					const step = await this.prepareStep(iterationNum)
+
+					const stepAllowedTools = step.allowedTools ?? this.ctx.allowedTools
+					const llmTools = this.ctx.tools.toLLMTools(stepAllowedTools)
+					// The same list the request was built from now also bounds what
+					// may run. Narrowing only the request left the restriction
+					// presentational — the model was shown fewer tools and could
+					// still call any of them by name.
+					this.ctx.toolExecutor.setStepAllowedTools(stepAllowedTools)
+					const enforceToolInputSchema = enforcedModelInputToolNames(this.ctx.tools, llmTools)
+					const stepModel = step.model ?? model
+
+					const baseMessages = forceFinalize
+						? [
+								...runMgr.messages,
+								createUserMessage(
+									'[SYSTEM] You are approaching your resource limits. Provide your final, comprehensive response now based on everything you have gathered so far. Do not request any more tool calls.',
+								),
+							]
+						: runMgr.messages
+
+					// Step guidance is appended to the REQUEST, never pushed onto
+					// the run's history: it applies to this step only, and pushing
+					// it would accumulate one stale instruction per iteration.
+					// Copy before it crosses the provider boundary. `runMgr.messages`
+					// is the LIVE run array, and the loop pushes onto it after the
+					// call returns — so a driver that retains what it was handed
+					// (to log it, cache it, or replay it on retry) watched its own
+					// input grow new turns underneath it. A capture provider in the
+					// estate recorded every turn as identical to the last for
+					// exactly this reason. Shallow is enough: the defect is array
+					// mutation, and per-iteration this is trivial next to the model
+					// call it precedes.
+					// A step's skills and its guidance ride the same ephemeral
+					// trailing system message. Appending leaves the cached prefix
+					// intact; rewriting the run's own prompt to carry a phase's
+					// skills would invalidate it on every iteration.
+					// `renderSkillsSection` already answers null for an empty list, so
+					// there is no length check here — a second guard for the same
+					// case is one more thing to keep in agreement with the first.
+					const stepSkills = step.skills ? renderSkillsSection([...step.skills]) : null
+					const stepPreamble = [step.system, stepSkills].filter(Boolean).join('\n\n')
+					const messages = stepPreamble
+						? [...baseMessages, createSystemMessage(stepPreamble)]
+						: [...baseMessages]
+
+					if (this.ctx.pluginManager) {
+						const hookResults = await this.ctx.pluginManager.executeHooks(
+							'pre_llm_call',
 							{
 								runId: runMgr.id,
 								iteration: iterationNum,
+								// Built inside the guard: a run with no plugins installed
+								// pays nothing for a projection nobody reads.
+								request: Object.freeze({
+									model: stepModel,
+									// Copied per turn, not handed over live: these are the
+									// run's own message objects, and a hook writing into
+									// one would edit the history the run is about to send.
+									messages: Object.freeze(messages.map((m) => Object.freeze({ ...m }))),
+									toolNames: Object.freeze(llmTools.map((t) => t.function.name)),
+									temperature: step.temperature ?? runConfig.temperature,
+									maxTokens: step.maxResponseTokens ?? runConfig.maxResponseTokens,
+								}),
 							},
+							this.ctx.emitEvent,
+						)
+						applyLifecycleHookResults('pre_llm_call', hookResults)
+						yield* this.ctx.drainPending()
+					}
+
+					// Phase 4 (ses_001-tool-stream-events): consume the
+					// streaming response natively, emitting message and
+					// tool-input lifecycle events as deltas arrive. The
+					// helper yields RunEvents through drainPending() so SSE
+					// consumers see live progress; its return value is the
+					// aggregated `ChatCompletionResponse` for the legacy
+					// downstream paths (assistantMsg construction, working
+					// state extraction, telemetry attribute stamping).
+					const { response, messageId } = yield* streamProviderTurn(
+						this.ctx.provider,
+						{
+							model: stepModel,
+							messages,
+							tools: llmTools.length > 0 ? llmTools : undefined,
+							...(enforceToolInputSchema ? { enforceToolInputSchema } : {}),
+							// The forced-final turn wins: a step that asked to force a
+							// tool cannot override the loop's own decision to stop
+							// asking for them. Otherwise the step's choice applies —
+							// and only to this step, because the next one is prepared
+							// from scratch.
+							toolChoice:
+								forceFinalize && llmTools.length > 0
+									? 'none'
+									: llmTools.length > 0
+										? step.toolChoice
+										: undefined,
+							temperature: step.temperature ?? runConfig.temperature,
+							maxTokens: step.maxResponseTokens ?? runConfig.maxResponseTokens,
+							cacheControl: { type: 'auto' },
+							...(runConfig.thinking ? { thinking: runConfig.thinking } : {}),
+							...(runConfig.effort ? { effort: runConfig.effort } : {}),
+							// Thread the run abort into the model call so a Stop tears the
+							// in-flight turn down (provider passes it to fetch; the consumer
+							// also races it). Inert when never aborted.
+							signal: this.ctx.abortController.signal,
+						},
+						this.ctx.emitEvent,
+						this.ctx.drainPending,
+						runMgr.id,
+						iterationNum,
+						forceFinalize,
+						this.ctx.log,
+						iterSpan,
+					)
+
+					// Main-loop turn: also records the prompt size compaction reads.
+					runMgr.recordTurnUsage(response.usage)
+
+					// The turn went through, so the run is not sitting on an
+					// irreducible prompt any more. Re-arm relief for the next one.
+					overflowRelieved = false
+
+					if (this.ctx.pluginManager) {
+						const hookResults = await this.ctx.pluginManager.executeHooks(
+							'post_llm_call',
+							{
+								runId: runMgr.id,
+								iteration: iterationNum,
+								response: Object.freeze({
+									content: response.message.content,
+									toolNames: Object.freeze(
+										(response.message.toolCalls ?? []).map((c) => c.function.name),
+									),
+									finishReason: response.finishReason,
+									usage: Object.freeze({ ...response.usage }),
+								}),
+							},
+							this.ctx.emitEvent,
+						)
+						applyLifecycleHookResults('post_llm_call', hookResults)
+						yield* this.ctx.drainPending()
+					}
+
+					this.ctx.log.debug('LLM response received', {
+						runId: runMgr.id,
+						iteration: iterationNum,
+						finishReason: response.finishReason,
+						hasContent: response.message.content !== null && response.message.content.length > 0,
+						toolCallCount: response.message.toolCalls?.length ?? 0,
+						promptTokens: response.usage.promptTokens,
+						completionTokens: response.usage.completionTokens,
+						totalTokens: runMgr.tokenUsage.totalTokens,
+						totalCost: runMgr.costInfo.totalCost,
+					})
+
+					await this.ctx.emitEvent({
+						type: 'token_usage_updated',
+						runId: runMgr.id,
+						usage: runMgr.tokenUsage,
+						cost: runMgr.costInfo,
+					})
+
+					// Reasoning rides along with the turn it belongs to, so the
+					// replay contract holds automatically: trimming or compacting
+					// the assistant message takes its thinking blocks with it,
+					// and no separate atomicity rule is needed.
+					const assistantMsg = createAssistantMessage(
+						response.message.content,
+						forceFinalize ? undefined : response.message.toolCalls,
+						response.message.reasoning,
+						// Rides with the turn it belongs to, like reasoning does, so
+						// trimming or compacting the turn takes its evidence with it
+						// rather than leaving citations pointing at prose that is gone.
+						response.message.citations,
+					)
+					runMgr.pushMessage(assistantMsg)
+
+					if (this.ctx.workingStateManager && this.ctx.compactionConfig && assistantMsg.content) {
+						extractFromAssistantMessage(
+							this.ctx.workingStateManager,
+							assistantMsg.content,
+							this.ctx.compactionConfig,
 						)
 					}
 
-					const hasContent =
-						response.message.content !== null && response.message.content.length > 0
+					yield* this.ctx.drainPending()
 
-					// Auto-continuation on `stop_reason: max_tokens`. The
-					// model hit its per-call output cap mid-text (NOT
-					// mid-tool-use — that path is handled separately
-					// below via `inputTruncated`). Push a synthetic
-					// "continue" user message and let the loop fire
-					// another turn. The provider receives the partial
-					// assistant content + the continue prompt and
-					// resumes from where it left off, mirroring the
-					// Auto-continuation after an output-ceiling cutoff.
-					//
-					// Guards:
-					//   - `hasContent` so we don't loop forever on an
-					//     empty cutoff (a provider occasionally emits
-					//     `stop_reason: max_tokens` with no content
-					//     when an injected pre-fill blocks the model).
-					//   - `!forceFinalize` so the forced-finalize path
-					//     never auto-continues — that path is invoked
-					//     specifically to extract a closing summary.
-					//   - max_iterations bounds the loop in any case.
-					if (!forceFinalize && response.finishReason === 'length' && hasContent) {
-						this.ctx.log.info('LLM hit max_tokens mid-text — auto-continuing', {
-							runId: runMgr.id,
-							iteration: iterationNum,
-							completionTokens: response.usage.completionTokens,
+					iterSpan.setAttributes({
+						[GENAI.USAGE_INPUT_TOKENS]: response.usage.promptTokens,
+						[GENAI.USAGE_OUTPUT_TOKENS]: response.usage.completionTokens,
+					})
+					iterSpan.setStatus({ code: SpanStatusCode.OK })
+
+					if (iterationActivity) {
+						this.ctx.activityStore.complete(iterationActivity.id, {
+							content: response.message.content,
+							hasToolCalls: forceFinalize ? false : !!response.message.toolCalls?.length,
 						})
-						runMgr.pushMessage(createUserMessage(AUTO_CONTINUATION_USER_MESSAGE))
-						await this.ctx.emitEvent({
-							type: 'iteration_completed',
-							runId: runMgr.id,
-							iteration: iterationNum,
-							hasToolCalls: false,
-						})
-						yield* this.ctx.drainPending()
-						continue
 					}
 
-					// The model tried to finish in prose while a structured
-					// output was demanded. Send it back with the schema error
-					// rather than returning an unusable result — this is the
-					// re-prompt half, and it is bounded so a model that cannot
-					// satisfy the schema fails loudly instead of looping.
-					if (!forceFinalize && this.needsStructuredOutput()) {
-						const attempt = ++this.structuredOutputAttempts
-						const limit = this.structuredOutputRetryLimit()
-						if (attempt > limit) {
-							this.ctx.log.warn('Structured output not produced within its retries', {
-								runId: runMgr.id,
-								attempts: attempt - 1,
-							})
-							runMgr.setStopReason('structured_output_failed')
-							break
+					// Tool calls beat the finish reason. The reason is the
+					// provider's SUMMARY of the turn and the tool calls are the
+					// turn itself, so when they disagree the calls are the fact.
+					// Several function-calling endpoints — gateways and local servers
+					// especially — report `stop` alongside a populated
+					// `tool_calls`, and three of this repo's drivers pass that
+					// value through untouched.
+					//
+					// Reading `stop` first meant the turn ended with every
+					// requested call silently skipped, an assistant message
+					// carrying tool_use blocks that were never answered, and a
+					// run that settled `end_turn` having done nothing it was
+					// asked to do. Checking the calls first costs nothing when
+					// the provider is honest and is the only thing that saves the
+					// run when it is not.
+					const hasToolCalls = (response.message.toolCalls?.length ?? 0) > 0
+
+					if (forceFinalize || !hasToolCalls) {
+						// Every task-dispatch tool (create_task, continue_task, Agent)
+						// is BLOCKING: the worker's output returns as the dispatching
+						// tool_use's canonical tool_result, so by the time the model
+						// ends its turn nothing launched by this run should still be
+						// in flight. A running task here is an orphan (interrupted
+						// tool execution, cancel race) with no delivery path back to
+						// the parent — the <task-notification> producer was removed
+						// in dc16d58, so waiting on the queue could only ever time
+						// out. Log the orphans honestly and end the turn normally.
+						if (!forceFinalize && this.hasRunningAgentTasks()) {
+							this.ctx.log.warn(
+								'LLM ended turn with agent tasks still running — ending run without waiting (orphan tasks have no delivery path)',
+								{
+									runId: runMgr.id,
+									iteration: iterationNum,
+								},
+							)
 						}
-						this.ctx.log.info('Re-prompting for structured output', {
-							runId: runMgr.id,
-							attempt,
-							limit,
-						})
-						runMgr.pushMessage(createUserMessage(STRUCTURED_OUTPUT_REPROMPT))
-						await this.ctx.emitEvent({
-							type: 'iteration_completed',
-							runId: runMgr.id,
-							iteration: iterationNum,
-							hasToolCalls: false,
-						})
-						yield* this.ctx.drainPending()
-						continue
-					}
 
-					// Let the host judge the ANSWER and hand back work.
-					//
-					// The stop predicate is only consulted after tools ran, so
-					// there was no seam here at all: the moment the model
-					// stopped calling tools the run finalized, whatever it had
-					// produced. Verify-then-fix — run the build, feed the
-					// failure back, let it try again — meant starting a whole
-					// new run and re-supplying the context the first one had.
-					//
-					// Shaped after the structured-output re-prompt directly
-					// above, which solves the same problem for one specific
-					// judge: bounded attempts, feedback as a user message, and
-					// a loud stop rather than a loop.
-					if (!forceFinalize && this.ctx.reviewAnswer) {
-						const review = await this.reviewAnswer(response.message.content ?? '')
-						if (review && !review.accept) {
-							const attempt = ++this.answerReviewAttempts
-							const limit = this.ctx.maxAnswerReviews ?? DEFAULT_ANSWER_REVIEW_LIMIT
+						const hasContent =
+							response.message.content !== null && response.message.content.length > 0
+
+						// Auto-continuation on `stop_reason: max_tokens`. The
+						// model hit its per-call output cap mid-text (NOT
+						// mid-tool-use — that path is handled separately
+						// below via `inputTruncated`). Push a synthetic
+						// "continue" user message and let the loop fire
+						// another turn. The provider receives the partial
+						// assistant content + the continue prompt and
+						// resumes from where it left off, mirroring the
+						// Auto-continuation after an output-ceiling cutoff.
+						//
+						// Guards:
+						//   - `hasContent` so we don't loop forever on an
+						//     empty cutoff (a provider occasionally emits
+						//     `stop_reason: max_tokens` with no content
+						//     when an injected pre-fill blocks the model).
+						//   - `!forceFinalize` so the forced-finalize path
+						//     never auto-continues — that path is invoked
+						//     specifically to extract a closing summary.
+						//   - max_iterations bounds the loop in any case.
+						if (!forceFinalize && response.finishReason === 'length' && hasContent) {
+							this.ctx.log.info('LLM hit max_tokens mid-text — auto-continuing', {
+								runId: runMgr.id,
+								iteration: iterationNum,
+								completionTokens: response.usage.completionTokens,
+							})
+							runMgr.pushMessage(createUserMessage(AUTO_CONTINUATION_USER_MESSAGE))
+							await this.ctx.emitEvent({
+								type: 'iteration_completed',
+								runId: runMgr.id,
+								iteration: iterationNum,
+								hasToolCalls: false,
+							})
+							yield* this.ctx.drainPending()
+							continue
+						}
+
+						// The model tried to finish in prose while a structured
+						// output was demanded. Send it back with the schema error
+						// rather than returning an unusable result — this is the
+						// re-prompt half, and it is bounded so a model that cannot
+						// satisfy the schema fails loudly instead of looping.
+						if (!forceFinalize && this.needsStructuredOutput()) {
+							const attempt = ++this.structuredOutputAttempts
+							const limit = this.structuredOutputRetryLimit()
 							if (attempt > limit) {
-								this.ctx.log.warn('Answer rejected more times than the run allows', {
+								this.ctx.log.warn('Structured output not produced within its retries', {
 									runId: runMgr.id,
 									attempts: attempt - 1,
-									limit,
 								})
-								runMgr.setStopReason('answer_rejected')
+								runMgr.setStopReason('structured_output_failed')
 								break
 							}
-							this.ctx.log.info('Answer rejected — returning it to the model', {
+							this.ctx.log.info('Re-prompting for structured output', {
 								runId: runMgr.id,
 								attempt,
 								limit,
 							})
-							runMgr.pushMessage(createUserMessage(review.feedback))
+							runMgr.pushMessage(createUserMessage(STRUCTURED_OUTPUT_REPROMPT))
 							await this.ctx.emitEvent({
 								type: 'iteration_completed',
 								runId: runMgr.id,
@@ -567,44 +616,258 @@ export class IterationOrchestrator {
 							yield* this.ctx.drainPending()
 							continue
 						}
+
+						// Let the host judge the ANSWER and hand back work.
+						//
+						// The stop predicate is only consulted after tools ran, so
+						// there was no seam here at all: the moment the model
+						// stopped calling tools the run finalized, whatever it had
+						// produced. Verify-then-fix — run the build, feed the
+						// failure back, let it try again — meant starting a whole
+						// new run and re-supplying the context the first one had.
+						//
+						// Shaped after the structured-output re-prompt directly
+						// above, which solves the same problem for one specific
+						// judge: bounded attempts, feedback as a user message, and
+						// a loud stop rather than a loop.
+						if (!forceFinalize && this.ctx.reviewAnswer) {
+							const review = await this.reviewAnswer(response.message.content ?? '')
+							if (review && !review.accept) {
+								const attempt = ++this.answerReviewAttempts
+								const limit = this.ctx.maxAnswerReviews ?? DEFAULT_ANSWER_REVIEW_LIMIT
+								if (attempt > limit) {
+									this.ctx.log.warn('Answer rejected more times than the run allows', {
+										runId: runMgr.id,
+										attempts: attempt - 1,
+										limit,
+									})
+									runMgr.setStopReason('answer_rejected')
+									break
+								}
+								this.ctx.log.info('Answer rejected — returning it to the model', {
+									runId: runMgr.id,
+									attempt,
+									limit,
+								})
+								runMgr.pushMessage(createUserMessage(review.feedback))
+								await this.ctx.emitEvent({
+									type: 'iteration_completed',
+									runId: runMgr.id,
+									iteration: iterationNum,
+									hasToolCalls: false,
+								})
+								yield* this.ctx.drainPending()
+								continue
+							}
+						}
+
+						// A background worker is still out there, and this turn was
+						// about to end the run.
+						//
+						// Settling here would throw away the very thing the launch
+						// existed to produce: the supervisor said "launched", the
+						// worker had not finished, and the run closed over it.
+						if (!forceFinalize && (yield* this.holdForOutstandingWork(iterationNum, false))) {
+							continue
+						}
+
+						if (!hasContent && !forceFinalize) {
+							this.ctx.log.warn('Empty completion detected — requesting final summary', {
+								iteration: iterationNum,
+								finishReason: response.finishReason,
+							})
+							await this.requestFinalResponse(model, 'end_turn')
+							yield* this.ctx.drainPending()
+						}
+
+						await this.ctx.emitEvent({
+							type: 'iteration_completed',
+							runId: runMgr.id,
+							iteration: iterationNum,
+							hasToolCalls: false,
+						})
+						yield* this.ctx.drainPending()
+						// A Stop that lands AFTER the final turn streamed but before
+						// this break must settle the run as cancelled, not end_turn —
+						// otherwise the just-produced answer is recorded as a clean
+						// completion. Mirrors the between-iteration cancel at :511.
+						if (this.ctx.abortController.signal.aborted) {
+							runMgr.setStopReason('cancelled')
+							runMgr.markCancelled()
+							break
+						}
+						// The host's stop predicate, if the previous turn deferred it
+						// to let the model read a delegated result. That extra turn
+						// is prose, and `stopWhen` is consulted only after a tool
+						// batch, so the predicate is never asked again — reporting
+						// `end_turn` would name the shape of the last message rather
+						// than the reason the run is over.
+						//
+						// Only here. A terminal tool and a captured structured output
+						// also settle as `end_turn`, and there the deferred predicate
+						// is not why the run ended: those decided the answer
+						// themselves.
+						runMgr.setStopReason(stopWasDeferredForOutstandingWork ? 'stop_condition' : 'end_turn')
+						break
 					}
 
-					// A background worker is still out there, and this turn was
-					// about to end the run.
-					//
-					// Settling here would throw away the very thing the launch
-					// existed to produce: the supervisor said "launched", the
-					// worker had not finished, and the run closed over it. So
-					// the run is held open — bounded by the deadline below and
-					// by `maxIterations` above, so a worker that never finishes
-					// cannot keep it open forever — and the completion arrives
-					// as a notification the next turn reads.
-					if (!forceFinalize && this.ctx.completionInbox?.hasPendingWork) {
-						this.ctx.log.info('Holding the run open for a background task', {
+					const reviewOutcome = yield* runToolReview(this.ctx, response, iterationNum)
+
+					// The step record is built even for a rejected batch: a run that
+					// spent a turn getting its tools refused still spent the tokens,
+					// and a caller reconstructing cost per step must see it.
+					this.recordStep({
+						stepNumber: iterationNum,
+						model,
+						messageId,
+						response,
+						toolResults: reviewOutcome.results,
+						toolExecutionMs: reviewOutcome.durationMs,
+						startedAt: stepStartedAt,
+						usageBefore,
+						costBefore,
+					})
+
+					if (reviewOutcome.decision === 'stop') {
+						return
+					}
+
+					if (reviewOutcome.decision === 'rejected') {
+						continue
+					}
+
+					// A successful `structured_output` call IS the answer, so the
+					// run ends here rather than paying for another turn whose only
+					// job would be to restate it.
+					if (this.captureStructuredOutput(reviewOutcome.results)) {
+						this.ctx.log.info('Structured output produced — ending run', {
 							runId: runMgr.id,
 							iteration: iterationNum,
 						})
-						await this.ctx.completionInbox.waitForArrival(BACKGROUND_TASK_GRACE_MS)
-						const arrived = this.ctx.completionInbox.drain()
-						if (arrived.length > 0) {
-							runMgr.pushMessage(createUserMessage(formatCompletionNotification(arrived)))
-							await this.ctx.emitEvent({
-								type: 'iteration_completed',
-								runId: runMgr.id,
-								iteration: iterationNum,
-								hasToolCalls: false,
-							})
-							yield* this.ctx.drainPending()
-							continue
-						}
+						runMgr.setStopReason('end_turn')
+						await this.ctx.emitEvent({
+							type: 'iteration_completed',
+							runId: runMgr.id,
+							iteration: iterationNum,
+							hasToolCalls: true,
+						})
+						yield* this.ctx.drainPending()
+						break
 					}
 
-					if (!hasContent && !forceFinalize) {
-						this.ctx.log.warn('Empty completion detected — requesting final summary', {
+					// A tool the author declared terminal settles the run with its
+					// own output, the same rule `structured_output` has always
+					// had. Without it a delegation cost the parent one more model
+					// call at full context whose only job was to restate what the
+					// worker already said — and to restate it through the parent's
+					// compacted view, so the caller did not even receive the
+					// worker's words.
+					const settled = this.terminalToolOutput(reviewOutcome.results, response)
+					if (settled !== undefined) {
+						this.ctx.log.info('Terminal tool produced the answer — ending run', {
+							runId: runMgr.id,
 							iteration: iterationNum,
-							finishReason: response.finishReason,
+							tool: settled.toolName,
 						})
-						await this.requestFinalResponse(model, 'end_turn')
+						runMgr.setResult(settled.output)
+						runMgr.setStopReason('end_turn')
+						await this.ctx.emitEvent({
+							type: 'iteration_completed',
+							runId: runMgr.id,
+							iteration: iterationNum,
+							hasToolCalls: true,
+						})
+						yield* this.ctx.drainPending()
+						break
+					}
+
+					// Evaluated AFTER the tools ran, so a predicate can see what they
+					// returned — which is what makes a terminal submit_answer tool
+					// usable without discarding its output.
+					if (await this.shouldStop()) {
+						// Outstanding delegated work outranks the host's stop
+						// predicate, exactly once.
+						//
+						// This is a precedence rule chosen here, not something
+						// `stopWhen` implies — a stop predicate is a programmable
+						// halt and says nothing about whether the answer is
+						// complete, which is what separates it from a terminal
+						// tool or a captured structured output. Those decide the
+						// result, so no turn follows and a hold would buy nothing.
+						// This one only says "stop", and stopping one turn later
+						// with the worker's result in hand is a better reading of
+						// the host's intent than stopping now and discarding it.
+						//
+						// Bounded: after the notification is delivered the inbox
+						// is drained, so the predicate fires again next turn with
+						// nothing pending and the run stops. Exactly one extra
+						// turn, and `maxIterations` bounds it regardless.
+						if (yield* this.holdForOutstandingWork(iterationNum, true)) {
+							// Remember WHY the next turn exists, so the turn that
+							// ends the run can name the host's decision instead of
+							// reporting the shape of the last message.
+							this.stopDeferredForOutstandingWork = true
+							continue
+						}
+
+						this.ctx.log.info('Stop condition met', {
+							runId: runMgr.id,
+							iteration: iterationNum,
+						})
+						runMgr.setStopReason('stop_condition')
+						await this.ctx.emitEvent({
+							type: 'iteration_completed',
+							runId: runMgr.id,
+							iteration: iterationNum,
+							hasToolCalls: true,
+						})
+						yield* this.ctx.drainPending()
+						break
+					}
+
+					const checkpointSignal = yield* runIterationCheckpoint(this.ctx, iterationNum)
+					if (checkpointSignal === 'stop') {
+						return
+					}
+
+					// Workers that finished with nobody listening.
+					//
+					// A completion normally reaches the supervisor as the
+					// `tool_result` of the `create_task` that launched it. Two
+					// cases have no such call: a launch made in the background on
+					// purpose, and a blocking launch whose deadline passed — the
+					// model was told "timed out, it may still be running" and the
+					// worker then finished, holding a result nothing would read.
+					//
+					// This is the channel that was removed in `dc16d58` because it
+					// double-delivered: it fired for completions the blocking tool
+					// had already handed over, so the supervisor saw each result
+					// twice. The inbox restores it with the distinction that was
+					// missing — a tool that delivers a completion claims it, and
+					// only unclaimed ones arrive here.
+					//
+					// Placed beside the advisory phase deliberately: that is the
+					// established seam for putting a user message in after tool
+					// results and before the next turn.
+					const unheard = this.ctx.completionInbox?.drain() ?? []
+					if (unheard.length > 0) {
+						this.ctx.log.info('Delivering unawaited task completions', {
+							runId: runMgr.id,
+							iteration: iterationNum,
+							tasks: unheard.map((h) => h.taskId),
+						})
+						runMgr.pushMessage(createUserMessage(formatCompletionNotification(unheard)))
+					}
+
+					await runAdvisoryPhase(this.ctx, iterationNum, response)
+
+					if (this.ctx.pluginManager) {
+						const hookResults = await this.ctx.pluginManager.executeHooks(
+							'iteration_end',
+							{ runId: runMgr.id, iteration: iterationNum },
+							this.ctx.emitEvent,
+						)
+						applyLifecycleHookResults('iteration_end', hookResults)
 						yield* this.ctx.drainPending()
 					}
 
@@ -612,226 +875,187 @@ export class IterationOrchestrator {
 						type: 'iteration_completed',
 						runId: runMgr.id,
 						iteration: iterationNum,
-						hasToolCalls: false,
+						hasToolCalls: true,
 					})
 					yield* this.ctx.drainPending()
-					// A Stop that lands AFTER the final turn streamed but before
-					// this break must settle the run as cancelled, not end_turn —
-					// otherwise the just-produced answer is recorded as a clean
-					// completion. Mirrors the between-iteration cancel at :511.
+				} catch (err) {
+					// A Stop that aborted the in-flight turn surfaces here as a
+					// thrown abort (the provider stream was raced against the run
+					// signal). Settle it as a CANCELLATION — mirroring the
+					// between-iteration cancel at the top of the loop — rather than
+					// recording it as an SDK failure (error span + failed activity)
+					// and re-throwing. The run then returns cleanly with a
+					// 'cancelled' stop reason instead of propagating an error.
 					if (this.ctx.abortController.signal.aborted) {
 						runMgr.setStopReason('cancelled')
 						runMgr.markCancelled()
 						break
 					}
-					runMgr.setStopReason('end_turn')
-					break
-				}
 
-				const reviewOutcome = yield* runToolReview(this.ctx, response, iterationNum)
-
-				// The step record is built even for a rejected batch: a run that
-				// spent a turn getting its tools refused still spent the tokens,
-				// and a caller reconstructing cost per step must see it.
-				this.recordStep({
-					stepNumber: iterationNum,
-					model,
-					messageId,
-					response,
-					toolResults: reviewOutcome.results,
-					toolExecutionMs: reviewOutcome.durationMs,
-					startedAt: stepStartedAt,
-					usageBefore,
-					costBefore,
-				})
-
-				if (reviewOutcome.decision === 'stop') {
-					return
-				}
-
-				if (reviewOutcome.decision === 'rejected') {
-					continue
-				}
-
-				// A successful `structured_output` call IS the answer, so the
-				// run ends here rather than paying for another turn whose only
-				// job would be to restate it.
-				if (this.captureStructuredOutput(reviewOutcome.results)) {
-					this.ctx.log.info('Structured output produced — ending run', {
-						runId: runMgr.id,
-						iteration: iterationNum,
-					})
-					runMgr.setStopReason('end_turn')
-					await this.ctx.emitEvent({
-						type: 'iteration_completed',
-						runId: runMgr.id,
-						iteration: iterationNum,
-						hasToolCalls: true,
-					})
-					yield* this.ctx.drainPending()
-					break
-				}
-
-				// A tool the author declared terminal settles the run with its
-				// own output, the same rule `structured_output` has always
-				// had. Without it a delegation cost the parent one more model
-				// call at full context whose only job was to restate what the
-				// worker already said — and to restate it through the parent's
-				// compacted view, so the caller did not even receive the
-				// worker's words.
-				const settled = this.terminalToolOutput(reviewOutcome.results, response)
-				if (settled !== undefined) {
-					this.ctx.log.info('Terminal tool produced the answer — ending run', {
-						runId: runMgr.id,
-						iteration: iterationNum,
-						tool: settled.toolName,
-					})
-					runMgr.setResult(settled.output)
-					runMgr.setStopReason('end_turn')
-					await this.ctx.emitEvent({
-						type: 'iteration_completed',
-						runId: runMgr.id,
-						iteration: iterationNum,
-						hasToolCalls: true,
-					})
-					yield* this.ctx.drainPending()
-					break
-				}
-
-				// Evaluated AFTER the tools ran, so a predicate can see what they
-				// returned — which is what makes a terminal submit_answer tool
-				// usable without discarding its output.
-				if (await this.shouldStop()) {
-					this.ctx.log.info('Stop condition met', {
-						runId: runMgr.id,
-						iteration: iterationNum,
-					})
-					runMgr.setStopReason('stop_condition')
-					await this.ctx.emitEvent({
-						type: 'iteration_completed',
-						runId: runMgr.id,
-						iteration: iterationNum,
-						hasToolCalls: true,
-					})
-					yield* this.ctx.drainPending()
-					break
-				}
-
-				const checkpointSignal = yield* runIterationCheckpoint(this.ctx, iterationNum)
-				if (checkpointSignal === 'stop') {
-					return
-				}
-
-				// Workers that finished with nobody listening.
-				//
-				// A completion normally reaches the supervisor as the
-				// `tool_result` of the `create_task` that launched it. Two
-				// cases have no such call: a launch made in the background on
-				// purpose, and a blocking launch whose deadline passed — the
-				// model was told "timed out, it may still be running" and the
-				// worker then finished, holding a result nothing would read.
-				//
-				// This is the channel that was removed in `dc16d58` because it
-				// double-delivered: it fired for completions the blocking tool
-				// had already handed over, so the supervisor saw each result
-				// twice. The inbox restores it with the distinction that was
-				// missing — a tool that delivers a completion claims it, and
-				// only unclaimed ones arrive here.
-				//
-				// Placed beside the advisory phase deliberately: that is the
-				// established seam for putting a user message in after tool
-				// results and before the next turn.
-				const unheard = this.ctx.completionInbox?.drain() ?? []
-				if (unheard.length > 0) {
-					this.ctx.log.info('Delivering unawaited task completions', {
-						runId: runMgr.id,
-						iteration: iterationNum,
-						tasks: unheard.map((h) => h.taskId),
-					})
-					runMgr.pushMessage(createUserMessage(formatCompletionNotification(unheard)))
-				}
-
-				await runAdvisoryPhase(this.ctx, iterationNum, response)
-
-				if (this.ctx.pluginManager) {
-					const hookResults = await this.ctx.pluginManager.executeHooks(
-						'iteration_end',
-						{ runId: runMgr.id, iteration: iterationNum },
-						this.ctx.emitEvent,
-					)
-					applyLifecycleHookResults('iteration_end', hookResults)
-					yield* this.ctx.drainPending()
-				}
-
-				await this.ctx.emitEvent({
-					type: 'iteration_completed',
-					runId: runMgr.id,
-					iteration: iterationNum,
-					hasToolCalls: true,
-				})
-				yield* this.ctx.drainPending()
-			} catch (err) {
-				// A Stop that aborted the in-flight turn surfaces here as a
-				// thrown abort (the provider stream was raced against the run
-				// signal). Settle it as a CANCELLATION — mirroring the
-				// between-iteration cancel at the top of the loop — rather than
-				// recording it as an SDK failure (error span + failed activity)
-				// and re-throwing. The run then returns cleanly with a
-				// 'cancelled' stop reason instead of propagating an error.
-				if (this.ctx.abortController.signal.aborted) {
-					runMgr.setStopReason('cancelled')
-					runMgr.markCancelled()
-					break
-				}
-
-				// The one provider failure the kernel can actually do something
-				// about. `context_length_exceeded` is correctly non-retryable —
-				// resending the identical prompt cannot help — but the kernel
-				// owns a compaction subsystem that can make the prompt smaller.
-				// Without this the run died holding the remedy: the threshold
-				// path had simply guessed low, which a run carrying images or a
-				// language the chars-per-token ratio does not fit will do.
-				//
-				// Relief is attempted ONCE per iteration and only when it
-				// actually shed something. A second overflow after a successful
-				// compaction means the prompt is irreducible, and looping on it
-				// would burn the budget to arrive at the same error.
-				if (
-					!overflowRelieved &&
-					classifyProviderError(err, this.ctx.provider.id).code === 'context_length_exceeded'
-				) {
-					overflowRelieved = true
-					const shed = await relieveOverflow(this.ctx)
-					if (shed) {
-						this.ctx.log.info('Retrying the turn after relieving a context overflow', {
-							runId: runMgr.id,
-							iteration: iterationNum,
-						})
-						if (iterationActivity) {
-							this.ctx.activityStore.complete(iterationActivity.id)
+					// The one provider failure the kernel can actually do something
+					// about. `context_length_exceeded` is correctly non-retryable —
+					// resending the identical prompt cannot help — but the kernel
+					// owns a compaction subsystem that can make the prompt smaller.
+					// Without this the run died holding the remedy: the threshold
+					// path had simply guessed low, which a run carrying images or a
+					// language the chars-per-token ratio does not fit will do.
+					//
+					// Relief is attempted ONCE per iteration and only when it
+					// actually shed something. A second overflow after a successful
+					// compaction means the prompt is irreducible, and looping on it
+					// would burn the budget to arrive at the same error.
+					if (
+						!overflowRelieved &&
+						classifyProviderError(err, this.ctx.provider.id).code === 'context_length_exceeded'
+					) {
+						overflowRelieved = true
+						const shed = await relieveOverflow(this.ctx)
+						if (shed) {
+							this.ctx.log.info('Retrying the turn after relieving a context overflow', {
+								runId: runMgr.id,
+								iteration: iterationNum,
+							})
+							if (iterationActivity) {
+								this.ctx.activityStore.complete(iterationActivity.id)
+							}
+							continue
 						}
-						continue
 					}
-				}
 
-				if (iterationActivity) {
-					this.ctx.activityStore.fail(iterationActivity.id, toErrorMessage(err))
-				}
+					if (iterationActivity) {
+						this.ctx.activityStore.fail(iterationActivity.id, toErrorMessage(err))
+					}
 
-				iterSpan.setStatus({
-					code: SpanStatusCode.ERROR,
-					message: toErrorMessage(err),
-				})
-				iterSpan.recordException(err instanceof Error ? err : new Error(String(err)))
-				throw err
-			} finally {
-				// The only place the iteration span ends. It used to be ended at each of
-				// seventeen exits, which is a rule every future edit has to
-				// remember; a generator abandoned by its consumer never reached
-				// any of them.
-				iterSpan.end()
+					iterSpan.setStatus({
+						code: SpanStatusCode.ERROR,
+						message: toErrorMessage(err),
+					})
+					iterSpan.recordException(err instanceof Error ? err : new Error(String(err)))
+					throw err
+				} finally {
+					// The only place the iteration span ends. It used to be ended at each of
+					// seventeen exits, which is a rule every future edit has to
+					// remember; a generator abandoned by its consumer never reached
+					// any of them.
+					iterSpan.end()
+				}
 			}
+		} finally {
+			this.settleOutstandingWork()
 		}
+	}
+
+	/**
+	 * Hold the run open for a worker that has not finished, and deliver it.
+	 *
+	 * Returns whether a completion arrived and was put in the transcript — the
+	 * caller continues the loop on `true`, so the model gets a turn in which to
+	 * USE the result. That turn is the entire justification for waiting, which
+	 * is why only the exits that can still take one call this.
+	 *
+	 * Bounded by `settleGraceMs` and by `maxIterations`, so a worker that never
+	 * finishes cannot keep the run open.
+	 */
+	private async *holdForOutstandingWork(
+		iterationNum: number,
+		hasToolCalls: boolean,
+	): AsyncGenerator<RunEvent, boolean> {
+		if (!this.ctx.completionInbox?.hasPendingWork) return false
+
+		// Read HERE rather than from `forceFinalize`, which was sampled at the
+		// top of the iteration: one that has since crossed the finalize point
+		// must not open a wait against a reserve it has already entered.
+		const graceMs = settleGraceMs(this.ctx.guard.remainingBeforeFinalizeMs())
+		this.ctx.log.info('Holding the run open for a background task', {
+			runId: this.ctx.runMgr.id,
+			iteration: iterationNum,
+			graceMs,
+		})
+		await this.ctx.completionInbox.waitForArrival(graceMs)
+
+		const arrived = this.ctx.completionInbox.drain()
+		if (arrived.length === 0) return false
+
+		this.ctx.runMgr.pushMessage(createUserMessage(formatCompletionNotification(arrived)))
+		await this.ctx.emitEvent({
+			type: 'iteration_completed',
+			runId: this.ctx.runMgr.id,
+			iteration: iterationNum,
+			hasToolCalls,
+		})
+		yield* this.ctx.drainPending()
+		return true
+	}
+
+	/**
+	 * Account for delegated work on the way out: deliver what arrived, and say
+	 * what did not.
+	 *
+	 * A run that ends with a worker outstanding must not leave the impression
+	 * that the worker's result was delivered. There are exactly two honest
+	 * outcomes and this does both:
+	 *
+	 *  - **What has already arrived is delivered.** It makes no false claim,
+	 *    and dropping it is pure loss — the message rides out on
+	 *    `Run.messages`, so a host reads it and the next turn of a continued
+	 *    thread starts with it. This does NOT wait: a hold buys the model a
+	 *    turn in which to USE a result, and on an exit whose answer is already
+	 *    decided there is no such turn, so waiting would delay a settled answer
+	 *    to append text this run will not read. The bounded hold stays where it
+	 *    was, on the exits that do have a turn left.
+	 *  - **What is still running is NAMED, not cancelled.** Giving up on a wait
+	 *    is a statement about the waiter, not about the work — the rule
+	 *    `wait-with-idle-bound.ts` already states for the same subsystem — and
+	 *    "the parent answered early" is a weaker warrant for killing a child
+	 *    than "the clock ran out", not a stronger one. Killing a worker that
+	 *    may be mid-write is a policy only the host can judge, and it has
+	 *    `cancel_task` and the run controller to judge it with.
+	 */
+	private settleOutstandingWork(): void {
+		this.deliverArrivedCompletions()
+		this.recordAbandonedWork()
+	}
+
+	/** Delegated work this run walked away from. See {@link settleOutstandingWork}. */
+	private recordAbandonedWork(): void {
+		const abandoned = this.ctx.completionInbox?.outstandingTaskIds ?? []
+		if (abandoned.length === 0) return
+
+		this.ctx.log.warn('Run ended with delegated work still running', {
+			runId: this.ctx.runMgr.id,
+			tasks: abandoned,
+		})
+		this.ctx.runMgr.setAbandonedTaskIds(abandoned)
+	}
+
+	private deliverArrivedCompletions(): void {
+		const unheard = this.ctx.completionInbox?.drain() ?? []
+		if (unheard.length === 0) return
+
+		// Fix the run's answer BEFORE appending anything after it.
+		//
+		// `RunPersistence.resolveResult` walks the message tail backwards and
+		// stops at the first non-assistant message, and it runs at
+		// `markCompleted` — which is AFTER this. So a notification appended
+		// after the final assistant turn makes the run's own answer
+		// unreachable. Measured, on a run whose model had just said "THIS IS
+		// THE RUN ANSWER.": `run.result` came back `undefined`. That trades a
+		// lost worker result for a lost RUN result, which is strictly worse
+		// than the defect this delivery exists to fix.
+		//
+		// Materialising resolves it while the tail is still the assistant's;
+		// pinning it means the later re-resolution cannot undo the fix. Only
+		// when there is something to pin: on the cancelled and thrown paths
+		// there may be no answer, and pinning an empty string there would
+		// suppress whatever the error path assembles.
+		const answer = this.ctx.runMgr.materializeResult()
+		if (answer.length > 0) this.ctx.runMgr.setResult(answer)
+
+		this.ctx.log.info('Delivering task completions the run would have settled over', {
+			runId: this.ctx.runMgr.id,
+			tasks: unheard.map((h) => h.taskId),
+		})
+		this.ctx.runMgr.pushMessage(createUserMessage(formatCompletionNotification(unheard)))
 	}
 
 	/**

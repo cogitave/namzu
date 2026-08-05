@@ -185,181 +185,190 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 		const completionInbox = new CompletionInbox()
 		completionInbox.attach(gateway)
 
-		const coordinatorToolDefs = buildCoordinatorTools({
-			gateway,
-			completionInbox,
-			workingDirectory: input.workingDirectory,
-			runtimeContext: input.runtimeContext,
-			allowedAgentIds: config.agentIds,
-			// The only hop between the config and the decision. Omit it and
-			// everything still compiles: the field is settable, documented, and
-			// read by nothing — which is the shape of a declaration this repo
-			// has had to go and delete before.
-			allowDelegation: config.allowDelegation,
-			taskStore: input.taskStore,
-			runId,
-			getPlanManager: () => planManagerRef,
-			onTaskLaunched: (agentTaskId, meta) => {
-				launchedTasks.set(agentTaskId, meta)
-			},
-			// With a resume handler present the coordinator surface gains
-			// ask_user_question — the model can park the run on a question
-			// routed through the same HITL channel as plan approvals.
-			...(config.resumeHandler ? { resumeHandler: config.resumeHandler } : {}),
-			questionParks,
-			pendingAnswers,
-		})
-
-		const tools = new ToolRegistry()
-		if (config.tools) {
-			for (const tool of config.tools.getAll()) {
-				tools.register(tool, config.tools.getAvailability(tool.name))
-			}
-		}
-		// Registered the way every other kernel-mounted tool in this SDK is
-		// registered: honouring `runtimeToolOverrides`, and refusing to take a
-		// name the host already used.
-		//
-		// Both halves were missing here and nowhere else. `runtimeToolOverrides`
-		// is declared on `AgentInput`, is forwarded into this very `drainQuery`
-		// call below, and is consulted for the task tools and for the advisory
-		// tools — but the coordinator tools were registered before that and
-		// unconditionally, so `{ create_task: 'disabled' }` was honoured
-		// everywhere except the one surface a host would most want to decline.
-		// A run that must not delegate had prompt text and a gateway refusal as
-		// its only defences.
-		//
-		// Collision REFUSES rather than overwrites, and the principle is
-		// complete mediation rather than fail-safe defaults: "proposals to gain
-		// performance by remembering the result of an authority check [must] be
-		// examined skeptically. If a change in authority occurs, such remembered
-		// results must be systematically updated" (Saltzer & Schroeder 1975,
-		// §I.A.3(c)). A registry entry is a remembered binding of a name to an
-		// authority, and a later write that rebinds the name leaves every
-		// decision made about the old binding stale.
-		//
-		// The counter-argument is that today the host's tool merely loses
-		// quietly and the run still works, so six reserved names is a real cost
-		// on a name a consumer may have chosen long ago. It does not hold,
-		// because "loses quietly" is not what happens. `registerOne` ends with
-		// `availability.set(id, state)` and this call passes no state, so a tool
-		// the host registered `deferred` or `suspended` is silently PROMOTED to
-		// active under someone else's implementation; and because the store is a
-		// Map, the replacement inherits the host's insertion position in the
-		// prompt-cache prefix. That is a different authorization surface, not a
-		// lost registration. CWE-390 is the shape `ManagedRegistry` has here —
-		// detection of an error condition without action — and CWE-694's own
-		// mitigation is nearly this fix: do not operate any resource with a
-		// non-unique identifier, and report the error.
-		//
-		// Refusing is also what the peer set does. One runtime's registry
-		// primitive throws on both duplicate and reserved names; another refuses
-		// its injected delegation name in a pre-flight that tells the author to
-		// rename. Closer to home, `ProviderRegistry.register` already throws
-		// unless the caller passes `{ replace: true }` — declared intent is what
-		// separates a legitimate replacement from an accidental one, and no such
-		// intent is expressible here.
-		const overrides = input.runtimeToolOverrides
-		for (const tool of coordinatorToolDefs) {
-			const override = overrides?.[tool.name]
-			if (override === 'disabled') continue
-			if (config.tools?.has(tool.name)) {
-				throw new ToolNameCollisionError(tool.name, 'the supervisor coordinator surface')
-			}
-			tools.register(tool, override ?? 'active')
-		}
-
-		const childInvocationState = deriveChildState(
-			config.invocationState ?? { tenantId },
-			this.metadata.id,
-		)
-
-		const run = await drainQuery(
-			{
-				systemPrompt: config.systemPrompt,
-				skills: config.skills,
-				provider: config.provider,
-				tools,
-				runConfig: {
-					model: config.model,
-					tokenBudget: config.tokenBudget,
-					timeoutMs: config.timeoutMs,
-					maxIterations: config.maxIterations,
-					temperature: config.temperature,
-					env: config.env,
-					// See ReactiveAgent: a hand-listed literal drops what nobody
-					// remembered to add, and reports nothing when it does.
-					...(config.thinking ? { thinking: config.thinking } : {}),
-					...(config.effort ? { effort: config.effort } : {}),
+		// From here to the return in a try/finally, so the listener is released
+		// on every way out. The registration loop below can throw
+		// ToolNameCollisionError, and a host that hits that fixes its config and
+		// runs again — which is how a leak of one listener per run becomes a leak
+		// of one per ATTEMPT.
+		try {
+			const coordinatorToolDefs = buildCoordinatorTools({
+				gateway,
+				completionInbox,
+				workingDirectory: input.workingDirectory,
+				runtimeContext: input.runtimeContext,
+				allowedAgentIds: config.agentIds,
+				// The only hop between the config and the decision. Omit it and
+				// everything still compiles: the field is settable, documented, and
+				// read by nothing — which is the shape of a declaration this repo
+				// has had to go and delete before.
+				allowDelegation: config.allowDelegation,
+				taskStore: input.taskStore,
+				runId,
+				getPlanManager: () => planManagerRef,
+				onTaskLaunched: (agentTaskId, meta) => {
+					launchedTasks.set(agentTaskId, meta)
 				},
+				// With a resume handler present the coordinator surface gains
+				// ask_user_question — the model can park the run on a question
+				// routed through the same HITL channel as plan approvals.
+				...(config.resumeHandler ? { resumeHandler: config.resumeHandler } : {}),
 				questionParks,
 				pendingAnswers,
-				agentId: this.metadata.id,
-				agentName: this.metadata.name,
-				workingDirectory: input.workingDirectory,
-				messages: input.messages,
-				signal: input.signal,
-				sessionId,
-				threadId,
-				projectId,
-				tenantId,
-				runId,
-				parentRunId: config.parentRunId,
-				depth: config.depth,
-				contextLevel: 'full',
-				onContextCreated: ({ planManager }) => {
-					planManagerRef = planManager
+			})
+
+			const tools = new ToolRegistry()
+			if (config.tools) {
+				for (const tool of config.tools.getAll()) {
+					tools.register(tool, config.tools.getAvailability(tool.name))
+				}
+			}
+			// Registered the way every other kernel-mounted tool in this SDK is
+			// registered: honouring `runtimeToolOverrides`, and refusing to take a
+			// name the host already used.
+			//
+			// Both halves were missing here and nowhere else. `runtimeToolOverrides`
+			// is declared on `AgentInput`, is forwarded into this very `drainQuery`
+			// call below, and is consulted for the task tools and for the advisory
+			// tools — but the coordinator tools were registered before that and
+			// unconditionally, so `{ create_task: 'disabled' }` was honoured
+			// everywhere except the one surface a host would most want to decline.
+			// A run that must not delegate had prompt text and a gateway refusal as
+			// its only defences.
+			//
+			// Collision REFUSES rather than overwrites, and the principle is
+			// complete mediation rather than fail-safe defaults: "proposals to gain
+			// performance by remembering the result of an authority check [must] be
+			// examined skeptically. If a change in authority occurs, such remembered
+			// results must be systematically updated" (Saltzer & Schroeder 1975,
+			// §I.A.3(c)). A registry entry is a remembered binding of a name to an
+			// authority, and a later write that rebinds the name leaves every
+			// decision made about the old binding stale.
+			//
+			// The counter-argument is that today the host's tool merely loses
+			// quietly and the run still works, so six reserved names is a real cost
+			// on a name a consumer may have chosen long ago. It does not hold,
+			// because "loses quietly" is not what happens. `registerOne` ends with
+			// `availability.set(id, state)` and this call passes no state, so a tool
+			// the host registered `deferred` or `suspended` is silently PROMOTED to
+			// active under someone else's implementation; and because the store is a
+			// Map, the replacement inherits the host's insertion position in the
+			// prompt-cache prefix. That is a different authorization surface, not a
+			// lost registration. CWE-390 is the shape `ManagedRegistry` has here —
+			// detection of an error condition without action — and CWE-694's own
+			// mitigation is nearly this fix: do not operate any resource with a
+			// non-unique identifier, and report the error.
+			//
+			// Refusing is also what the peer set does. One runtime's registry
+			// primitive throws on both duplicate and reserved names; another refuses
+			// its injected delegation name in a pre-flight that tells the author to
+			// rename. Closer to home, `ProviderRegistry.register` already throws
+			// unless the caller passes `{ replace: true }` — declared intent is what
+			// separates a legitimate replacement from an accidental one, and no such
+			// intent is expressible here.
+			const overrides = input.runtimeToolOverrides
+			for (const tool of coordinatorToolDefs) {
+				const override = overrides?.[tool.name]
+				if (override === 'disabled') continue
+				if (config.tools?.has(tool.name)) {
+					throw new ToolNameCollisionError(tool.name, 'the supervisor coordinator surface')
+				}
+				tools.register(tool, override ?? 'active')
+			}
+
+			const childInvocationState = deriveChildState(
+				config.invocationState ?? { tenantId },
+				this.metadata.id,
+			)
+
+			const run = await drainQuery(
+				{
+					systemPrompt: config.systemPrompt,
+					skills: config.skills,
+					provider: config.provider,
+					tools,
+					runConfig: {
+						model: config.model,
+						tokenBudget: config.tokenBudget,
+						timeoutMs: config.timeoutMs,
+						maxIterations: config.maxIterations,
+						temperature: config.temperature,
+						env: config.env,
+						// See ReactiveAgent: a hand-listed literal drops what nobody
+						// remembered to add, and reports nothing when it does.
+						...(config.thinking ? { thinking: config.thinking } : {}),
+						...(config.effort ? { effort: config.effort } : {}),
+					},
+					questionParks,
+					pendingAnswers,
+					agentId: this.metadata.id,
+					agentName: this.metadata.name,
+					workingDirectory: input.workingDirectory,
+					messages: input.messages,
+					signal: input.signal,
+					sessionId,
+					threadId,
+					projectId,
+					tenantId,
+					runId,
+					parentRunId: config.parentRunId,
+					depth: config.depth,
+					contextLevel: 'full',
+					onContextCreated: ({ planManager }) => {
+						planManagerRef = planManager
+					},
+					taskStore: input.taskStore,
+					runtimeToolOverrides: input.runtimeToolOverrides,
+					runtimeContext: input.runtimeContext,
+					taskGateway: gateway,
+					completionInbox,
+					launchedTasks,
+					advisory: config.advisory,
+					invocationState: childInvocationState,
+					// HITL surface: forward optional review-time hooks so hosts can
+					// run "Ask before acting" supervisors instead of the default
+					// auto-approve. drainQuery falls back to autoApproveHandler
+					// when resumeHandler is omitted (= same behaviour as before).
+					...(config.resumeHandler ? { resumeHandler: config.resumeHandler } : {}),
+					// Forwarded for the same reason the handler is. A capability the
+					// kernel honours in `drainQuery` but that never reaches the
+					// surface a host actually constructs is a capability nobody can
+					// use — which is the shape of defect this file has already been
+					// corrected for twice.
+					...(config.steering ? { steering: config.steering } : {}),
+					...(config.verificationGate ? { verificationGate: config.verificationGate } : {}),
+					...(config.sandboxProvider ? { sandboxProvider: config.sandboxProvider } : {}),
+					// Working-memory / compaction seam (optional; absent => unchanged
+					// run path, byte-identical for every existing consumer).
+					...(config.compactionConfig ? { compactionConfig: config.compactionConfig } : {}),
+					...(config.workingMemoryProvider
+						? { workingMemoryProvider: config.workingMemoryProvider }
+						: {}),
 				},
-				taskStore: input.taskStore,
-				runtimeToolOverrides: input.runtimeToolOverrides,
-				runtimeContext: input.runtimeContext,
-				taskGateway: gateway,
-				completionInbox,
-				launchedTasks,
-				advisory: config.advisory,
-				invocationState: childInvocationState,
-				// HITL surface: forward optional review-time hooks so hosts can
-				// run "Ask before acting" supervisors instead of the default
-				// auto-approve. drainQuery falls back to autoApproveHandler
-				// when resumeHandler is omitted (= same behaviour as before).
-				...(config.resumeHandler ? { resumeHandler: config.resumeHandler } : {}),
-				// Forwarded for the same reason the handler is. A capability the
-				// kernel honours in `drainQuery` but that never reaches the
-				// surface a host actually constructs is a capability nobody can
-				// use — which is the shape of defect this file has already been
-				// corrected for twice.
-				...(config.steering ? { steering: config.steering } : {}),
-				...(config.verificationGate ? { verificationGate: config.verificationGate } : {}),
-				...(config.sandboxProvider ? { sandboxProvider: config.sandboxProvider } : {}),
-				// Working-memory / compaction seam (optional; absent => unchanged
-				// run path, byte-identical for every existing consumer).
-				...(config.compactionConfig ? { compactionConfig: config.compactionConfig } : {}),
-				...(config.workingMemoryProvider
-					? { workingMemoryProvider: config.workingMemoryProvider }
-					: {}),
-			},
-			listener,
-		)
+				listener,
+			)
 
-		const taskHandles = gateway.listTasks()
-		const taskResults = synthesizeTaskResults(taskHandles, runId)
+			const taskHandles = gateway.listTasks()
+			const taskResults = synthesizeTaskResults(taskHandles, runId)
 
-		const completedTasks = countCompletedTasks(taskResults)
+			const completedTasks = countCompletedTasks(taskResults)
 
-		return {
-			runId: run.id,
-			status: run.status === 'completed' ? 'completed' : 'failed',
-			stopReason: run.stopReason,
-			usage: run.tokenUsage,
-			cost: run.costInfo,
-			iterations: run.currentIteration,
-			durationMs: Date.now() - startTime,
-			messages: run.messages,
-			result: run.result,
-			lastError: run.lastError,
-			taskResults,
-			completedTasks,
-			totalTasks: taskResults.length,
+			return {
+				runId: run.id,
+				status: run.status === 'completed' ? 'completed' : 'failed',
+				stopReason: run.stopReason,
+				usage: run.tokenUsage,
+				cost: run.costInfo,
+				iterations: run.currentIteration,
+				durationMs: Date.now() - startTime,
+				messages: run.messages,
+				result: run.result,
+				lastError: run.lastError,
+				taskResults,
+				completedTasks,
+				totalTasks: taskResults.length,
+			}
+		} finally {
+			completionInbox.close()
 		}
 	}
 }

@@ -1,5 +1,29 @@
+import { wrapUntrusted } from '../tools/untrusted-envelope.js'
 import type { TaskGateway, TaskHandle } from '../types/agent/gateway.js'
+import { isTerminalAgentTaskState } from '../types/agent/task.js'
 import type { TaskId } from '../types/ids/index.js'
+import { getRootLogger } from '../utils/logger.js'
+
+/**
+ * How many unclaimed announcements may wait for an owner at once.
+ *
+ * Derived from what it has to survive rather than picked. An entry lives here
+ * only between a gateway announcing a task and this run saying whether the
+ * task is its own — one microtask, for a launch made through `create_task`.
+ * The number that has to fit is therefore the largest batch of launches that
+ * can be in flight together before any of them is claimed: one assistant turn
+ * of `create_task` blocks, which this codebase's own tool description
+ * illustrates as "fan out 8 specialists" and which a provider bounds at a few
+ * dozen tool_use blocks per response. 32 clears that with room, and a batch
+ * bigger than it is announced rather than silently truncated.
+ *
+ * The ceiling is what stops this being the retention half of the leak it
+ * exists beside: on a gateway shared with other runs, every foreign completion
+ * lands here and is never claimed, and each one holds a whole worker result —
+ * kilobytes at least. Bounded, the cost is 32 handles; unbounded, it is every
+ * result every other run on that gateway ever produced.
+ */
+const UNOWNED_BUFFER_LIMIT = 32
 
 /**
  * Completions that finished with nobody left to hear them.
@@ -37,8 +61,42 @@ export class CompletionInbox {
 	private readonly claimed = new Set<TaskId>()
 	/** Launched with nothing waiting on it, and not settled yet. */
 	private readonly outstanding = new Set<TaskId>()
+	/**
+	 * Tasks THIS run launched.
+	 *
+	 * `onTaskCompleted` is a broadcast and `TaskHandle` carries no run id, so
+	 * a gateway shared between two supervisors hands every completion to both
+	 * of their inboxes. Measured: with two inboxes on one gateway, the run
+	 * that launched nothing drained the other run's task and would have been
+	 * told "a task you launched has finished" — a claim that was false, over
+	 * another run's worker output, in a transcript whose model then has to
+	 * account for it.
+	 *
+	 * A shared gateway is not an abuse of the API: `SupervisorAgentConfig`
+	 * takes one, and a host that owns a gateway naturally reuses it.
+	 */
+	private readonly ours = new Set<TaskId>()
+	/**
+	 * Announcements that arrived before anyone said whose task it was.
+	 *
+	 * `gateway.createTask` resolves one microtask before its caller can name
+	 * the task, and a worker that finishes inside that window is announced
+	 * first — `LocalTaskGateway` attaches its completion continuation before
+	 * it returns the handle, so the ordering is guaranteed to be reachable
+	 * rather than merely possible. Dropping an unowned announcement outright
+	 * would therefore turn the leak fix into a LOST RESULT for exactly the
+	 * fast completions the inbox exists to catch.
+	 *
+	 * So they wait here, and ownership may be claimed retroactively. What
+	 * makes that safe rather than a second leak is the bound: on a gateway
+	 * shared with other runs this fills with completions that will never be
+	 * claimed, each holding a whole worker result.
+	 */
+	private readonly unowned = new Map<TaskId, TaskHandle>()
 	private readonly arrivals = new Set<() => void>()
 	private detach?: () => void
+	/** Kept for {@link launched}: the source of truth about a task's state. */
+	private gateway?: TaskGateway
 
 	/**
 	 * Start listening.
@@ -50,7 +108,16 @@ export class CompletionInbox {
 	 */
 	attach(gateway: TaskGateway): () => void {
 		if (this.detach) return this.detach
+		this.gateway = gateway
 		this.detach = gateway.onTaskCompleted((handle) => {
+			// Not known to be ours — either another run's worker on a shared
+			// gateway, or ours announced before the launch could be recorded.
+			// The two are indistinguishable here, so it waits rather than
+			// being delivered or dropped. See {@link unowned}.
+			if (!this.ours.has(handle.taskId)) {
+				this.hold(handle)
+				return
+			}
 			// A completion claimed before it was announced — a tool that
 			// finished its wait faster than the listener ran — is already
 			// delivered. Nothing to queue.
@@ -63,15 +130,87 @@ export class CompletionInbox {
 	}
 
 	/**
+	 * Park an announcement nobody has claimed yet, evicting the oldest if the
+	 * buffer is full.
+	 *
+	 * An eviction is logged at WARN, and that is not decoration. If the entry
+	 * turned out to be ours, its completion has just been dropped — the
+	 * original defect, wearing the cap as a disguise — and the only evidence
+	 * would otherwise be an absence, which is precisely the shape of failure
+	 * this whole session has been closing. A reader who sees this line knows
+	 * where to look.
+	 */
+	private hold(handle: TaskHandle): void {
+		if (this.unowned.size >= UNOWNED_BUFFER_LIMIT && !this.unowned.has(handle.taskId)) {
+			const oldest = this.unowned.keys().next()
+			if (!oldest.done) {
+				this.unowned.delete(oldest.value)
+				getRootLogger()
+					.child({ component: 'CompletionInbox' })
+					.warn(
+						"Unclaimed completion buffer is full — dropped the oldest. If that task was this run's, its result is now unreachable; raise UNOWNED_BUFFER_LIMIT or launch fewer tasks per turn.",
+						{ dropped: oldest.value, limit: UNOWNED_BUFFER_LIMIT },
+					)
+			}
+		}
+		this.unowned.set(handle.taskId, handle)
+	}
+
+	/**
+	 * Say that this run launched the task.
+	 *
+	 * Required before anything about the task can reach this inbox — see
+	 * {@link ours}. Every launch says it, whether or not something is waiting
+	 * on the result, because the case the inbox exists for is precisely the
+	 * one where the waiter gave up.
+	 *
+	 * **The late-announcement branches are not defensive.**
+	 * `gateway.createTask` resolves one microtask before its caller can say
+	 * who owns the task, and a worker that finishes inside that window is
+	 * announced first — the same ordering that used to leave a permanent
+	 * pending flag. Without recovery the ownership check would turn that race
+	 * from a stale flag into a lost result.
+	 *
+	 * There are two, and the second is the safety net for the first. The
+	 * buffer ({@link unowned}) needs nothing from the gateway beyond the
+	 * announcement it already made. Asking `getTask` covers the case the
+	 * buffer cannot — an announcement evicted under load — but it rests on a
+	 * gateway still knowing about a task it has just settled, which is a
+	 * property of the implementations here rather than of the `TaskGateway`
+	 * contract, and `getTask`'s own docs now say so.
+	 */
+	launched(taskId: TaskId): void {
+		if (this.ours.has(taskId)) return
+		this.ours.add(taskId)
+
+		if (this.claimed.has(taskId) || this.unheard.has(taskId)) return
+
+		const parked = this.unowned.get(taskId)
+		if (parked) {
+			this.unowned.delete(taskId)
+			this.unheard.set(taskId, parked)
+			for (const wake of [...this.arrivals]) wake()
+			return
+		}
+
+		const settled = this.gateway?.getTask(taskId)
+		if (!settled || !isTerminalAgentTaskState(settled.state)) return
+		this.unheard.set(taskId, settled)
+		for (const wake of [...this.arrivals]) wake()
+	}
+
+	/**
 	 * Say that a task was launched with nothing waiting on it.
 	 *
-	 * Without this the inbox can only see completions that have already
-	 * happened, and a run whose supervisor launched a background worker and
-	 * then answered would settle while the worker was still going — throwing
-	 * away the very result the launch existed to produce. Knowing a task is
-	 * outstanding is what lets the loop hold the run open for it.
+	 * {@link launched} plus the statement that no call will deliver the
+	 * result. Without the second half the inbox can only see completions that
+	 * have already happened, and a run whose supervisor launched a background
+	 * worker and then answered would settle while the worker was still going —
+	 * throwing away the very result the launch existed to produce. Knowing a
+	 * task is outstanding is what lets the loop hold the run open for it.
 	 */
 	expect(taskId: TaskId): void {
+		this.launched(taskId)
 		if (this.claimed.has(taskId)) return
 		this.outstanding.add(taskId)
 	}
@@ -135,6 +274,17 @@ export class CompletionInbox {
 	}
 
 	/**
+	 * Tasks this run launched that are still running.
+	 *
+	 * Read when a run ends, so it can say which work it walked away from.
+	 * Nothing here is cancelled by being read — the ids are a statement, and
+	 * what to do about them is the host's call.
+	 */
+	get outstandingTaskIds(): readonly TaskId[] {
+		return [...this.outstanding]
+	}
+
+	/**
 	 * Take every unheard completion, leaving the inbox empty.
 	 *
 	 * Draining rather than peeking: a notification that stays queued after
@@ -144,7 +294,22 @@ export class CompletionInbox {
 		if (this.unheard.size === 0) return []
 		const handles = [...this.unheard.values()]
 		this.unheard.clear()
-		for (const handle of handles) this.claimed.add(handle.taskId)
+		for (const handle of handles) {
+			this.claimed.add(handle.taskId)
+			// A delivered result is not pending WORK, and `outstanding` can
+			// still be holding this id — the listener clears it, but only if
+			// the announcement came AFTER the launching tool said `expect`.
+			// The other order is reachable: `expect` runs one microtask after
+			// `gateway.createTask` resolves, and the gateway's own completion
+			// callback can win that race for a task that finished fast. Then
+			// `expect` re-adds an id the listener had nothing to remove, and
+			// nothing else ever takes it off — so `hasPendingWork` stayed true
+			// for the rest of the run and every attempt to settle paid the
+			// full grace period waiting for a result already in the transcript.
+			//
+			// Symmetric with `claim`, which clears it for the same reason.
+			this.outstanding.delete(handle.taskId)
+		}
 		return handles
 	}
 
@@ -179,12 +344,25 @@ export class CompletionInbox {
 		for (const wake of [...this.arrivals]) wake()
 	}
 
-	/** Stop listening. Safe to call more than once. */
+	/**
+	 * Stop listening. Safe to call more than once.
+	 *
+	 * A run that ends without this leaves its listener on the gateway
+	 * forever. On a gateway the host reuses that is measurable — three
+	 * sequential runs left three live subscriptions, each still holding its
+	 * run's handles — and the listener set only grows. Ownership stops a
+	 * retained listener from DELIVERING another run's work; closing is what
+	 * stops it existing.
+	 */
 	close(): void {
 		this.detach?.()
 		this.detach = undefined
+		this.gateway = undefined
 		this.unheard.clear()
 		this.outstanding.clear()
+		this.ours.clear()
+		this.claimed.clear()
+		this.unowned.clear()
 		// Release anyone still waiting. A closed inbox would otherwise hold
 		// them to their own deadline for a completion that can no longer come.
 		for (const wake of [...this.arrivals]) wake()
@@ -194,6 +372,30 @@ export class CompletionInbox {
 
 /** How much of a worker's output rides in the notification itself. */
 const NOTIFICATION_OUTPUT_LIMIT = 4_000
+
+const NOTIFICATION_DELIMITER = /task-notification/gi
+
+/**
+ * Defang this file's own delimiter inside a worker's text.
+ *
+ * Without it a worker whose output contains `</task-notification>` closes the
+ * block early, and everything it wrote after that sits OUTSIDE the boundary —
+ * reading as ordinary transcript rather than as a delegate's material.
+ * Measured before the fix: two closing tags in one notification, with
+ * attacker-controlled text between them.
+ *
+ * The replacement swaps the hyphen for an underscore rather than appending a
+ * suffix, for the reason `neutralizeEnvelopeDelimiter` records: a replacement
+ * that still CONTAINS the token is found again by a second pass or by any
+ * looser matcher downstream. `task_notification` shares no substring with the
+ * real delimiter while staying legible.
+ *
+ * The nested `<namzu-untrusted>` block defangs its own delimiter; these two
+ * patterns are disjoint, so the order they run in does not matter.
+ */
+function neutralizeNotificationDelimiter(content: string): string {
+	return content.replace(NOTIFICATION_DELIMITER, 'task_notification')
+}
 
 /**
  * The message a supervisor reads when a worker it stopped waiting for
@@ -212,14 +414,32 @@ export function formatCompletionNotification(handles: readonly TaskHandle[]): st
 	const blocks = handles.map((handle) => {
 		const durationMs = handle.completedAt ? handle.completedAt - handle.createdAt : undefined
 		const output = handle.result?.result ?? handle.result?.lastError ?? ''
-		const truncated =
-			output.length > NOTIFICATION_OUTPUT_LIMIT
-				? // `wait_for_task`, not `agent_task_list` — the listing takes only a
-					// state filter, so an instruction to call it "with task_id" named
-					// a parameter that does not exist and could not be followed. On an
-					// already-finished task the wait returns immediately.
-					`${output.slice(0, NOTIFICATION_OUTPUT_LIMIT)}\n… truncated. Call wait_for_task with task_id "${handle.taskId}" for the full output.`
-				: output
+		const overLimit = output.length > NOTIFICATION_OUTPUT_LIMIT
+		const shown = overLimit ? output.slice(0, NOTIFICATION_OUTPUT_LIMIT) : output
+
+		// Framed for the same reason the blocking `create_task` frames its
+		// return value, and this path is the one that had nothing. A delegated
+		// worker is the component most likely to have consumed material nobody
+		// in this run authored — it was told to read and report, and it ran
+		// `read`, `grep`, `fetch` over whatever it found — and its text lands
+		// in a parent that typically holds the broader tool grant. The same
+		// bytes were being wrapped on one path and pasted bare on this one.
+		//
+		// The metadata above stays OUTSIDE the envelope: the task id, the agent
+		// and the state are this kernel's own statements, and framing them as
+		// untrusted material would tell the model to discount the only part of
+		// the message it can rely on.
+		const body =
+			shown.length > 0
+				? wrapUntrusted(
+						{
+							kind: 'agent-result',
+							attributes: { agent: handle.agentId, task: handle.taskId },
+							provenance: `This is the output of the delegated agent "${handle.agentId}", not this agent's own work.`,
+						},
+						neutralizeNotificationDelimiter(shown),
+					)
+				: '(the task produced no output)'
 
 		const lines = [
 			`task_id: ${handle.taskId}`,
@@ -227,7 +447,19 @@ export function formatCompletionNotification(handles: readonly TaskHandle[]): st
 			`state: ${handle.state}`,
 			...(durationMs !== undefined ? [`duration_ms: ${durationMs}`] : []),
 			'',
-			truncated.length > 0 ? truncated : '(the task produced no output)',
+			body,
+			// Outside the envelope, deliberately: this sentence is an
+			// instruction from the kernel about how to get the rest, and inside
+			// the envelope the model has just been told not to treat the
+			// contents as instructions.
+			//
+			// `wait_for_task`, not `agent_task_list` — the listing takes only a
+			// state filter, so an instruction to call it "with task_id" named a
+			// parameter that does not exist and could not be followed. On an
+			// already-finished task the wait returns immediately.
+			...(overLimit
+				? [`… truncated. Call wait_for_task with task_id "${handle.taskId}" for the full output.`]
+				: []),
 		]
 		return `<task-notification>\n${lines.join('\n')}\n</task-notification>`
 	})

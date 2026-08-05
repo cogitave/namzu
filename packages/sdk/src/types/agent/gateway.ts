@@ -52,6 +52,24 @@ export interface TaskGateway {
 
 	cancelTask(taskId: TaskId): void
 
+	/**
+	 * The task's current state, or `undefined` if this gateway does not know
+	 * about it.
+	 *
+	 * **A task that has just settled should still be findable here.** The
+	 * kernel uses this to recover one specific race: `createTask` resolves a
+	 * microtask before its caller can record whose the task is, so a worker
+	 * that finishes inside that window is announced to a listener that cannot
+	 * yet place it. `CompletionInbox` buffers the announcement AND asks this
+	 * method, and the second is what covers the case the buffer could not
+	 * hold.
+	 *
+	 * This is a request, not a requirement, and the cost of not meeting it is
+	 * yours: a gateway that forgets a task the instant it completes still
+	 * works, but under a burst large enough to overflow the buffer a fast
+	 * worker's result can go unannounced. `LocalTaskGateway` meets it for as
+	 * long as the manager holds the record.
+	 */
 	getTask(taskId: TaskId): TaskHandle | undefined
 
 	listTasks(): TaskHandle[]

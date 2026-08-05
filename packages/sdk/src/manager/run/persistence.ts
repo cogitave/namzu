@@ -270,6 +270,18 @@ export class RunPersistence {
 		this.run.structuredOutput = value
 	}
 
+	/**
+	 * Name the delegated work this run ended without waiting for.
+	 *
+	 * See {@link Run.abandonedTaskIds}. Recording rather than cancelling is
+	 * the point: the kernel owes the caller the truth about what it walked
+	 * away from, and nothing more.
+	 */
+	setAbandonedTaskIds(taskIds: readonly string[]): void {
+		if (taskIds.length === 0) return
+		this.run.abandonedTaskIds = [...taskIds]
+	}
+
 	setSteps(steps: readonly StepResult[]): void {
 		this.run.steps = steps
 	}

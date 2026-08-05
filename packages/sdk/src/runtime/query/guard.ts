@@ -55,6 +55,38 @@ export class GuardCoordinator {
 		this.startTime = Date.now() - Math.max(0, elapsedMs)
 	}
 
+	/**
+	 * Wall-clock left before this run is asked to start finishing.
+	 *
+	 * NOT the time left before the deadline, and the difference is the whole
+	 * point. The checks above run BETWEEN iterations, so anything that waits
+	 * inside one cannot be stopped by them, and a caller sizing such a wait
+	 * needs a number the run actually owns: a fixed two-minute hold measured
+	 * against a run configured for twenty seconds kept it open for 120,267 ms.
+	 *
+	 * Measuring to the DEADLINE was the first attempt and it was wrong. The
+	 * binding constraint is `budgetWarningThreshold`, the point at which this
+	 * guard stops asking for more work and asks for a closing summary — that
+	 * last slice exists so the run can produce an answer, and a wait sized
+	 * against the deadline eats into it. Half of the time-to-deadline, started
+	 * just under the threshold, ends at 95% of the budget: half the closing
+	 * reserve spent waiting for a result the closing answer was supposed to
+	 * use.
+	 *
+	 * Zero once the threshold has passed, which is also how a caller gets the
+	 * re-evaluation it needs: `forceFinalize` is sampled at the top of an
+	 * iteration and this is read when the wait is about to start, so a long
+	 * iteration that crossed the line in between is told to wait for nothing.
+	 *
+	 * Reads through the same `startTime` the limit checks use, so a run
+	 * resumed from a checkpoint (see `restoreElapsed`) reports the time left
+	 * on the RUN rather than on the process now hosting it.
+	 */
+	remainingBeforeFinalizeMs(): number {
+		const finalizeAt = this.limitConfig.timeoutMs * this.limitConfig.budgetWarningThreshold
+		return Math.max(0, finalizeAt - (Date.now() - this.startTime))
+	}
+
 	beforeIteration(runMgr: RunPersistence, abortSignal: AbortSignal): GuardCheckResult {
 		const limitState = {
 			aborted: abortSignal.aborted,

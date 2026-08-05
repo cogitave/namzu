@@ -59,6 +59,23 @@ export interface Run {
 	 */
 	structuredOutput?: unknown
 
+	/**
+	 * Delegated tasks that were still running when this run ended.
+	 *
+	 * A run can settle while a worker it launched is still going — the model
+	 * answered, a terminal tool decided the result, a `stopWhen` fired. The
+	 * worker is NOT cancelled: giving up on a wait is a statement about the
+	 * waiter, not about the work, and killing a child that may be mid-write
+	 * because its parent finished early is a policy only the host can judge.
+	 * A host that wants them stopped has `cancel_task` and the run controller.
+	 *
+	 * What the kernel owes instead is not pretending the results arrived.
+	 * These ids are the honest form of that: the run says which work it walked
+	 * away from, so a host can reconcile, cancel, or wait on them itself.
+	 * Absent when a run ended with nothing outstanding.
+	 */
+	abandonedTaskIds?: readonly string[]
+
 	parentRunId?: RunId
 
 	depth?: number
