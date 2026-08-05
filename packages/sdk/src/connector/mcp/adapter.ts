@@ -93,9 +93,20 @@ function jsonSchemaPropertyToZod(prop: unknown, depth = 0): z.ZodType {
 		base = base.nullable()
 	}
 
-	const description = schema.description
-	if (typeof description === 'string' && description.length > 0) {
-		base = base.describe(description)
+	// Appended, not assigned. The conversion itself can produce a description
+	// — a positional array that could not be expressed as a tuple carries its
+	// shape here, because that prose is the only place the model learns it —
+	// and `.describe()` REPLACES. Overwriting would have silently deleted the
+	// note in exactly the case it exists for: a server that documented its
+	// argument well AND used a positional array.
+	const carried = base.description
+	const declared = schema.description
+	const parts = [
+		typeof declared === 'string' && declared.length > 0 ? declared : undefined,
+		carried,
+	].filter((part): part is string => typeof part === 'string' && part.length > 0)
+	if (parts.length > 0) {
+		base = base.describe(parts.join(' '))
 	}
 
 	if (schema.default !== undefined) {
@@ -195,6 +206,12 @@ function baseTypeToZod(schema: Record<string, unknown>, depth = 0): z.ZodType {
 
 	const composite = (schema.anyOf ?? schema.oneOf) as unknown[] | undefined
 	if (Array.isArray(composite) && composite.length > 0) {
+		// The ceiling has to be CHECKED here, not merely counted. `depth` was
+		// threaded correctly through this branch from the start, and a
+		// 5000-deep union still overflowed the stack — because the only
+		// comparison against `MAX_CONVERSION_DEPTH` lived in `objectToZod`,
+		// which a pure union never reaches.
+		if (depth >= MAX_CONVERSION_DEPTH) return z.unknown()
 		const members = composite.map((member) => jsonSchemaPropertyToZod(member, depth + 1))
 		return members.length === 1
 			? (members[0] as z.ZodType)
@@ -229,17 +246,124 @@ function baseTypeToZod(schema: Record<string, unknown>, depth = 0): z.ZodType {
 		case 'null':
 			return z.null()
 		case 'array': {
+			// Both the counter and the check. `depth` was never passed to the
+			// element conversion below, so the counter reset to zero on every
+			// array level — and even threaded it would not have helped, since
+			// nothing on this path compared it to anything. Measured before
+			// and after: a 5000-deep array schema took the process down with a
+			// stack overflow, which is a denial of service reachable from a
+			// remote server's tool listing.
+			if (depth >= MAX_CONVERSION_DEPTH) return z.array(z.unknown())
+
+			// A positional array has two spellings and a server may use
+			// either: draft-07 puts the member schemas in `items` with the
+			// tail rule in `additionalItems`, 2020-12 moved them to
+			// `prefixItems` with the tail rule in `items`.
+			const positional = Array.isArray(schema.prefixItems)
+				? (schema.prefixItems as unknown[])
+				: Array.isArray(schema.items)
+					? (schema.items as unknown[])
+					: undefined
+			if (positional) return positionalToZod(positional, schema, depth)
+
 			const items = schema.items
-			// A tuple (`items` as an array) is rare in tool schemas; treat it
-			// as a heterogeneous list rather than pretending to model it.
-			if (Array.isArray(items)) return z.array(z.unknown())
-			return z.array(items === undefined ? z.unknown() : jsonSchemaPropertyToZod(items))
+			return z.array(
+				// A boolean `items` is a tail RULE, not an element schema — it
+				// only has meaning next to `prefixItems`, which was handled
+				// above. Reaching it here means the server closed an array
+				// that has no positions, and an unconstrained element type is
+				// the permissive reading of that.
+				items === undefined || typeof items === 'boolean'
+					? z.unknown()
+					: jsonSchemaPropertyToZod(items, depth + 1),
+			)
 		}
 		case 'object':
 			return objectToZod(schema, depth)
 		default:
 			return z.unknown()
 	}
+}
+
+/**
+ * How many positions we will express as a tuple.
+ *
+ * Not a correctness bound — a server may pin any arity it likes. It is a
+ * prompt-cost bound: every member renders its own schema into the tool
+ * definition the model is shown, and past a couple of dozen positions the
+ * thing being described is a data payload rather than a call signature. Past
+ * the cap the shape still reaches the model, in the description.
+ */
+const MAX_TUPLE_ARITY = 32
+
+/**
+ * A positional array: a tuple when the server pinned it, a described list
+ * otherwise.
+ *
+ * This used to be `z.array(z.unknown())` unconditionally, so a server that
+ * spelled out `[string, number]` had the model told "an array of anything" —
+ * the positions, their types and their order all dropped from what the model
+ * reads, not merely from what is validated locally.
+ *
+ * The reason it is not simply converted is that the schema makes a ROUND TRIP:
+ * server JSON Schema → Zod → JSON Schema on the wire. So whatever is emitted
+ * here has to be a construct the receiving wire accepts, and a construct it
+ * rejects fails the ENTIRE request rather than degrading one tool — taking
+ * down every run that offered the toolset. A faithful conversion that cannot
+ * be sent is strictly worse than a lossy one that can.
+ *
+ * Hence the narrow gate. A tuple is emitted only where the server itself
+ * pinned the arity and closed the tail, because that renders as bounded
+ * `prefixItems` — the one positional shape measured as accepted, and the same
+ * shape a first-party builtin already ships. Everything else keeps the
+ * permissive array and gains the positional shape in its description.
+ *
+ * The subtlety worth stating, because it inverts the intuition: positional
+ * `items`/`prefixItems` does not constrain LENGTH. Without `minItems` the
+ * server is permitting a SHORTER array, and a tuple cannot express that — so
+ * an absent lower bound is a reason to fall back, not a detail to round up.
+ */
+function positionalToZod(
+	positional: readonly unknown[],
+	schema: Record<string, unknown>,
+	depth: number,
+): z.ZodType {
+	// draft-07 spells the tail rule `additionalItems`; 2020-12 spells it
+	// `items`, which is only a tail rule when `prefixItems` holds the members.
+	const tail = Array.isArray(schema.items) ? schema.additionalItems : schema.items
+
+	const arity = positional.length
+	const pinnedLow = num(schema.minItems) === arity
+	const closedHigh = tail === false || num(schema.maxItems) === arity
+
+	if (arity === 0 || arity > MAX_TUPLE_ARITY || !pinnedLow || !closedHigh) {
+		// A ZodArray, deliberately: `applyConstraints` then carries the
+		// server's own `minItems`/`maxItems` onto it, so the loose case keeps
+		// whatever bounds the server did state.
+		return z.array(z.unknown()).describe(describePositional(positional))
+	}
+
+	const members = positional.map((member) => jsonSchemaPropertyToZod(member, depth + 1))
+	// Never `.rest()`. It renders a tail schema this wire has not been measured
+	// against, and the gate above has already established there is no tail.
+	return z.tuple(members as [z.ZodType, ...z.ZodType[]])
+}
+
+/** The positional shape in prose, for the cases a tuple cannot carry. */
+function describePositional(positional: readonly unknown[]): string {
+	const shape = positional
+		.map((member, index) => `[${index}] ${positionalTypeName(member)}`)
+		.join(', ')
+	return `Positional array — ${shape}.`
+}
+
+function positionalTypeName(member: unknown): string {
+	if (typeof member !== 'object' || member === null) return 'any'
+	const schema = member as Record<string, unknown>
+	if (schema.const !== undefined) return JSON.stringify(schema.const)
+	if (Array.isArray(schema.enum)) return schema.enum.map((v) => JSON.stringify(v)).join('|')
+	const type = Array.isArray(schema.type) ? schema.type.join('|') : schema.type
+	return typeof type === 'string' ? type : 'any'
 }
 
 /**

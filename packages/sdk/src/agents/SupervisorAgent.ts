@@ -287,6 +287,10 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 					maxIterations: config.maxIterations,
 					temperature: config.temperature,
 					env: config.env,
+					// See ReactiveAgent: a hand-listed literal drops what nobody
+					// remembered to add, and reports nothing when it does.
+					...(config.thinking ? { thinking: config.thinking } : {}),
+					...(config.effort ? { effort: config.effort } : {}),
 				},
 				questionParks,
 				pendingAnswers,

@@ -177,6 +177,44 @@ describe('ToolExecutor — per-tool deadline', () => {
 		expect(batch.results[0]?.output).toContain('was cancelled')
 	})
 
+	it('says WHICH stop it was, when the caller named one', async () => {
+		// The reason was on this signal all along — it is forwarded into the
+		// per-tool controller a few lines above the message — and the message
+		// threw it away. So a deadline, a budget and an operator pressing stop
+		// all reached the model as the same four words, and they want
+		// different next moves: one is worth waiting out, one is worth
+		// narrowing the input for, and one is worth stopping over.
+		const controller = new AbortController()
+		const h = harness({
+			toolTimeoutMs: 60_000,
+			abortSignal: controller.signal,
+			run: never,
+		})
+		const pending = h.exec.executeBatch(response('hang'))
+		controller.abort(new Error('deployment window closed'))
+		const batch = await pending
+
+		expect(batch.results[0]?.output).toContain('deployment window closed')
+	})
+
+	it('does not invent a reason when the caller gave none', async () => {
+		// `abort()` with no argument fills `reason` with a DOMException named
+		// AbortError. Rendering it would turn an honest silence into something
+		// that reads like an explanation, which is the worse failure.
+		const controller = new AbortController()
+		const h = harness({
+			toolTimeoutMs: 60_000,
+			abortSignal: controller.signal,
+			run: never,
+		})
+		const pending = h.exec.executeBatch(response('hang'))
+		controller.abort()
+		const batch = await pending
+
+		expect(batch.results[0]?.output).toContain('was cancelled.')
+		expect(batch.results[0]?.output).not.toContain('AbortError')
+	})
+
 	it('exposes a sane default deadline', () => {
 		// Documented so a change is a deliberate decision, not a drift.
 		expect(DEFAULT_TOOL_TIMEOUT_MS).toBe(120_000)

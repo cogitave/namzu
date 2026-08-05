@@ -25,6 +25,23 @@ export interface BaseAgentConfig {
 	env?: Record<string, string>
 
 	/**
+	 * Thinking mode and response-effort level for every model call this agent
+	 * makes. See {@link import('../run/config.js').AgentRunConfig} for what
+	 * each one controls and why they are siblings.
+	 *
+	 * They are declared HERE, on the shared base, rather than on each agent
+	 * config that happens to want them. Every agent builds its `AgentRunConfig`
+	 * by hand-listing fields, and a field absent from a hand-listed literal is
+	 * dropped in silence — which is exactly how `thinking` came to be settable
+	 * only through the raw kernel entry point while every ergonomic one quietly
+	 * ignored it. Putting them on the base is what makes "did you forget to
+	 * forward it" a type error in the places that matter rather than a support
+	 * question.
+	 */
+	thinking?: import('../provider/index.js').ThinkingConfig
+	effort?: import('../provider/index.js').ReasoningEffort
+
+	/**
 	 * Deduplicate a retried invocation instead of running it twice.
 	 *
 	 * The failure this exists for: a caller sends a request, the

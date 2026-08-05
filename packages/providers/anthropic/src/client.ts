@@ -740,7 +740,13 @@ export class AnthropicProvider implements LLMProvider {
 		// A sibling of `thinking`, not a field inside it — and gated on the
 		// model, since only some accept it at all.
 		const effort = resolveEffort(params.effort, thinkingBody, capability)
-		if (effort) body.output_config = { effort }
+		// Merged rather than assigned. `output_config` is a shared envelope on
+		// this wire — a structured-output format and a task budget live in it
+		// too, and `responseFormat` already exists on the params unhandled
+		// here. Assigning would mean whoever wires the next one silently
+		// deletes effort, or has effort silently delete theirs, depending only
+		// on which line ran last.
+		if (effort) body.output_config = { ...(body.output_config as object | undefined), effort }
 		if (params.temperature !== undefined) body.temperature = params.temperature
 		if (params.topP !== undefined) body.top_p = params.topP
 		if (params.topK !== undefined) body.top_k = params.topK

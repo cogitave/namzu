@@ -38,7 +38,12 @@ const TABLE: readonly [string, boolean, boolean, boolean, string[], string[]][] 
 	// Always-on families: thinking cannot be switched off at any version.
 	['claude-fable-5', true, false, false, ALL, ALL],
 	['claude-mythos-5', true, false, false, ALL, ALL],
-	['claude-mythos-preview', true, true, false, ALL, ALL],
+	// The preview takes `max` and NOT `xhigh`, which is the pairing it is easy
+	// to assume away — the reference says outright that some models supporting
+	// `max` do not support `xhigh`, and this is one. Reading the levels as a
+	// ladder is what put ALL on this row originally, and a ladder reading sends
+	// a level the wire rejects.
+	['claude-mythos-preview', true, true, false, NO_XHIGH, NO_XHIGH],
 	// 4.7 and later: adaptive only, and it can still be disabled.
 	['claude-opus-5', true, false, true, ALL, CAPPED],
 	['claude-sonnet-5', true, false, true, ALL, ALL],

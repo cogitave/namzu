@@ -2,7 +2,7 @@ import { ToolRegistry } from '../registry/tool/execute.js'
 import { drainQuery } from '../runtime/query/index.js'
 import type { ProjectId, SessionId, TenantId, ThreadId } from '../types/ids/index.js'
 import type { Message } from '../types/message/index.js'
-import type { LLMProvider } from '../types/provider/index.js'
+import type { LLMProvider, ReasoningEffort, ThinkingConfig } from '../types/provider/index.js'
 import type { Run, RunEventListener } from '../types/run/index.js'
 import type { Skill } from '../types/skills/index.js'
 import type { ToolRegistryContract } from '../types/tool/index.js'
@@ -82,6 +82,25 @@ export interface RunAgentOptions extends AgentIdentity {
 	tokenBudget?: number
 	timeoutMs?: number
 	temperature?: number
+
+	/**
+	 * Extended-thinking request and response-effort level, forwarded on every
+	 * model call.
+	 *
+	 * These are here because the run config below is assembled by HAND, and a
+	 * hand-listed literal silently drops whatever nobody remembered to add —
+	 * which is precisely what happened. `thinking` shipped on `AgentRunConfig`
+	 * and was reachable only from the raw kernel entry point, because this
+	 * function, `ReactiveAgent` and `SupervisorAgent` each rebuilt the object
+	 * from a fixed list. So the capability existed and the front door could not
+	 * open it.
+	 *
+	 * A live run is what found it: the unit tests passed because they drove the
+	 * kernel directly, and a real agent run through this function put no effort
+	 * on the wire at all.
+	 */
+	thinking?: ThinkingConfig
+	effort?: ReasoningEffort
 
 	/** Names the agent in traces and events. Defaults to `Agent`. */
 	name?: string
@@ -184,6 +203,8 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
 				tokenBudget: options.tokenBudget ?? DEFAULT_TOKEN_BUDGET,
 				timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
 				...(options.temperature !== undefined ? { temperature: options.temperature } : {}),
+				...(options.thinking ? { thinking: options.thinking } : {}),
+				...(options.effort ? { effort: options.effort } : {}),
 			},
 			// One option covers both. `drainQuery` separates the id from the
 			// display name because a fleet needs a stable key and a readable

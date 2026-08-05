@@ -1,4 +1,4 @@
-import type { ThinkingConfig } from '../types/provider/index.js'
+import type { ReasoningEffort, ThinkingConfig } from '../types/provider/index.js'
 
 /**
  * Refuse a thinking request a driver does not implement.
@@ -27,8 +27,25 @@ import type { ThinkingConfig } from '../types/provider/index.js'
  */
 export function assertThinkingUnsupported(
 	driverName: string,
-	params: { thinking?: ThinkingConfig },
+	params: { thinking?: ThinkingConfig; effort?: ReasoningEffort },
 ): void {
+	// `effort` is refused on exactly the same reasoning, and it is the worse
+	// silence of the two. A dropped `thinking` at least leaves an empty
+	// reasoning list a caller could notice; a dropped `effort` leaves a
+	// perfectly ordinary answer, so a run someone believes they paid for at
+	// `max` is indistinguishable from one at the model's default — including
+	// on the bill.
+	//
+	// Checked before thinking because it is the cheaper mistake to make: a
+	// caller reaching for effort on a driver without it has usually pointed a
+	// working config at a new provider, and naming the field they set beats
+	// naming the neighbouring one.
+	if (params.effort !== undefined) {
+		throw new Error(
+			`${driverName} does not implement effort. Silently ignoring it would return an ordinary completion, so a run requested at "${params.effort}" would be indistinguishable from one at the model's default — including in what it cost. Drop \`effort\`, or use a driver that implements it.`,
+		)
+	}
+
 	const type = params.thinking?.type
 	if (type !== 'enabled' && type !== 'adaptive') return
 	throw new Error(

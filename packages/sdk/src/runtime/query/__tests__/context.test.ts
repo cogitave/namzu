@@ -100,4 +100,28 @@ describe('RunContextFactory.build', () => {
 		const runDir = builder.runDir('prj_x' as ProjectId, 'ses_y' as SessionId, 'run_z' as RunId)
 		expect(posix(runDir)).toBe('/base/.namzu/projects/prj_x/sessions/ses_y/runs/run_z')
 	})
+
+	it("carries the caller's stop reason across into the run", () => {
+		// This is the frame that was losing it. The host aborts with a
+		// sentence, the run re-aborts with nothing, and every layer below —
+		// the tool executor, the tool itself, the result the model reads —
+		// can only report that something stopped. The words do not survive
+		// the hop unless this site forwards them.
+		const host = new AbortController()
+		const ctx = RunContextFactory.build(buildConfig({ signal: host.signal }))
+
+		host.abort(new Error('nightly window closed'))
+
+		expect(ctx.abortController.signal.aborted).toBe(true)
+		expect((ctx.abortController.signal.reason as Error)?.message).toBe('nightly window closed')
+	})
+
+	it('still aborts when the caller gave no reason', () => {
+		const host = new AbortController()
+		const ctx = RunContextFactory.build(buildConfig({ signal: host.signal }))
+
+		host.abort()
+
+		expect(ctx.abortController.signal.aborted).toBe(true)
+	})
 })

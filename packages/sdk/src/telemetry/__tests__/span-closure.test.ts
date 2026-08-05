@@ -1,5 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
+// Imported at module scope on purpose, and must stay there.
+//
+// This was `await import(...)` repeated inside all five test bodies. That
+// billed the tool-registry module graph to whichever test happened to run
+// first, out of that test's own 5000ms deadline — and because every body
+// re-entered the same pending import, a stall did not fail one test, it took
+// the whole file down. At module scope the load happens during collection,
+// which has no per-test deadline.
+//
+// `vi.mock` is hoisted above every import here, so the static form still
+// receives the mocked `runtime-accessors`.
+import { ToolRegistry } from '../../registry/tool/execute.js'
 
 /**
  * A span that never ends is a trace that never closes, and the export is
@@ -73,7 +85,6 @@ afterEach(() => {
 
 describe('a tool span closes however the call leaves', () => {
 	it('closes on the ordinary path', async () => {
-		const { ToolRegistry } = await import('../../registry/tool/execute.js')
 		const tools = new ToolRegistry()
 		tools.register({
 			name: 'echo',
@@ -89,7 +100,6 @@ describe('a tool span closes however the call leaves', () => {
 	})
 
 	it('closes when the tool throws', async () => {
-		const { ToolRegistry } = await import('../../registry/tool/execute.js')
 		const tools = new ToolRegistry()
 		tools.register({
 			name: 'boom',
@@ -106,7 +116,6 @@ describe('a tool span closes however the call leaves', () => {
 	})
 
 	it('closes when input validation refuses the call', async () => {
-		const { ToolRegistry } = await import('../../registry/tool/execute.js')
 		const tools = new ToolRegistry()
 		tools.register({
 			name: 'strict',
@@ -121,7 +130,6 @@ describe('a tool span closes however the call leaves', () => {
 	})
 
 	it('closes when the tool is not active', async () => {
-		const { ToolRegistry } = await import('../../registry/tool/execute.js')
 		const tools = new ToolRegistry()
 		tools.register(
 			{
@@ -139,7 +147,6 @@ describe('a tool span closes however the call leaves', () => {
 	})
 
 	it('closes when the registry does not hold the name at all', async () => {
-		const { ToolRegistry } = await import('../../registry/tool/execute.js')
 		const tools = new ToolRegistry()
 
 		// `getOrThrow` sat OUTSIDE the try that owned the finally, so this
