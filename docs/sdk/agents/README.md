@@ -218,7 +218,7 @@ Current hard requirements:
 
 ### Waiting for a worker, and being told when one finishes
 
-> **Changed in `@namzu/sdk` 7.0.0.** A delegate's output is now framed as
+> **Changed in `@namzu/sdk` 8.0.0.** A delegate's output is now framed as
 > untrusted material on every path the model reads it; the settle hold is
 > derived from the run's own budget instead of a fixed two minutes; an inbox
 > only hears about tasks its own run launched; `background` is offered only
