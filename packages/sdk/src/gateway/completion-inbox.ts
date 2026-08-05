@@ -148,6 +148,23 @@ export class CompletionInbox {
 		return handles
 	}
 
+	/**
+	 * Stop expecting a task that is never going to arrive.
+	 *
+	 * Cancelling is the case this exists for. `expect` puts a task on the
+	 * outstanding list and only a COMPLETION takes it off, so a cancelled
+	 * worker left `hasPendingWork` true for the rest of the run — and every
+	 * attempt to settle then paid the full grace period waiting for a result
+	 * that had been called off.
+	 */
+	forget(taskId: TaskId): void {
+		this.outstanding.delete(taskId)
+		this.unheard.delete(taskId)
+		// Anyone waiting should re-check rather than sit out their deadline
+		// for a task that is no longer coming.
+		for (const wake of [...this.arrivals]) wake()
+	}
+
 	/** Stop listening. Safe to call more than once. */
 	close(): void {
 		this.detach?.()
@@ -172,8 +189,10 @@ const NOTIFICATION_OUTPUT_LIMIT = 4_000
  * five workers this was, and it carries the output, because a notification
  * that only says "done" forces exactly the follow-up call this mechanism
  * exists to remove. Long output is truncated with the task id repeated in
- * the truncation notice, so the full text stays one `agent_task_list` away
- * and the model knows which id to ask for.
+ * the truncation notice, so the full text stays one `wait_for_task` away and
+ * the model knows which id to ask for — that tool takes a `task_id` and
+ * returns immediately for a task that has already finished, where the
+ * listing takes only a state filter and could not have been followed.
  */
 export function formatCompletionNotification(handles: readonly TaskHandle[]): string {
 	const blocks = handles.map((handle) => {
@@ -181,7 +200,11 @@ export function formatCompletionNotification(handles: readonly TaskHandle[]): st
 		const output = handle.result?.result ?? handle.result?.lastError ?? ''
 		const truncated =
 			output.length > NOTIFICATION_OUTPUT_LIMIT
-				? `${output.slice(0, NOTIFICATION_OUTPUT_LIMIT)}\n… truncated. Call agent_task_list with task_id "${handle.taskId}" for the full output.`
+				? // `wait_for_task`, not `agent_task_list` — the listing takes only a
+					// state filter, so an instruction to call it "with task_id" named
+					// a parameter that does not exist and could not be followed. On an
+					// already-finished task the wait returns immediately.
+					`${output.slice(0, NOTIFICATION_OUTPUT_LIMIT)}\n… truncated. Call wait_for_task with task_id "${handle.taskId}" for the full output.`
 				: output
 
 		const lines = [

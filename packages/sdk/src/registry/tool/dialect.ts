@@ -116,10 +116,17 @@ function to2020(value: unknown): unknown {
 			continue
 		}
 		if (key === 'additionalItems') {
-			// Only meaningful alongside an array-form `items`, where 2020-12
-			// calls the same thing `items`. `false` is the default in both
-			// dialects once `prefixItems` is set, so it carries nothing.
-			if (Array.isArray(node.items) && child !== false) out.items = to2020(child)
+			// Only meaningful alongside an array-form `items`, and 2020-12
+			// calls the same thing `items`.
+			//
+			// `false` is carried across, and the first version of this dropped
+			// it on the reasoning that a closed tuple is 2020-12's default. It
+			// is not: with `prefixItems` set and no `items`, elements past the
+			// tuple are UNCONSTRAINED. Dropping the `false` therefore turned a
+			// closed tuple into an open one — a schema the author wrote to
+			// forbid a third element silently began to allow any. The wire
+			// accepts `items: false`, measured, so nothing was gained by it.
+			if (Array.isArray(node.items)) out.items = to2020(child)
 			continue
 		}
 		out[key] = to2020(child)

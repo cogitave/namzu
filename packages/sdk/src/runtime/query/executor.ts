@@ -205,6 +205,8 @@ export class ToolExecutor {
 	private workingStateManager?: WorkingStateManager
 	private probes: ProbeRegistry
 	private parentSpan?: Span
+	/** Set per turn by the orchestrator; see {@link setStepAllowedTools}. */
+	private stepAllowedTools?: readonly string[]
 	private readonly readPaths: Set<string> = new Set()
 	private readonly readFingerprints: Map<string, string> = new Map()
 	private readonly fileReadTracker: FileReadTracker = {
@@ -249,6 +251,21 @@ export class ToolExecutor {
 	 */
 	setParentSpan(span: Span | undefined): void {
 		this.parentSpan = span
+	}
+
+	/**
+	 * Narrow what this turn may call, or clear the narrowing.
+	 *
+	 * Re-set each turn by the orchestrator for the same reason the parent span
+	 * is: `prepareStep` can hand a different list to every step, and the run's
+	 * own `allowedTools` is only the default when a step names none.
+	 *
+	 * Without this the executor could only ever see the RUN-level list, so a
+	 * per-step narrowing reached the request that was sent and nothing else —
+	 * the model was shown fewer tools and could still call all of them.
+	 */
+	setStepAllowedTools(names: readonly string[] | undefined): void {
+		this.stepAllowedTools = names
 	}
 
 	/**
@@ -424,7 +441,10 @@ export class ToolExecutor {
 			},
 			invocationState: this.config.invocationState,
 			toolRegistry: this.config.tools,
-			allowedTools: this.config.allowedTools,
+			// The step's list wins where it has one; the run's is the default.
+			// Same precedence the request already uses when it decides which
+			// schemas to send, so the menu and the kitchen agree.
+			allowedTools: this.stepAllowedTools ?? this.config.allowedTools,
 			sandbox: this.config.sandbox,
 			fileReadTracker: this.fileReadTracker,
 			...(this.parentSpan ? { parentSpan: this.parentSpan } : {}),

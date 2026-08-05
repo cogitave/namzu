@@ -224,6 +224,31 @@ function delegateSchema(agentIds: readonly string[]): z.ZodType<string> {
  */
 const LISTED_RESULT_LIMIT = 2_000
 
+/**
+ * How long a coordinator tool may wait on a delegated agent.
+ *
+ * The executor's own default is two minutes, sized for a file read or a
+ * test run, and its docstring says outright that a tool which legitimately
+ * runs longer declares its own. This one runs an entire agent, and did not.
+ *
+ * Measured on real traffic: three delegated children took 4m21s, 5m58s and
+ * 8m04s; all three parents timed out at 120s. The children were never
+ * killed — only the parent's wait was — so the blocking path was not
+ * occasionally missed, it was structurally unreachable, and the model was
+ * left polling a listing because that was the only move left to it.
+ *
+ * An hour rather than "a bit more than eight minutes" because a generic
+ * stopwatch is the wrong instrument for a child that is making progress:
+ * a failure should come from what the child is doing, not from the clock
+ * the parent happens to be holding. Peer runtimes agree — the ones that
+ * bound a delegated child at all land on an hour, and several impose no
+ * wall-clock bound whatsoever, bounding turns or depth instead.
+ *
+ * A wedged child is still caught, an hour later, and the run budget and
+ * iteration ceiling both still apply above this.
+ */
+export const DELEGATION_TIMEOUT_MS = 60 * 60 * 1000
+
 export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefinition[] {
 	const {
 		gateway,
@@ -249,7 +274,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 
 	const createTask = defineTool({
 		name: 'create_task',
-		description: `Launch a task on a specialized agent. By default this BLOCKS and returns the agent's final output as this call's tool_result; pass background: true to get a task_id back immediately and receive the result later as a task notification. Available agents: ${agentIds.join(', ')}. Prefer compact assignments; for large context, write/read shared workspace files and pass filenames or references. To launch multiple tasks in parallel, call this tool multiple times in a single assistant turn — the runtime executes every tool_use block from one response concurrently and delivers all tool_results together, so 'fan out 8 specialists' is one assistant message with 8 create_task blocks.`,
+		description: `Launch a task on a specialized agent. By default this BLOCKS and returns the agent's final output as this call's tool_result; pass background: true to get a task_id back immediately and receive the result later as a task notification. Available agents: ${agentIds.join(', ')}. Prefer compact assignments; for large context, write/read shared workspace files and pass filenames or references. To launch multiple tasks in parallel, call this tool multiple times in a single assistant turn — the runtime executes every tool_use block from one response concurrently and delivers all tool_results together, so 'fan out 8 specialists' is one assistant message with 8 create_task blocks. Do not race: until a worker's result reaches you, you know nothing about it — never fabricate, summarise or predict what it will say, in any form.`,
 		inputSchema: z.object({
 			agent_id: agentIdEnum.describe('Which agent to run'),
 			prompt: z
@@ -276,14 +301,11 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 		readOnly: false,
 		destructive: false,
 		concurrencySafe: true,
-		// A delegated worker doing real work takes minutes, and the run
-		// default is two. Every expiry past that point produced the state
-		// this change exists to repair — the model told "it may still be
-		// running" with no id, and a finished result nothing could reach.
-		// The notification now recovers that, but not firing at all is
-		// better than recovering well, and `ToolExecutor` reads a tool's own
-		// deadline before the run default precisely so a tool can say this.
-		timeoutMs: 600_000,
+		// See DELEGATION_TIMEOUT_MS. Ten minutes was the first attempt at
+		// this and was still a guess dressed as a measurement — real
+		// children were observed at 8m04s, which it would have survived by
+		// under two minutes.
+		timeoutMs: DELEGATION_TIMEOUT_MS,
 		async execute({ agent_id, prompt, description, plan_task_id, background }, _context) {
 			let resolvedPlanTaskId = plan_task_id
 
@@ -430,6 +452,9 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 		readOnly: false,
 		destructive: false,
 		concurrencySafe: true,
+		// It waits on a child exactly as create_task does, so it inherits
+		// the same bound rather than the file-read default.
+		timeoutMs: DELEGATION_TIMEOUT_MS,
 		async execute({ task_id, message }, _context) {
 			await gateway.continueTask(task_id as TaskId, message)
 			// Mirror create_task's blocking pattern: await the new
@@ -484,10 +509,9 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 		readOnly: true,
 		destructive: false,
 		concurrencySafe: true,
-		// Deliberately longer than the executor's default deadline. A tool
-		// whose entire purpose is to wait should not be cut off for waiting;
-		// `ToolExecutor` reads this before falling back to the run default.
-		timeoutMs: 600_000,
+		// A tool whose entire purpose is to wait must not be cut off for
+		// waiting. Same bound as the launch it is waiting on.
+		timeoutMs: DELEGATION_TIMEOUT_MS,
 		async execute({ task_id }, _context) {
 			const known = gateway.getTask(task_id as TaskId)
 			if (!known) {
@@ -547,6 +571,12 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 		concurrencySafe: true,
 		async execute({ task_id }) {
 			gateway.cancelTask(task_id as TaskId)
+			// Stop holding the run open for it. `expect` put this task on the
+			// inbox's outstanding list at launch and only a completion takes it
+			// off — so without this a cancelled worker kept `hasPendingWork`
+			// true and every attempt to settle paid the full grace period
+			// waiting for a result that had just been called off.
+			completionInbox?.forget(task_id as TaskId)
 			return {
 				success: true,
 				output: `Task ${task_id} cancelled`,
@@ -558,7 +588,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 	const agentTaskList = defineTool({
 		name: 'agent_task_list',
 		description:
-			"Inspect the live state of every agent task launched on this gateway via create_task: returns each task's id, agent, state (pending/running/completed/failed/canceled), and timing. Distinct from the plan-task store's `task_list` (which lists planning tasks): this tool lists running/completed worker invocations. Use it BEFORE declaring multi-worker work done — confirm every launched task reached `completed`, none still `running` or `failed`. Read-only and safe to call repeatedly.",
+			"Inspect the live state of every agent task launched on this gateway via create_task: returns each task's id, agent, state (pending/running/completed/failed/canceled), and timing. Distinct from the plan-task store's `task_list` (which lists planning tasks): this tool lists running/completed worker invocations. Do NOT call this to find out whether work finished: a blocking create_task has already returned each worker's output, and a backgrounded one arrives as a task notification. Use it when you need to see what is still running, or to re-read the output of a task whose launch you stopped waiting for.",
 		inputSchema: z.object({
 			state: z
 				.enum(['pending', 'running', 'completed', 'failed', 'canceled'])

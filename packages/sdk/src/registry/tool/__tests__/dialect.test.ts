@@ -69,16 +69,19 @@ describe('saying a schema in the dialect a wire parses', () => {
 		})
 	})
 
-	it('drops `additionalItems: false`, which both dialects already imply', () => {
-		// Not a lossy shortcut: once `prefixItems` is set, a closed tuple is the
-		// default in 2020-12, so emitting `items: false` would add a byte to
-		// every request to say what was already true.
+	it('keeps a closed tuple closed', () => {
+		// This assertion used to be its own opposite, and the comment under it
+		// was wrong about the dialect: it claimed a closed tuple is 2020-12's
+		// default once `prefixItems` is set. It is not — with no `items`,
+		// elements past the tuple are UNCONSTRAINED. Dropping the `false`
+		// turned a schema written to forbid a third element into one that
+		// allows any, which is a silent widening rather than a saved byte.
 		expect(
 			toSchemaDialect(
 				{ type: 'array', items: [{ type: 'integer' }], additionalItems: false },
 				'2020-12',
 			),
-		).toEqual({ type: 'array', prefixItems: [{ type: 'integer' }] })
+		).toEqual({ type: 'array', prefixItems: [{ type: 'integer' }], items: false })
 	})
 
 	it('ignores `additionalItems` with no tuple to qualify', () => {
