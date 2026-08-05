@@ -410,6 +410,16 @@ export interface QueryParams {
 
 	taskGateway?: import('../../types/agent/gateway.js').TaskGateway
 
+	/**
+	 * Where a worker completion goes when no tool call is waiting for it.
+	 *
+	 * Supplied by whoever built the coordinator tools, because the tools and
+	 * this loop have to share one inbox: the tools claim what they deliver,
+	 * and the loop delivers what is left. Omitted, the loop drains nothing and
+	 * the behaviour is exactly what it was before the inbox existed.
+	 */
+	completionInbox?: import('../../gateway/completion-inbox.js').CompletionInbox
+
 	launchedTasks?: Map<
 		import('../../types/ids/index.js').TaskId,
 		import('./iteration/phases/context.js').LaunchedTaskMeta
@@ -842,6 +852,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		checkpointMgr,
 		planManager: ctx.planManager,
 		taskGateway: params.taskGateway,
+		completionInbox: params.completionInbox,
 		taskStore: params.taskStore,
 		launchedTasks: params.launchedTasks ?? new Map(),
 		// Run-scoped. An approval is a statement about this run's work;
