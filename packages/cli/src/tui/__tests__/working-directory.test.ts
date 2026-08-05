@@ -20,12 +20,9 @@ import type { RunId, ToolContext } from '@namzu/sdk'
 
 import type { DetectedProvider, Preferences } from '../../integrations/providers/index.js'
 
-// The clawtool catalog is a live probe of another process. Nothing here is
+// Nothing here is
 // about it, and an absent daemon costs the load timeout, so it is stubbed to
 // the empty catalog it degrades to anyway.
-vi.mock('../../integrations/clawtool/tooling.js', () => ({
-	loadClawtoolToolDefinitions: vi.fn(async () => []),
-}))
 
 // Only `query` is replaced; everything else the module under test imports —
 // the tool registry, the disk stores, the provider registry the vendor package

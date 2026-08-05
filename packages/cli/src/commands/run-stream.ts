@@ -4,7 +4,7 @@
  * emits one compact NDJSON line per `AgentEvent` to stdout
  * (`{"kind":"delta","text":…}`, `{"kind":"tool-start",…}`,
  * `{"kind":"error","message":…}`, `{"kind":"done"}`). A host process (the
- * clawtool desktop) line-scans stdout and renders the turn live — the
+ * a desktop host) line-scans stdout and renders the turn live — the
  * equivalent of the TUI, driven from another runtime.
  *
  * History: with `--session <key>` the turn is bound to a persisted

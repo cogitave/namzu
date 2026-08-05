@@ -16,8 +16,6 @@ export type SlashAction =
 	| { kind: 'list-skills' }
 	| { kind: 'load-skill'; name: string }
 	| { kind: 'resume' }
-	| { kind: 'list-agents' }
-	| { kind: 'send-peer'; peer: string; text: string }
 	| { kind: 'none' }
 
 export interface SlashContext {
@@ -86,7 +84,7 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'tools',
-		description: 'List tools the agent can call (builtins + clawtool).',
+		description: 'List tools the agent can call.',
 		action: (ctx) => ({
 			kind: 'message',
 			role: 'system',
@@ -115,26 +113,6 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
 		name: 'skills',
 		description: 'List available skills (~/.namzu/skills + ./skills).',
 		action: () => ({ kind: 'list-skills' }),
-	},
-	{
-		name: 'agents',
-		description: 'List namzu sessions running across your terminals (needs `namzu serve`)',
-		action: () => ({ kind: 'list-agents' }),
-	},
-	{
-		name: 'msg',
-		description: 'Message another agent peer: /msg <peer> <text> (peers via /agents)',
-		action: (_ctx, args) => {
-			const peer = (args[0] ?? '').trim()
-			const text = args.slice(1).join(' ').trim()
-			return peer.length === 0 || text.length === 0
-				? {
-						kind: 'message',
-						role: 'system',
-						content: 'Usage: /msg <peer-name-or-id> <text> (list peers with /agents)',
-					}
-				: { kind: 'send-peer', peer, text }
-		},
 	},
 	{
 		name: 'resume',

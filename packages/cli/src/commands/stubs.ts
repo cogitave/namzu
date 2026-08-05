@@ -25,12 +25,22 @@ export const skillsCommand: CommandDef = {
 	handler: stubHandler('M5', 'the skills subsystem'),
 }
 
+/**
+ * Kept as a command rather than deleted, because someone typing it deserves an
+ * answer and "unknown command" is a worse one.
+ *
+ * Its previous answer was the second half of a sentence that no longer has a
+ * first half: it said cross-agent coordination came from an external daemon, so
+ * there was no separate namzu one. That integration is gone, and the honest
+ * replacement is the other claim outright rather than a different name — namzu
+ * has no daemon and no coordination surface today.
+ */
 export const serveCommand: CommandDef = {
 	name: 'serve',
-	description: 'Cross-agent coordination is provided by clawtool (no separate namzu daemon)',
+	description: 'namzu has no daemon; a run is a process',
 	handler: async ({ ctx }) => {
 		ctx.formatter.info(
-			'namzu uses clawtool as its coordination daemon — it registers as a BIAM peer automatically. There is no separate `namzu serve`; just run `namzu`. Use /agents to see peers.',
+			'namzu has no daemon and no cross-agent coordination surface. A run is an ordinary process: start one with `namzu`, or drive the SDK directly from your own service. Nothing needs to be running first.',
 		)
 		return 0
 	},

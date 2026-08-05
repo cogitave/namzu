@@ -1,7 +1,7 @@
 /**
  * First-run / re-pick provider selector.
  *
- * Renders the credentials the discoverer found (env / clawtool secrets /
+ * Renders the credentials the discoverer found (env /
  * local probes) and lets the user pick a primary LLM provider for the
  * TUI's own chat. Keyboard-only. The dispatch path that turns the
  * selection into a live agent session lives in `agent.ts`.
@@ -78,10 +78,6 @@ export function Picker({ detected, currentProvider, onSubmit, onCancel }: Picker
 					</Text>
 					<Text color={theme.text.muted}>
 						{' '}
-						· ~/.config/clawtool/secrets.toml [secrets.*] sections
-					</Text>
-					<Text color={theme.text.muted}>
-						{' '}
 						· local servers (Ollama localhost:11434, LM Studio localhost:1234)
 					</Text>
 				</Box>
@@ -104,7 +100,7 @@ export function Picker({ detected, currentProvider, onSubmit, onCancel }: Picker
 					Choose a provider
 				</Text>
 				<Text color={theme.text.muted}>
-					{detected.length} detected · credentials resolved from env / clawtool / local probes
+					{detected.length} detected · credentials resolved from env / keychain / local probes
 				</Text>
 			</Box>
 			<Box flexDirection="column">
@@ -159,8 +155,6 @@ function describeSource(d: DetectedProvider): string {
 	switch (d.source.kind) {
 		case 'env':
 			return `env · ${d.source.envName}`
-		case 'secrets-toml':
-			return `clawtool · [${d.source.scope}]`
 		case 'probe':
 			return `local · ${d.source.url.replace(/^https?:\/\//, '')}`
 		case 'keychain':

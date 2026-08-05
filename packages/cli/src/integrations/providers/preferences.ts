@@ -6,10 +6,10 @@
  *     "version": 2,
  *     "provider": "anthropic",            // ProviderId
  *     "model": "claude-opus-4-7",         // optional model override
- *     "subagents": { "active": [...] }    // clawtool peer instances reserved for subagent dispatch
+ *     "subagents": { "active": [...] }    // instances reserved for subagent dispatch
  *   }
  *
- * The previous schema (v1) stored a clawtool peer instance as the
+ * The previous schema (v1) stored a peer instance as the
  * default — a different primitive (subagent dispatch, not primary
  * chat). On-disk v1 files trigger a forced re-pick rather than an
  * auto-migration: mapping between the two semantics would surprise

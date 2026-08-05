@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
@@ -7,7 +7,6 @@ import { discoverProviders, findDetected } from './discover.js'
 
 function tmpHome(): string {
 	const home = mkdtempSync(join(tmpdir(), 'namzu-discover-'))
-	mkdirSync(join(home, '.config', 'clawtool'), { recursive: true })
 	return home
 }
 
@@ -62,40 +61,6 @@ describe('discoverProviders — env-var scan', () => {
 		})
 		expect(findDetected(list, 'anthropic')).not.toBeNull()
 		expect(findDetected(list, 'openai')).not.toBeNull()
-	})
-})
-
-describe('discoverProviders — clawtool secrets.toml', () => {
-	it('reads anthropic key from clawtool secrets', async () => {
-		const home = tmpHome()
-		writeFileSync(
-			join(home, '.config', 'clawtool', 'secrets.toml'),
-			'[secrets.work]\nANTHROPIC_API_KEY = "sk-from-toml"\n',
-		)
-		const list = await discoverProviders({ ...HERMETIC, env: {}, home })
-		const anthropic = findDetected(list, 'anthropic')
-		expect(anthropic?.apiKey).toBe('sk-from-toml')
-		if (anthropic?.source.kind === 'secrets-toml') {
-			expect(anthropic.source.scope).toBe('work')
-			expect(anthropic.source.envName).toBe('ANTHROPIC_API_KEY')
-		}
-	})
-
-	it('env var wins over secrets.toml when both present', async () => {
-		const home = tmpHome()
-		writeFileSync(
-			join(home, '.config', 'clawtool', 'secrets.toml'),
-			'[secrets.work]\nANTHROPIC_API_KEY = "from-toml"\n',
-		)
-		const list = await discoverProviders({
-			...HERMETIC,
-			env: { ANTHROPIC_API_KEY: 'from-env' },
-			home,
-		})
-		const anthropic = findDetected(list, 'anthropic')
-		expect(anthropic?.apiKey).toBe('from-env')
-		expect(anthropic?.source.kind).toBe('env')
-		expect(anthropic?.alternatives.length).toBeGreaterThan(0)
 	})
 })
 

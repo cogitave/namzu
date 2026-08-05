@@ -25,7 +25,6 @@ import {
 } from './commands/run-stream.js'
 import { runCommand } from './commands/run.js'
 import { stubCommands } from './commands/stubs.js'
-import { toolsCommand } from './commands/tools.js'
 import type { CommandContext } from './commands/types.js'
 import { loadConfig } from './config/load.js'
 import { EXIT_INTERNAL_ERROR } from './exit-codes.js'
@@ -102,7 +101,6 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		program,
 		[
 			doctorCommand,
-			toolsCommand,
 			providersCommand,
 			runCommand,
 			evalCommand,

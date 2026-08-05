@@ -1,7 +1,7 @@
 /**
  * OAuth token refresh for a discovered subscription credential.
  *
- * The access token discovered from the macOS Keychain (or a clawtool secret)
+ * The access token discovered from the macOS Keychain
  * is short-lived (~8h). When it lapses the provider answers 401 and the
  * agent stream dies. Refreshing proactively against the public OAuth token
  * endpoint, using the long-lived refresh token, renews a stale token before
