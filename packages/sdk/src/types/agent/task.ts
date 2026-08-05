@@ -106,6 +106,11 @@ export interface AgentTask {
 	context: AgentTaskContext
 	state: AgentTaskState
 	result?: BaseAgentResult
+	/**
+	 * **Never populated.** Nothing in the SDK writes task progress.
+	 *
+	 * @deprecated No producer. Removed in the next major.
+	 */
 	progress?: AgentTaskProgress
 
 	/**

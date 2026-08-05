@@ -44,4 +44,19 @@ export const HOOK_TIMEOUT_MS = 5_000
  * can sort itself after.
  */
 export const DEFAULT_HOOK_PRIORITY = 100
+/**
+ * **Nothing reads this.** Hooks run sequentially and always have.
+ *
+ * It reads as a concurrency cap that is in force, which is the misleading
+ * kind of dead: a reviewer sees a bound, assumes hook execution is batched
+ * at ten, and reasons about plugin behaviour that does not exist.
+ *
+ * Kept for one release rather than deleted, because it is reachable from the
+ * published typings. Do not "make it work" by batching hook execution —
+ * ordering is the contract hooks are written against, and parallelising them
+ * to justify a constant would change behaviour to match a number nobody
+ * chose deliberately.
+ *
+ * @deprecated Unused. Removed in the next major.
+ */
 export const HOOK_MAX_CONCURRENT = 10

@@ -31,6 +31,12 @@ export interface ProbeOptions<K extends ProbeEventKind = ProbeEventKind> {
 	readonly where?: (event: ProbeEventOf<K>) => boolean
 	readonly priority?: number
 	readonly name?: string
+	/**
+	 * **Not implemented.** Setting it changes nothing; no probe emits
+	 * telemetry because of it.
+	 *
+	 * @deprecated Unimplemented. Removed in the next major.
+	 */
 	readonly otel?: boolean
 	readonly override?: boolean
 }
