@@ -1,5 +1,90 @@
 # @namzu/cli
 
+## 0.7.1
+
+### Patch Changes
+
+- d088779: A delegated sub-agent joins its parent's trace, and shows the label it was made to write
+
+  Two fixes to the `Agent` tool.
+
+  **The child run started its own root trace.** `createTask` was called without
+  `parentSpan`, so a sub-agent opened a disconnected root and the one structure a
+  delegation trace exists to record — which turn dispatched which child — was the
+  part that went missing. Anyone reading a trace saw N unrelated roots where there
+  was one tree. The kernel already carries the span the whole way (executing
+  tool → `createTask` → child run → child iterations); only the first hop was
+  dropped. It now passes the executing tool's span, matching the SDK coordinator.
+
+  If no span is in scope the key is omitted rather than sent as `undefined`: a
+  top-level run with no parent is correct to start its own root, and inventing a
+  parent would be a different wrong answer.
+
+  **`description` was required and never read.** The schema forced the model to
+  write a short label on every call, and the transcript then rendered a truncated
+  `JSON.stringify` of the raw arguments instead — so a delegation appeared as
+  `{"description":"Audit the auth flow","prompt":"Read every fi…` rather than
+  `Agent(Audit the auth flow)`.
+
+  We now **read it** rather than dropping the requirement. The model already
+  writes a good label, the field costs nothing to keep, and removing it would
+  leave delegations with no honest one-line summary at all — the fallback would
+  still be the blob. `description` is consulted **last**, after `command`, `path`,
+  `file_path`, `pattern` and `query`, so tools that already summarised correctly
+  are unaffected; it only speaks for tools that were falling through to JSON. Two
+  SDK coordinator tools whose `description` is likewise a user-facing label pick
+  up the same improvement.
+
+  Note for anyone verifying the trace fix in a terminal: the CLI registers no
+  telemetry provider by default, so spans are no-ops until `@namzu/telemetry` is
+  installed and a provider registered. The parenting is correct either way; it
+  becomes visible when there is an exporter to see it.
+
+- fff6a69: The context gauge in the status footer reports the context, not the bill
+
+  The `ctx` bar divided **cumulative run spend** by a context window guessed from
+  a substring of the model name. Neither term was the thing it claimed.
+
+  Cumulative spend is monotone by design — it exists so a run can never
+  under-report a bill — and it grows superlinearly in turn count, because every
+  turn re-sends the whole history and counts those prompt tokens again. Ten turns
+  over a 50k context accumulate roughly 500k. So the bar **saturated**: a long
+  conversation read FULL while the real context might be a fifth of the window,
+  and it was most wrong exactly where a user relies on it. People were compacting
+  sessions that had room.
+
+  It now reads the figures the kernel already measures and ships on
+  `token_usage_updated`: `contextTokens` over `contextWindowTokens`. The
+  model-name guess is deleted, so a window is whatever the run actually resolved
+  rather than 200k-or-1M.
+
+  Two things a reader of the bar should know:
+
+  - **A `~` before the percentage means the ratio is inferred, not measured.** It
+    appears when the kernel estimated the prompt size instead of the provider
+    counting it, **and also when the window itself is the assumed default** — an
+    exact count over an invented denominator is still a guess, and marking only
+    the numerator would repeat the original error one level down.
+  - **No bar at all when either term is missing.** Runs that resolve no window
+    report no context figures, and a fraction that cannot be grounded is not an
+    approximation of anything. The token and cost figures still show; only the
+    proportion is withheld.
+
+  Nothing to change on upgrade — no public export moved. The spend figure beside
+  the bar is unchanged and still cumulative.
+
+- Updated dependencies [16dc634]
+- Updated dependencies [16dc634]
+- Updated dependencies [a743c7e]
+- Updated dependencies [529b343]
+- Updated dependencies [e355049]
+- Updated dependencies [16dc634]
+  - @namzu/sdk@9.0.0
+  - @namzu/anthropic@3.1.0
+  - @namzu/ollama@2.0.0
+  - @namzu/openai@1.1.0
+  - @namzu/openrouter@2.0.0
+
 ## 0.7.0
 
 ### Minor Changes
