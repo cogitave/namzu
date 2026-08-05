@@ -945,6 +945,13 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 						id: `step_${i + 1}`,
 						description: step.description,
 						toolName: step.agent_id ? 'create_task' : undefined,
+						// WHICH agent, not just whether there is one. The schema
+						// asks the model to name an agent per step and the answer
+						// was collapsed to the boolean above, so the human
+						// approving the plan saw that a step delegates and never
+						// to whom — at the one moment the difference can still be
+						// acted on.
+						...(step.agent_id ? { agentId: step.agent_id } : {}),
 						// Was `[]` unconditionally, which dropped every ordering
 						// constraint the model was invited to express — and put an
 						// empty dependency list in front of the human approving it.
