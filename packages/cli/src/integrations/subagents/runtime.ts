@@ -176,7 +176,7 @@ export async function createSubagentRuntime(
 		readOnly: false,
 		destructive: false,
 		concurrencySafe: true,
-		async execute(input) {
+		async execute(input, context) {
 			const { prompt, role } = input as { prompt: string; role?: string }
 			let agentId = GENERAL_PURPOSE_SUBAGENT
 			const persona = typeof role === 'string' ? role.trim() : ''
@@ -186,7 +186,17 @@ export async function createSubagentRuntime(
 				registry.register(buildDefinition(agentId, `Dynamic specialist: ${agentId}`, persona, opts))
 			}
 			try {
-				const handle = await gateway.createTask({ agentId, prompt, workingDirectory: opts.cwd })
+				const handle = await gateway.createTask({
+					agentId,
+					prompt,
+					workingDirectory: opts.cwd,
+					// Hang the child run off THIS tool's span, so the delegation
+					// shows up inside the turn that asked for it. Without it a
+					// sub-agent opens its OWN root trace, and the one structure
+					// a delegation trace exists to record — who dispatched whom
+					// — is the thing that goes missing.
+					...(context.parentSpan ? { parentSpan: context.parentSpan } : {}),
+				})
 				const completed = await gateway.waitForTask(handle.taskId)
 				const runStatus = completed.result?.status
 				const succeeded =

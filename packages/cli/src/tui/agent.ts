@@ -969,7 +969,18 @@ function summarizeToolInput(input: unknown): string {
 		const obj = input as Record<string, unknown>
 		const pick = (k: string) => (typeof obj[k] === 'string' ? (obj[k] as string) : undefined)
 		const primary =
-			pick('command') ?? pick('path') ?? pick('file_path') ?? pick('pattern') ?? pick('query')
+			pick('command') ??
+			pick('path') ??
+			pick('file_path') ??
+			pick('pattern') ??
+			pick('query') ??
+			// Last, so it only speaks for a tool none of the above describe.
+			// Those tools were falling through to a truncated `JSON.stringify`
+			// — which is how `Agent` came to show a blob of its own arguments
+			// while requiring the model to write a label nothing then read.
+			// Every input named `description` in this tree is a short
+			// human-facing label, so it is a summary by construction.
+			pick('description')
 		if (primary) return truncate(primary, 120)
 	}
 	if (typeof input === 'string') return truncate(input, 120)

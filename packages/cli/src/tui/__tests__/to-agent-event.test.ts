@@ -163,6 +163,49 @@ describe('the three decline causes get three sentences', () => {
 })
 
 /**
+ * A tool the summary list does not know still gets a label, not a blob.
+ *
+ * `Agent` requires a `description` on its schema — the model writes one every
+ * call — and the summariser picked from a key list that did not include it, so
+ * a delegation was rendered as a truncated `JSON.stringify` of its own
+ * arguments. The label was demanded and then discarded.
+ *
+ * Driven through `toAgentEvent` rather than the summariser directly: the
+ * helper's own behaviour was never in doubt, only whether the caller reaches
+ * it with this input.
+ */
+describe('toAgentEvent labels a delegation with the label it required', () => {
+	const executing = (toolName: string, input: unknown) =>
+		toAgentEvent({ type: 'tool_executing', toolName, toolUseId: 'tu_1', input } as RunEvent)
+
+	it('summarises an Agent call with its description', () => {
+		const mapped = executing('Agent', {
+			description: 'Audit the auth flow',
+			prompt: 'Read every file under src/auth and report risks.',
+			role: 'You are a security auditor',
+		})
+
+		expect(mapped).toMatchObject({ summary: 'Audit the auth flow' })
+	})
+
+	it('does not render the arguments as JSON', () => {
+		const mapped = executing('Agent', { description: 'Audit the auth flow', prompt: 'x' })
+
+		expect((mapped as { summary: string }).summary).not.toContain('{')
+		expect((mapped as { summary: string }).summary).not.toContain('prompt')
+	})
+
+	it('still prefers a more specific field when one exists', () => {
+		// `description` is the LAST fallback. A tool with a real subject keeps
+		// it, so adding this key cannot quietly relabel the tools that already
+		// summarised correctly.
+		const mapped = executing('bash', { command: 'ls -la', description: 'list files' })
+
+		expect(mapped).toMatchObject({ summary: 'ls -la' })
+	})
+})
+
+/**
  * The context figures cross the same seam, and used to stop at it.
  *
  * The kernel measured the context and resolved a window; the status gauge
