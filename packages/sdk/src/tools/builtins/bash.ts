@@ -22,6 +22,25 @@ const DEFAULT_BASH_MAX_BUFFER_BYTES = readPositiveIntEnv(
 	100 * 1024 * 1024,
 )
 
+/**
+ * The longest deadline this tool will accept from the model.
+ *
+ * There are two clocks on a bash call and until now only one of them was
+ * declared. This tool enforces `input.timeout` itself; the EXECUTOR enforces
+ * a separate per-tool deadline, and with none declared here it fell back to
+ * its own generic default — also two minutes. The two agreed by coincidence,
+ * so a model that asked for five minutes because it knew the build was slow
+ * got two, from a clock it had not been told about, reported as an abandoned
+ * tool rather than as a command that ran out of time.
+ *
+ * So the tool declares a ceiling and the executor is given a deadline above
+ * it (see `timeoutMs` on the definition), which makes this the only clock
+ * that can fire in practice. A request past the ceiling is REFUSED rather
+ * than quietly clamped: the model asked for something specific, and silently
+ * giving it a different number is how it learns to distrust the answer.
+ */
+const MAX_BASH_TIMEOUT_MS = readPositiveIntEnv('NAMZU_BASH_MAX_TIMEOUT_MS', 10 * 60 * 1000)
+
 const inputSchema = z.object({
 	command: z
 		.string()
@@ -32,9 +51,11 @@ const inputSchema = z.object({
 	timeout: z
 		.preprocess(
 			(v) => (typeof v === 'string' ? Number(v) : v),
-			z.number().default(DEFAULT_BASH_TIMEOUT_MS),
+			z.number().positive().max(MAX_BASH_TIMEOUT_MS).default(DEFAULT_BASH_TIMEOUT_MS),
 		)
-		.describe(`Command timeout in milliseconds. Default: ${DEFAULT_BASH_TIMEOUT_MS}`),
+		.describe(
+			`Command timeout in milliseconds. Default: ${DEFAULT_BASH_TIMEOUT_MS}, maximum: ${MAX_BASH_TIMEOUT_MS}. For work that legitimately runs longer than the maximum, start it in the background and poll, rather than holding the turn open.`,
+		),
 })
 
 type BashInput = z.infer<typeof inputSchema>
@@ -53,6 +74,12 @@ export const BashTool = defineTool({
 	readOnly: false,
 	destructive: (input: BashInput) => isDangerousCommand(input.command),
 	concurrencySafe: false,
+	// Above the ceiling the input schema accepts, so the executor's deadline
+	// is a backstop rather than a second clock racing this tool's own. It used
+	// to be undefined, which meant the executor's generic default applied —
+	// the same two minutes as this tool's DEFAULT, so they agreed by accident
+	// and diverged the moment a model asked for longer.
+	timeoutMs: MAX_BASH_TIMEOUT_MS + 30_000,
 
 	async execute(input, context) {
 		if (isDangerousCommand(input.command)) {
@@ -133,25 +160,80 @@ export const BashTool = defineTool({
 		// a Stop tore down the model stream and left the command running,
 		// and the executor's deadline could only ever DETACH from the tool
 		// rather than end the work it started.
-		const { stdout, stderr } = await execAsync(input.command, {
-			cwd: context.workingDirectory,
-			timeout: input.timeout,
-			env: { ...process.env, ...context.env },
-			maxBuffer: DEFAULT_BASH_MAX_BUFFER_BYTES,
-			signal: context.abortSignal,
-		})
+		// `exec` REJECTS on a non-zero exit, on its own timeout, and on a
+		// kill — and the rejection carries `stdout`, `stderr`, `code` and
+		// `killed`. Letting it propagate threw all of that away: the registry
+		// turned the throw into a structured failure, so the model was told a
+		// command failed and not one word about how.
+		//
+		// That is the common case, not an edge one. A failing test run and a
+		// failing build are the two things an agent runs bash for most, and
+		// both exit non-zero WITH the output that explains why. The sandbox
+		// branch above already reports all of it; this branch did not, so the
+		// same command told the model two different amounts depending on where
+		// it happened to run.
+		try {
+			const { stdout, stderr } = await execAsync(input.command, {
+				cwd: context.workingDirectory,
+				timeout: input.timeout,
+				env: { ...process.env, ...context.env },
+				maxBuffer: DEFAULT_BASH_MAX_BUFFER_BYTES,
+				signal: context.abortSignal,
+			})
 
-		const output = [stdout ? `STDOUT:\n${stdout}` : '', stderr ? `STDERR:\n${stderr}` : '']
-			.filter(Boolean)
-			.join('\n\n')
+			return {
+				success: true,
+				output: formatShellOutput(stdout, stderr) || '(no output)',
+				data: { exitCode: 0 },
+			}
+		} catch (err) {
+			const failure = err as NodeJS.ErrnoException & {
+				stdout?: string
+				stderr?: string
+				code?: number | string
+				killed?: boolean
+				signal?: string
+			}
 
-		return {
-			success: true,
-			output: output || '(no output)',
-			data: { exitCode: 0 },
+			// A caller-owned Stop is the caller's, not a command failure.
+			if (context.abortSignal?.aborted) throw err
+
+			// `exec` reports its own timeout as a kill, and the distinction
+			// matters to the model: "ran out of time" is a different next move
+			// from "exited 1".
+			const timedOut = failure.killed === true && failure.signal === 'SIGTERM'
+			const exitCode = typeof failure.code === 'number' ? failure.code : undefined
+			const output = formatShellOutput(failure.stdout, failure.stderr)
+
+			return {
+				success: false,
+				output: output || '(no output)',
+				data: {
+					...(exitCode !== undefined ? { exitCode } : {}),
+					timedOut,
+					...(failure.signal ? { signal: failure.signal } : {}),
+				},
+				error: timedOut
+					? `Command timed out after ${input.timeout}ms. Any output it produced before the deadline is above.`
+					: exitCode !== undefined
+						? `Command exited with code ${exitCode}`
+						: `Command failed: ${failure.message}`,
+			}
 		}
 	},
 })
+
+/**
+ * The two streams, labelled, with empty ones left out.
+ *
+ * Shared by the success and failure paths so a command tells the model the
+ * same shape either way — the failure path used to tell it nothing at all.
+ */
+function formatShellOutput(stdout: string | undefined, stderr: string | undefined): string {
+	return [stdout ? `STDOUT:\n${stdout}` : '', stderr ? `STDERR:\n${stderr}` : '']
+		.filter(Boolean)
+		.join('\n\n')
+}
 
 function readPositiveIntEnv(key: string, fallback: number): number {
 	const value = process.env[key]?.trim()
