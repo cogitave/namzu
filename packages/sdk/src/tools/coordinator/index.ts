@@ -571,6 +571,12 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 		concurrencySafe: true,
 		async execute({ task_id }) {
 			gateway.cancelTask(task_id as TaskId)
+			// Stop holding the run open for it. `expect` put this task on the
+			// inbox's outstanding list at launch and only a completion takes it
+			// off — so without this a cancelled worker kept `hasPendingWork`
+			// true and every attempt to settle paid the full grace period
+			// waiting for a result that had just been called off.
+			completionInbox?.forget(task_id as TaskId)
 			return {
 				success: true,
 				output: `Task ${task_id} cancelled`,

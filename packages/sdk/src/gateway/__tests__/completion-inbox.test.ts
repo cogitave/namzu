@@ -153,6 +153,106 @@ describe('a completion the tool already delivered is never delivered twice', () 
 	})
 })
 
+describe('a launch nobody is waiting for holds the run open', () => {
+	it('counts an expected task as pending work before it settles', () => {
+		// Without this the run settles while a background worker is still
+		// going and discards the result the launch existed to produce.
+		const { gateway } = fakeGateway()
+		const inbox = new CompletionInbox()
+		inbox.attach(gateway)
+
+		expect(inbox.hasPendingWork).toBe(false)
+		inbox.expect('tsk_1' as TaskId)
+		expect(inbox.hasPendingWork).toBe(true)
+	})
+
+	it('stops counting it once it settles', () => {
+		const { gateway, settle } = fakeGateway()
+		const inbox = new CompletionInbox()
+		inbox.attach(gateway)
+		inbox.expect('tsk_1' as TaskId)
+
+		settle(handleFor('tsk_1', 'done'))
+
+		// Still pending — as an UNHEARD completion now rather than an
+		// outstanding one, which is what the loop drains.
+		expect(inbox.hasPendingWork).toBe(true)
+		inbox.drain()
+		expect(inbox.hasPendingWork).toBe(false)
+	})
+
+	it('ignores a task already delivered inline', () => {
+		const { gateway } = fakeGateway()
+		const inbox = new CompletionInbox()
+		inbox.attach(gateway)
+
+		inbox.claim('tsk_1' as TaskId)
+		inbox.expect('tsk_1' as TaskId)
+
+		expect(inbox.hasPendingWork).toBe(false)
+	})
+
+	it('stops expecting a task that was cancelled', () => {
+		// `expect` is only cleared by a COMPLETION, so a cancelled worker used
+		// to keep the run open for the whole grace period, every time it tried
+		// to settle, waiting for a result that had been called off.
+		const { gateway } = fakeGateway()
+		const inbox = new CompletionInbox()
+		inbox.attach(gateway)
+		inbox.expect('tsk_1' as TaskId)
+
+		inbox.forget('tsk_1' as TaskId)
+
+		expect(inbox.hasPendingWork).toBe(false)
+	})
+
+	it('waits for an arrival and returns as soon as one lands', async () => {
+		const { gateway, settle } = fakeGateway()
+		const inbox = new CompletionInbox()
+		inbox.attach(gateway)
+		inbox.expect('tsk_1' as TaskId)
+
+		const waited = inbox.waitForArrival(5_000)
+		settle(handleFor('tsk_1', 'done'))
+		await waited
+
+		expect(inbox.drain().map((h) => h.taskId)).toEqual(['tsk_1'])
+	})
+
+	it('does not wait at all when there is nothing outstanding', async () => {
+		const { gateway } = fakeGateway()
+		const inbox = new CompletionInbox()
+		inbox.attach(gateway)
+
+		// A deadline this long would hang the suite if it were honoured.
+		await inbox.waitForArrival(600_000)
+	})
+
+	it('gives up at the deadline rather than holding a run forever', async () => {
+		// The bound is the point: a worker that never finishes must not keep
+		// the run open indefinitely.
+		const { gateway } = fakeGateway()
+		const inbox = new CompletionInbox()
+		inbox.attach(gateway)
+		inbox.expect('tsk_never' as TaskId)
+
+		await inbox.waitForArrival(10)
+
+		expect(inbox.hasPendingWork).toBe(true)
+	})
+
+	it('releases a waiter when the inbox closes', async () => {
+		const { gateway } = fakeGateway()
+		const inbox = new CompletionInbox()
+		inbox.attach(gateway)
+		inbox.expect('tsk_1' as TaskId)
+
+		const waited = inbox.waitForArrival(600_000)
+		inbox.close()
+		await waited
+	})
+})
+
 describe('the notification says which task and what it produced', () => {
 	it('carries the id, the agent, the state and the output', () => {
 		// All four matter. Without the id the supervisor cannot say which of
@@ -173,7 +273,7 @@ describe('the notification says which task and what it produced', () => {
 		expect(text).toContain('truncated')
 		// The id is repeated in the truncation notice, so the follow-up call
 		// does not require scrolling back up through 4 kB of output.
-		expect(text).toContain('agent_task_list with task_id "tsk_42"')
+		expect(text).toContain('wait_for_task with task_id "tsk_42"')
 		expect(text.length).toBeLessThan(4_500)
 	})
 
