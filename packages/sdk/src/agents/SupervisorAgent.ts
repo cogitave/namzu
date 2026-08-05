@@ -191,6 +191,11 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 			workingDirectory: input.workingDirectory,
 			runtimeContext: input.runtimeContext,
 			allowedAgentIds: config.agentIds,
+			// The only hop between the config and the decision. Omit it and
+			// everything still compiles: the field is settable, documented, and
+			// read by nothing — which is the shape of a declaration this repo
+			// has had to go and delete before.
+			allowDelegation: config.allowDelegation,
 			taskStore: input.taskStore,
 			runId,
 			getPlanManager: () => planManagerRef,

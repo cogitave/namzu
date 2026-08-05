@@ -192,6 +192,29 @@ describe('a launch nobody is waiting for holds the run open', () => {
 		expect(inbox.hasPendingWork).toBe(false)
 	})
 
+	it('keeps a result that already arrived, even when the task is cancelled', () => {
+		// The window: a worker finishes, its completion is queued for the next
+		// drain, and the model — told nothing yet, and reading a tool that says
+		// it cancels a RUNNING task — cancels it. Clearing the queue here threw
+		// away work that was done and output that existed nowhere else.
+		//
+		// `forget` is about pending work. A finished result is not pending work.
+		const { gateway, settle } = fakeGateway()
+		const inbox = new CompletionInbox()
+		inbox.attach(gateway)
+		inbox.expect('tsk_1' as TaskId)
+
+		settle(handleFor('tsk_1', 'the worker finished before the cancel landed'))
+		inbox.forget('tsk_1' as TaskId)
+
+		const drained = inbox.drain()
+		expect(
+			drained.map((h) => h.taskId),
+			'the finished result was discarded',
+		).toEqual(['tsk_1'])
+		expect(drained[0]?.result?.result).toBe('the worker finished before the cancel landed')
+	})
+
 	it('stops expecting a task that was cancelled', () => {
 		// `expect` is only cleared by a COMPLETION, so a cancelled worker used
 		// to keep the run open for the whole grace period, every time it tried

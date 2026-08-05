@@ -159,9 +159,23 @@ export class CompletionInbox {
 	 */
 	forget(taskId: TaskId): void {
 		this.outstanding.delete(taskId)
-		this.unheard.delete(taskId)
-		// Anyone waiting should re-check rather than sit out their deadline
-		// for a task that is no longer coming.
+		// `unheard` is deliberately NOT touched.
+		//
+		// The two sets mean different things. `outstanding` is pending WORK,
+		// and cancelling is exactly the statement that it should stop being
+		// waited for. `unheard` is a RESULT that already exists — the worker
+		// finished, the completion arrived, and it is queued for the next
+		// drain. Clearing it here destroyed that.
+		//
+		// The window is small and entirely reachable: nothing has told the
+		// model the worker finished, and `cancel_task` says it cancels a
+		// running task, so cancelling one that has just completed is the
+		// obvious move rather than a mistake. The run then reports "cancelled"
+		// over work that was done and output that no longer exists anywhere.
+		//
+		// Note the asymmetry with `claim`, which does clear `unheard` — and is
+		// right to, because there a tool has just handed the model the same
+		// result. This one hands over nothing.
 		for (const wake of [...this.arrivals]) wake()
 	}
 

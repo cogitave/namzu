@@ -34,6 +34,16 @@ export interface CoordinatorToolsOptions {
 	runtimeContext?: AgentRuntimeContext
 	allowedAgentIds: string[]
 
+	/**
+	 * May this run delegate at all? Defaults to true.
+	 *
+	 * Same field, same name, as SupervisorAgentConfig.allowDelegation — the
+	 * name is kept identical deliberately. This options bag already renames
+	 * agentIds to allowedAgentIds, and a second rename on the road between
+	 * the config and the decision would make the road untraceable.
+	 */
+	allowDelegation?: boolean
+
 	taskStore?: TaskStore
 
 	runId?: RunId
@@ -253,6 +263,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 	const {
 		gateway,
 		allowedAgentIds: agentIds,
+		allowDelegation,
 		taskStore,
 		runId,
 		getPlanManager,
@@ -715,8 +726,24 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 	// had to invent something to say — and one that would not do that was left
 	// calling `agent_task_list` in a sleep loop. That was never the model
 	// misbehaving; it was the only move available.
-	const tools: ToolDefinition[] =
-		agentIds.length > 0 ? [createTask, waitForTaskTool, cancelTask, agentTaskList] : [agentTaskList]
+	// Two independent reasons not to mount the delegation surface, and the
+	// second one is not derivable from the first.
+	//
+	// An empty roster answers WHO may be called: nobody, so the tools have
+	// nothing to act on. `allowDelegation: false` answers WHETHER this run may
+	// call anyone, which a non-empty roster cannot settle — a host that runs a
+	// specialist by putting its persona into the supervisor shell and its id
+	// into the roster has a list of one and must still delegate to nobody.
+	// From inside this function that run is indistinguishable from a
+	// supervisor whose roster happens to hold a single specialist, so the
+	// caller states the fact rather than the SDK guessing it.
+	//
+	// `!== false` rather than truthiness, so an absent flag keeps today's
+	// behaviour exactly.
+	const canDelegate = agentIds.length > 0 && allowDelegation !== false
+	const tools: ToolDefinition[] = canDelegate
+		? [createTask, waitForTaskTool, cancelTask, agentTaskList]
+		: [agentTaskList]
 
 	if (getPlanManager) {
 		const approvePlan = defineTool({
