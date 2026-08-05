@@ -39,6 +39,8 @@ export class LocalTaskGateway implements TaskGateway {
 	private settledHandles: Map<TaskId, TaskHandle> = new Map()
 
 	private siblingFailurePolicy: SiblingFailurePolicy = 'continue'
+	/** See {@link onTaskProgress}. */
+	private readonly progressListeners = new Set<(taskId: TaskId) => void>()
 
 	constructor(
 		agentManager: AgentManagerContract,
@@ -86,7 +88,15 @@ export class LocalTaskGateway implements TaskGateway {
 			// allocated `maxBudgetFraction` of the SAME number — N x 50% of a
 			// budget that only had 100% in it.
 			this.taskContext,
-			this.listener,
+			// The host's listener still sees everything it always did; this
+			// only tees off the fact that SOMETHING happened, which is what an
+			// idle bound measures. The event itself is not forwarded — a
+			// progress signal that carried the child's output would be a
+			// second, undocumented way to read a worker's work.
+			(event) => {
+				this.listener?.(event)
+				for (const notify of this.progressListeners) notify(task.taskId)
+			},
 		)
 
 		this.trackedTaskIds.add(task.taskId)
@@ -206,6 +216,21 @@ export class LocalTaskGateway implements TaskGateway {
 			if (settled) handles.push(settled)
 		}
 		return handles
+	}
+
+	/**
+	 * Every event a child emits, reduced to "this one is still alive".
+	 *
+	 * Deliberately just the id. A caller that wanted the event itself has
+	 * the run listener; what an idle clock needs is the fact, and passing
+	 * the payload here would make this a second way to read a worker's
+	 * output — one nobody documented and nothing frames as untrusted.
+	 */
+	onTaskProgress(callback: (taskId: TaskId) => void): () => void {
+		this.progressListeners.add(callback)
+		return () => {
+			this.progressListeners.delete(callback)
+		}
 	}
 
 	onTaskCompleted(callback: (handle: TaskHandle) => void): () => void {

@@ -57,4 +57,28 @@ export interface TaskGateway {
 	listTasks(): TaskHandle[]
 
 	onTaskCompleted(callback: (handle: TaskHandle) => void): () => void
+
+	/**
+	 * Tell me when a task does something, not just when it finishes.
+	 *
+	 * This is what an idle bound is measured against. A wall clock says
+	 * nothing about whether a worker is working: an hour is long enough to
+	 * be useless as a stall detector, and short enough to kill a child that
+	 * is making steady progress at minute fifty-nine. Time-without-progress
+	 * is the quantity that separates "stuck" from "slow", and only the
+	 * gateway can see it.
+	 *
+	 * OPTIONAL, and the absence is meaningful rather than an oversight: a
+	 * gateway that cannot observe its children still works, and its waits
+	 * are bounded by the wall clock alone — which is exactly the behaviour
+	 * before this existed. It is optional because `TaskGateway` is
+	 * implemented by hosts, and a required method would break every one of
+	 * them for a capability not all of them can provide.
+	 *
+	 * Anything the worker did counts: a tool call, an emitted token, a state
+	 * change. What must NOT count is the supervisor's own activity — the
+	 * point is to notice a child that has gone quiet, and a parent polling
+	 * about it is not the child speaking.
+	 */
+	onTaskProgress?(callback: (taskId: TaskId) => void): () => void
 }

@@ -11,6 +11,7 @@ import type { ToolDefinition } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
 import { wrapUntrusted } from '../untrusted-envelope.js'
 import { resolvePlanDependencies } from './plan-dependencies.js'
+import { describeWaitTimeout, waitForTaskWithBounds } from './wait-with-idle-bound.js'
 
 export type TaskLaunchedCallback = (
 	agentTaskId: TaskId,
@@ -259,6 +260,33 @@ const LISTED_RESULT_LIMIT = 2_000
  */
 export const DELEGATION_TIMEOUT_MS = 60 * 60 * 1000
 
+/**
+ * How long a delegated worker may say nothing before the wait gives up.
+ *
+ * The hour above answers "how long is too long". It cannot also answer
+ * "how quiet is too quiet", because it has to be generous enough for a
+ * child doing real work — which makes it useless as a stall detector. A
+ * worker wedged in its second minute held the supervisor for another
+ * fifty-eight under that number alone.
+ *
+ * Five minutes of silence, because a worker between tool calls can be
+ * quiet for a while legitimately — a long model turn emits nothing until
+ * it starts streaming — and the cost of guessing low is killing a wait on
+ * a worker that was fine. Guessing high only delays a diagnosis. Set
+ * `NAMZU_DELEGATION_IDLE_MS` to change it.
+ *
+ * Only armed when the gateway can report progress at all; see
+ * `TaskGateway.onTaskProgress`.
+ */
+export const DELEGATION_IDLE_MS = readPositiveIntEnv('NAMZU_DELEGATION_IDLE_MS', 5 * 60 * 1000)
+
+function readPositiveIntEnv(key: string, fallback: number): number {
+	const value = process.env[key]?.trim()
+	if (!value) return fallback
+	const parsed = Number(value)
+	return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback
+}
+
 export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefinition[] {
 	const {
 		gateway,
@@ -379,7 +407,23 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 			// assistant turn, the runtime runs them together and delivers all
 			// N `tool_result`s at once. No second `tool_result` for the
 			// same `tool_use_id` — providers reject a duplicated id outright.
-			const completed = await gateway.waitForTask(handle.taskId)
+			// Bounded by two clocks rather than one. The wait gives up on a
+			// worker that has gone quiet long before the hour is out, and says
+			// which of the two ran out — the caller acts on that difference.
+			// Giving up does NOT cancel the child: it keeps going, and its
+			// result still reaches the supervisor as a notification.
+			const outcome = await waitForTaskWithBounds(gateway, handle.taskId, {
+				runMs: DELEGATION_TIMEOUT_MS,
+				idleMs: DELEGATION_IDLE_MS,
+			})
+			if (outcome.kind === 'timeout') {
+				return {
+					success: false,
+					output: describeWaitTimeout(outcome),
+					data: { task_id: handle.taskId, agent_id, timed_out: outcome.cause },
+				}
+			}
+			const completed = outcome.handle
 
 			// Whether this call is still the live path decides who delivers the
 			// result. If the executor already gave up on us — its deadline
@@ -450,55 +494,6 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 		},
 	})
 
-	const continueTask = defineTool({
-		name: 'continue_task',
-		description:
-			"Send a follow-up message to a previously completed task and await the agent's next reply. BLOCKING: returns the agent's new output as this call's tool_result, the same shape as create_task. Only use this with a task_id from a previous create_task. To run multiple follow-ups in parallel, call this tool multiple times in a single assistant turn.",
-		inputSchema: z.object({
-			task_id: z.string().describe('Agent task ID from a previous create_task'),
-			message: z.string().describe('Follow-up instruction for the agent'),
-		}),
-		category: 'custom',
-		permissions: [],
-		readOnly: false,
-		destructive: false,
-		concurrencySafe: true,
-		// It waits on a child exactly as create_task does, so it inherits
-		// the same bound rather than the file-read default.
-		timeoutMs: DELEGATION_TIMEOUT_MS,
-		async execute({ task_id, message }, _context) {
-			await gateway.continueTask(task_id as TaskId, message)
-			// Mirror create_task's blocking pattern: await the new
-			// completion and return the agent's output inline. The
-			// previous non-blocking shape ('You will receive a
-			// task-notification…') relied on a global
-			// onTaskCompleted listener that the iteration loop
-			// no longer registers (envelope path is dead).
-			const completed = await gateway.waitForTask(task_id as TaskId)
-			// Same reasoning as create_task: the model already has a timeout
-			// for this call, so leaving the completion unclaimed is what sends
-			// it to the transcript as a notification.
-			if (_context.abortSignal?.aborted) {
-				return {
-					success: false,
-					output: `This wait was abandoned before task ${task_id} finished; its result will arrive separately as a task notification.`,
-					data: { task_id, abandoned: true },
-				}
-			}
-			completionInbox?.claim(task_id as TaskId)
-			const success = completed.state === 'completed'
-			const resultText =
-				completed.result?.result ??
-				completed.result?.lastError ??
-				`Task finished with state: ${completed.state}`
-			return {
-				success,
-				output: resultText,
-				data: { task_id, state: completed.state },
-			}
-		},
-	})
-
 	/**
 	 * Join a task already running, without sending it anything.
 	 *
@@ -533,7 +528,18 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 				}
 			}
 
-			const completed = await gateway.waitForTask(task_id as TaskId)
+			const outcome = await waitForTaskWithBounds(gateway, task_id as TaskId, {
+				runMs: DELEGATION_TIMEOUT_MS,
+				idleMs: DELEGATION_IDLE_MS,
+			})
+			if (outcome.kind === 'timeout') {
+				return {
+					success: false,
+					output: describeWaitTimeout(outcome),
+					data: { task_id, timed_out: outcome.cause },
+				}
+			}
+			const completed = outcome.handle
 			if (_context.abortSignal?.aborted) {
 				return {
 					success: false,
@@ -675,18 +681,32 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 		},
 	})
 
-	// `continue_task` was a follow-up channel for a still-alive worker
-	// task. With `create_task` now blocking + tool_result returning
-	// the worker's final output, every worker reaches a terminal
-	// state by the time the supervisor wants to follow up — and the
-	// agent manager rejects `continue` on terminal tasks. The
-	// industrial pattern is to issue a fresh `create_task` that
-	// references the prior worker's output path, so we drop
-	// `continue_task` from the registered surface entirely. The
-	// definition stays in this file for now in case a future
-	// non-default gateway (one that keeps the worker process alive
-	// for follow-ups) wants to re-register it.
-	void continueTask
+	// `continue_task` is gone, and the reasoning is worth keeping because
+	// the obvious argument for bringing it back does not survive contact.
+	//
+	// It was dropped on the grounds that a blocking `create_task` leaves every
+	// worker terminal before a later turn learns its id, and the manager
+	// refuses `continue` on a terminal task. `background: true` reinstated that
+	// precondition — a live id is reachable now — so the question was reopened.
+	//
+	// Measured rather than assumed, and it fails on the other side. On a LIVE
+	// task the manager accepts the call and pushes onto `pendingMessages`,
+	// and NOTHING drains that queue during a run. This codebase already
+	// knows: `runtime/query/steering.ts` says in as many words that
+	// `queueMessage`/`drainMessages` were never read by the iteration loop,
+	// and `SteeringChannel` exists BECAUSE of that — it delivers guidance on a
+	// tool result instead, since a `tool_use` must be answered by a
+	// `tool_result` with the same id and there is no legal slot for a user
+	// message mid-batch.
+	//
+	// So the tool had no state it worked in: terminal tasks refuse it, live
+	// tasks accept it into a queue nobody reads. Registering it would have
+	// handed the model a call that silently does nothing — worse than the
+	// unregistered definition it replaced, because a defined-but-unreachable
+	// tool at least cannot be called.
+	//
+	// If follow-ups on a live worker are wanted, the work is a consumer for
+	// the queue or a steering channel that reaches a child, not this tool.
 	// `cancel_task` is registered again, and the reasoning that dropped it is
 	// worth keeping because it was sound at the time and is not any more.
 	//
