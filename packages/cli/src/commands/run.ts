@@ -21,6 +21,7 @@ import type { StopReason } from '@namzu/sdk'
 
 import { EXIT_USAGE } from '../exit-codes.js'
 import type { DetectedProvider, Preferences, ProviderId } from '../integrations/providers/index.js'
+import { resolvePermissionMode } from '../permissions/mode.js'
 import { compilePermissions } from '../permissions/rules.js'
 import {
 	loadSkillsContext,
@@ -122,11 +123,15 @@ export const runCommand: CommandDef = {
 		'  --provider <id>       Provider to answer with',
 		'  --model <id>          Model to answer with',
 		'  --skills <a,b,c>      Load these skills as context for the turn',
+		'  --permission-mode <m> prompt | auto | strict — what happens to a call',
+		'                        no [permissions] rule decided (default: auto)',
 		'  --                    End of options; the rest is the prompt verbatim',
 		'',
-		'Tools run without asking, because there is nobody to ask — the safety',
-		'gate still refuses catastrophic commands. `--yolo` is accepted and does',
-		'nothing here for the same reason.',
+		'By default tools run without asking, because there is nobody to ask, and',
+		'the safety gate still refuses catastrophic commands. Use --permission-mode',
+		'strict for an unattended run that must refuse anything no rule allowed.',
+		'',
+		'A mode only decides calls no rule decided: it can never reopen a deny.',
 		'',
 		'Needs a provider. Set a credential in the environment, or run namzu',
 		'once to pick one interactively.',
@@ -180,6 +185,18 @@ export const runCommand: CommandDef = {
 		// A permission the operator wrote and which was silently dropped is the
 		// worst outcome available here: they believe a control is in force and it
 		// is not. So a bad line is reported and the rest still load.
+		const modeResult = resolvePermissionMode({
+			flag: flags.permissionMode,
+			skipPermissions: flags.skipPermissions,
+			// A headless run has nobody to ask, so `prompt` here would silently
+			// become `auto`. Resolving it as `auto` says so instead.
+			interactive: false,
+		})
+		if ('error' in modeResult) {
+			ctx.formatter.error({ message: modeResult.error })
+			return EXIT_USAGE
+		}
+
 		const permissions = compilePermissions(ctx.config.permissions)
 		for (const d of permissions.diagnostics) {
 			const where = d.pattern ? `permissions.${d.tool}."${d.pattern}"` : `permissions.${d.tool}`
@@ -189,6 +206,7 @@ export const runCommand: CommandDef = {
 		const session = await createAgentSession(prefs, probe.detected, {
 			cwd: resolved.cwd,
 			rules: permissions.rules,
+			permissionMode: modeResult.mode,
 		})
 		if (!session.hasProvider) {
 			ctx.formatter.error({ message: session.errorHint ?? 'agent is not ready' })

@@ -63,6 +63,7 @@ import {
 } from '../integrations/providers/index.js'
 import { createSubagentRuntime } from '../integrations/subagents/runtime.js'
 import { composeMemoryPrompt, readMemory } from '../memory/store.js'
+import type { PermissionMode } from '../permissions/mode.js'
 
 export type AgentEvent =
 	| { readonly kind: 'delta'; readonly text: string }
@@ -264,6 +265,8 @@ export interface AgentSessionOptions {
 	 * That stays the behaviour for anyone who writes no config.
 	 */
 	readonly rules?: readonly VerificationRule[]
+	/** How calls no rule decided are resolved. Defaults to prompt/auto by TTY. */
+	readonly permissionMode?: PermissionMode
 }
 
 export async function createAgentSession(
@@ -411,6 +414,7 @@ export async function createAgentSession(
 				scope,
 				workingDirectory: cwd,
 				rules: options.rules,
+				permissionMode: options.permissionMode,
 				approval,
 				taskStore,
 				systemPrompt,
@@ -595,6 +599,7 @@ interface RunTurnParams {
 	readonly workingDirectory: string
 	/** Operator rules for this run, already compiled. */
 	readonly rules: readonly VerificationRule[] | undefined
+	readonly permissionMode: PermissionMode | undefined
 	readonly approval: { all: boolean }
 	readonly taskStore: TaskStore
 	readonly systemPrompt: string | undefined
@@ -611,6 +616,7 @@ async function* runTurn({
 	scope,
 	workingDirectory,
 	rules,
+	permissionMode,
 	approval,
 	taskStore,
 	systemPrompt,
@@ -645,7 +651,7 @@ async function* runTurn({
 			...(systemPrompt ? { systemPrompt } : {}),
 			messages: [...messages],
 			workingDirectory,
-			resumeHandler: makeResumeHandler(approval, opts?.onPermission),
+			resumeHandler: makeResumeHandler(approval, opts?.onPermission, permissionMode),
 			signal,
 			...scope,
 		})
@@ -691,12 +697,28 @@ async function* runTurn({
 export function makeResumeHandler(
 	approval: { all: boolean },
 	onPermission: PermissionFn | undefined,
+	mode: PermissionMode = onPermission ? 'prompt' : 'auto',
 ): ResumeHandler {
 	return async (request): Promise<HITLResumeDecision> => {
 		if (request.type !== 'tool_review') {
 			return request.type === 'plan_approval' ? { action: 'approve_plan' } : { action: 'continue' }
 		}
-		if (!onPermission || approval.all || !batchNeedsPrompt(request.toolCalls)) {
+		// Only calls the gate routed to REVIEW arrive here — a rule that denied
+		// one already stopped it, and a rule that allowed one never asked. So the
+		// mode decides what happens to the undecided, and cannot reopen anything
+		// a rule closed. That is the whole precedence story between a flag and a
+		// config file, and it is one sentence on purpose.
+		if (!batchNeedsPrompt(request.toolCalls)) {
+			return { action: 'approve_tools' }
+		}
+		if (mode === 'strict') {
+			return {
+				action: 'reject_tools',
+				feedback:
+					'Refused: this run only permits tools an explicit rule allows, and no rule covers this call. Asking again will not change it — either the operator adds a rule, or this has to be done another way.',
+			}
+		}
+		if (mode === 'auto' || !onPermission || approval.all) {
 			return { action: 'approve_tools' }
 		}
 		const decision = await onPermission({

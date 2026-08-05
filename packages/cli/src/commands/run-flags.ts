@@ -29,6 +29,10 @@ export interface RunFlags {
 	instance: string | null
 	/** Where the agent works: filesystem tools, sub-agents, session store, skills. */
 	cwd: string | null
+	/** How calls no `[permissions]` rule decided are resolved: prompt/auto/strict. */
+	permissionMode: string | null
+	/** --yolo / --dangerously-skip-permissions was given. */
+	skipPermissions: boolean
 	skills: string[]
 	/**
 	 * `--flags` this parser does not know.
@@ -49,6 +53,8 @@ export function parseRunFlags(rawArgs: readonly string[]): RunFlags {
 		provider: null,
 		instance: null,
 		cwd: null,
+		permissionMode: null,
+		skipPermissions: false,
 		skills: [],
 		unknown: [],
 		rest: [],
@@ -80,6 +86,17 @@ export function parseRunFlags(rawArgs: readonly string[]): RunFlags {
 				'cwd',
 				trimmed((v) => {
 					out.cwd = v
+				}),
+				idx,
+			)
+		)
+			continue
+		if (
+			take(
+				a,
+				'permission-mode',
+				trimmed((v) => {
+					out.permissionMode = v
 				}),
 				idx,
 			)
@@ -143,11 +160,16 @@ export function parseRunFlags(rawArgs: readonly string[]): RunFlags {
 			)
 		)
 			continue
-		// Accepted and ignored: the headless commands never prompt for tool
-		// approval, so there is nothing for a bypass flag to bypass. Refusing it
-		// would break `namzu --yolo run …`, which reads as reasonable and is
-		// already how the interactive launch is spelled.
-		if (a === '--yolo' || a === '--dangerously-skip-permissions') continue
+		// Was accepted and ignored, because a headless run never prompted and so
+		// had nothing to bypass. Now that an operator can write rules, it means
+		// something: `auto` for the calls no rule decided. It still cannot reopen
+		// a `deny` or the dangerous-pattern floor, so it promises more than it
+		// delivers — deliberately, since a flag with this name should read as
+		// more dangerous than it is rather than less.
+		if (a === '--yolo' || a === '--dangerously-skip-permissions') {
+			out.skipPermissions = true
+			continue
+		}
 		if (a.startsWith('--')) {
 			out.unknown.push(a.split('=')[0])
 			continue
