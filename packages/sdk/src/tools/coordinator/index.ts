@@ -339,6 +339,35 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 		? " By default this BLOCKS and returns the agent's final output as this call's tool_result; pass background: true to get a task_id back immediately and receive the result later as a task notification."
 		: " This BLOCKS and returns the agent's final output as this call's tool_result."
 
+	/**
+	 * What to tell the model when a wait was cut short.
+	 *
+	 * The worker keeps going either way — giving up on a wait is a statement
+	 * about the waiter, not about the work. Where the result then turns up is
+	 * NOT the same either way, and the tool said it was: it promised a task
+	 * notification unconditionally, which without an inbox is a message on a
+	 * channel that does not exist. A model told to expect one waits for it,
+	 * and the one tool that could still reach the output is the one it was
+	 * told not to use for this.
+	 */
+	const whereTheResultWillTurnUp = (taskId: TaskId): string =>
+		completionInbox
+			? `its result will arrive separately as a task notification (task ${taskId}).`
+			: `it is still running as task ${taskId} — call wait_for_task with that id, or find it in agent_task_list once it finishes. Nothing will announce it on its own.`
+
+	/**
+	 * The listing's standing advice, which depends on there being an inbox.
+	 *
+	 * "Do not call this to find out whether work finished" is right when a
+	 * notification is coming. With no inbox an abandoned blocking launch has
+	 * no announcer at all, and this listing is the only way left to reach the
+	 * output — so the same sentence would send the model away from the one
+	 * tool that could help it.
+	 */
+	const listingAdvice = completionInbox
+		? "Do NOT call this to find out whether work finished: a blocking create_task has already returned each worker's output, and a backgrounded one arrives as a task notification. Use it when you need to see what is still running, or to re-read the output of a task whose launch you stopped waiting for."
+		: "A blocking create_task already returns each worker's output, so do not call this in a loop to find out whether work finished. Nothing announces a completion on this configuration, so this listing and wait_for_task are how you reach the output of a task whose launch you stopped waiting for."
+
 	const createTask = defineTool({
 		name: 'create_task',
 		description: `Launch a task on a specialized agent.${backgroundClause} Available agents: ${agentIds.join(', ')}. Prefer compact assignments; for large context, write/read shared workspace files and pass filenames or references. To launch multiple tasks in parallel, call this tool multiple times in a single assistant turn — the runtime executes every tool_use block from one response concurrently and delivers all tool_results together, so 'fan out 8 specialists' is one assistant message with 8 create_task blocks. Do not race: until a worker's result reaches you, you know nothing about it — never fabricate, summarise or predict what it will say, in any form.`,
@@ -416,14 +445,27 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 			// is exactly the blocking launch whose wait was abandoned.
 			completionInbox?.launched(handle.taskId)
 
-			// `canLaunchInBackground` as well as the flag, so the branch cannot be
-			// entered without the channel that makes it mean something. The
-			// schema already withholds the parameter, and Zod strips what it
-			// does not declare — this is the second lock, and it is here because
-			// a directly-constructed definition or a future edit to the schema
-			// would otherwise reach a launch that promises a notification
-			// nothing can deliver.
-			if (background && canLaunchInBackground) {
+			// A background launch asked for with nowhere to deliver it is
+			// REFUSED, not quietly turned into a blocking one.
+			//
+			// The schema withholds the parameter and Zod strips what it does
+			// not declare, so this is unreachable through the model; it exists
+			// for a directly-constructed definition. Falling back to blocking
+			// would have been the tempting answer — the caller does get the
+			// output — but it is accepting work whose stated terms cannot be
+			// met, and the caller asked for a call that returns immediately.
+			// Naming the missing piece is the only response that tells them
+			// what to change.
+			if (background && !canLaunchInBackground) {
+				return {
+					success: false,
+					output: '',
+					error:
+						'background: true needs a CompletionInbox — without one there is no channel for the notification this launch promises. Pass `completionInbox` to buildCoordinatorTools and the same instance to drainQuery, or omit `background` to wait for the result inline.',
+				}
+			}
+
+			if (background) {
 				// Tell the inbox to hold the run open for this. Without it the
 				// supervisor could launch a worker, answer, and settle the run
 				// while the worker was still going — discarding the result the
@@ -486,7 +528,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 			if (_context.abortSignal?.aborted) {
 				return {
 					success: false,
-					output: `This wait was abandoned before ${agent_id} finished; its result will arrive separately as a task notification (task ${handle.taskId}).`,
+					output: `This wait was abandoned before ${agent_id} finished; ${whereTheResultWillTurnUp(handle.taskId)}`,
 					data: { task_id: handle.taskId, agent_id, abandoned: true },
 				}
 			}
@@ -590,7 +632,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 			if (_context.abortSignal?.aborted) {
 				return {
 					success: false,
-					output: `This wait was abandoned before task ${task_id} finished; its result will arrive separately as a task notification.`,
+					output: `This wait was abandoned before task ${task_id} finished; ${whereTheResultWillTurnUp(task_id as TaskId)}`,
 					data: { task_id, abandoned: true },
 				}
 			}
@@ -651,8 +693,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 
 	const agentTaskList = defineTool({
 		name: 'agent_task_list',
-		description:
-			"Inspect the live state of every agent task launched on this gateway via create_task: returns each task's id, agent, state (pending/running/completed/failed/canceled), and timing. Distinct from the plan-task store's `task_list` (which lists planning tasks): this tool lists running/completed worker invocations. Do NOT call this to find out whether work finished: a blocking create_task has already returned each worker's output, and a backgrounded one arrives as a task notification. Use it when you need to see what is still running, or to re-read the output of a task whose launch you stopped waiting for.",
+		description: `Inspect the live state of every agent task launched on this gateway via create_task: returns each task's id, agent, state (pending/running/completed/failed/canceled), and timing. Distinct from the plan-task store's \`task_list\` (which lists planning tasks): this tool lists running/completed worker invocations. ${listingAdvice}`,
 		inputSchema: z.object({
 			state: z
 				.enum(['pending', 'running', 'completed', 'failed', 'canceled'])

@@ -56,14 +56,17 @@ describe('the grace is a share of what the run has left', () => {
 	})
 })
 
-describe('the guard reports the time the run has left, not the process', () => {
-	it('counts down from the configured timeout', () => {
+describe('the guard reports time to the finalize point, not to the deadline', () => {
+	it('stops short of the closing reserve', () => {
+		// 90% of the budget, not 100%. The last tenth is what the guard keeps
+		// so a run can produce a closing answer; a wait sized against the
+		// deadline spends it on waiting instead.
 		const guard = new GuardCoordinator({ tokenBudget: 1_000, timeoutMs: 60_000 })
 
-		const remaining = guard.remainingMs()
+		const remaining = guard.remainingBeforeFinalizeMs()
 
-		expect(remaining).toBeLessThanOrEqual(60_000)
-		expect(remaining).toBeGreaterThan(55_000)
+		expect(remaining).toBeLessThanOrEqual(54_000)
+		expect(remaining).toBeGreaterThan(50_000)
 	})
 
 	it('subtracts the time a previous process already spent', () => {
@@ -73,15 +76,46 @@ describe('the guard reports the time the run has left, not the process', () => {
 		const guard = new GuardCoordinator({ tokenBudget: 1_000, timeoutMs: 60_000 })
 		guard.restoreElapsed(50_000)
 
-		expect(guard.remainingMs()).toBeLessThanOrEqual(10_000)
-		expect(guard.remainingMs()).toBeGreaterThan(5_000)
+		expect(guard.remainingBeforeFinalizeMs()).toBeLessThanOrEqual(4_000)
+		expect(guard.remainingBeforeFinalizeMs()).toBeGreaterThan(1_000)
+	})
+
+	it('reports nothing once the run is already past the finalize point', () => {
+		// 95% elapsed: the guard is about to ask for a closing summary, and a
+		// hold opened here would be taken out of the answer's time.
+		const guard = new GuardCoordinator({ tokenBudget: 1_000, timeoutMs: 60_000 })
+		guard.restoreElapsed(57_000)
+
+		expect(guard.remainingBeforeFinalizeMs()).toBe(0)
 	})
 
 	it('never reports a negative remainder', () => {
 		const guard = new GuardCoordinator({ tokenBudget: 1_000, timeoutMs: 1_000 })
 		guard.restoreElapsed(500_000)
 
-		expect(guard.remainingMs()).toBe(0)
+		expect(guard.remainingBeforeFinalizeMs()).toBe(0)
+	})
+})
+
+describe('the hold cannot reach into the run closing reserve', () => {
+	it('ends before the finalize point however late it starts', () => {
+		// The failure the finalize-relative input exists for. Against the
+		// DEADLINE, a hold beginning at elapsed fraction e ends at
+		// 0.5 + 0.5e — so one starting just under the 0.9 threshold ends at
+		// 95% of the budget, with half the closing reserve gone. Against the
+		// finalize point it cannot cross 90% at all.
+		const timeoutMs = 60_000
+		const finalizeAt = timeoutMs * 0.9
+
+		for (const elapsed of [0, 30_000, 50_000, 53_000, 53_900]) {
+			const remainingBeforeFinalize = Math.max(0, finalizeAt - elapsed)
+			const endsAt = elapsed + settleGraceMs(remainingBeforeFinalize)
+
+			expect(
+				endsAt,
+				`a hold starting at ${elapsed}ms crossed the finalize point`,
+			).toBeLessThanOrEqual(finalizeAt)
+		}
 	})
 })
 

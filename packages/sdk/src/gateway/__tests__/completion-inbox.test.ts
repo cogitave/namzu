@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { getRootLogger } from '../../utils/logger.js'
+
 import type { TaskGateway, TaskHandle } from '../../types/agent/gateway.js'
 import type { TaskId } from '../../types/ids/index.js'
 import { CompletionInbox, formatCompletionNotification } from '../completion-inbox.js'
@@ -44,10 +46,15 @@ function handleFor(taskId: string, result?: string): TaskHandle {
 function fakeGateway(): {
 	gateway: TaskGateway
 	settle: (h: TaskHandle) => void
+	/** Make the gateway KNOW about a task without announcing it. */
+	record: (h: TaskHandle) => void
 	listeners: number
 } {
 	const listeners = new Set<(h: TaskHandle) => void>()
 	const known = new Map<string, TaskHandle>()
+	const record = (h: TaskHandle) => {
+		known.set(h.taskId, h)
+	}
 	const gateway = {
 		onTaskCompleted(cb: (h: TaskHandle) => void) {
 			listeners.add(cb)
@@ -59,8 +66,9 @@ function fakeGateway(): {
 	} as unknown as TaskGateway
 	return {
 		gateway,
+		record,
 		settle: (h) => {
-			known.set(h.taskId, h)
+			record(h)
 			for (const cb of listeners) cb(h)
 		},
 		get listeners() {
@@ -78,6 +86,18 @@ function fakeGateway(): {
  */
 function launch(inbox: CompletionInbox, taskId: string): void {
 	inbox.launched(taskId as TaskId)
+}
+
+/** Collect what the inbox says at WARN, so a drop cannot pass unnoticed. */
+function captureWarnings(): { lines: string[]; restore: () => void } {
+	const lines: string[] = []
+	const spy = vi.spyOn(getRootLogger(), 'child').mockReturnValue({
+		warn: (message: string) => lines.push(message),
+		info: () => {},
+		debug: () => {},
+		error: () => {},
+	} as never)
+	return { lines, restore: () => spy.mockRestore() }
 }
 
 describe('a completion nobody waited for reaches the transcript', () => {
@@ -526,9 +546,9 @@ describe('an inbox hears only about the tasks its own run launched', () => {
 		// The ordering the ownership check would otherwise turn from a stale
 		// flag into a LOST RESULT: `gateway.createTask` resolves one microtask
 		// before its caller can say who owns the task, and a fast worker is
-		// announced inside that window. The inbox asks the gateway rather than
-		// buffering every unowned announcement, because a buffer would retain
-		// other runs' worker output — the thing being closed here.
+		// announced inside that window. `LocalTaskGateway` attaches its
+		// completion continuation before returning the handle, so this is
+		// guaranteed to be reachable rather than merely possible.
 		const { gateway, settle } = fakeGateway()
 		const inbox = new CompletionInbox()
 		inbox.attach(gateway)
@@ -542,14 +562,110 @@ describe('an inbox hears only about the tasks its own run launched', () => {
 		).toEqual(['finished before the launch call returned'])
 	})
 
-	it('does not resurrect a task that is still running', () => {
-		// `launched` asking the gateway must not queue a live task as if it
-		// had finished — that would announce a result that does not exist.
-		const running: TaskHandle = { ...handleFor('tsk_live'), state: 'running' }
+	it('recovers it from the buffer, without asking the gateway anything', () => {
+		// The buffer is the primary mechanism and it needs nothing from the
+		// gateway beyond the announcement it already made. `getTask` here
+		// returns nothing at all — a gateway that forgets a task the instant
+		// it settles — and the completion still arrives.
+		const forgetful = {
+			onTaskCompleted: (cb: (h: TaskHandle) => void) => {
+				cb(handleFor('tsk_fast', 'the gateway forgot this immediately'))
+				return () => {}
+			},
+			getTask: () => undefined,
+		} as unknown as TaskGateway
+		const inbox = new CompletionInbox()
+		inbox.attach(forgetful)
+
+		launch(inbox, 'tsk_fast')
+
+		expect(inbox.drain().map((h) => h.result?.result)).toEqual([
+			'the gateway forgot this immediately',
+		])
+	})
+
+	it('bounds the buffer and says so out loud when it drops one', () => {
+		// The cap is what stops the buffer becoming the retention half of the
+		// leak it sits beside: on a shared gateway every foreign completion
+		// lands there and is never claimed, each holding a whole worker
+		// result. An eviction that turns out to have been ours is a silently
+		// dropped completion — the original defect wearing the cap as a
+		// disguise — so it must never be inferable only from an absence.
+		const warnings = captureWarnings()
 		const { gateway, settle } = fakeGateway()
 		const inbox = new CompletionInbox()
 		inbox.attach(gateway)
-		settle(running)
+
+		// One more than the cap, so the first announcement is evicted.
+		for (let i = 0; i < 33; i++) settle(handleFor(`tsk_${i}`, `result ${i}`))
+
+		expect(warnings.lines.some((w) => w.includes('buffer is full'))).toBe(true)
+		warnings.restore()
+	})
+
+	it('recovers an evicted entry through the gateway, which is why both layers exist', () => {
+		// The two mechanisms are layered, not alternatives. The buffer needs
+		// nothing from the gateway; `getTask` covers what the buffer could not
+		// hold. Overflowing the cap on a gateway that still remembers its
+		// settled tasks therefore loses nothing.
+		const warnings = captureWarnings()
+		const { gateway, settle } = fakeGateway()
+		const inbox = new CompletionInbox()
+		inbox.attach(gateway)
+
+		for (let i = 0; i < 33; i++) settle(handleFor(`tsk_${i}`, `result ${i}`))
+
+		launch(inbox, 'tsk_0')
+
+		expect(inbox.drain().map((h) => h.result?.result)).toEqual(['result 0'])
+		warnings.restore()
+	})
+
+	it('loses an evicted entry only when the gateway has forgotten it too, and never silently', () => {
+		// Both layers defeated at once: a burst past the cap AND a gateway
+		// that forgets a task the instant it settles. This is the case the
+		// `TaskGateway.getTask` docs now name as the host's to pay for, and
+		// the warning is what makes it diagnosable rather than an absence.
+		const warnings = captureWarnings()
+		let announce: ((h: TaskHandle) => void) | undefined
+		const forgetful = {
+			onTaskCompleted: (cb: (h: TaskHandle) => void) => {
+				announce = cb
+				return () => {}
+			},
+			getTask: () => undefined,
+		} as unknown as TaskGateway
+		const inbox = new CompletionInbox()
+		inbox.attach(forgetful)
+
+		for (let i = 0; i < 33; i++) announce?.(handleFor(`tsk_${i}`, `result ${i}`))
+
+		launch(inbox, 'tsk_0')
+		expect(inbox.hasUnheard, 'an evicted entry came back from a gateway that forgot it').toBe(false)
+		expect(
+			warnings.lines.some((w) => w.includes('buffer is full')),
+			'a completion was dropped with nothing said about it',
+		).toBe(true)
+
+		// The rest are untouched: eviction takes the oldest, not the newest.
+		launch(inbox, 'tsk_32')
+		expect(inbox.drain().map((h) => h.taskId)).toEqual(['tsk_32'])
+		warnings.restore()
+	})
+
+	it('does not resurrect a task that is still running', () => {
+		// The `getTask` recovery asks for STATE, not for a completion, so it
+		// is the one path that has to check terminality: queuing a live task
+		// would announce a result that does not exist yet.
+		//
+		// Recorded, not settled. Announcing a running task would be the
+		// GATEWAY misbehaving, and this inbox delivers what `onTaskCompleted`
+		// hands it on every path — second-guessing an announcement here and
+		// not on the owned path would be an inconsistency, not a guard.
+		const { gateway, record } = fakeGateway()
+		const inbox = new CompletionInbox()
+		inbox.attach(gateway)
+		record({ ...handleFor('tsk_live'), state: 'running' })
 
 		launch(inbox, 'tsk_live')
 

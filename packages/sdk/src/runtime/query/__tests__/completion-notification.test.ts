@@ -294,7 +294,7 @@ describe('a run that ends some other way still hands over what finished', () => 
 	async function runEndingWith(options: {
 		terminal?: boolean
 		stopWhen?: boolean
-	}): Promise<string[]> {
+	}): Promise<{ userMessages: string[]; run: Awaited<ReturnType<typeof drainQuery>> }> {
 		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-completion-exit-'))
 		workdirs.push(workingDirectory)
 
@@ -355,13 +355,16 @@ describe('a run that ends some other way still hands over what finished', () => 
 			tenantId: 'tnt_completion' as TenantId,
 		})
 
-		return run.messages
-			.filter((m) => m.role === 'user')
-			.map((m) => (typeof m.content === 'string' ? m.content : JSON.stringify(m.content)))
+		return {
+			userMessages: run.messages
+				.filter((m) => m.role === 'user')
+				.map((m) => (typeof m.content === 'string' ? m.content : JSON.stringify(m.content))),
+			run,
+		}
 	}
 
 	it('a terminal tool settles the run without discarding the worker', async () => {
-		const userMessages = await runEndingWith({ terminal: true })
+		const { userMessages } = await runEndingWith({ terminal: true })
 
 		expect(
 			userMessages.some((m) => m.includes('THE BACKGROUND WORKER RESULT')),
@@ -370,7 +373,7 @@ describe('a run that ends some other way still hands over what finished', () => 
 	})
 
 	it("the host's stopWhen ends the run without discarding it either", async () => {
-		const userMessages = await runEndingWith({ stopWhen: true })
+		const { userMessages } = await runEndingWith({ stopWhen: true })
 
 		expect(
 			userMessages.some((m) => m.includes('THE BACKGROUND WORKER RESULT')),
@@ -378,11 +381,81 @@ describe('a run that ends some other way still hands over what finished', () => 
 		).toBe(true)
 	})
 
+	it('names the work it walked away from, without cancelling it', async () => {
+		// The other half of the principle. Delivering what arrived is honest;
+		// staying silent about what did not is the false impression the whole
+		// mechanism exists to prevent. Naming rather than cancelling, because
+		// "the parent answered early" is a weaker warrant for killing a child
+		// than "the clock ran out" — and this subsystem already ruled that the
+		// clock does not license it.
+		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-abandoned-'))
+		workdirs.push(workingDirectory)
+
+		const inbox = new CompletionInbox()
+		inbox.attach({ onTaskCompleted: () => () => {}, getTask: () => undefined } as never)
+		// Launched, never settles, and the terminal tool ends the run over it.
+		inbox.expect('tsk_still_running' as TaskId)
+
+		const tools = new ToolRegistry()
+		tools.register(
+			defineTool({
+				name: 'finisher',
+				description: 'ends the run',
+				inputSchema: z.object({}),
+				category: 'analysis',
+				permissions: [],
+				readOnly: true,
+				destructive: false,
+				concurrencySafe: true,
+				terminal: true,
+				async execute() {
+					return { success: true, output: 'this call is the answer' }
+				},
+			} as never),
+		)
+
+		const run = await drainQuery({
+			provider: new CallsFinisherProvider(),
+			tools,
+			completionInbox: inbox,
+			agentId: 'agent_test',
+			agentName: 'Test Agent',
+			messages: [createUserMessage('go')],
+			workingDirectory,
+			runConfig: {
+				model: 'mock-model',
+				timeoutMs: 10_000,
+				tokenBudget: 100_000,
+				maxIterations: 4,
+				maxResponseTokens: 256,
+			},
+			sessionId: 'ses_completion' as SessionId,
+			threadId: 'thd_completion' as ThreadId,
+			projectId: 'prj_completion' as ProjectId,
+			tenantId: 'tnt_completion' as TenantId,
+		} as never)
+
+		expect(run.abandonedTaskIds, 'the run said nothing about the worker it left running').toEqual([
+			'tsk_still_running',
+		])
+		// Named, not stopped: the inbox still counts it as outstanding, and
+		// nothing asked the gateway to cancel anything.
+		expect(inbox.outstandingTaskIds).toEqual(['tsk_still_running'])
+	})
+
+	it('leaves the field absent when the run walked away from nothing', async () => {
+		// A field that is always present says nothing; one that appears only
+		// when there is something to report is a signal a host can branch on.
+		const { run } = await runEndingWith({ terminal: true })
+
+		expect(run.abandonedTaskIds).toBeUndefined()
+	})
+
 	it('hands it over exactly once when the ordinary exit already did', async () => {
 		// The `dc16d58` failure in a new place: an exit-time delivery that
 		// re-sends what the in-loop drain already sent is the duplicate bug
 		// again. `drain()` empties, so the second call finds nothing.
-		const userMessages = await runEndingWith({})
+		const { userMessages } = await runEndingWith({})
 
 		expect(userMessages.filter((m) => m.includes('THE BACKGROUND WORKER RESULT'))).toHaveLength(1)
 	})

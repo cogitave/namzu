@@ -2,6 +2,28 @@ import { wrapUntrusted } from '../tools/untrusted-envelope.js'
 import type { TaskGateway, TaskHandle } from '../types/agent/gateway.js'
 import { isTerminalAgentTaskState } from '../types/agent/task.js'
 import type { TaskId } from '../types/ids/index.js'
+import { getRootLogger } from '../utils/logger.js'
+
+/**
+ * How many unclaimed announcements may wait for an owner at once.
+ *
+ * Derived from what it has to survive rather than picked. An entry lives here
+ * only between a gateway announcing a task and this run saying whether the
+ * task is its own — one microtask, for a launch made through `create_task`.
+ * The number that has to fit is therefore the largest batch of launches that
+ * can be in flight together before any of them is claimed: one assistant turn
+ * of `create_task` blocks, which this codebase's own tool description
+ * illustrates as "fan out 8 specialists" and which a provider bounds at a few
+ * dozen tool_use blocks per response. 32 clears that with room, and a batch
+ * bigger than it is announced rather than silently truncated.
+ *
+ * The ceiling is what stops this being the retention half of the leak it
+ * exists beside: on a gateway shared with other runs, every foreign completion
+ * lands here and is never claimed, and each one holds a whole worker result —
+ * kilobytes at least. Bounded, the cost is 32 handles; unbounded, it is every
+ * result every other run on that gateway ever produced.
+ */
+const UNOWNED_BUFFER_LIMIT = 32
 
 /**
  * Completions that finished with nobody left to hear them.
@@ -54,6 +76,23 @@ export class CompletionInbox {
 	 * takes one, and a host that owns a gateway naturally reuses it.
 	 */
 	private readonly ours = new Set<TaskId>()
+	/**
+	 * Announcements that arrived before anyone said whose task it was.
+	 *
+	 * `gateway.createTask` resolves one microtask before its caller can name
+	 * the task, and a worker that finishes inside that window is announced
+	 * first — `LocalTaskGateway` attaches its completion continuation before
+	 * it returns the handle, so the ordering is guaranteed to be reachable
+	 * rather than merely possible. Dropping an unowned announcement outright
+	 * would therefore turn the leak fix into a LOST RESULT for exactly the
+	 * fast completions the inbox exists to catch.
+	 *
+	 * So they wait here, and ownership may be claimed retroactively. What
+	 * makes that safe rather than a second leak is the bound: on a gateway
+	 * shared with other runs this fills with completions that will never be
+	 * claimed, each holding a whole worker result.
+	 */
+	private readonly unowned = new Map<TaskId, TaskHandle>()
 	private readonly arrivals = new Set<() => void>()
 	private detach?: () => void
 	/** Kept for {@link launched}: the source of truth about a task's state. */
@@ -71,9 +110,14 @@ export class CompletionInbox {
 		if (this.detach) return this.detach
 		this.gateway = gateway
 		this.detach = gateway.onTaskCompleted((handle) => {
-			// Another run's worker, on a gateway both runs share. Not this
-			// inbox's to queue, hold open, or announce.
-			if (!this.ours.has(handle.taskId)) return
+			// Not known to be ours — either another run's worker on a shared
+			// gateway, or ours announced before the launch could be recorded.
+			// The two are indistinguishable here, so it waits rather than
+			// being delivered or dropped. See {@link unowned}.
+			if (!this.ours.has(handle.taskId)) {
+				this.hold(handle)
+				return
+			}
 			// A completion claimed before it was announced — a tool that
 			// finished its wait faster than the listener ran — is already
 			// delivered. Nothing to queue.
@@ -86,6 +130,33 @@ export class CompletionInbox {
 	}
 
 	/**
+	 * Park an announcement nobody has claimed yet, evicting the oldest if the
+	 * buffer is full.
+	 *
+	 * An eviction is logged at WARN, and that is not decoration. If the entry
+	 * turned out to be ours, its completion has just been dropped — the
+	 * original defect, wearing the cap as a disguise — and the only evidence
+	 * would otherwise be an absence, which is precisely the shape of failure
+	 * this whole session has been closing. A reader who sees this line knows
+	 * where to look.
+	 */
+	private hold(handle: TaskHandle): void {
+		if (this.unowned.size >= UNOWNED_BUFFER_LIMIT && !this.unowned.has(handle.taskId)) {
+			const oldest = this.unowned.keys().next()
+			if (!oldest.done) {
+				this.unowned.delete(oldest.value)
+				getRootLogger()
+					.child({ component: 'CompletionInbox' })
+					.warn(
+						"Unclaimed completion buffer is full — dropped the oldest. If that task was this run's, its result is now unreachable; raise UNOWNED_BUFFER_LIMIT or launch fewer tasks per turn.",
+						{ dropped: oldest.value, limit: UNOWNED_BUFFER_LIMIT },
+					)
+			}
+		}
+		this.unowned.set(handle.taskId, handle)
+	}
+
+	/**
 	 * Say that this run launched the task.
 	 *
 	 * Required before anything about the task can reach this inbox — see
@@ -93,20 +164,35 @@ export class CompletionInbox {
 	 * on the result, because the case the inbox exists for is precisely the
 	 * one where the waiter gave up.
 	 *
-	 * **The late-announcement branch is not defensive.** `gateway.createTask`
-	 * resolves one microtask before its caller can say who owns the task, and
-	 * a worker that finishes inside that window is announced first — the same
-	 * ordering that used to leave a permanent pending flag. Without this the
-	 * ownership check would turn that race from a stale flag into a lost
-	 * result. Asking the gateway is deliberate rather than buffering every
-	 * unowned announcement on the chance one turns out to be ours: a buffer
-	 * would retain other runs' worker output, which is the thing being closed.
+	 * **The late-announcement branches are not defensive.**
+	 * `gateway.createTask` resolves one microtask before its caller can say
+	 * who owns the task, and a worker that finishes inside that window is
+	 * announced first — the same ordering that used to leave a permanent
+	 * pending flag. Without recovery the ownership check would turn that race
+	 * from a stale flag into a lost result.
+	 *
+	 * There are two, and the second is the safety net for the first. The
+	 * buffer ({@link unowned}) needs nothing from the gateway beyond the
+	 * announcement it already made. Asking `getTask` covers the case the
+	 * buffer cannot — an announcement evicted under load — but it rests on a
+	 * gateway still knowing about a task it has just settled, which is a
+	 * property of the implementations here rather than of the `TaskGateway`
+	 * contract, and `getTask`'s own docs now say so.
 	 */
 	launched(taskId: TaskId): void {
 		if (this.ours.has(taskId)) return
 		this.ours.add(taskId)
 
 		if (this.claimed.has(taskId) || this.unheard.has(taskId)) return
+
+		const parked = this.unowned.get(taskId)
+		if (parked) {
+			this.unowned.delete(taskId)
+			this.unheard.set(taskId, parked)
+			for (const wake of [...this.arrivals]) wake()
+			return
+		}
+
 		const settled = this.gateway?.getTask(taskId)
 		if (!settled || !isTerminalAgentTaskState(settled.state)) return
 		this.unheard.set(taskId, settled)
@@ -188,6 +274,17 @@ export class CompletionInbox {
 	}
 
 	/**
+	 * Tasks this run launched that are still running.
+	 *
+	 * Read when a run ends, so it can say which work it walked away from.
+	 * Nothing here is cancelled by being read — the ids are a statement, and
+	 * what to do about them is the host's call.
+	 */
+	get outstandingTaskIds(): readonly TaskId[] {
+		return [...this.outstanding]
+	}
+
+	/**
 	 * Take every unheard completion, leaving the inbox empty.
 	 *
 	 * Draining rather than peeking: a notification that stays queued after
@@ -265,6 +362,7 @@ export class CompletionInbox {
 		this.outstanding.clear()
 		this.ours.clear()
 		this.claimed.clear()
+		this.unowned.clear()
 		// Release anyone still waiting. A closed inbox would otherwise hold
 		// them to their own deadline for a completion that can no longer come.
 		for (const wake of [...this.arrivals]) wake()

@@ -92,29 +92,37 @@ const SETTLE_GRACE_FRACTION = 0.5
  * hour-long run it abandoned workers measured at 4m21s, 5m58s and 8m04s, all
  * of them well inside the hour the delegation tools themselves declare.
  *
- * **Bounded by construction, which is the property that matters.** Half of
- * what is left cannot outlive the deadline, so the guard's inability to
- * interrupt a hold stops being a gap that needs a new interrupt seam: the
- * arithmetic has already settled it.
+ * **Bounded by construction, and against the right boundary.** The input is
+ * time-to-FINALIZE, not time-to-deadline (see
+ * `GuardCoordinator.remainingBeforeFinalizeMs`). Measuring to the deadline was
+ * the first attempt and it was wrong in a way that looked safe: a hold cannot
+ * outlive the deadline either way, but half of the time-to-deadline started
+ * just under the warning threshold ends at 95% of the budget — so the slice
+ * that exists for the run to produce a closing answer is half spent waiting
+ * for the result that answer was supposed to use. Against the finalize point
+ * the hold cannot reach the reserve at all, which is what makes the guard's
+ * inability to interrupt a hold a non-issue rather than a smaller issue.
  *
  * **The floor of zero is a decision, not a clamp artefact.** A run with no
- * time left has no turn in which to read a notification, so waiting could only
- * delay a stop that is already due. Nothing is lost by it either:
- * `CompletionInbox.waitForArrival` returns before it looks at its timer when a
- * completion is already in hand, so a zero grace still delivers everything
- * that has arrived. No minimum is invented, because this codebase already
- * answers "when is it too late to start more work" — `budgetWarningThreshold`
- * (0.9) makes the guard ask for a closing summary, and the hold below is
- * gated on `!forceFinalize`, so the last tenth of a run never holds at all.
- * The degenerately-short grace is therefore only reachable when an iteration
- * itself overran that tenth, and there zero is the right answer.
+ * time left before it must start finishing has no turn in which to read a
+ * notification, so waiting could only delay a stop that is already due.
+ * Nothing is lost by it: `CompletionInbox.waitForArrival` returns before it
+ * looks at its timer when a completion is already in hand, so a zero grace
+ * still delivers everything that has arrived. No minimum is invented on top,
+ * because zero is exactly what a run past the threshold should wait — and
+ * reading the remainder at hold time rather than trusting `forceFinalize`,
+ * which is sampled at the top of the iteration, is what makes a long iteration
+ * that crossed the line in between compute it.
  *
  * **The ceiling is the longest anything in this subsystem waits for a
- * delegated worker.** It binds only for a host whose run timeout exceeds two
- * hours; below that the fraction is the smaller number.
+ * delegated worker.** It binds only for a host whose run timeout exceeds
+ * roughly two and a quarter hours; below that the fraction is smaller.
  */
-export function settleGraceMs(remainingRunMs: number): number {
-	return Math.min(Math.floor(remainingRunMs * SETTLE_GRACE_FRACTION), DELEGATION_TIMEOUT_MS)
+export function settleGraceMs(remainingBeforeFinalizeMs: number): number {
+	return Math.min(
+		Math.floor(remainingBeforeFinalizeMs * SETTLE_GRACE_FRACTION),
+		DELEGATION_TIMEOUT_MS,
+	)
 }
 
 export class IterationOrchestrator {
@@ -636,7 +644,12 @@ export class IterationOrchestrator {
 						// forever — and the completion arrives as a notification
 						// the next turn reads.
 					if (!forceFinalize && this.ctx.completionInbox?.hasPendingWork) {
-							const graceMs = settleGraceMs(this.ctx.guard.remainingMs())
+							// Read HERE rather than from `forceFinalize` above: that
+							// flag was sampled at the top of the iteration, and an
+							// iteration that has since crossed the finalize point
+							// must not open a wait against a reserve it has
+							// already entered.
+							const graceMs = settleGraceMs(this.ctx.guard.remainingBeforeFinalizeMs())
 						this.ctx.log.info('Holding the run open for a background task', {
 							runId: runMgr.id,
 							iteration: iterationNum,
@@ -891,26 +904,51 @@ export class IterationOrchestrator {
 			}
 		}
 		} finally {
-			this.deliverArrivedCompletions()
+			this.settleOutstandingWork()
 		}
 	}
 
 	/**
-	 * Put whatever finished into the transcript on the way out.
+	 * Account for delegated work on the way out: deliver what arrived, and say
+	 * what did not.
 	 *
-	 * Only the completions that have ALREADY arrived. This does not wait, and
-	 * that is the decision rather than an omission: a hold buys the model a
-	 * turn in which to USE a worker's result, and on an exit whose answer is
-	 * already decided — a terminal tool's output, a captured structured
-	 * output, a host's `stopWhen` — there is no such turn, so waiting would
-	 * only delay a settled answer to append text this run will not read.
-	 * Delivering what is already in hand costs nothing and is pure loss to
-	 * drop: the message rides out on `Run.messages`, so a host reads it and
-	 * the next turn of a continued thread starts with it.
+	 * A run that ends with a worker outstanding must not leave the impression
+	 * that the worker's result was delivered. There are exactly two honest
+	 * outcomes and this does both:
 	 *
-	 * The bounded hold stays where it was, on the one exit that does have a
-	 * turn left.
+	 *  - **What has already arrived is delivered.** It makes no false claim,
+	 *    and dropping it is pure loss — the message rides out on
+	 *    `Run.messages`, so a host reads it and the next turn of a continued
+	 *    thread starts with it. This does NOT wait: a hold buys the model a
+	 *    turn in which to USE a result, and on an exit whose answer is already
+	 *    decided there is no such turn, so waiting would delay a settled answer
+	 *    to append text this run will not read. The bounded hold stays where it
+	 *    was, on the exits that do have a turn left.
+	 *  - **What is still running is NAMED, not cancelled.** Giving up on a wait
+	 *    is a statement about the waiter, not about the work — the rule
+	 *    `wait-with-idle-bound.ts` already states for the same subsystem — and
+	 *    "the parent answered early" is a weaker warrant for killing a child
+	 *    than "the clock ran out", not a stronger one. Killing a worker that
+	 *    may be mid-write is a policy only the host can judge, and it has
+	 *    `cancel_task` and the run controller to judge it with.
 	 */
+	private settleOutstandingWork(): void {
+		this.deliverArrivedCompletions()
+		this.recordAbandonedWork()
+	}
+
+	/** Delegated work this run walked away from. See {@link settleOutstandingWork}. */
+	private recordAbandonedWork(): void {
+		const abandoned = this.ctx.completionInbox?.outstandingTaskIds ?? []
+		if (abandoned.length === 0) return
+
+		this.ctx.log.warn('Run ended with delegated work still running', {
+			runId: this.ctx.runMgr.id,
+			tasks: abandoned,
+		})
+		this.ctx.runMgr.setAbandonedTaskIds(abandoned)
+	}
+
 	private deliverArrivedCompletions(): void {
 		const unheard = this.ctx.completionInbox?.drain() ?? []
 		if (unheard.length === 0) return

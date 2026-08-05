@@ -28,9 +28,14 @@ each still holding its run's handles, and the set only grew.
 - `close()` now clears what the inbox owned and claimed as well as what it
   queued, so a closed inbox cannot be re-armed through a stale reference.
 
-The ordering that would otherwise turn this into lost results is handled:
-`gateway.createTask` resolves one microtask before its caller can say who owns
-the task, so a worker that finishes inside that window is announced first.
-`launched()` asks the gateway about the task rather than buffering every
-unowned announcement — a buffer would retain other runs' worker output, which
-is the thing being closed.
+The ordering that would otherwise turn this into lost results is handled in
+two layers. `gateway.createTask` resolves one microtask before its caller can
+say who owns the task, so a worker that finishes inside that window is
+announced first. An unowned announcement is therefore BUFFERED rather than
+dropped, and ownership may be claimed retroactively; the buffer is bounded at
+32 entries so that on a shared gateway it cannot accumulate every other run's
+worker output, and an eviction is logged at WARN so a dropped completion is
+never inferable only from an absence. Where the buffer could not hold an entry,
+`launched()` also asks `gateway.getTask` — an assumption that a just-settled
+task is still findable, now stated on `TaskGateway.getTask` itself so a host
+that cannot meet it knows it is the one paying.

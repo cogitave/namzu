@@ -414,21 +414,66 @@ describe('background launching is offered only when it can be delivered', () => 
 		expect(createTask.description).toContain('BLOCKS')
 	})
 
-	it('blocks anyway if the flag reaches execute some other way', () => {
-		// Defence in depth for a directly-constructed definition. Blocking is
-		// the safe fallback: the output reaches the model as this call's own
-		// tool_result rather than being promised to a channel that is absent.
+	it('refuses if the flag reaches execute some other way', async () => {
+		// Not a silent fall-back to blocking. The schema withholds the
+		// parameter and Zod strips what it does not declare, so this is only
+		// reachable from a directly-constructed definition — and there, quietly
+		// returning the result inline would be accepting work whose stated
+		// terms cannot be met. The caller asked for a call that returns
+		// immediately; naming the missing piece is the only answer that tells
+		// them what to change.
 		const createTask = toolNamed(inboxlessTools(), 'create_task')
 
-		return createTask
-			.execute(
-				{ agent_id: 'reviewer', prompt: 'go', description: 'review', background: true } as never,
-				{} as never,
-			)
-			.then((result) => {
-				expect(result.output).not.toContain('task notification')
-				expect(result.output).toContain('inline output')
-			})
+		const result = await createTask.execute(
+			{ agent_id: 'reviewer', prompt: 'go', description: 'review', background: true } as never,
+			{} as never,
+		)
+
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('CompletionInbox')
+		expect(result.error, 'the refusal does not say what to do about it').toContain('drainQuery')
+	})
+
+	it('does not promise a notification when a wait is abandoned', async () => {
+		// The sentence the withheld parameter does not cover. Giving up on a
+		// wait leaves the worker running either way — but WHERE the result then
+		// turns up is not the same, and this said "a task notification will
+		// arrive" unconditionally. With no inbox nothing announces anything, so
+		// a model told to expect one waits for a message that cannot come, and
+		// the tools that could still reach the output go unused.
+		const createTask = toolNamed(inboxlessTools(), 'create_task')
+
+		const result = await createTask.execute(
+			{ agent_id: 'reviewer', prompt: 'go', description: 'review' },
+			{ abortSignal: AbortSignal.abort() } as never,
+		)
+
+		expect(result.output).not.toContain('task notification')
+		expect(result.output).toContain('wait_for_task')
+		expect(result.output).toContain('Nothing will announce it')
+	})
+
+	it('still promises one when there IS an inbox', async () => {
+		const h = harness({ autoFinish: true })
+
+		const result = await toolNamed(h.tools, 'create_task').execute(
+			{ agent_id: 'reviewer', prompt: 'go', description: 'review' },
+			{ abortSignal: AbortSignal.abort() } as never,
+		)
+
+		expect(result.output).toContain('task notification')
+	})
+
+	it('stops telling the model not to use the listing when it is the only route left', async () => {
+		// "Do not call this to find out whether work finished" is right when a
+		// notification is coming. With no inbox an abandoned blocking launch
+		// has no announcer at all, so the same sentence would send the model
+		// away from the one tool that could still reach the output.
+		const inboxless = toolNamed(inboxlessTools(), 'agent_task_list')
+		const withInbox = toolNamed(harness().tools, 'agent_task_list')
+
+		expect(inboxless.description).toContain('Nothing announces a completion on this configuration')
+		expect(withInbox.description).toContain('arrives as a task notification')
 	})
 
 	it('offers it again as soon as an inbox is present', () => {

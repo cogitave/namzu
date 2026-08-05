@@ -19,8 +19,17 @@ still mounted. Pass a `completionInbox` — to `buildCoordinatorTools` **and** t
 `drainQuery` — to get background launching back. `SupervisorAgent` does both
 already, so a host using it sees no change.
 
-Withheld rather than refused per call, and rather than thrown at construction.
-A parameter the model is never shown costs nothing; one it is shown and then
+A `background: true` that reaches `execute` some other way — a directly
+constructed definition — is REFUSED, naming the missing piece, rather than
+quietly turned into a blocking call: the caller asked for something that
+returns immediately, and giving them a different thing is accepting work whose
+stated terms cannot be met. The abandoned-wait messages on `create_task` and
+`wait_for_task` no longer promise a notification either, and
+`agent_task_list` stops telling the model to avoid the listing when the
+listing is the only route left.
+
+The parameter is withheld rather than refused per call, and rather than thrown
+at construction. A parameter the model is never shown costs nothing; one it is shown and then
 denied costs prompt-prefix tokens plus an iteration per attempt. And a throw
 would break a caller doing something legitimate — an inbox-less coordinator
 surface is a supported configuration. This is the same reasoning that made an
