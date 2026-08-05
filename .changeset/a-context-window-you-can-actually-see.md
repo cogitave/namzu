@@ -11,12 +11,25 @@ conversation being sent. So the host divided cumulative spend by a context
 window guessed from a substring of the model name, and rendered the result as an
 unqualified percentage, continuously.
 
-Both terms were wrong, and the numerator was the worse of the two: a guessed
-window is wrong by a bounded factor, while cumulative spend grows without limit
-and pins such an indicator toward full on any long run regardless of how much
-room the conversation actually has. It would have been most wrong exactly when
-someone needed it most. In the other direction, a driver that reports no usage
-shows 0% for a conversation that is really there.
+Both terms were wrong, and the numerator was the worse of the two. A guessed
+window is wrong by a bounded factor. Cumulative spend has three properties that
+make it not merely imprecise but actively misleading:
+
+- It **never decreases**, by explicit design — the accumulator is documented as
+  monotone so it can never under-report a bill. Compaction does not reduce it.
+- It grows **superlinearly in turn count**, because every turn re-sends the whole
+  history and counts those prompt tokens again. Ten turns over a 50k context
+  accumulate roughly 500k.
+- It measures **spend**, which is the right quantity for cost and the wrong one
+  for occupancy.
+
+So an indicator built on it saturates at full long before the context is, and it
+is **anti-correlated with what it claims in exactly the regime a user cares
+about**: a long conversation reads FULL while the real context may be a fifth of
+the window. That alarms people into compacting or restarting when they have
+room — worse than showing nothing, because silence does not tell you something
+false in red. In the other direction, a driver that reports no usage shows 0%
+for a conversation that is really there.
 
 The kernel already computed the right numbers on every iteration and kept them
 to itself. `measureContext()` is now exported, and the event carries four new
