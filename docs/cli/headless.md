@@ -171,3 +171,38 @@ both printing `[]` rather than failing:
 namzu skills-json --cwd <path>     # [{name, description, source}]
 namzu providers-json               # [{provider, label, detected, default, models}]
 ```
+
+## Permission modes
+
+The `[permissions]` table says what a tool may do. `--permission-mode` says what
+happens to everything it did not cover.
+
+| Mode | An undecided call is | Default when |
+| --- | --- | --- |
+| `prompt` | asked about | a terminal is attached |
+| `auto` | approved | there is no terminal — every headless run, historically |
+| `strict` | refused | never; you ask for it |
+
+```bash
+namzu run --permission-mode strict "run the test suite"
+```
+
+`strict` is the mode for an unattended run: nothing executes unless a rule
+allowed it by name or pattern, and the model is told that asking again will not
+help. Before it existed an unattended run could only be `auto`, so a CI job
+either trusted the agent with everything or could not use it at all.
+
+`--yolo` and `--dangerously-skip-permissions` mean `--permission-mode auto`.
+
+### Precedence between the flag and the file
+
+**A mode only governs calls no rule decided, so it can never reopen what a rule
+closed.** A rule that denied a call already stopped it and a rule that allowed
+one never asked, so neither reaches the mode. `--permission-mode auto` cannot
+run something the config says `deny`, and neither can `--yolo`. The
+dangerous-pattern floor sits above both.
+
+The direction is deliberate. The config file is written once, read by whoever
+reviews the repository, and changed on purpose; a flag is typed in a hurry by
+someone who wants to get on with it. A prohibition a flag can lift is not a
+prohibition.
