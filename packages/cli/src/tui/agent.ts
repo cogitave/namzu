@@ -84,7 +84,33 @@ export type AgentEvent =
 			/** Output lines shown (collapsible) under the result. */
 			readonly detail?: readonly string[]
 	  }
-	| { readonly kind: 'usage'; readonly totalTokens: number; readonly costUsd: number }
+	| {
+			readonly kind: 'usage'
+			/** CUMULATIVE run spend. Grows every turn; never a context size. */
+			readonly totalTokens: number
+			readonly costUsd: number
+			/**
+			 * How full the context is NOW, and how full it may get.
+			 *
+			 * Separate from `totalTokens` because they answer different
+			 * questions and one was long used to answer the other's: the gauge
+			 * divided cumulative spend by a guessed window, so it climbed with
+			 * turn count and read FULL on a conversation with room to spare.
+			 * Spend is monotone by design, context is not.
+			 *
+			 * Carried with their provenance, and the two travel together. A
+			 * ratio is only as sound as the weaker of its terms, so a surface
+			 * cannot mark an estimated numerator honestly while silently
+			 * treating an assumed window as measured.
+			 *
+			 * All four absent when the run resolved no window — then there is
+			 * no proportion to show, only the spend.
+			 */
+			readonly contextTokens?: number
+			readonly contextMeasuredBy?: 'provider' | 'estimate'
+			readonly contextWindowTokens?: number
+			readonly windowSource?: 'config' | 'model-table' | 'default'
+	  }
 	/**
 	 * Context was discarded, or an attempt to discard it declined.
 	 *
@@ -821,10 +847,25 @@ export function toAgentEvent(event: RunEvent): AgentEvent | null {
 				detail: toolEndDetail(event.toolName, event.result),
 			}
 		case 'token_usage_updated':
+			// The context figures are forwarded, not recomputed. They were
+			// dropped here for as long as the status gauge existed, which left
+			// the bar dividing cumulative spend by a model-name guess — the one
+			// number on screen that got LESS accurate the longer a session ran.
+			// Spread conditionally: absent has to stay absent, because the
+			// renderer's whole contract is that it shows no proportion it
+			// cannot ground, and a `0` here would ground a wrong one.
 			return {
 				kind: 'usage',
 				totalTokens: event.usage.totalTokens,
 				costUsd: event.cost.totalCost,
+				...(event.contextTokens !== undefined ? { contextTokens: event.contextTokens } : {}),
+				...(event.contextMeasuredBy !== undefined
+					? { contextMeasuredBy: event.contextMeasuredBy }
+					: {}),
+				...(event.contextWindowTokens !== undefined
+					? { contextWindowTokens: event.contextWindowTokens }
+					: {}),
+				...(event.windowSource !== undefined ? { windowSource: event.windowSource } : {}),
 			}
 		case 'task_created':
 			return { kind: 'task', subject: event.subject, status: event.status }

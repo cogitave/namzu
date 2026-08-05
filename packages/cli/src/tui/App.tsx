@@ -38,7 +38,7 @@ import {
 } from './logo.js'
 import { PermissionOverlay } from './PermissionOverlay.js'
 import { Picker } from './Picker.js'
-import { StatusBar } from './StatusBar.js'
+import { type ContextFill, StatusBar } from './StatusBar.js'
 import { Transcript } from './Transcript.js'
 import { createAssistantMessage, createUserMessage } from '@namzu/sdk'
 import {
@@ -91,6 +91,10 @@ export function App({ ctx }: AppProps) {
 		[],
 	)
 	const [usage, setUsage] = useState<{ totalTokens: number; costUsd: number } | null>(null)
+	// Context fill, straight from the kernel and held apart from `usage` —
+	// they are different quantities and conflating them is what made the
+	// gauge climb with turn count instead of with context.
+	const [context, setContext] = useState<ContextFill | null>(null)
 	// Tools currently executing — rendered live (spinner + elapsed) below the
 	// transcript, then committed as static lines on completion.
 	const [activeTools, setActiveTools] = useState<readonly ActiveTool[]>([])
@@ -395,6 +399,20 @@ export function App({ ctx }: AppProps) {
 				}
 				case 'usage':
 					setUsage({ totalTokens: event.totalTokens, costUsd: event.costUsd })
+					// Mirrored verbatim, absences included. A run that reports no
+					// window clears the gauge rather than leaving the last one up:
+					// a stale bar is read as current, and this bar's whole defect
+					// was being read as something it was not.
+					setContext({
+						...(event.contextTokens !== undefined ? { tokens: event.contextTokens } : {}),
+						...(event.contextWindowTokens !== undefined
+							? { windowTokens: event.contextWindowTokens }
+							: {}),
+						...(event.contextMeasuredBy !== undefined
+							? { measuredBy: event.contextMeasuredBy }
+							: {}),
+						...(event.windowSource !== undefined ? { windowSource: event.windowSource } : {}),
+					})
 					break
 				case 'task':
 					pushMessage('tool', event.subject, false, event.status === 'completed' ? '☑' : '☐')
@@ -800,7 +818,7 @@ export function App({ ctx }: AppProps) {
 						state={state}
 						hint={hintForPhase(phase, state)}
 						usage={usage}
-						contextWindow={contextWindowFor(session?.modelSummary ?? null)}
+						context={context}
 					/>
 				</Box>
 			</Box>
@@ -873,14 +891,6 @@ function Banner({
 function TranscriptFrame({ children }: { readonly children: React.ReactNode }) {
 	// Borderless, edge-to-edge — the message glyph gutter provides structure.
 	return <Box flexDirection="column">{children}</Box>
-}
-
-/** Approximate context window (tokens) per model, for the status gauge. The
- *  `[1m]` long-context variants get 1M; everything else defaults to 200k. */
-function contextWindowFor(model: string | null): number {
-	if (!model) return 200_000
-	if (model.includes('[1m]') || model.includes('-1m')) return 1_000_000
-	return 200_000
 }
 
 function ComposerFrame({
