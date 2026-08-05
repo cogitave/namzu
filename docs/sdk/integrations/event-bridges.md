@@ -1,7 +1,7 @@
 ---
 title: Event Bridges
 description: Bridge internal Namzu runtime events to SSE and A2A wire formats, and convert messages, runs, and agent metadata into protocol-friendly shapes.
-last_updated: 2026-08-03
+last_updated: 2026-08-05
 status: current
 related_packages: ["@namzu/sdk"]
 ---
@@ -75,6 +75,25 @@ Typical mapped wire events include:
 - `tool.completed`
 - `review.requested`
 - `checkpoint.created`
+- `compaction.completed`
+- `compaction.failed`
+
+The two compaction events are both worth forwarding to a UI, and the second is
+the one that is easy to leave out. A compaction pass that shed **nothing** is
+exactly as consequential as one that did: the run continues at full context
+toward a provider rejection several turns later that will name none of this.
+`compaction.failed` carries a `cause` saying which of the three declines
+happened — see [Loop Control](../runtime/loop-control.md).
+
+`token.usage` carries `context_tokens` and `context_window_tokens` alongside the
+cumulative `usage`, each with its provenance (`context_measured_by`,
+`window_source`). **Build a context-fullness indicator from `context_tokens`,
+never from `usage`** — the latter is cumulative spend across every turn and is
+untouched by compaction, so dividing it by a window yields a gauge that climbs
+toward full on any long run regardless of how much room the conversation has. A
+remote surface has exactly the same opportunity to make that mistake as a local
+one and no more information with which to notice it, which is why both numbers
+are named apart on the wire as well as in the type.
 
 ## 3. Important SSE Limitation
 
@@ -213,6 +232,10 @@ Important runtime choices baked into the mapper:
 - `provider_retry` maps to `running`, because a backoff is a task still
   working, not a failure
 - `tool_review_requested`, `plan_ready`, and `run_paused` map to `input-required`
+- **neither compaction event is forwarded.** A peer models a task lifecycle and
+  cannot act on how this runtime manages its own context — the loss is real, but
+  it is this runtime's business rather than the peer's. On SSE, where the
+  consumer is a UI attached to this run, both are forwarded.
 - many internal events intentionally map to `null`
 
 ### Knowing a run is backing off, not hung

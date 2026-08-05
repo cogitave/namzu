@@ -1,6 +1,6 @@
 ---
 title: Tools & permission
-description: Builtin tools, agent memory + task tools, deferred tools and search_tools, the permission prompt, the safety gate, and bypass mode.
+description: Builtin tools, agent memory + task tools, deferred tools and search_tools, how a tool call is decided, permission modes, the safety gate, and bypass mode.
 last_updated: 2026-08-05
 status: current
 related_packages: ["@namzu/cli", "@namzu/sdk"]
@@ -40,12 +40,32 @@ A sub-agent runs without a task store, so it has nothing deferred, and `search_t
 
 > Earlier versions bridged an external daemon's ~70-tool catalog in as deferred tools, and the connect line reported them as `(+N on demand)`. That integration was removed in `@namzu/cli` 0.7.0 — see the changelog.
 
+## How a tool call is decided
+
+Every call goes through the same two stages, in this order.
+
+**1. The verification gate** answers `allow`, `deny`, or `review`. It hard-denies a narrow set of catastrophic shell patterns (see [The safety gate](#the-safety-gate)) and allows tools that only observe. Everything else comes back `review` — the gate has no opinion, and the decision moves on.
+
+**2. The mode** decides what happens to a `review`. Which mode is in force depends on where you are:
+
+| Mode | A reviewed call is | In force when |
+| --- | --- | --- |
+| `prompt` | put to you (see below) | the TUI, normally |
+| `auto` | approved | any headless run with no flag; the TUI under bypass |
+| `strict` | refused | `namzu run --permission-mode strict` |
+
+`--permission-mode` is a headless flag — see [Headless runs](./headless.md#permission-modes). The TUI is `prompt` unless you launched it with bypass.
+
+**A mode never reopens what the gate closed.** A denied call was already stopped and an allowed one never asked, so neither reaches the mode. That is why `--yolo` cannot run a catastrophic command: the denial happens a stage earlier.
+
 ## The permission prompt
 
-Mutating actions ask before they run:
+Under `prompt`, mutating actions ask before they run:
 
 - **Read-only / agent-state tools** (`read`/`glob`/`grep`, the memory + task tools) run silently.
 - **Anything else** — `write`, `edit`, `bash`, and any tool not on the safe allowlist — shows a prompt with each proposed call, plus a preview for the riskiest: the content for `write`, a `- old` / `+ new` diff for `edit`.
+
+An unrecognized tool is treated as needing consent. That direction is deliberate: a tool added tomorrow prompts, rather than inheriting a permission nobody granted it.
 
 | Key | Decision |
 | --- | --- |
@@ -57,10 +77,22 @@ Mutating actions ask before they run:
 
 ## The safety gate
 
-Independent of the prompt, a verification gate hard-denies a narrow set of catastrophic shell patterns **before they ever run** — `rm -rf /`, `mkfs`, `dd if=`, fork bombs, `sudo` / `su -`, `chmod 777 /`, `curl|sh` / `wget|sh`, `ssh user@host`, and dynamic `eval`. This applies even in bypass mode, so namzu can't be made to brick the machine. The list is deliberately narrow — everyday commands like `rm -rf node_modules` are unaffected.
+Independent of the prompt, a verification gate hard-denies a narrow set of catastrophic shell patterns **before they ever run** — `rm -rf /`, `mkfs`, `dd if=`, fork bombs, `sudo` / `su -`, `chmod 777 /`, `curl|sh` / `wget|sh`, `ssh user@host`, and dynamic `eval`. This applies in every mode including bypass, so namzu can't be made to brick the machine. The list is deliberately narrow — everyday commands like `rm -rf node_modules` are unaffected.
 
 ## Bypass mode
 
 Launch with `namzu --dangerously-skip-permissions` (alias `--yolo`) to run tools without the approval prompt — useful in a sandbox or a folder you fully trust. A red banner warns while it's active, and the safety gate above still applies.
 
+On the headless commands the same two flags mean `--permission-mode auto`, which is what a headless run already defaults to. They were previously accepted there and did nothing.
+
+The name overstates what the flag can do, and that is on purpose: it should read as more dangerous than it is rather than less.
+
 > The permission prompt is interactive only in the TUI. Programmatic/embedded use of the session auto-approves unless a permission handler is supplied.
+
+## Unattended runs
+
+`--permission-mode strict` is the one to reach for in CI. Read-only tools still run; everything else is refused, and the refusal tells the model that asking again will not help, so it stops rather than rewording the same call.
+
+Before it existed an unattended run could only be `auto`, so a scheduled job either trusted the agent with every tool it might reach for or could not use it at all.
+
+If you need an unattended run that may also write or execute, the rule surface for that lives one layer down, in the SDK's verification gate — see [Tool Safety](../sdk/tools/safety.md) for the rule vocabulary and how a host supplies it.

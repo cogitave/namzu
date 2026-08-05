@@ -216,6 +216,40 @@ Current hard requirements:
   2–4 objects with a `label` (and optional `description`); capable providers
   constrain that shape, while the runtime decoder remains authoritative.
 
+### Declining to delegate at all
+
+`SupervisorAgentConfig.allowDelegation` (default `true`) answers *whether* this
+run may hand work to anyone. The roster answers *who*, and the two are different
+questions.
+
+Set it `false` and `create_task`, `wait_for_task` and `cancel_task` are not
+built. `agent_task_list` stays — a run that may not launch anything may still
+want to see what is running — and `approve_plan` and `ask_user_question` are
+untouched, because they are the human-in-the-loop surface rather than the
+delegation one.
+
+It cannot be derived from the roster, which is why it is a field the caller
+states. A host that runs one specialist by putting its persona into the
+supervisor shell and that specialist's id into the roster has a non-empty roster
+and must still delegate to nobody — and comparing the roster against the
+executing agent fails in exactly that arrangement, because the ids differ. A
+supervisor whose roster holds one specialist and a run that *is* that specialist
+are indistinguishable in the roster alone.
+
+Two properties worth knowing:
+
+- **`false` is absolute.** `runtimeToolOverrides` cannot put the tools back: the
+  override pass runs over the tools this flag declined to build, and both values
+  come from the same caller in the same call, so "must not delegate" plus "give
+  it `create_task`" is a contradiction rather than extra knowledge. `agentIds:
+  []` has always behaved this way.
+- **Absent and `true` are identical**, so opting in explicitly cannot change an
+  existing caller.
+
+Stating the fact rather than deriving it also means the implied tool list cannot
+go stale — which a caller-held list of tool names silently did when this surface
+went from two tools to four.
+
 ### Waiting for a worker, and being told when one finishes
 
 > **Changed in `@namzu/sdk` 8.0.0.** A delegate's output is now framed as
@@ -271,8 +305,40 @@ The supervisor can also reach a task itself:
 | `agent_task_list` | every task with its state, timing and — for finished ones — its output |
 | `cancel_task` | stop a task the supervisor no longer needs |
 
-Prefer `wait_for_task` over listing in a loop: it costs one call and no waiting
-turns.
+**Do not poll `agent_task_list` to find out whether work finished.** A blocking
+`create_task` already returns the output, and a background one is announced. The
+listing is for taking stock — what is running, how long it has been — not for
+waiting; `wait_for_task` is the wait, and it costs one call rather than a turn
+per check.
+
+#### Two clocks bound the wait
+
+One number cannot answer both "is this worker taking too long?" and "has this
+worker stopped?". A bound generous enough for a child doing real work is
+useless as a stall detector, which is why a worker wedged in its second minute
+used to hold the supervisor for another fifty-eight, while a worker making
+steady progress at minute fifty-nine was cut off for being slow rather than for
+being stuck.
+
+| Bound | Measures | Default | Reset by |
+| --- | --- | --- | --- |
+| run | elapsed time since launch | 1 hour (`DELEGATION_TIMEOUT_MS`) | never |
+| idle | time since the worker last did anything | 5 minutes (`NAMZU_DELEGATION_IDLE_MS`) | every progress signal |
+
+Whichever fires first ends the wait, and **the result says which** — "it went
+quiet" and "it ran too long" are different diagnoses leading to different next
+moves, and the message is what the model acts on.
+
+Giving up on the wait does not cancel the worker. The child keeps going and its
+completion still arrives as a task notification, because a wait that ran out is
+a statement about the waiter, not about the work.
+
+The idle bound needs a signal that a task did something, and only a gateway can
+see it: `TaskGateway.onTaskProgress` is **optional**, because not every host can
+observe its children. A gateway without it is bounded by the wall clock alone,
+exactly as before — and that degradation is visible rather than silent, because
+the timeout result carries `idleBoundArmed` and the message says outright that
+this gateway cannot tell a busy worker from a stuck one.
 
 #### The inbox, and what depends on it
 

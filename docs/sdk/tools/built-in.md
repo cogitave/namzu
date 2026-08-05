@@ -1,7 +1,7 @@
 ---
 title: Built-In Tools
-description: Reference for the built-in tools exported by @namzu/sdk, including their purpose, safety shape, and common usage patterns.
-last_updated: 2026-08-03
+description: Reference for the built-in tools exported by @namzu/sdk, including their purpose, safety shape, deadlines, and common usage patterns.
+last_updated: 2026-08-05
 status: current
 related_packages: ["@namzu/sdk", "@namzu/computer-use"]
 ---
@@ -127,6 +127,24 @@ Notes:
 - dangerous command patterns are blocked before execution
 - sandbox execution is used when a sandbox exists
 - command output is returned as `STDOUT` and `STDERR` sections
+
+**A failure reports what happened.** A non-zero exit returns `success: false`
+with the exit code on `data.exitCode` and both streams in `output`. A command
+that ran out of time is marked separately, `data.timedOut`, because "timed out"
+and "exited 1" lead the model to different next moves. The two things an agent
+runs a shell for most — a test run and a build — are both non-zero exits, so
+this is the ordinary path rather than an edge case.
+
+**One clock, and it is this tool's.** `timeout` defaults to two minutes and is
+capped at ten, overridable with `NAMZU_BASH_MAX_TIMEOUT_MS`. A request above the
+ceiling is **refused, not clamped** — a number the model was not told had
+changed is how it learns to distrust its own arguments. The tool declares an
+executor deadline slightly above its own ceiling on purpose, so the executor's
+generic per-tool deadline is a backstop rather than a second clock racing this
+one.
+
+A caller-owned abort still propagates as an abort rather than being reported as
+a command failure.
 
 ### 4.5 `glob`
 

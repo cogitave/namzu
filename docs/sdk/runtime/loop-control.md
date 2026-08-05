@@ -1,7 +1,7 @@
 ---
 title: Loop Control and Resilience
-description: Stop conditions, step records, provider retry, budgets across resume, compaction triggers, and extended thinking in the @namzu/sdk agent loop.
-last_updated: 2026-08-03
+description: Stop conditions, step records, provider retry, budgets across resume, compaction triggers and outcomes, and extended thinking and effort in the @namzu/sdk agent loop.
+last_updated: 2026-08-05
 status: current
 related_packages: ["@namzu/sdk", "@namzu/anthropic"]
 ---
@@ -214,17 +214,51 @@ query({
 ```
 
 The hook receives the run id, the step number, the full message history
-and every completed `StepResult`. It may return `activeTools`, `model`,
-`system`, `temperature` and `maxResponseTokens`; an omitted field keeps
-the run's configured value, and returning nothing is the same as having no
-hook.
+and every completed `StepResult`. It may return `activeTools`, `toolChoice`,
+`skills`, `model`, `system`, `temperature` and `maxResponseTokens`; an omitted
+field keeps the run's configured value, and returning nothing is the same as
+having no hook.
+
+`toolChoice` is the one that *forces* rather than narrows — `'required'`,
+`'none'`, or a named function. It lives here rather than on the run config by
+construction: a forced choice that persisted would make the model call a tool,
+see the result, and be forced again, which is an agent that cannot stop. Each
+step is prepared fresh, so the force cannot outlive the step that asked for it.
+It also costs more cache than `activeTools`, because moving `tool_choice`
+invalidates cached message blocks and not only the tool prefix.
 
 Without it the tool surface and the model are fixed at `query()` time, so
 a phased agent — research, then write, then verify with a cheaper model —
 had to be several separate runs, each starting blind to the last one's
 context.
 
-Four things worth knowing:
+### `activeTools` narrows the kitchen, not only the menu
+
+A tool outside the list is **refused when it is called**, not merely left out
+of the request. The same holds for run-level `allowedTools`, which makes the
+same promise for a whole run.
+
+That distinction is the whole value of the field. Deciding which schemas go
+into the request is a statement about the *menu*; a model names a tool it was
+not offered more often than it sounds — whenever it repeats a call from earlier
+in the context, whenever a gateway carries its own tool list, and whenever a
+cached prompt prefix is replayed. A host using this to fence a step, which is
+the obvious use and the one the type invites, wants the fence to hold on the
+execution path too.
+
+The refusal is an ordinary `tool_result` naming what *is* available, so the
+model can route around it and the turn continues.
+
+Two details that decide behaviour:
+
+- **Absent is not empty.** No list means no restriction; an empty list means the
+  step may call nothing. Reading an empty allow-list as "unrestricted" is a
+  fail-open, and it is one this runtime has already been bitten by once in the
+  delegate roster.
+- **A step's list beats the run's**, matching the precedence the request already
+  used, so the two cannot disagree.
+
+Four more things worth knowing:
 
 - **`system` is one-step guidance.** It is appended to the *request* and
   never pushed onto the run's history, so a long run does not accumulate
@@ -233,13 +267,26 @@ Four things worth knowing:
   0, so changing the set invalidates the cached prefix for that step. That
   is inherent to narrowing — worth paying at a real phase boundary, not
   every step.
-- **It does not touch `tool_choice`.** Anthropic has no `allowed_tools`
-  parameter, and moving `tool_choice` invalidates cached *message* blocks
-  as well: a strictly worse trade for the same effect.
-- **It fails open.** A throwing hook leaves the step with the run's
-  configuration, and tool names that are not registered are dropped with a
-  warning — a phase list that outlives a tool rename should narrow the
-  surface, not kill the agent mid-run.
+- **It does not touch `tool_choice`.** The wires namzu speaks have no
+  `allowed_tools` parameter, and moving `tool_choice` invalidates cached
+  *message* blocks as well: a strictly worse trade for the same effect.
+- **The hook fails open; the list does not.** A throwing hook leaves the step
+  with the run's configuration. A list the hook *returned* is enforced, and
+  names that are not registered are dropped from it with a warning.
+
+  **Dropping every name leaves the step able to call nothing, and that is
+  deliberate.** The list means *only these*: if a rename outlives a phase list,
+  the only set satisfying "only the tools that no longer exist" is the empty
+  one. Widening back to the run's list would grant precisely the tools the
+  caller excluded, on the grounds that their own list failed — a step that can
+  call nothing is constrained, while a step that can call everything is a
+  control that stopped applying. The step is constrained, not crashed: the model
+  answers from what it has and the run continues.
+
+  The warning is the part to watch. It goes to the logger, and it distinguishes
+  some-names-dropped from all-names-dropped because those have different
+  consequences — but a host that silences its logger sees a phase quietly stop
+  doing anything.
 
 ### More than one concern
 
@@ -372,9 +419,71 @@ compaction useless — a cap would have to guess which pin mattered, and
 dropping the wrong one quietly is worse than a run that overflows in the
 open.
 
-A pass emits `compaction_completed` (wire: `compaction.completed`) with
-before/after message counts and token sizes. Compaction deletes history
-irrecoverably, so it is worth surfacing.
+### Both outcomes reach the run
+
+A pass that shed history emits `compaction_completed` (wire:
+`compaction.completed`) with before/after message counts and token sizes.
+Compaction deletes history irrecoverably, so it is worth surfacing — and it is
+emitted from **both** strategies, the structured working-state path and the
+reducer path a host takes with its own `contextReducer` or with
+`strategy: 'sliding-window'`.
+
+A pass that shed **nothing** emits `compaction_failed` (wire:
+`compaction.failed`). A shed that did not happen is exactly as consequential as
+one that did: the run carries on at full context toward a provider rejection
+several turns later that will name none of this. A log line is not enough to
+carry that, because a host that silences its logger — which every command-line
+entry point does — makes the decline invisible to the user, to the host *and* to
+the model at once.
+
+The event carries a `cause`, because the three declines want different
+responses:
+
+| `cause` | What happened | What it means for the next pass |
+| --- | --- | --- |
+| `reducer_threw` | the reducer raised | usually a bug, or a failed model call inside a summarizing reducer — the next pass may work |
+| `shed_nothing` | it returned no fewer messages than it was given | history is at its floor, or the reducer's threshold disagrees with the trigger's — every later pass declines identically |
+| `split_tool_pair` | its result separated a `tool_use` from its `tool_result` | a reducer bug; the result was refused wholesale rather than sent to a provider that rejects the pairing |
+
+It also carries the unchanged `messages` count, and `error` for
+`reducer_threw` only. **The history is guaranteed untouched on all three** — a
+reducer's result is installed whole or not at all — so there is no partial state
+to repair and reporting is the whole remedy.
+
+If you switch exhaustively over `RunEvent`, `compaction_failed` needs a case. A
+host that ignores unknown events is unaffected. Neither compaction event is
+forwarded over the A2A bridge: a peer models a task lifecycle and cannot act on
+how this runtime manages its own context.
+
+### How full the context is, between passes
+
+Compaction events tell you when history was shed. `token_usage_updated` tells
+you how much room there is the rest of the time:
+
+| Field | Is |
+| --- | --- |
+| `contextTokens` | the size of the conversation being sent **right now** — it falls when a compaction sheds |
+| `contextWindowTokens` | the ceiling that size is measured against |
+| `contextMeasuredBy` | `provider` if the prompt was counted, `estimate` if it was not |
+| `windowSource` | `config`, `model-table` or `default` |
+
+**These are a different quantity from the `usage` beside them, and the naming is
+deliberate because confusing the two is a category error this estate shipped.**
+`usage` is *cumulative spend*: prompt plus completion tokens summed across every
+turn, monotonically increasing, and untouched by compaction. Dividing it by a
+context window produces an indicator that climbs toward full on any long run no
+matter how much room the conversation actually has — most wrong precisely on the
+runs where someone is watching it. `contextTokens` is the numerator that
+question wants.
+
+Both provenance fields exist because **a fraction is only as honest as the
+weaker of its two numbers.** A surface rendering these owes its reader the same
+distinction rather than presenting an estimate as a measurement.
+
+All four are **absent when the run has no compaction configuration** — nothing
+then resolves a window, and inventing one would be the guess these fields exist
+to replace. `measureContext` is exported for a host that wants to compute the
+same figure itself.
 
 ## 6b. What a Finished Run Leaves Behind
 
@@ -421,30 +530,57 @@ happened.
   state, and inventing an empty candidate would ask a host to store a
   record of nothing.
 
-## 7. Extended Thinking
+## 7. Extended Thinking and Effort
 
 ```ts
 query({
+  // …
   runConfig: {
-    model: 'claude-opus-5',
-    thinking: { type: 'enabled', budgetTokens: 8_000 },
+    // …
+    thinking: { type: 'adaptive' },
+    effort: 'high',
   },
 })
 ```
 
+`thinking` says whether the model reasons before answering; `effort` says
+how much work it spends on the call. They are **siblings** on `AgentRunConfig`
+rather than one nested in the other, because on some models they are
+independent controls that apply together — see
+[Run Configuration](./configuration.md) for the mode-by-mode breakdown of which
+of the two sets depth.
+
+**They are not exclusive to `query()`.** Both are declared on `BaseAgentConfig`,
+so `runAgent`, `ReactiveAgent`, `SupervisorAgent` and the agent manager's
+bare-config branch all forward them. That is worth stating because it was not
+true until recently: every one of those entry points assembles its run config by
+hand-listing fields, so `thinking` was settable on an agent config and dropped
+in silence by all four — no cast to blame, no error to see, and a perfectly
+ordinary answer at the other end. If you set either field anywhere other than
+`query()` and are on an older kernel, check that it reaches the wire before
+trusting it.
+
+**A driver that cannot honour either one refuses the run rather than dropping
+it.** Effort is the reason this rule matters most: a dropped `thinking` at least
+leaves an empty reasoning list, while a dropped `effort` leaves an answer
+indistinguishable from one the model produced at its default — including in what
+it cost.
+
 Reasoning blocks are stored on the assistant message and replayed
-**verbatim**, signature intact — Anthropic requires the assistant turn
-preceding a `tool_result` to be echoed back unchanged, and a rebuilt turn
-triggers ordering and signature errors.
+**verbatim**, signature intact — the assistant turn preceding a `tool_result`
+has to be echoed back unchanged, and a rebuilt turn triggers ordering and
+signature errors.
 
 The lifecycle surfaces as `reasoning_started` / `reasoning_delta` /
 `reasoning_completed`, so a streaming UI can show that the model is
 working instead of a silent multi-second gap. The delta is ephemeral: the
 completed block carries the full text, and the transcript records that.
 
-Anthropic rejects `temperature`, `top_p` and `top_k` while thinking is
-enabled, so the driver omits them rather than sending a request it knows
-will fail.
+Some wires reject `temperature`, `top_p` and `top_k` while thinking is
+enabled. A driver on such a wire omits them rather than sending a request it
+knows will fail — which sampling parameters and which effort levels a given
+model accepts is the driver's to resolve, not the kernel's. See
+[Anthropic Provider](../../providers/anthropic.md) for one worked example.
 
 ## 8. Guardrails
 
