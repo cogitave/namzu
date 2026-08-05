@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { CompletionInbox } from '../../../gateway/completion-inbox.js'
+import { renderToolSchema } from '../../../registry/tool/schema.js'
 import type { TaskGateway, TaskHandle } from '../../../types/agent/gateway.js'
 import type { TaskId } from '../../../types/ids/index.js'
 import type { ToolDefinition } from '../../../types/tool/index.js'
@@ -343,5 +344,106 @@ describe('the task listing carries the output it always had', () => {
 
 		expect(listed.output).toContain('tsk_1')
 		expect(listed.output).toContain('running')
+	})
+})
+
+/**
+ * A promise the tools can only keep with an inbox.
+ *
+ * `background: true` hands back a task id and says the result arrives "later,
+ * as a task notification". The inbox is the only thing that delivers one — it
+ * holds the run open for the outstanding worker and puts the completion into
+ * the transcript. Without one the tool told the model to expect a message on a
+ * channel that did not exist, and nothing failed loudly, because the launch
+ * itself succeeded.
+ */
+describe('background launching is offered only when it can be delivered', () => {
+	const finished = (result: string): TaskHandle =>
+		({
+			taskId: 'tsk_x' as TaskId,
+			agentId: 'reviewer',
+			state: 'completed',
+			createdAt: 1_000,
+			completedAt: 2_000,
+			result: { status: 'completed', result },
+		}) as TaskHandle
+
+	function inboxlessTools(): ToolDefinition[] {
+		return buildCoordinatorTools({
+			gateway: {
+				createTask: async () => finished('inline output'),
+				waitForTask: async () => finished('inline output'),
+				getTask: () => finished('inline output'),
+				listTasks: () => [],
+				cancelTask: () => undefined,
+				continueTask: async () => undefined,
+				onTaskCompleted: () => () => {},
+			} as unknown as TaskGateway,
+			workingDirectory: '/tmp/test',
+			allowedAgentIds: ['reviewer'],
+			// deliberately no completionInbox
+		})
+	}
+
+	/**
+	 * The schema as the MODEL sees it.
+	 *
+	 * Serialising the Zod object itself says nothing — its internals do not
+	 * mention field names in a form a match can rely on. This is the render
+	 * path the provider drivers use, so what it says is what is advertised.
+	 */
+	function advertisedSchema(tool: ToolDefinition): string {
+		return JSON.stringify(renderToolSchema(tool.inputSchema))
+	}
+
+	it('withholds the parameter when there is no inbox', () => {
+		// Withheld rather than denied per call: a parameter the model never
+		// sees costs nothing, where one it is shown and then refused costs
+		// prompt-prefix tokens and an iteration per attempt.
+		const createTask = toolNamed(inboxlessTools(), 'create_task')
+
+		expect(advertisedSchema(createTask)).not.toContain('background')
+	})
+
+	it('stops advertising it in the description too', () => {
+		// A description that names a parameter the schema does not have is an
+		// invitation to a call that cannot parse.
+		const createTask = toolNamed(inboxlessTools(), 'create_task')
+
+		expect(createTask.description).not.toContain('background: true')
+		expect(createTask.description).toContain('BLOCKS')
+	})
+
+	it('blocks anyway if the flag reaches execute some other way', () => {
+		// Defence in depth for a directly-constructed definition. Blocking is
+		// the safe fallback: the output reaches the model as this call's own
+		// tool_result rather than being promised to a channel that is absent.
+		const createTask = toolNamed(inboxlessTools(), 'create_task')
+
+		return createTask
+			.execute(
+				{ agent_id: 'reviewer', prompt: 'go', description: 'review', background: true } as never,
+				{} as never,
+			)
+			.then((result) => {
+				expect(result.output).not.toContain('task notification')
+				expect(result.output).toContain('inline output')
+			})
+	})
+
+	it('offers it again as soon as an inbox is present', () => {
+		expect(advertisedSchema(toolNamed(harness().tools, 'create_task'))).toContain('background')
+		expect(toolNamed(harness().tools, 'create_task').description).toContain('background: true')
+	})
+
+	it('leaves the rest of the surface alone', () => {
+		// Withholding is one parameter wide. An inbox-less coordinator is a
+		// supported configuration, not a degraded one.
+		expect(inboxlessTools().map((t) => t.name)).toEqual([
+			'create_task',
+			'wait_for_task',
+			'cancel_task',
+			'agent_task_list',
+		])
 	})
 })

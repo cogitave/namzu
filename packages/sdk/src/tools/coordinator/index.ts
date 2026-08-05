@@ -311,9 +311,37 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 
 	const agentIdEnum = delegateSchema(agentIds)
 
+	/**
+	 * Whether a launch can be made with nothing waiting on it.
+	 *
+	 * A background launch returns a task id and promises the result "later, as
+	 * a task notification". The only thing that keeps that promise is the
+	 * inbox: it is what holds the run open for an outstanding worker and what
+	 * puts the completion into the transcript. With no inbox the tool told the
+	 * model to expect a message on a channel that does not exist — measured,
+	 * and the launch itself succeeded, so nothing failed loudly either.
+	 *
+	 * Withheld rather than refused per call, and rather than thrown at
+	 * construction. Least functionality (NIST SP 800-53 Rev. 5 CM-7: provide
+	 * only mission-essential capabilities): a parameter the model is never
+	 * shown costs it nothing, where a parameter it is shown and then denied
+	 * costs prompt-prefix tokens plus an iteration per attempt. And a throw
+	 * would break a legitimate caller — an inbox-less coordinator surface is a
+	 * supported configuration whose blocking path is unaffected, pinned by a
+	 * test ("runs unchanged with no inbox at all"). That is the same reasoning
+	 * that made an empty roster WITHHOLD `create_task` rather than refuse to
+	 * build, and it is one parameter wide here for the same reason it was one
+	 * tool wide there.
+	 */
+	const canLaunchInBackground = completionInbox !== undefined
+
+	const backgroundClause = canLaunchInBackground
+		? " By default this BLOCKS and returns the agent's final output as this call's tool_result; pass background: true to get a task_id back immediately and receive the result later as a task notification."
+		: " This BLOCKS and returns the agent's final output as this call's tool_result."
+
 	const createTask = defineTool({
 		name: 'create_task',
-		description: `Launch a task on a specialized agent. By default this BLOCKS and returns the agent's final output as this call's tool_result; pass background: true to get a task_id back immediately and receive the result later as a task notification. Available agents: ${agentIds.join(', ')}. Prefer compact assignments; for large context, write/read shared workspace files and pass filenames or references. To launch multiple tasks in parallel, call this tool multiple times in a single assistant turn — the runtime executes every tool_use block from one response concurrently and delivers all tool_results together, so 'fan out 8 specialists' is one assistant message with 8 create_task blocks. Do not race: until a worker's result reaches you, you know nothing about it — never fabricate, summarise or predict what it will say, in any form.`,
+		description: `Launch a task on a specialized agent.${backgroundClause} Available agents: ${agentIds.join(', ')}. Prefer compact assignments; for large context, write/read shared workspace files and pass filenames or references. To launch multiple tasks in parallel, call this tool multiple times in a single assistant turn — the runtime executes every tool_use block from one response concurrently and delivers all tool_results together, so 'fan out 8 specialists' is one assistant message with 8 create_task blocks. Do not race: until a worker's result reaches you, you know nothing about it — never fabricate, summarise or predict what it will say, in any form.`,
 		inputSchema: z.object({
 			agent_id: agentIdEnum.describe('Which agent to run'),
 			prompt: z
@@ -328,12 +356,16 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 				.describe(
 					'Existing planning task ID to link. If omitted, a planning task is auto-created.',
 				),
-			background: z
-				.boolean()
-				.optional()
-				.describe(
-					'Return immediately with a task_id instead of waiting. The result arrives later as a task notification. Use this when you have other work to do meanwhile; leave it off when the next thing you do depends on this answer.',
-				),
+			...(canLaunchInBackground
+				? {
+						background: z
+							.boolean()
+							.optional()
+							.describe(
+								'Return immediately with a task_id instead of waiting. The result arrives later as a task notification. Use this when you have other work to do meanwhile; leave it off when the next thing you do depends on this answer.',
+							),
+					}
+				: {}),
 		}),
 		category: 'custom',
 		permissions: [],
@@ -384,7 +416,14 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 			// is exactly the blocking launch whose wait was abandoned.
 			completionInbox?.launched(handle.taskId)
 
-			if (background) {
+			// `canLaunchInBackground` as well as the flag, so the branch cannot be
+			// entered without the channel that makes it mean something. The
+			// schema already withholds the parameter, and Zod strips what it
+			// does not declare — this is the second lock, and it is here because
+			// a directly-constructed definition or a future edit to the schema
+			// would otherwise reach a launch that promises a notification
+			// nothing can deliver.
+			if (background && canLaunchInBackground) {
 				// Tell the inbox to hold the run open for this. Without it the
 				// supervisor could launch a worker, answer, and settle the run
 				// while the worker was still going — discarding the result the
