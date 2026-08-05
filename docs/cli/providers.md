@@ -1,7 +1,7 @@
 ---
 title: Providers & credentials
 description: How namzu discovers LLM credentials, the first-run provider picker, and switching providers.
-last_updated: 2026-05-25
+last_updated: 2026-08-05
 status: current
 related_packages: ["@namzu/cli", "@namzu/anthropic", "@namzu/openai", "@namzu/openrouter", "@namzu/ollama"]
 ---
@@ -15,9 +15,10 @@ namzu is **credential-first**: it never runs a login flow. On launch it discover
 namzu scans these sources, in order, and offers whatever it finds:
 
 1. **Environment variables** — e.g. `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`.
-2. **clawtool secrets** — the `secrets.toml` managed by clawtool, if present.
-3. **macOS Keychain** — the Claude Code OAuth credential (`Claude Code-credentials`). This lets namzu reuse an existing Claude Code sign-in with no API key. macOS only.
-4. **Local probes** — a reachable Ollama server (e.g. `localhost:11434`).
+2. **macOS Keychain** — the Claude Code OAuth credential (`Claude Code-credentials`). This lets namzu reuse an existing Claude Code sign-in with no API key. macOS only.
+3. **Local probes** — a reachable Ollama server (e.g. `localhost:11434`).
+
+> **Removed in 0.7.0:** namzu also used to read the `secrets.toml` of an external peer daemon it integrated with, ahead of the Keychain. That integration is gone. A credential kept only in that file is no longer found — export it as one of the environment variables above instead. `namzu doctor` lists the sources actually scanned.
 
 If nothing is found, namzu shows the picker in an empty state explaining exactly which environment variable to set (or to start Ollama), then restart.
 

@@ -42,7 +42,6 @@ vi.mock('../../tui/agent.js', () => ({
 				providerSummary: 'stub',
 				modelSummary: 'stub',
 				toolNames: [],
-				deferredToolCount: 0,
 				errorHint: null,
 				send: async function* () {},
 			}

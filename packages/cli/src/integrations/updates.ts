@@ -1,11 +1,8 @@
 /**
- * Update check for namzu (npm),
- * surfaced in the TUI so the user knows when a newer version is out. Both are
- * best-effort with short timeouts: offline or unpublished just
- * yields `null`, never an error or a hang.
+ * Update check for namzu (npm), surfaced in the TUI so the user knows when a
+ * newer version is out. Best-effort with a short timeout: offline or
+ * unpublished yields `null`, never an error or a hang.
  */
-
-import { execFile } from 'node:child_process'
 
 export interface UpdateInfo {
 	readonly name: string
@@ -16,7 +13,6 @@ export interface UpdateInfo {
 }
 
 const NPM_TIMEOUT_MS = 2_500
-const CLAWTOOL_TIMEOUT_MS = 5_000
 
 /** Compare dotted numeric versions; >0 if a>b, <0 if a<b, 0 if equal. */
 export function compareVersions(a: string, b: string): number {
@@ -55,13 +51,6 @@ export async function checkNamzuUpdate(current: string): Promise<UpdateInfo | nu
 		clearTimeout(timer)
 	}
 }
-
-function run(bin: string, args: string[]): Promise<string> {
-	return new Promise((resolve) => {
-		execFile(bin, args, { timeout: CLAWTOOL_TIMEOUT_MS }, (_err, stdout) => resolve(stdout ?? ''))
-	})
-}
-
 
 /** Returns an update when one is available. */
 export async function checkUpdates(namzuVersion: string): Promise<readonly UpdateInfo[]> {

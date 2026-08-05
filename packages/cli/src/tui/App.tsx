@@ -117,9 +117,6 @@ export function App({ ctx }: AppProps) {
 	const sessionsRef = useRef<CliSessions | null>(null)
 	const scopeRef = useRef<RunScope | null>(null)
 	const idRef = useRef<number>(0)
-	// Mirror of `state` for callbacks/pollers that need the current value
-	// without re-subscribing (the inbox poller decides whether namzu is free).
-	const stateRef = useRef(state)
 	const nextId = useCallback(() => {
 		idRef.current += 1
 		return `m${idRef.current}`
@@ -194,7 +191,7 @@ export function App({ ctx }: AppProps) {
 				setPhase('ready')
 				pushMessage(
 					'system',
-					`Connected to ${s.providerSummary}${s.modelSummary ? ` · ${s.modelSummary}` : ''} · ${s.toolNames.length} tools${s.deferredToolCount > 0 ? ` (+${s.deferredToolCount} on demand)` : ''}`,
+					`Connected to ${s.providerSummary}${s.modelSummary ? ` · ${s.modelSummary}` : ''} · ${s.toolNames.length} tools`,
 				)
 			} else {
 				setPhase('unhealthy')
@@ -419,7 +416,7 @@ export function App({ ctx }: AppProps) {
 	)
 
 	const runTurn = useCallback(
-		async (text: string, images?: readonly ImageAttachment[], replyTo?: string) => {
+		async (text: string, images?: readonly ImageAttachment[]) => {
 			if (!session || !session.hasProvider) {
 				pushMessage('system', session?.errorHint ?? 'Agent is not ready yet — give it a moment.')
 				return
@@ -457,7 +454,7 @@ export function App({ ctx }: AppProps) {
 			)
 			setState('thinking')
 			// The model interleaves text → tool → text across iterations; `applyEvent`
-			// (shared with the daemon-attach poller) renders each one in order.
+			// renders each one in order.
 			const st = { assistantId: null as string | null, text: '' }
 			const ac = new AbortController()
 			abortRef.current = ac
@@ -599,10 +596,6 @@ export function App({ ctx }: AppProps) {
 		setQueued(rest)
 		if (next !== undefined) void runTurn(next)
 	}, [state, phase, queued, runTurn])
-
-	useEffect(() => {
-		stateRef.current = state
-	}, [state])
 
 	// One-shot update check on launch.
 	// Best-effort; surfaces a single notice when something newer is out.
@@ -911,13 +904,12 @@ function ComposerFrame({
 	)
 }
 
-// Tool call label: the tool name, then its most identifying argument —
-// `Bash(ls -la)`, `Read(file.ts)`. A bare tool name in a transcript of
-// forty calls says nothing about which one this was.
-// The name is title-cased.
+// Tool call label: the tool name title-cased, then its most identifying
+// argument — `Bash(ls -la)`, `Read(file.ts)`. A bare tool name in a transcript
+// of forty calls says nothing about which one this was.
 function formatToolCall(toolName: string, summary: string): string {
-	const base = toolName
-	const display = base.length > 0 ? base[0]?.toUpperCase() + base.slice(1) : base
+	const display =
+		toolName.length > 0 ? toolName[0]?.toUpperCase() + toolName.slice(1) : toolName
 	return summary.length > 0 ? `${display}(${summary})` : display
 }
 

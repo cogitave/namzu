@@ -10,7 +10,6 @@
 import type { FormatName } from '../output/index.js'
 import type { PermissionsConfig } from '../permissions/rules.js'
 
-
 export interface NamzuCliConfig {
 	/** Default output format when not overridden by --format. */
 	readonly format?: FormatName

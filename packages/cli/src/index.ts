@@ -16,6 +16,7 @@ export type { RunDoctorOptions } from './doctor/registry.js'
 
 export {
 	builtInDoctorChecks,
+	credentialSourcesCheck,
 	cwdWritableCheck,
 	providersRegisteredCheck,
 	sandboxPlatformCheck,

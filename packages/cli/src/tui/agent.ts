@@ -156,8 +156,6 @@ export interface AgentSession {
 	readonly providerSummary: string | null
 	readonly modelSummary: string | null
 	readonly toolNames: readonly string[]
-	/** Count of tools registered deferred (loadable via search_tools). */
-	readonly deferredToolCount: number
 	readonly errorHint: string | null
 	send(messages: readonly Message[], opts?: SendOptions): AsyncIterable<AgentEvent>
 }
@@ -252,8 +250,14 @@ function buildToolRegistry(cwd: string): ToolRegistry {
 	// MEMORY.md that's injected into the prompt).
 	const memoryStore = new DiskMemoryStore({ baseDir: join(cwd, '.namzu') })
 	registry.register(buildMemoryTools(memoryStore, memoryStore.getIndex()))
-	// `search_tools` lets the model load deferred tools on demand.
-	registry.register([SearchToolsTool])
+	// `search_tools` is deliberately NOT registered here. It is only useful
+	// where deferred tools exist, and that differs between this function's two
+	// callers: the session below passes a `taskStore`, so query() registers the
+	// task tools deferred and the search has a roster; a sub-agent is built with
+	// no task store, so its registry has nothing deferred and the tool could
+	// only ever answer "no deferred tools matching X" — a capability advertised
+	// every turn that costs a turn to discover is unusable. Mounting it is the
+	// caller's decision, made where the roster is known.
 	return registry
 }
 
@@ -344,6 +348,9 @@ export async function createAgentSession(
 		}
 	}
 	const registry = buildToolRegistry(cwd)
+	// This session passes a `taskStore` to query() below, which registers the
+	// task tools deferred — so `search_tools` has something to find here.
+	registry.register([SearchToolsTool])
 	// Native sub-agents: register the canonical `Agent` tool so the model can
 	// delegate a self-contained task to a fresh sub-agent (own context window).
 	// Best-effort — if the runtime can't stand up, the chat still works.
@@ -364,9 +371,9 @@ export async function createAgentSession(
 					model,
 				),
 			buildTools: () => {
-				// Sub-agents get the same working set as the parent — builtins +
-				// memory + search_tools. Without this a sub-agent has no way to do
-				// real work beyond local files.
+				// Sub-agents get the parent's working set minus `search_tools`:
+				// they run without a task store, so nothing in their registry is
+				// deferred and there is nothing for a search to load.
 				return buildToolRegistry(cwd)
 			},
 			verificationGate: gateFor(options.rules),
@@ -382,10 +389,14 @@ export async function createAgentSession(
 		// Sub-agents unavailable this session — non-fatal.
 	}
 	const activeToolNames = registry.getCallableTools().map((t) => t.name)
-	const deferredToolCount = 0
-	// Task store → query auto-registers create_task / update_task / list_tasks
-	// and emits task_created/task_updated, so the agent can track a plan for the
-	// current request. Tasks are run-scoped.
+	// Task store → query registers task_create / task_update / task_list as
+	// DEFERRED tools and emits task_created/task_updated, so the agent can track
+	// a plan for the current request. Tasks are run-scoped.
+	//
+	// "Deferred" is why this session mounts `search_tools` above: these three are
+	// the roster it searches. They are registered inside query(), after this
+	// function returns, which is why the connect line reports no count of them —
+	// counting here would mean restating query's registration order in the CLI.
 	const taskStore: TaskStore = new DiskTaskStore({
 		baseDir: join(cwd, '.namzu'),
 		defaultRunId: 'run_namzu-cli' as RunId,
@@ -399,7 +410,6 @@ export async function createAgentSession(
 		providerSummary: entry.label,
 		modelSummary: model,
 		toolNames: activeToolNames,
-		deferredToolCount,
 		errorHint: null,
 		send: async function* (messages, opts) {
 			// Renew a lapsed OAuth token before the turn runs (no-op for valid
@@ -1074,7 +1084,6 @@ function emptySession(errorHint: string): AgentSession {
 		providerSummary: null,
 		modelSummary: null,
 		toolNames: [],
-		deferredToolCount: 0,
 		errorHint,
 		send: async function* () {
 			yield { kind: 'error' as const, message: errorHint }

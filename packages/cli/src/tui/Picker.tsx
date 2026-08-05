@@ -1,10 +1,10 @@
 /**
  * First-run / re-pick provider selector.
  *
- * Renders the credentials the discoverer found (env /
- * local probes) and lets the user pick a primary LLM provider for the
- * TUI's own chat. Keyboard-only. The dispatch path that turns the
- * selection into a live agent session lives in `agent.ts`.
+ * Renders the credentials the discoverer found (env / keychain / local
+ * probes) and lets the user pick a primary LLM provider for the TUI's own
+ * chat. Keyboard-only. The dispatch path that turns the selection into a
+ * live agent session lives in `agent.ts`.
  */
 
 import { Box, Text, useInput } from 'ink'
@@ -75,6 +75,14 @@ export function Picker({ detected, currentProvider, onSubmit, onCancel }: Picker
 					<Text color={theme.text.muted}>
 						{' '}
 						· env vars (ANTHROPIC_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY, …)
+					</Text>
+					{/* The summary line on the populated screen names three sources; this
+					    list is the same set and must not name fewer. It is the screen
+					    shown to the person with no credential, so an omission here is a
+					    source they are never told to try. */}
+					<Text color={theme.text.muted}>
+						{' '}
+						· macOS Keychain (an existing OAuth sign-in; macOS only)
 					</Text>
 					<Text color={theme.text.muted}>
 						{' '}
