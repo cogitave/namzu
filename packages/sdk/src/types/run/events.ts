@@ -363,6 +363,39 @@ type CoreRunEvent =
 			runId: RunId
 			usage: TokenUsage
 			cost: CostInfo
+			/**
+			 * How large the CONTEXT is right now, and how large it may get.
+			 *
+			 * These are a different quantity from `usage` beside them and the
+			 * distinction is the whole reason they are named this explicitly.
+			 * `usage` is CUMULATIVE SPEND over the run: prompt plus completion
+			 * tokens summed across every turn, monotonically increasing, and
+			 * untouched by compaction. `contextTokens` is the size of the
+			 * conversation being sent right now, which falls when a compaction
+			 * sheds.
+			 *
+			 * Dividing the first by a context window is a category error, and
+			 * it is one this estate shipped: a host did exactly that, so its
+			 * indicator climbed toward full on any long run no matter how much
+			 * room the conversation actually had — most wrong precisely when
+			 * someone needed it most. The numbers are here so nobody has to
+			 * reach for the wrong one, and named so reaching for it is a
+			 * visible mistake rather than a plausible guess.
+			 *
+			 * `contextMeasuredBy` says whether the provider counted the prompt
+			 * or we estimated it, and `windowSource` where the ceiling came
+			 * from. A fraction of two numbers is only as honest as the weaker
+			 * of them, and a surface rendering these owes a reader the same
+			 * distinction rather than presenting an estimate as a measurement.
+			 *
+			 * Absent when the run has no compaction configuration, because
+			 * nothing then resolves a window and inventing one would be the
+			 * guess this exists to replace.
+			 */
+			contextTokens?: number
+			contextMeasuredBy?: 'provider' | 'estimate'
+			contextWindowTokens?: number
+			windowSource?: 'config' | 'model-table' | 'default'
 	  }
 	| {
 			type: 'activity_created'

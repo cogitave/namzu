@@ -1,4 +1,5 @@
 import { type Span, SpanStatusCode } from '@opentelemetry/api'
+import { resolveContextWindow } from '../../../compaction/context-window.js'
 import { extractFromAssistantMessage } from '../../../compaction/extractor.js'
 import { AUTO_CONTINUATION_USER_MESSAGE } from '../../../constants/continuation.js'
 import {
@@ -42,7 +43,7 @@ import type { ToolCallOutcome } from '../executor.js'
 import { applyLifecycleHookResults } from '../plugin-hooks.js'
 import { runAdvisoryPhase } from './phases/advisory.js'
 import { runIterationCheckpoint } from './phases/checkpoint.js'
-import { relieveOverflow, runCompactionCheck } from './phases/compaction.js'
+import { measureContext, relieveOverflow, runCompactionCheck } from './phases/compaction.js'
 import type { IterationContext } from './phases/index.js'
 import { runPlanGate } from './phases/plan.js'
 import { runToolReview } from './phases/tool-review.js'
@@ -464,11 +465,38 @@ export class IterationOrchestrator {
 						totalCost: runMgr.costInfo.totalCost,
 					})
 
+					// The context figures ride with the spend figures because a
+					// surface showing one almost always wants the other — and
+					// because the two were confusable enough that a host divided
+					// cumulative spend by a context window and shipped it. They
+					// are measured here rather than left to be derived, since the
+					// only correct derivation needs internals a host cannot see.
+					//
+					// Absent when the run has no compaction config: nothing then
+					// resolves a window, and inventing one would be the guess this
+					// replaces.
+					const contextFigures = this.ctx.compactionConfig
+						? (() => {
+								const measured = measureContext(this.ctx)
+								const window = resolveContextWindow(
+									this.ctx.compactionConfig?.contextWindowTokens,
+									runConfig.model,
+								)
+								return {
+									contextTokens: measured.tokens,
+									contextMeasuredBy: measured.source,
+									contextWindowTokens: window.tokens,
+									windowSource: window.source,
+								}
+							})()
+						: {}
+
 					await this.ctx.emitEvent({
 						type: 'token_usage_updated',
 						runId: runMgr.id,
 						usage: runMgr.tokenUsage,
 						cost: runMgr.costInfo,
+						...contextFigures,
 					})
 
 					// Reasoning rides along with the turn it belongs to, so the

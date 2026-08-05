@@ -135,7 +135,17 @@ function estimateTokens(ctx: IterationContext): number {
  * estimated rather than measured because no provider in the repo exposes a
  * token-count call; an approximate tail beats a certain omission.
  */
-function measureContext(ctx: IterationContext): {
+/**
+ * How large the context being sent is right now, and whether that number was
+ * counted or estimated.
+ *
+ * Exported because it is the only honest answer to "how much room is left",
+ * and the surfaces that ask are outside this file. It was internal, so a host
+ * wanting the figure had to derive one — and a host did, from cumulative run
+ * spend divided by a window guessed from a model name, which is neither term
+ * of the right fraction.
+ */
+export function measureContext(ctx: IterationContext): {
 	tokens: number
 	source: 'provider' | 'estimate'
 } {
