@@ -3,7 +3,6 @@ import { CompletionInbox } from '../gateway/completion-inbox.js'
 import { LocalTaskGateway } from '../gateway/local.js'
 import { ToolNameCollisionError, ToolRegistry } from '../registry/tool/execute.js'
 import { drainQuery } from '../runtime/query/index.js'
-import type { LaunchedTaskMeta } from '../runtime/query/iteration/phases/context.js'
 import { PendingAnswers, QuestionParkBinding } from '../runtime/query/question-park.js'
 import { buildCoordinatorTools } from '../tools/coordinator/index.js'
 import type { TaskGateway, TaskHandle } from '../types/agent/gateway.js'
@@ -15,7 +14,7 @@ import type {
 	SupervisorAgentResult,
 } from '../types/agent/index.js'
 import type { AgentTaskContext } from '../types/agent/task.js'
-import type { AgentId, RunId, TaskId } from '../types/ids/index.js'
+import type { AgentId, RunId } from '../types/ids/index.js'
 import { deriveChildState } from '../types/invocation/index.js'
 import type { RunEventListener } from '../types/run/index.js'
 import type { ActorRef } from '../types/session/actor.js'
@@ -171,8 +170,6 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 			throw new Error("SupervisorAgentConfig requires either 'gateway' or 'agentManager'")
 		}
 
-		const launchedTasks = new Map<TaskId, LaunchedTaskMeta>()
-
 		let planManagerRef: import('../manager/plan/lifecycle.js').PlanManager | undefined
 
 		// Created here because the TOOLS are created here: the durability
@@ -212,9 +209,6 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 				taskStore: input.taskStore,
 				runId,
 				getPlanManager: () => planManagerRef,
-				onTaskLaunched: (agentTaskId, meta) => {
-					launchedTasks.set(agentTaskId, meta)
-				},
 				// With a resume handler present the coordinator surface gains
 				// ask_user_question — the model can park the run on a question
 				// routed through the same HITL channel as plan approvals.
@@ -334,7 +328,6 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 					runtimeContext: input.runtimeContext,
 					taskGateway: gateway,
 					completionInbox,
-					launchedTasks,
 					advisory: config.advisory,
 					invocationState: childInvocationState,
 					// HITL surface: forward optional review-time hooks so hosts can

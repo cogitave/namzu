@@ -14,7 +14,6 @@ import type {
 	IterationCheckpoint,
 	ResumeHandler,
 } from '../../../../types/hitl/index.js'
-import type { TaskId } from '../../../../types/ids/index.js'
 import type { LLMProvider } from '../../../../types/provider/index.js'
 import type { TaskRouterConfig } from '../../../../types/router/index.js'
 import type { ReviewAnswer } from '../../../../types/run/answer-review.js'
@@ -35,22 +34,6 @@ import type { ToolExecutor } from '../../executor.js'
 import type { GuardCoordinator } from '../../guard.js'
 import type { SteeringChannel } from '../../steering.js'
 import type { ToolGrantSet } from '../../tool-grants.js'
-
-export interface LaunchedTaskMeta {
-	readonly agentId: string
-	readonly description: string
-	readonly planTaskId?: string
-	/**
-	 * The `tool_use_id` of the assistant `create_task` block that
-	 * spawned this background task. Required to emit the canonical
-	 * `tool_result` content block when the task completes — without
-	 * it we'd fall back to the legacy synthetic-user-message inject
-	 * (see ses_009-task-notification-envelope). Optional because
-	 * older call paths that don't thread `ToolContext.toolUseId`
-	 * still publish the meta without it.
-	 */
-	readonly originalToolUseId?: string
-}
 
 export interface IterationContext {
 	readonly provider: LLMProvider
@@ -114,8 +97,6 @@ export interface IterationContext {
 	readonly completionInbox?: CompletionInbox
 
 	readonly taskStore?: TaskStore
-
-	readonly launchedTasks: Map<TaskId, LaunchedTaskMeta>
 
 	/**
 	 * Approvals a human granted earlier in this run, at a scope they chose.

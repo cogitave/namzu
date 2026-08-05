@@ -420,11 +420,6 @@ export interface QueryParams {
 	 */
 	completionInbox?: import('../../gateway/completion-inbox.js').CompletionInbox
 
-	launchedTasks?: Map<
-		import('../../types/ids/index.js').TaskId,
-		import('./iteration/phases/context.js').LaunchedTaskMeta
-	>
-
 	onContextCreated?: (ctx: {
 		planManager: import('../../manager/plan/lifecycle.js').PlanManager
 	}) => void
@@ -854,7 +849,6 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		taskGateway: params.taskGateway,
 		completionInbox: params.completionInbox,
 		taskStore: params.taskStore,
-		launchedTasks: params.launchedTasks ?? new Map(),
 		// Run-scoped. An approval is a statement about this run's work;
 		// carrying one into a later run would be reuse nobody agreed to.
 		toolGrants: new ToolGrantSet(),
