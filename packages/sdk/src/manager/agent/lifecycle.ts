@@ -127,44 +127,29 @@ export class AgentManager {
 
 		const childAbortController = createChildAbortController(context.parentAbortController)
 
-		const maxAllocation = Math.floor(
-			context.budgetTracker.remaining * this.config.maxBudgetFraction,
-		)
-		const allocatedTokens = Math.min(
-			options.budgetAllocation?.tokenBudget ?? maxAllocation,
-			maxAllocation,
-		)
-
-		// Budget exhaustion must not INVERT into no budget at all. Downstream,
-		// `tokenBudget: 0` means "uncapped" (`LimitChecker`: `tokenBudget > 0
-		// && total >= tokenBudget`), and `maxAllocation` floors to 0 as soon as
-		// the parent's remaining drops below `1 / maxBudgetFraction`. So the
-		// most depleted parent in the tree was the one that spawned an
-		// unlimited child. Refuse instead: a caller that wants an uncapped
-		// child can say so explicitly with its own `budgetAllocation`.
-		if (allocatedTokens <= 0) {
-			throw new NamzuError({
-				code: 'invalid_config',
-				message: `Cannot spawn "${options.agentId}": the parent has ${context.budgetTracker.remaining} tokens remaining, which allocates 0 to the child — and a token budget of 0 means UNLIMITED downstream.`,
-				details: {
-					agentId: options.agentId,
-					parentRemaining: context.budgetTracker.remaining,
-					maxBudgetFraction: this.config.maxBudgetFraction,
-				},
-			})
-		}
+		// The allocation is computed INSIDE the spawn lock, not here. Reading
+		// the parent's remaining budget at this point and debiting it after
+		// `provisionSpawn` put the two halves of a read-modify-write on either
+		// side of an await — so N siblings launched from one turn all read the
+		// same undebited number and each took a fraction of it. Measured: four
+		// concurrent children were handed 50 000 + 50 000 + 50 000 + 50 000
+		// from a pool of 100 000.
+		//
+		// `create_task`'s own description instructs exactly this shape ("'fan
+		// out 8 specialists' is one assistant message with 8 create_task
+		// blocks"), so the documented usage was the reproduction.
+		//
+		// Nothing pinned it because the only concurrent test built a fresh
+		// context per call — each spawn got its own tracker, which measures
+		// width and not budget.
 
 		// Phase 6: SubSession + child Session + WorkspaceRef triple. Happens
 		// before taskId minting so a capacity failure short-circuits cleanly
 		// with no observable state change.
 		//
-		// The budget debit follows it for the same reason. It used to come
-		// first, so a spawn this call rejected still burned its allocation
-		// from a pool nobody credited back — the one state change the
-		// comment above promised there would not be.
-		const spawnRecord = await this.provisionSpawn(options, context)
-
-		context.budgetTracker.remaining -= allocatedTokens
+		// The allocation now travels with it, because the read and the debit
+		// have to be on the same side of every await to mean anything.
+		const { spawnRecord, allocatedTokens } = await this.provisionSpawn(options, context)
 
 		const taskId = generateTaskId()
 
@@ -449,7 +434,7 @@ export class AgentManager {
 	private async provisionSpawn(
 		options: SendMessageOptions,
 		context: AgentTaskContext,
-	): Promise<ChildSpawnRecord> {
+	): Promise<{ spawnRecord: ChildSpawnRecord; allocatedTokens: number }> {
 		const key = options.parentSessionId
 		const queued = (this.spawnLocks.get(key) ?? Promise.resolve()).then(
 			() => this.provisionSpawnUnlocked(options, context),
@@ -475,7 +460,42 @@ export class AgentManager {
 	private async provisionSpawnUnlocked(
 		options: SendMessageOptions,
 		context: AgentTaskContext,
-	): Promise<ChildSpawnRecord> {
+	): Promise<{ spawnRecord: ChildSpawnRecord; allocatedTokens: number }> {
+		// Read the parent's remaining budget HERE, inside the lock, so that
+		// concurrent siblings queue behind one another rather than all reading
+		// the same untouched number. The debit at the end of this method closes
+		// the pair: read and write are now on the same side of every await.
+		const maxAllocation = Math.floor(
+			context.budgetTracker.remaining * this.config.maxBudgetFraction,
+		)
+		const allocatedTokens = Math.min(
+			options.budgetAllocation?.tokenBudget ?? maxAllocation,
+			maxAllocation,
+		)
+
+		// Budget exhaustion must not INVERT into no budget at all. Downstream,
+		// `tokenBudget: 0` means "uncapped" (`LimitChecker`: `tokenBudget > 0
+		// && total >= tokenBudget`), and `maxAllocation` floors to 0 as soon as
+		// the parent's remaining drops below `1 / maxBudgetFraction`. So the
+		// most depleted parent in the tree was the one that spawned an
+		// unlimited child. Refuse instead: a caller that wants an uncapped
+		// child can say so explicitly with its own `budgetAllocation`.
+		//
+		// Refusing before any provisioning work also preserves the property the
+		// debit's placement was chosen for: a spawn this call rejects makes no
+		// state change at all, and burns no allocation.
+		if (allocatedTokens <= 0) {
+			throw new NamzuError({
+				code: 'invalid_config',
+				message: `Cannot spawn "${options.agentId}": the parent has ${context.budgetTracker.remaining} tokens remaining, which allocates 0 to the child — and a token budget of 0 means UNLIMITED downstream.`,
+				details: {
+					agentId: options.agentId,
+					parentRemaining: context.budgetTracker.remaining,
+					maxBudgetFraction: this.config.maxBudgetFraction,
+				},
+			})
+		}
+
 		// Phase 9: deps are unconditional required. Every spawn produces a
 		// SubSession + Session + WorkspaceRef triple (Convention #0: no
 		// partial/legacy path).
@@ -620,14 +640,24 @@ export class AgentManager {
 			throw err
 		}
 
+		// Debited only now, with the provisioning committed. Every path that
+		// could still have thrown is behind us, so a rejected spawn leaves the
+		// parent's budget untouched — the property the debit's original
+		// placement was chosen for, kept while closing the race that placement
+		// opened.
+		context.budgetTracker.remaining -= allocatedTokens
+
 		return {
-			subSessionId: subSession.id,
-			childSessionId: childSession.id,
-			tenantId: context.tenantId,
-			parentSessionId: options.parentSessionId,
-			rootSessionId,
-			childDepth,
-			workspaceRef,
+			spawnRecord: {
+				subSessionId: subSession.id,
+				childSessionId: childSession.id,
+				tenantId: context.tenantId,
+				parentSessionId: options.parentSessionId,
+				rootSessionId,
+				childDepth,
+				workspaceRef,
+			},
+			allocatedTokens,
 		}
 	}
 

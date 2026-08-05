@@ -10,6 +10,7 @@ import type { TaskStore } from '../../types/task/index.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
 import { wrapUntrusted } from '../untrusted-envelope.js'
+import { failureLabel, taskSucceeded } from './outcome.js'
 import { resolvePlanDependencies } from './plan-dependencies.js'
 import { describeWaitTimeout, waitForTaskWithBounds } from './wait-with-idle-bound.js'
 
@@ -457,6 +458,17 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 			// Naming the missing piece is the only response that tells them
 			// what to change.
 			if (background && !canLaunchInBackground) {
+				// The plan task was marked in progress a few lines above, on the
+				// assumption that a worker was about to run. Nothing is running,
+				// so leaving it there would show a plan step underway with no
+				// worker behind it — indefinitely, since nothing later will
+				// close a task whose launch never happened.
+				if (resolvedPlanTaskId && taskStore) {
+					await taskStore.update(resolvedPlanTaskId as `task_${string}`, {
+						status: 'failed',
+						description: 'Failed: the launch was refused before any worker started',
+					})
+				}
 				return {
 					success: false,
 					output: '',
@@ -533,15 +545,26 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 				}
 			}
 			completionInbox?.claim(handle.taskId)
-			const success = completed.state === 'completed'
+			// Both authorities, not just the gateway's. `finalizeChild` always
+			// calls `markCompleted`, so `state === 'completed'` holds for a
+			// child that ran and returned `status: 'failed'` — and this tool
+			// reported that child's error text to the model as its answer, with
+			// `isError: false`, while writing the plan task closed as though
+			// the work had been done.
+			const success = taskSucceeded(completed)
 			const resultText =
 				completed.result?.result ??
 				completed.result?.lastError ??
-				`Task finished with state: ${completed.state}`
+				`Task finished with state: ${failureLabel(completed)}`
 
 			if (resolvedPlanTaskId && taskStore) {
+				// The status carries the outcome now, rather than `completed`
+				// with the failure written into prose. A reader scanning
+				// statuses saw work that had been done; only a reader of every
+				// description saw otherwise — and a dependent unit had no way
+				// to tell at all.
 				await taskStore.update(resolvedPlanTaskId as `task_${string}`, {
-					status: 'completed',
+					status: success ? 'completed' : 'failed',
 					description: success ? undefined : `Failed: ${resultText.substring(0, 200)}`,
 				})
 			}

@@ -35,10 +35,16 @@ export interface DiskTaskStoreConfig {
 	logger?: Logger
 }
 
+// `failed` ranks alongside `completed` rather than after it: both are
+// terminal, and neither may transition to the other. Ranking it higher would
+// admit completed -> failed, which would let a settled unit be reopened as a
+// failure; ranking it lower would forbid in_progress -> failed, which is the
+// transition this status exists for.
 const STATUS_ORDER: Record<TaskStatus, number> = {
 	pending: 0,
 	in_progress: 1,
 	completed: 2,
+	failed: 2,
 }
 
 function isForwardTransition(from: TaskStatus, to: TaskStatus): boolean {
