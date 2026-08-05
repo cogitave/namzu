@@ -209,16 +209,51 @@ export async function awaitDecisionDurably(
 		}
 	}
 
-	const recordIfSlow = (async (): Promise<void> => {
-		await sleep(delay)
-		if (settled) return
-		await record()
-	})()
+	// The wait for "is this park slow enough to be worth writing down", and
+	// the reason it is a cancellable timer rather than a slept-through one.
+	//
+	// It used to `await sleep(delay)` where `sleep` created its timer and
+	// UNREF'D it, so a pending recorder could never hold a process open after
+	// the run settled. That is a real hazard and the intent was right, but the
+	// scope was wrong: this promise is awaited *during* the run, below, on
+	// every park. An unref'd timer does not keep Node's event loop alive — so
+	// once the decision resolved and the run sat here waiting out the rest of
+	// the delay, the loop had nothing ref'd left in it and the process exited.
+	// Mid-turn. Exit code 0. Nothing written, no error, no terminal event.
+	//
+	// That shipped, and it made the headless surfaces unable to finish a turn
+	// at all: the first tool call would complete and the process would end.
+	// Every test passed because a test runner holds the loop open for the
+	// whole file, which is exactly the kind of prop that hides this.
+	//
+	// Cancelling gets both properties. The timer is ref'd, so the run cannot
+	// be killed by its own wait; and it is cleared the moment the decision
+	// arrives, so nothing dangles past the run either.
+	let parkTimer: ReturnType<typeof setTimeout> | undefined
+	// Set SYNCHRONOUSLY when the write begins, because `recorded` only turns
+	// true after it finishes — waiting on that instead would skip a write that
+	// is still in flight and let the unpark below race it.
+	let recording = false
+	const recordIfSlow = new Promise<void>((resolve) => {
+		parkTimer = setTimeout(() => {
+			if (settled) {
+				resolve()
+				return
+			}
+			recording = true
+			record().then(resolve, resolve)
+		}, delay)
+	})
 
 	try {
 		const decision = await decisionPromise
 		settled = true
-		await recordIfSlow
+		// Cancel the wait rather than sitting through it. If the timer already
+		// fired, `recordIfSlow` is the park write and is worth awaiting so the
+		// unpark below cannot race it; if it has not, there is nothing to wait
+		// for and clearing it is what lets the turn continue immediately.
+		if (parkTimer !== undefined) clearTimeout(parkTimer)
+		if (recording) await recordIfSlow
 
 		// `pause` is not an answer — it is "I am not answering now, hold
 		// this". It therefore ALWAYS gets recorded, even when it arrived too
@@ -247,15 +282,6 @@ export async function awaitDecisionDurably(
 	} finally {
 		settled = true
 	}
-}
-
-function sleep(ms: number): Promise<void> {
-	return new Promise((resolve) => {
-		const timer = setTimeout(resolve, ms)
-		// A pending park recorder must never be the reason a process stays
-		// alive after the run settles.
-		;(timer as { unref?: () => void }).unref?.()
-	})
 }
 
 /**

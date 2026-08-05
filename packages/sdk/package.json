@@ -1,70 +1,71 @@
 {
-  "name": "@namzu/sdk",
-  "version": "6.1.0",
-  "description": "Open-source AI agent SDK with a built-in runtime. Nothing between you and your agents.",
-  "license": "FSL-1.1-MIT",
-  "type": "module",
-  "packageManager": "pnpm@10.33.0",
-  "homepage": "https://github.com/cogitave/namzu#readme",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/cogitave/namzu.git"
-  },
-  "bugs": {
-    "url": "https://github.com/cogitave/namzu/issues"
-  },
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
-      "default": "./dist/index.js"
-    }
-  },
-  "files": [
-    "dist",
-    "src",
-    "LICENSE.md",
-    "README.md",
-    "CHANGELOG.md"
-  ],
-  "sideEffects": [
-    "./dist/provider/mock-register.js"
-  ],
-  "publishConfig": {
-    "access": "public",
-    "provenance": true
-  },
-  "scripts": {
-    "build": "tsc --build",
-    "dev": "tsc --build --watch",
-    "lint": "biome check src/",
-    "lint:fix": "biome check --write src/",
-    "format": "biome format --write src/",
-    "test": "vitest run --passWithNoTests",
-    "test:coverage": "vitest run --passWithNoTests --coverage",
-    "typecheck": "tsc --noEmit",
-    "knip": "knip",
-    "knip:production": "knip --production",
-    "prepublishOnly": "pnpm lint && pnpm typecheck && pnpm build"
-  },
-  "peerDependencies": {
-    "@opentelemetry/api": "^1.9.0",
-    "zod": "^3.23.0",
-    "zod-to-json-schema": "^3.23.0"
-  },
-  "devDependencies": {
-    "@biomejs/biome": "^1.9.4",
-    "@opentelemetry/api": "^1.9.0",
-    "@types/node": "^22.19.17",
-    "@vitest/coverage-v8": "^3.2.6",
-    "fast-check": "^4.7.0",
-    "jsonschema": "^1.5.0",
-    "knip": "^6.4.1",
-    "typescript": "^5.5.0",
-    "vitest": "^3.2.6",
-    "zod": "^3.23.0",
-    "zod-to-json-schema": "^3.23.0"
-  }
+	"name": "@namzu/sdk",
+	"version": "6.1.0",
+	"description": "Open-source AI agent SDK with a built-in runtime. Nothing between you and your agents.",
+	"license": "FSL-1.1-MIT",
+	"type": "module",
+	"packageManager": "pnpm@10.33.0",
+	"homepage": "https://github.com/cogitave/namzu#readme",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/cogitave/namzu.git"
+	},
+	"bugs": {
+		"url": "https://github.com/cogitave/namzu/issues"
+	},
+	"main": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.js",
+			"default": "./dist/index.js"
+		}
+	},
+	"files": [
+		"dist",
+		"src",
+		"LICENSE.md",
+		"README.md",
+		"CHANGELOG.md"
+	],
+	"sideEffects": [
+		"./dist/provider/mock-register.js"
+	],
+	"publishConfig": {
+		"access": "public",
+		"provenance": true
+	},
+	"scripts": {
+		"build": "tsc --build",
+		"dev": "tsc --build --watch",
+		"lint": "biome check src/",
+		"lint:fix": "biome check --write src/",
+		"format": "biome format --write src/",
+		"test": "vitest run --passWithNoTests",
+		"test:coverage": "vitest run --passWithNoTests --coverage",
+		"typecheck": "tsc --noEmit",
+		"knip": "knip",
+		"knip:production": "knip --production",
+		"prepublishOnly": "pnpm lint && pnpm typecheck && pnpm build",
+		"test:proc": "tsc --build && vitest run --config vitest.proc.config.ts"
+	},
+	"peerDependencies": {
+		"@opentelemetry/api": "^1.9.0",
+		"zod": "^3.23.0",
+		"zod-to-json-schema": "^3.23.0"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^1.9.4",
+		"@opentelemetry/api": "^1.9.0",
+		"@types/node": "^22.19.17",
+		"@vitest/coverage-v8": "^3.2.6",
+		"fast-check": "^4.7.0",
+		"jsonschema": "^1.5.0",
+		"knip": "^6.4.1",
+		"typescript": "^5.5.0",
+		"vitest": "^3.2.6",
+		"zod": "^3.23.0",
+		"zod-to-json-schema": "^3.23.0"
+	}
 }
