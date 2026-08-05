@@ -21,7 +21,9 @@ vi.mock('../../integrations/sessions/store.js', () => ({
 // Stubbed so a turn can be driven to completion without a credential, and so
 // the directory the SESSION is created in is observable. What the session then
 // does with that directory is asserted in `src/tui/__tests__/`.
-const sessionOptions: Array<{ cwd?: string } | undefined> = []
+const sessionOptions: Array<
+	{ cwd?: string; rules?: unknown[]; permissionMode?: string } | undefined
+> = []
 vi.mock('../../tui/agent.js', () => ({
 	probeAgentSession: vi.fn(async () => ({
 		preferences: { version: 2, provider: 'anthropic', subagents: { active: [] } },
@@ -29,7 +31,11 @@ vi.mock('../../tui/agent.js', () => ({
 		detected: [],
 	})),
 	createAgentSession: vi.fn(
-		async (_prefs: unknown, _detected: unknown, opts?: { cwd?: string }) => {
+		async (
+			_prefs: unknown,
+			_detected: unknown,
+			opts?: { cwd?: string; rules?: unknown[]; permissionMode?: string },
+		) => {
 			sessionOptions.push(opts)
 			return {
 				hasProvider: true,
@@ -57,7 +63,7 @@ vi.mock('../../tui/agent.js', () => ({
  * actually honouring the flag that was advertised.
  */
 
-const ctx = {} as unknown as CommandContext
+const ctx = { config: {} } as unknown as CommandContext
 
 function capture(): { lines: string[]; restore: () => void } {
 	const lines: string[] = []
@@ -131,7 +137,7 @@ describe('run-stream works in the directory it was pointed at', () => {
 			rmSync(elsewhere, { recursive: true, force: true })
 		}
 
-		expect(sessionOptions).toEqual([{ cwd: elsewhere }])
+		expect(sessionOptions[0]?.cwd).toBe(elsewhere)
 	})
 
 	it('refuses a --cwd that is not there instead of quietly using this one', async () => {
@@ -261,5 +267,68 @@ describe('history reads the directory it was pointed at', () => {
 		}
 
 		expect(openSessions).toHaveBeenCalledWith(process.cwd())
+	})
+})
+
+describe('run-stream honours the permission surface, not just parses it', () => {
+	// It accepted `--permission-mode` and never used it, and it never compiled
+	// the `[permissions]` table at all — so an operator who wrote rules, or who
+	// typed `--permission-mode strict` precisely because they did not trust the
+	// run, got an unrestricted one that looked like it had obeyed. A safety
+	// control that parses and does nothing is worse than one that is missing,
+	// because the absence is visible and the silence is not.
+	const withConfig = {
+		config: { permissions: { bash: 'deny' } },
+	} as unknown as CommandContext
+
+	async function runWith(rawArgs: string[], context = withConfig): Promise<string[]> {
+		const { lines, restore } = capture()
+		try {
+			await runStreamCommand.handler({ rawArgs, ctx: context } as never)
+		} finally {
+			restore()
+		}
+		return lines
+	}
+
+	it('compiles the operator table into the session', async () => {
+		await runWith(['--session', 'k', 'hello'])
+
+		expect(sessionOptions[0]?.rules).toEqual([{ type: 'deny_by_name', toolNames: ['bash'] }])
+	})
+
+	it('passes --permission-mode through instead of ignoring it', async () => {
+		await runWith(['--session', 'k', '--permission-mode', 'strict', 'hello'])
+
+		expect(sessionOptions[0]?.permissionMode).toBe('strict')
+	})
+
+	it('refuses a mode it does not know rather than running unrestricted', async () => {
+		const lines = await runWith(['--session', 'k', '--permission-mode', 'yolo', 'hello'])
+
+		expect(lines.join('')).toContain('--permission-mode must be one of')
+		expect(sessionOptions).toEqual([])
+	})
+
+	it('defaults to auto when nothing was asked for, and says so by acting on it', async () => {
+		await runWith(['--session', 'k', 'hello'])
+
+		expect(sessionOptions[0]?.permissionMode).toBe('auto')
+	})
+
+	it('reports an unreadable rule in band, where a host can see it', async () => {
+		const bad = {
+			config: { permissions: { bash: { 'git push*': 'maybe' } } },
+		} as unknown as CommandContext
+
+		const lines = await runWith(['--session', 'k', 'hello'], bad)
+
+		// Parsed, not substring-matched: the line is JSON, so the quotes around
+		// the pattern are escaped in the raw text and a naive contains() would
+		// pass or fail for reasons unrelated to what the host actually reads.
+		const messages = lines
+			.map((l) => JSON.parse(l) as { message?: string })
+			.map((e) => e.message ?? '')
+		expect(messages.some((m) => m.includes('permissions.bash."git push*"'))).toBe(true)
 	})
 })
