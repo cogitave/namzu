@@ -1,5 +1,138 @@
 # Changelog
 
+## 6.1.0
+
+### Minor Changes
+
+- ab0bb30: a worker that finishes now reaches the supervisor, without polling for it
+
+  A delegated worker's output reaches the supervisor as the `tool_result` of
+  the `create_task` that launched it. That works while the launching call is
+  still the live path — and there are two situations where it is not:
+
+  - the call hit the executor's deadline. The model was told _"timed out… it
+    may still be running"_, with no task id, and the worker then finished
+    normally holding a result nothing would ever read.
+  - there was never a call waiting, because the launch was meant to run
+    alongside the turn.
+
+  In both cases the completion existed, the gateway remembered it, and the
+  supervisor was never told. The one tool left to it, `agent_task_list`,
+  reported id, state and duration — and dropped the worker's output, reading
+  `result.status` and `result.lastError` off the handle while stepping over
+  `result.result` between them. So a supervisor could learn that a task had
+  definitely finished and still have no way to read what it said.
+  `agent_task_list` in a sleep loop was not the model misbehaving; it was the
+  only move on the board.
+
+  **Completions are now delivered rather than polled for.** A run subscribes
+  once through `onTaskCompleted` — which every `TaskGateway` already has, so
+  no gateway changes — and anything a tool did not hand over inline arrives in
+  the transcript as a task notification carrying the id, the agent, the state
+  and the output.
+
+  The distinction is the whole design. An earlier version of this channel was
+  removed because it fired for completions the blocking tool had _already_
+  delivered, so the supervisor saw each result twice. Tools now claim what they
+  deliver, and only unclaimed completions are announced. A blocking
+  `create_task` behaves exactly as it did.
+
+  Three additions come with it:
+
+  - `create_task` takes `background: true`, returning a `task_id` immediately
+    so the supervisor can keep working.
+  - `wait_for_task` joins a running task and returns its output. `continue_task`
+    blocked, but only as a side effect of sending a message, so a supervisor
+    that merely wanted to wait had to invent something to say.
+  - `cancel_task` is mounted again. It was dropped on the reasoning that a
+    blocking launch leaves every worker terminal before its id is known — true
+    then, and untrue now that a background launch hands back a live one.
+
+  `agent_task_list` also carries the worker's output, in the rendered text
+  rather than only in `data`: the executor builds the model-facing tool result
+  from `output` alone, so a field added to `data` would have been added
+  somewhere the model cannot see.
+
+  A run no longer settles while a background worker it launched is still
+  running — it would have discarded the very result the launch existed to
+  produce. The wait is bounded, so a worker that never finishes cannot hold a
+  run open.
+
+  `CompletionInbox` and `formatCompletionNotification` are exported for hosts
+  that build the coordinator surface themselves.
+
+- 529d10f: a narrowed step now narrows what can RUN, not only what the model is shown
+
+  `prepareStep.activeTools` documents itself as _"restrict which tools the model
+  may call this step, by name"_, and run-level `allowedTools` makes the same
+  promise for a whole run. Neither restricted anything.
+
+  The list decided which schemas went into the request. It was then copied into
+  the tool context and read by nothing on the execution path — the registry gated
+  on availability and plan mode, and never on the allow-list. So the narrowing was
+  a statement about the menu rather than about the kitchen: a model that named a
+  withheld tool had it run.
+
+  That is not a hypothetical. A model names a tool it was not offered whenever it
+  repeats a call from earlier in the context, whenever a gateway carries its own
+  tool list, and whenever a cached prompt prefix is replayed. A host using this to
+  fence a step — the obvious use, and the one the type invites — was fenced by
+  nothing.
+
+  The check now sits where the call is made. A tool outside the list is answered
+  with a refusal that names what IS available, so the model can route around it
+  rather than guessing.
+
+  Two details worth stating:
+
+  - **Absent is not empty.** No list means no restriction; an empty list means the
+    step may call nothing. Reading an empty allow-list as "unrestricted" is the
+    fail-open this repository has already been bitten by once, in the delegate
+    roster.
+  - **A step's list beats the run's,** matching the precedence the request already
+    used, so the two can no longer disagree.
+
+  **If you pass `allowedTools` or `activeTools` today, calls that previously ran
+  may now be refused.** That is the point of the change, but it is a real
+  behavioural difference: a run that quietly depended on the leak will start
+  seeing refusals. The refusal is a normal `tool_result`, so the turn continues.
+
+### Patch Changes
+
+- 529d10f: a delegated child is no longer strangled by a file-read deadline, and a closed tuple stays closed
+
+  **The deadline.** `create_task` runs an entire agent and inherited the tool
+  executor's generic two-minute default — the one whose own docstring says _"a
+  tool that legitimately runs longer declares its own `timeoutMs`"_. It did not.
+
+  Measured on real traffic: three delegated children finished in 4m21s, 5m58s and
+  8m04s while all three parents timed out at 120s. The children were never killed
+  — only the parent's wait was — so the blocking path was not occasionally missed,
+  it was structurally unreachable, and the supervisor was left calling
+  `agent_task_list` in a sleep loop because nothing else was available to it.
+
+  `DELEGATION_TIMEOUT_MS` is now one hour, exported so it is greppable, and
+  applied to `create_task`, `wait_for_task` and `continue_task`. An hour rather
+  than "a bit more than eight minutes" because a generic stopwatch is the wrong
+  instrument for a child that is making progress: a failure should come from what
+  the child is doing. A wedged child is still caught, and the run budget and
+  iteration ceiling both still apply above this.
+
+  **The instruction to poll was ours.** `agent_task_list` described itself as the
+  way to _"confirm every launched task reached `completed`"_ and as _"safe to call
+  repeatedly"_ — an order to burn a turn on a listing whose answer a blocking
+  `create_task` had already delivered. It now says the opposite, and points at the
+  cases the listing is actually for. `create_task` gained the matching clause in
+  the other direction: until a worker's result arrives, do not fabricate,
+  summarise or predict it.
+
+  **The tuple.** `toSchemaDialect` translated draft-07's `additionalItems: false`
+  by dropping it, on the reasoning that 2020-12 closes a tuple by default. It does
+  not — with `prefixItems` set and no `items`, elements past the tuple are
+  unconstrained — so every closed tuple was silently widened into an open one. A
+  schema written to forbid a third element began to allow any number. It now
+  emits `items: false`, which the wire accepts.
+
 ## 6.0.0
 
 ### Major Changes
