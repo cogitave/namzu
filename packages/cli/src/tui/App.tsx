@@ -198,7 +198,7 @@ export function App({ ctx }: AppProps) {
 	const hydrateSession = useCallback(
 		async (prefs: Preferences, detectedNow: readonly DetectedProvider[]) => {
 			const scope = await ensureSessions()
-			const s = await createAgentSession(prefs, detectedNow, scope)
+			const s = await createAgentSession(prefs, detectedNow, { scope, cwd: ctx.cwd })
 			setSession(s)
 			setCurrentProvider(prefs.provider)
 			if (s.hasProvider) {
@@ -212,7 +212,7 @@ export function App({ ctx }: AppProps) {
 				if (s.errorHint) pushMessage('system', s.errorHint)
 			}
 		},
-		[pushMessage],
+		[ctx.cwd, pushMessage],
 	)
 
 	const runProbe = useCallback(async () => {
@@ -588,7 +588,11 @@ export function App({ ctx }: AppProps) {
 						return
 					}
 					case 'list-skills': {
-						const skills = discoverSkills()
+						// The session's directory, not the process's — the same
+						// distinction the headless commands get from `--cwd`. They are
+						// the same value today, and were the same value in `run-stream`
+						// too until they were not.
+						const skills = discoverSkills({ cwd: ctx.cwd })
 						if (skills.length === 0) {
 							pushMessage(
 								'system',
@@ -604,7 +608,7 @@ export function App({ ctx }: AppProps) {
 						return
 					}
 					case 'load-skill': {
-						const info = discoverSkills().find((s) => s.name === slash.name)
+						const info = discoverSkills({ cwd: ctx.cwd }).find((s) => s.name === slash.name)
 						if (!info) {
 							pushMessage('system', `No skill named "${slash.name}". See /skills.`)
 							return

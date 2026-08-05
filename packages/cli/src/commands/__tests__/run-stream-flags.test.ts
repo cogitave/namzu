@@ -1,7 +1,11 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { openSessions } from '../../integrations/sessions/store.js'
-import { historyCommand, parseRunStreamFlags, runStreamCommand } from '../run-stream.js'
+import { parseRunFlags } from '../run-flags.js'
+import { historyCommand, runStreamCommand, skillsJSONCommand } from '../run-stream.js'
 import type { CommandContext } from '../types.js'
 
 // Mocked so the directory the store is opened at is observable. Nothing here
@@ -12,6 +16,32 @@ vi.mock('../../integrations/sessions/store.js', () => ({
 	resolveConversation: vi.fn(async () => null),
 	loadConversation: vi.fn(async () => []),
 	appendMessages: vi.fn(async () => undefined),
+}))
+
+// Stubbed so a turn can be driven to completion without a credential, and so
+// the directory the SESSION is created in is observable. What the session then
+// does with that directory is asserted in `src/tui/__tests__/`.
+const sessionOptions: Array<{ cwd?: string } | undefined> = []
+vi.mock('../../tui/agent.js', () => ({
+	probeAgentSession: vi.fn(async () => ({
+		preferences: { version: 2, provider: 'anthropic', subagents: { active: [] } },
+		needsRepickReason: null,
+		detected: [],
+	})),
+	createAgentSession: vi.fn(
+		async (_prefs: unknown, _detected: unknown, opts?: { cwd?: string }) => {
+			sessionOptions.push(opts)
+			return {
+				hasProvider: true,
+				providerSummary: 'stub',
+				modelSummary: 'stub',
+				toolNames: [],
+				deferredToolCount: 0,
+				errorHint: null,
+				send: async function* () {},
+			}
+		},
+	),
 }))
 
 /**
@@ -40,6 +70,7 @@ function capture(): { lines: string[]; restore: () => void } {
 
 beforeEach(() => {
 	vi.mocked(openSessions).mockClear()
+	sessionOptions.length = 0
 })
 
 afterEach(() => {
@@ -88,20 +119,47 @@ describe('run-stream does not turn options into prompt text', () => {
 	})
 })
 
+describe('run-stream works in the directory it was pointed at', () => {
+	it('hands --cwd to the agent session, not only to the session store', async () => {
+		// `--session` keeps the turn off stdin: without a session key the command
+		// reads prior history from a pipe, and in a test runner that pipe never
+		// closes.
+		const elsewhere = mkdtempSync(join(tmpdir(), 'namzu-run-stream-'))
+		try {
+			await run(['--cwd', elsewhere, '--session', 'k', 'read', 'notes.txt'])
+		} finally {
+			rmSync(elsewhere, { recursive: true, force: true })
+		}
+
+		expect(sessionOptions).toEqual([{ cwd: elsewhere }])
+	})
+
+	it('refuses a --cwd that is not there instead of quietly using this one', async () => {
+		// The silent fallback is the whole defect: the run proceeds, searches the
+		// wrong tree, finds nothing, and reports that the file does not exist.
+		const lines = await run(['--cwd', join(tmpdir(), 'namzu-no-such-dir'), 'hello'])
+
+		const joined = lines.join('')
+		expect(joined).toContain('--cwd does not exist')
+		expect(joined).toContain('"kind":"done"')
+		expect(sessionOptions).toEqual([])
+	})
+})
+
 describe('the flag parser itself', () => {
 	// Asserted here rather than through the handler: a valid prompt sends the
 	// handler on to stdin and a provider probe, so the first version of this
 	// case hung for five seconds and failed on a timeout rather than on the
 	// behaviour. A pure function deserves to be called.
 	it('lets `--` carry a prompt that begins with a dash', () => {
-		const flags = parseRunStreamFlags(['--', '--this-is-the-prompt'])
+		const flags = parseRunFlags(['--', '--this-is-the-prompt'])
 
 		expect(flags.rest).toEqual(['--this-is-the-prompt'])
 		expect(flags.unknown).toEqual([])
 	})
 
 	it('stops interpreting options after `--`', () => {
-		const flags = parseRunStreamFlags(['--session', 'abc', '--', '--model', 'not-a-flag'])
+		const flags = parseRunFlags(['--session', 'abc', '--', '--model', 'not-a-flag'])
 
 		expect(flags.session).toBe('abc')
 		expect(flags.model).toBeNull()
@@ -109,15 +167,50 @@ describe('the flag parser itself', () => {
 	})
 
 	it('reads --cwd in both spellings', () => {
-		expect(parseRunStreamFlags(['--cwd', '/a', 'hi']).cwd).toBe('/a')
-		expect(parseRunStreamFlags(['--cwd=/b', 'hi']).cwd).toBe('/b')
-		expect(parseRunStreamFlags(['--cwd', '/a', 'hi']).rest).toEqual(['hi'])
+		expect(parseRunFlags(['--cwd', '/a', 'hi']).cwd).toBe('/a')
+		expect(parseRunFlags(['--cwd=/b', 'hi']).cwd).toBe('/b')
+		expect(parseRunFlags(['--cwd', '/a', 'hi']).rest).toEqual(['hi'])
 	})
 
 	it('leaves a lone dash alone, since that is not an option', () => {
-		expect(parseRunStreamFlags(['-', 'hi']).unknown).toEqual([])
-		expect(parseRunStreamFlags(['-', 'hi']).rest).toEqual(['-', 'hi'])
+		expect(parseRunFlags(['-', 'hi']).unknown).toEqual([])
+		expect(parseRunFlags(['-', 'hi']).rest).toEqual(['-', 'hi'])
 	})
+})
+
+describe('skills-json lists the directory it was pointed at', () => {
+	// A host that lists skills for one checkout and then runs a turn in that
+	// same checkout has to be told about the same skills both times. It was
+	// not: this command read the process directory whatever `--cwd` said, so
+	// it could offer a skill that `run-stream --cwd <there>` then could not
+	// find, and hide one that was actually available.
+	function skillIn(root: string, name: string): void {
+		mkdirSync(join(root, 'skills', name), { recursive: true })
+		writeFileSync(
+			join(root, 'skills', name, 'SKILL.md'),
+			`---\nname: ${name}\ndescription: only in this checkout\n---\n\nbody\n`,
+		)
+	}
+
+	it('discovers the project skills under --cwd', async () => {
+		const elsewhere = mkdtempSync(join(tmpdir(), 'namzu-skills-'))
+		skillIn(elsewhere, 'only-over-there')
+		const { lines, restore } = capture()
+		try {
+			await skillsJSONCommand.handler({ rawArgs: ['--cwd', elsewhere], ctx } as never)
+		} finally {
+			restore()
+			rmSync(elsewhere, { recursive: true, force: true })
+		}
+
+		const names = (JSON.parse(lines.join('').trim()) as Array<{ name: string }>).map((s) => s.name)
+		expect(names).toContain('only-over-there')
+	})
+
+	// There is deliberately no paired "and not from anywhere else" case: with
+	// the flag ignored the command read `packages/cli`, which has no skills
+	// directory, so a negative assertion passes with the defect still in place
+	// and would only look like coverage.
 })
 
 describe('history reads the directory it was pointed at', () => {
@@ -126,18 +219,37 @@ describe('history reads the directory it was pointed at', () => {
 		// command merely survives `--cwd` would pass with the wiring reverted —
 		// `[]` is printed either way — which would leave the flag parsed and
 		// still undriven, the exact shape being repaired here.
+		//
+		// A real directory, because `--cwd` is now resolved and checked before
+		// the store is opened: a path that is not there cannot be told apart
+		// from a session with no messages, so it never reaches the store.
+		const elsewhere = mkdtempSync(join(tmpdir(), 'namzu-history-'))
 		const { lines, restore } = capture()
 		try {
 			await historyCommand.handler({
-				rawArgs: ['--cwd', '/tmp/elsewhere', '--session', 'some-key'],
+				rawArgs: ['--cwd', elsewhere, '--session', 'some-key'],
 				ctx,
 			} as never)
 		} finally {
 			restore()
+			rmSync(elsewhere, { recursive: true, force: true })
 		}
 
-		expect(openSessions).toHaveBeenCalledWith('/tmp/elsewhere')
+		expect(openSessions).toHaveBeenCalledWith(elsewhere)
 		expect(lines.join('').trim()).toBe('[]')
+	})
+
+	it('resolves a relative --cwd against the process directory', async () => {
+		// A host that passes `.` or `../sibling` gets the directory it meant,
+		// and the agent downstream gets an absolute path it cannot misread.
+		const { restore } = capture()
+		try {
+			await historyCommand.handler({ rawArgs: ['--cwd', '.', '--session', 'k'], ctx } as never)
+		} finally {
+			restore()
+		}
+
+		expect(openSessions).toHaveBeenCalledWith(resolve(process.cwd(), '.'))
 	})
 
 	it('falls back to the process directory when --cwd is absent', async () => {

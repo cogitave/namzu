@@ -29,6 +29,12 @@ import {
 	openSessions,
 	resolveConversation,
 } from '../integrations/sessions/store.js'
+import {
+	loadSkillsContext,
+	parseRunFlags,
+	resolveWorkingDirectory,
+	unknownOptionMessage,
+} from './run-flags.js'
 import type { CommandDef } from './types.js'
 
 async function readStdin(): Promise<string> {
@@ -41,150 +47,6 @@ async function readStdin(): Promise<string> {
 function defaultPrefs(detected: readonly DetectedProvider[]): Preferences | null {
 	const first = detected[0]
 	return first ? { version: 2, provider: first.entry.id, subagents: { active: [] } } : null
-}
-
-/**
- * Parsed run-stream flags. A host UI (the clawtool desktop's Namzu tab) drives
- * which namzu persona answers (--instance), with which model (--model) and
- * skills (--skills a,b,c), bound to a persisted conversation (--session).
- * Everything else is the prompt.
- */
-interface RunStreamFlags {
-	session: string | null
-	model: string | null
-	provider: string | null
-	instance: string | null
-	/** Where the session store and skills are read from. Defaults to `process.cwd()`. */
-	cwd: string | null
-	skills: string[]
-	/**
-	 * `--flags` this parser does not know.
-	 *
-	 * Collected rather than folded into `rest`, because `rest` becomes the
-	 * PROMPT. `--cwd` was in this command's own help text and never parsed, so
-	 * the documented invocation sent the model a prompt beginning
-	 * `--cwd /path …` and silently used the process's own directory. Anything
-	 * unrecognised is now refused instead of being quietly said out loud to a
-	 * model — a typo'd flag is a mistake, and reading it aloud is the worst
-	 * available response to one.
-	 */
-	unknown: string[]
-	rest: string[]
-}
-
-/**
- * Exported for tests only — `src/index.ts` does not re-export it, so this is
- * module visibility rather than public surface. Driving the handler far enough
- * to observe a parse means reaching stdin and a provider probe, which is a
- * worse test of a pure function than calling it.
- */
-export function parseRunStreamFlags(rawArgs: readonly string[]): RunStreamFlags {
-	const out: RunStreamFlags = {
-		session: null,
-		model: null,
-		provider: null,
-		instance: null,
-		cwd: null,
-		skills: [],
-		unknown: [],
-		rest: [],
-	}
-	const take = (a: string, name: string, set: (v: string) => void, i: { v: number }): boolean => {
-		if (a === `--${name}` && i.v + 1 < rawArgs.length) {
-			set(rawArgs[++i.v])
-			return true
-		}
-		if (a.startsWith(`--${name}=`)) {
-			set(a.slice(name.length + 3))
-			return true
-		}
-		return false
-	}
-	for (const idx = { v: 0 }; idx.v < rawArgs.length; idx.v++) {
-		const a = rawArgs[idx.v]
-		// End of options. Everything after it is prompt, verbatim — the escape
-		// for a prompt that legitimately begins with a dash, which is the only
-		// case the refusal below would otherwise take away.
-		if (a === '--') {
-			out.rest.push(...rawArgs.slice(idx.v + 1))
-			break
-		}
-		if (
-			take(
-				a,
-				'cwd',
-				(v) => {
-					out.cwd = v.trim() || null
-				},
-				idx,
-			)
-		)
-			continue
-		if (
-			take(
-				a,
-				'session',
-				(v) => {
-					out.session = v.trim() || null
-				},
-				idx,
-			)
-		)
-			continue
-		if (
-			take(
-				a,
-				'model',
-				(v) => {
-					out.model = v.trim() || null
-				},
-				idx,
-			)
-		)
-			continue
-		if (
-			take(
-				a,
-				'provider',
-				(v) => {
-					out.provider = v.trim() || null
-				},
-				idx,
-			)
-		)
-			continue
-		if (
-			take(
-				a,
-				'instance',
-				(v) => {
-					out.instance = v.trim() || null
-				},
-				idx,
-			)
-		)
-			continue
-		if (
-			take(
-				a,
-				'skills',
-				(v) => {
-					out.skills = v
-						.split(',')
-						.map((s) => s.trim())
-						.filter(Boolean)
-				},
-				idx,
-			)
-		)
-			continue
-		if (a.startsWith('--')) {
-			out.unknown.push(a.split('=')[0])
-			continue
-		}
-		out.rest.push(a)
-	}
-	return out
 }
 
 /** Parse stdin as a prior Message[]; tolerate the UI's {role,content} shape. */
@@ -235,16 +97,14 @@ export const runStreamCommand: CommandDef = {
 			return 0
 		}
 
-		const flags = parseRunStreamFlags(rawArgs)
-		if (flags.unknown.length > 0) {
-			return fail(
-				`unknown option(s): ${flags.unknown.join(', ')} — pass \`--\` before a prompt that starts with a dash`,
-			)
-		}
+		const flags = parseRunFlags(rawArgs)
+		if (flags.unknown.length > 0) return fail(unknownOptionMessage(flags.unknown))
 		const sessionKey = flags.session
-		const cwd = flags.cwd ?? process.cwd()
 		const prompt = flags.rest.join(' ').trim()
 		if (!prompt) return fail('no prompt — pass it as an argument')
+		const resolved = resolveWorkingDirectory(flags.cwd)
+		if ('error' in resolved) return fail(resolved.error)
+		const cwd = resolved.cwd
 
 		// Resolve the persisted conversation (if a session key was given) so we
 		// load prior turns as context and can append this turn afterward. Falls
@@ -279,27 +139,15 @@ export const runStreamCommand: CommandDef = {
 		if (flags.provider) prefs = { ...prefs, provider: flags.provider as ProviderId }
 		if (flags.model) prefs = { ...prefs, model: flags.model }
 
-		const session = await createAgentSession(prefs, probe.detected)
+		// The resolved `--cwd` is what the agent's tools resolve against, not
+		// just where the session store lives — a run told to work in another
+		// checkout has to glob, read and edit files there.
+		const session = await createAgentSession(prefs, probe.detected, { cwd })
 		if (!session.hasProvider) return fail(session.errorHint ?? 'agent is not ready')
 
 		// --skills <a,b,c>: load the named skills' bodies and inject them as the
 		// turn's extra system context (the same channel the TUI's /skill uses).
-		let extraSystem: string | undefined
-		if (flags.skills.length > 0) {
-			try {
-				const { discoverSkills, loadSkillBody, composeSkillsPrompt } = await import(
-					'../skills/store.js'
-				)
-				const all = discoverSkills({ cwd })
-				const wanted = new Set(flags.skills)
-				const active = all
-					.filter((s) => wanted.has(s.name))
-					.map((s) => ({ name: s.name, body: loadSkillBody(s) }))
-				extraSystem = composeSkillsPrompt(active) ?? undefined
-			} catch {
-				// skills unavailable — run without them rather than fail the turn.
-			}
-		}
+		const extraSystem = await loadSkillsContext(cwd, flags.skills)
 
 		const userMessage: Message = { role: 'user', content: prompt, timestamp: Date.now() } as Message
 		const messages: Message[] = [...prior, userMessage]
@@ -349,7 +197,7 @@ export const historyCommand: CommandDef = {
 		'is not an error.',
 	].join('\n'),
 	handler: async ({ rawArgs }) => {
-		const flags = parseRunStreamFlags(rawArgs)
+		const flags = parseRunFlags(rawArgs)
 		const key = flags.session
 		if (!key) {
 			process.stdout.write('[]\n')
@@ -360,7 +208,12 @@ export const historyCommand: CommandDef = {
 			// the session is read from. Reading the process's own directory
 			// instead means a host asking about a session in another checkout is
 			// told `[]` — indistinguishable from a session with no messages.
-			const cli = await openSessions(flags.cwd ?? process.cwd())
+			const resolved = resolveWorkingDirectory(flags.cwd)
+			if ('error' in resolved) {
+				process.stdout.write('[]\n')
+				return 0
+			}
+			const cli = await openSessions(resolved.cwd)
 			const map = await import('../integrations/sessions/store.js')
 			// Resolve WITHOUT creating: only emit history for an existing mapping.
 			const existing = await resolveExisting(cli, key)
@@ -390,10 +243,29 @@ export const skillsJSONCommand: CommandDef = {
 	name: 'skills-json',
 	description: 'Print discovered skills as JSON (for host UIs)',
 	passThrough: true,
-	handler: async () => {
+	help: [
+		'Usage: namzu skills-json [--cwd <path>]',
+		'',
+		'Print the skills discovered for a working directory as JSON. Project',
+		'skills come from that directory; user skills come from the home',
+		'directory either way.',
+		'',
+		'An empty array means no skills were found — it is not an error.',
+	].join('\n'),
+	handler: async ({ rawArgs }) => {
+		// Project skills live under the working directory, so a host listing the
+		// skills for one checkout while the process sits in another was shown
+		// the wrong project's chips — and then `run-stream --cwd <that
+		// checkout> --skills <name>` could not find the skill it had just
+		// offered. Same flag, same directory, both ends.
+		const resolved = resolveWorkingDirectory(parseRunFlags(rawArgs).cwd)
+		if ('error' in resolved) {
+			process.stdout.write('[]\n')
+			return 0
+		}
 		try {
 			const { discoverSkills } = await import('../skills/store.js')
-			const skills = discoverSkills({ cwd: process.cwd() }).map((s) => ({
+			const skills = discoverSkills({ cwd: resolved.cwd }).map((s) => ({
 				name: s.name,
 				description: s.description,
 				source: s.source,
