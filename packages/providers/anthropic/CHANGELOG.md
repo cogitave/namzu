@@ -1,5 +1,75 @@
 # Changelog
 
+## 3.0.0
+
+### Major Changes
+
+- f8355de: tool schemas are rendered in the dialect each wire actually parses
+
+  A tool with a tuple-shaped field took down every request that offered it. The
+  kernel renders one canonical JSON Schema in draft-07, where a tuple is
+  `items: [a, b]`; one of the wires namzu speaks validates tool input as JSON
+  Schema 2020-12, where that spelling is invalid and a tuple must be
+  `prefixItems`. Every driver forwarded the rendering verbatim, so the built-in
+  `read` tool — whose `readRange` is a Zod tuple — produced a 400 that rejected
+  the **whole** request, taking every other tool in the call down with it. The
+  turn died before generating a token.
+
+  The failure had nothing to do with strict tool use, which is why the guard
+  added for the previous schema outage never saw it: it fires with strict
+  validation unset, and with strict on the dialect error arrives _first_.
+
+  Which dialect a wire parses is a property of the wire, so the conversion now
+  happens at each driver's boundary rather than in the renderer:
+
+  ```ts
+  import { toSchemaDialect, findDraft07Only } from "@namzu/sdk";
+
+  toSchemaDialect(schema, "2020-12"); // items: [a, b]  ->  prefixItems: [a, b]
+  findDraft07Only(schema); // paths that no 2020-12 parser will accept
+  ```
+
+  `renderToolSchema` is exported now too, so a caller assembling its own tool
+  payload gets the same memoized, `$schema`-stripped, deep-frozen rendering the
+  kernel puts on the wire — byte-identical across iterations, which matters
+  because the tools block sits at position 0 of the prompt-cache prefix.
+
+  `ToolCatalog` used to convert schemas through its own inline call with the same
+  options. Same output, none of the guarantees: no `$schema` stripping, no
+  memoization, no freeze. It goes through `renderToolSchema` now.
+
+  **Breaking, for the three drivers.** Their `@namzu/sdk` peer range was
+  `>=1.3.0` and is now `>=6.0.0`. That range was already wrong — the drivers call
+  kernel functions added well after 1.3.0 — and it would now let a package
+  manager install a combination that throws on every request carrying a tool.
+  Upgrade the kernel alongside the driver.
+
+  The conversion follows the model on multi-vendor wires. Bedrock's Converse API
+  carries several vendors through one request shape, and the 2020-12 requirement
+  was measured on one of them, so schemas bound for the others are left in the
+  dialect they were rendered in. Guessing there would trade a known break for an
+  unmeasured one.
+
+### Patch Changes
+
+- f8355de: reasoning effort is dropped only on the models that actually refuse it
+
+  With thinking switched off, the driver discarded `xhigh` and `max` on every
+  model that can switch thinking off. The reasoning was that the pairing is
+  incoherent anyway — asking a model not to think and then to think as hard as
+  possible.
+
+  Measured against the live API, the rule was too wide. One model family rejects
+  that combination with _"effort is not supported when thinking is disabled"_;
+  its siblings accept it and honour the effort. So the blanket rule was silently
+  discarding a setting the caller asked for and the wire would have applied, on
+  models where nothing was wrong.
+
+  Looking incoherent is not the same as being rejected, and only the wire decides
+  which. The capability table now carries the levels accepted with thinking off
+  as a separate set from the levels accepted generally, because on most models
+  those two sets are identical and on one family they are not.
+
 ## 2.0.1
 
 ### Patch Changes
