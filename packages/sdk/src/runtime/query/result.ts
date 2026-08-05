@@ -129,6 +129,12 @@ export class ResultAssembler {
 					providerId: err.providerId,
 					...(err.status !== undefined ? { status: err.status } : {}),
 					...(err.retryAfterMs !== undefined ? { retryAfterMs: err.retryAfterMs } : {}),
+					// The provider's own sentence, already truncated and scrubbed
+					// by the driver. Without it a host rendering this metadata
+					// knows a request was rejected but not which field, and has to
+					// go re-parse `error` to find out — which is exactly the
+					// re-parsing the line above says this exists to avoid.
+					...(err.detail !== undefined ? { detail: err.detail } : {}),
 				}
 			: undefined
 		runMgr.markFailed(errorMessage, providerError)

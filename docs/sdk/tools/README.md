@@ -1,7 +1,7 @@
 ---
 title: SDK Tools
 description: Define tools, register them in ToolRegistry, and understand built-in tool behavior in @namzu/sdk.
-last_updated: 2026-08-03
+last_updated: 2026-08-05
 status: current
 related_packages: ["@namzu/sdk", "@namzu/computer-use"]
 ---
@@ -124,6 +124,53 @@ marker with itself plus the new content.
 `enforceModelInput: true` without an explicit `modelInputSchema` is rejected at
 registration. Namzu does not assume a Zod-generated schema is compatible with
 every provider's constrained-decoding subset.
+
+Registration also rejects a `modelInputSchema` that asks for enforcement it
+cannot carry. A keyword outside the constrained-decoding subset is not degraded
+— the provider rejects the **whole** request, so one unexpressible field in one
+tool takes down every other tool in the call. The subset is measured against the
+live wire rather than transcribed from a page, and the parts worth knowing:
+
+| Construct | Under `enforceModelInput` |
+| --- | --- |
+| `minLength`, `maxLength`, `pattern`, `format`, `const`, `enum`, `anyOf` | accepted |
+| `minItems` | accepted at `0` or `1` only |
+| `oneOf`, `not`, `if`/`then`/`else` | rejected — use `anyOf`, or validate at execution |
+| `minimum`, `maximum`, `multipleOf` | rejected — enforce at execution |
+| `maxItems`, `uniqueItems` | rejected — enforce at execution |
+| a tuple (`prefixItems`, or draft-07 `items: [a, b]`) | rejected — cannot be expressed |
+| `additionalProperties` | accepted only as `false` |
+
+A tuple is the one case that no rewriting rescues, so a tool that needs both a
+tuple field and enforced input has to give up one of them.
+
+### Schema dialects are a property of the wire
+
+Tool schemas are rendered once, canonically, as JSON Schema draft-07, and each
+driver converts at the boundary where it knows which wire it is about to talk
+to. This matters because the dialects disagree about tuples: draft-07 spells one
+`items: [a, b]`, while 2020-12 — which some wires require for tool input — spells
+it `prefixItems: [a, b]` and gives `items` a different meaning. A wire that wants
+2020-12 rejects the draft-07 spelling outright, and rejects the entire request
+with it.
+
+If you assemble a tool payload yourself rather than going through a driver, the
+same three functions are exported:
+
+```ts
+import { renderToolSchema, toSchemaDialect, findDraft07Only } from '@namzu/sdk'
+
+const rendered = renderToolSchema(tool.inputSchema) // memoized, frozen, draft-07
+const forThisWire = toSchemaDialect(rendered, '2020-12')
+
+findDraft07Only(forThisWire) // [] — nothing a 2020-12 parser will refuse
+```
+
+`renderToolSchema` is what `toLLMTools()` uses: it strips `$schema`, memoizes on
+the Zod object and deep-freezes the result. Use it rather than calling
+`zodToJsonSchema` yourself — the tools block renders at position 0 of the
+prompt-cache prefix, so a differently-ordered but equal object invalidates the
+cache for the whole run.
 
 The agent runtime carries enforced tool names to providers through
 `ChatCompletionParams.enforceToolInputSchema`. This property is a non-wire

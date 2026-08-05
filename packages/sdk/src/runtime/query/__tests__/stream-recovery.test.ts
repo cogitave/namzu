@@ -84,6 +84,7 @@ class ClassifiedFailureProvider implements LLMProvider {
 				providerId: 'classified-failure',
 				status: 429,
 				retryAfterMs: 2000,
+				detail: 'rate limit reached for this organization',
 			}),
 		)
 	}
@@ -210,11 +211,16 @@ describe('query stream recovery', () => {
 		)
 
 		expect(run.status).toBe('failed')
+		// `detail` rides along with the classification. Without it a host
+		// rendering this metadata knows a request was rejected but not why, and
+		// has to go re-parse the message string — which is the re-parsing this
+		// structured field exists to avoid.
 		expect(run.lastProviderError).toEqual({
 			kind: 'throttle',
 			providerId: 'classified-failure',
 			status: 429,
 			retryAfterMs: 2000,
+			detail: 'rate limit reached for this organization',
 		})
 		expect(events.find((event) => event.type === 'run_failed')).toMatchObject({
 			type: 'run_failed',
