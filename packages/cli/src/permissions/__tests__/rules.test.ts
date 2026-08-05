@@ -161,38 +161,92 @@ describe('the rules actually decide a real call', () => {
 			},
 			getRootLogger(),
 		)
-		return gate.evaluate({ toolName: tool, toolInput: input, toolDef: undefined }).decision
+		return gate.evaluate({ toolName: tool, toolInput: input, toolDef: undefined })
 	}
 
 	it('allows the command an operator allowed', () => {
-		expect(decide({ bash: { 'git status*': 'allow' } }, 'bash', { command: 'git status' })).toBe(
-			'allow',
-		)
+		expect(
+			decide({ bash: { 'git status*': 'allow' } }, 'bash', { command: 'git status' }).decision,
+		).toBe('allow')
 	})
 
 	it('denies the command an operator denied', () => {
-		expect(
-			decide({ bash: { 'git push*': 'deny' } }, 'bash', { command: 'git push origin main' }),
-		).toBe('deny')
+		const result = decide({ bash: { 'git push*': 'deny' } }, 'bash', {
+			command: 'git push origin main',
+		})
+
+		expect(result.decision).toBe('deny')
 	})
 
-	it('does not let one tool_s rule decide another tool_s call', () => {
+	it('does not let one tool rule decide another tool call', () => {
 		// A rule written under `bash` must not decide an `edit` call whose
-		// arguments happen to contain the same text. The kernel_s pattern rules
-		// carry no tool scope, so this is the CLI_s job and it is easy to lose.
-		expect(
-			decide({ bash: { 'git push*': 'deny' } }, 'edit', { content: 'run git push to deploy' }),
-		).toBe('review')
+		// arguments happen to contain the same text. The kernel's pattern rules
+		// carry no tool scope, so this is the CLI's job and it is easy to lose.
+		const result = decide({ bash: { 'git push*': 'deny' } }, 'edit', {
+			content: 'run git push to deploy',
+		})
+
+		expect(result.decision).toBe('review')
 	})
 
 	it('asks about a tool nobody wrote a rule for', () => {
 		// The load-bearing case, driven end to end rather than inferred.
-		expect(decide({ read: 'allow' }, 'some_new_bridged_tool', { x: 1 })).toBe('review')
+		expect(decide({ read: 'allow' }, 'some_new_bridged_tool', { x: 1 }).decision).toBe('review')
 	})
 
 	it('prefers the specific rule over the catch-all, whatever the config order', () => {
 		const config = { bash: { '*': 'allow', 'git push*': 'deny' } } as const
-		expect(decide(config, 'bash', { command: 'git push --force' })).toBe('deny')
-		expect(decide(config, 'bash', { command: 'ls' })).toBe('allow')
+		expect(decide(config, 'bash', { command: 'git push --force' }).decision).toBe('deny')
+		expect(decide(config, 'bash', { command: 'ls' }).decision).toBe('allow')
+	})
+})
+
+describe('what a denial actually says to the model', () => {
+	// The decision was never the part that was broken. A model told only
+	// "denied" rewords the command and tries again; a model told WHICH rule
+	// stopped it, and whether a different input could ever pass, can stop and
+	// say so. These assert the sentence, not the verdict.
+	function reasonFor(
+		config: Parameters<typeof compilePermissions>[0],
+		tool: string,
+		input: unknown,
+	) {
+		const { rules } = compilePermissions(config)
+		const gate = new VerificationGate(
+			{
+				enabled: true,
+				rules: [...rules],
+				allowReadOnlyTools: false,
+				denyDangerousPatterns: false,
+				logDecisions: false,
+			},
+			getRootLogger(),
+		)
+		return gate.evaluate({ toolName: tool, toolInput: input, toolDef: undefined }).reason
+	}
+
+	it('a by-name denial says the tool is refused, so a reworded input will not help', () => {
+		const reason = reasonFor({ bash: 'deny' }, 'bash', { command: 'ls' })
+
+		expect(reason).toContain('bash')
+		// The part that stops the retry loop.
+		expect(reason).toContain('a different input will not change it')
+	})
+
+	it('a pattern denial quotes the rule that matched', () => {
+		const reason = reasonFor({ bash: { 'git push*': 'deny' } }, 'bash', {
+			command: 'git push --force',
+		})
+
+		expect(reason).toContain('pattern rule')
+		// The model is shown the rule itself, not the name of its category, so
+		// it can tell which of its options are closed and which are not.
+		expect(reason).toContain('git push')
+	})
+
+	it('an unmatched call says nothing matched, rather than naming a rule', () => {
+		const reason = reasonFor({ read: 'allow' }, 'some_new_tool', {})
+
+		expect(reason).toBe('No matching rule found')
 	})
 })

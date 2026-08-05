@@ -41,6 +41,7 @@ import {
 	type ThreadId,
 	type ToolCallSummary,
 	ToolRegistry,
+	type VerificationRule,
 	buildMemoryTools,
 	getBuiltinTools,
 	query,
@@ -255,6 +256,14 @@ export interface AgentSessionOptions {
 	 * having looked in the wrong place.
 	 */
 	readonly cwd?: string
+	/**
+	 * Operator-authored tool rules, already compiled to the kernel's vocabulary.
+	 *
+	 * Absent means an empty rule list, which is what the CLI passed for the
+	 * gate's whole existence: every mutating call fell through to the prompt.
+	 * That stays the behaviour for anyone who writes no config.
+	 */
+	readonly rules?: readonly VerificationRule[]
 }
 
 export async function createAgentSession(
@@ -351,7 +360,7 @@ export async function createAgentSession(
 				if (clawtoolTools.length > 0) r.register(clawtoolTools, 'deferred')
 				return r
 			},
-			verificationGate: VERIFICATION_GATE,
+			verificationGate: gateFor(options.rules),
 			onEvent: (e) => {
 				if (e.type === 'tool_executing') {
 					childSteps.push(`${e.toolName}(${summarizeToolInput(e.input)})`)
@@ -401,6 +410,7 @@ export async function createAgentSession(
 				tools: registry,
 				scope,
 				workingDirectory: cwd,
+				rules: options.rules,
 				approval,
 				taskStore,
 				systemPrompt,
@@ -519,7 +529,21 @@ const VERIFICATION_GATE = {
 	allowReadOnlyTools: true,
 	denyDangerousPatterns: true,
 	logDecisions: false,
-	rules: [],
+	rules: [] as VerificationRule[],
+}
+
+/**
+ * The gate for this session, with the operator's rules in it.
+ *
+ * `rules` was a hardcoded empty array for as long as the gate has existed, so a
+ * kernel with seven rule types ran with none and every mutating call fell
+ * through to the prompt. The two booleans keep their meaning: the
+ * dangerous-pattern denial is the floor and outranks everything, and the
+ * read-only allowance is now consulted AFTER the operator's rules, so
+ * `read = "ask"` is reachable instead of silently unreachable.
+ */
+function gateFor(rules: readonly VerificationRule[] | undefined) {
+	return { ...VERIFICATION_GATE, rules: [...(rules ?? [])] }
 }
 
 // Automatic context compression for long, tool-heavy turns: the structured
@@ -569,6 +593,8 @@ interface RunTurnParams {
 	readonly scope: RunScope
 	/** Directory every filesystem tool in this turn resolves against. */
 	readonly workingDirectory: string
+	/** Operator rules for this run, already compiled. */
+	readonly rules: readonly VerificationRule[] | undefined
 	readonly approval: { all: boolean }
 	readonly taskStore: TaskStore
 	readonly systemPrompt: string | undefined
@@ -584,6 +610,7 @@ async function* runTurn({
 	tools,
 	scope,
 	workingDirectory,
+	rules,
 	approval,
 	taskStore,
 	systemPrompt,

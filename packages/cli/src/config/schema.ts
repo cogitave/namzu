@@ -8,6 +8,7 @@
  */
 
 import type { FormatName } from '../output/index.js'
+import type { PermissionsConfig } from '../permissions/rules.js'
 
 export interface ClawtoolConfig {
 	/** Absolute path to the clawtool binary; overrides PATH lookup. */
@@ -27,6 +28,14 @@ export interface NamzuCliConfig {
 	readonly quiet?: boolean
 	/** Clawtool integration overrides; defaults work zero-config. */
 	readonly clawtool?: ClawtoolConfig
+	/**
+	 * Which tools may run without asking, keyed by tool name.
+	 *
+	 * A value is `"allow" | "ask" | "deny"`, or a table of argument patterns
+	 * mapping to those. Absent means every mutating tool prompts, which is what
+	 * it meant before this existed — the absence of a policy never widens one.
+	 */
+	readonly permissions?: PermissionsConfig
 }
 
 export const DEFAULT_CONFIG: NamzuCliConfig = Object.freeze({
