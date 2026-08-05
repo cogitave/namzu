@@ -155,6 +155,7 @@ export type StreamEventType =
 	 * transcript needs to know its middle was dropped, not infer it.
 	 */
 	| 'compaction.completed'
+	| 'compaction.failed'
 	/** A guardrail refused or corrected the run. */
 	| 'guardrail.triggered'
 	/**

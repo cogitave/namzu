@@ -221,10 +221,42 @@ function totalChars(messages: readonly { content: unknown }[]): number {
  * invariant is written on {@link ContextReducer}; enforcing it where it is
  * violated is what makes it true rather than aspirational.
  */
+/**
+ * Put a compaction that shed nothing on the wire.
+ *
+ * All three decline paths reached a log line and stopped there. Every
+ * command-line entry point silences the logger, so the outcome was invisible
+ * to the user, to the host and to the model at once — and the run carried on
+ * at full context toward a provider rejection several turns later that named
+ * none of this. A shed that did not happen is as consequential as one that
+ * did, and only one of them was observable.
+ *
+ * The history is untouched on every path, so this reports rather than repairs.
+ */
+async function declined(
+	ctx: IterationContext,
+	cause: 'reducer_threw' | 'shed_nothing' | 'split_tool_pair',
+	messages: number,
+	error?: string,
+): Promise<void> {
+	await ctx.emitEvent?.({
+		type: 'compaction_failed',
+		runId: ctx.runMgr.id,
+		iteration: ctx.runMgr.currentIteration,
+		cause,
+		messages,
+		...(error !== undefined ? { error } : {}),
+	})
+}
+
 async function applyReducer(
 	ctx: IterationContext,
 	reducer: ContextReducer,
 	reduction: ContextReduction,
+	measurement: {
+		measuredBy: 'provider' | 'estimate'
+		windowSource: 'config' | 'model-table' | 'default'
+	},
 ): Promise<void> {
 	const messages = ctx.runMgr.messages
 	const before = messages.length
@@ -234,11 +266,13 @@ async function applyReducer(
 	try {
 		next = await reducer(reduction)
 	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error)
 		ctx.log.warn('Context reducer threw — keeping the full history', {
 			runId: ctx.runMgr.id,
 			reason: reduction.reason,
-			error: error instanceof Error ? error.message : String(error),
+			error: message,
 		})
+		await declined(ctx, 'reducer_threw', before, message)
 		return
 	}
 
@@ -248,6 +282,7 @@ async function applyReducer(
 			reason: reduction.reason,
 			messages: before,
 		})
+		await declined(ctx, 'shed_nothing', before)
 		return
 	}
 
@@ -257,6 +292,7 @@ async function applyReducer(
 			reason: reduction.reason,
 			hint: 'use findSafeTrimIndex to move a cut off a tool_use/tool_result boundary',
 		})
+		await declined(ctx, 'split_tool_pair', before)
 		return
 	}
 
@@ -274,6 +310,28 @@ async function applyReducer(
 		oldMessageCount: before,
 		newMessageCount: messages.length,
 		charsShed: beforeChars - totalChars(messages),
+	})
+
+	// This path emitted NOTHING on success, and it is the path a host-supplied
+	// reducer and `strategy: 'sliding-window'` both take. So the event whose own
+	// docstring says it exists because "a host could not show the user that
+	// context was dropped" was never reaching the hosts most likely to need it —
+	// the same mechanism-exists-and-one-site-does-not-use-it shape as the
+	// silence on the decline paths above, in the opposite direction.
+	//
+	// Found by a test written for the decline paths asserting that success does
+	// NOT report a failure, which is the only reason anybody looked here.
+	await ctx.emitEvent?.({
+		type: 'compaction_completed',
+		runId: ctx.runMgr.id,
+		iteration: ctx.runMgr.currentIteration,
+		messagesBefore: before,
+		messagesAfter: messages.length,
+		tokensBefore: reduction.estimatedTokens,
+		tokensAfter: estimateMessageTokens(messages),
+		measuredBy: measurement.measuredBy,
+		contextWindowTokens: reduction.contextWindowTokens,
+		windowSource: measurement.windowSource,
 	})
 }
 
@@ -313,14 +371,19 @@ export async function runCompactionCheck(
 		ctx.contextReducer ??
 		(config.strategy === 'sliding-window' ? createSlidingWindowReducer() : undefined)
 	if (reducer) {
-		await applyReducer(ctx, reducer, {
-			messages: ctx.runMgr.messages,
-			reason: options?.force ? 'overflow' : 'threshold',
-			estimatedTokens,
-			contextWindowTokens: budget,
-			model: ctx.runConfig.model,
-			keepRecentMessages: config.keepRecentMessages,
-		})
+		await applyReducer(
+			ctx,
+			reducer,
+			{
+				messages: ctx.runMgr.messages,
+				reason: options?.force ? 'overflow' : 'threshold',
+				estimatedTokens,
+				contextWindowTokens: budget,
+				model: ctx.runConfig.model,
+				keepRecentMessages: config.keepRecentMessages,
+			},
+			{ measuredBy: measured.source, windowSource: window.source },
+		)
 		return
 	}
 

@@ -44,6 +44,14 @@ export function describeRule(rule: VerificationRule): string {
 			return `allowed by category (${rule.categories.join(', ')})`
 		case 'allow_by_tier':
 			return `allowed by tier (${rule.tiers.join(', ')})`
+		case 'argument_pattern': {
+			// Names the argument, not just the pattern. That is what tells a
+			// model whether a different value could get through — which is the
+			// difference between rewording once and rewording forever.
+			const verb = rule.decision === 'deny' ? 'denied' : 'allowed'
+			return `${verb} because the \`${rule.argument}\` argument matched ${rule.pattern} (this rule applies to ${rule.toolNames.join(', ')})`
+		}
+
 		case 'custom_pattern': {
 			const where = rule.target === 'both' ? 'name or arguments' : rule.target
 			const verb = rule.decision === 'deny' ? 'denied' : 'allowed'
@@ -119,6 +127,43 @@ export class VerificationGate {
 					this.compiledPatterns.set(i, new RegExp(rule.pattern))
 				} catch (err) {
 					this.log.warn('Invalid custom pattern regex, skipping', {
+						index: i,
+						pattern: rule.pattern,
+						error: err instanceof Error ? err.message : String(err),
+					})
+				}
+			}
+
+			if (rule.type === 'argument_pattern') {
+				// Needs BOTH, because it is the rule that names both.
+				//
+				// The name set is recorded only after the pattern compiles, so
+				// a rule with a typo'd regex leaves neither half behind. That
+				// ordering is defence in depth and NOT what makes the guarantee
+				// — `evaluateRule` returns null on a missing compiled pattern
+				// before it ever looks at the name set, so reversing these two
+				// lines changes no behaviour. Measured: reversing them fails no
+				// test, and the test that looks like it covers this is really
+				// covering the check in `evaluateRule`.
+				//
+				// Written down because the alternative is someone later reading
+				// the order as load-bearing and preserving it for the wrong
+				// reason, or removing the real check believing this one covers
+				// it.
+				if (rule.pattern.length > MAX_CUSTOM_PATTERN_LENGTH) {
+					this.log.warn('Argument pattern exceeds max length, skipping', {
+						index: i,
+						length: rule.pattern.length,
+						maxLength: MAX_CUSTOM_PATTERN_LENGTH,
+					})
+					continue
+				}
+				try {
+					const compiled = new RegExp(rule.pattern)
+					this.compiledPatterns.set(i, compiled)
+					this.nameSets.set(i, new Set(rule.toolNames))
+				} catch (err) {
+					this.log.warn('Invalid argument pattern regex, skipping', {
 						index: i,
 						pattern: rule.pattern,
 						error: err instanceof Error ? err.message : String(err),

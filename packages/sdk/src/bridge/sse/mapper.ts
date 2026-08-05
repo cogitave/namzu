@@ -92,6 +92,21 @@ const MAPPING: {
 		}),
 	},
 
+	// Carried for the same reason its sibling is: a host that can show a user
+	// context was dropped must also be able to show them it was not, because a
+	// run continuing at full context is the state that ends in an opaque
+	// provider rejection later.
+	compaction_failed: {
+		wire: 'compaction.failed',
+		transform: (e, runId) => ({
+			run_id: runId,
+			iteration: e.iteration,
+			cause: e.cause,
+			messages: e.messages,
+			...(e.error !== undefined ? { error: e.error } : {}),
+		}),
+	},
+
 	tool_executing: {
 		wire: 'tool.executing',
 		transform: (e, runId) => ({
