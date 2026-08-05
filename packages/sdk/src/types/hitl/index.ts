@@ -180,6 +180,16 @@ export interface IterationCheckpoint {
 	messages: Message[]
 	tokenUsage: TokenUsage
 	costInfo: CostInfo
+	/**
+	 * **Never set.** No checkpoint is written with a plan status.
+	 *
+	 * It matters more than an unused field usually would: a host restoring a
+	 * checkpoint and reading this to decide whether the plan was approved
+	 * gets `undefined` for every run, approved or not, and cannot tell the
+	 * two apart. Ask the plan manager instead.
+	 *
+	 * @deprecated No producer. Removed in the next major.
+	 */
 	planStatus?: PlanStatus
 
 	/**

@@ -1,6 +1,11 @@
 import type { AgentCapabilities } from '../../types/agent/base.js'
 import type { AgentManagerConfig } from '../../types/agent/task.js'
 
+/**
+ * **Nothing reads this.** No activity list is trimmed to it anywhere.
+ *
+ * @deprecated Unused. Removed in the next major.
+ */
 export const MAX_RECENT_ACTIVITIES = 5
 
 export const AGENT_MANAGER_DEFAULTS: Readonly<AgentManagerConfig> = {
