@@ -161,3 +161,71 @@ describe('the three decline causes get three sentences', () => {
 		expect(new Set(texts).size).toBe(3)
 	})
 })
+
+/**
+ * The context figures cross the same seam, and used to stop at it.
+ *
+ * The kernel measured the context and resolved a window; the status gauge
+ * consumed a fraction. Both ends worked. This function threw the four fields
+ * away in between, so the gauge fell back to dividing CUMULATIVE spend by a
+ * window guessed from the model name — a number that rose with turn count and
+ * read FULL on a conversation with room left. Producing a value and consuming
+ * one are not the same as carrying it.
+ */
+describe('toAgentEvent carries the context figures across', () => {
+	const usageEvent = (extra: Record<string, unknown>) =>
+		toAgentEvent({
+			type: 'token_usage_updated',
+			runId,
+			usage: { totalTokens: 90 },
+			cost: { totalCost: 0.5 },
+			...extra,
+		} as unknown as RunEvent)
+
+	it('carries both terms and both provenances', () => {
+		expect(
+			usageEvent({
+				contextTokens: 12_000,
+				contextMeasuredBy: 'provider',
+				contextWindowTokens: 200_000,
+				windowSource: 'model-table',
+			}),
+		).toEqual({
+			kind: 'usage',
+			totalTokens: 90,
+			costUsd: 0.5,
+			contextTokens: 12_000,
+			contextMeasuredBy: 'provider',
+			contextWindowTokens: 200_000,
+			windowSource: 'model-table',
+		})
+	})
+
+	it('leaves an unreported context absent rather than zero', () => {
+		// The kernel omits all four when a run resolved no window. A `0` here
+		// would be indistinguishable from an empty context and would render a
+		// gauge reading 0% — a confident wrong answer where the contract is
+		// to show no proportion at all.
+		const mapped = usageEvent({})
+
+		expect(mapped).toEqual({ kind: 'usage', totalTokens: 90, costUsd: 0.5 })
+		expect(mapped).not.toHaveProperty('contextTokens')
+		expect(mapped).not.toHaveProperty('contextWindowTokens')
+	})
+
+	it('keeps context distinct from cumulative spend', () => {
+		// The defect in one assertion. Ten turns over a 200k window accumulate
+		// far more spend than the window holds, because every turn re-sends the
+		// history and counts it again — while the context stays modest. Any
+		// mapping that reaches for `totalTokens` fails here.
+		expect(
+			usageEvent({
+				usage: { totalTokens: 500_000 },
+				contextTokens: 40_000,
+				contextMeasuredBy: 'provider',
+				contextWindowTokens: 200_000,
+				windowSource: 'model-table',
+			}),
+		).toMatchObject({ totalTokens: 500_000, contextTokens: 40_000 })
+	})
+})
