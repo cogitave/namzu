@@ -1,5 +1,109 @@
 # Changelog
 
+## 6.0.0
+
+### Major Changes
+
+- f8355de: a failed request now carries the provider's own account of why, scrubbed
+
+  `ProviderRequestError` has always declared a `detail` field. The constructor
+  never read it, so it existed and carried nothing, and the response body was
+  parsed to classify the failure and then dropped.
+
+  That was deliberate and it was an over-correction. An error body can echo a
+  request and a request can carry a credential — but a provider rejecting a
+  request also names the exact offending field, and deleting that sentence turns
+  a one-line diagnosis into hypothesis elimination against a live API. It did:
+  the wire spent a day of production downtime repeating
+  `tools.0.custom.input_schema: … must match JSON Schema draft 2020-12` while the
+  SDK removed the sentence before anyone could read it.
+
+  Scrubbing what is credential-shaped and keeping the rest is the trade that was
+  actually available. `detail` now carries the provider's message, truncated to
+  400 characters, with API-key prefixes, bearer headers, cloud access-key ids and
+  credential-named JSON fields replaced by `[redacted]`. The same text reaches
+  `message`, so a log line that prints only the message is enough to act on.
+
+  It reaches the run too. `ProviderErrorInfo` — the metadata on failed runs and
+  `run_failed` events — had no `detail` field, so the sentence stopped at the
+  error object and a host rendering `run.lastProviderError` still had to parse
+  `error` to learn which parameter was rejected. That is the re-parsing the
+  structured field exists to avoid, so `detail` is on it now:
+
+  ```ts
+  if (run.lastProviderError?.kind === "bad_request") {
+    console.error(run.lastProviderError.detail);
+  }
+  ```
+
+  **Breaking.** The previous contract — "the response body is never interpolated
+  into the error message" — was documented, and code may depend on it. Two tests
+  in this repository did. If you log `ProviderRequestError.message` somewhere the
+  provider's own words must not appear, read `error.kind`, `error.status` and
+  `error.providerId` instead and build the string yourself; those are unchanged.
+
+  What has NOT changed is the `cause` chain: the raw body is still never attached
+  as `cause`. A `cause` survives every logger that serializes an error chain,
+  which is the channel that would leak the body regardless of what the message
+  says.
+
+  The strict-subset check learned the same lesson in the same release. Its
+  deny-list was derived from prose and was wrong in both directions — it refused
+  `minLength`/`maxLength`, which the wire accepts, so it would have blocked
+  working tools; and it permitted tuples, which the wire rejects, so it vouched
+  for a broken one. It is now measured against the live API, and the measurement
+  runs as a contract test rather than living in a comment. `minItems` in
+  particular is a bound on the _value_, not a rejected keyword: 0 and 1 pass and
+  anything above does not, so a required non-empty array is expressible again.
+
+### Minor Changes
+
+- f8355de: tool schemas are rendered in the dialect each wire actually parses
+
+  A tool with a tuple-shaped field took down every request that offered it. The
+  kernel renders one canonical JSON Schema in draft-07, where a tuple is
+  `items: [a, b]`; one of the wires namzu speaks validates tool input as JSON
+  Schema 2020-12, where that spelling is invalid and a tuple must be
+  `prefixItems`. Every driver forwarded the rendering verbatim, so the built-in
+  `read` tool — whose `readRange` is a Zod tuple — produced a 400 that rejected
+  the **whole** request, taking every other tool in the call down with it. The
+  turn died before generating a token.
+
+  The failure had nothing to do with strict tool use, which is why the guard
+  added for the previous schema outage never saw it: it fires with strict
+  validation unset, and with strict on the dialect error arrives _first_.
+
+  Which dialect a wire parses is a property of the wire, so the conversion now
+  happens at each driver's boundary rather than in the renderer:
+
+  ```ts
+  import { toSchemaDialect, findDraft07Only } from "@namzu/sdk";
+
+  toSchemaDialect(schema, "2020-12"); // items: [a, b]  ->  prefixItems: [a, b]
+  findDraft07Only(schema); // paths that no 2020-12 parser will accept
+  ```
+
+  `renderToolSchema` is exported now too, so a caller assembling its own tool
+  payload gets the same memoized, `$schema`-stripped, deep-frozen rendering the
+  kernel puts on the wire — byte-identical across iterations, which matters
+  because the tools block sits at position 0 of the prompt-cache prefix.
+
+  `ToolCatalog` used to convert schemas through its own inline call with the same
+  options. Same output, none of the guarantees: no `$schema` stripping, no
+  memoization, no freeze. It goes through `renderToolSchema` now.
+
+  **Breaking, for the three drivers.** Their `@namzu/sdk` peer range was
+  `>=1.3.0` and is now `>=6.0.0`. That range was already wrong — the drivers call
+  kernel functions added well after 1.3.0 — and it would now let a package
+  manager install a combination that throws on every request carrying a tool.
+  Upgrade the kernel alongside the driver.
+
+  The conversion follows the model on multi-vendor wires. Bedrock's Converse API
+  carries several vendors through one request shape, and the 2020-12 requirement
+  was measured on one of them, so schemas bound for the others are left in the
+  dialect they were rendered in. Guessing there would trade a known break for an
+  unmeasured one.
+
 ## 5.2.0
 
 ### Minor Changes
