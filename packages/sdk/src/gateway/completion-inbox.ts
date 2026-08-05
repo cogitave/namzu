@@ -144,7 +144,22 @@ export class CompletionInbox {
 		if (this.unheard.size === 0) return []
 		const handles = [...this.unheard.values()]
 		this.unheard.clear()
-		for (const handle of handles) this.claimed.add(handle.taskId)
+		for (const handle of handles) {
+			this.claimed.add(handle.taskId)
+			// A delivered result is not pending WORK, and `outstanding` can
+			// still be holding this id — the listener clears it, but only if
+			// the announcement came AFTER the launching tool said `expect`.
+			// The other order is reachable: `expect` runs one microtask after
+			// `gateway.createTask` resolves, and the gateway's own completion
+			// callback can win that race for a task that finished fast. Then
+			// `expect` re-adds an id the listener had nothing to remove, and
+			// nothing else ever takes it off — so `hasPendingWork` stayed true
+			// for the rest of the run and every attempt to settle paid the
+			// full grace period waiting for a result already in the transcript.
+			//
+			// Symmetric with `claim`, which clears it for the same reason.
+			this.outstanding.delete(handle.taskId)
+		}
 		return handles
 	}
 

@@ -181,6 +181,27 @@ describe('a launch nobody is waiting for holds the run open', () => {
 		expect(inbox.hasPendingWork).toBe(false)
 	})
 
+	it('stops counting it when the completion beat the launch that expected it', () => {
+		// The other order, and the one nothing covered. `expect` runs a
+		// microtask after `gateway.createTask` resolves, so a task that
+		// finishes fast can be ANNOUNCED first: the listener then has nothing
+		// to take off the outstanding set, and `expect` puts the id on it
+		// afterwards. Draining emptied `unheard` and left `outstanding`
+		// holding an id nothing would ever clear, so the run reported pending
+		// work — and paid a full grace period for it — every time it tried to
+		// settle, for a result that was already in its own transcript.
+		const { gateway, settle } = fakeGateway()
+		const inbox = new CompletionInbox()
+		inbox.attach(gateway)
+
+		settle(handleFor('tsk_1', 'finished before the launch call returned'))
+		inbox.expect('tsk_1' as TaskId)
+
+		expect(inbox.drain().map((h) => h.taskId)).toEqual(['tsk_1'])
+		expect(inbox.hasUnheard).toBe(false)
+		expect(inbox.hasPendingWork, 'a delivered result was still counted as pending work').toBe(false)
+	})
+
 	it('ignores a task already delivered inline', () => {
 		const { gateway } = fakeGateway()
 		const inbox = new CompletionInbox()
