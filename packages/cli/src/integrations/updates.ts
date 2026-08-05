@@ -1,13 +1,8 @@
 /**
- * Update checks for namzu (npm) and clawtool (`clawtool upgrade --check`),
- * surfaced in the TUI so the user knows when a newer version is out. Both are
- * best-effort with short timeouts: offline / unpublished / no-clawtool just
- * yields `null`, never an error or a hang.
+ * Update check for namzu (npm), surfaced in the TUI so the user knows when a
+ * newer version is out. Best-effort with a short timeout: offline or
+ * unpublished yields `null`, never an error or a hang.
  */
-
-import { execFile } from 'node:child_process'
-
-import { findBinary } from './clawtool/binary.js'
 
 export interface UpdateInfo {
 	readonly name: string
@@ -18,7 +13,6 @@ export interface UpdateInfo {
 }
 
 const NPM_TIMEOUT_MS = 2_500
-const CLAWTOOL_TIMEOUT_MS = 5_000
 
 /** Compare dotted numeric versions; >0 if a>b, <0 if a<b, 0 if equal. */
 export function compareVersions(a: string, b: string): number {
@@ -58,56 +52,8 @@ export async function checkNamzuUpdate(current: string): Promise<UpdateInfo | nu
 	}
 }
 
-function run(bin: string, args: string[]): Promise<string> {
-	return new Promise((resolve) => {
-		execFile(bin, args, { timeout: CLAWTOOL_TIMEOUT_MS }, (_err, stdout) => resolve(stdout ?? ''))
-	})
-}
-
-/**
- * Newer clawtool, or null. Prefers the machine-readable
- * `upgrade --check --json` (newer binaries); falls back to parsing the
- * `current -> latest` line in the plain `upgrade --check` output (older
- * binaries that predate `--json`).
- */
-export async function checkClawtoolUpdate(): Promise<UpdateInfo | null> {
-	let bin: string
-	try {
-		bin = findBinary()
-	} catch {
-		return null
-	}
-	const how = 'clawtool upgrade'
-
-	// JSON path (preferred).
-	try {
-		const data = JSON.parse(await run(bin, ['upgrade', '--check', '--json'])) as {
-			current?: string
-			latest?: string
-			update_available?: boolean
-		}
-		if (data.update_available && data.current && data.latest) {
-			return { name: 'clawtool', current: data.current, latest: data.latest, how }
-		}
-		if (data.current) return null // valid JSON, no update
-	} catch {
-		// fall through to plain parsing
-	}
-
-	// Plain-output fallback: a line like `0.22.159 -> 0.22.160`.
-	const plain = await run(bin, ['upgrade', '--check'])
-	const m = plain.match(/(\d+\.\d+\.\d+)\s*->\s*(\d+\.\d+\.\d+)/)
-	if (m?.[1] && m[2] && compareVersions(m[2], m[1]) > 0) {
-		return { name: 'clawtool', current: m[1], latest: m[2], how }
-	}
-	return null
-}
-
-/** Run both checks in parallel; returns whichever have an update available. */
+/** Returns an update when one is available. */
 export async function checkUpdates(namzuVersion: string): Promise<readonly UpdateInfo[]> {
-	const [namzu, clawtool] = await Promise.all([
-		checkNamzuUpdate(namzuVersion),
-		checkClawtoolUpdate(),
-	])
-	return [namzu, clawtool].filter((u): u is UpdateInfo => u !== null)
+	const namzu = await checkNamzuUpdate(namzuVersion)
+	return namzu ? [namzu] : []
 }

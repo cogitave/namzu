@@ -32,7 +32,6 @@ export {
 	type ProviderRegistryEntry,
 	type SdkProviderType,
 } from './registry.js'
-export { clawtoolSecretsPath, readClawtoolSecrets, type SecretCandidate } from './secrets.js'
 // Manual-profile escape hatch — kept for users who configure providers
 // by API key directly without going through the auto-discovery picker.
 export {

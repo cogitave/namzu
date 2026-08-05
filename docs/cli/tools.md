@@ -1,7 +1,7 @@
 ---
 title: Tools & permission
-description: Builtin tools, agent memory + task tools, the deferred clawtool bridge, the permission prompt, the safety gate, and bypass mode.
-last_updated: 2026-05-25
+description: Builtin tools, agent memory + task tools, deferred tools and search_tools, the permission prompt, the safety gate, and bypass mode.
+last_updated: 2026-08-05
 status: current
 related_packages: ["@namzu/cli", "@namzu/sdk"]
 ---
@@ -24,22 +24,28 @@ Every session registers a lean, native tool set:
 | `grep` | Search file contents. |
 | `search_memory` / `read_memory` / `save_memory` | The agent's structured memory ([Memory](./memory.md)). |
 | `task_create` / `task_update` / `task_list` | Track a plan for the current request (see below). |
-| `search_tools` | Load deferred clawtool tools on demand (see below). |
+| `search_tools` | Load a deferred tool on demand (see below). |
 
 ## Plan / task tracking
 
 The agent can lay out a multi-step plan with the task tools. New tasks appear in the transcript as `☐ <subject>` and completed ones as `☑ <subject>`, so you can watch it work through a todo list for the current request.
 
-## The clawtool bridge (deferred)
+## Deferred tools and `search_tools`
 
-If a local clawtool daemon is reachable, namzu makes its ~70-tool catalog available — but **deferred**: the tools are listed by name only (no schema bloat in the prompt), and the agent loads the ones it needs via `search_tools`. This keeps per-message token cost low while still giving access to `clawtool_WebSearch`, `clawtool_BrowserFetch`, `clawtool_SandboxRun`, `clawtool_Commit`, `clawtool_Spawn`, and more. Best-effort: if clawtool is absent/down, namzu runs on builtins alone. The connect line shows `N tools (+M on demand)`.
+A **deferred** tool is registered but not offered to the model directly: it costs a name in the prompt rather than a full JSON schema, and the model loads it when it needs it by calling `search_tools`. That keeps per-turn token cost flat as the tool count grows.
+
+In a namzu session the task tools above are the deferred set — they are registered when the session opens a task store, and `search_tools` is mounted alongside them so the model can reach them.
+
+A sub-agent runs without a task store, so it has nothing deferred, and `search_tools` is not mounted there at all: a tool whose only possible answer is "nothing matched" costs a turn to discover that.
+
+> Earlier versions bridged an external daemon's ~70-tool catalog in as deferred tools, and the connect line reported them as `(+N on demand)`. That integration was removed in `@namzu/cli` 0.7.0 — see the changelog.
 
 ## The permission prompt
 
 Mutating actions ask before they run:
 
 - **Read-only / agent-state tools** (`read`/`glob`/`grep`, the memory + task tools) run silently.
-- **Anything else** — `write`, `edit`, `bash`, and any tool not on the safe allowlist (including bridged clawtool tools) — shows a prompt with each proposed call, plus a preview for the riskiest: the content for `write`, a `- old` / `+ new` diff for `edit`.
+- **Anything else** — `write`, `edit`, `bash`, and any tool not on the safe allowlist — shows a prompt with each proposed call, plus a preview for the riskiest: the content for `write`, a `- old` / `+ new` diff for `edit`.
 
 | Key | Decision |
 | --- | --- |

@@ -48,7 +48,6 @@ import {
 } from '@namzu/sdk'
 
 import { join } from 'node:path'
-import { loadClawtoolToolDefinitions } from '../integrations/clawtool/tooling.js'
 import {
 	type DetectedProvider,
 	PROVIDER_REGISTRY,
@@ -157,8 +156,6 @@ export interface AgentSession {
 	readonly providerSummary: string | null
 	readonly modelSummary: string | null
 	readonly toolNames: readonly string[]
-	/** Count of clawtool tools registered deferred (loadable via search_tools). */
-	readonly deferredToolCount: number
 	readonly errorHint: string | null
 	send(messages: readonly Message[], opts?: SendOptions): AsyncIterable<AgentEvent>
 }
@@ -242,7 +239,7 @@ const NAMZU_IDENTITY = [
 	'- Never invent file paths, command output, URLs, research findings, or results. If you announce an action ("running…", "delegating…"), you MUST immediately make the tool call — do not narrate an action and then skip it.',
 	'- If a capability or tool is unavailable (e.g. no web access, a tool is missing, a sub-agent failed), say so plainly and stop — do not improvise a fake result.',
 	'- When you delegate with the `Agent` tool, report only what the sub-agent actually returned in its tool result; if it wrote files, verify with a tool before claiming paths.',
-	'- A reply from a tool that delegates to ANOTHER agent (e.g. clawtool `agent.run`, an A2A `tasks/send`, a remote peer) is that agent\'s unverified CLAIM, not fact — another model can hallucinate. If it says it ran a command, wrote a file, or "here is the output", treat that as narrative and confirm it yourself with a deterministic tool (a real shell like `bash.run`, a file read) before reporting it as done. Distinguish such conversational agent calls from deterministic tools, and never present another agent\'s prose as your own verified result.',
+	'- A reply from a tool that delegates to ANOTHER agent (a connector that runs another agent, an A2A `tasks/send`, a remote peer) is that agent\'s unverified CLAIM, not fact — another model can hallucinate. If it says it ran a command, wrote a file, or "here is the output", treat that as narrative and confirm it yourself with a deterministic tool (a real shell like `bash.run`, a file read) before reporting it as done. Distinguish such conversational agent calls from deterministic tools, and never present another agent\'s prose as your own verified result.',
 ].join('\n')
 
 function buildToolRegistry(cwd: string): ToolRegistry {
@@ -253,8 +250,14 @@ function buildToolRegistry(cwd: string): ToolRegistry {
 	// MEMORY.md that's injected into the prompt).
 	const memoryStore = new DiskMemoryStore({ baseDir: join(cwd, '.namzu') })
 	registry.register(buildMemoryTools(memoryStore, memoryStore.getIndex()))
-	// `search_tools` lets the model load deferred (clawtool) tools on demand.
-	registry.register([SearchToolsTool])
+	// `search_tools` is deliberately NOT registered here. It is only useful
+	// where deferred tools exist, and that differs between this function's two
+	// callers: the session below passes a `taskStore`, so query() registers the
+	// task tools deferred and the search has a roster; a sub-agent is built with
+	// no task store, so its registry has nothing deferred and the tool could
+	// only ever answer "no deferred tools matching X" — a capability advertised
+	// every turn that costs a turn to discover is unusable. Mounting it is the
+	// caller's decision, made where the roster is known.
 	return registry
 }
 
@@ -345,12 +348,9 @@ export async function createAgentSession(
 		}
 	}
 	const registry = buildToolRegistry(cwd)
-	// clawtool's catalog (~70 tools) is registered DEFERRED: each costs only a
-	// name line in the prompt (no JSON schema), so it never balloons a turn —
-	// the model loads what it needs via `search_tools`. Best-effort: absent /
-	// down / slow clawtool just yields zero deferred tools, non-fatal.
-	const clawtoolTools = await loadClawtoolToolDefinitions({ skipNames: registry.listNames() })
-	if (clawtoolTools.length > 0) registry.register(clawtoolTools, 'deferred')
+	// This session passes a `taskStore` to query() below, which registers the
+	// task tools deferred — so `search_tools` has something to find here.
+	registry.register([SearchToolsTool])
 	// Native sub-agents: register the canonical `Agent` tool so the model can
 	// delegate a self-contained task to a fresh sub-agent (own context window).
 	// Best-effort — if the runtime can't stand up, the chat still works.
@@ -371,13 +371,10 @@ export async function createAgentSession(
 					model,
 				),
 			buildTools: () => {
-				// Sub-agents get the same working set as the parent — builtins +
-				// memory + search_tools, plus clawtool's catalog (deferred) so they
-				// can load research / peer-dispatch tools on demand. Without this a
-				// sub-agent has no way to do real work beyond local files.
-				const r = buildToolRegistry(cwd)
-				if (clawtoolTools.length > 0) r.register(clawtoolTools, 'deferred')
-				return r
+				// Sub-agents get the parent's working set minus `search_tools`:
+				// they run without a task store, so nothing in their registry is
+				// deferred and there is nothing for a search to load.
+				return buildToolRegistry(cwd)
 			},
 			verificationGate: gateFor(options.rules),
 			onEvent: (e) => {
@@ -392,10 +389,14 @@ export async function createAgentSession(
 		// Sub-agents unavailable this session — non-fatal.
 	}
 	const activeToolNames = registry.getCallableTools().map((t) => t.name)
-	const deferredToolCount = clawtoolTools.length
-	// Task store → query auto-registers create_task / update_task / list_tasks
-	// and emits task_created/task_updated, so the agent can track a plan for the
-	// current request. Tasks are run-scoped.
+	// Task store → query registers task_create / task_update / task_list as
+	// DEFERRED tools and emits task_created/task_updated, so the agent can track
+	// a plan for the current request. Tasks are run-scoped.
+	//
+	// "Deferred" is why this session mounts `search_tools` above: these three are
+	// the roster it searches. They are registered inside query(), after this
+	// function returns, which is why the connect line reports no count of them —
+	// counting here would mean restating query's registration order in the CLI.
 	const taskStore: TaskStore = new DiskTaskStore({
 		baseDir: join(cwd, '.namzu'),
 		defaultRunId: 'run_namzu-cli' as RunId,
@@ -409,7 +410,6 @@ export async function createAgentSession(
 		providerSummary: entry.label,
 		modelSummary: model,
 		toolNames: activeToolNames,
-		deferredToolCount,
 		errorHint: null,
 		send: async function* (messages, opts) {
 			// Renew a lapsed OAuth token before the turn runs (no-op for valid
@@ -764,7 +764,7 @@ export function makeResumeHandler(
 /**
  * Tools known to only observe, never mutate. Anything NOT in this set
  * prompts for approval (safe-by-default: unknown and future tools — e.g.
- * bridged clawtool tools — are treated as needing consent). Matched
+ * bridged connector tools — are treated as needing consent). Matched
  * case-insensitively so `Read`/`read` both count.
  */
 const READ_ONLY_TOOLS = new Set([
@@ -986,7 +986,7 @@ export function toolStartDetail(toolName: string, input: unknown): readonly stri
 	if (!input || typeof input !== 'object') return undefined
 	const obj = input as Record<string, unknown>
 	const str = (k: string) => (typeof obj[k] === 'string' ? (obj[k] as string) : undefined)
-	const name = toolName.toLowerCase().replace(/^clawtool_/, '')
+	const name = toolName.toLowerCase()
 	if (name === 'write') {
 		const content = str('content')
 		return content !== undefined ? clampLines(content) : undefined
@@ -1002,7 +1002,7 @@ export function toolStartDetail(toolName: string, input: unknown): readonly stri
 	return undefined
 }
 
-/** Parse a string as a JSON object, or null. clawtool/MCP tools return JSON. */
+/** Parse a string as a JSON object, or null. Connector tools return JSON. */
 function parseJsonObject(s: string): Record<string, unknown> | null {
 	const t = s.trim()
 	if (!(t.startsWith('{') || t.startsWith('['))) return null
@@ -1052,7 +1052,7 @@ function resultToLines(result: string): string[] {
  * results are pretty-printed / unwrapped so they don't read as a raw blob.
  */
 export function toolEndDetail(toolName: string, result: string): readonly string[] | undefined {
-	const name = toolName.toLowerCase().replace(/^clawtool_/, '')
+	const name = toolName.toLowerCase()
 	if (name === 'edit' || name === 'write') return undefined
 	if (result.trim().length === 0) return undefined
 	const lines = resultToLines(result)
@@ -1084,7 +1084,6 @@ function emptySession(errorHint: string): AgentSession {
 		providerSummary: null,
 		modelSummary: null,
 		toolNames: [],
-		deferredToolCount: 0,
 		errorHint,
 		send: async function* () {
 			yield { kind: 'error' as const, message: errorHint }

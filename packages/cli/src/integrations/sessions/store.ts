@@ -71,7 +71,7 @@ export async function openSessions(cwd: string): Promise<CliSessions> {
 	return { store, projectId, threadId: THREAD, tenantId: TENANT, root }
 }
 
-// Maps an embedder's own session key (e.g. the clawtool desktop's uuid) to a
+// Maps an embedder's own session key (e.g. a desktop host's uuid) to a
 // namzu conversation id, so reopening that session resumes the same
 // transcript. Kept as a small JSON pointer beside cli.json.
 const DESKTOP_MAP = 'desktop-sessions.json'

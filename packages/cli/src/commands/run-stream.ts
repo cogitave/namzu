@@ -3,9 +3,9 @@
  * one-shot. Same engine as `run`, but instead of buffering the final text it
  * emits one compact NDJSON line per `AgentEvent` to stdout
  * (`{"kind":"delta","text":…}`, `{"kind":"tool-start",…}`,
- * `{"kind":"error","message":…}`, `{"kind":"done"}`). A host process (the
- * clawtool desktop) line-scans stdout and renders the turn live — the
- * equivalent of the TUI, driven from another runtime.
+ * `{"kind":"error","message":…}`, `{"kind":"done"}`). A host process — a
+ * desktop app embedding namzu, say — line-scans stdout and renders the turn
+ * live: the equivalent of the TUI, driven from another runtime.
  *
  * History: with `--session <key>` the turn is bound to a persisted
  * conversation in the cwd's `.namzu` store (keyed by the embedder's own

@@ -17,7 +17,7 @@ On launch namzu clears the screen and greets you with a header: the namzu mascot
 1. **Trust.** The first time you run namzu in a folder it asks whether you trust the files there (it can read, run commands in, and edit them). Trusted folders are remembered. See [Tools & permission](./tools.md).
 2. **Probe.** namzu reads your saved provider choice (`~/.namzu/preferences.json`) and discovers available credentials.
 3. **Pick (first run only).** If you haven't chosen a provider — or none can be auto-selected — the provider picker appears. See [Providers & credentials](./providers.md).
-4. **Ready.** The transcript opens and the composer accepts input. The connect line reports the provider, model, and tool count (active + how many clawtool tools are loadable on demand).
+4. **Ready.** The transcript opens and the composer accepts input. The connect line reports the provider, model, and the number of active tools.
 
 ## Layout
 

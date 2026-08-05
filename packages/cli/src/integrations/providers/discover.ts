@@ -3,12 +3,11 @@
  *
  * For each entry in `PROVIDER_REGISTRY`, ask three questions in order:
  *   1. Is one of its env vars set in `process.env`?
- *   2. Does clawtool's secrets.toml carry one of its env vars?
- *   3. Is the probe URL (if any) reachable right now?
+ *   2. Is the probe URL (if any) reachable right now?
  *
  * The first positive answer per provider wins; subsequent sources are
  * recorded as "also available from" so the picker can show alternatives
- * (e.g. anthropic via env, also available in `[secrets.personal]`).
+ * (e.g. anthropic via env, also reachable as a local server).
  *
  * Discovery is non-throwing. Network probes have short timeouts. The
  * picker can render immediately and refine if discovery completes later.
@@ -16,11 +15,9 @@
 
 import { KEYCHAIN_SERVICE, readAgentKeychainCredential } from './keychain.js'
 import { PROVIDER_REGISTRY, type ProviderId, type ProviderRegistryEntry } from './registry.js'
-import { readClawtoolSecrets } from './secrets.js'
 
 export type DetectionSource =
 	| { readonly kind: 'env'; readonly envName: string }
-	| { readonly kind: 'secrets-toml'; readonly envName: string; readonly scope: string }
 	| { readonly kind: 'probe'; readonly url: string }
 	| { readonly kind: 'keychain'; readonly service: string }
 
@@ -45,7 +42,7 @@ export interface DetectedProvider {
 export interface DiscoverOptions {
 	/** Override `process.env` for tests. */
 	readonly env?: NodeJS.ProcessEnv
-	/** Override `homedir()` for tests (read clawtool secrets from a fixture). */
+	/** Override `homedir()` for tests. */
 	readonly home?: string
 	/** Override the fetch impl for probe URLs (tests inject a mock). */
 	readonly fetch?: typeof fetch
@@ -63,7 +60,6 @@ export async function discoverProviders(
 	opts: DiscoverOptions = {},
 ): Promise<readonly DetectedProvider[]> {
 	const env = opts.env ?? process.env
-	const secrets = readClawtoolSecrets(opts.home)
 	const detected: DetectedProvider[] = []
 
 	// macOS-only: read the third-party OAuth credential stored in the login
@@ -81,12 +77,6 @@ export async function discoverProviders(
 			if (v && v.length > 0) {
 				if (apiKey === undefined) apiKey = v
 				sources.push({ kind: 'env', envName })
-			}
-		}
-		for (const cand of secrets) {
-			if (entry.envVars.includes(cand.envName)) {
-				if (apiKey === undefined) apiKey = cand.value
-				sources.push({ kind: 'secrets-toml', envName: cand.envName, scope: cand.scope })
 			}
 		}
 		if (id === 'anthropic' && keychainCredential) {

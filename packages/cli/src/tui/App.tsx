@@ -24,14 +24,6 @@ import {
 import { isTrusted, trustDir } from '../integrations/trust/store.js'
 import { appendMemory, composeMemoryPrompt, readMemory } from '../memory/store.js'
 import { composeSkillsPrompt, discoverSkills, loadSkillBody } from '../skills/store.js'
-import {
-	deregisterPeer,
-	drainInbox,
-	heartbeatPeer,
-	listPeers,
-	registerPeer,
-	sendPeerMessage,
-} from '../integrations/clawtool/peers.js'
 import { checkUpdates } from '../integrations/updates.js'
 import { type ActiveTool, LiveActivity, formatElapsed } from './LiveActivity.js'
 import { expandFileMentions } from './mentions.js'
@@ -125,12 +117,6 @@ export function App({ ctx }: AppProps) {
 	const sessionsRef = useRef<CliSessions | null>(null)
 	const scopeRef = useRef<RunScope | null>(null)
 	const idRef = useRef<number>(0)
-	// This session's clawtool BIAM peer id (null when no clawtool daemon).
-	// Registering as a peer lets other terminals/agents see + message us.
-	const peerIdRef = useRef<string | null>(null)
-	// Mirror of `state` for callbacks/pollers that need the current value
-	// without re-subscribing (the inbox poller decides whether namzu is free).
-	const stateRef = useRef(state)
 	const nextId = useCallback(() => {
 		idRef.current += 1
 		return `m${idRef.current}`
@@ -205,7 +191,7 @@ export function App({ ctx }: AppProps) {
 				setPhase('ready')
 				pushMessage(
 					'system',
-					`Connected to ${s.providerSummary}${s.modelSummary ? ` · ${s.modelSummary}` : ''} · ${s.toolNames.length} tools${s.deferredToolCount > 0 ? ` (+${s.deferredToolCount} on demand)` : ''}`,
+					`Connected to ${s.providerSummary}${s.modelSummary ? ` · ${s.modelSummary}` : ''} · ${s.toolNames.length} tools`,
 				)
 			} else {
 				setPhase('unhealthy')
@@ -285,26 +271,6 @@ export function App({ ctx }: AppProps) {
 			pushMessage('system', `Could not list conversations: ${err instanceof Error ? err.message : String(err)}`)
 		}
 	}, [ensureSessions, pushMessage])
-
-	// `/agents`: list every agent peer clawtool knows about — across terminals
-	// and (via clawtool's mDNS) the LAN. clawtool's BIAM registry is the single
-	// source of truth; namzu just renders it.
-	const doListAgents = useCallback(async () => {
-		const peers = await listPeers()
-		if (peers.length === 0) {
-			pushMessage(
-				'system',
-				'No agent peers found. Is clawtool running? Other namzu / claude / codex / gemini windows register here automatically.',
-			)
-			return
-		}
-		const lines = peers.map((p) => {
-			const mine = p.peer_id === peerIdRef.current ? ' (this one)' : ''
-			const where = p.path ? ` · ${p.path}` : ''
-			return `● ${p.display_name} [${p.backend}]${where}${mine}`
-		})
-		pushMessage('system', `agent peers (${peers.length}):\n${lines.join('\n')}`)
-	}, [pushMessage])
 
 	// Load the chosen conversation into the transcript and continue in it.
 	const resumeConversation = useCallback(
@@ -450,7 +416,7 @@ export function App({ ctx }: AppProps) {
 	)
 
 	const runTurn = useCallback(
-		async (text: string, images?: readonly ImageAttachment[], replyTo?: string) => {
+		async (text: string, images?: readonly ImageAttachment[]) => {
 			if (!session || !session.hasProvider) {
 				pushMessage('system', session?.errorHint ?? 'Agent is not ready yet — give it a moment.')
 				return
@@ -488,7 +454,7 @@ export function App({ ctx }: AppProps) {
 			)
 			setState('thinking')
 			// The model interleaves text → tool → text across iterations; `applyEvent`
-			// (shared with the daemon-attach poller) renders each one in order.
+			// renders each one in order.
 			const st = { assistantId: null as string | null, text: '' }
 			const ac = new AbortController()
 			abortRef.current = ac
@@ -520,41 +486,9 @@ export function App({ ctx }: AppProps) {
 					if (st.text.trim().length > 0) turn.push(createAssistantMessage(st.text))
 					void appendMessages(sessions, scope.sessionId, turn).catch(() => {})
 				}
-				// If this turn answered an inbound peer message, send the reply back
-				// to that peer's inbox — closing the BIAM loop (agent↔agent).
-				if (replyTo && st.text.trim().length > 0) {
-					void sendPeerMessage(replyTo, st.text.trim(), { from: peerIdRef.current ?? undefined })
-				}
 			}
 		},
 		[activeSkills, applyEvent, ctx.cwd, ctx.skipPermissions, finalizeMessage, messages, onPermission, pushMessage, session],
-	)
-
-	// Send a message to another agent peer's BIAM inbox (cross-terminal /
-	// cross-agent). Pick the peer by a substring of its display name or id.
-	const doSendPeer = useCallback(
-		async (query: string, text: string) => {
-			const peers = await listPeers()
-			const match = peers.find(
-				(p) =>
-					p.peer_id !== peerIdRef.current &&
-					(p.peer_id === query ||
-						p.display_name.toLowerCase().includes(query.toLowerCase()) ||
-						p.backend.toLowerCase() === query.toLowerCase()),
-			)
-			if (!match) {
-				pushMessage('system', `No peer matching "${query}". See /agents.`)
-				return
-			}
-			const ok = await sendPeerMessage(match.peer_id, text, { from: peerIdRef.current ?? undefined })
-			pushMessage(
-				'system',
-				ok
-					? `Sent to ${match.display_name} [${match.backend}]: ${text}`
-					: `Could not reach ${match.display_name}.`,
-			)
-		},
-		[pushMessage],
 	)
 
 	const handleSubmit = useCallback(
@@ -639,12 +573,6 @@ export function App({ ctx }: AppProps) {
 					case 'resume':
 						void doResume()
 						return
-					case 'list-agents':
-						void doListAgents()
-						return
-					case 'send-peer':
-						void doSendPeer(slash.peer, slash.text)
-						return
 					case 'none':
 						return
 				}
@@ -657,7 +585,7 @@ export function App({ ctx }: AppProps) {
 			}
 			void runTurn(value, images)
 		},
-		[activeSkills, doListAgents, doResume, doSendPeer, exit, pushMessage, runTurn, slashCtx, state],
+		[activeSkills, doResume, exit, pushMessage, runTurn, slashCtx, state],
 	)
 
 	// Drain the queue: when a turn settles (idle) and nothing is running,
@@ -669,33 +597,7 @@ export function App({ ctx }: AppProps) {
 		if (next !== undefined) void runTurn(next)
 	}, [state, phase, queued, runTurn])
 
-	// BIAM presence (best-effort, no-op without clawtool): register once ready
-	// as a peer in clawtool's registry, heartbeat, and deregister on unmount.
-	// `registerPeer` ensures clawtool's daemon, so the user never starts it by
-	// hand. clawtool also prunes stale peers, so a missed deregister self-heals.
-	useEffect(() => {
-		if (phase !== 'ready' || peerIdRef.current) return
-		const home = process.env.HOME
-		const title = home && ctx.cwd.startsWith(home) ? `~${ctx.cwd.slice(home.length)}` : ctx.cwd
-		let cancelled = false
-		void registerPeer({
-			display_name: `namzu ${title}`,
-			backend: 'namzu',
-			path: ctx.cwd,
-			pid: process.pid,
-		}).then((id) => {
-			if (!cancelled) peerIdRef.current = id
-		})
-		return () => {
-			cancelled = true
-		}
-	}, [phase, ctx.cwd])
-
-	useEffect(() => {
-		stateRef.current = state
-	}, [state])
-
-	// One-shot update check on launch: namzu (npm) + clawtool (`upgrade --check`).
+	// One-shot update check on launch.
 	// Best-effort; surfaces a single notice when something newer is out.
 	const updateCheckedRef = useRef(false)
 	useEffect(() => {
@@ -707,48 +609,6 @@ export function App({ ctx }: AppProps) {
 			pushMessage('system', `⬆ Update available:\n${lines.join('\n')}`)
 		})
 	}, [phase, ctx.version, pushMessage])
-
-	useEffect(() => {
-		const id = peerIdRef.current
-		if (id) void heartbeatPeer(id)
-	}, [state])
-
-	// Inbound BIAM: drain our peer inbox so clawtool / another agent can talk
-	// TO namzu. Each message is surfaced; when namzu is free it answers and the
-	// reply goes back to the sender (closing the agent↔agent loop).
-	useEffect(() => {
-		if (phase !== 'ready') return
-		let stopped = false
-		const tick = async () => {
-			const id = peerIdRef.current
-			if (stopped || !id) return
-			const msgs = await drainInbox(id)
-			let answered = stateRef.current !== 'idle' || Boolean(abortRef.current)
-			for (const m of msgs) {
-				const text = m.text?.trim()
-				if (!text) continue
-				pushMessage('system', `📨 ${m.from_peer}: ${text}`)
-				// Answer the first message while free; reply routes back via replyTo.
-				if (!answered) {
-					answered = true
-					void runTurn(text, undefined, m.from_peer)
-				}
-			}
-		}
-		const timer = setInterval(() => void tick(), 2000)
-		return () => {
-			stopped = true
-			clearInterval(timer)
-		}
-	}, [phase, pushMessage, runTurn])
-
-	useEffect(
-		() => () => {
-			const id = peerIdRef.current
-			if (id) void deregisterPeer(id)
-		},
-		[],
-	)
 
 	const handlePickerSubmit = useCallback(
 		(selection: { provider: string; model?: string }) => {
@@ -1044,13 +904,12 @@ function ComposerFrame({
 	)
 }
 
-// Tool call label: the tool name, then its most identifying argument —
-// `Bash(ls -la)`, `Read(file.ts)`. A bare tool name in a transcript of
-// forty calls says nothing about which one this was.
-// The `clawtool_` prefix is stripped and the name title-cased.
+// Tool call label: the tool name title-cased, then its most identifying
+// argument — `Bash(ls -la)`, `Read(file.ts)`. A bare tool name in a transcript
+// of forty calls says nothing about which one this was.
 function formatToolCall(toolName: string, summary: string): string {
-	const base = toolName.replace(/^clawtool_/, '')
-	const display = base.length > 0 ? base[0]?.toUpperCase() + base.slice(1) : base
+	const display =
+		toolName.length > 0 ? toolName[0]?.toUpperCase() + toolName.slice(1) : toolName
 	return summary.length > 0 ? `${display}(${summary})` : display
 }
 

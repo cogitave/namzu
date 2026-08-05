@@ -53,9 +53,6 @@ importers:
       react:
         specifier: ^19.2.6
         version: 19.2.6
-      smol-toml:
-        specifier: ^1.6.1
-        version: 1.6.1
       yaml:
         specifier: ^2.9.0
         version: 2.9.0

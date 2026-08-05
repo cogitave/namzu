@@ -45,7 +45,6 @@ vi.mock('../../tui/agent.js', () => ({
 				providerSummary: 'mock',
 				modelSummary: 'mock-model',
 				toolNames: [],
-				deferredToolCount: 0,
 				errorHint: null,
 				send: (messages: Array<{ content: string }>) => {
 					seen.prompt = messages[0]?.content ?? null

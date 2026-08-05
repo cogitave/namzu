@@ -1,10 +1,10 @@
 /**
  * First-run / re-pick provider selector.
  *
- * Renders the credentials the discoverer found (env / clawtool secrets /
- * local probes) and lets the user pick a primary LLM provider for the
- * TUI's own chat. Keyboard-only. The dispatch path that turns the
- * selection into a live agent session lives in `agent.ts`.
+ * Renders the credentials the discoverer found (env / keychain / local
+ * probes) and lets the user pick a primary LLM provider for the TUI's own
+ * chat. Keyboard-only. The dispatch path that turns the selection into a
+ * live agent session lives in `agent.ts`.
  */
 
 import { Box, Text, useInput } from 'ink'
@@ -76,9 +76,13 @@ export function Picker({ detected, currentProvider, onSubmit, onCancel }: Picker
 						{' '}
 						· env vars (ANTHROPIC_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY, …)
 					</Text>
+					{/* The summary line on the populated screen names three sources; this
+					    list is the same set and must not name fewer. It is the screen
+					    shown to the person with no credential, so an omission here is a
+					    source they are never told to try. */}
 					<Text color={theme.text.muted}>
 						{' '}
-						· ~/.config/clawtool/secrets.toml [secrets.*] sections
+						· macOS Keychain (an existing OAuth sign-in; macOS only)
 					</Text>
 					<Text color={theme.text.muted}>
 						{' '}
@@ -104,7 +108,7 @@ export function Picker({ detected, currentProvider, onSubmit, onCancel }: Picker
 					Choose a provider
 				</Text>
 				<Text color={theme.text.muted}>
-					{detected.length} detected · credentials resolved from env / clawtool / local probes
+					{detected.length} detected · credentials resolved from env / keychain / local probes
 				</Text>
 			</Box>
 			<Box flexDirection="column">
@@ -159,8 +163,6 @@ function describeSource(d: DetectedProvider): string {
 	switch (d.source.kind) {
 		case 'env':
 			return `env · ${d.source.envName}`
-		case 'secrets-toml':
-			return `clawtool · [${d.source.scope}]`
 		case 'probe':
 			return `local · ${d.source.url.replace(/^https?:\/\//, '')}`
 		case 'keychain':
