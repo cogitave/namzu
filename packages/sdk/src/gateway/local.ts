@@ -1,3 +1,4 @@
+import { taskFailed } from '../tools/coordinator/outcome.js'
 import type { AgentInput } from '../types/agent/base.js'
 import type {
 	CreateTaskOptions,
@@ -75,10 +76,25 @@ export class LocalTaskGateway implements TaskGateway {
 				tenantId: this.taskContext.tenantId,
 				projectId: this.taskContext.projectId,
 				parentActor: this.taskContext.parentActor,
-				// Hang the child run off the span the caller supplied, so a
+				// The caller's overrides, plus the span the caller supplied so a
 				// delegated run joins the trace it belongs to instead of
 				// starting its own root.
-				...(options.parentSpan ? { configOverrides: { parentSpan: options.parentSpan } } : {}),
+				//
+				// `options.configOverrides` used to be dropped here: this built
+				// a fresh object from `parentSpan` and never looked at the
+				// field, so a caller pinning a child to a cheaper model got the
+				// agent's default and no sign anything had been ignored. The
+				// dedicated `parentSpan` option is applied last because it is
+				// the specific field for that job — a caller who sets both is
+				// saying the same thing twice, and the named one is the answer.
+				...(options.configOverrides || options.parentSpan
+					? {
+							configOverrides: {
+								...options.configOverrides,
+								...(options.parentSpan ? { parentSpan: options.parentSpan } : {}),
+							},
+						}
+					: {}),
 			},
 			// The budget tracker is SHARED on purpose and must not be cloned.
 			// `AgentManager.spawn` debits it (`remaining -= allocatedTokens`)
@@ -146,7 +162,7 @@ export class LocalTaskGateway implements TaskGateway {
 	 */
 	private applySiblingPolicy(finished: TaskHandle): void {
 		if (this.siblingFailurePolicy !== 'cancel-siblings') return
-		if (!hasFailed(finished)) return
+		if (!taskFailed(finished)) return
 
 		const cancelled: TaskId[] = []
 		for (const taskId of this.trackedTaskIds) {
@@ -251,10 +267,6 @@ export class LocalTaskGateway implements TaskGateway {
  * would therefore miss the ordinary case — an agent that tried and could
  * not — and catch only the exceptional one.
  */
-function hasFailed(handle: TaskHandle): boolean {
-	return handle.state === 'failed' || handle.result?.status === 'failed'
-}
-
 function toHandle(task: import('../types/agent/task.js').AgentTask): TaskHandle {
 	return {
 		taskId: task.taskId,

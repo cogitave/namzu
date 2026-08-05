@@ -1,5 +1,5 @@
 import type { TaskId } from '../ids/index.js'
-import type { AgentRuntimeContext, BaseAgentResult } from './base.js'
+import type { AgentRuntimeContext, BaseAgentConfig, BaseAgentResult } from './base.js'
 import type { AgentTaskState } from './task.js'
 
 export interface TaskHandle {
@@ -40,7 +40,24 @@ export interface CreateTaskOptions {
 
 	runtimeContext?: AgentRuntimeContext
 
-	configOverrides?: Record<string, unknown>
+	/**
+	 * Config the spawned run should be built with, overriding what the
+	 * agent's own definition supplies — the model it runs on, its iteration
+	 * ceiling, its thinking or effort settings.
+	 *
+	 * **This was accepted and dropped.** `LocalTaskGateway.createTask` built
+	 * its own `configOverrides` object out of `parentSpan` alone and never
+	 * read this field, so a caller pinning a delegated run to a cheaper model
+	 * got the agent's default model and no indication otherwise. It is
+	 * forwarded now, with the dedicated {@link parentSpan} option winning if
+	 * both name a span, since that one is the specific field for the job.
+	 *
+	 * Typed as `Partial<BaseAgentConfig>` rather than
+	 * `Record<string, unknown>`: this lands on `SendMessageOptions`, which is
+	 * already that shape, and the loose type let a misspelled key type-check
+	 * and then do nothing — the same silence this field was already producing.
+	 */
+	configOverrides?: Partial<BaseAgentConfig>
 }
 
 export interface TaskGateway {
