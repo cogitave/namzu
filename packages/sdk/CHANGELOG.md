@@ -1,5 +1,220 @@
 # Changelog
 
+## 9.0.0
+
+### Major Changes
+
+- 16dc634: A failed worker is reported as a failure, and a plan task can say it failed.
+
+  **`create_task` reported a failed worker as a success.** Two layers can disagree
+  about whether a delegated run succeeded: the gateway's `TaskHandle.state`, and
+  the run's own `BaseAgentResult.status`. The kernel's `finalizeChild` always calls
+  `markCompleted`, so `state === 'completed'` holds for a child that ran and
+  returned `status: 'failed'` — and `create_task` asked only that layer. The model
+  received the failure text as an answer, the tool result carried
+  `isError: false`, and the plan task was written closed as though the work had
+  been done.
+
+  The correct two-authority predicate was already written, twenty lines away, in
+  the canonical `Agent` tool — put there because a review caught it on that site,
+  and nothing carried the answer to the other one. It now lives in one place both
+  reach.
+
+  **`TaskStatus` gains `failed`, and that is the breaking part.** A unit that did
+  not succeed had nowhere to say so, which is why a failed delegation was recorded
+  as `completed` with the failure encoded as prose in `description`: a reader
+  scanning statuses saw work that had been done, and a dependent unit had no way
+  to tell at all.
+
+  If you switch exhaustively over `TaskStatus`, or hold a `Record<TaskStatus, T>`,
+  you need a `failed` arm. `isTerminalTaskStatus` now returns `true` for it —
+  terminal means "will not change on its own", not "succeeded", and a unit blocked
+  on something that failed would otherwise wait forever for a status that will
+  never arrive. In the store's transition ranking `failed` sits alongside
+  `completed` rather than after it, so `in_progress → failed` is allowed and
+  `completed → failed` is not.
+
+  **Two smaller repairs ride along.** A background launch refused for want of a
+  completion inbox now marks its plan task failed rather than leaving it in
+  progress with no worker behind it — nothing later closes a task whose launch
+  never happened. And the `Agent` tool passes `parentSpan` when creating its
+  child, so a delegated run joins the turn that asked for it instead of starting
+  its own root trace; `create_task` has done this all along.
+
+- a743c7e: A delegated run is built with the config its caller asked for, and a supervisor can select its sibling-failure policy.
+
+  Two capabilities were declared, documented, typed, and unreachable. Both are the
+  same defect: a knob wired to nothing, which reads to a caller as a knob that
+  works.
+
+  **`CreateTaskOptions.configOverrides` was accepted and dropped.**
+  `LocalTaskGateway.createTask` built its own `configOverrides` object out of
+  `parentSpan` alone and never read the field, so a caller pinning a delegated run
+  to a cheaper model, or capping its iterations, got the agent's defaults and no
+  indication anything had been ignored. It is forwarded now. A caller who sets
+  both the field and the dedicated `parentSpan` option gets the dedicated one for
+  the span — that is the specific field for the job — and keeps every other
+  override alongside it.
+
+  **`siblingFailurePolicy` could not be selected by any host.**
+  `LocalTaskGateway` has honoured it since it was written and the cancellation
+  machinery behind `'cancel-siblings'` is complete — but it was the fifth
+  constructor argument of a gateway `SupervisorAgent` builds itself, and the
+  supervisor passed four. Every host in existence ran `'continue'`, and the only
+  route to the other value was to construct the gateway by hand and pass it as
+  `config.gateway`. It is now `SupervisorAgentConfig.siblingFailurePolicy`.
+
+  `'continue'` remains the default and deliberately so: partial results are
+  usually worth having, and tearing down healthy siblings on any failure lets one
+  flaky child waste four good ones. `'cancel-siblings'` is for a fan-out whose
+  parts only mean something together. The choice is now expressible; the answer
+  has not changed. The field is ignored when the host supplies its own `gateway`,
+  which owns its policy.
+
+  **Breaking:** `CreateTaskOptions.configOverrides` is now typed
+  `Partial<BaseAgentConfig>` instead of `Record<string, unknown>`. It lands on
+  `SendMessageOptions.configOverrides`, which is already that shape, and the loose
+  type let a misspelled key type-check and then silently do nothing — the same
+  silence the field was already producing. If you pass a key that is not on
+  `BaseAgentConfig`, it will now fail to compile; that key was never being applied.
+
+  **Also:** the two-authority failure check in `LocalTaskGateway` moves to
+  `taskFailed` in `tools/coordinator/outcome.ts`, next to `taskSucceeded`. It is
+  deliberately _not_ the negation of that predicate — a task that is still running
+  satisfies neither, and cancelling a fan-out on `!taskSucceeded` would tear down
+  siblings the moment the first child had merely not finished yet. The gateway's
+  copy was correct; a rule each caller has to remember is one a caller eventually
+  forgets, which is what happened to `taskSucceeded` before it was consolidated.
+
+- 529b343: `PlanManager.completePlan` refuses an unreported step instead of scoring it a failure.
+
+  **A plan that fully succeeded was reported as failed.** `completePlan` asked one
+  question — "is every step `completed` or `skipped`?" — and everything that was
+  not fell to the same branch. A step still `pending` therefore produced
+  `status: 'failed'`, indistinguishable from a step that genuinely failed. Since
+  `addStep` defaults every step to `pending`, a host that added steps, did the
+  work, and settled the plan without calling `updateStepStatus` on each one got
+  `failed` for a plan where nothing had gone wrong. That is the path of least
+  effort through this API, not an unusual one.
+
+  The two cases are different facts and deserve different answers. A step that
+  FAILED is an outcome: report the plan failed. A step nobody reported on is not
+  an outcome at all — it says the caller and the plan disagree about whether the
+  work is over, and answering `failed` settles that disagreement by inventing a
+  result.
+
+  **What changes for you.** `completePlan()` now throws when any step is still
+  `pending` or `running`. The message names the unfinished steps and both ways
+  forward, because a caller in this position either forgot to report progress or
+  called too early, and only they know which:
+
+  - report each step with `updateStepStatus` — `'skipped'` is a valid outcome for
+    work that was planned and then not needed; or
+  - call `failPlan` if the plan is being abandoned, which marks unfinished steps
+    `skipped` and settles the plan as failed.
+
+  Behaviour is unchanged once every step has reported: all `completed` or
+  `skipped` still yields `completed`, and any `failed` still yields `failed`.
+  No code in this repository called `completePlan`, so nothing inside the kernel
+  changes behaviour; the affected callers are hosts.
+
+  **`PlanManager` now says which half of it the kernel drives.** The kernel builds
+  a plan, gates it, translates its events, and settles it on failure — it never
+  reports a step outcome and never settles a plan that succeeded. That is a
+  deliberate split, since `drainQuery` hands the manager to the host through
+  `onContextCreated` for exactly this purpose, and a search for callers inside the
+  package finds none because the callers are outside it. The absence had already
+  been read once as a dead layer and proposed for deletion; what that would have
+  deleted is a working human-in-the-loop approval gate. It is written down now.
+
+### Minor Changes
+
+- e355049: The plan a human approves names the agent the model chose.
+
+  `approve_plan` asks the model for an `agent_id` per step — "which agent handles
+  this" — and reduced the answer to a boolean. The step got
+  `toolName: 'create_task'` when any agent was named and nothing when not, so the
+  name was dropped between the model saying it and the human being shown the plan.
+
+  The approval is the one moment where that difference can still be acted on.
+  Approving "delegate this step" is not the same as approving "delegate this step
+  to the agent with shell access", and a reviewer who cannot see which agent was
+  chosen cannot withhold approval from the wrong one. Two delegated steps reached
+  the approver identical in every field.
+
+  `PlanStep` gains `agentId?: string`, populated by `approve_plan` from the
+  model's choice. A host rendering a plan approval can show it directly. Absent
+  still means the step is the orchestrator's own work, which is what omitting
+  `agent_id` says — so absent stays absent rather than becoming a placeholder.
+
+  Typed rather than folded into the existing `estimatedInput`, which is `unknown`:
+  an approval gate's whole job is being readable, and a field a host must cast
+  before it can render is one a host renders wrong or not at all. `estimatedInput`
+  is now documented as having no producer and no reader, since that is what it
+  has, and it is left in place because it is on the published typings.
+
+- 16dc634: A host can see the fan-out gate, and the plan graph the model is already keeping.
+
+  **`SupervisorAgentConfig` gains `maxToolConcurrency`.** The kernel has honoured
+  it all along and `ReactiveAgent` forwards it — it was missing on the one agent
+  whose entire job is delegation. So the agent that fans out could not set the gate
+  that bounds a fan-out, while the agent that does not fan out could, and a host
+  wanting a narrower one had to reach past the supervisor to `drainQuery`.
+
+  Note what it bounds: how many delegated children run **concurrently**, not how
+  many a turn may launch. A model emitting twenty `create_task` blocks still
+  launches twenty; they queue.
+
+  **`task_created` and `task_updated` carry `blockedBy`.** The task store
+  maintains a full dependency graph — `blocks` and `blockedBy` mirrored on both
+  ends, written under a lock, deadlock-avoided — and none of it reached the wire.
+  A host could draw a flat list of units and nothing about their order, while the
+  model was already maintaining the order.
+
+  Absent rather than empty when a unit depends on nothing, so a reader can tell
+  "no dependencies" from an emitter that predates the field.
+
+  **And `block()` announced nothing at all.** Both stores wrote the edge and
+  emitted no event, so the graph was observable only by polling: a listener saw a
+  unit created and never learned that something now waits on it. Both stores now
+  announce **both ends**, because both changed — a host tracking one side would
+  draw half the edge. The disk store announces only when something actually
+  changed, so re-establishing an existing edge stays silent.
+
+  That second half is the one worth knowing about if you consume these events: the
+  field alone would have been useless, because the moment a dependency is created
+  was never on the wire in the first place.
+
+### Patch Changes
+
+- 16dc634: A concurrent fan-out no longer allocates more budget than the parent has.
+
+  `sendMessage` read the parent's remaining budget at the top and debited it after
+  `provisionSpawn` — putting the two halves of a read-modify-write on either side
+  of an await, with the only critical section in between. So siblings launched
+  from one assistant turn all read the same undebited number and each took a
+  fraction of it. Measured: \*\*four concurrent children were handed 50 000 + 50 000
+
+  - 50 000 + 50 000 from a pool of 100 000.\*\*
+
+  `create_task`'s own description instructs exactly the shape that triggers it —
+  _"'fan out 8 specialists' is one assistant message with 8 create_task blocks"_ —
+  so the documented usage was the reproduction.
+
+  The read, the refusal when an allocation floors to zero, and the debit now all
+  happen inside the per-parent spawn lock. That keeps the property the debit's
+  placement was chosen for — a spawn this call rejects burns no allocation — while
+  closing the race that placement opened. It was introduced by a correct fix to a
+  different bug: moving the debit after the provisioning put it outside the lock.
+
+  **Nothing pinned it**, and the reason is worth knowing if you write tests here:
+  the existing concurrency test builds a fresh context per call, so each spawn got
+  its own tracker — it measures width, not budget. The sequential tests pass
+  because a refund makes the arithmetic close. The regression test holds its
+  children open, because a settled child refunds and the refund restores a
+  plausible number; a test that measures after settle sees a healthy total and
+  reports nothing.
+
 ## 8.0.0
 
 ### Major Changes
