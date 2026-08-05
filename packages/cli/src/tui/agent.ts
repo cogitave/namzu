@@ -86,6 +86,22 @@ export type AgentEvent =
 			readonly detail?: readonly string[]
 	  }
 	| { readonly kind: 'usage'; readonly totalTokens: number; readonly costUsd: number }
+	/**
+	 * Context was discarded, or an attempt to discard it declined.
+	 *
+	 * Everything else this session fixed was the run quietly not doing what the
+	 * operator asked. This is the same class with the opposite sign: the run
+	 * quietly doing something they did not ask for. Compaction deletes messages
+	 * irrecoverably, and the first time a user learned it existed was when the
+	 * agent had forgotten something they were relying on — which reads as the
+	 * model being stupid rather than the harness dropping context.
+	 */
+	| {
+			readonly kind: 'context'
+			readonly text: string
+			/** False when the compaction declined and the history is unchanged. */
+			readonly shed: boolean
+	  }
 	| { readonly kind: 'task'; readonly subject: string; readonly status: string }
 	/**
 	 * The turn ended without throwing — which is not the same as succeeding.
@@ -830,8 +846,70 @@ export function toAgentEvent(event: RunEvent): AgentEvent | null {
 				kind: 'error',
 				message: event.failure ? `[${event.failure.code}] ${event.error}` : event.error,
 			}
+		case 'compaction_completed':
+			return { kind: 'context', text: describeCompaction(event), shed: true }
+		case 'compaction_failed':
+			return { kind: 'context', text: describeCompactionFailure(event), shed: false }
 		default:
 			return null
+	}
+}
+
+/**
+ * What a completed compaction may honestly claim.
+ *
+ * Only what is checkable: which counts became which. Compaction summarises, so
+ * it cannot enumerate what was lost — the loss is fidelity, not a set of
+ * removable items, and "removed the file contents from turns 3-8" is a claim
+ * that cannot be substantiated and is worse than silence the first time it is
+ * subtly wrong.
+ *
+ * `measuredBy` is carried for the same reason: an estimate quoted as a
+ * measurement is that same lie in miniature, and the kernel already knows which
+ * it had.
+ */
+function describeCompaction(event: {
+	messagesBefore: number
+	messagesAfter: number
+	tokensBefore: number
+	tokensAfter: number
+	measuredBy: 'provider' | 'estimate'
+}): string {
+	const k = (n: number): string => (n >= 1000 ? `${Math.round(n / 1000)}k` : String(n))
+	const qualifier = event.measuredBy === 'estimate' ? ' (estimated)' : ''
+	return `context compacted — ${event.messagesBefore} messages replaced by ${event.messagesAfter}, ~${k(event.tokensBefore)} → ~${k(event.tokensAfter)} tokens${qualifier}`
+}
+
+/**
+ * What a declined compaction says, which is three different things.
+ *
+ * Collapsing them into "compaction failed" would put the reader back where the
+ * silence did — the same reason a rule denial had to quote the rule rather than
+ * name its type. One may work next pass, one will decline identically forever,
+ * and one is a bug in the reducer with no user action at all.
+ *
+ * Every case states that the history is unchanged, because the kernel installs
+ * a reduction whole or not at all. That is a fact worth giving the reader
+ * rather than making them wonder what survived.
+ */
+function describeCompactionFailure(event: {
+	cause: 'reducer_threw' | 'shed_nothing' | 'split_tool_pair'
+	messages: number
+	error?: string
+}): string {
+	const held = `${event.messages} messages unchanged`
+	switch (event.cause) {
+		case 'reducer_threw':
+			return `context not compacted — the reducer failed${event.error ? `: ${event.error}` : ''}. ${held}; a later pass may succeed`
+		case 'shed_nothing':
+			// Deliberately not phrased as an error. An irreducible history is a
+			// true statement about the conversation, and dressing it as a
+			// failure sends someone looking for a bug that is not there.
+			return `context could not be reduced further — nothing left to shed. ${held}; later passes will answer the same`
+		case 'split_tool_pair':
+			// No suggested action, because there is none for the user. Offering
+			// one would be worse than silence.
+			return `context not compacted — the reducer produced a history splitting a tool call from its result, so it was refused. ${held}; this is a bug in the reducer`
 	}
 }
 

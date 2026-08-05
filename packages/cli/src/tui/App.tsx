@@ -429,6 +429,14 @@ export function App({ ctx }: AppProps) {
 				case 'task':
 					pushMessage('tool', event.subject, false, event.status === 'completed' ? '☑' : '☐')
 					break
+				case 'context':
+					// Into the TRANSCRIPT, not a status line. A status indicator is
+					// present while nothing is happening and gone afterwards, so
+					// someone reading back could not tell whether the gap they are
+					// looking at was compacted. The event is a fact about the
+					// conversation and belongs in its record.
+					pushMessage('system', event.text, false, event.shed ? '⌫' : '⌦')
+					break
 				case 'done':
 					closeAssistant()
 					break
