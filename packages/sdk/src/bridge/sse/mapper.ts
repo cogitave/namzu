@@ -227,6 +227,16 @@ const MAPPING: {
 			run_id: runId,
 			usage: e.usage,
 			cost: e.cost,
+			// Carried, and named apart from `usage` on the wire as well as in
+			// the type. A remote surface has exactly the same opportunity to
+			// divide cumulative spend by a context window as a local one, and
+			// no more information with which to notice.
+			...(e.contextTokens !== undefined ? { context_tokens: e.contextTokens } : {}),
+			...(e.contextMeasuredBy !== undefined ? { context_measured_by: e.contextMeasuredBy } : {}),
+			...(e.contextWindowTokens !== undefined
+				? { context_window_tokens: e.contextWindowTokens }
+				: {}),
+			...(e.windowSource !== undefined ? { window_source: e.windowSource } : {}),
 		}),
 	},
 
