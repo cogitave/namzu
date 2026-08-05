@@ -1,9 +1,27 @@
 import type { RunId, TaskId, TenantId } from '../ids/index.js'
 
-export type TaskStatus = 'pending' | 'in_progress' | 'completed'
+/**
+ * `failed` exists because a unit that did not succeed had nowhere to say so.
+ *
+ * Delegation wrote a failed worker's task as `completed` with the failure
+ * encoded as prose in `description` — so a reader scanning statuses saw work
+ * that had been done, and only a reader of every description saw otherwise. A
+ * status nobody can set is a status nobody can act on: a dependent unit cannot
+ * decide whether to wait or give up, and a plan cannot report that it did not
+ * finish.
+ */
+export type TaskStatus = 'pending' | 'in_progress' | 'completed' | 'failed'
 
+/**
+ * Terminal means "will not change on its own", not "succeeded".
+ *
+ * `failed` is terminal for the same reason `completed` is: nothing downstream
+ * should wait on it. That matters most to the blocker check in the task
+ * listing — a dependent unit blocked on something that failed would otherwise
+ * wait forever for a status that will never arrive.
+ */
 export function isTerminalTaskStatus(status: TaskStatus): boolean {
-	return status === 'completed'
+	return status === 'completed' || status === 'failed'
 }
 
 export function assertTaskStatus(status: TaskStatus): void {
@@ -11,6 +29,7 @@ export function assertTaskStatus(status: TaskStatus): void {
 		case 'pending':
 		case 'in_progress':
 		case 'completed':
+		case 'failed':
 			return
 		default: {
 			const _exhaustive: never = status

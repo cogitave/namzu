@@ -10,10 +10,16 @@ import type {
 } from '../../types/task/index.js'
 import { generateTaskId } from '../../utils/id.js'
 
+// `failed` ranks alongside `completed` rather than after it: both are
+// terminal, and neither may transition to the other. Ranking it higher would
+// admit completed -> failed, which would let a settled unit be reopened as a
+// failure; ranking it lower would forbid in_progress -> failed, which is the
+// transition this status exists for.
 const STATUS_ORDER: Record<TaskStatus, number> = {
 	pending: 0,
 	in_progress: 1,
 	completed: 2,
+	failed: 2,
 }
 
 function isForwardTransition(from: TaskStatus, to: TaskStatus): boolean {
@@ -177,6 +183,15 @@ export class InMemoryTaskStore implements TaskStore {
 		if (!blocked.blockedBy.includes(blockerId)) {
 			blocked.blockedBy.push(blockerId)
 		}
+
+		// Announce BOTH ends. The edge was written and nothing said so, which
+		// left the graph observable only by polling: a listener saw a unit
+		// created and never learned that something now waits on it. Both sides
+		// changed, so both are announced — a host tracking only one would draw
+		// half the edge.
+		const now = Date.now()
+		this.emit({ type: 'task.updated', taskId: blockerId, task: blocker, timestamp: now })
+		this.emit({ type: 'task.updated', taskId: blockedId, task: blocked, timestamp: now })
 	}
 
 	async reset(): Promise<void> {

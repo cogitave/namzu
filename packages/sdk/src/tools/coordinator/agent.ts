@@ -5,6 +5,7 @@ import type { TaskGateway } from '../../types/agent/gateway.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
 import { wrapUntrusted } from '../untrusted-envelope.js'
+import { failureLabel, taskSucceeded } from './outcome.js'
 
 import type { TaskLaunchedCallback } from './index.js'
 
@@ -138,6 +139,13 @@ export function buildAgentTool(opts: AgentToolOptions): ToolDefinition {
 				prompt,
 				workingDirectory: cwd,
 				runtimeContext: opts.runtimeContext,
+				// Hang the child off the executing tool's span, so the
+				// delegation appears inside the turn that asked for it rather
+				// than as a disconnected root trace. `create_task` has done
+				// this all along; this tool — the kernel's other delegation
+				// surface, and the one it exports as the canonical shape —
+				// did not.
+				...(context.parentSpan ? { parentSpan: context.parentSpan } : {}),
 			})
 
 			onTaskLaunched?.(handle.taskId, {
@@ -153,26 +161,12 @@ export function buildAgentTool(opts: AgentToolOptions): ToolDefinition {
 
 			const completed = await gateway.waitForTask(handle.taskId)
 
-			// Two layers can disagree on whether the subagent succeeded:
-			//
-			// 1. `TaskHandle.state` — the gateway's terminal task state.
-			//    Some gateways (e.g. vandal's) explicitly map
-			//    `result.status !== 'completed'` to `state = 'failed'`,
-			//    others (e.g. SDK's `LocalTaskGateway`) just forward
-			//    whatever the AgentManager set, which does not always
-			//    reflect run-level failure.
-			// 2. `BaseAgentResult.status` — the run's own status. The
-			//    canonical source of truth for whether the agent actually
-			//    finished its work; `lastError` carries the failure
-			//    message when set.
-			//
-			// Treat the subagent as successful only when BOTH agree.
-			// Reporting a failed subagent as successful would silently
-			// hand the parent garbage output and make debugging
-			// impossible, which is what review flagged on the first cut.
-			const runStatus = completed.result?.status
-			const succeeded =
-				completed.state === 'completed' && (runStatus === undefined || runStatus === 'completed')
+			// Both authorities must agree — see `taskSucceeded` for which two
+			// and why either alone is wrong. The reasoning used to live here
+			// alone, which is exactly how `create_task` came to ship without
+			// it: a review caught this site, and nothing carried the answer to
+			// the other one.
+			const succeeded = taskSucceeded(completed)
 
 			const resultText =
 				typeof completed.result?.result === 'string'
@@ -182,19 +176,17 @@ export function buildAgentTool(opts: AgentToolOptions): ToolDefinition {
 						: ''
 
 			if (!succeeded) {
-				const failureLabel =
-					completed.state !== 'completed' ? completed.state : (runStatus ?? 'failed')
 				const detail =
 					completed.result?.lastError ?? resultText ?? '(subagent provided no failure detail)'
 				return {
 					success: false,
 					output: '',
-					error: `Subagent ${agentId} ${failureLabel}: ${detail}`,
+					error: `Subagent ${agentId} ${failureLabel(completed)}: ${detail}`,
 					data: {
 						task_id: handle.taskId,
 						subagent_type: agentId,
 						state: completed.state,
-						status: runStatus,
+						status: completed.result?.status,
 						lastError: completed.result?.lastError,
 					},
 				}
@@ -221,7 +213,7 @@ export function buildAgentTool(opts: AgentToolOptions): ToolDefinition {
 					subagent_type: agentId,
 					result: resultText,
 					state: completed.state,
-					status: runStatus,
+					status: completed.result?.status,
 				},
 			}
 		},

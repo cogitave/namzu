@@ -121,6 +121,10 @@ export class EventTranslator {
 						taskId: task.id,
 						subject: task.subject,
 						status: task.status,
+						// Absent rather than empty: a reader must be able to tell
+						// "depends on nothing" from an emitter that predates these.
+						...(task.blockedBy.length > 0 ? { blockedBy: task.blockedBy } : {}),
+						...(task.owner !== undefined ? { owner: task.owner } : {}),
 					})
 					break
 				case 'task.updated':
@@ -133,6 +137,7 @@ export class EventTranslator {
 						subject: task.subject,
 						status: task.status,
 						owner: task.owner,
+						...(task.blockedBy.length > 0 ? { blockedBy: task.blockedBy } : {}),
 					})
 					break
 				default: {

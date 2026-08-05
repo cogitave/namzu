@@ -768,3 +768,77 @@ describe('LocalTaskGateway — what a failed child means for its siblings', () =
 		releaseSlow()
 	})
 })
+
+describe('a concurrent fan-out shares one budget', () => {
+	/**
+	 * Siblings launched from one assistant turn were each allocated a fraction
+	 * of the SAME undebited number.
+	 *
+	 * The allocation is read at the top of `sendMessage`; the debit lands
+	 * after `await provisionSpawn`, which is the only critical section. So N
+	 * siblings all enter, all read an untouched `remaining`, and each takes
+	 * its fraction of it. `create_task`'s own description instructs exactly
+	 * this shape: "'fan out 8 specialists' is one assistant message with 8
+	 * create_task blocks."
+	 *
+	 * **The children must not be allowed to finish.** A child that settles
+	 * refunds its unspent budget, and the refund restores the tracker to a
+	 * plausible number — so a test that measures after settle sees a healthy
+	 * total and reports nothing. The over-commitment is real and transient,
+	 * and transient is enough: every allocation decision taken during the
+	 * window reads a tracker that is already wrong.
+	 *
+	 * The first version of this test did settle its children, passed, and
+	 * would have certified the bug as fixed.
+	 */
+	it('never allocates more than the parent has, while the children are still running', async () => {
+		// What each child was actually HANDED. Asserting on the tracker was the
+		// first attempt and it measured the wrong thing twice over: a settled
+		// child refunds, which restores a plausible number, and the harm is not
+		// the bookkeeping anyway — it is that four children each believe they
+		// may spend half a pool that only has one half to give.
+		const allocations: number[] = []
+		let release: (() => void) | undefined
+		const held = new Promise<void>((resolve) => {
+			release = resolve
+		})
+
+		// The harness's own manager, because a hand-built one here silently
+		// fails to provision and the children never run — which looks exactly
+		// like a passing test.
+		const harness = await buildHarness(
+			makeAgent('child-1', async (_input, config) => {
+				allocations.push(config.tokenBudget)
+				await held
+				return successResult()
+			}),
+		)
+
+		// ONE tracker, shared, as a real parent's context is.
+		const shared = { total: 100_000, remaining: 100_000 }
+		const context = {
+			...buildContext(harness.parentSession.id, harness.projectId, harness.threadId),
+			budgetTracker: shared,
+		}
+
+		await Promise.allSettled(
+			Array.from({ length: 4 }, () =>
+				harness.manager.sendMessage(
+					buildOptions('child-1', harness.parentSession.id, harness.projectId),
+					context,
+				),
+			),
+		)
+
+		// Let the children record what they were handed before any settles.
+		await new Promise((r) => setTimeout(r, 20))
+		const handedOut = allocations.reduce((a, b) => a + b, 0)
+		release?.()
+
+		expect(allocations.length, 'every sibling should have started').toBe(4)
+		expect(
+			handedOut,
+			`four siblings were handed ${allocations.join(' + ')} from a pool of ${shared.total}`,
+		).toBeLessThanOrEqual(shared.total)
+	})
+})

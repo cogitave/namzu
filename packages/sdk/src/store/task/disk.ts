@@ -35,10 +35,16 @@ export interface DiskTaskStoreConfig {
 	logger?: Logger
 }
 
+// `failed` ranks alongside `completed` rather than after it: both are
+// terminal, and neither may transition to the other. Ranking it higher would
+// admit completed -> failed, which would let a settled unit be reopened as a
+// failure; ranking it lower would forbid in_progress -> failed, which is the
+// transition this status exists for.
 const STATUS_ORDER: Record<TaskStatus, number> = {
 	pending: 0,
 	in_progress: 1,
 	completed: 2,
+	failed: 2,
 }
 
 function isForwardTransition(from: TaskStatus, to: TaskStatus): boolean {
@@ -393,7 +399,16 @@ export class DiskTaskStore implements TaskStore {
 			}
 			if (!mutated) {
 				this.log.debug('block(): edge already exists', { blockerId, blockedId })
+				return
 			}
+
+			// Announce BOTH ends, and only when something actually changed. The
+			// edge was written and nothing said so, so the graph was observable
+			// only by polling — a listener saw a unit created and never learned
+			// that something now waits on it.
+			const now = Date.now()
+			this.emit({ type: 'task.updated', taskId: blockerId, task: blocker, timestamp: now })
+			this.emit({ type: 'task.updated', taskId: blockedId, task: blocked, timestamp: now })
 		})
 	}
 
