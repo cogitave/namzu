@@ -15,6 +15,47 @@ export interface ToolCallContext {
 	readonly toolDef: ToolDefinition | undefined
 }
 
+/**
+ * What the rule actually said, in words a model can act on.
+ *
+ * This used to be the rule TYPE and nothing else, so a denial reached the
+ * model as "Blocked by the verification gate: Matched rule: deny_by_name" —
+ * naming the kind of rule and nothing about it. Not which tool, not which
+ * pattern, not whether a different input would fare better.
+ *
+ * The difference is behavioural rather than cosmetic. Told only that it was
+ * denied, a model rewords the same call and tries again, because nothing in
+ * the message says a retry is pointless. Told that a pattern rule denies
+ * `git push*`, it can stop, say so, and do something else. A refusal that
+ * cannot be reasoned about produces thrashing; one that can produces a route
+ * around it.
+ */
+export function describeRule(rule: VerificationRule): string {
+	switch (rule.type) {
+		case 'deny_dangerous_patterns':
+			return 'this matches a pattern the operator refuses outright; rewording it will not help'
+		case 'allow_read_only':
+			return 'allowed because this tool only observes'
+		case 'allow_by_name':
+			return `allowed by name (${rule.toolNames.join(', ')})`
+		case 'deny_by_name':
+			return `denied by name (${rule.toolNames.join(', ')}) — this tool is refused for this run, so a different input will not change it`
+		case 'allow_by_category':
+			return `allowed by category (${rule.categories.join(', ')})`
+		case 'allow_by_tier':
+			return `allowed by tier (${rule.tiers.join(', ')})`
+		case 'custom_pattern': {
+			const where = rule.target === 'both' ? 'name or arguments' : rule.target
+			const verb = rule.decision === 'deny' ? 'denied' : 'allowed'
+			return `${verb} by a pattern rule matching the ${where}: ${rule.pattern}`
+		}
+		default: {
+			const exhaustive: never = rule
+			return `matched an unrecognised rule: ${JSON.stringify(exhaustive)}`
+		}
+	}
+}
+
 export class VerificationGate {
 	private readonly rules: VerificationRule[]
 	private readonly compiledPatterns: Map<number, RegExp>
@@ -31,14 +72,31 @@ export class VerificationGate {
 
 		const expandedRules: VerificationRule[] = []
 
+		// Order is the whole meaning of this list, because the first rule to
+		// match decides and nothing after it is consulted.
+		//
+		// The dangerous-pattern denial goes FIRST and stays there: it is the
+		// floor, and an operator rule must not be able to open what it closes.
+		//
+		// The read-only allowance goes LAST, and it used to go second — ahead of
+		// the operator's own rules. With first-match-wins that made a rule like
+		// "prompt me before every read" UNREACHABLE while allowReadOnlyTools was
+		// on: not rejected, not warned about, just never consulted. Someone who
+		// writes a rule and is silently ignored gets the worst outcome available
+		// — they believe a control is in force and it is not.
+		//
+		// So it becomes what it always was in substance: a DEFAULT for tools
+		// nobody wrote a rule about, rather than an override of the rules they
+		// did write. The denial above still outranks both.
 		if (parsed.denyDangerousPatterns) {
 			expandedRules.push({ type: 'deny_dangerous_patterns' })
 		}
+
+		expandedRules.push(...parsed.rules)
+
 		if (parsed.allowReadOnlyTools) {
 			expandedRules.push({ type: 'allow_read_only' })
 		}
-
-		expandedRules.push(...parsed.rules)
 		this.rules = expandedRules
 
 		this.compiledPatterns = new Map()
@@ -102,7 +160,7 @@ export class VerificationGate {
 				const result: GateEvaluationResult = {
 					decision,
 					matchedRule: rule,
-					reason: `Matched rule: ${rule.type}`,
+					reason: describeRule(rule),
 				}
 
 				if (this.logDecisions) {
