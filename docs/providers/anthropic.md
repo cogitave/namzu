@@ -1,7 +1,7 @@
 ---
 title: Anthropic Provider
-description: Configure @namzu/anthropic for the Anthropic Messages API through Namzu.
-last_updated: 2026-07-30
+description: Configure @namzu/anthropic for the Anthropic Messages API through Namzu, including per-model thinking and effort resolution.
+last_updated: 2026-08-05
 status: current
 related_packages: ["@namzu/sdk", "@namzu/anthropic"]
 ---
@@ -104,7 +104,63 @@ const result = await agent.run(
 | `maxTokens` | No | Default `max_tokens` value; Anthropic requires this field at request time |
 | `strictToolUse` | No | Constrained tool-input policy: `auto` (default), `on`, or `off` |
 
-## 8. Capability Snapshot
+## 8. Thinking and Effort
+
+`thinking` and `effort` are set on the run, not on the provider — see
+[Run Configuration](../sdk/runtime/configuration.md). What this driver adds is
+resolving them **per model**, because the same request body is accepted by one
+model and rejected outright by its sibling.
+
+### 8.1 Thinking mode is resolved, never passed through
+
+Three modes exist, and a model accepts some subset of them:
+
+| Mode | Meaning |
+| --- | --- |
+| `adaptive` | the model decides whether and how deeply to reason; depth is steered by `effort` |
+| `enabled` | manual: `budgetTokens` fixes the depth and the model reasons on every request |
+| `disabled` | no reasoning |
+
+Newer models refuse `enabled`, older ones refuse `adaptive`, and some refuse
+`disabled` because they cannot stop reasoning at all. Sending the wrong one
+produces a failed request, not a worse answer — so what you set is a declared
+intent, and the driver resolves it against the model it is about to call.
+
+The one asymmetry worth knowing: **a `disabled` request on a model that cannot
+stop reasoning omits the field rather than throwing.** Turning something off is
+not a request that can be refused, and a config that spans several models should
+not fail on the ones that were never going to reason anyway.
+
+### 8.2 Which effort levels a model takes is a set, not a ladder
+
+`effort` is `low | medium | high | xhigh | max`, and it is tempting to read
+those as rungs where anything accepting the top accepts the one below. **They
+are not.** A model can take `max` and refuse `xhigh`, and reading them as a
+ladder is what previously put a level on a capability row that the wire rejects.
+
+The driver keeps two sets per model — the levels accepted generally, and the
+levels accepted *with thinking off*. On most models those two are identical; on
+one family they are not, which is why they are separate rows rather than one
+blanket rule. An earlier blanket rule discarded `xhigh` and `max` whenever
+thinking was off, on the reasoning that the pairing is incoherent — and
+measurement showed one family rejects it while its siblings accept and honour
+it. Looking incoherent is not the same as being rejected, and only the wire
+decides which.
+
+**A level the model does not accept is dropped rather than sent**, because
+effort shapes an answer the model will still produce. A *mode* the model does
+not accept is a different matter and fails the request, because there is no
+answer to shape.
+
+### 8.3 `output_config` is merged, not assigned
+
+`effort` travels in a shared envelope on this wire, alongside a
+structured-output format and a task budget. The driver merges into it. If you
+are extending this driver, keep it that way: assigning means whoever wires the
+next field silently deletes effort, or has effort delete theirs, depending only
+on which line runs last.
+
+## 9. Capability Snapshot
 
 The package exports `ANTHROPIC_CAPABILITIES`:
 
@@ -116,7 +172,7 @@ The package exports `ANTHROPIC_CAPABILITIES`:
 }
 ```
 
-## 9. Operational Notes
+## 10. Operational Notes
 
 - Anthropic requires `max_tokens`, so setting `maxTokens` at provider creation time is a good default.
 - In `auto` mode, tools marked with `enforceModelInput: true` are sent with `strict: true` on recognized Claude 4.5+ model identifiers. Use `on` only for a compatible proxy alias, or `off` to disable constrained tool inputs.
@@ -124,7 +180,7 @@ The package exports `ANTHROPIC_CAPABILITIES`:
 - `baseURL` can point at proxies or gateways, but for Bedrock-hosted Anthropic models [`@namzu/bedrock`](./bedrock.md) is the better fit.
 - The provider also implements `listModels()` and `healthCheck()`.
 
-## 10. Common Errors
+## 11. Common Errors
 
 | Error | Meaning | Fix |
 | --- | --- | --- |
@@ -136,6 +192,8 @@ The package exports `ANTHROPIC_CAPABILITIES`:
 
 - [Providers Overview](./README.md)
 - [Provider Selection Guide](./selection-guide.md)
+- [Run Configuration](../sdk/runtime/configuration.md)
+- [Loop Control and Resilience](../sdk/runtime/loop-control.md)
 - [Bedrock Provider](./bedrock.md)
 - [HTTP Provider](./http.md)
 - [Provider Registry](../sdk/provider-integration/registry.md)
