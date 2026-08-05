@@ -1,5 +1,170 @@
 # @namzu/cli
 
+## 0.7.0
+
+### Minor Changes
+
+- 586bf3f: a compaction says so, instead of discarding context in silence
+
+  Compaction deletes messages irrecoverably at 70% of the context window. The
+  kernel measures the loss and puts both outcomes on the wire specifically so a
+  host can show it; this one dropped them at `default: return null`, one function
+  from the screen. So the first time anyone learned compaction existed was when
+  the agent had forgotten something they were relying on — which reads as the
+  model being stupid rather than the harness discarding context.
+
+  Everything else fixed recently was _the run quietly not doing what the operator
+  said_. This is the same class with the opposite sign: _the run quietly doing
+  something they did not ask for_.
+
+  A compaction now appears in the transcript, on stderr for `namzu run`, and as an
+  NDJSON event for a host:
+
+  ```
+  ⌫ context compacted — 42 messages replaced by 9, ~120k → ~38k tokens
+  ```
+
+  **Only what is checkable.** Compaction summarises, so it cannot enumerate what
+  was lost — the loss is fidelity, not a set of removable items, and "removed the
+  file contents from turns 3-8" is a claim that cannot be substantiated and is
+  worse than silence the first time it is subtly wrong. An estimated token count
+  says it is estimated, because quoting an estimate as a measurement is that same
+  lie in miniature.
+
+  **A compaction that declines says which of three things happened**, because they
+  want different responses and "compaction failed" would put the reader back where
+  the silence did: a reducer that threw may work next pass and carries its own
+  error; a reducer that shed nothing is reporting a fact, not an error, and will
+  answer identically every time; a reducer that split a tool call from its result
+  is a bug with no user action at all. Every case states that the history is
+  unchanged, which the kernel guarantees by installing a reduction whole or not at
+  all.
+
+  The notice goes in the transcript rather than a status indicator, because an
+  indicator is present while nothing is happening and gone afterwards — someone
+  reading back could not tell whether the gap they were looking at was compacted.
+
+- 60874b8: namzu has no daemon, and stops pretending otherwise
+
+  The peer daemon namzu integrated with is deprecated and going away. Everything
+  namzu built on top of it goes in this release. Four user-facing surfaces
+  disappear, and one of them is not a command:
+
+  - **`namzu tools`** — and its `ls`, `run <name>` and `sync-types` subcommands.
+    It inspected and invoked that daemon's tool layer; with the daemon gone there
+    is no layer to inspect.
+  - **`/agents`** — listed the agent peers the daemon knew about, across your
+    terminals and its LAN discovery.
+  - **`/msg <peer> <text>`** — sent a message to another peer's inbox.
+  - **The inbound channel.** This one had no command, which is exactly why it is
+    easy to omit from a list of removals: another agent could put a message in
+    namzu's inbox, and a running namzu would surface it, answer it while idle, and
+    route the reply back to the sender. That loop is gone. Nothing can send a
+    message to a running namzu any more, and a peer that does will get no answer
+    rather than an error.
+
+  **If your credential came from that daemon's secrets file, namzu will no longer
+  find it.** It was the second source provider discovery scanned, so a key kept
+  only there worked with no environment variable set — and the failure now is not
+  an error message but an absence: the first-run picker opens as though you have
+  no credential at all. Export it instead (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
+  `OPENROUTER_API_KEY`, …) and namzu finds it again. The picker's empty state and
+  `namzu doctor` both name the sources that are actually scanned now, so the
+  answer is available from the command you would reach for when a key stops being
+  found.
+
+  **The agent loses that catalog's ~70 deferred tools** — web search, browser
+  fetch, sandboxed execution and the rest. namzu runs on the SDK builtins plus its
+  memory and task tools. The connect line drops its `(+N on demand)` suffix, which
+  had been counting that catalog and nothing else.
+
+  **`namzu serve` keeps its command and changes its answer.** It used to say
+  coordination came from that daemon, so there was no separate namzu one — the
+  second half of a sentence whose first half no longer exists. It now states the
+  other claim outright: namzu has no daemon and no coordination surface, a run is
+  an ordinary process, nothing needs to be running first. The command stays
+  because someone typing it deserves an answer, and _unknown command_ is a worse
+  one.
+
+  **Config:** the `clawtool` section of `~/.namzu/cli.json` (`binary`, `endpoint`,
+  `token`, `autoStart`) is gone from `NamzuCliConfig`. It was optional and
+  zero-config, so a file that never set it is unaffected; a file that did will
+  have the key ignored.
+
+  **No deprecation window, deliberately.** The window exists so working code gets
+  a release where it still runs and warns. The warning would have to say _migrate
+  to X_, and there is no X — the thing being integrated with is itself deprecated.
+  A warning advertising a migration path that does not exist is worse than the
+  removal, and would need removing itself one release later.
+
+  **`minor`, not `major`.** The package is pre-1.0 and promises no stability;
+  `major` would move it to `1.0.0`, claiming the surface is settled in the same
+  release that deletes three commands from it. That is the larger untruth.
+
+- 3ba50ca: a permissions rule you wrote is the one that runs
+
+  A `permissions` table in a config file did nothing. Not in `namzu run`, not in
+  `run-stream`, not in the interactive TUI — nowhere, since the table was
+  introduced. Three faults in series, each sufficient on its own:
+
+  1. **The loader dropped it.** `sanitize()` copied exactly `format` and `quiet`
+     off a parsed config file, so `permissions` never survived being read.
+     `compilePermissions(ctx.config.permissions)` had always been compiling
+     `undefined`.
+  2. **The turn discarded it.** The top-level turn passed a module-level gate
+     whose `rules` is a hardcoded empty array, so even a caller handing rules in
+     explicitly had them dropped. The helper that folds them in was called on the
+     sub-agent path only.
+  3. **The TUI never asked for it.** Only `run` and `run-stream` compiled the
+     table at all, so interactive sessions had no rules to drop in the first
+     place.
+
+  **Nothing looked broken, and that is the worst part.** The gate already falls
+  back to asking, and `ask` compiles to no rule — so a discarded `deny` is
+  indistinguishable from a config that was honoured. You are prompted, you
+  approve, and you never learn your refusal was thrown away. A visible failure
+  would have been found in a day.
+
+  **What changes for you:** if you have a `permissions` table, it now applies. A
+  `deny` refuses instead of prompting, and an `allow` stops asking. Check yours
+  before upgrading — it has never actually run, so this is the first release in
+  which it means anything. In an interactive session a `deny` is not even
+  offered for approval, which is the point of writing one.
+
+  Adding a field to the config type now fails to compile until the loader is
+  taught to read it. The old code ended in `out as NamzuCliConfig`, and that cast
+  is precisely what let `permissions` be declared, documented, type-checked and
+  ignored; the loader's field list is now derived from the config type instead of
+  restated beside it.
+
+  Also documents where the config file lives and what it looks like, which was
+  written down nowhere.
+
+  `minor`, not `patch`: a table that was inert becomes active, so a `deny` you
+  forgot you wrote can stop a command that used to run. Nothing about the API
+  changed, but the behaviour a consumer sees does, and that is what the bump is a
+  claim about.
+
+### Patch Changes
+
+- Updated dependencies [a39c2ed]
+- Updated dependencies [f6e0594]
+- Updated dependencies [9ac8dd4]
+- Updated dependencies [3d4315e]
+- Updated dependencies [a39c2ed]
+- Updated dependencies [9ac8dd4]
+- Updated dependencies [9ac8dd4]
+- Updated dependencies [9ac8dd4]
+- Updated dependencies [9ac8dd4]
+- Updated dependencies [9ac8dd4]
+- Updated dependencies [9ac8dd4]
+- Updated dependencies [585a592]
+  - @namzu/sdk@8.0.0
+  - @namzu/anthropic@3.1.0
+  - @namzu/ollama@2.0.0
+  - @namzu/openai@1.1.0
+  - @namzu/openrouter@2.0.0
+
 ## 0.6.0
 
 ### Minor Changes
