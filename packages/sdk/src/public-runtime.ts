@@ -369,9 +369,18 @@ export {
 	FileLockManager,
 } from './bus/index.js'
 
+// `describeRule` travels with `evaluateRule` deliberately. `evaluateRule`
+// answers WHETHER a rule matched; on its own it leaves a caller holding a
+// decision with no words for it, and the only way to say anything about the
+// refusal is to switch on the rule's TYPE — which names the kind of rule and
+// nothing about what it said. That is precisely the defect the gate itself
+// carried until its reason stopped being `Matched rule: <type>`, and shipping
+// the verdict without the sentence would have left the same hole one layer up
+// for anyone driving the rules directly instead of through the gate.
 export {
 	defaultSandboxedGateConfig,
 	defaultSandboxedShellGateConfig,
+	describeRule,
 	evaluateRule,
 	VerificationGate,
 } from './verification/index.js'

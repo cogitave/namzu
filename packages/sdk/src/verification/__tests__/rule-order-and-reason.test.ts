@@ -124,4 +124,26 @@ describe('a refusal says what the rule said', () => {
 		expect(result.reason).toContain('bash')
 		expect(result.reason).not.toMatch(/^Matched rule:/)
 	})
+
+	it('is reachable by a caller driving the rules without the gate', async () => {
+		// `evaluateRule` is public and answers only WHETHER a rule matched. A
+		// caller holding that verdict and no describer is back to switching on
+		// the rule's type for its wording — the same defect the gate carried,
+		// one layer up. So the two travel together, and this asserts the
+		// PAIRING rather than either one alone.
+		//
+		// Asserted at this barrel rather than the package barrel on purpose.
+		// Importing `../../index.js` costs ~4s of module-graph load — measured,
+		// on an idle machine, against a default 5s test budget — so the version
+		// of this test that looked stronger was one busy CI runner away from
+		// failing for a reason that has nothing to do with verification. The
+		// package half is gated better elsewhere anyway: the public-surface
+		// baseline resolves `dist/index.d.ts` through the checker and reports a
+		// REGRESSION naming any symbol that leaves the surface.
+		const barrel = await import('../index.js')
+
+		expect(typeof barrel.evaluateRule).toBe('function')
+		expect(typeof barrel.describeRule).toBe('function')
+		expect(barrel.describeRule({ type: 'deny_by_name', toolNames: ['bash'] })).toContain('bash')
+	})
 })
