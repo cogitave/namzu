@@ -1144,15 +1144,29 @@ export class IterationOrchestrator {
 		} = {}
 
 		if (result.activeTools) {
-			// A phase list that outlives a tool rename should narrow the
-			// surface, not kill the agent mid-run.
 			const known = result.activeTools.filter((name: string) => this.ctx.tools.has(name))
 			const unknown = result.activeTools.filter((name: string) => !this.ctx.tools.has(name))
 			if (unknown.length > 0) {
-				this.ctx.log.warn('prepareStep named tools that are not registered — ignoring them', {
+				// The all-unknown case gets its own sentence because it has its
+				// own consequence. Some names dropped narrows the step; ALL of
+				// them dropped leaves it able to call nothing — which is the
+				// honest reading of "only these tools" when none of them exist,
+				// and is not what a reader of "ignoring them" would expect.
+				//
+				// Widening back to the run's list would be worse: it grants
+				// exactly the tools the caller asked to exclude, on the grounds
+				// that their own list failed. A step that can call nothing is
+				// constrained; a step that can call everything is a control
+				// that stopped applying.
+				const message =
+					known.length === 0
+						? 'prepareStep named only tools that are not registered — this step can call nothing'
+						: 'prepareStep named tools that are not registered — ignoring them'
+				this.ctx.log.warn(message, {
 					runId: this.ctx.runMgr.id,
 					stepNumber,
 					unknown,
+					remaining: known.length,
 				})
 			}
 			prepared.allowedTools = known
