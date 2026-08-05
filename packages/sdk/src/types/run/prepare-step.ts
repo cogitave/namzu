@@ -44,8 +44,23 @@ export interface PrepareStepResult {
 	/**
 	 * Restrict which tools the model may call this step, by name. Names
 	 * that are not registered are dropped with a warning rather than
-	 * failing the run — a phase list that outlives a tool rename should
-	 * narrow the surface, not kill the agent mid-run.
+	 * failing the run.
+	 *
+	 * **Dropping every name leaves the step able to call nothing**, and that
+	 * is deliberate rather than an accident of the filter. This list means
+	 * "only these": if a rename outlives a phase list, the only set
+	 * satisfying "only the tools that no longer exist" is the empty one, and
+	 * widening back to the run's list would grant precisely what the caller
+	 * did not ask for. The step is constrained, not crashed — the model
+	 * answers from what it has and the run continues.
+	 *
+	 * This changed meaning when the list started bounding what may RUN
+	 * rather than only what the model is shown. Before, an aged-out list hid
+	 * every tool from the model while leaving all of them callable, which
+	 * was neither reading.
+	 *
+	 * The warning is the part to watch: it goes to the logger, and a host
+	 * that silences its logger sees a phase quietly stop doing anything.
 	 *
 	 * **This costs a prompt-cache prefix.** Tools render at position 0, so
 	 * changing the set between steps invalidates the cached prefix for that
