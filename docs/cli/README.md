@@ -14,6 +14,7 @@ related_packages: ["@namzu/cli", "@namzu/sdk", "@namzu/anthropic", "@namzu/opena
 namzu                      # launch the interactive TUI
 namzu run "fix the build"  # headless one-shot — prints the reply (for scripts/CI)
 echo "..." | namzu run     # prompt from stdin; add --format json for {"text": "..."}
+namzu run --cwd ../other "which tests fail?"   # work in another checkout
 namzu --help               # utility subcommands (doctor, providers, run, …)
 ```
 
@@ -31,6 +32,7 @@ namzu --help               # utility subcommands (doctor, providers, run, …)
 | Page | What it covers |
 | --- | --- |
 | [The TUI](./tui.md) | Header, transcript/composer, slash commands + autocomplete, queuing, `/resume`, Ctrl+O, interrupting |
+| [Headless runs](./headless.md) | `run` and `run-stream`, their shared options, `--cwd`, exit codes, the NDJSON event stream |
 | [Providers & credentials](./providers.md) | How credentials are discovered, the first-run picker, switching providers |
 | [Tools & permission](./tools.md) | Builtin + memory + task tools, deferred clawtool, the permission prompt, the safety gate, bypass mode |
 | [Memory](./memory.md) | `USER.md` / `MEMORY.md` injection, `/remember`, `/memory`, the agent's structured memory |

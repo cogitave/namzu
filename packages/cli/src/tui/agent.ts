@@ -227,24 +227,43 @@ const NAMZU_IDENTITY = [
 	'- A reply from a tool that delegates to ANOTHER agent (e.g. clawtool `agent.run`, an A2A `tasks/send`, a remote peer) is that agent\'s unverified CLAIM, not fact — another model can hallucinate. If it says it ran a command, wrote a file, or "here is the output", treat that as narrative and confirm it yourself with a deterministic tool (a real shell like `bash.run`, a file read) before reporting it as done. Distinguish such conversational agent calls from deterministic tools, and never present another agent\'s prose as your own verified result.',
 ].join('\n')
 
-function buildToolRegistry(): ToolRegistry {
+function buildToolRegistry(cwd: string): ToolRegistry {
 	const registry = new ToolRegistry()
 	registry.register(getBuiltinTools().filter((t) => !EXCLUDED_BUILTINS.has(t.name)))
 	// SDK memory: the agent gets search_memory / read_memory / save_memory over
 	// a structured store at ~/.namzu/memory (separate from the user-curated
 	// MEMORY.md that's injected into the prompt).
-	const memoryStore = new DiskMemoryStore({ baseDir: join(process.cwd(), '.namzu') })
+	const memoryStore = new DiskMemoryStore({ baseDir: join(cwd, '.namzu') })
 	registry.register(buildMemoryTools(memoryStore, memoryStore.getIndex()))
 	// `search_tools` lets the model load deferred (clawtool) tools on demand.
 	registry.register([SearchToolsTool])
 	return registry
 }
 
+export interface AgentSessionOptions {
+	/** Session/thread/project/tenant identity for this run. Minted when absent. */
+	readonly scope?: RunScope
+	/**
+	 * The directory the agent works in: what every filesystem tool resolves a
+	 * relative path against, where sub-agents run, and where the task and
+	 * memory stores put `.namzu`. Defaults to the process's own directory.
+	 *
+	 * Taken as an argument rather than read from `process.cwd()` at each of
+	 * those four points, which is what let `--cwd` reach the session store and
+	 * the skill search and stop there: the caller parsed a directory, the agent
+	 * globbed a different one, and the run reported finding nothing rather than
+	 * having looked in the wrong place.
+	 */
+	readonly cwd?: string
+}
+
 export async function createAgentSession(
 	prefs: Preferences,
 	detected: readonly DetectedProvider[],
-	scope: RunScope = mintScope(),
+	options: AgentSessionOptions = {},
 ): Promise<AgentSession> {
+	const scope = options.scope ?? mintScope()
+	const cwd = options.cwd ?? process.cwd()
 	const entry = PROVIDER_REGISTRY[prefs.provider]
 	if (!entry) {
 		return emptySession(`Unknown provider "${prefs.provider}" — pick another.`)
@@ -297,7 +316,7 @@ export async function createAgentSession(
 			// Keep the previous client; the turn may still 401 but won't crash.
 		}
 	}
-	const registry = buildToolRegistry()
+	const registry = buildToolRegistry(cwd)
 	// clawtool's catalog (~70 tools) is registered DEFERRED: each costs only a
 	// name line in the prompt (no JSON schema), so it never balloons a turn —
 	// the model loads what it needs via `search_tools`. Best-effort: absent /
@@ -315,7 +334,7 @@ export async function createAgentSession(
 	const childSteps: string[] = []
 	try {
 		const sub = await createSubagentRuntime({
-			cwd: process.cwd(),
+			cwd,
 			model,
 			buildProvider: () =>
 				constructProvider(
@@ -328,7 +347,7 @@ export async function createAgentSession(
 				// memory + search_tools, plus clawtool's catalog (deferred) so they
 				// can load research / peer-dispatch tools on demand. Without this a
 				// sub-agent has no way to do real work beyond local files.
-				const r = buildToolRegistry()
+				const r = buildToolRegistry(cwd)
 				if (clawtoolTools.length > 0) r.register(clawtoolTools, 'deferred')
 				return r
 			},
@@ -350,7 +369,7 @@ export async function createAgentSession(
 	// and emits task_created/task_updated, so the agent can track a plan for the
 	// current request. Tasks are run-scoped.
 	const taskStore: TaskStore = new DiskTaskStore({
-		baseDir: join(process.cwd(), '.namzu'),
+		baseDir: join(cwd, '.namzu'),
 		defaultRunId: 'run_namzu-cli' as RunId,
 		tenantId: scope.tenantId,
 	})
@@ -376,19 +395,20 @@ export async function createAgentSession(
 				[NAMZU_IDENTITY, memoryPrompt, opts?.extraSystem]
 					.filter((s): s is string => Boolean(s))
 					.join('\n\n') || undefined
-			yield* runTurn(
+			yield* runTurn({
 				provider,
 				model,
-				registry,
+				tools: registry,
 				scope,
+				workingDirectory: cwd,
 				approval,
 				taskStore,
 				systemPrompt,
 				messages,
 				opts,
-				subagentGateway,
+				taskGateway: subagentGateway,
 				childSteps,
-			)
+			})
 		},
 	}
 }
@@ -537,19 +557,41 @@ const COMPACTION_CONFIG = {
 	maxCharsPerTask: 400,
 }
 
-async function* runTurn(
-	provider: LLMProvider,
-	model: string,
-	tools: ToolRegistry,
-	scope: RunScope,
-	approval: { all: boolean },
-	taskStore: TaskStore,
-	systemPrompt: string | undefined,
-	messages: readonly Message[],
-	opts: SendOptions | undefined,
-	taskGateway: TaskGateway | undefined,
-	childSteps: string[],
-): AsyncIterable<AgentEvent> {
+/**
+ * Named rather than positional: the parameters are eleven long and four of
+ * them are strings, so `workingDirectory` and `systemPrompt` would sit next
+ * to each other with nothing but call order to keep them apart.
+ */
+interface RunTurnParams {
+	readonly provider: LLMProvider
+	readonly model: string
+	readonly tools: ToolRegistry
+	readonly scope: RunScope
+	/** Directory every filesystem tool in this turn resolves against. */
+	readonly workingDirectory: string
+	readonly approval: { all: boolean }
+	readonly taskStore: TaskStore
+	readonly systemPrompt: string | undefined
+	readonly messages: readonly Message[]
+	readonly opts: SendOptions | undefined
+	readonly taskGateway: TaskGateway | undefined
+	readonly childSteps: string[]
+}
+
+async function* runTurn({
+	provider,
+	model,
+	tools,
+	scope,
+	workingDirectory,
+	approval,
+	taskStore,
+	systemPrompt,
+	messages,
+	opts,
+	taskGateway,
+	childSteps,
+}: RunTurnParams): AsyncIterable<AgentEvent> {
 	const signal = opts?.signal
 	try {
 		const events = query({
@@ -575,7 +617,7 @@ async function* runTurn(
 			agentName: 'namzu',
 			...(systemPrompt ? { systemPrompt } : {}),
 			messages: [...messages],
-			workingDirectory: process.cwd(),
+			workingDirectory,
 			resumeHandler: makeResumeHandler(approval, opts?.onPermission),
 			signal,
 			...scope,
