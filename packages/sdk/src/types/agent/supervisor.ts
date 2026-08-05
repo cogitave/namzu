@@ -10,7 +10,7 @@ import type { ToolRegistryContract } from '../tool/index.js'
 import type { VerificationGateConfig } from '../verification/index.js'
 import type { BaseAgentConfig, BaseAgentResult } from './base.js'
 import type { AgentFactoryOptions } from './factory.js'
-import type { TaskGateway } from './gateway.js'
+import type { SiblingFailurePolicy, TaskGateway } from './gateway.js'
 import type { AgentManagerContract } from './manager.js'
 import type { WorkingMemoryProvider } from './working-memory.js'
 
@@ -88,6 +88,28 @@ export interface SupervisorAgentConfig extends BaseAgentConfig {
 	 * launches twenty, and they queue.
 	 */
 	maxToolConcurrency?: number
+
+	/**
+	 * What a failed child means for the siblings still running. Defaults to
+	 * `'continue'`.
+	 *
+	 * `LocalTaskGateway` has honoured this since it was written, and the
+	 * cancellation machinery behind `'cancel-siblings'` is complete — but the
+	 * policy was a constructor argument on a gateway the supervisor builds
+	 * itself, and the supervisor passed nothing. So every host in existence
+	 * ran `'continue'`, and the only way to reach the other value was to
+	 * construct the gateway by hand and hand it in. A policy nobody can select
+	 * is not a policy.
+	 *
+	 * `'continue'` stays the default deliberately: partial results are usually
+	 * worth having, and tearing down healthy siblings on any failure lets one
+	 * flaky child waste four good ones. `'cancel-siblings'` is for a fan-out
+	 * whose parts only mean something together — if one leg of a comparison
+	 * dies, the others are spending budget on an answer nobody can use.
+	 *
+	 * Ignored when the host supplies its own `gateway`, which owns its policy.
+	 */
+	siblingFailurePolicy?: SiblingFailurePolicy
 
 	taskRouter?: TaskRouterConfig
 

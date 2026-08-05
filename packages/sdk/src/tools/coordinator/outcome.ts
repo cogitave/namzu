@@ -33,6 +33,30 @@ export function taskSucceeded(handle: Pick<TaskHandle, 'state' | 'result'>): boo
 }
 
 /**
+ * Did this worker actually fail? **Not the negation of {@link taskSucceeded}.**
+ *
+ * Three answers exist, not two: succeeded, failed, and not settled yet. A task
+ * still running satisfies neither predicate, and that is the point — a caller
+ * deciding whether to tear down healthy siblings must act on a child that
+ * *failed*, never on one that merely has not succeeded yet. Writing this as
+ * `!taskSucceeded(handle)` would cancel a fan-out the moment the first child
+ * was still working.
+ *
+ * The two-authority rule applies here too, for the same reason: the kernel's
+ * `finalizeChild` always calls `markCompleted`, so a run that returned
+ * `status: 'failed'` carries `state: 'completed'`, and a check that read only
+ * the gateway state would never see it fail.
+ *
+ * Third copy of this knowledge, now in the one place `taskSucceeded` already
+ * lives — it was written independently in `LocalTaskGateway`, which got it
+ * right, but a rule that each caller has to remember is a rule one of them
+ * eventually forgets. That has already happened once with `taskSucceeded`.
+ */
+export function taskFailed(handle: Pick<TaskHandle, 'state' | 'result'>): boolean {
+	return handle.state === 'failed' || handle.result?.status === 'failed'
+}
+
+/**
  * What to call the failure, in the words of whichever layer reported it.
  *
  * The gateway state wins when it is the one that disagrees, because a task that

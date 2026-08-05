@@ -159,7 +159,14 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 				projectId,
 				parentActor,
 			}
-			gateway = new LocalTaskGateway(config.agentManager, taskContext, listener, input)
+			// The only hop between the config and the gateway's policy. Omit it
+			// and the field is settable, documented, and read by nothing —
+			// which is exactly the state it was in before.
+			gateway = new LocalTaskGateway(config.agentManager, taskContext, listener, input, {
+				...(config.siblingFailurePolicy
+					? { siblingFailurePolicy: config.siblingFailurePolicy }
+					: {}),
+			})
 		} else {
 			throw new Error("SupervisorAgentConfig requires either 'gateway' or 'agentManager'")
 		}
