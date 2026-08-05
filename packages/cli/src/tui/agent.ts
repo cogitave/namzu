@@ -648,7 +648,11 @@ async function* runTurn({
 			tools,
 			taskStore,
 			...(taskGateway ? { taskGateway } : {}),
-			verificationGate: VERIFICATION_GATE,
+			// `gateFor`, not the bare default: the default's `rules` is a hardcoded
+			// empty array, so passing it here discarded the operator's rules on the
+			// path that runs every top-level turn. The sub-agent path called
+			// `gateFor` and this one did not.
+			verificationGate: gateFor(rules),
 			compactionConfig: COMPACTION_CONFIG,
 			// The CLI owns its process end to end, so it can safely hand the
 			// termination path to the kernel: a Ctrl-C mid-run now leaves a

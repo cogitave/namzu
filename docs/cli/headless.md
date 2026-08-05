@@ -200,8 +200,10 @@ namzu providers-json               # [{provider, label, detected, default, model
 ## Permission modes
 
 Every tool call is first put to a verification gate, which answers `allow`,
-`deny` or **`review`**. `--permission-mode` says what happens to the calls that
-came back `review` — the ones nothing decided either way.
+`deny` or **`review`**. The gate consults the safety floor, then your
+[`permissions` table](./tools.md#the-permissions-file), then the read-only
+allowance. `--permission-mode` says what happens to the calls that came back
+`review` — the ones nothing decided either way.
 
 | Mode | An undecided call is | Default when |
 | --- | --- | --- |
@@ -213,16 +215,30 @@ came back `review` — the ones nothing decided either way.
 namzu run --permission-mode strict "run the test suite"
 ```
 
-`strict` is the mode for an unattended run. Read-only tools still run — `read`,
-`glob`, `grep`, and the memory and task tools observe without changing anything,
-so the gate allows them outright and they never reach the mode. Everything else
-is refused, and the model is told in the refusal that asking again will not
-help, so it stops rather than rewording the same call.
+`strict` is the mode for an unattended run: **nothing executes unless the gate
+allowed it.** Two things reach that bar. Read-only tools — `read`, `glob`,
+`grep`, and the memory and task tools observe without changing anything, so the
+gate allows them outright and they never reach the mode. And anything your
+[`permissions` table](./tools.md#the-permissions-file) allowed by name or
+pattern. Everything else is refused, and the model is told in the refusal that
+asking again will not help, so it stops rather than rewording the same call.
 
 Before `strict` existed an unattended run could only be `auto`, so a CI job
 either trusted the agent with every tool it might reach for or could not use it
 at all. `strict` makes a headless run something you can reason about: it can
-look, and it cannot touch.
+look, and it can touch exactly what you wrote down.
+
+```yaml
+# a CI job that may run the tests and nothing else
+permissions:
+  bash:
+    "pnpm test*": allow
+```
+
+Until `@namzu/cli` 0.7.0 the table was dropped before it reached the gate, so
+`strict` meant read-only-tools-only no matter what you wrote. Adding an `allow`
+is the difference between a job that can do one thing and one that can only
+look.
 
 `--yolo` and `--dangerously-skip-permissions` mean `--permission-mode auto`.
 They were previously accepted and documented as doing nothing, which was true
@@ -240,12 +256,13 @@ The direction is deliberate. A gate rule is a durable statement someone
 reviewed; a flag is typed in a hurry by someone who wants to get on with it. A
 prohibition a flag can lift is not a prohibition.
 
-Which rules the gate holds is set by the host that builds the session. For the
-rule vocabulary and how to supply it, see
-[Tool Safety](../sdk/tools/safety.md) — `namzu` itself currently runs the gate
-with its two standing policies (deny catastrophic shell patterns, allow
-read-only tools) and no additional rules, so in practice the mode is the whole
-of the operator-facing control here.
+Which rules the gate holds is set by the host that builds the session. `namzu`
+runs it with its two standing policies — deny catastrophic shell patterns, allow
+read-only tools — plus whatever your
+[`permissions` table](./tools.md#the-permissions-file) compiles to. So the mode
+is not the whole of the operator-facing control: the table decides calls, and
+the mode only settles what the table left open. For the underlying rule
+vocabulary a custom host can use, see [Tool Safety](../sdk/tools/safety.md).
 
 ## Resuming a conversation
 

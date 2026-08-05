@@ -36,10 +36,16 @@ describe('runCli', () => {
 		// Commander prints help to stdout.
 		expect(stdout).toContain('namzu')
 		expect(stdout).toContain('doctor')
-		expect(stdout).toContain('tools')
 		expect(stdout).toContain('providers')
 		expect(stdout).toContain('skills')
 		expect(stdout).toContain('serve')
+		// `tools` was asserted here until the peer-daemon removal deleted the
+		// command. The assertion kept passing, because "tools" also occurs in
+		// the --dangerously-skip-permissions description ("Run tools without
+		// asking…") — a substring match on whole help output cannot tell a
+		// command from a word in a sentence. Anchored to the command column so
+		// it means what it says.
+		expect(stdout).not.toMatch(/^\s+tools\b/m)
 		// `chat` was a misread of the product shape — the TUI IS the chat,
 		// not a separate subcommand. `chat` must not appear in help.
 		expect(stdout).not.toContain('chat')

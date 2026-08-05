@@ -184,7 +184,11 @@ export function App({ ctx }: AppProps) {
 	const hydrateSession = useCallback(
 		async (prefs: Preferences, detectedNow: readonly DetectedProvider[]) => {
 			const scope = await ensureSessions()
-			const s = await createAgentSession(prefs, detectedNow, { scope, cwd: ctx.cwd })
+			const s = await createAgentSession(prefs, detectedNow, {
+				scope,
+				cwd: ctx.cwd,
+				rules: ctx.rules,
+			})
 			setSession(s)
 			setCurrentProvider(prefs.provider)
 			if (s.hasProvider) {
@@ -198,7 +202,7 @@ export function App({ ctx }: AppProps) {
 				if (s.errorHint) pushMessage('system', s.errorHint)
 			}
 		},
-		[ctx.cwd, pushMessage],
+		[ctx.cwd, ctx.rules, pushMessage],
 	)
 
 	const runProbe = useCallback(async () => {
