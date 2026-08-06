@@ -6,6 +6,13 @@ import type {
 } from '../../types/connector/index.js'
 import { type Logger, getRootLogger } from '../../utils/logger.js'
 
+/**
+ * How long a child gets to honour SIGTERM before SIGKILL. Two seconds is
+ * long enough for a server flushing a response and short enough that a
+ * shutdown does not read as a hang.
+ */
+const TERMINATE_GRACE_MS = 2_000
+
 export class StdioTransport implements MCPTransport {
 	private process: ChildProcess | null = null
 	private messageHandlers: Array<(message: MCPJsonRpcMessage) => void> = []
@@ -71,9 +78,39 @@ export class StdioTransport implements MCPTransport {
 		}
 		this.connected = false
 		this.exitPending = true
-		this.process.kill('SIGTERM')
+		const child = this.process
 		this.process = null
 		this.buffer = ''
+
+		// Resolve when the child is actually gone, not when the signal was
+		// sent. `kill()` returns as soon as the signal is delivered, so an
+		// awaited `close()` meant only "SIGTERM is on its way" — a caller that
+		// closed and then deleted the child's working directory raced the exit
+		// and saw EBUSY. A close that does not mean closed makes every
+		// teardown after it a guess.
+		//
+		// A spawn that never produced a process emits `error` and no `exit`,
+		// so both settle this, and two timers make a hang impossible: the
+		// first escalates to SIGKILL for a child ignoring SIGTERM, the second
+		// gives up waiting. Neither holds the event loop open.
+		if (child.pid === undefined) return
+		await new Promise<void>((resolve) => {
+			let settled = false
+			const finish = (): void => {
+				if (settled) return
+				settled = true
+				clearTimeout(escalate)
+				clearTimeout(giveUp)
+				resolve()
+			}
+			child.once('exit', finish)
+			child.once('error', finish)
+			child.kill('SIGTERM')
+			const escalate = setTimeout(() => child.kill('SIGKILL'), TERMINATE_GRACE_MS)
+			const giveUp = setTimeout(finish, TERMINATE_GRACE_MS * 2)
+			escalate.unref?.()
+			giveUp.unref?.()
+		})
 		// The handlers deliberately survive this call. `process.on('close')`
 		// fires them when the process actually exits, and dropping them here
 		// would leave `MCPClient` believing it is still connected — so its next
