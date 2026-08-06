@@ -1,5 +1,91 @@
 # Changelog
 
+## 13.1.0
+
+### Minor Changes
+
+- 449d736: A workspace can be configured, listed, and reconfigured.
+
+  Every Project in existence ran at delegation depth 4 and width 8. The config was
+  hardcoded identically in both stores, `CreateProjectParams` was
+  `{tenantId, name}`, and there was no way to write one afterwards — so a tenant
+  with several workspaces could not give them different limits, which is most of
+  what having several workspaces is for.
+
+  `CreateProjectParams` gains `config`, and `SessionStore` gains `updateProject`
+  and `listProjects`.
+
+  **Only the fields something reads are settable.** `ProjectConfig` declares
+  eight; five enforcement sites read two of them. The other six have zero
+  production readers — `maxInterventionDepth` included, whose three apparent hits
+  are all comments describing a wiring that does not exist. Exposing those would
+  make a dead field _easier to set_: a host would configure a retention policy,
+  get no error, and believe retention was on. `ProjectConfigInput` is therefore
+  exactly `maxDelegationDepth` and `maxDelegationWidth`, and a field joins it in
+  the same change that gives it a reader.
+
+  **Both new store methods are optional.** Widening a store interface is invisible
+  to callers and fatal to implementors: a host with its own `SessionStore` should
+  not stop compiling because the SDK grew a method. Both stores here implement
+  them; callers check.
+
+  Two decisions worth naming. An update is applied **per field**, so a caller
+  raising the width is not silently resetting the depth — including when a key is
+  present but `undefined`, which is the shape a caller building an update object
+  programmatically produces. And `listProjects` **omits** another tenant's
+  projects rather than refusing: a listing is a question about what you own, and
+  refusing would confirm that somebody else's project is there. Writing to one
+  still throws.
+
+  `listProjects` returns **oldest first, ties broken by id**. The tie-break is
+  load-bearing rather than tidy: `createdAt` has millisecond resolution, several
+  workspaces created in one millisecond is ordinary, and without it the rest of
+  the order came from the directory. A caller paginating a listing that reorders
+  under it sees one project twice and another not at all.
+
+  Verified live against a real run, not only in tests: a workspace created with
+  `maxDelegationWidth: 1` refuses the second concurrent delegation with
+  `Delegation capacity exceeded: width 2/1`, and the same workspace at width 5
+  runs all four.
+
+- c13e7b6: An environment reaches the child it was set for.
+
+  `AgentManager` builds a delegated child's config on two branches. The
+  bare-config branch — taken only when a definition has no `configBuilder` — has
+  always carried `env`. The `configBuilder` branch, which is what a host
+  registering a real agent actually uses, never stamped it. So a run given an
+  environment handed its delegates none of it, and the child ran against whatever
+  the ambient defaults were.
+
+  This is the third field to go the same way. `parentSpan` and `resumeHandler` are
+  both stamped after the builder returns, each with a comment saying the builder is
+  written by whoever registered the agent and cannot be expected to forward
+  something it was never told about. `env` was missed, and it went unnoticed
+  because a missing environment does not fail — the child just runs somewhere else.
+
+  Both delegation surfaces now forward the parent's `ToolContext.env` as a
+  `configOverrides.env`, and the manager merges it **per key** rather than
+  replacing the map: `configOverrides` is a `Partial`, so assignment would drop
+  every key the builder set and the caller did not restate. The override wins per
+  key, the same direction it already wins for `model`, `thinking` and `effort`.
+
+  **Widening worth naming:** a delegating agent's `config.env` now reaches every
+  descendant, on both surfaces. That is what setting an environment was for, and
+  it is a behaviour change for anyone who had been relying on delegates not
+  inheriting one.
+
+  **`env` is for configuration, not credentials**, and the contract now says so
+  where it is declared. The map is copied into every descendant, is readable by
+  any tool, and enters a model's context and the run transcript the moment a
+  command echoes it — properties of the channel, not a judgement about any
+  particular value. A value that authenticates to a host belongs on the brokered
+  credential path, where the process holds a placeholder and the value is attached
+  at egress.
+
+  No new field on `ProjectConfig`. It already carries six fields nothing reads,
+  and a workspace environment does not need a seventh: the mechanism is the
+  environment a run is given, which now actually propagates.
+
 ## 13.0.0
 
 ### Major Changes
