@@ -527,6 +527,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 					id: s.id,
 					description: s.description,
 					toolName: s.toolName,
+					agentId: s.agentId,
 					dependsOn: s.dependsOn,
 					order: s.order ?? i + 1,
 				})),

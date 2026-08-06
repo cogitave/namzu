@@ -1015,6 +1015,46 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 					return { success: false, output: '', error: dependencies.error }
 				}
 
+				// The roster, checked here rather than in the schema, and BEFORE
+				// the plan is built — so a human is never shown a step naming an
+				// agent that cannot run it.
+				//
+				// `create_task` constrains the same field with a closed enum, so
+				// a plan could name an agent the launch would then refuse. The
+				// mismatch used to be invisible because the name was dropped on
+				// the way to the approver; now that a step carries it, an
+				// approver could read "delegate to X" for an X that does not
+				// exist.
+				//
+				// NOT closed in the schema, deliberately. `approve_plan` is
+				// mounted even with an empty roster — planning with no delegates
+				// and a human channel is a supported configuration — and
+				// `z.enum([])` renders as `{"not":{}}`, the shape `delegateSchema`
+				// already refuses because a strict tool-schema validator rejects
+				// the whole request over it rather than the one tool.
+				// `create_task` escapes that by being withheld entirely; this
+				// tool cannot be.
+				//
+				// Enforcing in `execute` as well as the schema is the precedent
+				// the canonical `Agent` tool set for complete mediation.
+				const unknownAgents = [
+					...new Set(
+						steps
+							.map((s) => s.agent_id)
+							.filter((id): id is string => Boolean(id) && !agentIds.includes(id as string)),
+					),
+				]
+				if (unknownAgents.length > 0) {
+					return {
+						success: false,
+						output: '',
+						error:
+							agentIds.length === 0
+								? `This plan delegates to ${unknownAgents.join(', ')}, but this run has no delegates. Plan the work as your own steps and omit agent_id.`
+								: `No such agent: ${unknownAgents.join(', ')}. Delegate only to ${agentIds.join(', ')}, or omit agent_id for a step you carry out yourself.`,
+					}
+				}
+
 				pm.startGenerating(title)
 				for (let i = 0; i < steps.length; i++) {
 					const step = steps[i]
