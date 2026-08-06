@@ -38,7 +38,22 @@ afterEach(async () => {
 	rmSync(dir, { recursive: true, force: true })
 })
 
-/** Resolves once the process is gone, or throws after the deadline. */
+/**
+ * Resolves once the process is gone, or throws after the deadline.
+ *
+ * This asserts the SYMPTOM — the pid no longer exists — and not the mechanism,
+ * and that distinction is worth stating because the same shape can be sound
+ * about the wrong thing: a child that would have exited on its own the moment
+ * its stdin pipe closed would satisfy this whether or not anything killed it,
+ * and the test would report that `close()` works while `close()` did nothing.
+ *
+ * MEASURED, not reasoned about. With `close()` replaced by an early `return`,
+ * this test fails with "process N was still alive after 5000ms" — so the child
+ * does not go away by itself here, and the pid disappearing is caused by the
+ * shutdown path under test. The symptom is the right claim for this package:
+ * whether the runtime also REAPS the child is the transport's business, and
+ * "no process left behind" is what a user is owed.
+ */
 async function waitForExit(pid: number, deadlineMs = 5_000): Promise<void> {
 	const until = Date.now() + deadlineMs
 	for (;;) {
