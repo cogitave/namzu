@@ -21,6 +21,7 @@ import {
 	type TenantId,
 	type ThreadId,
 	UNKNOWN_TENANT_ID,
+	requireOpenProject,
 } from '@namzu/sdk'
 
 const TENANT = UNKNOWN_TENANT_ID as TenantId
@@ -104,8 +105,23 @@ export async function resolveConversation(s: CliSessions, key: string): Promise<
 	return id
 }
 
-/** Start a fresh conversation; returns its session id. */
+/**
+ * Start a fresh conversation; returns its session id.
+ *
+ * The workspace gate runs HERE rather than being assumed from the caller,
+ * because this is a store call and a store deliberately holds no view of
+ * workspace status — the SDK's own note says a direct store caller bypasses
+ * the invariant, and this was such a caller.
+ *
+ * It is not ceremony, and the difference is `openSessions` above: the project
+ * id is read back out of `.namzu/cli.json` and a new project is created only
+ * when the pointer is missing or stale. So on every run after the first, this
+ * attaches a session to a project it did NOT just create — one an owner may
+ * since have closed. A freshly created project is always open, which is why
+ * the first run could never have shown this.
+ */
 export async function startConversation(s: CliSessions): Promise<SessionId> {
+	await requireOpenProject(s.store, s.projectId, s.tenantId, 'cli-session')
 	const session = await s.store.createSession(
 		{ threadId: s.threadId, projectId: s.projectId, currentActor: null },
 		s.tenantId,
