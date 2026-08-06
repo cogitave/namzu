@@ -37,10 +37,27 @@ export class ResultAssembler {
 	}
 
 	async *completeRun(rootSpan: Span): AsyncGenerator<RunEvent> {
-		const { runMgr, activityStore, log, emitEvent, drainPending } = this.config
+		const { runMgr, planManager, activityStore, log, emitEvent, drainPending } = this.config
 
 		if (runMgr.status === 'running') {
 			runMgr.markCompleted(runMgr.stopReason)
+		}
+
+		// Settle the plan, which nothing did on this path — so a plan could
+		// reach `failed` (the error path calls `failPlan`) or stay `executing`
+		// forever, but never `completed`. A host reading `plan.status` after a
+		// successful run saw "still running".
+		//
+		// Only when every step has reported, and the check is a read rather
+		// than a caught throw: `completePlan` refuses an unreported step on
+		// purpose, and turning a run that worked into a run that crashed on its
+		// way out would be a worse version of the bug the refusal prevents.
+		//
+		// A plan with steps nobody reported is LEFT `executing`, which is the
+		// honest answer — the caller and the plan disagree about whether the
+		// work is over, and this is not the place to resolve that by guessing.
+		if (planManager.isActive && planManager.unreportedSteps.length === 0) {
+			planManager.completePlan()
 		}
 
 		await emitEvent({

@@ -95,6 +95,20 @@ export class PlanManager {
 		return this.currentPlan?.status === 'pending_approval'
 	}
 
+	/**
+	 * Steps that have not said how they went — the reason `completePlan` may
+	 * refuse, exposed so a caller can ask before it commits.
+	 *
+	 * The kernel settles a successful plan only when this is empty. It cannot
+	 * catch the refusal instead: a throw on the success path would turn a run
+	 * that worked into a run that crashed on its way out, which is a worse
+	 * version of the bug the refusal exists to prevent.
+	 */
+	get unreportedSteps(): readonly PlanStep[] {
+		if (!this.currentPlan) return []
+		return this.currentPlan.steps.filter((s) => s.status === 'pending' || s.status === 'running')
+	}
+
 	startGenerating(title: string): Plan {
 		const plan: Plan = {
 			id: generatePlanId(),

@@ -88,14 +88,30 @@ describe('coordinator approve_plan tool', () => {
 		])
 	})
 
-	it('keeps the bare-approve tool_result output byte-identical', async () => {
+	it('opens with the historical approval sentence, then names the steps', async () => {
+		// This assertion used to be `toBe` on the whole string, guarding the
+		// approve-with-edits change against disturbing the bare-approve path.
+		// It was never a promise that the output would carry nothing more, and
+		// it now carries the step roster — without which `plan_step_id` and
+		// `update_plan_step` name ids the model has never been told.
 		const result = await executeApprovePlan({ approved: true })
 
 		expect(result.success).toBe(true)
-		expect(result.output).toBe(
-			'Plan approved by user. Proceed with execution — launch workers via create_task.',
-		)
-		expect(result.data).toEqual({ approved: true, feedback: undefined })
+		expect(
+			result.output.startsWith(
+				'Plan approved by user. Proceed with execution — launch workers via create_task.',
+			),
+		).toBe(true)
+		expect(result.output).toContain('step_1 — Extract uploaded DOCX files')
+		expect(result.data).toMatchObject({ approved: true, feedback: undefined })
+	})
+
+	it('carries the step ids in data, so a host does not have to parse prose', async () => {
+		const result = await executeApprovePlan({ approved: true })
+
+		expect((result.data as { steps: unknown }).steps).toEqual([
+			{ step_id: 'step_1', description: 'Extract uploaded DOCX files', agent_id: undefined },
+		])
 	})
 
 	it('embeds approve-with-edits feedback in the output and data', async () => {
@@ -105,12 +121,17 @@ describe('coordinator approve_plan tool', () => {
 		})
 
 		expect(result.success).toBe(true)
-		expect(result.output).toBe(
-			'Plan approved by user with required edits — apply them during execution:\n' +
-				'Skip step 2 and use the staging database instead.\n' +
-				'Proceed with execution — launch workers via create_task.',
-		)
-		expect(result.data).toEqual({
+		expect(
+			result.output.startsWith(
+				'Plan approved by user with required edits — apply them during execution:\n' +
+					'Skip step 2 and use the staging database instead.\n' +
+					'Proceed with execution — launch workers via create_task.',
+			),
+		).toBe(true)
+		// The edits stay ahead of the roster: what the user demanded is the
+		// first thing read, and the step list is reference material after it.
+		expect(result.output.indexOf('staging database')).toBeLessThan(result.output.indexOf('step_1'))
+		expect(result.data).toMatchObject({
 			approved: true,
 			feedback: 'Skip step 2 and use the staging database instead.',
 		})

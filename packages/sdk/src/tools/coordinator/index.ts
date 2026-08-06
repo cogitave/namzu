@@ -413,6 +413,12 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 				.describe(
 					'Existing planning task ID to link. If omitted, a planning task is auto-created.',
 				),
+			plan_step_id: z
+				.string()
+				.optional()
+				.describe(
+					'The approve_plan step this launch carries out (e.g. "step_2"). Pass it and the step reports its own outcome — running on launch, completed or failed when the worker settles — so the plan can say how it went. Omit it only when this launch is not part of the approved plan.',
+				),
 			...(canLaunchInBackground
 				? {
 						background: z
@@ -434,8 +440,23 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 		// children were observed at 8m04s, which it would have survived by
 		// under two minutes.
 		timeoutMs: DELEGATION_TIMEOUT_MS,
-		async execute({ agent_id, prompt, description, plan_task_id, background }, _context) {
+		async execute(
+			{ agent_id, prompt, description, plan_task_id, plan_step_id, background },
+			_context,
+		) {
 			let resolvedPlanTaskId = plan_task_id
+
+			// The binding between a plan step and the work that carries it out.
+			// Without it a plan's steps had no relationship to any tool call, so
+			// nothing could ever observe how a step went — which is why a plan
+			// could report `failed` or stay `executing` forever but never
+			// `completed`.
+			const planStepId = plan_step_id
+			const reportStep = (status: 'running' | 'completed' | 'failed', error?: string): void => {
+				if (!planStepId) return
+				getPlanManager?.()?.updateStepStatus(planStepId, status, error)
+			}
+			reportStep('running')
 
 			if (taskStore) {
 				if (resolvedPlanTaskId) {
@@ -499,6 +520,10 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 						description: 'Failed: the launch was refused before any worker started',
 					})
 				}
+				// Same reason the plan task is closed here: nothing is running,
+				// so a step left `running` would show work underway with no
+				// worker behind it, and the plan could never settle.
+				reportStep('failed', 'the launch was refused before any worker started')
 				return {
 					success: false,
 					output: '',
@@ -598,6 +623,11 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 					description: success ? undefined : `Failed: ${resultText.substring(0, 200)}`,
 				})
 			}
+
+			// The step reports the same outcome, from the same two authorities.
+			// This is the only point in a delegated launch where the answer is
+			// actually known.
+			reportStep(success ? 'completed' : 'failed', success ? undefined : resultText.slice(0, 200))
 
 			return {
 				success,
@@ -1013,17 +1043,38 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 
 				if (response.approved) {
 					pm.startExecution()
+
+					// The step ids, because nothing else tells the model what
+					// they are. `plan_step_id` on create_task and `step_id` on
+					// update_plan_step are both unusable without them — a
+					// binding the caller cannot name is a binding that does not
+					// exist. Rendered from the plan as approved, so a plan the
+					// user edited lists the steps they actually approved.
+					const roster = (pm.active?.steps ?? [])
+						.map((s) => `  ${s.id} — ${s.description}${s.agentId ? ` (${s.agentId})` : ''}`)
+						.join('\n')
+					const howToReport = roster
+						? `\nSteps, and how each reports its outcome:\n${roster}\nPass plan_step_id to create_task for a delegated step; call update_plan_step for one you do yourself. The plan cannot report success until every step has reported.`
+						: ''
+
 					// Approve-with-edits: when the user attached feedback to an
 					// approval, embed it in the model-visible output so the
-					// supervisor applies the edits during execution. A bare
-					// approve keeps the historical output byte-identical.
+					// supervisor applies the edits during execution.
 					const output = response.feedback
-						? `Plan approved by user with required edits — apply them during execution:\n${response.feedback}\nProceed with execution — launch workers via create_task.`
-						: 'Plan approved by user. Proceed with execution — launch workers via create_task.'
+						? `Plan approved by user with required edits — apply them during execution:\n${response.feedback}\nProceed with execution — launch workers via create_task.${howToReport}`
+						: `Plan approved by user. Proceed with execution — launch workers via create_task.${howToReport}`
 					return {
 						success: true,
 						output,
-						data: { approved: true, feedback: response.feedback },
+						data: {
+							approved: true,
+							feedback: response.feedback,
+							steps: (pm.active?.steps ?? []).map((s) => ({
+								step_id: s.id,
+								description: s.description,
+								agent_id: s.agentId,
+							})),
+						},
 					}
 				}
 
@@ -1039,6 +1090,76 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 			},
 		})
 		tools.push(approvePlan)
+
+		/**
+		 * How a step the ORCHESTRATOR did reports its own outcome.
+		 *
+		 * `create_task` reports the steps it carries out, which covers every
+		 * delegated step. A step with no `agent_id` is the orchestrator's own
+		 * work and has no tool call to bind to — so without this there is no
+		 * way for it to ever report, and a plan containing one could never
+		 * settle no matter how well it went.
+		 *
+		 * `skipped` is a first-class outcome and not a euphemism for failure:
+		 * a plan that turned out not to need a step went right, and forcing
+		 * that into `completed` or `failed` would make the plan lie in one
+		 * direction or the other.
+		 */
+		const updatePlanStep = defineTool({
+			name: 'update_plan_step',
+			description:
+				'Report how a step of the approved plan went. Use it for steps YOU carried out — steps delegated with create_task report themselves when you pass plan_step_id. Call it as each step settles, not in a batch at the end: the plan cannot say it succeeded until every step has reported, and an unreported step is not scored as a failure, it simply leaves the plan unsettled. Use "skipped" for a step that turned out not to be needed; that is a successful outcome, not a failure.',
+			inputSchema: z.object({
+				step_id: z.string().describe('The plan step id, e.g. "step_2".'),
+				status: z
+					.enum(['completed', 'skipped', 'failed'])
+					.describe(
+						'How it went. "skipped" means the step was not needed and the plan is still on track.',
+					),
+				error: z
+					.string()
+					.optional()
+					.describe('What went wrong. Only meaningful with status "failed".'),
+			}),
+			category: 'custom',
+			permissions: [],
+			readOnly: false,
+			destructive: false,
+			concurrencySafe: true,
+			async execute({ step_id, status, error }) {
+				const pm = getPlanManager?.()
+				if (!pm?.active) {
+					return {
+						success: false,
+						output: '',
+						error: 'There is no active plan to report against. Call approve_plan first.',
+					}
+				}
+
+				const step = pm.updateStepStatus(step_id, status, error)
+				if (!step) {
+					const known = pm.active.steps.map((s) => s.id).join(', ')
+					return {
+						success: false,
+						output: '',
+						error: `No plan step "${step_id}". This plan's steps are: ${known || '(none)'}.`,
+					}
+				}
+
+				const outstanding = pm.unreportedSteps
+				return {
+					success: true,
+					output:
+						outstanding.length === 0
+							? `Step ${step_id} reported as ${status}. Every step has now reported.`
+							: `Step ${step_id} reported as ${status}. Still unreported: ${outstanding
+									.map((s) => s.id)
+									.join(', ')}.`,
+					data: { step_id, status, unreported: outstanding.map((s) => s.id) },
+				}
+			},
+		})
+		tools.push(updatePlanStep)
 	}
 
 	if (resumeHandler && runId) {
