@@ -21,9 +21,10 @@ import { relative } from 'node:path'
 import { configureLogger } from '@namzu/sdk'
 import type { Message, StopReason } from '@namzu/sdk'
 
-import { EXIT_USAGE } from '../exit-codes.js'
+import { EXIT_UNTRUSTED, EXIT_USAGE } from '../exit-codes.js'
 import type { DetectedProvider, Preferences, ProviderId } from '../integrations/providers/index.js'
 import { openSessions } from '../integrations/sessions/store.js'
+import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { resolvePermissionMode } from '../permissions/mode.js'
 import { compilePermissions } from '../permissions/rules.js'
 import { resolveResume } from './resume.js'
@@ -131,7 +132,16 @@ export const runCommand: CommandDef = {
 		'  --resume <id>         Resume that conversation, and no other',
 		'  --permission-mode <m> prompt | auto | strict — what happens to a call',
 		'                        no [permissions] rule decided (default: auto)',
+		'  --trust               Accept this folder for THIS run',
 		'  --                    End of options; the rest is the prompt verbatim',
+		'',
+		'A folder has to be trusted before namzu will work in it, because namzu',
+		'reads its files, runs commands in it and executes its code. Run `namzu`',
+		'here once and accept the prompt to trust it permanently, or pass --trust',
+		'to accept it for one run. --trust does not remember; that is the point.',
+		'',
+		'--yolo does NOT imply --trust: one is about which tools may run inside a',
+		'folder, the other about the folder.',
 		'',
 		'By default tools run without asking, because there is nobody to ask, and',
 		'the safety gate still refuses catastrophic commands. Use --permission-mode',
@@ -151,7 +161,8 @@ export const runCommand: CommandDef = {
 		'once to pick one interactively.',
 		'',
 		'Exit codes: 0 on a reply, 1 on a failed or unfinished run, 2 when no',
-		'prompt was supplied, 64 when an argument is wrong.',
+		'prompt was supplied, 64 when an argument is wrong, 77 when the folder',
+		'has not been trusted and nothing ran.',
 	].join('\n'),
 	handler: async ({ ctx, rawArgs }) => {
 		const flags = parseRunFlags(rawArgs)
@@ -180,6 +191,15 @@ export const runCommand: CommandDef = {
 		if ('error' in resolved) {
 			ctx.formatter.error({ message: resolved.error })
 			return EXIT_USAGE
+		}
+
+		// Before anything is read, run or constructed in that directory. The
+		// order is the gate: a check that happens after the session is built has
+		// already opened stores and walked the tree it was meant to protect.
+		const trust = decideHeadlessTrust({ cwd: resolved.cwd, trustFlag: flags.trust })
+		if (!trust.allowed) {
+			ctx.formatter.error({ message: trust.message ?? 'folder not trusted' })
+			return EXIT_UNTRUSTED
 		}
 
 		configureLogger({ level: 'silent' })

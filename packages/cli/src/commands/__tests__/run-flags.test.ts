@@ -37,6 +37,16 @@ const instructions: {
 	skipped: readonly { path: string; reason: string }[]
 } = { loaded: [], skipped: [] }
 
+// The folder-trust gate is not what these tests are about: they exercise
+// argument handling, and each runs in a fresh temp directory no operator has
+// ever trusted. Standing in a trusted folder is the ordinary production state,
+// so that is where they stand. The gate itself is tested in
+// `__tests__/headless-trust-gate.test.ts`.
+vi.mock('../../integrations/trust/store.js', () => ({
+	isTrusted: () => true,
+	trustDir: () => {},
+}))
+
 vi.mock('../../tui/agent.js', () => ({
 	probeAgentSession: vi.fn(async () => ({
 		preferences: { version: 2, provider: 'mock', subagents: { active: [] } },

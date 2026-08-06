@@ -26,6 +26,15 @@ const sessionStub = {
 	send: undefined as unknown,
 }
 
+// These tests are about exit codes for a run that STARTED. Standing in a
+// trusted folder is the ordinary production state and is what they need; the
+// gate that refuses an untrusted one is tested in
+// `__tests__/headless-trust-gate.test.ts`.
+vi.mock('../../integrations/trust/store.js', () => ({
+	isTrusted: () => true,
+	trustDir: () => {},
+}))
+
 vi.mock('../../tui/agent.js', () => ({
 	probeAgentSession: vi.fn(async () => ({
 		preferences: { version: 2, provider: 'mock', subagents: { active: [] } },

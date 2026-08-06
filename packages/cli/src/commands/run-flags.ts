@@ -32,6 +32,17 @@ export interface RunFlags {
 	permissionMode: string | null
 	/** --yolo / --dangerously-skip-permissions was given. */
 	skipPermissions: boolean
+	/**
+	 * `--trust`: the operator accepts this working directory, for this run.
+	 *
+	 * Separate from `skipPermissions` on purpose, and the two must never imply
+	 * each other. Skipping permissions is a statement about which tool calls may
+	 * run inside a folder; trust is a statement about the folder. Someone who
+	 * passes `--yolo` in their own repository has asserted nothing whatever
+	 * about a stranger's, and letting an existing flag satisfy a new gate is the
+	 * definition of a gate satisfied by accident.
+	 */
+	trust: boolean
 	/** --continue: pick up the most recent conversation here. */
 	continueLast: boolean
 	/** --resume <id>: pick up this conversation and no other. */
@@ -57,6 +68,7 @@ export function parseRunFlags(rawArgs: readonly string[]): RunFlags {
 		cwd: null,
 		permissionMode: null,
 		skipPermissions: false,
+		trust: false,
 		continueLast: false,
 		resume: null,
 		skills: [],
@@ -108,6 +120,10 @@ export function parseRunFlags(rawArgs: readonly string[]): RunFlags {
 			continue
 		if (a === '--continue' || a === '-c') {
 			out.continueLast = true
+			continue
+		}
+		if (a === '--trust') {
+			out.trust = true
 			continue
 		}
 		if (

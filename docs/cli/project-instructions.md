@@ -92,4 +92,4 @@ The block is injected as system context, after namzu's own identity and rules, a
 
 That framing is a mitigation, not a control — it is a sentence, and a sentence is not a sandbox. The control is which directory you point namzu at.
 
-This matters because the file is read off whatever directory namzu was given, including with `namzu run --cwd ../someone-elses-checkout`. In the TUI the folder-trust prompt gates the whole session before anything is read. **The headless commands have no such gate** — `namzu run` in a freshly cloned repository will read that repository's `AGENTS.md`, and will also run its build. Treat the two the same way, because they are the same decision.
+This matters because the file is read off whatever directory namzu was given, including with `namzu run --cwd ../someone-elses-checkout`. That is why the folder has to be trusted first — in the TUI by the trust prompt, and headlessly by [the same gate](./headless.md#the-folder-has-to-be-trusted). Reading a repository's `AGENTS.md` and running its build are the same decision, and namzu now asks it once, for both.
