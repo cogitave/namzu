@@ -177,18 +177,29 @@ export class InMemoryTaskStore implements TaskStore {
 		const blocked = this.tasks.get(blockedId)
 		if (!blocker || !blocked) return
 
+		let mutated = false
 		if (!blocker.blocks.includes(blockedId)) {
 			blocker.blocks.push(blockedId)
+			mutated = true
 		}
 		if (!blocked.blockedBy.includes(blockerId)) {
 			blocked.blockedBy.push(blockerId)
+			mutated = true
 		}
+		// An edge that already existed is not news. This used to announce
+		// unconditionally while the disk store — the one a host runs in
+		// production — returned early, so the same call sequence produced two
+		// events from one implementation and none from the other. A host
+		// rebuilding a graph from the stream did redundant work against one
+		// store and not the other, and a host counting events to detect change
+		// saw change where there was none.
+		if (!mutated) return
 
 		// Announce BOTH ends. The edge was written and nothing said so, which
 		// left the graph observable only by polling: a listener saw a unit
 		// created and never learned that something now waits on it. Both sides
-		// changed, so both are announced — a host tracking only one would draw
-		// half the edge.
+		// are one fact, so both are announced even when only one array grew —
+		// a host tracking a single side would draw half the edge.
 		const now = Date.now()
 		this.emit({ type: 'task.updated', taskId: blockerId, task: blocker, timestamp: now })
 		this.emit({ type: 'task.updated', taskId: blockedId, task: blocked, timestamp: now })
