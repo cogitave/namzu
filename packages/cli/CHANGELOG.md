@@ -1,5 +1,16 @@
 # @namzu/cli
 
+## 0.7.4
+
+### Patch Changes
+
+- Updated dependencies [d126799]
+  - @namzu/sdk@12.0.0
+  - @namzu/anthropic@3.1.0
+  - @namzu/ollama@2.0.0
+  - @namzu/openai@1.1.0
+  - @namzu/openrouter@2.0.0
+
 ## 0.7.3
 
 ### Patch Changes
