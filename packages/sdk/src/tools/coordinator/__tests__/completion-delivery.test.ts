@@ -298,6 +298,13 @@ describe('waiting explicitly beats listing in a loop', () => {
 describe('the task listing carries the output it always had', () => {
 	async function listWith(result: string): Promise<string> {
 		const h = harness()
+		// Launch it first. The listing is scoped to what this run launched, so
+		// settling a task the tools never created describes a sibling run's
+		// work — which the listing now declines to show, correctly.
+		await toolNamed(h.tools, 'create_task').execute(
+			{ agent_id: 'reviewer', prompt: 'go', description: 'review', background: true },
+			{} as never,
+		)
 		h.settle({
 			taskId: 'tsk_1' as TaskId,
 			agentId: 'reviewer',

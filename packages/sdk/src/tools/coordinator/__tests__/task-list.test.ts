@@ -27,13 +27,27 @@ function makeContext(): ToolContext {
 	}
 }
 
+/**
+ * Hands back the seeded handles in order, one per `createTask`.
+ *
+ * The listing is scoped to what this tool set launched, so a fixture that
+ * only stuffed `listTasks()` would now list nothing — and a gateway holding
+ * tasks these tools never launched is precisely the sibling-run case the
+ * scope exists to refuse. So the tests launch through the front door and the
+ * fixture plays along.
+ */
 function gatewayWith(handles: TaskHandle[]): TaskGateway {
+	let nextLaunch = 0
 	return {
 		async createTask() {
-			throw new Error('not used')
+			const h = handles[nextLaunch++]
+			if (!h) throw new Error('fixture ran out of seeded handles')
+			return h
 		},
-		async waitForTask() {
-			throw new Error('not used')
+		async waitForTask(id) {
+			const h = handles.find((x) => x.taskId === id)
+			if (!h) throw new Error(`fixture has no handle ${id}`)
+			return h
 		},
 		async continueTask() {},
 		cancelTask() {},
@@ -79,12 +93,29 @@ function handle(input: {
 	}
 }
 
-function findAgentTaskList(gateway: TaskGateway) {
+/**
+ * Build the coordinator surface, launch each seeded handle through
+ * `create_task`, and return `agent_task_list`.
+ *
+ * Launching is what puts the tasks in this run's scope. Reaching past it to
+ * seed the gateway directly would test a listing nobody can produce.
+ */
+async function agentTaskListOver(seeded: TaskHandle[]) {
 	const tools = buildCoordinatorTools({
-		gateway,
+		gateway: gatewayWith(seeded),
 		workingDirectory: '/tmp/test',
 		allowedAgentIds: ['solution-architecture', 'enterprise-architecture'],
 	})
+
+	const createTask = tools.find((tool) => tool.name === 'create_task')
+	if (!createTask) throw new Error('create_task tool missing from coordinator builder')
+	for (const h of seeded) {
+		await createTask.execute(
+			{ agent_id: h.agentId, prompt: 'work', description: `launch ${h.taskId}` },
+			makeContext(),
+		)
+	}
+
 	const t = tools.find((tool) => tool.name === 'agent_task_list')
 	if (!t) throw new Error('agent_task_list tool missing from coordinator builder')
 	return t
@@ -92,7 +123,7 @@ function findAgentTaskList(gateway: TaskGateway) {
 
 describe('coordinator agent_task_list tool', () => {
 	it('lists every task with state, agent, and timing', async () => {
-		const gateway = gatewayWith([
+		const seeded = [
 			handle({
 				id: 'task_a',
 				agentId: 'solution-architecture',
@@ -114,9 +145,8 @@ describe('coordinator agent_task_list tool', () => {
 				completedAt: 4000,
 				lastError: 'bash exit 1',
 			}),
-		])
-
-		const tool = findAgentTaskList(gateway)
+		]
+		const tool = await agentTaskListOver(seeded)
 		const result = await tool.execute({}, makeContext())
 		expect(result.success).toBe(true)
 		expect(result.output).toMatch(/Tasks: 3 total/)
@@ -131,7 +161,7 @@ describe('coordinator agent_task_list tool', () => {
 	})
 
 	it('filters by state', async () => {
-		const gateway = gatewayWith([
+		const seeded = [
 			handle({
 				id: 'task_a',
 				agentId: 'solution-architecture',
@@ -145,9 +175,8 @@ describe('coordinator agent_task_list tool', () => {
 				state: 'running',
 				createdAt: 1000,
 			}),
-		])
-
-		const tool = findAgentTaskList(gateway)
+		]
+		const tool = await agentTaskListOver(seeded)
 		const result = await tool.execute({ state: 'running' }, makeContext())
 		expect(result.success).toBe(true)
 		const data = result.data as { items: Array<{ task_id: string }> }
@@ -157,7 +186,7 @@ describe('coordinator agent_task_list tool', () => {
 	})
 
 	it('handles an empty gateway', async () => {
-		const tool = findAgentTaskList(gatewayWith([]))
+		const tool = await agentTaskListOver([])
 		const result = await tool.execute({}, makeContext())
 		expect(result.success).toBe(true)
 		expect(result.output).toMatch(/Tasks: 0 total/)
@@ -224,7 +253,7 @@ describe('agent_task_list frames what a worker said', () => {
 	}
 
 	async function render(text: string): Promise<string> {
-		const tool = findAgentTaskList(gatewayWith([withResult(text)]))
+		const tool = await agentTaskListOver([withResult(text)])
 		const out = await tool.execute({}, makeContext())
 		return out.output
 	}
@@ -263,11 +292,9 @@ describe('agent_task_list frames what a worker said', () => {
 	})
 
 	it('says nothing extra for a task that produced no output', async () => {
-		const tool = findAgentTaskList(
-			gatewayWith([
-				handle({ id: 'task_none', agentId: 'reviewer', state: 'running', createdAt: 0 }),
-			]),
-		)
+		const tool = await agentTaskListOver([
+			handle({ id: 'task_none', agentId: 'reviewer', state: 'running', createdAt: 0 }),
+		])
 
 		const out = await tool.execute({}, makeContext())
 

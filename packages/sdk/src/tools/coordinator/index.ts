@@ -308,6 +308,33 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 		// compatibility (Agent tool consumes it from its own path).
 	} = opts
 	const cwd = opts.workingDirectory
+
+	/**
+	 * The tasks THIS surface launched — the scope of everything it will read back.
+	 *
+	 * A `TaskGateway` is shared on purpose: `SupervisorAgentConfig.gateway`
+	 * exists so a host can hand the same one to several runs. `listTasks()` is
+	 * therefore gateway-wide by design, and `agent_task_list` used to hand that
+	 * straight to the model — so a supervisor could read a sibling run's worker
+	 * output, including the `result` field, by listing. `wait_for_task` had the
+	 * same reach through `getTask`.
+	 *
+	 * That is the leak `CompletionInbox` closed on the push side, through a
+	 * different door: the inbox refuses a completion for a task it was not told
+	 * about, precisely because `onTaskCompleted` is a broadcast. The pull side
+	 * kept no such record and asked the gateway directly.
+	 *
+	 * The scope lives here rather than in `listTasks()` because the two answer
+	 * different questions. A host calling `listTasks()` is the operator and may
+	 * legitimately want everything on its gateway; a model calling
+	 * `agent_task_list` is one run asking about its own work. Narrowing the
+	 * gateway method would take the operator's view away to fix the model's.
+	 *
+	 * Consequence worth stating: a task launched through a DIFFERENT surface on
+	 * the same gateway — `buildAgentTool`, or the host itself — is not listed
+	 * here. That is the same rule, not an exception to it.
+	 */
+	const launchedHere = new Set<TaskId>()
 	void opts.onTaskLaunched
 
 	const agentIdEnum = delegateSchema(agentIds)
@@ -445,6 +472,9 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 			// blocking one needs it too, because the case the inbox exists for
 			// is exactly the blocking launch whose wait was abandoned.
 			completionInbox?.launched(handle.taskId)
+
+			// ...and whose it is for the READ side too. See `launchedHere`.
+			launchedHere.add(handle.taskId)
 
 			// A background launch asked for with nowhere to deliver it is
 			// REFUSED, not quietly turned into a blocking one.
@@ -631,6 +661,21 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 		// waiting. Same bound as the launch it is waiting on.
 		timeoutMs: DELEGATION_TIMEOUT_MS,
 		async execute({ task_id }, _context) {
+			// Same scope as the listing — see `launchedHere`. Asked FIRST, so a
+			// task belonging to a sibling run on a shared gateway is refused
+			// here rather than waited on and then read.
+			if (!launchedHere.has(task_id as TaskId)) {
+				// Deliberately does not distinguish "never existed" from
+				// "belongs to someone else". The second answer is itself the
+				// leak in miniature: it confirms a task id a run was not
+				// supposed to know about.
+				return {
+					success: false,
+					output: `No task ${task_id} was launched by this run. Call agent_task_list to see the tasks you can wait on.`,
+					data: { task_id },
+				}
+			}
+
 			const known = gateway.getTask(task_id as TaskId)
 			if (!known) {
 				return {
@@ -716,7 +761,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 
 	const agentTaskList = defineTool({
 		name: 'agent_task_list',
-		description: `Inspect the live state of every agent task launched on this gateway via create_task: returns each task's id, agent, state (pending/running/completed/failed/canceled), and timing. Distinct from the plan-task store's \`task_list\` (which lists planning tasks): this tool lists running/completed worker invocations. ${listingAdvice}`,
+		description: `Inspect the live state of the agent tasks YOU launched with create_task: returns each task's id, agent, state (pending/running/completed/failed/canceled), and timing. Tasks launched by another run are not listed, even when it shares this gateway. Distinct from the plan-task store's \`task_list\` (which lists planning tasks): this tool lists running/completed worker invocations. ${listingAdvice}`,
 		inputSchema: z.object({
 			state: z
 				.enum(['pending', 'running', 'completed', 'failed', 'canceled'])
@@ -729,7 +774,10 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 		destructive: false,
 		concurrencySafe: true,
 		async execute({ state }) {
-			const handles = gateway.listTasks()
+			// Scoped to this run's own launches — see `launchedHere`. The
+			// gateway may hold a sibling run's tasks, and this listing is not
+			// the door to them.
+			const handles = gateway.listTasks().filter((h) => launchedHere.has(h.taskId))
 			const filtered = state ? handles.filter((h) => h.state === state) : handles
 			const items = filtered.map((h) => {
 				const runStatus = h.result?.status
