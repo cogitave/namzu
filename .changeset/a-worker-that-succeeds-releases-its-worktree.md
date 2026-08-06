@@ -1,5 +1,5 @@
 ---
-'@namzu/sdk': patch
+'@namzu/sdk': major
 ---
 
 A delegated child releases its workspace when it succeeds, not only when it fails.
@@ -26,11 +26,18 @@ provisioning stays legal.
 
 Two consequences worth knowing before you take the upgrade:
 
-- **A worktree is gone once the child that owned it completes.** If you were
-  reading a child's workspace after a successful delegation — through
-  `AgentManager.getSpawnRecord(taskId)`, which is the only way that was
-  available — read it from inside the child, or from a `subsession_idled`
-  listener's own copy, before it settles. Disposal runs before that event.
+- **A worktree is gone once the child that owned it completes**, and this is the
+  breaking part. Reading a child's workspace after a successful delegation
+  worked — `AgentManager.getSpawnRecord(taskId).workspaceRef` returned a live
+  ref, and the directory then persisted indefinitely because nothing removed
+  it. That was the leak, but a host inspecting a worker's artifacts afterwards
+  could reasonably have been built on it.
+
+  There is no host-side replacement, so take what you need from inside the
+  child: have the worker write its output where the result can carry it, or
+  copy the files out before its run settles. In particular a `subsession_idled`
+  listener is **too late** — disposal runs before that event is emitted,
+  deliberately, so nothing can reach into a workspace that is already going.
 - **`archive()` now resolves workspaces for spawn-created sub-sessions.** If you
   pass a `workspaceResolver`, it will start being called on this path, and an
   archive bundle may now carry a `workspace` field where it previously never
