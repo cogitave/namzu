@@ -14,6 +14,17 @@ import type { RunEventListener } from '../types/run/events.js'
 import { toErrorMessage } from '../utils/error.js'
 import { getRootLogger } from '../utils/logger.js'
 
+/**
+ * How many launched tasks a gateway remembers.
+ *
+ * High enough that no realistic single run reaches it — a fan-out is eight,
+ * a long supervisory run is dozens — so the listing a supervisor reads at the
+ * end of its run is always complete. It exists for the host that reuses one
+ * gateway across runs, where the alternative is a set and a map that grow for
+ * the life of the process.
+ */
+const GATEWAY_TASK_LEDGER_CAP = 1_000
+
 export class LocalTaskGateway implements TaskGateway {
 	private agentManager: AgentManagerContract
 	private taskContext: AgentTaskContext
@@ -140,6 +151,7 @@ export class LocalTaskGateway implements TaskGateway {
 
 		launched.id = task.taskId
 		this.trackedTaskIds.add(task.taskId)
+		this.forgetOldestBeyondCap()
 
 		this.agentManager
 			.waitForCompletion(task.taskId)
@@ -240,6 +252,30 @@ export class LocalTaskGateway implements TaskGateway {
 	rememberSettled(taskId: TaskId): void {
 		const task = this.agentManager.getInstance(taskId)
 		if (task) this.settledHandles.set(taskId, toHandle(task))
+	}
+
+	/**
+	 * Drop the oldest tasks once the ledger passes {@link GATEWAY_TASK_LEDGER_CAP}.
+	 *
+	 * A gateway constructed per run is bounded by that run and this never
+	 * fires. But `SupervisorAgentConfig.gateway` lets a host supply its own,
+	 * and a long-lived host reusing one accumulates an id and a settled handle
+	 * per task it ever launched, for the life of the process — the doc above
+	 * says "bounded by the number the gateway itself launched", which is true
+	 * and is not a bound when the gateway outlives the run.
+	 *
+	 * Both collections are evicted **together and in insertion order**. Losing
+	 * a tracked id while keeping its handle, or the reverse, would make a task
+	 * that ran read as one that never launched — which is the exact defect the
+	 * settled-handle map was added to fix, reintroduced by its own cleanup.
+	 */
+	private forgetOldestBeyondCap(): void {
+		while (this.trackedTaskIds.size > GATEWAY_TASK_LEDGER_CAP) {
+			const oldest = this.trackedTaskIds.values().next().value
+			if (oldest === undefined) return
+			this.trackedTaskIds.delete(oldest)
+			this.settledHandles.delete(oldest)
+		}
 	}
 
 	listTasks(): TaskHandle[] {
