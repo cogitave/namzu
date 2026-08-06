@@ -484,6 +484,12 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 				// Hang the child run off THIS tool's span, so the delegation
 				// shows up inside the turn that asked for it.
 				...(_context.parentSpan ? { parentSpan: _context.parentSpan } : {}),
+				// Same as the `Agent` tool: a delegate inherits the environment
+				// its parent was given, or it runs against different services
+				// than the run that asked for the work.
+				...(Object.keys(_context.env ?? {}).length > 0
+					? { configOverrides: { env: _context.env } }
+					: {}),
 			})
 
 			// Whose task this is. The inbox ignores completions for anything it

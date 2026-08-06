@@ -146,6 +146,13 @@ export function buildAgentTool(opts: AgentToolOptions): ToolDefinition {
 				// surface, and the one it exports as the canonical shape —
 				// did not.
 				...(context.parentSpan ? { parentSpan: context.parentSpan } : {}),
+				// The parent's environment, which is the whole point of setting
+				// one: a delegate that cannot see it runs against different
+				// services than the run that launched it, silently.
+				// `ToolContext.env` is the parent's own resolved map, per run.
+				...(Object.keys(context.env ?? {}).length > 0
+					? { configOverrides: { env: context.env } }
+					: {}),
 			})
 
 			onTaskLaunched?.(handle.taskId, {
