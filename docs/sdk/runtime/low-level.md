@@ -1,7 +1,7 @@
 ---
 title: Low-Level Runtime
 description: Use query() and drainQuery() directly in @namzu/sdk when you need sandbox providers, plugin wiring, event streaming, or other query-only runtime controls.
-last_updated: 2026-08-05
+last_updated: 2026-08-06
 status: current
 related_packages: ["@namzu/sdk", "@namzu/openai"]
 ---
@@ -200,6 +200,20 @@ const resumeHandler = async (request) => {
 ```
 
 Use `autoApproveHandler` only when the runtime should continue automatically.
+
+A `plan_approval` request carries the plan on `request.plan`, and each entry of
+`request.plan.steps` names the agent it delegates to on `agentId` — absent means
+the step is the orchestrator's own work. Approving "delegate this step" is not
+the same as approving "delegate this step to the agent with shell access", so an
+auto-approver that ignores the field is approving something it has not read.
+
+> **`PlanApprovalData.steps[].agentId` is new in `@namzu/sdk` 12.2.0.** Earlier
+> versions carried the field only on `PlanApprovalRequest`, the surface you get
+> from installing your own handler on `PlanManager` — not on this one, which is
+> the path a `resumeHandler` is served by.
+
+The full plan lifecycle — approving, reporting each step, and settling — is in
+[Plans and Step Reporting](./plans.md).
 
 ### Remembering an approval, at a scope you choose
 

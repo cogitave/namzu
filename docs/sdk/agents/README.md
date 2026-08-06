@@ -1,7 +1,7 @@
 ---
 title: Agents and Orchestration
 description: Choose the right SDK agent class, understand delegation boundaries, and wire orchestration surfaces safely in @namzu/sdk.
-last_updated: 2026-08-05
+last_updated: 2026-08-06
 status: current
 related_packages: ["@namzu/sdk"]
 ---
@@ -202,9 +202,17 @@ That last step matters. From the current implementation, `RouterAgent` forwards 
 
 1. create coordinator tools
 2. launch child tasks through a `gateway` or `agentManager`
-3. keep task handles and launched-task metadata
+3. keep task handles
 4. run the parent loop through `drainQuery()`
 5. collect child task results into the final supervisor result
+
+> **Changed in `@namzu/sdk` 10.0.0.** Step 3 used to also accumulate
+> launched-task metadata into a map threaded through `drainQuery`. Nothing
+> ever read it, so `drainQuery` no longer accepts `launchedTasks` and
+> `LaunchedTaskMeta` is no longer exported. If you passed either, delete the
+> argument — it was not doing anything. To observe launches, pass
+> `onTaskLaunched` to `buildCoordinatorTools`; that signal is unchanged and
+> the canonical `Agent` tool still calls it.
 
 Current hard requirements:
 
@@ -215,6 +223,50 @@ Current hard requirements:
   are available. Its model contract requires `options` to be a JSON array of
   2–4 objects with a `label` (and optional `description`); capable providers
   constrain that shape, while the runtime decoder remains authoritative.
+
+### Bounding the fan-out, and what a failed child means for its siblings
+
+> **New in `@namzu/sdk` 9.0.0.** Both fields existed in the kernel and neither
+> could be selected from `SupervisorAgentConfig`.
+
+| Field | Default | What it decides |
+| --- | --- | --- |
+| `maxToolConcurrency` | kernel default | how many delegated children run **concurrently** |
+| `siblingFailurePolicy` | `'continue'` | whether a failed child tears down the ones still running |
+
+`maxToolConcurrency` bounds concurrency, not launches. A model that emits
+twenty `create_task` blocks still launches twenty; they queue. Previously the
+agent whose entire job is delegation could not set the gate that bounds
+delegation, while `ReactiveAgent` could — a host wanting a narrower fan-out had
+to reach past the supervisor into `drainQuery`.
+
+`'continue'` remains the default deliberately: partial results are usually
+worth having, and tearing down healthy siblings on any failure lets one flaky
+child waste four good ones. `'cancel-siblings'` is for a fan-out whose parts
+only mean something together — if one leg of a comparison dies, the others are
+spending budget on an answer nobody can use. The choice is now expressible; the
+answer has not changed.
+
+`siblingFailurePolicy` is **ignored when you supply your own `gateway`**, which
+owns its own policy.
+
+### Pinning a delegated run's config
+
+> **Changed in `@namzu/sdk` 9.0.0.** `CreateTaskOptions.configOverrides` is
+> forwarded instead of dropped, and is now typed `Partial<BaseAgentConfig>`
+> rather than `Record<string, unknown>`.
+
+A caller pinning a delegated run to a cheaper model, or capping its iterations,
+previously got the agent's defaults and no indication anything had been
+ignored. The overrides now land on the child.
+
+The type change is the breaking half: the loose shape let a misspelled key
+type-check and then silently do nothing. A key that is not on
+`BaseAgentConfig` now fails to compile — and it was never being applied.
+
+A caller who sets both `configOverrides.parentSpan` and the dedicated
+`parentSpan` option gets the dedicated one for the span, and keeps every other
+override alongside it.
 
 ### Declining to delegate at all
 
@@ -302,7 +354,7 @@ The supervisor can also reach a task itself:
 | tool | use |
 | --- | --- |
 | `wait_for_task` | block until a running task finishes and return its output |
-| `agent_task_list` | every task with its state, timing and — for finished ones — its output |
+| `agent_task_list` | every task **this run launched**, with its state, timing and — for finished ones — its output |
 | `cancel_task` | stop a task the supervisor no longer needs |
 
 **Do not poll `agent_task_list` to find out whether work finished.** A blocking
@@ -310,6 +362,49 @@ The supervisor can also reach a task itself:
 listing is for taking stock — what is running, how long it has been — not for
 waiting; `wait_for_task` is the wait, and it costs one call rather than a turn
 per check.
+
+#### The listing is scoped to the run that launched the task
+
+> **Changed in `@namzu/sdk` 11.0.0.** `agent_task_list` and `wait_for_task`
+> now see only the tasks their own run launched.
+
+A `TaskGateway` is shared on purpose — `SupervisorAgentConfig.gateway` exists so
+a host can hand the same one to several runs — which makes
+`TaskGateway.listTasks()` gateway-wide by design. `agent_task_list` used to hand
+that straight to the model, including each task's `result`, so a supervisor
+could read a sibling run's worker output by listing. `wait_for_task` had the
+same reach.
+
+The scope lives in the coordinator tools rather than in `listTasks()` because
+the two answer different questions. **A host calling `listTasks()` is the
+operator** and may legitimately want everything on its gateway; a model calling
+`agent_task_list` is one run asking about its own work. Narrowing the gateway
+method would take the operator's view away in order to fix the model's — so if
+you want the wide view, call `TaskGateway.listTasks()` yourself. It is
+unchanged.
+
+`wait_for_task` gives the same answer for a sibling's task as for one that never
+existed. Distinguishing them would confirm a task id to a run that was not
+supposed to know it — the leak in miniature.
+
+**Also worth knowing:** a task launched through a *different* surface on the
+same gateway — `buildAgentTool`, or the host directly — is not listed by these
+tools either. That is the same rule rather than an exception to it, but it is a
+behaviour change if you mixed surfaces on one gateway and listed through the
+coordinator.
+
+#### Reporting a plan step from a delegated launch
+
+`create_task` accepts `plan_step_id`. Pass it and the named step of the approved
+plan goes `running` when the worker starts and `completed` or `failed` when it
+settles, from the same two-authority check the tool result uses.
+
+Steps the model carries out itself report through `update_plan_step` instead.
+Both are covered in [Plans and Step Reporting](../runtime/plans.md).
+
+> **`update_plan_step` is a new name in the coordinator tool set as of
+> `@namzu/sdk` 11.0.0.** A host that registers its own tool under that name now
+> gets `ToolNameCollisionError` at run start.
 
 #### Two clocks bound the wait
 
@@ -450,6 +545,38 @@ stale an answer may be is the host's judgement, not the SDK's.
 Instance-scoped, like the lock: deduplicating across processes needs
 somewhere durable to record the key, which is a store the host owns.
 
+### A fan-out naming one agent gets one shell per child
+
+> **New in `@namzu/sdk` 12.1.0.** `Agent` gains an optional `forRun()`, and
+> `AgentDefinition` gains `createAgent`.
+
+Constructing a second instance is the remedy above, and until 12.1.0 it was
+unreachable from delegation, where the definition owns the instance and the
+caller has only an id. `AgentRegistry` hands out one `typedAgent` per
+registered id, so four `create_task` calls naming the same `agent_id` drove
+four runs at one shell: one produced a result and three died with
+`ConcurrentInvocationError` — while `create_task`'s own description tells a
+model that exactly this fan-out is the thing to do.
+
+`AgentManager` now takes a fresh shell per spawn:
+
+| Hook | Who implements it | When you need it |
+| --- | --- | --- |
+| `Agent.forRun()` | `AbstractAgent`, already | nothing — agents built on `AbstractAgent` just work |
+| `AgentDefinition.createAgent` | you | your agent needs real construction arguments a metadata-only rebuild cannot supply |
+
+`createAgent` wins over `forRun` when both are present. **Most hosts need
+neither.**
+
+Nothing else about a child was ever shared: its abort signal is the task's own,
+its config is rebuilt per spawn by `configBuilder`, and the manager cancels
+through the task rather than the agent. The shell was the last shared thing.
+
+The lock itself is unchanged and still refuses — that refusal is right for a
+host calling `run` twice on one instance on purpose. What changed is that
+delegation no longer does so by accident. Its message now names the remedy
+rather than only the refusal.
+
 ## 9. Common Mistakes
 
 | Mistake | Why it hurts |
@@ -464,6 +591,7 @@ somewhere durable to record the key, which is a store the host owns.
 
 - [SDK Quickstart](../quickstart.md)
 - [Low-Level Runtime](../runtime/low-level.md)
+- [Plans and Step Reporting](../runtime/plans.md)
 - [Run Configuration](../runtime/configuration.md)
 - [Run Identities](../runtime/identities.md)
 - [Sessions, Workspaces, and Retention](../sessions/README.md)
