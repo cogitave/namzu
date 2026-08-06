@@ -114,6 +114,19 @@ export async function createSubagentRuntime(
 		{ projectId: project.id, title: 'namzu-cli' },
 		tenantId,
 	)
+	// No workspace gate here, and that is a finding rather than an omission.
+	//
+	// A direct `createSession` bypasses `requireOpenProject`, which is why the
+	// CLI's persistent conversation store now calls it explicitly. This site is
+	// the other shape: the store is a fresh `InMemorySessionStore` built four
+	// lines up, the project was created two lines up, and neither outlives this
+	// runtime — so the id can never be one an owner has closed. A gate on a path
+	// that always creates its own project checks a condition that cannot be
+	// false, and a check that cannot fail teaches the next reader nothing except
+	// that gates here are decoration.
+	//
+	// The trigger to add one is the day this store is replaced by a persistent
+	// one, or the project id starts arriving from a caller.
 	const parentSession = await store.createSession(
 		{ threadId: thread.id, projectId: project.id, currentActor: userActor },
 		tenantId,
