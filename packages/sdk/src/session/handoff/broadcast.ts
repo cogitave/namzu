@@ -21,6 +21,7 @@
  * ```
  */
 
+import { requireOpenProject } from '../../manager/project/lifecycle.js'
 import type { ThreadManager } from '../../manager/thread/lifecycle.js'
 import type { SessionId, TenantId } from '../../types/ids/index.js'
 import type { Session } from '../../types/session/entity.js'
@@ -189,11 +190,9 @@ export async function executeBroadcastHandoff(
 	}
 
 	// 6. Capacity — width + depth. Width covers N new children in one shot
-	//    (§6.5); depth covers `source.depth + 1 ≤ maxDepth`.
-	const project = await deps.store.getProject(source.projectId, tenantId)
-	if (!project) {
-		throw new Error(`Project ${source.projectId} not found`)
-	}
+	//    (§6.5); depth covers `source.depth + 1 ≤ maxDepth`. The same read is
+	//    the archive gate: a closed workspace takes no broadcast either.
+	const project = await requireOpenProject(deps.store, source.projectId, tenantId, 'broadcast')
 	await deps.capacity.validateWidth(
 		source.id,
 		assignments.length,

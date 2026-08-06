@@ -8,11 +8,11 @@
  * (Convention #5 deny-by-default, session-hierarchy.md §12.2).
  */
 
-import { StaleSessionError, TenantIsolationError } from '../../session/errors.js'
+import { StaleProjectError, StaleSessionError, TenantIsolationError } from '../../session/errors.js'
 import { SessionAlreadySummarizedError } from '../../session/summary/errors.js'
 import type { MessageId, SessionId, TenantId } from '../../types/ids/index.js'
 import type { Message } from '../../types/message/index.js'
-import type { Project } from '../../types/project/entity.js'
+import type { Project, ProjectStatus } from '../../types/project/entity.js'
 import type { Session } from '../../types/session/entity.js'
 import type { ProjectId, SubSessionId, ThreadId } from '../../types/session/ids.js'
 import type { SessionMessage } from '../../types/session/messages.js'
@@ -93,6 +93,8 @@ export class InMemorySessionStore implements SessionStore {
 				maxDelegationWidth: params.config?.maxDelegationWidth ?? 8,
 				maxInterventionDepth: 10,
 			},
+			status: 'open',
+			ownerVersion: 0,
 			createdAt: now,
 			updatedAt: now,
 		}
@@ -128,6 +130,35 @@ export class InMemorySessionStore implements SessionStore {
 					? { maxDelegationWidth: config.maxDelegationWidth }
 					: {}),
 			},
+			updatedAt: new Date(),
+		}
+		this.projects.set(projectId, { tenantId, project })
+		return project
+	}
+
+	async setProjectStatus(
+		projectId: ProjectId,
+		status: ProjectStatus,
+		tenantId: TenantId,
+		expectedOwnerVersion: number,
+	): Promise<Project | null> {
+		const record = this.projects.get(projectId)
+		if (!record) return null
+		this.assertTenant(record.tenantId, tenantId, `project(${projectId})`)
+		// Against the STORED version, not the caller's copy of it — comparing a
+		// value against itself is the shape the session CAS was written wrong in
+		// the first time.
+		if (record.project.ownerVersion !== expectedOwnerVersion) {
+			throw new StaleProjectError({
+				projectId,
+				expectedOwnerVersion,
+				actualOwnerVersion: record.project.ownerVersion,
+			})
+		}
+		const project: Project = {
+			...record.project,
+			status,
+			ownerVersion: record.project.ownerVersion + 1,
 			updatedAt: new Date(),
 		}
 		this.projects.set(projectId, { tenantId, project })
@@ -192,6 +223,22 @@ export class InMemorySessionStore implements SessionStore {
 			matches.push(record.session)
 		}
 		matches.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+		return matches
+	}
+
+	async listSessionsByProject(
+		projectId: ProjectId,
+		tenantId: TenantId,
+	): Promise<readonly Session[]> {
+		const matches: Session[] = []
+		for (const record of this.sessions.values()) {
+			if (record.tenantId !== tenantId) continue
+			if (record.session.projectId !== projectId) continue
+			matches.push(record.session)
+		}
+		matches.sort(
+			(a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id),
+		)
 		return matches
 	}
 

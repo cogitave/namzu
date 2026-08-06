@@ -20,6 +20,7 @@
  *   9. Emit `onCommitted` with the new version.
  */
 
+import { requireOpenProject } from '../../manager/project/lifecycle.js'
 import type { ThreadManager } from '../../manager/thread/lifecycle.js'
 import type { SessionId, TenantId } from '../../types/ids/index.js'
 import type { Session } from '../../types/session/entity.js'
@@ -145,10 +146,10 @@ export async function executeSingleHandoff(
 	//    ownership of the same session. Width only applies to broadcast).
 	//    For `single` we still validate depth to future-proof should the flow
 	//    evolve into a branch variant.
-	const project = await deps.store.getProject(source.projectId, tenantId)
-	if (!project) {
-		throw new Error(`Project ${source.projectId} not found`)
-	}
+	//    The same read is the archive gate: an archived workspace accepts no
+	//    handoff either. Transferring ownership into a closed workspace would
+	//    be a new owner for work its project says is finished.
+	const project = await requireOpenProject(deps.store, source.projectId, tenantId, 'handoff')
 	await deps.capacity.validateDepth(source.id, project.config.maxDelegationDepth, tenantId)
 
 	// 5. CAS → `idle → locked`.
