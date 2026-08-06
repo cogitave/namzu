@@ -559,7 +559,6 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		? eventTranslator.wireTaskStore(params.taskStore, ctx.runId)
 		: undefined
 
-
 	if (params.taskStore) {
 		const taskTools = buildTaskTools(params.taskStore, ctx.runId)
 		const overrides = params.runtimeToolOverrides
