@@ -109,6 +109,24 @@ export interface PlanApprovalData {
 		id: string
 		description: string
 		toolName?: string
+
+		/**
+		 * Which agent the step is to be delegated to, when it is delegated.
+		 *
+		 * `PlanStep` gained this so an approver could see WHICH agent a step
+		 * goes to rather than only THAT it delegates — approving "delegate
+		 * this" is not approving "delegate this to the agent with shell
+		 * access". It reached `PlanApprovalRequest`, which is the shape a host
+		 * sees when it installs its own handler on `PlanManager`.
+		 *
+		 * It did not reach here, and this is the ordinary path: every host
+		 * using `resumeHandler` is served by this type, and both mappers that
+		 * build it copy field by field. So the fix landed on one of the two
+		 * approval surfaces and the busier one kept showing
+		 * `toolName: 'create_task'` and nothing else.
+		 */
+		agentId?: string
+
 		dependsOn: string[]
 		order: number
 	}>

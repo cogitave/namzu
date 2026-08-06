@@ -29,6 +29,7 @@ export async function* runPlanGate(ctx: IterationContext): AsyncGenerator<RunEve
 				id: s.id,
 				description: s.description,
 				toolName: s.toolName,
+				agentId: s.agentId,
 				dependsOn: s.dependsOn,
 				order: s.order,
 			})),
