@@ -226,6 +226,11 @@ export {
 	EmergencySaveManager,
 	PlanManager,
 	ProjectManager,
+	// The gate itself, not only the manager that wraps it. A host writing its
+	// own ingress path — a custom handoff, a queue consumer that creates
+	// sessions — needs to refuse a closed workspace without constructing a
+	// manager, which is the reason it is a function over a store.
+	requireOpenProject,
 	RunPersistence,
 	ThreadManager,
 } from './manager/index.js'
