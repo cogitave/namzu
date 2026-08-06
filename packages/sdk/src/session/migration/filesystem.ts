@@ -248,6 +248,34 @@ export class DefaultFilesystemMigrator implements FilesystemMigrator {
 
 				const legacyThreadId = entry
 				const suffix = legacyThreadId.slice('thd_'.length)
+
+				// The suffix comes off the filesystem, and `startsWith('thd_')`
+				// is the only thing it has passed. A folder named `thd_Not An
+				// Id` mints `prj_legacy_Not An Id`: structurally a `ProjectId`,
+				// accepted by no validator, and now a directory name in the new
+				// layout. The migration is the one place a project id is built
+				// from data rather than generated, so it is the one place the
+				// id contract has to be checked.
+				//
+				// (Not a containment check — it cannot be one. `readdir` yields
+				// path components, which hold no separator, and `..` is never
+				// among them; `prj_legacy_..` is a literal name, not a parent
+				// reference. Nothing here can leave the root.)
+				//
+				// It refuses rather than skipping. A skipped folder is a legacy
+				// thread whose runs are still on disk and no longer addressable,
+				// with nothing in the result saying so — and the marker would be
+				// written as if the migration were complete.
+				if (!/^[a-z0-9]+$/.test(suffix)) {
+					throw new FilesystemMigrationError({
+						op: 'validate_thread_id',
+						path: join(threadsDir, legacyThreadId),
+						cause: new Error(
+							`Legacy thread folder '${legacyThreadId}' is not a thread id: expected 'thd_' followed by lowercase alphanumerics. It is refused rather than migrated because the name is used as a directory name.`,
+						),
+					})
+				}
+
 				const newProjectId = `${LEGACY_DEFAULT_PROJECT_PREFIX}${suffix}` as ProjectId
 
 				const legacyRunsDir = join(threadsDir, legacyThreadId, 'runs')
