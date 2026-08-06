@@ -8,7 +8,7 @@
  * (Convention #5 deny-by-default, session-hierarchy.md §12.2).
  */
 
-import { TenantIsolationError } from '../../session/errors.js'
+import { StaleSessionError, TenantIsolationError } from '../../session/errors.js'
 import { SessionAlreadySummarizedError } from '../../session/summary/errors.js'
 import type { MessageId, SessionId, TenantId } from '../../types/ids/index.js'
 import type { Message } from '../../types/message/index.js'
@@ -151,7 +151,11 @@ export class InMemorySessionStore implements SessionStore {
 		return matches
 	}
 
-	async updateSession(session: Session, tenantId: TenantId): Promise<void> {
+	async updateSession(
+		session: Session,
+		tenantId: TenantId,
+		expectedOwnerVersion?: number,
+	): Promise<void> {
 		const record = this.sessions.get(session.id)
 		if (!record) {
 			throw new Error(`Session ${session.id} not found`)
@@ -161,6 +165,20 @@ export class InMemorySessionStore implements SessionStore {
 			throw new TenantIsolationError({
 				requested: tenantId,
 				resource: `session(${session.id}) payload`,
+			})
+		}
+		// Compared against the STORED version, not against `session.ownerVersion`
+		// — the payload is the caller's copy, and comparing it to itself is
+		// precisely the check the handoff path was already making and getting
+		// nothing from.
+		if (
+			expectedOwnerVersion !== undefined &&
+			record.session.ownerVersion !== expectedOwnerVersion
+		) {
+			throw new StaleSessionError({
+				sessionId: session.id,
+				expectedVersion: expectedOwnerVersion,
+				actualVersion: record.session.ownerVersion,
 			})
 		}
 		this.sessions.set(session.id, { tenantId, session: { ...session, updatedAt: new Date() } })

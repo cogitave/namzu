@@ -105,7 +105,34 @@ export interface SessionStore {
 
 	getSession(sessionId: SessionId, tenantId: TenantId): Promise<Session | null>
 
-	updateSession(session: Session, tenantId: TenantId): Promise<void>
+	/**
+	 * Write a Session back, optionally only if nobody else wrote it first.
+	 *
+	 * **`expectedOwnerVersion` is the single-writer lock this level is supposed
+	 * to own, and it did not exist.** `Session.ownerVersion` is documented as
+	 * the CAS counter for handoff, but nothing enforced it: both stores
+	 * overwrote unconditionally, and the handoff's own check compared a
+	 * snapshot it had read several awaits earlier against itself. Two
+	 * concurrent handoffs on one idle session both passed, both provisioned a
+	 * worktree, and one silently erased the other.
+	 *
+	 * Supply it and the store compares against the version it HAS STORED —
+	 * not against the payload, which is the caller's stale copy — and throws
+	 * {@link StaleSessionError} rather than writing. Omit it and the behaviour
+	 * is exactly what it always was, which is the compatibility promise: this
+	 * parameter is optional so that widening the interface stays invisible to
+	 * callers and harmless to hosts implementing their own store. A required
+	 * parameter would break every implementor for a guarantee they can opt
+	 * into.
+	 *
+	 * **In-process only, stated rather than implied.** `DiskSessionStore`
+	 * writes atomically, but its read-compare-write is not a critical section,
+	 * so two PROCESSES can still both pass the check. Closing that needs a
+	 * lease with an expiry — not a PID registry, because a Session is durable
+	 * and written from hosts where a PID is not a checkable fact. The same
+	 * honesty the spawn lock already carries.
+	 */
+	updateSession(session: Session, tenantId: TenantId, expectedOwnerVersion?: number): Promise<void>
 
 	/**
 	 * List every Session that belongs to the given Thread for the caller's

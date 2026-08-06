@@ -211,8 +211,12 @@ export async function executeBroadcastHandoff(
 		})
 	}
 
-	const locked: Session = { ...source, status: 'locked' }
-	await deps.store.updateSession(locked, tenantId)
+	// The lock BUMPS the version — see the same change in single.ts. Writing
+	// the lock at the version it read left the locked window invisible, so a
+	// second broadcast holding the same snapshot passed the check above and
+	// fanned out over a session that was already locked.
+	const locked: Session = { ...source, status: 'locked', ownerVersion: source.ownerVersion + 1 }
+	await deps.store.updateSession(locked, tenantId, first.expectedOwnerVersion)
 	emit(deps.events.onLocked, { sessionId: source.id, at: new Date() })
 
 	// 8. Fan-out provisioning. Track per-recipient partial state so rollback
@@ -269,12 +273,13 @@ export async function executeBroadcastHandoff(
 
 		// 9. Commit source: `locked → awaiting_merge` (§5.4 — broadcast source is
 		//    not `idle` until all recipients terminalize; coordinator role).
+		// Keeps the lock's version: one handoff, one ownership change, one
+		// version. The bump moved to the lock where it is load-bearing.
 		const committed: Session = {
-			...source,
+			...locked,
 			status: 'awaiting_merge',
-			ownerVersion: source.ownerVersion + 1,
 		}
-		await deps.store.updateSession(committed, tenantId)
+		await deps.store.updateSession(committed, tenantId, locked.ownerVersion)
 
 		emit(deps.events.onCommitted, {
 			sessionId: source.id,

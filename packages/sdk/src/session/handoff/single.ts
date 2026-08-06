@@ -160,11 +160,24 @@ export async function executeSingleHandoff(
 		})
 	}
 
+	// The lock BUMPS the version, and that is what makes it a lock.
+	//
+	// It used to write `status: 'locked'` at the version it read, so a second
+	// handoff that had read the same snapshot saw an unchanged `ownerVersion`,
+	// passed the check above, and locked the session a second time. Both then
+	// provisioned a worktree and one silently erased the other. The comparison
+	// above was against a value nothing had moved.
+	//
+	// Passing `expectedOwnerVersion` makes the store the arbiter rather than
+	// this function: the check above is a fast fail on a stale snapshot, and
+	// this is the one that cannot be raced, because the store compares against
+	// what it holds at the instant of the write.
 	const locked: Session = {
 		...source,
 		status: 'locked',
+		ownerVersion: source.ownerVersion + 1,
 	}
-	await deps.store.updateSession(locked, tenantId)
+	await deps.store.updateSession(locked, tenantId, assignment.expectedOwnerVersion)
 	emit(deps.events.onLocked, { sessionId: source.id, at: new Date() })
 
 	// 6. Provision recipient resources. Track partial state for rollback.
@@ -197,16 +210,26 @@ export async function executeSingleHandoff(
 		// 7. Commit source: `locked → idle` with appended actor + bumped version.
 		//    The source transitions ownership to the recipient — the previous
 		//    owner is permanently read-only (§6.1).
+		// Keeps the LOCK's version rather than taking a second one.
+		//
+		// One handoff is one ownership change, so it consumes one version. The
+		// bump moved to the lock — where it has to be, or the locked window is
+		// invisible to a concurrent reader — and the commit finishes the
+		// transition the lock reserved. A host reading `committedOwnerVersion`
+		// sees the same number it always did.
+		//
+		// The expected version is the lock's, so anything that wrote to this
+		// session between the lock and here loses to the store rather than
+		// being overwritten by us.
 		const committed: Session = {
-			...source,
+			...locked,
 			status: 'idle',
 			currentActor: assignment.recipientActor,
 			previousActors: source.currentActor
 				? [...source.previousActors, source.currentActor]
 				: [...source.previousActors],
-			ownerVersion: source.ownerVersion + 1,
 		}
-		await deps.store.updateSession(committed, tenantId)
+		await deps.store.updateSession(committed, tenantId, locked.ownerVersion)
 
 		emit(deps.events.onCommitted, {
 			sessionId: source.id,

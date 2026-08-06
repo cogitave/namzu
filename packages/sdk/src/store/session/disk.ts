@@ -23,7 +23,7 @@
 
 import { appendFile, mkdir, readFile, readdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
-import { TenantIsolationError } from '../../session/errors.js'
+import { StaleSessionError, TenantIsolationError } from '../../session/errors.js'
 import { SessionAlreadySummarizedError } from '../../session/summary/errors.js'
 import type { MessageId, SessionId, TenantId } from '../../types/ids/index.js'
 import type { Message } from '../../types/message/index.js'
@@ -308,7 +308,11 @@ export class DiskSessionStore implements SessionStore {
 		return results
 	}
 
-	async updateSession(session: Session, tenantId: TenantId): Promise<void> {
+	async updateSession(
+		session: Session,
+		tenantId: TenantId,
+		expectedOwnerVersion?: number,
+	): Promise<void> {
 		const located = await this.locateSession(session.id)
 		if (!located) {
 			throw new Error(`Session ${session.id} not found`)
@@ -322,6 +326,21 @@ export class DiskSessionStore implements SessionStore {
 		const existing = await readJson<PersistedSession>(join(located.path, 'session.json'))
 		if (existing) {
 			this.assertTenant(existing.tenantId, tenantId, `session(${session.id})`)
+		}
+		// Against what is on disk, not against the payload. The write itself is
+		// atomic; this read-compare-write is NOT a critical section, so two
+		// processes can still both pass — see the contract note on
+		// `SessionStore.updateSession`. In one process it is the real lock.
+		if (
+			expectedOwnerVersion !== undefined &&
+			existing !== null &&
+			existing.ownerVersion !== expectedOwnerVersion
+		) {
+			throw new StaleSessionError({
+				sessionId: session.id,
+				expectedVersion: expectedOwnerVersion,
+				actualVersion: existing.ownerVersion,
+			})
 		}
 		const updated: Session = { ...session, updatedAt: new Date() }
 		await atomicWriteJson(join(located.path, 'session.json'), serializeSession(updated))
