@@ -1,15 +1,46 @@
 name: CI
 
-# PR-only gate. The post-merge validation on `main` lives in release.yml so
-# we don't run the same matrix twice per merge cycle. Direct-to-main pushes
-# are validated by release.yml's own inline validation before publish.
+# PR gate. The post-merge validation on `main` lives in release.yml so we
+# don't run the same matrix twice per merge cycle. Direct-to-main pushes are
+# validated by release.yml's own inline validation before publish.
+#
+# `merge_group` is what makes this gate mean "validated against what will
+# actually be on main", rather than "validated against whatever the branch was
+# based on". A merge queue builds each PR on top of the current target head
+# plus everything ahead of it in the queue, and reports the result through
+# THIS workflow — so without this trigger the queue has no required check to
+# wait for and every queued PR either stalls or merges unvalidated.
+#
+# It is also the fix for a real hole. A PR based on another topic branch never
+# matched `branches: [main]`, so it ran no Build & Test at all; when its base
+# merged, GitHub retargeted it by firing `pull_request` with action `edited`,
+# which is not in the default type set (opened, synchronize, reopened). Such a
+# PR could reach a mergeable state having run no code validation, while the UI
+# showed other checks passing — which reads as green to anyone not counting
+# which checks ran.
+#
+# `edited` was the tempting one-line fix and is the wrong one: it would also
+# fire on every title and description edit, so the gate would burn a full
+# matrix on typo corrections while still validating against a stale base. The
+# queue validates against the merge result, which is the thing that has to be
+# correct.
+#
+# Harmless until the queue is switched on: `merge_group` events only exist
+# when a repository has one. Enabling it on the `main` ruleset is a repository
+# setting and therefore a human's call, not this workflow's.
 on:
   pull_request:
     branches: [main]
+  merge_group:
+    branches: [main]
 
 concurrency:
+  # Never cancel a merge-queue run. `cancel-in-progress` keyed on `ref` is
+  # right for a PR — a new push makes the old run's answer irrelevant — but a
+  # queue entry's run is the only evidence that the merge result is sound, and
+  # cancelling it either stalls the queue or drops the PR from it.
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name != 'merge_group' }}
 
 permissions:
   contents: read
