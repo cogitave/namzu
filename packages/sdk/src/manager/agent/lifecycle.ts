@@ -123,7 +123,27 @@ export class AgentManager {
 			)
 		}
 
-		const agent = this.registry.resolve(options.agentId)
+		// A shell this task has to itself, not the registry's shared instance.
+		//
+		// `resolve` returns one `typedAgent` per registered id, and an instance
+		// refuses a second concurrent `run` because it holds per-run state. So
+		// a fan-out naming the same `agent_id` four times drove four runs at one
+		// shell: one worked and three died with `ConcurrentInvocationError` —
+		// while `create_task`'s own description tells the model that this
+		// fan-out is the thing to do. Observed live on 12.0.1, four launches,
+		// three lost.
+		//
+		// The remedy was already written down — "a host that wants parallelism
+		// constructs a second instance" — and was unreachable here, because the
+		// definition owns the instance and this path only has an id.
+		//
+		// Nothing else about the child is shared: its abort signal is the task's
+		// own (`input.signal` below), its config is rebuilt per spawn by
+		// `configBuilder`, and the manager cancels through the task rather than
+		// the agent. The shell was the only shared thing left.
+		const definitionForSpawn = this.registry.getOrThrow(options.agentId)
+		const sharedAgent = definitionForSpawn.typedAgent
+		const agent = definitionForSpawn.createAgent?.() ?? sharedAgent.forRun?.() ?? sharedAgent
 
 		const childAbortController = createChildAbortController(context.parentAbortController)
 
