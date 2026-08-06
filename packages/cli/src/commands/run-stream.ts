@@ -18,10 +18,18 @@
  * Status lines never hit stdout (logger silenced) so every stdout line is a
  * valid JSON event. Provider/credential failures are emitted as a final
  * `{"kind":"error",…}` line (exit 0) so the host surfaces them in-band.
+ *
+ * ONE condition breaks that rule and exits non-zero: a working directory the
+ * operator has not trusted. Exit 0 is right for a run that STARTED and failed,
+ * which a host renders and may sensibly retry; a folder that was never trusted
+ * is a refusal to start, and a host that cannot tell the two apart retries the
+ * one thing retrying cannot fix. That case gets both — the explanation as an
+ * event, and `77` as the fact that nothing ran.
  */
 
 import { type Message, configureLogger } from '@namzu/sdk'
 
+import { EXIT_UNTRUSTED } from '../exit-codes.js'
 import type { DetectedProvider, Preferences, ProviderId } from '../integrations/providers/index.js'
 import {
 	appendMessages,
@@ -29,6 +37,7 @@ import {
 	openSessions,
 	resolveConversation,
 } from '../integrations/sessions/store.js'
+import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { resolvePermissionMode } from '../permissions/mode.js'
 import { compilePermissions } from '../permissions/rules.js'
 import {
@@ -89,6 +98,11 @@ export const runStreamCommand: CommandDef = {
 		'Takes the same options as `namzu run`, including --permission-mode and',
 		'the [permissions] table from the config file.',
 		'',
+		'The folder has to be trusted: run `namzu` here once and accept the',
+		'prompt, or pass --trust for one run. An untrusted folder emits an error',
+		'event and exits 77 without running anything — the one case where this',
+		'command exits non-zero, because nothing started and a retry cannot help.',
+		'',
 		'Needs a provider. Set a credential in the environment, or run namzu',
 		'once to pick one interactively.',
 	].join('\n'),
@@ -110,6 +124,23 @@ export const runStreamCommand: CommandDef = {
 		const resolved = resolveWorkingDirectory(flags.cwd)
 		if ('error' in resolved) return fail(resolved.error)
 		const cwd = resolved.cwd
+
+		// Before the session store is opened, before anything is read or run in
+		// that directory.
+		//
+		// Reported BOTH ways, which is the one place this command departs from
+		// its "every failure is an in-band event and the exit code is 0" rule.
+		// That rule is about a run that STARTED and failed, which a host should
+		// render and may sensibly retry. This is a refusal to start at all, and
+		// a host that cannot tell the two apart will retry the one that must not
+		// be retried — so the event carries the explanation and the exit code
+		// carries the fact that nothing ran.
+		const trust = decideHeadlessTrust({ cwd, trustFlag: flags.trust })
+		if (!trust.allowed) {
+			write({ kind: 'error', message: trust.message ?? 'folder not trusted' })
+			write({ kind: 'done' })
+			return EXIT_UNTRUSTED
+		}
 
 		// Resolve the persisted conversation (if a session key was given) so we
 		// load prior turns as context and can append this turn afterward. Falls

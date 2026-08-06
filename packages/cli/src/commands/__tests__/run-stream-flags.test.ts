@@ -24,6 +24,15 @@ vi.mock('../../integrations/sessions/store.js', () => ({
 const sessionOptions: Array<
 	{ cwd?: string; rules?: unknown[]; permissionMode?: string } | undefined
 > = []
+// Standing in a trusted folder, which is the ordinary production state. These
+// tests are about the option surface and the permission table; the gate that
+// refuses an untrusted folder is tested in
+// `__tests__/headless-trust-gate.test.ts`.
+vi.mock('../../integrations/trust/store.js', () => ({
+	isTrusted: () => true,
+	trustDir: () => {},
+}))
+
 vi.mock('../../tui/agent.js', () => ({
 	probeAgentSession: vi.fn(async () => ({
 		preferences: { version: 2, provider: 'anthropic', subagents: { active: [] } },

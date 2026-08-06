@@ -59,6 +59,44 @@ Both load the working directory's
 files it loaded on stderr, below the provider line; `run-stream` loads them
 identically but does not yet announce them on its event stream.
 
+## The folder has to be trusted
+
+namzu reads a folder's files, runs commands in it, and executes its code — and
+a headless run approves those tools without asking, because there is nobody to
+ask. So a folder nobody has trusted is refused, before a session is built and
+before anything in it is read.
+
+```console
+$ git clone https://example.invalid/someones-repo && cd someones-repo
+$ namzu run "what does this do?"
+Error: refusing to run in a folder nobody has trusted: /home/you/someones-repo
+…
+$ echo $?
+77
+```
+
+Two ways past it:
+
+- **Run `namzu` in the folder once** and accept the trust prompt. That is
+  remembered in `~/.namzu/trust.json`, covers every subfolder, and is a
+  one-time thing per project.
+- **Pass `--trust`**, which accepts the folder for that run only. It writes
+  nothing down — one reflexive use must not change your machine's state
+  forever. For CI this is the intended form: it lives in the job definition,
+  where a person reviewed it.
+
+`--yolo` and `--permission-mode` do **not** imply `--trust`. Those decide which
+tool calls may run *inside* a folder; trust decides whether the folder may be
+worked in at all. An existing flag that satisfies a new gate is a gate
+satisfied by accident.
+
+This is not a sandbox and is not sold as one. It does not protect a folder you
+trusted that later turns hostile — a pull can bring in anything, and trust is a
+statement about a location rather than about its current contents. Inside a
+trusted folder your [permission rules](./tools.md) and the safety gate remain
+the only controls. What it changes is that a decision nobody was making is now
+made by someone.
+
 ## Options
 
 Both commands are parsed by the same code, so an option spelled one way for one
@@ -74,6 +112,7 @@ prompt.
 | `--session <key>` | Bind the turn to a persisted conversation (see below). |
 | `--permission-mode <m>` | `prompt`, `auto` or `strict` — what happens to a call no rule decided. See [Permission modes](#permission-modes). |
 | `--yolo` / `--dangerously-skip-permissions` | `--permission-mode auto`. |
+| `--trust` | Accept this folder for **this run**. See [The folder has to be trusted](#the-folder-has-to-be-trusted). |
 | `--continue` (`-c`) | Reopen the most recent conversation here. `namzu run` only. |
 | `--resume <id>` | Reopen the conversation you name. `namzu run` only. |
 | `--` | End of options. Everything after it is prompt text, verbatim. |
@@ -148,9 +187,15 @@ error.
 | `1` | The run failed, or stopped early — a token budget, a timeout, the iteration cap, a cancellation, or a refused answer. Any partial output is still printed, and the reason goes to stderr. |
 | `2` | No prompt was supplied. |
 | `64` | An argument is wrong (unknown option, bad `--cwd`). |
+| `77` | The folder has not been trusted, and **nothing ran**. Fixed by a decision, not by a different invocation — see [The folder has to be trusted](#the-folder-has-to-be-trusted). |
 
 A stopped run exits 1 even though it produced text, so
 `namzu run … > out.txt && deploy` cannot proceed on a partial or refused answer.
+
+`77` is its own code rather than folded into `64` or `1` because it is the only
+one a human decision about a folder can fix, and a caller that cannot tell them
+apart ends up matching on the message text — after which the message can never
+be reworded.
 
 `namzu run-stream` answers a host that is line-scanning stdout, not a shell, so
 it reports the same conditions **in band** and exits 0. Every run ends with a
@@ -160,6 +205,13 @@ terminal event, including a refusal:
 {"kind":"error","message":"--cwd does not exist: /projects/typo"}
 {"kind":"done"}
 ```
+
+**One exception, and it is deliberate: an untrusted folder exits `77`.** The
+"errors are in band, exit 0" rule is about a run that *started* and failed,
+which a host should render and may sensibly retry. A folder that has not been
+trusted is a refusal to start, and a host that cannot tell those apart will
+retry the one thing retrying cannot fix. It gets both: the explanation as an
+event, and the exit code as the fact that nothing ran.
 
 ## The event stream
 
