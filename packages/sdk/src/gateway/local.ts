@@ -60,6 +60,12 @@ export class LocalTaskGateway implements TaskGateway {
 	}
 
 	async createTask(options: CreateTaskOptions): Promise<TaskHandle> {
+		// Filled once the spawn resolves. A box rather than a bare binding
+		// because the assignment happens AFTER the `await` that the reader is
+		// passed into — see the progress tee below for why it cannot simply
+		// read the `task` const it is declared beside.
+		const launched: { id?: TaskId } = {}
+
 		const task = await this.agentManager.sendMessage(
 			{
 				agentId: options.agentId,
@@ -109,12 +115,30 @@ export class LocalTaskGateway implements TaskGateway {
 			// idle bound measures. The event itself is not forwarded — a
 			// progress signal that carried the child's output would be a
 			// second, undocumented way to read a worker's work.
+			//
+			// The id comes from `launched.id`, NOT from the `task` const
+			// below. This callback is handed to the very `await` that assigns
+			// `task`, so a child that emits anything before `sendMessage`
+			// resolves reached it inside the temporal dead zone and threw
+			// `Cannot access 'task' before initialization` — killing the launch
+			// outright.
+			//
+			// It survived because a single sequential launch usually resolves
+			// before the child says anything. A concurrent fan-out does not:
+			// with four `create_task` calls from one turn — the shape this
+			// tool's own description tells the model to use — the event loop
+			// interleaves and three of the four died. Found by running one.
 			(event) => {
 				this.listener?.(event)
-				for (const notify of this.progressListeners) notify(task.taskId)
+				// No id yet means nothing is waiting on this task: the caller
+				// does not hold the handle, so an idle bound cannot be running
+				// against it. There is no progress to report to anyone.
+				if (launched.id === undefined) return
+				for (const notify of this.progressListeners) notify(launched.id)
 			},
 		)
 
+		launched.id = task.taskId
 		this.trackedTaskIds.add(task.taskId)
 
 		this.agentManager
