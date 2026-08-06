@@ -276,11 +276,16 @@ export class PlanManager {
 		return this.currentPlan
 	}
 
-	failPlan(_error: string): Plan | null {
+	failPlan(error: string): Plan | null {
 		if (!this.currentPlan) return null
 
 		this.currentPlan.status = 'failed'
 		this.currentPlan.completedAt = Date.now()
+		// Recorded rather than discarded. This argument was named `_error`
+		// because nothing read it, so a failed plan carried no account of what
+		// went wrong — and the event that now reports the failure would have
+		// had nothing to say beyond the word.
+		this.currentPlan.failureReason = error
 
 		for (const step of this.currentPlan.steps) {
 			if (step.status === 'pending' || step.status === 'running') {

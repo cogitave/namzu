@@ -434,6 +434,30 @@ type CoreRunEvent =
 			stepId: string
 			status: PlanStep['status']
 	  }
+	/**
+	 * The plan is over, and it went the way it was supposed to.
+	 *
+	 * The plan events used to stop before the outcome: `plan_ready`,
+	 * `plan_approved`, `plan_rejected` and `plan_step_updated` all reached the
+	 * wire, and the two terminal ones were folded into a bare `break` in the
+	 * translator. So a host watching the stream saw the steps report and then
+	 * silence — it could tell a plan had been approved and never that it
+	 * closed, which leaves a plan rendered as in-flight forever.
+	 *
+	 * Found by the first live end-to-end run rather than by a test, and the
+	 * reason is worth keeping: the tests read the outcome off `PlanManager`
+	 * through `onContextCreated`, so they proved the plan settled without ever
+	 * asking whether a consumer of the EVENT STREAM could see it.
+	 */
+	| { type: 'plan_completed'; runId: RunId; planId: PlanId }
+	/**
+	 * The plan is over and it did not finish.
+	 *
+	 * `reason` is the text handed to `failPlan`, which used to be discarded —
+	 * an event that says "failed" without saying why puts the reader back
+	 * where the missing event did.
+	 */
+	| { type: 'plan_failed'; runId: RunId; planId: PlanId; reason?: string }
 	| {
 			type: 'agent_pending'
 			runId: RunId
