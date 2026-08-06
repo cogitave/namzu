@@ -65,9 +65,42 @@ export interface CreateSubSessionParams {
  * is out of scope for this phase (session-hierarchy.md §11 defers the project
  * store to a later phase).
  */
+/**
+ * The part of a Project's configuration a caller may actually set.
+ *
+ * **Exactly the fields something reads.** `ProjectConfig` declares eight; five
+ * enforcement sites read two of them, and the other six have zero readers in
+ * production — `maxInterventionDepth` included, whose three apparent hits are
+ * all comments claiming a wiring that does not exist. Exposing those here
+ * would make a dead field *easier to set*, which is worse than leaving it
+ * unreachable: a host would configure a retention policy, get no error, and
+ * believe retention was on.
+ *
+ * The rule is the repo's own: name the code that reads a declaration before
+ * shipping it. When a field gains a reader it gains a line here in the same
+ * change, and not before.
+ */
+export interface ProjectConfigInput {
+	/** Read by the spawn path and both handoff paths. Default 4. */
+	maxDelegationDepth?: number
+	/** Read by the spawn path and broadcast handoff. Default 8. */
+	maxDelegationWidth?: number
+}
+
 export interface CreateProjectParams {
 	tenantId: TenantId
 	name: string
+
+	/**
+	 * Per-workspace limits. Omitted fields keep the defaults.
+	 *
+	 * Until this existed every project in existence ran at depth 4 / width 8,
+	 * because the config was hardcoded identically in both stores and there was
+	 * no way to write one afterwards. A tenant with several workspaces could
+	 * not give them different limits, which is most of what having several
+	 * workspaces is for.
+	 */
+	config?: ProjectConfigInput
 }
 
 /**
@@ -98,6 +131,33 @@ export interface SessionStore {
 	createProject(params: CreateProjectParams, tenantId: TenantId): Promise<Project>
 
 	getProject(projectId: ProjectId, tenantId: TenantId): Promise<Project | null>
+
+	/**
+	 * Change a Project's limits after it exists. OPTIONAL.
+	 *
+	 * Optional because widening a store interface is invisible to callers and
+	 * fatal to implementors: a host with its own `SessionStore` should not stop
+	 * compiling because the SDK grew a method. Callers check for it; the two
+	 * stores here implement it.
+	 *
+	 * Only the fields in {@link ProjectConfigInput} can move, and an omitted
+	 * field is left alone rather than reset — a caller raising the width is not
+	 * saying anything about the depth. Returns the updated Project, or `null`
+	 * if it does not exist.
+	 */
+	updateProject?(
+		projectId: ProjectId,
+		config: ProjectConfigInput,
+		tenantId: TenantId,
+	): Promise<Project | null>
+
+	/**
+	 * Every Project this tenant owns, oldest first. OPTIONAL, same reasoning.
+	 *
+	 * The tenant is the isolation boundary, so this is scoped to it and to
+	 * nothing else — there is no level above Project to filter by.
+	 */
+	listProjects?(tenantId: TenantId): Promise<readonly Project[]>
 
 	// Session CRUD ------------------------------------------------------------
 

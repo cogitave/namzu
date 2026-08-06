@@ -20,6 +20,7 @@ import type {
 	CreateProjectParams,
 	CreateSessionParams,
 	CreateSubSessionParams,
+	ProjectConfigInput,
 	SessionStore,
 	SessionView,
 } from '../../types/session/store.js'
@@ -88,8 +89,8 @@ export class InMemorySessionStore implements SessionStore {
 			tenantId,
 			name: params.name,
 			config: {
-				maxDelegationDepth: 4,
-				maxDelegationWidth: 8,
+				maxDelegationDepth: params.config?.maxDelegationDepth ?? 4,
+				maxDelegationWidth: params.config?.maxDelegationWidth ?? 8,
 				maxInterventionDepth: 10,
 			},
 			createdAt: now,
@@ -104,6 +105,43 @@ export class InMemorySessionStore implements SessionStore {
 		if (!record) return null
 		this.assertTenant(record.tenantId, tenantId, `project(${projectId})`)
 		return record.project
+	}
+
+	async updateProject(
+		projectId: ProjectId,
+		config: ProjectConfigInput,
+		tenantId: TenantId,
+	): Promise<Project | null> {
+		const record = this.projects.get(projectId)
+		if (!record) return null
+		this.assertTenant(record.tenantId, tenantId, `project(${projectId})`)
+		// Per field: an omitted limit is left alone rather than reset, because a
+		// caller raising the width is saying nothing about the depth.
+		const project: Project = {
+			...record.project,
+			config: {
+				...record.project.config,
+				...(config.maxDelegationDepth !== undefined
+					? { maxDelegationDepth: config.maxDelegationDepth }
+					: {}),
+				...(config.maxDelegationWidth !== undefined
+					? { maxDelegationWidth: config.maxDelegationWidth }
+					: {}),
+			},
+			updatedAt: new Date(),
+		}
+		this.projects.set(projectId, { tenantId, project })
+		return project
+	}
+
+	async listProjects(tenantId: TenantId): Promise<readonly Project[]> {
+		const matches: Project[] = []
+		for (const record of this.projects.values()) {
+			if (record.tenantId !== tenantId) continue
+			matches.push(record.project)
+		}
+		matches.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+		return matches
 	}
 
 	// Session CRUD ------------------------------------------------------------

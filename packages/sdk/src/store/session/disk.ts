@@ -35,6 +35,7 @@ import type {
 	CreateProjectParams,
 	CreateSessionParams,
 	CreateSubSessionParams,
+	ProjectConfigInput,
 	SessionStore,
 	SessionView,
 } from '../../types/session/store.js'
@@ -193,8 +194,8 @@ export class DiskSessionStore implements SessionStore {
 			tenantId,
 			name: params.name,
 			config: {
-				maxDelegationDepth: 4,
-				maxDelegationWidth: 8,
+				maxDelegationDepth: params.config?.maxDelegationDepth ?? 4,
+				maxDelegationWidth: params.config?.maxDelegationWidth ?? 8,
 				maxInterventionDepth: 10,
 			},
 			createdAt: now,
@@ -213,6 +214,63 @@ export class DiskSessionStore implements SessionStore {
 		if (!raw) return null
 		this.assertTenant(raw.tenantId, tenantId, `project(${projectId})`)
 		return deserializeProject(raw)
+	}
+
+	async updateProject(
+		projectId: ProjectId,
+		config: ProjectConfigInput,
+		tenantId: TenantId,
+	): Promise<Project | null> {
+		const existing = await this.getProject(projectId, tenantId)
+		if (!existing) return null
+		// Per field, like the in-memory store: an omitted limit is left alone
+		// rather than reset.
+		const project: Project = {
+			...existing,
+			config: {
+				...existing.config,
+				...(config.maxDelegationDepth !== undefined
+					? { maxDelegationDepth: config.maxDelegationDepth }
+					: {}),
+				...(config.maxDelegationWidth !== undefined
+					? { maxDelegationWidth: config.maxDelegationWidth }
+					: {}),
+			},
+			updatedAt: new Date(),
+		}
+		await atomicWriteJson(
+			join(this.projectDir(projectId), 'project.json'),
+			serializeProject(project),
+		)
+		return project
+	}
+
+	async listProjects(tenantId: TenantId): Promise<readonly Project[]> {
+		// Read from the directory rather than the lazily-built index: the index
+		// only knows about projects this instance has already touched, so a
+		// listing built from it would omit everything written by a previous
+		// process — which for a store whose whole point is durability is the
+		// wrong answer.
+		const projectsRoot = join(this.rootDir, 'projects')
+		let entries: string[]
+		try {
+			entries = await readdir(projectsRoot)
+		} catch {
+			return []
+		}
+
+		const found: Project[] = []
+		for (const entry of entries) {
+			const raw = await readJson<PersistedProject>(join(projectsRoot, entry, 'project.json'))
+			if (!raw) continue
+			// Another tenant's project is absent, not an error — a listing is a
+			// question about what you own, and refusing would leak that
+			// somebody else's project is there.
+			if (raw.tenantId !== tenantId) continue
+			found.push(deserializeProject(raw))
+		}
+		found.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+		return found
 	}
 
 	// Session CRUD ------------------------------------------------------------
