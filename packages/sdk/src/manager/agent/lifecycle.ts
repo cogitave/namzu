@@ -82,6 +82,25 @@ interface ChildSpawnRecord {
 	workspaceRef?: WorkspaceRef
 }
 
+/**
+ * Combine a child's own environment with what its parent passed down.
+ *
+ * Per key, override winning — not whole-value replacement, which would drop
+ * every key a `configBuilder` set and the caller did not happen to restate.
+ * `configOverrides` is a `Partial`, so replacement reads as "the caller
+ * supplied an environment" when what they supplied was one variable.
+ *
+ * Returns `undefined` when both sides are empty, so an agent that never had an
+ * environment does not gain an empty object it then has to be checked for.
+ */
+function mergeEnv(
+	base: Readonly<Record<string, string>> | undefined,
+	override: Readonly<Record<string, string>> | undefined,
+): Record<string, string> | undefined {
+	if (!base && !override) return undefined
+	return { ...base, ...override }
+}
+
 export class AgentManager {
 	private registry: AgentRegistry
 	private instances: Map<TaskId, AgentTask> = new Map()
@@ -289,6 +308,23 @@ export class AgentManager {
 			// covered the top-level run and nothing it delegated.
 			const inheritedHandler = options.configOverrides?.resumeHandler ?? context.resumeHandler
 			if (inheritedHandler) childConfig.resumeHandler = inheritedHandler
+
+			// And the environment, for the third time and the same reason.
+			//
+			// The bare-config branch below has always carried `env`; this one
+			// never did, so a delegate registered WITH a `configBuilder` — the
+			// normal way, and what every host in this repo does — silently ran
+			// with none of the environment its parent had been given. The
+			// builder is written by whoever registered the agent and cannot be
+			// expected to forward a field it was never told about, which is
+			// exactly why `parentSpan` and `resumeHandler` are stamped here too.
+			//
+			// Merged per key rather than replaced. `configOverrides` is a
+			// `Partial`, so assigning the whole map would drop every key the
+			// builder set and the caller did not restate — the override wins per
+			// key, the same direction it already wins for `model` and `effort`.
+			const inheritedEnv = mergeEnv(childConfig.env, options.configOverrides?.env)
+			if (inheritedEnv) childConfig.env = inheritedEnv
 		} else {
 			this.log.warn('No configBuilder, using bare config', {
 				agentId: options.agentId,

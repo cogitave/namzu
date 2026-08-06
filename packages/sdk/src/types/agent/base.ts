@@ -22,6 +22,29 @@ export interface BaseAgentConfig {
 	maxResponseTokens?: number
 	costLimitUsd?: number
 	permissionMode?: PermissionMode
+
+	/**
+	 * Extra environment variables for this agent's tools and sandboxed
+	 * commands, merged over whatever ambient environment the execution path
+	 * supplies. Inherited by every delegated descendant.
+	 *
+	 * **Configuration, not credentials** — and that is a property of the
+	 * CHANNEL rather than a judgement about any particular value. This map is
+	 * copied into every child, is readable by any tool that can run a command,
+	 * and enters a model's context and the run transcript the moment something
+	 * echoes it. Nothing here is scoped, redacted, or revocable.
+	 *
+	 * A value that authenticates to a host belongs on the brokered credential
+	 * path instead, where the process holds a placeholder and the real value is
+	 * attached per-host on egress — so it is never in the environment, never in
+	 * a transcript, and never inherited by a child that had no business with it.
+	 *
+	 * Inheritance was broken until it was not: a child built through a
+	 * `configBuilder` never received this at all, because the builder is
+	 * written by whoever registered the agent and cannot forward a field it was
+	 * never told about. It is stamped after the builder returns now, for the
+	 * same reason `parentSpan` and `resumeHandler` are.
+	 */
 	env?: Record<string, string>
 
 	/**
