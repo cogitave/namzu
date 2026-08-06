@@ -1,114 +1,63 @@
 ---
-title: A2A Threading
-description: How the Project/Thread split supports enterprise sharing and agent-to-agent (A2A) connection in @namzu/sdk.
-last_updated: 2026-04-21
+title: A2A Context
+description: A2A's contextId is a Project. What this page used to say, why it was wrong, and what to do instead.
+last_updated: 2026-08-06
 status: current
 related_packages: ["@namzu/sdk"]
 ---
 
-# A2A Threading
+# A2A Context
 
-Namzu's five-layer hierarchy (`Project → Thread → Session → SubSession → Run`) exists for a specific reason most agent frameworks do not have: **A2A connections attach at the Thread level, not the Project level**. This page explains why the Thread layer is first-class and how to use it.
-
-## 1. The Sharing Model
-
-- **A Project is folder-bound.** In local mode, a Project is scaffolded inside a directory (`.namzu/project.json`). Sharing a Project means sharing that directory — a repository, a workspace, or a remote workspace URL. Everyone with Project access can see its shape, its shared memory, its retention policy, and its Threads.
-- **A Thread is the topic-level container.** Threads are path-independent. A single Project can contain many Threads — one per objective, issue, or line-of-work (e.g. `auth-refactor`, `billing-incident`). Threads can be partitioned by device, user, or agent identity.
-- **A Session is one working interval** under a Thread, owned by one actor at a time.
-
-The Thread layer is the piece most often left out. It exists because A2A needs a connection surface that is **not** the folder and **not** an individual work interval.
-
-## 2. Why Thread and Not Project?
-
-Projects are the coarse grouping unit. A team might share one Project across many unrelated lines-of-work. Attaching agents at the Project level would either:
-
-- expose every Thread to every connected agent (too broad), or
-- require per-thread permissioning inside the Project model (collapsing a natural boundary).
-
-Attaching agents at the Thread level gives a **natural scope for delegation, monitoring, and hand-off**. Connecting to a Thread is "I want to help with the auth refactor," not "I want to work on this repo."
-
-## 3. Why Thread and Not Session?
-
-Sessions are specific, short-lived intervals with a single current actor. A2A connections need to survive across multiple sessions — a collaborator or agent comes and goes, resumes, reviews past work. The Thread layer is what keeps that continuity.
-
-When a Thread is opened to an external agent, the agent can:
-
-- enumerate the Sessions under the Thread
-- join a Session as a new actor via `executeSingleHandoff` or `executeBroadcastHandoff`
-- spawn new Sessions under the Thread (within depth and fan-out limits set at the Project level)
-- emit and consume Run events stamped with Thread lineage
-
-## 4. Boundaries the Thread Enforces
-
-A Thread is a **container**, not a work unit. Specifically:
-
-- A Thread has no message stream of its own. Messages live in Sessions.
-- A Thread has no Run stream of its own. Runs live under Sessions.
-- A Thread has no fan-in status derivation. Its `status` is `'open' | 'archived'` and owner-managed. (Contrast: Session status fans in from its Runs.)
-- Thread archival requires every Session under the Thread to be in a terminal state (`idle`, `failed`, or `archived`). `ThreadManager.archive` enforces this precondition.
-
-## 5. Minimal Enterprise-Sharing Flow
+**A2A's `contextId` is a namzu Project.** One line, and it is the only structural fact on this page.
 
 ```ts
-import {
-  InMemorySessionStore,
-  InMemoryThreadStore,
-  ThreadManager,
-  generateTenantId,
-} from '@namzu/sdk'
+// bridge/a2a/task.ts — outbound
+contextId: run.project_id ?? undefined
 
-const sessionStore = new InMemorySessionStore()
-const threadStore = new InMemoryThreadStore()
-const threadManager = new ThreadManager({ sessionStore, threadStore })
-const tenantId = generateTenantId()
-
-// Step 1: one Project shared by the team.
-const project = await sessionStore.createProject(
-  { tenantId, name: 'Enterprise Workspace' },
-  tenantId,
-)
-
-// Step 2: multiple Threads under it — one per objective.
-const authThread = await threadStore.createThread(
-  { projectId: project.id, title: 'Auth refactor' },
-  tenantId,
-)
-const billingThread = await threadStore.createThread(
-  { projectId: project.id, title: 'Billing incident' },
-  tenantId,
-)
-
-// Step 3: any agent connecting to `authThread.id` enumerates its Sessions
-//         without seeing the billing work at all.
-const authSessions = await sessionStore.listSessions(authThread.id, tenantId)
-
-// Step 4: agents join by creating Sessions under the Thread, or by handing
-//         off into existing ones. The Project and Thread stay the reference
-//         frame for the whole collaboration.
+// bridge/a2a/task.ts — inbound
+projectId: params.contextId
 ```
 
-## 6. Archive Discipline
+Both directions, pinned by `bridge/a2a/__tests__/project-is-the-a2a-context.test.ts`. `ThreadId` appears nowhere in the A2A bridge.
 
-When a Thread is archived via `ThreadManager.archive`:
+## 1. What this page used to say
 
-1. It verifies **no Session under the Thread is in a non-terminal state**. Rejects with `ThreadNotEmptyError` if any Session is `active`, `locked`, `awaiting_hitl`, or `awaiting_merge`.
-2. Flips the Thread to `status: 'archived'`. The record stays navigable — archived Threads continue to expose their Sessions for drill-down and audit.
-3. New Session creation under the archived Thread is rejected via `ThreadClosedError`. Existing Sessions continue to receive Runs until they terminalize, at which point the Thread becomes fully inert.
+Until now this page opened with "A2A connections attach at the Thread level, not the Project level" and presented that as the reason the Thread layer is first-class. It was the single load-bearing justification for a whole hierarchy level.
 
-This is why a Thread is not just a label — its state is load-bearing for archival discipline.
+The code never did it. The binding above has always read `project_id`, and no version of the bridge has ever referenced a Thread.
 
-## 7. When Not to Use Thread
+The claim survived because nothing asserted the actual binding — a doc page and a set of comments agreed with each other while the code disagreed with both. That is why the assertion now exists as a test rather than as another sentence: an unasserted invariant is a belief, and this page was made of beliefs.
 
-If your application has no A2A component, no multi-user sharing, and no multi-objective workflows under one Project, the Thread layer is still there but you will rarely touch it directly. In that case:
+## 2. What a peer actually gets
 
-- create one "default" Thread per Project at bootstrap
-- route all Sessions under that one Thread
-- the model still works; the Thread layer is just a formality
+An A2A peer that receives a `contextId` from namzu holds a Project id, and may send it back to run under that Project.
 
-The cost is small (one extra ID, one extra `createThread` call at bootstrap) and the benefit is that you never need to retrofit the Thread layer later when you do need A2A.
+- **Everything scoped to the Project is in scope for that peer.** The delegation caps, the shared stores, the retention policy and the on-disk root are all Project-level, so a peer holding a context holds the whole workspace rather than a slice of it.
+- **There is no finer A2A boundary today.** If one peer should see part of a workspace and not the rest, give it a separate Project. The Thread layer was supposed to be that boundary and never became one.
+- **`contextId` is absent, not empty, for a run with no project.** A peer can tell "no context" from "a context named nothing".
+
+## 3. Context expiry
+
+Archival is namzu's context-expiry policy, and it is surfaced as an explicit rejection when work is submitted rather than as silence. A peer that sends a `contextId` for an expired context gets a refusal it can act on, not a task that quietly does nothing — the fail-closed shape the rest of the SDK uses, where the default is refusal and the policy names the conditions under which work is admitted.
+
+> **Being fixed separately, and worth knowing now.** Archival stops new sessions and does not stop runs already under way: `runtime/query` never consults the session store, so nothing marks a session active and the archival guard reads a field nobody maintains. Until that lands, read "archived" as "no new work admitted", not as "everything has stopped".
+
+## 4. Thread is being removed
+
+The Thread layer is scheduled for removal. It owns no message stream, no derived status, no participant set, no policy, and no segment of the on-disk layout (`projects/{prj}/sessions/{ses}/runs/{run}`) — and its one stated justification is the A2A claim this page has just retracted.
+
+| If you were using | Use instead |
+| --- | --- |
+| `ThreadId` as an A2A attach point | `ProjectId` — which is what the bridge already used |
+| `ThreadManager.archive` for context expiry | Project-scoped archival |
+| `listSessions(threadId, …)` | `listSessionsByProject`, plus a `threadId` filter |
+| `Thread` as a grouping label | `Session.threadId`, which survives as an optional **queryable** grouping key |
+
+`ThreadId` itself is not going away. It stays as an optional branded key on `Session` with a filter on listing — grouping without an entity, which is the shape other harnesses use for the same job. What goes is the container, the store, the manager, and the lifecycle.
+
+The removal is staged: deprecations with named replacements first, the removal in the next major. Nothing here requires action today beyond not building anything new on `Thread`.
 
 ## Related
 
-- [Sessions, Threads, Workspaces, and Retention](./README.md) — the full hierarchy overview.
-- [Run Identities](../runtime/identities.md) — how the four required IDs (`tenantId`, `projectId`, `threadId`, `sessionId`) fit together at runtime.
-- [Session and Store Folders](../architecture/session-and-store-folders.md) — where each piece lives in the SDK source.
+- [Sessions, Threads, Workspaces, and Retention](./README.md) — the hierarchy overview.
+- [Run Identities](../runtime/identities.md) — the ids that travel with a run.
