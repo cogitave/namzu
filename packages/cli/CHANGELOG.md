@@ -1,5 +1,79 @@
 # @namzu/cli
 
+## 0.8.0
+
+### Minor Changes
+
+- 6a38ecf: namzu reads the project's own `AGENTS.md` and follows it
+
+  Until now every word namzu injected into its system prompt was about the user
+  and global to the machine — its identity block, `~/.namzu/USER.md` and
+  `~/.namzu/MEMORY.md`. Nothing about the repository it was standing in ever
+  reached the model. A project that had written down how it wants code written
+  got an agent that could not see it, and the only way to tell it was to paste
+  the file by hand at the start of every session.
+
+  The working directory's `AGENTS.md` is now loaded, along with the one in every
+  directory up to the repository root — the first with a `.git`, which is a file
+  in a worktree and a directory in a clone, and both count. They are ordered
+  outermost first, so a package-level file has the last word over a
+  repository-level one. Sub-agents get them too: a delegated task writes the same
+  code in the same repository and is bound by the same rules.
+
+  Nothing to configure and nothing to opt into. If your project has no
+  `AGENTS.md`, the prompt is byte-for-byte what it was.
+
+  What you will see change: namzu names the files it loaded — a line under the
+  connect banner in the TUI, and the same line on stderr from `namzu run`,
+  alongside the provider line. Nothing on stdout moves, so a script that pipes
+  the answer is unaffected. `run-stream` loads the files identically but does not
+  yet announce them on its event stream.
+
+  A file is read up to 32,000 characters, and when one is cut the agent is told
+  so in place, with the number of characters dropped. A truncated policy is never
+  presented as a whole one.
+
+  Read off the working directory means read off whatever directory you pointed
+  at, including with `namzu run --cwd`. The text is injected after namzu's own
+  identity and rules and is labelled as the project speaking, so a file cannot
+  redefine the agent or talk it out of what it was told — but treat an
+  `AGENTS.md` from a repository you do not trust the way you would treat its
+  build script, which namzu will also run.
+
+- 651e028: namzu is told what day it is and which branch it is on
+
+  The kernel tells the model the working directory and the platform. It does not
+  tell it the date, and it says nothing about the repository. Both are facts a
+  coding agent needs constantly and cannot get right by guessing.
+
+  A model with no clock answers from its training cut-off. It writes that date
+  into a changelog entry, into a `last_updated` frontmatter field, into a
+  copyright header, and reasons about "the current version" of a dependency from
+  a year that has passed. Nothing about the output looks wrong — it is
+  confidently, quietly stale. The branch matters for the same reason in a
+  different direction: "commit this" means something else on a release branch
+  than on a scratch one, and a detached HEAD means a commit goes nowhere
+  reachable.
+
+  So every turn now carries a short block: today's local calendar date, and
+  whether the working directory is a repository, on which branch, or with a
+  detached HEAD. Sub-agents get it too, resolved when the child is built rather
+  than captured at startup, so a delegated task does not inherit a stale answer
+  from a session that began yesterday.
+
+  Local date, not UTC: your "today" is the one on your wall, and a machine behind
+  UTC would otherwise be told it is tomorrow.
+
+  Deliberately absent: anything about uncommitted changes. This block is the
+  cached prefix of every request, and a dirty-file count changes whenever the
+  agent saves a file — carrying it would re-key that cache on essentially every
+  turn to say something `git status` answers on demand. Date and branch change
+  rarely enough to be free.
+
+  Nothing to configure. Two `git` calls per turn, each bounded at two seconds;
+  a directory that is not a repository, a machine with no `git`, and a call that
+  times out all resolve to the block simply not claiming the fact.
+
 ## 0.7.6
 
 ### Patch Changes
