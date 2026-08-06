@@ -114,13 +114,22 @@ describe('Integration — single-recipient handoff E2E', () => {
 		expect(reloaded?.previousActors).toHaveLength(1)
 		expect(reloaded?.previousActors[0]).toEqual(sourceActor)
 
-		// Wired assertion: updateSession was invoked at least with the lock
-		// transition + the final commit. That sequence is what makes the
-		// handoff "atomic at the store layer".
-		// Expect at minimum locked (v0) followed by committed (v1).
+		// The lock MOVES the version, and this assertion used to say it did not.
+		//
+		// It expected `locked` at v0 — the version the source was already at —
+		// which is precisely why the lock was not a lock: a second handoff
+		// holding the same snapshot saw an unchanged `ownerVersion`, passed the
+		// check, and locked the session again. Both provisioned a worktree and
+		// one erased the other.
+		//
+		// The bump moved to the lock and the commit now keeps it, so a handoff
+		// still consumes exactly one version and `committedOwnerVersion` is
+		// unchanged at 1 — asserted above, and that is the host-visible
+		// contract. What changed is only the intermediate state, which is the
+		// state that had to become visible.
 		expect(updateCalls).toEqual(
 			expect.arrayContaining([
-				{ status: 'locked', ownerVersion: 0 },
+				{ status: 'locked', ownerVersion: 1 },
 				{ status: 'idle', ownerVersion: 1 },
 			]),
 		)

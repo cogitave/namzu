@@ -483,6 +483,12 @@ export {
 
 export {
 	AncestryCycleError,
+	// Exported with the CAS it announces. A host that opts into
+	// `expectedOwnerVersion` has to be able to tell "somebody else took this
+	// session" from any other failure, and string-matching a message is not a
+	// contract — which is the state `ThreadClosedError` and its siblings are
+	// still in, and a reason not to add a fourth.
+	StaleSessionError,
 	TenantIsolationError,
 	WorkspaceBackendError,
 } from './session/errors.js'

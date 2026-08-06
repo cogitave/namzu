@@ -95,6 +95,35 @@ export class StaleThreadError extends Error {
 }
 
 /**
+ * Raised when a Session write names a version the store no longer has.
+ *
+ * The sibling of {@link StaleThreadError}, and it arrived much later: Thread
+ * had a working compare-and-set from the start while `Session.ownerVersion`
+ * was documented as a CAS counter that nothing enforced. Two concurrent
+ * handoffs could both pass, both provision a worktree, and one silently erase
+ * the other.
+ *
+ * `actualVersion` is what the store holds, not what the caller sent — the
+ * caller already knows what it sent, and the useful half of the answer is how
+ * far behind it is.
+ */
+export class StaleSessionError extends Error {
+	readonly details: {
+		sessionId: SessionId
+		expectedVersion: number
+		actualVersion: number
+	}
+
+	constructor(details: { sessionId: SessionId; expectedVersion: number; actualVersion: number }) {
+		super(
+			`Stale Session ${details.sessionId}: expected ownerVersion=${details.expectedVersion}, actual=${details.actualVersion}. Another writer took ownership; re-read the session before retrying.`,
+		)
+		this.name = 'StaleSessionError'
+		this.details = details
+	}
+}
+
+/**
  * Raised by the spawn path (and any caller that enforces the open-thread
  * precondition) when a Thread is in `'archived'` state and would-be mutations
  * require it to be `'open'`. Convention #5: deny-by-default — archival is a
