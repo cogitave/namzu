@@ -1,5 +1,127 @@
 # Changelog
 
+## 14.0.0
+
+### Major Changes
+
+- 589bcfc: A closed workspace takes no new work.
+
+  Archiving a workspace meant nothing to the code. `Thread` carried a status and
+  `ThreadManager.requireOpen`; `Project` — the thing a tenant owns, configures,
+  gives an environment, and actually closes — carried neither, so the kernel kept
+  spawning agents into a workspace its owner had shut. This moves the archival
+  invariant to the level that survives the Thread removal.
+
+  **`Project` gains `status` and `ownerVersion`.** Breaking for anyone
+  implementing `SessionStore` themselves: a `Project` you construct now needs
+  both. Existing records on disk read as `open` at version `0`, which is what
+  they were — leaving `ownerVersion` undefined would be worse than a wrong
+  default, because every compare-and-set against it would fail and an existing
+  workspace could never be closed.
+
+  **New:** `ProjectManager` with `requireOpen`, `archive` and `reopen`;
+  `SessionStore.setProjectStatus` and `SessionStore.listSessionsByProject` (both
+  optional, so a host's own store keeps compiling); `ProjectClosedError`,
+  `ProjectNotEmptyError` and `StaleProjectError`, all three exported — a host
+  that closes a workspace has to tell "this workspace is closed" from any other
+  spawn failure, and matching on a message string is not a contract.
+
+  Three decisions worth naming.
+
+  **The gate is a function over a store, not an injected manager.** The three
+  ingress paths — spawn and both handoffs — already hold a `SessionStore`, so
+  `requireOpenProject(store, ...)` needed no constructor change anywhere. A gate
+  that requires new wiring is a gate somebody forgets to wire. In each path it
+  _replaces_ the existing `getProject` + null check rather than adding a
+  round-trip, because a gate that costs something is a gate someone eventually
+  moves.
+
+  **Status moves both ways.** A thread was archived forever. A workspace is
+  long-lived and a mistaken close should not be permanent, so `reopen` exists.
+
+  **Archiving refuses rather than cascading.** A workspace with a session in
+  `active`, `locked`, `awaiting_merge` or `awaiting_hitl` throws
+  `ProjectNotEmptyError` naming what is blocking. A live session is a running
+  agent whose owner is still watching; closing its workspace out from under it
+  would strand work. Settle the sessions, then close. Re-archiving an already
+  closed, already empty workspace is a no-op that does not burn a version, so a
+  retry cannot lose a race it is not in.
+
+  Verified through the front door: the spawn case drives a real `AgentManager`,
+  so the assertion cannot pass with the gate call deleted — removing it fails two
+  tests. Calling the gate directly would only have proved the function throws.
+
+- af9c29d: An id the SDK mints passes the schema the SDK exports.
+
+  `ProjectIdSchema` was `/^prj_[a-z0-9]+$/`. The v0.2.0 filesystem migration
+  mints `prj_legacy_<suffix>`. So the SDK's own exported validator rejected every
+  project it had itself written to disk during a migration — a host that
+  validated an inbound project id, which is the only reason the schema is
+  exported, answered "Invalid project ID format" for its own data, with nothing
+  saying the id had come from the SDK.
+
+  The schema now accepts the two shapes the SDK mints and no others:
+  `prj_<12 lowercase alphanumerics>` from `generateProjectId()`, and
+  `prj_legacy_<suffix>` from the migration. It is deliberately narrower than the
+  `ProjectId` type, which is `prj_${string}`; a host that supplies its own
+  `SessionStore` and mints its own ids should validate with its own schema.
+
+  **Breaking:** the migration now refuses a legacy `thd_*` folder whose name is
+  not a thread id, where it previously migrated it. The migration is the one
+  place a project id is built from data rather than generated, and a folder named
+  `thd_Not An Id` produced `prj_legacy_Not An Id` — structurally a `ProjectId`,
+  accepted by no validator, and thereafter a directory name in the new layout.
+  `DefaultFilesystemMigrator.migrate` throws `FilesystemMigrationError` with
+  `op: 'validate_thread_id'` and the offending path.
+
+  If your store root holds such a folder, rename it to `thd_` plus lowercase
+  alphanumerics before upgrading, or move it aside; the migration is idempotent
+  and re-running it after the rename completes normally. Folders created by the
+  SDK are always of that shape, so a store the SDK wrote is unaffected.
+
+  It refuses rather than skipping the folder. Skipping would leave that thread's
+  runs on disk and unaddressable, write the completion marker anyway, and return
+  `kind: 'migrated'` with the thread absent from the list.
+
+  Also documented, not changed: a `projectId` that `runAgent` generates names no
+  `Project` record — it takes no store and creates nothing. Carrying one into a
+  store-backed `AgentManager` is refused at the first delegation with
+  `Project <id> not found for tenant <id> — spawn rejected`, which is the
+  enforcement site behaving correctly, since delegation limits live on the
+  project. A run that has to delegate should be given the id from
+  `store.createProject()`. The `AgentIdentity` doc now says so.
+
+### Patch Changes
+
+- f605059: An MCP transport forgets its listeners when the session closes.
+
+  `onMessage`, `onClose` and `onError` appended to arrays that nothing ever
+  drained. `MCPClient.connect()` calls all three once each, and it is reachable
+  again after `disconnect()` — the guard only refuses when the status is already
+  `connected`. So every reconnect stacked another set on the last: after n
+  cycles one inbound message dispatched to n handlers, n-1 of them closures over
+  sessions that had ended. `rejectAllPending` and `emitLifecycle` fired n times
+  per close, and each stale closure held its old client state alive for as long
+  as the transport object did.
+
+  All three transports clear their handlers now — **after** notifying, never
+  before.
+
+  The ordering is the whole fix. `HttpSseTransport` and `StreamableHttpTransport`
+  call their close handlers inside `close()`, so they clear immediately
+  afterwards. `StdioTransport` does not: its close handlers run from the child
+  process's own `close` event, which arrives after `close()` has returned.
+  Clearing there — the obvious one-line change — would mean nothing tells
+  `MCPClient` the session ended, so its status would stay `connected` and the
+  next `connect()` would be refused with "already connected". Its handlers are
+  dropped after that event fires instead, with the never-spawned case handled
+  separately so a retry after a failed spawn does not stack a second set.
+
+  Not changed, and worth knowing: the two HTTP transports disagree about closing
+  a transport that was never connected — streamable returns early and notifies
+  nobody, http-sse notifies regardless. Making them agree changes what a host
+  observes and deserves its own decision.
+
 ## 13.1.0
 
 ### Minor Changes
