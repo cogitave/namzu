@@ -203,8 +203,23 @@ export const runStreamCommand: CommandDef = {
 			cwd,
 			rules: permissions.rules,
 			permissionMode: modeResult.mode,
+			...(ctx.config.mcpServers ? { mcpServers: ctx.config.mcpServers } : {}),
 		})
-		if (!session.hasProvider) return fail(session.errorHint ?? 'agent is not ready')
+		if (!session.hasProvider) {
+			await session.close()
+			return fail(session.errorHint ?? 'agent is not ready')
+		}
+		// A configured tool server that is not here means the turn cannot do what
+		// the operator set it up to do, and this command answers a host, not a
+		// person who might notice. Refused rather than run short — in band, like
+		// every other failure here, because that is what the host reads.
+		if (session.mcpFailed.length > 0) {
+			const said = session.mcpFailed
+				.map((f) => `tool server "${f.name}" is not available: ${f.reason}`)
+				.join('; ')
+			await session.close()
+			return fail(said)
+		}
 
 		// --skills <a,b,c>: load the named skills' bodies and inject them as the
 		// turn's extra system context (the same channel the TUI's /skill uses).
@@ -220,8 +235,12 @@ export const runStreamCommand: CommandDef = {
 				write(event)
 			}
 		} catch (err) {
+			await session.close()
 			return fail(err instanceof Error ? err.message : String(err))
 		}
+		// A stdio tool server is a child process; a command that returns without
+		// closing leaves it running.
+		await session.close()
 
 		// Persist the turn so a later `history --session <key>` (and the next
 		// turn's context) sees it. Best-effort — a store failure must not lose

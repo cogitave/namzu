@@ -51,6 +51,14 @@ vi.mock('../../tui/agent.js', () => ({
 				providerSummary: 'stub',
 				modelSummary: 'stub',
 				toolNames: [],
+				// Present because a real session always sets these: a stub missing a
+				// field production always has is a fixture for a system that does not
+				// ship.
+				instructionFiles: [] as readonly string[],
+				skippedInstructionFiles: [] as readonly { path: string; reason: string }[],
+				mcpConnected: [] as readonly { name: string; toolCount: number }[],
+				mcpFailed: [] as readonly { name: string; reason: string }[],
+				close: async () => {},
 				errorHint: null,
 				send: async function* () {},
 			}

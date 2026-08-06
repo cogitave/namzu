@@ -241,10 +241,27 @@ export const runCommand: CommandDef = {
 			cwd: resolved.cwd,
 			rules: permissions.rules,
 			permissionMode: modeResult.mode,
+			...(ctx.config.mcpServers ? { mcpServers: ctx.config.mcpServers } : {}),
 		})
 		if (!session.hasProvider) {
+			await session.close()
 			ctx.formatter.error({ message: session.errorHint ?? 'agent is not ready' })
 			return 1
+		}
+		// A configured tool server that is not here means the run cannot do what
+		// the operator set it up to do, and there is nobody watching to notice.
+		// The TUI reports and carries on, because a person can read the line and
+		// decide; a script has no such reader, so it refuses. Same principle as
+		// the permission mode resolving differently when `interactive` is false.
+		if (session.mcpFailed.length > 0) {
+			for (const f of session.mcpFailed) {
+				ctx.formatter.error({ message: `tool server "${f.name}" is not available: ${f.reason}` })
+			}
+			await session.close()
+			return 1
+		}
+		for (const s of session.mcpConnected) {
+			ctx.formatter.info(`tool server ${s.name} · ${s.toolCount} tools`)
 		}
 		ctx.formatter.info(
 			`namzu · ${session.providerSummary}${session.modelSummary ? ` · ${session.modelSummary}` : ''}`,
@@ -291,6 +308,7 @@ export const runCommand: CommandDef = {
 			// specific conversation and got a new one that looks the same finds
 			// out several turns later, having already acted on it.
 			ctx.formatter.error({ message: resume.message })
+			await session.close()
 			return EXIT_USAGE
 		}
 		const prior: readonly Message[] = resume.kind === 'resumed' ? resume.messages : []
@@ -314,6 +332,11 @@ export const runCommand: CommandDef = {
 			else if (event.kind === 'error') failed = event.message
 			else if (event.kind === 'done') stopReason = event.stopReason
 		}
+
+		// Every exit below this point releases the session first. A stdio tool
+		// server is a child process, and a `run` that returns without closing
+		// leaves it behind.
+		await session.close()
 
 		if (failed) {
 			ctx.formatter.error({ message: failed })

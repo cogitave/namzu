@@ -23,6 +23,9 @@ const sessionStub = {
 	// not ship.
 	instructionFiles: [] as readonly string[],
 	skippedInstructionFiles: [] as readonly { path: string; reason: string }[],
+	mcpConnected: [] as readonly { name: string; toolCount: number }[],
+	mcpFailed: [] as readonly { name: string; reason: string }[],
+	close: async () => {},
 	send: undefined as unknown,
 }
 

@@ -72,6 +72,9 @@ vi.mock('../../tui/agent.js', () => ({
 				// not ship.
 				instructionFiles: instructions.loaded,
 				skippedInstructionFiles: instructions.skipped,
+				mcpConnected: [] as readonly { name: string; toolCount: number }[],
+				mcpFailed: [] as readonly { name: string; reason: string }[],
+				close: async () => {},
 				errorHint: null,
 				send: (messages: Array<{ content: string }>) => {
 					seen.prompt = messages[0]?.content ?? null
