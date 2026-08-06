@@ -269,7 +269,10 @@ export class DiskSessionStore implements SessionStore {
 			if (raw.tenantId !== tenantId) continue
 			found.push(deserializeProject(raw))
 		}
-		found.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+		// Tie-broken by id — see the in-memory store. On a fast filesystem two
+		// projects share a millisecond routinely, and without this the order
+		// came from readdir.
+		found.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id))
 		return found
 	}
 

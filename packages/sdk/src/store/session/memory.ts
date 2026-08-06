@@ -140,7 +140,13 @@ export class InMemorySessionStore implements SessionStore {
 			if (record.tenantId !== tenantId) continue
 			matches.push(record.project)
 		}
-		matches.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+		// Tie-broken by id, because two projects created in the same
+		// millisecond otherwise fall back to insertion or directory order and
+		// "oldest first" stops being a total order. A caller paginating a
+		// listing that reorders under it sees items move between pages.
+		matches.sort(
+			(a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id),
+		)
 		return matches
 	}
 

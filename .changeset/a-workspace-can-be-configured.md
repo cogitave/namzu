@@ -35,6 +35,12 @@ projects rather than refusing: a listing is a question about what you own, and
 refusing would confirm that somebody else's project is there. Writing to one
 still throws.
 
+`listProjects` returns **oldest first, ties broken by id**. The tie-break is
+load-bearing rather than tidy: `createdAt` has millisecond resolution, several
+workspaces created in one millisecond is ordinary, and without it the rest of
+the order came from the directory. A caller paginating a listing that reorders
+under it sees one project twice and another not at all.
+
 Verified live against a real run, not only in tests: a workspace created with
 `maxDelegationWidth: 1` refuses the second concurrent delegation with
 `Delegation capacity exceeded: width 2/1`, and the same workspace at width 5

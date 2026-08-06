@@ -137,13 +137,47 @@ describe.each(IMPLEMENTATIONS)('a workspace carries its own limits (%s)', (_name
 	})
 
 	it('lists what this tenant owns, oldest first', async () => {
+		// Eight, spaced past the millisecond `createdAt` is measured in, so this
+		// is an assertion about age rather than about the tie-break below. With
+		// the sort dropped the disk store returns them in directory order, which
+		// is id-ascending — it matches creation order once in 8!.
 		const store = await build()
-		const first = await store.createProject({ tenantId: TENANT, name: 'a' }, TENANT)
-		const second = await store.createProject({ tenantId: TENANT, name: 'b' }, TENANT)
+		const created = []
+		for (const name of ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']) {
+			created.push(await store.createProject({ tenantId: TENANT, name }, TENANT))
+			await new Promise((resolve) => setTimeout(resolve, 2))
+		}
 
 		const listed = await store.listProjects?.(TENANT)
 
-		expect(listed?.map((p) => p.id)).toEqual([first.id, second.id])
+		expect(listed?.map((p) => p.id)).toEqual(created.map((p) => p.id))
+	})
+
+	it('stays a total order when several are created in the same millisecond', async () => {
+		// CI found this and a slower machine could not: on a fast filesystem
+		// projects routinely share a `createdAt`, and "oldest first" alone left
+		// the rest to `readdir`. A caller paginating a listing that reorders
+		// under it sees the same project twice and never sees another.
+		const store = await build()
+		for (const name of ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']) {
+			await store.createProject({ tenantId: TENANT, name }, TENANT)
+		}
+
+		const listed = (await store.listProjects?.(TENANT)) ?? []
+
+		expect(listed).toHaveLength(8)
+		for (let i = 1; i < listed.length; i++) {
+			const before = listed[i - 1]
+			const after = listed[i]
+			if (before === undefined || after === undefined) throw new Error('short listing')
+			const olderFirst = before.createdAt.getTime() < after.createdAt.getTime()
+			const tieByName =
+				before.createdAt.getTime() === after.createdAt.getTime() && before.id < after.id
+			expect({ pair: [before.name, after.name], ordered: olderFirst || tieByName }).toEqual({
+				pair: [before.name, after.name],
+				ordered: true,
+			})
+		}
 	})
 
 	it('omits another tenant from the listing rather than refusing', async () => {
