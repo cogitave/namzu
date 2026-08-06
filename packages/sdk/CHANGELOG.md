@@ -1,5 +1,86 @@
 # Changelog
 
+## 11.0.0
+
+### Major Changes
+
+- 82267e1: `agent_task_list` and `wait_for_task` are scoped to the run that launched the task.
+
+  A supervisor could read a sibling run's worker output by listing.
+  `SupervisorAgentConfig.gateway` exists so a host can hand the SAME gateway to
+  several runs, which makes `TaskGateway.listTasks()` gateway-wide by design —
+  and `agent_task_list` handed that straight to the model, including each task's
+  `result`, the worker's actual output. `wait_for_task` had the same reach through
+  `getTask`.
+
+  `CompletionInbox` closed exactly this on the push side, because
+  `onTaskCompleted` is a broadcast and a shared gateway would otherwise hand each
+  supervisor the other's completions. The pull side kept no such record and asked
+  the gateway directly, so the same leak stayed open through a different door.
+
+  The scope lives in the coordinator tools rather than in `listTasks()`, because
+  the two answer different questions. A host calling `listTasks()` is the operator
+  and may legitimately want everything on its gateway; a model calling
+  `agent_task_list` is one run asking about its own work. Narrowing the gateway
+  method would take the operator's view away in order to fix the model's.
+
+  `wait_for_task` gives the same answer for a sibling's task as for one that never
+  existed. Distinguishing them would confirm a task id to a run that was not
+  supposed to know it — the leak in miniature.
+
+  **Breaking, for a host that shares one gateway across runs.** A run now sees
+  only the tasks it launched through its own `create_task`. If you relied on one
+  run listing another's tasks, that path is closed; use `TaskGateway.listTasks()`
+  from the host, which is unchanged and still gateway-wide.
+
+  **Also breaking in a narrower way:** a task launched through a DIFFERENT surface
+  on the same gateway — `buildAgentTool`, or the host directly — is not listed by
+  these tools. That is the same rule rather than an exception to it, but it is a
+  behaviour change if you mixed surfaces on one gateway and listed through the
+  coordinator.
+
+- 368fa4b: A plan step reports its own outcome, so a plan that succeeded can say so.
+
+  A plan's steps had no relationship to the work that carried them out.
+  `approve_plan` built steps, `create_task` launched workers, and nothing
+  connected the two — so no step could ever be observed, `updateStepStatus` had no
+  production caller anywhere, and a plan could reach `failed` (the error path
+  calls `failPlan`) or sit at `executing` forever, but never `completed`. A host
+  reading `plan.status` after a fully successful run was told the work was still
+  going.
+
+  **Two bindings, because there are two kinds of step.**
+
+  - A **delegated** step reports through the launch that carries it out:
+    `create_task` gains `plan_step_id`. The step goes `running` when the worker
+    starts and `completed` or `failed` when it settles — from the same
+    two-authority check the tool result uses, so a worker that returned
+    `status: 'failed'` under a gateway state of `completed` fails its step.
+  - An **orchestrator-owned** step — one with no `agent_id` — has no tool call to
+    bind to at all. The new `update_plan_step` tool is how it reports, and without
+    it a plan containing one could never settle however well it went. `skipped` is
+    a first-class outcome there: a plan that turned out not to need a step went
+    right, and forcing that into `completed` or `failed` would make the plan lie
+    in one direction or the other.
+
+  **`approve_plan` now tells the model the step ids**, in its output and in
+  `data.steps`. Both bindings name ids, and a binding whose caller has never been
+  told the ids is a binding that does not exist.
+
+  **The run settles the plan on success**, but only when every step has reported.
+  The check is a read — the new `PlanManager.unreportedSteps` — rather than a
+  caught throw: `completePlan` refuses an unreported step on purpose, and letting
+  that throw at the end of a successful run would turn a run that worked into a
+  run that crashed on its way out. A plan with silent steps is left `executing`,
+  which is the honest answer.
+
+  **Breaking:** `update_plan_step` is a new name in the coordinator tool set, so a
+  host that registers its own tool under that name will now get
+  `ToolNameCollisionError` at run start. `approve_plan`'s approved output is no
+  longer byte-identical — it opens with the same sentence and continues with the
+  step roster; the historical text is still the prefix, and `data.steps` is there
+  so a host need not parse prose.
+
 ## 10.0.0
 
 ### Major Changes
