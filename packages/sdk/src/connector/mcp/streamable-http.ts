@@ -26,9 +26,23 @@ export class StreamableHttpTransport implements MCPTransport {
 	}
 
 	async close(): Promise<void> {
-		if (!this.connected) return
+		if (!this.connected) {
+			// Never connected, or already closed: nothing will notify, so this is
+			// the only chance to drop what `connect()` registered before it failed.
+			this.clearHandlers()
+			return
+		}
 		this.connected = false
 		for (const handler of this.closeHandlers) handler()
+		// After the notification, never before it.
+		this.clearHandlers()
+	}
+
+	/** See {@link StdioTransport} — the same append-only handler leak. */
+	private clearHandlers(): void {
+		this.messageHandlers = []
+		this.closeHandlers = []
+		this.errorHandlers = []
 	}
 
 	async send(message: MCPJsonRpcMessage): Promise<void> {

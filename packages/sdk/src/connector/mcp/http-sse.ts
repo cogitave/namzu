@@ -51,6 +51,23 @@ export class HttpSseTransport implements MCPTransport {
 		this.abortController?.abort()
 		this.abortController = null
 		for (const handler of this.closeHandlers) handler()
+		// After the notification, never before it.
+		this.clearHandlers()
+	}
+
+	/**
+	 * Drop every registered handler.
+	 *
+	 * `onMessage`/`onClose`/`onError` append, and `MCPClient.connect()` calls
+	 * all three every time — and is reachable again after `disconnect()`. So
+	 * without this each reconnect duplicated the set, and after n cycles one
+	 * inbound message dispatched to n handlers, n-1 of them closures over dead
+	 * sessions that kept their old client state alive.
+	 */
+	private clearHandlers(): void {
+		this.messageHandlers = []
+		this.closeHandlers = []
+		this.errorHandlers = []
 	}
 
 	async send(message: MCPJsonRpcMessage): Promise<void> {

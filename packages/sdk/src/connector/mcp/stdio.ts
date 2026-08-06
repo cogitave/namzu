@@ -12,6 +12,8 @@ export class StdioTransport implements MCPTransport {
 	private closeHandlers: Array<() => void> = []
 	private errorHandlers: Array<(error: Error) => void> = []
 	private connected = false
+	/** True between kill and the process's own `close` event. */
+	private exitPending = false
 	private buffer = ''
 	private log: Logger
 
@@ -41,6 +43,10 @@ export class StdioTransport implements MCPTransport {
 			this.connected = false
 			this.log.info(`MCP server process exited with code ${code}`)
 			for (const handler of this.closeHandlers) handler()
+			// After the notification, not before it: this event is what tells
+			// `MCPClient` the session ended.
+			this.exitPending = false
+			this.clearHandlers()
 		})
 
 		this.process.on('error', (err) => {
@@ -55,11 +61,38 @@ export class StdioTransport implements MCPTransport {
 	}
 
 	async close(): Promise<void> {
-		if (!this.process) return
+		if (!this.process) {
+			// Nothing was spawned, or the exit already ran. No `close` event is
+			// coming, so this is the only chance to drop what `connect()`
+			// registered — and without it a retry after a failed spawn stacks a
+			// second set of handlers on the first.
+			if (!this.exitPending) this.clearHandlers()
+			return
+		}
 		this.connected = false
+		this.exitPending = true
 		this.process.kill('SIGTERM')
 		this.process = null
 		this.buffer = ''
+		// The handlers deliberately survive this call. `process.on('close')`
+		// fires them when the process actually exits, and dropping them here
+		// would leave `MCPClient` believing it is still connected — so its next
+		// `connect()` would be refused with "already connected".
+	}
+
+	/**
+	 * Drop every registered handler.
+	 *
+	 * `onMessage`/`onClose`/`onError` append, and `MCPClient.connect()` calls
+	 * all three every time — and is reachable again after `disconnect()`. So
+	 * without this each reconnect duplicated the set, and after n cycles one
+	 * inbound message dispatched to n handlers, n-1 of them closures over dead
+	 * sessions that kept their old client state alive.
+	 */
+	private clearHandlers(): void {
+		this.messageHandlers = []
+		this.closeHandlers = []
+		this.errorHandlers = []
 	}
 
 	async send(message: MCPJsonRpcMessage): Promise<void> {
