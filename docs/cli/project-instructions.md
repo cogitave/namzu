@@ -10,6 +10,8 @@ related_packages: ["@namzu/cli"]
 
 A project can tell namzu how it wants work done by committing an `AGENTS.md`. namzu reads it at the start of every session and follows it as standing policy for work in that project.
 
+> namzu also tells the agent, on every turn, what today's date is and whether the working directory is a git repository and on which branch — see [What namzu already knows](#what-namzu-already-knows) below.
+
 This is separate from [memory](./memory.md). Memory is about **you** and lives under your home directory; it travels with you between projects. `AGENTS.md` is about **the project** and lives in the repository; it applies to everyone who works there, including a teammate's namzu and namzu's own sub-agents.
 
 ```markdown
@@ -72,6 +74,17 @@ namzu names the files it loaded, so "namzu read my conventions and disagreed" is
 - A file is read up to 32,000 characters. If it is longer, the rest is not included and the agent is told so explicitly, in place, along with how many characters were dropped — a truncated policy is never presented as a whole one.
 - An empty or whitespace-only file is skipped.
 - The files are read once, when the session opens. That is what makes the list namzu prints exactly the set that went into the prompt, and it keeps the prompt cache from being re-keyed on every file you save. Edit a file and restart namzu (or run a new one-shot) for the change to take effect.
+
+## What namzu already knows
+
+You do not need to write these into `AGENTS.md`; namzu tells the agent itself, freshly on every turn:
+
+- **Today's date**, as the local calendar date on your machine. Without it a model answers from its training cut-off, and writes that year into a changelog entry or a `last_updated` field without anything looking wrong.
+- **Whether the working directory is a git repository**, and if so the branch that is checked out — or that HEAD is detached, in which case a commit made there is not reachable from any branch.
+
+Sub-agents are told the same, resolved when the sub-agent is built rather than when the session started.
+
+Deliberately not included: anything about uncommitted changes. That block is the cached prefix of every request and a dirty-file count changes whenever the agent saves a file, so carrying it would re-key the cache on nearly every turn to say what `git status` answers on demand.
 
 ## What they can and cannot do
 

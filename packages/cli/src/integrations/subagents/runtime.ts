@@ -77,6 +77,16 @@ export interface SubagentRuntimeOptions {
 	 * the child reports success either way.
 	 */
 	readonly projectInstructions?: string
+	/**
+	 * Produces the "where and when" block for a child, at the moment the child
+	 * is built rather than once for the session.
+	 *
+	 * A function because both facts it carries can change while the parent runs:
+	 * a long session crosses midnight, and the parent may itself have checked
+	 * out a branch since it started. A string captured at startup would hand
+	 * every later sub-agent a confident, stale answer.
+	 */
+	readonly readEnvironment?: () => Promise<string>
 	/** Receives the child's RunEvents (lineage-stamped) — for the tree view. */
 	readonly onEvent?: (event: RunEvent) => void
 }
@@ -279,15 +289,22 @@ function buildDefinition(
 		// ReactiveAgent is Agent<ReactiveAgentConfig,…>; the registry stores the
 		// erased Agent<BaseAgentConfig,…>. configBuilder supplies the richer config.
 		typedAgent: agent as unknown as CoreAgent<BaseAgentConfig, BaseAgentResult>,
-		configBuilder: (options): ReactiveAgentConfig => ({
-			model: options.model ?? opts.model,
-			tokenBudget: options.tokenBudget ?? 200_000,
-			timeoutMs: options.timeoutMs ?? 600_000,
-			maxIterations: 40,
-			provider: opts.buildProvider(),
-			tools: opts.buildTools(),
-			systemPrompt: prompt,
-			...(opts.verificationGate ? { verificationGate: opts.verificationGate } : {}),
-		}),
+		configBuilder: async (options): Promise<ReactiveAgentConfig> => {
+			// Resolved HERE, per child, rather than captured once for the session:
+			// what day it is and which branch is checked out can both have changed
+			// since the parent started, and a sub-agent asserting the stale answer
+			// is worse than one that was never told.
+			const environment = opts.readEnvironment ? await opts.readEnvironment() : null
+			return {
+				model: options.model ?? opts.model,
+				tokenBudget: options.tokenBudget ?? 200_000,
+				timeoutMs: options.timeoutMs ?? 600_000,
+				maxIterations: 40,
+				provider: opts.buildProvider(),
+				tools: opts.buildTools(),
+				systemPrompt: environment ? `${prompt}\n\n${environment}` : prompt,
+				...(opts.verificationGate ? { verificationGate: opts.verificationGate } : {}),
+			}
+		},
 	}
 }

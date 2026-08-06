@@ -48,6 +48,7 @@ import {
 } from '@namzu/sdk'
 
 import { join } from 'node:path'
+import { composeEnvironmentPrompt, readEnvironmentFacts } from '../context/environment.js'
 import { loadProjectInstructions } from '../context/project.js'
 import {
 	type DetectedProvider,
@@ -426,6 +427,10 @@ export async function createAgentSession(
 			// does not — the worse half of the feature, because the delegating
 			// turn reports success either way.
 			...(projectInstructions.prompt ? { projectInstructions: projectInstructions.prompt } : {}),
+			// Same argument as the instructions, one step further: a sub-agent that
+			// does not know what day it is dates a changelog entry from a training
+			// cut-off, and the parent reports the delegation as successful.
+			readEnvironment: async () => composeEnvironmentPrompt(await readEnvironmentFacts(cwd)),
 			buildProvider: () =>
 				constructProvider(
 					prefs.provider,
@@ -488,9 +493,22 @@ export async function createAgentSession(
 			// the order is the containment: they are text off the disk of
 			// whatever directory the agent was pointed at, so the rules they must
 			// not be able to rewrite are established before they are read.
+			//
+			// The environment block is read fresh every turn, unlike the project
+			// instructions, because both facts in it can change WHILE the session
+			// runs — midnight passes, and the agent checks out a branch itself.
+			// Its text only changes when a fact changes, so it costs a prompt-cache
+			// miss exactly when a hit would have been a stale claim.
 			const memoryPrompt = composeMemoryPrompt(readMemory())
+			const environmentPrompt = composeEnvironmentPrompt(await readEnvironmentFacts(cwd))
 			const systemPrompt =
-				[NAMZU_IDENTITY, memoryPrompt, projectInstructions.prompt, opts?.extraSystem]
+				[
+					NAMZU_IDENTITY,
+					environmentPrompt,
+					memoryPrompt,
+					projectInstructions.prompt,
+					opts?.extraSystem,
+				]
 					.filter((s): s is string => Boolean(s))
 					.join('\n\n') || undefined
 			yield* runTurn({
