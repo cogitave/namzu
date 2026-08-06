@@ -1,4 +1,13 @@
 {
   "title": "CLI",
-  "pages": ["index", "tui", "headless", "providers", "tools", "memory", "skills"]
+  "pages": [
+    "index",
+    "tui",
+    "headless",
+    "providers",
+    "tools",
+    "project-instructions",
+    "memory",
+    "skills"
+  ]
 }

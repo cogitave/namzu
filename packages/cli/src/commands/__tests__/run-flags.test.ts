@@ -25,6 +25,18 @@ const seen: {
 	model: string | undefined
 } = { prompt: null, cwd: undefined, provider: undefined, model: undefined }
 
+/**
+ * What the stubbed session reports about project instructions.
+ *
+ * Mutable so a test can produce the case that matters — a file that is PRESENT
+ * and was refused. Left empty, the reader below is a branch no test ever
+ * enters, which is the state this whole file exists to catch elsewhere.
+ */
+const instructions: {
+	loaded: readonly string[]
+	skipped: readonly { path: string; reason: string }[]
+} = { loaded: [], skipped: [] }
+
 vi.mock('../../tui/agent.js', () => ({
 	probeAgentSession: vi.fn(async () => ({
 		preferences: { version: 2, provider: 'mock', subagents: { active: [] } },
@@ -45,6 +57,11 @@ vi.mock('../../tui/agent.js', () => ({
 				providerSummary: 'mock',
 				modelSummary: 'mock-model',
 				toolNames: [],
+				// Present because a real session always sets these — a stub missing a
+				// field production always has is a fixture for a system that does
+				// not ship.
+				instructionFiles: instructions.loaded,
+				skippedInstructionFiles: instructions.skipped,
 				errorHint: null,
 				send: (messages: Array<{ content: string }>) => {
 					seen.prompt = messages[0]?.content ?? null
@@ -72,11 +89,17 @@ function context(): { ctx: CommandContext; printed: string[]; errors: string[] }
 	return { ctx, printed, errors }
 }
 
-async function run(rawArgs: string[]): Promise<{ code: number; errors: string[] }> {
+async function run(
+	rawArgs: string[],
+	setup?: () => void,
+): Promise<{ code: number; errors: string[] }> {
 	seen.prompt = null
 	seen.cwd = undefined
 	seen.provider = undefined
 	seen.model = undefined
+	instructions.loaded = []
+	instructions.skipped = []
+	setup?.()
 	const { ctx, errors } = context()
 	const code = (await runCommand.handler({ rawArgs, ctx } as never)) as number
 	return { code, errors }
@@ -212,6 +235,33 @@ describe('the pipe reaches the model, not just the composer', () => {
 			expect(code).toBe(0)
 			expect(seen.prompt).toBe('the question is in here')
 		})
+	})
+})
+
+describe('an instruction file that was refused is named, not omitted', () => {
+	// The session reports a refusal and `run` has to print it. An empty loaded
+	// list cannot distinguish "this project declares none" from "yours is a
+	// symlink out of the tree and namzu would not read it", and those two want
+	// opposite responses from whoever is reading the output.
+	it('reports a skipped file and why, on stderr', async () => {
+		const { code, errors } = await run(['hello'], () => {
+			instructions.skipped = [
+				{ path: '/repo/AGENTS.md', reason: 'it is a symlink to /etc/shadow, outside the project' },
+			]
+		})
+
+		expect(code).toBe(0)
+		const said = errors.join('\n')
+		expect(said).toContain('AGENTS.md')
+		expect(said, 'a refusal that does not say why sends the reader nowhere').toContain(
+			'outside the project',
+		)
+	})
+
+	it('says nothing when nothing was refused', async () => {
+		const { errors } = await run(['hello'])
+
+		expect(errors.join('\n')).not.toContain('skipped')
 	})
 })
 

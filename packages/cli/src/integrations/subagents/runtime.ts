@@ -66,6 +66,17 @@ export interface SubagentRuntimeOptions {
 	/** Build the sub-agent's tool registry (its own working set). */
 	readonly buildTools: () => ToolRegistryContract
 	readonly verificationGate?: VerificationGateConfig
+	/**
+	 * The project's own instruction block, already composed, or absent when the
+	 * working directory declares none.
+	 *
+	 * A sub-agent runs in the same directory and writes the same code as the
+	 * parent that dispatched it, so the project's standing policy applies to it
+	 * identically. Omitting it would produce the shape where the rules hold
+	 * until the moment work is delegated, and the delegating turn cannot tell:
+	 * the child reports success either way.
+	 */
+	readonly projectInstructions?: string
 	/** Receives the child's RunEvents (lineage-stamped) — for the tree view. */
 	readonly onEvent?: (event: RunEvent) => void
 }
@@ -247,8 +258,14 @@ function buildDefinition(
 	})
 	// A specialist persona is layered on top of the anti-fabrication base so a
 	// dynamic role can't opt out of the "don't invent results" guardrails.
-	const prompt =
+	//
+	// The project's instructions go last, after both, for the same reason they
+	// go after the identity block on the parent: they are text read off the
+	// working directory, and the rules they must not be able to rewrite are
+	// established before they are read.
+	const base =
 		systemPrompt === SUBAGENT_PROMPT ? SUBAGENT_PROMPT : `${systemPrompt}\n\n${SUBAGENT_PROMPT}`
+	const prompt = opts.projectInstructions ? `${base}\n\n${opts.projectInstructions}` : base
 	return {
 		info: {
 			id,
