@@ -49,6 +49,16 @@ import {
  */
 export const CONNECT_TIMEOUT_MS = 10_000
 
+/**
+ * How long shutting one server down may take before it is given up on.
+ *
+ * Shorter than the connect bound because nothing waits on the answer: a
+ * one-shot is exiting and a TUI is replacing the session. What this prevents
+ * is the opposite of a leak — a `close()` that never resolves, holding the
+ * command open past the work it was asked to do.
+ */
+export const CLOSE_TIMEOUT_MS = 2_000
+
 /** A single entry under `mcpServers`. Either a command or a URL, never both. */
 export interface McpServerSpec {
 	/** Stdio: the executable to run. */
@@ -176,10 +186,18 @@ export async function connectMcpServers(
 			failed.push({ name, reason: reasonOf(err) })
 			// A half-connected client still owns a child process. Tearing it down
 			// here is the difference between a failed server and a leaked one.
+			//
+			// Bounded, and deliberately not dependent on what a transport does
+			// when it is closed having never connected — the shipped transports
+			// disagree about that (one returns early, one notifies), the
+			// divergence is a known one, and a shutdown path that only works
+			// under one of the two answers is a shutdown path waiting to hang.
+			// Nothing here reads the client's state afterwards either.
 			try {
-				await client.disconnect()
+				await withDeadline(client.disconnect(), CLOSE_TIMEOUT_MS, `closing "${name}"`)
 			} catch {
-				// Already gone, or never started. Nothing left to do about it.
+				// Already gone, never started, or refusing to answer. The failure is
+				// already recorded and there is nothing further to do about it.
 			}
 		}
 	}
@@ -191,9 +209,11 @@ export async function connectMcpServers(
 		close: async () => {
 			await Promise.all(
 				clients.map((c) =>
-					c.disconnect().catch(() => {
+					withDeadline(c.disconnect(), CLOSE_TIMEOUT_MS, 'closing a tool server').catch(() => {
 						// Shutting down is best effort by definition: the process may
 						// already be gone, and nothing useful follows from saying so.
+						// Bounded so a server that will not close cannot hold the
+						// command open past the work it was asked to do.
 					}),
 				),
 			)
