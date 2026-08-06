@@ -641,6 +641,24 @@ export class AgentManager {
 			if (this.deps.workspaceRegistry.has(backend)) {
 				const driver = this.deps.workspaceRegistry.get(backend)
 				workspaceRef = await driver.create({ label: subSession.id })
+
+				// Write the workspace onto the record that outlives this process.
+				//
+				// The ref was kept only on the in-memory `ChildSpawnRecord`, so
+				// `SubSession.workspaceId` stayed `null` for every spawn-created
+				// child — and `ArchivalManager` resolves a workspace only when
+				// that field is set (`session/retention/archive.ts`). The one
+				// record that could have named the workspace said there was none,
+				// which is why the archival path could never act as a backstop
+				// for a leaked worktree.
+				//
+				// After `create` rather than in `createSubSession`, because the
+				// sub-session id is the workspace's label — the workspace cannot
+				// exist before the record it is named after. Inside the try, so
+				// the compensating rollback below covers it like every other
+				// mutation here.
+				subSession = { ...subSession, workspaceId: workspaceRef.id }
+				await store.updateSubSession(subSession, context.tenantId)
 			}
 		} catch (err) {
 			// Compensating rollback order is mandated by the store's
@@ -764,9 +782,9 @@ export class AgentManager {
 						)
 					}
 				} else {
-					// Non-success: mark sub-session failed and, when we own a
-					// workspace, dispose it. Dispose errors are logged but not
-					// propagated — the sub-session state is already persisted.
+					// Non-success: mark sub-session failed. Disposal is shared with
+					// the success branch below — the workspace was provisioned for
+					// this child either way, and it is this manager that owns it.
 					const subSession = await store.getSubSession(
 						spawnRecord.subSessionId,
 						spawnRecord.tenantId,
@@ -774,21 +792,25 @@ export class AgentManager {
 					if (subSession) {
 						await store.updateSubSession({ ...subSession, status: 'failed' }, spawnRecord.tenantId)
 					}
-					if (spawnRecord.workspaceRef) {
-						const backend = spawnRecord.workspaceRef.meta.backend
-						if (this.deps.workspaceRegistry.has(backend)) {
-							await this.deps.workspaceRegistry
-								.get(backend)
-								.dispose(spawnRecord.workspaceRef)
-								.catch((disposeErr) => {
-									this.log.warn('Workspace dispose failed', {
-										backend,
-										error: toErrorMessage(disposeErr),
-									})
-								})
-						}
-					}
 				}
+
+				// A child is done with its workspace however it ended.
+				//
+				// This used to live only in the branch above, so both dispose
+				// sites in this class were failure paths and a child that
+				// SUCCEEDED released nothing. `.namzu/worktrees/` then grew once
+				// per successful delegation — the more reliable the workers, the
+				// faster it filled, which is the opposite of the signal a leak
+				// usually gives.
+				//
+				// It runs after the summary is sealed and the sub-session flipped
+				// to `idle`, so nothing the terminalization path reads is gone
+				// before it reads it. It also runs BEFORE the `subsession_idled`
+				// emission below: a listener cannot reach into the workspace from
+				// that event. Stated rather than hedged — no consumer does today,
+				// and holding a worktree open for a hypothetical one is what this
+				// is fixing.
+				await this.disposeChildWorkspace(spawnRecord)
 			} catch (err) {
 				this.log.error('Sub-session finalization failed', {
 					taskId: agentTask.taskId,
@@ -937,15 +959,38 @@ export class AgentManager {
 				spawnRecord.tenantId,
 			)
 		}
-		if (spawnRecord.workspaceRef) {
-			const backend = spawnRecord.workspaceRef.meta.backend
-			if (this.deps.workspaceRegistry.has(backend)) {
-				await this.deps.workspaceRegistry
-					.get(backend)
-					.dispose(spawnRecord.workspaceRef)
-					.catch(() => undefined)
-			}
-		}
+		await this.disposeChildWorkspace(spawnRecord)
+	}
+
+	/**
+	 * Release the workspace this manager provisioned for a child.
+	 *
+	 * Called on every terminal path, success included. `has(backend)` before
+	 * `get(backend)` because the registry is deny-by-default and throws on an
+	 * unknown kind — a driver deregistered mid-run must not turn cleanup into
+	 * an exception on a child that already finished.
+	 *
+	 * Never throws. Disposal is cleanup, not part of the child's result: the
+	 * sub-session state is already persisted by the time this runs, and
+	 * failing here would report a delegation that worked as one that did not.
+	 * The failure is logged instead, because a worktree that could not be
+	 * removed is an operator's problem and silence is how it stays one.
+	 */
+	private async disposeChildWorkspace(spawnRecord: ChildSpawnRecord): Promise<void> {
+		if (!spawnRecord.workspaceRef) return
+		const backend = spawnRecord.workspaceRef.meta.backend
+		if (!this.deps.workspaceRegistry.has(backend)) return
+		await this.deps.workspaceRegistry
+			.get(backend)
+			.dispose(spawnRecord.workspaceRef)
+			.catch((disposeErr) => {
+				this.log.warn('Workspace dispose failed', {
+					backend,
+					workspaceId: spawnRecord.workspaceRef?.id,
+					subSessionId: spawnRecord.subSessionId,
+					error: toErrorMessage(disposeErr),
+				})
+			})
 	}
 
 	private markCanceled(taskId: TaskId): void {
