@@ -9,12 +9,13 @@
  * block says when a file was cut.
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import {
+	MAX_BYTES_TO_READ,
 	MAX_CHARS_PER_FILE,
 	composeProjectInstructionsPrompt,
 	instructionSearchPath,
@@ -71,17 +72,26 @@ describe('the search path', () => {
 		expect(path).not.toContain(outside)
 	})
 
-	it('terminates at the filesystem root when there is no repository', () => {
-		// The loop's exit condition when no `.git` is ever found is
-		// `dirname(dir) === dir`. Getting that wrong is an infinite loop, not a
-		// wrong answer, so the assertion that matters is that this returns.
+	it('does not walk at all when there is no repository above the directory', () => {
+		// The walk that would otherwise happen reaches the DRIVE ROOT: on
+		// Windows a run in a temp directory would read %TEMP%\AGENTS.md,
+		// C:\Users\<user>\AGENTS.md and C:\AGENTS.md, and %TEMP% is writable by
+		// anything on the machine. A boundary that only exists when a `.git`
+		// happens to be present is not a boundary — it is the case it was meant
+		// to cover, unhandled.
 		const orphan = join(root, 'no-repo-here')
 		mkdirSync(orphan, { recursive: true })
 
-		const path = instructionSearchPath(orphan)
+		expect(instructionSearchPath(orphan)).toEqual([orphan])
+	})
 
-		expect(path[path.length - 1]).toBe(orphan)
-		expect(path.length).toBeGreaterThan(1)
+	it('does not pick up an ancestor file when there is no repository', () => {
+		// The property above, at the level a user experiences it.
+		const orphan = join(root, 'no-repo-here')
+		mkdirSync(orphan, { recursive: true })
+		writeFileSync(join(root, 'AGENTS.md'), 'Not this project.')
+
+		expect(loadProjectInstructions(orphan).files).toEqual([])
 	})
 })
 
@@ -126,6 +136,75 @@ describe('what is loaded', () => {
 
 		expect(() => loadProjectInstructions(pkg)).not.toThrow()
 		expect(loadProjectInstructions(pkg).files).toEqual([])
+	})
+})
+
+/**
+ * Can this process create a symlink at all?
+ *
+ * Unprivileged Windows cannot, and the two tests below would then assert
+ * nothing while reporting green. They call `skip()` instead, so a local run
+ * says out loud that the symlink defence was NOT exercised here — CI runs on a
+ * platform where it is.
+ */
+function canSymlink(): boolean {
+	const probe = mkdtempSync(join(tmpdir(), 'namzu-symlink-probe-'))
+	try {
+		writeFileSync(join(probe, 'target'), 'x')
+		symlinkSync(join(probe, 'target'), join(probe, 'link'))
+		return true
+	} catch {
+		return false
+	} finally {
+		rmSync(probe, { recursive: true, force: true })
+	}
+}
+
+describe('what is refused', () => {
+	it('refuses a symlink pointing out of the project, and says so', (ctx) => {
+		// `statSync` FOLLOWS a symlink, so `AGENTS.md -> ~/.aws/credentials`
+		// reports itself as an ordinary readable file and its contents go to a
+		// provider in the system position. This is the case `lstatSync` exists
+		// for here.
+		if (!canSymlink()) return ctx.skip()
+		const { pkg } = layout()
+		const secret = join(root, 'outside', 'secret.txt')
+		writeFileSync(secret, 'SECRET_ACCESS_KEY=hunter2')
+		symlinkSync(secret, join(pkg, 'AGENTS.md'))
+
+		const loaded = loadProjectInstructions(pkg)
+
+		expect(loaded.files).toEqual([])
+		expect(loaded.prompt).toBeNull()
+		expect(loaded.skipped).toHaveLength(1)
+		expect(loaded.skipped[0]?.reason).toContain('outside the project')
+	})
+
+	it('follows a symlink that stays inside the project', (ctx) => {
+		// Containment, not a ban. A monorepo pointing one package's file at
+		// another's is an ordinary layout, and refusing it would break a real
+		// user to stop an attack containment already stops.
+		if (!canSymlink()) return ctx.skip()
+		const { repo, pkg } = layout()
+		writeFileSync(join(repo, 'shared-rules.md'), 'Shared rule: no default exports.')
+		symlinkSync(join(repo, 'shared-rules.md'), join(pkg, 'AGENTS.md'))
+
+		const loaded = loadProjectInstructions(pkg)
+
+		expect(loaded.skipped).toEqual([])
+		expect(loaded.prompt).toContain('Shared rule: no default exports.')
+	})
+
+	it('reports a file too large to read instead of reading it', () => {
+		// The character budget cuts text that has ALREADY been read, which does
+		// not help when the read itself is the problem. Checked from the stat.
+		const { repo, pkg } = layout()
+		writeFileSync(join(repo, 'AGENTS.md'), 'x'.repeat(MAX_BYTES_TO_READ + 1))
+
+		const loaded = loadProjectInstructions(pkg)
+
+		expect(loaded.files).toEqual([])
+		expect(loaded.skipped[0]?.reason).toContain('larger than')
 	})
 })
 

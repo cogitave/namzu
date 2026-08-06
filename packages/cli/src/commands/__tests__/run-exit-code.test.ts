@@ -22,6 +22,7 @@ const sessionStub = {
 	// field production always sets is a fixture that tests a system which does
 	// not ship.
 	instructionFiles: [] as readonly string[],
+	skippedInstructionFiles: [] as readonly { path: string; reason: string }[],
 	send: undefined as unknown,
 }
 

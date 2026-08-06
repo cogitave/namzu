@@ -194,6 +194,15 @@ export interface AgentSession {
 	 * opposite responses.
 	 */
 	readonly instructionFiles: readonly string[]
+	/**
+	 * Instruction files that are PRESENT and were not loaded, with the reason.
+	 *
+	 * An empty `instructionFiles` cannot distinguish "this project declares
+	 * none" from "yours is a symlink out of the tree and namzu refused it", and
+	 * those call for opposite responses. Refusing is right; refusing quietly is
+	 * the failure this whole package keeps finding.
+	 */
+	readonly skippedInstructionFiles: readonly { readonly path: string; readonly reason: string }[]
 	send(messages: readonly Message[], opts?: SendOptions): AsyncIterable<AgentEvent>
 }
 
@@ -464,6 +473,7 @@ export async function createAgentSession(
 		modelSummary: model,
 		toolNames: activeToolNames,
 		instructionFiles: projectInstructions.files.map((f) => f.path),
+		skippedInstructionFiles: projectInstructions.skipped,
 		errorHint: null,
 		send: async function* (messages, opts) {
 			// Renew a lapsed OAuth token before the turn runs (no-op for valid
@@ -1177,6 +1187,7 @@ function emptySession(errorHint: string): AgentSession {
 		// Nothing was injected, because no turn will run. Reporting files here
 		// would claim instructions are in force on a session that has no prompt.
 		instructionFiles: [],
+		skippedInstructionFiles: [],
 		errorHint,
 		send: async function* () {
 			yield { kind: 'error' as const, message: errorHint }

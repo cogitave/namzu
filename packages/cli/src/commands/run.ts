@@ -240,6 +240,13 @@ export const runCommand: CommandDef = {
 					.join(', ')}`,
 			)
 		}
+		// A refusal that says nothing is indistinguishable from a project that
+		// declared nothing, and the two want opposite responses from the reader.
+		for (const skip of session.skippedInstructionFiles) {
+			ctx.formatter.error({
+				message: `skipped ${relative(resolved.cwd, skip.path) || skip.path}: ${skip.reason}`,
+			})
+		}
 
 		const extraSystem = await loadSkillsContext(resolved.cwd, flags.skills)
 

@@ -144,6 +144,12 @@ describe("the project's instructions", () => {
 		const systemPrompt = await drive(pkg)
 
 		expect(systemPrompt).not.toContain('Project instructions')
+		// The loader returns `null` for "no file", and the composition is a join
+		// over a list. Drop the filter that removes the empty slots and the
+		// literal four characters `null` are sent to the model between the
+		// identity block and the skills block, on every run in every directory
+		// with no AGENTS.md — while the assertion above still passes.
+		expect(systemPrompt, 'an absent block must be absent, not the word null').not.toContain('null')
 		expect(systemPrompt, 'the identity block still has to be there').toContain('You are namzu')
 	})
 

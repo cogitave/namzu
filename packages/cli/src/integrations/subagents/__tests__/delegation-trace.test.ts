@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { type LLMProvider, LocalTaskGateway, type ToolContext } from '@namzu/sdk'
+import {
+	type AgentDefinition,
+	AgentRegistry,
+	type LLMProvider,
+	LocalTaskGateway,
+	type ToolContext,
+} from '@namzu/sdk'
 
 import { createSubagentRuntime } from '../runtime.js'
 
@@ -26,9 +32,13 @@ function toolContext(parentSpan?: ToolContext['parentSpan']): ToolContext {
 	return { runId: 'run_test', ...(parentSpan ? { parentSpan } : {}) } as unknown as ToolContext
 }
 
-async function buildAgentTool() {
+async function buildAgentTool(extra: { projectInstructions?: string } = {}) {
 	const created: Record<string, unknown>[] = []
+	const registered: AgentDefinition[] = []
 
+	vi.spyOn(AgentRegistry.prototype, 'register').mockImplementation((def) => {
+		for (const d of Array.isArray(def) ? def : [def]) registered.push(d)
+	})
 	vi.spyOn(LocalTaskGateway.prototype, 'createTask').mockImplementation(async (options) => {
 		created.push(options as unknown as Record<string, unknown>)
 		return { taskId: 'tsk_1' } as never
@@ -43,9 +53,10 @@ async function buildAgentTool() {
 		model: 'test-model',
 		buildProvider: () => ({}) as LLMProvider,
 		buildTools: () => ({}) as never,
+		...extra,
 	})
 
-	return { agentTool: runtime.agentTool, created }
+	return { agentTool: runtime.agentTool, created, registered }
 }
 
 afterEach(() => {
@@ -86,5 +97,59 @@ describe('the Agent tool parents a delegated run to the turn that asked for it',
 		)
 
 		expect(created[0]?.parentSpan).toBe(fakeSpan)
+	})
+})
+
+/**
+ * The project's standing instructions bind a specialist the model invents at
+ * call time, not only the pre-registered general-purpose sub-agent.
+ *
+ * `role` is a SECOND registration path to the same definition builder, and one
+ * of two paths carrying a signal is how this class of defect survives a green
+ * suite: the delegation everyone tests would honour the project's rules and
+ * the one the model actually reaches for — a named specialist — would not.
+ */
+describe('a sub-agent is bound by the project it works in', () => {
+	const INSTRUCTIONS = '## Project instructions\n\nNever use a default export.'
+
+	it('gives the general-purpose sub-agent the block', async () => {
+		const { registered } = await buildAgentTool({ projectInstructions: INSTRUCTIONS })
+
+		const general = registered.find((d) => d.info.id === 'general-purpose')
+		const config = (await general?.configBuilder?.({})) as { systemPrompt?: string } | undefined
+		expect(config?.systemPrompt).toContain('Never use a default export.')
+	})
+
+	it('gives a specialist defined at call time the same block', async () => {
+		const { agentTool, registered } = await buildAgentTool({ projectInstructions: INSTRUCTIONS })
+
+		await agentTool.execute(
+			{ description: 'audit', prompt: 'do a thing', role: 'You are a security auditor' },
+			toolContext(),
+		)
+
+		const specialist = registered.find((d) => d.info.id.startsWith('dyn-'))
+		if (!specialist?.configBuilder) {
+			throw new Error('no dynamic specialist was registered — this test proves nothing')
+		}
+		const prompt = String(
+			((await specialist.configBuilder({})) as { systemPrompt?: string }).systemPrompt ?? '',
+		)
+		expect(prompt).toContain('You are a security auditor')
+		expect(prompt).toContain('Never fabricate.')
+		expect(prompt).toContain('Never use a default export.')
+		// Order is the containment: a persona and a project file are both text
+		// the model can influence, and both sit after the guardrails.
+		expect(prompt.indexOf('Never fabricate.')).toBeLessThan(
+			prompt.indexOf('Never use a default export.'),
+		)
+	})
+
+	it('adds nothing when the project declares none', async () => {
+		const { registered } = await buildAgentTool()
+
+		const general = registered.find((d) => d.info.id === 'general-purpose')
+		const config = (await general?.configBuilder?.({})) as { systemPrompt?: string } | undefined
+		expect(config?.systemPrompt).not.toContain('Project instructions')
 	})
 })

@@ -213,6 +213,12 @@ export function App({ ctx }: AppProps) {
 						`Project instructions: ${s.instructionFiles.map((p) => relative(ctx.cwd, p) || p).join(', ')}`,
 					)
 				}
+				for (const skip of s.skippedInstructionFiles) {
+					pushMessage(
+						'system',
+						`Skipped ${relative(ctx.cwd, skip.path) || skip.path}: ${skip.reason}`,
+					)
+				}
 			} else {
 				setPhase('unhealthy')
 				if (s.errorHint) pushMessage('system', s.errorHint)
