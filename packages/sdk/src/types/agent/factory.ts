@@ -8,6 +8,26 @@ export type { AgentContextLevel } from './base.js'
 export interface AgentDefinition {
 	info: AgentInfo
 	typedAgent: Agent<BaseAgentConfig, BaseAgentResult>
+
+	/**
+	 * Build a fresh agent for a single spawn.
+	 *
+	 * `typedAgent` is ONE instance, and an instance refuses a second
+	 * concurrent run because it holds per-run state. So a delegation fan-out
+	 * naming the same `agent_id` four times ran one child and lost three to
+	 * `ConcurrentInvocationError` — while `create_task`'s own description tells
+	 * a model that exactly this fan-out is the thing to do.
+	 *
+	 * The manager prefers this over `typedAgent` for every spawn. Supply it
+	 * when your agent needs real construction arguments; agents built on
+	 * `AbstractAgent` already get a working default from `Agent.forRun`, so
+	 * most hosts need nothing here.
+	 *
+	 * `configBuilder` is not a substitute: it produces a fresh CONFIG per
+	 * spawn, and the config was never the part being shared.
+	 */
+	createAgent?: () => Agent<BaseAgentConfig, BaseAgentResult>
+
 	configBuilder?: (options: AgentFactoryOptions) => BaseAgentConfig | Promise<BaseAgentConfig>
 
 	contextLevel?: AgentContextLevel

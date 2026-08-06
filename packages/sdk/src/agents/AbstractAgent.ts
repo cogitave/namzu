@@ -56,6 +56,41 @@ export abstract class AbstractAgent<
 	abstract run(input: AgentInput, config: TConfig, listener?: RunEventListener): Promise<TResult>
 
 	/**
+	 * A fresh shell of this agent, for a run that must not share one.
+	 *
+	 * See {@link Agent.forRun}. An agent is a shell around metadata — every
+	 * per-run decision arrives in `config` and `input` — so a second instance
+	 * costs one object and gives the run its own abort controller and run id,
+	 * which is precisely what the invocation lock is protecting.
+	 *
+	 * Rebuilt from `this.constructor` and `this.metadata`, which covers every
+	 * agent in this package: they all take metadata and nothing else. A
+	 * subclass with a different constructor signature will throw here, and the
+	 * answer to that is `this` — the caller then shares the shell and gets the
+	 * existing refusal on a concurrent run, which is the behaviour before this
+	 * existed. Losing parallelism is a worse outcome than not having it; losing
+	 * the run is not on the table.
+	 *
+	 * A host whose agent needs real construction arguments supplies
+	 * `AgentDefinition.createAgent` instead, which wins over this.
+	 */
+	forRun(): this {
+		try {
+			const Ctor = this.constructor as unknown as new (metadata: AgentMetadata) => this
+			return new Ctor(this.metadata)
+		} catch (err) {
+			this.log.warn(
+				'Could not build a per-run shell; concurrent runs of this agent will still be refused',
+				{
+					agentId: this.metadata.id,
+					error: err instanceof Error ? err.message : String(err),
+				},
+			)
+			return this
+		}
+	}
+
+	/**
 	 * Acquire the invocation lock to prevent concurrent execution.
 	 * Returns a Disposable that must be disposed to release the lock.
 	 *
