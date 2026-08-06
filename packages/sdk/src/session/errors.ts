@@ -9,7 +9,7 @@
 
 import type { SessionId, TenantId } from '../types/ids/index.js'
 import type { SessionStatus } from '../types/session/entity.js'
-import type { ThreadId } from '../types/session/ids.js'
+import type { ProjectId, ThreadId } from '../types/session/ids.js'
 import type { WorkspaceBackendKind } from './workspace/driver.js'
 
 /**
@@ -183,6 +183,90 @@ export class ThreadNotEmptyError extends Error {
 			`Thread ${details.threadId} ${details.op} blocked: ${details.totalBlockingSessions} session(s) still attached`,
 		)
 		this.name = 'ThreadNotEmptyError'
+		this.details = details
+	}
+}
+
+/**
+ * Raised when an ingress path is asked to attach work to an archived Project.
+ *
+ * The sibling of {@link ThreadClosedError}, on the level that survives. A
+ * closed workspace is a decision by its owner, and the paths that create
+ * sessions have to be able to see it — otherwise "archived" is a word in a
+ * listing rather than a state of the system.
+ */
+export class ProjectClosedError extends Error {
+	readonly details: {
+		projectId: ProjectId
+		op: string
+	}
+
+	constructor(details: { projectId: ProjectId; op: string }) {
+		super(`Project ${details.projectId} is archived; operation '${details.op}' rejected`)
+		this.name = 'ProjectClosedError'
+		this.details = details
+	}
+}
+
+/**
+ * Raised by the project archive path when sessions are still attached and not
+ * in a terminal state.
+ *
+ * Archiving does not cascade and does not kill anything: a live session is a
+ * running agent, and closing its workspace out from under it would strand
+ * work whose owner is still watching. The caller settles the sessions first.
+ * `blockingSessions` is truncated to {@link PROJECT_NOT_EMPTY_SAMPLE_LIMIT};
+ * `totalBlockingSessions` is the real count.
+ */
+export const PROJECT_NOT_EMPTY_SAMPLE_LIMIT = 50
+
+export class ProjectNotEmptyError extends Error {
+	readonly details: {
+		projectId: ProjectId
+		tenantId: TenantId
+		op: 'archive'
+		blockingSessions: ReadonlyArray<{ sessionId: SessionId; status: SessionStatus }>
+		totalBlockingSessions: number
+	}
+
+	constructor(details: {
+		projectId: ProjectId
+		tenantId: TenantId
+		op: 'archive'
+		blockingSessions: ReadonlyArray<{ sessionId: SessionId; status: SessionStatus }>
+		totalBlockingSessions: number
+	}) {
+		super(
+			`Project ${details.projectId} ${details.op} blocked: ${details.totalBlockingSessions} session(s) still attached`,
+		)
+		this.name = 'ProjectNotEmptyError'
+		this.details = details
+	}
+}
+
+/**
+ * Raised when a project status write loses a compare-and-set.
+ *
+ * The sibling of {@link StaleSessionError}: the caller re-reads and decides
+ * again, because the project it was about to close is not the project on
+ * disk.
+ */
+export class StaleProjectError extends Error {
+	readonly details: {
+		projectId: ProjectId
+		expectedOwnerVersion: number
+		actualOwnerVersion: number
+	}
+
+	constructor(details: {
+		projectId: ProjectId
+		expectedOwnerVersion: number
+		actualOwnerVersion: number
+	}) {
+		super(
+			`Project ${details.projectId} was modified concurrently: expected ownerVersion ${details.expectedOwnerVersion}, found ${details.actualOwnerVersion}`,
+		)
+		this.name = 'StaleProjectError'
 		this.details = details
 	}
 }

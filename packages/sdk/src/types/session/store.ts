@@ -6,7 +6,7 @@
  * API — extensions land alongside their consumers.
  */
 
-import type { Project } from '../../types/project/entity.js'
+import type { Project, ProjectStatus } from '../../types/project/entity.js'
 import type { ActorRef } from '../../types/session/actor.js'
 import type { Session } from '../../types/session/entity.js'
 import type { SessionMessage } from '../../types/session/messages.js'
@@ -159,6 +159,29 @@ export interface SessionStore {
 	 */
 	listProjects?(tenantId: TenantId): Promise<readonly Project[]>
 
+	/**
+	 * Open or close a workspace. OPTIONAL, same reasoning as the two above.
+	 *
+	 * Compare-and-set on {@link Project.ownerVersion}: pass the version you
+	 * read, and a concurrent writer makes this throw `StaleProjectError`
+	 * instead of silently winning. On success the stored version is bumped.
+	 *
+	 * Both directions, because a workspace is long-lived and closing one by
+	 * mistake should not be permanent — unlike the Thread status this replaces,
+	 * which only ever went one way. Returns `null` if the project does not
+	 * exist; writing to another tenant's project throws.
+	 *
+	 * This is the store-level write. The precondition that no live session is
+	 * attached belongs to {@link import('../../manager/project/lifecycle.js').ProjectManager},
+	 * because the store deliberately holds no view of what is running.
+	 */
+	setProjectStatus?(
+		projectId: ProjectId,
+		status: ProjectStatus,
+		tenantId: TenantId,
+		expectedOwnerVersion: number,
+	): Promise<Project | null>
+
 	// Session CRUD ------------------------------------------------------------
 
 	createSession(params: CreateSessionParams, tenantId: TenantId): Promise<Session>
@@ -212,6 +235,17 @@ export interface SessionStore {
 	 * ThreadStore stays unaware of session layout (Convention #0).
 	 */
 	listSessions(threadId: ThreadId, tenantId: TenantId): Promise<readonly Session[]>
+
+	/**
+	 * Every Session attached to a workspace, oldest first. OPTIONAL.
+	 *
+	 * The project-scoped sibling of {@link SessionStore.listSessions}, and the
+	 * one the archive precondition reads: closing a workspace has to know what
+	 * is still running in it, and "what is running in this thread" was never
+	 * the question — a project can hold sessions across many threads, and after
+	 * the Thread level is removed it is the only grouping left.
+	 */
+	listSessionsByProject?(projectId: ProjectId, tenantId: TenantId): Promise<readonly Session[]>
 
 	/**
 	 * Hard-delete a session. Idempotent — absent sessions succeed as a no-op.

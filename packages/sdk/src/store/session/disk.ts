@@ -23,11 +23,11 @@
 
 import { appendFile, mkdir, readFile, readdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
-import { StaleSessionError, TenantIsolationError } from '../../session/errors.js'
+import { StaleProjectError, StaleSessionError, TenantIsolationError } from '../../session/errors.js'
 import { SessionAlreadySummarizedError } from '../../session/summary/errors.js'
 import type { MessageId, SessionId, TenantId } from '../../types/ids/index.js'
 import type { Message } from '../../types/message/index.js'
-import type { Project } from '../../types/project/entity.js'
+import type { Project, ProjectStatus } from '../../types/project/entity.js'
 import type { Session } from '../../types/session/entity.js'
 import type { ProjectId, SubSessionId, SummaryId, ThreadId } from '../../types/session/ids.js'
 import type { SessionMessage } from '../../types/session/messages.js'
@@ -80,6 +80,10 @@ interface PersistedProject {
 	tenantId: TenantId
 	name: string
 	config: Project['config']
+	/** Absent in files written before the workspace gained a status. */
+	status?: ProjectStatus
+	/** Absent in files written before the workspace gained a CAS counter. */
+	ownerVersion?: number
 	createdAt: string
 	updatedAt: string
 }
@@ -198,6 +202,8 @@ export class DiskSessionStore implements SessionStore {
 				maxDelegationWidth: params.config?.maxDelegationWidth ?? 8,
 				maxInterventionDepth: 10,
 			},
+			status: 'open',
+			ownerVersion: 0,
 			createdAt: now,
 			updatedAt: now,
 		}
@@ -236,6 +242,35 @@ export class DiskSessionStore implements SessionStore {
 					? { maxDelegationWidth: config.maxDelegationWidth }
 					: {}),
 			},
+			updatedAt: new Date(),
+		}
+		await atomicWriteJson(
+			join(this.projectDir(projectId), 'project.json'),
+			serializeProject(project),
+		)
+		return project
+	}
+
+	async setProjectStatus(
+		projectId: ProjectId,
+		status: ProjectStatus,
+		tenantId: TenantId,
+		expectedOwnerVersion: number,
+	): Promise<Project | null> {
+		const existing = await this.getProject(projectId, tenantId)
+		if (!existing) return null
+		// Against the version on disk, not the caller's copy of it.
+		if (existing.ownerVersion !== expectedOwnerVersion) {
+			throw new StaleProjectError({
+				projectId,
+				expectedOwnerVersion,
+				actualOwnerVersion: existing.ownerVersion,
+			})
+		}
+		const project: Project = {
+			...existing,
+			status,
+			ownerVersion: existing.ownerVersion + 1,
 			updatedAt: new Date(),
 		}
 		await atomicWriteJson(
@@ -366,6 +401,40 @@ export class DiskSessionStore implements SessionStore {
 			}
 		}
 		results.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+		return results
+	}
+
+	async listSessionsByProject(
+		projectId: ProjectId,
+		tenantId: TenantId,
+	): Promise<readonly Session[]> {
+		// One directory, not the whole root: sessions live under their project,
+		// so this is the cheap direction. `listSessions` has to scan every
+		// project precisely because `threadId` is denormalised onto the record
+		// rather than expressed in the layout.
+		const sessionsRoot = join(this.projectDir(projectId), 'sessions')
+		let sessionDirs: string[]
+		try {
+			sessionDirs = await readdir(sessionsRoot)
+		} catch (err) {
+			const code = (err as NodeJS.ErrnoException).code
+			if (code === 'ENOENT') return []
+			throw err
+		}
+
+		const results: Session[] = []
+		for (const rawSessionId of sessionDirs) {
+			if (!rawSessionId.startsWith('ses_')) continue
+			const path = join(sessionsRoot, rawSessionId)
+			const raw = await readJson<PersistedSession>(join(path, 'session.json'))
+			if (!raw) continue
+			if (raw.tenantId !== tenantId) continue
+			results.push(deserializeSession(raw))
+			this.sessionIndex.set(raw.id, { sessionId: raw.id, projectId, path })
+		}
+		results.sort(
+			(a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id),
+		)
 		return results
 	}
 
@@ -910,6 +979,8 @@ function serializeProject(p: Project): PersistedProject {
 		tenantId: p.tenantId,
 		name: p.name,
 		config: p.config,
+		status: p.status,
+		ownerVersion: p.ownerVersion,
 		createdAt: p.createdAt.toISOString(),
 		updatedAt: p.updatedAt.toISOString(),
 	}
@@ -921,6 +992,12 @@ function deserializeProject(p: PersistedProject): Project {
 		tenantId: p.tenantId,
 		name: p.name,
 		config: p.config,
+		// A project.json written before these fields existed reads as an open
+		// workspace at version 0, which is what it was. Leaving `ownerVersion`
+		// undefined would be worse than a wrong default: every compare-and-set
+		// against it would fail, so an existing store could never be closed.
+		status: p.status ?? 'open',
+		ownerVersion: p.ownerVersion ?? 0,
 		createdAt: new Date(p.createdAt),
 		updatedAt: new Date(p.updatedAt),
 	}

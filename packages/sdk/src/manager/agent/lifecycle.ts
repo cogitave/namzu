@@ -36,6 +36,7 @@ import { ZERO_COST } from '../../utils/cost.js'
 import { toErrorMessage } from '../../utils/error.js'
 import { generateTaskId } from '../../utils/id.js'
 import { type Logger, getRootLogger } from '../../utils/logger.js'
+import { requireOpenProject } from '../project/lifecycle.js'
 import type { ThreadManager } from '../thread/lifecycle.js'
 
 /**
@@ -593,12 +594,11 @@ export class AgentManager {
 			)
 		}
 
-		const project = await store.getProject(context.projectId, context.tenantId)
-		if (!project) {
-			throw new Error(
-				`Project ${context.projectId} not found for tenant ${context.tenantId} — spawn rejected`,
-			)
-		}
+		// Same read that loads the limits, now also the gate: an archived
+		// workspace accepts no new session. It replaces a bare `getProject` +
+		// null check rather than adding a round-trip, because a gate that costs
+		// something is a gate someone eventually moves.
+		const project = await requireOpenProject(store, context.projectId, context.tenantId, 'spawn')
 
 		// Capacity: depth + width. Depth uses the parent session's ancestry
 		// chain; width counts existing direct children of the parent.

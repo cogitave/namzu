@@ -20,3 +20,6 @@ export { ThreadManager } from './thread/lifecycle.js'
 export type { ThreadManagerDeps } from './thread/lifecycle.js'
 
 export { AgentManager } from './agent/lifecycle.js'
+
+export { ProjectManager, requireOpenProject } from './project/lifecycle.js'
+export type { ProjectManagerDeps } from './project/lifecycle.js'

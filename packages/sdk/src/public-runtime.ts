@@ -225,6 +225,7 @@ export {
 	AgentManager,
 	EmergencySaveManager,
 	PlanManager,
+	ProjectManager,
 	RunPersistence,
 	ThreadManager,
 } from './manager/index.js'
@@ -483,6 +484,14 @@ export {
 
 export {
 	AncestryCycleError,
+	// Exported, unlike `ThreadClosedError`, because a host that closes a
+	// workspace has to be able to tell "this workspace is closed" from any
+	// other spawn failure — and matching on a message string is not a
+	// contract. The comment below is the reason; these are the first three
+	// that take it seriously.
+	ProjectClosedError,
+	ProjectNotEmptyError,
+	StaleProjectError,
 	// Exported with the CAS it announces. A host that opts into
 	// `expectedOwnerVersion` has to be able to tell "somebody else took this
 	// session" from any other failure, and string-matching a message is not a
