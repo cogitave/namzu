@@ -62,7 +62,7 @@ The SDK docs are grouped by domain instead of a flat file list:
 | Folder | Purpose |
 | --- | --- |
 | [agents/](./agents/README.md) | agent classes, orchestration, delegation, and manager-facing behavior |
-| [runtime/](./runtime/README.md) | runtime overview, IDs, configuration, and low-level query entrypoints |
+| [runtime/](./runtime/README.md) | runtime overview, IDs, configuration, plan approval, and low-level query entrypoints |
 | [tools/](./tools/README.md) | tool definitions, built-ins, and safety policy |
 | [provider-integration/](./provider-integration/README.md) | SDK-level provider registry and direct provider operations |
 | [integrations/](./integrations/README.md) | connectors, MCP, plugins, and event bridges |

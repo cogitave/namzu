@@ -1,7 +1,7 @@
 ---
 title: Runtime
 description: Reference map for the runtime building blocks exposed by @namzu/sdk.
-last_updated: 2026-08-03
+last_updated: 2026-08-06
 status: current
 related_packages: ["@namzu/sdk"]
 ---
@@ -17,7 +17,7 @@ The SDK exports a broad runtime surface, but the pieces follow a consistent shap
 | Providers | `ProviderRegistry`, `LLMProvider` types | A vendor-neutral model boundary |
 | Agents | `ReactiveAgent`, `PipelineAgent`, `RouterAgent`, `SupervisorAgent` | Different execution patterns over the same runtime |
 | Low-level kernel | `query`, `drainQuery` | Direct control over event streaming, verification, sandboxing, and runtime-only features |
-| Lifecycle | `AgentManager`, `RunPersistence`, `EmergencySaveManager`, `PlanManager` | Run orchestration, persistence, and review hooks |
+| Lifecycle | `AgentManager`, `RunPersistence`, `EmergencySaveManager`, `PlanManager` | Run orchestration, persistence, and review hooks — see [Plans](./plans.md) for the plan half |
 | Replay (v1) | `listCheckpoints`, `prepareReplayState`, `MutationNotApplicableError` | Fork an existing run from a checkpoint, optionally mutating the fork point — see [Replay](./replay.md) |
 | Stores | `RunDiskStore`, `DiskTaskStore`, conversation and memory stores | Local durability for runtime data |
 | Session hierarchy | `InMemorySessionStore`, `DiskSessionStore`, handoff, summary, workspace, retention exports | Tenant-scoped project and delegation state |
@@ -90,6 +90,7 @@ If you are implementing against the SDK rather than only consuming the public AP
 | Required IDs and identity mapping | [Runtime Identities](./identities.md) |
 | Agent config and runtime limits | [Runtime Configuration](./configuration.md) |
 | `query()` and `drainQuery()` wiring | [Low-Level Runtime](./low-level.md) |
+| Plan approval, step reporting, and plan events | [Plans and Step Reporting](./plans.md) |
 | Plugin manifests, namespacing, and hook order | [Plugins and MCP Servers](../integrations/plugins.md) |
 | The shipped tool set | [Built-In Tools](../tools/built-in.md) |
 | Verification, plan mode, and sandbox behavior | [Tool Safety](../tools/safety.md) |
@@ -113,6 +114,7 @@ If you are implementing against the SDK rather than only consuming the public AP
 - [SDK Sessions](../sessions/README.md)
 - [Runtime Configuration](./configuration.md)
 - [Low-Level Runtime](./low-level.md)
+- [Plans and Step Reporting](./plans.md)
 - [Connectors and MCP](../integrations/connectors-and-mcp.md)
 - [Plugins and MCP Servers](../integrations/plugins.md)
 - [Event Bridges](../integrations/event-bridges.md)

@@ -1,7 +1,7 @@
 ---
 title: Event Bridges
 description: Bridge internal Namzu runtime events to SSE and A2A wire formats, and convert messages, runs, and agent metadata into protocol-friendly shapes.
-last_updated: 2026-08-05
+last_updated: 2026-08-06
 status: current
 related_packages: ["@namzu/sdk"]
 ---
@@ -77,6 +77,17 @@ Typical mapped wire events include:
 - `checkpoint.created`
 - `compaction.completed`
 - `compaction.failed`
+- `plan.ready`, `plan.approved`, `plan.rejected`, `plan.step_updated`,
+  `plan.completed`, `plan.failed`
+
+> **`plan.completed` and `plan.failed` are new in `@namzu/sdk` 12.0.0.** They
+> were folded into a bare `break` in the translator and emitted nothing, so a
+> host watching the stream saw a plan's steps report and then silence — it
+> could learn a plan had been approved and never that it closed, which leaves
+> a plan rendered as in-flight indefinitely. `StreamEventType` is wider as a
+> result; a consumer that switches exhaustively over it needs the two new
+> arms. `plan.failed` carries a `reason`. See
+> [Plans and Step Reporting](../runtime/plans.md).
 
 The two compaction events are both worth forwarding to a UI, and the second is
 the one that is easy to leave out. A compaction pass that shed **nothing** is
@@ -232,6 +243,11 @@ Important runtime choices baked into the mapper:
 - `provider_retry` maps to `running`, because a backoff is a task still
   working, not a failure
 - `tool_review_requested`, `plan_ready`, and `run_paused` map to `input-required`
+- **only `plan_ready` crosses of the six plan events.** `plan_approved`,
+  `plan_rejected`, `plan_step_updated`, `plan_completed`, and `plan_failed`
+  map to `null` here while all six are forwarded on SSE — same reasoning as
+  the compaction events: a peer models a task lifecycle, and how this runtime
+  gates and settles its own plan is not something the peer can act on
 - **neither compaction event is forwarded.** A peer models a task lifecycle and
   cannot act on how this runtime manages its own context — the loss is real, but
   it is this runtime's business rather than the peer's. On SSE, where the
