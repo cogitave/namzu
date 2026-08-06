@@ -1,7 +1,7 @@
 ---
 title: CLI
 description: namzu is a terminal AI agent — a TUI that discovers your LLM credentials, runs tools under a permission model you choose, and remembers context across sessions.
-last_updated: 2026-08-05
+last_updated: 2026-08-06
 status: current
 related_packages: ["@namzu/cli", "@namzu/sdk", "@namzu/anthropic", "@namzu/openai", "@namzu/openrouter", "@namzu/ollama"]
 ---
@@ -29,6 +29,7 @@ rather than treating it as prompt text, so `namzu run --format json "…"` exits
 
 - **Discovers credentials, never asks you to log in.** On first run it finds your LLM provider credentials (env vars, an OAuth credential in the macOS Keychain, or a local Ollama) and lets you pick which provider to chat through. See [Providers & credentials](./providers.md).
 - **Runs tools, under a permission model you choose.** The agent reads files, runs shell commands, edits code, searches, tracks a plan, and remembers — via the SDK builtins plus its memory and task tools. Mutating actions prompt for approval in the TUI; a headless run approves them unless you ask for `--permission-mode strict`. A safety gate hard-denies catastrophic commands in every mode. See [Tools & permission](./tools.md).
+- **Follows the project's own instructions.** An `AGENTS.md` in the working directory — and in every directory up to the repository root — is loaded into the agent's context and followed as standing policy for work in that project. namzu names the files it loaded, so you can tell it read them. See [Project instructions](./project-instructions.md).
 - **Remembers across sessions.** User facts in `~/.namzu/USER.md` / `MEMORY.md` are injected every turn; the agent also keeps its own structured memory. See [Memory](./memory.md).
 - **Resumes past conversations.** Every conversation is saved. `/resume` continues a previous one in this folder from the TUI; `namzu run --continue` and `--resume <id>` do the same from a script. Neither ever silently starts a fresh conversation when the one you asked for cannot be reopened.
 - **Loads skills on demand.** Author `SKILL.md` capability docs and activate them per session. See [Skills](./skills.md).
@@ -42,6 +43,7 @@ rather than treating it as prompt text, so `namzu run --format json "…"` exits
 | [Headless runs](./headless.md) | `run` and `run-stream`, their shared options, `--cwd`, permission modes, resuming, exit codes, the NDJSON event stream |
 | [Providers & credentials](./providers.md) | How credentials are discovered, the first-run picker, switching providers |
 | [Tools & permission](./tools.md) | Builtin + memory + task tools, deferred tools and `search_tools`, how a call is decided, permission modes, the safety gate, bypass mode |
+| [Project instructions](./project-instructions.md) | `AGENTS.md` discovery from the working directory upward, ordering and overrides, limits |
 | [Memory](./memory.md) | `USER.md` / `MEMORY.md` injection, `/remember`, `/memory`, the agent's structured memory |
 | [Skills](./skills.md) | `SKILL.md` format, discovery, `/skills`, `/skill <name>` |
 

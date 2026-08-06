@@ -1,7 +1,7 @@
 ---
 title: Headless runs
 description: namzu run and namzu run-stream — one prompt, no terminal. Shared options, the working directory, exit codes, and the NDJSON event stream.
-last_updated: 2026-08-05
+last_updated: 2026-08-06
 status: current
 related_packages: ["@namzu/cli"]
 ---
@@ -52,6 +52,12 @@ things to their two different callers.
 
 Both need a provider. Set a credential in the environment, or run `namzu` once
 and pick one — see [Providers & credentials](./providers.md).
+
+Both load the working directory's
+[project instructions](./project-instructions.md) — including the ones a
+`--cwd` points at, not the ones where you happen to be standing. `run` names the
+files it loaded on stderr, below the provider line; `run-stream` loads them
+identically but does not yet announce them on its event stream.
 
 ## Options
 

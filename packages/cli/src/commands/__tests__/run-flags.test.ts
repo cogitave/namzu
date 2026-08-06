@@ -45,6 +45,10 @@ vi.mock('../../tui/agent.js', () => ({
 				providerSummary: 'mock',
 				modelSummary: 'mock-model',
 				toolNames: [],
+				// Present because a real session always sets it — a stub missing a
+				// field production always has is a fixture for a system that does
+				// not ship.
+				instructionFiles: [] as readonly string[],
 				errorHint: null,
 				send: (messages: Array<{ content: string }>) => {
 					seen.prompt = messages[0]?.content ?? null

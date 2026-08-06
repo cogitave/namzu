@@ -48,6 +48,7 @@ import {
 } from '@namzu/sdk'
 
 import { join } from 'node:path'
+import { loadProjectInstructions } from '../context/project.js'
 import {
 	type DetectedProvider,
 	PROVIDER_REGISTRY,
@@ -183,6 +184,16 @@ export interface AgentSession {
 	readonly modelSummary: string | null
 	readonly toolNames: readonly string[]
 	readonly errorHint: string | null
+	/**
+	 * Absolute paths of the `AGENTS.md` files whose text is in this session's
+	 * system prompt — outermost first, exactly the set that was injected.
+	 *
+	 * Reported so a surface can tell the user which project instructions are in
+	 * force. A user who cannot see this has no way to distinguish "namzu read my
+	 * conventions and disagreed" from "namzu never saw them", and those call for
+	 * opposite responses.
+	 */
+	readonly instructionFiles: readonly string[]
 	send(messages: readonly Message[], opts?: SendOptions): AsyncIterable<AgentEvent>
 }
 
@@ -373,6 +384,16 @@ export async function createAgentSession(
 			// Keep the previous client; the turn may still 401 but won't crash.
 		}
 	}
+	// Read ONCE, here, rather than per turn the way memory is.
+	//
+	// Memory is re-read every turn because `/remember` writes to it mid-session,
+	// so a stale read would drop a fact the user just saved. Nothing in namzu
+	// writes an instructions file, and reading once buys a property worth more
+	// than the freshness: `instructionFiles` is then exactly the set whose text
+	// went into the prompt, for the whole life of the session. Re-reading per
+	// turn would make the line a surface prints at connect time a claim about
+	// the past. An edited file takes effect on the next session.
+	const projectInstructions = loadProjectInstructions(cwd)
 	const registry = buildToolRegistry(cwd)
 	// This session passes a `taskStore` to query() below, which registers the
 	// task tools deferred — so `search_tools` has something to find here.
@@ -390,6 +411,12 @@ export async function createAgentSession(
 		const sub = await createSubagentRuntime({
 			cwd,
 			model,
+			// A sub-agent works in the same repository and writes the same code,
+			// so it is bound by the same instructions. Without this the parent
+			// honours the project's rules and every task it delegates quietly
+			// does not — the worse half of the feature, because the delegating
+			// turn reports success either way.
+			...(projectInstructions.prompt ? { projectInstructions: projectInstructions.prompt } : {}),
 			buildProvider: () =>
 				constructProvider(
 					prefs.provider,
@@ -436,6 +463,7 @@ export async function createAgentSession(
 		providerSummary: entry.label,
 		modelSummary: model,
 		toolNames: activeToolNames,
+		instructionFiles: projectInstructions.files.map((f) => f.path),
 		errorHint: null,
 		send: async function* (messages, opts) {
 			// Renew a lapsed OAuth token before the turn runs (no-op for valid
@@ -443,10 +471,16 @@ export async function createAgentSession(
 			await refreshTokenIfNeeded()
 			// namzu identity first (so it establishes who the agent is even when
 			// the credential layer prepends whatever prefix its token requires),
-			// then memory read fresh each turn, then per-turn extra (active skills).
+			// then memory read fresh each turn, then the project's own
+			// instructions, then per-turn extra (active skills).
+			//
+			// Project instructions sit AFTER the identity block deliberately, and
+			// the order is the containment: they are text off the disk of
+			// whatever directory the agent was pointed at, so the rules they must
+			// not be able to rewrite are established before they are read.
 			const memoryPrompt = composeMemoryPrompt(readMemory())
 			const systemPrompt =
-				[NAMZU_IDENTITY, memoryPrompt, opts?.extraSystem]
+				[NAMZU_IDENTITY, memoryPrompt, projectInstructions.prompt, opts?.extraSystem]
 					.filter((s): s is string => Boolean(s))
 					.join('\n\n') || undefined
 			yield* runTurn({
@@ -1140,6 +1174,9 @@ function emptySession(errorHint: string): AgentSession {
 		providerSummary: null,
 		modelSummary: null,
 		toolNames: [],
+		// Nothing was injected, because no turn will run. Reporting files here
+		// would claim instructions are in force on a session that has no prompt.
+		instructionFiles: [],
 		errorHint,
 		send: async function* () {
 			yield { kind: 'error' as const, message: errorHint }

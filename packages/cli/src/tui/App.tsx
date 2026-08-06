@@ -13,6 +13,7 @@
 
 import type { ImageAttachment, Message } from '@namzu/sdk'
 import { Box, Text, useApp, useInput } from 'ink'
+import { relative } from 'node:path'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import {
@@ -201,6 +202,17 @@ export function App({ ctx }: AppProps) {
 					'system',
 					`Connected to ${s.providerSummary}${s.modelSummary ? ` · ${s.modelSummary}` : ''} · ${s.toolNames.length} tools`,
 				)
+				// Named, not counted. "2 files" tells a user their conventions were
+				// found but not WHICH ones, and the interesting case is the one
+				// they did not expect — an instructions file in a parent directory
+				// they forgot about is exactly the thing that makes the agent
+				// behave oddly for no visible reason.
+				if (s.instructionFiles.length > 0) {
+					pushMessage(
+						'system',
+						`Project instructions: ${s.instructionFiles.map((p) => relative(ctx.cwd, p) || p).join(', ')}`,
+					)
+				}
 			} else {
 				setPhase('unhealthy')
 				if (s.errorHint) pushMessage('system', s.errorHint)

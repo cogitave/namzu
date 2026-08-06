@@ -16,6 +16,8 @@
  * one-shot differing only in how they print.
  */
 
+import { relative } from 'node:path'
+
 import { configureLogger } from '@namzu/sdk'
 import type { Message, StopReason } from '@namzu/sdk'
 
@@ -137,6 +139,10 @@ export const runCommand: CommandDef = {
 		'',
 		'A mode only decides calls no rule decided: it can never reopen a deny.',
 		'',
+		"The working directory's AGENTS.md files — that directory and every one up",
+		'to the repository root — are loaded as standing instructions for the run,',
+		'and the ones that were loaded are named on stderr.',
+		'',
 		'--continue and --resume refuse when the conversation cannot be reopened,',
 		'and say why. Neither ever falls back to starting a new one: run with no',
 		'flag if that is what you want.',
@@ -223,6 +229,17 @@ export const runCommand: CommandDef = {
 		ctx.formatter.info(
 			`namzu · ${session.providerSummary}${session.modelSummary ? ` · ${session.modelSummary}` : ''}`,
 		)
+		// stderr like every other status line, so a caller piping the answer is
+		// unaffected and a person watching can still tell which instructions the
+		// run is bound by. A script that reads AGENTS.md aloud is not a script
+		// whose output changed.
+		if (session.instructionFiles.length > 0) {
+			ctx.formatter.info(
+				`project instructions: ${session.instructionFiles
+					.map((p) => relative(resolved.cwd, p) || p)
+					.join(', ')}`,
+			)
+		}
 
 		const extraSystem = await loadSkillsContext(resolved.cwd, flags.skills)
 

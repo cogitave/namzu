@@ -18,6 +18,10 @@ const sessionStub = {
 	hasProvider: true,
 	providerSummary: 'mock',
 	modelSummary: 'mock-model',
+	// A real session always carries this, empty or not. A stub that omits a
+	// field production always sets is a fixture that tests a system which does
+	// not ship.
+	instructionFiles: [] as readonly string[],
 	send: undefined as unknown,
 }
 
