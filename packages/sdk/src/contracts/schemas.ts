@@ -1,6 +1,23 @@
 import { z } from 'zod'
 
-export const ProjectIdSchema = z.string().regex(/^prj_[a-z0-9]+$/, 'Invalid project ID format')
+/**
+ * The two shapes the SDK mints, and nothing else.
+ *
+ * `prj_<12 lowercase alphanumerics>` comes from `generateProjectId()`.
+ * `prj_legacy_<suffix>` comes from the v0.2.0 filesystem migration, which
+ * synthesises a project per legacy `thd_*` folder. The `legacy_` segment is
+ * spelled out rather than covered by a permissive character class, because a
+ * project id is also a directory name: everything this accepts is joined to a
+ * path, so the set it accepts is a containment boundary, not a formatting
+ * preference.
+ *
+ * A host that supplies its own `SessionStore` and mints its own ids should
+ * validate with its own schema — `ProjectId` is `prj_${string}` at the type
+ * level and this schema is deliberately narrower.
+ */
+export const ProjectIdSchema = z
+	.string()
+	.regex(/^prj_(legacy_)?[a-z0-9]+$/, 'Invalid project ID format')
 export const RunIdSchema = z.string().regex(/^run_[a-z0-9]+$/, 'Invalid run ID format')
 export const MessageIdSchema = z.string().regex(/^msg_[a-z0-9]+$/, 'Invalid message ID format')
 

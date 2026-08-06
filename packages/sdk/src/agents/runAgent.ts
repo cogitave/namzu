@@ -22,6 +22,15 @@ import {
  * point: auto-generating alone would make each call its own session, which is
  * right for a one-shot and silently wrong for a conversation — the second turn
  * would start with no history and no shared budget, and nothing would say so.
+ *
+ * **A generated id is a correlation label, not a store handle.** `runAgent`
+ * takes no `SessionStore` and creates no records, so a `projectId` it mints
+ * names no `Project`. Carrying one into a store-backed `AgentManager` is
+ * refused at the first delegation with `Project <id> not found for tenant
+ * <id> — spawn rejected`, which is the enforcement site behaving correctly:
+ * delegation limits live on the project, and a missing project has no limits
+ * to read. A run that has to delegate should be given the id returned by
+ * `store.createProject()`.
  */
 export interface AgentIdentity {
 	sessionId?: SessionId
