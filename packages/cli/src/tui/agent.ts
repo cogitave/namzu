@@ -51,6 +51,12 @@ import { join } from 'node:path'
 import { composeEnvironmentPrompt, readEnvironmentFacts } from '../context/environment.js'
 import { loadProjectInstructions } from '../context/project.js'
 import {
+	type ConnectedMcpServer,
+	type FailedMcpServer,
+	type McpServersConfig,
+	connectMcpServers,
+} from '../integrations/mcp/servers.js'
+import {
 	type DetectedProvider,
 	PROVIDER_REGISTRY,
 	type Preferences,
@@ -204,7 +210,25 @@ export interface AgentSession {
 	 * the failure this whole package keeps finding.
 	 */
 	readonly skippedInstructionFiles: readonly { readonly path: string; readonly reason: string }[]
+	/** External tool servers that connected, and how many tools each brought. */
+	readonly mcpConnected: readonly ConnectedMcpServer[]
+	/**
+	 * External tool servers that were configured and are NOT here, with why.
+	 *
+	 * The hazard this feature carries is an operator who declares a server,
+	 * watches the agent run without its tools and concludes the model is bad at
+	 * the task. An empty tool list is not a signal; a named failure is.
+	 */
+	readonly mcpFailed: readonly FailedMcpServer[]
 	send(messages: readonly Message[], opts?: SendOptions): AsyncIterable<AgentEvent>
+	/**
+	 * Release what the session holds — today, the external tool servers.
+	 *
+	 * A stdio server is a CHILD PROCESS, and nothing else in this package owned
+	 * one, which is why a session had no shutdown path at all. Idempotent, and
+	 * safe to call on a session that connected nothing.
+	 */
+	close(): Promise<void>
 }
 
 export interface AgentSessionContext {
@@ -333,6 +357,11 @@ export interface AgentSessionOptions {
 	readonly rules?: readonly VerificationRule[]
 	/** How calls no rule decided are resolved. Defaults to prompt/auto by TTY. */
 	readonly permissionMode?: PermissionMode
+	/**
+	 * External tool servers to connect for this session, from the operator's
+	 * config. Absent means none, which is what it meant before they existed.
+	 */
+	readonly mcpServers?: McpServersConfig
 }
 
 export async function createAgentSession(
@@ -405,6 +434,11 @@ export async function createAgentSession(
 	// the past. An edited file takes effect on the next session.
 	const projectInstructions = loadProjectInstructions(cwd)
 	const registry = buildToolRegistry(cwd)
+	// External tool servers, before the roster is counted, so `toolNames` and
+	// the `/tools` list a user reads include what they configured. Connecting
+	// after the count would report a session smaller than the one that runs.
+	const mcp = await connectMcpServers(options.mcpServers, { cwd })
+	if (mcp.tools.length > 0) registry.register([...mcp.tools])
 	// This session passes a `taskStore` to query() below, which registers the
 	// task tools deferred — so `search_tools` has something to find here.
 	registry.register([SearchToolsTool])
@@ -479,6 +513,9 @@ export async function createAgentSession(
 		toolNames: activeToolNames,
 		instructionFiles: projectInstructions.files.map((f) => f.path),
 		skippedInstructionFiles: projectInstructions.skipped,
+		mcpConnected: mcp.connected,
+		mcpFailed: mcp.failed,
+		close: () => mcp.close(),
 		errorHint: null,
 		send: async function* (messages, opts) {
 			// Renew a lapsed OAuth token before the turn runs (no-op for valid
@@ -1206,9 +1243,14 @@ function emptySession(errorHint: string): AgentSession {
 		// would claim instructions are in force on a session that has no prompt.
 		instructionFiles: [],
 		skippedInstructionFiles: [],
+		mcpConnected: [],
+		mcpFailed: [],
 		errorHint,
 		send: async function* () {
 			yield { kind: 'error' as const, message: errorHint }
+		},
+		close: async () => {
+			// Nothing was ever connected on this path.
 		},
 	}
 }

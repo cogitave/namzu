@@ -6,6 +6,8 @@
 
 import type { VerificationRule } from '@namzu/sdk'
 
+import type { McpServersConfig } from '../integrations/mcp/servers.js'
+
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool'
 
 export interface TranscriptMessage {
@@ -39,4 +41,10 @@ export interface TuiContext {
 	 * reflex.
 	 */
 	readonly rules?: readonly VerificationRule[]
+	/**
+	 * External tool servers from the operator's config, by the same reasoning as
+	 * `rules`: a config file belongs to the user, not to a command, and a server
+	 * they declared has to be there whichever way they started namzu.
+	 */
+	readonly mcpServers?: McpServersConfig
 }

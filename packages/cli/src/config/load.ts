@@ -19,6 +19,7 @@ import { join, resolve } from 'node:path'
 
 import { parse as yamlParse } from 'yaml'
 
+import type { McpServersConfig } from '../integrations/mcp/servers.js'
 import { isFormatName } from '../output/index.js'
 import type { PermissionsConfig } from '../permissions/rules.js'
 import { DEFAULT_CONFIG, type NamzuCliConfig } from './schema.js'
@@ -101,6 +102,12 @@ const CONFIG_READERS: ConfigReaders = {
 	// sees; dropping those entries here would silence it.
 	permissions: (v) =>
 		typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as PermissionsConfig) : undefined,
+	// Shape only, for the same reason as `permissions`: an entry that names
+	// neither a command nor a url — or both — is reported by name when the
+	// connection is attempted. Dropping it here would turn a mistake the
+	// operator can see into a server that silently was never there.
+	mcpServers: (v) =>
+		typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as McpServersConfig) : undefined,
 }
 
 function readEnv(env: NodeJS.ProcessEnv): MutableConfig {

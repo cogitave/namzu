@@ -62,6 +62,9 @@ vi.mock('../tui/agent.js', () => ({
 				toolNames: [],
 				instructionFiles: [] as readonly string[],
 				skippedInstructionFiles: [] as readonly { path: string; reason: string }[],
+				mcpConnected: [] as readonly { name: string; toolCount: number }[],
+				mcpFailed: [] as readonly { name: string; reason: string }[],
+				close: async () => {},
 				errorHint: null,
 				send: () =>
 					(async function* () {

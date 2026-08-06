@@ -140,6 +140,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 				version: CLI_VERSION,
 				skipPermissions,
 				rules: permissions.rules,
+				...(tuiCtx.config.mcpServers ? { mcpServers: tuiCtx.config.mcpServers } : {}),
 			})
 			const code = await Promise.resolve(0)
 			setExitCode(code)

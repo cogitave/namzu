@@ -29,6 +29,7 @@ rather than treating it as prompt text, so `namzu run --format json "…"` exits
 
 - **Discovers credentials, never asks you to log in.** On first run it finds your LLM provider credentials (env vars, an OAuth credential in the macOS Keychain, or a local Ollama) and lets you pick which provider to chat through. See [Providers & credentials](./providers.md).
 - **Runs tools, under a permission model you choose.** The agent reads files, runs shell commands, edits code, searches, tracks a plan, and remembers — via the SDK builtins plus its memory and task tools. Mutating actions prompt for approval in the TUI; a headless run approves them unless you ask for `--permission-mode strict`. A safety gate hard-denies catastrophic commands in every mode. See [Tools & permission](./tools.md).
+- **Connects to your own tool servers.** Declare them in `namzu.config.json` and their tools join the agent's roster under the server's name. A server that does not come up is named, with the reason, rather than quietly missing. See [External tool servers](./tool-servers.md).
 - **Follows the project's own instructions.** An `AGENTS.md` in the working directory — and in every directory up to the repository root — is loaded into the agent's context and followed as standing policy for work in that project. namzu names the files it loaded, so you can tell it read them. See [Project instructions](./project-instructions.md).
 - **Remembers across sessions.** User facts in `~/.namzu/USER.md` / `MEMORY.md` are injected every turn; the agent also keeps its own structured memory. See [Memory](./memory.md).
 - **Resumes past conversations.** Every conversation is saved. `/resume` continues a previous one in this folder from the TUI; `namzu run --continue` and `--resume <id>` do the same from a script. Neither ever silently starts a fresh conversation when the one you asked for cannot be reopened.
@@ -43,6 +44,7 @@ rather than treating it as prompt text, so `namzu run --format json "…"` exits
 | [Headless runs](./headless.md) | `run` and `run-stream`, their shared options, `--cwd`, permission modes, resuming, exit codes, the NDJSON event stream |
 | [Providers & credentials](./providers.md) | How credentials are discovered, the first-run picker, switching providers |
 | [Tools & permission](./tools.md) | Builtin + memory + task tools, deferred tools and `search_tools`, how a call is decided, permission modes, the safety gate, bypass mode |
+| [External tool servers](./tool-servers.md) | Declaring tool servers in `namzu.config.json`, naming, failures, lifetime |
 | [Project instructions](./project-instructions.md) | `AGENTS.md` discovery from the working directory upward, ordering and overrides, limits |
 | [Memory](./memory.md) | `USER.md` / `MEMORY.md` injection, `/remember`, `/memory`, the agent's structured memory |
 | [Skills](./skills.md) | `SKILL.md` format, discovery, `/skills`, `/skill <name>` |

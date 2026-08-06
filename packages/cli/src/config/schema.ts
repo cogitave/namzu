@@ -7,6 +7,7 @@
  * are worth enforcing at runtime — premature now.
  */
 
+import type { McpServersConfig } from '../integrations/mcp/servers.js'
 import type { FormatName } from '../output/index.js'
 import type { PermissionsConfig } from '../permissions/rules.js'
 
@@ -23,6 +24,14 @@ export interface NamzuCliConfig {
 	 * it meant before this existed — the absence of a policy never widens one.
 	 */
 	readonly permissions?: PermissionsConfig
+	/**
+	 * External tool servers to connect, keyed by the name their tools are
+	 * prefixed with.
+	 *
+	 * Each entry names either a `command` to run or a `url` to reach. Absent
+	 * means no external servers, which is what it meant before this existed.
+	 */
+	readonly mcpServers?: McpServersConfig
 }
 
 export const DEFAULT_CONFIG: NamzuCliConfig = Object.freeze({

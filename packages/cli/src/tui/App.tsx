@@ -108,6 +108,12 @@ export function App({ ctx }: AppProps) {
 	const [selectedResume, setSelectedResume] = useState<number>(0)
 	const exitArmedRef = useRef<boolean>(false)
 	const abortRef = useRef<AbortController | null>(null)
+	/**
+	 * The session currently holding resources, so a re-hydration can release the
+	 * one it replaces. A `/model` switch builds a new session, and a tool
+	 * server's child process outlives the object that opened it.
+	 */
+	const previousSessionRef = useRef<AgentSession | null>(null)
 	// Source of truth for in-flight tools (the event loop runs across renders, so
 	// a ref avoids stale state); `activeTools` mirrors it for rendering.
 	const activeToolsRef = useRef<readonly RunningTool[]>([])
@@ -193,7 +199,13 @@ export function App({ ctx }: AppProps) {
 				scope,
 				cwd: ctx.cwd,
 				rules: ctx.rules,
+				...(ctx.mcpServers ? { mcpServers: ctx.mcpServers } : {}),
 			})
+			// Re-hydration (a provider switch via /model) builds a second session;
+			// without this the first one's tool-server child processes stay alive
+			// for the rest of the TUI's life.
+			void previousSessionRef.current?.close()
+			previousSessionRef.current = s
 			setSession(s)
 			setCurrentProvider(prefs.provider)
 			if (s.hasProvider) {
@@ -218,6 +230,15 @@ export function App({ ctx }: AppProps) {
 						'system',
 						`Skipped ${relative(ctx.cwd, skip.path) || skip.path}: ${skip.reason}`,
 					)
+				}
+				for (const server of s.mcpConnected) {
+					pushMessage('system', `Tool server ${server.name} · ${server.toolCount} tools`)
+				}
+				// Reported and carried on, where a headless run refuses: there is a
+				// person here who can read this and fix their config, and taking the
+				// whole session away from them would not help them do it.
+				for (const server of s.mcpFailed) {
+					pushMessage('system', `Tool server ${server.name} is not available: ${server.reason}`)
 				}
 			} else {
 				setPhase('unhealthy')
