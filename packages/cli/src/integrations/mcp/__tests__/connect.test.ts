@@ -101,7 +101,7 @@ function send(o) { process.stdout.write(JSON.stringify(o) + '\\n') }
 `
 
 /** Starts, and never answers. The case a request timeout cannot cover. */
-const SILENT_SERVER = `setInterval(() => {}, 1000)\n`
+const SILENT_SERVER = 'setInterval(() => {}, 1000)\n'
 
 describe('a declared server', () => {
 	it('brings its tools, named after it', async () => {
