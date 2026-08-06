@@ -1,5 +1,118 @@
 # Changelog
 
+## 13.0.0
+
+### Major Changes
+
+- 5aae875: A delegated child releases its workspace when it succeeds, not only when it fails.
+
+  `AgentManager` had two workspace dispose sites and both were failure paths — the
+  non-success branch of `finalizeChild`, and the rollback in `failSubSession`. The
+  success branch disposed nothing, so a git worktree provisioned for a delegated
+  child outlived the child that used it. `.namzu/worktrees/` grew once per
+  successful delegation: the more reliable the workers, the faster it filled,
+  which is the opposite of the signal a leak usually gives.
+
+  Disposal now runs on every terminal path, from one shared place, so the two
+  cannot drift apart again.
+
+  **The archival backstop could not fire either, and now can.**
+  `ArchivalManager.archive` resolves a workspace only when `SubSession.workspaceId`
+  is set. For a spawn-created sub-session that field was written `null` and never
+  updated — `provisionSpawn` kept the ref on an in-memory record and nowhere else
+  — so the one persisted record that could have named the leaked worktree said
+  there was none. `provisionSpawn` now writes `workspaceRef.id` onto the
+  sub-session, inside the same compensating rollback as every other mutation
+  there. A sub-session with no provisioned workspace still records `null`; lazy
+  provisioning stays legal.
+
+  Two consequences worth knowing before you take the upgrade:
+
+  - **A worktree is gone once the child that owned it completes**, and this is the
+    breaking part. Reading a child's workspace after a successful delegation
+    worked — `AgentManager.getSpawnRecord(taskId).workspaceRef` returned a live
+    ref, and the directory then persisted indefinitely because nothing removed
+    it. That was the leak, but a host inspecting a worker's artifacts afterwards
+    could reasonably have been built on it.
+
+    There is no host-side replacement, so take what you need from inside the
+    child: have the worker write its output where the result can carry it, or
+    copy the files out before its run settles. In particular a `subsession_idled`
+    listener is **too late** — disposal runs before that event is emitted,
+    deliberately, so nothing can reach into a workspace that is already going.
+
+  - **`archive()` now resolves workspaces for spawn-created sub-sessions.** If you
+    pass a `workspaceResolver`, it will start being called on this path, and an
+    archive bundle may now carry a `workspace` field where it previously never
+    did. The resolver contract is unchanged: return `null` for a ref that is
+    unknown or already disposed, which is what it will be for a child that
+    finished.
+
+### Minor Changes
+
+- fbfb061: A session has one writer, and the store is what enforces it.
+
+  `Session.ownerVersion` is documented as the compare-and-set counter for handoff
+  and nothing enforced it. Both stores overwrote unconditionally, so the only
+  check lived in the handoff path — where it compared `source.ownerVersion`
+  against the assignment after `blockingRun`, `getProject` and `validateDepth` had
+  all awaited in between, which is a snapshot compared against itself. Worse, the
+  lock transition wrote `status: 'locked'` at the version it had read, so the
+  locked window was invisible: a second handoff holding the same snapshot saw an
+  unchanged version, passed the check, and locked the session again. Both
+  provisioned a worktree and one silently erased the other.
+
+  `ThreadStore` has had a working CAS since it was written. `SessionStore` now
+  does too.
+
+  **`updateSession(session, tenantId, expectedOwnerVersion?)`.** Supply it and the
+  store compares against the version it HAS STORED — not against the payload,
+  which is the caller's stale copy — and throws the new `StaleSessionError`
+  instead of writing. Omit it and behaviour is exactly what it was, which is the
+  compatibility promise.
+
+  The parameter is optional deliberately. Widening the interface is invisible to
+  callers and harmless to a host implementing its own store; a required parameter
+  would break every implementor for a guarantee they can opt into.
+
+  **The handoff lock now moves the version**, which is what makes it a lock, and
+  the commit keeps it rather than taking a second — so a handoff still consumes
+  exactly one version and `committedOwnerVersion` is unchanged. Only the
+  intermediate state changed, and that is the state that had to become visible.
+  Both the single and broadcast paths.
+
+  `StaleSessionError` is exported. A host that opts into the CAS has to tell
+  "somebody else took this session" from any other failure, and string-matching a
+  message is not a contract.
+
+  **In-process only, and stated rather than implied.** `DiskSessionStore` writes
+  atomically but its read-compare-write is not a critical section, so two
+  processes can still both pass. Closing that needs a lease with an expiry — not a
+  PID registry, because a Session is durable and written from hosts where a PID is
+  not a checkable fact. The contract says so where a caller will read it.
+
+### Patch Changes
+
+- 9b01a9e: A2A's `contextId` is a Project, and now something says so.
+
+  No behaviour changes. `runToA2ATask` has always bound `contextId` to
+  `project_id` and `a2aMessageToCreateRun` has always read it back as
+  `projectId`; `ThreadId` appears nowhere in the A2A bridge. What changes is that
+  the binding is asserted in both directions, and the documentation stops
+  claiming the opposite.
+
+  `docs/sdk/sessions/a2a-threading.md` opened with "A2A connections attach at the
+  Thread level, not the Project level" and presented that as the reason the Thread
+  layer is first-class — the single load-bearing justification for a whole
+  hierarchy level. The code never did it. The claim survived because nothing
+  asserted the actual binding: a doc page and a set of comments agreed with each
+  other while the code disagreed with both.
+
+  The page now states what the bridge does, retracts what it used to say, and
+  carries the replacement table for the Thread removal that follows. A test pins
+  the binding in both directions so the next version of this cannot drift back
+  into prose.
+
 ## 12.2.0
 
 ### Minor Changes
