@@ -101,7 +101,25 @@ export class ProjectManager {
 			throw new Error(`Project ${projectId} not found for tenant ${tenantId} — archive rejected`)
 		}
 
-		const sessions = (await this.deps.store.listSessionsByProject?.(projectId, tenantId)) ?? []
+		// An unanswerable precondition is a refusal, not an empty answer.
+		//
+		// This read used to be `?? []`, which turned "this store cannot tell me
+		// what is running here" into "nothing is running here": a store without
+		// the optional method archived the workspace over live sessions and
+		// reported success. The whole point of the check is that archival does
+		// not cascade over running work, and the check was skippable by any
+		// store that had not implemented one optional method.
+		//
+		// Optional on the interface protects implementors — a host's own store
+		// should not stop compiling because the SDK grew a method. It cannot
+		// also mean a safety precondition silently passes.
+		const listByProject = this.deps.store.listSessionsByProject
+		if (!listByProject) {
+			throw new Error(
+				`Project ${projectId} cannot be archived: this SessionStore does not implement listSessionsByProject, so whether a session is still running in the workspace cannot be established. Implement it, or settle and verify the sessions through your own path before closing the workspace.`,
+			)
+		}
+		const sessions = await listByProject.call(this.deps.store, projectId, tenantId)
 		const blocking = sessions.filter((s) => ARCHIVAL_BLOCKING_STATUSES.has(s.status))
 		if (blocking.length > 0) {
 			throw new ProjectNotEmptyError({
