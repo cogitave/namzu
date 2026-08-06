@@ -193,10 +193,28 @@ export class EventTranslator {
 						})
 					}
 					break
+				case 'plan.completed':
+					await this.emitEvent({
+						type: 'plan_completed',
+						runId,
+						planId: plan.id,
+					})
+					break
+				case 'plan.failed':
+					await this.emitEvent({
+						type: 'plan_failed',
+						runId,
+						planId: plan.id,
+						...(plan.failureReason ? { reason: plan.failureReason } : {}),
+					})
+					break
+				// Deliberately silent, and not for the same reason the terminal
+				// pair used to be. `plan.generating` and `plan.executing` are
+				// already bracketed by `plan_ready` and `plan_approved` — a
+				// consumer learns both facts from events it already gets, so an
+				// event here would carry nothing a reader did not have.
 				case 'plan.generating':
 				case 'plan.executing':
-				case 'plan.completed':
-				case 'plan.failed':
 					break
 				default: {
 					// `PlanEvent.type` is scoped to plan-manager events; sub-session

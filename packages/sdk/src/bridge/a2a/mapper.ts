@@ -210,6 +210,8 @@ const MAPPING: {
 	plan_approved: null,
 	plan_rejected: null,
 	plan_step_updated: null,
+	plan_completed: null,
+	plan_failed: null,
 
 	agent_pending: null,
 	agent_completed: null,

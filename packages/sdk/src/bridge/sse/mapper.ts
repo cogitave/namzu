@@ -286,6 +286,20 @@ const MAPPING: {
 		}),
 	},
 
+	plan_completed: {
+		wire: 'plan.completed',
+		transform: (e, runId) => ({ run_id: runId, plan_id: e.planId }),
+	},
+
+	plan_failed: {
+		wire: 'plan.failed',
+		transform: (e, runId) => ({
+			run_id: runId,
+			plan_id: e.planId,
+			reason: e.reason,
+		}),
+	},
+
 	plan_step_updated: {
 		wire: 'plan.step_updated',
 		transform: (e, runId) => ({

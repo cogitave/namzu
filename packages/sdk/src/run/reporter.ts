@@ -93,6 +93,8 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 			case 'plan_approved':
 			case 'plan_rejected':
 			case 'plan_step_updated':
+			case 'plan_completed':
+			case 'plan_failed':
 			case 'tool_review_requested':
 			case 'tool_review_completed':
 			case 'checkpoint_created':

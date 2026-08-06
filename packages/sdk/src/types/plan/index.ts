@@ -68,6 +68,20 @@ export interface Plan {
 	rejectedAt?: number
 	completedAt?: number
 	rejectionReason?: string
+
+	/**
+	 * Why the plan failed, when it did.
+	 *
+	 * `failPlan` has always taken this and thrown it away — the parameter was
+	 * spelled `_error` because nothing read it. So a plan settled as `failed`
+	 * carried no account of what went wrong, and the `plan_failed` event that
+	 * reports it would have said "failed" and nothing else, which puts a reader
+	 * exactly where the silence did.
+	 *
+	 * Distinct from {@link rejectionReason}: that is a human declining a plan
+	 * before it ran, this is a plan that ran and did not finish.
+	 */
+	failureReason?: string
 }
 
 export interface PlanApprovalRequest {

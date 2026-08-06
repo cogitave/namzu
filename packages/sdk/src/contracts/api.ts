@@ -206,6 +206,11 @@ export type StreamEventType =
 	| 'plan.approved'
 	| 'plan.rejected'
 	| 'plan.step_updated'
+	// The outcome. Without these the plan stream stopped one event short of
+	// saying how it went, so a client could render a plan as in-flight
+	// indefinitely — it learned the plan was approved and never that it closed.
+	| 'plan.completed'
+	| 'plan.failed'
 	| 'agent.pending'
 	| 'agent.completed'
 	| 'agent.failed'

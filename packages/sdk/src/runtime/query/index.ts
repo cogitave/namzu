@@ -552,14 +552,13 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		return { approved: false, feedback: `Action: ${decision.action}` }
 	})
 
-	params.onContextCreated?.({ planManager: ctx.planManager })
-
 	const eventTranslator = new EventTranslator(ctx.runMgr)
 	eventTranslator.wireActivityStore(ctx.activityStore, ctx.runId)
 	eventTranslator.wirePlanManager(ctx.planManager, ctx.runId)
 	const unsubscribeTaskStore = params.taskStore
 		? eventTranslator.wireTaskStore(params.taskStore, ctx.runId)
 		: undefined
+
 
 	if (params.taskStore) {
 		const taskTools = buildTaskTools(params.taskStore, ctx.runId)
@@ -976,6 +975,21 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 
 		try {
 			await ctx.runMgr.init()
+
+			// Handed over here, and the position is load-bearing in BOTH
+			// directions. It has to follow `wirePlanManager`, or a host that
+			// builds its plan in this callback — which is what the callback is
+			// for — does it into silence: `plan_ready`, `plan_approved` and
+			// every `plan_step_updated` are emitted with nothing subscribed,
+			// and the host then watches a stream that never mentions the plan
+			// it just created. It also has to follow `runMgr.init()`, because
+			// emitting appends to the run store and an uninitialised store
+			// throws — moving it up to the wiring alone traded a silent drop
+			// for 25 unhandled rejections.
+			//
+			// Still before the iteration loop, which is the guarantee the
+			// callback actually makes.
+			params.onContextCreated?.({ planManager: ctx.planManager })
 
 			ctx.log.info('Starting query', {
 				runId: ctx.runMgr.id,
