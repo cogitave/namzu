@@ -22,6 +22,7 @@ import type { AgentDefinition } from '../../../types/agent/factory.js'
 import type { AgentTaskContext } from '../../../types/agent/task.js'
 import type { AgentId, TenantId } from '../../../types/ids/index.js'
 import type { SummaryId } from '../../../types/session/ids.js'
+import type { SessionStore } from '../../../types/session/store.js'
 import { ZERO_COST } from '../../../utils/cost.js'
 import { AgentManager } from '../../agent/lifecycle.js'
 import { ThreadManager } from '../../thread/lifecycle.js'
@@ -264,5 +265,50 @@ describe('a workspace stored before it had a status', () => {
 
 		const archived = await new ProjectManager({ store }).archive(project.id, TENANT)
 		expect(archived.status).toBe('archived')
+	})
+})
+
+describe('a store that cannot answer the precondition', () => {
+	/**
+	 * `listSessionsByProject` is optional on `SessionStore` so a host's own
+	 * store keeps compiling. The archive path read it as
+	 * `(await store.listSessionsByProject?.(...)) ?? []`, which turned "this
+	 * store cannot tell me what is running here" into "nothing is running
+	 * here" — so a host with such a store closed a workspace over live
+	 * sessions and got a success back. The refusal that the whole feature is
+	 * about was skippable by not implementing one method.
+	 */
+	function storeWithoutTheListing(inner: SessionStore): SessionStore {
+		const partial: Record<string, unknown> = {}
+		for (const key of [
+			'getProject',
+			'createProject',
+			'createSession',
+			'getSession',
+			'updateSession',
+			'setProjectStatus',
+		]) {
+			const fn = (inner as unknown as Record<string, unknown>)[key]
+			if (typeof fn === 'function') partial[key] = (fn as (...a: unknown[]) => unknown).bind(inner)
+		}
+		return partial as unknown as SessionStore
+	}
+
+	it('refuses to archive rather than assuming the workspace is empty', async () => {
+		const h = await harness()
+		await h.store.updateSession({ ...h.parentSession, status: 'active' }, TENANT)
+		const blind = new ProjectManager({ store: storeWithoutTheListing(h.store) })
+
+		await expect(blind.archive(h.project.id, TENANT)).rejects.toThrow(/listSessionsByProject/)
+	})
+
+	it('leaves the workspace open after refusing', async () => {
+		// The refusal has to happen before the write, or it is only a message.
+		const h = await harness()
+		const blind = new ProjectManager({ store: storeWithoutTheListing(h.store) })
+
+		await blind.archive(h.project.id, TENANT).catch(() => undefined)
+
+		expect((await h.store.getProject(h.project.id, TENANT))?.status).toBe('open')
 	})
 })
