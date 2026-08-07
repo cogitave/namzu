@@ -841,6 +841,7 @@ export function App({ ctx }: AppProps) {
 					<Picker
 						detected={detected}
 						currentProvider={currentProvider}
+						currentModel={session?.modelSummary ?? null}
 						onSubmit={handlePickerSubmit}
 						onCancel={handlePickerCancel}
 					/>
