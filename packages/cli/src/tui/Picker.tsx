@@ -45,6 +45,15 @@ export interface PickerProps {
 	 * done with it. Absent means this picker cannot take one.
 	 */
 	readonly onCredential?: (credential: DetectedProvider, disposition: string) => void
+	/**
+	 * Seam for tests: how a typed key is checked. Defaulted to the real thing,
+	 * so no production caller knows this exists.
+	 *
+	 * Here for the same reason as `describeModels`: the alternative is a screen
+	 * whose behaviour can only be checked by launching a terminal and typing a
+	 * live credential into it.
+	 */
+	readonly verify?: typeof verifyCredential
 }
 
 /** Providers that take a typed API key. Local servers do not. */
@@ -60,6 +69,7 @@ export function Picker({
 	onCancel,
 	describeModels = describeProviderModels,
 	onCredential,
+	verify = verifyCredential,
 }: PickerProps) {
 	const initialIndex =
 		(currentProvider !== null && currentProvider !== undefined
@@ -96,7 +106,7 @@ export function Picker({
 
 		setKeyEntry({ ...state, status: 'checking' })
 		const cred = sessionCredential(entry, state.value)
-		const verification = await verifyCredential(entry.id, cred)
+		const verification = await verify(entry.id, cred)
 
 		if (verification.kind === 'rejected') {
 			// Stays on the screen with the key intact so a one-character typo is
