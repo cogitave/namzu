@@ -8,8 +8,11 @@ owner: cogitave/namzu
 status: active
 timestamp: 2026-08-04T00:00:00Z
 lastReviewed: 2026-08-07
-resource: packages/sandbox/src/index.ts
+resource: packages/sdk/src/sandbox/__tests__/exec-cancellation.test.ts
 tags: [convention, api-design, types]
+verified:
+  - by: process:conventions-migration
+    at: 2026-08-07T00:00:00Z
 ---
 
 # A declaration nothing drives is a defect, not a roadmap
@@ -35,7 +38,12 @@ is the finding.
 - `SandboxExecOptions.signal` — declared, documented with the exact failure it
   prevents, honoured by **no backend**. So the failure its own docstring
   described (a stop could only ever abandon the *wait*) was what always
-  happened.
+  happened. **Repaired**, and the repair is what `resource` above points at:
+  a regression test that drives the real provider, because a stub asserting
+  "the signal was passed along" would have passed against the broken code. The
+  backends that still cannot honour it now say so in source rather than
+  forwarding a signal that would abort the *wait* and leave the process
+  running — see [Refuse, do not silently degrade](refuse-do-not-degrade.md).
 - `ThinkingConfig.display` — on the type, never serialized into the request.
   And its values were wrong: `'full'` was not a value any driver accepted.
 - `runtimeToolOverrides` — honoured at two call sites, ignored at the third,
