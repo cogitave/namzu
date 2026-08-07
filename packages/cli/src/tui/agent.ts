@@ -682,6 +682,31 @@ export async function describeProviderModels(
 }
 
 /**
+ * Check a key the operator just typed, without spending a turn.
+ *
+ * Uses the provider's own `listModels` where it has one: a successful listing
+ * is proof the credential authenticates, and it costs nothing. A driver without
+ * one cannot be checked cheaply, and that is reported as `unverifiable` rather
+ * than dressed up as success — claiming a check that did not happen is the
+ * failure this whole surface is built to avoid.
+ *
+ * The key never appears in the returned reason. Provider errors are passed
+ * through, and a driver that echoes a credential into its own error message
+ * would defeat this; that is a driver bug and not one this can paper over, so
+ * the reason is also truncated.
+ */
+export async function verifyCredential(
+	id: ProviderId,
+	det: DetectedProvider,
+): Promise<{ kind: 'verified' } | { kind: 'unverifiable' } | { kind: 'rejected'; reason: string }> {
+	const listing = await describeProviderModels(id, det)
+	if (listing.kind === 'ok') return { kind: 'verified' }
+	if (listing.kind === 'unsupported') return { kind: 'unverifiable' }
+	if (listing.kind === 'timeout') return { kind: 'unverifiable' }
+	return { kind: 'rejected', reason: listing.reason.slice(0, 200) }
+}
+
+/**
  * The same question, flattened to a list for callers that cannot act on why.
  *
  * `providers-json` emits a JSON roster for a host UI and has always rendered an

@@ -10,8 +10,15 @@
 import { Box, Text, useInput } from 'ink'
 import { useState } from 'react'
 
-import type { DetectedProvider, ProviderId } from '../integrations/providers/index.js'
-import { type ModelListing, describeProviderModels } from './agent.js'
+import {
+	ALL_PROVIDER_IDS,
+	type DetectedProvider,
+	PROVIDER_REGISTRY,
+	type ProviderId,
+	type ProviderRegistryEntry,
+} from '../integrations/providers/index.js'
+import { type ModelListing, describeProviderModels, verifyCredential } from './agent.js'
+import { describeDisposition, keyLooksUsable, maskKey, sessionCredential } from './credential-entry.js'
 import { type ModelStep, modelStep } from './model-choices.js'
 import { theme } from './theme.js'
 
@@ -33,6 +40,16 @@ export interface PickerProps {
 		id: ProviderId,
 		det: DetectedProvider,
 	) => Promise<ModelListing>
+	/**
+	 * A credential the operator typed, with the sentence describing what was
+	 * done with it. Absent means this picker cannot take one.
+	 */
+	readonly onCredential?: (credential: DetectedProvider, disposition: string) => void
+}
+
+/** Providers that take a typed API key. Local servers do not. */
+function keyCapableProviders(): ProviderRegistryEntry[] {
+	return ALL_PROVIDER_IDS.map((id) => PROVIDER_REGISTRY[id]).filter((e) => e.requiresApiKey)
 }
 
 export function Picker({
@@ -42,6 +59,7 @@ export function Picker({
 	onSubmit,
 	onCancel,
 	describeModels = describeProviderModels,
+	onCredential,
 }: PickerProps) {
 	const initialIndex =
 		(currentProvider !== null && currentProvider !== undefined
@@ -55,8 +73,79 @@ export function Picker({
 		readonly provider: DetectedProvider
 		readonly step: ModelStep | undefined
 	} | null>(null)
+	// Key entry. `value` is the secret and never leaves this component except as
+	// a mask or as the credential handed to `onCredential`.
+	const [keyEntry, setKeyEntry] = useState<{
+		readonly providerIndex: number
+		readonly value: string
+		readonly status: 'typing' | 'checking'
+		readonly problem?: string
+	} | null>(null)
+
+	const acceptKey = async (): Promise<void> => {
+		const state = keyEntry
+		if (!state) return
+		const entry = keyCapableProviders()[state.providerIndex]
+		if (!entry) return
+
+		const shape = keyLooksUsable(state.value)
+		if (!shape.ok) {
+			setKeyEntry({ ...state, status: 'typing', problem: shape.reason })
+			return
+		}
+
+		setKeyEntry({ ...state, status: 'checking' })
+		const cred = sessionCredential(entry, state.value)
+		const verification = await verifyCredential(entry.id, cred)
+
+		if (verification.kind === 'rejected') {
+			// Stays on the screen with the key intact so a one-character typo is
+			// fixable. The reason is the provider's, never the key.
+			setKeyEntry({
+				...state,
+				status: 'typing',
+				problem: describeDisposition(entry, verification),
+			})
+			return
+		}
+		onCredential?.(cred, describeDisposition(entry, verification))
+	}
 
 	useInput((input, key) => {
+		// Key entry owns the keyboard while it is open: every printable character
+		// is part of a secret, so nothing here may fall through to a shortcut.
+		if (keyEntry) {
+			if (key.escape) {
+				setKeyEntry(null)
+				return
+			}
+			if (keyEntry.status === 'checking') return
+			if (key.return) {
+				void acceptKey()
+				return
+			}
+			if (key.backspace || key.delete) {
+				setKeyEntry((k) => (k ? { ...k, value: k.value.slice(0, -1), status: 'typing' } : k))
+				return
+			}
+			if (input && !key.ctrl && !key.meta) {
+				setKeyEntry((k) => (k ? { ...k, value: k.value + input, status: 'typing' } : k))
+			}
+			return
+		}
+
+		// `k` from the empty screen. Only there: on a populated picker the letter
+		// would collide with navigation, and someone with a working credential is
+		// not the person this is for.
+		if (detected.length === 0 && onCredential && (input === 'k' || input === 'K')) {
+			if (keyCapableProviders().length > 0) {
+				setKeyEntry({ providerIndex: 0, value: '', status: 'typing' })
+			} else {
+				setErrorHint('No provider here takes a typed key.')
+			}
+			return
+		}
+
 		if (key.escape) {
 			// From the model step, back to the provider list rather than out of
 			// the picker: escape should undo one decision, not two.
@@ -126,6 +215,36 @@ export function Picker({
 		}
 	})
 
+	if (keyEntry) {
+		const entry = keyCapableProviders()[keyEntry.providerIndex]
+		return (
+			<Box flexDirection="column" borderStyle="round" borderColor={theme.border.focus} paddingX={1}>
+				<Box flexDirection="column" paddingBottom={1}>
+					<Text color={theme.accent.system} bold>
+						Paste a key for {entry?.label ?? 'this provider'}
+					</Text>
+					<Text color={theme.text.muted}>
+						↑↓ is not needed — type or paste, then enter. esc cancels.
+					</Text>
+				</Box>
+				{/* The mask, never the value. */}
+				<Text color={theme.text.primary}>
+					{maskKey(keyEntry.value) || <Text color={theme.text.muted}>(nothing typed yet)</Text>}
+				</Text>
+				<Box paddingTop={1} flexDirection="column">
+					{keyEntry.status === 'checking' ? (
+						<Text color={theme.text.muted}>Checking it with {entry?.label}…</Text>
+					) : (
+						<Text color={theme.text.secondary}>
+							Used for this session only — it is not written anywhere.
+						</Text>
+					)}
+					{keyEntry.problem ? <Text color={theme.status.warn}>{keyEntry.problem}</Text> : null}
+				</Box>
+			</Box>
+		)
+	}
+
 	if (modelPhase) {
 		return (
 			<ModelStepView
@@ -175,7 +294,13 @@ export function Picker({
 					</Text>
 				</Box>
 				<Box paddingTop={1}>
-					<Text color={theme.text.muted}>esc: exit picker</Text>
+					<Text color={theme.text.primary}>
+						Or press <Text color={theme.accent.system}>k</Text> to paste a key now and use it for
+						this session.
+					</Text>
+				</Box>
+				<Box paddingTop={1}>
+					<Text color={theme.text.muted}>k: enter a key · esc: exit picker</Text>
 				</Box>
 			</Box>
 		)
@@ -297,5 +422,10 @@ function describeSource(d: DetectedProvider): string {
 			return `local · ${d.source.url.replace(/^https?:\/\//, '')}`
 		case 'keychain':
 			return `keychain · ${d.source.service}`
+		case 'session':
+			// Named as temporary wherever it is listed. Someone scanning this
+			// column should be able to see which credential disappears when they
+			// close the terminal without having to remember typing it.
+			return 'typed · this session only'
 	}
 }

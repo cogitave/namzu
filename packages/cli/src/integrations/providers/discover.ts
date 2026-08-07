@@ -20,6 +20,15 @@ export type DetectionSource =
 	| { readonly kind: 'env'; readonly envName: string }
 	| { readonly kind: 'probe'; readonly url: string }
 	| { readonly kind: 'keychain'; readonly service: string }
+	/**
+	 * Typed into a running namzu and held in memory for this session.
+	 *
+	 * Never produced by `discoverProviders` — discovery reads the machine, and
+	 * this one came from a person. It is in the union so a credential the
+	 * operator typed flows through every path that handles a discovered one,
+	 * differing only where a surface says where it came from.
+	 */
+	| { readonly kind: 'session' }
 
 export interface DetectedProvider {
 	readonly entry: ProviderRegistryEntry

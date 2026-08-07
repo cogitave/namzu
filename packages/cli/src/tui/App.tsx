@@ -712,6 +712,28 @@ export function App({ ctx }: AppProps) {
 		})
 	}, [phase, ctx.version, pushMessage])
 
+	/**
+	 * A credential the operator typed. Held in memory for this process only.
+	 *
+	 * Deliberately does NOT call `writePreferences`: preferences are a file, and
+	 * the whole contract of this entry point is that nothing lands on disk. The
+	 * provider choice is not persisted either, because persisting it would leave
+	 * a preference pointing at a credential that will not exist next launch.
+	 */
+	const handleTypedCredential = useCallback(
+		(credential: DetectedProvider, disposition: string) => {
+			const next = [credential, ...detected.filter((d) => d.entry.id !== credential.entry.id)]
+			setDetected(next)
+			// The disposition, not the key. `credential` never reaches a message.
+			pushMessage('system', disposition)
+			void hydrateSession(
+				{ version: 2, provider: credential.entry.id as ProviderId, subagents: { active: [] } },
+				next,
+			)
+		},
+		[detected, hydrateSession, pushMessage],
+	)
+
 	const handlePickerSubmit = useCallback(
 		(selection: { provider: string; model?: string }) => {
 			const prefs: Preferences = {
@@ -844,6 +866,7 @@ export function App({ ctx }: AppProps) {
 						currentModel={session?.modelSummary ?? null}
 						onSubmit={handlePickerSubmit}
 						onCancel={handlePickerCancel}
+						onCredential={handleTypedCredential}
 					/>
 				) : (
 					<>
