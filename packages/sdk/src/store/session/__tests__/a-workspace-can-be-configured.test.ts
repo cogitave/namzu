@@ -145,8 +145,25 @@ describe.each(IMPLEMENTATIONS)('a workspace carries its own limits (%s)', (_name
 		const created = []
 		for (const name of ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']) {
 			created.push(await store.createProject({ tenantId: TENANT, name }, TENANT))
-			await new Promise((resolve) => setTimeout(resolve, 2))
+			// Long enough to clear a coarse clock, not only a millisecond one.
+			// `Date.now()` advances in ~15.6ms steps on Windows by default, and
+			// virtualised CI hosts coalesce timers too — a 2ms gap left several
+			// records sharing a timestamp there, so the tie-break decided the
+			// order and this assertion failed as if the sort were wrong.
+			await new Promise((resolve) => setTimeout(resolve, 20))
 		}
+
+		// The premise, asserted before the conclusion that depends on it.
+		//
+		// This test means "older records come first", which is only a question
+		// if the records have distinct ages. When the clock does not advance,
+		// the correct behaviour is the tie-break — so the failure would be a
+		// true statement about a test whose premise had quietly evaporated,
+		// reported as "these two ids are swapped". Checking it here makes the
+		// message name the real cause.
+		const stamps = created.map((p) => p.createdAt.getTime())
+		const strictlyIncreasing = stamps.every((t, i) => i === 0 || t > (stamps[i - 1] ?? 0))
+		expect({ strictlyIncreasing, stamps }).toEqual({ strictlyIncreasing: true, stamps })
 
 		const listed = await store.listProjects?.(TENANT)
 
