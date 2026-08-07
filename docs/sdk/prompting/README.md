@@ -215,13 +215,28 @@ writing a second one:
 ```ts
 import { parseFrontmatter } from '@namzu/sdk'
 
-const { data, blocks, body } = parseFrontmatter(raw, `command at "${path}"`)
-// data:   { description: 'Open a pull request', 'argument-hint': '<branch>' }
-// blocks: { metadata: { author: 'someone' } }   ← one level of nesting
-// body:   everything after the closing fence, trimmed
+const { values, body } = parseFrontmatter(raw, `command at "${path}"`)
+// values: {
+//   description:     { kind: 'scalar',  value: 'Open a pull request' },
+//   'argument-hint': { kind: 'scalar',  value: '<branch>' },
+//   metadata:        { kind: 'mapping', entries: { author: 'someone' } },
+// }
+// body: everything after the closing fence, trimmed
+
+const description = values.description
+if (description?.kind !== 'scalar') {
+  throw new Error('a command needs a scalar description')
+}
 ```
 
-Three things about it are deliberate:
+Every key is one entry, and `kind` says whether it is a scalar or a one-level
+block. That is a union rather than two parallel maps because **a key cannot be
+both** — no YAML file can say it — and a shape that could represent it would
+force every caller to invent a precedence for a case that never arrives. A file
+that tries (a value *and* indented lines under one key) is refused rather than
+half-read.
+
+Three more things about it are deliberate:
 
 - **It refuses rather than degrades.** Absent frontmatter, an unclosed fence, or
   YAML it does not implement — a block scalar (`>`/`|`), a flow sequence

@@ -2,17 +2,30 @@
 '@namzu/sdk': minor
 ---
 
-Added `parseFrontmatter`, the one reader for a markdown file's `---` block, and
-its `ParsedFrontmatter` result type.
+Added `parseFrontmatter`, the one reader for a markdown file's `---` block, with
+its `ParsedFrontmatter` result and `FrontmatterValue` types.
 
 ```ts
 import { parseFrontmatter } from '@namzu/sdk'
 
-const { data, blocks, body } = parseFrontmatter(raw, `command at "${path}"`)
-// data:   { description: 'Open a pull request', 'argument-hint': '<branch>' }
-// blocks: { metadata: { author: 'someone' } }   ← one level of nesting
-// body:   everything after the closing fence, trimmed
+const { values, body } = parseFrontmatter(raw, `command at "${path}"`)
+// values: {
+//   description:     { kind: 'scalar',  value: 'Open a pull request' },
+//   'argument-hint': { kind: 'scalar',  value: '<branch>' },
+//   metadata:        { kind: 'mapping', entries: { author: 'someone' } },
+// }
+// body: everything after the closing fence, trimmed
+
+const description = values.description
+if (description?.kind !== 'scalar') throw new Error('description must be a scalar')
 ```
+
+**One entry per key, discriminated on `kind`.** A key is a scalar or a
+one-level block, never both — no YAML file can express both, so the type does
+not let you represent it and the parser refuses a file that tries (a value
+*and* indented lines under the same key). Two parallel maps would have made
+every caller invent a precedence for a case that cannot arrive, and quietly
+punished the ones who did not.
 
 **Why you would want it.** If you read your own markdown — command files,
 prompt templates, anything with frontmatter — you were writing a second reader.
@@ -47,9 +60,7 @@ release; covered by tests.
 **It does not know what your fields mean.** It returns the parsed map and
 validates no field names — a skill's vocabulary and a command's are different,
 and widening one to cover the other is how a skill-shaped API comes to mean
-something it does not. `data` holds top-level scalars, `blocks` holds one level
-of indented keys grouped under the key above them. Your own validation stays
-yours.
+something it does not. Your own validation stays yours.
 
 **Nothing about `loadSkill`, `discoverSkills`, `SkillRegistry` or
 `resolveSkillChain` changes**, with one disclosed exception below. They are now
@@ -60,6 +71,12 @@ children, `metadata:` with a value *and* children, children under a
 non-`metadata` key, duplicate keys, and indented lines before any key — and
 compared on returned metadata, body, token estimate, and thrown message. 52
 cases, no structural difference.
+
+**A third exception, from the shape above.** A `SKILL.md` whose key carried both
+a value and an indented block — `metadata: something` with `author: …` beneath
+it — used to load, with the value silently discarded. It is now refused, naming
+the key. The discarded half is why: the file said two things and the loader only
+ever honoured one, so the author had no way to see which.
 
 **A second exception, and it is a fix.** A file using lone-`CR` line endings
 (classic Mac, pre-2001) used to be read as one single line, which collapsed the

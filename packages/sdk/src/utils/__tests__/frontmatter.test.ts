@@ -30,18 +30,28 @@ const LINES = [
 
 const SOURCE = 'test.md'
 
+/** The scalar keys, flattened, so a whole-map comparison stays readable. */
+function scalars(raw: string): Record<string, string> {
+	const { values } = parseFrontmatter(raw, SOURCE)
+	return Object.fromEntries(
+		Object.entries(values).flatMap(([k, v]) =>
+			v.kind === 'scalar' ? [[k, v.value] as const] : [],
+		),
+	)
+}
+
 describe('line endings', () => {
 	it('parses CRLF identically to LF', () => {
-		const lf = parseFrontmatter(LINES.join('\n'), SOURCE)
-		const crlf = parseFrontmatter(LINES.join('\r\n'), SOURCE)
+		const lf = scalars(LINES.join('\n'))
+		const crlf = scalars(LINES.join('\r\n'))
 
-		expect(lf.data).toEqual({ name: 'a-skill', description: 'Does a useful thing' })
+		expect(lf).toEqual({ name: 'a-skill', description: 'Does a useful thing' })
 		// The whole point: the same keys, not merely "some keys".
-		expect(crlf.data).toEqual(lf.data)
+		expect(crlf).toEqual(lf)
 	})
 
 	it('does not leave a carriage return inside a CRLF value', () => {
-		const { data } = parseFrontmatter(LINES.join('\r\n'), SOURCE)
+		const data = scalars(LINES.join('\r\n'))
 		// A trailing \r survives naive splitting and reaches the system prompt.
 		expect(data.description).toBe('Does a useful thing')
 		expect(data.description).not.toMatch(/\r/)
@@ -59,7 +69,10 @@ describe('line endings', () => {
 		const raw = ['---', 'name: x', 'metadata:', '  author: someone', '---', '', 'Body.'].join(
 			'\r\n',
 		)
-		expect(parseFrontmatter(raw, SOURCE).blocks.metadata).toEqual({ author: 'someone' })
+		expect(parseFrontmatter(raw, SOURCE).values.metadata).toEqual({
+			kind: 'mapping',
+			entries: { author: 'someone' },
+		})
 	})
 
 	it('splits a lone-CR file into lines rather than one long key', () => {
@@ -68,7 +81,7 @@ describe('line endings', () => {
 		// escaped it only because the collapse also removes the `description`
 		// key, so the required-field check refused the file first. A caller
 		// that validates nothing would have taken the mangled name.
-		const { data } = parseFrontmatter(LINES.join('\r'), SOURCE)
+		const data = scalars(LINES.join('\r'))
 		expect(data).toEqual({ name: 'a-skill', description: 'Does a useful thing' })
 		expect(data.name).not.toMatch(/description/)
 	})
@@ -81,7 +94,7 @@ describe('line endings', () => {
 	it('parses a file that opens with a byte-order mark', () => {
 		// An editor on Windows writes one, and `---` is then not at index 0.
 		const raw = `﻿${LINES.join('\r\n')}`
-		expect(parseFrontmatter(raw, SOURCE).data.name).toBe('a-skill')
+		expect(scalars(raw).name).toBe('a-skill')
 	})
 })
 
@@ -112,6 +125,29 @@ describe('refusing rather than degrading', () => {
 		const raw = ['---', 'name: x', 'opts: {a: b}', '---'].join('\n')
 		expect(() => parseFrontmatter(raw, SOURCE)).toThrow(/flow mapping/)
 	})
+
+	it('refuses a key that is both a scalar and a block', () => {
+		// No YAML file can mean this, so the result type cannot express it.
+		// Picking a precedence instead would silently drop half of what the
+		// author wrote.
+		const raw = ['---', 'name: x', 'metadata: inline', '  author: someone', '---'].join('\n')
+		expect(() => parseFrontmatter(raw, SOURCE)).toThrow(
+			/"metadata" has both a value and an indented block/,
+		)
+	})
+
+	it('refuses the same conflict when the block comes from a later duplicate key', () => {
+		const raw = [
+			'---',
+			'name: x',
+			'metadata: inline',
+			'other: y',
+			'metadata:',
+			'  a: 1',
+			'---',
+		].join('\n')
+		expect(() => parseFrontmatter(raw, SOURCE)).toThrow(/has both a value and an indented block/)
+	})
 })
 
 describe('keys from an untrusted file cannot reach the prototype chain', () => {
@@ -137,19 +173,19 @@ describe('keys from an untrusted file cannot reach the prototype chain', () => {
 
 	it('reports such a key as ordinary own data instead', () => {
 		const raw = ['---', 'name: x', '__proto__:', '  polluted: yes', '---'].join('\n')
-		const { blocks } = parseFrontmatter(raw, SOURCE)
+		const { values } = parseFrontmatter(raw, SOURCE)
 
 		// The file really did declare it, so reporting it is honest; what must
 		// not happen is the write landing on the prototype.
-		expect(Object.hasOwn(blocks, '__proto__')).toBe(true)
+		expect(Object.hasOwn(values, '__proto__')).toBe(true)
 		expect(({} as Record<string, unknown>).polluted).toBeUndefined()
 	})
 
 	it('does not let a `constructor` scalar shadow anything structural', () => {
 		const raw = ['---', 'name: x', 'constructor: hijacked', '---'].join('\n')
-		const { data } = parseFrontmatter(raw, SOURCE)
-		expect(data.constructor).toBe('hijacked')
-		expect(Object.hasOwn(data, 'constructor')).toBe(true)
+		const { values } = parseFrontmatter(raw, SOURCE)
+		expect(values.constructor).toEqual({ kind: 'scalar', value: 'hijacked' })
+		expect(Object.hasOwn(values, 'constructor')).toBe(true)
 	})
 })
 
@@ -164,8 +200,8 @@ describe('the closing fence', () => {
 			'Body text.',
 		].join('\n')
 
-		const { data, body } = parseFrontmatter(raw, SOURCE)
-		expect(data.description).toContain('CSV')
+		expect(scalars(raw).description).toContain('CSV')
+		const { body } = parseFrontmatter(raw, SOURCE)
 		expect(body).toBe('Body text.')
 		// A leak here is a leak into the system prompt.
 		expect(body).not.toContain('description:')
@@ -188,35 +224,49 @@ describe('vocabulary belongs to the caller', () => {
 			'Prompt template.',
 		].join('\n')
 
-		const { data, body } = parseFrontmatter(raw, SOURCE)
-		expect(data).toEqual({
-			description: 'Open a pull request',
-			'argument-hint': '<branch>',
+		const { values, body } = parseFrontmatter(raw, SOURCE)
+		expect(values).toEqual({
+			description: { kind: 'scalar', value: 'Open a pull request' },
+			'argument-hint': { kind: 'scalar', value: '<branch>' },
 		})
 		expect(body).toBe('Prompt template.')
 	})
 
 	it('validates no field names of its own — `name` is not required', () => {
 		const raw = ['---', 'description: no name here', '---'].join('\n')
-		expect(parseFrontmatter(raw, SOURCE).data).toEqual({ description: 'no name here' })
+		expect(scalars(raw)).toEqual({ description: 'no name here' })
 	})
 
 	it('groups an indented block under any key, not only `metadata`', () => {
 		const raw = ['---', 'name: x', 'inputs:', '  branch: main', '  force: "yes"', '---'].join('\n')
-		const { data, blocks } = parseFrontmatter(raw, SOURCE)
-		expect(data).toEqual({ name: 'x' })
-		expect(blocks.inputs).toEqual({ branch: 'main', force: 'yes' })
+		const { values } = parseFrontmatter(raw, SOURCE)
+		expect(values).toEqual({
+			name: { kind: 'scalar', value: 'x' },
+			inputs: { kind: 'mapping', entries: { branch: 'main', force: 'yes' } },
+		})
+	})
+
+	it('makes the scalar-or-mapping choice narrowable rather than guessable', () => {
+		const raw = ['---', 'flat: v', 'nested:', '  a: b', '---'].join('\n')
+		const { values } = parseFrontmatter(raw, SOURCE)
+
+		const flat = values.flat
+		const nested = values.nested
+		// The union is the point: one lookup, one discriminant, no key that
+		// could be in two places at once.
+		expect(flat?.kind === 'scalar' && flat.value).toBe('v')
+		expect(nested?.kind === 'mapping' && nested.entries).toEqual({ a: 'b' })
 	})
 })
 
 describe('scalars', () => {
 	it('keeps a quoted value containing a colon', () => {
 		const raw = ['---', 'url: "Reads a URL: http://example.com"', '---'].join('\n')
-		expect(parseFrontmatter(raw, SOURCE).data.url).toBe('Reads a URL: http://example.com')
+		expect(scalars(raw).url).toBe('Reads a URL: http://example.com')
 	})
 
 	it('skips comments and blank lines', () => {
 		const raw = ['---', '# a comment', '', 'name: x', '---'].join('\n')
-		expect(parseFrontmatter(raw, SOURCE).data).toEqual({ name: 'x' })
+		expect(scalars(raw)).toEqual({ name: 'x' })
 	})
 })

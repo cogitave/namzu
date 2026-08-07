@@ -96,22 +96,36 @@ const UNSUPPORTED_YAML = [
 	{ pattern: /^\{.*\}$/, what: 'a flow mapping (`{a: b}`)' },
 ] as const
 
+/**
+ * What one frontmatter key holds: a scalar, or a block of indented pairs.
+ *
+ * A discriminated union rather than two parallel maps, because the source
+ * format cannot express both at once. The first shape of this type had
+ * `data: Record<string, string>` beside `blocks: Record<string, Record<…>>`,
+ * which let one key sit in both — a state no YAML file can produce. Every
+ * caller would then have had to decide a precedence for a case that cannot
+ * arrive, and the ones who did not would be carrying a latent bug against a
+ * shape that told them the case existed. Removing the state beats documenting
+ * it.
+ */
+export type FrontmatterValue =
+	| { readonly kind: 'scalar'; readonly value: string }
+	| { readonly kind: 'mapping'; readonly entries: Readonly<Record<string, string>> }
+
 export interface ParsedFrontmatter {
 	/**
-	 * Top-level `key: value` scalars. A key whose value is empty is omitted —
-	 * it is a block header, not a value.
-	 */
-	readonly data: Readonly<Record<string, string>>
-
-	/**
-	 * Indented `key: value` lines, grouped under the top-level key that
-	 * precedes them. One level only; this reader does not nest further.
+	 * Every top-level key, in the order the file declared it.
 	 *
-	 * Kept separate from {@link data} rather than folded into it as a union so
-	 * that a key carrying both a scalar and a block keeps both, and so a caller
-	 * reading `data.x` never has to narrow a string against a record.
+	 * A key whose value is empty and which has no indented lines under it is
+	 * absent: it declared nothing. Narrow on `kind` to read it —
+	 *
+	 * ```ts
+	 * const d = values.description
+	 * if (d?.kind !== 'scalar') throw new Error('description must be a scalar')
+	 * use(d.value)
+	 * ```
 	 */
-	readonly blocks: Readonly<Record<string, Readonly<Record<string, string>>>>
+	readonly values: Readonly<Record<string, FrontmatterValue>>
 
 	/** Everything after the closing fence, trimmed. */
 	readonly body: string
@@ -187,11 +201,26 @@ export function parseFrontmatter(raw: string, source: string): ParsedFrontmatter
 		if (value) data.set(key, value)
 	}
 
-	return {
-		data: Object.fromEntries(data),
-		blocks: Object.fromEntries([...blocks].map(([k, v]) => [k, Object.fromEntries(v)])),
-		body,
+	// A key cannot be a scalar and a mapping at once — no YAML file can say
+	// that — so refusing here is what makes the illegal state unrepresentable
+	// in the returned type rather than merely undocumented. The alternative,
+	// picking a precedence, would silently drop half of what the author wrote.
+	for (const key of blocks.keys()) {
+		if (!data.has(key)) continue
+		throw new Error(
+			`${source}: "${key}" has both a value and an indented block. A key is one or the other — remove the value, or un-indent the lines beneath it.`,
+		)
 	}
+
+	const values = new Map<string, FrontmatterValue>()
+	for (const [key, value] of data) {
+		values.set(key, { kind: 'scalar', value })
+	}
+	for (const [key, entries] of blocks) {
+		values.set(key, { kind: 'mapping', entries: Object.fromEntries(entries) })
+	}
+
+	return { values: Object.fromEntries(values), body }
 }
 
 function normalizeScalar(value: string): string {
