@@ -1,7 +1,7 @@
 ---
 title: Skills and Personas
 description: Compose Namzu system prompts from personas, skill files, and session context using the public @namzu/sdk prompt surfaces.
-last_updated: 2026-04-18
+last_updated: 2026-08-07
 status: current
 related_packages: ["@namzu/sdk"]
 ---
@@ -17,7 +17,7 @@ The public prompt-building surfaces map to three different responsibilities:
 | Surface | Owns | Main exports |
 | --- | --- | --- |
 | Persona | identity, expertise, constraints, output style | `mergePersonas`, `withSessionContext`, persona types |
-| Skill | reusable instruction files with frontmatter | `SkillRegistry`, `discoverSkills`, `loadSkill`, `resolveSkillChain` |
+| Skill | reusable instruction files with frontmatter | `SkillRegistry`, `discoverSkills`, `loadSkill`, `resolveSkillChain`, `parseFrontmatter` |
 | Prompt assembly | final system prompt text | `assembleSystemPrompt` |
 
 This separation matters because the runtime treats stable and dynamic prompt parts differently.
@@ -206,6 +206,41 @@ Resolution rule:
 - agent-local skills are loaded second
 - later skills with the same name replace earlier ones in the resolved set
 
+## 5b. Reading Frontmatter Yourself
+
+`loadSkill` reads a `SKILL.md`. When you have markdown of your own with a `---`
+block — a command file, a prompt template — use the same reader rather than
+writing a second one:
+
+```ts
+import { parseFrontmatter } from '@namzu/sdk'
+
+const { data, blocks, body } = parseFrontmatter(raw, `command at "${path}"`)
+// data:   { description: 'Open a pull request', 'argument-hint': '<branch>' }
+// blocks: { metadata: { author: 'someone' } }   ← one level of nesting
+// body:   everything after the closing fence, trimmed
+```
+
+Three things about it are deliberate:
+
+- **It refuses rather than degrades.** Absent frontmatter, an unclosed fence, or
+  YAML it does not implement — a block scalar (`>`/`|`), a flow sequence
+  (`[a, b]`), a flow mapping (`{a: b}`) — all throw, naming your `source` label
+  and the offending key. It never returns an empty result standing in for a file
+  it could not read. This is why a second, "tolerant" reader is the wrong
+  instinct: one that quietly returns no metadata gives you a file described
+  wrongly instead of a file reported broken.
+- **It does not know your vocabulary.** It validates no field names. A skill
+  needs `name` and `description`; a command needs neither. Your validation stays
+  yours — do not reach for `SkillMetadata` to describe something that is not a
+  skill.
+- **It parses every line ending**, including CRLF and lone CR. A file authored on
+  Windows is the ordinary case, and a reader that only understands LF loses the
+  whole frontmatter block without failing.
+
+`loadSkill` is built on it, so a skill and a command file are read by the same
+code and cannot drift apart.
+
 ## 6. One Very Important Runtime Detail
 
 From the current prompt builder implementation:
@@ -235,6 +270,7 @@ Do not use it for durable behavior rules. Durable rules belong in the base perso
 | passing both `systemPrompt` and `persona` and expecting an automatic merge | the runtime prefers `systemPrompt` directly |
 | putting per-run context into the base persona | it makes stable behavior harder to reuse |
 | treating skills as opaque strings with no frontmatter rules | the loader validates `SKILL.md` shape and naming |
+| hand-rolling a second frontmatter reader for your own markdown | two readers disagree — one throws where the other quietly returns nothing; use `parseFrontmatter` |
 | using skills for hidden runtime state | keep private runtime data in `InvocationState`, not prompt text |
 
 ## Related
