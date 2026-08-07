@@ -1,7 +1,7 @@
 ---
 title: Skills
 description: Author SKILL.md capability docs, discover them, and activate one for the session with /skill.
-last_updated: 2026-08-07
+last_updated: 2026-08-08
 status: current
 related_packages: ["@namzu/cli"]
 ---
@@ -37,6 +37,21 @@ with the parse error, so the file you can see on disk is accounted for.
 Line endings do not matter. LF, CRLF and a lone CR all parse — a `SKILL.md`
 written on Windows used to lose its frontmatter silently and show up under its
 directory name with `(no description)`.
+
+**Lists go on one line.** The reader is a flat key/value splitter, not a YAML
+engine, so write `allowed-tools: Read, Bash` rather than:
+
+```yaml
+# refused
+allowed-tools:
+  - Read
+  - Bash
+```
+
+That form used to be *dropped* — the key read as absent, so a skill that asked
+for `Bash` ran without it and looked exactly like one that never asked. It is
+refused now, naming the key, because a capability silently not granted is worse
+than a file that will not load.
 
 ## Discovery
 

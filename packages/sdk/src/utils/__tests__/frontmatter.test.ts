@@ -136,6 +136,61 @@ describe('refusing rather than degrading', () => {
 		)
 	})
 
+	it('refuses a block sequence rather than reading the key as absent', () => {
+		// The gap this closed. These lines carry no `:`, so they were skipped and
+		// the key came back ABSENT — one spelling of a list threw, the other was
+		// silent, and the silent one is the shape people write.
+		const raw = ['---', 'name: x', 'allowed-tools:', '  - Read', '  - Bash', '---'].join('\n')
+		expect(() => parseFrontmatter(raw, SOURCE)).toThrow(/block sequence/)
+	})
+
+	it('names the key whose list was refused', () => {
+		// Without the key, the author has a file that will not parse and no idea
+		// which line to look at.
+		const raw = ['---', 'allowed-tools:', '  - Read', '---'].join('\n')
+		expect(() => parseFrontmatter(raw, SOURCE)).toThrow(/"allowed-tools"/)
+	})
+
+	it('says why silence would have been worse', () => {
+		// `allowed-tools` is the key that makes this a capability question rather
+		// than a formatting one: a skill that asked for a tool and silently did
+		// not get it is indistinguishable from one that never asked.
+		const raw = ['---', 'allowed-tools:', '  - Bash', '---'].join('\n')
+		expect(() => parseFrontmatter(raw, SOURCE)).toThrow(/absent/)
+	})
+
+	it('refuses a sequence of mappings, which used to become a key named "- name"', () => {
+		const raw = ['---', 'tools:', '  - name: Read', '---'].join('\n')
+		expect(() => parseFrontmatter(raw, SOURCE)).toThrow(/block sequence/)
+	})
+
+	it('does not refuse a hyphen inside an indented VALUE', () => {
+		// The over-refusal this could easily have caused. A dash in prose is not
+		// a list, and a reader that rejected it would break working files.
+		const raw = ['---', 'metadata:', '  note: some - dashed - text', '---'].join('\n')
+		const { values } = parseFrontmatter(raw, SOURCE)
+		expect(values.metadata).toEqual({
+			kind: 'mapping',
+			entries: { note: 'some - dashed - text' },
+		})
+	})
+
+	it('does not refuse a hyphen inside a top-level value', () => {
+		const raw = ['---', 'description: a - b - c', '---'].join('\n')
+		const { values } = parseFrontmatter(raw, SOURCE)
+		expect(values.description).toEqual({ kind: 'scalar', value: 'a - b - c' })
+	})
+
+	it('still reads an ordinary indented mapping', () => {
+		// The refusal must not have taken the supported nesting with it.
+		const raw = ['---', 'metadata:', '  author: someone', '  year: 2026', '---'].join('\n')
+		const { values } = parseFrontmatter(raw, SOURCE)
+		expect(values.metadata).toEqual({
+			kind: 'mapping',
+			entries: { author: 'someone', year: '2026' },
+		})
+	})
+
 	it('refuses the same conflict when the block comes from a later duplicate key', () => {
 		const raw = [
 			'---',
