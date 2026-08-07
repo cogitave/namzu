@@ -15,7 +15,7 @@
 import { readFileSync, readdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { parse as parseYaml } from 'yaml'
+import { parseFrontmatter } from '@namzu/sdk'
 
 export type SkillSource = 'user' | 'project'
 
@@ -24,6 +24,16 @@ export interface SkillInfo {
 	readonly description: string
 	readonly path: string
 	readonly source: SkillSource
+	/**
+	 * Why this skill cannot be used, when it cannot.
+	 *
+	 * A `SKILL.md` whose frontmatter does not parse is REFUSED rather than
+	 * loaded with the metadata missing, but refusing it must not take the rest
+	 * of the roster with it: one unreadable file in `~/.namzu/skills` would
+	 * otherwise leave the operator with no skills and no reason. So it stays in
+	 * the list, named, carrying the reason it is unusable.
+	 */
+	readonly problem?: string
 }
 
 export function userSkillsDir(home: string = homedir()): string {
@@ -41,25 +51,47 @@ interface ParsedSkill {
 }
 
 /**
- * Split `SKILL.md` into frontmatter (name/description) + body. Tolerant:
- * a file with no frontmatter is all body.
+ * Split `SKILL.md` into frontmatter (name/description) + body.
+ *
+ * Reads through the kernel's `parseFrontmatter`, which is the point: this file
+ * used to carry its own regex, `/^---\n…\n---\n?/`, and that regex is LF-only.
+ * A `SKILL.md` saved on Windows has CRLF line endings, so the match failed, the
+ * whole file was treated as body, and the skill was listed under its directory
+ * name with `(no description)`. It did not fail — it described the skill
+ * wrongly, which is the shape that survives review.
+ *
+ * ## Absent frontmatter is fine; broken frontmatter is not
+ *
+ * These were the same case here and are not the same thing. A file with no
+ * frontmatter is a documented, supported shape (`docs/cli/skills.md`): the body
+ * is the skill. A file that opens a fence and then fails to parse is an author
+ * who tried to write metadata and got it wrong, and answering that with "no
+ * metadata, carry on" put the broken YAML into the body — and from there
+ * verbatim into the system prompt.
+ *
+ * So the fence decides. No fence, no parser: body only, exactly as documented.
+ * A fence present hands the file to the kernel reader, which throws rather than
+ * returning a partial result. The absence test mirrors the reader's own
+ * (`raw.trimStart().startsWith('---')`) so the two cannot disagree about what
+ * counts as having frontmatter — two readers disagreeing on that is the defect
+ * this consolidation exists to remove.
+ *
+ * @param source A label for the error message, e.g. the file's path.
+ * @throws When a fence is present and the frontmatter cannot be read.
  */
-export function parseSkillMarkdown(raw: string): ParsedSkill {
-	const match = raw.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/)
-	if (!match) return { body: raw.trim() }
-	const [, frontmatter, body] = match
-	let name: string | undefined
-	let description: string | undefined
-	try {
-		const meta = parseYaml(frontmatter ?? '') as Record<string, unknown> | null
-		if (meta && typeof meta === 'object') {
-			if (typeof meta.name === 'string') name = meta.name
-			if (typeof meta.description === 'string') description = meta.description
-		}
-	} catch {
-		// Malformed frontmatter → treat as no metadata; body still usable.
-	}
-	return { name, description, body: (body ?? '').trim() }
+export function parseSkillMarkdown(raw: string, source = 'SKILL.md'): ParsedSkill {
+	if (!raw.trimStart().startsWith('---')) return { body: raw.trim() }
+
+	const { values, body } = parseFrontmatter(raw, source)
+
+	// A non-scalar `name` or `description` is dropped rather than rendered:
+	// there is no sensible string for a block of indented pairs, and the
+	// fallbacks below (directory name, "(no description)") are the honest
+	// answer for a key that did not carry one.
+	const name = values.name?.kind === 'scalar' ? values.name.value : undefined
+	const description = values.description?.kind === 'scalar' ? values.description.value : undefined
+
+	return { name, description, body }
 }
 
 function readSkillsFrom(dir: string, source: SkillSource): SkillInfo[] {
@@ -80,7 +112,22 @@ function readSkillsFrom(dir: string, source: SkillSource): SkillInfo[] {
 		} catch {
 			continue
 		}
-		const parsed = parseSkillMarkdown(raw)
+		let parsed: ParsedSkill
+		try {
+			parsed = parseSkillMarkdown(raw, path)
+		} catch (err) {
+			// Refused, but still listed. One unreadable file must not empty the
+			// roster and leave the operator without a reason — the whole point of
+			// refusing instead of degrading is that somebody gets told.
+			skills.push({
+				name: dirName,
+				description: '(could not be read)',
+				path,
+				source,
+				problem: err instanceof Error ? err.message : String(err),
+			})
+			continue
+		}
 		skills.push({
 			name: parsed.name ?? dirName,
 			description: parsed.description ?? '(no description)',
@@ -106,7 +153,8 @@ export function discoverSkills(opts: { home?: string; cwd?: string } = {}): Skil
 
 /** Read a skill's markdown body (frontmatter stripped). */
 export function loadSkillBody(info: SkillInfo): string {
-	return parseSkillMarkdown(readFileSync(info.path, 'utf8')).body
+	if (info.problem) throw new Error(info.problem)
+	return parseSkillMarkdown(readFileSync(info.path, 'utf8'), info.path).body
 }
 
 /** Compose the active-skills system block, or null when none are active. */

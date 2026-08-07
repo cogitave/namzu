@@ -64,6 +64,38 @@ the second time this file records someone adopting the rule and then breaking
 it. That is not irony, it is the measurement: the habit is easy to hold in
 principle and hard to hold in the next command.
 
+It then happened to a third person, on a different tool, the same day: a live
+run of the CLI was measured through `| tail -3` and reported `exit 0` for a
+command that exits `77`, which nearly went in as "the trust gate is broken".
+
+Three people, three tools, one shape — **the thing that reports success is not
+the thing you ran.**
+
+## The variant that hides best
+
+A filter eating the diagnostic leaves a gap you might notice. `$?` after a
+pipeline leaves nothing to notice: it is a number, confidently about the wrong
+process. It has now bitten twice, and it is the least visible of the three.
+
+```sh
+node tools/check-docs.mjs > /dev/null 2>&1; echo $?   # the gate's own status
+node tools/check-docs.mjs | tail -4; echo $?          # tail's status, always 0
+```
+
+## An exit code you did not read the cause of is not evidence
+
+The same rule pointed at a tool rather than a filter. Two from one session:
+
+- A mutation reported `exit 1` and was recorded as the test failing. It was
+  `vitest is not recognized` — a bad invocation. **A false kill reads exactly
+  like a real one.**
+- A mutation applied with `sed` inserted a literal newline, broke the file, and
+  vitest reported `no tests`. Also `exit 1`, also not the assertion firing.
+
+Both were caught by re-running through the real command and reading *why* it
+failed. A mutation that "passes" tells you nothing until you have seen the
+assertion in the failure output.
+
 ## Related
 
 - [Mutate every test](mutation-check-every-test.md) — its "read the run, not

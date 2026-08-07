@@ -1,7 +1,7 @@
 ---
 title: Skills
 description: Author SKILL.md capability docs, discover them, and activate one for the session with /skill.
-last_updated: 2026-05-25
+last_updated: 2026-08-07
 status: current
 related_packages: ["@namzu/cli"]
 ---
@@ -23,6 +23,20 @@ Call out risky patterns explicitly and suggest concrete fixes.
 ```
 
 `name` and `description` are optional — if `name` is absent, the directory name is used; the frontmatter block itself is optional (a file with no frontmatter is all body).
+
+**Frontmatter you open must parse.** Leaving it out entirely is supported, as
+above. Opening a `---` fence and then writing something the reader cannot
+understand is not: the skill is refused and listed with the reason, rather than
+loaded as if it had no metadata. That distinction is new, and it exists because
+the old behaviour put the unreadable frontmatter into the body — where it
+reached the model verbatim, under a skill named after its own directory.
+
+A refused skill does not hide the others. It appears in `/skills` marked `⚠`
+with the parse error, so the file you can see on disk is accounted for.
+
+Line endings do not matter. LF, CRLF and a lone CR all parse — a `SKILL.md`
+written on Windows used to lose its frontmatter silently and show up under its
+directory name with `(no description)`.
 
 ## Discovery
 
