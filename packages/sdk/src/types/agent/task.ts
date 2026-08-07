@@ -1,6 +1,5 @@
 import type { ActorRef } from '../../types/session/actor.js'
 import type { WorkspaceBackendKind } from '../../types/workspace/ref.js'
-import type { TokenUsage } from '../common/index.js'
 import type { ResumeHandler } from '../hitl/index.js'
 import type { RunId, SessionId, TaskId, TenantId } from '../ids/index.js'
 import type { Message } from '../message/index.js'
@@ -106,12 +105,6 @@ export interface AgentTask {
 	context: AgentTaskContext
 	state: AgentTaskState
 	result?: BaseAgentResult
-	/**
-	 * **Never populated.** Nothing in the SDK writes task progress.
-	 *
-	 * @deprecated No producer. Removed in the next major.
-	 */
-	progress?: AgentTaskProgress
 
 	/**
 	 * Tokens reserved from the shared pool when this child was spawned.
@@ -132,12 +125,6 @@ export interface AgentTask {
 	evictAfter?: number
 
 	runEventListener?: RunEventListener
-}
-
-export interface AgentTaskProgress {
-	toolUseCount: number
-	usage: TokenUsage
-	recentActivities: string[]
 }
 
 /**
