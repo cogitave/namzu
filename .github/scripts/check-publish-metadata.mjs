@@ -45,13 +45,26 @@ const isTestPath = (p) =>
  * Checking the config would have agreed with itself and found nothing.
  */
 function packedPaths(dir) {
-	// `shell: true` for Windows, where the executable is `npm.cmd`. Without it
-	// every call throws and a caller that swallows the error reports a clean
-	// run over packages it never opened.
+	// Windows needs a shell here and nothing else does.
+	//
+	// npm is `npm.cmd` on Windows, and since the CVE-2024-27980 mitigation Node
+	// refuses to spawn a `.cmd` without one — `execFileSync('npm.cmd', …)`
+	// fails with `spawnSync npm.cmd EINVAL`. Under a shell the arguments are
+	// concatenated rather than escaped, which also earns a DEP0190, so it is
+	// scoped to the platform that requires it instead of applied everywhere.
+	// CI runs Linux and takes the no-shell path.
+	//
+	// The arguments are fixed literals. Anyone adding an interpolated one here
+	// has a command injection on Windows rather than a warning, which is why
+	// this is a comment and not just a flag.
+	//
+	// Getting this wrong is silent in the worst way: the first draft of this
+	// check caught the spawn error and continued, reporting fourteen packages
+	// clean while packing none of them.
 	const out = execFileSync('npm', ['pack', '--dry-run', '--json'], {
 		cwd: dir,
 		encoding: 'utf8',
-		shell: true,
+		shell: process.platform === 'win32',
 		stdio: ['ignore', 'pipe', 'pipe'],
 	})
 	return JSON.parse(out)[0].files.map((f) => f.path)
