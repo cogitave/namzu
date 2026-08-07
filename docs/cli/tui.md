@@ -117,6 +117,31 @@ ignored; built-ins always win.
 Files are read when the session starts. After adding one, `/model` or a restart
 picks it up.
 
+### They work in scripts too
+
+`namzu run` and `namzu run-stream` expand your commands the same way, which is
+most of the reason to write one:
+
+```bash
+namzu run "/review src/parse.ts"
+```
+
+**A leading `/` is not enough to make something a command.** `namzu run
+"/usr/local/bin is missing"` is an ordinary prompt and is sent as written. What
+makes it a command is the first word naming one your project actually declares —
+a file in `.namzu/commands/` is an explicit declaration, while a word that
+happens to start with a slash is not.
+
+Built-in commands are interactive and do nothing headless. `namzu run "/help"`
+is refused with a message rather than sent, because nobody means that string
+literally. But `namzu run "/clear the cache in redis"` is a request and passes
+through untouched — the extra words are what tell the two apart.
+
+A command that refuses — arguments it cannot receive, or frontmatter that will
+not parse — exits non-zero and prints the reason. It is never sent as prose:
+the run failing is the point, since a script that continues on a misfired
+command is the thing worth preventing.
+
 ### What `/init` does, and what it will not do
 
 `/init` asks the agent to read the repository and write an `AGENTS.md` for it.

@@ -27,6 +27,8 @@ import { openSessions } from '../integrations/sessions/store.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { resolvePermissionMode } from '../permissions/mode.js'
 import { compilePermissions } from '../permissions/rules.js'
+import { SLASH_COMMANDS } from '../tui/slashCommands.js'
+import { expandHeadlessCommand } from '../user-commands/store.js'
 import { resolveResume } from './resume.js'
 import {
 	loadSkillsContext,
@@ -193,6 +195,25 @@ export const runCommand: CommandDef = {
 			return EXIT_USAGE
 		}
 
+		// A command the operator defined is expanded here too, not only in the
+		// TUI. Most of the reason to write one is to run it from a script, and
+		// sending `/ozet hedef.js` to the model as prose gave a confident answer
+		// about something else at exit 0.
+		//
+		// After the cwd is resolved, because the project's commands live under
+		// it; before the trust gate, because expanding a template only reads
+		// `.namzu/commands` and a refusal here should not need the folder to be
+		// trusted first.
+		const expansion = expandHeadlessCommand(prompt, {
+			cwd: resolved.cwd,
+			builtins: SLASH_COMMANDS.map((c) => c.name),
+		})
+		if (expansion.kind === 'refused') {
+			ctx.formatter.error({ message: expansion.reason })
+			return EXIT_USAGE
+		}
+		const finalPrompt = expansion.kind === 'expanded' ? expansion.prompt : prompt
+
 		// Before anything is read, run or constructed in that directory. The
 		// order is the gate: a check that happens after the session is built has
 		// already opened stores and walked the tree it was meant to protect.
@@ -320,7 +341,7 @@ export const runCommand: CommandDef = {
 		let failed: string | null = null
 		let stopReason: StopReason | undefined
 		for await (const event of session.send(
-			[...prior, { role: 'user', content: prompt, timestamp: Date.now() }],
+			[...prior, { role: 'user', content: finalPrompt, timestamp: Date.now() }],
 			extraSystem ? { extraSystem } : undefined,
 		)) {
 			if (event.kind === 'delta') text += event.text

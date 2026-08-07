@@ -143,6 +143,72 @@ export function discoverUserCommands(
 		.sort((a, b) => a.name.localeCompare(b.name))
 }
 
+export type HeadlessExpansion =
+	/** Not a command. Send it as written. */
+	| { readonly kind: 'unchanged'; readonly prompt: string }
+	| { readonly kind: 'expanded'; readonly prompt: string; readonly name: string }
+	| { readonly kind: 'refused'; readonly reason: string }
+
+/**
+ * Resolve a headless prompt that may name one of the operator's own commands.
+ *
+ * `namzu run "/ozet hedef.js"` used to send that string to the model verbatim.
+ * The model, reasonably, tried to make sense of it — offering to create a file
+ * called `ozet hedef.js`. The run exited 0 with confident output that had
+ * nothing to do with the command. It did not fail; it quietly did something
+ * else, which is the shape worth removing.
+ *
+ * ## Why a leading `/` is not enough to call it a command
+ *
+ * `namzu run "/usr/local/bin is missing"` and `namzu run "/clear the cache in
+ * redis"` are ordinary prompts. Treating every leading slash as a command would
+ * break them, and breaking a working prompt to fix a broken one is not a trade
+ * worth making. So the test is not the slash — it is whether the first token
+ * names a command **this project actually declares**.
+ *
+ * That asymmetry is the whole rule. A file in `.namzu/commands/` is an explicit
+ * declaration by the operator, so matching it is high-confidence. A built-in's
+ * name is a common English word that nobody declared, so matching it is not.
+ *
+ * The one exception is a prompt that is EXACTLY a built-in and nothing else:
+ * `namzu run "/help"` is not a sentence anybody means literally, and answering
+ * it with a model improvising on the string is the same silent misfire. With
+ * arguments — `/clear the cache` — it stays prose, because there the words
+ * carry a meaning the command name does not.
+ */
+export function expandHeadlessCommand(
+	prompt: string,
+	opts: { home?: string; cwd?: string; builtins?: readonly string[] } = {},
+): HeadlessExpansion {
+	const trimmed = prompt.trim()
+	if (!trimmed.startsWith('/')) return { kind: 'unchanged', prompt }
+
+	const [token, ...rest] = trimmed.slice(1).split(/\s+/)
+	const name = token ?? ''
+	if (!name) return { kind: 'unchanged', prompt }
+
+	const builtins = new Set(opts.builtins ?? [])
+	if (rest.length === 0 && builtins.has(name)) {
+		return {
+			kind: 'refused',
+			reason: `/${name} is an interactive command and does nothing in \`namzu run\`. Run \`namzu\` for the terminal agent, or pass a prompt instead.`,
+		}
+	}
+
+	const commands = discoverUserCommands({
+		...(opts.home !== undefined ? { home: opts.home } : {}),
+		...(opts.cwd !== undefined ? { cwd: opts.cwd } : {}),
+		reserved: [...builtins],
+	})
+	const found = commands.find((c) => c.name === name)
+	if (!found) return { kind: 'unchanged', prompt }
+
+	const expanded = expandCommand(found, rest.join(' '))
+	return expanded.ok
+		? { kind: 'expanded', prompt: expanded.prompt, name }
+		: { kind: 'refused', reason: expanded.reason }
+}
+
 export type ExpandResult =
 	| { readonly ok: true; readonly prompt: string }
 	| { readonly ok: false; readonly reason: string }

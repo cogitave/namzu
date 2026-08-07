@@ -1,7 +1,7 @@
 ---
 title: Headless runs
 description: namzu run and namzu run-stream — one prompt, no terminal. Shared options, the working directory, exit codes, and the NDJSON event stream.
-last_updated: 2026-08-06
+last_updated: 2026-08-07
 status: current
 related_packages: ["@namzu/cli"]
 ---
@@ -186,7 +186,7 @@ error.
 | `0` | The model answered and the run finished normally. |
 | `1` | The run failed, or stopped early — a token budget, a timeout, the iteration cap, a cancellation, or a refused answer. Any partial output is still printed, and the reason goes to stderr. |
 | `2` | No prompt was supplied. |
-| `64` | An argument is wrong (unknown option, bad `--cwd`). |
+| `64` | An argument is wrong (unknown option, bad `--cwd`), or a slash command was named and could not run — see [Your own slash commands](./tui.md#they-work-in-scripts-too). |
 | `77` | The folder has not been trusted, and **nothing ran**. Fixed by a decision, not by a different invocation — see [The folder has to be trusted](#the-folder-has-to-be-trusted). |
 
 A stopped run exits 1 even though it produced text, so
