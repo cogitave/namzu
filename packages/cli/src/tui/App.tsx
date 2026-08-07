@@ -27,6 +27,7 @@ import { appendMemory, composeMemoryPrompt, readMemory } from '../memory/store.j
 import { composeSkillsPrompt, discoverSkills, loadSkillBody } from '../skills/store.js'
 import { checkUpdates } from '../integrations/updates.js'
 import { type ActiveTool, LiveActivity, formatElapsed } from './LiveActivity.js'
+import { bottomSpacerRows } from './bottom-spacer.js'
 import { expandFileMentions } from './mentions.js'
 import { Composer } from './Composer.js'
 import { TrustPrompt } from './TrustPrompt.js'
@@ -304,6 +305,21 @@ export function App({ ctx }: AppProps) {
 		setPhase('probing')
 		void runProbe()
 	}, [ctx.cwd, runProbe])
+
+	// Blank rows above the composer, while the transcript is short enough that
+	// the answer is knowable. `liveRows` is the fixed furniture beneath the
+	// transcript — activity line, composer frame, status bar and their padding —
+	// counted generously, because over-counting costs a gap and under-counting
+	// costs the composer.
+	const spacerRows =
+		phase === 'ready'
+			? bottomSpacerRows({
+					rows: process.stdout.rows,
+					columns: process.stdout.columns,
+					transcript: messages.filter((m) => !m.pending).map((m) => m.content),
+					liveRows: 10,
+				})
+			: 0
 
 	const slashCtx: SlashContext = {
 		availableTools: session?.toolNames ?? [],
@@ -889,6 +905,13 @@ export function App({ ctx }: AppProps) {
 								}
 							/>
 						</TranscriptFrame>
+						{/* Pushes the composer to the bottom of the viewport while the
+						    transcript is short enough for that to be knowable. Returns
+						    0 once the terminal is scrolling, where the composer is
+						    already at the bottom and padding would push it out of
+						    view. See `bottom-spacer.ts` for why the estimate is safe
+						    only in this direction. */}
+						{spacerRows > 0 ? <Box height={spacerRows} /> : null}
 						<LiveActivity
 							activeTools={activeTools}
 							thinking={state === 'thinking' && !messages.some((m) => m.pending)}
