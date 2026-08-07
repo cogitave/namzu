@@ -2,303 +2,417 @@
 type: Index
 title: Namzu
 description: >-
-  An agent kernel for TypeScript — OS-level sandboxes, lifecycle, scheduling,
-  budgets, signals, memory, durability, MCP/A2A, provider abstraction. No UI,
-  no hosted service, no vendor favorites. FSL-1.1-MIT (converts to MIT after
-  two years per release).
+  An agent kernel for TypeScript. Runs an agent as a supervised unit of work
+  with an identity, a budget, a permission boundary and a durable record.
+  Ships with a terminal agent built on it. FSL-1.1-MIT, converting to MIT two
+  years after each release.
 tags: [readme, index, typescript, agent-kernel]
-timestamp: 2026-07-09T00:00:00Z
+timestamp: 2026-08-07T00:00:00Z
 status: active
 diataxis: explanation
 -->
+
 <div align="center">
+
+<img src="docs/assets/hero.png" alt="Namzu — an agent kernel: a single supervised run, bounded and recorded" width="880">
 
 <h1>Namzu</h1>
 
-**The agent kernel for TypeScript. Nothing between you and your agents.**
+**An agent kernel for TypeScript.**
 
 [![License: FSL-1.1-MIT](https://img.shields.io/badge/license-FSL--1.1--MIT-blue.svg)](./LICENSE.md)
 [![npm @namzu/sdk](https://img.shields.io/npm/v/@namzu/sdk.svg?label=%40namzu%2Fsdk)](https://www.npmjs.com/package/@namzu/sdk)
-[![Node >=20](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](https://nodejs.org)
-[![TypeScript 5.5+](https://img.shields.io/badge/typescript-5.5%2B-3178c6.svg)](https://www.typescriptlang.org)
+[![npm @namzu/cli](https://img.shields.io/npm/v/@namzu/cli.svg?label=%40namzu%2Fcli)](https://www.npmjs.com/package/@namzu/cli)
 
-[Quick Start](#quick-start) · [What Namzu Is](#what-namzu-is) · [npm](https://www.npmjs.com/package/@namzu/sdk) · [Docs](./docs/) · [Contributing](#contributing)
-
-<sub>Fair Source licensing: [FSL-1.1-MIT](./LICENSE.md) — every published version converts to MIT two years after its release.</sub>
+[Install](#install) · [What is inside](#what-is-inside-that-is-independently-hard) · [Packages](#the-packages) · [Docs](./docs/)
 
 </div>
 
 ---
 
-## The Thesis
+## What this is
 
-Most "agent frameworks" today are application frameworks. They bundle chat UIs, hosted dashboards, vendor-specific fast paths, and integration drivers for a handful of databases. You get a demo in an hour; three months later you own a stack where the framework dictates your frontend, your database, your observability, and your model vendor.
+An agent that works in a demo is a loop around a model call. An agent that
+works in production is that loop plus everything around it — a budget that
+stops it, an identity that attributes it, a boundary it cannot talk its way
+past, a record that survives the process, and a way to shrink a conversation
+that is about to overflow without corrupting it.
 
-Agent software should be layered like Unix. At the bottom: a **kernel** that isolates processes, schedules tool calls, manages memory pressure, propagates signals across a call tree, persists checkpoints, mediates inter-process communication, and produces an auditable event stream. Above the kernel: user space — shells, editors, IDEs, voice gateways, React apps. The kernel does not care which shell you pick; the shell cannot break the isolation the kernel provides.
+Namzu is those other things. `@namzu/sdk` runs an agent the way an operating
+system runs a process: it is given an identity and a budget, it is confined,
+it is scheduled, it is checkpointed, and what it did is written down. It
+renders no UI, requires no database, hosts no service, and has no preferred
+model vendor — the drivers are separate packages, one per service, installed
+only when you need one.
 
-**`@namzu/sdk` is the kernel.** It runs agents the way Unix runs processes. It does not render UI, it does not pick your database, it does not favor one LLM vendor. `packages/providers/*` are the drivers — one per vendor, each pulled in only when you need it. This repo is the whole family under one roof.
+`@namzu/cli` is a terminal coding agent built entirely on that kernel, in this
+repository, from the same public API you get. It exists as much to prove the
+kernel as to be used: every gap in the SDK showed up first as something the
+CLI had to work around.
 
----
+## Who it is for
 
-## What Namzu Is
+Read on if any of these is your afternoon:
 
-- **Process execution and isolation.** Tools run inside OS-level sandboxes: Seatbelt (SBPL) on macOS, mount + PID namespaces on Linux. Deny-default file I/O, scoped network, enforced resource limits. No Docker, no daemon, no sidecar in the kernel — and the opt-in [`@namzu/sandbox`](https://www.npmjs.com/package/@namzu/sandbox) package adds pluggable providers: process-level isolation (bubblewrap/Seatbelt via `@anthropic-ai/sandbox-runtime`) for dev loops, container-level isolation with a JWT-authenticated egress proxy for multi-tenant deployments.
-- **Agent lifecycle.** Parent/child spawn with depth tracking, budget splitting, causal trace linkage. A supervisor forks a subtree and gets results back, each child isolated from its siblings.
-- **Scheduling.** Per-run token, cost, wall-clock, and iteration budgets. Task router (cheap model for compaction, expensive for coding), tool tiering, limit checker.
-- **Signals.** `AbortController` tree spanning parent and children. `cancel(taskId)` and `cancelAll(parentRunId)` propagate. Runs pause, resume, and abort cleanly.
-- **Memory.** Working memory via structured compaction into a typed `WorkingState`. Long-term memory via an indexed, tag/query/status-searchable store with disk persistence. No vector database required by default.
-- **Durability.** Atomic per-iteration checkpoints, opt-in emergency core-dump on SIGINT/SIGTERM, separate stores for runs / threads / conversations / activities / memories / tasks.
-- **IPC.** Native A2A (Google agent-to-agent) and MCP (Anthropic Model Context Protocol) — both client and server, one SDK. An internal event bus with circuit breakers, file lock manager, and edit ownership tracking.
-- **Provider abstraction.** A narrow `LLMProvider` interface + a typed `ProviderRegistry`. Concrete vendors live in sibling packages (`@namzu/anthropic`, `@namzu/openai`, `@namzu/bedrock`, `@namzu/openrouter`, `@namzu/ollama`, `@namzu/lmstudio`, `@namzu/http`). BYOK everywhere, no hidden hot paths.
-- **Multi-tenant isolation from day one.** Connector registries, vaults, configs, and stores are tenant-scoped. Two organizations share a process without cross-contamination.
-- **Telemetry.** OpenTelemetry-native spans and metrics against the `@opentelemetry/api` peer; the OTLP exporter pipeline (traces + metrics, resource attributes, platform metrics) ships as the opt-in [`@namzu/telemetry`](https://www.npmjs.com/package/@namzu/telemetry) package. Cost accounting (input tokens, output tokens, cached tokens, cache write tokens) flows from the provider into per-run, per-tenant rollups.
+- The run has to be **attributable** — a tenant, a project, a session, and an
+  auditable trail of what it did and what it cost.
+- The run has to be **bounded** — tokens, money, wall clock, and iterations,
+  enforced rather than hoped for.
+- The run has to **survive** — a process restart, a deploy, an operator
+  pressing Ctrl-C, a question that needs a human before it can continue.
+- One agent has to **delegate** to another, and that is where it broke.
+- The model gets **tools**, and you would rather it not get your machine.
+- You are **multi-tenant**, and "two customers in one process" has to be a
+  property of the type system rather than a code review.
 
-See [`packages/sdk/README.md`](./packages/sdk/README.md) for the complete subsystem map — 24 sections covering sandbox, bus, lifecycle, scheduling, runtime, memory, durability, HITL, personas, skills, advisory, connectors, prompt cache, vault, telemetry, plugins, gateway, agent patterns, and multi-tenancy.
+Read something else if you want a chat interface by the end of the day. There
+is no UI here, no dashboard, no hosted anything. This is the layer underneath
+that.
 
-## What Namzu Is Not
+## Install
 
-- **Not a chat SDK.** No React/Svelte/Vue hooks, no generative UI components, no `useChat`. Your UI framework is your choice; the kernel hands you a typed event stream.
-- **Not a hosted service.** No dashboard, no Namzu Cloud, no billing page. You run it in your own process.
-- **Not a deployment adapter.** No Next.js / Hono / Express / Cloudflare Workers plumbing in the kernel. Those belong in separate packages or your own infra.
-- **Not a dev studio.** No bundled playground UI.
-- **Not a vector database.** RAG ships with a pluggable `VectorStore` interface; the kernel does not embed pgvector or Pinecone.
-- **Not an LLM router service.** Task routing is an in-process policy.
-- **Not a prompt management UI.** Personas are YAML files in your repo, not database rows behind a web form.
-
-The goal is not to be minimal — the kernel is plenty rich. The goal is to keep its **interface surface** small and stable so the layers above can move fast without breaking what is underneath.
-
----
-
-## Monorepo at a Glance
-
-| Package               | Purpose                                                                  | Version |
-|-----------------------|--------------------------------------------------------------------------|---------|
-| `@namzu/sdk`          | The kernel — runtime, agents, tools, registry, stores, RAG, connectors   | [![npm](https://img.shields.io/npm/v/@namzu/sdk.svg?label=)](https://www.npmjs.com/package/@namzu/sdk) |
-| `@namzu/computer-use` | Subprocess-based `ComputerUseHost` (screenshot, mouse, keyboard)         | [![npm](https://img.shields.io/npm/v/@namzu/computer-use.svg?label=)](https://www.npmjs.com/package/@namzu/computer-use) |
-| `@namzu/sandbox`      | Pluggable sandbox providers — process-level (bubblewrap/Seatbelt) and container-level (JWT-authenticated egress proxy) isolation | [![npm](https://img.shields.io/npm/v/@namzu/sandbox.svg?label=)](https://www.npmjs.com/package/@namzu/sandbox) |
-| `@namzu/telemetry`    | OTLP exporter pipeline — traces + metrics, resource attributes, platform metrics | [![npm](https://img.shields.io/npm/v/@namzu/telemetry.svg?label=)](https://www.npmjs.com/package/@namzu/telemetry) |
-| `@namzu/cli`          | Operator CLI (`namzu doctor` + future commands) — standalone bin and library | [![npm](https://img.shields.io/npm/v/@namzu/cli.svg?label=)](https://www.npmjs.com/package/@namzu/cli) |
-| `@namzu/files`        | Provider-agnostic file registry contracts                                | [![npm](https://img.shields.io/npm/v/@namzu/files.svg?label=)](https://www.npmjs.com/package/@namzu/files) |
-| `@namzu/anthropic`    | Anthropic Messages API provider                                          | [![npm](https://img.shields.io/npm/v/@namzu/anthropic.svg?label=)](https://www.npmjs.com/package/@namzu/anthropic) |
-| `@namzu/openai`       | OpenAI Chat Completions provider                                         | [![npm](https://img.shields.io/npm/v/@namzu/openai.svg?label=)](https://www.npmjs.com/package/@namzu/openai) |
-| `@namzu/bedrock`      | AWS Bedrock Converse provider                                            | [![npm](https://img.shields.io/npm/v/@namzu/bedrock.svg?label=)](https://www.npmjs.com/package/@namzu/bedrock) |
-| `@namzu/openrouter`   | OpenRouter aggregated-model provider                                     | [![npm](https://img.shields.io/npm/v/@namzu/openrouter.svg?label=)](https://www.npmjs.com/package/@namzu/openrouter) |
-| `@namzu/ollama`       | Local Ollama provider                                                    | [![npm](https://img.shields.io/npm/v/@namzu/ollama.svg?label=)](https://www.npmjs.com/package/@namzu/ollama) |
-| `@namzu/lmstudio`     | LM Studio local-inference provider (WebSocket)                           | [![npm](https://img.shields.io/npm/v/@namzu/lmstudio.svg?label=)](https://www.npmjs.com/package/@namzu/lmstudio) |
-| `@namzu/http`         | Zero-dep generic HTTP provider (OpenAI- or Anthropic-compatible)         | [![npm](https://img.shields.io/npm/v/@namzu/http.svg?label=)](https://www.npmjs.com/package/@namzu/http) |
-
-<sub>Version cells are live badges from the npm registry, so the table cannot go stale.</sub>
-
-All thirteen packages are on npm, each release carrying npm provenance
-attestation (see [Release Flow](#release-flow)). `@namzu/cli` (0.2.x) and
-`@namzu/files` (0.1.x) are published early and still pre-1.0; everything else
-is at or past 1.0.
-
-## Quick Start
-
-Install the kernel plus one provider — Ollama is the zero-config local-first default:
+The kernel runs standalone against a scriptable mock driver, so the first run
+needs no key and no network:
 
 ```bash
-pnpm add @namzu/sdk @namzu/ollama
+pnpm add @namzu/sdk zod@^3
 ```
+
+<sub>The kernel bundles no runtime dependencies — `zod`, `zod-to-json-schema`
+and `@opentelemetry/api` are peer-declared so your lockfile owns the versions.
+Pin `zod` to v3: that is the range the kernel is built against, and a bare
+`pnpm add zod` installs v4.</sub>
 
 ```typescript
 import { ProviderRegistry, runAgent } from '@namzu/sdk'
-import { registerOllama } from '@namzu/ollama'
 
-// Register once at startup. Swap this line for another vendor:
-//   import { registerOpenAI }   from '@namzu/openai'   ; registerOpenAI()
-//   import { registerAnthropic } from '@namzu/anthropic'; registerAnthropic()
-//   import { registerBedrock }  from '@namzu/bedrock'  ; registerBedrock()
-// Everything below the registration line stays identical.
-registerOllama()
+const { provider } = ProviderRegistry.create({ type: 'mock', responseText: 'Paris.' })
 
-const { provider } = ProviderRegistry.create({
-  type: 'ollama',
-  host: 'http://localhost:11434',
-})
-
-const { output } = await runAgent({
+const { output, run, identity } = await runAgent({
   provider,
-  model: 'llama3.2',
+  model: 'mock-model',
   prompt: 'What is the capital of France?',
 })
 
-console.log(output)
+console.log(output)          // 'Paris.'
+console.log(run.stopReason)  // 'end_turn'
+console.log(identity)        // { sessionId, threadId, projectId, tenantId }
 ```
 
-That is an agent run, not a chat call: the loop, the tool scheduler, budget
-enforcement, checkpointing and the event stream are all in it. `runAgent`
-supplies the parts a single-tenant local run has no opinion about — it
-generates the session identity, defaults the budgets, and points the working
-directory at the process's own — and hands the identity back on the result so
-the next turn continues the same session:
+That is not a chat call with extra steps. It generated a session identity,
+applied the default budgets, ran the tool scheduler, wrote a checkpoint per
+iteration, and left the whole run on disk under
+`.namzu/projects/<project>/sessions/<session>/runs/<run>/` — `run.json`,
+`messages.json`, `transcript.jsonl`, a human-readable `report.md`, and a
+`checkpoints/` directory.
+
+`identity` comes back so the next turn continues the same session:
 
 ```typescript
-const first = await runAgent({ provider, model, prompt: 'My name is Ada.' })
+import { createUserMessage } from '@namzu/sdk'
 
 const second = await runAgent({
   provider,
-  model,
-  ...first.identity,
-  prompt: [...first.run.messages, createUserMessage('What is my name?')],
+  model: 'mock-model',
+  ...identity,
+  prompt: [...run.messages, createUserMessage('And of Japan?')],
 })
 ```
 
-Give it `tools` and the same call runs a tool loop. When you outgrow the
-defaults — a real tenant, your own budgets, human-in-the-loop review,
-compaction policy — every option is a `drainQuery` parameter and you drop down
-to `drainQuery` itself without changing engines.
+Give it tools and the same call runs a tool loop:
 
-The kernel installed alone runs against `MockLLMProvider` — pre-registered, no
-network dependencies, and scriptable: give it `turns` and it emits tool calls
-with the same stream framing a real driver produces.
+```typescript
+import { defineTool, ToolRegistry } from '@namzu/sdk'
+import { z } from 'zod'
 
-## Provider Selection
+const tools = new ToolRegistry()
 
-Every provider implements the same `LLMProvider` contract; agent code is portable across all of them.
+tools.register(
+  defineTool({
+    name: 'get_weather',
+    description: 'Current weather for a city.',
+    inputSchema: z.object({ city: z.string() }),
+    category: 'network',
+    permissions: ['network_access'],
+    readOnly: true,
+    destructive: false,
+    concurrencySafe: true,
+    execute: async ({ city }) => ({
+      success: true,
+      output: `It is 17C and raining in ${city}.`,
+    }),
+  }),
+)
 
-| Backend    | Install                                 | Key config fields                                                          |
-|------------|-----------------------------------------|----------------------------------------------------------------------------|
-| OpenAI     | `pnpm add @namzu/sdk @namzu/openai`     | `apiKey`, `model?`, `baseURL?`, `organization?`, `project?`                |
-| Anthropic  | `pnpm add @namzu/sdk @namzu/anthropic`  | `apiKey`, `model?`, `baseURL?`, `maxTokens?`                               |
-| Bedrock    | `pnpm add @namzu/sdk @namzu/bedrock`    | `region?`, `accessKeyId?`, `secretAccessKey?`, `sessionToken?`             |
-| OpenRouter | `pnpm add @namzu/sdk @namzu/openrouter` | `apiKey`, `baseUrl?`, `siteUrl?`, `siteName?`                              |
-| Ollama     | `pnpm add @namzu/sdk @namzu/ollama`     | `host?`, `model?`, `fetch?`, `timeout?`                                    |
-| LM Studio  | `pnpm add @namzu/sdk @namzu/lmstudio`   | `host?`, `model?`, `timeout?`                                              |
-| HTTP       | `pnpm add @namzu/sdk @namzu/http`       | `baseURL`, `apiKey?`, `dialect?` (`'openai'` \| `'anthropic'`), `headers?` |
-| Mock       | `pnpm add @namzu/sdk` (built-in)        | `model?`, `responseText?`, `responseDelayMs?`                              |
-
-Each provider package exports a `register<Vendor>()` helper and uses TypeScript module augmentation to extend `ProviderConfigRegistry` — so `ProviderRegistry.create({ type: 'openai', apiKey: ... })` is fully type-narrowed.
-
-## Repository Layout
-
-```
-namzu/
-├── packages/
-│   ├── sdk/                       @namzu/sdk            the kernel
-│   ├── computer-use/              @namzu/computer-use   capability: desktop control
-│   ├── sandbox/                   @namzu/sandbox        capability: isolation providers
-│   ├── telemetry/                 @namzu/telemetry      capability: OTLP exporter pipeline
-│   ├── cli/                       @namzu/cli            user space: operator CLI
-│   ├── files/                     @namzu/files          contracts: file registry
-│   └── providers/                 the seven vendor drivers
-│       ├── anthropic/  bedrock/  http/  lmstudio/
-│       ├── ollama/  openai/  openrouter/
-│       └── PUBLISH_CHECKLIST.md
-├── docs/                          docs-site source: getting-started, per-package guides, migration
-├── .github/workflows/             ci.yml · release.yml (Changesets) · sandbox-smoke.yml
-├── AGENTS.md  CLAUDE.md           AI-tool guidance
-└── LICENSE.md
+const { output } = await runAgent({
+  provider,
+  model: 'mock-model',
+  tools,
+  prompt: 'What is the weather in Paris?',
+})
 ```
 
-Four further packages — `contracts`, `agents`, `api`, `docs` — plus the
-detailed pattern docs in `docs.local/` exist only on the maintainer's machine
-(gitignored); they land on npm once their public APIs stabilise.
+A tool declares what it *is* — read-only or not, destructive or not, safe to
+run concurrently or not, and which permissions it needs — because the
+scheduler, the permission gate and the operator prompt all have to ask those
+questions, and a tool that will not answer them forces every one of them to
+assume the worst.
 
-## Architecture
+To talk to a real service, install a driver and swap the two lines that
+construct the provider. Nothing below them changes.
 
-`@namzu/sdk` is the core and has no workspace dependencies. Provider and capability packages depend on the SDK via a `peerDependencies` entry on `@namzu/sdk`; nothing in the SDK depends back on them.
-
-```
-                ┌────────────────────────────────────────┐
-                │               @namzu/sdk               │
-                │                                        │
-                │  • LLMProvider interface               │
-                │  • ProviderRegistry (register/create)  │
-                │  • MockLLMProvider (pre-registered)    │
-                │  • runtime, agents, tools, personas    │
-                │  • sandbox, vault, plugins, RAG        │
-                └────────────────────────────────────────┘
-                       ▲                        ▲
-        peerDependency │         peerDependency │
-                       │                        │
-      ┌────────────────┴──┐        ┌────────────┴──────────┐
-      │ Provider packages │        │  Capability packages  │
-      │                   │        │                       │
-      │  @namzu/anthropic │        │  @namzu/computer-use  │
-      │  @namzu/openai    │        │  @namzu/sandbox       │
-      │  @namzu/bedrock   │        │  @namzu/telemetry     │
-      │  @namzu/openrouter│        │                       │
-      │  @namzu/ollama    │        │                       │
-      │  @namzu/lmstudio  │        │                       │
-      │  @namzu/http      │        │                       │
-      └───────────────────┘        └───────────────────────┘
+```bash
+pnpm add @namzu/sdk @namzu/ollama    # local, no key
 ```
 
-Above the kernel sits user space: `@namzu/cli` — the operator CLI — consumes
-the SDK and providers as normal dependencies, exactly the layering the thesis
-prescribes. Beside the tree, `@namzu/files` is a standalone contracts package
-(no SDK dependency).
+### The terminal agent
 
-Concrete contract points (verified in source and on npm):
+```bash
+npx @namzu/cli
+```
 
-- `@namzu/sdk` exports the `LLMProvider` interface (`src/types/provider/`) and `ProviderRegistry` + `UnknownProviderError` / `DuplicateProviderError` (`src/provider/`). Both are re-exported from the root barrel.
-- Each published provider package declares `"@namzu/sdk": ">=1.0.0"` under `peerDependencies` and exports a `register<Vendor>()` function calling `ProviderRegistry.register(type, Class, capabilities, options)`. Providers use `declare module '@namzu/sdk'` to extend `ProviderConfigRegistry` so `ProviderRegistry.create({ type, ... })` narrows to the correct config type.
-- The capability packages follow the same discipline: `@namzu/computer-use`, `@namzu/sandbox`, and `@namzu/telemetry` each peer-declare `"@namzu/sdk": ">=1.0.0"`.
-- `@namzu/computer-use` is a capability package: a subprocess-based `ComputerUseHost` for the contract in `@namzu/sdk` (platform-native CLIs — `screencapture`/`osascript` on darwin, `xdotool`/`maim` on X11, `grim`/`wtype`/`ydotool` on Wayland, PowerShell on Windows).
-- Dependency direction is strictly downward: `@namzu/sdk` does not import any `@namzu/*` workspace package.
+Bare `namzu` opens an interactive terminal agent. The same binary is
+scriptable: `namzu run` for a single headless prompt, `namzu run-stream` for
+newline-delimited events a host UI can consume, `namzu history`,
+`namzu providers`, `namzu doctor`, and `namzu eval`. Run `namzu --help` for
+the current list.
 
-**Note on SDK footprint.** npm lists no bundled `dependencies` for the published `@namzu/sdk@1.3.0` — its runtime needs are **peer-declared** (`zod` ^3.23.0, `zod-to-json-schema` ^3.23.0, `@opentelemetry/api` ^1.9.0), so your lockfile owns the versions. This is the per-vendor extraction boundary applied: vendor SDKs live in the provider packages, and the heavier OTLP exporter stack ships separately as `@namzu/telemetry`.
+## What is inside that is independently hard
 
-## Design Principles
+The reason this repository is larger than a loop is that each of the following
+is a problem you hit at a specific hour of building an agent product, and each
+one is a thing you would otherwise stop and solve yourself. Every item names
+the file that implements it, because a README is a claim and the code is the
+evidence.
 
-Five choices shape every decision in this repo.
+<img src="docs/assets/kernel-boundary.png" alt="A single agent run held inside a boundary: budget, permission gate, and a written record" width="880">
 
-- **No workarounds. Fix at the root.** When something is wrong, fix the pattern, not the symptom.
-- **Type safety is the foundation.** Every resource ID is branded (`RunId`, `ThreadId`, `TaskId`, `TenantId`, `AgentId`, `ToolId`, `MemoryId`, ...). Every discriminated union has exhaustiveness checks. Every public API has Zod-validated inputs at the boundary. The compiler is the first line of defense.
-- **Deny by default. Fail fast.** Sandboxes deny file I/O by default. Verification gates deny tool calls by default unless a rule allows them. Limit checkers fail the run the moment a budget is breached. Configuration errors throw at boot.
-- **Dependency direction is sacred.** `@namzu/sdk` knows nothing about providers, capabilities, or apps. Circular dependencies are a compile error, not a review suggestion.
-- **Convention over surprise.** Every new feature follows a shared pattern language — Registries, Managers, Stores, Runs, Bridges, Providers. Read one subsystem, navigate the next.
+**Shrinking a conversation without corrupting it.**
+The window fills and something has to go, but you cannot simply drop the
+oldest messages. An assistant turn that asked for a tool and the result that
+answers it are a matched pair, and a provider rejects a conversation
+containing one without the other — so the naive trim turns a context problem
+into a hard API error. `findDanglingMessages` scans for both halves of that
+break, and `findSafeTrimIndex` picks a cut that does not create one. The
+window size itself is resolved by longest-prefix match on the model id, with
+a deliberately conservative default for an unrecognised model: compacting too
+early costs one summarisation pass, and compacting too late ends the run with
+nothing recoverable.
+→ `packages/sdk/src/compaction/dangling.ts`, `compaction/context-window.ts`
 
-## Release Flow
+**A run that outlives the process that started it.**
+Each iteration writes a checkpoint carrying the history, the budgets, the
+working state and the trace context. `resumeRun` joins one of those snapshots
+back onto a live loop in a *different* process. It returns three outcomes
+rather than a nullable run, because the two failures mean opposite things: "no
+checkpoint" is a dead end, while "parked awaiting a decision" is the run
+working exactly as designed and waiting for a human. On `SIGINT` or `SIGTERM`
+an opt-in emergency save writes the run out before the process leaves.
+→ `runtime/query/resume-run.ts`, `runtime/query/checkpoint.ts`, `manager/run/emergency.ts`
 
-Releases are driven by [Changesets](https://github.com/changesets/changesets):
-each PR carries its changeset, and merging to `main` triggers
-[`release.yml`](.github/workflows/release.yml), which runs the full validation
-gate (lint, typecheck, build, test, publint), versions the packages, publishes
-with npm provenance enabled (`NPM_CONFIG_PROVENANCE=true`), and cuts the
-matching GitHub releases. Every published version carries a verifiable SLSA
-build attestation linking the tarball to this repository and workflow — check
-the "Provenance" panel on any package's npm page. `ci.yml` is the per-push
-gate, and `sandbox-smoke.yml` additionally smoke-tests the sandbox provider.
+**Delegation that cannot quietly corrupt itself.**
+Work is a five-layer hierarchy — project, thread, session, sub-session, run —
+and each layer's id is its own type carrying its own prefix, so handing a
+session id to something expecting a run id does not compile. Depth and width
+caps are checked *before* any write, and the width check plus the write that
+invalidates it are held in one critical section keyed on the parent: without
+that, two concurrent spawns both read the same count, both saw room, and a cap
+of N admitted N+1. Session ownership is a compare-and-set against the version
+the *store* holds — previously two concurrent handoffs could both pass, both
+provision a workspace, and one silently erase the other. Archiving a project
+refuses rather than cascades while live sessions are attached, because closing
+a workspace under a running agent abandons work whose owner is still watching.
+And a delegated task whose launching call already timed out still produced a
+result somebody should see; the completion inbox is what stops it being
+dropped on the floor.
+→ `session/handoff/capacity.ts`, `manager/agent/lifecycle.ts`, `session/errors.ts`, `gateway/completion-inbox.ts`
 
-## Project Status
+**A budget that survives being divided.**
+Five dimensions are checked every iteration — cancellation, wall clock, token
+budget, cost, and iteration count — each producing a named stop reason rather
+than an exception, with a warning tier before the hard stop so a run can react
+while it still can. Dividing that budget across a delegation tree is where it
+gets interesting.
+A child gets a slice of its parent's remaining tokens, computed inside the
+spawn lock so siblings queue instead of all reading the same untouched number,
+debited only once provisioning commits so a rejected spawn costs nothing, and
+*refunded* on settle. The refund is the part that is easy to miss and
+expensive to omit: without it the pool shrinks by the full allocation
+regardless of what the child spent, and ten delegations leave a parent with a
+thousandth of its budget. A spawn whose allocation rounds to zero is refused
+outright rather than granted, because zero means *unlimited* downstream — so
+the naive arithmetic hands the most depleted parent in the tree an unbounded
+child.
+→ `manager/agent/lifecycle.ts`, `run/LimitChecker.ts`
 
-- **Thirteen packages are on npm** — the kernel at 1.3.x; `@namzu/computer-use`, `@namzu/sandbox`, `@namzu/telemetry`, and all seven providers at or past 1.0; `@namzu/cli` (0.2.x) and `@namzu/files` (0.1.x) published early, APIs still moving. `ProviderRegistry` is the current API; the older `ProviderFactory` is no longer exported. `MockLLMProvider` is pre-registered under `'mock'`.
-- **Four packages local-only** — `contracts`, `agents`, `api`, `docs` are gitignored, not part of the public release surface today.
+**A refusal the model can actually act on.**
+A permission gate that answers only "denied" produces thrashing: the model
+rewords the same call and tries again, because nothing told it that retrying
+is pointless. Every rule here can describe itself in a sentence — which rule
+matched, which argument, whether a different input could ever get through — and
+that sentence goes back to the model inside the tool result. Approvals are
+scoped by the approver rather than fixed: a grant can cover one exact
+invocation or an entire tool, and the key is built from arguments serialised
+with sorted properties, so the same call never gets asked about twice merely
+because two fields swapped order. Grants live for the run and are never
+persisted.
+→ `verification/gate.ts`, `runtime/query/tool-grants.ts`
 
-Roadmap direction:
+**Content the agent must read but must not obey.**
+Anything a tool returns — a fetched page, another agent's output, a connector's
+prompt — is wrapped in an envelope that says whose words these are and that
+they are material rather than instruction. Two details separate a boundary
+from a decoration, and both were missing the first time: the closing token is
+neutralised inside the body, so content carrying the delimiter cannot end the
+block early and have the rest read as unlabelled instructions; and there is no
+"already wrapped" fast path, because that check is forgeable by text that
+merely starts with the opening tag.
+→ `tools/untrusted-envelope.ts`
 
-- Take `@namzu/cli` and `@namzu/files` to a stable 1.0.
-- Eventual publication of the currently-local packages as they stabilise.
+**Isolation that tells you what it is not enforcing.**
+Sandbox tiers do not all provide the same controls, and the honest table is
+kept in code: one environment enforces filesystem, network and process
+isolation; another enforces network and process only and reports
+`filesystem: false` **on purpose**, because it unshares a mount namespace
+without remounting anything and a private mount table is not confinement. If a
+run requires a control the host cannot supply, the kernel refuses to start it
+rather than proceeding while the caller believes it is confined. A security
+control that is accepted and silently not applied is worse than one that was
+never offered.
+→ `sandbox/isolation.ts`
 
-## The Cogitave family
+**Provider differences that are really latent bugs.**
+Several services spell a model id the same way, ending in either a minor
+version or an eight-digit release date. Three drivers had each written the
+same matcher and all three read the date as the minor, so an id naming no
+minor compared as enormously *newer* — and every capability check keyed on
+that comparison inverted, telling a model it supported features it does not.
+There is now one parser, given the vocabulary by the driver that knows it.
+Alongside it: strict tool schemas are a *subset* of JSON Schema, and a single
+keyword outside that subset makes a service reject the whole request rather
+than degrade one field, so violations are found before the call; one tool
+schema is rendered once and converted per dialect at the driver; and a driver
+that cannot honour a requested capability must refuse rather than drop it.
+→ `provider/model-version.ts`, `provider/strict-schema.ts`, `registry/tool/dialect.ts`, `provider/thinking-support.ts`
 
-Namzu stands alone — it needs nothing from its siblings. It is also part of one
-product family, stated at its honest level:
+**Correcting a run that is already going.**
+Watching an agent head the wrong way, the two obvious options are both bad:
+cancelling discards every tool result already paid for, and rejecting through
+the review gate only works if a call happens to be pending and can only say
+"no" when you meant "yes, but look at this first". There is also no legal
+place to insert a user message mid-batch — a tool call must be answered by its
+matching result. So guidance rides on the tool result itself, the slot the
+model already reads for outcomes. It does not interrupt; the batch in flight
+finishes and the note lands where the model looks next.
+→ `runtime/query/steering.ts`
 
-| Repo | Role | Honest relationship |
-|---|---|---|
-| **Namzu** (here) | the **agent kernel for TypeScript** — runs agents the way Unix runs processes | independent; usable today via npm |
-| [**Yuva**](https://github.com/cogitave/yuva) | the **home** — a from-scratch, agent-native sovereign OS / micro-VMM where the boot is the proof | a *literal* kernel that boots; Namzu is a kernel by analogy (a TypeScript runtime) — same word, two layers |
-| [**Cogi**](https://github.com/cogitave/cogi) *(private until the operator cut)* | the **mind** — Yuva's resident agent | Namzu is Cogi's *planned* action/skills layer — **deferred; no bridge exists today** |
+**Reading an agent directory you did not write.**
+A conventional `agent/` folder can contribute instructions, tools, skills and
+sub-agents. Loading one has a mode, because importing a module *runs* it — a
+top-level side effect executes in your process with your privileges. `'skip'`
+imports nothing and still returns the full structural truth: every path, the
+instructions, the skills, and duplicate detection. That is what a CI check, a
+file tree, and triage of somebody else's directory all actually want.
+→ `directory/types.ts`, `directory/load.ts`
 
-"What Namzu Is Not" above is the same discipline Yuva enforces at boot with
-machine-emitted honesty tokens — applied here to scope, in prose.
+## The packages
 
-## Documentation
+`@namzu/sdk` is the kernel and has no workspace dependencies. Everything else
+depends on it through a `peerDependencies` entry; nothing in the kernel depends
+back.
 
-- **[`packages/sdk/README.md`](./packages/sdk/README.md)** — the kernel's complete subsystem map. If you want to know what Namzu does, this is the single best document.
-- **[`docs/`](./docs/)** — the documentation-site source: [`getting-started.md`](./docs/getting-started.md), per-package guides (`sdk/`, `providers/`, `cli/`, `computer-use/`), and `migration/` notes.
-- **`AGENTS.md` / `CLAUDE.md`** — canonical guidance for any AI coding tool operating inside the repo.
-- **`docs.local/`** — detailed pattern docs and conventions. Local-only.
-- **Per-package READMEs** — every package documents its own install, auth, and usage.
+| Package | What it is |
+|---|---|
+| `@namzu/sdk` | The kernel: run loop, tools, sessions, budgets, compaction, checkpoints, permission gate, connectors, telemetry |
+| `@namzu/cli` | The terminal agent, and the operator commands. Also importable as a library |
+| `@namzu/sandbox` | Sandbox providers beyond the in-kernel one |
+| `@namzu/telemetry` | The exporter pipeline, kept separate so consumers who emit nothing install nothing |
+| `@namzu/computer-use` | Screenshot, mouse and keyboard control through platform-native tools |
+| `@namzu/files` | File registry contracts, with in-memory, local-disk and HTTP backends working today. Pre-1.0, and some declared storage backends are not implemented yet |
+| `@namzu/evals` | The kernel's own behaviour suites, runnable against an installed kernel |
+
+Model drivers, one per service, each installed only if you use it:
+
+| Package | Notes |
+|---|---|
+| `@namzu/anthropic` | Streaming, tool use, extended thinking |
+| `@namzu/openai` | Chat Completions, streaming, tool use |
+| `@namzu/bedrock` | Converse API, streaming, tool use |
+| `@namzu/openrouter` | Aggregated model access |
+| `@namzu/ollama` | Local models |
+| `@namzu/lmstudio` | Local models, GUI-managed |
+| `@namzu/http` | Zero-dependency driver for any compatible HTTP endpoint |
+
+Every driver implements the same `LLMProvider` contract and registers itself
+through `ProviderRegistry`, extending the config union by module augmentation
+so `ProviderRegistry.create({ type: 'ollama', ... })` is fully type-narrowed.
+A mock driver ships in the kernel, pre-registered, and is scriptable turn by
+turn — including malformed and truncated tool calls — so you can test the loop
+without the network.
+
+## How this repository is kept honest
+
+Two design rules run through the code, and you will meet both within an hour
+of reading it:
+
+- **Refuse, do not silently degrade.** A capability that is accepted and then
+  quietly not applied is worse than one that errors, because the caller stops
+  looking. A host that cannot supply a requested isolation control gets a
+  refusal, not a weaker sandbox; a driver that cannot honour a requested
+  capability must say so rather than drop the field.
+- **A declaration nothing drives is a defect.** A field no code reads and a
+  check that cannot fail are treated as bugs rather than as roadmap. Where a
+  thing genuinely is not built yet, the honest state is written down next to
+  it rather than implied away.
+
+Alongside those, the pull-request gate runs more than the usual four. Besides
+lint, typecheck, build and tests on two Node versions, every change also has
+to pass: a **public-surface baseline diff** (a symbol cannot vanish from the
+package barrel unnoticed); **per-module coverage floors** plus a rule that
+every source folder is explicitly classified for test presence; a
+**behaviour-regression eval suite**; **process-level tests** run in a real
+separate process, because an in-process test cannot prove a run survives on
+its own event-loop footprint; a **consumer-install check** that catches
+peer-range drift before a publish rather than at the registry; package-manifest
+validation; and an audit that refuses third-party product names in prose and
+identifiers, exempting only the paths whose job is to speak somebody else's
+protocol.
+
+## Next
+
+- [`docs/`](./docs/) — the published documentation, including
+  [getting started](./docs/getting-started.md), the
+  [SDK guide](./docs/sdk/), the [CLI guide](./docs/cli/) and
+  [driver notes](./docs/providers/).
+- [`packages/sdk/README.md`](./packages/sdk/README.md) — the kernel's
+  subsystem map.
+- `AGENTS.md` — the working contract any coding agent in this repository
+  follows.
+
+Some pages under `docs/` predate recent kernel changes. Where a page and the
+code disagree, the code is correct; please open an issue.
+
+## Status
+
+All fourteen packages are published; the badges above are live, so they cannot
+go stale here. Two things a reader should weigh honestly:
+
+- **Majors move quickly.** This project treats *any* backward-incompatible
+  change to a public API as a major, however small the diff — so the version
+  number tracks the surface rather than the size of the work, and it climbs
+  faster than you may expect. Pin your dependency and read the changelog.
+- **`@namzu/cli`, `@namzu/files` and `@namzu/evals` are pre-1.0** and their
+  APIs still move. The kernel itself is the stable surface.
+
+Node 20 or newer is declared; CI exercises 22 and 24.
 
 ## Contributing
 
-Issues and PRs welcome at [cogitave/namzu](https://github.com/cogitave/namzu). See [`packages/sdk/CONTRIBUTING.md`](./packages/sdk/CONTRIBUTING.md) for local setup and conventions.
+Issues and pull requests welcome at
+[cogitave/namzu](https://github.com/cogitave/namzu). See
+[`packages/sdk/CONTRIBUTING.md`](./packages/sdk/CONTRIBUTING.md).
 
 ## License
 
-[FSL-1.1-MIT](./LICENSE.md) — Fair Source. The Functional Source License converts to MIT two years after each release, so every published version of Namzu becomes MIT-licensed on its second anniversary.
+[FSL-1.1-MIT](./LICENSE.md) — every published version becomes MIT-licensed two
+years after its release.
