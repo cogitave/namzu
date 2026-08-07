@@ -40,7 +40,7 @@ Namzu is a single-process TypeScript kernel with the following responsibilities:
 - **Human-in-the-loop.** Structured plan review, per-tool approval with destructiveness flags, typed decision contracts, checkpoint/resume across sessions.
 - **Plugin system.** Lifecycle-hooked plugin loader with MCP contributions, tool contributions, and manifest-driven resolution.
 - **Multi-tenant isolation from day one.** Connector registries, vaults, config, and stores are tenant-scoped. Two organizations can share a process without cross-contamination.
-- **Provider abstraction.** OpenRouter and AWS Bedrock today; the `Provider` interface is narrow enough that adding another vendor is an afternoon. BYOK everywhere, no hidden hot paths for any vendor.
+- **Provider abstraction.** Seven drivers ship today, each its own package installed only if you use it, plus a scriptable mock pre-registered in the kernel. The `LLMProvider` interface is narrow enough that adding another is an afternoon. BYOK everywhere, no hidden hot paths for any vendor.
 - **Telemetry.** OpenTelemetry-native spans and metrics. Cost accounting (input tokens, output tokens, cached tokens, cache write tokens, cache discount) flows from the provider into per-run, per-tenant rollups.
 - **Prompt cache integration.** Hash-based system-prompt cache per thread, integrated with provider cache controls (OpenRouter `cacheControl` today, more planned), plus full cache telemetry in every run.
 - **Vault.** BYOK credentials and secrets, tenant-scoped, pluggable backend.
@@ -52,11 +52,11 @@ Every one of those bullets points at code that exists today in `src/`. The archi
 
 Equally important for scoping expectations:
 
-- **Not a chat SDK.** There are no React, Svelte, or Vue hooks, no generative UI components, no `useChat`. Your UI framework is your choice; the kernel hands you a typed event stream.
+- **Not a chat SDK.** No front-end framework bindings, no generative UI components, no ready-made chat hook. Your UI framework is your choice; the kernel hands you a typed event stream.
 - **Not a hosted service.** There is no dashboard, no Namzu Cloud, no billing page. You run it in your own process.
-- **Not a deployment adapter.** No Next.js, Hono, Express, or Cloudflare Workers plumbing in the kernel. Those belong in separate packages or your own infra code.
+- **Not a deployment adapter.** No web-framework or edge-runtime plumbing in the kernel. That belongs in separate packages or your own infra code.
 - **Not a dev studio.** No bundled playground UI. A playground that consumes the kernel's event protocol could exist as a separate tool; it would not live inside `@namzu/sdk`.
-- **Not a vector database.** RAG ships with a pluggable `VectorStore` interface, but the kernel does not embed pgvector or Pinecone. Bring your own.
+- **Not a vector database.** RAG ships with a pluggable `VectorStore` interface; the kernel embeds no vector engine of its own. Bring your own.
 - **Not an LLM router service.** Task routing is an in-process policy, not a hosted service.
 - **Not a prompt management UI.** Personas are code-defined (YAML files in your repo), not database rows behind a web form.
 
