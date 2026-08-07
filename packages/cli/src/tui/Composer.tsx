@@ -13,6 +13,7 @@ import { Box, Text, useInput } from 'ink'
 import { useCallback, useState } from 'react'
 
 import { readClipboardImage } from '../integrations/clipboard/image.js'
+import type { UserCommand } from '../user-commands/store.js'
 import { matchSlashCommands } from './slashCommands.js'
 import { theme } from './theme.js'
 
@@ -20,13 +21,20 @@ export interface ComposerProps {
 	readonly disabled?: boolean
 	readonly onSubmit: (value: string, images?: readonly ImageAttachment[]) => void
 	readonly history: readonly string[]
+	/** Operator-defined commands, offered in the dropdown alongside builtins. */
+	readonly userCommands?: readonly UserCommand[]
 }
 
 const MAX_SUGGESTIONS = 6
 // A single keypress longer than this (with no newline) is treated as a paste.
 const PASTE_THRESHOLD = 80
 
-export function Composer({ disabled = false, onSubmit, history }: ComposerProps) {
+export function Composer({
+	disabled = false,
+	onSubmit,
+	history,
+	userCommands = [],
+}: ComposerProps) {
 	const [value, setValue] = useState<string>('')
 	const [historyIndex, setHistoryIndex] = useState<number>(-1)
 	const [selected, setSelected] = useState<number>(0)
@@ -37,7 +45,7 @@ export function Composer({ disabled = false, onSubmit, history }: ComposerProps)
 	// vision attachments on submit.
 	const [images, setImages] = useState<readonly ImageAttachment[]>([])
 
-	const suggestions = matchSlashCommands(value).slice(0, MAX_SUGGESTIONS)
+	const suggestions = matchSlashCommands(value, userCommands).slice(0, MAX_SUGGESTIONS)
 	const showSuggestions = suggestions.length > 0
 	const selIdx = Math.min(selected, Math.max(0, suggestions.length - 1))
 

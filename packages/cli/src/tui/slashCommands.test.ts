@@ -25,6 +25,7 @@ function context(over: Partial<SlashContext> = {}): SlashContext {
 		permissions: { skipPermissions: false, rules: [] },
 		agentIds: [],
 		instructionFiles: [],
+		userCommands: [],
 		...over,
 	}
 }

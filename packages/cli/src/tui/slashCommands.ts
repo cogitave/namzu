@@ -16,6 +16,8 @@
 
 import type { VerificationRule } from '@namzu/sdk'
 
+import { type UserCommand, expandCommand } from '../user-commands/store.js'
+
 export type SlashAction =
 	| { kind: 'message'; role: 'system'; content: string }
 	| { kind: 'exit' }
@@ -71,6 +73,13 @@ export interface SlashContext {
 	 * reports this; nothing new is discovered to answer it.
 	 */
 	readonly instructionFiles: readonly string[]
+	/**
+	 * Commands the operator defined as `.md` files.
+	 *
+	 * Consulted only after the builtins, so a file cannot take a name the TUI
+	 * already answers to. Empty is the normal case.
+	 */
+	readonly userCommands: readonly UserCommand[]
 }
 
 export interface SlashCommand {
@@ -90,11 +99,24 @@ export interface ParsedSlash {
  * once a space is typed (the user has moved on to arguments) or the value
  * isn't a slash command, so the dropdown only shows while picking a name.
  */
-export function matchSlashCommands(value: string): SlashCommand[] {
+export function matchSlashCommands(
+	value: string,
+	userCommands: readonly UserCommand[] = [],
+): SlashCommand[] {
 	const m = /^\/([\w-]*)$/.exec(value)
 	if (!m) return []
 	const prefix = (m[1] ?? '').toLowerCase()
-	return SLASH_COMMANDS.filter((c) => c.name.startsWith(prefix))
+
+	// A command the dropdown does not offer is one nobody discovers. Refused
+	// ones are offered too, carrying their reason as the description — running
+	// it prints the problem, which is how its author finds out.
+	const own: SlashCommand[] = userCommands.map((c) => ({
+		name: c.name,
+		description: c.problem ? `⚠ ${c.problem}` : c.description,
+		action: () => ({ kind: 'none' }) as const,
+	}))
+
+	return [...SLASH_COMMANDS, ...own].filter((c) => c.name.startsWith(prefix))
 }
 
 /** Returns null when the line is not a slash command. */
@@ -110,11 +132,26 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
 	{
 		name: 'help',
 		description: 'Show available slash commands.',
-		action: () => ({
-			kind: 'message',
-			role: 'system',
-			content: SLASH_COMMANDS.map((c) => `/${c.name.padEnd(10)} ${c.description}`).join('\n'),
-		}),
+		action: (ctx) => {
+			const builtin = SLASH_COMMANDS.map((c) => `/${c.name.padEnd(12)} ${c.description}`)
+			// Listed separately and always, including the refused ones with their
+			// reason. A command file that exists and does not work is exactly what
+			// its author needs to see here — leaving it out of `/help` is how it
+			// stays broken.
+			const own = ctx.userCommands.map((c) =>
+				c.problem
+					? `/${c.name.padEnd(12)} ⚠ ${c.problem}`
+					: `/${c.name.padEnd(12)} ${c.description}`,
+			)
+			return {
+				kind: 'message',
+				role: 'system',
+				content:
+					own.length > 0
+						? `${builtin.join('\n')}\n\nYour commands:\n${own.join('\n')}`
+						: builtin.join('\n'),
+			}
+		},
 	},
 	{
 		name: 'clear',
@@ -360,13 +397,25 @@ export function renderAgents(agentIds: readonly string[]): string {
 export function runSlash(line: string, ctx: SlashContext): SlashAction | null {
 	const parsed = parseSlash(line)
 	if (!parsed) return null
+
+	// Builtins first, always. A file appearing on disk must not take over a name
+	// the TUI already answers to — `discoverUserCommands` marks those files with
+	// a `problem` so their author is told, rather than leaving them to wonder
+	// why the file never ran.
 	const cmd = SLASH_COMMANDS.find((c) => c.name === parsed.name)
-	if (!cmd) {
-		return {
-			kind: 'message',
-			role: 'system',
-			content: `Unknown command: /${parsed.name}. Try /help.`,
-		}
+	if (cmd) return cmd.action(ctx, parsed.args)
+
+	const user = ctx.userCommands.find((c) => c.name === parsed.name)
+	if (user) {
+		const expanded = expandCommand(user, parsed.args.join(' '))
+		return expanded.ok
+			? { kind: 'prompt', text: expanded.prompt }
+			: { kind: 'message', role: 'system', content: expanded.reason }
 	}
-	return cmd.action(ctx, parsed.args)
+
+	return {
+		kind: 'message',
+		role: 'system',
+		content: `Unknown command: /${parsed.name}. Try /help.`,
+	}
 }

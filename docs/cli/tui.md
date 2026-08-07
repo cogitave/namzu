@@ -49,6 +49,8 @@ Type `/` followed by a command — an autocomplete dropdown filters as you type.
 
 Anything that isn't a slash command is sent to the agent as a message.
 
+You can add your own — see [Your own slash commands](#your-own-slash-commands).
+
 ### What `/cost` is counting
 
 `/cost` reports **cumulative spend for the run** — every token across every
@@ -64,6 +66,56 @@ Where the status bar abbreviates (`12.3k tok`), `/cost` prints the figure
 (`12,345`) — you asked on purpose, so you get the number. A provider that
 reports no price shows `$0.0000 (this provider reported no price)` rather than
 implying the run was free.
+
+## Your own slash commands
+
+A markdown file becomes a command. The body is the prompt it sends.
+
+```
+~/.namzu/commands/<name>.md      available in every project
+<cwd>/.namzu/commands/<name>.md  this project only
+```
+
+`review.md` becomes `/review`. A project command shadows a user command of the
+same name, the same precedence [skills](./skills.md) use. Frontmatter is
+optional and only `description` is read — it is what `/help` and the
+autocomplete dropdown show.
+
+```markdown
+---
+description: Review a file for unchecked errors
+---
+
+Read $ARGUMENTS and list every place an error is swallowed or ignored.
+Quote the line. Do not suggest fixes yet.
+```
+
+### Arguments
+
+`$ARGUMENTS` is replaced by whatever followed the command, so
+`/review src/parse.ts` sends the template with the path substituted. Every
+occurrence is replaced; with no arguments it becomes empty.
+
+**A template with no `$ARGUMENTS`, invoked with arguments, is refused.** It
+names the file and tells you to add the token. This is deliberate: running it
+would discard what you typed, and a command that silently ignores half its
+input is worse than one that stops. A template with no `$ARGUMENTS` and no
+arguments is a static prompt and runs normally.
+
+The refusal is the reversible choice. Relaxing it later — appending the
+arguments somewhere — breaks nobody, while going the other way would break
+everyone who had come to rely on the looser behaviour.
+
+### When a file will not load
+
+A command whose frontmatter cannot be parsed is refused, not skipped. It still
+appears in `/help` marked `⚠` with the parse error, so a file you can see on
+disk is accounted for, and the other commands keep working. A file named after a
+built-in — `help.md` — is likewise listed with its reason rather than silently
+ignored; built-ins always win.
+
+Files are read when the session starts. After adding one, `/model` or a restart
+picks it up.
 
 ### What `/init` does, and what it will not do
 
