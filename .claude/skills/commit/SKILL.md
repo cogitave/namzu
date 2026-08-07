@@ -48,7 +48,7 @@ Prepares and creates a git commit on this repository with the correct author ide
 
 4. Stage only the files that belong to this commit. Avoid `git add -A` or `git add .` — they can sweep in secrets, generated files, or unrelated edits.
 
-5. **Session progress gate — MANDATORY, not milestone-gated.** Read the index at `docs.local/sessions/README.md`; for **every** row whose Status is `draft` or `in-progress`, that session's `progress.md` MUST be touched (mtime newer than any staged file) **before** running `git commit`. The husky `pre-commit` hook (`.husky/pre-commit`) enforces this — if a session's `progress.md` is stale, the commit aborts.
+5. **Session progress gate — MANDATORY, not milestone-gated.** Read the index at `.work/sessions/README.md`; for **every** row whose Status is `draft` or `in-progress`, that session's `progress.md` MUST be touched (mtime newer than any staged file) **before** running `git commit`. The husky `pre-commit` hook (`.husky/pre-commit`) enforces this — if a session's `progress.md` is stale, the commit aborts.
 
    **What the agent writes (only when there is something to say).** The auto-baseline (`- <hash> <subject>` line) is appended by the husky `post-commit` hook (`.husky/post-commit`); the agent never types a hash. The agent's job is to write *supplements* under a `### YYYY-MM-DD HH:MM — Commit <N> about to land` sub-heading **before** the commit:
 
@@ -63,7 +63,7 @@ Prepares and creates a git commit on this repository with the correct author ide
 
    **Multi-session rule.** The `pre-commit` and `post-commit` hooks both walk every active session. The agent supplements only the sessions a given commit actually impacts; sessions with no supplement get only the auto-baseline (which by convention means "no impact on this session's scope").
 
-   **`docs.local/` is gitignored**, so progress.md never enters a commit. The discipline is the synchronous-update timing, not commit contents. The post-commit hook reads `git log -1 --format='%h %s'` and appends the baseline line to each in-progress session's `progress.md`; today's `## YYYY-MM-DD` heading is created if missing.
+   **`.work/` is gitignored**, so progress.md never enters a commit. The discipline is the synchronous-update timing, not commit contents. The post-commit hook reads `git log -1 --format='%h %s'` and appends the baseline line to each in-progress session's `progress.md`; today's `## YYYY-MM-DD` heading is created if missing.
 
    If no in-progress session exists, this step is a no-op.
 
@@ -74,7 +74,7 @@ Prepares and creates a git commit on this repository with the correct author ide
    - Diff introduces a **new public export** (new symbol in the root barrel, new file under `packages/*/src/`, new bucket in the public-surface split, new wire field, new CLI flag).
    - Diff is a **rename / relocation across feature folders** (e.g. `session/hierarchy/` → `types/session/` in ses_010, or an equivalent structural move).
    - Diff **deviates from `implementation-plan.md`** in a way the agent is about to flag as a `**Deviation:**` supplement in step 5.
-   - Diff **ships a new convention** or touches `docs.local/conventions/`.
+   - Diff **ships a new convention** or touches `docs/conventions/`.
 
    If none of these apply, the baseline per-commit progress supplement (step 5) is enough — no Codex call.
 

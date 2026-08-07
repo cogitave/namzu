@@ -8,8 +8,8 @@
 // (classes, functions, constants, zod schemas, errors) live in
 // `public-runtime.ts`. Tool builders live in `public-tools.ts`.
 //
-// See `docs.local/sessions/ses_011-sdk-public-surface/design.md` for the
-// three-bucket taxonomy and migration rationale.
+// The three-bucket taxonomy and its migration rationale were ratified in
+// ses_011-sdk-public-surface.
 
 // ─── per-domain shape surfaces ────────────────────────────────────────────
 

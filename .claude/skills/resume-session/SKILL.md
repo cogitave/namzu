@@ -5,7 +5,7 @@ description: Use this skill whenever the user resumes existing design, architect
 
 # Resume Session
 
-Locates the most relevant in-flight session under `docs.local/sessions/` and loads its context so work can continue without loss of prior decisions. The `progress.md` log inside the session is the primary source for "where did we leave off".
+Locates the most relevant in-flight session under `.work/sessions/` and loads its context so work can continue without loss of prior decisions. The `progress.md` log inside the session is the primary source for "where did we leave off".
 
 ## When to trigger
 
@@ -19,7 +19,7 @@ Locates the most relevant in-flight session under `docs.local/sessions/` and loa
 ## Steps
 
 <procedure>
-1. Read `docs.local/sessions/README.md` — this is the index of all sessions with status and slug.
+1. Read `.work/sessions/README.md` — this is the index of all sessions with status and slug.
 
 2. Filter candidates by status and topic:
    - Status `draft` or `in-progress` → active work.

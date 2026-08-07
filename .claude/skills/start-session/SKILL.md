@@ -5,7 +5,7 @@ description: Use this skill whenever the user begins new non-trivial design, arc
 
 # Start Session
 
-Opens a new working-memory folder under `docs.local/sessions/` to capture scope, decisions, plans, progress, and open questions for a focused piece of work. Sessions are the agent's durable memory across turns, across agents, and across `/clear`.
+Opens a new working-memory folder under `.work/sessions/` to capture scope, decisions, plans, progress, and open questions for a focused piece of work. Sessions are the agent's durable memory across turns, across agents, and across `/clear`.
 
 ## When to trigger
 
@@ -25,7 +25,7 @@ Opens a new working-memory folder under `docs.local/sessions/` to capture scope,
 ## Steps
 
 <procedure>
-1. Read `docs.local/sessions/README.md` to find the next sequential ID and re-read the current conventions (status values, freeze rule, layout).
+1. Read `.work/sessions/README.md` to find the next sequential ID and re-read the current conventions (status values, freeze rule, layout).
 
 2. Pick a slug:
    - 2–4 lowercase words, hyphenated.
@@ -33,7 +33,7 @@ Opens a new working-memory folder under `docs.local/sessions/` to capture scope,
 
 3. Create the folder:
    ```
-   docs.local/sessions/ses_<NNN>-<slug>/
+   .work/sessions/ses_<NNN>-<slug>/
    ```
 
 4. Scaffold the standard files inside it:
@@ -64,7 +64,7 @@ Opens a new working-memory folder under `docs.local/sessions/` to capture scope,
      Decisions pending user input. Create when unresolved questions exist.
    </file>
 
-5. Update `docs.local/sessions/README.md` index table with the new row: ID, slug, status, opened date.
+5. Update `.work/sessions/README.md` index table with the new row: ID, slug, status, opened date.
 
 6. Write the first `progress.md` entry:
    ```md

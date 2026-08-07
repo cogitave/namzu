@@ -24,9 +24,8 @@
  * check lives in `check-sdk-module-coverage.mjs`.
  *
  * Convention: "enumerate what counts, don't infer." Mirrors
- * `.github/scripts/verify-public-surface.mjs`. See
- * `docs.local/conventions/public-surface-buckets.md` for the same pattern
- * applied to the public API.
+ * `.github/scripts/verify-public-surface.mjs`, which applies the same
+ * pattern to the public API.
  *
  * Non-bypassable by design (ses_006 Q7); there is no env-var escape hatch.
  */

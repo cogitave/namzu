@@ -72,7 +72,7 @@ process.exit(report.exit)
 
 ## Architecture
 
-The doctor's protocol types (`DoctorCheck`, `DoctorCheckResult`, `DoctorReport`, `DoctorStatus`) live in `@namzu/sdk` so kernel components (providers, vaults, sandboxes) can implement `doctorCheck?()` hooks against them. The runtime (registry, runner, output formatting, exit codes) lives here in `@namzu/cli` because it's operator-facing concerns. This is the [`ses_007-probe-and-doctor`](https://github.com/cogitave/namzu/tree/main/docs.local/sessions/ses_007-probe-and-doctor) split.
+The doctor's protocol types (`DoctorCheck`, `DoctorCheckResult`, `DoctorReport`, `DoctorStatus`) live in `@namzu/sdk` so kernel components (providers, vaults, sandboxes) can implement `doctorCheck?()` hooks against them. The runtime (registry, runner, output formatting, exit codes) lives here in `@namzu/cli` because it's operator-facing concerns. This is the protocol/runtime split: the kernel owns the contract, the operator surface owns the presentation.
 
 ## License
 

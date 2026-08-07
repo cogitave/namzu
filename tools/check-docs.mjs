@@ -24,6 +24,16 @@
 //                 causal, not a timer: a document whose subject nobody touched
 //                 is never nagged.
 //
+// Choosing a `resource:` is the part that decides whether DRIFT is signal or
+// noise. Point it at the narrowest artifact whose change would actually
+// invalidate the document — a regression test that exists BECAUSE of the
+// incident is usually the best answer, since it changes when the behaviour
+// does and not otherwise. A barrel or an index file is the worst: it churns
+// for unrelated reasons and trains everyone to wave the failure through.
+// This gate's first real firing was exactly that mistake, on its own author.
+// Where no single artifact owns the claim, omit `resource:` rather than
+// inventing one; the field is optional and a wrong pointer is worse than none.
+//
 // DRIFT reads git history, so it REFUSES on a shallow clone rather than
 // returning a pass it cannot justify. A gate whose precondition is absent must
 // say "I cannot establish this", never "this is satisfied" -- see

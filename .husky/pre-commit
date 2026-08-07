@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # Pre-commit progress gate (ses_002-workflow-discipline).
 #
-# For every in-progress session under docs.local/sessions/, verify that
+# For every in-progress session under .work/sessions/, verify that
 # progress.md has been updated at least as recently as the most recent
 # staged file. If not, fail with a pointer to the commit skill Step 5.
 #
@@ -11,15 +11,30 @@
 # but is forbidden by AGENTS.md <workflow_safety> without explicit user
 # permission.
 #
-# docs.local/ is gitignored, so progress.md never enters a commit. The
+# .work/ is gitignored, so progress.md never enters a commit. The
 # discipline is the synchronous-update timing, not the commit contents.
 
 set -e
 
-INDEX="docs.local/sessions/README.md"
+# Resolve the working-memory root. `.work/` is the location; `docs.local/`
+# is the name it had before the documentation migration and is still
+# honoured, deliberately, so that the gate NEVER lapses while a checkout is
+# mid-rename. A hook that quietly stopped gating because its path moved is
+# the exact failure this hook exists to prevent, one level up.
+#
+# Drop the fallback once no checkout carries the old directory.
+if [ -f ".work/sessions/README.md" ]; then
+  INDEX=".work/sessions/README.md"
+elif [ -f "docs.local/sessions/README.md" ]; then
+  INDEX="docs.local/sessions/README.md"
+  echo "note: working memory is still at docs.local/. Rename it to .work/ —" >&2
+  echo "      the gate is running against the old path meanwhile." >&2
+else
+  # Neither location exists → there are genuinely no sessions to gate.
+  exit 0
+fi
 
-# No index → no sessions to gate.
-[ -f "$INDEX" ] || exit 0
+WORK=$(dirname "$(dirname "$INDEX")")
 
 # Extract in-progress + draft sessions from the index table.
 # Rows look like:  | ses_001 | hierarchy-redesign | in-progress | 2026-04-18 | — |
@@ -62,7 +77,7 @@ done
 
 failed=""
 for sess in $sessions; do
-  pfile="docs.local/sessions/${sess}/progress.md"
+  pfile="${WORK}/sessions/${sess}/progress.md"
   if [ ! -f "$pfile" ]; then
     echo "✗ pre-commit: session ${sess} is active in ${INDEX} but ${pfile} is missing." >&2
     failed=1

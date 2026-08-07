@@ -1,5 +1,5 @@
 {
-	"$comment": "Coverage gate config for @namzu/sdk. Consumed by .github/scripts/check-sdk-module-coverage.mjs and check-sdk-test-presence.mjs. Managed by ses_006-test-coverage-sprint; see docs.local/sessions/ses_006-test-coverage-sprint/design.md for rules.",
+	"$comment": "Coverage gate config for @namzu/sdk. Consumed by .github/scripts/check-sdk-module-coverage.mjs and check-sdk-test-presence.mjs. The bucket rules were ratified in ses_006-test-coverage-sprint.",
 	"modules": {
 		"required": [
 			"advisory",

@@ -295,9 +295,17 @@ const all = []
 
 // The repository's own top-level pages are the most public prose there is,
 // and they were the one surface no walk reached. Top level only, and
-// deliberately not a recursive walk from the root: `docs.local/` is
-// gitignored working memory where naming another system is the WORK — a
-// fit-gap report has to say what it compared against.
+// deliberately not a recursive walk from the root: `.work/` is gitignored
+// working memory where naming another system is the WORK — a comparative
+// analysis has to say what it compared against.
+//
+// That exemption is a property of being UNTRACKED, not of the directory's
+// name, and it is the reason those documents stay untracked. When the
+// documentation tree moved to `docs/`, nine of them were measured against
+// this rule and produced 87 findings between them; the ruling was that no
+// third-party name enters tracked prose, so they were parked in `.work/`
+// rather than published, redacted, or exempted. Adding a path exemption
+// here would reverse that decision silently — do not.
 for (const entry of await readdir(ROOT, { withFileTypes: true })) {
 	if (!entry.isFile() || !entry.name.endsWith('.md')) continue
 	all.push(...findings(await readFile(join(ROOT, entry.name), 'utf-8'), entry.name))

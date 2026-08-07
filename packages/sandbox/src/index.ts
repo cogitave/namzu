@@ -661,7 +661,7 @@ export class SandboxBackendNotImplementedError extends Error {
 
 	constructor(public readonly backend: string) {
 		super(
-			`Sandbox backend '${backend}' is not implemented yet. Track progress in vendor/namzu/docs.local/sessions/ses_004-native-agentic-runtime-and-sandbox.`,
+			`Sandbox backend '${backend}' is not implemented yet. See the backends listed in @namzu/sandbox for what ships today.`,
 		)
 	}
 }

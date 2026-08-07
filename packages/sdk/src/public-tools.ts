@@ -7,7 +7,7 @@
 // Generic RAG runtime (vector stores, retrievers, embeddings, knowledge
 // base) lives in `public-runtime.ts`; only `createRAGTool` belongs here.
 //
-// See §4.3 of `docs.local/sessions/ses_011-sdk-public-surface/design.md`.
+// Ratified in ses_011-sdk-public-surface §4.3.
 
 // ─── Tool definition primitive ───────────────────────────────────────────
 

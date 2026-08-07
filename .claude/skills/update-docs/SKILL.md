@@ -5,7 +5,7 @@ description: Use this skill whenever a code change alters anything documented in
 
 # Update Docs
 
-Keeps `docs/` (published to `docs.namzu.ai`) in sync with code. This skill finds the affected pages via frontmatter tags, updates content accurately, and bumps the `last_updated` field so reviewers can tell a page is current.
+Keeps `docs/` in sync with code. This skill finds the affected pages via frontmatter tags, updates content accurately, and refreshes the page's review date so reviewers can tell a page is current.
 
 ## When to trigger
 
@@ -19,14 +19,31 @@ Keeps `docs/` (published to `docs.namzu.ai`) in sync with code. This skill finds
 
 <not_triggers>
 - Internal refactors with no public-surface change.
-- Session-internal notes in `docs.local/` (that is working memory, not published docs).
+- Session-internal notes in `.work/` (that is working memory, not published docs).
 - README snippets inside individual packages (unless they describe the public API).
 </not_triggers>
 
 ## Frontmatter contract
 
 <frontmatter>
-Every page in `docs/` carries a YAML frontmatter block:
+**Two frontmatter shapes coexist in `docs/` right now. Match the page you are
+editing; do not convert one to the other as a side effect.**
+
+1. **The documentation standard** — `uid`, `title`, `description`, `type`,
+   `diataxis`, `owner`, `status`, `timestamp`, `lastReviewed`, plus optional
+   `resource:` and `verified:`. Machine-checked by `pnpm docs:check` for the
+   directories in its `CONFORMING` array (`docs/conventions/` today). New pages
+   are written this way. There is no `last_updated` here — `lastReviewed` is the
+   equivalent, and `verified:` is the stronger claim: set it only when you have
+   re-established the page against source yourself.
+
+2. **The original shape**, below, still carried by the pages not yet migrated.
+   Bump `last_updated` on these as described.
+
+The rest of this section describes shape 2. Migrating a page from 2 to 1 is a
+deliberate change with its own commit, not something to do in passing.
+
+Every unmigrated page in `docs/` carries a YAML frontmatter block:
 
 ```yaml
 ---
@@ -111,7 +128,7 @@ There is no `surface` field. Page topic is implied by directory placement (`docs
 - Code is the source of truth. If the doc and the code disagree, the doc is wrong until proven otherwise.
 - Never update `last_updated` without actually changing content. The field must mean "the content on this page was verified and current on this date".
 - Never delete a public-surface doc without a redirect or a `superseded_by:` link. Readers following an external link should land somewhere useful.
-- Do not edit `docs.local/` from this skill — that is working memory, separate from published docs.
+- Do not edit `.work/` from this skill — that is working memory, separate from published docs.
 </discipline>
 
 ## Output
