@@ -1,14 +1,16 @@
 ---
 title: Namzu Documentation
-description: Entry point for the published Namzu docs covering the SDK, computer-use package, and provider packages.
-last_updated: 2026-04-18
+description: Entry point for the Namzu documentation covering the SDK, computer-use package, and provider packages.
+last_updated: 2026-08-07
 status: current
 related_packages: ["@namzu/sdk", "@namzu/computer-use", "@namzu/openai", "@namzu/anthropic", "@namzu/bedrock", "@namzu/openrouter", "@namzu/http", "@namzu/ollama", "@namzu/lmstudio"]
 ---
 
 # Namzu Documentation
 
-This directory is the publishable documentation surface for Namzu. It is written for direct use on `docs.namzu.ai`, covers only packages that are currently shipped, and intentionally excludes local-only or ignored workspace content.
+This directory is the publishable documentation surface for Namzu. It covers only packages that are currently shipped, and intentionally excludes local-only or ignored workspace content.
+
+**There is no documentation site today.** Nothing in this repository builds or deploys these pages — no generator, no site config, no deploy workflow — so this directory is read in the repository, and the `meta.json` ordering files are inert until something is stood up to read them.
 
 ## 1. Start Here
 
