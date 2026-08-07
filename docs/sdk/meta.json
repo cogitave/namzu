@@ -6,6 +6,7 @@
     "---Core---",
     "runtime",
     "agents",
+    "directory",
     "sessions",
     "tools",
     "---Context & Knowledge---",
