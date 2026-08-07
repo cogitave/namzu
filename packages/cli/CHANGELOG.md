@@ -1,5 +1,69 @@
 # @namzu/cli
 
+## 2.6.0
+
+### Minor Changes
+
+- 01856b7: You can type a credential into a running namzu instead of restarting.
+
+  With no key discovered, the picker used to list three sources and say "then
+  restart namzu" — accurate, and a cliff: the product told you to leave it in
+  order to use it. It now also offers `k`, which takes a key and starts the
+  session with it.
+
+  **Held in memory for that session only, and written nowhere.** The screen says
+  so before you type and again afterwards, and names the environment variable that
+  makes it durable.
+
+  That is a decision, not an omission. The obvious durable home is the OS
+  keychain; namzu's keychain support is macOS-only and reads a _different_
+  product's credential store, so a key written there would be filed under someone
+  else's name — and on Windows there is no keychain path at all. The remaining
+  option was a plaintext file. A secret at rest should be something you chose, not
+  something that arrived because you typed into a text field.
+
+  - **Masked while typing** — never the key, and never its length either, since
+    length distinguishes vendors and tiers.
+  - **Checked at the moment you type it**, by listing models, which costs nothing.
+    A rejected key leaves you on the screen with what you typed intact.
+  - **Never claims a check it did not do.** A provider with no cheap way to
+    validate a key is reported as exactly that, with the first message named as
+    the real test.
+  - **Never reaches a transcript or an error.** Errors carry the provider's
+    reason, truncated, and the function that writes the message is not given the
+    key.
+
+  A typed credential shows as `typed · this session only` wherever providers are
+  listed.
+
+- 857c129: `/model` now picks a model.
+
+  It re-opened the **provider** list, and the model was always the provider's
+  default. So someone who wanted a different model typed the obvious command,
+  chose a provider, and nothing changed — the command was named for the thing it
+  did not do.
+
+  The chain was wired end to end except one link: `Picker`'s `onSubmit` accepted
+  `{ provider, model? }`, the app wrote `model` into preferences, and a session
+  read `prefs.model ?? entry.defaultModel`. The picker never produced a model.
+
+  `/model` is now two steps — provider, then model. `esc` steps back to the
+  provider list rather than out. The model step starts on the one already in
+  force, so re-opening it does not quietly reset you to the default. Your choice
+  is written to `~/.namzu/preferences.json` and is what the next turn is sent with.
+
+  **When the list is unavailable, the picker says which unavailable it is.** Asking
+  a provider for its models can end four ways — it answered with none, it did not
+  answer inside 3 seconds, the driver has no listing capability, or it errored —
+  and all four used to arrive as an empty array. Three of them are not "this
+  provider has no models", and the timeout is the one you can do something about.
+  Each now shows its own line, and the provider's default stays selectable in every
+  case, so the step is never a dead end.
+
+  Host UIs consuming `namzu providers-json` are unaffected: that command still
+  renders any failure as an empty list, and is now the only caller that discards
+  the reason.
+
 ## 2.5.0
 
 ### Minor Changes
