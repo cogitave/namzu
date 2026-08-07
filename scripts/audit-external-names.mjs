@@ -304,13 +304,12 @@ const all = []
 // were measured against this rule and produced 87 findings between them, so
 // they stayed in `.work/` rather than moving with the rest.
 //
-// Whether they should EVER enter tracked prose is an open question with the
-// owner, not a settled one, and it is commercial rather than technical: the
-// choice is between publishing competitor names in a repository whose whole
-// rule is that they do not appear, redacting documents whose value is the
-// comparison, and leaving them untracked. Until that is decided, adding a
-// path exemption here would settle it silently and in the least visible
-// place available — so do not. Bring the question up instead.
+// Whether they could instead move into `docs/` under a path exemption was put
+// to the owner, who ruled that no third-party brand name appears in tracked
+// prose. That ruling is settled, and it is the owner's to revisit — not a
+// default, not a convention, and not something to reopen from inside this
+// file. Adding a path exemption here would reverse an owner decision in the
+// least visible place available. Do not; raise it instead.
 for (const entry of await readdir(ROOT, { withFileTypes: true })) {
 	if (!entry.isFile() || !entry.name.endsWith('.md')) continue
 	all.push(...findings(await readFile(join(ROOT, entry.name), 'utf-8'), entry.name))
