@@ -24,7 +24,17 @@
 	},
 	"files": [
 		"dist",
+		"!dist/**/*.test.*",
+		"!dist/**/*.proc-test.*",
+		"!dist/**/__tests__",
+		"!dist/**/__fixtures__",
+		"!dist/**/test-setup.*",
 		"src",
+		"!src/**/*.test.*",
+		"!src/**/*.proc-test.*",
+		"!src/**/__tests__",
+		"!src/**/__fixtures__",
+		"!src/**/test-setup.*",
 		"LICENSE.md",
 		"README.md",
 		"CHANGELOG.md"
