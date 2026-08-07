@@ -167,3 +167,27 @@ jobs:
             npx -y publint@latest packages/$pkg
             echo "::endgroup::"
           done
+
+  # Documentation gate. Separate from Build & Test for one reason: its drift
+  # check compares a document's last commit against its `resource:`'s last
+  # commit, and `git log` cannot answer that on the shallow checkout the matrix
+  # uses. Rather than return a pass it could not justify, the gate REFUSES on a
+  # shallow clone -- so it gets its own job with full history instead of a
+  # `fetch-depth: 0` on four matrix entries that do not need it.
+  #
+  # No dependency install: the gate is stdlib-only node by design, so it runs
+  # on the bare tree in seconds and cannot be broken by a lockfile change.
+  docs:
+    name: Docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Docs standard gate
+        run: node tools/check-docs.mjs

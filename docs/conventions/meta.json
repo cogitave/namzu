@@ -1,0 +1,21 @@
+{
+  "title": "Conventions",
+  "pages": [
+    "index",
+    "---Declarations & Reachability---",
+    "declared-but-undriven",
+    "reachability-is-its-own-property",
+    "one-site-is-not-every-site",
+    "---Refusing vs Degrading---",
+    "refuse-do-not-degrade",
+    "an-optional-dependency-may-not-degrade-a-check",
+    "---Tests That Prove Something---",
+    "mutation-check-every-test",
+    "sound-about-the-wrong-thing",
+    "fixture-must-match-production",
+    "a-check-that-cannot-fail",
+    "---Reading The Evidence---",
+    "verify-claims-including-your-own",
+    "never-filter-a-verification"
+  ]
+}
