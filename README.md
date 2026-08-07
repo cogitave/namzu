@@ -24,7 +24,7 @@ diataxis: explanation
 [![npm @namzu/sdk](https://img.shields.io/npm/v/@namzu/sdk.svg?label=%40namzu%2Fsdk)](https://www.npmjs.com/package/@namzu/sdk)
 [![npm @namzu/cli](https://img.shields.io/npm/v/@namzu/cli.svg?label=%40namzu%2Fcli)](https://www.npmjs.com/package/@namzu/cli)
 
-[Install](#install) · [What is inside](#what-is-inside-that-is-independently-hard) · [Packages](#the-packages) · [Docs](./docs/)
+[Install](#install) · [An agent is a folder](#or-dont-write-any-of-that--make-a-folder) · [What is inside](#what-is-inside-that-is-independently-hard) · [Packages](#the-packages) · [Docs](./docs/)
 
 </div>
 
@@ -164,6 +164,94 @@ construct the provider. Nothing below them changes.
 ```bash
 pnpm add @namzu/sdk @namzu/ollama    # local, no key
 ```
+
+### Or don't write any of that — make a folder
+
+An agent can be a directory. `loadDirectory` reads a conventional folder into
+exactly the options `runAgent` already takes, so there is no second engine and
+nothing reachable only this way.
+
+The smallest one that works is a folder with a file in it:
+
+```
+agent/
+└── instructions.md
+```
+
+```typescript
+import { deriveRunOptions, loadDirectory, runAgent } from '@namzu/sdk'
+
+const { manifest } = await loadDirectory('./agent')
+const { output } = await runAgent(
+  deriveRunOptions(manifest, { provider, model: 'mock-model', prompt: 'Hi' }),
+)
+```
+
+Everything else is optional, and each slot buys one thing:
+
+```
+agent/
+├── instructions.md     the system prompt, used verbatim
+├── agent.ts            export default { model, temperature, maxIterations,
+│                         tokenBudget, timeoutMs, name, metadata } — all optional
+├── tools/              one file per tool, each default-exporting defineTool(...)
+├── skills/             one folder per skill
+└── agents/             one folder per delegate, same shape, one level deep
+```
+
+A tool file is a normal module:
+
+```typescript
+// agent/tools/weather.ts
+import { defineTool } from '@namzu/sdk'
+import { z } from 'zod'
+
+export default defineTool({
+  name: 'get_weather',
+  description: 'Current weather for a city.',
+  inputSchema: z.object({ city: z.string() }),
+  category: 'network',
+  permissions: ['network_access'],
+  readOnly: true,
+  destructive: false,
+  concurrencySafe: true,
+  execute: async ({ city }) => ({ success: true, output: `It is 17C in ${city}.` }),
+})
+```
+
+That is the whole convention. A recent runtime imports the `.ts` directly, so
+there is no build step; a project whose syntax it cannot read passes its own
+`importModule`.
+
+**Loading a folder does not have to run it.** Importing a module executes it —
+a top-level side effect in `tools/search.ts` happens during the load, in your
+process, with your privileges. So the loader has a mode:
+`loadDirectory(dir, { modules: 'skip' })` imports **nothing**, and still returns
+the full structure: every path, the instructions, the skills, duplicate
+detection, and each file marked `not_loaded`. That is the mode for a CI check,
+a file tree, or triage of a directory whose author is not you. Symlinks inside
+a slot are refused rather than followed, for the same reason — the file that
+gets imported would not be the file that was listed.
+
+Nothing is silently dropped. Every refusal comes back as a diagnostic naming
+its file and reason: a tool file with no default export, two tools claiming one
+name (neither is registered), an empty `instructions.md`, a nested directory
+that was not scanned. `ok` tells you whether any of them was an error — scoped
+to the slots you asked for, so it never means more than it checked.
+
+**What the folder form does not do**, so you find out here rather than later:
+
+- **It is SDK-only today.** The terminal agent does not read an `agent/`
+  folder — it has its own project instructions and trust gate, and the two are
+  unrelated. Nothing auto-discovers: you pass the path.
+- **Config is static.** `agent.ts` exports a plain object, not a factory. Read
+  an environment variable inside it if you need to; there is no hook.
+- **Delegates go one level.** A delegate may not declare delegates of its own.
+- **A skipped load cannot be run.** `deriveRunOptions` throws on a
+  `modules: 'skip'` manifest rather than handing back an agent whose tools are
+  all missing for a reason unrelated to the project.
+- **The working directory becomes the folder itself**, not its parent, so file
+  tools are contained to the agent. Widening that is an explicit override.
 
 ### The terminal agent
 
