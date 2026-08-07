@@ -97,6 +97,41 @@ A manifest loaded this way cannot be derived into run options.
 `deriveRunOptions` throws rather than producing an agent with no capabilities
 and no indication why.
 
+### An import that runs long is not an import that stopped
+
+Each module gets `moduleTimeoutMs` (default 10s), and that deadline bounds
+**the loader, not the module**. `import()` cannot be cancelled, so a file whose
+outcome is `'abandoned'` is still executing: it may still finish, and its
+top-level side effects may land after `loadDirectory` has already returned. The
+runtime then caches the module, so a second load in the same process can see the
+same file succeed instantly.
+
+That is why `'abandoned'` is a distinct outcome from `'failed'`. "We stopped
+waiting" and "it did not work" send a reader to different places.
+
+### A diagnostic's `cause` is not sanitised
+
+The loader never reads file *contents* into a diagnostic. But `cause` carries
+whatever the runtime reported or the authored module threw, and is exactly as
+trustworthy as that module — `throw new Error(secret)` puts that secret there.
+Treat `cause` as untrusted when you log or surface it.
+
+### Loading only part of a folder
+
+`include` narrows the load to the slots you name, and `ALL_SLOTS` is the full
+list. It is an allow-list, and the type makes an empty array unrepresentable on
+purpose: an allow-list that admits everything when empty is a fail-open shape,
+so here an empty list would scan nothing.
+
+Remember that `ok` is scoped to what you included.
+
+### When the runtime cannot import the project
+
+`importModule` replaces the import for a project whose syntax the runtime's own
+type stripping cannot read — enums, decorators, path aliases. The host passes
+its own importer, which keeps a bundler dependency out of this tree. It is
+ignored under `modules: 'skip'`, where nothing is imported at all.
+
 ## Nothing is silently dropped
 
 Every refusal comes back as a diagnostic naming its file and reason, at
@@ -154,6 +189,15 @@ const instructions = assembleSystemPrompt(persona)
 A folder under `agents/` is a delegate with the same shape. Use
 `deriveSupervisorOptions` instead of `deriveRunOptions` for that case; it throws
 if the project declares no delegates, since there is nothing to coordinate.
+
+It returns `{ config, delegates }`, and **the delegates come back as plans, not
+registrations**. Registering them mutates your `AgentManager`, and a function
+that quietly mutates an object it was handed for reference is the surprise this
+package exists to avoid — so you do it, in one loop you can see.
+
+The `AgentManager` is yours and is never built here. A manager owns running
+processes, budgets and cancellation; handing back options carrying one this
+package constructed would make a loader into a runner.
 
 A delegate may name its own model — a cheap one for a narrow job is the common
 case — and inherits the supervisor's only when it does not. Inheriting

@@ -156,6 +156,18 @@ const fail = (...lines) => {
 // format -- they describe a directory rather than a concept, so they carry no
 // concept front matter. `README.md` is the same role under a name the code
 // host renders.
+//
+// THIS IS A BLIND SPOT WITH A NAME, so know it is here: a directory whose only
+// page is called `README.md` can sit in `CONFORMING` while nothing in it is
+// ever read. It would report as migrated and be checked by nobody -- decoration
+// in the one place decoration is most dangerous, since the gate's whole value
+// is that "conforming" means something. A near-miss, not a hypothetical: a page
+// was very nearly authored under that name, and the author found it only by
+// mutating `resource:` and watching the gate stay green.
+//
+// The guard is below: an entry that contributes zero checked files fails. That
+// keeps the skip correct for genuine listings while making an empty entry
+// impossible to add by accident.
 const isListing = (path) => /\/(index|log|README)\.md$/.test(path)
 
 // DRIFT cannot be established without history. Refuse rather than pass.
@@ -169,10 +181,15 @@ try {
 
 const uids = new Map()
 
+/** Files this run actually opened and checked, per `CONFORMING` entry. */
+const checkedPerEntry = new Map()
+
 for (const dir of CONFORMING) {
+	checkedPerEntry.set(dir, 0)
 	for (const path of markdownUnder(join(root, dir))) {
 		const where = rel(path)
 		if (isListing(where)) continue
+		checkedPerEntry.set(dir, checkedPerEntry.get(dir) + 1)
 
 		const text = readFileSync(path, 'utf8')
 		const [meta, body] = parseFrontMatter(text)
@@ -241,12 +258,35 @@ if (shallow) {
 	)
 }
 
+// An entry that checked nothing is the failure mode named beside `isListing`:
+// it declares a directory migrated while the gate reads none of it.
+for (const [dir, count] of checkedPerEntry) {
+	if (count === 0) {
+		fail(
+			`EMPTY ${dir}: listed in CONFORMING, but no file in it was checked.`,
+			'      Every page under it is a reserved listing name (index/log/README),',
+			'      so the entry claims the directory is migrated and verifies nothing.',
+			'      Rename the page to its concept, or drop the entry.',
+		)
+	}
+}
+
 // The remainder is debt, and it is printed every run so it stays visible.
 const conforming = new Set()
 for (const dir of CONFORMING) for (const p of markdownUnder(join(root, dir))) conforming.add(rel(p))
 let outside = 0
 for (const p of markdownUnder(join(root, 'docs'))) if (!conforming.has(rel(p))) outside += 1
 
-console.log(`docs gate: ${problems} problem(s) across ${conforming.size} conforming file(s)`)
+// Checked and skipped are reported separately on purpose. A listing inside a
+// conforming directory is in scope and deliberately not read, so one combined
+// number would overstate what this run actually verified.
+let checked = 0
+for (const n of checkedPerEntry.values()) checked += n
+const listings = conforming.size - checked
+
+console.log(`docs gate: ${problems} problem(s) across ${checked} checked file(s)`)
+if (listings > 0) {
+	console.log(`           ${listings} listing(s) skipped by name (index/log/README)`)
+}
 console.log(`           ${outside} file(s) under docs/ not yet migrated to the standard`)
 process.exit(problems ? 1 : 0)
