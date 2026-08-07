@@ -886,6 +886,7 @@
     "FileReadTracker",
     "FileSlot",
     "FilesystemMigrationError",
+    "FrontmatterValue",
     "GENAI",
     "GateDecision",
     "GateEvaluationResult",

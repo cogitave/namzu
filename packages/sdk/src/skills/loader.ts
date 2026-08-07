@@ -29,46 +29,68 @@ function sourceLabel(dirPath: string): string {
  * skill requires is this function's. A command file goes through the same
  * reader and validates an entirely different set of keys.
  */
+/**
+ * Read one key, narrowed to the shape this field is declared to have.
+ *
+ * `Object.hasOwn`, not a bare `values[key]`: a plain property read walks the
+ * prototype chain, so a `Object.prototype.description` poisoned by anything
+ * else in the process would be picked up here as though the file had declared
+ * it. The parser can no longer create that poison; this is the other end of
+ * the same guarantee.
+ */
+function scalarAt(values: ParsedFrontmatter['values'], key: string): string | undefined {
+	if (!Object.hasOwn(values, key)) return undefined
+	const found = values[key]
+	return found?.kind === 'scalar' ? found.value : undefined
+}
+
+function mappingAt(
+	values: ParsedFrontmatter['values'],
+	key: string,
+): Readonly<Record<string, string>> | undefined {
+	if (!Object.hasOwn(values, key)) return undefined
+	const found = values[key]
+	return found?.kind === 'mapping' ? found.entries : undefined
+}
+
 function toSkillMetadata(parsed: ParsedFrontmatter, dirPath: string): SkillMetadata {
 	const source = sourceLabel(dirPath)
-	const { data, blocks } = parsed
+	const { values } = parsed
 
-	if (!data.name) {
+	const name = scalarAt(values, 'name')
+	const description = scalarAt(values, 'description')
+
+	if (!name) {
 		throw new Error(`${source} missing required field: name`)
 	}
-	if (!data.description) {
+	if (!description) {
 		throw new Error(`${source} missing required field: description`)
 	}
 
-	validateSkillName(data.name, dirPath)
-	validateDescription(data.description, dirPath)
+	validateSkillName(name, dirPath)
+	validateDescription(description, dirPath)
 
-	const skillMetadata: SkillMetadata = {
-		name: data.name,
-		description: data.description,
+	const skillMetadata: SkillMetadata = { name, description }
+
+	const license = scalarAt(values, 'license')
+	if (license) {
+		skillMetadata.license = license
 	}
 
-	if (data.license) {
-		skillMetadata.license = data.license
-	}
-
-	if (data.compatibility) {
-		if (data.compatibility.length > 500) {
+	const compatibility = scalarAt(values, 'compatibility')
+	if (compatibility) {
+		if (compatibility.length > 500) {
 			throw new Error(`${source}: compatibility exceeds 500 characters`)
 		}
-		skillMetadata.compatibility = data.compatibility
+		skillMetadata.compatibility = compatibility
 	}
 
-	if (data['allowed-tools']) {
-		skillMetadata.allowedTools = data['allowed-tools']
+	const allowedTools = scalarAt(values, 'allowed-tools')
+	if (allowedTools) {
+		skillMetadata.allowedTools = allowedTools
 	}
 
-	// `Object.hasOwn`, not `blocks.metadata`: a bare property read walks the
-	// prototype chain, so a poisoned `Object.prototype.metadata` anywhere in
-	// the process would be picked up here as though the file had declared it.
-	// The parser no longer creates that poison, and this is the other end of
-	// the same guarantee.
-	const extra = Object.hasOwn(blocks, 'metadata') ? blocks.metadata : undefined
+	const extra = mappingAt(values, 'metadata')
 	if (extra && Object.keys(extra).length > 0) {
 		skillMetadata.metadata = { ...extra }
 	}
