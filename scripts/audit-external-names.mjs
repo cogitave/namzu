@@ -300,12 +300,16 @@ const all = []
 // analysis has to say what it compared against.
 //
 // That exemption is a property of being UNTRACKED, not of the directory's
-// name, and it is the reason those documents stay untracked. When the
-// documentation tree moved to `docs/`, nine of them were measured against
-// this rule and produced 87 findings between them; the ruling was that no
-// third-party name enters tracked prose, so they were parked in `.work/`
-// rather than published, redacted, or exempted. Adding a path exemption
-// here would reverse that decision silently — do not.
+// name. When the documentation tree moved to `docs/`, nine of those documents
+// were measured against this rule and produced 87 findings between them, so
+// they stayed in `.work/` rather than moving with the rest.
+//
+// Whether they could instead move into `docs/` under a path exemption was put
+// to the owner, who ruled that no third-party brand name appears in tracked
+// prose. That ruling is settled, and it is the owner's to revisit — not a
+// default, not a convention, and not something to reopen from inside this
+// file. Adding a path exemption here would reverse an owner decision in the
+// least visible place available. Do not; raise it instead.
 for (const entry of await readdir(ROOT, { withFileTypes: true })) {
 	if (!entry.isFile() || !entry.name.endsWith('.md')) continue
 	all.push(...findings(await readFile(join(ROOT, entry.name), 'utf-8'), entry.name))
