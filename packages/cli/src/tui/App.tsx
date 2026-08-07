@@ -61,7 +61,8 @@ import {
 	probeAgentSession,
 } from './agent.js'
 import { ResumePicker } from './ResumePicker.js'
-import { type SlashContext, runSlash } from './slashCommands.js'
+import { type UserCommand, discoverUserCommands } from '../user-commands/store.js'
+import { SLASH_COMMANDS, type SlashContext, runSlash } from './slashCommands.js'
 import { theme } from './theme.js'
 import type { TranscriptMessage, TuiContext } from './types.js'
 
@@ -91,6 +92,11 @@ export function App({ ctx }: AppProps) {
 	const [activeSkills, setActiveSkills] = useState<ReadonlyArray<{ name: string; body: string }>>(
 		[],
 	)
+	// Read when the session comes up rather than on every keystroke: the
+	// autocomplete dropdown consults this on each character, and a `readdirSync`
+	// per keypress is a cost nobody asked for. A file added mid-session is
+	// picked up by `/model` (which re-hydrates) or a restart.
+	const [userCommands, setUserCommands] = useState<readonly UserCommand[]>([])
 	const [usage, setUsage] = useState<{ totalTokens: number; costUsd: number } | null>(null)
 	// Context fill, straight from the kernel and held apart from `usage` —
 	// they are different quantities and conflating them is what made the
@@ -207,6 +213,15 @@ export function App({ ctx }: AppProps) {
 			void previousSessionRef.current?.close()
 			previousSessionRef.current = s
 			setSession(s)
+			setUserCommands(
+				discoverUserCommands({
+					cwd: ctx.cwd,
+					// Builtins are reserved: a `help.md` must not take over `/help`.
+					// Passing the names here is what lets the loader tell its author
+					// the file is shadowed instead of leaving it silently unused.
+					reserved: SLASH_COMMANDS.map((c) => c.name),
+				}),
+			)
 			setCurrentProvider(prefs.provider)
 			if (s.hasProvider) {
 				setPhase('ready')
@@ -303,6 +318,7 @@ export function App({ ctx }: AppProps) {
 		},
 		agentIds: session?.agentIds ?? [],
 		instructionFiles: session?.instructionFiles ?? [],
+		userCommands,
 	}
 
 	// `/resume`: open the picker with this folder's recent conversations.
@@ -868,6 +884,7 @@ export function App({ ctx }: AppProps) {
 								<Composer
 									disabled={phase !== 'ready' || state === 'awaiting-permission'}
 									onSubmit={handleSubmit}
+									userCommands={userCommands}
 									history={history}
 								/>
 							</ComposerFrame>
