@@ -24,10 +24,11 @@
  * them this file would pass with an implementation that hijacks every slash.
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { removeTempDir } from '../__fixtures__/temp-dir.js'
 
 import { runCommand } from '../commands/run.js'
 import type { CommandContext } from '../commands/types.js'
@@ -72,7 +73,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-	rmSync(cwd, { recursive: true, force: true })
+	removeTempDir(cwd)
 })
 
 function writeCommand(name: string, body: string): void {

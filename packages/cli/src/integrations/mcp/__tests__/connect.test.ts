@@ -8,10 +8,11 @@
  * a handshake that answers, or does not.
  */
 
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 
 import { connectMcpServers, transportFor } from '../servers.js'
 
@@ -29,13 +30,13 @@ afterEach(async () => {
 	// died, which is the failure `close()` exists to prevent.
 	for (let attempt = 0; attempt < 20; attempt++) {
 		try {
-			rmSync(dir, { recursive: true, force: true })
+			removeTempDir(dir)
 			return
 		} catch {
 			await new Promise((resolve) => setTimeout(resolve, 50))
 		}
 	}
-	rmSync(dir, { recursive: true, force: true })
+	removeTempDir(dir)
 })
 
 /**

@@ -21,10 +21,11 @@
  * exactly the state this file was written against.
  */
 
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 
 import type { ToolRegistryContract } from '@namzu/sdk'
 
@@ -66,7 +67,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-	rmSync(workDir, { recursive: true, force: true })
+	removeTempDir(workDir)
 })
 
 const prefs = {

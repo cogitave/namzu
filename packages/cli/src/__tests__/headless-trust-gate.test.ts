@@ -20,10 +20,11 @@
  * too: a gate nothing can get past is a gate that has broken the product.
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { removeTempDir } from '../__fixtures__/temp-dir.js'
 
 import type { CommandContext } from '../commands/types.js'
 import { EXIT_UNTRUSTED } from '../exit-codes.js'
@@ -83,8 +84,8 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-	rmSync(home, { recursive: true, force: true })
-	rmSync(stranger, { recursive: true, force: true })
+	removeTempDir(home)
+	removeTempDir(stranger)
 })
 
 function context(): { ctx: CommandContext; errors: string[]; lines: string[] } {

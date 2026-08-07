@@ -17,10 +17,11 @@
  * step is made of; only the owner running it can confirm the screen.
  */
 
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { removeTempDir } from '../__fixtures__/temp-dir.js'
 
 import {
 	type DetectedProvider,
@@ -67,7 +68,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-	rmSync(cwd, { recursive: true, force: true })
+	removeTempDir(cwd)
 })
 
 function detectedAnthropic(): DetectedProvider[] {

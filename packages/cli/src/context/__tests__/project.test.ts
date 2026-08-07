@@ -9,10 +9,11 @@
  * block says when a file was cut.
  */
 
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 
 import {
 	MAX_BYTES_TO_READ,
@@ -29,7 +30,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-	rmSync(root, { recursive: true, force: true })
+	removeTempDir(root)
 })
 
 /** `<root>/outside/repo/pkg`, with `repo` marked as a repository root. */
@@ -156,7 +157,7 @@ function canSymlink(): boolean {
 	} catch {
 		return false
 	} finally {
-		rmSync(probe, { recursive: true, force: true })
+		removeTempDir(probe)
 	}
 }
 

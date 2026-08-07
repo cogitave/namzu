@@ -1,7 +1,8 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 
 import { openSessions } from '../../integrations/sessions/store.js'
 import { fakeAgentSession } from '../../tui/__fixtures__/agent-session.js'
@@ -143,7 +144,7 @@ describe('run-stream works in the directory it was pointed at', () => {
 		try {
 			await run(['--cwd', elsewhere, '--session', 'k', 'read', 'notes.txt'])
 		} finally {
-			rmSync(elsewhere, { recursive: true, force: true })
+			removeTempDir(elsewhere)
 		}
 
 		expect(sessionOptions[0]?.cwd).toBe(elsewhere)
@@ -215,7 +216,7 @@ describe('skills-json lists the directory it was pointed at', () => {
 			await skillsJSONCommand.handler({ rawArgs: ['--cwd', elsewhere], ctx } as never)
 		} finally {
 			restore()
-			rmSync(elsewhere, { recursive: true, force: true })
+			removeTempDir(elsewhere)
 		}
 
 		const names = (JSON.parse(lines.join('').trim()) as Array<{ name: string }>).map((s) => s.name)
@@ -247,7 +248,7 @@ describe('history reads the directory it was pointed at', () => {
 			} as never)
 		} finally {
 			restore()
-			rmSync(elsewhere, { recursive: true, force: true })
+			removeTempDir(elsewhere)
 		}
 
 		expect(openSessions).toHaveBeenCalledWith(elsewhere)

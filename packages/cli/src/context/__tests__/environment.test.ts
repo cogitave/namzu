@@ -8,10 +8,11 @@
  */
 
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 
 import {
 	type EnvironmentFacts,
@@ -27,7 +28,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-	rmSync(root, { recursive: true, force: true })
+	removeTempDir(root)
 })
 
 function initRepo(dir: string, branch: string): void {

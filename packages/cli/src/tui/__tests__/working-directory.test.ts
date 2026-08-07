@@ -10,10 +10,11 @@
  * string in every assertion. These two do.
  */
 
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 
 import { getBuiltinTools } from '@namzu/sdk'
 import type { RunId, ToolContext } from '@namzu/sdk'
@@ -45,7 +46,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-	rmSync(workDir, { recursive: true, force: true })
+	removeTempDir(workDir)
 })
 
 function toolContext(workingDirectory: string): ToolContext {
