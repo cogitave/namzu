@@ -1,7 +1,7 @@
 ---
 title: The TUI
 description: Launching namzu, the transcript and composer, slash commands, message queuing, /resume, and interrupting a running turn.
-last_updated: 2026-05-25
+last_updated: 2026-08-07
 status: current
 related_packages: ["@namzu/cli"]
 ---
@@ -41,9 +41,40 @@ Type `/` followed by a command — an autocomplete dropdown filters as you type.
 | `/memory` | Show what namzu remembers. |
 | `/skills` | List available skills. See [Skills](./skills.md). |
 | `/skill <name>` | Activate a skill for this session. |
+| `/cost` | Tokens and spend for this run. See [What `/cost` is counting](#what-cost-is-counting). |
+| `/permissions` | How tool calls get approved, and the rules in force. See [Tools & permission](./tools.md). |
+| `/agents` | The delegates this session can dispatch to. |
+| `/init` | Write an `AGENTS.md` describing this project. See [Project instructions](./project-instructions.md). |
 | `/quit`, `/exit` | Leave namzu. |
 
 Anything that isn't a slash command is sent to the agent as a message.
+
+### What `/cost` is counting
+
+`/cost` reports **cumulative spend for the run** — every token across every
+turn, and what it cost. It only ever grows.
+
+That is not how full the context is. Context goes *down* when the conversation
+is compacted, and the two are separate quantities that answer different
+questions. They were conflated once here: a gauge divided cumulative spend by a
+guessed window, so it climbed with turn count and read full on a conversation
+with room to spare. `/cost` names which one it is printing for that reason.
+
+Where the status bar abbreviates (`12.3k tok`), `/cost` prints the figure
+(`12,345`) — you asked on purpose, so you get the number. A provider that
+reports no price shows `$0.0000 (this provider reported no price)` rather than
+implying the run was free.
+
+### What `/init` does, and what it will not do
+
+`/init` asks the agent to read the repository and write an `AGENTS.md` for it.
+It is a turn, not a template: the file is written by something that has actually
+opened the tree, and the instruction it is given asks for every claim to be
+verified and for anything unestablished to be left out. An `AGENTS.md` of
+plausible inventions is worse than none, because the next agent obeys it.
+
+If project instructions are already loaded, `/init` names them and proposes
+edits instead of overwriting. It needs a provider, and says so if there is none.
 
 ## Message queuing
 

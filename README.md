@@ -266,6 +266,9 @@ to the slots you asked for, so it never means more than it checked.
 # Install it
 curl -fsSL https://raw.githubusercontent.com/cogitave/namzu/main/install.sh | sh
 
+# Windows
+irm https://raw.githubusercontent.com/cogitave/namzu/main/install.ps1 | iex
+
 # Or, if you would rather not pipe a script into a shell
 npm install -g @namzu/cli
 
