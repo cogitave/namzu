@@ -15,7 +15,6 @@ import { Command, CommanderError } from 'commander'
 
 import { doctorCommand } from './commands/doctor.js'
 import { evalCommand } from './commands/eval.js'
-import { providersCommand } from './commands/providers.js'
 import { registerAll } from './commands/registry.js'
 import {
 	historyCommand,
@@ -102,7 +101,6 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		program,
 		[
 			doctorCommand,
-			providersCommand,
 			runCommand,
 			evalCommand,
 			runStreamCommand,

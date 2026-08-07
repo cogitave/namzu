@@ -36,7 +36,15 @@ describe('runCli', () => {
 		// Commander prints help to stdout.
 		expect(stdout).toContain('namzu')
 		expect(stdout).toContain('doctor')
-		expect(stdout).toContain('providers')
+		// `providers-json` is a command; bare `providers` is not, and the
+		// difference is invisible to `toContain('providers')` — that assertion
+		// stayed green through the removal of the `providers` profile command
+		// because `providers-json` contains it as a prefix. This is the same
+		// trap `tools` fell into below, so it is anchored the same way: the
+		// sibling must be present, and the removed command must be absent as a
+		// command rather than as a substring.
+		expect(stdout).toMatch(/^\s+providers-json\b/m)
+		expect(stdout).not.toMatch(/^\s+providers\s/m)
 		expect(stdout).toContain('skills')
 		expect(stdout).toContain('serve')
 		// `tools` was asserted here until the peer-daemon removal deleted the
