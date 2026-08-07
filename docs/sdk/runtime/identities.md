@@ -1,7 +1,7 @@
 ---
 title: Run Identities
 description: Required IDs for agent runs in @namzu/sdk, how to generate them, and how to decide when to reuse or rotate them.
-last_updated: 2026-04-21
+last_updated: 2026-08-07
 status: current
 related_packages: ["@namzu/sdk"]
 ---
@@ -18,7 +18,7 @@ For `ReactiveAgent.run()` and the kernel spawn path, four fields matter most:
 | --- | --- | --- |
 | `tenantId` | Isolation boundary between organizations, users, or workspaces | Reused across all work for the same tenant |
 | `projectId` | Long-lived folder-bound goal scope | Reused across many threads, sessions, and runs |
-| `threadId` | Topic- or objective-level container; A2A-connection surface | Reused across many sessions for one line-of-work |
+| `threadId` | Topic- or objective-level grouping key | Reused across many sessions for one line-of-work |
 | `sessionId` | One immediate working session inside a thread | Reused across one interactive session or task burst |
 
 If any of these is missing, the runtime throws before starting the run.
@@ -29,7 +29,7 @@ These IDs drive real behavior:
 
 - `tenantId` protects isolation boundaries
 - `projectId` gives the runtime a durable project scope, bound to a folder in local mode
-- `threadId` is the scope an A2A connection attaches to (see [A2A Threading](../sessions/a2a-threading.md))
+- `threadId` groups many sessions under one line-of-work. It is **not** what an A2A connection attaches to — that is `projectId` (see [A2A Context](../sessions/a2a-threading.md))
 - `sessionId` groups immediate run activity under one active session
 
 Without them, state and persistence would collapse into anonymous runs, which breaks the hierarchy-aware architecture.
@@ -130,14 +130,20 @@ const result = await agent.run(
 )
 ```
 
-## 7. Why Thread, Not Just Project
+## 7. What Thread Is For
 
-A Thread layer is not universal, and its absence is easy to miss: a runtime without one collapses Project and Thread into a single identity. Namzu separates them because the **Thread is where A2A connections attach**:
+A Thread layer is not universal: a runtime without one collapses Project and Thread into a single identity.
 
-- **Project** is folder-bound. Shared as a folder or workspace URL.
-- **Thread** is path-independent. Shared as a topic surface that external agents can join without seeing every Thread in the Project.
+This section used to say Namzu separates them because "the Thread is where A2A connections attach", and cited [A2A Context](../sessions/a2a-threading.md) as the rationale. **That page retracts exactly that claim.** The A2A bridge binds to `project_id` in both directions and has never referenced a Thread — pinned by `bridge/a2a/__tests__/project-is-the-a2a-context.test.ts`. A page cannot cite as its authority a document that contradicts it, so the justification is withdrawn rather than reworded.
 
-See [A2A Threading](../sessions/a2a-threading.md) for the full rationale. If your application has no A2A component today, a "default" Thread per Project works fine as a formality — but the layer is there when you need it.
+What remains true is smaller and worth stating plainly:
+
+- **Project** is folder-bound, and it is the A2A sharing boundary. A peer holding a `contextId` holds a Project.
+- **Thread** is a path-independent grouping key over sessions. It owns no message stream, no status, no participant set and no directory of its own.
+
+So use `threadId` when you want to group sessions by topic or objective and query them back. Do not reach for it as an isolation or sharing boundary — it is not one. If one peer should see part of a workspace and not the rest, give it a separate Project.
+
+The layer's future is under discussion; see section 4 of [A2A Context](../sessions/a2a-threading.md). Nothing has been deprecated, and a "default" thread per project remains fine.
 
 ## 8. Common Mistakes
 
@@ -146,7 +152,8 @@ See [A2A Threading](../sessions/a2a-threading.md) for the full rationale. If you
 | generating a new `projectId` on every single message | breaks long-lived project grouping |
 | reusing one `sessionId` forever | collapses separate active sessions into one lineage |
 | using one `tenantId` for every user or customer | removes meaningful isolation boundaries |
-| treating `threadId` as disposable or optional | loses the topic-level continuity that A2A and hand-off rely on |
+| treating `threadId` as disposable or optional | loses the topic-level grouping you would otherwise query back |
+| expecting `threadId` to scope what an A2A peer can see | it does not — `projectId` is the A2A boundary |
 | hardcoding raw strings without validation | makes ID drift and debugging harder |
 
 ## 9. App-Level Recommendation
@@ -163,7 +170,7 @@ Only use generator helpers when you do not already have a durable identity model
 ## Related
 
 - [SDK Quickstart](../quickstart.md)
-- [A2A Threading](../sessions/a2a-threading.md)
+- [A2A Context](../sessions/a2a-threading.md)
 - [Run Configuration](./configuration.md)
 - [Provider Registry](../provider-integration/registry.md)
 - [ID Utilities Source](https://github.com/cogitave/namzu/blob/main/packages/sdk/src/utils/id.ts)
