@@ -38,6 +38,32 @@ verdict, never on a guess at what the diagnostic will look like.
 - The same session had already adopted this rule from the first incident, in
   writing, and broke it in the next command.
 
+## It recurred, in a shape the rule did not spell out
+
+2026-08-07. An agent ran `node tools/check-docs.mjs 2>&1 | tail -4; echo $?`
+and read `0`. The gate had found a problem and exited `1`. The zero belonged to
+`tail`.
+
+This is the same failure through a different door. The earlier incidents lost
+the **diagnostic** to a filter; this one lost the **exit code**, because in a
+pipeline `$?` is the last command's status and a filter always succeeds. The
+output even printed the problem — it was the verdict that got replaced.
+
+So the rule's "read the verdict the tool prints" needs its companion: when the
+verdict you are reading is an exit code, the pipeline has already thrown it
+away. Run the check unpiped, or capture its status before anything else touches
+it:
+
+```sh
+node tools/check-docs.mjs > /dev/null 2>&1; echo $?   # the gate's own status
+node tools/check-docs.mjs | tail -4; echo $?          # tail's status, always 0
+```
+
+Caught the same day by an agent that had read this page that morning, which is
+the second time this file records someone adopting the rule and then breaking
+it. That is not irony, it is the measurement: the habit is easy to hold in
+principle and hard to hold in the next command.
+
 ## Related
 
 - [Mutate every test](mutation-check-every-test.md) — its "read the run, not
