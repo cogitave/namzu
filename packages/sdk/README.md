@@ -14,9 +14,9 @@
 
 Most "agent frameworks" today are really application frameworks. They ship chat UIs, picking UI layouts, batteries-included hosted dashboards, vendor-specific fast paths, and integration drivers for a handful of databases. You get something you can demo in an hour, and three months later you own a stack where the same framework dictates your frontend, your database, your observability, and your model vendor.
 
-We think agent software should be layered like Unix. At the bottom there needs to be a **kernel**: something to isolate processes, schedule tool calls, manage memory pressure, propagate signals across a call tree, persist checkpoints so a run can resume after a crash, mediate inter-process communication, and produce an auditable event stream. Above the kernel there is user space — shells, editors, IDEs, voice gateways, React apps. The kernel does not care which shell you pick; the shell cannot break the isolation the kernel provides.
+We think agent software should be layered the way an operating system is. At the bottom there needs to be a **kernel**: something to isolate processes, schedule tool calls, manage memory pressure, propagate signals across a call tree, persist checkpoints so a run can resume after a crash, mediate inter-process communication, and produce an auditable event stream. Above the kernel there is user space — shells, editors, IDEs, voice gateways, web front-ends. The kernel does not care which shell you pick; the shell cannot break the isolation the kernel provides.
 
-**Namzu is the kernel.** It runs agents the way Unix runs processes. It does not render UI, it does not pick your database, it does not favor one LLM vendor. It gives you a surface — typed, versioned, documented — that any UI, any storage backend, and any model can plug into. The surface is small and stable; the guts underneath are deep.
+**Namzu is the kernel.** It runs agents the way an operating system runs processes. It does not render UI, it does not pick your database, it does not favor one LLM vendor. It gives you a surface — typed, versioned, documented — that any UI, any storage backend, and any model can plug into. The surface is small and stable; the guts underneath are deep.
 
 ---
 
@@ -24,7 +24,7 @@ We think agent software should be layered like Unix. At the bottom there needs t
 
 Namzu is a single-process TypeScript kernel with the following responsibilities:
 
-- **Process execution and isolation.** Tools run inside OS-level sandboxes: Seatbelt (SBPL) on macOS, mount + PID namespaces on Linux. Deny-default file I/O, scoped network access, enforced resource limits. No Docker, no container runtime, no daemon, no sidecar.
+- **Process execution and isolation.** Tools run outside the host process, under OS-level containment whose enforced controls vary by tier — and the kernel states per tier which of filesystem, network and process isolation it actually enforces, refusing to start a run whose required control the host cannot supply rather than silently downgrading it. No container runtime, no daemon, no sidecar. See [The Boundary](#1-the-boundary-sandbox-sandbox) for the table.
 - **Agent lifecycle.** Parent/child agent spawn with depth tracking, budget splitting, and causal trace linkage. A supervisor can fork a subtree of agents and get their results back, with each child isolated from its siblings.
 - **Scheduling.** Per-run token, cost, wall-clock, and iteration budgets. Limit checker, task router (cheap model for compaction, expensive for coding), tool tiering (LLM learns to prefer cheaper tools first).
 - **Signals.** `AbortController` tree spanning parent and children. `cancel(taskId)` and `cancelAll(parentRunId)` propagate. Runs can be paused and resumed, aborted cleanly, and emit lifecycle events for every transition.
@@ -106,9 +106,19 @@ Every folder under `src/` maps to a traditional OS concept. This section walks t
 
 ### 1. The Boundary: Sandbox (`sandbox/`)
 
-Sandboxing is the foundation. Tools do not execute in the host process; they execute inside an OS-enforced jail with deny-default file I/O and scoped network access. macOS uses Seatbelt profiles in SBPL format (the same mechanism Apple's own apps use). Linux uses lightweight mount + PID namespaces, without requiring Docker, systemd, or any container runtime. The `SandboxProvider` abstraction (`sandbox/factory.ts`, `sandbox/provider/`) means you can swap in a virtualization-backed or userspace-kernel-backed provider later without touching the rest of the kernel.
+Tools do not execute in the host process. What that buys you **depends on the tier the host can supply, and the tiers do not all enforce the same controls** — so the kernel keeps an honest table rather than a promise (`sandbox/isolation.ts`):
 
-The kernel enforces memory, timeout, and max-process limits on top of whatever the sandbox gives you. The goal: a rogue or hallucinated tool call should never wipe your filesystem or exfiltrate arbitrary data, even if the LLM tries very hard.
+| Environment | Filesystem | Network | Process |
+|---|---|---|---|
+| `macos-seatbelt` | yes | yes | yes |
+| `linux-namespace` | **no** | yes | yes |
+| `basic` | no | no | no |
+
+`linux-namespace` reports `filesystem: false` deliberately. It unshares the mount namespace but never remounts anything, so the child still sees the whole host filesystem — a private mount table is not confinement, and saying otherwise here would be the exact defect the table exists to prevent.
+
+This matters because the failure it guards against is silent. If a run requires a control the host cannot enforce, `assertIsolation` **refuses to start it** rather than proceeding at a weaker tier: a security control that is accepted and then quietly not applied is worse than one that was never offered, because the caller stops looking. Use `isolationOf`, `missingIsolation` and `describeIsolation` to ask what you are actually getting before you rely on it.
+
+The `SandboxProvider` abstraction (`sandbox/factory.ts`, `sandbox/provider/`) lets you supply a stronger provider without touching the rest of the kernel. The kernel enforces memory, timeout, and max-process limits on top of whatever the sandbox gives you.
 
 ### 2. Interprocess Communication: Bridge (`bridge/`) and Bus (`bus/`)
 
@@ -136,7 +146,7 @@ These exist because the moment you have more than one agent running in parallel 
 - Emits `agent_pending` on the bus with parent/child/depth metadata
 - Forwards every child event to the parent's run listener so the supervisor sees what its subtree is doing
 
-When the parent is cancelled — by HITL, by a limit breach, or by an external signal — `cancelAll(parentRunId)` walks the subtree and aborts every descendant. This is the Unix `SIGKILL` to a process group.
+When the parent is cancelled — by HITL, by a limit breach, or by an external signal — `cancelAll(parentRunId)` walks the subtree and aborts every descendant. This is the equivalent of signalling a whole process group.
 
 `manager/connector/` manages the lifecycle of external connectors (MCP servers, HTTP connectors). `manager/plan/lifecycle.ts` coordinates HITL plan review. `manager/run/persistence.ts` is the run-level persistence surface, and `manager/run/emergency.ts` is the emergency-save subsystem (see §9 below).
 
