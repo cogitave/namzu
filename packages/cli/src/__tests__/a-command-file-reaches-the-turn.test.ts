@@ -19,10 +19,11 @@
  * pass with the App never sending it.
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { removeTempDir } from '../__fixtures__/temp-dir.js'
 
 import { SLASH_COMMANDS, type SlashContext, runSlash } from '../tui/slashCommands.js'
 import { discoverUserCommands } from '../user-commands/store.js'
@@ -47,7 +48,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-	rmSync(cwd, { recursive: true, force: true })
+	removeTempDir(cwd)
 })
 
 function writeCommand(name: string, body: string): void {

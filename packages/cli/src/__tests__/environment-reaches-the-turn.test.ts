@@ -15,10 +15,11 @@
  */
 
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { removeTempDir } from '../__fixtures__/temp-dir.js'
 
 import { type AgentDefinition, AgentRegistry } from '@namzu/sdk'
 
@@ -51,7 +52,7 @@ beforeEach(() => {
 
 afterEach(() => {
 	vi.restoreAllMocks()
-	rmSync(root, { recursive: true, force: true })
+	removeTempDir(root)
 })
 
 const prefs = {

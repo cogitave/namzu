@@ -18,10 +18,11 @@
  * fire on.
  */
 
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 
 import { ProjectManager, type TenantId, UNKNOWN_TENANT_ID } from '@namzu/sdk'
 
@@ -34,7 +35,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-	rmSync(cwd, { recursive: true, force: true })
+	removeTempDir(cwd)
 })
 
 describe('a workspace its owner has closed', () => {

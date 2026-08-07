@@ -8,11 +8,12 @@
  * unparsed, and silently ran in the process's own directory.
  */
 
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import { describe, expect, it, vi } from 'vitest'
+import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 
 import { EXIT_USAGE } from '../../exit-codes.js'
 import { fakeAgentSession } from '../../tui/__fixtures__/agent-session.js'
@@ -130,7 +131,7 @@ describe('namzu run reads its options instead of reciting them', () => {
 			// model was asked to act on.
 			expect(seen.prompt).toBe('fix the test')
 		} finally {
-			rmSync(elsewhere, { recursive: true, force: true })
+			removeTempDir(elsewhere)
 		}
 	})
 
