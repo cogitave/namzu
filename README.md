@@ -477,9 +477,11 @@ every source folder is explicitly classified for test presence; a
 separate process, because an in-process test cannot prove a run survives on
 its own event-loop footprint; a **consumer-install check** that catches
 peer-range drift before a publish rather than at the registry; package-manifest
-validation; and an audit that refuses third-party product names in prose and
-identifiers, exempting only the paths whose job is to speak somebody else's
-protocol.
+validation; and an audit that refuses a list of third-party product names in
+prose and identifiers, exempting the paths and the published vocabulary whose
+job is to speak somebody else's protocol — a driver package has to name the
+service it drives, and a page telling an operator what namzu connects to has
+to name it too.
 
 ## Next
 
