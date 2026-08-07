@@ -11,10 +11,24 @@
  * end — see `docs/conventions/refuse-do-not-degrade.md`.
  *
  * **Deliberately not a YAML parser.** It is a flat key/value splitter with one
- * level of nesting, and it *refuses* the YAML it does not implement rather
- * than mangling it (see {@link UNSUPPORTED_YAML}). That refusal is the whole
- * design: a reader that half-understands YAML produces a value that passes
- * validation and means nothing.
+ * level of nesting, and it refuses the constructs in {@link UNSUPPORTED_YAML}
+ * rather than mangling them. That refusal is the design: a reader that
+ * half-understands YAML produces a value that passes validation and means
+ * nothing.
+ *
+ * **Known gap, stated rather than implied.** The refusal is not yet total. A
+ * *block* sequence
+ *
+ * ```yaml
+ * allowed-tools:
+ *   - Read
+ * ```
+ *
+ * is silently dropped — its lines carry no `:` and are skipped — while the
+ * flow form `[Read, Grep]` throws. Both readers this replaced behaved that
+ * way, so it is inherited rather than introduced, but it contradicts
+ * `docs/conventions/refuse-do-not-degrade.md` and is tracked as a follow-up.
+ * Do not read the paragraph above as a guarantee it does not make.
  *
  * **Vocabulary belongs to the caller.** This returns the parsed map; it does
  * not know what a skill needs or what a command needs, and it validates no
@@ -50,12 +64,15 @@ const FRONTMATTER_DELIMITER = '---'
  * one has a mutation profile.
  *
  * The lone `\r` is not decoration. Without it a CR-only file is one single
- * "line", and the frontmatter collapses into the first key: `name` came back as
- * `"x\rdescription: d"` — a *wrong value*, silently, which is the failure this
- * whole module exists to end. A skill was rescued by name validation refusing
- * that string; a command file, which validates nothing here, would have taken
- * it. Splitting correctly is cheaper than refusing and strictly better than
- * either.
+ * "line", and the whole frontmatter collapses into the first key: `name` came
+ * back as `"a-skill\rdescription: d"` — a *wrong value*, silently, which is the
+ * failure this module exists to end.
+ *
+ * `loadSkill` was accidentally protected, though not in the way first written
+ * here: the collapse leaves no `description` key at all, so the required-field
+ * check refused the file before any value could be used. A caller that
+ * validates nothing — which is every caller this is now exported for — would
+ * have taken the mangled name.
  */
 const LINE_SPLIT = /\r\n|\r|\n/
 
@@ -126,8 +143,18 @@ export function parseFrontmatter(raw: string, source: string): ParsedFrontmatter
 	const frontmatterRaw = trimmed.slice(FRONTMATTER_DELIMITER.length, endIdx).trim()
 	const body = trimmed.slice(endIdx + closing[0].length).trim()
 
-	const data: Record<string, string> = {}
-	const blocks: Record<string, Record<string, string>> = {}
+	// `Map`, not an object literal, because the keys come from an untrusted
+	// file. `blocks[key] = …` on a plain object with `key === '__proto__'`
+	// reaches `Object.prototype` through the inheritance chain and writes
+	// **there** — a frontmatter file could set `Object.prototype.metadata` and
+	// poison every object in the process. That is not theoretical: it was
+	// caught here by an adversarial pass, and the poisoned prototype then
+	// showed up in the metadata of an unrelated skill loaded afterwards.
+	// A `Map` has no prototype chain for string keys, and `Object.fromEntries`
+	// *defines* own properties rather than assigning through setters, so the
+	// round trip is safe at both ends.
+	const data = new Map<string, string>()
+	const blocks = new Map<string, Map<string, string>>()
 	let currentKey: string | undefined
 
 	for (const line of frontmatterRaw.split(LINE_SPLIT)) {
@@ -140,12 +167,12 @@ export function parseFrontmatter(raw: string, source: string): ParsedFrontmatter
 			const key = line.slice(0, colonIdx).trim()
 			const value = normalizeScalar(line.slice(colonIdx + 1))
 			if (!key || !value) continue
-			let block = blocks[currentKey]
+			let block = blocks.get(currentKey)
 			if (!block) {
-				block = {}
-				blocks[currentKey] = block
+				block = new Map<string, string>()
+				blocks.set(currentKey, block)
 			}
-			block[key] = value
+			block.set(key, value)
 			continue
 		}
 
@@ -157,10 +184,14 @@ export function parseFrontmatter(raw: string, source: string): ParsedFrontmatter
 		assertReadableScalar(key, value, source)
 
 		currentKey = key
-		if (value) data[key] = value
+		if (value) data.set(key, value)
 	}
 
-	return { data, blocks, body }
+	return {
+		data: Object.fromEntries(data),
+		blocks: Object.fromEntries([...blocks].map(([k, v]) => [k, Object.fromEntries(v)])),
+		body,
+	}
 }
 
 function normalizeScalar(value: string): string {

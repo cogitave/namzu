@@ -63,12 +63,14 @@ describe('line endings', () => {
 	})
 
 	it('splits a lone-CR file into lines rather than one long key', () => {
-		// Without `\r` in the split this file is a single line, and `name` came
-		// back as "x\rdescription: d" — a wrong value, silently. A skill was
-		// rescued by name validation refusing it; a command file validates
-		// nothing here and would have taken it.
+		// Without `\r` in the split this file is a single line, and the whole
+		// block collapses into `name` — a wrong value, silently. `loadSkill`
+		// escaped it only because the collapse also removes the `description`
+		// key, so the required-field check refused the file first. A caller
+		// that validates nothing would have taken the mangled name.
 		const { data } = parseFrontmatter(LINES.join('\r'), SOURCE)
 		expect(data).toEqual({ name: 'a-skill', description: 'Does a useful thing' })
+		expect(data.name).not.toMatch(/description/)
 	})
 
 	it('leaves the body its own line endings rather than normalising them', () => {
@@ -109,6 +111,45 @@ describe('refusing rather than degrading', () => {
 	it('refuses a flow mapping', () => {
 		const raw = ['---', 'name: x', 'opts: {a: b}', '---'].join('\n')
 		expect(() => parseFrontmatter(raw, SOURCE)).toThrow(/flow mapping/)
+	})
+})
+
+describe('keys from an untrusted file cannot reach the prototype chain', () => {
+	/**
+	 * Caught by an adversarial pass, and it was real: with a plain object,
+	 * `blocks[currentKey] = …` for `currentKey === '__proto__'` resolves through
+	 * the inheritance chain and writes to `Object.prototype` itself. A
+	 * frontmatter file could set `Object.prototype.metadata`, and the poison
+	 * then surfaced in the metadata of an unrelated skill loaded afterwards in
+	 * the same process.
+	 */
+	const RESERVED = ['__proto__', 'constructor', 'toString'] as const
+
+	for (const key of RESERVED) {
+		it(`does not pollute Object.prototype through a \`${key}\` block`, () => {
+			const raw = ['---', 'name: x', `${key}:`, '  polluted: yes', '---'].join('\n')
+			parseFrontmatter(raw, SOURCE)
+
+			expect(({} as Record<string, unknown>).polluted).toBeUndefined()
+			expect(Object.prototype).not.toHaveProperty('polluted')
+		})
+	}
+
+	it('reports such a key as ordinary own data instead', () => {
+		const raw = ['---', 'name: x', '__proto__:', '  polluted: yes', '---'].join('\n')
+		const { blocks } = parseFrontmatter(raw, SOURCE)
+
+		// The file really did declare it, so reporting it is honest; what must
+		// not happen is the write landing on the prototype.
+		expect(Object.hasOwn(blocks, '__proto__')).toBe(true)
+		expect(({} as Record<string, unknown>).polluted).toBeUndefined()
+	})
+
+	it('does not let a `constructor` scalar shadow anything structural', () => {
+		const raw = ['---', 'name: x', 'constructor: hijacked', '---'].join('\n')
+		const { data } = parseFrontmatter(raw, SOURCE)
+		expect(data.constructor).toBe('hijacked')
+		expect(Object.hasOwn(data, 'constructor')).toBe(true)
 	})
 })
 

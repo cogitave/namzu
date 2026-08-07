@@ -63,7 +63,12 @@ function toSkillMetadata(parsed: ParsedFrontmatter, dirPath: string): SkillMetad
 		skillMetadata.allowedTools = data['allowed-tools']
 	}
 
-	const extra = blocks.metadata
+	// `Object.hasOwn`, not `blocks.metadata`: a bare property read walks the
+	// prototype chain, so a poisoned `Object.prototype.metadata` anywhere in
+	// the process would be picked up here as though the file had declared it.
+	// The parser no longer creates that poison, and this is the other end of
+	// the same guarantee.
+	const extra = Object.hasOwn(blocks, 'metadata') ? blocks.metadata : undefined
 	if (extra && Object.keys(extra).length > 0) {
 		skillMetadata.metadata = { ...extra }
 	}

@@ -36,6 +36,14 @@ first-party copy whose regex required LF and which therefore dropped the
 frontmatter of every Windows-authored file without failing. CRLF is now covered
 by tests that fail if it regresses, on a property that was true and untested.
 
+**Frontmatter keys cannot reach the prototype chain.** Keys come from a file,
+which is untrusted input, so `__proto__`, `constructor` and `toString` are
+stored as ordinary data and cannot write to `Object.prototype`. Worth stating
+because the first cut of this export got it wrong: a `__proto__:` block wrote
+straight through to `Object.prototype`, and the poison then surfaced in the
+metadata of an unrelated skill loaded later in the same process. Caught before
+release; covered by tests.
+
 **It does not know what your fields mean.** It returns the parsed map and
 validates no field names — a skill's vocabulary and a command's are different,
 and widening one to cover the other is how a skill-shaped API comes to mean
@@ -55,13 +63,14 @@ cases, no structural difference.
 
 **A second exception, and it is a fix.** A file using lone-`CR` line endings
 (classic Mac, pre-2001) used to be read as one single line, which collapsed the
-frontmatter into the first key — `name` came back as `"x\rdescription: d"`. For
-`loadSkill` that string then failed name validation, so such a file threw a
-confusing error about its name; it now parses correctly. Nothing that worked
-before stops working: the only files whose outcome changes are ones that could
-not load at all. It mattered enough to fix because a caller doing its own
-validation, which is the whole point of this export, would have accepted the
-mangled value silently.
+whole frontmatter into the first key — `name` came back as
+`"a-skill\rdescription: d"`. `loadSkill` then refused the file with
+`missing required field: description`, because the collapse leaves no
+`description` key at all. Such files now parse correctly. Nothing that worked
+before stops working: the only files whose outcome changes could not load at
+all. It mattered enough to fix because a caller doing its own validation —
+which is the whole point of this export — would have accepted the mangled name
+silently.
 
 **The one exception that is only prose.** The refusal message for unsupported
 YAML used to end *"Refusing rather than registering a skill whose `x` would read
