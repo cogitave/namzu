@@ -177,6 +177,21 @@ newline-delimited events a host UI can consume, `namzu history`,
 `namzu providers`, `namzu doctor`, and `namzu eval`. Run `namzu --help` for
 the current list.
 
+Three things it does on the way in are worth knowing, because they are the
+difference between a toy and something you point at a real repository:
+
+- **A folder nobody has trusted is not one it runs in.** On launch in an
+  unfamiliar working directory it stops and asks, because reading, running
+  commands and editing files there is what it is about to be able to do.
+- **The repository gets to state how it wants work done.** An `AGENTS.md` is
+  read from the working directory upward to the repository root, outermost
+  first, so the file nearest the work has the final word. Before this existed
+  everything the agent was told was about the *user* and global to the
+  machine; a project that had written its conventions down had no way to be
+  heard short of pasting the file in every session.
+- **It connects to the tool servers you declare**, so the tools available in a
+  given checkout are that checkout's business rather than the binary's.
+
 ## What is inside that is independently hard
 
 The reason this repository is larger than a loop is that each of the following
