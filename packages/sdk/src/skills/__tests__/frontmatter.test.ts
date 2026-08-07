@@ -113,6 +113,47 @@ describe('YAML this reader does not implement', () => {
 	})
 })
 
+describe('a SKILL.md authored on Windows', () => {
+	/**
+	 * The unit tests for the shared reader cover CRLF directly. This one
+	 * drives `loadSkill`, because a reader that handles CRLF proves nothing
+	 * about the caller if the caller re-splits the file itself — and the
+	 * defect this came from was exactly that, one layer up in the CLI.
+	 */
+	it('loads with its frontmatter intact rather than falling back to the directory name', async () => {
+		const path = skill(
+			['---', 'name: a-skill', 'description: Does a useful thing', '---', '', 'Body text.'].join(
+				'\r\n',
+			),
+		)
+
+		const loaded = await loadSkill(path, 'full')
+		expect(loaded.skill.metadata.name).toBe('a-skill')
+		expect(loaded.skill.metadata.description).toBe('Does a useful thing')
+		expect(loaded.skill.metadata.description).not.toMatch(/\r/)
+		expect(loaded.skill.body).toBe('Body text.')
+	})
+
+	it('carries a CRLF metadata block through to the skill', async () => {
+		const path = skill(
+			[
+				'---',
+				'name: a-skill',
+				'description: Does a useful thing',
+				'metadata:',
+				'  author: someone',
+				'---',
+				'',
+				'Body text.',
+			].join('\r\n'),
+		)
+
+		const loaded = await loadSkill(path, 'full')
+		expect(loaded.skill.metadata.metadata).toEqual({ author: 'someone' })
+		expect(loaded.skill.metadata.metadata?.author).not.toMatch(/\r/)
+	})
+})
+
 describe('ordinary frontmatter', () => {
 	it('still loads', async () => {
 		const path = skill(

@@ -6,149 +6,69 @@ import type {
 	SkillLoadResult,
 	SkillMetadata,
 } from '../types/skills/index.js'
+import { type ParsedFrontmatter, parseFrontmatter } from '../utils/frontmatter.js'
 import { getRootLogger } from '../utils/logger.js'
 
 const logger = getRootLogger().child({ component: 'SkillLoader' })
 
 const SKILL_FILENAME = 'SKILL.md'
-const FRONTMATTER_DELIMITER = '---'
 
-interface ParsedSkillMd {
-	metadata: SkillMetadata
-	body: string
+/**
+ * How this file's errors name themselves. Passed to the shared reader so a
+ * frontmatter failure still reads as a `SKILL.md` failure — the reader is
+ * generic, the message is not.
+ */
+function sourceLabel(dirPath: string): string {
+	return `SKILL.md at "${dirPath}"`
 }
 
-function parseSkillMd(raw: string, dirPath: string): ParsedSkillMd {
-	const trimmed = raw.trimStart()
+/**
+ * The skill vocabulary, applied to a generic parse.
+ *
+ * Splitting the file is {@link parseFrontmatter}'s job and knowing what a
+ * skill requires is this function's. A command file goes through the same
+ * reader and validates an entirely different set of keys.
+ */
+function toSkillMetadata(parsed: ParsedFrontmatter, dirPath: string): SkillMetadata {
+	const source = sourceLabel(dirPath)
+	const { data, blocks } = parsed
 
-	if (!trimmed.startsWith(FRONTMATTER_DELIMITER)) {
-		throw new Error(`SKILL.md at "${dirPath}" has no YAML frontmatter`)
+	if (!data.name) {
+		throw new Error(`${source} missing required field: name`)
+	}
+	if (!data.description) {
+		throw new Error(`${source} missing required field: description`)
 	}
 
-	// Anchored to a line of its own. An unanchored search found `---`
-	// anywhere — inside a quoted value, inside a URL, inside prose — and cut
-	// the frontmatter there, which both truncated the metadata AND spilled
-	// the rest of the frontmatter into `body`, where it reaches the system
-	// prompt verbatim.
-	const closing = FRONTMATTER_FENCE.exec(trimmed.slice(FRONTMATTER_DELIMITER.length))
-	if (!closing) {
-		throw new Error(`SKILL.md at "${dirPath}" has unclosed frontmatter`)
-	}
-
-	const endIdx = FRONTMATTER_DELIMITER.length + closing.index
-	const frontmatterRaw = trimmed.slice(FRONTMATTER_DELIMITER.length, endIdx).trim()
-	const body = trimmed.slice(endIdx + closing[0].length).trim()
-
-	const metadata = parseFlatYaml(frontmatterRaw, dirPath)
-
-	return { metadata, body }
-}
-
-function parseFlatYaml(raw: string, dirPath: string): SkillMetadata {
-	const lines = raw.split('\n')
-	const kv: Record<string, string> = {}
-	const metadata: Record<string, string> = {}
-	let section: 'metadata' | undefined
-
-	for (const line of lines) {
-		if (!line.trim() || line.trimStart().startsWith('#')) continue
-
-		if (/^\s/.test(line)) {
-			if (section !== 'metadata') continue
-			const colonIdx = line.indexOf(':')
-			if (colonIdx === -1) continue
-			const key = line.slice(0, colonIdx).trim()
-			const value = normalizeYamlScalar(line.slice(colonIdx + 1).trim())
-			if (key && value) metadata[key] = value
-			continue
-		}
-
-		const colonIdx = line.indexOf(':')
-		if (colonIdx === -1) continue
-		const key = line.slice(0, colonIdx).trim()
-		const value = normalizeYamlScalar(line.slice(colonIdx + 1).trim())
-
-		assertReadableScalar(key, value, dirPath)
-
-		section = key === 'metadata' ? 'metadata' : undefined
-		if (value) kv[key] = value
-	}
-
-	if (!kv.name) {
-		throw new Error(`SKILL.md at "${dirPath}" missing required field: name`)
-	}
-	if (!kv.description) {
-		throw new Error(`SKILL.md at "${dirPath}" missing required field: description`)
-	}
-
-	validateSkillName(kv.name, dirPath)
-	validateDescription(kv.description, dirPath)
+	validateSkillName(data.name, dirPath)
+	validateDescription(data.description, dirPath)
 
 	const skillMetadata: SkillMetadata = {
-		name: kv.name,
-		description: kv.description,
+		name: data.name,
+		description: data.description,
 	}
 
-	if (kv.license) {
-		skillMetadata.license = kv.license
+	if (data.license) {
+		skillMetadata.license = data.license
 	}
 
-	if (kv.compatibility) {
-		if (kv.compatibility.length > 500) {
-			throw new Error(`SKILL.md at "${dirPath}": compatibility exceeds 500 characters`)
+	if (data.compatibility) {
+		if (data.compatibility.length > 500) {
+			throw new Error(`${source}: compatibility exceeds 500 characters`)
 		}
-		skillMetadata.compatibility = kv.compatibility
+		skillMetadata.compatibility = data.compatibility
 	}
 
-	if (kv['allowed-tools']) {
-		skillMetadata.allowedTools = kv['allowed-tools']
+	if (data['allowed-tools']) {
+		skillMetadata.allowedTools = data['allowed-tools']
 	}
 
-	if (Object.keys(metadata).length > 0) {
-		skillMetadata.metadata = metadata
+	const extra = blocks.metadata
+	if (extra && Object.keys(extra).length > 0) {
+		skillMetadata.metadata = { ...extra }
 	}
 
 	return skillMetadata
-}
-
-function normalizeYamlScalar(value: string): string {
-	return value.replace(/^["']|["']$/g, '').trim()
-}
-
-/** A closing fence is a line of its own, not `---` wherever it appears. */
-const FRONTMATTER_FENCE = /^---[ \t]*$/m
-
-/**
- * YAML this reader does not implement, refused rather than mangled.
- *
- * The frontmatter reader here is a flat key/value splitter, and the
- * documented contract says "YAML frontmatter" with no restriction — so an
- * author has every reason to write a block scalar or a flow sequence, and
- * no reason to expect what happened next. A `description: >-` followed by
- * an indented paragraph produced the literal string `">-"`, which passed
- * validation and registered with no warning; the skill then existed and
- * was never selected, because its description said nothing. A
- * `[Read, Grep]` became that literal text and was interpolated straight
- * into the prompt.
- *
- * Refusing names the line and the file. That is worse for exactly one
- * skill — the one already silently broken — and better for everyone
- * looking for it.
- */
-const UNSUPPORTED_YAML = [
-	{ pattern: /^[>|][-+]?\s*$/, what: 'a block scalar (`>` or `|`)' },
-	{ pattern: /^\[.*\]$/, what: 'a flow sequence (`[a, b]`)' },
-	{ pattern: /^\{.*\}$/, what: 'a flow mapping (`{a: b}`)' },
-] as const
-
-function assertReadableScalar(key: string, rawValue: string, dirPath: string): void {
-	const value = rawValue.trim()
-	for (const { pattern, what } of UNSUPPORTED_YAML) {
-		if (!pattern.test(value)) continue
-		throw new Error(
-			`SKILL.md at "${dirPath}": "${key}" uses ${what}, which this reader does not support. Write it as a single-line value instead. Refusing rather than registering a skill whose "${key}" would read as ${JSON.stringify(value)}.`,
-		)
-	}
 }
 
 const SKILL_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
@@ -191,10 +111,11 @@ export async function loadSkill(
 ): Promise<SkillLoadResult> {
 	const skillMdPath = join(dirPath, SKILL_FILENAME)
 	const raw = await readFile(skillMdPath, 'utf-8')
-	const parsed = parseSkillMd(raw, dirPath)
+	const parsed = parseFrontmatter(raw, sourceLabel(dirPath))
+	const metadata = toSkillMetadata(parsed, dirPath)
 
 	const skill: Skill = {
-		metadata: parsed.metadata,
+		metadata,
 		dirPath,
 	}
 
@@ -202,11 +123,11 @@ export async function loadSkill(
 		skill.body = parsed.body
 	}
 
-	const metadataTokens = estimateTokens(`${parsed.metadata.name}: ${parsed.metadata.description}`)
+	const metadataTokens = estimateTokens(`${metadata.name}: ${metadata.description}`)
 	const bodyTokens = skill.body ? estimateTokens(skill.body) : 0
 
 	logger.debug('Loaded skill', {
-		name: parsed.metadata.name,
+		name: metadata.name,
 		level,
 		tokens: metadataTokens + bodyTokens,
 	})

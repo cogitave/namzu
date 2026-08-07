@@ -142,6 +142,11 @@ export {
 	resolveSkillChain,
 	SkillRegistry,
 } from './skills/index.js'
+// The one frontmatter reader. `loadSkill` is built on it, and a host reading
+// its own markdown — a command file, a prompt template — uses the same one
+// rather than hand-rolling a second that disagrees about CRLF or about whether
+// a malformed file throws or quietly returns nothing.
+export { parseFrontmatter } from './utils/frontmatter.js'
 
 // ─── the agent directory ─────────────────────────────────────────────────
 //
