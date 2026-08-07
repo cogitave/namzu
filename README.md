@@ -199,6 +199,15 @@ agent/
 └── agents/             one folder per delegate, same shape, one level deep
 ```
 
+`instructions.md` is used verbatim, and it is one of **two** ways to shape an
+agent here. The other is the structured persona assembler, and the two are not
+rival subsystems — they fill one slot, with a plain system prompt taking
+precedence over a persona. `assembleSystemPrompt(persona)` returns a string, so
+its output can simply be what `instructions.md` contains. A folder does not lose
+its skills by taking the simple route: the skills section is rendered either way.
+The trade-off is set out in
+[an agent can be a directory](docs/sdk/directory/agent-as-a-directory.md).
+
 A tool file is a normal module:
 
 ```typescript

@@ -58,7 +58,7 @@ import { join, relative, resolve } from 'node:path'
  * before: an entry whose pages do not yet conform turns this gate red for
  * everyone, and an entry added "ready for later" is a check that cannot fail.
  */
-const CONFORMING = ['docs/conventions']
+const CONFORMING = ['docs/conventions', 'docs/sdk/directory']
 
 /**
  * Front-matter keys every conforming document declares.
