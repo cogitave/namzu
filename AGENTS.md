@@ -56,8 +56,12 @@ This file is a **router**, not a rulebook. Detail lives in the folders below; re
     Skill: `update-docs`.
   </published_docs>
 
-  <legacy path="docs/legacy/">
-    Superseded design notes and frozen session records, moved rather than rewritten. Carries the minimum front matter the gate requires and **no `verified:` key**, which marks it unverified — nobody has re-checked it against the code, and nobody is going to. Read it as history, never as a current claim.
+  <legacy path="(deliberately does not exist)">
+    **There is no `docs/legacy/`, and its absence is a decision.** Frozen sessions and superseded design notes stay whole and untracked in `.work/`.
+
+    The plan was to group them under `docs/legacy/`. Measuring them ended it: the owner ruled that no third-party brand name appears in tracked prose, and under that ruling not one frozen session can move without leaving files behind. In every case the blocked files are the `README.md` and the `progress.md` — the ones that give the rest its meaning. Moving the remainder would produce anonymous fragments in a bin, which is the outcome the exercise existed to avoid.
+
+    An empty `docs/legacy/` would be worse than none: a directory that exists to hold the old material, holding nothing, reads as "there is no old material" rather than "the old material could not come". So do not create it. The naming ruling is the owner's to revisit, and this follows from it.
   </legacy>
 
   <runtime_state path=".namzu/">
