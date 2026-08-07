@@ -1,7 +1,7 @@
 ---
 title: A2A Context
 description: A2A's contextId is a Project. What this page used to say, why it was wrong, and what to do instead.
-last_updated: 2026-08-06
+last_updated: 2026-08-07
 status: current
 related_packages: ["@namzu/sdk"]
 ---
@@ -42,20 +42,35 @@ Archival is namzu's context-expiry policy, and it is surfaced as an explicit rej
 
 > **Being fixed separately, and worth knowing now.** Archival stops new sessions and does not stop runs already under way: `runtime/query` never consults the session store, so nothing marks a session active and the archival guard reads a field nobody maintains. Until that lands, read "archived" as "no new work admitted", not as "everything has stopped".
 
-## 4. Thread is being removed
+## 4. Thread's removal is proposed, not underway
 
-The Thread layer is scheduled for removal. It owns no message stream, no derived status, no participant set, no policy, and no segment of the on-disk layout (`projects/{prj}/sessions/{ses}/runs/{run}`) — and its one stated justification is the A2A claim this page has just retracted.
+**Thread is live. Nothing about it has been removed or deprecated.** `runAgent`
+mints a `thd_` id on every run it is not given one for
+(`agents/runAgent.ts:193`), `ThreadId` is an exported branded type, and no
+declaration on the Thread surface carries an `@deprecated` tag. If you are
+reading this to find out what shipped, the answer is: the layer is exactly where
+it was.
 
-| If you were using | Use instead |
+What follows is a **proposal** and the argument for it, recorded here so the next
+reader does not have to reconstruct it. It is not a migration in progress and
+nothing has been staged.
+
+The case for removing it: the layer owns no message stream, no derived status, no participant set, no policy, and no segment of the on-disk layout (`projects/{prj}/sessions/{ses}/runs/{run}`) — and its one stated justification is the A2A claim this page has just retracted.
+
+If it were carried out, the replacements would be these. Read the right-hand
+column as "what to prefer in new code", not as "what you must migrate to" —
+nothing on the left has been withdrawn:
+
+| Rather than building new work on | Prefer |
 | --- | --- |
 | `ThreadId` as an A2A attach point | `ProjectId` — which is what the bridge already used |
 | `ThreadManager.archive` for context expiry | Project-scoped archival |
 | `listSessions(threadId, …)` | `listSessionsByProject`, plus a `threadId` filter |
 | `Thread` as a grouping label | `Session.threadId`, which survives as an optional **queryable** grouping key |
 
-`ThreadId` itself is not going away. It stays as an optional branded key on `Session` with a filter on listing — grouping without an entity, which is the shape other harnesses use for the same job. What goes is the container, the store, the manager, and the lifecycle.
+Under the proposal `ThreadId` itself would not go away. It would stay as an optional branded key on `Session` with a filter on listing — grouping without an entity, which is the shape other harnesses use for the same job. What would go is the container, the store, the manager, and the lifecycle.
 
-The removal is staged: deprecations with named replacements first, the removal in the next major. Nothing here requires action today beyond not building anything new on `Thread`.
+Were it adopted, it would be staged: deprecations with named replacements first, the removal in a later major. **None of that has begun** — there is no deprecation on any Thread declaration today. Nothing here requires action beyond not building anything new on `Thread`.
 
 ## Related
 

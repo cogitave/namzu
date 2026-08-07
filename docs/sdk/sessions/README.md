@@ -1,7 +1,7 @@
 ---
 title: Sessions, Threads, Workspaces, and Retention
 description: Understand the project-thread-session-subsession-run hierarchy, session stores, workspaces, handoff, and archival surfaces exposed by @namzu/sdk.
-last_updated: 2026-04-21
+last_updated: 2026-08-07
 status: current
 related_packages: ["@namzu/sdk"]
 ---
@@ -25,7 +25,7 @@ Each level solves a different problem:
 | Entity | Role |
 | --- | --- |
 | `Project` | Folder-bound long-lived scope for shared limits, knowledge bases, memory, and retention policy. Shared between collaborators. |
-| `Thread` | Topic- or objective-level container inside a Project. Path-independent. The layer that A2A connections attach to. See [A2A Threading](./a2a-threading.md). |
+| `Thread` | Topic- or objective-level grouping key inside a Project. Path-independent. Owns no message stream, status or policy of its own. Not the A2A boundary — see [A2A Context](./a2a-threading.md). |
 | `Session` | Active work unit owned by one actor at a time, under a Thread. |
 | `SubSession` | A Session spawned by another Session's agent via delegation. Structurally just a Session with `parentSessionId` set. |
 | `Run` | One atomic agent invocation under a Session — bounded iterations, terminal status. |
@@ -34,7 +34,7 @@ Three identity rules are important:
 
 - `tenantId` is the isolation boundary
 - `projectId` is the long-lived goal scope (folder-bound in local mode)
-- `threadId` is the topic-level A2A-connection surface
+- `threadId` is the topic-level grouping key over sessions (the A2A boundary is `projectId`)
 - `sessionId` is the concrete execution or collaboration unit
 
 ## 2. Start with a Session Store
@@ -195,12 +195,12 @@ The design intent is important:
 | treating `sessionId` as a disposable run ID | sessions are durable lifecycle objects, not just one provider call |
 | deleting a session that still has attached sub-sessions | the store rejects this; callers must clean up children first |
 | assuming tenant isolation is implied by file paths | tenant checks are explicit and enforced in the store contracts |
-| skipping the Thread layer and creating Sessions directly under a Project | Threads are where A2A connections attach; skipping them gives up enterprise-sharing semantics |
+| expecting the Thread layer to scope what an A2A peer can see | it does not; `projectId` is the A2A boundary, and a peer holding a context holds the whole Project |
 | binding workspace lifetime directly to every session by default | the SDK keeps workspace provisioning explicit and separate |
 
 ## Related
 
-- [A2A Threading](./a2a-threading.md) — how enterprise project sharing and thread-level A2A connection work together
+- [A2A Context](./a2a-threading.md) — the A2A `contextId` is a Project, and what that means for what a peer can reach
 - [Run Identities](../runtime/identities.md)
 - [Agents and Orchestration](../agents/README.md)
 - [Low-Level Runtime](../runtime/low-level.md)
