@@ -52,13 +52,18 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { join, relative, resolve } from 'node:path'
 
 /**
- * Directories migrated to the documentation standard.
+ * Paths migrated to the documentation standard — a directory, or a single file.
  *
- * Add a directory here in the same change that rewrites its pages, never
+ * Add an entry here in the same change that brings it up to the standard, never
  * before: an entry whose pages do not yet conform turns this gate red for
  * everyone, and an entry added "ready for later" is a check that cannot fail.
+ *
+ * Single files are allowed because a new page usually lands in a directory
+ * whose other pages have not been migrated yet. Requiring a whole directory
+ * would mean either migrating twenty unrelated pages to ship one, or leaving
+ * the new page ungated — and the second is what actually happens.
  */
-const CONFORMING = ['docs/conventions']
+const CONFORMING = ['docs/conventions', 'docs/sdk/agent-directory.md']
 
 /**
  * Front-matter keys every conforming document declares.
@@ -136,6 +141,10 @@ function parseFrontMatter(text) {
 
 function* markdownUnder(dir) {
 	if (!existsSync(dir)) return
+	if (statSync(dir).isFile()) {
+		if (dir.endsWith('.md')) yield dir
+		return
+	}
 	const entries = readdirSync(dir, { withFileTypes: true })
 	for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
 		const full = join(dir, entry.name)
