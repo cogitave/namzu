@@ -271,8 +271,9 @@ npx @namzu/cli
 Bare `namzu` opens an interactive terminal agent. The same binary is
 scriptable: `namzu run` for a single headless prompt, `namzu run-stream` for
 newline-delimited events a host UI can consume, `namzu history`,
-`namzu providers`, `namzu doctor`, and `namzu eval`. Run `namzu --help` for
-the current list.
+`namzu doctor`, `namzu skills`, and `namzu eval`, plus `namzu providers-json`
+and `namzu skills-json` for a host UI that wants the rosters as JSON. Run
+`namzu --help` for the current list.
 
 Three things it does on the way in are worth knowing, because they are the
 difference between a toy and something you point at a real repository:
