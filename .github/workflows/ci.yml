@@ -95,6 +95,29 @@ jobs:
       - name: External-name audit
         run: node scripts/audit-external-names.mjs
 
+      # The installer is the one path with no fallback: it runs before namzu
+      # exists, on whatever shell the machine has, and a syntax error in it is
+      # discovered by the person who has nothing installed yet. Both shells
+      # parse it without executing.
+      #
+      # What this catches is SYNTAX, and the bound is worth stating because it
+      # is narrower than it looks: `dash -n` does NOT reject every bashism.
+      # `[[ -n "$x" ]]` parses cleanly under it, because `[[` is read as an
+      # ordinary command word and only fails at run time. Measured, not
+      # assumed — the first version of this step claimed otherwise.
+      #
+      # So this gate proves the file parses, not that it is free of bashisms.
+      # Catching those needs a linter that is not guaranteed on this runner,
+      # and a conditional check that skips when its tool is absent would turn
+      # "I cannot establish this" into "this is satisfied" — the failure
+      # `docs/conventions/an-optional-dependency-may-not-degrade-a-check.md`
+      # exists to prevent. Reviewing the diff is the control for bashisms.
+      - name: Installer parses as POSIX sh
+        if: matrix.node-version == 24
+        run: |
+          sh -n install.sh
+          dash -n install.sh
+
       # Behaviour regression gate. The harness exists so that a change to a
       # tool description, the deferred-tool top-k, or the compaction
       # threshold ships with a signal behind it — and that signal could not

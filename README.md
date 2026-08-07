@@ -265,8 +265,20 @@ to the slots you asked for, so it never means more than it checked.
 ### The terminal agent
 
 ```bash
+# Install it
+curl -fsSL https://raw.githubusercontent.com/cogitave/namzu/main/install.sh | sh
+
+# Or, if you would rather not pipe a script into a shell
+npm install -g @namzu/cli
+
+# Or run it once without installing
 npx @namzu/cli
 ```
+
+The installer checks for Node 20+, installs the package, and then verifies the
+binary answers before claiming success. If your global prefix is not writable
+it retries into `~/.namzu` and tells you the one line to add to your profile —
+it never re-runs itself with elevated privileges.
 
 Bare `namzu` opens an interactive terminal agent. The same binary is
 scriptable: `namzu run` for a single headless prompt, `namzu run-stream` for
