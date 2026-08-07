@@ -55,22 +55,13 @@ vi.mock('../tui/agent.js', () => ({
 	createAgentSession: vi.fn(
 		async (_prefs: unknown, _detected: unknown, opts?: { cwd?: string }) => {
 			sessionsCreated.push(opts?.cwd ?? '')
-			return {
-				hasProvider: true,
-				providerSummary: 'mock',
-				modelSummary: 'mock-model',
-				toolNames: [],
-				instructionFiles: [] as readonly string[],
-				skippedInstructionFiles: [] as readonly { path: string; reason: string }[],
-				mcpConnected: [] as readonly { name: string; toolCount: number }[],
-				mcpFailed: [] as readonly { name: string; reason: string }[],
-				close: async () => {},
-				errorHint: null,
-				send: () =>
-					(async function* () {
-						yield { kind: 'done', stopReason: 'end_turn' }
-					})(),
-			}
+			// Imported here rather than at the top: this file mocks the whole of
+			// `../tui/agent.js`, and a dynamic import inside the lazily-called
+			// factory keeps the fixture clear of the hoisting that mock factories
+			// are subject to. The fixture itself imports only types from the
+			// mocked module, so nothing of it survives to run.
+			const { fakeAgentSession } = await import('../tui/__fixtures__/agent-session.js')
+			return fakeAgentSession()
 		},
 	),
 }))

@@ -4,6 +4,7 @@ import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { openSessions } from '../../integrations/sessions/store.js'
+import { fakeAgentSession } from '../../tui/__fixtures__/agent-session.js'
 import { parseRunFlags } from '../run-flags.js'
 import { historyCommand, runStreamCommand, skillsJSONCommand } from '../run-stream.js'
 import type { CommandContext } from '../types.js'
@@ -46,22 +47,14 @@ vi.mock('../../tui/agent.js', () => ({
 			opts?: { cwd?: string; rules?: unknown[]; permissionMode?: string },
 		) => {
 			sessionOptions.push(opts)
-			return {
-				hasProvider: true,
+			// This file asserts on the OPTIONS the session was constructed with,
+			// captured above, so the session itself only has to exist. `send`
+			// yields nothing on purpose: these runs are not driven to a result.
+			return fakeAgentSession({
 				providerSummary: 'stub',
 				modelSummary: 'stub',
-				toolNames: [],
-				// Present because a real session always sets these: a stub missing a
-				// field production always has is a fixture for a system that does not
-				// ship.
-				instructionFiles: [] as readonly string[],
-				skippedInstructionFiles: [] as readonly { path: string; reason: string }[],
-				mcpConnected: [] as readonly { name: string; toolCount: number }[],
-				mcpFailed: [] as readonly { name: string; reason: string }[],
-				close: async () => {},
-				errorHint: null,
 				send: async function* () {},
-			}
+			})
 		},
 	),
 }))

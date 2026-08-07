@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { fakeAgentSession } from '../../tui/__fixtures__/agent-session.js'
+import type { AgentSession } from '../../tui/agent.js'
 import { runCommand } from '../run.js'
 import type { CommandContext } from '../types.js'
 
@@ -14,20 +16,10 @@ import type { CommandContext } from '../types.js'
  * deploy` went ahead on the empty file.
  */
 
-const sessionStub = {
-	hasProvider: true,
-	providerSummary: 'mock',
-	modelSummary: 'mock-model',
-	// A real session always carries this, empty or not. A stub that omits a
-	// field production always sets is a fixture that tests a system which does
-	// not ship.
-	instructionFiles: [] as readonly string[],
-	skippedInstructionFiles: [] as readonly { path: string; reason: string }[],
-	mcpConnected: [] as readonly { name: string; toolCount: number }[],
-	mcpFailed: [] as readonly { name: string; reason: string }[],
-	close: async () => {},
-	send: undefined as unknown,
-}
+// Typed as the real interface via the shared fixture, so a field added to
+// `AgentSession` fails in the fixture rather than silently leaving this stub
+// missing something production always sets.
+const sessionStub = fakeAgentSession()
 
 // These tests are about exit codes for a run that STARTED. Standing in a
 // trusted folder is the ordinary production state and is what they need; the
@@ -62,10 +54,13 @@ function contextCapturing(): { ctx: CommandContext; printed: string[]; errors: s
 }
 
 function streaming(events: unknown[]): void {
-	sessionStub.send = () =>
+	// Cast at the seam on purpose: these tests feed event shapes the union does
+	// not admit, because the defect under test is how the command reacts to a
+	// stream it did not expect.
+	sessionStub.send = (() =>
 		(async function* () {
 			for (const e of events) yield e
-		})()
+		})()) as AgentSession['send']
 }
 
 async function runWith(events: unknown[]): Promise<{
