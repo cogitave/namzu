@@ -1,5 +1,86 @@
 # Changelog
 
+## 15.0.0
+
+### Major Changes
+
+- 1cc83a5: Removed the task-progress reporting channel, which never had a producer: the
+  `progress_updated` variant of `AgentLifecycleEvent`, the `AgentTask.progress`
+  field, and the `AgentTaskProgress` type.
+
+  **What breaks.**
+
+  - `AgentLifecycleEvent` no longer includes
+    `{ type: 'progress_updated'; taskId: TaskId; progress: AgentTaskProgress }`.
+    A listener with a `case 'progress_updated':` branch is now a type error, and
+    an exhaustive `switch` over the union will fail to compile until that branch
+    is deleted.
+  - `AgentTask.progress` is gone. Reading `task.progress` is now a type error.
+  - `AgentTaskProgress` is no longer exported. An annotation naming it will not
+    resolve.
+
+  **What to do instead: delete the code that touched them. Nothing replaces it.**
+  All three were one channel and nothing in the SDK ever drove any part of it —
+  no emit site for the event, no write to the field. A `case 'progress_updated':`
+  branch has never executed, and `task.progress` has been `undefined` on every
+  task that has ever existed. If you were waiting on progress to arrive, you were
+  waiting on something that could not come; this release stops advertising it, it
+  does not change what your code observes at runtime.
+
+  Both declarations carried `@deprecated No producer. Removed in the next major.`
+  in a shipped release, so this is that deprecation being honoured on schedule
+  rather than a surprise removal.
+
+  If you need per-task progress, the live surface is the run event stream —
+  `tool_progress` carries a tool's own progress messages, and the activity store
+  (`activity.progress`) carries structured activity updates. Neither is affected
+  by this change.
+
+  **Why removal rather than building the producer.** Emitting it would be a new
+  feature. Unlike the other producerless events in this codebase, this one has no
+  half-built machinery waiting on it — no wire mapper case, no reporter case, no
+  test fixture. There is nothing to finish, only a declaration to stop making.
+
+  **Scope note, because a much wider removal was proposed and rejected.** This
+  release was drafted against an audit finding of 23 "declared but nothing reads
+  it" items. Most did not survive verification and are deliberately **not**
+  removed: `memoizeAsync`, `toWireRunStatus`, `startBidiRun`,
+  `createMockBidiProvider`, `createRunReporter`, `parseWorktreeList`,
+  `compressShellOutputFull`, `bodySaysContextOverflow`,
+  `classifyProviderHttpStatus`, `resolveSkillChain`, the `SkillChain` and
+  `SkillLoadResult` fields, and `InvocationState.metadata` / `.services` /
+  `.parentChain`. Several have callers inside this package, two are the entry
+  points of the documented duplex runtime, and `InvocationState` is delivered
+  intact to `ToolContext.invocationState` for a host's own tools to read. If you
+  use any of them, this upgrade does not touch them.
+
+### Patch Changes
+
+- 48d9d67: Published tarballs no longer contain test files.
+
+  `files: ["dist", "src", ...]` reads as "the build output and the sources" and
+  means "everything the compiler emitted and everything in the tree", so every
+  compiled test, its declaration, and both source maps shipped to the registry —
+  and for the twelve packages that also ship `src`, the raw test sources went with
+  them.
+
+  Measured on the versions currently published:
+
+  | package      | files       | of which tests | unpacked           |
+  | ------------ | ----------- | -------------- | ------------------ |
+  | `@namzu/sdk` | 3879 → 2239 | 1640 (42%)     | 12.73 MB → 6.81 MB |
+  | `@namzu/cli` | 462 → 282   | 180 (39%)      | 1.21 MB → 0.73 MB  |
+
+  Nothing you can import changes. Every package restricts `exports` to `"."`, so
+  Node refused a deep subpath into those files already — they were weight in the
+  tarball and nothing else. Hence `patch`: there is no consumer-visible surface
+  here, only less to download.
+
+  The exclusions are at the packaging layer, not the compiler. Adding `exclude`
+  to `tsconfig.json` would have kept tests out of `dist` and also dropped them
+  from `tsc --noEmit`, silently ending type-checking of the entire test suite —
+  trading a packaging defect for a much worse one.
+
 ## 14.0.7
 
 ### Patch Changes
