@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
 	SLASH_COMMANDS,
 	type SlashContext,
+	initPrompt,
 	matchSlashCommands,
 	parseSlash,
 	runSlash,
@@ -23,6 +24,7 @@ function context(over: Partial<SlashContext> = {}): SlashContext {
 		usage: null,
 		permissions: { skipPermissions: false, rules: [] },
 		agentIds: [],
+		instructionFiles: [],
 		...over,
 	}
 }
@@ -250,6 +252,44 @@ describe('/agents', () => {
 			expect(r.content).toContain('reviewer')
 			expect(r.content).toContain('2')
 		}
+	})
+})
+
+describe('/init', () => {
+	it('refuses without a provider, because it works by asking the agent', () => {
+		const r = runSlash('/init', context({ providerSummary: null }))
+		expect(r?.kind).toBe('message')
+		if (r?.kind === 'message') expect(r.content).toContain('needs a provider')
+	})
+
+	it('drives a turn rather than printing at the user', () => {
+		// The whole design: the kernel reads the tree and writes the file, so
+		// this must be a prompt and not a CLI-side generator.
+		const r = runSlash('/init', context({ providerSummary: 'mock (mock)' }))
+		expect(r?.kind).toBe('prompt')
+	})
+
+	it('tells the agent to verify claims and omit what it cannot establish', () => {
+		// An AGENTS.md of plausible inventions is worse than none, because the
+		// next agent obeys it. If this instruction goes missing the command
+		// still "works" and quietly gets worse, so it is pinned.
+		const p = initPrompt([])
+		expect(p).toContain('Verify every claim against the tree')
+		expect(p).toContain('leave it out')
+	})
+
+	it('asks for a new file when the project has no instructions', () => {
+		const p = initPrompt([])
+		expect(p).toContain('no AGENTS.md yet')
+		expect(p).not.toContain('Do not overwrite')
+	})
+
+	it('refuses to overwrite instructions that already exist, and names them', () => {
+		const p = initPrompt(['/repo/AGENTS.md', '/repo/pkg/AGENTS.md'])
+		expect(p).toContain('Do not overwrite')
+		expect(p).toContain('/repo/AGENTS.md')
+		expect(p).toContain('/repo/pkg/AGENTS.md')
+		expect(p).not.toContain('no AGENTS.md yet')
 	})
 })
 
