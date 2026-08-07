@@ -294,6 +294,14 @@ export function App({ ctx }: AppProps) {
 		availableTools: session?.toolNames ?? [],
 		providerSummary: session?.providerSummary ?? null,
 		modelSummary: session?.modelSummary ?? null,
+		// The same state the status bar reads, unformatted. `/cost` prints exact
+		// figures where the bar abbreviates to fit.
+		usage,
+		permissions: {
+			skipPermissions: ctx.skipPermissions === true,
+			rules: ctx.rules ?? [],
+		},
+		agentIds: session?.agentIds ?? [],
 	}
 
 	// `/resume`: open the picker with this folder's recent conversations.

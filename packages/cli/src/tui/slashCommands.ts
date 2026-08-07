@@ -4,7 +4,17 @@
  * A command's `action` returns either a `system` message to push onto the
  * transcript, an `exit` signal, or `void` (no transcript change). The
  * caller (App) maps results onto state.
+ *
+ * `/cost`, `/permissions` and `/agents` are RENDERERS. Every number and rule
+ * they print was already computed — the kernel emits usage on its own event,
+ * the permission rules were compiled before the session opened, and the
+ * delegate roster is decided when the subagent runtime is built. None of them
+ * asks the model, recomputes anything, or reaches past what the session
+ * already carries. A command that had to compute its own answer would be a
+ * second source for a fact the kernel already owns, and the two would drift.
  */
+
+import type { VerificationRule } from '@namzu/sdk'
 
 export type SlashAction =
 	| { kind: 'message'; role: 'system'; content: string }
@@ -22,6 +32,26 @@ export interface SlashContext {
 	readonly availableTools: readonly string[]
 	readonly providerSummary: string | null
 	readonly modelSummary: string | null
+	/**
+	 * CUMULATIVE run spend, or `null` before the first turn reports any.
+	 *
+	 * The same numbers the status bar abbreviates. Kept as the kernel's own
+	 * quantity rather than a formatted string so `/cost` can print exact
+	 * figures — an abbreviation is right for a bar that must fit and wrong for
+	 * a question someone asked on purpose.
+	 */
+	readonly usage: { readonly totalTokens: number; readonly costUsd: number } | null
+	/** What the operator's config and flags decided about tool approval. */
+	readonly permissions: {
+		/** `--yolo` / `--dangerously-skip-permissions`. */
+		readonly skipPermissions: boolean
+		readonly rules: readonly VerificationRule[]
+	}
+	/**
+	 * Delegate ids this session can dispatch to, empty when the delegation tool
+	 * is not mounted.
+	 */
+	readonly agentIds: readonly string[]
 }
 
 export interface SlashCommand {
@@ -146,7 +176,102 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
 		description: 'Re-open the provider picker to switch the primary provider.',
 		action: () => ({ kind: 'repick' }),
 	},
+	{
+		name: 'cost',
+		description: 'Show tokens and spend for this run.',
+		action: (ctx) => ({ kind: 'message', role: 'system', content: renderCost(ctx.usage) }),
+	},
+	{
+		name: 'permissions',
+		description: 'Show how tool calls get approved, and any rules in force.',
+		action: (ctx) => ({
+			kind: 'message',
+			role: 'system',
+			content: renderPermissions(ctx.permissions),
+		}),
+	},
+	{
+		name: 'agents',
+		description: 'List the delegates this session can dispatch to.',
+		action: (ctx) => ({ kind: 'message', role: 'system', content: renderAgents(ctx.agentIds) }),
+	},
 ]
+
+/**
+ * Spend, stated as spend.
+ *
+ * `totalTokens` is cumulative and monotone; it is NOT how full the context is,
+ * and the two were conflated once already — the gauge divided cumulative spend
+ * by a guessed window, so it climbed with turn count and read FULL on a
+ * conversation with room to spare. This command prints the spend and says which
+ * quantity it is, so that nobody reads it as the other one.
+ */
+export function renderCost(usage: SlashContext['usage']): string {
+	if (usage === null) {
+		return 'No usage reported yet. The kernel emits it as a turn runs, so this fills in after the first exchange.'
+	}
+	const cost =
+		usage.costUsd > 0 ? `$${usage.costUsd.toFixed(4)}` : '$0.0000 (this provider reported no price)'
+	return [
+		`Tokens: ${usage.totalTokens.toLocaleString('en-US')}`,
+		`Cost:   ${cost}`,
+		'',
+		'Cumulative for this run, across every turn. Not a measure of how full',
+		'the context is — that is a different quantity and it goes down when the',
+		'conversation is compacted, while this only ever grows.',
+	].join('\n')
+}
+
+/** What decides a tool call, in the order it actually decides it. */
+export function renderPermissions(permissions: SlashContext['permissions']): string {
+	const lines: string[] = []
+
+	lines.push(
+		permissions.skipPermissions
+			? 'Unreviewed calls: approved automatically (--dangerously-skip-permissions).'
+			: 'Unreviewed calls: you are asked before they run.',
+	)
+
+	if (permissions.rules.length === 0) {
+		lines.push('')
+		lines.push('No rules configured. Add a [permissions] table to namzu.config.json')
+		lines.push('to allow or deny tools by name without being asked each time.')
+	} else {
+		lines.push('')
+		lines.push(`Rules (${permissions.rules.length}), from your config:`)
+		for (const rule of permissions.rules) lines.push(`  ${describeRule(rule)}`)
+	}
+
+	lines.push('')
+	// Stated because the precedence is the part people get wrong, and getting it
+	// wrong in this direction is the dangerous one: assuming the flag lifts a
+	// `deny` they wrote.
+	lines.push('A rule decides first. The approval setting above only reaches calls')
+	lines.push('no rule covered, so it can never reopen what a `deny` closed.')
+
+	return lines.join('\n')
+}
+
+function describeRule(rule: VerificationRule): string {
+	if (rule.type === 'deny_by_name') return `deny   ${rule.toolNames.join(', ')}`
+	if (rule.type === 'allow_by_name') return `allow  ${rule.toolNames.join(', ')}`
+	return rule.type
+}
+
+/** The delegate roster, and an honest answer when there is none. */
+export function renderAgents(agentIds: readonly string[]): string {
+	if (agentIds.length === 0) {
+		return 'No delegates. This session has no delegation tool mounted, so it does the work itself.'
+	}
+	return [
+		`Delegates (${agentIds.length}):`,
+		...agentIds.map((id) => `  ${id}`),
+		'',
+		'The agent dispatches to these itself when a task suits one. It may also',
+		'define a specialist for a single task, which is not listed here because',
+		'it does not exist until the agent asks for it.',
+	].join('\n')
+}
 
 export function runSlash(line: string, ctx: SlashContext): SlashAction | null {
 	const parsed = parseSlash(line)

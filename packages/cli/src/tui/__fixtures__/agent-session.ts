@@ -45,6 +45,7 @@ export function fakeAgentSession(overrides: Partial<AgentSession> = {}): AgentSe
 		skippedInstructionFiles: [],
 		mcpConnected: [],
 		mcpFailed: [],
+		agentIds: [],
 		send: (_messages: readonly Message[], _opts?: SendOptions): AsyncIterable<AgentEvent> =>
 			(async function* () {
 				yield { kind: 'done', stopReason: 'end_turn' } as AgentEvent
