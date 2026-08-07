@@ -220,6 +220,16 @@ export interface AgentSession {
 	 * the task. An empty tool list is not a signal; a named failure is.
 	 */
 	readonly mcpFailed: readonly FailedMcpServer[]
+	/**
+	 * Delegates this session can dispatch to. Empty when the subagent runtime
+	 * did not come up, which is non-fatal and leaves the session doing its own
+	 * work.
+	 *
+	 * Reported because the roster was decided here and then discarded, so no
+	 * surface could answer "what can this thing delegate to" without rebuilding
+	 * the runtime to find out.
+	 */
+	readonly agentIds: readonly string[]
 	send(messages: readonly Message[], opts?: SendOptions): AsyncIterable<AgentEvent>
 	/**
 	 * Release what the session holds — today, the external tool servers.
@@ -451,6 +461,11 @@ export async function createAgentSession(
 	// drains it onto the `Agent` result as a `├─/└─` tree. Scoped per `Agent`
 	// call (cleared when one starts).
 	const childSteps: string[] = []
+	// Stays empty when the runtime below throws, which is the honest answer: the
+	// catch is non-fatal and the session then genuinely has no delegate to
+	// dispatch to. A roster reported from the request rather than the result
+	// would name agents that are not there.
+	let allowedAgentIds: readonly string[] = []
 	try {
 		const sub = await createSubagentRuntime({
 			cwd,
@@ -486,6 +501,7 @@ export async function createAgentSession(
 		})
 		registry.register([sub.agentTool])
 		subagentGateway = sub.gateway
+		allowedAgentIds = sub.allowedAgentIds
 	} catch {
 		// Sub-agents unavailable this session — non-fatal.
 	}
@@ -511,6 +527,7 @@ export async function createAgentSession(
 		providerSummary: entry.label,
 		modelSummary: model,
 		toolNames: activeToolNames,
+		agentIds: allowedAgentIds,
 		instructionFiles: projectInstructions.files.map((f) => f.path),
 		skippedInstructionFiles: projectInstructions.skipped,
 		mcpConnected: mcp.connected,
@@ -1239,6 +1256,9 @@ function emptySession(errorHint: string): AgentSession {
 		providerSummary: null,
 		modelSummary: null,
 		toolNames: [],
+		// No provider, so no runtime was built and there is nothing to delegate
+		// to — the same reason `toolNames` is empty.
+		agentIds: [],
 		// Nothing was injected, because no turn will run. Reporting files here
 		// would claim instructions are in force on a session that has no prompt.
 		instructionFiles: [],
