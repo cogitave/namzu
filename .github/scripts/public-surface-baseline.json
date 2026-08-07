@@ -641,7 +641,6 @@
     "AgentTask",
     "AgentTaskBudget",
     "AgentTaskContext",
-    "AgentTaskProgress",
     "AgentTaskResult",
     "AgentTaskState",
     "AgentToolOptions",
