@@ -42,6 +42,28 @@ die() {
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
+# The directory under `$1` that actually holds the binary, or nothing.
+#
+# Checked rather than computed. npm puts executables in `$prefix/bin` on unix
+# and in `$prefix` itself on Windows, and the shipped `namzu` is `namzu`,
+# `namzu.cmd` or `namzu.ps1` depending on the platform — so a single hard-coded
+# path is wrong somewhere. It was: the "not on PATH" message below named
+# `$NAMZU_PREFIX/bin` unconditionally, which is correct only on the fallback
+# branch, so a successful GLOBAL install that was not on PATH sent the operator
+# to an empty directory. That is the one place this script stopped verifying and
+# started guessing, and it fired exactly when someone needed it to be right.
+bin_dir_under() {
+	for candidate in "$1/bin" "$1"; do
+		for exe in namzu namzu.cmd namzu.ps1; do
+			if [ -e "$candidate/$exe" ]; then
+				printf '%s' "$candidate"
+				return 0
+			fi
+		done
+	done
+	return 1
+}
+
 # Major version of `node -v` output (`v20.11.1` -> `20`).
 node_major() {
 	"$1" -v 2>/dev/null | sed 's/^v//; s/\..*$//'
@@ -86,7 +108,11 @@ else
 	if npm install --global --prefix "$NAMZU_PREFIX" --no-fund --no-audit \
 		"${NAMZU_PKG}@${NAMZU_VERSION}" >/dev/null 2>&1; then
 		INSTALL_MODE=prefix
-		PATH="$NAMZU_PREFIX/bin:$PATH"
+		# Same reasoning as the failure path: locate it, do not compute it.
+		# Falling back to `$NAMZU_PREFIX/bin` keeps the old behaviour when the
+		# probe finds nothing, so the verification below still gets a chance to
+		# report honestly instead of this line silently exporting nothing.
+		PATH="$(bin_dir_under "$NAMZU_PREFIX" || printf '%s' "$NAMZU_PREFIX/bin"):$PATH"
 		export PATH
 	else
 		die "install failed both globally and into ${NAMZU_PREFIX}.
@@ -99,9 +125,33 @@ fi
 
 # The binary has to answer. Exiting 0 from the package manager says the files
 # landed, not that `namzu` resolves or runs.
-have namzu || die "installed, but 'namzu' is not on PATH.
-  The files are in ${NAMZU_PREFIX}/bin. Add it to your PATH:
-    export PATH=\"${NAMZU_PREFIX}/bin:\$PATH\""
+if ! have namzu; then
+	# Where it went depends on which branch ran, and the global branch's prefix
+	# is npm's to report rather than ours to assume.
+	if [ "$INSTALL_MODE" = prefix ]; then
+		NAMZU_ROOT="$NAMZU_PREFIX"
+	else
+		NAMZU_ROOT="$(npm prefix --global 2>/dev/null || true)"
+	fi
+
+	NAMZU_BIN=''
+	[ -n "$NAMZU_ROOT" ] && NAMZU_BIN="$(bin_dir_under "$NAMZU_ROOT" || true)"
+
+	if [ -n "$NAMZU_BIN" ]; then
+		die "installed, but 'namzu' is not on PATH.
+  The binary is in ${NAMZU_BIN}. Add it to your PATH:
+    export PATH=\"${NAMZU_BIN}:\$PATH\""
+	fi
+
+	# Nothing found. Say that, rather than naming a directory to cover the gap —
+	# sending someone to a path that does not hold the binary is the failure this
+	# branch exists to avoid, and doing it while sounding certain is worse than
+	# admitting the install landed somewhere this script cannot see.
+	die "installed, but 'namzu' is not on PATH and the binary could not be located.
+  npm reported its global prefix as: ${NAMZU_ROOT:-<npm did not answer>}
+  Find it and add its directory to your PATH:
+    npm ls --global --parseable ${NAMZU_PKG}"
+fi
 
 NAMZU_INSTALLED="$(namzu --version 2>/dev/null || true)"
 [ -n "$NAMZU_INSTALLED" ] || die "'namzu' is on PATH but did not answer --version.
@@ -110,11 +160,14 @@ NAMZU_INSTALLED="$(namzu --version 2>/dev/null || true)"
 say "namzu ${NAMZU_INSTALLED} installed."
 
 if [ "$INSTALL_MODE" = prefix ]; then
+	# The directory that was actually put on PATH above, so the line the operator
+	# copies into their profile is the line this run proved works.
+	NAMZU_BIN="$(bin_dir_under "$NAMZU_PREFIX" || printf '%s' "$NAMZU_PREFIX/bin")"
 	say ""
 	say "It went to ${NAMZU_PREFIX}, which is not on your PATH by default."
 	say "Add this to your shell profile:"
 	say ""
-	say "    export PATH=\"${NAMZU_PREFIX}/bin:\$PATH\""
+	say "    export PATH=\"${NAMZU_BIN}:\$PATH\""
 fi
 
 say ""
