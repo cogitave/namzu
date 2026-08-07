@@ -40,6 +40,8 @@ import {
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { resolvePermissionMode } from '../permissions/mode.js'
 import { compilePermissions } from '../permissions/rules.js'
+import { SLASH_COMMANDS } from '../tui/slashCommands.js'
+import { expandHeadlessCommand } from '../user-commands/store.js'
 import {
 	loadSkillsContext,
 	parseRunFlags,
@@ -124,6 +126,16 @@ export const runStreamCommand: CommandDef = {
 		const resolved = resolveWorkingDirectory(flags.cwd)
 		if ('error' in resolved) return fail(resolved.error)
 		const cwd = resolved.cwd
+
+		// The same expansion `run` does. A host UI sending `/ozet x` on behalf of
+		// someone who defined that command should get the command, not the model
+		// improvising on the literal text.
+		const expansion = expandHeadlessCommand(prompt, {
+			cwd,
+			builtins: SLASH_COMMANDS.map((c) => c.name),
+		})
+		if (expansion.kind === 'refused') return fail(expansion.reason)
+		const finalPrompt = expansion.kind === 'expanded' ? expansion.prompt : prompt
 
 		// Before the session store is opened, before anything is read or run in
 		// that directory.
@@ -225,7 +237,11 @@ export const runStreamCommand: CommandDef = {
 		// turn's extra system context (the same channel the TUI's /skill uses).
 		const extraSystem = await loadSkillsContext(cwd, flags.skills)
 
-		const userMessage: Message = { role: 'user', content: prompt, timestamp: Date.now() } as Message
+		const userMessage: Message = {
+			role: 'user',
+			content: finalPrompt,
+			timestamp: Date.now(),
+		} as Message
 		const messages: Message[] = [...prior, userMessage]
 
 		let assistantText = ''
