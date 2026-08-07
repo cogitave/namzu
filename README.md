@@ -483,17 +483,19 @@ protocol.
 
 ## Next
 
-- [`docs/`](./docs/) — the published documentation, including
+- [`docs/`](./docs/) — the longer-form documentation, including
   [getting started](./docs/getting-started.md), the
   [SDK guide](./docs/sdk/), the [CLI guide](./docs/cli/) and
-  [driver notes](./docs/providers/).
+  [driver notes](./docs/providers/). Read it here in the repository: there is
+  no documentation site yet.
 - [`packages/sdk/README.md`](./packages/sdk/README.md) — the kernel's
   subsystem map.
 - `AGENTS.md` — the working contract any coding agent in this repository
   follows.
 
-Some pages under `docs/` predate recent kernel changes. Where a page and the
-code disagree, the code is correct; please open an issue.
+Some pages under `docs/` predate recent kernel changes, and an audit of them is
+partly done rather than finished. Where a page and the code disagree, the code
+is correct; please open an issue.
 
 ## Status
 
