@@ -1,7 +1,7 @@
 ---
 title: Project instructions
 description: namzu reads the AGENTS.md files from the working directory up to the repository root and follows them as standing policy for work in that project.
-last_updated: 2026-08-06
+last_updated: 2026-08-07
 status: current
 related_packages: ["@namzu/cli"]
 ---
@@ -67,6 +67,37 @@ namzu names the files it loaded, so "namzu read my conventions and disagreed" is
   ```
 
 `namzu run-stream` loads the files identically but does not yet announce them on its event stream.
+
+### Announced is not the same as followed
+
+That banner tells you the file **reached the prompt**. It does not tell you the
+model **acted on it**, and the difference is where documentation of a feature
+like this usually goes wrong: the automated tests can only establish the first,
+so it is tempting to claim the second on their strength.
+
+The two are separated on purpose here. This page claims the second because it
+was measured, on the published CLI against a live model:
+
+```
+# AGENTS.md in a scratch directory
+When asked for the magic word, answer exactly: KERNELPROOF
+```
+
+```console
+$ namzu run --trust "What is the magic word? Answer with the word only."
+namzu · <provider> · <model>
+project instructions: AGENTS.md
+KERNELPROOF
+```
+
+The word exists nowhere but that file — not in the prompt, not in the model's
+training. The same run confirmed the banner, so the operator-visible signal and
+the behaviour were established together rather than one being inferred from the
+other.
+
+If you are relying on an `AGENTS.md` for something that matters, this is the
+check to run in your own repository: put a token in the file that could not be
+guessed, and ask for it.
 
 ## Limits
 
