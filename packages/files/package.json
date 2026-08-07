@@ -40,7 +40,12 @@
 		}
 	},
 	"files": [
-		"dist"
+		"dist",
+		"!dist/**/*.test.*",
+		"!dist/**/*.proc-test.*",
+		"!dist/**/__tests__",
+		"!dist/**/__fixtures__",
+		"!dist/**/test-setup.*"
 	],
 	"scripts": {
 		"build": "tsc -p tsconfig.json",
