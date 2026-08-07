@@ -15,6 +15,8 @@ import { Readable } from 'node:stream'
 import { describe, expect, it, vi } from 'vitest'
 
 import { EXIT_USAGE } from '../../exit-codes.js'
+import { fakeAgentSession } from '../../tui/__fixtures__/agent-session.js'
+import type { AgentEvent } from '../../tui/agent.js'
 import { composePrompt, runCommand } from '../run.js'
 import type { CommandContext } from '../types.js'
 
@@ -62,27 +64,25 @@ vi.mock('../../tui/agent.js', () => ({
 			seen.cwd = opts?.cwd
 			seen.provider = prefs.provider
 			seen.model = prefs.model
-			return {
-				hasProvider: true,
-				providerSummary: 'mock',
-				modelSummary: 'mock-model',
-				toolNames: [],
-				// Present because a real session always sets these — a stub missing a
-				// field production always has is a fixture for a system that does
-				// not ship.
+			// Only what this file is about is spelled out: the instruction files
+			// it drives assertions from, and a `send` that records the prompt.
+			return fakeAgentSession({
 				instructionFiles: instructions.loaded,
 				skippedInstructionFiles: instructions.skipped,
-				mcpConnected: [] as readonly { name: string; toolCount: number }[],
-				mcpFailed: [] as readonly { name: string; reason: string }[],
-				close: async () => {},
-				errorHint: null,
-				send: (messages: Array<{ content: string }>) => {
-					seen.prompt = messages[0]?.content ?? null
+				send: (messages) => {
+					// `Message.content` is a union, not a string: a tool result carries
+					// blocks. The hand-written stub this replaced declared it as
+					// `{ content: string }`, which type-checked only because it was
+					// describing a message shape that does not exist. The prompt this
+					// file asserts on is a user message, so anything else is `null`
+					// rather than coerced into a string nobody sent.
+					const first = messages[0]?.content
+					seen.prompt = typeof first === 'string' ? first : null
 					return (async function* () {
-						yield { kind: 'done', stopReason: 'end_turn' }
+						yield { kind: 'done', stopReason: 'end_turn' } as AgentEvent
 					})()
 				},
-			}
+			})
 		},
 	),
 }))
