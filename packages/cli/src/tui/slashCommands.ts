@@ -26,6 +26,15 @@ export type SlashAction =
 	| { kind: 'list-skills' }
 	| { kind: 'load-skill'; name: string }
 	| { kind: 'resume' }
+	/**
+	 * Drive a turn with text the command composed rather than the user typed.
+	 *
+	 * The kernel already does the work — reading the tree, writing the file —
+	 * so a command that needs the agent asks it, instead of the CLI growing a
+	 * second way to inspect a repository that would then disagree with the one
+	 * the model uses.
+	 */
+	| { kind: 'prompt'; text: string }
 	| { kind: 'none' }
 
 export interface SlashContext {
@@ -52,6 +61,16 @@ export interface SlashContext {
 	 * is not mounted.
 	 */
 	readonly agentIds: readonly string[]
+	/**
+	 * Absolute paths of the project-instruction files already in this session's
+	 * system prompt.
+	 *
+	 * `/init` reads it to tell "this project has never been described" from
+	 * "one exists and you are about to be asked to rewrite it", which are
+	 * different requests and want different prompts. The session already
+	 * reports this; nothing new is discovered to answer it.
+	 */
+	readonly instructionFiles: readonly string[]
 }
 
 export interface SlashCommand {
@@ -195,7 +214,72 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
 		description: 'List the delegates this session can dispatch to.',
 		action: (ctx) => ({ kind: 'message', role: 'system', content: renderAgents(ctx.agentIds) }),
 	},
+	{
+		name: 'init',
+		description: 'Write an AGENTS.md describing this project to future agents.',
+		action: (ctx) => {
+			if (!ctx.providerSummary) {
+				return {
+					kind: 'message',
+					role: 'system',
+					content:
+						'/init asks the agent to read this repository and write the file, so it needs a provider. Run /model to pick one.',
+				}
+			}
+			return { kind: 'prompt', text: initPrompt(ctx.instructionFiles) }
+		},
+	},
 ]
+
+/**
+ * The instruction `/init` sends as a turn.
+ *
+ * Written as a prompt rather than a template the CLI fills in, because the
+ * useful half of this file is what a reader could not guess from the tree —
+ * the commands that actually work here, the layout that is deliberate — and
+ * only something that has read the repository can say that. A CLI-side
+ * generator would produce a directory listing with headings on it.
+ *
+ * The instruction it opens with is the one that matters: an `AGENTS.md` full of
+ * invented conventions is worse than none, because the next agent obeys it. So
+ * the prompt asks for verification against the tree and for omission over
+ * invention, in those words.
+ */
+export function initPrompt(instructionFiles: readonly string[]): string {
+	const existing =
+		instructionFiles.length > 0
+			? [
+					'',
+					'This project ALREADY has project instructions, loaded from:',
+					...instructionFiles.map((f) => `  ${f}`),
+					'',
+					'Do not overwrite them. Read them first, then propose specific edits —',
+					'what is now wrong, what is missing — and make only the changes I agree to.',
+				].join('\n')
+			: ['', 'This project has no AGENTS.md yet. Create one at the repository root.'].join('\n')
+
+	return [
+		'Write the project instructions that a coding agent joining this repository would need.',
+		'',
+		'Verify every claim against the tree before you write it. Do not describe a',
+		'command you have not found, a layout you have not opened, or a convention you',
+		'have inferred from one file. If you cannot establish something, leave it out —',
+		'an AGENTS.md full of plausible inventions is worse than a short true one,',
+		'because the next agent will follow it.',
+		existing,
+		'',
+		'Cover what a newcomer cannot get from the file listing:',
+		'  - what this project is, in a sentence or two',
+		'  - the build, test and lint commands that actually work here (check the',
+		'    package manifest or task runner rather than assuming the usual ones)',
+		'  - the layout, and any part of it that is deliberate rather than incidental',
+		'  - conventions the code visibly holds to, with the evidence that shows it',
+		'  - anything that would let someone break the project without noticing',
+		'',
+		'Keep it short enough to be read in full. Every line costs context on every',
+		'future run, so a sentence that says nothing is not free.',
+	].join('\n')
+}
 
 /**
  * Spend, stated as spend.

@@ -302,6 +302,7 @@ export function App({ ctx }: AppProps) {
 			rules: ctx.rules ?? [],
 		},
 		agentIds: session?.agentIds ?? [],
+		instructionFiles: session?.instructionFiles ?? [],
 	}
 
 	// `/resume`: open the picker with this folder's recent conversations.
@@ -563,6 +564,11 @@ export function App({ ctx }: AppProps) {
 	const handleSubmit = useCallback(
 		(value: string, images?: readonly ImageAttachment[]) => {
 			setHistory((prev) => [...prev, value])
+			// What actually gets sent. A `prompt` action replaces it with text the
+			// command composed, and then takes the ordinary send path below —
+			// including the queue — so a command-driven turn is not a second way
+			// to run one.
+			let outgoing = value
 			const slash = runSlash(value, slashCtx)
 			if (slash) {
 				switch (slash.kind) {
@@ -642,6 +648,12 @@ export function App({ ctx }: AppProps) {
 					case 'resume':
 						void doResume()
 						return
+					case 'prompt':
+						// Deliberately does NOT return: the composed text falls
+						// through to the same queue-or-send below that a typed
+						// message takes.
+						outgoing = slash.text
+						break
 					case 'none':
 						return
 				}
@@ -649,10 +661,10 @@ export function App({ ctx }: AppProps) {
 			// A turn is in flight → queue the message; it auto-sends when idle.
 			// (Queued messages are text-only; pasted images aren't carried.)
 			if (state !== 'idle') {
-				setQueued((q) => [...q, value])
+				setQueued((q) => [...q, outgoing])
 				return
 			}
-			void runTurn(value, images)
+			void runTurn(outgoing, images)
 		},
 		[activeSkills, doResume, exit, pushMessage, runTurn, slashCtx, state],
 	)
