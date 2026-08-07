@@ -35,7 +35,7 @@ Type `/` followed by a command — an autocomplete dropdown filters as you type.
 | `/clear` | Clear the transcript. |
 | `/tools` | List the tools the agent can call. |
 | `/provider` | Show the current provider and model. |
-| `/model` | Re-open the provider picker to switch providers. |
+| `/model` | Choose the provider, then the model. See [Switching model](#switching-model). |
 | `/resume` | Pick a past conversation in this folder to continue. See [Sessions & resume](#sessions--resume). |
 | `/remember <text>` | Save a fact to durable memory. See [Memory](./memory.md). |
 | `/memory` | Show what namzu remembers. |
@@ -66,6 +66,32 @@ Where the status bar abbreviates (`12.3k tok`), `/cost` prints the figure
 (`12,345`) — you asked on purpose, so you get the number. A provider that
 reports no price shows `$0.0000 (this provider reported no price)` rather than
 implying the run was free.
+
+### Switching model
+
+`/model` asks two questions: which provider, then which model. Enter accepts,
+`esc` steps back to the provider list rather than out of the picker. The model
+step starts on the one already in force, so re-opening it does not quietly reset
+you to the default.
+
+The list comes from the provider itself, and it is not always available. When it
+is not, the picker says which of these happened rather than showing an empty
+list:
+
+| What you see | What it means |
+| --- | --- |
+| the models | the provider answered |
+| *did not answer in time* | it was still thinking after 3 seconds — retryable |
+| *returned no models* | it answered, with none |
+| *does not publish a model list* | this driver has no listing capability |
+| *could not list models: …* | it errored, with its own reason |
+
+In every one of those cases the provider's default is still offered and
+selectable, so the step is never a dead end. The default is marked `(default)`
+wherever it appears.
+
+Your choice is written to `~/.namzu/preferences.json` as `model`, and it is what
+the next turn is sent with.
 
 ## Your own slash commands
 

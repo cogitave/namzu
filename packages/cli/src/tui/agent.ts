@@ -633,33 +633,68 @@ function constructProvider(
 }
 
 /**
- * Best-effort live model list for a detected provider, for host-UI pickers (the
- * desktop Namzu tab). Instantiates the provider (only the drivers that
- * openrouter/ollama are wired in constructProvider — others throw) and calls
- * its optional listModels(). Returns [] on any failure so a picker degrades to
- * free-text + the provider's defaultModel. Wrapped in a 3s race so a wedged
- * local provider (Ollama) or a slow catalog (OpenRouter) can't stall the UI.
+ * What happened when we asked a provider for its models.
+ *
+ * A union rather than an array, because "the list is empty" had four causes and
+ * the caller could not tell them apart: the driver has no `listModels`, the
+ * provider genuinely publishes none, it did not answer inside the deadline, or
+ * it errored. A picker that renders all four as "no models" tells the operator
+ * something false in three of them — and the timeout case is the one where the
+ * truth ("it did not answer in time") most changes what they should do next.
+ */
+export type ModelListing =
+	| { readonly kind: 'ok'; readonly models: ReadonlyArray<{ id: string; name: string }> }
+	/** The driver does not implement `listModels`. */
+	| { readonly kind: 'unsupported' }
+	| { readonly kind: 'timeout' }
+	| { readonly kind: 'failed'; readonly reason: string }
+
+/**
+ * Ask a detected provider what models it has.
+ *
+ * Instantiates the provider and calls its optional `listModels()`, inside a 3s
+ * race so a wedged local server or a slow catalog cannot stall the UI.
+ */
+export async function describeProviderModels(
+	id: ProviderId,
+	det: DetectedProvider,
+): Promise<ModelListing> {
+	try {
+		// constructProvider calls ProviderRegistry.create, which throws
+		// "Unsupported provider type" until the vendor package has registered
+		// itself. The run path registers lazily via ensureRegistered; the
+		// listing path must do the same or every provider returns nothing.
+		await ensureRegistered(id)
+		const provider = constructProvider(id, det, det.entry.defaultModel)
+		if (typeof provider.listModels !== 'function') return { kind: 'unsupported' }
+
+		const TIMEOUT = Symbol('timeout')
+		const timeout = new Promise<typeof TIMEOUT>((resolve) =>
+			setTimeout(() => resolve(TIMEOUT), 3000),
+		)
+		const models = await Promise.race([provider.listModels(), timeout])
+		if (models === TIMEOUT) return { kind: 'timeout' }
+
+		return { kind: 'ok', models: models.map((m) => ({ id: m.id, name: m.name || m.id })) }
+	} catch (err) {
+		return { kind: 'failed', reason: err instanceof Error ? err.message : String(err) }
+	}
+}
+
+/**
+ * The same question, flattened to a list for callers that cannot act on why.
+ *
+ * `providers-json` emits a JSON roster for a host UI and has always rendered an
+ * empty list as "fall back to free text". That contract is unchanged, and this
+ * is the one place the reason is deliberately discarded — everywhere else uses
+ * `describeProviderModels` and says which case it hit.
  */
 export async function listProviderModels(
 	id: ProviderId,
 	det: DetectedProvider,
 ): Promise<Array<{ id: string; name: string }>> {
-	try {
-		// constructProvider calls ProviderRegistry.create, which throws
-		// "Unsupported provider type" until the vendor package has registered
-		// itself. The run path registers lazily via ensureRegistered; the
-		// host-UI listing path must do the same or every provider returns [].
-		await ensureRegistered(id)
-		const provider = constructProvider(id, det, det.entry.defaultModel)
-		if (typeof provider.listModels !== 'function') return []
-		const timeout = new Promise<never>((_, reject) =>
-			setTimeout(() => reject(new Error('listModels timeout')), 3000),
-		)
-		const models = await Promise.race([provider.listModels(), timeout])
-		return models.map((m) => ({ id: m.id, name: m.name || m.id }))
-	} catch {
-		return []
-	}
+	const listing = await describeProviderModels(id, det)
+	return listing.kind === 'ok' ? [...listing.models] : []
 }
 
 export interface RunScope {
