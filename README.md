@@ -14,8 +14,6 @@ diataxis: explanation
 
 <div align="center">
 
-<img src="docs/assets/hero.png" alt="Namzu — an agent kernel: a single supervised run, bounded and recorded" width="880">
-
 <h1>Namzu</h1>
 
 **An agent kernel for TypeScript.**
@@ -309,8 +307,6 @@ is a problem you hit at a specific hour of building an agent product, and each
 one is a thing you would otherwise stop and solve yourself. Every item names
 the file that implements it, because a README is a claim and the code is the
 evidence.
-
-<img src="docs/assets/kernel-boundary.png" alt="A single agent run held inside a boundary: budget, permission gate, and a written record" width="880">
 
 **Shrinking a conversation without corrupting it.**
 The window fills and something has to go, but you cannot simply drop the
