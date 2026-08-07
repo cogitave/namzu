@@ -618,8 +618,13 @@ export function App({ ctx }: AppProps) {
 							return
 						}
 						const activeNames = new Set(activeSkills.map((s) => s.name))
-						const lines = skills.map(
-							(s) => `${activeNames.has(s.name) ? '● ' : '○ '}${s.name} — ${s.description}`,
+						const lines = skills.map((s) =>
+							// A refused skill is shown with its reason rather than hidden.
+							// Dropping it silently would leave someone wondering where a
+							// file they can see on disk went.
+							s.problem
+								? `⚠ ${s.name} — ${s.problem}`
+								: `${activeNames.has(s.name) ? '● ' : '○ '}${s.name} — ${s.description}`,
 						)
 						pushMessage('system', `Skills (● active):\n  ${lines.join('\n  ')}`)
 						return

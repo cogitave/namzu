@@ -41,9 +41,40 @@ describe('parseSkillMarkdown', () => {
 		expect(parsed.body).toBe('just a body')
 	})
 
-	it('tolerates malformed frontmatter', () => {
-		const parsed = parseSkillMarkdown('---\n: : bad yaml :\n---\nbody here')
-		expect(parsed.body).toBe('body here')
+	// The defect this adoption exists to close. The old reader's regex was
+	// `/^---\n…\n---\n?/` — LF only — so a SKILL.md saved on Windows matched
+	// nothing, the whole file became body, and the skill was listed under its
+	// directory name with "(no description)". It did not fail; it described the
+	// skill wrongly.
+	it('reads CRLF frontmatter, which the previous reader silently ignored', () => {
+		const parsed = parseSkillMarkdown(
+			'---\r\nname: Pirate\r\ndescription: talk like a pirate\r\n---\r\nArr matey.',
+		)
+		expect(parsed.name).toBe('Pirate')
+		expect(parsed.description).toBe('talk like a pirate')
+		expect(parsed.body).toBe('Arr matey.')
+	})
+
+	it('refuses frontmatter it cannot read, rather than calling it absent', () => {
+		// An author who opened a fence and got the contents wrong is not the
+		// same as an author who wrote no frontmatter. Answering the first with
+		// "no metadata, carry on" put the broken YAML into the body and from
+		// there into the system prompt.
+		expect(() => parseSkillMarkdown('---\nname: x\nbody with no closing fence')).toThrow()
+	})
+
+	it('names the source in the refusal, so the operator knows which file', () => {
+		expect(() => parseSkillMarkdown('---\nunclosed', '/skills/broken/SKILL.md')).toThrow(
+			/\/skills\/broken\/SKILL\.md/,
+		)
+	})
+
+	it('still treats a file with no fence as all body, which is documented', () => {
+		// `docs/cli/skills.md` promises this, and the refusal above must not
+		// have taken it with it.
+		const parsed = parseSkillMarkdown('# Just a heading\n\nand prose.')
+		expect(parsed.name).toBeUndefined()
+		expect(parsed.body).toBe('# Just a heading\n\nand prose.')
 	})
 })
 
