@@ -33,7 +33,7 @@ Runs an adversarial review pass with Codex to surface flaws, missed edges, conve
      - "Find what is broken in this plan."
      - "What edges does this miss?"
      - "What would break this implementation at scale / under concurrency / on partial failure?"
-     - "Where does this drift from the conventions in `docs.local/conventions/`?"
+     - "Where does this drift from the conventions in `docs/conventions/`?"
      - "What hidden assumption is this plan making that is not stated?"
      - "If you had to kill this design, what angle would you attack?"
    </prompts>
@@ -43,7 +43,7 @@ Runs an adversarial review pass with Codex to surface flaws, missed edges, conve
 4. Triage the response:
    - **Concrete critique** (named risk, specific edge, convention breach) → capture in the session under "Open questions" or "Risks identified".
    - **Generic praise** ("looks good", "well structured") → discard. Do not treat this as validation.
-   - **Convention drift flagged** → re-read the cited rule in `docs.local/conventions/`; if the drift is real, either align the plan or open a deviation discussion before continuing.
+   - **Convention drift flagged** → re-read the cited rule in `docs/conventions/`; if the drift is real, either align the plan or open a deviation discussion before continuing.
 
 5. Append to `progress.md`:
    ```md

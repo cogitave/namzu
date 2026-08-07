@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # Post-commit progress baseline (ses_002-workflow-discipline).
 #
-# For every in-progress session under docs.local/sessions/, append the
+# For every in-progress session under .work/sessions/, append the
 # just-completed commit's hash + subject to progress.md as the auto-
 # baseline line. Today's `## YYYY-MM-DD` heading is created if missing.
 #
@@ -12,8 +12,18 @@
 
 set -e
 
-INDEX="docs.local/sessions/README.md"
-[ -f "$INDEX" ] || exit 0
+# Same two-location resolution as the pre-commit gate, and for the same
+# reason: the baseline append must not silently stop happening because the
+# directory was renamed. See .husky/pre-commit for the full rationale.
+if [ -f ".work/sessions/README.md" ]; then
+  INDEX=".work/sessions/README.md"
+elif [ -f "docs.local/sessions/README.md" ]; then
+  INDEX="docs.local/sessions/README.md"
+else
+  exit 0
+fi
+
+WORK=$(dirname "$(dirname "$INDEX")")
 
 sessions=$(awk -F'|' '
   /^\| ses_/ {
@@ -33,7 +43,7 @@ subject=$(git log -1 --format='%s')
 today=$(date "+%Y-%m-%d")
 
 for sess in $sessions; do
-  pfile="docs.local/sessions/${sess}/progress.md"
+  pfile="${WORK}/sessions/${sess}/progress.md"
   [ -f "$pfile" ] || continue
 
   if ! grep -q "^## ${today}$" "$pfile"; then

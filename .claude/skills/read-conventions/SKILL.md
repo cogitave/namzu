@@ -5,7 +5,7 @@ description: Use this skill before making any non-trivial code change, architect
 
 # Read Conventions
 
-Loads the relevant project rules from `docs.local/conventions/` before a non-trivial change, so the change aligns with decisions already ratified in prior sessions.
+Loads the relevant project rules from `docs/conventions/` before a non-trivial change, so the change aligns with decisions already ratified in prior sessions.
 
 ## When to trigger
 
@@ -20,7 +20,9 @@ Loads the relevant project rules from `docs.local/conventions/` before a non-tri
 ## Steps
 
 <procedure>
-1. Read `docs.local/conventions/README.md` to see the catalogue of ratified rules. **If the file is missing**, this is not a hard error — `docs.local/` is gitignored and lives only on the author machine, so a fresh `git clone` may not have a catalogue yet (per `ses_002-workflow-discipline` design.md §9.4). Treat missing as "single-machine deployment, no catalogue yet" and report `no ratified rules apply yet`. Do not fabricate or guess rules.
+1. Read `docs/conventions/index.md` to see the catalogue of ratified rules. **The catalogue is tracked**, so every clone has it. If it is missing, that is a real defect — say so and stop; do not report "no rules apply", and do not fabricate or guess rules.
+
+   This inverts the skill's previous instruction. The catalogue used to live in gitignored working memory, where absence genuinely meant "not bootstrapped on this machine". It is now part of the repository, and absence means something is wrong.
 
 2. Map the change's surface to the catalogue. Examples:
    <mapping>
@@ -32,7 +34,7 @@ Loads the relevant project rules from `docs.local/conventions/` before a non-tri
      - Changing CLI command → CLI-conventions / commit-convention rules.
    </mapping>
 
-3. Read each relevant rule file fully, not just its generic rule line. The `🔧 Project Implementation` section is where compliance lives.
+3. Read each relevant rule file fully, not just its one-line summary in the catalogue. The incident a rule carries is what tells you whether your case is the one it covers.
 
 4. Check the change against each rule:
    - **Complies** → proceed.
@@ -44,4 +46,4 @@ Loads the relevant project rules from `docs.local/conventions/` before a non-tri
 
 - List of rule files consulted.
 - One-line compliance note per rule: `complies` / `ambiguous — see session ses_NNN` / `deviation — session ses_NNN opened`.
-- Empty or missing catalogue is a valid result while `docs.local/conventions/` is still growing or has not been bootstrapped on the local machine; in that case report "no ratified rules apply yet".
+- A catalogue with no rule matching the change's surface is a valid result — report "no ratified rule covers this". A *missing* catalogue is not: `docs/conventions/index.md` is tracked, so its absence is a defect to report rather than a state to work around.

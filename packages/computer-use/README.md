@@ -96,7 +96,7 @@ If the user installs a missing CLI mid-session, reconstruct the host (capabiliti
 
 ## Design
 
-See [`docs.local/architecture/patterns/namzu-computer-use/subprocess-adapter-pattern.md`](../../docs.local/architecture/patterns/namzu-computer-use/subprocess-adapter-pattern.md) for adapter contract, capability protocol, and platform command matrix.
+See [Platform support](https://github.com/cogitave/namzu/blob/main/docs/computer-use/platform-support.md) and [Host lifecycle](https://github.com/cogitave/namzu/blob/main/docs/computer-use/host-lifecycle.md) for the adapter contract, the capability protocol, and the platform command matrix.
 
 ADR: [`docs/architecture/decisions/adr-computer-use-subprocess.md`](../../docs/architecture/decisions/adr-computer-use-subprocess.md) explains why subprocess over Rust+napi-rs.
 

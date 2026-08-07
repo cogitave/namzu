@@ -26,8 +26,7 @@
  * missing in a major while this gate reported no problem.
  *
  * Baseline captured at the tip of commit f8cb129 (the final commit of
- * ses_010-sdk-type-layering, pre-ses_011). See
- * `docs.local/sessions/ses_011-sdk-public-surface/design.md#4.5`.
+ * ses_010-sdk-type-layering, pre-ses_011).
  *
  * Extension: if a commit intentionally changes the public surface, regenerate
  * the baseline in that same commit:

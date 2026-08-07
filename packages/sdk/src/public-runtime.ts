@@ -2,8 +2,8 @@
 //
 // Every runtime value a consumer might need: classes (agents, managers,
 // stores, registries), functions (helpers, ID generators, runtime entry
-// points), zod schemas, constants, error classes. See §4.2 of
-// `docs.local/sessions/ses_011-sdk-public-surface/design.md`.
+// points), zod schemas, constants, error classes. The three-bucket taxonomy
+// was ratified in ses_011-sdk-public-surface §4.2.
 //
 // Rule: no type-only exports here (types live in public-types.ts). No tool
 // definitions or builders (tools live in public-tools.ts).

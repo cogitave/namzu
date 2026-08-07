@@ -226,6 +226,6 @@ Not in v1; deferred with a dedicated follow-up:
 
 ## 10. References
 
-- [`ses_005-deterministic-replay`](https://github.com/bahadirarda/namzu/tree/main/docs.local/sessions/ses_005-deterministic-replay) — design record, ratified decisions, implementation plan. Internal; linked here for context on what was cut from v1 and why.
+- `ses_005-deterministic-replay` — the design record behind this feature, including what was cut from v1 and why. It is agent working memory, gitignored and never published, so this names it rather than linking to it.
 - `projectEmergencyToCheckpoint` — exported helper if you want to project emergency dumps yourself rather than letting `prepareReplayState` do it.
 - `CheckpointManager.listEntries()` — the lower-level method that `listCheckpoints` wraps, useful if you already hold a `CheckpointManager` for the run.

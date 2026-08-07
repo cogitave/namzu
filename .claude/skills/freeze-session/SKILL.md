@@ -5,7 +5,7 @@ description: Use this skill when a session's decisions are final and either the 
 
 # Freeze Session
 
-Marks a session as the final record of its decisions, extracts any stable rules that emerged into `docs.local/conventions/`, and, if the session's decisions changed the public surface, triggers `update-docs`.
+Marks a session as the final record of its decisions, extracts any stable rules that emerged into `docs/conventions/`, and, if the session's decisions changed the public surface, triggers `update-docs`.
 
 ## When to trigger
 
@@ -60,13 +60,28 @@ Marks a session as the final record of its decisions, extracts any stable rules 
    - Cross-cutting — applies to future work, not just this session's slice.
    - Unambiguous — a reviewer can tell whether a change complies or deviates.
 
-4. For each stable rule, extract into `docs.local/conventions/`:
+4. For each stable rule, extract into `docs/conventions/` — **tracked, published, and gated**, so it is written to the documentation standard rather than as a free-form note:
 
    <extraction>
-     - Open `docs.local/conventions/README.md`, pick the next slug.
-     - Create `docs.local/conventions/<slug>.md` using the template in that README.
-     - Fill the sections: generic rule, project implementation, rationale (with back-link to this session), examples (complies / violates).
-     - Add the row to the conventions catalogue table.
+     - Read `docs/conventions/index.md` for the catalogue and pick a slug that names the rule, not the session.
+     - Create `docs/conventions/<slug>.md` with the front matter the gate requires:
+       `uid` (`namzu.conventions.<slug>`), `title`, `description` (75-300 chars),
+       `type: Convention`, `diataxis: explanation`, `owner: cogitave/namzu`,
+       `status: active`, `timestamp` (ratification date, ISO 8601),
+       `lastReviewed`.
+     - Optional and worth setting: `resource:` naming the code the incident
+       lives in. The gate then fails the build when that code moves and the
+       rule does not. Omit it rather than inventing one when the incident has
+       no single home.
+     - **Do not set `verified:` unless you personally re-established the rule
+       against source in this pass.** Its absence honestly reads as unverified;
+       a false one is a certificate nobody can trust.
+     - Write the rule and the incident that produced it. A rule with no
+       incident behind it is a preference and does not belong here.
+     - Add it to `docs/conventions/index.md` under the right heading, and to
+       `docs/conventions/meta.json`.
+     - Run `pnpm docs:check` — it is a required CI gate, and it will tell you
+       exactly which key is missing.
    </extraction>
 
 5. If the session's decisions changed anything documented in `docs/` (public API, CLI behavior, wire shape), invoke the `update-docs` skill for each affected page.
@@ -81,7 +96,7 @@ Marks a session as the final record of its decisions, extracts any stable rules 
    - This session is now historical record.
    ```
 
-7. Update `docs.local/sessions/README.md` index row: status → `frozen`, fill the "Frozen" column with today's date.
+7. Update `.work/sessions/README.md` index row: status → `frozen`, fill the "Frozen" column with today's date.
 
 8. If this session supersedes a prior frozen session, cross-link both ways:
    - In this session's README: `Supersedes: ses_<old>/ (<brief reason>)`.

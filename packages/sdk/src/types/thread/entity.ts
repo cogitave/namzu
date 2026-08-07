@@ -51,7 +51,7 @@ export type ThreadStatus = 'open' | 'archived'
  *
  * ## Design reference
  *
- * Session design §4 (`docs.local/sessions/ses_001-hierarchy-redesign/design.md`):
+ * Session design §4 (ratified in ses_001-hierarchy-redesign):
  *   - Container only. No own message stream, no own Run stream. Messages
  *     live in Sessions (Phase 0 decision B.1).
  *   - `title` is a user-facing label. **Titles are NOT unique within a

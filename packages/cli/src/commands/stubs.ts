@@ -3,7 +3,7 @@
  *
  * Each stub corresponds to a milestone in the M0→M7 plan and exits 0 after
  * printing a structured marker. The implementations themselves land in
- * their respective milestone sessions (see docs.local/sessions/).
+ * their respective milestone sessions (agent working memory, gitignored).
  */
 
 import type { CommandDef, CommandHandler } from './types.js'

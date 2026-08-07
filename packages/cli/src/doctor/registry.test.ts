@@ -1,5 +1,5 @@
 /**
- * Ratified §9 of docs.local/sessions/ses_007-probe-and-doctor/design.md.
+ * Ratified in ses_007-probe-and-doctor §9 (agent working memory, gitignored).
  * D4 = registerDoctorCheck + plugin auto-discovery + standalone-CLI /
  * embedded-runDoctor split. D5 = sysexits exit codes (0/1/2/70).
  */
