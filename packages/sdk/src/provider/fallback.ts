@@ -108,7 +108,7 @@ const REQUEST_FAULT_CODES: ReadonlySet<string> = new Set([
  * next member may well have. The status survives on both paths; the code does
  * not, so the status is what this reads.
  */
-export function shouldFallOver(err: unknown, providerId: string): boolean {
+function shouldFallOver(err: unknown, providerId: string): boolean {
 	const classified = classifyProviderError(err, providerId)
 	if (classified.status === 404) return true
 	return !REQUEST_FAULT_CODES.has(classified.code)

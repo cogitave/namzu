@@ -267,7 +267,6 @@ export {
 	ProviderRequestError,
 	registerMock,
 	resolveProviderCapabilities,
-	shouldFallOver,
 	UnknownProviderError,
 	withProviderFallback,
 	withProviderRetry,
