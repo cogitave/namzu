@@ -1,7 +1,8 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { removeTempDirAsync } from '../../../__fixtures__/temp-dir.js'
 import type { ProjectId } from '../../../types/session/ids.js'
 import { acquireMigrationLock, readMarker, releaseMigrationLock, writeMarker } from '../marker.js'
 
@@ -13,7 +14,7 @@ describe('migration marker I/O', () => {
 	})
 
 	afterEach(async () => {
-		await rm(root, { recursive: true, force: true })
+		await removeTempDirAsync(root)
 	})
 
 	it('readMarker returns null when the file is missing', async () => {

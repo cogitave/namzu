@@ -1,8 +1,8 @@
-import { rm } from 'node:fs/promises'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
@@ -43,7 +43,7 @@ describe('end of turn with running agent tasks', () => {
 	let workdirs: string[] = []
 
 	afterEach(async () => {
-		await Promise.all(workdirs.map((dir) => rm(dir, { recursive: true, force: true })))
+		await removeTempDirs(workdirs)
 		workdirs = []
 	})
 

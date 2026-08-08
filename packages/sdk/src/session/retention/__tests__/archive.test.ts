@@ -1,7 +1,8 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 import { type ExecFile, GitWorktreeDriver } from '../../../session/workspace/git-worktree.js'
 import { WorkspaceBackendRegistry } from '../../../session/workspace/registry.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
@@ -91,7 +92,7 @@ describe('ArchivalManager', () => {
 	})
 
 	afterEach(() => {
-		rmSync(rootDir, { recursive: true, force: true })
+		removeTempDir(rootDir)
 	})
 
 	it('archive happy path: idle sub-session → tombstone attached, backend called once', async () => {

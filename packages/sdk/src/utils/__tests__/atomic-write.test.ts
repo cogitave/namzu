@@ -1,7 +1,8 @@
-import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 
 import { atomicWriteFile, temporaryPathFor } from '../atomic-write.js'
 
@@ -29,7 +30,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-	rmSync(dir, { recursive: true, force: true })
+	removeTempDir(dir)
 })
 
 describe('the sidecar name', () => {

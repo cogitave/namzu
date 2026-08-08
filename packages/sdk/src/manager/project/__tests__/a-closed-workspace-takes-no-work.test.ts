@@ -1,7 +1,8 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 
 import { EMPTY_TOKEN_USAGE } from '../../../constants/limits.js'
 import { AgentRegistry } from '../../../registry/agent/definitions.js'
@@ -240,7 +241,7 @@ describe('a closed workspace takes no new work', () => {
 describe('a workspace stored before it had a status', () => {
 	const dirs: string[] = []
 	afterEach(async () => {
-		await Promise.all(dirs.map((d) => rm(d, { recursive: true, force: true })))
+		await removeTempDirs(dirs)
 		dirs.length = 0
 	})
 

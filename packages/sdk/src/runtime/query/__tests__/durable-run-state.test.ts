@@ -1,7 +1,8 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { removeTempDirAsync } from '../../../__fixtures__/temp-dir.js'
 
 import { DiskCheckpointStore } from '../../../store/run/checkpoint-disk.js'
 import type {
@@ -42,7 +43,7 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
-	await rm(baseDir, { recursive: true, force: true })
+	await removeTempDirAsync(baseDir)
 })
 
 function checkpoint(id: string, iteration: number): IterationCheckpoint {

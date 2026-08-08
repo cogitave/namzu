@@ -1,7 +1,8 @@
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { removeTempDirAsync } from '../../../__fixtures__/temp-dir.js'
 import { IS_WINDOWS } from '../../../test-support/paths.js'
 import { UNKNOWN_TENANT_ID } from '../../../types/ids/index.js'
 import { FilesystemMigrationError } from '../errors.js'
@@ -58,7 +59,7 @@ describe('DefaultFilesystemMigrator.migrate', () => {
 	afterEach(async () => {
 		// chmod first in case a test left 000 perms on a directory.
 		await chmod(root, 0o755).catch(() => undefined)
-		await rm(root, { recursive: true, force: true })
+		await removeTempDirAsync(root)
 	})
 
 	it('cold boot with a single legacy thread: migrates, emits event, writes marker', async () => {

@@ -1,7 +1,8 @@
-import { existsSync, mkdtempSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { removeTempDir } from '../__fixtures__/temp-dir.js'
 import { LocalExecutionContext } from './local.js'
 
 // `command`/`args` on executeCommand() come from whatever tool call invokes it, so they
@@ -23,7 +24,7 @@ describe('LocalExecutionContext.executeCommand', () => {
 	})
 
 	afterEach(() => {
-		rmSync(dir, { recursive: true, force: true })
+		removeTempDir(dir)
 	})
 
 	it('does not let a shell-metacharacter arg run a second command by default', async () => {

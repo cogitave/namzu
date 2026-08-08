@@ -1,7 +1,8 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 
 import type { ToolContext } from '../../../types/tool/index.js'
 import { EditTool } from '../edit.js'
@@ -26,7 +27,7 @@ import { WriteFileTool } from '../write-file.js'
 let dirs: string[] = []
 
 afterEach(async () => {
-	await Promise.all(dirs.map((d) => rm(d, { recursive: true, force: true })))
+	await removeTempDirs(dirs)
 	dirs = []
 })
 

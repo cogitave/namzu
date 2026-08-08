@@ -1,7 +1,8 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
@@ -24,7 +25,7 @@ import { drainQuery } from '../index.js'
 let workdirs: string[] = []
 
 afterEach(async () => {
-	await Promise.all(workdirs.map((d) => rm(d, { recursive: true, force: true })))
+	await removeTempDirs(workdirs)
 	workdirs = []
 })
 

@@ -1,9 +1,10 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
+import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 
 /**
  * A run has to survive its own waiting.
@@ -35,7 +36,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 const workdirs: string[] = []
 afterEach(() => {
-	for (const dir of workdirs) rmSync(dir, { recursive: true, force: true })
+	for (const dir of workdirs) removeTempDir(dir)
 	workdirs.length = 0
 })
 

@@ -1,7 +1,8 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 
 import type { ToolContext } from '../../types/tool/index.js'
 import { GlobTool } from '../builtins/glob.js'
@@ -37,7 +38,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
-	rmSync(resolve(root, '..'), { recursive: true, force: true })
+	removeTempDir(resolve(root, '..'))
 })
 
 const context = (): ToolContext =>

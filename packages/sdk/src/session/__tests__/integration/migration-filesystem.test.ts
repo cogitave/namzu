@@ -8,10 +8,11 @@
  * last.
  */
 
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { removeTempDirAsync } from '../../../__fixtures__/temp-dir.js'
 import { UNKNOWN_TENANT_ID } from '../../../types/ids/index.js'
 import {
 	DefaultFilesystemMigrator,
@@ -60,7 +61,7 @@ describe('Integration — boot-time filesystem migration', () => {
 	})
 
 	afterEach(async () => {
-		await rm(root, { recursive: true, force: true })
+		await removeTempDirAsync(root)
 	})
 
 	it('cold boot with legacy .namzu/threads/thd_abc → migrated to projects layout + marker + event', async () => {

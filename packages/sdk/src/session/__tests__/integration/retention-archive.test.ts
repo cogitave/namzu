@@ -9,10 +9,11 @@
  * idempotent workspace dispose.
  */
 
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { ThreadId, WorkspaceId } from '../../../types/session/ids.js'
@@ -62,7 +63,7 @@ describe('Integration — retention archive / restore', () => {
 	})
 
 	afterEach(() => {
-		rmSync(rootDir, { recursive: true, force: true })
+		removeTempDir(rootDir)
 	})
 
 	it('archive idle sub-session → tombstone attached (status=archived + archiveRef + archivedAt)', async () => {
