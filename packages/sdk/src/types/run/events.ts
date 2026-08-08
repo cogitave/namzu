@@ -186,6 +186,35 @@ type CoreRunEvent =
 			/** The delay came from the server's own `Retry-After`. */
 			serverDirected: boolean
 	  }
+	/**
+	 * A member of the provider chain could not serve, and a later member has
+	 * taken over. The run continues from where it stopped.
+	 *
+	 * This event is the feature's honesty. A chain that swapped silently would
+	 * produce a run that succeeded while quietly not doing what the operator
+	 * asked — served by a provider they did not choose, at a price and a
+	 * quality they did not agree to, with nothing in the transcript saying so.
+	 * A host is expected to SHOW this, not log it.
+	 *
+	 * Emitted at the moment of the swap, before the replacement request runs.
+	 */
+	| {
+			type: 'provider_fallback'
+			runId: RunId
+			iteration: number
+			/** 0-based position in the chain, as the host declared it. */
+			fromIndex: number
+			fromProviderId: string
+			fromModel?: string
+			toIndex: number
+			toProviderId: string
+			toModel?: string
+			/** Classified failure code, as the boundary classifier reports it. */
+			code: string
+			status?: number
+			/** The classified failure's own sentence. */
+			reason: string
+	  }
 	| {
 			type: 'tool_completed'
 			runId: RunId

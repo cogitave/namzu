@@ -258,6 +258,32 @@ export async function* streamProviderTurn(
 				continue
 			}
 
+			// A chain swap, not output, and handled beside the retry notice
+			// because it is the same kind of thing: a fact about HOW the answer
+			// is being produced, arriving on the only channel open while the
+			// consumer is blocked inside the provider's iterator. It carries no
+			// delta, so nothing below applies to it either.
+			if (chunk.fallback) {
+				await emitEvent({
+					type: 'provider_fallback',
+					runId,
+					iteration,
+					fromIndex: chunk.fallback.fromIndex,
+					fromProviderId: chunk.fallback.fromProviderId,
+					...(chunk.fallback.fromModel !== undefined
+						? { fromModel: chunk.fallback.fromModel }
+						: {}),
+					toIndex: chunk.fallback.toIndex,
+					toProviderId: chunk.fallback.toProviderId,
+					...(chunk.fallback.toModel !== undefined ? { toModel: chunk.fallback.toModel } : {}),
+					code: chunk.fallback.code,
+					...(chunk.fallback.status !== undefined ? { status: chunk.fallback.status } : {}),
+					reason: chunk.fallback.reason,
+				})
+				yield* drainPending()
+				continue
+			}
+
 			if (chunk.error) {
 				streamError = chunk.error
 				break

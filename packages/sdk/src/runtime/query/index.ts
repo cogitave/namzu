@@ -16,6 +16,7 @@ import type { CompactionConfig } from '../../config/runtime.js'
 import { TOOL_OUTPUT_DIR_NAME } from '../../constants/tools/index.js'
 import { EmergencySaveManager } from '../../manager/run/emergency.js'
 import { resolveProviderCapabilities } from '../../provider/capabilities.js'
+import { type ProviderChainMember, withProviderFallback } from '../../provider/fallback.js'
 import { type ProviderRetryConfig, withProviderRetry } from '../../provider/retry.js'
 import type { PathBuilder } from '../../session/workspace/path-builder.js'
 import {
@@ -119,6 +120,23 @@ export interface QueryParams {
 	 * see `withProviderRetry`.
 	 */
 	retry?: Partial<ProviderRetryConfig> | false
+
+	/**
+	 * Members to fall over to, in order, when {@link provider} cannot serve.
+	 *
+	 * Absent means what it always meant: one provider, no failover. Each member
+	 * is tried at most once per call and the chain never rewinds, so the scope
+	 * of a swap is this `query()` — for a host whose call is one user turn, that
+	 * is turn scope with no reset to forget. See `withProviderFallback`.
+	 *
+	 * Two things this does NOT do, both deliberate. Capabilities are negotiated
+	 * once against {@link provider}, so a member that declares less will be sent
+	 * a request shaped for the head — refuse a disagreeing chain before you
+	 * build one. And a fallback loses the prompt cache: the replacement provider
+	 * has never seen this conversation, so the turn re-reads its whole context
+	 * at full price.
+	 */
+	fallbackProviders?: readonly ProviderChainMember[]
 
 	/**
 	 * Install process-level crash handlers that dump this run's state to
@@ -472,6 +490,46 @@ export interface QueryParams {
 	strictCapabilities?: boolean
 }
 
+/**
+ * Refuse to price a run whose tokens two differently-priced members may produce.
+ *
+ * `RunPersistence` holds ONE {@link ModelPricing} table and applies it to every
+ * accumulation regardless of which model produced the tokens. Across a swap that
+ * makes `costInfo.totalCost` wrong by an unbounded margin, and silently — the
+ * number keeps the shape of an answer. `CostInfo` cannot express the truth
+ * either: it carries `inputCostPer1M` / `outputCostPer1M`, and there is no
+ * honest value for those once a total spans two rate cards.
+ *
+ * So the total is refused rather than blended. Naming what that costs is part
+ * of the refusal, because the caller loses `costLimitUsd` with it: the guard
+ * enforces that limit from this same accumulated total, and a limit enforced
+ * with the wrong rate card stops a run early or late by the same unbounded
+ * margin. A budget that is quietly wrong is worse than a budget that is
+ * declined.
+ *
+ * Reachable, not decorative: a host that passes `pricing` and declares a chain
+ * hits it on the first call. It costs `@namzu/cli` nothing, which passes no
+ * pricing at all — its `/cost` already reports that the provider gave no price.
+ *
+ * The way out is per-member pricing, which needs a `CostInfo` that can sum over
+ * heterogeneous rates. That is a public-type change and it is not this one.
+ */
+function assertCostIsAttributable(
+	chain: readonly ProviderChainMember[],
+	pricing: ModelPricing | undefined,
+): void {
+	if (pricing === undefined || chain.length < 2) return
+	throw new NamzuError({
+		code: 'invalid_config',
+		message:
+			`A provider chain of ${chain.length} members was declared together with a single pricing table. ` +
+			'One table cannot price two members, so the run would report a total that is wrong by an unbounded ' +
+			'margin — and `runConfig.costLimitUsd` would be enforced against that same wrong total. ' +
+			'Either drop `pricing` (usage is still reported per model in the run) or declare one member.',
+		details: { chainLength: chain.length },
+	})
+}
+
 export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run> {
 	// Boot-time filesystem migration (session-hierarchy.md §13.4.1). First
 	// call per process per root actually runs; subsequent calls short-circuit
@@ -489,10 +547,29 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 	// of its warns behind `options.log`, and this is its only production
 	// call site — so without it the "failed, retrying" and "failed, giving
 	// up" lines were dead code and a backoff left no trace anywhere.
-	const resilientProvider =
+	//
+	// With a chain declared, the same sentence holds one level out: retry is
+	// applied per MEMBER and the fallback decorator wraps the result, so the
+	// composition is `fallback(retry(m0), retry(m1), …)`. That order is not a
+	// preference. Assembled the other way round — which is what a host gets if
+	// it wraps its own chain and hands the result in, because this function
+	// would then wrap THAT in retry — an exhausted chain gets restarted from
+	// the head by the outer loop and a throttle on the last member is counted
+	// by two budgets. Building it here is what makes the order unspellable
+	// wrong.
+	const chain: readonly ProviderChainMember[] = [
+		{ provider: params.provider },
+		...(params.fallbackProviders ?? []),
+	]
+	assertCostIsAttributable(chain, params.pricing)
+	const withRetry = (provider: LLMProvider): LLMProvider =>
 		params.retry === false
-			? params.provider
-			: withProviderRetry(params.provider, { config: params.retry, log: getRootLogger() })
+			? provider
+			: withProviderRetry(provider, { config: params.retry, log: getRootLogger() })
+	const resilientProvider = withProviderFallback(
+		chain.map((member) => ({ ...member, provider: withRetry(member.provider) })),
+		{ log: getRootLogger() },
+	)
 
 	const ctx = RunContextFactory.build({
 		agentId: params.agentId,

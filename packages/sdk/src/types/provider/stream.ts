@@ -81,6 +81,18 @@ export interface StreamChunk {
 	 * output.
 	 */
 	retry?: ProviderRetryNotice
+
+	/**
+	 * The call failed and a different member of the provider chain is taking
+	 * over from here.
+	 *
+	 * Emitted by the fallback decorator, never by a driver, and it rides the
+	 * stream for the reason {@link retry} does. Like a retry notice it carries
+	 * no delta and must not be treated as output — and that distinction is
+	 * load-bearing twice over, because the fallback decorator reads these
+	 * chunks too when deciding whether output has already gone out.
+	 */
+	fallback?: ProviderFallbackNotice
 }
 
 /** See {@link StreamChunk.retry}. */
@@ -95,4 +107,29 @@ export interface ProviderRetryNotice {
 	readonly status?: number
 	/** The delay came from the server's own `Retry-After`, not backoff. */
 	readonly serverDirected: boolean
+}
+
+/**
+ * See {@link StreamChunk.fallback}.
+ *
+ * Both members are named, not just the new one. "Now using OpenAI" does not
+ * tell an operator which of their declared members went down, and on a chain of
+ * four that is the only fact they can act on.
+ *
+ * The positions are 0-based indices into the chain as the host declared it, so
+ * a surface can name a member the way its own configuration does rather than
+ * inventing a second numbering.
+ */
+export interface ProviderFallbackNotice {
+	readonly fromIndex: number
+	readonly fromProviderId: string
+	readonly fromModel?: string
+	readonly toIndex: number
+	readonly toProviderId: string
+	readonly toModel?: string
+	/** Classified failure code, as `classifyProviderError` reports it. */
+	readonly code: string
+	readonly status?: number
+	/** The classified failure's own sentence, already redacted at its source. */
+	readonly reason: string
 }
