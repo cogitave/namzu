@@ -31,6 +31,36 @@
  * prose that happens to live in a literal. There is no general way to tell
  * that from a wire value, so it is a review question rather than a rule —
  * and the identity prompt, the only place it arose, now names no one.
+ *
+ * ## What it does not enforce, measured 2026-08-08
+ *
+ * Issue #220 widened WHERE this looks. That is the smaller half of the hole,
+ * and leaving the rest unwritten would let a green run read as a rule that is
+ * kept. It is not one.
+ *
+ * **Respelling walks through.** This matches literal spellings, so every
+ * multi-token brand crushed into one entry here is evaded by writing it the way
+ * prose actually writes it. Eleven variants were tried against the real script
+ * and all eleven passed: a space (`lang chain`, `crew ai`, `chat gpt`, `auto
+ * gen`, `llama index`, `open ai`), a hyphen, and an initialism. The sharpest
+ * case is `huggingface`: the spaced form is the brand's OWN standard spelling,
+ * so for that entry the list is simply spelled wrong for matching. This is a
+ * design question — normalise the haystack, or carry real variants per brand —
+ * not a lexical patch, and it is filed rather than guessed at here.
+ *
+ * **Four channels bypass every entry equally**, all confirmed by running this:
+ *
+ *  - a fenced code block, including one inside a doc comment;
+ *  - an inline backtick span;
+ *  - a markdown link TARGET (the link TEXT is still scanned, and is caught);
+ *  - a string or template literal.
+ *
+ * Only the last was previously written down. All four are the same trade: each
+ * exists because that construct is overwhelmingly a value rather than prose,
+ * and each is therefore a place a positioning sentence can sit unenforced. They
+ * are accepted, not closed — and an accepted gap that is recorded is a
+ * decision, while the same gap unrecorded is a surprise for whoever trusts the
+ * green.
  */
 
 import { readdir, readFile } from 'node:fs/promises'
