@@ -175,8 +175,32 @@ const TERMS = FORBIDDEN.map((entry) =>
 	typeof entry === 'string' ? { name: entry, collidesWithEnglish: false } : entry,
 )
 
-/** Directories whose contents are never scanned. */
+/** Directories whose contents are never scanned, matched by name at any depth. */
 const SKIP_DIRS = new Set(['node_modules', 'dist', 'coverage', '.git', '.turbo'])
+
+/**
+ * Directories skipped by their path from the root rather than by name.
+ *
+ * `.claude/worktrees/` holds agent worktrees, and a worktree is a **whole
+ * second copy of this repository under a different path prefix**. Every
+ * exemption in this file is matched on a path — `packages/providers/`, the
+ * wire-value list — so inside a worktree none of them match, and the driver
+ * packages that are exempt by design get re-reported as violations. Scanning it
+ * is not extra coverage: it is the same files audited with the rules switched
+ * off.
+ *
+ * Measured before adding: with one agent worktree present the run emitted 566
+ * findings, **every one** of them from `.claude/worktrees/` and none from the
+ * repository. The gate failed on a developer machine for a reason that had
+ * nothing to do with the tree it was auditing, and a gate that fails for a
+ * phantom is one people learn to run with `|| true`.
+ *
+ * By path and not by name, deliberately, and **not** `.claude/` as a whole:
+ * eight skill files under `.claude/skills/` are tracked prose that this audit
+ * is exactly about. Skipping the parent to silence the child would have traded
+ * a phantom failure for a real blind spot — the shape issue #220 was about.
+ */
+const SKIP_PATHS = new Set(['.claude/worktrees'])
 
 /**
  * Files exempt from the identifier rule because their whole purpose is to
@@ -247,6 +271,8 @@ async function* walk(dir) {
 	for (const entry of await readdir(dir, { withFileTypes: true })) {
 		if (SKIP_DIRS.has(entry.name)) continue
 		const full = join(dir, entry.name)
+		const posix = relative(ROOT, full).split(sep).join('/')
+		if (SKIP_PATHS.has(posix)) continue
 		if (entry.isDirectory()) {
 			yield* walk(full)
 			continue
