@@ -6,6 +6,7 @@ import type { CompactionConfig } from '../../../../config/runtime.js'
 import type { CompletionInbox } from '../../../../gateway/completion-inbox.js'
 import type { PlanManager } from '../../../../manager/plan/lifecycle.js'
 import type { RunPersistence } from '../../../../manager/run/persistence.js'
+import type { ServingMember } from '../../../../provider/fallback.js'
 import type { ActivityStore } from '../../../../store/activity/memory.js'
 import type { TaskGateway } from '../../../../types/agent/gateway.js'
 import type { WorkingMemoryProvider } from '../../../../types/agent/working-memory.js'
@@ -37,6 +38,22 @@ import type { ToolGrantSet } from '../../tool-grants.js'
 
 export interface IterationContext {
 	readonly provider: LLMProvider
+	/**
+	 * Which chain member `provider` will route the NEXT request to.
+	 *
+	 * `provider` cannot answer this itself: `withProviderFallback` keeps its
+	 * `id` transparently equal to the head's, deliberately, because that is
+	 * what capability negotiation and the run's `gen_ai.system` attribute are
+	 * about. Asking the wrapper who it is gets the declaration; this gets the
+	 * observation.
+	 *
+	 * Optional because a host may build an `IterationContext` without a chain
+	 * at all. Absent, the loop attributes each step to `provider.id` and the
+	 * model it requested, which is exactly right when nothing can fall over —
+	 * and exactly wrong when something can, so the wiring from `query()` is
+	 * covered end-to-end rather than by a unit test on this accessor.
+	 */
+	readonly servingMember?: () => ServingMember
 	/**
 	 * The run's `invoke_agent` span, so each iteration can parent itself to
 	 * it. Explicit rather than ambient because this loop is an async

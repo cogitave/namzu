@@ -11,7 +11,45 @@ export interface RunStateMetadata {
 	agentId: string
 	agentName: string
 	config: AgentRunConfig
+	/**
+	 * The provider the run was CONFIGURED with — the head of the chain, and
+	 * the counterpart of `config.model` beside it.
+	 *
+	 * It is a declaration, not an observation, and it stays one. After a
+	 * provider chain falls over it still names the head, which is correct for
+	 * a field that answers "what was asked for"; it was only ever misleading
+	 * because nothing else answered "what served". See {@link servingProvider}
+	 * for the run-level answer and `steps[].servedBy` for the per-step one.
+	 */
 	provider: string
+	/**
+	 * The chain member the run was routed to at the end, when that is not the
+	 * one it was configured with.
+	 *
+	 * Absent means the declared provider served every call. That reading holds
+	 * for stored records too, with one bounded exception: the sdk major that
+	 * shipped the chain could fall over without recording it, so a run from
+	 * that release reads as "no swap" whether or not there was one. Its
+	 * transcript still carries the `provider_fallback` events. The exception
+	 * is one release wide and it is stated rather than migrated away, because
+	 * a migration would have to invent the answer for exactly the records that
+	 * do not have it.
+	 *
+	 * **This is the durable half.** `RunDiskStore.writeRunMeta` writes
+	 * `metadata` and not `steps`, so on the built-in store this field is the
+	 * whole of what survives the process. `steps[].servedBy` is the finer
+	 * record — the one to read for "which member answered turn 4" — and it
+	 * reaches a host only on the returned `Run`.
+	 *
+	 * It also covers the case no step ledger can: a run that falls over and
+	 * then dies before a single step is recorded still has to be able to say
+	 * whose failure ended it. That is why the wording is "routed to" and not
+	 * "served by" — this member was asked, and on that path it answered with
+	 * an error. It is never a member that was merely selected: the chain
+	 * announces a replacement when it issues its request, not when it picks
+	 * it, so a run cancelled at the swap notice does not name one.
+	 */
+	servingProvider?: string
 }
 
 export type SessionMetadata = RunStateMetadata

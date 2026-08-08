@@ -15,7 +15,46 @@ import type { ToolCall } from '../message/index.js'
 export interface StepResult {
 	/** 1-based, matching `iteration` on the run events. */
 	stepNumber: number
+	/**
+	 * The model this step ASKED for: the run's configured model, or the
+	 * override a `prepareStep` hook returned for this step.
+	 *
+	 * It used to be the run's model unconditionally — the loop passed its own
+	 * `model` here while building the request from `step.model ?? model` a few
+	 * lines above — so a host that routed one step to a cheaper model read the
+	 * expensive one back out of the ledger. No chain was needed to see it.
+	 *
+	 * What was asked for and what answered are two facts, and after a provider
+	 * chain falls over they differ. This is the first; {@link servedBy} is the
+	 * second.
+	 */
 	model: string
+	/**
+	 * Who actually answered, and with which model.
+	 *
+	 * Equal to {@link model} and to `run.metadata.provider` on every run
+	 * without a chain, which is most of them; it diverges exactly when
+	 * `withProviderFallback` advanced. Recorded even when it agrees, because a
+	 * ledger that carries the fact only when it is surprising cannot be read as
+	 * evidence — a reader could not tell "the head served" from "nobody wrote
+	 * it down".
+	 *
+	 * Optional only for records that predate the field. Absence means "not
+	 * recorded", and it is left meaning that rather than backfilled: the sdk
+	 * shipped a chain that could fall over one release before it recorded
+	 * which member did, so filling those in from the declared head would state
+	 * as fact the exact thing that release got wrong, on exactly the runs
+	 * where it was wrong. Every step this build produces has it.
+	 *
+	 * **Reaches a host through the returned `Run`, not through `run.json`.**
+	 * `RunDiskStore.writeRunMeta` persists the metadata and the counters and
+	 * does not write `steps` at all, so the built-in store carries the
+	 * run-level {@link
+	 * import('./entity.js').RunStateMetadata.servingProvider} and none of
+	 * this. A host that wants per-step provenance on disk persists the `Run`
+	 * it is handed.
+	 */
+	servedBy?: StepProvenance
 	messageId: MessageId
 	/** Assistant text for this step, if any. */
 	content: string | null
@@ -32,6 +71,21 @@ export interface StepResult {
 	durationMs: number
 	/** Portion of `durationMs` spent inside tools. */
 	toolExecutionMs: number
+}
+
+/**
+ * The chain member that served one step.
+ *
+ * `chainIndex` is a position in the chain the host declared, and it is here
+ * rather than derived from `providerId` because a chain may legitimately name
+ * the same provider twice — two models, or two credentials, on one driver.
+ * `providerId` alone could not tell those apart.
+ */
+export interface StepProvenance {
+	readonly providerId: string
+	readonly model: string
+	/** 0 is the head, i.e. the provider the run was configured with. */
+	readonly chainIndex: number
 }
 
 export interface StepToolResult {

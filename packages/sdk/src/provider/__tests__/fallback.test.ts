@@ -331,6 +331,116 @@ describe('withProviderFallback', () => {
 		const wrapped = withProviderFallback([{ provider: primary }, { provider: fallback }])
 		expect(wrapped.id).toBe('primary')
 	})
+
+	/**
+	 * `onSwap` announces SERVICE, not selection, and the two are separated by a
+	 * suspension the consumer controls.
+	 */
+	describe('onSwap', () => {
+		it('announces the replacement when it is asked', async () => {
+			const primary = member('primary', [
+				() =>
+					(async function* () {
+						throw httpError(401)
+						// biome-ignore lint/correctness/noUnreachable: the generator must be one
+						yield chunk('')
+					})(),
+			])
+			const fallback = member('fallback', [
+				() =>
+					(async function* () {
+						yield chunk('served')
+					})(),
+			])
+			const seen: Array<{ index: number; providerId: string; model?: string }> = []
+
+			const wrapped = withProviderFallback(
+				[{ provider: primary }, { provider: fallback, model: 'tail-model' }],
+				{ onSwap: (to) => seen.push(to) },
+			)
+			expect(await drain(wrapped.chatStream({ model: 'head-model', messages: [] }))).toBe('served')
+
+			expect(seen).toEqual([{ index: 1, providerId: 'fallback', model: 'tail-model' }])
+		})
+
+		/**
+		 * The window this closes: the cursor moves inside the catch, the notice
+		 * chunk goes out, and the replacement is only asked when the consumer
+		 * comes back. A consumer that leaves at the notice — a Stop, a `break`,
+		 * a host abandoning the iterator — has selected a member and asked it
+		 * nothing.
+		 *
+		 * Announcing at cursor-move passes every other case in this file and
+		 * fails only this one, which is why it is here: a run record built on
+		 * that announcement would say a provider served a turn it never
+		 * received.
+		 */
+		it('says nothing when the consumer leaves at the notice and the replacement is never asked', async () => {
+			const primary = member('primary', [
+				() =>
+					(async function* () {
+						throw httpError(401)
+						// biome-ignore lint/correctness/noUnreachable: the generator must be one
+						yield chunk('')
+					})(),
+			])
+			const fallback = member('fallback', [
+				() =>
+					(async function* () {
+						yield chunk('never reached')
+					})(),
+			])
+			const seen: unknown[] = []
+
+			const wrapped = withProviderFallback([{ provider: primary }, { provider: fallback }], {
+				onSwap: (to) => seen.push(to),
+			})
+
+			// Take exactly the notice and stop, the way an abandoned iterator does.
+			const it_ = wrapped.chatStream({ model: 'm', messages: [] })[Symbol.asyncIterator]()
+			const notice = await it_.next()
+			await it_.return?.(undefined)
+
+			expect(notice.value?.fallback?.toProviderId).toBe('fallback')
+			expect(fallback.calls).toBe(0)
+			expect(seen).toEqual([])
+		})
+
+		it('announces once per swap, not once per request to the same member', async () => {
+			const failOnce = member('primary', [
+				() =>
+					(async function* () {
+						throw httpError(401)
+						// biome-ignore lint/correctness/noUnreachable: the generator must be one
+						yield chunk('')
+					})(),
+			])
+			const fallback = member('fallback', [
+				() =>
+					(async function* () {
+						yield chunk('one')
+					})(),
+				() =>
+					(async function* () {
+						yield chunk('two')
+					})(),
+			])
+			const seen: unknown[] = []
+
+			const wrapped = withProviderFallback([{ provider: failOnce }, { provider: fallback }], {
+				onSwap: (to) => seen.push(to),
+			})
+
+			await drain(wrapped.chatStream({ model: 'm', messages: [] }))
+			// The cursor's lifetime is the wrapper's, so the second request goes
+			// straight to the member already serving. A listener that started at
+			// member 0 and applied the one call it got is still correct.
+			await drain(wrapped.chatStream({ model: 'm', messages: [] }))
+
+			expect(fallback.calls).toBe(2)
+			expect(seen).toHaveLength(1)
+		})
+	})
 })
 
 /**

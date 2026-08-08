@@ -16,7 +16,11 @@ import type { CompactionConfig } from '../../config/runtime.js'
 import { TOOL_OUTPUT_DIR_NAME } from '../../constants/tools/index.js'
 import { EmergencySaveManager } from '../../manager/run/emergency.js'
 import { resolveProviderCapabilities } from '../../provider/capabilities.js'
-import { type ProviderChainMember, withProviderFallback } from '../../provider/fallback.js'
+import {
+	type ProviderChainMember,
+	type ServingMember,
+	withProviderFallback,
+} from '../../provider/fallback.js'
 import { type ProviderRetryConfig, withProviderRetry } from '../../provider/retry.js'
 import type { PathBuilder } from '../../session/workspace/path-builder.js'
 import {
@@ -566,9 +570,28 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		params.retry === false
 			? provider
 			: withProviderRetry(provider, { config: params.retry, log: getRootLogger() })
+	// Who is serving right now, for the run RECORD rather than for the request.
+	//
+	// It starts at the head and moves only when the chain does, which is the
+	// whole of the truth because the cursor never rewinds. The run cannot read
+	// this off `resilientProvider`: that wrapper reports the head's `id` on
+	// purpose, so asking it produces the declaration back — the defect this
+	// record exists to fix.
+	const serving: { current: ServingMember } = {
+		current: { index: 0, providerId: params.provider.id },
+	}
 	const resilientProvider = withProviderFallback(
 		chain.map((member) => ({ ...member, provider: withRetry(member.provider) })),
-		{ log: getRootLogger() },
+		{
+			log: getRootLogger(),
+			onSwap: (to) => {
+				serving.current = to
+				// `ctx` is declared below and is initialized before anything can
+				// call the provider: this fires from inside a `chatStream`, and
+				// the first one is issued by the loop that `ctx` is built for.
+				ctx.runMgr.setServingProvider(to.providerId)
+			},
+		},
 	)
 
 	const ctx = RunContextFactory.build({
@@ -898,6 +921,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 
 	const iterationOrchestrator = new IterationOrchestrator({
 		provider: resilientProvider,
+		servingMember: () => serving.current,
 		runConfig: params.runConfig,
 		...(params.stopWhen ? { stopWhen: params.stopWhen } : {}),
 		...(params.prepareStep ? { prepareStep: params.prepareStep } : {}),

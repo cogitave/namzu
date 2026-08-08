@@ -36,4 +36,8 @@ export {
 export { DEFAULT_PROVIDER_RETRY, withProviderRetry } from './retry.js'
 export type { ProviderRetryConfig, WithProviderRetryOptions } from './retry.js'
 export { withProviderFallback } from './fallback.js'
-export type { ProviderChainMember, WithProviderFallbackOptions } from './fallback.js'
+export type {
+	ProviderChainMember,
+	ServingMember,
+	WithProviderFallbackOptions,
+} from './fallback.js'

@@ -286,6 +286,20 @@ export class RunPersistence {
 		this.run.steps = steps
 	}
 
+	/**
+	 * Record that a provider chain advanced, so the run record stops naming a
+	 * member that did not serve.
+	 *
+	 * Last writer wins on purpose: a chain of four can advance three times in
+	 * one run, and `metadata.servingProvider` answers "who was serving when
+	 * this ended", not "who was ever asked". The full sequence is in the
+	 * transcript's `provider_fallback` events and, per turn, in
+	 * `steps[].servedBy`.
+	 */
+	setServingProvider(providerId: string): void {
+		this.run.metadata.servingProvider = providerId
+	}
+
 	clearLastPromptTokens(): void {
 		this._lastPromptTokens = undefined
 		this._lastPromptMessageCount = undefined

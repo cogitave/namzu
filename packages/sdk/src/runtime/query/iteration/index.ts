@@ -32,6 +32,7 @@ import type { AnswerReview } from '../../../types/run/answer-review.js'
 import type {
 	PrepareStepResult,
 	RunEvent,
+	StepProvenance,
 	StepResult,
 	StopReason,
 } from '../../../types/run/index.js'
@@ -425,6 +426,40 @@ export class IterationOrchestrator {
 						iterSpan,
 					)
 
+					// Who answered THIS turn.
+					//
+					// The read is exact at this point and stays exact: a chain that
+					// has produced output cannot fall over again inside the same
+					// request, so the member at the cursor when the stream ends is
+					// the one whose bytes are in `response`.
+					//
+					// It is taken here rather than at `recordStep` several hundred
+					// lines below, and the honest account of that is defence in
+					// depth, not a defect it currently prevents. Moving it down
+					// fails no test, because nothing between the two asks this
+					// provider for anything: compaction and working memory run
+					// BEFORE the turn, the advisory phase runs after the step is
+					// already recorded, and the only thing in between is tool
+					// execution. That is a fact about today's phase order, which a
+					// later phase inserted here would change silently — and the
+					// symptom would be a step attributed to a member that first
+					// served the turn after it, which is the class of wrongness
+					// this whole field exists to end.
+					const servedBy: StepProvenance = ((): StepProvenance => {
+						const member = this.ctx.servingMember?.() ?? {
+							index: 0,
+							providerId: this.ctx.provider.id,
+						}
+						return {
+							providerId: member.providerId,
+							// A member declared without a model asked for the model the
+							// step named — which is what the decorator does with the
+							// request, so this is a reading of it and not a guess.
+							model: member.model ?? stepModel,
+							chainIndex: member.index,
+						}
+					})()
+
 					// Main-loop turn: also records the prompt size compaction reads.
 					runMgr.recordTurnUsage(response.usage)
 
@@ -746,7 +781,12 @@ export class IterationOrchestrator {
 					// and a caller reconstructing cost per step must see it.
 					this.recordStep({
 						stepNumber: iterationNum,
-						model,
+						// The model this step ASKED for. It used to be `model`, the
+						// run's own — so a `prepareStep` that routed one step to a
+						// cheaper model was recorded as the expensive one, with no
+						// provider chain involved.
+						model: stepModel,
+						servedBy,
 						messageId,
 						response,
 						toolResults: reviewOutcome.results,
@@ -1201,6 +1241,7 @@ export class IterationOrchestrator {
 	private recordStep(input: {
 		stepNumber: number
 		model: string
+		servedBy: StepProvenance
 		messageId: MessageId
 		response: ChatCompletionResponse
 		toolResults: readonly ToolCallOutcome[]
@@ -1216,6 +1257,7 @@ export class IterationOrchestrator {
 		const step: StepResult = {
 			stepNumber: input.stepNumber,
 			model: input.model,
+			servedBy: input.servedBy,
 			messageId: input.messageId,
 			content: input.response.message.content,
 			toolCalls,
