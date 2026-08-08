@@ -1,5 +1,84 @@
 # Changelog
 
+## 18.0.0
+
+### Major Changes
+
+- 52b339e: **`ProviderRetryConfig.maxRetryAfterMs` now does what it documents.** It said
+  "past this we surface the error and let the caller decide"; the code fell
+  through to the ordinary jittered backoff instead, so a provider asking for a
+  fifteen-minute wait was re-asked in half a second. The documentation was
+  correct and the code was not.
+
+  **What you see differently.** A server-directed `Retry-After` **greater than**
+  `maxRetryAfterMs` (60s by default) now surfaces the provider error instead of
+  retrying. A `Retry-After` at or under the ceiling is unchanged — still slept
+  exactly as instructed — and a failure with no `Retry-After` at all is
+  unchanged.
+
+  Nothing settles differently. The error thrown is the same one the
+  retries-exhausted path throws, carrying `retryAfterMs`, so a run that used to
+  fail after four attempts now fails after one, sooner and with the number a host
+  needs to schedule its own retry. What changes is the attempts in between: they
+  were sent to an endpoint that had already said it would not serve them, and
+  they cost the run its budget to rediscover a rate limit it had been told about
+  in advance.
+
+  **If you relied on the old behaviour** — on a provider whose `Retry-After` is
+  routinely longer than you are willing to wait, and which serves anyway if you
+  ask again immediately — raise `maxRetryAfterMs` past that value to keep
+  retrying, or set it low and handle the surfaced error. There is no setting that
+  restores "ignore the header and back off short", because that was the defect.
+
+  **With a provider chain this is where the ceiling pays.** A rate limit is a
+  fact about the member, not the request, so surfacing it advances the chain to
+  the next member at once rather than after the primary's whole retry budget is
+  spent.
+
+- 5be5007: **The run record names the member that served.** After a provider chain fell
+  over, `run.metadata.provider` and every step's `model` still named the head. The
+  wire and the metering followed the member that answered; the durable record did
+  not, so a run read back six months later said the primary served a turn it never
+  saw. A missing field reads as unknown and a wrong one reads as a fact.
+
+  **What is major: `StepResult.model` reports a different value.** It now names
+  the model the step **asked for** — the run's configured model, or a
+  `prepareStep` override. It used to be the run's model unconditionally, so a host
+  that routed one step to a cheaper model read the expensive one back out of the
+  ledger. That defect needed no chain to see. Nothing stops compiling; the value
+  changes. If you were reading `step.model` to recover the run's configured model,
+  read `run.metadata.config.model`, which has always held it.
+
+  **New, and additive:**
+
+  - `StepResult.servedBy` — `{ providerId, model, chainIndex }`, who actually
+    answered the step. Equal to `model` and to `run.metadata.provider` on every
+    run without a chain; it diverges exactly when the chain advanced.
+    `chainIndex` is the member's position in the chain you declared (`0` is the
+    head) and is carried because a chain may name the same provider twice with
+    two models, which `providerId` alone cannot tell apart.
+  - `RunStateMetadata.servingProvider` — the member the run was routed to at the
+    end, absent when the configured provider served throughout.
+    `RunStateMetadata.provider` is unchanged and still names what you configured:
+    what was asked for and what answered are two facts, and collapsing them into
+    one field is how the original defect was made.
+  - `WithProviderFallbackOptions.onSwap` and the `ServingMember` type, for a host
+    composing `withProviderFallback` itself.
+
+  **Two limits, stated rather than papered over.** The loop records a step only
+  for a tool-calling turn, so the turn that produces the final answer is not in
+  `steps` — on a chain that falls over and answers immediately,
+  `metadata.servingProvider` is the only record of the swap. And the built-in disk
+  store writes `metadata`, not `steps`: per-step provenance reaches you on the
+  returned `Run`, so persist that if you need it.
+
+  **Nothing is backfilled.** Records written by 17.0.0 could fall over without
+  recording it, so their `servedBy` is absent and their `servingProvider` reads as
+  "no swap" whether or not there was one; the transcript's `provider_fallback`
+  events are the record for those runs. Filling them in from the declared head
+  would state as fact the exact thing that release got wrong, on exactly the runs
+  where it was wrong.
+
 ## 17.0.0
 
 ### Major Changes
