@@ -1,5 +1,139 @@
 # @namzu/cli
 
+## 3.0.0
+
+### Major Changes
+
+- cf7c14f: Enter no longer approves a tool-permission prompt
+
+  **Press `y` to approve.** `Enter` now decides nothing at the permission
+  overlay. If you approve by reflex with `Enter`, that reflex has to change — this
+  is the whole of the break, and it is deliberate.
+
+  The prompt appears on the agent's schedule, not yours. The composer stays
+  editable while a turn runs, and the docs encourage typing a follow-up there, so
+  the overlay can take the screen while your hands are mid-sentence in the
+  composer behind it. `Enter` is the key most likely to be already in flight at
+  that moment — it is how you send the message you were typing — and it was wired
+  to the approving branch. The result was that the keystroke sending your
+  follow-up could approve a tool call you had not read. Approving is the one
+  decision at this prompt that cannot be undone, so it should not be reachable by
+  the key people press to dismiss whatever just appeared.
+
+  `Enter` was named as an approval in `docs/cli/tools.md` and nowhere else: not on
+  the overlay, not in the status hint. The overlay now names every key that
+  decides it — `y` approve, `n` / `esc` reject, `a` approve all — and names no key
+  that does not.
+
+  Two smaller changes come with it:
+
+  - **An approving key is ignored for 350ms after the prompt opens.** `y` and `a`
+    are ordinary letters, so someone mid-word when the overlay mounts was one
+    keystroke from approving. Refusal is never deferred: `n`, `Esc` and `Ctrl+C`
+    answer on the first press, because a refusal you did not mean costs a retry
+    and an approval you did not mean costs whatever the tool did.
+  - **`Esc` is now advertised on the overlay.** It always rejected; it said so
+    nowhere.
+
+### Minor Changes
+
+- 1674ba2: Preferences hold an ordered chain of providers, not one
+
+  `~/.namzu/preferences.json` now stores `providers`, an ordered list, in place of
+  the single `provider` + `model` pair. Index 0 is the primary and is what runs.
+
+  **Nothing is required of you.** A `version: 2` file is read as a one-member
+  chain — one provider is a one-element list, which is unambiguous — and is
+  rewritten in the new format the next time a choice is saved. A `version: 1` file
+  is still refused, as before. Downgrading namzu after a chain has been written
+  reports "please re-pick" rather than silently dropping the members it cannot
+  represent.
+
+  **Only the primary runs today.** Automatic failover is a separate change; this
+  one is the configuration it will read. Declaring a longer chain is still worth
+  doing now, because the whole of it is checked:
+
+  - Every member must name a provider namzu knows, **including members after the
+    first**. A fallback that names a provider that does not exist used to load
+    fine and fail at construction — on the day the primary went down, which is the
+    worst moment to discover it.
+  - A member may not repeat an earlier one exactly. The same provider with a
+    _different model_ is allowed, and is a real chain: a large model falling back
+    to a smaller one.
+  - The chain may not be empty.
+
+  A rejected chain names the position that broke it (`primary provider`,
+  `fallback #1`, …) and re-opens the picker.
+
+  `namzu doctor` gained `providers.chain`, which prints the chain in your declared
+  order with each member's credential state, so the order is legible without
+  launching the TUI. A fallback with no credential is a warning; a primary with
+  none is a failure.
+
+  `namzu run --provider <id>` now **replaces** the chain for that run rather than
+  re-heading it, so a run you scoped to one provider cannot be answered by a
+  different one. `--model` on its own re-models the primary and leaves the rest of
+  the chain in place. Neither changes what a single-provider setup does today.
+
+  Adds the `providerChainCheck` export for embedded consumers assembling their own
+  doctor registry.
+
+  `namzu doctor` also indents every line of a multi-line check message. Previously
+  only the first line took the report's indent and the rest broke out to column 0,
+  so a multi-line answer read as though the report had ended.
+
+- 173b93c: Refuse a provider chain whose members declare different capabilities
+
+  namzu negotiates capabilities once per run, against the provider it was handed,
+  and that answer decides whether tools go into the prompt and whether image and
+  document attachments are mapped. A chain whose members disagree cannot be
+  honoured by taking the strongest declaration — a run that fell over to a weaker
+  member would arrive holding a request shaped for a provider no longer serving
+  it.
+
+  Nor by taking the weakest. That is the trap this refuses to walk into: an
+  operator who adds a weaker fallback to gain resilience would find their
+  **primary** had quietly lost tool support, on every run, to guard against a
+  failure that happens rarely. A capability given up permanently for a rare
+  benefit, with nothing saying so.
+
+  So neither is chosen for you. A disagreeing chain is refused, naming which two
+  members disagree and on what:
+
+  ```
+    - fallback #1 (<label>) declares it cannot call tools, while primary provider
+      (<label>) declares it can call tools — if the chain falls over to it, tools
+      become unavailable.
+  ```
+
+  Every disagreeing capability is listed, not just the first, so the configuration
+  can be fixed in one pass rather than one round-trip at a time.
+
+  **To accept the limitation**, set `"allowCapabilityMismatch": true` in
+  `~/.namzu/preferences.json`. The chain then runs and the disagreement is printed
+  on **every** launch — the TUI, `namzu run`, and a `notice` event on
+  `namzu run-stream`. Not once: an acceptance given once and forgotten is how a
+  silent degradation returns through the front door.
+
+  Two limits, stated because a check that overstates its authority stops being
+  believed:
+
+  - It compares **declarations**, at the type level. That is what is knowable
+    without constructing a provider, and constructing one needs a credential —
+    which the fallback nobody has set up yet does not have. The runtime treats a
+    constructed provider's own declaration as authoritative.
+  - It says nothing about the current run. Only the primary runs today, so its
+    capabilities are in force in full; every sentence is about what happens _if
+    the chain falls over_. When failover lands, the run-level statement becomes
+    true and can be made then.
+
+  A member whose declaration cannot be read — a provider with no construction path
+  yet — is reported as unresolved rather than assumed to agree, and does not by
+  itself refuse the chain.
+
+  Adds `AgentSession.configNotices`, the channel these are surfaced on.
+  Single-provider setups are unaffected and gain no new output.
+
 ## 2.6.1
 
 ### Patch Changes
