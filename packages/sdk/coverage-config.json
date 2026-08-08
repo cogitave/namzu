@@ -2,6 +2,7 @@
 	"$comment": "Coverage gate config for @namzu/sdk. Consumed by .github/scripts/check-sdk-module-coverage.mjs and check-sdk-test-presence.mjs. The bucket rules were ratified in ses_006-test-coverage-sprint.",
 	"modules": {
 		"required": [
+			"__fixtures__",
 			"advisory",
 			"agents",
 			"bridge",

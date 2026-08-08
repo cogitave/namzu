@@ -1,8 +1,9 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
+import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
@@ -30,7 +31,7 @@ import { drainQuery } from '../index.js'
 const dirs: string[] = []
 
 afterEach(async () => {
-	await Promise.all(dirs.splice(0).map((d) => rm(d, { recursive: true, force: true })))
+	await removeTempDirs(dirs.splice(0))
 })
 
 async function mkWorkdir(): Promise<string> {

@@ -1,7 +1,8 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { removeTempDirs } from '../../__fixtures__/temp-dir.js'
 
 import {
 	DefaultFilesystemMigrator,
@@ -26,7 +27,7 @@ import { ProjectIdSchema } from '../schemas.js'
 
 const dirs: string[] = []
 afterEach(async () => {
-	await Promise.all(dirs.map((d) => rm(d, { recursive: true, force: true })))
+	await removeTempDirs(dirs)
 	dirs.length = 0
 })
 

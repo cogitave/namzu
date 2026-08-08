@@ -1,7 +1,8 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 
 import type { ToolContext } from '../../../types/tool/index.js'
 import { BashTool } from '../bash.js'
@@ -30,19 +31,13 @@ import { BashTool } from '../bash.js'
 
 const dirs: string[] = []
 afterEach(() => {
-	for (const dir of dirs) {
-		// A killed child can still hold its working directory for a moment —
-		// on Windows that surfaces as EBUSY, and it failed the timeout test
-		// from the cleanup rather than the assertion, which is the most
-		// misleading way for a test to go red. Retry, then let it go: a temp
-		// directory that outlives the run is the operating system's problem,
-		// not a result worth reporting.
-		try {
-			rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
-		} catch {
-			// Deliberately swallowed. See above.
-		}
-	}
+	// A killed child can still hold its working directory for a moment — on
+	// Windows that surfaces as EBUSY, and it failed the timeout test from the
+	// cleanup rather than the assertion, which is the most misleading way for a
+	// test to go red. This file worked that out on its own and grew its own
+	// retry-and-swallow; the helper is the same remedy, and it names the path
+	// on the way out instead of swallowing in silence.
+	for (const dir of dirs) removeTempDir(dir)
 	dirs.length = 0
 })
 

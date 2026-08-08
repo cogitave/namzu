@@ -1,7 +1,8 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 
 import type { CheckpointId, IterationCheckpoint } from '../../types/hitl/index.js'
 import type { RunId } from '../../types/ids/index.js'
@@ -38,7 +39,7 @@ beforeEach(async () => {
 })
 
 afterEach(() => {
-	rmSync(baseDir, { recursive: true, force: true })
+	removeTempDir(baseDir)
 })
 
 function checkpoint(id: string, iteration: number): IterationCheckpoint {

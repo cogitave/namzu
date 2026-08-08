@@ -7,12 +7,14 @@ diataxis: explanation
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-06T00:00:00Z
-lastReviewed: 2026-08-07
+lastReviewed: 2026-08-08
 resource: packages/sdk/src/agents/__tests__/reachability.test.ts
 tags: [convention, testing, api-design]
 verified:
   - by: process:conventions-migration
     at: 2026-08-07T00:00:00Z
+  - by: process:ses_018-sdk-cleanup-and-audit-reach
+    at: 2026-08-08T00:00:00Z
 ---
 
 # Reachability is its own property, and it needs its own test
@@ -23,6 +25,14 @@ Behaviour and reachability are two properties, and covering the first says
 nothing about the second. A knob can be declared on the config, honoured
 correctly by the machinery, tested at the layer that honours it, and still be
 unreachable from the surface a host actually constructs.
+
+Re-established 2026-08-08 after the file in `resource` had its temp-directory
+teardown routed through the shared cleanup helper. That change touched three
+lines — an import and the body of one `afterEach` — and left the docstring
+quoted below byte-identical, so every claim on this page still stands against
+the file as it is now. The drift gate is what raised it, and this is the answer
+rather than a bumped date: the code moved, and the doc was checked against where
+it moved to.
 
 The doctrine is already written in this repository, at the top of the test file
 named in `resource` above:

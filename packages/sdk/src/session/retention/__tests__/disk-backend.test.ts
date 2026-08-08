@@ -1,8 +1,9 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync } from 'node:fs'
 import { readFile, readdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 import type { MessageId, SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { ArchiveBackendRef } from '../../../types/retention/archive-backend-ref.js'
@@ -78,7 +79,7 @@ describe('DiskArchiveBackend', () => {
 	})
 
 	afterEach(() => {
-		rmSync(rootDir, { recursive: true, force: true })
+		removeTempDir(rootDir)
 	})
 
 	it('store + restore round-trip preserves summary, messages, and subsession metadata', async () => {

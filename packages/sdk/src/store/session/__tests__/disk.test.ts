@@ -1,8 +1,9 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync } from 'node:fs'
 import { readFile, readdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 import { TenantIsolationError } from '../../../session/errors.js'
 import type { AgentId, TenantId, UserId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
@@ -39,7 +40,7 @@ describe('DiskSessionStore', () => {
 	})
 
 	afterEach(() => {
-		rmSync(rootDir, { recursive: true, force: true })
+		removeTempDir(rootDir)
 	})
 
 	it('writes the canonical directory layout (projects/.../sessions/.../subsessions)', async () => {

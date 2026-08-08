@@ -1,7 +1,8 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { removeTempDirAsync } from '../../__fixtures__/temp-dir.js'
 
 import type { MCPToolDefinition } from '../../types/connector/index.js'
 
@@ -119,7 +120,7 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
-	await rm(root, { recursive: true, force: true })
+	await removeTempDirAsync(root)
 	vi.clearAllMocks()
 })
 

@@ -1,7 +1,8 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { removeTempDirAsync } from '../../../__fixtures__/temp-dir.js'
 
 import { ActivityStore } from '../../../store/activity/memory.js'
 import { RunDiskStore } from '../../../store/run/disk.js'
@@ -64,7 +65,7 @@ describe('reading completed calls back out of the transcript', () => {
 	})
 
 	afterEach(async () => {
-		await rm(dir, { recursive: true, force: true })
+		await removeTempDirAsync(dir)
 	})
 
 	const append = async (lines: unknown[]) => {

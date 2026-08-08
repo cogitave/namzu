@@ -1,7 +1,8 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { removeTempDirAsync } from '../../../__fixtures__/temp-dir.js'
 
 import { RunDiskStore } from '../../../store/run/disk.js'
 import type { CheckpointId, IterationCheckpoint } from '../../../types/hitl/index.js'
@@ -69,7 +70,7 @@ describe('a fan-out interrupted part-way through', () => {
 	})
 
 	afterEach(async () => {
-		await rm(dir, { recursive: true, force: true })
+		await removeTempDirAsync(dir)
 	})
 
 	const recordCompletions = async (ids: readonly string[]) => {

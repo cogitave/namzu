@@ -1,7 +1,8 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 import type { RunId } from '../../../types/ids/index.js'
 import { generateRunId } from '../../../utils/id.js'
 import { DiskTaskStore } from '../disk.js'
@@ -18,7 +19,7 @@ describe('DiskTaskStore — concurrency regressions', () => {
 	})
 
 	afterEach(() => {
-		rmSync(baseDir, { recursive: true, force: true })
+		removeTempDir(baseDir)
 	})
 
 	it('does not deadlock when two deletes race on mutually-referencing tasks', async () => {

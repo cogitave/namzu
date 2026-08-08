@@ -1,8 +1,9 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { type Context, type Span, type Tracer, trace } from '@opentelemetry/api'
 import { afterEach, describe, expect, it } from 'vitest'
+import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
@@ -61,7 +62,7 @@ function recordingTracer(): { tracer: Tracer; started: { name: string; parent?: 
 
 afterEach(async () => {
 	trace.disable()
-	await Promise.all(dirs.map((d) => rm(d, { recursive: true, force: true })))
+	await removeTempDirs(dirs)
 	dirs.length = 0
 })
 

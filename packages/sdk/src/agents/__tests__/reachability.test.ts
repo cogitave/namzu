@@ -1,8 +1,9 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
+import { removeTempDirs } from '../../__fixtures__/temp-dir.js'
 
 import { MockLLMProvider } from '../../provider/mock.js'
 import { ToolRegistry } from '../../registry/tool/execute.js'
@@ -37,7 +38,7 @@ const agent = () =>
 const dirs: string[] = []
 
 afterEach(async () => {
-	await Promise.all(dirs.map((d) => rm(d, { recursive: true, force: true })))
+	await removeTempDirs(dirs)
 	dirs.length = 0
 })
 

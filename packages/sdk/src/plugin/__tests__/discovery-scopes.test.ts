@@ -1,7 +1,8 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { removeTempDirs } from '../../__fixtures__/temp-dir.js'
 
 import { PluginRuntimeConfigSchema } from '../../config/runtime.js'
 import {
@@ -47,10 +48,7 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
-	await Promise.all([
-		rm(home, { recursive: true, force: true }),
-		rm(workdir, { recursive: true, force: true }),
-	])
+	await removeTempDirs([home, workdir])
 })
 
 async function discover(

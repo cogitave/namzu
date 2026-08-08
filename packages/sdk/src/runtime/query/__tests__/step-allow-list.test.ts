@@ -1,8 +1,9 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
+import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { defineTool } from '../../../tools/defineTool.js'
@@ -107,7 +108,7 @@ class NamesTool implements LLMProvider {
 
 const workdirs: string[] = []
 afterEach(async () => {
-	await Promise.all(workdirs.map((dir) => rm(dir, { recursive: true, force: true })))
+	await removeTempDirs(workdirs)
 	workdirs.length = 0
 	danger = 0
 })

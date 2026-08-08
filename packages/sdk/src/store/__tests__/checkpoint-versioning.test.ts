@@ -1,7 +1,8 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { removeTempDirAsync } from '../../__fixtures__/temp-dir.js'
 
 import type { CheckpointId, IterationCheckpoint } from '../../types/hitl/index.js'
 import type { RunId } from '../../types/ids/index.js'
@@ -58,7 +59,7 @@ describe('a checkpoint on disk', () => {
 	})
 
 	afterEach(async () => {
-		await rm(dir, { recursive: true, force: true })
+		await removeTempDirAsync(dir)
 	})
 
 	const writeRaw = async (name: string, record: unknown) => {
@@ -123,7 +124,7 @@ describe('budget state a resume dereferences', () => {
 	})
 
 	afterEach(async () => {
-		await rm(dir, { recursive: true, force: true })
+		await removeTempDirAsync(dir)
 	})
 
 	const writeRaw = async (name: string, record: unknown) => {

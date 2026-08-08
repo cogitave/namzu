@@ -1,7 +1,8 @@
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { removeTempDirAsync } from '../../../__fixtures__/temp-dir.js'
 
 import type { RunId } from '../../../types/ids/index.js'
 import { DiskTaskStore } from '../disk.js'
@@ -34,7 +35,7 @@ describe('a task created under a different run than the store default', () => {
 	})
 
 	afterEach(async () => {
-		await rm(dir, { recursive: true, force: true })
+		await removeTempDirAsync(dir)
 	})
 
 	it('can be fetched by id', async () => {
