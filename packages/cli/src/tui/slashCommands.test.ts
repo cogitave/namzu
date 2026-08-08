@@ -10,6 +10,20 @@ import {
 } from './slashCommands.js'
 
 /**
+ * The permission half of a context, for the same reason `context` exists below:
+ * these were inline literals, so each new field had to be added to all four.
+ */
+function permissions(over: Partial<SlashContext['permissions']> = {}): SlashContext['permissions'] {
+	return {
+		skipPermissions: false,
+		rules: [],
+		approvalLatched: () => false,
+		neverPrompted: [],
+		...over,
+	}
+}
+
+/**
  * A context with nothing interesting in it, plus whatever this test is about.
  *
  * Built through a helper rather than as literals so that a field added to
@@ -22,7 +36,7 @@ function context(over: Partial<SlashContext> = {}): SlashContext {
 		providerSummary: null,
 		modelSummary: null,
 		usage: null,
-		permissions: { skipPermissions: false, rules: [] },
+		permissions: permissions(),
 		agentIds: [],
 		instructionFiles: [],
 		userCommands: [],
@@ -197,7 +211,7 @@ describe('/permissions', () => {
 	it('names the flag when approval is automatic', () => {
 		const r = runSlash(
 			'/permissions',
-			context({ permissions: { skipPermissions: true, rules: [] } }),
+			context({ permissions: permissions({ skipPermissions: true }) }),
 		)
 		if (r?.kind === 'message') {
 			expect(r.content).toContain('approved automatically')
@@ -209,13 +223,12 @@ describe('/permissions', () => {
 		const r = runSlash(
 			'/permissions',
 			context({
-				permissions: {
-					skipPermissions: false,
+				permissions: permissions({
 					rules: [
 						{ type: 'deny_by_name', toolNames: ['bash'] },
 						{ type: 'allow_by_name', toolNames: ['read', 'glob'] },
 					],
-				},
+				}),
 			}),
 		)
 		if (r?.kind === 'message') {
@@ -226,12 +239,124 @@ describe('/permissions', () => {
 		}
 	})
 
+	it('reports approve-all as automatic approval, not as "you are asked"', () => {
+		// The defect this readout was rewritten for. One `a` at a prompt turns
+		// every later tool call into an automatic approval, and the page whose
+		// job is to report that posture kept reporting the opposite.
+		const r = runSlash(
+			'/permissions',
+			context({ permissions: permissions({ approvalLatched: () => true }) }),
+		)
+		if (r?.kind === 'message') {
+			expect(r.content).toContain('approved automatically')
+			expect(r.content).toContain('approve all')
+			expect(r.content, 'still claims calls are reviewed').not.toContain('you are asked')
+		}
+	})
+
+	it('reads the latch when it renders, not when the context was built', () => {
+		// The staleness this is really guarding against. The context object is
+		// assembled during a render and read later from a callback that captured
+		// it, so a boolean field would report whatever was true at build time.
+		// Here the latch flips AFTER the context exists — which is exactly what
+		// happens when the operator presses `a` mid-turn.
+		let latched = false
+		const ctxLive = context({ permissions: permissions({ approvalLatched: () => latched }) })
+
+		const before = runSlash('/permissions', ctxLive)
+		if (before?.kind === 'message') expect(before.content).toContain('you are asked')
+
+		latched = true
+
+		const after = runSlash('/permissions', ctxLive)
+		if (after?.kind === 'message') {
+			expect(after.content).toContain('approved automatically')
+			expect(after.content).not.toContain('you are asked')
+		}
+	})
+
+	it('discloses the tools that never reach a prompt', () => {
+		// Undiscoverable by using namzu: these calls simply never appear, so
+		// their absence reads as "the agent did not use any".
+		const r = runSlash(
+			'/permissions',
+			context({ permissions: permissions({ neverPrompted: ['glob', 'read', 'save_memory'] }) }),
+		)
+		if (r?.kind === 'message') {
+			expect(r.content).toContain('Never prompted')
+			expect(r.content).toContain('glob, read, save_memory')
+			// Must not overclaim: a rule still outranks this, and a call flagged
+			// destructive is prompted for even when it is on the list.
+			expect(r.content).toContain('deny')
+			expect(r.content).toContain('destructive')
+		}
+	})
+
+	it('describes a pattern rule instead of printing its type name', () => {
+		// A `permissions` table compiles every per-pattern entry to
+		// `custom_pattern`, so this is the shape of the commonest real config.
+		// It used to render as the single word `custom_pattern`.
+		const r = runSlash(
+			'/permissions',
+			context({
+				permissions: permissions({
+					rules: [
+						{
+							type: 'custom_pattern',
+							pattern: '^bash .*git push.*$',
+							target: 'both',
+							decision: 'deny',
+						},
+					],
+				}),
+			}),
+		)
+		if (r?.kind === 'message') {
+			expect(r.content).toContain('deny')
+			expect(r.content).toContain('git push')
+			expect(r.content, 'printed the enum name').not.toContain('custom_pattern')
+		}
+	})
+
+	it('describes an argument rule by naming the argument it tests', () => {
+		const r = runSlash(
+			'/permissions',
+			context({
+				permissions: permissions({
+					rules: [
+						{
+							type: 'argument_pattern',
+							toolNames: ['bash'],
+							argument: 'command',
+							pattern: '^rm ',
+							decision: 'deny',
+						},
+					],
+				}),
+			}),
+		)
+		if (r?.kind === 'message') {
+			expect(r.content).toContain('bash')
+			expect(r.content).toContain('command')
+			expect(r.content).not.toContain('argument_pattern')
+		}
+	})
+
+	it('points at the config in the syntax the config is actually written in', () => {
+		// It said `[permissions] table`, which is TOML, in a file that is JSON.
+		const r = runSlash('/permissions', context())
+		if (r?.kind === 'message') {
+			expect(r.content).toContain('namzu.config.json')
+			expect(r.content, 'TOML syntax for a JSON file').not.toContain('[permissions]')
+		}
+	})
+
 	it('states that a rule outranks the approval setting', () => {
 		// The precedence people get wrong, and wrong in the dangerous direction:
 		// assuming the bypass flag lifts a `deny` they wrote. It does not.
 		const r = runSlash(
 			'/permissions',
-			context({ permissions: { skipPermissions: true, rules: [] } }),
+			context({ permissions: permissions({ skipPermissions: true }) }),
 		)
 		if (r?.kind === 'message') expect(r.content).toContain('never reopen what a')
 	})

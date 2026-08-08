@@ -52,11 +52,30 @@ export interface SlashContext {
 	 * a question someone asked on purpose.
 	 */
 	readonly usage: { readonly totalTokens: number; readonly costUsd: number } | null
-	/** What the operator's config and flags decided about tool approval. */
+	/** What decides a tool call right now — flags, config, and session state. */
 	readonly permissions: {
 		/** `--yolo` / `--dangerously-skip-permissions`. */
 		readonly skipPermissions: boolean
 		readonly rules: readonly VerificationRule[]
+		/**
+		 * Whether "approve all" is in force, read at render time.
+		 *
+		 * A function because this is the one field here that CHANGES while
+		 * namzu runs. The other two come from flags and a config file and are
+		 * fixed for the process; this one flips on a keystroke mid-turn. Since
+		 * this context object is assembled during a render and read later from
+		 * a callback that captured it, a boolean would report whatever was true
+		 * when the object was built — which is precisely the staleness that let
+		 * `/permissions` claim tools were still being reviewed after they were
+		 * not.
+		 */
+		readonly approvalLatched: () => boolean
+		/**
+		 * Tools that never reach the prompt, named so the readout can say so.
+		 * Supplied by the caller rather than imported here, because this module
+		 * is deliberately free of the agent runtime.
+		 */
+		readonly neverPrompted: readonly string[]
 	}
 	/**
 	 * Delegate ids this session can dispatch to, empty when the delegation tool
@@ -347,15 +366,36 @@ export function renderCost(usage: SlashContext['usage']): string {
 export function renderPermissions(permissions: SlashContext['permissions']): string {
 	const lines: string[] = []
 
-	lines.push(
-		permissions.skipPermissions
-			? 'Unreviewed calls: approved automatically (--dangerously-skip-permissions).'
-			: 'Unreviewed calls: you are asked before they run.',
-	)
+	// Three states, most permissive first, and the middle one is the reason this
+	// function was rewritten: it is reachable from a single keystroke at a
+	// prompt, it silently outranks the default, and it used to be invisible
+	// here — so the page answering "how do tool calls get approved" gave the
+	// safe answer to an operator who had already turned the safety off.
+	if (permissions.skipPermissions) {
+		lines.push('Unreviewed calls: approved automatically (--dangerously-skip-permissions).')
+	} else if (permissions.approvalLatched()) {
+		lines.push('Unreviewed calls: approved automatically — "approve all" was chosen at')
+		lines.push('an earlier prompt. Nothing will ask again while this session lasts;')
+		lines.push('restart namzu, or re-pick a provider with /model, to be asked again.')
+	} else {
+		lines.push('Unreviewed calls: you are asked before they run.')
+	}
+
+	// Stated in every mode, because it is true in every mode and an operator
+	// cannot discover it by using namzu: these tools simply never appear at a
+	// prompt, so their absence reads as "the agent did not use any".
+	if (permissions.neverPrompted.length > 0) {
+		lines.push('')
+		lines.push(`Never prompted for (${permissions.neverPrompted.length}):`)
+		lines.push(`  ${permissions.neverPrompted.join(', ')}`)
+		lines.push("These either only observe, or touch only namzu's own state under")
+		lines.push('~/.namzu. A rule can still deny one, and any call the kernel flags')
+		lines.push('destructive is prompted for even if it is on this list.')
+	}
 
 	if (permissions.rules.length === 0) {
 		lines.push('')
-		lines.push('No rules configured. Add a [permissions] table to namzu.config.json')
+		lines.push('No rules configured. Add a "permissions" object to namzu.config.json')
 		lines.push('to allow or deny tools by name without being asked each time.')
 	} else {
 		lines.push('')
@@ -373,10 +413,54 @@ export function renderPermissions(permissions: SlashContext['permissions']): str
 	return lines.join('\n')
 }
 
+/**
+ * One rule, as a line an operator can check against what they wrote.
+ *
+ * Every arm is spelled out and the default is a `never`, so a ninth rule type
+ * fails the build here instead of printing its own name. The previous version
+ * handled two of the eight and returned `rule.type` for the rest — and the
+ * most common config in existence compiles to `custom_pattern`, so a
+ * per-argument rule someone wrote as `"git push*" = "deny"` was reported to
+ * them as the single word `custom_pattern`.
+ *
+ * The kernel exports a `describeRule` of its own, deliberately not reused: it
+ * is phrased to tell a MODEL why one call was refused ("denied by name … so a
+ * different input will not change it"). This one is a table of standing policy
+ * for a person. Same facts, different question.
+ */
 function describeRule(rule: VerificationRule): string {
-	if (rule.type === 'deny_by_name') return `deny   ${rule.toolNames.join(', ')}`
-	if (rule.type === 'allow_by_name') return `allow  ${rule.toolNames.join(', ')}`
-	return rule.type
+	switch (rule.type) {
+		case 'deny_by_name':
+			return `deny   ${rule.toolNames.join(', ')}`
+		case 'allow_by_name':
+			return `allow  ${rule.toolNames.join(', ')}`
+		case 'allow_by_category':
+			return `allow  any tool in category: ${rule.categories.join(', ')}`
+		case 'allow_by_tier':
+			return `allow  any tool in tier: ${rule.tiers.join(', ')}`
+		case 'allow_read_only':
+			return 'allow  any tool that only observes'
+		case 'deny_dangerous_patterns':
+			return 'deny   the built-in catastrophic-command patterns'
+		case 'argument_pattern': {
+			const verb = rule.decision === 'deny' ? 'deny  ' : 'allow '
+			return `${verb} ${rule.toolNames.join(', ')} when ${rule.argument} matches ${rule.pattern}`
+		}
+		case 'custom_pattern': {
+			// The pattern is shown as the regex it compiled to, which is not
+			// what the operator typed — a `permissions` table turns
+			// `"git push*"` into `^bash .*git push.*$`. Shown anyway: the
+			// compiled form is what actually decides, and inventing a
+			// prettier one would be reporting a rule that is not in force.
+			const verb = rule.decision === 'deny' ? 'deny  ' : 'allow '
+			const where = rule.target === 'both' ? 'name+args' : rule.target
+			return `${verb} ${where} matching ${rule.pattern}`
+		}
+		default: {
+			const exhaustive: never = rule
+			return `unrecognised rule: ${JSON.stringify(exhaustive)}`
+		}
+	}
 }
 
 /** The delegate roster, and an honest answer when there is none. */
