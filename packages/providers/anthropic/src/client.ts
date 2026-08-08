@@ -1025,11 +1025,16 @@ export class AnthropicProvider implements LLMProvider {
 			const clientLike = this.client as unknown as {
 				models?: { list?: (opts: { limit: number }) => Promise<unknown> }
 			}
-			const listFn = clientLike.models?.list
-			if (typeof listFn !== 'function') {
+			const models = clientLike.models
+			if (typeof models?.list !== 'function') {
 				return this.knownModels()
 			}
-			const page = (await listFn({ limit: 100 })) as {
+			// Called ON the namespace, not pulled out and invoked bare. Detached,
+			// it lost `this` and the SDK's own `this._client` read threw a
+			// TypeError on EVERY call — which the catch below swallowed, so this
+			// listing never once reached the network and the hardcoded models
+			// were not a fallback but the only answer this method could give.
+			const page = (await models.list({ limit: 100 })) as {
 				data?: Array<{ id?: string; display_name?: string; type?: string }>
 			}
 			const data = page?.data ?? []
@@ -1064,11 +1069,14 @@ export class AnthropicProvider implements LLMProvider {
 		const clientLike = this.client as unknown as {
 			models?: { list?: (opts: { limit: number }) => Promise<unknown> }
 		}
-		const listFn = clientLike.models?.list
-		if (typeof listFn !== 'function') {
+		const models = clientLike.models
+		if (typeof models?.list !== 'function') {
 			throw new Error('This SDK version cannot list models, so the key cannot be checked here.')
 		}
-		await listFn({ limit: 1 })
+		// Called ON the namespace. Pulling the method into a bare variable and
+		// invoking it loses `this`, and the SDK reads `this._client` — which is
+		// how the sibling `listModels` came to never execute at all.
+		await models.list({ limit: 1 })
 	}
 
 	private knownModels(): ModelInfo[] {

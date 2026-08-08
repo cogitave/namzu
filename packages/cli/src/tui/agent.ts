@@ -914,7 +914,8 @@ function describeError(err: unknown): string {
  * working key into a rotation request.
  */
 export function isCredentialRejection(err: unknown): boolean {
-	const status = (err as { status?: unknown; statusCode?: unknown } | null)?.status ??
+	const status =
+		(err as { status?: unknown; statusCode?: unknown } | null)?.status ??
 		(err as { statusCode?: unknown } | null)?.statusCode
 	if (status === 401 || status === 403) return true
 	if (typeof status === 'number') return false
