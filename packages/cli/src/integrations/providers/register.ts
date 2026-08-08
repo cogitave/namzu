@@ -36,17 +36,23 @@ import { resolveProviderCapabilities } from '@namzu/sdk'
 
 import type { MemberCapabilities } from './chain-capabilities.js'
 import type { ProviderChoice } from './preferences.js'
-import { PROVIDER_REGISTRY, type ProviderId } from './registry.js'
+import { PROVIDER_REGISTRY, type ProviderId, unsupportedProviderMessage } from './registry.js'
 
 const registered = new Set<ProviderId>()
 
 /**
  * Import and register the driver for `id`, unless it is already registered.
  *
- * Throws for a provider that has a registry entry but no wiring here. That
- * asymmetry is a known defect, not a design: the entry, the label, the default
- * model and the discovery probe all cooperate to advertise a provider that
- * cannot be built. See issue #257.
+ * Throws for a provider this build ships no driver for — the arms below are
+ * exactly the entries flagged `constructible` in `PROVIDER_REGISTRY`, and
+ * `register.test.ts` holds the two in agreement.
+ *
+ * **This is the last line of defence, not the first.** By the time a session
+ * reaches it the operator has already chosen, and a refusal here lands them on
+ * a screen with a disabled composer where the advice "pick another" cannot be
+ * followed. The refusals that matter are earlier: `describeInvalidChain`
+ * refuses a saved primary at READ time, which routes to the picker with the
+ * reason, and the picker declines to offer the row at all.
  */
 export async function ensureRegistered(id: ProviderId): Promise<void> {
 	if (registered.has(id)) return
@@ -72,7 +78,7 @@ export async function ensureRegistered(id: ProviderId): Promise<void> {
 			break
 		}
 		default:
-			throw new Error(`provider "${id}" is not wired yet; pick another or wait for support`)
+			throw new Error(unsupportedProviderMessage(id))
 	}
 	registered.add(id)
 }

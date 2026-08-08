@@ -46,7 +46,6 @@ import {
 	buildMemoryTools,
 	getBuiltinTools,
 	query,
-	resolveProviderCapabilities,
 } from '@namzu/sdk'
 
 import { join } from 'node:path'
@@ -60,7 +59,6 @@ import {
 } from '../integrations/mcp/servers.js'
 import {
 	type DetectedProvider,
-	type MemberCapabilities,
 	PROVIDER_REGISTRY,
 	type Preferences,
 	type ProviderChoice,
@@ -80,6 +78,7 @@ import {
 	readPreferences,
 	resolveChainCapabilities,
 	unresolvedMembers,
+	unsupportedProviderMessage,
 } from '../integrations/providers/index.js'
 import { createSubagentRuntime } from '../integrations/subagents/runtime.js'
 import { composeMemoryPrompt, readMemory } from '../memory/store.js'
@@ -809,7 +808,7 @@ function constructProvider(
 			return provider
 		}
 		default:
-			throw new Error(`provider "${id}" is not yet wired to ProviderRegistry`)
+			throw new Error(unsupportedProviderMessage(id))
 	}
 }
 

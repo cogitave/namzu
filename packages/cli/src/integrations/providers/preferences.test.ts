@@ -240,3 +240,52 @@ describe('primaryProvider', () => {
 		expect(() => primaryProvider({ version: 3, providers: [] })).toThrow(PreferencesError)
 	})
 })
+
+/**
+ * A saved primary this build cannot construct is refused when the file is READ.
+ *
+ * Where the refusal happens is the whole fix, not a detail. `needs-repick`
+ * routes the operator to the picker with the reason printed above it;
+ * construction-time refusal returns an empty session, which sets the
+ * `unhealthy` phase — a disabled composer where `/model` cannot be typed. The
+ * old message told them to pick another provider on the one screen that will
+ * not let them.
+ */
+describe('a provider with no bundled driver', () => {
+	it('refuses a saved PRIMARY at read time, so the operator lands in the picker', () => {
+		const home = mkdtempSync(join(tmpdir(), 'namzu-prefs-'))
+		mkdirSync(join(home, '.namzu'), { recursive: true })
+		writeFileSync(
+			join(home, '.namzu', 'preferences.json'),
+			JSON.stringify({ version: 3, providers: [{ id: 'bedrock' }] }),
+		)
+
+		const read = readPreferences(home)
+
+		// `needs-repick`, not a throw and not `ok`. A throw would take the
+		// operator out of the program; `ok` is what produced the dead end.
+		expect(read.status).toBe('needs-repick')
+		expect(read.status === 'needs-repick' && read.reason).toMatch(/not available in this build/)
+	})
+
+	it('does NOT refuse the file over a FALLBACK naming one', () => {
+		// The asymmetry with the unknown-id check above it. An unbuildable spare
+		// is dropped from the chain at launch with a notice and the session runs;
+		// refusing the file would take a working primary away over it.
+		const home = mkdtempSync(join(tmpdir(), 'namzu-prefs-'))
+		mkdirSync(join(home, '.namzu'), { recursive: true })
+		writeFileSync(
+			join(home, '.namzu', 'preferences.json'),
+			JSON.stringify({ version: 3, providers: [{ id: 'anthropic' }, { id: 'bedrock' }] }),
+		)
+
+		expect(readPreferences(home).status).toBe('ok')
+	})
+
+	it('cannot be written as a primary at all, so the picker can never save one', () => {
+		const home = mkdtempSync(join(tmpdir(), 'namzu-prefs-'))
+		expect(() => writePreferences({ version: 3, providers: [{ id: 'lmstudio' }] }, home)).toThrow(
+			/not available in this build/,
+		)
+	})
+})

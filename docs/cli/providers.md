@@ -65,6 +65,26 @@ namzu detects which kind of Anthropic credential it has and authenticates accord
 
 The picker currently wires Anthropic, OpenAI, OpenRouter, and Ollama. Other providers in the registry surface as they gain credential detection.
 
+### A provider this build cannot run
+
+namzu knows about more providers than it bundles drivers for. A driver package exists in the repository for each one, but only the four above are dependencies of the CLI, so only those four can be loaded and used.
+
+The rest are still **discovered**, because discovery is honest — a local server really is running, a credential really is present — and they appear in the picker with `unavailable in this build` beside the source. They cannot be chosen:
+
+```
+2. fallback 1 · <label> · <model> · local · localhost:1234 · unavailable in this build
+```
+
+Choosing one is refused with the reason and the providers you can pick instead. The same refusal happens in three other places, so there is no route around it:
+
+- a **saved primary** naming one is refused when `preferences.json` is read, and you land in the picker with the reason printed above it;
+- **`writePreferences`** will not save one as the primary at all;
+- **`namzu doctor`** reports it under `Could not read what these members declare`.
+
+A **fallback** naming one is treated differently on purpose: it is dropped from the chain at launch with a notice, and your session runs. Refusing the whole file over a spare would take away a primary that works.
+
+Excluding these rows from the picker entirely was considered and rejected — an operator whose only local server is one of them would then see `No providers detected`, which is false. namzu found it and declined it, and a refusal that presents as an absence is not a refusal.
+
 ## Switching providers
 
 Run `/model` inside the TUI to re-open the picker at any time. The new choice is saved and the session reconnects.
