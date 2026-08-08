@@ -109,6 +109,22 @@ A fallback with no credential is a **warning**, not a failure — your primary s
 
 A purely local provider reports `reachable` / `NOT REACHABLE` instead, since it has no key to find.
 
+The same check also reports whether the members **agree about what they can do**, which is the other way a chain with every credential in place still cannot run:
+
+```
+providers.chain  provider chain cannot be honoured as written:
+                 1. primary · <label> · <model> · credential found
+                 2. fallback 1 · <label> · <model> · credential found
+                 The members declare different capabilities, so a session will be REFUSED:
+                   - fallback #1 (<label>) declares it cannot read images, while primary provider (<label>) declares it can — if the chain falls over to it, image attachments stop reaching the model.
+```
+
+That is a **failure**, because a session refuses such a chain outright — see [when the members disagree](#when-the-members-disagree-about-what-they-can-do). If you have accepted the mismatch it is reported as a warning instead and still named, because it is still true.
+
+A member whose declaration cannot be read at all — one with a registry entry but no construction path — is listed separately under `Could not read what these members declare`, and is not counted as a disagreement: an unanswered question is not a conflict.
+
+Reading declarations means loading each member's driver, so this is the one check that pays for what it looks at.
+
 ### When a member cannot serve
 
 If your primary fails a turn, namzu moves to the next member of the chain, keeps the conversation, and carries on from where it stopped. You are told, every time:
@@ -180,6 +196,8 @@ Two things this check does **not** claim:
 - It is about the chain, not about any one run. Capabilities are still negotiated once, against your **primary**, and that answer stays in force after a fallover — which is exactly why a disagreement is refused before a run starts rather than discovered during one. Each sentence says what happens *if the chain falls over*.
 
 A member whose declaration cannot be read at all — a provider with no construction path yet — is reported as such rather than assumed to agree, and does not by itself refuse the chain.
+
+You do not have to start a session to find any of this out. `namzu doctor` asks the same question of the same declarations — see [seeing the chain](#seeing-the-chain) — which is the point: the day to learn that your fallback is unusable is not the day your primary goes down.
 
 ### Upgrading from the previous format
 

@@ -42,3 +42,4 @@ export {
 	type ProviderRegistryEntry,
 	type SdkProviderType,
 } from './registry.js'
+export { ensureRegistered, isRegistered, resolveChainCapabilities } from './register.js'

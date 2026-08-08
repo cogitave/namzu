@@ -94,6 +94,79 @@ describe('the provider chain check', () => {
 		expect(r.status).toBe('pass')
 		expect(r.message ?? '').toMatch(/no fallback/)
 	})
+
+	/**
+	 * The half this check could not see before.
+	 *
+	 * Every member below has a credential, so the older reading of this chain is
+	 * `pass` — and a session would still be refused the moment the operator
+	 * tried to start one, because the members declare different abilities.
+	 * `doctor` exists to be asked on a calm day; a `pass` on a chain that cannot
+	 * run is the worst answer it can give.
+	 *
+	 * The declarations are the drivers' real ones, not a fixture. A fixture
+	 * would prove the sentence-builder works and say nothing about whether this
+	 * check can reach a real declaration, which is the whole subject
+	 * (`docs/conventions/fixture-must-match-production.md`).
+	 */
+	describe('capability disagreements', () => {
+		it('FAILS a chain whose members disagree, even though every credential is present', async () => {
+			writePrefs({ version: 3, providers: [{ id: 'anthropic' }, { id: 'openrouter' }] })
+			const r = await check({ ANTHROPIC_API_KEY: 'x', OPENROUTER_API_KEY: 'y' })
+
+			expect(r.status).toBe('fail')
+			// Not a credential problem, and it must not read as one.
+			expect(r.message ?? '').not.toContain('NO CREDENTIAL')
+			expect(r.message ?? '').toMatch(/declare different capabilities/)
+			expect(r.remediation ?? '').toMatch(/allowCapabilityMismatch/)
+		})
+
+		it('WARNS instead of failing once the operator has accepted the mismatch', async () => {
+			writePrefs({
+				version: 3,
+				providers: [{ id: 'anthropic' }, { id: 'openrouter' }],
+				allowCapabilityMismatch: true,
+			})
+			const r = await check({ ANTHROPIC_API_KEY: 'x', OPENROUTER_API_KEY: 'y' })
+
+			// Named, not silenced: the limitation is real and the session prints it
+			// on every launch, so a diagnostic that went quiet would disagree with
+			// the thing it describes.
+			expect(r.status).toBe('warn')
+			expect(r.message ?? '').toMatch(/you have accepted that/)
+		})
+
+		it('still passes a chain whose members agree', async () => {
+			writePrefs({ version: 3, providers: [{ id: 'anthropic' }, { id: 'openai' }] })
+			const r = await check({ ANTHROPIC_API_KEY: 'x', OPENAI_API_KEY: 'y' })
+
+			expect(r.status).toBe('pass')
+			expect(r.message ?? '').not.toMatch(/declare different capabilities/)
+		})
+
+		/**
+		 * A member with a registry entry and no wiring reads as unresolved rather
+		 * than as agreement. That is issue #257 surfacing where an operator can
+		 * see it: the entry, the label and the default model all advertise a
+		 * provider that cannot be built.
+		 */
+		it('reports a member whose declaration cannot be read, without calling it a disagreement', async () => {
+			writePrefs({ version: 3, providers: [{ id: 'anthropic' }, { id: 'bedrock' }] })
+			const r = await check({ ANTHROPIC_API_KEY: 'x', AWS_ACCESS_KEY_ID: 'y' })
+
+			expect(r.status).toBe('warn')
+			expect(r.message ?? '').toMatch(/Could not read what these members declare/)
+			expect(r.message ?? '').not.toMatch(/declare different capabilities/)
+		})
+
+		it('FAILS when it is the PRIMARY whose declaration cannot be read', async () => {
+			writePrefs({ version: 3, providers: [{ id: 'bedrock' }, { id: 'anthropic' }] })
+			const r = await check({ AWS_ACCESS_KEY_ID: 'y', ANTHROPIC_API_KEY: 'x' })
+
+			expect(r.status).toBe('fail')
+			expect(r.remediation ?? '').toMatch(/no run can start/)
+		})
+	})
 })
 
 describe('the check is reachable, not merely correct', () => {
