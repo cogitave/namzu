@@ -6,7 +6,7 @@
  * so the eye can find the help-text without parsing the whole line.
  */
 
-import { Text } from 'ink'
+import { Text, useStdout } from 'ink'
 
 import { theme } from './theme.js'
 
@@ -36,18 +36,30 @@ export interface StatusBarProps {
 }
 
 export function StatusBar({ cwd, provider, model, state, hint, usage, context }: StatusBarProps) {
-	const segments: string[] = [shortenCwd(cwd)]
-	if (provider) segments.push(provider)
-	if (model) segments.push(model)
-	if (usage && usage.totalTokens > 0) segments.push(formatUsage(usage))
-	const gauge = buildGauge(context)
+	const { stdout } = useStdout()
+	const gaugeRaw = buildGauge(context)
 	const stateLabel = stateGlyph(state)
+	// Decide what fits before rendering, rather than letting the terminal cut
+	// the line wherever it runs out. `truncate-end` alone always sacrifices the
+	// hint, because the hint is last — see `fitStatusLine`.
+	const { meta, showGauge } = fitStatusLine({
+		columns: stdout?.columns ?? 80,
+		cwd: shortenCwd(cwd),
+		provider,
+		model,
+		usage: usage && usage.totalTokens > 0 ? formatUsage(usage) : null,
+		// ` · ctx ` + bar + optional `~` + up to `100%`
+		gaugeCells: gaugeRaw ? GAUGE_WIDTH + 12 : 0,
+		stateLabel,
+		hint,
+	})
+	const gauge = showGauge ? gaugeRaw : null
 	// A single Text with `truncate-end` keeps the footer to exactly one line
 	// on narrow terminals (it shrinks with an ellipsis instead of wrapping),
 	// while nested Text spans preserve per-segment color.
 	return (
 		<Text wrap="truncate-end">
-			<Text color={theme.text.muted}>{segments.join(' · ')}</Text>
+			<Text color={theme.text.muted}>{meta}</Text>
 			{gauge ? (
 				<>
 					<Text color={theme.text.muted}> · ctx </Text>
@@ -154,4 +166,129 @@ function shortenCwd(cwd: string): string {
 		return `~${cwd.slice(home.length)}`
 	}
 	return cwd
+}
+
+/**
+ * A path shortened from the LEFT, keeping the leaf.
+ *
+ * The end of a path is the informative end: `core` says which package you are
+ * in, `/home` says nothing you did not know. Cutting resumes at a separator
+ * when one is near the cut, so the result still reads as a path rather than as
+ * a word broken in half.
+ */
+export function shortenPathToFit(path: string, max: number): string {
+	if (max <= 0) return ''
+	if (path.length <= max) return path
+	if (max === 1) return '…'
+	const tail = path.slice(-(max - 1))
+	const slash = tail.indexOf('/')
+	// Only snap to a separator if one is close, or a long leading segment would
+	// cost more than it explains.
+	const snapped = slash >= 0 && slash <= 12 ? tail.slice(slash) : tail
+	return `…${snapped}`
+}
+
+/**
+ * What fits on the status line, and in what order things yield.
+ *
+ * The line is one row that truncates from the end, and the hint sits at the
+ * end — so anything ahead of it that grows pushes it off the screen. The hint
+ * is the only place any key is advertised: the trust gate's `Esc`, the
+ * permission prompt's `y`/`n`/`a`, the picker's exits all exist on screen here
+ * and nowhere else. Losing it strands the operator on a screen whose exits have
+ * become undiscoverable, so it is the one thing never dropped.
+ *
+ * Everything else is recoverable elsewhere and yields in this order:
+ *
+ * 1. **usage** — `/cost` prints it exactly, and this is the abbreviation.
+ * 2. **the context gauge** — same figure, same command.
+ * 3. **provider** — the longest segment and the least distinctive, since the
+ *    model name already implies it. `anthropic-personal (anthropic)` costs
+ *    thirty columns to repeat what `claude-opus-4-7` has said.
+ * 4. **the working directory, shortened** — a shortened path still orients,
+ *    so it is cut before anything else is given up.
+ * 5. **model**, and only then the path entirely. Both are on the banner and in
+ *    `/model`, but between them these are the two facts worth keeping longest:
+ *    where you are, and what is answering you.
+ *
+ * The order was corrected by the tests: dropping the path first discarded a
+ * two-character cwd to save five columns while a thirty-column provider label
+ * survived, which is the wrong trade in every case it can happen.
+ *
+ * Measured rather than assumed, and the measurement changed the design: a
+ * SHORT path still lost the hint at 100 columns, because a realistic provider
+ * and model fill the line between them. Shortening the path alone would have
+ * fixed the case that was easiest to picture and left the common one broken.
+ */
+export function fitStatusLine(input: {
+	readonly columns: number
+	readonly cwd: string
+	readonly provider: string | null
+	readonly model: string | null
+	readonly usage: string | null
+	readonly gaugeCells: number
+	readonly stateLabel: string
+	readonly hint?: string | undefined
+}): { readonly meta: string; readonly showGauge: boolean } {
+	const { columns, cwd, provider, model, usage, gaugeCells, stateLabel, hint } = input
+	// Reserved, in order of what cannot move: the hint and its divider, then the
+	// state and its divider.
+	const reserved = (hint ? 3 + hint.length : 0) + 3 + stateLabel.length
+	let budget = Math.max(0, columns - reserved)
+
+	let showGauge = gaugeCells > 0
+	let withUsage = usage !== null
+	let withCwd = true
+	let withModel = model !== null
+	let withProvider = provider !== null
+
+	const build = (cwdText: string): string => {
+		const parts: string[] = []
+		if (withCwd && cwdText.length > 0) parts.push(cwdText)
+		if (withProvider && provider) parts.push(provider)
+		if (withModel && model) parts.push(model)
+		if (withUsage && usage) parts.push(usage)
+		return parts.join(' · ')
+	}
+
+	const width = (cwdText: string): number =>
+		build(cwdText).length + (showGauge ? gaugeCells : 0)
+
+	// Everything fits as-is.
+	if (width(cwd) <= budget) return { meta: build(cwd), showGauge }
+
+	// Drop the two figures `/cost` reprints exactly.
+	if (withUsage) {
+		withUsage = false
+		if (width(cwd) <= budget) return { meta: build(cwd), showGauge }
+	}
+	if (showGauge) {
+		showGauge = false
+		if (width(cwd) <= budget) return { meta: build(cwd), showGauge }
+	}
+
+	// Then the provider label, which the model name already implies.
+	if (withProvider) {
+		withProvider = false
+		if (width(cwd) <= budget) return { meta: build(cwd), showGauge }
+	}
+
+	// Then shorten the path into whatever room is left, before giving it up.
+	const withoutCwd = build('').length
+	const roomForCwd = budget - withoutCwd - (withoutCwd > 0 ? 3 : 0)
+	if (roomForCwd >= 8) {
+		const short = shortenPathToFit(cwd, roomForCwd)
+		if (width(short) <= budget) return { meta: build(short), showGauge }
+	}
+
+	// Then the model, and only then the path entirely.
+	withModel = false
+	if (width(cwd) <= budget) return { meta: build(cwd), showGauge }
+	if (roomForCwd >= 8) {
+		const short = shortenPathToFit(cwd, Math.max(0, budget))
+		if (width(short) <= budget) return { meta: build(short), showGauge }
+	}
+
+	withCwd = false
+	return { meta: build(''), showGauge }
 }
