@@ -23,6 +23,26 @@ export interface ComposerProps {
 	readonly history: readonly string[]
 	/** Operator-defined commands, offered in the dropdown alongside builtins. */
 	readonly userCommands?: readonly UserCommand[]
+	/**
+	 * Draw nothing, but stay mounted and keep the draft.
+	 *
+	 * The permission overlay takes the composer's place on screen. Rendering it
+	 * in a ternary against this component unmounted it, and the draft lives in
+	 * this component's own state — so a prompt arriving mid-sentence took the
+	 * sentence with it, along with any paste chips and pasted images, without
+	 * the operator touching a key.
+	 */
+	readonly hidden?: boolean
+	/**
+	 * Whether Esc belongs to something more urgent than the draft.
+	 *
+	 * While a turn runs, the status bar tells the operator that Esc interrupts
+	 * it. Both handlers fire on the same keypress, so following that instruction
+	 * also cleared the composer — the draft was collateral damage from the
+	 * documented way to stop a turn. Esc still clears an idle composer, which is
+	 * what it is for when nothing more urgent is happening.
+	 */
+	readonly escapeInterrupts?: boolean
 }
 
 const MAX_SUGGESTIONS = 6
@@ -34,6 +54,8 @@ export function Composer({
 	onSubmit,
 	history,
 	userCommands = [],
+	hidden = false,
+	escapeInterrupts = false,
 }: ComposerProps) {
 	const [value, setValue] = useState<string>('')
 	const [historyIndex, setHistoryIndex] = useState<number>(-1)
@@ -59,7 +81,19 @@ export function Composer({
 
 	useInput(
 		(input, key) => {
-			if (disabled) return
+			// Hidden means the screen belongs to something else, so a keypress
+			// aimed at that must not also land here.
+			//
+			// `hidden` is REDUNDANT with `disabled` today and is kept anyway.
+			// The only caller sets `hidden` when a permission prompt is open,
+			// and that same event sets `awaiting-permission`, which already puts
+			// `disabled` true — so removing this clause changes no behaviour and
+			// kills no test, which was confirmed by trying it. It stays because
+			// the two say different things: `disabled` is "the composer may not
+			// be used", `hidden` is "the composer is not on screen", and a
+			// component that draws nothing must not consume input on the
+			// strength of a second flag happening to agree with it.
+			if (disabled || hidden) return
 			if (key.return) {
 				if (showSuggestions) {
 					// Run the highlighted command.
@@ -82,6 +116,10 @@ export function Composer({
 				return
 			}
 			if (key.escape) {
+				// A running turn owns Esc. App aborts it on this same keypress,
+				// and clearing the draft too would punish the operator for
+				// following the hint the status bar is showing them.
+				if (escapeInterrupts) return
 				reset()
 				return
 			}
@@ -143,6 +181,11 @@ export function Composer({
 		},
 		{ isActive: true },
 	)
+
+	// After every hook, so the component keeps its state while it is off screen.
+	// This is the whole fix: React preserves a mounted component's state, and
+	// preserving it is what an unmounting ternary could not do.
+	if (hidden) return null
 
 	const promptGlyph = disabled ? '…' : '>'
 	const showPlaceholder = !disabled && value.length === 0

@@ -1011,26 +1011,37 @@ export function App({ ctx }: AppProps) {
 							activeTools={activeTools}
 							thinking={state === 'thinking' && !messages.some((m) => m.pending)}
 						/>
-						{permission ? (
-							<PermissionOverlay toolCalls={permission.toolCalls} />
-						) : (
-							<ComposerFrame focus={state === 'idle' && phase === 'ready'}>
-								{queued.length > 0 ? (
-									<Box paddingX={1}>
-										<Text color={theme.text.muted}>
-											⏎ {queued.length} message{queued.length > 1 ? 's' : ''} queued — sending when
-											ready
-										</Text>
-									</Box>
-								) : null}
-								<Composer
-									disabled={phase !== 'ready' || state === 'awaiting-permission'}
-									onSubmit={handleSubmit}
-									userCommands={userCommands}
-									history={history}
-								/>
-							</ComposerFrame>
-						)}
+						{/* Siblings, not a ternary. The overlay used to REPLACE the
+						    composer, which unmounted it and destroyed whatever the
+						    operator was part-way through typing — text, paste chips
+						    and pasted images alike — on an event they did not
+						    trigger. The composer now stays mounted and draws
+						    nothing while the prompt is up, so its state survives a
+						    decision it had nothing to do with. */}
+						{permission ? <PermissionOverlay toolCalls={permission.toolCalls} /> : null}
+						<ComposerFrame
+							focus={state === 'idle' && phase === 'ready'}
+							hidden={permission !== null}
+						>
+							{queued.length > 0 && permission === null ? (
+								<Box paddingX={1}>
+									<Text color={theme.text.muted}>
+										⏎ {queued.length} message{queued.length > 1 ? 's' : ''} queued — sending when
+										ready
+									</Text>
+								</Box>
+							) : null}
+							<Composer
+								disabled={phase !== 'ready' || state === 'awaiting-permission'}
+								hidden={permission !== null}
+								// A turn is running, so Esc is the interrupt and not
+								// the composer's clear.
+								escapeInterrupts={state === 'thinking' || state === 'tool'}
+								onSubmit={handleSubmit}
+								userCommands={userCommands}
+								history={history}
+							/>
+						</ComposerFrame>
 					</>
 				)}
 				<Box paddingTop={1}>
@@ -1118,9 +1129,24 @@ function TranscriptFrame({ children }: { readonly children: React.ReactNode }) {
 
 function ComposerFrame({
 	focus,
+	hidden = false,
 	children,
 }: {
 	readonly focus: boolean
+	/**
+	 * Draw no frame, but keep the children mounted.
+	 *
+	 * The border is dropped rather than the Box, and that is not a style
+	 * preference. React reconciles by element type at a position: returning
+	 * `<>{children}</>` here instead of `<Box>{children}</Box>` changes the
+	 * type, which unmounts and remounts the subtree — the exact destruction
+	 * this component exists to prevent, reintroduced by the guard meant to
+	 * prevent it. The first version of this fix did that and the tests caught
+	 * it. So the Box is unconditional and only its decoration varies; the
+	 * children render nothing while hidden, so an undecorated Box around
+	 * nothing prints nothing.
+	 */
+	readonly hidden?: boolean
 	readonly children: React.ReactNode
 }) {
 	// Input-field look: a rounded rule above and below the composer, no side
@@ -1128,13 +1154,13 @@ function ComposerFrame({
 	return (
 		<Box
 			flexDirection="column"
-			borderStyle="round"
+			{...(hidden ? {} : { borderStyle: 'round' as const })}
 			borderTop={true}
 			borderBottom={true}
 			borderLeft={false}
 			borderRight={false}
 			borderColor={focus ? theme.border.focus : theme.border.default}
-			marginTop={1}
+			marginTop={hidden ? 0 : 1}
 		>
 			{children}
 		</Box>

@@ -186,6 +186,8 @@ edits instead of overwriting. It needs a provider, and says so if there is none.
 
 The composer stays editable while the agent is working. If you send a message mid-turn it's queued (a `⏎ N messages queued` hint shows) and sent automatically when the current turn settles — queued messages run one at a time, in order.
 
+A draft you have not sent survives whatever the agent does. If a permission prompt appears mid-sentence it takes the screen, and your text — along with any pasted-text or image attachments — comes back untouched when the prompt is answered. Pressing `Esc` to interrupt a running turn interrupts only; it does not clear what you were typing. With nothing running, `Esc` clears the composer.
+
 ## Expanding tool output
 
 Tool diffs and command output collapse to a few lines with a `… +N lines (ctrl+o to expand)` hint. Press **Ctrl+O** to toggle full expansion for everything.

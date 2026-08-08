@@ -298,8 +298,16 @@ describe('/permissions after approve-all', () => {
 		await decisionSettles()
 		expect(decisions, 'a did not approve-all').toEqual([{ kind: 'approve-all' }])
 
-		// The turn is over and the composer is back. Ask the page.
+		// The turn is over and the composer is back — still holding the draft
+		// that was typed while it ran, which is the point of the fix in
+		// `app-draft-survives.test.tsx`. Clear it before typing a command, or
+		// the command is appended to the draft and submitted as prose.
+		//
+		// Worth naming: this step was not needed while the composer unmounted,
+		// so this test used to pass BECAUSE the draft was being destroyed.
 		await tick(120)
+		stdin.write('\x1B')
+		await tick(60)
 		stdin.write('/permissions')
 		await tick(60)
 		stdin.write('\r')
