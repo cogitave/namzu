@@ -68,3 +68,53 @@ The picker currently wires Anthropic, OpenAI, OpenRouter, and Ollama. Other prov
 ## Switching providers
 
 Run `/model` inside the TUI to re-open the picker at any time. The new choice is saved and the session reconnects.
+
+## The provider chain
+
+`~/.namzu/preferences.json` stores an **ordered list** of providers rather than a single one:
+
+```json
+{
+  "version": 3,
+  "providers": [
+    { "id": "anthropic", "model": "claude-opus-4-7" },
+    { "id": "ollama" }
+  ]
+}
+```
+
+The order is yours to declare, and the file is meant to be read and edited directly — you do not need to launch the TUI to see it. Index 0 is the **primary**. A member that omits `model` uses that provider's registry default, resolved at launch, so it tracks the default instead of pinning whatever it was on the day you wrote it.
+
+**Today only the primary runs.** The rest of the chain is validated and reported; nothing falls over to it yet. Automatic failover is a separate change.
+
+The chain is checked as a whole when it is read:
+
+- Every member must name a provider namzu knows — including members after the first. An unusable fallback that only surfaces the day your primary goes down is what this prevents.
+- A member cannot repeat an earlier one exactly. The same provider **with a different model** is allowed and is a legitimate chain: a large model falling back to a smaller one.
+- The chain cannot be empty.
+
+If any of those fail, namzu names the offending position (`primary provider`, `fallback #1`, …) and re-opens the picker.
+
+### Seeing the chain
+
+`namzu doctor` prints it in order, one line per member, each carrying that member's position, label, the model it will use — marked `(default)` when it came from the registry rather than from your file — and whether a credential was found:
+
+```
+providers.chain  2 providers configured, in order:
+                 1. primary · <label> · <model> · credential found
+                 2. fallback 1 · <label> · <model> (default) · NO CREDENTIAL
+```
+
+A fallback with no credential is a **warning**, not a failure — your primary still runs, so you are not blocked. A primary with no credential is a failure, because no run can start.
+
+A purely local provider reports `reachable` / `NOT REACHABLE` instead, since it has no key to find.
+
+### Upgrading from the previous format
+
+A `version: 2` file (one `provider`, one optional `model`) is read as a one-member chain, so nothing needs doing. The file is rewritten in the new format the next time a choice is saved. A `version: 1` file is still refused and asks you to pick again.
+
+### Overriding on the command line
+
+`namzu run --provider <id>` **replaces** the chain for that run: the run uses exactly the provider you named and nothing else. An override that quietly kept your fallbacks could answer from a provider you did not name on that command line.
+
+`--model <name>` on its own re-models the primary and leaves the rest of the chain in place.

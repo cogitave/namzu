@@ -22,6 +22,8 @@
 import { statSync } from 'node:fs'
 import { resolve } from 'node:path'
 
+import type { Preferences, ProviderChoice, ProviderId } from '../integrations/providers/index.js'
+
 export interface RunFlags {
 	session: string | null
 	model: string | null
@@ -256,4 +258,47 @@ export async function loadSkillsContext(
 /** The `--flags` refusal message both commands use, so they word it the same. */
 export function unknownOptionMessage(unknown: readonly string[]): string {
 	return `unknown option(s): ${unknown.join(', ')} — pass \`--\` before a prompt that starts with a dash`
+}
+
+/**
+ * Apply `--provider` / `--model` to the configured provider chain.
+ *
+ * Here rather than in each command for the reason at the top of this file: both
+ * commands take the same input, and the two `--provider` readings below differ
+ * in a way that only shows up once failover exists. Written twice, they drift
+ * once.
+ *
+ * **`--provider X` replaces the chain with X alone**, rather than moving X to
+ * the head and keeping the rest as fallbacks. An operator who names one provider
+ * on a command line and gets an answer from a different one has been switched
+ * silently — and they would have no way to see it, because the flag they passed
+ * says otherwise. Today the two readings behave identically, since nothing falls
+ * over; the decision is recorded now so it is not settled later by whichever is
+ * easier to write.
+ *
+ * **`--model` alone re-models the existing primary** and leaves the chain
+ * intact: it is a statement about the model, not about which providers are
+ * viable. Passed together with `--provider`, it models the single member that
+ * replaced the chain.
+ */
+export function applyProviderFlags(
+	prefs: Preferences,
+	flags: Pick<RunFlags, 'provider' | 'model'>,
+): Preferences {
+	if (!flags.provider && !flags.model) return prefs
+
+	if (flags.provider) {
+		const member: ProviderChoice = {
+			id: flags.provider as ProviderId,
+			...(flags.model ? { model: flags.model } : {}),
+		}
+		return { ...prefs, providers: [member] }
+	}
+
+	const [head, ...rest] = prefs.providers
+	if (!head) return prefs
+	// `flags.model` is non-null here: the early return above covers the case
+	// where neither flag was given, and the branch above covers `--provider`.
+	const remodelled: ProviderChoice = { id: head.id, model: flags.model as string }
+	return { ...prefs, providers: [remodelled, ...rest] }
 }

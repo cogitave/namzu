@@ -20,6 +20,8 @@ export {
 	PREFERENCES_FILE_VERSION,
 	PreferencesError,
 	preferencesPath,
+	primaryProvider,
+	type ProviderChoice,
 	type ReadResult,
 	readPreferences,
 	writePreferences,

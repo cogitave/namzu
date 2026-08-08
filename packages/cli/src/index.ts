@@ -18,6 +18,7 @@ export {
 	builtInDoctorChecks,
 	credentialSourcesCheck,
 	cwdWritableCheck,
+	providerChainCheck,
 	providersRegisteredCheck,
 	sandboxPlatformCheck,
 	telemetryInstalledCheck,

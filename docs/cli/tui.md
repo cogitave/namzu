@@ -90,8 +90,9 @@ In every one of those cases the provider's default is still offered and
 selectable, so the step is never a dead end. The default is marked `(default)`
 wherever it appears.
 
-Your choice is written to `~/.namzu/preferences.json` as `model`, and it is what
-the next turn is sent with.
+Your choice is written to `~/.namzu/preferences.json` as the primary entry's
+`model`, and it is what the next turn is sent with. See
+[the provider chain](./providers.md#the-provider-chain) for the file's shape.
 
 ## Your own slash commands
 

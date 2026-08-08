@@ -1,4 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { runDoctorCommand } from './doctor.js'
 
@@ -24,6 +27,30 @@ describe('runDoctorCommand', () => {
 	afterEach(() => {
 		process.stdout.write = originalStdoutWrite
 		process.stderr.write = originalStderrWrite
+		vi.unstubAllEnvs()
+	})
+
+	it('indents every line of a multi-line message under its check', async () => {
+		// The provider chain prints one line per member. Rendered as a single
+		// string, only the first line took the report's indent and the rest
+		// broke out to column 0, so the report looked like it had ended and the
+		// members read as stray output from something else.
+		const home = mkdtempSync(join(tmpdir(), 'namzu-doctor-'))
+		mkdirSync(join(home, '.namzu'), { recursive: true })
+		writeFileSync(
+			join(home, '.namzu', 'preferences.json'),
+			JSON.stringify({ version: 3, providers: [{ id: 'anthropic' }, { id: 'openai' }] }),
+		)
+		vi.stubEnv('HOME', home)
+		vi.stubEnv('USERPROFILE', home)
+
+		await runDoctorCommand(['--category', 'providers'])
+
+		const memberLines = captured.split('\n').filter((l) => /^\s*\d+\. (primary|fallback)/.test(l))
+		expect(memberLines).toHaveLength(2)
+		for (const line of memberLines) {
+			expect(line.startsWith('     ')).toBe(true)
+		}
 	})
 
 	it('--help returns 0 and prints usage', async () => {

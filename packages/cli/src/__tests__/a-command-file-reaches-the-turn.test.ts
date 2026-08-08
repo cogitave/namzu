@@ -95,7 +95,7 @@ describe('a command file the operator wrote', () => {
 		// cannot cover: that the composed text is what the kernel is given.
 		const { createAgentSession } = await import('../tui/agent.js')
 		const session = await createAgentSession(
-			{ version: 2, provider: 'anthropic', subagents: { active: [] } } as never,
+			{ version: 3, providers: [{ id: 'anthropic' }], subagents: { active: [] } } as never,
 			[
 				{
 					entry: {

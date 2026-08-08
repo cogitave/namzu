@@ -20,6 +20,7 @@ import {
 	type DetectedProvider,
 	type Preferences,
 	type ProviderId,
+	primaryProvider,
 	writePreferences,
 } from '../integrations/providers/index.js'
 import { isTrusted, trustDir } from '../integrations/trust/store.js'
@@ -223,7 +224,7 @@ export function App({ ctx }: AppProps) {
 					reserved: SLASH_COMMANDS.map((c) => c.name),
 				}),
 			)
-			setCurrentProvider(prefs.provider)
+			setCurrentProvider(primaryProvider(prefs).id)
 			if (s.hasProvider) {
 				setPhase('ready')
 				pushMessage(
@@ -743,7 +744,11 @@ export function App({ ctx }: AppProps) {
 			// The disposition, not the key. `credential` never reaches a message.
 			pushMessage('system', disposition)
 			void hydrateSession(
-				{ version: 2, provider: credential.entry.id as ProviderId, subagents: { active: [] } },
+				{
+					version: 3,
+					providers: [{ id: credential.entry.id as ProviderId }],
+					subagents: { active: [] },
+				},
 				next,
 			)
 		},
@@ -752,10 +757,16 @@ export function App({ ctx }: AppProps) {
 
 	const handlePickerSubmit = useCallback(
 		(selection: { provider: string; model?: string }) => {
+			// One member for now. The picker builds a longer chain in a later
+			// change; the shape it writes into is already the chain.
 			const prefs: Preferences = {
-				version: 2,
-				provider: selection.provider as ProviderId,
-				model: selection.model,
+				version: 3,
+				providers: [
+					{
+						id: selection.provider as ProviderId,
+						...(selection.model !== undefined ? { model: selection.model } : {}),
+					},
+				],
 				subagents: { active: [] },
 			}
 			try {

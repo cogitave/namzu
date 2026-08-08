@@ -22,7 +22,7 @@ import { configureLogger } from '@namzu/sdk'
 import type { Message, StopReason } from '@namzu/sdk'
 
 import { EXIT_UNTRUSTED, EXIT_USAGE } from '../exit-codes.js'
-import type { DetectedProvider, Preferences, ProviderId } from '../integrations/providers/index.js'
+import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
 import { openSessions } from '../integrations/sessions/store.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { resolvePermissionMode } from '../permissions/mode.js'
@@ -31,6 +31,7 @@ import { SLASH_COMMANDS } from '../tui/slashCommands.js'
 import { expandHeadlessCommand } from '../user-commands/store.js'
 import { resolveResume } from './resume.js'
 import {
+	applyProviderFlags,
 	loadSkillsContext,
 	parseRunFlags,
 	resolveWorkingDirectory,
@@ -106,7 +107,9 @@ export function composePrompt(fromArgs: string, piped: string): string {
 
 function defaultPrefs(detected: readonly DetectedProvider[]): Preferences | null {
 	const first = detected[0]
-	return first ? { version: 2, provider: first.entry.id, subagents: { active: [] } } : null
+	return first
+		? { version: 3, providers: [{ id: first.entry.id }], subagents: { active: [] } }
+		: null
 }
 
 export const runCommand: CommandDef = {
@@ -234,8 +237,7 @@ export const runCommand: CommandDef = {
 			})
 			return 1
 		}
-		if (flags.provider) prefs = { ...prefs, provider: flags.provider as ProviderId }
-		if (flags.model) prefs = { ...prefs, model: flags.model }
+		prefs = applyProviderFlags(prefs, flags)
 
 		// A permission the operator wrote and which was silently dropped is the
 		// worst outcome available here: they believe a control is in force and it

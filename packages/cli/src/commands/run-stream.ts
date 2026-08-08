@@ -30,7 +30,7 @@
 import { type Message, configureLogger } from '@namzu/sdk'
 
 import { EXIT_UNTRUSTED } from '../exit-codes.js'
-import type { DetectedProvider, Preferences, ProviderId } from '../integrations/providers/index.js'
+import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
 import {
 	appendMessages,
 	loadConversation,
@@ -43,6 +43,7 @@ import { compilePermissions } from '../permissions/rules.js'
 import { SLASH_COMMANDS } from '../tui/slashCommands.js'
 import { expandHeadlessCommand } from '../user-commands/store.js'
 import {
+	applyProviderFlags,
 	loadSkillsContext,
 	parseRunFlags,
 	resolveWorkingDirectory,
@@ -59,7 +60,9 @@ async function readStdin(): Promise<string> {
 
 function defaultPrefs(detected: readonly DetectedProvider[]): Preferences | null {
 	const first = detected[0]
-	return first ? { version: 2, provider: first.entry.id, subagents: { active: [] } } : null
+	return first
+		? { version: 3, providers: [{ id: first.entry.id }], subagents: { active: [] } }
+		: null
 }
 
 /** Parse stdin as a prior Message[]; tolerate the UI's {role,content} shape. */
@@ -184,8 +187,7 @@ export const runStreamCommand: CommandDef = {
 		}
 		// --provider/--model override the persona's configured provider+model for
 		// this run, so the Namzu tab's picks win over ~/.namzu/preferences.json.
-		if (flags.provider) prefs = { ...prefs, provider: flags.provider as ProviderId }
-		if (flags.model) prefs = { ...prefs, model: flags.model }
+		prefs = applyProviderFlags(prefs, flags)
 
 		// The operator's rules and mode reach this command too. They did not:
 		// `[permissions]` was compiled for `run` and never for `run-stream`, so a

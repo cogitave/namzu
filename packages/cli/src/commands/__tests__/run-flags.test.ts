@@ -52,19 +52,26 @@ vi.mock('../../integrations/trust/store.js', () => ({
 
 vi.mock('../../tui/agent.js', () => ({
 	probeAgentSession: vi.fn(async () => ({
-		preferences: { version: 2, provider: 'mock', subagents: { active: [] } },
+		preferences: {
+			version: 3,
+			providers: [{ id: 'mock' }],
+			subagents: { active: [] },
+		},
 		needsRepickReason: null,
 		detected: [],
 	})),
 	createAgentSession: vi.fn(
 		async (
-			prefs: { provider?: string; model?: string },
+			prefs: { providers?: readonly { id?: string; model?: string }[] },
 			_detected: unknown,
 			opts?: { cwd?: string },
 		) => {
 			seen.cwd = opts?.cwd
-			seen.provider = prefs.provider
-			seen.model = prefs.model
+			// The head of the chain is what runs, so it is what this file asserts
+			// on. Reading a flat `prefs.provider` here is how this fixture went
+			// stale against production once already.
+			seen.provider = prefs.providers?.[0]?.id
+			seen.model = prefs.providers?.[0]?.model
 			// Only what this file is about is spelled out: the instruction files
 			// it drives assertions from, and a `send` that records the prompt.
 			return fakeAgentSession({
