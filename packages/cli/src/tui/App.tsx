@@ -40,6 +40,7 @@ import {
 	NAMZU_WORDMARK_MIN_WIDTH,
 } from './logo.js'
 import { PermissionOverlay } from './PermissionOverlay.js'
+import { approvalIsDeliberate } from './permission-timing.js'
 import { Picker } from './Picker.js'
 import { type ContextFill, StatusBar } from './StatusBar.js'
 import { Transcript } from './Transcript.js'
@@ -130,6 +131,14 @@ export function App({ ctx }: AppProps) {
 		setActiveTools([])
 	}, [])
 	const permissionResolveRef = useRef<((d: PermissionDecision) => void) | null>(null)
+	/**
+	 * When the pending prompt took the screen, or `null` with none open.
+	 *
+	 * A ref rather than state because the keypress handler reads it in the same
+	 * tick the prompt opens, before any re-render could carry a new value — see
+	 * `permission-timing.ts` for why an approving key has to wait on this.
+	 */
+	const permissionOpenedAtRef = useRef<number | null>(null)
 	// SDK-backed conversation persistence (DiskSessionStore). `scopeRef` carries
 	// the active session id used by query() — mutated in place on /resume so new
 	// turns attribute to the resumed conversation.
@@ -399,6 +408,7 @@ export function App({ ctx }: AppProps) {
 	const resolvePermission = useCallback((decision: PermissionDecision) => {
 		const resolve = permissionResolveRef.current
 		permissionResolveRef.current = null
+		permissionOpenedAtRef.current = null
 		setPermission(null)
 		if (resolve) resolve(decision)
 	}, [])
@@ -409,6 +419,7 @@ export function App({ ctx }: AppProps) {
 		(req: PermissionRequest) =>
 			new Promise<PermissionDecision>((resolve) => {
 				permissionResolveRef.current = resolve
+				permissionOpenedAtRef.current = Date.now()
 				setPermission(req)
 				setState('awaiting-permission')
 			}),
@@ -583,6 +594,7 @@ export function App({ ctx }: AppProps) {
 			} finally {
 				abortRef.current = null
 				permissionResolveRef.current = null
+				permissionOpenedAtRef.current = null
 				setPermission(null)
 				clearActiveTools()
 				setState('idle')
@@ -819,14 +831,26 @@ export function App({ ctx }: AppProps) {
 			// A pending permission prompt owns the keyboard: y/n/a decide it.
 			if (permissionResolveRef.current) {
 				const ch = input.toLowerCase()
-				if (key.ctrl && (input === 'c' || input === '\x03')) {
+				// Refusing is never deferred or gated — it is the direction a
+				// mistake is recoverable in, so it answers on the first press.
+				if (key.ctrl && input === 'c') {
 					resolvePermission({ kind: 'reject', feedback: 'User interrupted.' })
 					abortRef.current?.abort()
 					return
 				}
-				if (ch === 'y' || key.return) resolvePermission({ kind: 'approve' })
+				if (ch === 'n' || key.escape) {
+					resolvePermission({ kind: 'reject' })
+					return
+				}
+				// Enter is deliberately NOT an approval. It is the key people press
+				// to dismiss a thing that appeared, it is the key already in flight
+				// when a turn's follow-up was being typed, and it is named nowhere
+				// on this prompt — so reading it as consent approves a tool call the
+				// operator never looked at. `y` and `a` are the only approvals, and
+				// they must arrive after the prompt has been up long enough to read.
+				if (!approvalIsDeliberate(permissionOpenedAtRef.current, Date.now())) return
+				if (ch === 'y') resolvePermission({ kind: 'approve' })
 				else if (ch === 'a') resolvePermission({ kind: 'approve-all' })
-				else if (ch === 'n' || key.escape) resolvePermission({ kind: 'reject' })
 				return
 			}
 			// Esc interrupts a running turn (Ctrl+C stays reserved for exit). Mirrors
@@ -843,7 +867,7 @@ export function App({ ctx }: AppProps) {
 				setExpanded((e) => !e)
 				return
 			}
-			if (key.ctrl && (input === 'c' || input === '\x03')) {
+			if (key.ctrl && input === 'c') {
 				// A turn is running → first Ctrl+C interrupts it, not exits.
 				if (abortRef.current) {
 					abortRef.current.abort()
@@ -1081,7 +1105,9 @@ function hintForPhase(
 	if (phase === 'probing') return 'discovering providers…'
 	if (phase === 'picker') return '↑↓ navigate · enter accept · esc cancel'
 	if (phase === 'unhealthy') return 'Ctrl+C ×2 to exit'
-	if (state === 'awaiting-permission') return 'y approve · n reject · a approve all'
+	// Enter is absent because Enter decides nothing here, deliberately — see the
+	// permission gate in the key handler above.
+	if (state === 'awaiting-permission') return 'y approve · n / esc reject · a approve all'
 	if (state !== 'idle') return 'agent is working — esc to interrupt'
 	return '/help · @file / Ctrl+V to attach · Ctrl+C ×2 to exit'
 }
