@@ -1,5 +1,98 @@
 # @namzu/cli
 
+## 4.3.0
+
+### Minor Changes
+
+- b0f166b: **`namzu doctor` now reports provider-chain capability disagreements.** It
+  listed which members had credentials and could not say whether the chain it was
+  describing could run at all — so a chain with every key in place reported
+  `pass`, and the operator found out it was unusable by trying to start a session.
+
+  Reading what a provider declares requires that provider's package to be
+  registered, and the only registration path was module-private inside the
+  interactive session. A diagnostic that cannot see what the thing it diagnoses
+  sees is checking the wrong thing. `ensureRegistered` and
+  `resolveChainCapabilities` now live beside the registry, in
+  `integrations/providers/register.ts`, and the session and the doctor reach them
+  without either importing the other.
+
+  `providers.chain` gains three outcomes:
+
+  - **fail** — the members disagree and the mismatch has not been accepted, so a
+    session will be refused. Reported ahead of the credential result, because it
+    stops every run.
+  - **warn** — the mismatch has been accepted. Still named: the session prints it
+    on every launch, and a diagnostic that went quiet would disagree with the
+    thing it describes.
+  - **warn / fail** — a member whose declaration could not be read, listed
+    separately from the disagreements because an unanswered question is not a
+    conflict. `fail` when it is the primary, which cannot start a session either.
+
+  The cost is named rather than hidden: this check now dynamically imports the
+  driver package of every member in the chain. That is the price of reading a
+  declaration, on a command whose whole job is to look.
+
+  No behaviour changes inside a session — the registration state is one set in one
+  module, as it was, because two copies would double-register and throw.
+
+  Closes #262.
+
+- d52ce59: Leaving the provider picker takes you back where you were
+
+  The picker has two entry points and had one exit between them.
+
+  **`/model` then `Esc` no longer throws away your session.** Cancelling sent you
+  to the phase namzu uses for "I tried and cannot serve" — a screen with a
+  disabled composer, from which `/model` cannot be typed again. Declining to
+  change model cost you the working session you already had. It now returns to the
+  chat.
+
+  **`Ctrl+C` works in the picker.** The key handler was switched off for the whole
+  picker phase, so on the first screen a new user sees, the interrupt did nothing
+  useful: one press armed an exit whose "press again" notice is printed into a
+  transcript the picker does not render, and only a second press left. It exits on
+  the first press now, and the hint names it.
+
+  **`Esc` on first run exits.** There is no screen behind the picker then, so
+  leaving the picker is leaving the program — which is what the empty picker's
+  footer has always said `esc` does.
+
+  The hint now says which of the two `Esc` means: `esc keep current` when a
+  session is behind it, `esc or Ctrl+C exit` when nothing is.
+
+### Patch Changes
+
+- 6e287fa: A draft is no longer destroyed by a permission prompt, or by interrupting a turn
+
+  The composer stays editable while the agent works, and the docs encourage typing
+  a follow-up there. Two separate mechanisms then threw that text away without the
+  operator doing anything to ask for it.
+
+  **The permission overlay unmounted the composer.** It was rendered in a ternary
+  _against_ the composer, so when the agent asked to run a tool the composer was
+  removed from the tree and React discarded its state — the sentence in progress,
+  any pasted-text chips, and any pasted images. Nothing was pressed; the prompt
+  simply arrived. The overlay and the composer are now siblings, and the composer
+  draws nothing while the prompt is up instead of ceasing to exist.
+
+  **Esc cleared the draft while interrupting a turn.** Both handlers fire on one
+  keypress: the app aborts the turn and the composer cleared itself. The status
+  bar advertises Esc as the interrupt, so following the instruction on screen
+  destroyed the draft. A running turn now owns Esc; with nothing running, Esc
+  still clears the composer, which is what it is for.
+
+  Nothing is required of you, and nothing looks different until the moment it
+  used to lose your text.
+
+- Updated dependencies [52b339e]
+- Updated dependencies [5be5007]
+  - @namzu/sdk@18.0.0
+  - @namzu/anthropic@3.1.1
+  - @namzu/ollama@2.0.1
+  - @namzu/openai@1.1.1
+  - @namzu/openrouter@2.0.1
+
 ## 4.2.0
 
 ### Minor Changes
