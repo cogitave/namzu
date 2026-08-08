@@ -73,6 +73,17 @@ const ROOT = process.cwd()
  *
  * Matched case-insensitively on a word boundary, so `openaiCompatible`
  * is caught while `open` is not.
+ *
+ * An entry may instead be `{ name, collidesWithEnglish: true }`, which means
+ * the spelling is also an ordinary English word this codebase uses correctly.
+ * Those match only Title-Case away from the start of a sentence, or ALL-CAPS —
+ * see `matches`. It is data rather than a special case in the code, so the next
+ * collision is one line here instead of a new branch there.
+ *
+ * **Flagging an entry is a narrowing**: a lowercase mid-sentence mention of
+ * that product stops being caught. It is worth it only where the ordinary sense
+ * is genuinely written here, because a rule that cries wolf on correct prose is
+ * a rule somebody switches off — and then it catches nothing at all.
  */
 const FORBIDDEN = [
 	'anthropic',
@@ -84,7 +95,10 @@ const FORBIDDEN = [
 	'llamaindex',
 	'autogen',
 	'crewai',
-	'strands',
+	// Issue #217. `strands` is a verb this codebase uses correctly about an
+	// orphaned session, and the sentence that first tripped the rule was a
+	// sentence ABOUT the rule tripping.
+	{ name: 'strands', collidesWithEnglish: true },
 	'vercel',
 	// 'cursor' is deliberately absent: it collides with the pagination
 	// cursor this codebase threads through every list call, and a rule that
@@ -92,7 +106,11 @@ const FORBIDDEN = [
 	'copilot',
 	'gemini',
 	'mistral',
-	'cohere',
+	// Found while fixing #217, by running the matcher rather than reading it:
+	// "the plan should cohere with the roadmap" is flagged today. Shipping a fix
+	// billed as general while leaving this would be fixing one instance of a
+	// class and calling the class done.
+	{ name: 'cohere', collidesWithEnglish: true },
 	'huggingface',
 	'pydantic',
 	'semantic kernel',
@@ -122,6 +140,40 @@ const FORBIDDEN = [
 	// written when there is a line to point at.
 	'github actions',
 ]
+
+/**
+ * Entries with an ordinary sense that were considered for
+ * `collidesWithEnglish` and deliberately left without it (#217, measured
+ * 2026-08-08). Recorded because an unflagged entry looks identical whether the
+ * question was asked or never occurred to anyone.
+ *
+ *  - `anthropic` ("the anthropic principle"), `copilot` ("the copilot seat"),
+ *    `autogen` ("// autogen: do not edit"), `semantic kernel` (a real term in
+ *    NLP). The ordinary sense is available in English and is not written HERE,
+ *    while the lowercase spelling is how people actually write those products —
+ *    so flagging them would cost real detection to prevent a false positive
+ *    nobody has had. One line each if that ever changes. `anthropic` and
+ *    `cohere` are additionally in `DRIVEN_SERVICES`, so for those two the
+ *    exposure is source comments only; doc prose is already exempt.
+ *  - `mistral` collides with the wind, which is commonly capitalised too, so
+ *    the guard would not separate the senses. It is not a candidate.
+ *
+ * Three entries are UNGUARDABLE and are escalated rather than decided here:
+ * `claude`, `gemini` and `daytona` each collide with another PROPER NOUN — a
+ * person's name, a space programme, a place — so both senses are capitalised
+ * and there is no casing signal left to use. Removing them is the only
+ * remaining option and it loosens the owner's hardest rule, which makes it the
+ * owner's call and not this file's. None of them has produced a false positive
+ * here; they are listed so the next reader inherits the analysis.
+ */
+
+/**
+ * `FORBIDDEN` normalised to one shape, so nothing downstream has to ask whether
+ * an entry is a string or an object.
+ */
+const TERMS = FORBIDDEN.map((entry) =>
+	typeof entry === 'string' ? { name: entry, collidesWithEnglish: false } : entry,
+)
 
 /** Directories whose contents are never scanned. */
 const SKIP_DIRS = new Set(['node_modules', 'dist', 'coverage', '.git', '.turbo'])
@@ -303,6 +355,41 @@ function stripStringLiterals(line) {
 const WORKSPACE_PACKAGE_PATH = /\b(?:packages\/)?providers\/[a-z0-9][a-z0-9.-]*/g
 
 /**
+ * Title-case every word of a term: `semantic kernel` -> `Semantic Kernel`.
+ *
+ * This used to be `name.charAt(0).toUpperCase() + name.slice(1)`, which
+ * capitalises only the first letter of the whole phrase and therefore produced
+ * `Semantic kernel` — a spelling no brand uses. That was inert while both
+ * branches below were case-insensitive or identifier-only, and it stops being
+ * inert the moment a multi-word entry is given the English-collision guard: the
+ * guard would match a form nobody writes, and the entry would silently stop
+ * catching its own brand while the gate went on reporting green.
+ *
+ * The transform is pinned by `DISCRIMINATOR_CASES` below rather than trusted.
+ */
+function titleCase(name) {
+	return name.replace(/(^|\s)(\w)/g, (_m, lead, ch) => lead + ch.toUpperCase())
+}
+
+/**
+ * Whether a name sits at the start of its sentence on this line.
+ *
+ * Only used for the English-collision guard. Leading comment openers, list
+ * bullets and heading marks are punctuation rather than words, so a name after
+ * one of them is still the first word of what it is saying.
+ *
+ * A line-wrapped comment defeats it — a sentence continuing onto the next line
+ * looks like a fresh one. That direction is a miss rather than a false alarm,
+ * which is the direction this whole guard is choosing.
+ */
+function startsASentence(haystack, index) {
+	const before = haystack
+		.slice(0, index)
+		.replace(/^[\s>]*(?:\/\/+|\/\*+|\*+|#+|[-+]|\d+[.)])?[\s>*+-]*/, '')
+	return before === '' || /[.!?:]\s+$/.test(before)
+}
+
+/**
  * Whether a forbidden name appears as a name rather than inside a word.
  *
  * Two ways it can: standing alone (`\bopenai\b`), or as a camelCase or
@@ -315,21 +402,107 @@ const WORKSPACE_PACKAGE_PATH = /\b(?:packages\/)?providers\/[a-z0-9][a-z0-9.-]*/
  * codebase uses correctly about an orphaned session. A rule that cries
  * wolf on correct prose is a rule somebody switches off, and then it
  * catches nothing at all.
+ *
+ * The camelCase branch was made case-sensitive for exactly that reason. The
+ * standalone branch was not, and that is what issue #217 is: `\bstrands\b`
+ * with the `i` flag fires on the verb. So does `\bcohere\b` on "the plan should
+ * cohere with the roadmap" — measured, not theorised. An entry flagged
+ * `collidesWithEnglish` gets the same discipline on the standalone branch:
+ * Title-Case not at the start of a sentence, or ALL-CAPS anywhere.
  */
-function matches(name, haystack) {
-	const escaped = name.replace(/ /g, '\\s+')
-	if (new RegExp(`\\b${escaped}\\b`, 'i').test(haystack)) return true
+function matches(term, haystack) {
+	const escaped = term.name.replace(/ /g, '\\s+')
+	const titled = titleCase(term.name).replace(/ /g, '\\s+')
+
+	if (term.collidesWithEnglish) {
+		// ALL-CAPS is never the ordinary English sense in running prose, so it
+		// needs no position test.
+		if (new RegExp(`\\b${term.name.toUpperCase().replace(/ /g, '\\s+')}\\b`).test(haystack)) {
+			return true
+		}
+		const standalone = new RegExp(`\\b${titled}\\b`, 'g')
+		for (let hit = standalone.exec(haystack); hit; hit = standalone.exec(haystack)) {
+			if (!startsASentence(haystack, hit.index)) return true
+		}
+	} else if (new RegExp(`\\b${escaped}\\b`, 'i').test(haystack)) {
+		return true
+	}
 
 	// Case-SENSITIVE, deliberately. A camelCase boundary is defined by the
 	// change of case, so an `i` flag turns `[A-Z]` into `[A-Za-z]` and the
 	// rule starts matching any word that merely begins with the name —
 	// `coherent` for `cohere`, `stranded` for `strands`. That false
 	// positive is exactly how a rule like this gets switched off.
-	const capitalized = escaped.charAt(0).toUpperCase() + escaped.slice(1)
 	return (
 		new RegExp(`\\b${escaped}(?=[A-Z0-9_-])`).test(haystack) ||
-		new RegExp(`\\b${capitalized}(?=[A-Z0-9_-])`).test(haystack)
+		new RegExp(`\\b${titled}(?=[A-Z0-9_-])`).test(haystack)
 	)
+}
+
+/**
+ * The discriminator's own cases, asserted on every run before anything is
+ * scanned.
+ *
+ * `scripts/` has no test runner and no package would pick one up here, so the
+ * alternative to this table is a matcher whose two opposing requirements —
+ * catch the brand, ignore the English word — are defended by nothing. A guard
+ * that quietly stops matching is the failure this file exists to prevent, so it
+ * is not left to argument.
+ *
+ * A disagreement exits 2 rather than 1, so a broken discriminator is never read
+ * as a clean tree.
+ */
+const DISCRIMINATOR_CASES = [
+	// The two entries the guard is for. Issue #217 is the first line here.
+	['we modelled this on Strands', 'strands', true],
+	['the run strands the session', 'strands', false],
+	['Strands of the retry loop share one lock.', 'strands', false],
+	['we modelled this on STRANDS', 'strands', true],
+	['unlike Cohere, this ships no hosted endpoint', 'cohere', true],
+	['the plan should cohere with the roadmap', 'cohere', false],
+	['a coherent design', 'cohere', false],
+	// Unguarded entries keep matching any case, including the ordinary sense.
+	// That is the trade, and it is written here so it is visible rather than
+	// discovered.
+	['we copied OpenAI function-calling', 'openai', true],
+	['openaiCompatible', 'openai', true],
+	['an open standard', 'openai', false],
+	['the copilot seat', 'copilot', true],
+	// Multi-word entries, which is what the title-case repair is for.
+	['we copied Semantic Kernel planner design', 'semantic kernel', true],
+	['we copied Fly Machines API design', 'fly machines', true],
+]
+
+/** Pins the transform itself; the first-letter-only version fails line one. */
+const TITLE_CASE_CASES = [
+	['semantic kernel', 'Semantic Kernel'],
+	['fly machines', 'Fly Machines'],
+	['github actions', 'Github Actions'],
+	['strands', 'Strands'],
+]
+
+function selfCheck() {
+	const broken = []
+	for (const [input, expected] of TITLE_CASE_CASES) {
+		const actual = titleCase(input)
+		if (actual !== expected) broken.push(`titleCase(${input}) = ${actual}, expected ${expected}`)
+	}
+	for (const [text, name, expected] of DISCRIMINATOR_CASES) {
+		const term = TERMS.find((t) => t.name === name)
+		if (!term) {
+			broken.push(`no forbidden entry named ${name}`)
+			continue
+		}
+		const actual = matches(term, text)
+		if (actual !== expected) {
+			broken.push(`[${name}] ${expected ? 'should flag' : 'should ignore'}: ${text}`)
+		}
+	}
+	if (broken.length === 0) return
+	console.error('the name matcher disagrees with its own cases:\n')
+	for (const line of broken) console.error(`  ${line}`)
+	console.error('\nThis is the discriminator being wrong, not the tree being dirty.')
+	process.exit(2)
 }
 
 function findings(source, path) {
@@ -366,10 +539,10 @@ function findings(source, path) {
 
 		if (isMarkdown) {
 			const prose = stripMarkdownCode(line)
-			for (const name of FORBIDDEN) {
-				if (DRIVEN_SERVICES.has(name)) continue
-				if (matches(name, prose)) {
-					hits.push({ path, line: index + 1, name, text: line.trim() })
+			for (const term of TERMS) {
+				if (DRIVEN_SERVICES.has(term.name)) continue
+				if (matches(term, prose)) {
+					hits.push({ path, line: index + 1, name: term.name, text: line.trim() })
 				}
 			}
 			return
@@ -381,17 +554,29 @@ function findings(source, path) {
 			: /^\s*(\/\/|\/\*|\*)/.test(line) || line.includes('//')
 		let code = stripStringLiterals(line)
 		if (isShell && !inComment) code = code.replace(WORKSPACE_PACKAGE_PATH, 'providers/')
-		const haystack = `${code} ${inComment ? line : ''}`
 
-		for (const name of FORBIDDEN) {
-			if (matches(name, haystack)) {
-				hits.push({ path, line: index + 1, name, text: line.trim() })
+		// Two haystacks rather than one concatenated string. The English
+		// collision guard asks WHERE a match sits in its sentence, and gluing
+		// the stripped code to the raw line puts a sentence-initial name in the
+		// middle of the result — so the position it would read is an artefact of
+		// the concatenation. Matching each piece separately is also strictly
+		// more correct: a joined string can match a multi-word name across the
+		// seam, where neither piece contains it.
+		const haystacks = inComment ? [code, line] : [code]
+
+		for (const term of TERMS) {
+			if (haystacks.some((haystack) => matches(term, haystack))) {
+				hits.push({ path, line: index + 1, name: term.name, text: line.trim() })
 			}
 		}
 	})
 
 	return hits
 }
+
+// Before anything is scanned: the matcher has to agree with its own cases, or
+// its verdict about the tree means nothing.
+selfCheck()
 
 const all = []
 
