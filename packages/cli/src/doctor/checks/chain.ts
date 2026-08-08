@@ -2,8 +2,13 @@ import { homedir } from 'node:os'
 
 import type { DoctorCheck, DoctorCheckResult } from '@namzu/sdk'
 
+import {
+	chainCapabilityDisagreements,
+	unresolvedMembers,
+} from '../../integrations/providers/chain-capabilities.js'
 import { type DiscoverOptions, discoverProviders } from '../../integrations/providers/discover.js'
 import { preferencesPath, readPreferences } from '../../integrations/providers/preferences.js'
+import { resolveChainCapabilities } from '../../integrations/providers/register.js'
 import { PROVIDER_REGISTRY } from '../../integrations/providers/registry.js'
 
 export interface ProviderChainCheckOptions {
@@ -28,6 +33,27 @@ export interface ProviderChainCheckOptions {
  * construction: nothing exercises it until the primary is already down, which
  * is the worst moment to find out the key was never set. So every member's
  * credential is resolved here, on a day when nothing is broken.
+ *
+ * ## Two ways a chain is unusable, and this reports both
+ *
+ * A credential is the obvious one. The other is a capability DISAGREEMENT: a
+ * run negotiates tools, vision and documents once, against the primary, and
+ * keeps that answer across a swap — so a chain whose members declare different
+ * abilities would land a run on a member holding a request shaped for someone
+ * else. `createAgentSession` refuses such a chain outright, which means an
+ * operator who has one learns about it by trying to start a session.
+ *
+ * That check used to be unreachable from here. Reading what a provider declares
+ * requires its package to be registered, and the only registration path lived
+ * inside the interactive session module — so `doctor` could report which
+ * members had keys and not whether the chain it was describing could run at
+ * all. A diagnostic that cannot see what the thing it diagnoses sees is
+ * checking the wrong thing. `ensureRegistered` now lives beside the registry
+ * (`integrations/providers/register.ts`) and both reach it.
+ *
+ * The cost is real and worth naming: this check dynamically imports the driver
+ * package of every member in the chain. That is the price of reading a
+ * declaration, and it is paid on a command whose entire job is to look.
  *
  * Exported separately from the `DoctorCheck` so it can be driven with an
  * explicit home and environment. The check itself is still exercised through
@@ -111,25 +137,78 @@ export async function describeProviderChain(
 
 	const chain = lines.join('\n')
 
-	if (unusable === 0) {
+	// What each member DECLARES. Type-level, so no credential is needed — which
+	// is what makes it answerable about the fallback nobody has configured yet,
+	// the member most worth asking about.
+	const resolved = await resolveChainCapabilities(members)
+	const disagreements = chainCapabilityDisagreements(members, resolved)
+	const accepted = read.prefs.allowCapabilityMismatch === true
+	const unreadable = unresolvedMembers(members, resolved)
+	const primaryUnreadable = resolved[0]?.kind === 'unresolved'
+
+	const sections: string[] = [chain]
+	if (disagreements.length > 0) {
+		sections.push(
+			accepted
+				? 'The members declare different capabilities, and you have accepted that:'
+				: 'The members declare different capabilities, so a session will be REFUSED:',
+			...disagreements.map((d) => `  - ${d.sentence}`),
+		)
+	}
+	if (unreadable.length > 0) {
+		// Kept separate from the disagreements above, for the reason the session
+		// keeps them separate: a member whose declaration could not be read is not
+		// a member that disagrees, and reporting it as one would name a conflict
+		// nobody established.
+		sections.push(
+			'Could not read what these members declare:',
+			...unreadable.map((line) => `  - ${line}`),
+		)
+	}
+	const message = sections.join('\n')
+
+	// Ordered by what stops a run. An unaccepted disagreement and an unusable
+	// primary both mean no session starts at all; everything else leaves namzu
+	// working with less than the operator declared.
+	if (disagreements.length > 0 && !accepted) {
 		return {
-			status: 'pass',
+			status: 'fail',
+			message: `provider chain cannot be honoured as written:\n${message}`,
+			remediation:
+				'Drop the member that disagrees, or set "allowCapabilityMismatch": true in your preferences to accept the limitation. namzu will not choose between advertising abilities a fallback lacks and costing your primary a capability on every run.',
+		}
+	}
+	if (primaryUnusable || primaryUnreadable) {
+		return {
+			status: 'fail',
+			message: `${unusable} of ${members.length} chain member(s) cannot be used:\n${message}`,
+			remediation: primaryUnusable
+				? 'The primary provider has no usable credential, so no run can start. Set its key, or run `namzu` to pick a provider that has one.'
+				: 'The primary provider could not be loaded, so no run can start. Run `namzu` to pick a provider that can.',
+		}
+	}
+	if (unusable > 0 || unreadable.length > 0 || disagreements.length > 0) {
+		return {
+			// `warn`, not `fail`: the primary still runs, so namzu is usable and the
+			// operator is not blocked by a degraded spare.
+			status: 'warn',
 			message:
-				members.length === 1
-					? `1 provider configured (no fallback):\n${chain}`
-					: `${members.length} providers configured, in order:\n${chain}`,
+				unusable > 0
+					? `${unusable} of ${members.length} chain member(s) cannot be used:\n${message}`
+					: `provider chain usable, with limitations:\n${message}`,
+			remediation:
+				unusable > 0
+					? 'The primary still works, so runs will start. But a fallback with no credential is not a fallback — set its key, or take it out of the chain.'
+					: 'The primary still works. A fallback that declares less than your primary will serve shorter or less capable turns if the chain ever falls over to it.',
 		}
 	}
 
 	return {
-		// `warn`, not `fail`, when only a fallback is broken: the primary still
-		// runs, so namzu is usable and the operator is not blocked by a
-		// degraded spare. A broken PRIMARY stops every run, and reads as such.
-		status: primaryUnusable ? 'fail' : 'warn',
-		message: `${unusable} of ${members.length} chain member(s) cannot be used:\n${chain}`,
-		remediation: primaryUnusable
-			? 'The primary provider has no usable credential, so no run can start. Set its key, or run `namzu` to pick a provider that has one.'
-			: 'The primary still works, so runs will start. But a fallback with no credential is not a fallback — set its key, or take it out of the chain.',
+		status: 'pass',
+		message:
+			members.length === 1
+				? `1 provider configured (no fallback):\n${message}`
+				: `${members.length} providers configured, in order:\n${message}`,
 	}
 }
 

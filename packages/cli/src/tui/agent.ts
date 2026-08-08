@@ -71,11 +71,14 @@ import {
 	describeCapabilityRefusal,
 	discoverProviders,
 	ensureFreshAnthropicToken,
+	ensureRegistered,
 	findDetected,
 	isAnthropicOAuthToken,
+	isRegistered,
 	primaryProvider,
 	readAgentKeychainCredential,
 	readPreferences,
+	resolveChainCapabilities,
 	unresolvedMembers,
 } from '../integrations/providers/index.js'
 import { createSubagentRuntime } from '../integrations/subagents/runtime.js'
@@ -320,37 +323,6 @@ export async function probeAgentSession(): Promise<AgentSessionContext> {
 		case 'needs-repick':
 			return { preferences: null, needsRepickReason: read.reason, detected }
 	}
-}
-
-const registered = new Set<ProviderId>()
-
-async function ensureRegistered(id: ProviderId): Promise<void> {
-	if (registered.has(id)) return
-	switch (id) {
-		case 'anthropic': {
-			const mod = await import('@namzu/anthropic')
-			mod.registerAnthropic()
-			break
-		}
-		case 'openai': {
-			const mod = await import('@namzu/openai')
-			mod.registerOpenAI()
-			break
-		}
-		case 'openrouter': {
-			const mod = await import('@namzu/openrouter')
-			mod.registerOpenRouter()
-			break
-		}
-		case 'ollama': {
-			const mod = await import('@namzu/ollama')
-			mod.registerOllama()
-			break
-		}
-		default:
-			throw new Error(`provider "${id}" is not wired yet; pick another or wait for support`)
-	}
-	registered.add(id)
 }
 
 // Builtins we don't expose: `verify_outputs` — a host-side check rather
@@ -757,7 +729,7 @@ function planFallbacks(
 			)
 			continue
 		}
-		if (!registered.has(member.id)) {
+		if (!isRegistered(member.id)) {
 			// `resolveChainCapabilities` already tried to register every member and
 			// reported the failure as an unresolved capability. Saying it twice in
 			// different words would read as two problems.
@@ -792,45 +764,6 @@ function planFallbacks(
 			return out
 		},
 	}
-}
-
-/**
- * What each member of the chain DECLARES it can do.
- *
- * Type-level, via the registry, so nothing is constructed and no credential is
- * needed — which is the whole point: the member most worth checking is the
- * fallback nobody has set up yet, and a check that demanded a key would be
- * unusable in exactly that case.
- *
- * A member that cannot be registered is reported as unresolved rather than
- * assumed to agree. Registration is also why this cannot be a pure function:
- * a provider package is only imported when something needs it.
- */
-async function resolveChainCapabilities(
-	members: readonly ProviderChoice[],
-): Promise<readonly MemberCapabilities[]> {
-	const out: MemberCapabilities[] = []
-	for (const member of members) {
-		if (!(member.id in PROVIDER_REGISTRY)) {
-			out.push({ kind: 'unresolved', reason: `"${member.id}" is not a provider namzu knows` })
-			continue
-		}
-		try {
-			await ensureRegistered(member.id)
-			out.push({
-				kind: 'known',
-				capabilities: resolveProviderCapabilities({
-					capabilities: ProviderRegistry.getCapabilities(member.id),
-				}),
-			})
-		} catch (err) {
-			out.push({
-				kind: 'unresolved',
-				reason: err instanceof Error ? err.message : String(err),
-			})
-		}
-	}
-	return out
 }
 
 function constructProvider(
