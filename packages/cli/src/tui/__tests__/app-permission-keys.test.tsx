@@ -23,7 +23,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Preferences } from '../../integrations/providers/index.js'
 import type { AgentEvent, AgentSession, PermissionDecision, PermissionRequest } from '../agent.js'
-import { APPROVAL_SETTLE_MS } from '../permission-timing.js'
+import { APPROVAL_SETTLE_MS } from '../consent-timing.js'
 import type { TuiContext } from '../types.js'
 
 const PREFS: Preferences = { version: 3, providers: [{ id: 'openai' }], subagents: { active: [] } }
