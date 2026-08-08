@@ -231,6 +231,12 @@ export function App({ ctx }: AppProps) {
 					'system',
 					`Connected to ${s.providerSummary}${s.modelSummary ? ` · ${s.modelSummary}` : ''} · ${s.toolNames.length} tools`,
 				)
+				// Before the rest: a limitation the operator accepted once and has
+				// been living with since is the thing they are least likely to
+				// remember and most likely to be surprised by.
+				for (const notice of s.configNotices) {
+					pushMessage('system', notice)
+				}
 				// Named, not counted. "2 files" tells a user their conventions were
 				// found but not WHICH ones, and the interesting case is the one
 				// they did not expect — an instructions file in a parent directory

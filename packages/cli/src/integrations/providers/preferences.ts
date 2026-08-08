@@ -70,7 +70,33 @@ export interface Preferences {
 	 * looking like a configured one.
 	 */
 	readonly providers: readonly ProviderChoice[]
+	/**
+	 * The operator has accepted a chain whose members declare different
+	 * capabilities.
+	 *
+	 * Absent (the default), such a chain is REFUSED with the disagreement named.
+	 * Taking the strongest declaration would advertise abilities a fallback does
+	 * not have; taking the weakest would cost the primary a capability on every
+	 * run to guard against a rare failure. Neither is chosen on the operator's
+	 * behalf.
+	 *
+	 * Set, the chain runs and the disagreement is printed on every launch — not
+	 * once. An acceptance given once and then forgotten is how a silent
+	 * degradation comes back through the front door.
+	 */
+	readonly allowCapabilityMismatch?: boolean
 	readonly subagents?: { readonly active: readonly string[] }
+}
+
+/**
+ * How a member is named to the operator, by position.
+ *
+ * One function because three surfaces say it — validation, the doctor listing
+ * and the capability refusal — and a chain member called `fallback #1` in one
+ * message and `fallback 1` in the next reads as two different things.
+ */
+export function chainPositionName(index: number): string {
+	return index === 0 ? 'primary provider' : `fallback #${index}`
 }
 
 export type ReadResult =
@@ -229,7 +255,7 @@ function describeInvalidChain(members: readonly ProviderChoice[]): string | null
 	}
 	const seen = new Set<string>()
 	for (const [index, member] of members.entries()) {
-		const position = index === 0 ? 'primary provider' : `fallback #${index}`
+		const position = chainPositionName(index)
 		if (!(member.id in PROVIDER_REGISTRY)) {
 			return `${position} "${member.id}" is not a provider namzu knows (known: ${Object.keys(PROVIDER_REGISTRY).join(', ')})`
 		}
@@ -275,6 +301,9 @@ function isPreferences(value: unknown): value is Preferences {
 	if (!Array.isArray(v.providers)) return false
 	for (const member of v.providers) {
 		if (!isProviderChoice(member)) return false
+	}
+	if (v.allowCapabilityMismatch !== undefined && typeof v.allowCapabilityMismatch !== 'boolean') {
+		return false
 	}
 	if (!isSubagents(v.subagents)) return false
 	return true

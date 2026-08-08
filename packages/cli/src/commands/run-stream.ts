@@ -235,6 +235,14 @@ export const runStreamCommand: CommandDef = {
 			return fail(said)
 		}
 
+		// "Printed on every launch" has to reach a host UI too, or the one caller
+		// with no human watching is the one that never hears it. Its own event
+		// kind rather than an `error`: the run is proceeding, and a host that
+		// treats this as a failure would be wrong.
+		for (const notice of session.configNotices) {
+			write({ kind: 'notice', message: notice })
+		}
+
 		// --skills <a,b,c>: load the named skills' bodies and inject them as the
 		// turn's extra system context (the same channel the TUI's /skill uses).
 		const extraSystem = await loadSkillsContext(cwd, flags.skills)

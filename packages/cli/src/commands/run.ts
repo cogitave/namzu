@@ -283,6 +283,13 @@ export const runCommand: CommandDef = {
 			await session.close()
 			return 1
 		}
+		// "Printed on every launch" has to mean every launch, not every launch of
+		// the TUI. A scripted run under an accepted capability limitation is
+		// exactly the case where nobody is watching, so the line has to be in the
+		// output the script keeps.
+		for (const notice of session.configNotices) {
+			ctx.formatter.info(notice)
+		}
 		for (const s of session.mcpConnected) {
 			ctx.formatter.info(`tool server ${s.name} · ${s.toolCount} tools`)
 		}

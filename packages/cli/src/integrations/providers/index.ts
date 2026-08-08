@@ -16,6 +16,15 @@ export {
 	refreshAgentOAuthToken,
 } from './oauth.js'
 export {
+	type CapabilityDisagreement,
+	chainCapabilityDisagreements,
+	describeAcceptedMismatch,
+	describeCapabilityRefusal,
+	type MemberCapabilities,
+	unresolvedMembers,
+} from './chain-capabilities.js'
+export {
+	chainPositionName,
 	type Preferences,
 	PREFERENCES_FILE_VERSION,
 	PreferencesError,
