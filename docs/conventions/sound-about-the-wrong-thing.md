@@ -7,7 +7,7 @@ diataxis: explanation
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-06T00:00:00Z
-lastReviewed: 2026-08-08
+lastReviewed: 2026-08-09
 resource: packages/sdk/src/runtime/query/index.ts
 tags: [convention, testing, verification]
 ---
@@ -16,7 +16,8 @@ tags: [convention, testing, verification]
 
 Ratified 2026-08-06; amended the same session with "a live run is still an
 observation", and on 2026-08-08 with "it is not a rule about tests" and with the
-provider-chain instance below.
+provider-chain instance below, and on 2026-08-09 with "a comment that names the
+wrong hazard".
 
 A test can run, cover a real path, and go red under mutation, and still be
 evidence about a property nobody needed. The machinery is honest; the
@@ -86,6 +87,22 @@ the test yet.
 
 That last one is the rule pointed at source rather than at tests: a comment
 claiming which line does the protecting is a claim to mutate.
+
+## A comment that names the wrong hazard is the same defect
+
+The provenance work read "which chain member is serving" immediately after the
+provider turn returned, and the comment explaining *why not later* named a
+compaction or advisory side call advancing the cursor during tool execution.
+The mutation for it — move the read down to `recordStep` — **killed nothing**,
+and reading the loop said why: compaction and the working-memory refresh run
+BEFORE the turn, the advisory phase runs AFTER the step is recorded, and the
+only thing between the two is tool execution, which does not call that provider.
+
+Both halves of the correction matter. The placement was kept, because a phase
+inserted there later would break the attribution silently. The **comment** was
+rewritten, because a reader who checks a claimed hazard and finds it cannot
+happen learns to stop checking the claims. Defence in depth is an honest thing
+to write down; a defect it does not prevent is not.
 
 ## A live run is still an observation
 
