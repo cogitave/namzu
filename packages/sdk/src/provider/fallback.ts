@@ -45,8 +45,75 @@ export interface ProviderChainMember {
 	readonly model?: string
 }
 
+/**
+ * The member serving from now on.
+ *
+ * `index` is a position in the chain the host declared, so a reader can name
+ * the member without holding the chain: "member 2 of 4" is the sentence an
+ * operator writes in an incident note.
+ */
+export interface ServingMember {
+	readonly index: number
+	readonly providerId: string
+	/** Absent for a member declared without one — see {@link ProviderChainMember.model}. */
+	readonly model?: string
+}
+
 export interface WithProviderFallbackOptions {
 	readonly log?: Logger
+	/**
+	 * Called once per swap, with the member that serves from here on.
+	 *
+	 * A callback is enough to describe the WHOLE truth, not a sample of it,
+	 * and that is a property of the cursor rather than of this option: the
+	 * chain never rewinds, so "who is serving" is exactly "the head, plus
+	 * every swap so far". A listener that starts at member 0 and applies each
+	 * call is never behind.
+	 *
+	 * It exists beside the in-band `fallback` chunk rather than instead of it
+	 * because the two have different observers and neither covers the other's
+	 * case. The chunk reaches whoever is iterating the stream, at the moment
+	 * of the swap — that is the operator. This reaches a party that has to
+	 * know AFTER the request is over and may never have iterated the stream at
+	 * all — that is the run record. Two things follow that the chunk alone
+	 * cannot give it:
+	 *
+	 *  - the cursor outlives the request, so a swap on the turn at step 3
+	 *    still describes steps 4..N, which emit no further chunk;
+	 *  - a side call that aggregates the stream through `collect()` — the
+	 *    compaction verifier and the forced-final summary both do — drops the
+	 *    `fallback` chunk on the floor, so a swap inside one is invisible to
+	 *    every chunk consumer. (The advisory executor calls its OWN advisor's
+	 *    provider, not the run's, so it is not one of these.)
+	 *
+	 * ## Fired when the replacement is ASKED, not when the cursor moves
+	 *
+	 * The two are not the same instant and the difference is observable. The
+	 * cursor moves inside the catch; the notice chunk is then yielded, and the
+	 * replacement request is only issued when the consumer comes back for
+	 * another chunk. A consumer that stops there — a Stop, a `break`, a host
+	 * that abandons the iterator — leaves a chain that selected a member and
+	 * never asked it.
+	 *
+	 * Announcing at cursor-move would report that member as serving, and a
+	 * ledger saying a provider served a turn it was never sent is the exact
+	 * defect this callback exists to end, reintroduced one layer down. So the
+	 * announcement sits at the top of the loop, immediately before the
+	 * replacement's `chatStream` — the earliest moment at which the member is
+	 * actually being asked.
+	 *
+	 * ## One stream at a time
+	 *
+	 * `cursor` is shared by every concurrent `chatStream` on this wrapper, so
+	 * two overlapping calls can advance it under one another: one call's
+	 * failure moves the cursor while the other is still being served by the
+	 * head, and a listener would hear about a member that answered nothing for
+	 * that call. Nothing here serializes or refuses concurrency — the
+	 * property held before this option existed and is not introduced by it.
+	 * `query()` issues its main turn and its side calls in sequence, which is
+	 * what makes the reading exact there.
+	 */
+	readonly onSwap?: (to: ServingMember) => void
 }
 
 /**
@@ -199,10 +266,22 @@ export function withProviderFallback(
 	// A one-member chain is the identity. Returning the provider itself rather
 	// than a wrapper that can never advance keeps the no-chain path byte-identical
 	// to what it was before this file existed.
+	//
+	// `onSwap` is therefore never called on this path, and that is the correct
+	// reading rather than a hole: a listener starts at member 0 and a one-member
+	// chain never leaves it. Announcing member 0 here would say "the chain
+	// advanced" about a chain that cannot.
 	if (members.length === 1) return first.provider
 
 	const log = options.log
 	let cursor = 0
+	/**
+	 * The last position {@link WithProviderFallbackOptions.onSwap} was told
+	 * about. Lags `cursor` for exactly as long as the consumer has the notice
+	 * chunk and has not come back for more — which is the window in which a
+	 * selected member has not been asked anything. See that option's doc.
+	 */
+	let announced = 0
 
 	async function* chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
 		for (;;) {
@@ -212,6 +291,15 @@ export function withProviderFallback(
 			// calling `chatStream` on undefined, which names neither the field nor
 			// the fix.
 			if (!member) throw new Error(`provider chain has no member at position ${cursor}`)
+
+			if (announced !== cursor) {
+				announced = cursor
+				options.onSwap?.({
+					index: cursor,
+					providerId: member.provider.id,
+					...(member.model !== undefined ? { model: member.model } : {}),
+				})
+			}
 
 			const request = member.model !== undefined ? { ...params, model: member.model } : params
 			let produced = false

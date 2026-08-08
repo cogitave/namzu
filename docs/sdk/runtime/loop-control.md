@@ -112,6 +112,7 @@ query({
 | Field | |
 | --- | --- |
 | `stepNumber`, `model`, `messageId` | identity |
+| `servedBy` | which provider and model actually answered |
 | `content`, `toolCalls`, `toolResults` | what happened |
 | `finishReason` | why the turn ended |
 | `usage`, `costDelta` | **this step's** consumption, not the running total |
@@ -119,6 +120,39 @@ query({
 
 `toolResults` is ordered by the tool *calls*, so it lines up with
 `toolCalls` index for index.
+
+### What was asked for, and what answered
+
+`model` is the model the step **asked for** — the run's configured model, or
+the override a [`prepareStep`](#5-shaping-each-step) hook returned for this
+step. `servedBy` is who answered it:
+
+```ts
+step.model    // 'primary-model' — what the step asked for
+step.servedBy // { providerId: 'fallback-provider', model: 'fallback-model', chainIndex: 1 }
+```
+
+They are equal on every run without a provider chain. They diverge when a
+chain falls over ([CLI chain
+docs](../../cli/providers.md#the-provider-chain)): the request goes to the next
+member, and `servedBy.chainIndex`
+is that member's position in the chain you declared — `0` is the head. The index
+is there because a chain may name the same provider twice with two models, and
+`providerId` alone could not tell those apart.
+
+At run level, `run.metadata.provider` stays the provider you **configured** and
+`run.metadata.servingProvider` names the member the run was routed to at the
+end, absent when the configured one served throughout.
+
+Two limits worth knowing before you build on this:
+
+- **Only tool-calling turns are recorded.** The turn that produces the final
+  answer ends the loop before a step is written, so it is not in `steps`. On a
+  chain that falls over and answers immediately, `run.metadata.servingProvider`
+  is the only record of the swap.
+- **The built-in store writes `metadata`, not `steps`.** `run.json` carries
+  `servingProvider`; per-step provenance reaches you on the returned `Run`, so
+  persist that if you need it.
 
 ## 3. Transient Provider Failures
 
