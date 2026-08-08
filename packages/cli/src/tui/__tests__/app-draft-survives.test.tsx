@@ -132,7 +132,10 @@ function settle(): void {
 async function turnRunningWithDraft(draft: string) {
 	const harness = render(<App ctx={ctx} />)
 	mounted.push(harness)
-	await tick(80)
+	// Wait for the composer to exist rather than guessing at how long the probe
+	// takes. Writing before it mounts loses the keystrokes silently.
+	await frameShows(harness.lastFrame, 'Type a message')
+	await tick(60)
 	// Keys go in separately: one `stdin.write` is one keypress, so 'go\r' would
 	// arrive as pasted text and never submit.
 	harness.stdin.write('go')
@@ -140,7 +143,7 @@ async function turnRunningWithDraft(draft: string) {
 	harness.stdin.write('\r')
 	await tick(40)
 	harness.stdin.write(draft)
-	await tick(40)
+	await frameShows(harness.lastFrame, draft)
 	expect(harness.lastFrame(), 'the draft never reached the composer').toContain(draft)
 	return harness
 }

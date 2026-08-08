@@ -8,7 +8,7 @@ owner: cogitave/namzu
 status: active
 timestamp: 2026-08-09T00:00:00Z
 lastReviewed: 2026-08-09
-resource: packages/cli/src/tui/App.tsx
+resource: packages/cli/src/tui/__tests__/app-draft-survives.test.tsx
 tags: [convention, react, state, ui]
 ---
 
@@ -103,6 +103,17 @@ already broken. It is rarer and it has no automated form, so the tell is worth
 knowing: **a test that starts failing when you fix a defect may have been
 depending on it.** Read such a failure before adjusting the test — it is
 evidence about the old behaviour, not noise.
+
+## What this rule is pinned to
+
+`resource:` points at the regression test, not at `App.tsx`. The first version
+pointed at the component and the gate fired within a day — on a change to the
+picker's exit keys, which touches nothing this rule depends on. That is the
+failure mode this gate's own guidance warns about: a file that churns for
+unrelated reasons trains everyone to wave the failure through.
+
+The test changes when the behaviour changes and not otherwise, so a firing here
+is a real question about whether the rule still holds.
 
 ## Related
 

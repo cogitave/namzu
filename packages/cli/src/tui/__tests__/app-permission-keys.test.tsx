@@ -181,7 +181,15 @@ async function promptOpenWithDraftInFlight() {
 	await tick(40)
 	// The follow-up the operator is part-way through typing while it runs.
 	harness.stdin.write('and then deploy')
-	await tick(40)
+	// Poll rather than sleep a fixed interval. The mock parks 30ms before
+	// asking, but under the full parallel run the transform cost pushes every
+	// step out, and a fixed wait here made the whole file fail intermittently
+	// with "the prompt never opened" — a flake in the setup, reported as a
+	// failure of whatever the test was actually about.
+	const started = performance.now()
+	while (!(harness.lastFrame() ?? '').includes('wants to run') && performance.now() - started < 3_000) {
+		await tick(20)
+	}
 	expect(harness.lastFrame(), 'the prompt never opened').toContain('wants to run')
 	return harness
 }
