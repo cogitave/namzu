@@ -99,7 +99,9 @@ describe('query() drives the declared provider chain', () => {
 				fallbackProviders: [{ provider: fallback, model: 'fallback-model' }],
 				messages: [createUserMessage('hello')],
 			},
-			(e) => events.push(e),
+			(e) => {
+				events.push(e)
+			},
 		)
 
 		expect(run.status).toBe('completed')
@@ -127,7 +129,9 @@ describe('query() drives the declared provider chain', () => {
 				...baseParams(provider, new ToolRegistry(), await mkWorkdir()),
 				messages: [createUserMessage('hello')],
 			},
-			(e) => events.push(e),
+			(e) => {
+				events.push(e)
+			},
 		)
 
 		expect(run.status).toBe('completed')

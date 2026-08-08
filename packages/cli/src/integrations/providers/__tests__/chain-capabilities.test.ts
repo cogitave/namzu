@@ -61,8 +61,10 @@ describe('a disagreement names both members and the capability', () => {
 	})
 
 	it('makes no claim about THIS run — only about falling over', () => {
-		// Only the primary runs today. A sentence claiming the current run is
-		// degraded would be false, which is the defect this guards against.
+		// The check runs before a turn does, so nothing has fallen over yet and a
+		// sentence claiming the current run is degraded would be false. Failover
+		// landing does not change that: the conditional is about the moment the
+		// check speaks, not about whether a swap is possible.
 		const out = chainCapabilityDisagreements(chain, [known(), known({ supportsTools: false })])
 		const sentence = out[0]?.sentence ?? ''
 		expect(sentence).toContain('if the chain falls over')

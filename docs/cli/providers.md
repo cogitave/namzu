@@ -1,7 +1,7 @@
 ---
 title: Providers & credentials
 description: How namzu discovers LLM credentials, the first-run provider picker, and switching providers.
-last_updated: 2026-08-07
+last_updated: 2026-08-08
 status: current
 related_packages: ["@namzu/cli", "@namzu/anthropic", "@namzu/openai", "@namzu/openrouter", "@namzu/ollama"]
 ---
@@ -85,7 +85,7 @@ Run `/model` inside the TUI to re-open the picker at any time. The new choice is
 
 The order is yours to declare, and the file is meant to be read and edited directly — you do not need to launch the TUI to see it. Index 0 is the **primary**. A member that omits `model` uses that provider's registry default, resolved at launch, so it tracks the default instead of pinning whatever it was on the day you wrote it.
 
-**Today only the primary runs.** The rest of the chain is validated and reported; nothing falls over to it yet. Automatic failover is a separate change.
+When the primary cannot serve a turn, namzu moves to the next member and carries on — see [When a member cannot serve](#when-a-member-cannot-serve).
 
 The chain is checked as a whole when it is read:
 
@@ -108,6 +108,44 @@ providers.chain  2 providers configured, in order:
 A fallback with no credential is a **warning**, not a failure — your primary still runs, so you are not blocked. A primary with no credential is a failure, because no run can start.
 
 A purely local provider reports `reachable` / `NOT REACHABLE` instead, since it has no key to find.
+
+### When a member cannot serve
+
+If your primary fails a turn, namzu moves to the next member of the chain, keeps the conversation, and carries on from where it stopped. You are told, every time:
+
+```
+Provider chain: primary provider — Anthropic (Claude), claude-opus-4-7 — could not serve: HTTP 429, it rate limited this run and the retries did not clear it (rate_limit). fallback #1 — OpenAI, gpt-4o — is serving the rest of this turn.
+```
+
+That line goes into the transcript rather than a status indicator: it stays true for the rest of the turn, and someone reading the session back needs to know which answers came from which provider.
+
+**What causes a fallover, and what does not.** The rule is that namzu moves on when the failure is a fact about the *provider*, and stops when it is a fact about your *request* — an identical request fails identically on the next provider, so trying it there would spend a second provider's money on the same error.
+
+| The provider… | namzu… |
+|---|---|
+| rejected the credential (401 / 403) | moves on at once, without retrying — retrying a wrong key only spends the turn |
+| does not have that model (404) | moves on at once |
+| rate limited you (429) or failed (5xx) | retries first, and moves on only once the retry budget is spent |
+| sent a `Retry-After` | waits as instructed; that is a transient wait, not a broken provider |
+| returned something malformed | retries first, then moves on |
+| said your prompt is too long | does **not** move on — namzu compacts and tries again on the same provider |
+| rejected the request as invalid, or refused it | does **not** move on |
+
+**Once an answer has started arriving, there is no fallover.** A stream that has already sent you text cannot be restarted elsewhere without repeating it, so a failure mid-answer is reported rather than swapped.
+
+**The scope is the turn.** Your next message starts at your primary again. A rate limit at 14:00 does not quietly leave you on a cheaper model for the rest of the day.
+
+**Each member is tried at most once per turn**, in the order you declared, and the whole chain is walked — declare four members and all four can be tried. When the chain is exhausted the last failure is reported as an ordinary error.
+
+**A fallover is not free, and the cost is not obvious.** Providers charge less for a prompt they have already seen, and that cached prefix belongs to the provider that cached it. A different provider — or the same provider with a different model — has never seen this conversation, so the first request after a fallover re-reads your entire context at full price, and so does every request for the rest of the turn. On a long session that is the largest single cost of having a chain. It is a good reason to order the chain by what you would actually accept paying, and not to add members you do not want to be billed by.
+
+**A fallback with no credential is left out of the chain**, and namzu says so at launch rather than at the moment you needed it:
+
+```
+Provider chain: fallback #1 (OpenAI) has no credential, so nothing will fall over to it. Set one of: OPENAI_API_KEY.
+```
+
+**Sub-agents do not inherit the chain.** A delegated task resolves its own provider — your primary — and does not follow a swap the parent made. A delegation is not your turn, and a sub-agent quietly announcing a provider change inside a tool result is worse than it failing and the parent telling you.
 
 ### When the members disagree about what they can do
 
@@ -139,7 +177,7 @@ With that set, the chain runs and the disagreement is **printed on every launch*
 Two things this check does **not** claim:
 
 - It compares what each driver **declares**, at the type level. That is the only thing knowable without constructing a provider — and constructing one needs a credential, which the fallback you have not set up yet does not have. A constructed provider's own declaration is what the runtime ultimately honours.
-- It says nothing about the current run. Only the primary runs today, so its capabilities are in force in full. Each sentence says what happens *if the chain falls over*, because that is what is true.
+- It is about the chain, not about any one run. Capabilities are still negotiated once, against your **primary**, and that answer stays in force after a fallover — which is exactly why a disagreement is refused before a run starts rather than discovered during one. Each sentence says what happens *if the chain falls over*.
 
 A member whose declaration cannot be read at all — a provider with no construction path yet — is reported as such rather than assumed to agree, and does not by itself refuse the chain.
 

@@ -30,12 +30,16 @@
  *
  * ## And it is a property of the CHAIN, not of a run
  *
- * Only the primary runs today; nothing falls over yet. So no sentence here
- * claims a run is degraded — each says what becomes unavailable IF the chain
- * falls over. When failover lands the run-level statement becomes true and can
- * be made then. Making it now would be a confident claim about a degradation
- * that has not happened, which is the failure this line of work exists to
- * remove.
+ * Every sentence here says what becomes unavailable IF the chain falls over,
+ * and that stays the right tense now that it does. A run negotiates
+ * capabilities once, against the primary, and keeps that answer across a swap —
+ * so at the moment this check runs, no degradation has happened and claiming
+ * one would be a confident statement about a turn that may never come.
+ *
+ * The conditional is also what makes the refusal worth having. Because the
+ * negotiated answer does NOT follow the swap, a chain that disagrees would put
+ * a run on a member holding a request shaped for someone else. Catching that
+ * here, before a run starts, is cheaper than discovering it during one.
  */
 
 import type { ResolvedProviderCapabilities } from '@namzu/sdk'

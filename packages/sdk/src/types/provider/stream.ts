@@ -112,9 +112,9 @@ export interface ProviderRetryNotice {
 /**
  * See {@link StreamChunk.fallback}.
  *
- * Both members are named, not just the new one. "Now using OpenAI" does not
- * tell an operator which of their declared members went down, and on a chain of
- * four that is the only fact they can act on.
+ * Both members are named, not just the new one. Naming only the replacement
+ * does not tell an operator which of their declared members went down, and on a
+ * chain of four that is the only fact they can act on.
  *
  * The positions are 0-based indices into the chain as the host declared it, so
  * a surface can name a member the way its own configuration does rather than

@@ -16,11 +16,11 @@
  * the order has to be legible and editable without launching the TUI, which a
  * value only reachable through an interactive picker is not.
  *
- * **Only `providers[0]` runs today.** The rest are validated and reported (see
- * `readPreferences` and the `providers.chain` doctor check) but nothing falls
- * over to them yet. That is the point of shipping this first: a chain you can
- * declare, read back, and have checked is useful before failover exists, and it
- * is what failover will consume.
+ * `providers[0]` serves; the rest are fallen over to, in order, when it cannot.
+ * The tail is still validated and reported ahead of any failure (see
+ * `readPreferences` and the `providers.chain` doctor check), because a fallback
+ * is invisible by construction — nothing exercises it until the primary is
+ * already down, which is the worst moment to discover the key was never set.
  *
  * ## Versions
  *

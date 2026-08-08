@@ -77,7 +77,7 @@ export interface WithProviderFallbackOptions {
  *   is a request that is wrong everywhere, and spending the entire chain to
  *   rediscover one defect is the worse failure.
  * - `content_filter` — a refusal. No shipped driver reaches this through a
- *   THROW today: the OpenAI-family drivers report a filtered completion as
+ *   THROW today: the drivers that surface a filtered completion do so as
  *   `finishReason: 'content_filter'`, which is a finished stream, not an error.
  *   The input that makes this entry fire is a driver that throws instead — the
  *   classifier maps a `content_policy_violation` structural code onto it, and
