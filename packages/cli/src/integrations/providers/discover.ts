@@ -3,11 +3,50 @@
  *
  * For each entry in `PROVIDER_REGISTRY`, ask three questions in order:
  *   1. Is one of its env vars set in `process.env`?
- *   2. Is the probe URL (if any) reachable right now?
+ *   2. Is there an OAuth credential in the login Keychain? (macOS only, and
+ *      only `anthropic` consumes it.)
+ *   3. Is the probe URL (if any) reachable right now?
+ *
+ * The header used to say "three" and list two, and the one it omitted was the
+ * Keychain — the question that reads a secret off the machine, so the one a
+ * reader most needs to see. A count that disagrees with its own list is the
+ * tell that the list stopped being maintained; in a file about credentials that
+ * is worth more than a typo.
+ *
+ * **The Keychain path is macOS-only and that is a gap, not a nuance.**
+ * `readAgentKeychainCredential` returns `null` on any other platform before it
+ * looks at anything, so on Windows and Linux exactly two doors exist: an
+ * environment variable, and a reachable local server. An operator whose
+ * credential lives in their OS credential store gets no help from namzu there.
  *
  * The first positive answer per provider wins; subsequent sources are
  * recorded as "also available from" so the picker can show alternatives
  * (e.g. anthropic via env, also reachable as a local server).
+ *
+ * ## Membership means "usable right now", and two consumers depend on that
+ *
+ * A provider appears in the returned list only when a source actually answered.
+ * That is not merely a description of the loop — it is the contract the readers
+ * are built on, and it is why this function does NOT return a local provider
+ * whose server is down:
+ *
+ *  - the `providers.chain` doctor check reads presence itself as the verdict
+ *    for a provider that needs no key (`requiresApiKey ? apiKey : Boolean(det)`),
+ *    so an unreachable entry would make it print `reachable` for a dead server;
+ *  - the session's chain builder applies no credential test to a local
+ *    provider, so an unreachable entry would be built into the chain and fail
+ *    on the day it was supposed to rescue a run.
+ *
+ * `DetectionSource` has no way to say "found, not usable" either — every
+ * variant asserts a working source.
+ *
+ * A dead branch here used to propose the opposite: list a local provider whose
+ * probe failed, so the picker could show `(not running)` and the operator would
+ * know they could start the server. It was removed rather than built, because
+ * the operator-facing half of that idea already exists somewhere better — the
+ * picker's empty state names both local servers and their ports and says to
+ * start one — while the machine-facing half would have made the two readers
+ * above lie. See cogitave/namzu#258.
  *
  * Discovery is non-throwing. Network probes have short timeouts. The
  * picker can render immediately and refine if discovery completes later.
@@ -115,15 +154,6 @@ export async function discoverProviders(
 				...(oauth ? { oauth } : {}),
 				alternatives: sources.slice(1),
 			})
-			continue
-		}
-		// Probe-only providers (Ollama, LM Studio): include even when probe
-		// fails so the picker can show "(not running)" and the user knows
-		// they could start the server. Local providers with no apiKey need
-		// only the URL to be addressable.
-		if (!entry.requiresApiKey && entry.probeUrl && !opts.skipProbes === false) {
-			// `skipProbes === true` reaches this branch; surface as not-detected,
-			// no row in the picker, so user isn't confused by phantom entries.
 		}
 	}
 	return detected

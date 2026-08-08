@@ -50,6 +50,10 @@ namzu scans these sources, in order, and offers whatever it finds:
 
 If nothing is found, namzu shows the picker in an empty state explaining exactly which environment variable to set (or to start Ollama), then restart.
 
+**The Keychain path is macOS-only.** On Windows and Linux there are exactly two doors: an environment variable, or a reachable local server. A credential kept only in your OS credential store is not found on those platforms.
+
+**A local server that is not running is not listed.** Appearing in the list means namzu can use that provider *right now* — `namzu doctor` reads presence itself as "reachable" for a provider that needs no key, and the chain builder will build a member from it. An entry for a server that is down would make both of those wrong. The empty-state screen above is where you are told a local server is an option, and it names both ports.
+
 ## The picker
 
 On first run, or after `/model`, the picker lists each detected provider with its source label (for example `keychain · Claude Code-credentials`, `env · ANTHROPIC_API_KEY`, `local · localhost:11434`). Use `↑`/`↓` to navigate, `Enter` to accept, `Esc` to cancel. Your choice is saved to `~/.namzu/preferences.json` and reused on the next launch.

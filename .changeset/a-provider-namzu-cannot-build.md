@@ -34,3 +34,15 @@ decision with a real cost — one pulls a large cloud SDK into every install —
 and it belongs to the owner. This change makes the entries stop lying either
 way; wiring any of them later is a one-line flag flip plus a switch arm, held
 in agreement by a test. Closes #257.
+
+**Also closes #258**, which is the same question from the other side: whether a
+local provider whose server is not running should be listed. It should not, and
+the reason is that membership in the discovery list means "usable right now" —
+the `providers.chain` doctor check reads presence itself as the verdict for a
+provider that needs no key, and the chain builder applies no credential test to
+one, so an entry for a down server would make both of them wrong. The dead branch proposing it is
+removed; the operator-facing half it wanted already exists in the picker's
+empty state, which names both local servers and their ports. The discovery
+header also now lists all three questions it claimed to ask — it named two, and
+the missing one was the Keychain read — and states that the Keychain path is
+macOS-only, which is a gap on every other platform rather than a nuance.
