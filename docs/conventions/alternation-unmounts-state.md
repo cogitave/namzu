@@ -8,7 +8,6 @@ owner: cogitave/namzu
 status: active
 timestamp: 2026-08-09T00:00:00Z
 lastReviewed: 2026-08-09
-resource: packages/cli/src/tui/__tests__/app-draft-survives.test.tsx
 tags: [convention, react, state, ui]
 ---
 
@@ -104,16 +103,34 @@ knowing: **a test that starts failing when you fix a defect may have been
 depending on it.** Read such a failure before adjusting the test — it is
 evidence about the old behaviour, not noise.
 
-## What this rule is pinned to
+## This rule has no `resource:`, deliberately
 
-`resource:` points at the regression test, not at `App.tsx`. The first version
-pointed at the component and the gate fired within a day — on a change to the
-picker's exit keys, which touches nothing this rule depends on. That is the
-failure mode this gate's own guidance warns about: a file that churns for
-unrelated reasons trains everyone to wave the failure through.
+It went through all three options, and the reasoning is here because the next
+person writing a rule will face the same choice.
 
-The test changes when the behaviour changes and not otherwise, so a firing here
-is a real question about whether the rule still holds.
+It first pointed at `App.tsx`, where the incident happened. The gate fired
+within a day, on a change to the picker's exit keys — which touches nothing
+this rule depends on. That is exactly the failure the gate's own guidance
+warns about: a file that churns for unrelated reasons trains everyone to wave
+the failure through.
+
+The obvious repair was to repoint it at the regression test, on the grounds
+that a test changes when the behaviour changes and not otherwise. That is true
+and still wrong here. **Nothing in this repository can make this rule false.**
+It is about how React reconciles by element type at a position; the test could
+be deleted tomorrow and the rule would be exactly as true. A sentinel that
+fires would be saying "our use of this rule changed", which is not what a
+drift check means or what a reader would take it to mean.
+
+So the key is absent, which is the honest reading: no code in this tree owns
+this claim. That mirrors what the documentation standard says about the sibling
+key `verified:` — omit it rather than guess, because an absent key honestly
+reads as unestablished and a false one does not.
+
+The general form: **point `resource:` at code whose change could make the
+document wrong, not at code the document happens to be about.** A rule about
+this codebase's behaviour usually has such a file. A rule about the semantics
+of a tool we merely use usually does not.
 
 ## Related
 
