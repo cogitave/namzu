@@ -45,6 +45,7 @@ import {
 	buildMemoryTools,
 	getBuiltinTools,
 	query,
+	resolveProviderCapabilities,
 } from '@namzu/sdk'
 
 import { join } from 'node:path'
@@ -58,9 +59,14 @@ import {
 } from '../integrations/mcp/servers.js'
 import {
 	type DetectedProvider,
+	type MemberCapabilities,
 	PROVIDER_REGISTRY,
 	type Preferences,
+	type ProviderChoice,
 	type ProviderId,
+	chainCapabilityDisagreements,
+	describeAcceptedMismatch,
+	describeCapabilityRefusal,
 	discoverProviders,
 	ensureFreshAnthropicToken,
 	findDetected,
@@ -68,6 +74,7 @@ import {
 	primaryProvider,
 	readAgentKeychainCredential,
 	readPreferences,
+	unresolvedMembers,
 } from '../integrations/providers/index.js'
 import { createSubagentRuntime } from '../integrations/subagents/runtime.js'
 import { composeMemoryPrompt, readMemory } from '../memory/store.js'
@@ -231,6 +238,18 @@ export interface AgentSession {
 	 * the runtime to find out.
 	 */
 	readonly agentIds: readonly string[]
+	/**
+	 * Things about this session's configuration the operator must be told, every
+	 * launch — today, an accepted capability disagreement in the provider chain,
+	 * and any member whose declaration could not be read.
+	 *
+	 * Every launch rather than once, because that is what the acceptance is worth
+	 * checking against: an operator who set the flag months ago and forgot has a
+	 * chain that will quietly do less than they think, which is precisely the
+	 * outcome the refusal exists to prevent. A notice shown once is a notice not
+	 * shown.
+	 */
+	readonly configNotices: readonly string[]
 	send(messages: readonly Message[], opts?: SendOptions): AsyncIterable<AgentEvent>
 	/**
 	 * Release what the session holds — today, the external tool servers.
@@ -400,6 +419,21 @@ export async function createAgentSession(
 	} catch (err) {
 		return emptySession(err instanceof Error ? err.message : String(err))
 	}
+
+	// Does the chain agree with itself about what it can do? Asked before the
+	// session exists, because the answer decides whether there should be one.
+	const resolvedCapabilities = await resolveChainCapabilities(prefs.providers)
+	const disagreements = chainCapabilityDisagreements(prefs.providers, resolvedCapabilities)
+	if (disagreements.length > 0 && prefs.allowCapabilityMismatch !== true) {
+		const refusal = describeCapabilityRefusal(disagreements)
+		if (refusal) return emptySession(refusal)
+	}
+	const capabilityNotice = disagreements.length > 0 ? describeAcceptedMismatch(disagreements) : null
+	// Not folded into the refusal: a member whose declaration could not be read
+	// is not a disagreement, and reporting it as one would refuse a chain over a
+	// question that was never answered.
+	const unresolvedNotice = unresolvedMembers(prefs.providers, resolvedCapabilities)
+
 	const model = primary.model ?? entry.defaultModel
 	let provider: LLMProvider
 	try {
@@ -536,6 +570,12 @@ export async function createAgentSession(
 		skippedInstructionFiles: projectInstructions.skipped,
 		mcpConnected: mcp.connected,
 		mcpFailed: mcp.failed,
+		configNotices: [
+			...(capabilityNotice ? [capabilityNotice] : []),
+			...unresolvedNotice.map(
+				(line) => `Provider chain: capabilities could not be established for ${line}.`,
+			),
+		],
 		close: () => mcp.close(),
 		errorHint: null,
 		send: async function* (messages, opts) {
@@ -587,6 +627,45 @@ export async function createAgentSession(
 			})
 		},
 	}
+}
+
+/**
+ * What each member of the chain DECLARES it can do.
+ *
+ * Type-level, via the registry, so nothing is constructed and no credential is
+ * needed — which is the whole point: the member most worth checking is the
+ * fallback nobody has set up yet, and a check that demanded a key would be
+ * unusable in exactly that case.
+ *
+ * A member that cannot be registered is reported as unresolved rather than
+ * assumed to agree. Registration is also why this cannot be a pure function:
+ * a provider package is only imported when something needs it.
+ */
+async function resolveChainCapabilities(
+	members: readonly ProviderChoice[],
+): Promise<readonly MemberCapabilities[]> {
+	const out: MemberCapabilities[] = []
+	for (const member of members) {
+		if (!(member.id in PROVIDER_REGISTRY)) {
+			out.push({ kind: 'unresolved', reason: `"${member.id}" is not a provider namzu knows` })
+			continue
+		}
+		try {
+			await ensureRegistered(member.id)
+			out.push({
+				kind: 'known',
+				capabilities: resolveProviderCapabilities({
+					capabilities: ProviderRegistry.getCapabilities(member.id),
+				}),
+			})
+		} catch (err) {
+			out.push({
+				kind: 'unresolved',
+				reason: err instanceof Error ? err.message : String(err),
+			})
+		}
+	}
+	return out
 }
 
 function constructProvider(
@@ -1329,6 +1408,8 @@ function emptySession(errorHint: string): AgentSession {
 		skippedInstructionFiles: [],
 		mcpConnected: [],
 		mcpFailed: [],
+		// Nothing ran, so there is no configuration in force to report on.
+		configNotices: [],
 		errorHint,
 		send: async function* () {
 			yield { kind: 'error' as const, message: errorHint }

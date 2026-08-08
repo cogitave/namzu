@@ -109,6 +109,40 @@ A fallback with no credential is a **warning**, not a failure — your primary s
 
 A purely local provider reports `reachable` / `NOT REACHABLE` instead, since it has no key to find.
 
+### When the members disagree about what they can do
+
+Providers do not all declare the same abilities. A local provider may declare it cannot call tools; a gateway may declare it cannot read image or document attachments. namzu negotiates capabilities **once per run**, against the provider it was given, and that answer decides whether tools go into the prompt and whether attachments are sent.
+
+So a chain whose members disagree cannot simply be run. Taking the strongest declaration would advertise abilities a fallback does not have. Taking the weakest would cost your **primary** a capability on every run, to guard against a failure that happens rarely — you would have added a fallback for resilience and quietly lost tool support for it.
+
+namzu chooses neither for you. It **refuses the chain and names the disagreement**:
+
+```
+The providers in your chain declare different capabilities, so namzu cannot honour the chain as written:
+  - fallback #1 (<label>) declares it cannot call tools, while primary provider (<label>) declares it can call tools — if the chain falls over to it, tools become unavailable.
+```
+
+Every disagreeing capability is listed, not just the first, so you can fix the configuration in one pass.
+
+Two ways forward: drop the member that disagrees, or accept the limitation:
+
+```json
+{
+  "version": 3,
+  "providers": [{ "id": "anthropic" }, { "id": "ollama" }],
+  "allowCapabilityMismatch": true
+}
+```
+
+With that set, the chain runs and the disagreement is **printed on every launch** — in the TUI, in `namzu run`, and as a `notice` event in `namzu run-stream`. Not once. An acceptance given months ago and forgotten is exactly how a chain quietly does less than you think.
+
+Two things this check does **not** claim:
+
+- It compares what each driver **declares**, at the type level. That is the only thing knowable without constructing a provider — and constructing one needs a credential, which the fallback you have not set up yet does not have. A constructed provider's own declaration is what the runtime ultimately honours.
+- It says nothing about the current run. Only the primary runs today, so its capabilities are in force in full. Each sentence says what happens *if the chain falls over*, because that is what is true.
+
+A member whose declaration cannot be read at all — a provider with no construction path yet — is reported as such rather than assumed to agree, and does not by itself refuse the chain.
+
 ### Upgrading from the previous format
 
 A `version: 2` file (one `provider`, one optional `model`) is read as a one-member chain, so nothing needs doing. The file is rewritten in the new format the next time a choice is saved. A `version: 1` file is still refused and asks you to pick again.
