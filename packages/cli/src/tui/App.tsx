@@ -837,16 +837,50 @@ export function App({ ctx }: AppProps) {
 		[detected, hydrateSession, pushMessage],
 	)
 
+	/**
+	 * Leaving the picker returns to whatever was on screen before it.
+	 *
+	 * The picker has two entry points and used to have one exit. Opened by
+	 * `/model` from a working session, cancelling sent the operator to
+	 * `unhealthy` — a phase with a disabled composer, from which `/model` cannot
+	 * be typed again — so declining to change model threw away the session they
+	 * already had.
+	 *
+	 * `unhealthy` means namzu tried and cannot serve: it is set when a probe
+	 * throws, and when a session comes up with no provider, both carrying an
+	 * `errorHint` saying what failed. Cancelling is not a failure, and borrowing
+	 * the failure phase to express it is what made a working session look broken.
+	 *
+	 * With nothing behind the picker — first run, no session — there is no screen
+	 * to return to, so leaving the picker is leaving the program. That is also
+	 * what the empty picker's own footer has always claimed `esc` does.
+	 */
 	const handlePickerCancel = useCallback(() => {
-		setPhase('unhealthy')
-		pushMessage(
-			'system',
-			'Picker cancelled. Set an LLM credential (ANTHROPIC_API_KEY / OPENAI_API_KEY / OPENROUTER_API_KEY / start Ollama) and restart namzu.',
-		)
-	}, [pushMessage])
+		if (session?.hasProvider) {
+			setPhase('ready')
+			return
+		}
+		exit()
+	}, [session, exit])
 
 	useInput(
 		(input, key) => {
+			// The provider picker owns its own keyboard — arrows, digits, enter,
+			// esc and the typed-key screen are all its business. Ctrl+C is not: it
+			// is the one key that must work on every screen, and this handler used
+			// to be switched off for the whole picker phase. Ink runs with
+			// `exitOnCtrlC: false` and raw mode means the tty raises no SIGINT, so
+			// nothing else was going to answer it.
+			//
+			// One press, not the two the ready screen asks for. The ladder works by
+			// printing "press again" into the transcript, and the transcript is not
+			// rendered during the picker — so the old behaviour was not quite "the
+			// key is dead" but the worse "the first press does something invisible
+			// and the second exits", with nothing on screen naming either.
+			if (phase === 'picker') {
+				if (key.ctrl && input === 'c') exit()
+				return
+			}
 			// Resume picker owns the keyboard while open.
 			if (phase === 'resume') {
 				if (key.upArrow) setSelectedResume((i) => Math.max(0, i - 1))
@@ -944,7 +978,10 @@ export function App({ ctx }: AppProps) {
 				}, 2000)
 			}
 		},
-		{ isActive: phase !== 'picker' },
+		// Active on every phase. It was gated off during the picker, which is what
+		// left that screen without a usable exit; the picker branch above returns
+		// immediately, so the Picker still owns everything except Ctrl+C.
+		{ isActive: true },
 	)
 
 	// Background is left natural — we inherit the terminal's own background
@@ -1050,7 +1087,7 @@ export function App({ ctx }: AppProps) {
 						provider={session?.providerSummary ?? null}
 						model={session?.modelSummary ?? null}
 						state={state}
-						hint={hintForPhase(phase, state)}
+						hint={hintForPhase(phase, state, session?.hasProvider === true)}
 						usage={usage}
 						context={context}
 					/>
@@ -1179,13 +1216,22 @@ function formatToolCall(toolName: string, summary: string): string {
 function hintForPhase(
 	phase: LifecyclePhase,
 	state: 'idle' | 'thinking' | 'tool' | 'awaiting-permission',
+	/** Whether there is a working session behind the picker to go back to. */
+	canReturn = false,
 ): string {
 	// Enter is absent because Enter grants nothing here, deliberately — see the
 	// trust branch in the key handler above.
 	if (phase === 'trust') return 'y trust this folder · n / esc exit'
 	if (phase === 'resume') return '↑↓ navigate · enter resume · esc cancel'
 	if (phase === 'probing') return 'discovering providers…'
-	if (phase === 'picker') return '↑↓ navigate · enter accept · esc cancel'
+	// Esc does two different things here depending on how the picker was reached,
+	// so the hint says which. Naming Ctrl+C matters more here than anywhere else:
+	// it is the screen a new user meets before they know the program has keys.
+	if (phase === 'picker') {
+		return canReturn
+			? '↑↓ navigate · enter accept · esc keep current · Ctrl+C exit'
+			: '↑↓ navigate · enter accept · esc or Ctrl+C exit'
+	}
 	if (phase === 'unhealthy') return 'Ctrl+C ×2 to exit'
 	// Enter is absent because Enter decides nothing here, deliberately — see the
 	// permission gate in the key handler above.
