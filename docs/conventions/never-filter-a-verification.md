@@ -38,6 +38,26 @@ verdict, never on a guess at what the diagnostic will look like.
 - The same session had already adopted this rule from the first incident, in
   writing, and broke it in the next command.
 
+## And again, five days later, to someone who had read it
+
+Running the six gates by hand, `node tools/check-docs.mjs | Select-Object -First 1`
+printed `EXIT: -1` for a gate that had passed: the truncating pipe closed the
+stream and killed the process, so the exit code described the pipe rather than
+the check. It happened while writing up a report about not having run all the
+gates, in the session that ratified this rule.
+
+That is the instance worth keeping, because it says what the first four cannot.
+The failure is not ignorance of the rule — the author had read it, written about
+it, and cited it the same day. **The failure is the reflex to trim output**,
+which fires while attention is on the thing being checked rather than on the
+checking. Knowing the rule does not disarm the reflex; only refusing to put a
+filter between yourself and a verdict does.
+
+Note also which direction it failed in. A filter that manufactures a green is
+the danger this rule was written for; this one manufactured a red, and a red
+gets investigated. The same reflex produces both, and only one of them announces
+itself.
+
 ## It recurred, in a shape the rule did not spell out
 
 2026-08-07. An agent ran `node tools/check-docs.mjs 2>&1 | tail -4; echo $?`
