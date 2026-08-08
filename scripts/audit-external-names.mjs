@@ -80,6 +80,16 @@ const FORBIDDEN = [
 	'e2b',
 	'gvisor',
 	'fly machines',
+	// Measured when the scan reached `.github/` (issue #220): this phrase
+	// appears nowhere in the repository, and the workflows name their actions
+	// and runners as `actions/checkout@v5`, `ubuntu-latest` and the like, which
+	// this does not match. So no exemption is added for it — one would be a
+	// guard whose condition can never be false today.
+	//
+	// What would make it real: a workflow or doc naming the CI platform in
+	// prose, as the honest self-reference of a repository that runs on it. That
+	// is a path-or-context exemption, not a lexical one, and it should be
+	// written when there is a line to point at.
 	'github actions',
 ]
 
@@ -118,6 +128,39 @@ const WIRE_VALUE_FILES = [
 
 const isWireValueFile = (path) => WIRE_VALUE_FILES.some((prefix) => path.startsWith(prefix))
 
+/**
+ * File kinds this scans, and what each is written in.
+ *
+ * The `.ts`/`.tsx`/`.md` set is what the rule was born with. The rest arrived
+ * with issue #220: an install script, a workflow and a hook are authored
+ * material in exactly the sense a source comment is, and a product name in one
+ * of them passed CI while still breaking the rule. A gate reporting green over
+ * a directory it never opened is worse than no gate, because a green run gets
+ * taken as an answer.
+ */
+const JS_FAMILY = /\.(ts|tsx|mjs|cjs|js)$/
+const SHELL_FAMILY = /\.(sh|ps1|ya?ml)$/
+const SCANNED = /\.(ts|tsx|md|mjs|cjs|js|sh|ps1|ya?ml)$/
+
+/**
+ * Which language's comment syntax a file uses.
+ *
+ * Only three answers matter: markdown has its own prose rules, the JS family
+ * comments with `//`, and everything else here — shell, PowerShell, YAML and
+ * the extension-less git hooks — comments with `#`.
+ */
+function familyOf(path) {
+	if (path.endsWith('.md')) return 'markdown'
+	if (JS_FAMILY.test(path)) return 'js'
+	return 'shell'
+}
+
+/**
+ * The git hooks carry as much rationale prose as any source file and have no
+ * extension at all, so they are named rather than matched.
+ */
+const isHook = (path) => path.split('/').includes('.husky')
+
 async function* walk(dir) {
 	for (const entry of await readdir(dir, { withFileTypes: true })) {
 		if (SKIP_DIRS.has(entry.name)) continue
@@ -126,7 +169,7 @@ async function* walk(dir) {
 			yield* walk(full)
 			continue
 		}
-		if (/\.(ts|tsx|md)$/.test(entry.name)) yield full
+		if (SCANNED.test(entry.name) || isHook(full.split(sep).join('/'))) yield full
 	}
 }
 
@@ -197,6 +240,11 @@ function stripMarkdownCode(line) {
  * Crude on purpose: a real parse would be more precise and this rule is
  * about prose, where the crude version is exact. A false positive here
  * costs one glance; a false negative ships a borrowed name.
+ *
+ * This applies to the shell family too, and deliberately. Quoting is how
+ * shell says "this is a literal value", which is the same statement a
+ * TypeScript string literal makes — so `DEPENDENTS=('anthropic' 'bedrock')`
+ * is a list of package identities and reads as one here.
  */
 function stripStringLiterals(line) {
 	return line
@@ -204,6 +252,25 @@ function stripStringLiterals(line) {
 		.replace(/"(?:[^"\\]|\\.)*"/g, '""')
 		.replace(/`(?:[^`\\]|\\.)*`/g, '``')
 }
+
+/**
+ * A path under `packages/providers/` is identity, not prose.
+ *
+ * The script already skips `import` and `export … from` lines because a
+ * package path is the package's name rather than a borrowed idea. A shell
+ * `for` loop over package directories, or a YAML matrix listing them, is that
+ * same statement in a language with no import syntax — so `providers/anthropic`
+ * in `for pkg in … providers/anthropic …` is exempt for the reason the import
+ * line always was.
+ *
+ * Two restrictions, and both matter. It applies only to the shell family,
+ * and only on a line that is NOT a comment. Without them this is a laundering
+ * mechanism: a sentence whose only occurrence of a forbidden name sits inside a
+ * path — "we took our backoff constants directly from packages/providers/…" —
+ * would newly pass, and that is precisely the shape the rule exists to catch.
+ * Code names paths. Prose does not get to hide behind one.
+ */
+const WORKSPACE_PACKAGE_PATH = /\b(?:packages\/)?providers\/[a-z0-9][a-z0-9.-]*/g
 
 /**
  * Whether a forbidden name appears as a name rather than inside a word.
@@ -241,7 +308,8 @@ function findings(source, path) {
 	// auditing them would mean auditing the interoperability itself.
 	if (isWireValueFile(path)) return []
 
-	const isMarkdown = path.endsWith('.md')
+	const family = familyOf(path)
+	const isMarkdown = family === 'markdown'
 	if (isMarkdown && isWireValueDoc(path)) return []
 
 	const hits = []
@@ -277,8 +345,12 @@ function findings(source, path) {
 			return
 		}
 
-		const inComment = /^\s*(\/\/|\/\*|\*)/.test(line) || line.includes('//')
-		const code = stripStringLiterals(line)
+		const isShell = family === 'shell'
+		const inComment = isShell
+			? /^\s*#/.test(line)
+			: /^\s*(\/\/|\/\*|\*)/.test(line) || line.includes('//')
+		let code = stripStringLiterals(line)
+		if (isShell && !inComment) code = code.replace(WORKSPACE_PACKAGE_PATH, 'providers/')
 		const haystack = `${code} ${inComment ? line : ''}`
 
 		for (const name of FORBIDDEN) {
@@ -310,12 +382,27 @@ const all = []
 // default, not a convention, and not something to reopen from inside this
 // file. Adding a path exemption here would reverse an owner decision in the
 // least visible place available. Do not; raise it instead.
+//
+// The installers sit at this level too, and they are the most exposed files in
+// the repository: `install.sh` runs on a machine where namzu does not exist
+// yet, for a person who has read nothing else. Any top-level shell or
+// PowerShell script is taken, not just the two that exist today — naming them
+// individually would mean the next one arrives unscanned, which is the shape of
+// the gap this closes.
 for (const entry of await readdir(ROOT, { withFileTypes: true })) {
-	if (!entry.isFile() || !entry.name.endsWith('.md')) continue
+	if (!entry.isFile() || !/\.(md|sh|ps1)$/.test(entry.name)) continue
 	all.push(...findings(await readFile(join(ROOT, entry.name), 'utf-8'), entry.name))
 }
 
-for (const dir of ['packages', 'docs', 'scripts']) {
+// `tools/`, `.github/` and `.husky/` joined in issue #220. Each holds authored
+// material the rule always covered and the scan never reached: a workflow's
+// rationale comments, a gate script's docstring, a hook's explanation of what
+// it refuses. `.claude/` is here for the same reason — its skill files are
+// tracked prose that instructs an agent, which is as authored as it gets.
+//
+// Still deliberately absent: `.work/`. That exemption is a property of being
+// UNTRACKED, not of a name on this list, and it is spelled out above.
+for (const dir of ['packages', 'docs', 'scripts', 'tools', '.github', '.husky', '.claude']) {
 	try {
 		for await (const file of walk(join(ROOT, dir))) {
 			const path = relative(ROOT, file).split(sep).join('/')

@@ -492,10 +492,10 @@ const server = http.createServer(async (req, res) => {
 })
 
 // Defence-in-depth process-level handlers: log loudly if something
-// slips past every try/catch, but DO NOT exit the worker. The
-// Anthropic-side retry path treats a single 500 / 502 as transient,
-// while a process exit produces the catastrophic "every subsequent
-// tool call fetch fails because the container is gone" pattern.
+// slips past every try/catch, but DO NOT exit the worker. A caller's
+// retry path treats a single 500 / 502 as transient, while a process
+// exit produces the catastrophic "every subsequent tool call fetch
+// fails because the container is gone" pattern.
 process.on('unhandledRejection', (err) => {
 	console.error('[namzu-sandbox-worker] unhandledRejection:', err && err.stack ? err.stack : err)
 })
