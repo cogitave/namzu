@@ -121,6 +121,23 @@ A skip is a result to look at, not a rounding error. Platform-gated with the
 reason written in the file is fine; a contract test skipped for want of a
 credential is a hole wearing a green summary.
 
+## The inverse: a test whose green depended on the defect
+
+Mutation asks whether a test fails when the code breaks. The rarer case is a
+test that passed *because* the code was already broken, and it announces itself
+by failing when you fix something unrelated to it.
+
+Fixing the composer unmount broke a `/permissions` test. It typed a slash
+command straight after a permission cycle, and had only ever worked because the
+composer was being emptied for it; with the draft preserved, the command was
+appended to the leftover text and submitted as prose.
+
+There is no automated form of this, so the tell is the discipline: **a test that
+starts failing when you fix a defect may have been depending on it.** Read the
+failure as evidence about the old behaviour before adjusting the test, and
+record why the adjustment was needed — otherwise the next reader sees an
+unexplained edit to an unrelated test in a bug-fix diff.
+
 ## Related
 
 - [A declaration nothing drives is a defect](declared-but-undriven.md)

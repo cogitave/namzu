@@ -22,6 +22,9 @@ Read the rule that matches what you are about to change before you change it.
   — the behaviour is covered; the hop from the surface a host builds is not.
 - [Finding an emitter is not evidence that every path reaches it](one-site-is-not-every-site.md)
   — the some-sites case, plus: how many shapes does this concept have?
+- [Rendering two things in a ternary destroys the state of both](alternation-unmounts-state.md)
+  — and the guard written to prevent it did it again. Only alternation
+  destroys; a conditional sibling does not.
 
 ### Refusing rather than degrading
 
