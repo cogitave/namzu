@@ -394,6 +394,45 @@ describe('withProviderFallback over withProviderRetry', () => {
 		expect(chunks.map((c) => c.delta.content ?? '').join('')).toBe('swapped anyway')
 	})
 
+	/**
+	 * A wait the primary cannot honour reaches the chain at once.
+	 *
+	 * The composition is where the retry ceiling's refusal pays. A member that
+	 * says "come back in fifteen minutes" has ended its usefulness for this
+	 * turn, and the ceiling surfaces that as a `rate_limit` — a fact about the
+	 * MEMBER — so the chain advances immediately. Retrying it shorter, which is
+	 * what the ceiling used to do, spent the whole budget arguing with a
+	 * provider that had already answered, while the member that could have
+	 * served sat unused.
+	 */
+	it('moves to the next member at once when a wait exceeds the primary’s ceiling', async () => {
+		const primary = member('primary', [
+			() => {
+				throw httpError(429, 'slow down', { 'retry-after': '900' })
+			},
+		])
+		const fallback = member('fallback', [
+			async function* () {
+				yield chunk('the fallback served it')
+			},
+		])
+		const wrapped = withProviderFallback([
+			{
+				provider: withProviderRetry(primary, {
+					sleepFn: noSleep,
+					config: { maxRetries: 3, maxRetryAfterMs: 60_000 },
+				}),
+			},
+			{ provider: fallback },
+		])
+
+		expect(await drain(wrapped.chatStream(PARAMS))).toBe('the fallback served it')
+		// One attempt, not four: the budget is not spent on a provider that named
+		// a wait nobody is allowed to sleep for.
+		expect(primary.calls).toBe(1)
+		expect(fallback.calls).toBe(1)
+	})
+
 	it('gives the new member a FRESH retry budget', async () => {
 		const primary = member('primary', [
 			() => {

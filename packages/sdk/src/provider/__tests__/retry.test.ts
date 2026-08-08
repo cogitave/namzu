@@ -211,11 +211,53 @@ describe('withProviderRetry', () => {
 		expect(slept).toEqual([7000])
 	})
 
-	it('ignores an absurd Retry-After and falls back to bounded backoff', async () => {
+	/**
+	 * The ceiling refuses; it does not shorten.
+	 *
+	 * This case used to assert the opposite — a 15-minute `Retry-After` fell
+	 * through to a 500ms backoff — which is what `maxRetryAfterMs` did and the
+	 * reverse of what it documented. The doc was ruled correct: a server that
+	 * named a wait has told the caller something they asked to be told about,
+	 * and answering it in half a second honours neither the wait nor the
+	 * refusal.
+	 *
+	 * Both halves are asserted. Retrying-shorter and surfacing differ only in
+	 * what happens NEXT, so a test that watched the sleep alone would pass
+	 * against a decorator that slept nothing and then retried anyway.
+	 */
+	it('surfaces a Retry-After past the ceiling instead of retrying sooner', async () => {
 		const slept: number[] = []
 		const provider = scripted([
 			() => {
 				throw httpError(429, '', { 'retry-after': '900' }) // 15 minutes
+			},
+			async function* () {
+				yield chunk('never reached')
+			},
+		])
+		const wrapped = withProviderRetry(provider, {
+			config: { maxRetryAfterMs: 60_000, initialDelayMs: 500 },
+			random: () => 1,
+			sleepFn: async (ms) => {
+				slept.push(ms)
+			},
+		})
+
+		// The error reaches the caller carrying the wait it was told about, so a
+		// host can schedule against the number rather than re-parse it.
+		await expect(drain(wrapped.chatStream(PARAMS))).rejects.toMatchObject({
+			status: 429,
+			retryAfterMs: 900_000,
+		})
+		expect(slept).toEqual([])
+		expect(provider.calls).toBe(1)
+	})
+
+	it('still sleeps a server-directed wait that fits under the ceiling', async () => {
+		const slept: number[] = []
+		const provider = scripted([
+			() => {
+				throw httpError(429, '', { 'retry-after': '30' })
 			},
 			async function* () {
 				yield chunk('ok')
@@ -228,8 +270,9 @@ describe('withProviderRetry', () => {
 				slept.push(ms)
 			},
 		})
-		await drain(wrapped.chatStream(PARAMS))
-		expect(slept).toEqual([500])
+
+		expect(await drain(wrapped.chatStream(PARAMS))).toBe('ok')
+		expect(slept).toEqual([30_000])
 	})
 
 	it('applies full jitter — the delay is scaled by the random source', async () => {
