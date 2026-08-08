@@ -14,7 +14,9 @@ On launch namzu clears the screen and greets you with a header: the namzu mascot
 
 ## Lifecycle
 
-1. **Trust.** The first time you run namzu in a folder it asks whether you trust the files there (it can read, run commands in, and edit them). Trusted folders are remembered. See [Tools & permission](./tools.md).
+1. **Trust.** The first time you run namzu in a folder it asks whether you trust the files there (it can read, run commands in, and edit them). Press **`y`** to trust it, **`n`** or **`Esc`** to exit. Trusted folders are remembered in `~/.namzu/trust.json` and the trust covers every subfolder. See [Tools & permission](./tools.md).
+
+   **`Enter` does not grant trust**, and `y` is ignored for a moment after the gate appears. You reach this screen by pressing Enter to launch namzu, so a key repeat or an impatient second press arrives while it is still drawing — and what it would have granted is durable. Refusing is never delayed: `n`, `Esc` and `Ctrl+C` exit on the first press.
 2. **Probe.** namzu reads your saved provider choice (`~/.namzu/preferences.json`) and discovers available credentials.
 3. **Pick (first run only).** If you haven't chosen a provider — or none can be auto-selected — the provider picker appears. See [Providers & credentials](./providers.md).
 4. **Ready.** The transcript opens and the composer accepts input. The connect line reports the provider, model, and the number of active tools.

@@ -43,6 +43,10 @@ export function TrustPrompt({ cwd }: TrustPromptProps) {
 					<Text color={theme.status.error} bold>
 						n
 					</Text>{' '}
+					or{' '}
+					<Text color={theme.status.error} bold>
+						esc
+					</Text>{' '}
 					exit
 				</Text>
 			</Box>

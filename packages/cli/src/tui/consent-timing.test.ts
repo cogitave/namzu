@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
-import { APPROVAL_SETTLE_MS, approvalIsDeliberate } from './permission-timing.js'
+import { APPROVAL_SETTLE_MS, approvalIsDeliberate } from './consent-timing.js'
 
 /**
- * The predicate only. That the permission handler actually consults it — the
- * part that matters and the part a helper test cannot establish — is pinned in
- * `__tests__/app-permission-keys.test.tsx` against a rendered `<App>`.
+ * The predicate only. That each consent screen actually consults it — the part
+ * that matters and the part a helper test cannot establish — is pinned against
+ * a rendered `<App>`: the tool prompt in `__tests__/app-permission-keys.test.tsx`,
+ * the trust gate in `__tests__/app-trust-gate.test.tsx`.
  */
 describe('approvalIsDeliberate', () => {
 	it('refuses a keypress that arrives with the prompt', () => {

@@ -40,7 +40,7 @@ import {
 	NAMZU_WORDMARK_MIN_WIDTH,
 } from './logo.js'
 import { PermissionOverlay } from './PermissionOverlay.js'
-import { approvalIsDeliberate } from './permission-timing.js'
+import { approvalIsDeliberate } from './consent-timing.js'
 import { Picker } from './Picker.js'
 import { type ContextFill, StatusBar } from './StatusBar.js'
 import { Transcript } from './Transcript.js'
@@ -139,6 +139,15 @@ export function App({ ctx }: AppProps) {
 	 * `permission-timing.ts` for why an approving key has to wait on this.
 	 */
 	const permissionOpenedAtRef = useRef<number | null>(null)
+	/**
+	 * When the trust gate was painted, or `null` while it is not up.
+	 *
+	 * The same quantity as `permissionOpenedAtRef`, for the other consent
+	 * screen. Set from an effect rather than at the `setPhase('trust')` call
+	 * because effects run after the commit, so the window starts when the gate
+	 * could first have been SEEN rather than when it was decided upon.
+	 */
+	const trustShownAtRef = useRef<number | null>(null)
 	// SDK-backed conversation persistence (DiskSessionStore). `scopeRef` carries
 	// the active session id used by query() — mutated in place on /resume so new
 	// turns attribute to the resumed conversation.
@@ -311,6 +320,12 @@ export function App({ ctx }: AppProps) {
 			setPhase('trust')
 		}
 	}, [ctx.cwd, runProbe])
+
+	// Starts the settle window when the gate is on screen, and clears it when it
+	// leaves so a later stray key can never be measured against a stale one.
+	useEffect(() => {
+		trustShownAtRef.current = phase === 'trust' ? Date.now() : null
+	}, [phase])
 
 	const acceptTrust = useCallback(() => {
 		try {
@@ -824,8 +839,26 @@ export function App({ ctx }: AppProps) {
 			// Trust gate owns the keyboard until the folder is trusted or we exit.
 			if (phase === 'trust') {
 				const ch = input.toLowerCase()
-				if (ch === 'y' || key.return) acceptTrust()
-				else if (ch === 'n' || key.escape || (key.ctrl && input === 'c')) exit()
+				// Refusal answers on the first press and is never deferred. It only
+				// exits: nothing is written, nothing has run, and a relaunch costs a
+				// second — so an accidental refusal is the recoverable direction,
+				// and making the escape hatch hesitate on the program's first screen
+				// would read as a hang.
+				if (ch === 'n' || key.escape || (key.ctrl && input === 'c')) {
+					exit()
+					return
+				}
+				// Enter is deliberately NOT trust, for the reason it is not approval
+				// at the tool prompt — and more so here. The operator reached this
+				// screen by typing `namzu` and pressing Enter, so a key repeat or an
+				// impatient second press arrives while the gate is still painting;
+				// this is the one moment in the program where an in-flight Enter is
+				// close to expected. And the decision is durable: `acceptTrust`
+				// writes the folder into `~/.namzu/trust.json`, which covers every
+				// subfolder, so a stray keystroke grants standing permission to a
+				// whole tree rather than to one call.
+				if (!approvalIsDeliberate(trustShownAtRef.current, Date.now())) return
+				if (ch === 'y') acceptTrust()
 				return
 			}
 			// A pending permission prompt owns the keyboard: y/n/a decide it.
@@ -1100,7 +1133,9 @@ function hintForPhase(
 	phase: LifecyclePhase,
 	state: 'idle' | 'thinking' | 'tool' | 'awaiting-permission',
 ): string {
-	if (phase === 'trust') return 'y trust this folder · n exit'
+	// Enter is absent because Enter grants nothing here, deliberately — see the
+	// trust branch in the key handler above.
+	if (phase === 'trust') return 'y trust this folder · n / esc exit'
 	if (phase === 'resume') return '↑↓ navigate · enter resume · esc cancel'
 	if (phase === 'probing') return 'discovering providers…'
 	if (phase === 'picker') return '↑↓ navigate · enter accept · esc cancel'
