@@ -1049,6 +1049,28 @@ export class AnthropicProvider implements LLMProvider {
 		}
 	}
 
+	/**
+	 * Ask the API whether this credential works, and let the answer through.
+	 *
+	 * The same call `listModels` makes, without the `catch` that turns a real
+	 * `401` into a hardcoded catalogue. That fallback is right for a menu and
+	 * fatal for a probe: it reported an invalid key as working, because the
+	 * failure it swallowed was the entire answer.
+	 *
+	 * An SDK too old to expose `models.list` throws rather than passing, so the
+	 * caller reports unverifiable — nothing was asked, so nothing is known.
+	 */
+	async probeCredential(): Promise<void> {
+		const clientLike = this.client as unknown as {
+			models?: { list?: (opts: { limit: number }) => Promise<unknown> }
+		}
+		const listFn = clientLike.models?.list
+		if (typeof listFn !== 'function') {
+			throw new Error('This SDK version cannot list models, so the key cannot be checked here.')
+		}
+		await listFn({ limit: 1 })
+	}
+
 	private knownModels(): ModelInfo[] {
 		return [
 			{

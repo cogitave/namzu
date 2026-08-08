@@ -38,6 +38,41 @@ export interface LLMProvider {
 
 	listModels?(): Promise<ModelInfo[]>
 
+	/**
+	 * Establish whether this credential actually works. Resolves if it does,
+	 * throws if it does not.
+	 *
+	 * Separate from `listModels` because the two answer different questions, and
+	 * conflating them is a defect measured rather than imagined. `listModels`
+	 * builds a MENU: "what can I offer this operator to choose from?" — a stale
+	 * hardcoded list is a degraded but legitimate answer, since someone offline
+	 * still has to pick a model. This builds a PROBE: "did this key work?" — and
+	 * for that a list is not a degraded answer, it is no answer, because it
+	 * arrives whether the key is right, wrong, expired or never sent.
+	 *
+	 * Two drivers proved a menu cannot stand in for a probe, and they failed
+	 * differently. One caught a real `401` and returned its hardcoded catalogue,
+	 * so the truth existed and was thrown away. The other has no fallback at all
+	 * and is entirely honest about its menu — its listing endpoint simply does
+	 * not authenticate, so ANY string returned the real catalogue. That second
+	 * case is why this is a separate method rather than a rule about writing
+	 * `listModels` more carefully: no amount of care in a menu makes it a probe.
+	 *
+	 * The probe is per-driver by nature — one has an authenticated call whose
+	 * failure is real, another needs a different endpoint than its menu — so it
+	 * is DECLARED, never inferred. A driver that does not implement this is
+	 * reported as unverifiable, never as verified, and that has to hold for the
+	 * driver nobody has written yet: inheriting a generic path silently is how
+	 * this defect returns.
+	 *
+	 * Throw so the caller can tell the two failures apart. A rejection from the
+	 * server (`401`/`403`) means the credential is genuinely bad; anything else
+	 * — a timeout, DNS, a proxy — means nothing was learned, and reporting that
+	 * as a bad key would tell an operator on broken wifi to go and rotate a
+	 * credential that is fine.
+	 */
+	probeCredential?(): Promise<void>
+
 	healthCheck?(): Promise<boolean>
 
 	/**

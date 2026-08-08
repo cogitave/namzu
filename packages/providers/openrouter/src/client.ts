@@ -292,6 +292,31 @@ export class OpenRouterProvider implements LLMProvider {
 		}
 	}
 
+	/**
+	 * Ask about the KEY, not about the catalogue.
+	 *
+	 * `listModels` here is already honest — it has no fallback and returns
+	 * exactly what the server sent. It is still useless as a credential check,
+	 * because `/models` does not authenticate: any string whatsoever, including
+	 * a typo or a revoked key, came back with the full catalogue and was
+	 * reported as verified. Nothing was wrong with the menu; the menu was simply
+	 * never evidence about the key.
+	 *
+	 * `/key` is the endpoint that answers the question actually being asked. It
+	 * requires the credential and returns its metadata, so a 401 here means the
+	 * key is genuinely refused.
+	 */
+	async probeCredential(): Promise<void> {
+		const response = await fetch(`${this.baseUrl}/key`, { headers: this.getHeaders() })
+		if (!response.ok) {
+			const err = new Error(`Credential check failed: ${response.status}`) as Error & {
+				status?: number
+			}
+			err.status = response.status
+			throw err
+		}
+	}
+
 	async listModels(): Promise<ModelInfo[]> {
 		const response = await fetch(`${this.baseUrl}/models`, {
 			headers: this.getHeaders(),

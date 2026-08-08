@@ -233,6 +233,16 @@ export class OllamaProvider implements LLMProvider {
 		}
 	}
 
+	/**
+	 * A local server takes no credential, so this establishes reachability
+	 * rather than authorisation — which is the whole of what "does this work?"
+	 * can mean here. Declared so the answer comes from the driver rather than
+	 * from a listing call that happened to throw.
+	 */
+	async probeCredential(): Promise<void> {
+		await this.client.list()
+	}
+
 	async listModels(): Promise<ModelInfo[]> {
 		const resp = await this.client.list()
 		return resp.models.map((m) => ({
