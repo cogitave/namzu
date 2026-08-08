@@ -17,6 +17,7 @@ import { render } from 'ink-testing-library'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { DetectedProvider } from '../../integrations/providers/index.js'
+
 import type { ModelListing } from '../agent.js'
 import { Picker } from '../Picker.js'
 
@@ -27,12 +28,20 @@ const DEFAULT_MODEL = 'a-default-model'
 function detected(): DetectedProvider[] {
 	return [
 		{
+			// `constructible` is not decoration here. The picker now reads it
+			// before accepting a row, and this literal did not carry it — so it
+			// arrived as `undefined`, the refusal read that as "cannot build", and
+			// seven cases in this file went red at once against a provider that
+			// works perfectly in production. A fixture missing a field the code
+			// under test reads is a system that does not ship
+			// (`docs/conventions/fixture-must-match-production.md`).
 			entry: {
 				id: 'openai',
 				label: 'A Provider',
 				defaultModel: DEFAULT_MODEL,
 				requiresApiKey: true,
 				envVars: ['A_KEY'],
+				constructible: true,
 			},
 			source: { kind: 'env', envName: 'A_KEY' },
 			apiKey: 'not-a-real-key',
@@ -176,5 +185,69 @@ describe('while the list is still loading', () => {
 		await flush()
 		expect(lastFrame()).toContain('Model One')
 		unmount()
+	})
+})
+
+/**
+ * A provider this build cannot construct is shown and cannot be chosen.
+ *
+ * This is the surface #257 is really about: the operator did nothing wrong —
+ * they picked from a list namzu put in front of them — and got an exception.
+ * Detection is honest (the server IS running, the credential IS there), so the
+ * row stays; what changes is that pressing enter refuses instead of saving a
+ * choice that cannot start a session.
+ */
+describe('a detected provider with no bundled driver', () => {
+	function unbuildable(): DetectedProvider[] {
+		return [
+			{
+				entry: {
+					id: 'lmstudio',
+					label: 'A Local Server',
+					defaultModel: DEFAULT_MODEL,
+					requiresApiKey: false,
+					envVars: [],
+					constructible: false,
+				},
+				source: { kind: 'probe', url: 'http://localhost:1234/v1/models' },
+				alternatives: [],
+			} as unknown as DetectedProvider,
+		]
+	}
+
+	it('refuses the selection and says why, instead of accepting it', async () => {
+		const { stdin, lastFrame, onSubmit } = open({ detected: unbuildable() })
+		await flush()
+
+		stdin.write('\r')
+		await flush()
+
+		// Not submitted is the half that matters: accepting would write the
+		// choice to preferences, and the next launch would refuse it.
+		expect(onSubmit).not.toHaveBeenCalled()
+		expect(lastFrame()).toMatch(/not available in this build/)
+	})
+
+	it('still lists the row, because the discovery behind it was true', async () => {
+		// Excluding it would leave an operator who has only this provider staring
+		// at "No providers detected", which is false — namzu found it and
+		// declined it. A refusal that presents as an absence is not a refusal.
+		const { lastFrame } = open({ detected: unbuildable() })
+		await flush()
+
+		expect(lastFrame()).toContain('A Local Server')
+		expect(lastFrame()).toMatch(/unavailable in this build/)
+	})
+
+	it('does not refuse a provider whose driver IS bundled', async () => {
+		// The preservation half. A refusal that fired for everyone would pass the
+		// two cases above and break every session namzu can actually run.
+		const { stdin, lastFrame } = open()
+		await flush()
+
+		stdin.write('\r')
+		await flush()
+
+		expect(lastFrame()).not.toMatch(/not available in this build/)
 	})
 })

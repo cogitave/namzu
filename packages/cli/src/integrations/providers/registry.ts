@@ -34,6 +34,26 @@ export interface ProviderRegistryEntry {
 	readonly defaultModel: string
 	/** Does this provider require an apiKey? `false` for purely local. */
 	readonly requiresApiKey: boolean
+	/**
+	 * Can THIS BUILD of the CLI construct one?
+	 *
+	 * A statement about `@namzu/cli`'s dependencies, not about the provider. A
+	 * driver package exists in this repo for every entry below; only four of
+	 * them are dependencies of this package, so only four can be imported and
+	 * registered. Read the sentence that way or it will be deleted the day a
+	 * driver ships, which would put the lie back.
+	 *
+	 * It exists because five things read this registry as truth — discovery,
+	 * the picker, the chain validator, the doctor and `constructProvider` — and
+	 * only the last of them knew better. It found out at the worst possible
+	 * moment: after the operator had chosen from a list namzu offered them.
+	 *
+	 * `register.ts` is where the fact is *enforced*, and the two cannot drift:
+	 * `register.test.ts` asserts the switch arms and these flags agree in both
+	 * directions. A flag with no arm is the defect this field was added for; an
+	 * arm with no flag would refuse a provider that works.
+	 */
+	readonly constructible: boolean
 }
 
 export const PROVIDER_REGISTRY: Readonly<Record<ProviderId, ProviderRegistryEntry>> = Object.freeze(
@@ -47,6 +67,7 @@ export const PROVIDER_REGISTRY: Readonly<Record<ProviderId, ProviderRegistryEntr
 			envVars: ['ANTHROPIC_API_KEY', 'ANTHROPIC_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN'],
 			defaultModel: 'claude-opus-4-7',
 			requiresApiKey: true,
+			constructible: true,
 		},
 		openai: {
 			id: 'openai',
@@ -54,6 +75,7 @@ export const PROVIDER_REGISTRY: Readonly<Record<ProviderId, ProviderRegistryEntr
 			envVars: ['OPENAI_API_KEY'],
 			defaultModel: 'gpt-4o',
 			requiresApiKey: true,
+			constructible: true,
 		},
 		openrouter: {
 			id: 'openrouter',
@@ -62,6 +84,7 @@ export const PROVIDER_REGISTRY: Readonly<Record<ProviderId, ProviderRegistryEntr
 			defaultBaseUrl: 'https://openrouter.ai/api/v1',
 			defaultModel: 'anthropic/claude-opus-4-7',
 			requiresApiKey: true,
+			constructible: true,
 		},
 		ollama: {
 			id: 'ollama',
@@ -71,6 +94,7 @@ export const PROVIDER_REGISTRY: Readonly<Record<ProviderId, ProviderRegistryEntr
 			probeUrl: 'http://localhost:11434/api/tags',
 			defaultModel: 'llama3.2',
 			requiresApiKey: false,
+			constructible: true,
 		},
 		lmstudio: {
 			id: 'lmstudio',
@@ -80,6 +104,7 @@ export const PROVIDER_REGISTRY: Readonly<Record<ProviderId, ProviderRegistryEntr
 			probeUrl: 'http://localhost:1234/v1/models',
 			defaultModel: 'auto',
 			requiresApiKey: false,
+			constructible: false,
 		},
 		bedrock: {
 			id: 'bedrock',
@@ -87,6 +112,7 @@ export const PROVIDER_REGISTRY: Readonly<Record<ProviderId, ProviderRegistryEntr
 			envVars: ['AWS_ACCESS_KEY_ID'], // SDK reads the rest from the AWS chain
 			defaultModel: 'anthropic.claude-opus-4-7-v1:0',
 			requiresApiKey: true,
+			constructible: false,
 		},
 		http: {
 			id: 'http',
@@ -96,6 +122,7 @@ export const PROVIDER_REGISTRY: Readonly<Record<ProviderId, ProviderRegistryEntr
 			envVars: [],
 			defaultModel: 'gpt-4o',
 			requiresApiKey: true,
+			constructible: false,
 		},
 	},
 )
@@ -109,3 +136,24 @@ export const ALL_PROVIDER_IDS: readonly ProviderId[] = Object.freeze([
 	'bedrock',
 	'http',
 ] as const)
+
+/**
+ * The one sentence every refusal of an unbuildable provider uses.
+ *
+ * Written once because it is said in four places — the chain validator, the
+ * picker, `ensureRegistered` and `constructProvider` — and four wordings of one
+ * fact read as four problems. It names who refused, why, and the two things the
+ * operator can actually do, per `docs/conventions/refuse-do-not-degrade.md`.
+ *
+ * "This build of namzu" and not "namzu": the driver exists, and telling someone
+ * their provider is unsupported when the truth is that this package does not
+ * depend on it yet sends them to the wrong place with the wrong bug report.
+ */
+export function unsupportedProviderMessage(id: string): string {
+	const entry = (PROVIDER_REGISTRY as Record<string, ProviderRegistryEntry | undefined>)[id]
+	const label = entry?.label ?? id
+	const usable = ALL_PROVIDER_IDS.filter((other) => PROVIDER_REGISTRY[other].constructible).join(
+		', ',
+	)
+	return `${label} ("${id}") is not available in this build of namzu — it has no driver bundled, so no session can use it. Pick one of: ${usable}. Following it is tracked in cogitave/namzu#257.`
+}

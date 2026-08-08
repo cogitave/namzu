@@ -43,7 +43,7 @@ import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'n
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 
-import { PROVIDER_REGISTRY, type ProviderId } from './registry.js'
+import { PROVIDER_REGISTRY, type ProviderId, unsupportedProviderMessage } from './registry.js'
 
 const FILE_MODE = 0o600
 const DIR_MODE = 0o700
@@ -258,6 +258,27 @@ function describeInvalidChain(members: readonly ProviderChoice[]): string | null
 		const position = chainPositionName(index)
 		if (!(member.id in PROVIDER_REGISTRY)) {
 			return `${position} "${member.id}" is not a provider namzu knows (known: ${Object.keys(PROVIDER_REGISTRY).join(', ')})`
+		}
+		// Unbuildable PRIMARY only, and the asymmetry with the check above is
+		// deliberate rather than an oversight about the tail.
+		//
+		// An unknown id breaks a chain wherever it sits, so that one is checked
+		// everywhere. An unbuildable one does not: a fallback naming it is
+		// dropped from the chain at launch with a notice, and the session runs
+		// on the primary the operator has. Refusing the whole file for it would
+		// take a working session away over a spare — the opposite of the trade
+		// the notice already makes.
+		//
+		// A primary is the other case entirely, and refusing HERE rather than at
+		// construction is the whole point. Read time returns `needs-repick`,
+		// which puts the operator in the picker with this sentence printed above
+		// it. Construction time returns an empty session, which sets the
+		// `unhealthy` phase — a disabled composer where `/model` cannot be typed
+		// — so the old refusal told an operator to pick another provider on the
+		// one screen that will not let them. A refusal whose advice cannot be
+		// followed is not a refusal; it is a dead end wearing one.
+		if (index === 0 && !PROVIDER_REGISTRY[member.id].constructible) {
+			return unsupportedProviderMessage(member.id)
 		}
 		// Compared as the pair the operator WROTE, not against the resolved
 		// default model. Resolving would make a file that was valid yesterday

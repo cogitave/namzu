@@ -159,12 +159,42 @@ describe('the provider chain check', () => {
 			expect(r.message ?? '').not.toMatch(/declare different capabilities/)
 		})
 
-		it('FAILS when it is the PRIMARY whose declaration cannot be read', async () => {
+		/**
+		 * This case used to assert that doctor reaches its `primaryUnreadable`
+		 * branch for a provider with no bundled driver. It cannot any more, and
+		 * the reason is the fix: such a primary is now refused when the
+		 * preferences file is READ, so doctor answers from its `needs-repick`
+		 * branch and never resolves capabilities at all.
+		 *
+		 * Rewritten to assert what is true rather than deleted, because the
+		 * operator-visible property is unchanged and still worth pinning: doctor
+		 * FAILS, and it points at the picker, which is the one screen that can
+		 * fix it.
+		 *
+		 * `primaryUnreadable` is kept in the check and is not dead: `constructible`
+		 * only promises that this build BUNDLES the driver, and a bundled import
+		 * can still throw on a broken or partial install. That is a nameable
+		 * input, which is what distinguishes a guard worth keeping from one that
+		 * cannot fail (`docs/conventions/a-check-that-cannot-fail.md`).
+		 */
+		it('FAILS a primary with no bundled driver, and sends the operator to the picker', async () => {
 			writePrefs({ version: 3, providers: [{ id: 'bedrock' }, { id: 'anthropic' }] })
 			const r = await check({ AWS_ACCESS_KEY_ID: 'y', ANTHROPIC_API_KEY: 'x' })
 
 			expect(r.status).toBe('fail')
-			expect(r.remediation ?? '').toMatch(/no run can start/)
+			expect(r.message ?? '').toMatch(/not available in this build/)
+			expect(r.remediation ?? '').toMatch(/pick again/)
+		})
+
+		it('does NOT refuse the file over an unbuildable FALLBACK — the primary still runs', async () => {
+			// The asymmetry, read from the outside. A spare namzu cannot build is
+			// dropped with a notice; taking the whole session away over it would be
+			// the opposite trade.
+			writePrefs({ version: 3, providers: [{ id: 'anthropic' }, { id: 'bedrock' }] })
+			const r = await check({ ANTHROPIC_API_KEY: 'x', AWS_ACCESS_KEY_ID: 'y' })
+
+			expect(r.status).toBe('warn')
+			expect(r.message ?? '').toMatch(/Could not read what these members declare/)
 		})
 	})
 })

@@ -16,6 +16,7 @@ import {
 	PROVIDER_REGISTRY,
 	type ProviderId,
 	type ProviderRegistryEntry,
+	unsupportedProviderMessage,
 } from '../integrations/providers/index.js'
 import { type ModelListing, describeProviderModels, verifyCredential } from './agent.js'
 import { describeDisposition, keyLooksUsable, maskKey, sessionCredential } from './credential-entry.js'
@@ -204,6 +205,15 @@ export function Picker({
 			const current = detected[cursor]
 			if (!current) {
 				setErrorHint('No provider available.')
+				return
+			}
+			// Detected, and still not choosable. The row stays visible on purpose
+			// — see the list below — so this is the only place that can decline
+			// it, and declining with the reason is the point: accepting would
+			// write the choice to preferences and hand the operator a session
+			// that refuses to start.
+			if (!current.entry.constructible) {
+				setErrorHint(unsupportedProviderMessage(current.entry.id))
 				return
 			}
 			// Ask the provider what it has, then show the model step. The list is
@@ -409,16 +419,36 @@ function ProviderRow({
 	const cursor = selected ? '›' : ' '
 	const number = `${index + 1}.`
 	const label = detected.entry.label
-	const sourceLabel = describeSource(detected)
+	// What was found stays what is shown. A provider this build cannot construct
+	// is still genuinely on the machine, and replacing "local · localhost:1234"
+	// with the refusal would hide the discovery that makes the refusal make
+	// sense. The reason goes in the source column, where the row says what namzu
+	// knows about it.
+	const usable = detected.entry.constructible
+	const sourceLabel = usable
+		? describeSource(detected)
+		: `${describeSource(detected)} · unavailable in this build`
 	const currentMark = isCurrent ? '  ← current' : ''
 	return (
 		<Box>
 			<Text color={selected ? theme.border.focus : theme.text.muted}>{cursor} </Text>
 			<Text color={theme.text.muted}>{number} </Text>
-			<Text color={selected ? theme.border.focus : theme.text.primary} bold={selected}>
+			<Text
+				color={
+					usable
+						? selected
+							? theme.border.focus
+							: theme.text.primary
+						: theme.text.muted
+				}
+				bold={usable && selected}
+				dimColor={!usable}
+			>
 				{label.padEnd(28)}
 			</Text>
-			<Text color={theme.text.muted}>{sourceLabel}</Text>
+			<Text color={usable ? theme.text.muted : theme.status.warn} dimColor={!usable}>
+				{sourceLabel}
+			</Text>
 			{isCurrent ? <Text color={theme.accent.system}>{currentMark}</Text> : null}
 		</Box>
 	)
