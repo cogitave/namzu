@@ -19,7 +19,7 @@
  */
 
 import { render } from 'ink-testing-library'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Preferences } from '../../integrations/providers/index.js'
 import type { AgentEvent, AgentSession, PermissionDecision, PermissionRequest } from '../agent.js'
@@ -30,8 +30,23 @@ const PREFS: Preferences = { version: 3, providers: [{ id: 'openai' }], subagent
 
 /** Decisions the fake session was given, in order. */
 const decisions: PermissionDecision[] = []
-/** Resolves once the agent has asked and the overlay is up. */
-let asked!: Promise<void>
+
+/**
+ * The clock the settle window is measured against, driven by the test.
+ *
+ * `Date.now` is stubbed rather than waited on. The window is 350ms of REAL
+ * time, and an earlier version of this file simply raced it — writing the key
+ * quickly and trusting the harness to get there first. That made the result a
+ * function of how loaded the machine was: the suite transforms TypeScript on
+ * the way in, and a slow run drifted past 350ms and flipped a passing
+ * assertion to a failing one with nothing about the code changed. The repo has
+ * met this cliff before; `vitest.config.ts` is entirely about the last time.
+ *
+ * Stubbing the clock makes "before the window" and "after the window" exact.
+ * Real timers still drive Ink's own rendering, because `setTimeout` does not
+ * consult `Date.now` — so only the quantity under test becomes deterministic.
+ */
+let nowMs = 1_000_000
 
 vi.mock('../../integrations/trust/store.js', () => ({
 	isTrusted: () => true,
@@ -39,7 +54,7 @@ vi.mock('../../integrations/trust/store.js', () => ({
 }))
 
 vi.mock('../../integrations/updates.js', () => ({
-	checkUpdates: async () => null,
+	checkUpdates: async () => [],
 }))
 
 vi.mock('../../integrations/sessions/store.js', () => ({
@@ -101,6 +116,27 @@ const ctx: TuiContext = { cwd: process.cwd(), version: '0.0.0-test' }
 const tick = (ms = 40) => new Promise((r) => setTimeout(r, ms))
 
 /**
+ * Wait until a decision lands, or give up after `timeoutMs`.
+ *
+ * Polling rather than one fixed sleep, because the two are not
+ * interchangeable here. A bare `\x1B` is the prefix of every arrow and function
+ * key, so an input parser holds it briefly to see whether more follows, and
+ * under a loaded parallel run that hold stretches. A fixed 60ms wait passed
+ * this file alone and failed inside the full suite — the same load cliff
+ * `vitest.config.ts` documents, arrived at from a different direction.
+ *
+ * Absence cannot be polled for, so the tests asserting that NOTHING was decided
+ * still wait a fixed, generous interval. That asymmetry is inherent: proving a
+ * decision happened only needs enough time, proving one did not needs all of it.
+ */
+async function decisionSettles(timeoutMs = 3_000): Promise<void> {
+	const started = performance.now()
+	while (decisions.length === 0 && performance.now() - started < timeoutMs) {
+		await tick(20)
+	}
+}
+
+/**
  * Render, reach a running turn, type a draft, and stop with the prompt open.
  *
  * Returns once the overlay is on screen — every assertion below starts here, so
@@ -108,10 +144,23 @@ const tick = (ms = 40) => new Promise((r) => setTimeout(r, ms))
  */
 async function promptOpenWithDraftInFlight() {
 	const harness = render(<App ctx={ctx} />)
+	// Registered for teardown BEFORE the first assertion below, so an assertion
+	// that throws still gets torn down. Unmounting at the end of each test
+	// instead looks tidier and is a trap: the first failure then leaks a live
+	// Ink instance into the next test, and every following test fails with "the
+	// prompt never opened" — four misleading failures stacked on one real one.
+	// Found while mutation-checking this file, where exactly that happened.
+	mounted.push(harness)
 	// Probe → session → ready.
 	await tick(60)
-	// Start a turn.
-	harness.stdin.write('go\r')
+	// Start a turn. The keys go in separately on purpose: Ink delivers one
+	// `stdin.write` as ONE keypress, so `'go\r'` arrives as a single event whose
+	// `input` is the whole string and whose `key.return` is false — the
+	// composer takes it as pasted text and nothing is ever submitted. A test
+	// that batched them would sit there asserting against a turn that never ran.
+	harness.stdin.write('go')
+	await tick(20)
+	harness.stdin.write('\r')
 	await tick(40)
 	// The follow-up the operator is part-way through typing while it runs.
 	harness.stdin.write('and then deploy')
@@ -120,66 +169,84 @@ async function promptOpenWithDraftInFlight() {
 	return harness
 }
 
+/** Harnesses to tear down, whatever the test did. */
+const mounted: { unmount: () => void }[] = []
+
 beforeEach(() => {
 	decisions.length = 0
-	asked = Promise.resolve()
-	void asked
+	nowMs = 1_000_000
+	vi.spyOn(Date, 'now').mockImplementation(() => nowMs)
 })
 
+afterEach(() => {
+	for (const h of mounted) h.unmount()
+	mounted.length = 0
+	vi.restoreAllMocks()
+})
+
+/** Move the stubbed clock past the settle window. */
+function settle(): void {
+	nowMs += APPROVAL_SETTLE_MS + 1
+}
+
 describe('the permission prompt', () => {
-	it('does not approve on Enter', async () => {
+	it('does not approve on Enter, even once the prompt has settled', async () => {
 		// The heart of it. Enter is the key that submits the draft the operator
 		// was typing, it is in flight exactly when the overlay appears, and it is
 		// named on no screen — so it must decide nothing here.
-		const { stdin, lastFrame, unmount } = await promptOpenWithDraftInFlight()
+		//
+		// The wait is what gives this test its teeth. Pressing Enter immediately
+		// proves nothing: the settle window would swallow it whether or not the
+		// approving branch still read `key.return`, and an earlier draft of this
+		// test passed with the defect restored for exactly that reason. Waiting
+		// past the window leaves the binding as the only thing that can decide
+		// it — `y` at this same moment approves, one test down.
+		const { stdin, lastFrame } = await promptOpenWithDraftInFlight()
 
+		settle()
 		stdin.write('\r')
-		await tick(60)
+		await tick(400)
 
 		expect(decisions, 'Enter decided the prompt').toEqual([])
 		expect(lastFrame(), 'the prompt closed without a decision').toContain('wants to run')
-		unmount()
 	})
 
 	it('ignores an approving key that arrives before the prompt can have been read', async () => {
 		// `y` is an ordinary letter. Someone mid-word when the overlay mounts is
 		// one keystroke from approving a call they have not seen.
-		const { stdin, unmount } = await promptOpenWithDraftInFlight()
+		const { stdin } = await promptOpenWithDraftInFlight()
 
 		stdin.write('y')
-		await tick(60)
+		await tick(400)
 
 		expect(decisions, 'an immediate y approved').toEqual([])
-		unmount()
 	})
 
 	it('approves on y once the prompt has been up long enough to read', async () => {
 		// The other half: the guard must not make the advertised key inert. A
 		// deferred approval that never arrives is its own defect.
-		const { stdin, unmount } = await promptOpenWithDraftInFlight()
+		const { stdin } = await promptOpenWithDraftInFlight()
 
-		await tick(APPROVAL_SETTLE_MS + 60)
+		settle()
 		stdin.write('y')
-		await tick(60)
+		await decisionSettles()
 
 		expect(decisions).toEqual([{ kind: 'approve' }])
-		unmount()
 	})
 
 	it('rejects on esc immediately, without waiting out the guard', async () => {
 		// Refusal is not deferred: it is the recoverable direction, and a reject
 		// key that ignored the first press would read as a frozen prompt.
-		const { stdin, unmount } = await promptOpenWithDraftInFlight()
+		const { stdin } = await promptOpenWithDraftInFlight()
 
 		stdin.write('\x1B')
-		await tick(60)
+		await decisionSettles()
 
 		expect(decisions).toEqual([{ kind: 'reject' }])
-		unmount()
 	})
 
 	it('names every key that decides it, and no key that does not', async () => {
-		const { lastFrame, unmount } = await promptOpenWithDraftInFlight()
+		const { lastFrame } = await promptOpenWithDraftInFlight()
 		const frame = lastFrame() ?? ''
 
 		expect(frame).toContain('y')
@@ -189,6 +256,5 @@ describe('the permission prompt', () => {
 		// The advertisement is the contract the handler is held to. `enter` must
 		// not appear, because Enter no longer does anything here.
 		expect(frame.toLowerCase()).not.toContain('enter')
-		unmount()
 	})
 })
