@@ -99,6 +99,9 @@ vi.mock('../agent.js', async (importOriginal) => {
 				configNotices: [],
 				close: async () => {},
 				approvalLatched: () => latched,
+				// A representative exempt roster: one declared read-only, one
+				// named override. Enough for the readout assertions below.
+				promptExemptTools: () => ['glob', 'read', 'task_create'],
 				// Streams one delta so the composer is live and a draft can be
 				// typed, then asks for permission and parks on the answer — which
 				// is exactly the moment this file is about. A second batch is

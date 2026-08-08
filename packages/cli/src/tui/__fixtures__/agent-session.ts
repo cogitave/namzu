@@ -52,6 +52,7 @@ export function fakeAgentSession(overrides: Partial<AgentSession> = {}): AgentSe
 		// Nothing has been approved on a fresh session. A test about the latch
 		// overrides this; every other test wants the ordinary state.
 		approvalLatched: () => false,
+		promptExemptTools: () => [],
 		send: (_messages: readonly Message[], _opts?: SendOptions): AsyncIterable<AgentEvent> =>
 			(async function* () {
 				yield { kind: 'done', stopReason: 'end_turn' } as AgentEvent

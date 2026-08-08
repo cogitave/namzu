@@ -121,7 +121,9 @@ For what happens to calls no rule covered, see
 
 Under `prompt`, mutating actions ask before they run:
 
-- **Read-only / agent-state tools** (`read`/`glob`/`grep`, the memory + task tools) run silently.
+- **Tools that declare themselves read-only** (`read`, `glob`, `grep`, `ls`, `search_memory`, `read_memory`, `task_list`) run silently. That is taken from each tool's own declaration, not from a list namzu keeps.
+- **`task_create` and `task_update`** also run silently, and they are writes. They are the model's own plan for the request, written several times per planning turn, so prompting would put a dialog between the agent and its todo list; a bad write costs a polluted task list, which is visible in the transcript and grants nothing.
+- **`save_memory` prompts.** It used to be silent. What it writes outlives the run — content saved now is retrievable by `search_memory` in a later session, from `<cwd>/.namzu/memory` inside your own project — so a tool result or fetched page that talks the model into saving something reaches a future run's reasoning.
 - **Anything else** — `write`, `edit`, `bash`, and any tool not on the safe allowlist — shows a prompt with each proposed call, plus a preview for the riskiest: the content for `write`, a `- old` / `+ new` diff for `edit`.
 
 An unrecognized tool is treated as needing consent. That direction is deliberate: a tool added tomorrow prompts, rather than inheriting a permission nobody granted it.

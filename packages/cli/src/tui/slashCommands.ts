@@ -72,10 +72,15 @@ export interface SlashContext {
 		readonly approvalLatched: () => boolean
 		/**
 		 * Tools that never reach the prompt, named so the readout can say so.
+		 *
 		 * Supplied by the caller rather than imported here, because this module
-		 * is deliberately free of the agent runtime.
+		 * is deliberately free of the agent runtime. A function because the
+		 * roster is not final when a session is built — task tools register
+		 * deferred inside the first turn, and tool servers connect during
+		 * startup — so a captured array can describe a set the operator never
+		 * had.
 		 */
-		readonly neverPrompted: readonly string[]
+		readonly neverPrompted: () => readonly string[]
 	}
 	/**
 	 * Delegate ids this session can dispatch to, empty when the delegation tool
@@ -384,13 +389,14 @@ export function renderPermissions(permissions: SlashContext['permissions']): str
 	// Stated in every mode, because it is true in every mode and an operator
 	// cannot discover it by using namzu: these tools simply never appear at a
 	// prompt, so their absence reads as "the agent did not use any".
-	if (permissions.neverPrompted.length > 0) {
+	const neverPrompted = permissions.neverPrompted()
+	if (neverPrompted.length > 0) {
 		lines.push('')
-		lines.push(`Never prompted for (${permissions.neverPrompted.length}):`)
-		lines.push(`  ${permissions.neverPrompted.join(', ')}`)
-		lines.push("These either only observe, or touch only namzu's own state under")
-		lines.push('~/.namzu. A rule can still deny one, and any call the kernel flags')
-		lines.push('destructive is prompted for even if it is on this list.')
+		lines.push(`Never prompted for (${neverPrompted.length}):`)
+		lines.push(`  ${neverPrompted.join(', ')}`)
+		lines.push('Each of these declares itself read-only, or is a named exception')
+		lines.push("for the agent's own task list. A rule can still deny one, and any")
+		lines.push('call the kernel flags destructive is prompted for regardless.')
 	}
 
 	if (permissions.rules.length === 0) {
@@ -404,10 +410,20 @@ export function renderPermissions(permissions: SlashContext['permissions']): str
 	}
 
 	lines.push('')
+	// The order this function claims to describe starts here, and the page used
+	// to begin one step in. Omitting the gate is not a false statement, but it
+	// makes "a rule decides first" read as the whole story when something
+	// outranks the rules too — and a true-but-incomplete order is a wrong order
+	// for anyone reasoning about what can still get through.
+	lines.push('Before any of the below: a built-in safety gate hard-denies a narrow set')
+	lines.push('of catastrophic shell patterns (rm -rf /, mkfs, fork bombs, curl|sh, …).')
+	lines.push('It applies in every mode, including --dangerously-skip-permissions, and')
+	lines.push('nothing here can switch it off.')
+	lines.push('')
 	// Stated because the precedence is the part people get wrong, and getting it
 	// wrong in this direction is the dangerous one: assuming the flag lifts a
 	// `deny` they wrote.
-	lines.push('A rule decides first. The approval setting above only reaches calls')
+	lines.push('Then a rule decides. The approval setting above only reaches calls')
 	lines.push('no rule covered, so it can never reopen what a `deny` closed.')
 
 	return lines.join('\n')

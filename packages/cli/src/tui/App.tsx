@@ -60,7 +60,6 @@ import {
 	type PermissionDecision,
 	type PermissionRequest,
 	type RunScope,
-	NEVER_PROMPTED_TOOLS,
 	createAgentSession,
 	probeAgentSession,
 } from './agent.js'
@@ -375,7 +374,7 @@ export function App({ ctx }: AppProps) {
 			// function keeps that impossible by construction rather than by a
 			// coincidence three lines away.
 			approvalLatched: () => session?.approvalLatched() ?? false,
-			neverPrompted: NEVER_PROMPTED_TOOLS,
+			neverPrompted: () => session?.promptExemptTools() ?? [],
 		},
 		agentIds: session?.agentIds ?? [],
 		instructionFiles: session?.instructionFiles ?? [],
