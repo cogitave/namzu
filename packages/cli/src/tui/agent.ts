@@ -250,6 +250,22 @@ export interface AgentSession {
 	 * shown.
 	 */
 	readonly configNotices: readonly string[]
+	/**
+	 * Whether "approve all" has been chosen at a prompt during this session.
+	 *
+	 * A FUNCTION, not a boolean, and that is the whole point of it. The latch
+	 * lives in a mutable object the permission handler closes over, and it flips
+	 * mid-turn on a single keystroke. A surface handed a boolean would be handed
+	 * whatever the value was when the surface was built — and `/permissions` is
+	 * rendered from a context object assembled on an earlier render, so a
+	 * snapshot would reintroduce the staleness one layer up from where it was
+	 * fixed.
+	 *
+	 * It exists because `/permissions` reported the approval posture from the
+	 * operator's flags alone and could not see this, so it kept printing "you
+	 * are asked before they run" after the operator had turned that off.
+	 */
+	readonly approvalLatched: () => boolean
 	send(messages: readonly Message[], opts?: SendOptions): AsyncIterable<AgentEvent>
 	/**
 	 * Release what the session holds — today, the external tool servers.
@@ -578,6 +594,8 @@ export async function createAgentSession(
 		],
 		close: () => mcp.close(),
 		errorHint: null,
+		// Reads the same object the handler mutates, at call time.
+		approvalLatched: () => approval.all,
 		send: async function* (messages, opts) {
 			// Renew a lapsed OAuth token before the turn runs (no-op for valid
 			// tokens and non-keychain credentials).
@@ -1072,6 +1090,16 @@ const READ_ONLY_TOOLS = new Set([
 ])
 
 /**
+ * The same set, sorted, for a surface that has to NAME it.
+ *
+ * Derived rather than retyped: `/permissions` tells the operator which tools
+ * run without asking, and a hand-written list beside the real one is a second
+ * source of truth that drifts the first time a tool is added to either. The
+ * readout is only worth printing if it cannot disagree with the gate.
+ */
+export const NEVER_PROMPTED_TOOLS: readonly string[] = [...READ_ONLY_TOOLS].sort()
+
+/**
  * A batch needs explicit approval when any call mutates state: flagged
  * destructive by the SDK, or simply not on the read-only allowlist.
  */
@@ -1411,6 +1439,8 @@ function emptySession(errorHint: string): AgentSession {
 		// Nothing ran, so there is no configuration in force to report on.
 		configNotices: [],
 		errorHint,
+		// No turn can run here, so no prompt can have been answered.
+		approvalLatched: () => false,
 		send: async function* () {
 			yield { kind: 'error' as const, message: errorHint }
 		},

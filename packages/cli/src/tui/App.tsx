@@ -60,6 +60,7 @@ import {
 	type PermissionDecision,
 	type PermissionRequest,
 	type RunScope,
+	NEVER_PROMPTED_TOOLS,
 	createAgentSession,
 	probeAgentSession,
 } from './agent.js'
@@ -136,7 +137,7 @@ export function App({ ctx }: AppProps) {
 	 *
 	 * A ref rather than state because the keypress handler reads it in the same
 	 * tick the prompt opens, before any re-render could carry a new value — see
-	 * `permission-timing.ts` for why an approving key has to wait on this.
+	 * `consent-timing.ts` for why an approving key has to wait on this.
 	 */
 	const permissionOpenedAtRef = useRef<number | null>(null)
 	/**
@@ -362,6 +363,19 @@ export function App({ ctx }: AppProps) {
 		permissions: {
 			skipPermissions: ctx.skipPermissions === true,
 			rules: ctx.rules ?? [],
+			// Called when `/permissions` renders, not read here.
+			//
+			// A boolean would also be correct TODAY, and only by accident: this
+			// object is a fresh literal each render and sits in `handleSubmit`'s
+			// dependency array, so the callback is rebuilt every render and
+			// never holds a stale one. Memoising `slashCtx` is an obvious
+			// optimisation for exactly that reason — and it would silently turn
+			// a captured boolean stale, putting this security readout back to
+			// reporting a posture the operator has already changed. The
+			// function keeps that impossible by construction rather than by a
+			// coincidence three lines away.
+			approvalLatched: () => session?.approvalLatched() ?? false,
+			neverPrompted: NEVER_PROMPTED_TOOLS,
 		},
 		agentIds: session?.agentIds ?? [],
 		instructionFiles: session?.instructionFiles ?? [],

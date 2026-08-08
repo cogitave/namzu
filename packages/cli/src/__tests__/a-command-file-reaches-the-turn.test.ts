@@ -63,7 +63,12 @@ function context(userCommands: SlashContext['userCommands']): SlashContext {
 		providerSummary: 'mock (mock)',
 		modelSummary: 'mock-model',
 		usage: null,
-		permissions: { skipPermissions: false, rules: [] },
+		permissions: {
+			skipPermissions: false,
+			rules: [],
+			approvalLatched: () => false,
+			neverPrompted: [],
+		},
 		agentIds: [],
 		instructionFiles: [],
 		userCommands,

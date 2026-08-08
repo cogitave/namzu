@@ -147,6 +147,17 @@ Rejecting is never deferred — `n`, `Esc` and `Ctrl+C` answer on the first pres
 because a refusal you did not mean costs a retry while an approval you did not
 mean costs whatever the tool did.
 
+### Checking what is in force
+
+`/permissions` prints the posture actually in force, not the one your flags
+imply. That distinction matters after you press `a`: approve-all is a session
+setting, so the page reports it as automatic approval and tells you how to get
+back to being asked (restart, or re-pick a provider with `/model`).
+
+It also names the tools that never reach a prompt, because that set is otherwise
+undiscoverable — those calls simply never appear, so their absence looks like
+the agent not having used any.
+
 ## The safety gate
 
 Independent of the prompt, a verification gate hard-denies a narrow set of catastrophic shell patterns **before they ever run** — `rm -rf /`, `mkfs`, `dd if=`, fork bombs, `sudo` / `su -`, `chmod 777 /`, `curl|sh` / `wget|sh`, `ssh user@host`, and dynamic `eval`. This applies in every mode including bypass, so namzu can't be made to brick the machine. The list is deliberately narrow — everyday commands like `rm -rf node_modules` are unaffected.

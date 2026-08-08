@@ -49,6 +49,9 @@ export function fakeAgentSession(overrides: Partial<AgentSession> = {}): AgentSe
 		// A healthy single-provider chain has nothing to report, which is the
 		// ordinary production state this fixture is meant to resemble.
 		configNotices: [],
+		// Nothing has been approved on a fresh session. A test about the latch
+		// overrides this; every other test wants the ordinary state.
+		approvalLatched: () => false,
 		send: (_messages: readonly Message[], _opts?: SendOptions): AsyncIterable<AgentEvent> =>
 			(async function* () {
 				yield { kind: 'done', stopReason: 'end_turn' } as AgentEvent

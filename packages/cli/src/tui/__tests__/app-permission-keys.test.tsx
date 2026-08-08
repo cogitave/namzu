@@ -78,34 +78,48 @@ vi.mock('../agent.js', async (importOriginal) => {
 			needsRepickReason: null,
 			detected: [],
 		}),
-		createAgentSession: async (): Promise<AgentSession> => ({
-			hasProvider: true,
-			providerSummary: 'a-provider',
-			modelSummary: 'a-model',
-			toolNames: ['bash'],
-			errorHint: null,
-			instructionFiles: [],
-			skippedInstructionFiles: [],
-			mcpConnected: [],
-			mcpFailed: [],
-			agentIds: [],
-			configNotices: [],
-			close: async () => {},
-			// Streams one delta so the composer is live and a draft can be typed,
-			// then asks for permission and parks on the answer — which is exactly
-			// the moment this file is about.
-			send: async function* (_messages, opts): AsyncIterable<AgentEvent> {
-				yield { kind: 'delta', text: 'working' } as AgentEvent
-				await new Promise((r) => setTimeout(r, 30))
-				const req: PermissionRequest = {
-					toolCalls: [
-						{ id: 'call-1', name: 'bash', summary: 'rm -rf build', isDestructive: true },
-					],
-				}
-				const decision = await opts?.onPermission?.(req)
-				if (decision) decisions.push(decision)
-			},
-		}),
+		createAgentSession: async (): Promise<AgentSession> => {
+			// Stands in for the `approval` object the real session closes over
+			// (`agent.ts`), which `makeResumeHandler` flips on approve-all and
+			// which `approvalLatched` reads. Emulated rather than imported
+			// because this mock replaces the handler that owns it; that the real
+			// handler sets the flag is pinned separately in `agent.test.ts`.
+			let latched = false
+			return {
+				hasProvider: true,
+				providerSummary: 'a-provider',
+				modelSummary: 'a-model',
+				toolNames: ['bash'],
+				errorHint: null,
+				instructionFiles: [],
+				skippedInstructionFiles: [],
+				mcpConnected: [],
+				mcpFailed: [],
+				agentIds: [],
+				configNotices: [],
+				close: async () => {},
+				approvalLatched: () => latched,
+				// Streams one delta so the composer is live and a draft can be
+				// typed, then asks for permission and parks on the answer — which
+				// is exactly the moment this file is about. A second batch is
+				// never requested, because approve-all is asserted through
+				// `/permissions` rather than through a second prompt.
+				send: async function* (_messages, opts): AsyncIterable<AgentEvent> {
+					yield { kind: 'delta', text: 'working' } as AgentEvent
+					await new Promise((r) => setTimeout(r, 30))
+					const req: PermissionRequest = {
+						toolCalls: [
+							{ id: 'call-1', name: 'bash', summary: 'rm -rf build', isDestructive: true },
+						],
+					}
+					const decision = await opts?.onPermission?.(req)
+					if (decision) {
+						decisions.push(decision)
+						if (decision.kind === 'approve-all') latched = true
+					}
+				},
+			}
+		},
 	}
 })
 
@@ -256,5 +270,46 @@ describe('the permission prompt', () => {
 		// The advertisement is the contract the handler is held to. `enter` must
 		// not appear, because Enter no longer does anything here.
 		expect(frame.toLowerCase()).not.toContain('enter')
+	})
+})
+
+/**
+ * That `/permissions` reports the posture actually in force.
+ *
+ * Here rather than in `slashCommands.test.ts` because the unit test there can
+ * only prove that `renderPermissions` calls the reader it is handed. Whether
+ * `App` hands it a LIVE reader or a value snapshotted during some earlier
+ * render is a different property, invisible from that level, and it is the one
+ * that was broken: the latch lives in a closure inside the agent session, and
+ * the context object carrying it is assembled on one render and read from a
+ * callback captured on another.
+ *
+ * So this drives the whole path — press `a` at a real prompt, then ask.
+ */
+describe('/permissions after approve-all', () => {
+	it('reports automatic approval once `a` has been pressed', async () => {
+		const { stdin, lastFrame } = await promptOpenWithDraftInFlight()
+
+		settle()
+		stdin.write('a')
+		await decisionSettles()
+		expect(decisions, 'a did not approve-all').toEqual([{ kind: 'approve-all' }])
+
+		// The turn is over and the composer is back. Ask the page.
+		await tick(120)
+		stdin.write('/permissions')
+		await tick(60)
+		stdin.write('\r')
+		await tick(200)
+
+		const frame = lastFrame() ?? ''
+		expect(frame, 'the readout never rendered').toContain('Unreviewed calls')
+		expect(frame).toContain('approved automatically')
+		expect(frame, 'still claims calls are reviewed').not.toContain('you are asked')
+		// And that App hands the readout the REAL never-prompted set. The unit
+		// test supplies its own list, so it would pass just as happily against an
+		// empty one — this is the assertion that fails if the wiring is dropped.
+		expect(frame, 'the never-prompted disclosure is missing').toContain('Never prompted')
+		expect(frame).toContain('glob')
 	})
 })
