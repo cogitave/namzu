@@ -128,11 +128,24 @@ An unrecognized tool is treated as needing consent. That direction is deliberate
 
 | Key | Decision |
 | --- | --- |
-| `y` (or `Enter`) | Approve this batch. |
+| `y` | Approve this batch. |
 | `n` (or `Esc`) | Reject — the model is told you declined and can adapt. |
 | `a` | Approve this and everything else for the rest of the session. |
 
 `Ctrl+C` at the prompt rejects and aborts the turn.
+
+**`Enter` does not approve.** It used to, and it no longer does. The prompt
+arrives on the agent's schedule rather than yours: the composer stays editable
+while a turn runs, so the overlay can replace a composer you are part-way
+through typing into, and `Enter` is the key most likely to be already on its way
+when that happens. Approving is the one decision here that cannot be taken back,
+so it is not reachable by the key people press to dismiss things.
+
+For the same reason an approving key (`y`, `a`) is ignored for a beat after the
+prompt opens, so a keystroke aimed at the composer behind it cannot land on it.
+Rejecting is never deferred — `n`, `Esc` and `Ctrl+C` answer on the first press,
+because a refusal you did not mean costs a retry while an approval you did not
+mean costs whatever the tool did.
 
 ## The safety gate
 

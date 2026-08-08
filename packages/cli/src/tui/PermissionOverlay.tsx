@@ -69,7 +69,11 @@ export function PermissionOverlay({ toolCalls }: PermissionOverlayProps) {
 					<Text color={theme.accent.user} bold>
 						a
 					</Text>{' '}
-					approve all for this session
+					approve all for this session ·{' '}
+					<Text color={theme.status.error} bold>
+						esc
+					</Text>{' '}
+					reject
 				</Text>
 			</Box>
 		</Box>
