@@ -268,9 +268,15 @@ export {
 	registerMock,
 	resolveProviderCapabilities,
 	UnknownProviderError,
+	withProviderFallback,
 	withProviderRetry,
 } from './provider/index.js'
-export type { ProviderRetryConfig, WithProviderRetryOptions } from './provider/index.js'
+export type {
+	ProviderChainMember,
+	ProviderRetryConfig,
+	WithProviderFallbackOptions,
+	WithProviderRetryOptions,
+} from './provider/index.js'
 
 export {
 	assertIsolation,

@@ -15,7 +15,8 @@ tags: [convention, testing, verification]
 # A test can be sound and still be about the wrong thing
 
 Ratified 2026-08-06; amended the same session with "a live run is still an
-observation", and on 2026-08-08 with "it is not a rule about tests".
+observation", and on 2026-08-08 with "it is not a rule about tests" and with the
+provider-chain instance below.
 
 A test can run, cover a real path, and go red under mutation, and still be
 evidence about a property nobody needed. The machinery is honest; the
@@ -44,7 +45,7 @@ deleted?** Answer it by deleting the fix, not by reasoning about it. If you can
 state what the test asserts without mentioning the defect, you have not written
 the test yet.
 
-## Five ways it went wrong in one session
+## Six ways it went wrong
 
 - **Read off the object under test instead of the consumer.** The plan
   settlement tests read the outcome from `PlanManager` through
@@ -66,6 +67,14 @@ the test yet.
   `progressed` was `[]` twice. That holds whether the progress tee is fixed or
   broken. A test that cannot distinguish the two states is not evidence of
   either.
+- **Drove the path where the defect cannot appear.** A provider-chain test
+  asserted that a 404 falls over to the next member, and threw a raw 404 to do
+  it. It passed with the fix deleted: an unclassified 404 reaches `not_found`
+  through the status table and falls over regardless. The defect lives only on
+  the *classified* path, where a driver that diagnosed its own 404 yields
+  `invalid_request` and the status is the sole surviving evidence. Same
+  property, same assertion, wrong one of two paths — and the mutation profile is
+  what said so, reporting no failure where every sibling mutation had one.
 - **Attributed the protection to the wrong mechanism.** The permission gate
   compiled the pattern before recording the tool names, and the comment claimed
   that ordering is what stops a mistyped pattern widening "deny this tool when

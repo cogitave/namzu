@@ -174,6 +174,13 @@ export type StreamEventType =
 	 * from one that has hung.
 	 */
 	| 'provider.retry'
+	/**
+	 * A member of the provider chain could not serve and a later member has
+	 * taken over. Wire-visible because a client that is not told has no way to
+	 * know the answer it is reading came from a provider it did not ask for —
+	 * at a different price, and possibly a different quality.
+	 */
+	| 'provider.fallback'
 	| 'tool.executing'
 	/** Ephemeral progress from a long-running tool. Not in the transcript. */
 	| 'tool.progress'

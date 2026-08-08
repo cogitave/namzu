@@ -147,6 +147,23 @@ const MAPPING: {
 		}),
 	},
 
+	provider_fallback: {
+		wire: 'provider.fallback',
+		transform: (e, runId) => ({
+			run_id: runId,
+			iteration: e.iteration,
+			from_index: e.fromIndex,
+			from_provider_id: e.fromProviderId,
+			from_model: e.fromModel,
+			to_index: e.toIndex,
+			to_provider_id: e.toProviderId,
+			to_model: e.toModel,
+			code: e.code,
+			status: e.status,
+			reason: e.reason,
+		}),
+	},
+
 	user_question_asked: {
 		wire: 'question.asked',
 		transform: (e, runId) => ({
