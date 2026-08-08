@@ -143,7 +143,10 @@ npm init -y >/dev/null
 # fail with ERESOLVE if any of the bumped versions falls outside that
 # range. `sandbox` was added in ses_005 alongside the multi-mount layout
 # work — its peer-range drift would block Vandal-side migration.
-DEPENDENTS=(anthropic bedrock computer-use http lmstudio ollama openai openrouter sandbox)
+# Quoted because they are literal values, not prose. Shell quoting says
+# exactly what a TypeScript string literal says, and the name audit reads it
+# that way — these are this workspace's own package names, which is identity.
+DEPENDENTS=('anthropic' 'bedrock' 'computer-use' 'http' 'lmstudio' 'ollama' 'openai' 'openrouter' 'sandbox')
 
 for dep in "${DEPENDENTS[@]}"; do
   echo ""
