@@ -149,6 +149,29 @@ flag, the HTTP `status` and a parsed `retryAfterMs`:
 `context_length_exceeded` is deliberately separate from the generic 400:
 it is the one 4xx a caller can act on.
 
+### A wait longer than your ceiling is refused, not shortened
+
+`maxRetryAfterMs` (60s by default) is the longest server-directed wait the
+loop will sleep. A `Retry-After` **at or under** it is slept exactly as
+instructed. Past it, the error is surfaced with `retryAfterMs` intact and the
+decision is yours:
+
+```ts
+// The provider said "come back in 15 minutes". You get the error, now,
+// carrying 900_000 — schedule against it, or raise the ceiling.
+retry: { maxRetryAfterMs: 60_000 }
+```
+
+It used to fall through to the ordinary jittered backoff instead, so a provider
+asking for fifteen minutes was re-asked in half a second and the remaining
+attempts were spent on an endpoint that had already said no. Nothing settles
+differently: the error thrown is the one the exhausted path throws, so a run
+that used to fail after four attempts now fails after one.
+
+If you declare a [provider chain](../../cli/providers.md#the-provider-chain)
+this is where it pays. A rate limit is a fact about the *member*, so the chain
+advances to the next one immediately rather than after the budget is gone.
+
 Aborts propagate untouched, so a Stop still settles the run as
 `cancelled` rather than being mistaken for a transport failure.
 

@@ -14,6 +14,15 @@ export interface ProviderRetryConfig {
 	 * Cap on a server-directed `Retry-After`. A provider asking for 15
 	 * minutes should not silently park an interactive run for 15 minutes;
 	 * past this we surface the error and let the caller decide.
+	 *
+	 * "Surface" is the whole of it: there is no shorter retry underneath. A
+	 * server that named a wait has said something specific, and answering it
+	 * with a half-second backoff neither honours the wait nor tells anyone it
+	 * was refused. The error carries `retryAfterMs`, so a host that wants to
+	 * come back in fifteen minutes can — that decision is above this loop.
+	 *
+	 * Raise it to let the run sleep longer; a request under the ceiling is
+	 * still slept exactly as instructed.
 	 */
 	readonly maxRetryAfterMs: number
 }
@@ -153,10 +162,48 @@ export function withProviderRetry(
 				}
 
 				const serverDirected = classified.retryAfterMs
-				const delay =
-					serverDirected !== undefined && serverDirected <= config.maxRetryAfterMs
-						? serverDirected
-						: backoffWithJitter(attempt, config, random)
+
+				// The server named a wait longer than the caller's ceiling, so the
+				// error goes to the caller — which is what `maxRetryAfterMs`
+				// documents and what it now does.
+				//
+				// It used to fall through to the jittered backoff instead, and that
+				// is degrading where the contract says refuse
+				// (`docs/conventions/refuse-do-not-degrade.md`). The ceiling was
+				// read as "how long may I sleep", so a provider asking for fifteen
+				// minutes was re-asked in half a second: the one instruction the
+				// server gave was the one thing discarded, and the retries that
+				// followed were sent to an endpoint that had already said it would
+				// not serve them. They cost the run its whole budget to rediscover
+				// a 429 it had been told about in advance.
+				//
+				// The caller loses nothing it had. This throws the SAME error the
+				// exhausted path throws, so the run settles exactly as it did
+				// before — only sooner, and with `retryAfterMs` intact for a host
+				// that wants to schedule against it. What it gains is the wait
+				// itself, which no backoff of ours can honour: fifteen minutes is
+				// not a number this loop is allowed to sleep for.
+				//
+				// With a chain declared it gains more than that. The error is a
+				// `rate_limit`, which is a fact about the MEMBER, so
+				// `withProviderFallback` moves to the next one — the run continues
+				// on another provider instead of spending its budget arguing with
+				// the first. Under the old behaviour the chain did not see the
+				// failure until those attempts were gone.
+				if (serverDirected !== undefined && serverDirected > config.maxRetryAfterMs) {
+					log?.warn('Provider call failed — server-directed wait exceeds the ceiling', {
+						provider: provider.id,
+						code: classified.code,
+						status: classified.status,
+						attempt: attempt + 1,
+						retryAfterMs: serverDirected,
+						maxRetryAfterMs: config.maxRetryAfterMs,
+						reason: 'surfacing rather than retrying — the caller decides how to wait',
+					})
+					throw isProviderRequestError(err) ? err : classified
+				}
+
+				const delay = serverDirected ?? backoffWithJitter(attempt, config, random)
 
 				log?.warn('Provider call failed — retrying', {
 					provider: provider.id,
