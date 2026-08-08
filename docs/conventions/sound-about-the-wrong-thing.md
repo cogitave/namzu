@@ -7,7 +7,7 @@ diataxis: explanation
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-06T00:00:00Z
-lastReviewed: 2026-08-07
+lastReviewed: 2026-08-08
 resource: packages/sdk/src/runtime/query/index.ts
 tags: [convention, testing, verification]
 ---
@@ -15,7 +15,7 @@ tags: [convention, testing, verification]
 # A test can be sound and still be about the wrong thing
 
 Ratified 2026-08-06; amended the same session with "a live run is still an
-observation".
+observation", and on 2026-08-08 with "it is not a rule about tests".
 
 A test can run, cover a real path, and go red under mutation, and still be
 evidence about a property nobody needed. The machinery is honest; the
@@ -104,6 +104,42 @@ When a value travels on more than one channel, reading it off the convenient one
 proves it was produced. It says nothing about the channel whose consumer you are
 protecting, and the convenient channel is convenient precisely because it
 carries everything.
+
+## It is not a rule about tests
+
+The three questions are about **evidence**, and an operation produces evidence
+the same way an assertion does. Recorded here because the instance was mine.
+
+Two worktrees were stale and had to go. What ran was a loop over the whole of
+`.claude/worktrees`, not over the two directories named — and one of the
+directories it reached belonged to an agent that was still working. Then came
+the verification: `git` was asked about refs, every ref was intact, and the
+result was reported as **"no work lost"**.
+
+That report was true. It was also not the question.
+
+- **The property** was whether a live agent's working tree still existed.
+- **The observer** was the agent, which reads files, not refs.
+- **The check** asked git about commits — a store that a directory deletion
+  does not touch, and therefore a store that would have answered *intact* no
+  matter what the loop deleted.
+
+**A sweep whose blast radius was a directory, verified by a check whose scope
+was a ref.** The verification could not have failed, so it was not one; and it
+sounded conclusive precisely because it was about the wrong thing. Nothing was
+in fact lost — the agent's work was read-only — which is luck, and luck is what
+the check was silently substituting for.
+
+A second failure sat inside the first: the loop's `catch` rebound `$_`, so the
+error text named the exception and not the path that raised it. The blast radius
+was unbounded *and* unobservable, and that combination is what turns a mistake
+into one you cannot even describe afterwards.
+
+The rule for operations reads the same as the rule for tests, with one addition:
+**name the blast radius before the command, and verify against the same store
+the command wrote to.** If the operation touched the filesystem, ask the
+filesystem. Asking a different store is how a destructive action gets reported
+as safe by an honest sentence.
 
 ## How this differs from its nearest neighbour
 
