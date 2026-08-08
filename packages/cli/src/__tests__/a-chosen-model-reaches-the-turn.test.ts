@@ -105,8 +105,8 @@ async function modelSentFor(prefs: Preferences): Promise<string | undefined> {
 describe('the model a run is sent with', () => {
 	it('is the provider default when nothing was chosen', async () => {
 		const model = await modelSentFor({
-			version: 2,
-			provider: 'anthropic',
+			version: 3,
+			providers: [{ id: 'anthropic' }],
 			subagents: { active: [] },
 		} as Preferences)
 		expect(model).toBe(REGISTRY_DEFAULT)
@@ -117,9 +117,8 @@ describe('the model a run is sent with', () => {
 		// kernel. Before the picker could produce one, this value had no way of
 		// being set except by hand-editing the preferences file.
 		const model = await modelSentFor({
-			version: 2,
-			provider: 'anthropic',
-			model: CHOSEN,
+			version: 3,
+			providers: [{ id: 'anthropic', model: CHOSEN }],
 			subagents: { active: [] },
 		} as Preferences)
 		expect(model).toBe(CHOSEN)
@@ -134,9 +133,8 @@ describe('the model a run is sent with', () => {
 		const { createAgentSession } = await import('../tui/agent.js')
 		const session = await createAgentSession(
 			{
-				version: 2,
-				provider: 'anthropic',
-				model: CHOSEN,
+				version: 3,
+				providers: [{ id: 'anthropic', model: CHOSEN }],
 				subagents: { active: [] },
 			} as Preferences,
 			detectedAnthropic(),

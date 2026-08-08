@@ -65,6 +65,7 @@ import {
 	ensureFreshAnthropicToken,
 	findDetected,
 	isAnthropicOAuthToken,
+	primaryProvider,
 	readAgentKeychainCredential,
 	readPreferences,
 } from '../integrations/providers/index.js'
@@ -381,25 +382,28 @@ export async function createAgentSession(
 ): Promise<AgentSession> {
 	const scope = options.scope ?? mintScope()
 	const cwd = options.cwd ?? process.cwd()
-	const entry = PROVIDER_REGISTRY[prefs.provider]
+	// Only the head of the chain runs. The tail is validated at read time and
+	// reported by `namzu doctor`; nothing falls over to it yet.
+	const primary = primaryProvider(prefs)
+	const entry = PROVIDER_REGISTRY[primary.id]
 	if (!entry) {
-		return emptySession(`Unknown provider "${prefs.provider}" — pick another.`)
+		return emptySession(`Unknown provider "${primary.id}" — pick another.`)
 	}
-	const det = findDetected(detected, prefs.provider)
+	const det = findDetected(detected, primary.id)
 	if (entry.requiresApiKey && (!det || !det.apiKey)) {
 		return emptySession(
 			`No credential found for ${entry.label}. Set one of: ${entry.envVars.join(', ')} — or pick another provider.`,
 		)
 	}
 	try {
-		await ensureRegistered(prefs.provider)
+		await ensureRegistered(primary.id)
 	} catch (err) {
 		return emptySession(err instanceof Error ? err.message : String(err))
 	}
-	const model = prefs.model ?? entry.defaultModel
+	const model = primary.model ?? entry.defaultModel
 	let provider: LLMProvider
 	try {
-		provider = constructProvider(prefs.provider, det, model)
+		provider = constructProvider(primary.id, det, model)
 	} catch (err) {
 		return emptySession(
 			`Failed to construct ${entry.label}: ${err instanceof Error ? err.message : String(err)}`,
@@ -411,7 +415,7 @@ export async function createAgentSession(
 	// we re-read the keychain (another process may have rotated it) and refresh a
 	// stale token, rebuilding the client only when the token actually changed.
 	// Gated on `det.oauth` so env / secrets credentials are never touched.
-	const keychainRefresh = prefs.provider === 'anthropic' && Boolean(det?.oauth)
+	const keychainRefresh = primary.id === 'anthropic' && Boolean(det?.oauth)
 	let currentToken = det?.apiKey
 	const refreshTokenIfNeeded = async (): Promise<void> => {
 		if (!keychainRefresh) return
@@ -482,7 +486,7 @@ export async function createAgentSession(
 			readEnvironment: async () => composeEnvironmentPrompt(await readEnvironmentFacts(cwd)),
 			buildProvider: () =>
 				constructProvider(
-					prefs.provider,
+					primary.id,
 					det ? { ...det, apiKey: currentToken ?? det.apiKey } : det,
 					model,
 				),

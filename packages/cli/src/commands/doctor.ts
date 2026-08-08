@@ -171,8 +171,19 @@ function formatHumanReport(report: DoctorReport, verbose: boolean): string {
 		const dur = `${record.durationMs}ms`
 		const head = `  ${glyph} ${category}  ${record.id}  ${dur}`
 		lines.push(head)
-		if (record.message) lines.push(`     ${record.message}`)
-		if (record.remediation) lines.push(`     → ${record.remediation}`)
+		// A message may be several lines — a provider chain is one line per
+		// member. Pushed whole, only its first line took the indent and every
+		// line after it broke out to column 0, so the report looked like it had
+		// ended and the rest was something else's output.
+		if (record.message) {
+			for (const line of record.message.split('\n')) lines.push(`     ${line}`)
+		}
+		if (record.remediation) {
+			const [first = '', ...rest] = record.remediation.split('\n')
+			lines.push(`     → ${first}`)
+			// Aligned under the text, not under the arrow.
+			for (const line of rest) lines.push(`       ${line}`)
+		}
 	}
 	lines.push('')
 	const s = report.summary

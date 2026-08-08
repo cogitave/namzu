@@ -79,8 +79,8 @@ describe('a file tool resolves against the working directory it is given', () =>
 
 describe('createAgentSession runs where it is told to', () => {
 	const prefs: Preferences = {
-		version: 2,
-		provider: 'anthropic',
+		version: 3,
+		providers: [{ id: 'anthropic' }],
 		subagents: { active: [] },
 	} as Preferences
 

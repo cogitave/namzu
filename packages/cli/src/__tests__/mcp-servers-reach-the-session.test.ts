@@ -79,8 +79,8 @@ afterEach(async () => {
 })
 
 const prefs = {
-	version: 2,
-	provider: 'anthropic',
+	version: 3,
+	providers: [{ id: 'anthropic' }],
 	subagents: { active: [] },
 } as Preferences
 
