@@ -1,5 +1,5 @@
 ---
-'@namzu/sdk': minor
+'@namzu/sdk': major
 '@namzu/cli': minor
 ---
 
@@ -11,7 +11,9 @@
 
 namzu will not fall over on a failure that is a property of your *request* — a context overflow, a rejected request, a refusal — because the identical request fails identically on the next provider.
 
-**Every swap is announced.** A new `provider_fallback` run event, `provider.fallback` on the wire, and a transcript line in the CLI naming the member that failed, why, and the member now serving. If you consume `RunEvent` with an exhaustive switch and no `default`, you will need a case for it.
+**Every swap is announced.** A new `provider_fallback` run event, `provider.fallback` on the wire, and a transcript line in the CLI naming the member that failed, why, and the member now serving.
+
+**That announcement is why this is a major.** `RunEvent` and `StreamEventType` are wider, so a consumer that switches exhaustively over either — with no `default` and a `never` check — stops compiling until it adds an arm. That is not a hypothetical: the SDK's own A2A mapper, SSE mapper and run reporter all do it, and the compiler named all three in this change, exactly as it did in 12.0.0 when `plan_completed` and `plan_failed` were added and that release went out as a major for this reason. Widening a union a consumer reads is a break in this repo whatever the ecosystem convention is; the fix is one `case` per new member.
 
 **A fallover loses the prompt cache**, so the rest of the turn re-reads your whole context at full price. That is the largest single cost of running a chain and it is worth ordering the chain accordingly.
 
