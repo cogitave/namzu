@@ -18,7 +18,7 @@ function permissions(over: Partial<SlashContext['permissions']> = {}): SlashCont
 		skipPermissions: false,
 		rules: [],
 		approvalLatched: () => false,
-		neverPrompted: [],
+		neverPrompted: () => [],
 		...over,
 	}
 }
@@ -280,11 +280,13 @@ describe('/permissions', () => {
 		// their absence reads as "the agent did not use any".
 		const r = runSlash(
 			'/permissions',
-			context({ permissions: permissions({ neverPrompted: ['glob', 'read', 'save_memory'] }) }),
+			context({
+				permissions: permissions({ neverPrompted: () => ['glob', 'read', 'task_create'] }),
+			}),
 		)
 		if (r?.kind === 'message') {
 			expect(r.content).toContain('Never prompted')
-			expect(r.content).toContain('glob, read, save_memory')
+			expect(r.content).toContain('glob, read, task_create')
 			// Must not overclaim: a rule still outranks this, and a call flagged
 			// destructive is prompted for even when it is on the list.
 			expect(r.content).toContain('deny')
@@ -348,6 +350,18 @@ describe('/permissions', () => {
 		if (r?.kind === 'message') {
 			expect(r.content).toContain('namzu.config.json')
 			expect(r.content, 'TOML syntax for a JSON file').not.toContain('[permissions]')
+		}
+	})
+
+	it('names the safety gate, which outranks everything else on the page', () => {
+		// The function claims to describe "what decides a tool call, in the order
+		// it actually decides it", and used to begin one step in. The gate is
+		// hardcoded on and no flag reaches it, so leaving it out let "a rule
+		// decides first" read as the whole story.
+		const r = runSlash('/permissions', context())
+		if (r?.kind === 'message') {
+			expect(r.content).toContain('safety gate')
+			expect(r.content).toContain('every mode')
 		}
 	})
 

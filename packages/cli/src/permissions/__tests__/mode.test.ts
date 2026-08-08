@@ -136,11 +136,16 @@ describe('what each mode does with an undecided call', () => {
 		expect(decision.feedback).toBe('not that one')
 	})
 
-	it('read-only batches run under every mode, including strict', async () => {
+	it('exempt batches run under every mode, including strict', async () => {
 		// `strict` refuses what needs asking, and a read never needed asking.
 		// Refusing reads would make the mode unusable rather than strict.
+		//
+		// The exemption is passed in now rather than baked into the handler: it
+		// is resolved from each tool's own `readOnly` declaration against the
+		// live registry, so this test states which tool it means instead of
+		// relying on a name list that once disagreed with the declarations.
 		const readOnly = [{ id: '1', name: 'read', input: {}, isDestructive: false }] as never
-		const handler = makeResumeHandler({ all: false }, undefined, 'strict')
+		const handler = makeResumeHandler({ all: false }, undefined, 'strict', (n) => n === 'read')
 
 		expect(await handler({ type: 'tool_review', toolCalls: readOnly } as never)).toEqual({
 			action: 'approve_tools',

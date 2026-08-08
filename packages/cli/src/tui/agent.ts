@@ -266,6 +266,15 @@ export interface AgentSession {
 	 * are asked before they run" after the operator had turned that off.
 	 */
 	readonly approvalLatched: () => boolean
+	/**
+	 * Tools this session will run without asking, by name.
+	 *
+	 * A function for the same reason as `approvalLatched`, plus one of its own:
+	 * the roster is not final when the session is built. Task tools register
+	 * deferred inside the first `query()`, so anything captured earlier would
+	 * report a set the operator never had.
+	 */
+	readonly promptExemptTools: () => readonly string[]
 	send(messages: readonly Message[], opts?: SendOptions): AsyncIterable<AgentEvent>
 	/**
 	 * Release what the session holds — today, the external tool servers.
@@ -363,8 +372,11 @@ function buildToolRegistry(cwd: string): ToolRegistry {
 	const registry = new ToolRegistry()
 	registry.register(getBuiltinTools().filter((t) => !EXCLUDED_BUILTINS.has(t.name)))
 	// SDK memory: the agent gets search_memory / read_memory / save_memory over
-	// a structured store at ~/.namzu/memory (separate from the user-curated
-	// MEMORY.md that's injected into the prompt).
+	// a structured store at `<cwd>/.namzu/memory` — the WORKING DIRECTORY, not
+	// the home directory. Two comments here used to say `~/.namzu`, which made
+	// `save_memory` look like it touched only namzu's own state and was part of
+	// why it sat on the no-prompt list; it writes into the user's project.
+	// Separate from the user-curated MEMORY.md that is injected into the prompt.
 	const memoryStore = new DiskMemoryStore({ baseDir: join(cwd, '.namzu') })
 	registry.register(buildMemoryTools(memoryStore, memoryStore.getIndex()))
 	// `search_tools` is deliberately NOT registered here. It is only useful
@@ -596,6 +608,7 @@ export async function createAgentSession(
 		errorHint: null,
 		// Reads the same object the handler mutates, at call time.
 		approvalLatched: () => approval.all,
+		promptExemptTools: () => promptExemptToolNames(registry),
 		send: async function* (messages, opts) {
 			// Renew a lapsed OAuth token before the turn runs (no-op for valid
 			// tokens and non-keychain credentials).
@@ -974,7 +987,15 @@ async function* runTurn({
 			...(systemPrompt ? { systemPrompt } : {}),
 			messages: [...messages],
 			workingDirectory,
-			resumeHandler: makeResumeHandler(approval, opts?.onPermission, permissionMode),
+			// The exemption reads `tools` at decision time, so it sees the task
+			// tools `query()` registers deferred below and any tool server that
+			// connected after this session was built.
+			resumeHandler: makeResumeHandler(
+				approval,
+				opts?.onPermission,
+				permissionMode,
+				(name, input) => isPromptExempt(tools, name, input),
+			),
 			signal,
 			...scope,
 		})
@@ -1021,6 +1042,12 @@ export function makeResumeHandler(
 	approval: { all: boolean },
 	onPermission: PermissionFn | undefined,
 	mode: PermissionMode = onPermission ? 'prompt' : 'auto',
+	/**
+	 * Which calls skip the prompt. Injected rather than reached for, so this
+	 * handler stays testable without a registry — and so the answer comes from
+	 * the live roster at the moment of the call.
+	 */
+	exempt: (name: string, input: unknown) => boolean = () => false,
 ): ResumeHandler {
 	return async (request): Promise<HITLResumeDecision> => {
 		if (request.type !== 'tool_review') {
@@ -1031,7 +1058,7 @@ export function makeResumeHandler(
 		// mode decides what happens to the undecided, and cannot reopen anything
 		// a rule closed. That is the whole precedence story between a flag and a
 		// config file, and it is one sentence on purpose.
-		if (!batchNeedsPrompt(request.toolCalls)) {
+		if (!batchNeedsPrompt(request.toolCalls, exempt)) {
 			return { action: 'approve_tools' }
 		}
 		if (mode === 'strict') {
@@ -1069,42 +1096,81 @@ export function makeResumeHandler(
 }
 
 /**
- * Tools known to only observe, never mutate. Anything NOT in this set
- * prompts for approval (safe-by-default: unknown and future tools — e.g.
- * bridged connector tools — are treated as needing consent). Matched
- * case-insensitively so `Read`/`read` both count.
+ * Writes that skip the prompt anyway, in spite of declaring `readOnly: false`.
+ *
+ * This is an OVERRIDE of the tool's own declaration, and it is named as one.
+ * The list it replaced was called `READ_ONLY_TOOLS` and contained three tools
+ * that declare `readOnly: false` — a constant asserting the exact property it
+ * was getting wrong, which is how the disagreement survived: nothing reading it
+ * had reason to doubt the name.
+ *
+ * The bar for an entry is that prompting would be unusable AND a bad write
+ * cannot reach beyond the agent's own bookkeeping. Each one is justified here,
+ * or it does not belong here.
+ *
+ * - `task_create` / `task_update` — the model's own plan for the current
+ *   request, written several times per planning turn; prompting each would put
+ *   a consent dialog between the agent and its todo list. What a bad write
+ *   costs is a polluted task list, which is visible in the transcript and
+ *   grants nothing. Worth knowing while reading that: these DO outlive the
+ *   session, because the CLI's task store uses a fixed run id
+ *   (`run_namzu-cli`), so "run-scoped" is not the reason they are here — the
+ *   blast radius is.
+ *
+ * `save_memory` was on the list it replaced and is deliberately NOT here. Its
+ * effect outlives the run in a way the task tools' does not: content saved now
+ * is retrievable by `search_memory` in a later session, so a tool result or
+ * fetched page that talks the model into saving something reaches a future
+ * run's reasoning. It is not auto-injected into the prompt — that is
+ * `MEMORY.md`, a different thing — but retrievable is enough. A write that
+ * survives the process, into the user's own repository, is not read-only under
+ * any reading, and it now prompts.
  */
-const READ_ONLY_TOOLS = new Set([
-	'read',
-	'glob',
-	'grep',
-	'ls',
-	'verify_outputs',
-	// Memory + task tools touch only the agent's own ~/.namzu state — safe, no prompt.
-	'search_memory',
-	'read_memory',
-	'save_memory',
-	'task_create',
-	'task_update',
-	'task_list',
-])
+const PROMPT_EXEMPT_WRITES = new Set(['task_create', 'task_update'])
 
 /**
- * The same set, sorted, for a surface that has to NAME it.
+ * Whether a call runs without asking: it declares itself read-only, or it is a
+ * named exemption above.
  *
- * Derived rather than retyped: `/permissions` tells the operator which tools
- * run without asking, and a hand-written list beside the real one is a second
- * source of truth that drifts the first time a tool is added to either. The
- * readout is only worth printing if it cannot disagree with the gate.
+ * The read-only half comes from the tool's own `isReadOnly(input)`, never from
+ * a list of names kept here. A name list in the consumer is a second source of
+ * truth for a property the producer already states: a new read-only tool
+ * missing from it merely gets prompted, but a RENAMED tool silently changes
+ * posture with nothing to notice.
+ *
+ * Resolved per call rather than snapshotted, because the roster changes after
+ * this module has run — the task tools are registered deferred inside
+ * `query()`, and tool servers connect during startup, so anything computed
+ * eagerly would be answering about a registry that no longer exists.
+ *
+ * A tool the registry does not know, or one that declares nothing, prompts.
+ * That is the safe-by-default direction the previous comment claimed and this
+ * keeps: consent is the answer when the question cannot be established.
  */
-export const NEVER_PROMPTED_TOOLS: readonly string[] = [...READ_ONLY_TOOLS].sort()
+export function isPromptExempt(registry: ToolRegistry, name: string, input: unknown): boolean {
+	if (PROMPT_EXEMPT_WRITES.has(name.toLowerCase())) return true
+	const tool = registry.get(name) ?? registry.get(name.toLowerCase())
+	return tool?.isReadOnly?.(input) ?? false
+}
+
+/** The exempt roster, sorted, for the surface that has to NAME it. */
+export function promptExemptToolNames(registry: ToolRegistry): readonly string[] {
+	return registry
+		.getCallableTools()
+		.filter((t) => isPromptExempt(registry, t.name, {}))
+		.map((t) => t.name)
+		.sort()
+}
 
 /**
  * A batch needs explicit approval when any call mutates state: flagged
- * destructive by the SDK, or simply not on the read-only allowlist.
+ * destructive by the SDK, or not exempt from the prompt.
  */
-export function batchNeedsPrompt(toolCalls: readonly ToolCallSummary[]): boolean {
-	return toolCalls.some((tc) => tc.isDestructive || !READ_ONLY_TOOLS.has(tc.name.toLowerCase()))
+export function batchNeedsPrompt(
+	toolCalls: readonly ToolCallSummary[],
+	exempt: (name: string, input: unknown) => boolean,
+): boolean {
+	return toolCalls.some((tc) => tc.isDestructive || !exempt(tc.name, tc.input))
 }
 
 /**
@@ -1441,6 +1507,8 @@ function emptySession(errorHint: string): AgentSession {
 		errorHint,
 		// No turn can run here, so no prompt can have been answered.
 		approvalLatched: () => false,
+		// No registry was built, so there is no roster to report on.
+		promptExemptTools: () => [],
 		send: async function* () {
 			yield { kind: 'error' as const, message: errorHint }
 		},

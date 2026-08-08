@@ -67,7 +67,7 @@ function context(userCommands: SlashContext['userCommands']): SlashContext {
 			skipPermissions: false,
 			rules: [],
 			approvalLatched: () => false,
-			neverPrompted: [],
+			neverPrompted: () => [],
 		},
 		agentIds: [],
 		instructionFiles: [],

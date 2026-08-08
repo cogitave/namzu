@@ -1,3 +1,5 @@
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type {
 	CheckpointId,
 	HITLDecisionRequest,
@@ -8,12 +10,14 @@ import type {
 	ToolCallSummary,
 	ToolUseId,
 } from '@namzu/sdk'
+import { DiskMemoryStore, ToolRegistry, buildMemoryTools, getBuiltinTools } from '@namzu/sdk'
 import { describe, expect, it, vi } from 'vitest'
 
 import {
 	type PermissionDecision,
 	type PermissionRequest,
 	batchNeedsPrompt,
+	isPromptExempt,
 	makeResumeHandler,
 	previewToolInput,
 	toAgentEvent,
@@ -152,20 +156,83 @@ const toolReview = (toolCalls: ToolCallSummary[]): HITLDecisionRequest => ({
 	toolCalls,
 })
 
+/** Exempt by name, for the pure-logic tests below. */
+const exemptNames =
+	(...names: string[]) =>
+	(name: string) =>
+		names.includes(name.toLowerCase())
+
 describe('batchNeedsPrompt', () => {
-	it('does not prompt for read-only batches', () => {
-		expect(batchNeedsPrompt([tc({ name: 'read' }), tc({ name: 'glob' })])).toBe(false)
-		expect(batchNeedsPrompt([tc({ name: 'Grep' })])).toBe(false) // case-insensitive
+	it('does not prompt when every call is exempt', () => {
+		expect(
+			batchNeedsPrompt([tc({ name: 'read' }), tc({ name: 'glob' })], exemptNames('read', 'glob')),
+		).toBe(false)
 	})
 
-	it('prompts when any tool mutates or is flagged destructive', () => {
-		expect(batchNeedsPrompt([tc({ name: 'read' }), tc({ name: 'write' })])).toBe(true)
-		expect(batchNeedsPrompt([tc({ name: 'edit' })])).toBe(true)
-		expect(batchNeedsPrompt([tc({ name: 'bash', isDestructive: true })])).toBe(true)
+	it('prompts when any call is not exempt', () => {
+		expect(
+			batchNeedsPrompt([tc({ name: 'read' }), tc({ name: 'write' })], exemptNames('read')),
+		).toBe(true)
 	})
 
-	it('prompts for unknown/future tools (safe-by-default)', () => {
-		expect(batchNeedsPrompt([tc({ name: 'SomeClawtoolThing' })])).toBe(true)
+	it('prompts for a destructive call even when it is exempt', () => {
+		// The override must not be able to wave through something the kernel has
+		// flagged. Exemption answers "does this need consent by default", not
+		// "is this safe".
+		expect(batchNeedsPrompt([tc({ name: 'read', isDestructive: true })], exemptNames('read'))).toBe(
+			true,
+		)
+	})
+
+	it('prompts when nothing is exempt (safe-by-default)', () => {
+		expect(batchNeedsPrompt([tc({ name: 'SomeUnknownTool' })], () => false)).toBe(true)
+	})
+})
+
+/**
+ * Against a REAL registry of real tools, so these assert the tools' own
+ * declarations rather than a restatement of them.
+ *
+ * This is the shape of test that would have caught the divergence it was
+ * written for: the CLI kept a hand-maintained `READ_ONLY_TOOLS` list that named
+ * three tools which declare `readOnly: false`, and nothing compared the two.
+ */
+describe('isPromptExempt', () => {
+	const registry = new ToolRegistry()
+	const store = new DiskMemoryStore({ baseDir: join(tmpdir(), 'namzu-exempt-test') })
+	registry.register(getBuiltinTools())
+	registry.register(buildMemoryTools(store, store.getIndex()))
+
+	it('exempts tools that declare themselves read-only', () => {
+		expect(isPromptExempt(registry, 'read', {})).toBe(true)
+		expect(isPromptExempt(registry, 'glob', {})).toBe(true)
+		expect(isPromptExempt(registry, 'search_memory', {})).toBe(true)
+		expect(isPromptExempt(registry, 'read_memory', {})).toBe(true)
+	})
+
+	it('prompts for save_memory, which declares readOnly: false', () => {
+		// The whole point. It sat on a list called READ_ONLY_TOOLS while
+		// declaring the opposite, and what it writes outlives the run: content
+		// saved now is retrievable by `search_memory` in a later session, out of
+		// the user's own repository under <cwd>/.namzu/memory.
+		expect(isPromptExempt(registry, 'save_memory', {})).toBe(false)
+	})
+
+	it('prompts for the ordinary mutating builtins', () => {
+		expect(isPromptExempt(registry, 'write', {})).toBe(false)
+		expect(isPromptExempt(registry, 'edit', {})).toBe(false)
+		expect(isPromptExempt(registry, 'bash', {})).toBe(false)
+	})
+
+	it('exempts the task tools by name, as a declared override', () => {
+		// These declare `readOnly: false` too. They are exempt anyway, and that
+		// is a decision the code states rather than disguises.
+		expect(isPromptExempt(registry, 'task_create', {})).toBe(true)
+		expect(isPromptExempt(registry, 'task_update', {})).toBe(true)
+	})
+
+	it('prompts for a tool the registry has never heard of', () => {
+		expect(isPromptExempt(registry, 'SomeUnknownTool', {})).toBe(false)
 	})
 })
 
@@ -193,12 +260,22 @@ describe('previewToolInput', () => {
 })
 
 describe('makeResumeHandler', () => {
-	it('auto-approves read-only batches without calling onPermission', async () => {
+	it('auto-approves exempt batches without calling onPermission', async () => {
 		const onPermission = vi.fn<(r: PermissionRequest) => Promise<PermissionDecision>>()
-		const handler = makeResumeHandler({ all: false }, onPermission)
+		const handler = makeResumeHandler({ all: false }, onPermission, 'prompt', exemptNames('read'))
 		const decision = await handler(toolReview([tc({ name: 'read' })]))
 		expect(decision).toEqual({ action: 'approve_tools' })
 		expect(onPermission).not.toHaveBeenCalled()
+	})
+
+	it('prompts when nothing is exempt, which is the default', async () => {
+		// The parameter defaults to "exempt nothing" rather than to a built-in
+		// list. A handler built without being told what may skip the prompt asks
+		// about everything, which is the direction a mistake should fall.
+		const onPermission = vi.fn(async () => ({ kind: 'approve' }) as PermissionDecision)
+		const handler = makeResumeHandler({ all: false }, onPermission)
+		await handler(toolReview([tc({ name: 'read' })]))
+		expect(onPermission).toHaveBeenCalledOnce()
 	})
 
 	it('prompts for destructive batches and maps approve', async () => {
