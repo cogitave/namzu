@@ -203,8 +203,9 @@ export function shortenPathToFit(path: string, max: number): string {
  * 1. **usage** — `/cost` prints it exactly, and this is the abbreviation.
  * 2. **the context gauge** — same figure, same command.
  * 3. **provider** — the longest segment and the least distinctive, since the
- *    model name already implies it. `anthropic-personal (anthropic)` costs
- *    thirty columns to repeat what `claude-opus-4-7` has said.
+ *    model name already implies it. A credential-qualified provider label runs
+ *    to about thirty columns and repeats a vendor the model string has already
+ *    named.
  * 4. **the working directory, shortened** — a shortened path still orients,
  *    so it is cut before anything else is given up.
  * 5. **model**, and only then the path entirely. Both are on the banner and in
