@@ -332,6 +332,26 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				})
 				break
 
+			case 'provider_fallback':
+				// `warn` for the same reason as a retry, and one stronger: the rest
+				// of this run is being served by a provider the caller did not pick.
+				log.warn(
+					`Provider ${event.fromProviderId} could not serve — continuing on ${event.toProviderId}`,
+					{
+						runId: event.runId,
+						iteration: event.iteration,
+						fromIndex: event.fromIndex,
+						fromProviderId: event.fromProviderId,
+						fromModel: event.fromModel,
+						toIndex: event.toIndex,
+						toProviderId: event.toProviderId,
+						toModel: event.toModel,
+						code: event.code,
+						status: event.status,
+					},
+				)
+				break
+
 			default: {
 				const _exhaustive: never = event
 				throw new Error(`Unhandled run event type: ${(_exhaustive as RunEvent).type}`)

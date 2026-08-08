@@ -91,7 +91,14 @@ describe('a chain whose providers agree', () => {
 		const s = await session({ version: 3, providers: [{ id: 'anthropic' }, { id: 'openai' }] })
 
 		expect(s.hasProvider).toBe(true)
-		expect(s.configNotices).toEqual([])
+		// Capabilities agree, so nothing is said about them. What IS said is that
+		// the fallback has no credential in this fixture — the discovery list
+		// holds the primary's provider and nothing else — and since failover
+		// landed that is a fact the operator needs on a calm day rather than
+		// mid-incident.
+		expect(s.configNotices.join('\n')).not.toContain('capabilit')
+		expect(s.configNotices.join('\n')).toContain('fallback #1')
+		expect(s.configNotices.join('\n')).toContain('has no credential')
 	})
 })
 

@@ -28,6 +28,7 @@ import {
 	type LLMProvider,
 	type Message,
 	type ProjectId,
+	type ProviderChainMember,
 	ProviderRegistry,
 	type ResumeHandler,
 	type RunEvent,
@@ -65,6 +66,7 @@ import {
 	type ProviderChoice,
 	type ProviderId,
 	chainCapabilityDisagreements,
+	chainPositionName,
 	describeAcceptedMismatch,
 	describeCapabilityRefusal,
 	discoverProviders,
@@ -143,6 +145,17 @@ export type AgentEvent =
 			/** False when the compaction declined and the history is unchanged. */
 			readonly shed: boolean
 	  }
+	/**
+	 * A member of the provider chain could not serve; a later one is now.
+	 *
+	 * Its own kind rather than a line folded into `context`, because the two
+	 * answer different questions and only one of them is about the conversation.
+	 * And it is an event at all — rather than a log line — for the reason this
+	 * whole feature is careful: a turn that quietly ran on a provider the
+	 * operator did not choose has succeeded while not doing what they asked,
+	 * which is the defect class this package keeps removing.
+	 */
+	| { readonly kind: 'provider-fallback'; readonly text: string }
 	| { readonly kind: 'task'; readonly subject: string; readonly status: string }
 	/**
 	 * The turn ended without throwing — which is not the same as succeeding.
@@ -429,8 +442,7 @@ export async function createAgentSession(
 ): Promise<AgentSession> {
 	const scope = options.scope ?? mintScope()
 	const cwd = options.cwd ?? process.cwd()
-	// Only the head of the chain runs. The tail is validated at read time and
-	// reported by `namzu doctor`; nothing falls over to it yet.
+	// The head serves; the tail is fallen over to, in order, when it cannot.
 	const primary = primaryProvider(prefs)
 	const entry = PROVIDER_REGISTRY[primary.id]
 	if (!entry) {
@@ -461,6 +473,15 @@ export async function createAgentSession(
 	// is not a disagreement, and reporting it as one would refuse a chain over a
 	// question that was never answered.
 	const unresolvedNotice = unresolvedMembers(prefs.providers, resolvedCapabilities)
+
+	// Which fallbacks could actually serve, decided ONCE, at launch.
+	//
+	// A member with no credential is dropped here rather than left in the chain
+	// to 401 on the day the primary goes down. Both would "work" — a 401 falls
+	// over to the next member — but one of them tells the operator on a calm
+	// Tuesday and the other tells them mid-incident, in the voice of a
+	// credential rejection for a provider they never configured.
+	const fallbackPlan = planFallbacks(prefs.providers, detected)
 
 	const model = primary.model ?? entry.defaultModel
 	let provider: LLMProvider
@@ -546,6 +567,19 @@ export async function createAgentSession(
 			// does not know what day it is dates a changelog entry from a training
 			// cut-off, and the parent reports the delegation as successful.
 			readEnvironment: async () => composeEnvironmentPrompt(await readEnvironmentFacts(cwd)),
+			// A sub-agent resolves its provider INDEPENDENTLY: the primary, and no
+			// chain. It does not inherit the parent's fallback list and it does not
+			// inherit a swap the parent has already made.
+			//
+			// A decision, not an omission, and the reason is that a delegation is
+			// not the parent's turn. The parent's chain is scoped to the parent's
+			// turn (see `withProviderFallback`), and a sub-agent runs its own `query`
+			// with its own lifetime — so "inheriting" would mean either handing over
+			// a cursor whose scope no longer applies, or giving the child a second,
+			// independently-advancing chain the operator was never told about. The
+			// child announcing a swap the parent never made, inside a tool result,
+			// is a worse surface than the child simply failing and the parent
+			// reporting it.
 			buildProvider: () =>
 				constructProvider(
 					primary.id,
@@ -603,6 +637,7 @@ export async function createAgentSession(
 			...unresolvedNotice.map(
 				(line) => `Provider chain: capabilities could not be established for ${line}.`,
 			),
+			...fallbackPlan.notices,
 		],
 		close: () => mcp.close(),
 		errorHint: null,
@@ -642,6 +677,14 @@ export async function createAgentSession(
 					.join('\n\n') || undefined
 			yield* runTurn({
 				provider,
+				// Constructed HERE, per turn, and that is not an optimisation to
+				// undo. `refreshTokenIfNeeded` above replaces the head's client
+				// object when an OAuth token rotates, so a member list built once at
+				// session creation would hand the kernel a client holding a token
+				// that expired hours ago — and a chain whose own members are stale
+				// is a fallback that fails for the reason the fallback exists to
+				// survive. Building a driver is a client object, not a request.
+				fallbackProviders: fallbackPlan.build(currentToken),
 				model,
 				tools: registry,
 				scope,
@@ -656,6 +699,97 @@ export async function createAgentSession(
 				taskGateway: subagentGateway,
 				childSteps,
 			})
+		},
+	}
+}
+
+/**
+ * Which fallbacks can serve, and what to tell the operator about the ones that
+ * cannot.
+ *
+ * Split in two on purpose. Whether a member is USABLE is a fact about the
+ * operator's configuration and is settled once, at launch, where its notice can
+ * be read on a day nothing is broken. Whether a member's client object is FRESH
+ * is a fact about a credential that rotates during a session, so the objects are
+ * built per turn — see the call site.
+ *
+ * The head is not here. It is resolved above and its absence is fatal to the
+ * session rather than a notice, because a chain with no head has nothing to
+ * fall over FROM.
+ */
+interface FallbackPlan {
+	readonly notices: readonly string[]
+	/**
+	 * The chain's tail as constructed drivers, in declared order.
+	 *
+	 * `headToken` is threaded through so a fallback that names the SAME provider
+	 * as the head — a legitimate chain, and the one `describeInvalidChain`
+	 * explicitly permits when only the model differs — is built with the token
+	 * the head just refreshed rather than the one discovery found at startup.
+	 */
+	build(headToken: string | undefined): readonly ProviderChainMember[]
+}
+
+function planFallbacks(
+	members: readonly ProviderChoice[],
+	detected: readonly DetectedProvider[],
+): FallbackPlan {
+	const notices: string[] = []
+	const usable: Array<{ readonly choice: ProviderChoice; readonly det: DetectedProvider | null }> =
+		[]
+
+	for (const [index, member] of members.entries()) {
+		if (index === 0) continue
+		const entry = PROVIDER_REGISTRY[member.id]
+		const position = chainPositionName(index)
+		if (!entry) {
+			// Unreachable through `readPreferences`, which refuses an unknown id for
+			// every member, not just the head. Reachable from a hand-built
+			// Preferences object, which the tests do.
+			notices.push(`Provider chain: ${position} "${member.id}" is not a provider namzu knows.`)
+			continue
+		}
+		const det = findDetected(detected, member.id)
+		if (entry.requiresApiKey && !det?.apiKey) {
+			notices.push(
+				`Provider chain: ${position} (${entry.label}) has no credential, so nothing will fall over to it. ` +
+					`Set one of: ${entry.envVars.join(', ')}.`,
+			)
+			continue
+		}
+		if (!registered.has(member.id)) {
+			// `resolveChainCapabilities` already tried to register every member and
+			// reported the failure as an unresolved capability. Saying it twice in
+			// different words would read as two problems.
+			continue
+		}
+		usable.push({ choice: member, det })
+	}
+
+	return {
+		notices,
+		build(headToken) {
+			const out: ProviderChainMember[] = []
+			for (const { choice, det } of usable) {
+				const entry = PROVIDER_REGISTRY[choice.id]
+				if (!entry) continue
+				const memberModel = choice.model ?? entry.defaultModel
+				try {
+					const credential =
+						headToken !== undefined && det?.oauth ? { ...det, apiKey: headToken } : det
+					out.push({
+						provider: constructProvider(choice.id, credential, memberModel),
+						model: memberModel,
+					})
+				} catch {
+					// A member that will not construct is left OUT of the chain rather
+					// than pushed in to throw at call time. Its absence was already
+					// reported at launch by the capability pass; a driver that
+					// constructs today and not tomorrow is not a case this can name
+					// better than silence.
+				}
+			}
+			return out
 		},
 	}
 }
@@ -924,6 +1058,11 @@ const COMPACTION_CONFIG = {
  */
 interface RunTurnParams {
 	readonly provider: LLMProvider
+	/**
+	 * The chain's tail for THIS turn. Empty means no failover, which is what a
+	 * one-member chain means and what every chain meant before this existed.
+	 */
+	readonly fallbackProviders: readonly ProviderChainMember[]
 	readonly model: string
 	readonly tools: ToolRegistry
 	readonly scope: RunScope
@@ -943,6 +1082,7 @@ interface RunTurnParams {
 
 async function* runTurn({
 	provider,
+	fallbackProviders,
 	model,
 	tools,
 	scope,
@@ -961,6 +1101,10 @@ async function* runTurn({
 	try {
 		const events = query({
 			provider,
+			// Omitted rather than empty when there is no tail. `query` treats the
+			// two the same, but an absent option reads as "this run has no chain"
+			// where `[]` reads as "this run has a chain with nothing in it".
+			...(fallbackProviders.length > 0 ? { fallbackProviders } : {}),
 			tools,
 			taskStore,
 			...(taskGateway ? { taskGateway } : {}),
@@ -1220,6 +1364,8 @@ export function toAgentEvent(event: RunEvent): AgentEvent | null {
 					: {}),
 				...(event.windowSource !== undefined ? { windowSource: event.windowSource } : {}),
 			}
+		case 'provider_fallback':
+			return { kind: 'provider-fallback', text: describeFallback(event) }
 		case 'task_created':
 			return { kind: 'task', subject: event.subject, status: event.status }
 		case 'task_updated':
@@ -1309,6 +1455,57 @@ function describeCompactionFailure(event: {
 			// one would be worse than silence.
 			return `context not compacted — the reducer produced a history splitting a tool call from its result, so it was refused. ${held}; this is a bug in the reducer`
 	}
+}
+
+/**
+ * Why a member could not serve, in the operator's words rather than the
+ * kernel's.
+ *
+ * The classified code is a vocabulary for the runtime — `rate_limit` tells the
+ * retry loop what to do and tells an operator nothing about what they should do.
+ * The classification is not re-derived here; only the sentence for it is
+ * chosen, and the code itself is still printed so a bug report carries the term
+ * the logs use.
+ */
+const FALLBACK_REASONS: Readonly<Record<string, string>> = {
+	rate_limit: 'it rate limited this run and the retries did not clear it',
+	overloaded: 'it was overloaded and the retries did not clear it',
+	server_error: 'it kept failing and the retries did not clear it',
+	timeout: 'it did not answer in time',
+	network: 'it could not be reached',
+	auth: 'it rejected the credential',
+	not_found: 'it does not have that model',
+	unknown: 'it failed in a way namzu could not classify',
+}
+
+/**
+ * The one line an operator reads when their run changes hands.
+ *
+ * Both members are named with their chain position, because naming only the
+ * replacement leaves an operator with four declared members unable to tell
+ * which one went down — and that is the only part of this they can act on.
+ */
+function describeFallback(event: {
+	fromIndex: number
+	fromProviderId: string
+	fromModel?: string
+	toIndex: number
+	toProviderId: string
+	toModel?: string
+	code: string
+	status?: number
+}): string {
+	const name = (index: number, id: string, model?: string): string => {
+		const label = PROVIDER_REGISTRY[id as ProviderId]?.label ?? id
+		return `${chainPositionName(index)} — ${label}${model ? `, ${model}` : ''}`
+	}
+	const why = FALLBACK_REASONS[event.code] ?? `it failed (${event.code})`
+	const status = event.status !== undefined ? ` HTTP ${event.status},` : ''
+	return (
+		`Provider chain: ${name(event.fromIndex, event.fromProviderId, event.fromModel)} — could not serve:` +
+		`${status} ${why} (${event.code}). ` +
+		`${name(event.toIndex, event.toProviderId, event.toModel)} — is serving the rest of this turn.`
+	)
 }
 
 /** Render a sub-agent's tool steps as a `├─/└─` tree for the Agent result. */

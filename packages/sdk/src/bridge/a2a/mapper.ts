@@ -106,6 +106,22 @@ const MAPPING: {
 			],
 		}),
 
+	// A swap is news for a remote peer for the same reason it is news for a
+	// local operator: the answer arriving next was produced by a provider the
+	// peer did not ask for. Still `running` — the run did not fail, it moved.
+	provider_fallback: (e, ctx) =>
+		statusEvent(e.runId, 'running', false, ctx, {
+			role: 'agent',
+			parts: [
+				{
+					kind: 'text',
+					text:
+						`Provider ${e.fromProviderId}${e.fromModel ? ` (${e.fromModel})` : ''} could not serve ` +
+						`(${e.code}); continuing on ${e.toProviderId}${e.toModel ? ` (${e.toModel})` : ''}`,
+				},
+			],
+		}),
+
 	tool_completed: (e, ctx) =>
 		artifactEvent(e.runId, ctx, {
 			artifactId: `tool-${e.toolName}-${Date.now()}`,

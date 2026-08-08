@@ -551,6 +551,14 @@ export function App({ ctx }: AppProps) {
 					// conversation and belongs in its record.
 					pushMessage('system', event.text, false, event.shed ? '⌫' : '⌦')
 					break
+				case 'provider-fallback':
+					// The transcript, for the reason compaction is in the transcript
+					// and one stronger: a status line is gone the moment the next
+					// thing happens, and someone reading back a session needs to know
+					// which answers came from the provider they picked and which did
+					// not. A swap is a permanent fact about this turn.
+					pushMessage('system', event.text, false, '⇄')
+					break
 				case 'done':
 					closeAssistant()
 					break
