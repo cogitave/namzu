@@ -6,6 +6,7 @@
     "declared-but-undriven",
     "reachability-is-its-own-property",
     "one-site-is-not-every-site",
+    "alternation-unmounts-state",
     "---Refusing vs Degrading---",
     "refuse-do-not-degrade",
     "an-optional-dependency-may-not-degrade-a-check",
