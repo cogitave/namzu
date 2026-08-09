@@ -414,3 +414,53 @@ mistake, while a bad id lists how many other conversations are there.
 
 There is no way to spell "resume if you can, otherwise start". Run the command
 with no flag if that is what you want.
+
+## Picking up runs another process left behind
+
+```bash
+namzu drain --store ./state/runs \
+  --tenant tnt_acme --project prj_api --session ses_nightly
+```
+
+`namzu drain` takes every run under that scope that no worker currently holds,
+continues it from its last checkpoint, and releases it. It is a different shape
+of command from the two above: those run *a* prompt, this one picks up work a
+machine dropped.
+
+**One pass, then exit.** `namzu serve` still answers that namzu has no daemon,
+and this command is what that refusal implies rather than a retreat from it —
+something a scheduler runs on whatever cadence the operator wants, not a service
+namzu keeps alive.
+
+| Option | Meaning |
+| --- | --- |
+| `--store <dir>` | The `runs/` directory a checkpoint store writes to. Required |
+| `--tenant <id>` | Isolation boundary. Required; a listing with no tenant is a cross-tenant read |
+| `--project <id>`, `--session <id>` | Required: the disk layout carries no attribution of its own |
+| `--holder <id>` | Who is taking the runs. **Unique per process** — see below |
+| `--ttl <ms>` | Lease length, default `600000` |
+| `--max-concurrent <n>` | Runs in flight at once, default `1` |
+| `--cwd`, `--provider`, `--model`, `--trust` | As `namzu run` |
+
+There is no default `--store`, deliberately. namzu's own runs are not
+checkpointed to disk today, so every run this can find was written by an SDK
+host — and a default path would report "nothing parked" against a directory
+nobody writes to, which reads exactly like an empty queue.
+
+`--holder` must differ per process. It is the only thing distinguishing a
+renewal from a theft, so two drainers sharing a string take live, unexpired
+claims from each other instantly. Omit it and one is minted from the pid.
+
+**A run parked on a human decision is reported, never resumed past.** The answer
+belongs to a person; a drainer that continued without it would discard the
+question the run stopped to ask. Those appear under `awaitingDecision`, separate
+from `noCheckpoint` — one is a question waiting on somebody, the other is a dead
+end, and they call for opposite responses.
+
+Exit codes: `0` when every run it took was continued, `1` when any run failed or
+the store could not arbitrate a queue, `64` for a bad argument, `77` for an
+untrusted folder.
+
+The loop underneath is `drainRuns`, which any SDK host can call directly —
+including what it does and does not promise about processing a run only once.
+See [State and persistence §4](../sdk/architecture/state-and-persistence.md).

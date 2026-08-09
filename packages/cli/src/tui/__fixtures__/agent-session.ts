@@ -61,6 +61,13 @@ export function fakeAgentSession(overrides: Partial<AgentSession> = {}): AgentSe
 			(async function* () {
 				yield { kind: 'done', stopReason: 'end_turn' } as AgentEvent
 			})(),
+		// Refuses rather than reporting `no-checkpoint`. A default that answered
+		// "there is nothing to continue" would let a drain test pass while
+		// resuming nothing, which is the shape of failure this whole seam
+		// exists to make impossible.
+		resumeDurable: async () => {
+			throw new Error('fakeAgentSession: resumeDurable was not stubbed for this test')
+		},
 		close: async () => {},
 		...overrides,
 	}
