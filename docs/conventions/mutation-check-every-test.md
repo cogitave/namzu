@@ -1,13 +1,13 @@
 ---
 uid: namzu.conventions.mutation-check-every-test
 title: Mutate every test, and never trust a helper test to prove its caller
-description: A passing test proves nothing until you have watched it fail. Break the thing it covers and confirm that that test, and not a neighbour, goes red — then read the whole run, not the summary line.
+description: A passing test proves nothing until you have watched it fail. Break the thing it covers, confirm that that test and not a neighbour goes red, then read the whole run rather than the summary line — and read the margin, because a kill by one unit is the fixture discriminating and not the code.
 type: Convention
 diataxis: explanation
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-04T00:00:00Z
-lastReviewed: 2026-08-07
+lastReviewed: 2026-08-09
 tags: [convention, testing, verification]
 ---
 
@@ -120,6 +120,41 @@ read.
 A skip is a result to look at, not a rounding error. Platform-gated with the
 reason written in the file is fine; a contract test skipped for want of a
 credential is a hole wearing a green summary.
+
+## A kill has a size, and one unit is not a kill
+
+Amended 2026-08-09.
+
+"The mutation killed it" is not the whole result. **By how much** is part of it,
+and when the margin is one unit the fixture is doing the discriminating rather
+than the code.
+
+A test asserted that the composer stops being padded down the screen once an
+expanded tool body fills the viewport. It measured the longest run of blank rows
+in the frame and required it under 4. Mutating the caller to stop measuring tool
+bodies produced **4** — a kill, by one row.
+
+That is a coin toss dressed as evidence. The terminal height was 24, and at 24
+the live furniture and safety margin leave so little budget that the *unmeasured*
+transcript also comes out barely padded: both answers were pressed against the
+same floor and the assertion's threshold happened to fall between them. A
+slightly taller live region, a slightly different safety constant, or a fixture
+one row longer, and the same defect passes.
+
+At 40 rows the two answers separate properly — **20 against 4** — because there
+is room for the wrong estimate to be wrong in. Nothing about the code changed;
+the fixture stopped compressing the difference.
+
+**So: record the numbers, not the verdict.** `expected 20 to be less than 4` is
+evidence. `expected 4 to be less than 4` is a warning that the next person to
+touch an unrelated constant will silently turn this test into decoration. If a
+mutation kills by a hair, re-size the fixture until the two answers are far
+apart, and if they will not separate, the assertion is measuring the wrong
+quantity.
+
+This is the quantitative sibling of the fixture rule below: there, the setup
+never reaches the defect's branch; here, it reaches it and then squeezes the
+result until the difference will not fit.
 
 ## The inverse: a test whose green depended on the defect
 
