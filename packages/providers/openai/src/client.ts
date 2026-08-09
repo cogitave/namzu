@@ -362,6 +362,17 @@ export class OpenAIProvider implements LLMProvider {
 		}
 	}
 
+	/**
+	 * Declared even though this driver's listing already fails correctly on a
+	 * bad key. The check is a declared capability rather than something inferred
+	 * from whether a menu happened to throw, so a driver that answers the
+	 * question has to say so — otherwise it is reported unverifiable, which is
+	 * the honest default and would be a regression here.
+	 */
+	async probeCredential(): Promise<void> {
+		await this.client.models.list()
+	}
+
 	async listModels(): Promise<ModelInfo[]> {
 		const page = await this.client.models.list()
 		return page.data.map((m) => ({

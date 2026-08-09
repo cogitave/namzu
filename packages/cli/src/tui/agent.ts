@@ -879,11 +879,49 @@ export async function verifyCredential(
 	id: ProviderId,
 	det: DetectedProvider,
 ): Promise<{ kind: 'verified' } | { kind: 'unverifiable' } | { kind: 'rejected'; reason: string }> {
-	const listing = await describeProviderModels(id, det)
-	if (listing.kind === 'ok') return { kind: 'verified' }
-	if (listing.kind === 'unsupported') return { kind: 'unverifiable' }
-	if (listing.kind === 'timeout') return { kind: 'unverifiable' }
-	return { kind: 'rejected', reason: listing.reason.slice(0, 200) }
+	try {
+		await ensureRegistered(id)
+		const provider = constructProvider(id, det, det.entry.defaultModel)
+		// Declared, never inferred. A driver without a probe is unverifiable —
+		// including one added years from now by someone who never reads this.
+		// Falling back to the listing here is precisely the defect: it reported a
+		// wrong key as verified for two drivers, one because a 401 was swallowed
+		// behind a hardcoded catalogue and one because its listing endpoint does
+		// not authenticate at all.
+		if (typeof provider.probeCredential !== 'function') return { kind: 'unverifiable' }
+		await provider.probeCredential()
+		return { kind: 'verified' }
+	} catch (err) {
+		// The server answered and said no, versus nothing was learned. Collapsing
+		// these would tell an operator on broken wifi to rotate a key that is fine.
+		if (isCredentialRejection(err)) {
+			return { kind: 'rejected', reason: describeError(err).slice(0, 200) }
+		}
+		return { kind: 'unverifiable' }
+	}
+}
+
+function describeError(err: unknown): string {
+	return err instanceof Error ? err.message : String(err)
+}
+
+/**
+ * Whether the server rejected the credential, as opposed to never being reached.
+ *
+ * Reads a status off the error where a driver supplies one, and falls back to
+ * the message. The fallback is deliberately narrow: an unrecognised failure is
+ * treated as "nothing was learned", which is the direction that cannot turn a
+ * working key into a rotation request.
+ */
+export function isCredentialRejection(err: unknown): boolean {
+	const status =
+		(err as { status?: unknown; statusCode?: unknown } | null)?.status ??
+		(err as { statusCode?: unknown } | null)?.statusCode
+	if (status === 401 || status === 403) return true
+	if (typeof status === 'number') return false
+	return /\b(401|403|unauthorized|forbidden|invalid[ _-]?api[ _-]?key|authentication)\b/i.test(
+		describeError(err),
+	)
 }
 
 /**

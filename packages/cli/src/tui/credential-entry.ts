@@ -100,10 +100,14 @@ export function describeDisposition(
 	const checked =
 		verification.kind === 'verified'
 			? `${entry.label} accepted the key.`
-			: // Said plainly rather than implied. A driver with no cheap check
-				// cannot confirm a key without spending a turn, and claiming it is
-				// good would be inventing a verification that did not happen.
-				`Key accepted. ${entry.label} offers no way to check it without a request, so the first message will be the test.`
+			: // Said plainly rather than implied. Claiming a key is good would be
+				// inventing a verification that did not happen — and this now covers
+				// two ways of not happening: a driver that declares no credential
+				// probe at all, and one whose probe could not be reached. The old
+				// wording asserted the first ("offers no way to check it"), which
+				// would be false for a probe that timed out. Neither is a bad key,
+				// and neither is a checked one.
+				`Key accepted, but NOT checked — ${entry.label} could not confirm it just now, so the first message will be the test.`
 
 	return `${checked}\nHeld in memory for this session only — it is not written anywhere. ${durable}`
 }

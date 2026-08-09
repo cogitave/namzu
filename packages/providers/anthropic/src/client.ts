@@ -1025,11 +1025,16 @@ export class AnthropicProvider implements LLMProvider {
 			const clientLike = this.client as unknown as {
 				models?: { list?: (opts: { limit: number }) => Promise<unknown> }
 			}
-			const listFn = clientLike.models?.list
-			if (typeof listFn !== 'function') {
+			const models = clientLike.models
+			if (typeof models?.list !== 'function') {
 				return this.knownModels()
 			}
-			const page = (await listFn({ limit: 100 })) as {
+			// Called ON the namespace, not pulled out and invoked bare. Detached,
+			// it lost `this` and the SDK's own `this._client` read threw a
+			// TypeError on EVERY call — which the catch below swallowed, so this
+			// listing never once reached the network and the hardcoded models
+			// were not a fallback but the only answer this method could give.
+			const page = (await models.list({ limit: 100 })) as {
 				data?: Array<{ id?: string; display_name?: string; type?: string }>
 			}
 			const data = page?.data ?? []
@@ -1047,6 +1052,31 @@ export class AnthropicProvider implements LLMProvider {
 		} catch {
 			return this.knownModels()
 		}
+	}
+
+	/**
+	 * Ask the API whether this credential works, and let the answer through.
+	 *
+	 * The same call `listModels` makes, without the `catch` that turns a real
+	 * `401` into a hardcoded catalogue. That fallback is right for a menu and
+	 * fatal for a probe: it reported an invalid key as working, because the
+	 * failure it swallowed was the entire answer.
+	 *
+	 * An SDK too old to expose `models.list` throws rather than passing, so the
+	 * caller reports unverifiable — nothing was asked, so nothing is known.
+	 */
+	async probeCredential(): Promise<void> {
+		const clientLike = this.client as unknown as {
+			models?: { list?: (opts: { limit: number }) => Promise<unknown> }
+		}
+		const models = clientLike.models
+		if (typeof models?.list !== 'function') {
+			throw new Error('This SDK version cannot list models, so the key cannot be checked here.')
+		}
+		// Called ON the namespace. Pulling the method into a bare variable and
+		// invoking it loses `this`, and the SDK reads `this._client` — which is
+		// how the sibling `listModels` came to never execute at all.
+		await models.list({ limit: 1 })
 	}
 
 	private knownModels(): ModelInfo[] {

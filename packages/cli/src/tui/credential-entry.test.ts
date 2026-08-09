@@ -96,8 +96,13 @@ describe('describeDisposition', () => {
 	})
 
 	it('does not claim a check it did not perform', () => {
+		// Asserts the CLAIM, not the sentence. The wording moved from "offers no
+		// way to check it" to "could not confirm it", because `unverifiable` now
+		// covers two things: a driver that declares no credential probe, and one
+		// whose probe could not be reached. The old phrase asserted the first and
+		// would be false for a probe that timed out.
 		const unverifiable = describeDisposition(entry, { kind: 'unverifiable' })
-		expect(unverifiable).toContain('no way to check it')
+		expect(unverifiable).toContain('NOT checked')
 		expect(unverifiable).not.toContain('accepted the key')
 
 		const verified = describeDisposition(entry, { kind: 'verified' })
