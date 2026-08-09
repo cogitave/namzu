@@ -10,8 +10,18 @@
  *
  * Runs against `dist`, deliberately: separate node processes with no loader,
  * importing the built store and the built loop, exactly as a host would.
- * That means `pnpm --filter @namzu/sdk build` must have run — the same
- * precondition `run-claim.test.ts` carries.
+ *
+ * **`.proc-test.ts`, not `.test.ts`, and that is the point of the suffix.**
+ * `vitest.proc.config.ts` exists because a spawning test competes for CPU
+ * hard enough to flake the timing-sensitive tests running beside it —
+ * measured there as three different tests failing across two runs of the
+ * full suite with one such file in, and none with it out. This file spawns
+ * up to three node processes and sits out a real lease, so it belongs in
+ * that suite; CI runs it as `pnpm --filter @namzu/sdk test:proc`, which
+ * builds first, so the `dist` this depends on is there.
+ *
+ * (`run-claim.test.ts` still spawns from the unit suite. That is the older
+ * arrangement, not a licence to add a second one to it.)
  */
 
 import { execFile, spawn } from 'node:child_process'
