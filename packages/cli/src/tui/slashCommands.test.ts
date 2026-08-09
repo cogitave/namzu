@@ -509,3 +509,49 @@ describe('/expand argument parsing', () => {
 		expect(runSlash('  /expand 3  ', ctx)).toEqual({ kind: 'expand', which: 3 })
 	})
 })
+
+describe('/login and /logout', () => {
+	it('starts an attempt when typed on its own', () => {
+		expect(runSlash('/login', ctx)).toEqual({ kind: 'login' })
+	})
+
+	it('finishes the attempt in flight when given an address or a code', () => {
+		expect(runSlash('/login abc#xyz', ctx)).toEqual({ kind: 'login', pasted: 'abc#xyz' })
+		expect(runSlash('/login http://localhost:53692/callback?code=a&state=b', ctx)).toEqual({
+			kind: 'login',
+			pasted: 'http://localhost:53692/callback?code=a&state=b',
+		})
+	})
+
+	it('treats a trailing space as a start, not an empty paste', () => {
+		// An empty `pasted` would be sent onward as if it were an authorization
+		// code, and refused by a token endpoint rather than by us.
+		expect(runSlash('/login   ', ctx)).toEqual({ kind: 'login' })
+	})
+
+	it('keeps the whole argument rather than only the first word', () => {
+		// A pasted address can arrive broken by a terminal wrap; dropping
+		// everything after the first space would silently truncate the code.
+		expect(runSlash('/login a b', ctx)).toEqual({ kind: 'login', pasted: 'a b' })
+	})
+
+	it('offers logout with no argument to misread', () => {
+		expect(runSlash('/logout', ctx)).toEqual({ kind: 'logout' })
+		expect(runSlash('/logout everything', ctx)).toEqual({ kind: 'logout' })
+	})
+
+	it('both appear in /help, or nobody finds them', () => {
+		const help = runSlash('/help', ctx)
+		expect(help?.kind).toBe('message')
+		if (help?.kind === 'message') {
+			expect(help.content).toContain('/login')
+			expect(help.content).toContain('/logout')
+		}
+	})
+
+	it('both are offered by autocomplete', () => {
+		expect(matchSlashCommands('/log').map((c) => c.name)).toEqual(
+			expect.arrayContaining(['login', 'logout']),
+		)
+	})
+})

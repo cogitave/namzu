@@ -571,6 +571,10 @@ function describeSource(d: DetectedProvider): string {
 			return `local · ${d.source.url.replace(/^https?:\/\//, '')}`
 		case 'keychain':
 			return `keychain · ${d.source.service}`
+		case 'stored':
+			// Named for what the operator DID, not for where the bytes live. They
+			// signed in; the path is in `/doctor` for when it matters.
+			return 'signed in · this machine'
 		case 'session':
 			// Named as temporary wherever it is listed. Someone scanning this
 			// column should be able to see which credential disappears when they

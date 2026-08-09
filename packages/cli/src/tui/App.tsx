@@ -17,12 +17,19 @@ import { relative } from 'node:path'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import {
+	beginSubscriptionLogin,
+	clearStoredSubscriptionCredential,
+	credentialsPath,
 	type DetectedProvider,
 	type Preferences,
 	type ProviderId,
 	primaryProvider,
+	readStoredSubscriptionCredential,
+	type SubscriptionLogin,
 	writePreferences,
 } from '../integrations/providers/index.js'
+import { describeLoginOutcome, describeLoginStart, describeLogout } from './login-prompt.js'
+import { openInBrowser } from './open-browser.js'
 import { isTrusted, trustDir } from '../integrations/trust/store.js'
 import { appendMemory, composeMemoryPrompt, readMemory } from '../memory/store.js'
 import { composeSkillsPrompt, discoverSkills, loadSkillBody } from '../skills/store.js'
@@ -166,6 +173,15 @@ export function App({ ctx }: AppProps) {
 	const [selectedResume, setSelectedResume] = useState<number>(0)
 	const exitArmedRef = useRef<boolean>(false)
 	const abortRef = useRef<AbortController | null>(null)
+	/**
+	 * The sign-in attempt awaiting its authorization code, if any.
+	 *
+	 * A ref and not state: nothing renders from it, and a re-render between
+	 * `/login` and `/login <address>` must not lose the verifier — without
+	 * which the code that comes back cannot be exchanged for anything.
+	 */
+	const loginRef = useRef<SubscriptionLogin | null>(null)
+	const runProbeRef = useRef<(() => Promise<void>) | null>(null)
 	/**
 	 * The session currently holding resources, so a re-hydration can release the
 	 * one it replaces. A `/model` switch builds a new session, and a tool
@@ -392,6 +408,85 @@ export function App({ ctx }: AppProps) {
 		[ctx.cwd, ctx.rules, pushMessage],
 	)
 
+	/**
+	 * Sign in to a subscription without leaving namzu.
+	 *
+	 * Two calls, one command. Bare `/login` starts an attempt and parks it in
+	 * `loginRef`; `/login <address>` finishes that one. Nothing here parses the
+	 * argument — `slashCommands` already decided which of the two this is.
+	 *
+	 * ## Why it re-probes instead of installing the credential directly
+	 *
+	 * The login writes to the same file `discoverProviders` reads, so re-running
+	 * the probe is not a lazy substitute for wiring the credential in: it is the
+	 * only version that cannot disagree with a cold start. Building a session
+	 * from the returned credential here, in parallel, would be a SECOND way to
+	 * arrive at a provider — and the day the two differ, the operator's session
+	 * works until they restart, which is the worst possible moment to find out.
+	 *
+	 * It also gets the no-preferences case right for free: a first-run operator
+	 * who signs in lands in the picker, which is exactly where someone with a
+	 * working credential and no chosen provider should be.
+	 */
+	const startOrFinishLogin = useCallback(
+		async (pasted?: string) => {
+			if (pasted !== undefined) {
+				const pending = loginRef.current
+				if (!pending) {
+					pushMessage(
+						'system',
+						'There is no sign-in waiting to be finished. Run /login on its own to start one.',
+					)
+					return
+				}
+				const outcome = await pending.completeWithPastedCode(pasted)
+				pending.cancel()
+				loginRef.current = null
+				pushMessage('system', describeLoginOutcome(outcome))
+				if (outcome.ok) await runProbeRef.current?.()
+				return
+			}
+
+			loginRef.current?.cancel()
+			loginRef.current = null
+			let start: SubscriptionLogin
+			try {
+				start = await beginSubscriptionLogin()
+			} catch (err) {
+				pushMessage(
+					'system',
+					`Could not start a sign-in: ${err instanceof Error ? err.message : String(err)}`,
+				)
+				return
+			}
+			loginRef.current = start
+			pushMessage(
+				'system',
+				describeLoginStart({
+					url: start.url,
+					loopback: start.loopback,
+					browserOpened: openInBrowser(start.url),
+				}),
+			)
+			// The automatic half, when there is one. Not awaited by the caller:
+			// the composer stays live throughout, so the operator can paste
+			// instead — or type anything else — while this waits.
+			const waiting = start.waitForCallback()
+			if (!waiting) return
+			const outcome = await waiting
+			if (loginRef.current !== start) return // superseded, or finished by paste
+			loginRef.current = null
+			start.cancel()
+			// A cancelled listener resolves to a refusal, and saying "sign-in
+			// failed" when the operator finished it another way would be a lie
+			// about their own successful login.
+			if (!outcome.ok && outcome.reason.includes('cancelled')) return
+			pushMessage('system', describeLoginOutcome(outcome))
+			if (outcome.ok) await runProbeRef.current?.()
+		},
+		[pushMessage],
+	)
+
 	const runProbe = useCallback(async () => {
 		try {
 			const probe = await probeAgentSession()
@@ -432,6 +527,11 @@ export function App({ ctx }: AppProps) {
 			)
 		}
 	}, [hydrateSession, pushMessage])
+
+	// `startOrFinishLogin` is declared above `runProbe` and calls it, so it
+	// reads the current one through a ref rather than closing over a stale
+	// binding or forcing the two into a declaration order that reads backwards.
+	runProbeRef.current = runProbe
 
 	// Trust gate runs first: don't touch the folder until the user trusts it.
 	useEffect(() => {
@@ -958,6 +1058,24 @@ export function App({ ctx }: AppProps) {
 						setKeyEntryFor(null)
 						setPhase('picker')
 						return
+					case 'login':
+						void startOrFinishLogin(slash.pasted)
+						return
+					case 'logout': {
+						const path = credentialsPath()
+						const had = readStoredSubscriptionCredential() !== null
+						try {
+							clearStoredSubscriptionCredential()
+						} catch (err) {
+							pushMessage(
+								'system',
+								`Could not remove ${path}: ${err instanceof Error ? err.message : String(err)}`,
+							)
+							return
+						}
+						pushMessage('system', describeLogout(path, had))
+						return
+					}
 					case 'remember':
 						try {
 							appendMemory(slash.text)

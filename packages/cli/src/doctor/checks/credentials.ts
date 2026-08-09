@@ -50,6 +50,8 @@ export const credentialSourcesCheck: DoctorCheck = {
 					return `${d.entry.id} (env · ${d.source.envName})`
 				case 'keychain':
 					return `${d.entry.id} (keychain · ${d.source.service})`
+				case 'stored':
+					return `${d.entry.id} (signed in · ${d.source.path})`
 				case 'probe':
 					return `${d.entry.id} (local · ${d.source.url.replace(/^https?:\/\//, '')})`
 			}

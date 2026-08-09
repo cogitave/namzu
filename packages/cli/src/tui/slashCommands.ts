@@ -26,6 +26,7 @@
 import type { VerificationRule } from '@namzu/sdk'
 
 import { type UserCommand, expandCommand } from '../user-commands/store.js'
+import { isCompletionArgument } from './login-prompt.js'
 
 export type SlashAction =
 	| { kind: 'message'; role: 'system'; content: string }
@@ -55,6 +56,18 @@ export type SlashAction =
 	 * the model uses.
 	 */
 	| { kind: 'prompt'; text: string }
+	/**
+	 * Sign in to a subscription without leaving namzu.
+	 *
+	 * Bare `/login` STARTS an attempt; `/login <address-or-code>` FINISHES the
+	 * one in flight. Two verbs on one command because they are one act from
+	 * where the operator sits, and because the second is the whole point on a
+	 * machine whose browser is somewhere else — a container, a remote shell.
+	 * The distinction is `pasted`, and this module decides it (see
+	 * `isCompletionArgument`) so App never has to parse an argument.
+	 */
+	| { kind: 'login'; pasted?: string }
+	| { kind: 'logout' }
 	| { kind: 'none' }
 
 export interface SlashContext {
@@ -318,6 +331,19 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
 		name: 'model',
 		description: 'Re-open the provider picker to switch the primary provider.',
 		action: () => ({ kind: 'repick' }),
+	},
+	{
+		name: 'login',
+		description: 'Sign in with a subscription: /login, then /login <address> if asked.',
+		action: (_ctx, args) =>
+			isCompletionArgument(args)
+				? { kind: 'login', pasted: args.join(' ').trim() }
+				: { kind: 'login' },
+	},
+	{
+		name: 'logout',
+		description: 'Remove the subscription credential namzu stored on this machine.',
+		action: () => ({ kind: 'logout' }),
 	},
 	{
 		name: 'cost',
