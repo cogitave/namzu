@@ -49,6 +49,9 @@ Read the rule that matches what you are about to change before you change it.
 
 ### Reading the evidence
 
+- [The answer is usually already written, near where it is needed](read-the-neighbour.md)
+  — five defects in one session whose reasoning was seventeen lines below, two
+  columns away, forty lines above. Unapplied knowledge, not missing knowledge.
 - [Verify the claim, including your own, including a comment's](verify-claims-including-your-own.md)
   — including a report's, including your own from an hour ago.
 - [Never filter a verification down to something that can read green](never-filter-a-verification.md)
