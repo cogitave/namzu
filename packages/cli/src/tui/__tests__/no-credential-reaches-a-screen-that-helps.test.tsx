@@ -260,6 +260,48 @@ describe('launching with a saved provider and no credential', () => {
 	})
 })
 
+describe('after the credential has been supplied', () => {
+	it('does not keep explaining a problem that is solved', async () => {
+		// The failure path of the routing rather than its happy path: a launch
+		// refusal left on the picker would greet an operator who opens `/model`
+		// from a working session with the reason their PREVIOUS launch failed, and
+		// offer to fix a credential they already entered.
+		const screen = await launch()
+		try {
+			screen.press('k')
+			await until(screen, 'Paste a credential')
+			screen.press('sk-ant-api03-not-a-real-key')
+			await until(screen, '••••')
+			screen.press('\r')
+			await until(screen, 'Type a message')
+
+			screen.press('/model')
+			await until(screen, '/model')
+			screen.press('\r')
+			await until(screen, 'Choose a provider')
+
+			// The LIVE picker box, not the whole viewport. The launch refusal is
+			// also sitting further up the terminal as transcript history, which is
+			// where it belongs and must not be asserted away — the claim here is
+			// about what the picker itself is drawing right now.
+			const rows = screen.viewport()
+			const lastBorder = rows.reduce((at, row, i) => (row.includes('╭') ? i : at), 0)
+			const box = rows.slice(lastBorder)
+			const drawn = box.join('\n')
+
+			expect(drawn, 'the picker never reopened').toContain('Choose a provider')
+			expect(drawn, 'a stale launch refusal is drawn on the picker').not.toContain(
+				'No credential found',
+			)
+			expect(drawn, 'still offering to repair a credential that is present').not.toContain(
+				'k enter a credential',
+			)
+		} finally {
+			await screen.unmount()
+		}
+	})
+})
+
 describe('when something else is running on the machine', () => {
 	it('still offers to take a credential for the saved provider', async () => {
 		// The case the old "empty screen only" gate got wrong. A local server is
