@@ -1,5 +1,55 @@
 # @namzu/cli
 
+## 8.1.0
+
+### Minor Changes
+
+- f59a8b0: `--gate '<command>'` — a run that is not allowed to finish on a red build
+
+  `reviewAnswer` shipped complete: consulted only when the model stops calling tools, never on the forced-final turn, bounded by a rejection budget, with its own terminal state `answer_rejected` so a stop is not mistaken for a token budget running out. **No shipped app supplied one**, so an operator could not use any of it without writing TypeScript.
+
+  New in `@namzu/sdk`: `createCommandGate({ commands, cwd, maxRetries?, timeoutMs?, exec?, maxOutputChars?, fingerprint? }): ReviewAnswer`. It runs shell command lines in order, stops at the first failure, and hands the failure back as the next user turn naming the command, the attempt, the exit code and a head-and-tail clip of the output.
+
+  New in `@namzu/cli`: a repeatable `--gate '<command>'` on `run` and `run-stream`, plus `--gate-retries <n>`. Repeating the flag appends rather than replaces — `--gate 'pnpm typecheck' --gate 'pnpm test'` means both, in that order.
+
+  **The part that makes it a bounded loop rather than one that burns its budget.** Before re-running a command that already failed, the workspace is fingerprinted; if it is byte-for-byte identical to the snapshot taken when that command last failed, the command is **not run**. The attempt still advances and the model is told the workspace has not changed and must edit something before trying to finish — cheaper than a full test run, and a _different_ instruction from repeating a failure it has already been shown.
+
+  Also new and exported: `fingerprintWorkspace({ cwd, exec, timeoutMs?, maxBytes?, fs? })`. It hashes `git status --porcelain`, `git diff --binary HEAD` and the contents of every untracked file, **recording a symlink as its target rather than reading through it** — a link repointed to a different file with identical bytes is a change, and following it would hash the two the same.
+
+  It returns `null` — meaning _no fingerprint_ — for a non-zero git exit, a tree with no commits, a timeout, or output past the size cap, and a caller that cannot fingerprint re-runs its command. That direction is deliberate: a wrong `null` costs one execution, while a wrong match is a verification that silently did not happen.
+
+  A run with no `--gate` is byte-identical to one from before this existed: the option is spread in only when gates were asked for.
+
+- 1be00a7: A run now remembers what it worked out, instead of dropping it at settle
+
+  `promoteMemory` is invoked once when a run settles, with the compaction extractor's already-structured output — decisions, discoveries, user requirements, failures, environment facts, with eviction counts carried rather than hidden. **No shipped app supplied the hook.** So that structure, which the compaction pass spent tokens producing, was serialized into one system message and dropped on the floor when the run ended; the only way into namzu's memory store was the model deciding to call `save_memory`.
+
+  New in `@namzu/sdk`: `createMemoryPromoter({ store, tags?, maxPerCategory? }): PromoteMemory`, plus `RUN_MEMORY_TAG`. `@namzu/cli` supplies it over the very store its memory tools already use, so what a run learns is what `search_memory` finds on the next one.
+
+  ## What changes for you without asking
+
+  **This is on by default, and it applies to the interactive TUI as well as to `namzu run` and `namzu run-stream`.** The promoter is supplied from the session every surface is built on, so an ordinary chat session that works something out now leaves a markdown record under `<cwd>/.namzu/memory` when the run settles — a directory that previously only ever grew when the model chose to call `save_memory`. The next session's `search_memory` will find those records, which is the point, and it is also the part you will notice.
+
+  It is not opt-in because the alternative it replaces is not neutral: a run's extracted knowledge was being discarded at settle, and a flag would mean the default stays the lossy one. What keeps it from being noisy is the filter below — a session that answered a question without deciding, discovering, failing at or being told anything durable writes nothing at all.
+
+  An SDK embedder can replace or disable it by passing its own `promoteMemory` to `query` — a function that does nothing writes nothing. **The CLI has no flag for it in this release**, which is worth knowing before you upgrade if a written-to `.namzu/memory` is a problem for your setup; say so and it becomes one.
+
+  **The filter is the whole decision, and it is strict.** A run that learned nothing leaves **no record at all** — not an empty one, not one whose body says "no decisions". Only the five knowledge categories count: user requirements, decisions, discoveries, failures, environment. Not `task`, which every run has because it is the prompt restated; not `files`, which every run that opened anything has and which says what was _touched_ rather than what was _learned_. The model reads this store on later runs, so a record per run is not merely wasted disk — it is context spent on runs that discovered nothing.
+
+  Records are markdown, tagged `run-memory`, and carry the forming run's id in their metadata so a surprising memory can be checked against what actually happened. Eviction counts are rendered, because somebody reading the record should know they are reading a truncated account of the run.
+
+  The promoter deliberately does **not** catch its own failures: the runtime already catches and logs a promoter throw at settle without touching the answer, and catching here as well would hide a broken store from the one place that reports it.
+
+  It also does not deduplicate, merge with a previous run's record, or expire anything. Each is a policy with real trade-offs, and `promoteMemory` is a callback precisely so the runtime does not decide them — this is the obvious default, not the only possible one. Pass your own `PromoteMemory` to `query` to replace it.
+
+  Sub-agents do not promote. A parent that delegated six times would otherwise leave seven accounts of one piece of work for the next run to read; the parent's settle speaks for the whole task.
+
+### Patch Changes
+
+- Updated dependencies [f59a8b0]
+- Updated dependencies [1be00a7]
+  - @namzu/sdk@21.1.0
+
 ## 8.0.0
 
 ### Major Changes
