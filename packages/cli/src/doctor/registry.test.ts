@@ -2,6 +2,11 @@
  * Ratified in ses_007-probe-and-doctor §9 (agent working memory, gitignored).
  * D4 = registerDoctorCheck + plugin auto-discovery + standalone-CLI /
  * embedded-runDoctor split. D5 = sysexits exit codes (0/1/2/70).
+ *
+ * D5 is extended, not replaced: `69` (EX_UNAVAILABLE) joins the table for a
+ * report that could not be established. `inconclusive` appeared in no exit
+ * expression at all, so a check that could not answer exited the same `0` as a
+ * machine where everything passed.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -59,23 +64,32 @@ describe('runDoctor — aggregation + summary', () => {
 		reg.register(check('b', { status: 'fail', message: 'broken' }))
 		reg.register(check('c', { status: 'inconclusive' }))
 		reg.register(check('d', { status: 'warn' }))
+		reg.register(check('e', { status: 'skipped' }))
 		const report = await runDoctor({ registry: reg, version: '0.0.1' })
 		expect(report.summary).toEqual({
 			pass: 1,
 			fail: 1,
 			inconclusive: 1,
 			warn: 1,
-			total: 4,
+			skipped: 1,
+			total: 5,
 		})
-		expect(report.checks).toHaveLength(4)
+		// The counts must SUM to the total, which is the property a reader takes
+		// from a summary line and the one a new status silently breaks: while
+		// `skipped` had no column, every skipped check was missing from the row
+		// and the arithmetic came out only because it was hidden inside another
+		// figure.
+		const s = report.summary
+		expect(s.pass + s.fail + s.inconclusive + s.warn + s.skipped).toBe(s.total)
+		expect(report.checks).toHaveLength(5)
 		expect(report.version).toBe('0.0.1')
 	})
 
-	it('exit = 0 when all pass / no fail', async () => {
+	it('exit = 0 when every check answered and none failed', async () => {
 		const reg = createDoctorRegistry()
 		reg.register(check('a', { status: 'pass' }))
-		reg.register(check('b', { status: 'inconclusive' }))
-		reg.register(check('c', { status: 'warn' }))
+		reg.register(check('b', { status: 'warn' }))
+		reg.register(check('c', { status: 'skipped' }))
 		const report = await runDoctor({ registry: reg })
 		expect(report.exit).toBe(0)
 	})
@@ -95,12 +109,69 @@ describe('runDoctor — aggregation + summary', () => {
 		expect(report.summary.total).toBe(0)
 	})
 
-	it('inconclusive + warn do not affect exit code', async () => {
+	it('exit = 69 when a check could not answer, even though nothing failed', async () => {
+		// The defect this file used to pin the wrong way round. `inconclusive`
+		// did not appear in the exit expression at all, so "namzu is healthy" and
+		// "namzu did not manage to look" were both 0, in the command whose entire
+		// job is to report state it read.
 		const reg = createDoctorRegistry()
-		reg.register(check('a', { status: 'inconclusive' }))
+		reg.register(check('a', { status: 'pass' }))
+		reg.register(check('b', { status: 'inconclusive' }))
+		const report = await runDoctor({ registry: reg })
+		expect(report.exit).toBe(69)
+	})
+
+	it('exit = 1 when something failed AND something could not answer', async () => {
+		// `fail` outranks `inconclusive`: a definite failure is the actionable
+		// fact and 1 claims no health, so reporting it loses nothing. The
+		// alternative ranking would hide a real failure behind a timeout.
+		const reg = createDoctorRegistry()
+		reg.register(check('a', { status: 'fail' }))
+		reg.register(check('b', { status: 'inconclusive' }))
+		const report = await runDoctor({ registry: reg })
+		expect(report.exit).toBe(1)
+	})
+
+	it('warn and skipped do not affect the exit code', async () => {
+		// The half that must NOT change. `skipped` is an ordinary state of a
+		// healthy machine — an optional package absent, nothing configured yet —
+		// and a diagnostic that went non-zero on every healthy machine would be
+		// switched off within a week.
+		const reg = createDoctorRegistry()
+		reg.register(check('a', { status: 'skipped' }))
 		reg.register(check('b', { status: 'warn' }))
 		const report = await runDoctor({ registry: reg })
 		expect(report.exit).toBe(0)
+	})
+
+	it('exit = 69 when the per-check timeout is what stopped it', async () => {
+		// Reached through the real timeout path rather than by a check returning
+		// the word: the timeout is the commonest way a report goes unanswered,
+		// and a test that only ever hands the status in cannot tell whether the
+		// path that PRODUCES it reaches the exit expression.
+		const reg = createDoctorRegistry()
+		reg.register({
+			id: 'slow',
+			category: 'custom',
+			run: () => new Promise((resolve) => setTimeout(() => resolve({ status: 'pass' }), 5_000)),
+		})
+		const report = await runDoctor({ registry: reg, perCheckTimeoutMs: 10 })
+		expect(report.checks[0]?.status).toBe('inconclusive')
+		expect(report.exit).toBe(69)
+	})
+
+	it('exit = 69 when the run was aborted before the checks answered', async () => {
+		const reg = createDoctorRegistry()
+		reg.register({
+			id: 'slow',
+			category: 'custom',
+			run: () => new Promise((resolve) => setTimeout(() => resolve({ status: 'pass' }), 5_000)),
+		})
+		const controller = new AbortController()
+		setTimeout(() => controller.abort(), 20)
+		const report = await runDoctor({ registry: reg, signal: controller.signal })
+		expect(report.checks[0]?.status).toBe('inconclusive')
+		expect(report.exit).toBe(69)
 	})
 })
 

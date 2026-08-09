@@ -107,6 +107,66 @@ describe('runDoctorCommand', () => {
 		expect(captured).toMatch(/exit: \d+/)
 	})
 
+	it('counts every status in the summary line, and the row sums to the total', async () => {
+		// `skipped` had no column while it was folded into `inconc`, so the line
+		// reported an optional package's absence in the same figure as a check
+		// that timed out — and a reader adding the row up got the right total for
+		// the wrong reason.
+		await runDoctorCommand([])
+		const row = captured.split('\n').find((l) => l.includes('pass:'))
+		expect(row, 'the summary line is missing').toBeDefined()
+		const n = (key: string) =>
+			Number(new RegExp(`${key}: (\\d+)`).exec(row ?? '')?.[1] ?? Number.NaN)
+		const parts = ['pass', 'fail', 'warn', 'inconc', 'skipped'].map(n)
+		expect(parts.some(Number.isNaN), `a column is missing from: ${row}`).toBe(false)
+		expect(parts.reduce((a, b) => a + b, 0)).toBe(n('total'))
+	})
+
+	it('gives a skipped row its own mark, distinct from a check that could not answer', async () => {
+		// `vault.registered` and `providers.registered` are skipped on every
+		// machine — there is no discovery mechanism for either — so the built-in
+		// suite always has one to render.
+		await runDoctorCommand([])
+		const skippedRow = captured.split('\n').find((l) => l.includes('vault.registered'))
+		expect(skippedRow, 'the vault row is missing').toBeDefined()
+		expect(skippedRow ?? '').toContain('⊘')
+		expect(skippedRow ?? '', 'a skipped row is marked as unanswered').not.toContain('?')
+	})
+
+	it('exits non-zero exactly when a check could not answer', async () => {
+		// The whole of #310 as one property, asserted against the REAL built-in
+		// suite rather than a hand-built registry: on an ordinary machine nothing
+		// is inconclusive and the command must exit 0, and the moment something
+		// is, it must not.
+		const code = await runDoctorCommand(['--json'])
+		const json = JSON.parse(captured)
+		const unanswered = json.checks.filter(
+			(c: { status: string }) => c.status === 'inconclusive',
+		).length
+		expect(json.summary.inconclusive).toBe(unanswered)
+		if (json.summary.fail > 0) {
+			expect(code).toBe(1)
+		} else {
+			expect(code).toBe(unanswered > 0 ? 69 : 0)
+		}
+	})
+
+	it('never reports the checks that have nothing to look at as unanswered', async () => {
+		// The regression this change could have introduced. Both of these are
+		// unconditional by design — there is no vault or provider auto-discovery
+		// to fail — so calling them `inconclusive` would have made `namzu doctor`
+		// exit 69 on every healthy machine, which is the way to get a diagnostic
+		// switched off.
+		await runDoctorCommand(['--json'])
+		const json = JSON.parse(captured)
+		const byId = new Map<string, string>(
+			json.checks.map((c: { id: string; status: string }) => [c.id, c.status]),
+		)
+		expect(byId.get('vault.registered')).toBe('skipped')
+		expect(byId.get('providers.registered')).toBe('skipped')
+		expect(['pass', 'skipped', 'fail']).toContain(byId.get('telemetry.installed'))
+	})
+
 	it('built-in checks register with stable ids', async () => {
 		const code = await runDoctorCommand(['--json'])
 		expect([0, 1]).toContain(code)

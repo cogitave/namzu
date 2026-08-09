@@ -41,10 +41,18 @@ Options:
   -h, --help                   Show this help
 
 Exit codes:
-  0   all checks passed (or no failure produced)
+  0   every check answered, and none of them failed
   1   one or more checks reported \`fail\`
   2   no checks registered (Namzu not configured here)
+  69  a check could not answer — it timed out, was aborted, or what it
+      reads threw. Separate from 0 because a report that did not manage
+      to look tells you nothing about the part it did look at, and
+      separate from 1 because nothing was established to have failed.
   70  internal CLI error (sysexits EX_SOFTWARE)
+
+A \`skipped\` check does not affect the exit code: it means there was
+nothing here to check — an optional package absent, nothing configured
+yet — which is an ordinary state of a healthy machine.
 `
 
 function parseArgs(args: readonly string[]): ParsedArgs {
@@ -151,9 +159,15 @@ function statusGlyph(status: DoctorStatus): string {
 		case 'fail':
 			return '✗'
 		case 'inconclusive':
-			return '⊘'
+			return '?'
 		case 'warn':
 			return '!'
+		// The glyph `inconclusive` used to carry. It reads as "not applicable",
+		// which is what this status means and what that status never did — so
+		// the mark moves to the row it was describing all along, and the check
+		// that could not answer takes the question mark.
+		case 'skipped':
+			return '⊘'
 	}
 }
 
@@ -187,10 +201,20 @@ function formatHumanReport(report: DoctorReport, verbose: boolean): string {
 	}
 	lines.push('')
 	const s = report.summary
+	// Every status is counted, so the row sums to `total`. `skipped` was folded
+	// into `inconc` while they were one word, which meant the line silently
+	// reported an optional package's absence in the same figure as a check that
+	// timed out — and a reader adding the numbers up got the right total for the
+	// wrong reason.
 	lines.push(
-		`  pass: ${s.pass}  fail: ${s.fail}  warn: ${s.warn}  inconc: ${s.inconclusive}  total: ${s.total}`,
+		`  pass: ${s.pass}  fail: ${s.fail}  warn: ${s.warn}  inconc: ${s.inconclusive}  skipped: ${s.skipped}  total: ${s.total}`,
 	)
 	lines.push(`  exit: ${report.exit}`)
+	// Named where the number is, because `69` is the one code here a reader will
+	// not recognise and the report is the only place they are looking.
+	if (report.exit === 69) {
+		lines.push('  (69: at least one check could not answer — see the ? rows above)')
+	}
 	if (verbose) {
 		const failed = report.checks.filter((c: DoctorCheckRecord) => c.status === 'fail')
 		if (failed.length > 0) {
