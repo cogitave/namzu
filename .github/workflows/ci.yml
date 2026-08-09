@@ -47,7 +47,17 @@ permissions:
 
 jobs:
   check:
-    name: Build & Test
+    # Named explicitly so the check is called `Build & Test (24)` and not
+    # `Build & Test (24, true)`. Left implicit, a matrix job's name is composed
+    # from EVERY value in its entry, so the `gates` flag added beside the
+    # version leaked into the check's identity — and a check's name is what a
+    # ruleset pins when someone makes it required. That would put a required
+    # check one unrelated matrix edit away from naming nothing, which is the
+    # same silent-unsatisfiable shape the flag itself was introduced to remove.
+    #
+    # Pinning the name to the version alone means a future matrix dimension is
+    # free to arrive without renaming the check.
+    name: Build & Test (${{ matrix.node-version }})
     runs-on: ubuntu-latest
     strategy:
       matrix:
