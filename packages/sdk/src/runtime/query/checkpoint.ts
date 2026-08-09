@@ -51,6 +51,12 @@ export function projectEmergencyToCheckpoint(dump: EmergencySaveData): Iteration
 	return {
 		id: `cp_emergency_${emergencySuffix}` as CheckpointId,
 		runId: dump.runId,
+		// The dump records the run's start, so this projection carries the
+		// same stamp an ordinary checkpoint of that run would — a run whose
+		// only surviving record is an emergency dump still has a real
+		// attribution instant, and dropping it here would put that run in the
+		// "never recorded" bucket for no reason.
+		runCreatedAt: dump.startedAt,
 		iteration: dump.currentIteration,
 		messages: dump.messages,
 		tokenUsage: dump.tokenUsage,
@@ -149,6 +155,27 @@ export class CheckpointManager {
 	private parkTtlMs?: number
 
 	/**
+	 * The run's attribution instant, stamped onto every checkpoint this
+	 * manager writes.
+	 *
+	 * Settled exactly once, by whichever of two things happens first, and
+	 * never reassigned — every write to it below is `??=`, and there are only
+	 * two:
+	 *
+	 *  - `restore` ADOPTS it from the checkpoint a resume came back through.
+	 *    A resumed run is the same run, and its creation is already on the
+	 *    record; a fresh process minting a new one would move the key that
+	 *    exists specifically because it does not move.
+	 *  - `create` MINTS it from the run's own start instant when nothing was
+	 *    adopted, which is the fresh-run case.
+	 *
+	 * Restore runs during run setup, before the first iteration and therefore
+	 * before the first `create`, so the adopt always wins on the resume path
+	 * without either site needing to know which path it is on.
+	 */
+	private runCreatedAt?: number
+
+	/**
 	 * @param store scope-keyed checkpoint persistence. The default query
 	 *   pipeline passes the run's disk-backed store
 	 *   ({@link import('../../store/run/checkpoint-disk.js').DiskCheckpointStore});
@@ -182,9 +209,17 @@ export class CheckpointManager {
 			workingState?: WorkingStateSnapshot
 		},
 	): Promise<IterationCheckpoint> {
+		// The run's own start, not `Date.now()`. This is meant to say when the
+		// run was attributed; taking the clock at the first checkpoint would
+		// say when it first became durable, which is a different and later
+		// fact, and naming it after the earlier one would make it wrong in
+		// exactly the way that is hard to notice.
+		this.runCreatedAt ??= runMgr.getSession().startedAt ?? Date.now()
+
 		const checkpoint: IterationCheckpoint = {
 			id: generateCheckpointId(),
 			runId: runMgr.id,
+			runCreatedAt: this.runCreatedAt,
 			iteration,
 			messages: [...runMgr.messages],
 			tokenUsage: { ...runMgr.tokenUsage },
@@ -342,6 +377,22 @@ export class CheckpointManager {
 				details: { checkpointId, runId: this.scope.runId },
 			})
 		}
+
+		// Adopt the run's recorded attribution. A resumed run is the SAME run
+		// under the same id, and its creation is already on the record; a
+		// fresh process minting a new one would step the stamp forward on
+		// every resume, which is the motion it exists to avoid.
+		//
+		// This needs no "is it really my run" guard, and one was written and
+		// removed: `readCheckpoint` is keyed by THIS manager's scope, so the
+		// only checkpoints reachable here are the ones belonging to
+		// `scope.runId`. A replay fork never arrives here at all — it reads
+		// its origin through the SOURCE scope in `prepareReplayState` and
+		// starts a fresh run, so it mints its own stamp rather than claiming
+		// its origin's age. A guard that no input can trip would have read as
+		// protection and been none.
+		this.runCreatedAt ??= checkpoint.runCreatedAt
+
 		return checkpoint
 	}
 

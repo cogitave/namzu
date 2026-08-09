@@ -219,12 +219,28 @@ Three properties worth knowing before you build on it:
 - **Sub-runs are included**, with `parentRunId` on the row. A park is
   durable at any delegation depth, so an inbox that skipped them would drop
   every approval raised by delegated work.
-- **Rows are ordered by `runId`, not by time.** A cursor has to sort on a
-  key that cannot move, and every timestamp derivable from checkpoints
-  moves — the newest advances when the run checkpoints again, the oldest
-  when pruning deletes oldest-first. Run ids carry no timestamp, so sort the
-  page yourself on `latestCheckpointAt` or `park.parkedAt` if you want
-  oldest-first.
+- **Ordering is explicit.** `orderBy: 'runId'` (the default) is stable and
+  total and says nothing about age — run ids carry no timestamp.
+  `orderBy: 'createdAt'` is the triage order, oldest first, and answers
+  which run has been waiting longest.
+
+  Both sort on a key that cannot *move*, which is what a cursor needs. That
+  rules out every timestamp a checkpoint store derives on its own: the
+  newest advances when the run checkpoints again, the oldest when pruning
+  deletes oldest-first. `runCreatedAt` is recorded once when the run is
+  attributed and copied onto every checkpoint, so pruning cannot reach it
+  and a resume does not restart it.
+
+  Runs whose creation was never recorded come **first** under
+  `'createdAt'`, with `runCreatedAt` absent on the row. That is not a
+  guessed date: the stamp is written by the checkpoint manager, so a run
+  without one was checkpointed by a build that predates the stamp, and
+  therefore predates every run that has one. Render the absence as
+  "unknown" rather than substituting a time.
+
+  A cursor is a position in one order. Do not carry one across a change of
+  `orderBy`, and do not construct one — the listing refuses a cursor it did
+  not issue.
 - **An entry carries no run status, and cannot.** A checkpoint is written
   mid-flight, so this store cannot tell a run that finished from one that
   died. A crash sweep is: list every run with durable state, intersect with

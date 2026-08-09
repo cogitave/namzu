@@ -844,6 +844,7 @@
     "DocumentMetadata",
     "DuplicateProviderError",
     "DurableRunEntry",
+    "DurableRunOrder",
     "DurableRunPage",
     "EDIT_TOOLS",
     "EMERGENCY_DIR_NAME",
