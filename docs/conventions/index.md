@@ -11,6 +11,36 @@ here.
 
 Read the rule that matches what you are about to change before you change it.
 
+## Why no page here carries a `resource:`
+
+The documentation standard's `resource:` names the code a document describes,
+and the gate fails the build when that code has commits newer than the
+document. Every page here had one, pointing at the file where its incident
+happened.
+
+That is the wrong subject, and the gate says so by firing. **A convention is a
+rule about reasoning, and no file can make one false.** `refuse-do-not-degrade`
+would be exactly as true if the driver that produced it were deleted;
+`one-site-is-not-every-site` is not a claim about a checkpoint type. What the
+pointers actually did was demand a re-read every time an unrelated line moved in
+a file that happened to be the scene — three times in six hours on one night,
+and each time there was nothing to re-establish.
+
+The gate's own guidance warns that a churning sentinel trains everyone to wave
+the failure through, which is the failure mode of a check that fires where
+nothing is wrong. So the key is gone from this directory as a class rather than
+re-dated page by page, and the reasoning lives here once instead of eight times.
+
+**Point `resource:` at code whose change could make the document wrong, not at
+code the document happens to be about.** An absent key honestly reads as "no
+code can invalidate this", which is the true statement for every page in this
+folder — the same reason the standard says to omit `verified:` rather than guess
+it.
+
+A page here would earn a `resource:` back by describing a specific mechanism
+rather than a way of thinking. None does today, and a page that did would
+probably belong under `docs/sdk/` instead.
+
 ## The rules
 
 ### Declarations and reachability

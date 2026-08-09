@@ -7,8 +7,7 @@ diataxis: explanation
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-04T00:00:00Z
-lastReviewed: 2026-08-07
-resource: packages/sdk/src/sandbox/__tests__/exec-cancellation.test.ts
+lastReviewed: 2026-08-09
 tags: [convention, api-design, types]
 verified:
   - by: process:conventions-migration
