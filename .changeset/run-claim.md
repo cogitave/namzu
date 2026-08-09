@@ -27,7 +27,7 @@ for (const entry of page.entries) {
   const claim = await claimRun(store, entry, { holder: 'worker-3', ttlMs: 60_000 })
   if (!claim) continue     // somebody else got there first — not an error
   try {
-    // …resume the run, passing claim.fence on every durable write…
+    await drainQuery({ ...params, claimFence: claim.fence })
   } finally {
     await releaseRun(store, entry, claim.fence)
   }

@@ -154,6 +154,44 @@ describe('claim regressions', () => {
 		)
 	})
 
+	it('presents the fence on checkpoints a RUN writes, not only on direct store calls', async () => {
+		// The defect that outranked every other: the fence never reached the
+		// runtime. `CheckpointManager` called `writeCheckpoint(scope, cp)` with
+		// two arguments at all four write sites, and an omitted fence is
+		// always accepted — so a stalled worker's checkpoints went through
+		// unrefused, which is verbatim the failure the feature claims to
+		// prevent.
+		//
+		// Every test in the PR called `store.writeCheckpoint(..., fence)`
+		// directly, a path no run takes, which is why thirty-four mutations
+		// could not see it. This test enters where a run enters.
+		const { CheckpointManager } = await import('../../../runtime/query/checkpoint.js')
+		const store = new DiskCheckpointStore(
+			{ baseDir: dir },
+			{ tenantId: T1, projectId: P1, sessionId: S1 },
+		)
+
+		const stale = await acquireClaim(runDir, { holder: 'w1', ttlMs: 1, now: 1_000 })
+		await acquireClaim(runDir, { holder: 'w2', ttlMs: 60_000, now: 5_000 })
+
+		const manager = new CheckpointManager(store, scope())
+		manager.setClaimFence(stale?.fence)
+
+		const runMgr = {
+			id: 'run_a' as RunId,
+			messages: [],
+			currentIteration: 1,
+			tokenUsage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+			costInfo: { totalCost: 0 },
+			getSession: () => ({ startedAt: 900 }),
+		}
+
+		await expect(
+			// biome-ignore lint/suspicious/noExplicitAny: the manager reads six fields.
+			manager.create(runMgr as any, 1),
+		).rejects.toThrow(/no longer holds it/)
+	})
+
 	it('keeps every holding on the record', async () => {
 		const first = await acquireClaim(runDir, { holder: 'w1', ttlMs: 1, now: 1_000 })
 		await acquireClaim(runDir, { holder: 'w2', ttlMs: 60_000, now: 5_000 })

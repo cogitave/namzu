@@ -47,6 +47,22 @@ export class InMemoryCheckpointStore implements CheckpointStore {
 	/** `tenant/project/session/run` → the run's current holding, if any. */
 	private readonly claims = new Map<string, RunClaim>()
 
+	/**
+	 * The highest fence ever issued per run, kept separately from the claim.
+	 *
+	 * The claim is removed on release; this is not. That separation is the
+	 * whole point: the first version deleted the claim and then computed the
+	 * next fence from it, so releasing rewound the counter to 1 and a worker
+	 * stalled at fence 1 could write beside a new holder also at fence 1 —
+	 * and the documented `finally { releaseRun() }` did it on every pass.
+	 *
+	 * The disk store gets this property from file names that persist. In
+	 * memory the equivalent is a high-water mark nothing clears, and the two
+	 * must agree, because this class is what a host reads when writing a
+	 * backend of its own.
+	 */
+	private readonly highWater = new Map<string, ClaimFence>()
+
 	async claimRun(scope: CheckpointRunScope, options: ClaimRunOptions): Promise<RunClaim | null> {
 		const key = this.key(scope)
 		const now = options.now ?? Date.now()
@@ -60,11 +76,12 @@ export class InMemoryCheckpointStore implements CheckpointStore {
 		// are the same write. The fence advances either way, so a previous
 		// holder that wakes up is fenced out in both cases — a renewal that
 		// kept the fence would leave a stalled twin able to write.
-		const claim: RunClaim = {
-			holder: options.holder,
-			fence: (held?.fence ?? 0) + 1,
-			expiresAt: now + options.ttlMs,
-		}
+		// Counted from the high-water mark, never from the live claim. A
+		// released run has no claim, and computing from that absence is what
+		// rewound the counter to 1 on every release.
+		const fence = (this.highWater.get(key) ?? 0) + 1
+		const claim: RunClaim = { holder: options.holder, fence, expiresAt: now + options.ttlMs }
+		this.highWater.set(key, fence)
 		this.claims.set(key, claim)
 		return claim
 	}
@@ -74,6 +91,10 @@ export class InMemoryCheckpointStore implements CheckpointStore {
 		const held = this.claims.get(key)
 		// A stale fence releases nothing. A worker that stalled past its lease
 		// must not be able to hand away a run somebody else now holds.
+		//
+		// The high-water mark deliberately survives this. Dropping the claim
+		// returns the run to the queue; forgetting the number it reached would
+		// re-issue a fence a stalled worker still believes it holds.
 		if (held && held.fence === fence) this.claims.delete(key)
 	}
 

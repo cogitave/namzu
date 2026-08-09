@@ -58,7 +58,7 @@ import type { AgentPersona } from '../../types/persona/index.js'
 import type { LLMProvider } from '../../types/provider/index.js'
 import type { TaskRouterConfig } from '../../types/router/index.js'
 import type { ReviewAnswer } from '../../types/run/answer-review.js'
-import type { CheckpointStore } from '../../types/run/checkpoint-store.js'
+import type { CheckpointStore, ClaimFence } from '../../types/run/checkpoint-store.js'
 import type {
 	AgentRunConfig,
 	PrepareStepChain,
@@ -411,6 +411,23 @@ export interface QueryParams {
 	 * survives machines that lose their local disk.
 	 */
 	checkpointStore?: CheckpointStore
+
+	/**
+	 * The fence of the claim this worker holds on the run, from `claimRun`.
+	 *
+	 * Presented on every checkpoint the run writes, so a worker that stalled
+	 * past its lease is refused rather than writing into a run somebody else
+	 * has taken over. Omit it for single-writer deployments, which is what
+	 * every run did before claims existed.
+	 *
+	 * This hop did not exist for a release. The claim, the fence and the
+	 * store-side refusal were all built and tested, and no path between a run
+	 * and its store carried the number — so every checkpoint a RUN wrote went
+	 * out unfenced while the tests, which called the store directly, all
+	 * passed. A capability complete except for the wire between its halves
+	 * reads exactly like a working one.
+	 */
+	claimFence?: ClaimFence
 
 	runId?: RunId
 
@@ -1000,6 +1017,10 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		// And every park it records carries an absolute deadline, so an
 		// unanswered approval cannot outlive the worker that asked for it.
 		checkpointMgr.setParkTtl(params.runConfig.hitlParkTtlMs)
+		// The claim this worker holds, if it took one. Without this hop the
+		// fence exists, the refusal exists, and no checkpoint a RUN writes ever
+		// carries a number — so a stalled worker is refused nowhere.
+		checkpointMgr.setClaimFence(params.claimFence)
 
 		// A question raised from inside a tool becomes a real checkpoint
 		// here. It used to park under a synthetic id nothing ever wrote, so
