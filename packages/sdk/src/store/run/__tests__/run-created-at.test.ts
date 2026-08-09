@@ -128,6 +128,39 @@ describe('the run attribution stamp', () => {
 		expect(entry?.runCreatedAt).toBe(500)
 	})
 
+	it('survives every write the manager makes, not just the first', async () => {
+		// The stamp is only a stable sort key if EVERY producer carries it. The
+		// docs gate caught this: touching the checkpoint type made the
+		// one-site-is-not-every-site rule stale, and that rule is precisely
+		// "which callers arrive here", not "does this exist". Enumerating the
+		// producers found five — `create`, `park`, `expire`, `unpark` and the
+		// emergency projection — and this pins four of them. A park that
+		// dropped the stamp would take its run out of the oldest-first inbox
+		// at the exact moment the run entered it.
+		const store = new InMemoryCheckpointStore()
+		const manager = new CheckpointManager(store, scope('run_a'))
+
+		const created = await manager.create(runMgr('run_a', 1_000), 1)
+		const parked = await manager.park(created, {
+			type: 'plan_approval',
+			runId: 'run_a' as RunId,
+			checkpointId: created.id,
+			plan: { steps: [] } as never,
+		})
+		const resolved = await manager.unpark(parked.id, { action: 'approve_plan' })
+
+		const second = await manager.create(runMgr('run_a', 1_000), 2)
+		const parkedAgain = await manager.park(second, {
+			type: 'plan_approval',
+			runId: 'run_a' as RunId,
+			checkpointId: second.id,
+			plan: { steps: [] } as never,
+		})
+		const expired = await manager.expire(parkedAgain.id)
+
+		expect([parked, resolved, expired].map((c) => c?.runCreatedAt)).toEqual([1_000, 1_000, 1_000])
+	})
+
 	it('is carried by an emergency dump’s projection', async () => {
 		// A run whose only surviving record is an emergency dump still has a
 		// real attribution instant — the dump records it. Dropping it here

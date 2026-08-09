@@ -12,6 +12,8 @@ tags: [convention, verification, testing]
 verified:
   - by: process:conventions-migration
     at: 2026-08-07T00:00:00Z
+  - by: agent:claude
+    at: 2026-08-09T00:00:00Z
 ---
 
 # Finding an emitter is not evidence that every path reaches it
@@ -119,6 +121,27 @@ the one named in the config you happened to be looking at.
 
 A third: the concept has more than one type declaration, and something maps
 between them field by field.
+
+## A fourth tell: a shape with more producers than its author has in mind
+
+`IterationCheckpoint` is written by five — `create`, `park`, `expire`,
+`unpark`, and the projection from an emergency dump. A field added to that
+type is this rule's shape by default: carried by the producer the author was
+thinking about, absent from the other four, and indistinguishable from
+carried when you are standing at the one you wrote.
+
+`runCreatedAt`, the run's attribution stamp, was added there on 2026-08-09.
+It is only a stable sort key if every producer carries it — a `park` that
+dropped it would take its run out of the oldest-first inbox at the exact
+moment the run entered it, which is the one moment nobody is looking at the
+run's position. All five enumerated, all five carry it.
+
+The test pins four of them **together, in one test**, rather than one test
+per producer. That is the point worth taking: this defect arrives as a
+producer nobody listed, and a list of per-producer tests written one at a
+time stops exactly where the author stopped thinking of producers. A single
+test that walks a value through every mutating method fails when a *sixth*
+producer is added and forgets, which a set of five tests does not.
 
 ## Related
 
