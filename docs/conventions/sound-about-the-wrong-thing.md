@@ -8,7 +8,6 @@ owner: cogitave/namzu
 status: active
 timestamp: 2026-08-06T00:00:00Z
 lastReviewed: 2026-08-09
-resource: packages/sdk/src/runtime/query/index.ts
 tags: [convention, testing, verification]
 ---
 

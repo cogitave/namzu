@@ -8,7 +8,6 @@ owner: cogitave/namzu
 status: active
 timestamp: 2026-08-04T00:00:00Z
 lastReviewed: 2026-08-09
-resource: packages/cli/src/integrations/subagents/runtime.ts
 tags: [convention, verification, code-review]
 ---
 

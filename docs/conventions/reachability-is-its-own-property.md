@@ -7,8 +7,7 @@ diataxis: explanation
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-06T00:00:00Z
-lastReviewed: 2026-08-08
-resource: packages/sdk/src/agents/__tests__/reachability.test.ts
+lastReviewed: 2026-08-09
 tags: [convention, testing, api-design]
 verified:
   - by: process:conventions-migration
