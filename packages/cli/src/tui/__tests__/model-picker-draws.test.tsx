@@ -92,12 +92,12 @@ describe('the model step', () => {
 		unmount()
 	})
 
-	it('offers the provider default alongside the listed models', async () => {
+	it('offers the namzu default alongside the listed models', async () => {
 		const { lastFrame, stdin, unmount } = open()
 		stdin.write('\r')
 		await flush()
 		expect(lastFrame()).toContain(DEFAULT_MODEL)
-		expect(lastFrame()).toContain('(default)')
+		expect(lastFrame()).toContain('(namzu default)')
 		unmount()
 	})
 

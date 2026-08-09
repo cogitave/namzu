@@ -26,7 +26,11 @@ describe('modelStep', () => {
 			],
 		})
 		expect(step.choices.map((c) => c.id)).toEqual(['a', DEFAULT])
-		expect(step.choices.find((c) => c.id === DEFAULT)?.note).toBe('(default)')
+		// Says whose default it is. `(default)` read as the provider's
+		// recommendation, which it never was — namzu picks this value, it goes
+		// stale between provider releases, and an operator choosing from this
+		// list deserves to know it is a choice rather than an endorsement.
+		expect(step.choices.find((c) => c.id === DEFAULT)?.note).toBe('(namzu default)')
 		expect(step.choices.filter((c) => c.id === DEFAULT)).toHaveLength(1)
 	})
 
