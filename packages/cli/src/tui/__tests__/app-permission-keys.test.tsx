@@ -275,13 +275,46 @@ describe('the permission prompt', () => {
 		const { lastFrame } = await promptOpenWithDraftInFlight()
 		const frame = lastFrame() ?? ''
 
-		expect(frame).toContain('y')
-		expect(frame).toContain('reject')
-		expect(frame).toContain('approve all')
-		expect(frame).toContain('esc')
+		// Asserted as whole phrases the OVERLAY produces, not as bare letters.
+		// The previous version of this test used `toContain('y')`, which is
+		// satisfied by any frame containing the letter y — including every frame
+		// this component has ever rendered — and `toContain('reject')`, which the
+		// status bar's own hint satisfies from the other side of the screen. Two
+		// assertions that could not fail, guarding the advertisement that four
+		// separate fixes tonight were about.
+		expect(frame).toContain('approve all for this session')
+		expect(frame).toContain('the agent tries something else')
 		// The advertisement is the contract the handler is held to. `enter` must
 		// not appear, because Enter no longer does anything here.
 		expect(frame.toLowerCase()).not.toContain('enter')
+	})
+
+	it('names the key that stops the turn, and says that it is different', async () => {
+		// `n`/`esc` decline this batch and the agent carries on trying something
+		// else; `ctrl+c` declines AND ends the turn. Two outcomes, and only the
+		// first was on the screen — so an operator who wanted namzu to stop
+		// pressed `n`, watched it continue, and had no way to learn otherwise
+		// from the box they were reading. The distinction was written down only
+		// in `docs/cli/tools.md`.
+		const { lastFrame } = await promptOpenWithDraftInFlight()
+		const frame = lastFrame() ?? ''
+
+		expect(frame.toLowerCase(), 'the key that stops the turn is unnamed').toContain('ctrl+c')
+		expect(frame, 'named the key without naming what makes it different').toContain(
+			'stop the turn',
+		)
+	})
+
+	it('ctrl+c does what the overlay now says it does', async () => {
+		// The other half, and the reason the line above is allowed to claim it:
+		// an advertisement is only worth adding if the key behaves that way. The
+		// batch is declined AND the turn is aborted, where `n` declines only.
+		const { stdin } = await promptOpenWithDraftInFlight()
+
+		stdin.write('\x03')
+		await decisionSettles()
+
+		expect(decisions).toEqual([{ kind: 'reject', feedback: 'User interrupted.' }])
 	})
 })
 

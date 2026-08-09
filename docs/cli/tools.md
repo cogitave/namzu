@@ -133,10 +133,15 @@ An unrecognized tool is treated as needing consent. That direction is deliberate
 | Key | Decision |
 | --- | --- |
 | `y` | Approve this batch. |
-| `n` (or `Esc`) | Reject — the model is told you declined and can adapt. |
 | `a` | Approve this and everything else for the rest of the session. |
+| `n` (or `Esc`) | Decline — the model is told, and **the turn continues**; it can adapt and try something else. |
+| `Ctrl+C` | Decline **and stop the turn**. |
 
-`Ctrl+C` at the prompt rejects and aborts the turn.
+The last two are not the same decision, and the prompt says so on screen rather
+than only here. Declining with `n` leaves the agent working: it will pick another
+approach, which is usually what you want when one particular call was wrong. If
+you want namzu to stop, `Ctrl+C` is the key — pressing `n` and waiting is how
+that goes wrong.
 
 **`Enter` does not approve.** It used to, and it no longer does. The prompt
 arrives on the agent's schedule rather than yours: the composer stays editable
