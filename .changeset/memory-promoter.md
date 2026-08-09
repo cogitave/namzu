@@ -9,6 +9,14 @@ A run now remembers what it worked out, instead of dropping it at settle
 
 New in `@namzu/sdk`: `createMemoryPromoter({ store, tags?, maxPerCategory? }): PromoteMemory`, plus `RUN_MEMORY_TAG`. `@namzu/cli` supplies it over the very store its memory tools already use, so what a run learns is what `search_memory` finds on the next one.
 
+## What changes for you without asking
+
+**This is on by default, and it applies to the interactive TUI as well as to `namzu run` and `namzu run-stream`.** The promoter is supplied from the session every surface is built on, so an ordinary chat session that works something out now leaves a markdown record under `<cwd>/.namzu/memory` when the run settles — a directory that previously only ever grew when the model chose to call `save_memory`. The next session's `search_memory` will find those records, which is the point, and it is also the part you will notice.
+
+It is not opt-in because the alternative it replaces is not neutral: a run's extracted knowledge was being discarded at settle, and a flag would mean the default stays the lossy one. What keeps it from being noisy is the filter below — a session that answered a question without deciding, discovering, failing at or being told anything durable writes nothing at all.
+
+An SDK embedder can replace or disable it by passing its own `promoteMemory` to `query` — a function that does nothing writes nothing. **The CLI has no flag for it in this release**, which is worth knowing before you upgrade if a written-to `.namzu/memory` is a problem for your setup; say so and it becomes one.
+
 **The filter is the whole decision, and it is strict.** A run that learned nothing leaves **no record at all** — not an empty one, not one whose body says "no decisions". Only the five knowledge categories count: user requirements, decisions, discoveries, failures, environment. Not `task`, which every run has because it is the prompt restated; not `files`, which every run that opened anything has and which says what was *touched* rather than what was *learned*. The model reads this store on later runs, so a record per run is not merely wasted disk — it is context spent on runs that discovered nothing.
 
 Records are markdown, tagged `run-memory`, and carry the forming run's id in their metadata so a surprising memory can be checked against what actually happened. Eviction counts are rendered, because somebody reading the record should know they are reading a truncated account of the run.

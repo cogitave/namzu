@@ -62,6 +62,17 @@ made, what it discovered, what it tried that did not work, and facts about the
 environment. One markdown record per run, tagged `run-memory`, carrying the
 run's id so a surprising memory can be traced back to what actually happened.
 
+**This is on by default and it includes the interactive TUI**, not only
+`namzu run` and `namzu run-stream`. All three are built on one session, and it
+is the session that supplies the promoter. So an ordinary chat that works
+something out now leaves a record under `<cwd>/.namzu/memory` — a directory
+that used to grow only when the model chose to call `save_memory`.
+
+There is no flag to turn it off. That is deliberate rather than an oversight:
+the behaviour it replaces was a run's extracted knowledge being discarded at
+settle, so a flag would leave the lossy behaviour as the default. What keeps it
+quiet is the filter below.
+
 **A run that learned nothing leaves nothing.** Not an empty record — nothing.
 Only those five categories count. The task does not, because every run has one
 and it is just the prompt restated; the list of files touched does not, because
