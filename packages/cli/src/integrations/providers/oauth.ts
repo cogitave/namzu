@@ -47,9 +47,20 @@ const EXPIRY_SKEW_MS = 60_000
 /**
  * Re-read the current credential from the store it lives in.
  *
- * The session layer calls this between turns because another process may
- * have rotated the token since launch. Pairing it with `origin` is what stops
- * a long-running session reading one store and writing the other.
+ * The session layer calls this between turns because another process may have
+ * rotated the token since launch. Pairing it with `origin` is what stops a
+ * long-running session reading one store and writing the other.
+ *
+ * **It takes an origin rather than searching, and that is the point.** A
+ * version that tried both and returned the first hit would look more helpful
+ * and would silently break the pairing: a session that started on namzu's own
+ * credential would, on the machine where both exist, quietly begin refreshing
+ * a co-installed tool's credential instead — writing namzu's refreshed token
+ * into somebody else's envelope, and leaving the store the operator actually
+ * signed into holding a token that lapses again on every launch.
+ *
+ * One credential, one store, for its whole life. `discover.ts` decides which
+ * at detection; everything after that is told, not asked.
  */
 export function readSubscriptionCredential(origin: CredentialOrigin): AgentOAuthCredential | null {
 	return origin === 'stored' ? readStoredSubscriptionCredential() : readAgentKeychainCredential()
