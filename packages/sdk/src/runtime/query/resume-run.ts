@@ -1,5 +1,5 @@
 import type { PendingDecision } from '../../types/hitl/index.js'
-import type { CheckpointStore } from '../../types/run/checkpoint-store.js'
+import type { CheckpointStore, ClaimFence } from '../../types/run/checkpoint-store.js'
 import type { Run } from '../../types/run/entity.js'
 import type { RunState } from '../../types/run/state.js'
 import { type QueryParams, drainQuery } from './index.js'
@@ -38,6 +38,15 @@ export interface ResumeRunParams
 	readonly scope: RunStateScope
 	/** Required to find the checkpoint; also threaded into the resumed run. */
 	readonly checkpointStore: CheckpointStore
+
+	/**
+	 * The fence of the claim this worker took on the run before resuming.
+	 *
+	 * A resume is the one moment two workers are most likely to collide — it
+	 * is what a queue reader does with a parked run — so this is the call that
+	 * most needs to carry one.
+	 */
+	readonly claimFence?: ClaimFence
 	/**
 	 * Resume a specific checkpoint instead of the one the store would pick.
 	 * Absent means the parked checkpoint if there is one, else the newest.
@@ -67,7 +76,7 @@ export interface ResumeRunParams
  * resumed past without the answer it is waiting for.
  */
 export async function resumeRun(params: ResumeRunParams): Promise<ResumeOutcome> {
-	const { scope, checkpointStore, checkpointId, pendingDecision, ...rest } = params
+	const { scope, checkpointStore, checkpointId, pendingDecision, claimFence, ...rest } = params
 
 	const state = await loadRunState(checkpointStore, scope, checkpointId)
 	if (!state?.checkpointId) return { resumed: false, reason: 'no-checkpoint' }
@@ -86,6 +95,7 @@ export async function resumeRun(params: ResumeRunParams): Promise<ResumeOutcome>
 		runId: state.runId,
 		resumeFromCheckpoint: state.checkpointId,
 		checkpointStore,
+		...(claimFence !== undefined ? { claimFence } : {}),
 		...(pendingDecision ? { pendingDecision } : {}),
 	} as QueryParams)
 

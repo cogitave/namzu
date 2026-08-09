@@ -1,7 +1,7 @@
 ---
 uid: namzu.conventions.mutation-check-every-test
 title: Mutate every test, and never trust a helper test to prove its caller
-description: A passing test proves nothing until you have watched it fail. Break the thing it covers, confirm that that test and not a neighbour goes red, then read the whole run rather than the summary line — and read the margin, because a kill by one unit is the fixture discriminating and not the code.
+description: A passing test proves nothing until you have watched it fail. Break the thing it covers, confirm that that test and not a neighbour goes red, read the whole run rather than the summary line, and treat a table where everything dies as a map of what you have not tested rather than a proof.
 type: Convention
 diataxis: explanation
 owner: cogitave/namzu
@@ -204,6 +204,44 @@ green while guarding less than it claims. Make a zero-match or a multi-match
 anchor abort the run rather than become a row — a multi-match is the worse
 one, because a string replace takes the first occurrence and reports a kill
 for a mutation it only half made.
+
+## A table where everything dies is not a proof
+
+Thirteen mutations, aimed carefully, every one killed. An adversarial review
+then reproduced **four** defects in the same file, from separate OS
+processes, and not one of them was caught by any of the thirteen.
+
+They could not have been. A mutation table is evidence about the paths the
+tests **reach**, and all four lived in one branch — a stale lock being broken
+by two workers at once — that no test entered. No mutation of code nothing
+executes can fail anything, so the branch was invisible in exactly the way a
+green table makes things invisible: it did not appear as a survivor, because
+a survivor is a mutation you ran.
+
+That is the fourth category, and it sits behind the three above. *Killed*,
+*survived* and *did not answer* all describe mutations you ran. The fourth is
+**the branch you never mutated, because no test would have noticed either
+way.**
+
+So: **the correct reading of a table where everything dies is not "the code
+is proven". It is "aim next at the branches nothing covers" — and the table
+itself tells you which those are.** Every mutation that died names a line
+your tests execute. The lines that appear in no row are the map of what you
+have not tested, and a full-green table is that map at its most complete.
+
+Read it that way and the next move is mechanical: list the branches of the
+thing you just proved, strike out the ones a mutation touched, and write a
+test for what is left. The dangerous ones cluster where a comment says
+"cannot happen", where two operations stand in for one, and on the failure
+path of a guard — places a test has to be written *deliberately*, because
+nothing about the happy path leads to them.
+
+The stronger move, when the remaining branches are the concurrent or
+partially-failed ones, is to delete them rather than cover them. The file
+that produced these four was rebuilt so the dangerous operation does not
+exist — the ordering became a filename, taking a run became a single
+exclusive create, and the lock, the breaker and the window all went with it.
+A branch that is gone needs no test and cannot rot.
 
 ## Related
 

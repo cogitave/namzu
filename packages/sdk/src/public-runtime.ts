@@ -218,6 +218,11 @@ export {
 	paginateDurableRuns,
 	toDurableRunEntry,
 } from './store/index.js'
+// Cross-process possession of a run. `claimRun` REFUSES on a store that
+// cannot arbitrate rather than proceeding unclaimed, because proceeding lets
+// two workers restore one checkpoint, both run its tools and both write under
+// one run id — which loses half the work and reports nothing.
+export { claimRun, fencedOut, releaseRun, toClaimSummary } from './store/index.js'
 
 export {
 	AgentRegistry,

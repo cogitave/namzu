@@ -11,7 +11,11 @@ import type {
 	PendingDecision,
 } from '../../types/hitl/index.js'
 import type { AssistantMessage } from '../../types/message/index.js'
-import type { CheckpointRunScope, CheckpointStore } from '../../types/run/checkpoint-store.js'
+import type {
+	CheckpointRunScope,
+	CheckpointStore,
+	ClaimFence,
+} from '../../types/run/checkpoint-store.js'
 import type { EmergencySaveData } from '../../types/run/emergency.js'
 import type { CheckpointListEntry } from '../../types/run/replay.js'
 import { ZERO_COST } from '../../utils/cost.js'
@@ -155,6 +159,22 @@ export class CheckpointManager {
 	private parkTtlMs?: number
 
 	/**
+	 * The claim this run holds, presented on every checkpoint write.
+	 *
+	 * Unset means unfenced, which is correct for a single-writer deployment
+	 * and is what every run did before claims existed. Set it and a write from
+	 * a superseded holding is refused by the store.
+	 *
+	 * This existed nowhere for one release, and the omission was invisible in
+	 * the worst way: the claim, the fence and the refusal were all built and
+	 * tested, and no code path between a run and its store carried the number,
+	 * so every checkpoint a RUN wrote went out unfenced. A capability that is
+	 * complete except for the wire between its halves reads exactly like a
+	 * working one.
+	 */
+	private claimFence?: ClaimFence
+
+	/**
 	 * The run's attribution instant, stamped onto every checkpoint this
 	 * manager writes.
 	 *
@@ -234,7 +254,7 @@ export class CheckpointManager {
 			traceContext: this.traceSource?.(),
 		}
 
-		await this.store.writeCheckpoint(this.scope, checkpoint)
+		await this.store.writeCheckpoint(this.scope, checkpoint, this.claimFence)
 		this.lastCreatedId = checkpoint.id
 		return checkpoint
 	}
@@ -298,8 +318,25 @@ export class CheckpointManager {
 				...(ttl !== undefined && ttl > 0 ? { deadlineAt: parkedAt + ttl } : {}),
 			},
 		}
-		await this.store.writeCheckpoint(this.scope, parked)
+		await this.store.writeCheckpoint(this.scope, parked, this.claimFence)
 		return parked
+	}
+
+	/**
+	 * Present this claim on every subsequent write. See {@link claimFence}.
+	 *
+	 * A setter rather than a constructor argument because a run is claimed at
+	 * a different moment than it is constructed — a worker draining a queue
+	 * takes the run, then builds the pipeline around it — and because a
+	 * renewal mints a NEW fence mid-run that has to replace the old one.
+	 */
+	setClaimFence(fence: ClaimFence | undefined): void {
+		this.claimFence = fence
+	}
+
+	/** The claim currently presented on writes, if any. */
+	get presentedFence(): ClaimFence | undefined {
+		return this.claimFence
 	}
 
 	/** Default time-to-live applied to every park this manager records. */
@@ -329,7 +366,7 @@ export class CheckpointManager {
 				decision: { action: 'pause', reason: 'The approval request expired without an answer.' },
 			},
 		}
-		await this.store.writeCheckpoint(this.scope, expired)
+		await this.store.writeCheckpoint(this.scope, expired, this.claimFence)
 		return expired
 	}
 
@@ -352,7 +389,7 @@ export class CheckpointManager {
 			...checkpoint,
 			pending: { ...checkpoint.pending, resolvedAt: Date.now(), decision },
 		}
-		await this.store.writeCheckpoint(this.scope, resolved)
+		await this.store.writeCheckpoint(this.scope, resolved, this.claimFence)
 		return resolved
 	}
 

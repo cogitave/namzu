@@ -18,8 +18,12 @@ export { InMemoryCheckpointStore } from './run/checkpoint-memory.js'
 // host has no use for is surface to keep correct forever for nobody.
 export {
 	assertContiguousListingScope,
+	claimRun,
+	fencedOut,
 	listDurableRuns,
 	paginateDurableRuns,
+	releaseRun,
+	toClaimSummary,
 	toDurableRunEntry,
 } from './run/listing.js'
 

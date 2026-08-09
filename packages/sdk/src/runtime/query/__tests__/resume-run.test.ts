@@ -2,10 +2,12 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { InMemoryCheckpointStore as RealInMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js'
 import type { CheckpointId, IterationCheckpoint } from '../../../types/hitl/index.js'
 import type { RunId, SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
@@ -107,6 +109,32 @@ async function mkWorkdir(): Promise<string> {
 	const dir = await mkdtemp(join(tmpdir(), 'namzu-resume-run-'))
 	workdirs.push(dir)
 	return dir
+}
+
+/**
+ * A provider and registry that make the run actually ITERATE.
+ *
+ * A text-only turn finishes before the iteration checkpoint phase runs, so
+ * nothing is written and a fence has nothing to be presented on — measured:
+ * zero `writeCheckpoint` calls for the whole resume. A claim test built on
+ * that shape cannot fail, whatever the wiring does. One tool call and a
+ * closing turn is the shortest run that checkpoints.
+ */
+function toolCallingProvider(): MockLLMProvider {
+	return new MockLLMProvider({
+		turns: [{ toolCalls: [{ name: 'echo', args: { text: 'hi' } }] }, { text: 'continued' }],
+	})
+}
+
+function registryWithEcho(): ToolRegistry {
+	const tools = new ToolRegistry()
+	tools.register({
+		name: 'echo',
+		description: 'echo the text back',
+		inputSchema: z.object({ text: z.string() }),
+		execute: async () => ({ success: true, output: 'hi' }),
+	})
+	return tools
 }
 
 async function baseParams(store: CheckpointStore) {
@@ -259,5 +287,101 @@ describe('it refuses rather than guessing', () => {
 		// `resolvedAt` is what makes a park answered. Blocking on one that
 		// already has its answer would strand the run permanently.
 		expect(outcome.resumed).toBe(true)
+	})
+})
+
+describe('a resume carries the claim it was given', () => {
+	/**
+	 * The fix for "the fence never reached the runtime" was itself untested,
+	 * and it is the most convincing kind of decorative test.
+	 *
+	 * The only claim-fence test in the package built a `CheckpointManager`
+	 * directly and handed it a fence. That was never the defect — a manager
+	 * ignoring a fence it is given is code that never had a bug. **The defect
+	 * was that nothing gave it one.** The wiring is two lines, `query()` and
+	 * `resume-run.ts`, and deleting either left the whole suite green: exactly
+	 * the state the fix's own commit message describes, everything built and
+	 * tested with no path between a run and its store carrying the number.
+	 *
+	 * So this drives the real entry point with the real store. It crosses both
+	 * hops — `resumeRun` forwards the fence to `query`, `query` presents it to
+	 * the manager, the manager presents it on the write — and it asserts the
+	 * refusal, which only the store can produce. Remove either line and the run
+	 * writes unfenced and this test fails.
+	 */
+	async function iteratingParams(store: CheckpointStore) {
+		return {
+			...(await baseParams(store)),
+			provider: toolCallingProvider(),
+			tools: registryWithEcho(),
+			runConfig: {
+				model: 'mock-model',
+				timeoutMs: 30_000,
+				tokenBudget: 100_000,
+				maxIterations: 3,
+				maxResponseTokens: 256,
+			},
+		}
+	}
+
+	it('is refused when another worker has taken the run over', async () => {
+		const store = new RealInMemoryCheckpointStore()
+		await store.writeCheckpoint(SCOPE, checkpoint())
+
+		// w1 takes the run and stalls. w2 reclaims it once the lease lapses.
+		const stale = await store.claimRun(SCOPE, { holder: 'w1', ttlMs: 1, now: 1_000 })
+		await store.claimRun(SCOPE, { holder: 'w2', ttlMs: 60_000, now: 5_000 })
+
+		// w1 wakes up and resumes, still believing it holds the run. It cannot
+		// know otherwise — a pause, a suspended container and a partition all
+		// look from the inside like time not passing. The write is the only
+		// place it can be told, and it is two hops away from here.
+		const outcome = await resumeRun({
+			...(await iteratingParams(store)),
+			claimFence: stale?.fence,
+		})
+
+		// `resumeRun` RESOLVES. The refusal arrives as a failed run rather than
+		// a rejected promise, which is worth stating because a host wrapping
+		// this call in `try`/`catch` would see nothing: the fence is reported
+		// on the run, and `status` is what a queue worker has to read.
+		expect(outcome.resumed).toBe(true)
+		if (!outcome.resumed) return
+		expect(outcome.run.status).toBe('failed')
+		expect(outcome.run.stopReason).toBe('error')
+		expect(outcome.run.lastError).toMatch(/no longer holds it/)
+	})
+
+	it('lets the current holder resume and finish', async () => {
+		// The preservation half, and the one that keeps the test above from
+		// passing on any failure at all. A refusal that fires for the rightful
+		// holder too is not a fence, it is an outage.
+		const store = new RealInMemoryCheckpointStore()
+		await store.writeCheckpoint(SCOPE, checkpoint())
+		const claim = await store.claimRun(SCOPE, { holder: 'w1', ttlMs: 60_000, now: 1_000 })
+
+		const outcome = await resumeRun({
+			...(await iteratingParams(store)),
+			claimFence: claim?.fence,
+		})
+
+		expect(outcome.resumed).toBe(true)
+		if (!outcome.resumed) return
+		expect(outcome.run.status).not.toBe('failed')
+	})
+
+	it('resumes unfenced when the host holds no claim', async () => {
+		// Every run did this before claims existed, and a host that has not
+		// adopted them must keep working — including on a run somebody else
+		// holds, because an unfenced write is still accepted.
+		const store = new RealInMemoryCheckpointStore()
+		await store.writeCheckpoint(SCOPE, checkpoint())
+		await store.claimRun(SCOPE, { holder: 'somebody-else', ttlMs: 60_000, now: 1_000 })
+
+		const outcome = await resumeRun(await iteratingParams(store))
+
+		expect(outcome.resumed).toBe(true)
+		if (!outcome.resumed) return
+		expect(outcome.run.status).not.toBe('failed')
 	})
 })

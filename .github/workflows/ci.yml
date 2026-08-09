@@ -25,12 +25,38 @@ name: CI
 # queue validates against the merge result, which is the thing that has to be
 # correct.
 #
+# ## The same hole, a second time, in the same trigger
+#
+# `types:` was left unset, so this takes the default set — opened,
+# synchronize, reopened — and `ready_for_review` is not in it. A PR converted
+# to draft, pushed to, and then marked ready therefore carries the checks from
+# BEFORE the push: the static analyses and the supply-chain scans run on their
+# own triggers and go green, and the one workflow that compiles and runs the
+# code never fires. Five green checks, none of them this one.
+#
+# That is the paragraph above happening again, which is why it is written
+# here rather than fixed silently. It cost a real review cycle: a commit that
+# replaced a concurrency mechanism sat with a green PR and no Build & Test,
+# and closing and reopening the PR did not start one either.
+#
+# `ready_for_review` is safe in a way `edited` is not. It fires once, on a
+# state transition a human makes deliberately, and it fires at exactly the
+# moment the answer starts to matter — a draft nobody can merge is the one
+# place skipping the matrix is defensible. Draft pushes still run, because
+# `synchronize` fires on a draft too; what was missing was the transition
+# itself.
+#
+# Naming the set explicitly also means the next person changing this reads a
+# list rather than inheriting a default they have to look up, which is how
+# `ready_for_review` went missing in the first place.
+#
 # Harmless until the queue is switched on: `merge_group` events only exist
 # when a repository has one. Enabling it on the `main` ruleset is a repository
 # setting and therefore a human's call, not this workflow's.
 on:
   pull_request:
     branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
   merge_group:
     branches: [main]
 
