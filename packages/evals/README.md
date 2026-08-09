@@ -1,11 +1,51 @@
 # @namzu/evals
 
-Namzu's own kernel behaviour suites.
+Namzu's own behaviour and security suites.
 
-These run against a **scripted provider**, so nothing here measures a model.
-That is the point: the turns are fixed, so a score that moves means the kernel
-changed its behaviour. A suite that calls a real provider measures two things
-at once and cannot say which one moved.
+Nothing here measures a model. The kernel suites run against a **scripted
+provider** and the security suites touch no provider at all, so a score that
+moves means the code changed its behaviour. A suite that calls a real provider
+measures two things at once and cannot say which one moved.
+
+## The two kinds
+
+- **`kernel/`** — invariants of the agent loop, driven against a scripted
+  provider. Every case pins something this kernel has broken at least once.
+- **`security/`** — deterministic probes for properties that are easy to get
+  wrong and hard to notice. No provider, no kernel, no network.
+
+### `security/oauth-state` — does `state` derive from the PKCE verifier?
+
+In authorization code + PKCE, only the *challenge* — the hash of the verifier —
+may travel in the authorization URL. `state` travels in that URL too, so a flow
+that sets `state = verifier` writes the verifier into the address bar, the
+browser history and any referrer, and the protection PKCE exists to provide is
+gone while every part of the ceremony is still present.
+
+**The assertion a careful person writes does not catch it.** `state !== challenge`
+holds for the broken flow — necessarily, because the challenge is the SHA-256 of
+the verifier — so the check passes while the property is broken. Even
+`state !== verifier` only catches literal reuse; a slice, a re-encoding, a
+reversal or a second hash all still couple the two.
+
+The probe is importable, so you can point it at your own flow:
+
+```js
+import {
+  auditAuthorizationRequest,
+} from '@namzu/evals/security/oauth-state.js'
+
+const { sound, findings } = auditAuthorizationRequest({ url, state, verifier })
+if (!sound) throw new Error(findings.join('; '))
+```
+
+It answers with the **name** of the relation it found — "state is the verifier,
+reversed" sends you to the line; "unsound" sends you to re-read a flow you
+believe is correct. It reads one captured attempt and enumerates a fixed list of
+derivations, so a relation outside that list would pass: presence of a finding
+is proof of coupling, absence is not proof of independence. The list is written
+out in the source rather than described, so you can see how far the answer
+reaches.
 
 ## What it is for
 
