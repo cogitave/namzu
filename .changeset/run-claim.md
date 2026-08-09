@@ -50,10 +50,12 @@ record, transcript and report.**
 That is a real bound, not a theoretical one. It means a claim today buys you
 a coherent resume point, not a coherent run.
 
-Closing it needs the run store to become injectable and fence-aware, which is
-separate work; until then, treat a claim as protecting the state a resume
-reads and assume the settle-time artefacts are last-writer-wins. If that is
-not good enough for your deployment, keep one writer per run.
+Closing it needs the run store to become injectable and fence-aware. It is now
+injectable — `QueryParams.runStore` — and it is still not fence-aware: no
+method on `RunStore` takes a fence, so injecting one does not close this. Until
+it does, treat a claim as protecting the state a resume reads and assume the
+settle-time artefacts are last-writer-wins. If that is not good enough for your
+deployment, keep one writer per run.
 
 **It is a lease, not a lock.** A lock held by a process that dies is held
 forever and its runs need a human with a shell. Calling `claimRun` on a run
@@ -88,8 +90,28 @@ forever. New types: `RunClaim`, `ClaimFence`, `ClaimSummary`,
 
 The built-in disk store keeps one file per holding, named for its fence, and
 takes a run by exclusively creating the next number — so the kernel picks the
-winner in a single operation, the counter cannot rewind across a release, and
-a body nobody can parse never hides the ordering.
+winner, the counter cannot rewind across a release, and a body nobody can
+parse never hides the ordering.
+
+It publishes that name with `link`: the body is written to a scratch name in
+the same directory and the fence name is created as a second reference to it.
+A plain exclusive create is open-then-write, so the winning name exists empty
+for an instant, and a reader landing there reports a live holding as expired —
+which puts a second worker on a running run, with both restoring it and
+executing its tools before either is refused. Publishing through `link` means
+the name never exists before the body under it.
+
+**This needs a filesystem with hard links, and it says so rather than
+guessing.** The scratch file must be in the same directory as its destination
+(`link` across filesystems fails `EXDEV`), which the store handles. If the
+volume supports no hard link at all — some network and removable volumes —
+`claimRun` raises `capability_unavailable` naming the code the filesystem
+returned. It refuses rather than falling back, because the only fallback is
+the non-atomic create described above and a claim that silently stops being
+exclusive is worse than one that will not start: the host cannot tell which it
+got. Put the base directory on a filesystem with hard-link support, or run a
+single writer per run. This case is unmeasured — no such volume was available
+to test — and the error says so instead of implying a diagnosis.
 
 **If you implement this yourself**, four properties the fence comparison
 depends on and none of which the kernel can check: a fence must exceed every
