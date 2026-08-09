@@ -140,6 +140,30 @@ export async function discoverProviders(
 
 	// Read both credential sources once, up front, so the loop body stays
 	// uniform. Only anthropic consumes either.
+	//
+	// ## Two lookups, one store per credential — do not "fix" this
+	//
+	// These are two SOURCES, not two stores, and the difference is the whole
+	// design. A credential belongs to exactly one of them for its whole life:
+	// the one namzu obtained lives in namzu's file, the one a co-installed tool
+	// obtained lives in that tool's Keychain entry, and `origin` — set below and
+	// carried on the detected provider — is what pairs every later READ with the
+	// matching WRITE (see `oauth.ts`).
+	//
+	// So the two obvious tidy-ups are both defects:
+	//
+	//  - **Merging them into one lookup** would blend fields across sources —
+	//    an access token from one with a refresh token from the other. The
+	//    refresh would then be attempted with a token the endpoint never issued
+	//    against that access token, and the failure surfaces as a 401 in a
+	//    session the operator signed into successfully.
+	//  - **Writing a refresh back to both** would put namzu's secret in another
+	//    product's envelope, under their name, and give one credential two
+	//    homes that drift the moment either side rotates.
+	//
+	// A second lookup is not a gap to be closed; it is the only way to reach a
+	// credential namzu did not write. What must stay single is the store each
+	// credential is read from and written to, and that is `origin`'s job.
 	const storedCredential = opts.skipStored
 		? null
 		: readStoredSubscriptionCredential(...(opts.home === undefined ? [] : [opts.home]))
