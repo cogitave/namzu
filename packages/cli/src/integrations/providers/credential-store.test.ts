@@ -2,8 +2,8 @@ import {
 	existsSync,
 	mkdirSync,
 	mkdtempSync,
-	readdirSync,
 	readFileSync,
+	readdirSync,
 	statSync,
 	writeFileSync,
 } from 'node:fs'
@@ -13,10 +13,13 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import {
+	CredentialStoreError,
+	assertOwnerOnlyMode,
 	assertSoleOwnerSddl,
 	clearStoredSubscriptionCredential,
-	CredentialStoreError,
 	credentialsPath,
+	currentUserSid,
+	readAclSddl,
 	readStoredSubscriptionCredential,
 	writeStoredSubscriptionCredential,
 } from './credential-store.js'
@@ -97,11 +100,59 @@ describe('the file is private, and the store proves it', () => {
 		expect(mode & 0o077).toBe(0)
 	})
 
-	it.skipIf(platform() !== 'win32')('grants exactly the current account', () => {
-		// The Windows arm proves itself by not throwing: `restrictToOwner` reads
-		// the access-control list back and refuses when it is not sole-owner.
-		expect(() => writeStoredSubscriptionCredential({ accessToken: SECRET }, home)).not.toThrow()
+	it.skipIf(platform() !== 'win32')('grants exactly the current account, and nobody else', () => {
+		writeStoredSubscriptionCredential({ accessToken: SECRET }, home)
+		// Asserted from OUTSIDE the write, against the real list the filesystem
+		// ended up with. Checking only that the write did not throw would leave
+		// the whole protection step deletable without a single test noticing,
+		// on the platform the step exists for.
+		const sddl = readAclSddl(credentialsPath(home))
+		const sid = currentUserSid()
+		expect(sid).not.toBeNull()
+		expect(sddl).not.toBeNull()
+		expect(() => assertSoleOwnerSddl(sddl as string, sid as string, 'p')).not.toThrow()
 		expect(readStoredSubscriptionCredential(home)?.accessToken).toBe(SECRET)
+	})
+
+	it.skipIf(platform() !== 'win32')('does not leave the directory it inherited from open', () => {
+		writeStoredSubscriptionCredential({ accessToken: SECRET }, home)
+		// `P` — the protected flag. Without it the file still takes whatever the
+		// parent grants, which on a shared machine is the whole point missed.
+		expect(readAclSddl(credentialsPath(home))).toMatch(/D:[A-Z]*P/)
+	})
+})
+
+/**
+ * The POSIX assertion, exercised on every platform.
+ *
+ * The branch that calls this only runs off Windows, so on Windows the check
+ * is unreachable and a mutation deleting it kills nothing there. Testing the
+ * comparison directly is what closes that: the rule is checked by whoever is
+ * running the suite, whatever they are running it on.
+ */
+describe('assertOwnerOnlyMode', () => {
+	it('accepts a file only its owner can read or write', () => {
+		expect(() => assertOwnerOnlyMode(0o100600, 'p')).not.toThrow()
+		expect(() => assertOwnerOnlyMode(0o100400, 'p')).not.toThrow()
+	})
+
+	it('refuses a bit granted to the group', () => {
+		expect(() => assertOwnerOnlyMode(0o100640, 'p')).toThrow(CredentialStoreError)
+	})
+
+	it('refuses a bit granted to everyone else', () => {
+		expect(() => assertOwnerOnlyMode(0o100604, 'p')).toThrow(CredentialStoreError)
+		expect(() => assertOwnerOnlyMode(0o100666, 'p')).toThrow(CredentialStoreError)
+	})
+
+	it('refuses execute as readily as read, since either is access we did not grant', () => {
+		expect(() => assertOwnerOnlyMode(0o100601, 'p')).toThrow(CredentialStoreError)
+	})
+
+	it('names the path and the mode, and nothing else', () => {
+		expect(() => assertOwnerOnlyMode(0o100644, '/h/.namzu/credentials.json')).toThrow(
+			/\/h\/\.namzu\/credentials\.json.*644/,
+		)
 	})
 })
 
@@ -122,9 +173,7 @@ describe('assertSoleOwnerSddl', () => {
 	})
 
 	it('accepts a differently-cased identifier', () => {
-		expect(() =>
-			assertSoleOwnerSddl(`D:PAI(A;;FA;;;${US.toLowerCase()})`, US, 'p'),
-		).not.toThrow()
+		expect(() => assertSoleOwnerSddl(`D:PAI(A;;FA;;;${US.toLowerCase()})`, US, 'p')).not.toThrow()
 	})
 
 	it('refuses a second allow entry naming somebody else', () => {

@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -60,10 +60,27 @@ describe('the authorization request', () => {
 		expect(url.searchParams.get('redirect_uri')).toBe(REDIRECT_URI)
 		const challenge = url.searchParams.get('code_challenge') ?? ''
 		expect(challenge.length).toBeGreaterThan(20)
-		// The verifier is what PKCE keeps OUT of this URL. Reusing it as `state`
-		// — which nearby implementations do — would put it here.
-		expect(url.searchParams.get('state')).not.toBe(challenge)
 		login.cancel()
+	})
+
+	it('never puts the PKCE verifier in the authorization URL', async () => {
+		// The claim that matters, and it can only be checked against the
+		// verifier itself — which is not exposed, but IS sent on the exchange.
+		// Comparing `state` to the CHALLENGE instead looks like this test and
+		// proves nothing: reusing the verifier as state leaves state and
+		// challenge different, because one is the hash of the other.
+		const { fetchFn, seen } = stubEndpoint(200, GOOD)
+		const login = await beginSubscriptionLogin({ home, loopback: false, fetch: fetchFn })
+		const params = new URL(login.url).searchParams
+		const state = params.get('state') as string
+		await login.completeWithPastedCode(`${CODE}#${state}`)
+		const verifier = (JSON.parse(String(seen.init?.body)) as { code_verifier: string })
+			.code_verifier
+		expect(verifier.length).toBeGreaterThan(20)
+		// The address bar, the browser history and any referrer see this URL.
+		// The verifier is the one value PKCE exists to keep out of it.
+		expect(login.url).not.toContain(verifier)
+		expect(state).not.toBe(verifier)
 	})
 
 	it('mints a different state and challenge on every attempt', async () => {

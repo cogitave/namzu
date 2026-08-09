@@ -8,7 +8,63 @@ related_packages: ["@namzu/cli", "@namzu/anthropic", "@namzu/openai", "@namzu/op
 
 # Providers & credentials
 
-namzu is **credential-first**: it never runs a login flow. On launch it discovers credentials already present on your machine and lets you choose which LLM provider to chat through.
+namzu is **credential-first**: on launch it discovers credentials already present on your machine and lets you choose which LLM provider to chat through. If it finds none, it can also sign you in — see [Signing in with a subscription](#signing-in-with-a-subscription) below.
+
+## Signing in with a subscription
+
+If you pay for a plan rather than for API usage, `/login` gets you a credential
+without an API key and without installing anything else.
+
+```
+/login
+```
+
+namzu prints an address and tries to open it in your browser. Sign in there;
+when the page finishes, namzu picks the result up and reconnects on its own.
+
+**On a machine with no browser** — a container, a remote shell, a server — open
+the printed address wherever you *do* have a browser, then bring the result
+back:
+
+```
+/login http://localhost:53692/callback?code=…&state=…
+```
+
+The whole address works, and so does just the code. namzu says which of the two
+routes is available to you at the time: if it could not open a listener on this
+machine (the port is busy, or the environment forbids listening), it tells you
+so rather than leaving you waiting for a hand-back that is never coming.
+
+### Where the credential goes
+
+`~/.namzu/credentials.json`, on every platform, readable **only by your
+account**. namzu sets that protection when it writes the file and then reads it
+back to check — on Linux and macOS by re-reading the mode, on Windows by
+removing inherited permissions, granting your account alone, and re-reading the
+resulting access-control list. **If that check cannot be made, the file is
+deleted and the sign-in fails.** A credential store that cannot show it is
+private is worse than none.
+
+namzu refreshes the credential as it expires and finds it again on the next
+launch. `/logout` removes it. Removing it here does not revoke anything at the
+provider — do that in your account settings.
+
+Nothing is written until a sign-in has fully succeeded, so an abandoned or
+rejected attempt leaves nothing behind. No token is ever printed, logged, or
+included in an error message.
+
+### Whose identity you sign in as
+
+namzu presents the OAuth client the vendor's own command-line tool is
+registered under, because the authorization server accepts no other client for
+plan-backed inference and that vendor operates no open registration. The
+sign-in happens on the vendor's page, against your account; no namzu service
+sees the credential and nothing is proxied. See
+`packages/cli/src/integrations/providers/identity.ts`, where the choice and its
+consequences are recorded next to the value.
+
+If you would rather not use it, the other doors are unchanged: set an
+environment variable, or type a key at the picker.
 
 ## If nothing is found, you can type one
 
@@ -19,13 +75,13 @@ straight away, without leaving namzu.
 The screen says so before you type and again after. To make it durable, set the
 environment variable the same screen names, and restart.
 
-That is a deliberate limit rather than an unfinished one. The obvious durable
-home would be the OS keychain, and namzu's keychain support is macOS-only and
-reads a *different* product's credential store — writing your key there would
-file it under someone else's name, and on Windows there is no keychain path at
-all. The remaining option was a plaintext file, and a secret at rest should be
-something you chose rather than something that arrived because you typed into a
-text field.
+That is a deliberate limit rather than an unfinished one, and it is still the
+limit now that a credential store exists. A secret at rest should be something
+you chose, not something that arrived because you typed into a text field — and
+`/login` is the choosing. There, you asked for a credential and namzu obtained
+it; here, you pasted one namzu had no part in and cannot refresh, verify the
+provenance of, or remove on your behalf. Writing it to disk without being asked
+would be namzu deciding that for you.
 
 While you type, only a mask is shown — never the key, and never its length. The
 key is checked with the provider at the moment you enter it, by listing models,
@@ -43,14 +99,15 @@ terminal.
 namzu scans these sources, in order, and offers whatever it finds:
 
 1. **Environment variables** — e.g. `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`.
-2. **macOS Keychain** — the Claude Code OAuth credential (`Claude Code-credentials`). This lets namzu reuse an existing Claude Code sign-in with no API key. macOS only.
-3. **Local probes** — a reachable Ollama server (e.g. `localhost:11434`).
+2. **namzu's own credential store** — `~/.namzu/credentials.json`, written by `/login`. Every platform.
+3. **macOS Keychain** — the Claude Code OAuth credential (`Claude Code-credentials`). This lets namzu reuse an existing Claude Code sign-in with no API key. macOS only.
+4. **Local probes** — a reachable Ollama server (e.g. `localhost:11434`).
 
 > **Removed in 0.7.0:** namzu also used to read the `secrets.toml` of an external peer daemon it integrated with, ahead of the Keychain. That integration is gone. A credential kept only in that file is no longer found — export it as one of the environment variables above instead. `namzu doctor` lists the sources actually scanned.
 
 If nothing is found, namzu shows the picker in an empty state explaining exactly which environment variable to set (or to start Ollama), then restart.
 
-**The Keychain path is macOS-only.** On Windows and Linux there are exactly two doors: an environment variable, or a reachable local server. A credential kept only in your OS credential store is not found on those platforms.
+**The Keychain path is macOS-only**, and reads a credential belonging to a co-installed tool, so it can only help someone who has that tool on that operating system. Source 2 is what closed the gap it used to leave: on Windows and Linux, `/login` gets you a credential of your own, and namzu prefers it over a borrowed one when both are present.
 
 **A local server that is not running is not listed.** Appearing in the list means namzu can use that provider *right now* — `namzu doctor` reads presence itself as "reachable" for a provider that needs no key, and the chain builder will build a member from it. An entry for a server that is down would make both of those wrong. The empty-state screen above is where you are told a local server is an option, and it names both ports.
 

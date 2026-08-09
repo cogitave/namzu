@@ -7,7 +7,23 @@ vi.mock('./keychain.js', async (importOriginal) => {
 	return { ...actual, writeAgentKeychainCredential: vi.fn(() => false) }
 })
 
-import { ensureFreshAnthropicToken, refreshAgentOAuthToken } from './oauth.js'
+const writeStored = vi.hoisted(() => vi.fn())
+const readStored = vi.hoisted(() => vi.fn(() => null))
+vi.mock('./credential-store.js', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('./credential-store.js')>()
+	return {
+		...actual,
+		writeStoredSubscriptionCredential: writeStored,
+		readStoredSubscriptionCredential: readStored,
+	}
+})
+
+import { writeAgentKeychainCredential } from './keychain.js'
+import {
+	ensureFreshAnthropicToken,
+	readSubscriptionCredential,
+	refreshAgentOAuthToken,
+} from './oauth.js'
 
 function mockFetch(impl: typeof fetch): void {
 	vi.stubGlobal('fetch', impl)
@@ -15,6 +31,83 @@ function mockFetch(impl: typeof fetch): void {
 
 afterEach(() => {
 	vi.unstubAllGlobals()
+	vi.clearAllMocks()
+})
+
+function respondWithFreshToken(): void {
+	mockFetch(
+		(async () =>
+			new Response(JSON.stringify({ access_token: 'cc-fresh', expires_in: 3600 }), {
+				status: 200,
+			})) as typeof fetch,
+	)
+}
+
+/**
+ * A refreshed token goes back to the store it came from, and to no other.
+ *
+ * Reading one store and writing the other is the failure this exists to
+ * prevent: nothing errors, the session works, and the credential is refreshed
+ * again from scratch on every single launch because the new token never
+ * landed anywhere the next launch reads.
+ */
+describe('a refreshed credential is written back to its own store', () => {
+	it("to namzu's own store when that is where it came from", async () => {
+		respondWithFreshToken()
+		await ensureFreshAnthropicToken('cc-stale', {
+			refreshToken: 'rt',
+			expiresAt: Date.now() - 1000,
+			origin: 'stored',
+		})
+		expect(writeStored).toHaveBeenCalledWith(expect.objectContaining({ accessToken: 'cc-fresh' }))
+		expect(writeAgentKeychainCredential).not.toHaveBeenCalled()
+	})
+
+	it('to the borrowed Keychain entry when that is where it came from', async () => {
+		respondWithFreshToken()
+		await ensureFreshAnthropicToken('cc-stale', {
+			refreshToken: 'rt',
+			expiresAt: Date.now() - 1000,
+			origin: 'keychain',
+		})
+		expect(writeAgentKeychainCredential).toHaveBeenCalled()
+		expect(writeStored).not.toHaveBeenCalled()
+	})
+
+	it('to the Keychain when no origin is stated, which is what callers predating the store meant', async () => {
+		respondWithFreshToken()
+		await ensureFreshAnthropicToken('cc-stale', {
+			refreshToken: 'rt',
+			expiresAt: Date.now() - 1000,
+		})
+		expect(writeAgentKeychainCredential).toHaveBeenCalled()
+		expect(writeStored).not.toHaveBeenCalled()
+	})
+
+	it('survives a store that refuses the write, keeping the token it already has', async () => {
+		respondWithFreshToken()
+		writeStored.mockImplementationOnce(() => {
+			throw new Error('could not prove the file private')
+		})
+		const token = await ensureFreshAnthropicToken('cc-stale', {
+			refreshToken: 'rt',
+			expiresAt: Date.now() - 1000,
+			origin: 'stored',
+		})
+		expect(token).toBe('cc-fresh')
+	})
+})
+
+describe('readSubscriptionCredential', () => {
+	it("reads namzu's own store for a stored credential", () => {
+		readStored.mockReturnValueOnce({ accessToken: 'from-store' } as never)
+		expect(readSubscriptionCredential('stored')).toEqual({ accessToken: 'from-store' })
+	})
+
+	it("does not read namzu's store for a keychain credential", () => {
+		readSubscriptionCredential('keychain')
+		expect(readStored).not.toHaveBeenCalled()
+	})
 })
 
 describe('refreshAgentOAuthToken', () => {

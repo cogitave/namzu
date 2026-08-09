@@ -204,6 +204,19 @@ export function restrictToOwner(path: string): void {
 			`could not read back the permissions of ${path}: ${err instanceof Error ? err.message : String(err)}`,
 		)
 	}
+	assertOwnerOnlyMode(mode, path)
+}
+
+/**
+ * Require a POSIX mode to grant nothing to group or other.
+ *
+ * Split out for the same reason `assertSoleOwnerSddl` is: it is the actual
+ * assertion, and one that only ever executes on some platforms is one most
+ * contributors never see fail. As a pure function it is checked everywhere,
+ * including by whoever is on the operating system where the branch that calls
+ * it is unreachable.
+ */
+export function assertOwnerOnlyMode(mode: number, path: string): void {
 	if ((mode & 0o077) !== 0) {
 		throw new CredentialStoreError(
 			`${path} is readable beyond its owner (mode ${(mode & 0o777).toString(8)}) and the filesystem would not tighten it — refusing to keep a credential there.`,
@@ -239,8 +252,7 @@ function restrictToOwnerWindows(path: string): void {
 	}
 
 	// `whoami /user /fo csv /nh` prints  "DOMAIN\user","S-1-5-21-…"
-	const who = run('whoami.exe', ['/user', '/fo', 'csv', '/nh'])
-	const sid = who.match(/"(S-1-[0-9-]+)"/)?.[1]
+	const sid = currentUserSid()
 	if (!sid) {
 		throw new CredentialStoreError(
 			`could not determine the current account's security identifier, so the protection of ${path} cannot be established.`,
@@ -249,26 +261,62 @@ function restrictToOwnerWindows(path: string): void {
 
 	run('icacls.exe', [path, '/inheritance:r', '/grant:r', `*${sid}:F`])
 
-	// Read the access-control list back as SDDL. `icacls /save` writes a
-	// UTF-16 file whose second line is the descriptor; SDDL names principals
-	// by SID, so this comparison does not depend on the display language.
-	const acl = `${path}.acl.${randomBytes(4).toString('hex')}`
-	const aclPath = join(tmpdir(), acl.split(/[\\/]/).pop() as string)
-	let saved: string
-	try {
-		run('icacls.exe', [path, '/save', aclPath])
-		saved = readFileSync(aclPath, 'utf16le')
-	} catch (err) {
-		rmSync(aclPath, { force: true })
-		if (err instanceof CredentialStoreError) throw err
+	const saved = readAclSddl(path)
+	if (saved === null) {
 		throw new CredentialStoreError(
-			`could not read back the access-control list of ${path}: ${err instanceof Error ? err.message : String(err)}`,
+			`could not read back the access-control list of ${path}, so its privacy is unestablished.`,
 		)
+	}
+	assertSoleOwnerSddl(saved, sid, path)
+}
+
+/**
+ * The file's discretionary access-control list, as SDDL, or `null`.
+ *
+ * `null` off Windows and on any failure to read. Exported so a test can make
+ * the Windows arm a real assertion instead of "the write did not throw" —
+ * without it, deleting the entire protection step would kill no test on the
+ * platform the protection is FOR, and the only coverage would be the POSIX
+ * branch running somewhere else.
+ *
+ * `icacls /save` writes a UTF-16 file whose second line is the descriptor.
+ * SDDL names principals by security identifier, so nothing here depends on
+ * the machine's display language.
+ */
+export function readAclSddl(path: string): string | null {
+	if (platform() !== 'win32') return null
+	const system32 = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32')
+	const aclPath = join(tmpdir(), `namzu-acl-${randomBytes(6).toString('hex')}`)
+	try {
+		execFileSync(join(system32, 'icacls.exe'), [path, '/save', aclPath], {
+			encoding: 'utf8',
+			timeout: 10_000,
+			stdio: ['ignore', 'pipe', 'ignore'],
+			windowsHide: true,
+		})
+		return readFileSync(aclPath, 'utf16le')
+	} catch {
+		return null
 	} finally {
 		rmSync(aclPath, { force: true })
 	}
+}
 
-	assertSoleOwnerSddl(saved, sid, path)
+/** The current account's security identifier, or `null` off Windows / on failure. */
+export function currentUserSid(): string | null {
+	if (platform() !== 'win32') return null
+	const system32 = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32')
+	try {
+		const out = execFileSync(join(system32, 'whoami.exe'), ['/user', '/fo', 'csv', '/nh'], {
+			encoding: 'utf8',
+			timeout: 10_000,
+			stdio: ['ignore', 'pipe', 'ignore'],
+			windowsHide: true,
+		})
+		return out.match(/"(S-1-[0-9-]+)"/)?.[1] ?? null
+	} catch {
+		return null
+	}
 }
 
 /**

@@ -7,19 +7,23 @@
  *
  * ## Why session-only, stated as a decision rather than a limitation
  *
- * The obvious durable home is the OS keychain, and here it does not exist. The
- * keychain helper in this package is macOS-only, and it reads and writes a
- * DIFFERENT product's credential store — namzu borrows an OAuth token from it.
- * Writing a namzu key into that envelope would put our secret under their name.
- * On Windows, which is where this was asked for, there is no keychain path at
- * all.
+ * A durable store now exists next door (`credential-store.ts`), and this path
+ * still does not use it — which is the interesting part, because the original
+ * reason for session-only was that no such store had been written.
  *
- * So the durable options were a plaintext file or a per-platform credential
- * store nobody has written. Keeping the key in memory for the session is the
- * honest third answer: nothing lands on disk, it works everywhere, and the
- * screen names the environment variable that makes it durable. A secret at rest
- * should be something the operator chose, not something that arrived because
- * they typed into a text field.
+ * That reason is gone; the decision is not, and it rests on the one thing the
+ * two paths do not share. `/login` OBTAINS a credential: the operator asked for
+ * one, namzu got it, and namzu can refresh it, name where it came from, and
+ * remove it again. A key typed here arrived from somewhere namzu had no part
+ * in — there is nothing to refresh it with, no origin to report, and no
+ * meaningful way to revoke it on the operator's behalf. Writing that to disk
+ * uninvited would be namzu deciding, for someone else, that their secret should
+ * persist.
+ *
+ * So the key stays in memory: nothing lands on disk, it works everywhere, and
+ * the screen names the environment variable that makes it durable. A secret at
+ * rest should be something the operator chose, not something that arrived
+ * because they typed into a text field — and now there are two ways to choose.
  *
  * Everything decidable lives here rather than in the component, because this
  * package has no component tests and a secret is the worst thing to leave
