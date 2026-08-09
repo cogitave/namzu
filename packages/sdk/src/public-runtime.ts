@@ -212,11 +212,9 @@ export type { DiskCheckpointStoreAttribution } from './store/index.js'
 // reporting an empty page, because "nothing is waiting on a human" is not
 // what "I cannot tell" means.
 export {
-	DEFAULT_DURABLE_RUN_LIMIT,
 	assertContiguousListingScope,
 	listDurableRuns,
 	paginateDurableRuns,
-	summarizePark,
 	toDurableRunEntry,
 } from './store/index.js'
 

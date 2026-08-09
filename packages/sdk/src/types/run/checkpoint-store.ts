@@ -91,6 +91,28 @@ export type ParkState =
 	/** `pending` set with `resolvedAt`. Kept as evidence of who decided what. */
 	| 'resolved'
 
+/**
+ * **Do not widen this union to say who is working on the run.**
+ *
+ * A consumer switches over `ParkState` exhaustively, so a fourth member is a
+ * backward-incompatible change and a `major` — and the pull to add one is
+ * real, because the next capability this contract takes is a cross-process
+ * claim, and a queue worker draining the inbox wants to skip runs another
+ * worker already holds.
+ *
+ * That is a different fact about a different subject. A park is a question
+ * put to a HUMAN; a claim is a lease held by a PROCESS, and one run can have
+ * both, neither, or either. Encoding them in one union makes the pair
+ * unsayable and loses the state a worker needs most: parked AND unclaimed.
+ *
+ * The additive shape is a sibling optional field — `claim?: …` on
+ * {@link DurableRunEntry}, `claimed?: …` on {@link ListDurableRunsOptions}.
+ * A consumer reading rows is not broken by a new optional field, so the
+ * claim ships as a second `minor` on this contract rather than a second
+ * migration of it. This note exists because the union is the obvious place
+ * to reach for and the wrong one.
+ */
+
 /** A run's park disposition, projected from the checkpoint that carries it. */
 export interface ParkSummary {
 	readonly state: ParkState

@@ -34,11 +34,10 @@ Also new:
 - New types: `CheckpointListingScope`, `DurableRunEntry`, `DurableRunPage`,
   `ListDurableRunsOptions`, `ParkState`, `ParkSummary`,
   `DiskCheckpointStoreAttribution`.
-- The projections both built-in stores share are exported too, so a backend
-  of your own inherits the park precedence and the ordering instead of
-  re-deriving them: `toDurableRunEntry`, `summarizePark`,
-  `paginateDurableRuns`, `assertContiguousListingScope`,
-  `DEFAULT_DURABLE_RUN_LIMIT`.
+- The three helpers a backend of your own actually calls, so it inherits the
+  park precedence, the ordering and the scope refusal instead of re-deriving
+  them: `toDurableRunEntry`, `paginateDurableRuns`,
+  `assertContiguousListingScope`.
 
 Two behaviours to know before you build on the listing. Rows are ordered by
 `runId`, not by time: a cursor must sort on a key that cannot move, and
