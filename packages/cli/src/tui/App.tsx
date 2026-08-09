@@ -43,7 +43,7 @@ import { PermissionOverlay } from './PermissionOverlay.js'
 import { approvalIsDeliberate } from './consent-timing.js'
 import { Picker } from './Picker.js'
 import { type ContextFill, StatusBar } from './StatusBar.js'
-import { Transcript } from './Transcript.js'
+import { Transcript, renderedDetailLines, willCollapse } from './Transcript.js'
 import { createAssistantMessage, createUserMessage } from '@namzu/sdk'
 import {
 	type CliSessions,
@@ -82,6 +82,36 @@ type RunningTool = ActiveTool & {
 	readonly detail?: readonly string[]
 }
 
+/**
+ * Every line the finalized transcript will print, for the spacer to measure.
+ *
+ * Exported so the wiring is testable rather than only typecheckable. The
+ * spacer's own docblock states the asymmetry it depends on: over-count the
+ * content and the composer merely floats, under-count it and the composer is
+ * pushed off the bottom. The caller used to pass each row's `content` alone,
+ * which counted a six-line collapsed tool body as nothing at all — the estimate
+ * ran low by six per tool call, in the direction that costs the usability
+ * rather than the feature. `/expand` makes it acute: a row whose entire
+ * substance is a two-hundred-line body would have been handed over as one line.
+ *
+ * A pending row is excluded because it is not in the static log yet; the
+ * spacer's `liveRows` covers the live region.
+ */
+export function spacerTranscript(messages: readonly TranscriptMessage[]): readonly string[] {
+	const finalized = messages.filter((m) => !m.pending)
+	return finalized.flatMap((m, i) => [
+		// The blank row `MessageRow` puts above every entry but the first and the
+		// `⎿` result rows. One row per entry sounds negligible and is not: forty
+		// entries is forty rows, which on most terminals is the whole viewport.
+		...(i > 0 && m.glyph !== '⎿' ? [''] : []),
+		// Indented by the two-column glyph gutter the content renders beside, so
+		// a long line is measured against the width it actually has.
+		`  ${m.content}`,
+		...renderedDetailLines(m),
+	])
+}
+
+
 export function App({ ctx }: AppProps) {
 	const { exit } = useApp()
 	const [messages, setMessages] = useState<readonly TranscriptMessage[]>([])
@@ -108,7 +138,6 @@ export function App({ ctx }: AppProps) {
 	// Tools currently executing — rendered live (spinner + elapsed) below the
 	// transcript, then committed as static lines on completion.
 	const [activeTools, setActiveTools] = useState<readonly ActiveTool[]>([])
-	const [expanded, setExpanded] = useState<boolean>(false)
 	// Bumped to reset the <Static> transcript log (on /clear and /resume).
 	const [resetKey, setResetKey] = useState<number>(0)
 	// Messages typed while a turn is running — auto-sent when it settles.
@@ -158,9 +187,14 @@ export function App({ ctx }: AppProps) {
 		idRef.current += 1
 		return `m${idRef.current}`
 	}, [])
-
 	// Reset the transcript view: clear the terminal + remount <Static> so its
 	// already-printed lines don't linger above fresh content (/clear, /resume).
+	//
+	// The block numbering resets with it and needs no separate step: the numbers
+	// live on the rows, so emptying `messages` takes them with it. A number that
+	// outlived the row it named would resolve `/expand 3` to output the operator
+	// can no longer see anywhere, which is the failure this surface is being
+	// cleaned of, one layer up.
 	const resetTranscript = useCallback(() => {
 		if (process.stdout.isTTY) process.stdout.write('\x1b[2J\x1b[3J\x1b[H')
 		setResetKey((k) => k + 1)
@@ -179,7 +213,29 @@ export function App({ ctx }: AppProps) {
 			const id = nextId()
 			setMessages((prev) => [
 				...prev,
-				{ id, role, content, pending, glyph, detail, glyphColor, meta },
+				{
+					id,
+					role,
+					content,
+					pending,
+					glyph,
+					detail,
+					glyphColor,
+					meta,
+					// Numbered only if this body will actually be COLLAPSED — the
+					// number exists to be read off a hint, and a body that fits
+					// prints no hint. Numbering every body instead would leave gaps
+					// the operator can see nothing of, make bare `/expand` reprint a
+					// two-line body while the truncated one above it stayed hidden,
+					// and let the out-of-range message quote a count that includes
+					// blocks no hint ever named.
+					//
+					// Derived from `prev` rather than a counter, so the number is a
+					// fact about the transcript rather than a second record of it.
+					...(willCollapse(detail)
+						? { detailRef: prev.filter((m) => m.detailRef !== undefined).length + 1 }
+						: {}),
+				},
 			])
 			return id
 		},
@@ -347,7 +403,7 @@ export function App({ ctx }: AppProps) {
 			? bottomSpacerRows({
 					rows: process.stdout.rows,
 					columns: process.stdout.columns,
-					transcript: messages.filter((m) => !m.pending).map((m) => m.content),
+					transcript: spacerTranscript(messages),
 					liveRows: 10,
 				})
 			: 0
@@ -740,6 +796,89 @@ export function App({ ctx }: AppProps) {
 					case 'resume':
 						void doResume()
 						return
+					case 'expand': {
+						// Resolved INSIDE the updater, against `prev`.
+						//
+						// Not against the `messages` this callback captured: rows arrive
+						// from `applyEvent` while a turn runs, which is exactly when
+						// someone types `/expand`, and a captured array can be a render
+						// behind — so "the most recent one" would sometimes mean the one
+						// before it, and the command would quietly show the wrong output.
+						// `prev` is by definition the latest.
+						//
+						// And against the ROWS, not a parallel index of them. An earlier
+						// draft kept a ref mirroring `{ref, label, lines}` alongside the
+						// rows that already hold all three. That is one concept in two
+						// shapes with a hand-written copy between them — the geometry
+						// `docs/conventions/one-site-is-not-every-site.md` names as the
+						// hardest kind to spot, adopted here to solve a staleness problem
+						// the updater solves without it.
+						//
+						// The id is taken outside so both branches use the same one.
+						const id = nextId()
+						setMessages((prev) => {
+							const blocks = prev.filter((m) => m.detailRef !== undefined)
+							const say = (content: string): TranscriptMessage => ({
+								id,
+								role: 'system',
+								content,
+							})
+							if (blocks.length === 0) {
+								return [
+									...prev,
+									say(
+										'Nothing to expand yet. Tool output longer than six lines collapses with a "… +N lines · /expand n" hint, and that number is what this takes.',
+									),
+								]
+							}
+							const block =
+								slash.which === 'last'
+									? blocks[blocks.length - 1]
+									: blocks.find((m) => m.detailRef === slash.which)
+							if (!block) {
+								// Names the range rather than only refusing: the operator's
+								// next move is to type a different number, and they should
+								// not have to guess which ones exist.
+								return [
+									...prev,
+									say(
+										`No collapsed output numbered ${slash.which}. This conversation has ${
+											blocks.length === 1
+												? 'one, numbered 1'
+												: `${blocks.length}, numbered 1 to ${blocks.length}`
+										}.`,
+									),
+								]
+							}
+							// A NEW row carrying the same lines, flagged to print them all.
+							// Not a mutation of the row that collapsed them: that row was
+							// handed to <Static>, which emits an item once and calls the
+							// render function only for items it has not emitted yet, so
+							// nothing decided now can reach it. Appending is the only
+							// expansion this architecture has.
+							//
+							// The lines travel as `detail` rather than flattened into the
+							// content so the `▏` rule and the +/- diff colouring survive.
+							// An expansion that showed LESS than the collapsed form would
+							// be a strange thing to have asked for.
+							//
+							// It carries no `detailRef` of its own: it is already in full,
+							// so there is nothing for a number to offer, and giving it one
+							// would let `/expand` produce a third copy of the same output.
+							return [
+								...prev,
+								{
+									id,
+									role: 'system',
+									content: `${block.content} — in full (${block.detail?.length ?? 0} lines)`,
+									glyph: '⤢',
+									detail: block.detail,
+									detailExpanded: true,
+								},
+							]
+						})
+						return
+					}
 					case 'prompt':
 						// Deliberately does NOT return: the composed text falls
 						// through to the same queue-or-send below that a typed
@@ -748,6 +887,17 @@ export function App({ ctx }: AppProps) {
 						break
 					case 'none':
 						return
+					default: {
+						// Exhaustive on purpose. Without it a `SlashAction` kind added
+						// and not handled here falls out of the switch into the send
+						// path below — so `/somenewcommand` would be dispatched to the
+						// MODEL as prose, silently, which is both a wrong answer and a
+						// tool call the operator did not ask for. This turns that into
+						// a build failure.
+						const exhaustive: never = slash
+						void exhaustive
+						return
+					}
 				}
 			}
 			// A turn is in flight → queue the message; it auto-sends when idle.
@@ -758,7 +908,7 @@ export function App({ ctx }: AppProps) {
 			}
 			void runTurn(outgoing, images)
 		},
-		[activeSkills, doResume, exit, pushMessage, runTurn, slashCtx, state],
+		[activeSkills, doResume, exit, nextId, pushMessage, runTurn, slashCtx, state],
 	)
 
 	// Drain the queue: when a turn settles (idle) and nothing is running,
@@ -950,9 +1100,30 @@ export function App({ ctx }: AppProps) {
 				pushMessage('system', 'Interrupted.')
 				return
 			}
-			// Ctrl+O toggles expansion of collapsed tool diffs / output.
+			// Ctrl+O is deprecated, still bound, and now says so.
+			//
+			// It was advertised — on every collapsed body — as toggling full
+			// expansion for everything, and in that use it did nothing: finalized
+			// rows go through `<Static>`, which renders `items.slice(index)` and
+			// calls the render function only for items it has not emitted yet, so
+			// output already on screen was beyond its reach.
+			//
+			// It was NOT inert, though, and the difference matters enough to have
+			// changed this design. `<Static>` calls the CURRENT render closure for
+			// each newly appended item, so pressing the key while a tool was
+			// running made that tool's result print in full when it arrived. A
+			// working behaviour — undiscoverable, unadvertised, and the opposite of
+			// what the hint under the row promised: you had to decide you wanted
+			// the output before you had seen that it was truncated.
+			//
+			// So it is not deleted out from under anyone. It stays bound for a
+			// release and answers with the reason and the replacement, which is
+			// more than it gave in the case an operator would actually try it.
 			if (key.ctrl && input === 'o') {
-				setExpanded((e) => !e)
+				pushMessage(
+					'system',
+					'Ctrl+O is deprecated and no longer expands anything. It could never reopen output already on screen — finalized rows are printed once and never redrawn. Use /expand <n>; the number is in the hint under each collapsed body, and /expand on its own takes the most recent.',
+				)
 				return
 			}
 			if (key.ctrl && input === 'c') {
@@ -1023,8 +1194,7 @@ export function App({ ctx }: AppProps) {
 								messages={messages.filter((m) => !m.pending)}
 								pending={messages.find((m) => m.pending) ?? null}
 								state={state}
-								expanded={expanded}
-								resetKey={resetKey}
+																resetKey={resetKey}
 								header={
 									phase === 'ready' ? (
 										<Banner

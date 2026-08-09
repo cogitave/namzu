@@ -69,9 +69,33 @@ vi.mock('../agent.js', async (importOriginal) => {
 			promptExemptTools: () => ['read'],
 			send: async function* (_messages, opts): AsyncIterable<AgentEvent> {
 				yield { kind: 'delta', text: 'working' } as AgentEvent
+				if (!askPermission) {
+					// The interrupt tests need the turn to STILL BE RUNNING when Esc
+					// arrives, because that is the only state in which Esc is the
+					// interrupt at all — with nothing in flight it is the composer's
+					// own clear, which is the very next test down.
+					//
+					// So the turn ends on the abort rather than on a wall clock. It
+					// used to end after a fixed 120ms, which made "is the turn still
+					// running" a question about how loaded the machine was: under the
+					// full parallel suite the turn finished before the keystroke
+					// landed, Esc cleared the draft as designed, and the failure
+					// reported was "the turn was not interrupted" — a true statement
+					// about a turn that was already over.
+					await Promise.race([
+						new Promise<void>((resolve) => {
+							if (opts?.signal?.aborted) return resolve()
+							opts?.signal?.addEventListener('abort', () => resolve(), { once: true })
+						}),
+						// A backstop so a test that never interrupts cannot hang the
+						// run. It is not the mechanism; if it is what ends a turn,
+						// something above went wrong.
+						new Promise<void>((resolve) => setTimeout(resolve, 10_000)),
+					])
+					return
+				}
 				// Long enough for the test to type into a live composer.
 				await new Promise((r) => setTimeout(r, 120))
-				if (!askPermission) return
 				const req: PermissionRequest = {
 					toolCalls: [{ id: 'c1', name: 'bash', summary: 'rm -rf build', isDestructive: true }],
 				}

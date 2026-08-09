@@ -1,7 +1,7 @@
 ---
 title: The TUI
-description: Launching namzu, the transcript and composer, slash commands, message queuing, /resume, and interrupting a running turn.
-last_updated: 2026-08-07
+description: Launching namzu, the transcript and composer, slash commands, message queuing, /resume, /expand, and interrupting a running turn.
+last_updated: 2026-08-09
 status: current
 related_packages: ["@namzu/cli"]
 ---
@@ -39,6 +39,7 @@ Type `/` followed by a command — an autocomplete dropdown filters as you type.
 | `/provider` | Show the current provider and model. |
 | `/model` | Choose the provider, then the model. See [Switching model](#switching-model). |
 | `/resume` | Pick a past conversation in this folder to continue. See [Sessions & resume](#sessions--resume). |
+| `/expand [n]` | Print a collapsed tool output in full. See [Expanding tool output](#expanding-tool-output). |
 | `/remember <text>` | Save a fact to durable memory. See [Memory](./memory.md). |
 | `/memory` | Show what namzu remembers. |
 | `/skills` | List available skills. See [Skills](./skills.md). |
@@ -143,6 +144,12 @@ disk is accounted for, and the other commands keep working. A file named after a
 built-in — `help.md` — is likewise listed with its reason rather than silently
 ignored; built-ins always win.
 
+That last point cuts both ways: a name that is free today can become a built-in
+tomorrow, and your file then stops running rather than starting to conflict
+loudly. `/help` is where you find out — a shadowed file is listed with the
+reason. `expand` became a built-in in `@namzu/cli` 6.0.0 and is the only name to
+have done so; rename an `expand.md` you already have.
+
 Files are read when the session starts. After adding one, `/model` or a restart
 picks it up.
 
@@ -190,7 +197,24 @@ A draft you have not sent survives whatever the agent does. If a permission prom
 
 ## Expanding tool output
 
-Tool diffs and command output collapse to a few lines with a `… +N lines (ctrl+o to expand)` hint. Press **Ctrl+O** to toggle full expansion for everything.
+Tool diffs and command output collapse to six lines with a hint that names itself:
+
+```
+⏺ Bash(rg --files-with-matches TODO)
+ ▏ src/agent.ts
+ ▏ src/composer.ts
+ ▏ … +6 lines · /expand 3
+```
+
+`/expand 3` prints that body in full, and `/expand` on its own takes the most recent one. The full text arrives as a **new entry below**, so the collapsed one stays where it was and your scrollback keeps both.
+
+That is the mechanism, not a stylistic choice. Finalized transcript entries are written straight to the terminal's own scrollback and are never redrawn — which is what keeps a long session from growing without bound, and what makes your terminal's native scroll and text selection work over the whole conversation. Nothing can reach back and change an entry that has already been printed, so an expansion has to be something new on the end.
+
+### `Ctrl+O` is deprecated
+
+`Ctrl+O` used to be the way in, and it is still bound: pressing it tells you what to use instead. It no longer expands anything.
+
+It was advertised as toggling full expansion for everything, and against output already on screen it did nothing — for the reason above. Pressing it *before* a tool finished did work, in that the result printed in full when it arrived, but that meant deciding you wanted the output before you could see it had been truncated, and nothing said so. `/expand` reaches output the key never could.
 
 ## Sessions & resume
 

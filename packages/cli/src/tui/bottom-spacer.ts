@@ -50,7 +50,16 @@ export interface SpacerInput {
 	readonly rows: number | undefined
 	/** Terminal width, for wrapping. `undefined` falls back to 80. */
 	readonly columns: number | undefined
-	/** The finalized transcript lines, as emitted — before ink renders them. */
+	/**
+	 * The finalized transcript lines, as emitted — before ink renders them.
+	 *
+	 * Every line a row will print, including the collapsed body under a tool
+	 * call. The caller used to pass each row's `content` alone, which counted an
+	 * eight-row tool result as one row: the estimate then ran low by seven, and
+	 * the asymmetry above says exactly what running low costs. `/expand` makes a
+	 * row whose whole substance is its body, so a caller that passed content
+	 * alone would hand a two-hundred-line row over as a single line.
+	 */
 	readonly transcript: readonly string[]
 	/** Rows the live region occupies: activity, composer frame, status bar. */
 	readonly liveRows: number

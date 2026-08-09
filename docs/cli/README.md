@@ -34,13 +34,13 @@ rather than treating it as prompt text, so `namzu run --format json "…"` exits
 - **Remembers across sessions.** User facts in `~/.namzu/USER.md` / `MEMORY.md` are injected every turn; the agent also keeps its own structured memory. See [Memory](./memory.md).
 - **Resumes past conversations.** Every conversation is saved. `/resume` continues a previous one in this folder from the TUI; `namzu run --continue` and `--resume <id>` do the same from a script. Neither ever silently starts a fresh conversation when the one you asked for cannot be reopened.
 - **Loads skills on demand.** Author `SKILL.md` capability docs and activate them per session. See [Skills](./skills.md).
-- **Polished TUI.** Markdown-rendered replies, collapsible tool diffs (Ctrl+O), slash-command autocomplete, message queuing, and paste handling. See [The TUI](./tui.md).
+- **Polished TUI.** Markdown-rendered replies, tool diffs that collapse to a numbered hint you can reopen with `/expand`, slash-command autocomplete, message queuing, and paste handling. See [The TUI](./tui.md).
 
 ## Documentation map
 
 | Page | What it covers |
 | --- | --- |
-| [The TUI](./tui.md) | Header, transcript/composer, slash commands + autocomplete, queuing, `/resume`, Ctrl+O, interrupting |
+| [The TUI](./tui.md) | Header, transcript/composer, slash commands + autocomplete, queuing, `/resume`, `/expand`, interrupting |
 | [Headless runs](./headless.md) | `run` and `run-stream`, their shared options, `--cwd`, permission modes, resuming, exit codes, the NDJSON event stream |
 | [Providers & credentials](./providers.md) | How credentials are discovered, the first-run picker, switching providers |
 | [Tools & permission](./tools.md) | Builtin + memory + task tools, deferred tools and `search_tools`, how a call is decided, permission modes, the safety gate, bypass mode |

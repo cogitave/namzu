@@ -447,6 +447,10 @@ describe('the new commands are reachable', () => {
 			expect(r.content).toMatch(/\/cost\s/)
 			expect(r.content).toMatch(/\/permissions\s/)
 			expect(r.content).toMatch(/\/agents\s/)
+			// `/expand` replaced a key. A key is discoverable by pressing it and a
+			// command is not, so the entry that names it is load-bearing in a way
+			// the others are not.
+			expect(r.content).toMatch(/\/expand\s/)
 		}
 	})
 
@@ -454,5 +458,54 @@ describe('the new commands are reachable', () => {
 		expect(matchSlashCommands('/co').map((c) => c.name)).toContain('cost')
 		expect(matchSlashCommands('/ag').map((c) => c.name)).toContain('agents')
 		expect(matchSlashCommands('/per').map((c) => c.name)).toContain('permissions')
+		expect(matchSlashCommands('/ex').map((c) => c.name)).toContain('expand')
+	})
+})
+
+describe('/expand argument parsing', () => {
+	// This module validates the SHAPE of the argument and nothing else. Whether
+	// block 4 exists is a fact about the transcript, which App owns; putting the
+	// lookup here as well would give one question two answers.
+
+	it('takes the most recent block when given no argument', () => {
+		expect(runSlash('/expand', ctx)).toEqual({ kind: 'expand', which: 'last' })
+	})
+
+	it('passes a number through', () => {
+		expect(runSlash('/expand 3', ctx)).toEqual({ kind: 'expand', which: 3 })
+	})
+
+	it('refuses a number-with-a-suffix rather than reading the digits off it', () => {
+		// `parseInt('2nd')` is 2, so a parser built on it expands block 2 for
+		// what was a typo — and shows the operator output they did not ask for
+		// with nothing to indicate the substitution. `Number` returns NaN, which
+		// is the honest reading of `2nd` as a block number.
+		const r = runSlash('/expand 2nd', ctx)
+		expect(r?.kind).toBe('message')
+		if (r?.kind === 'message') expect(r.content).toContain('Usage: /expand')
+	})
+
+	it('accepts only the spelling a hint can print', () => {
+		// Every one of these is a number JavaScript is happy to parse and no
+		// collapse hint has ever shown. They matter because each turns a typo
+		// into a VALID reference to some other block, which is the silently-wrong
+		// answer this surface exists to remove — `0x10` reaching block 16 is
+		// worse than `0x10` being refused.
+		//
+		// `Number(arg)` with `Number.isInteger` — the first version of this
+		// parser — accepts all four.
+		for (const arg of ['0', '-1', '1.5', '0x10', '1e2', '+3', '3.0', '3 3']) {
+			const r = runSlash(`/expand ${arg}`, ctx)
+			expect(r?.kind, `"${arg}" was accepted as a block number`).toBe('message')
+		}
+	})
+
+	it('is not fussy about the spacing around it', () => {
+		// Refusing `0x10` is about a wrong answer being possible. Extra spaces
+		// cannot produce a wrong answer, and refusing them would be strictness
+		// for its own sake — `parseSlash` splits on runs of whitespace, so this
+		// is already the same argument.
+		expect(runSlash('/expand   3', ctx)).toEqual({ kind: 'expand', which: 3 })
+		expect(runSlash('  /expand 3  ', ctx)).toEqual({ kind: 'expand', which: 3 })
 	})
 })

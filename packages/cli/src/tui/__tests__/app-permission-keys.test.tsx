@@ -4,8 +4,9 @@
  * This is the first harness that mounts the root component. Everything in
  * `App.tsx`'s key handler was previously unreachable from a test: both existing
  * Ink harnesses render `<Picker>`, so the Ctrl+C ladder, the Esc-interrupt and
- * this prompt had no coverage at all. That gap is why `Ctrl+O` shipped inert and
- * why Enter could approve a tool call while being named on no screen.
+ * this prompt had no coverage at all. That gap is why a key advertised as
+ * expanding tool output shipped able to do nothing, and why Enter could approve
+ * a tool call while being named on no screen.
  *
  * The scenario is the real one rather than a convenient one: a turn is running,
  * the operator is typing a follow-up into the composer (which stays live while
