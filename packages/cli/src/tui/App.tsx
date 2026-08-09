@@ -1075,6 +1075,7 @@ export function App({ ctx }: AppProps) {
 								// the composer's clear.
 								escapeInterrupts={state === 'thinking' || state === 'tool'}
 								onSubmit={handleSubmit}
+								onNotice={(text) => pushMessage('system', text)}
 								userCommands={userCommands}
 								history={history}
 							/>

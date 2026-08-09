@@ -141,7 +141,10 @@ async function turnRunningWithDraft(draft: string) {
 	harness.stdin.write('go')
 	await tick(20)
 	harness.stdin.write('\r')
-	await tick(40)
+	// Wait for the turn to actually start rather than assuming 40ms is enough.
+	// The mock streams "working" as its first delta, so its arrival is the
+	// signal that the submit was processed and the composer is free again.
+	await frameShows(harness.lastFrame, 'working')
 	harness.stdin.write(draft)
 	await frameShows(harness.lastFrame, draft)
 	expect(harness.lastFrame(), 'the draft never reached the composer').toContain(draft)

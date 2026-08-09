@@ -43,6 +43,15 @@ export interface ComposerProps {
 	 * what it is for when nothing more urgent is happening.
 	 */
 	readonly escapeInterrupts?: boolean
+	/**
+	 * Say something to the operator that is not a message to the agent.
+	 *
+	 * The composer has no transcript of its own, so without this a key it
+	 * advertises can fail with nowhere to report it. Optional so the component
+	 * stays usable in isolation, but a caller that omits it re-creates the
+	 * silence this exists to end.
+	 */
+	readonly onNotice?: (text: string) => void
 }
 
 const MAX_SUGGESTIONS = 6
@@ -56,6 +65,7 @@ export function Composer({
 	userCommands = [],
 	hidden = false,
 	escapeInterrupts = false,
+	onNotice,
 }: ComposerProps) {
 	const [value, setValue] = useState<string>('')
 	const [historyIndex, setHistoryIndex] = useState<number>(-1)
@@ -163,9 +173,20 @@ export function Composer({
 				return
 			}
 			// Ctrl+V: pull an image off the clipboard and hold it as an attachment.
+			//
+			// Every outcome says something. The status bar advertises this key, so
+			// a press that produces no chip and no words is indistinguishable from
+			// a key that was never wired up — and the operator's next move differs
+			// per reason: copy an image, install a tool, or stop pressing it.
 			if (key.ctrl && input === 'v') {
-				const img = readClipboardImage()
-				if (img) setImages((p) => [...p, img])
+				const read = readClipboardImage()
+				if (read.kind === 'image') {
+					setImages((p) => [...p, read.image])
+				} else if (read.kind === 'empty') {
+					onNotice?.('No image on the clipboard. Copy one, then press Ctrl+V.')
+				} else {
+					onNotice?.(`Cannot read images from the clipboard here — ${read.detail}.`)
+				}
 				return
 			}
 			if (key.ctrl || key.meta) return
