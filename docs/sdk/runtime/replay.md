@@ -274,6 +274,18 @@ Renewing is the same call. There is no separate `renew`, because two code
 paths that must agree about who holds a run is one more than can be kept
 correct.
 
+`DiskCheckpointStore` **needs a filesystem with hard links** to arbitrate.
+It decides the winner by creating one name per fence, and it creates that
+name with `link` so the file is never visible before its contents are — an
+ordinary exclusive create is open-then-write, and a reader landing in that
+gap reads a live claim as expired and puts a second worker on a running run.
+On a volume with no hard-link support (some network and removable mounts)
+`claimRun` raises `capability_unavailable` naming the code the filesystem
+returned. It refuses rather than falling back, because the only fallback is
+the publish with that gap in it, and a claim that has silently stopped being
+exclusive is worse than one that will not start. Put the base directory on a
+filesystem that supports hard links, or run a single writer per run.
+
 `listDurableRuns` is optional on the `CheckpointStore` interface — both
 built-in stores implement it, and a store that does not gets a refusal
 rather than an empty page, because "nothing is waiting on a human" is not
