@@ -192,33 +192,7 @@ export class RunDiskStore {
 	}
 
 	async listCheckpoints(): Promise<IterationCheckpoint[]> {
-		const dir = this.requireInit()
-		const cpDir = join(dir, 'checkpoints')
-		try {
-			const files = await readdir(cpDir)
-			const checkpoints: IterationCheckpoint[] = []
-			for (const file of files) {
-				if (!file.endsWith('.json')) continue
-				// An unreadable checkpoint used to be logged and skipped, so
-				// this returned a silently short list that four callers treat
-				// as complete. A missing NEWEST checkpoint quietly resumes
-				// from an older point and re-runs a whole iteration of tool
-				// calls; a missing PARKED one reports "not parked" and drops
-				// an approval a human already granted, because the file is
-				// the only durable record of a park. Pruning under-deletes
-				// too: a file the keep-count cannot see is immortal.
-				//
-				// The by-id read next door was already strict. Two read paths
-				// disagreeing about whether damage matters is how the lenient
-				// one gets trusted.
-				const content = await readFile(join(cpDir, file), 'utf-8')
-				checkpoints.push(parseCheckpoint(content, file))
-			}
-			return checkpoints.sort((a, b) => a.createdAt - b.createdAt)
-		} catch (err) {
-			if (isFileNotFound(err)) return []
-			throw err
-		}
+		return readCheckpointsIn(this.requireInit())
 	}
 
 	async deleteCheckpoint(checkpointId: CheckpointId): Promise<void> {
@@ -230,6 +204,29 @@ export class RunDiskStore {
 		}
 	}
 
+	/**
+	 * @deprecated Superseded by
+	 *   {@link import('../../types/run/checkpoint-store.js').CheckpointStore.listDurableRuns},
+	 *   reached through {@link import('./listing.js').listDurableRuns}.
+	 *   Removed in the next major.
+	 *
+	 *   Three things are wrong with `index.json` as the answer to "which runs
+	 *   are there":
+	 *
+	 *   1. Its entries carry no tenant, project or session, so a row cannot be
+	 *      turned back into an addressable scope — nothing can be resumed or
+	 *      swept from it.
+	 *   2. `addToIndex` skips every sub-run, so an inbox built on it drops
+	 *      every approval raised by delegated work, and the symptom looks like
+	 *      a hung specialist rather than a blind listing.
+	 *   3. It is a catalogue of runs that STARTED, not of runs with durable
+	 *      state, so it cannot tell a run something could resume from one that
+	 *      left nothing behind.
+	 *
+	 *   Deprecated for one minor rather than deleted outright: this is public
+	 *   surface and a consumer calling it today gets real data back, so the
+	 *   deprecate-before-you-remove rule applies.
+	 */
 	static async listRuns(baseDir: string): Promise<
 		Array<{
 			id: string
@@ -295,6 +292,54 @@ export class RunDiskStore {
 			resolve?.()
 		}
 	}
+}
+
+/**
+ * Every checkpoint stored under one run directory, ascending by `createdAt`.
+ *
+ * A free function rather than a method because the scope-level listing walks
+ * run directories it has never bound a {@link RunDiskStore} to — and binding
+ * one would CREATE the directory, which is not something a read should do.
+ * Sharing the function is what keeps the two read paths from disagreeing
+ * about what a damaged file means.
+ *
+ * An unreadable checkpoint used to be logged and skipped, so this returned a
+ * silently short list that four callers treat as complete. A missing NEWEST
+ * checkpoint quietly resumes from an older point and re-runs a whole
+ * iteration of tool calls; a missing PARKED one reports "not parked" and
+ * drops an approval a human already granted, because the file is the only
+ * durable record of a park. Pruning under-deletes too: a file the keep-count
+ * cannot see is immortal. The by-id read next door was already strict, and
+ * two read paths disagreeing about whether damage matters is how the lenient
+ * one gets trusted.
+ *
+ * The same reasoning carries up to the listing, which is why the throw
+ * propagates there rather than dropping the run: a damaged checkpoint that
+ * removed a run from an approval inbox is the missing-park failure again,
+ * one level up.
+ *
+ * A missing `checkpoints/` directory is the only absence that reads as
+ * empty — the run genuinely has none. A file that disappears BETWEEN the
+ * directory listing and its read throws, where the old shape returned the
+ * empty array and discarded every checkpoint it had already parsed.
+ */
+export async function readCheckpointsIn(runDir: string): Promise<IterationCheckpoint[]> {
+	const cpDir = join(runDir, 'checkpoints')
+	let files: string[]
+	try {
+		files = await readdir(cpDir)
+	} catch (err) {
+		if (isFileNotFound(err)) return []
+		throw err
+	}
+
+	const checkpoints: IterationCheckpoint[] = []
+	for (const file of files) {
+		if (!file.endsWith('.json')) continue
+		const content = await readFile(join(cpDir, file), 'utf-8')
+		checkpoints.push(parseCheckpoint(content, file))
+	}
+	return checkpoints.sort((a, b) => a.createdAt - b.createdAt)
 }
 
 async function atomicWriteJson(filePath: string, value: unknown): Promise<void> {
