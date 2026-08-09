@@ -288,6 +288,26 @@ function readPositiveIntEnv(key: string, fallback: number): number {
 	return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback
 }
 
+/**
+ * The answer a delegated child produced, as the string a parent model reads.
+ *
+ * One function because two delegation surfaces ask the same question, and the
+ * comment on the other one records what happens when a rule lives at one site
+ * only: create_task shipped without the success check that agent already had.
+ *
+ * A schema-configured child answers with an object. Reading structuredOutput
+ * first is what stops a supervisor receiving prose it then has to re-parse.
+ */
+function delegatedAnswer(
+	result: { structuredOutput?: unknown; result?: string } | undefined,
+): string | undefined {
+	const structured = result?.structuredOutput
+	if (structured !== undefined) {
+		return typeof structured === 'string' ? structured : JSON.stringify(structured)
+	}
+	return result?.result
+}
+
 export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefinition[] {
 	const {
 		gateway,
@@ -614,7 +634,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 			// the work had been done.
 			const success = taskSucceeded(completed)
 			const resultText =
-				completed.result?.result ??
+				delegatedAnswer(completed.result) ??
 				completed.result?.lastError ??
 				`Task finished with state: ${failureLabel(completed)}`
 
@@ -744,7 +764,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 
 			const success = completed.state === 'completed'
 			const resultText =
-				completed.result?.result ??
+				delegatedAnswer(completed.result) ??
 				completed.result?.lastError ??
 				`Task finished with state: ${completed.state}`
 			return {

@@ -266,8 +266,36 @@ export class RunPersistence {
 		this.resultOverridden = true
 	}
 
+	/**
+	 * Record the schema-validated answer, and make `result` agree with it.
+	 *
+	 * `result` used to be left alone here, and the consequence was not "empty"
+	 * but "wrong": `resolveResult` walks back from the message tail and stops at
+	 * the first non-assistant message, so a structured run — whose last
+	 * assistant turn is a tool call, not prose — kept whatever text an EARLIER
+	 * turn happened to produce. A host reading `run.result` got a sentence from
+	 * the middle of the run presented as its answer.
+	 *
+	 * Three options, and the other two are worse:
+	 *
+	 *  - leave it: a stale value read as a fact, which is the defect;
+	 *  - clear it: a run that plainly answered reports no answer, so a host
+	 *    testing `if (run.result)` concludes nothing was produced;
+	 *  - serialize the structured value into it, which is what this does.
+	 *
+	 * The serialization is not an invention. Every text-shaped consumer — the
+	 * transcript, `Run.result`, both delegation tools handing a child's answer
+	 * back to a parent model — needs the answer as a string, and each of them
+	 * would otherwise serialize it again, differently. One serialization, at the
+	 * moment the value is known.
+	 *
+	 * Sticky, via `setResult`: `resolveResult` runs again when the run settles,
+	 * and without the override flag it would walk the tail and put the stale
+	 * prose back.
+	 */
 	setStructuredOutput(value: unknown): void {
 		this.run.structuredOutput = value
+		this.setResult(typeof value === 'string' ? value : JSON.stringify(value))
 	}
 
 	/**

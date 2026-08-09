@@ -136,6 +136,12 @@ export class RunDiskStore {
 			messageCount: run.messages.length,
 		}
 
+		// The schema-validated answer belongs in the durable record for the same
+		// reason `result` does: a run reloaded by id that has lost its answer has
+		// lost the thing it was run for. Written only when present, so a run that
+		// asked for no schema carries no key rather than an explicit `undefined`.
+		if (run.structuredOutput !== undefined) meta.structuredOutput = run.structuredOutput
+
 		if (run.parentRunId) meta.parentRunId = run.parentRunId
 		if (run.depth !== undefined && run.depth > 0) meta.depth = run.depth
 

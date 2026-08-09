@@ -5,6 +5,7 @@ import type { Message } from '../types/message/index.js'
 import type { LLMProvider, ReasoningEffort, ThinkingConfig } from '../types/provider/index.js'
 import type { Run, RunEventListener } from '../types/run/index.js'
 import type { Skill } from '../types/skills/index.js'
+import type { StructuredOutputConfig } from '../types/structured-output/index.js'
 import type { ToolRegistryContract } from '../types/tool/index.js'
 import type { VerificationGateConfig } from '../types/verification/index.js'
 import {
@@ -93,6 +94,17 @@ export interface RunAgentOptions extends AgentIdentity {
 	temperature?: number
 
 	/**
+	 * Demand a schema-validated answer instead of prose.
+	 *
+	 * The front door could not ask for one at all: the runtime has supported
+	 * structured output throughout and this function never forwarded the
+	 * config, so the single most convenient way into the kernel was the one way
+	 * that could not produce a typed answer. Present, the validated value comes
+	 * back on {@link RunAgentResult.structuredOutput} and on `run`.
+	 */
+	structuredOutput?: StructuredOutputConfig
+
+	/**
 	 * Extended-thinking request and response-effort level, forwarded on every
 	 * model call.
 	 *
@@ -121,6 +133,16 @@ export interface RunAgentOptions extends AgentIdentity {
 export interface RunAgentResult {
 	/** The model's final text, or `undefined` if it produced none. */
 	readonly output: string | undefined
+
+	/**
+	 * The schema-validated answer, when {@link RunAgentOptions.structuredOutput}
+	 * asked for one and the model produced it.
+	 *
+	 * Mirrors `run.structuredOutput` the way {@link output} mirrors
+	 * `run.result` — the whole point of this shape is that the two answers a
+	 * run can give are reachable without unpacking the run.
+	 */
+	readonly structuredOutput?: unknown
 
 	/** The full run — usage, cost, steps, stop reason, every message. */
 	readonly run: Run
@@ -226,10 +248,11 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
 			...(options.signal ? { signal: options.signal } : {}),
 			...(options.skills ? { skills: options.skills } : {}),
 			...(options.verificationGate ? { verificationGate: options.verificationGate } : {}),
+			...(options.structuredOutput ? { structuredOutput: options.structuredOutput } : {}),
 			...identity,
 		},
 		options.listener,
 	)
 
-	return { output: run.result, run, identity }
+	return { output: run.result, structuredOutput: run.structuredOutput, run, identity }
 }

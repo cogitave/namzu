@@ -186,6 +186,26 @@ export interface BaseAgentResult {
 	durationMs: number
 	messages: Message[]
 	result?: string
+	/**
+	 * The schema-validated answer, when the run was configured to produce one.
+	 *
+	 * `Run.structuredOutput` has carried this all along and every ergonomic
+	 * boundary above it dropped the value three lines from its caller: an
+	 * archetype's result literal did not copy it, `runAgent` did not even
+	 * forward the config that produces it, and both delegation tools handed a
+	 * parent the child's prose. So a supervisor fanning out to five
+	 * schema-configured specialists received five strings and had to make the
+	 * model re-parse what it had just caused to be serialized.
+	 *
+	 * `unknown` rather than a generic, deliberately. The schema lives on the
+	 * run's config and a result type parameter would have to be threaded
+	 * through every archetype, both delegation tools and the task record to
+	 * reach here — and at the delegation boundary the parent does not hold the
+	 * child's schema anyway, so the parameter would be `unknown` again at the
+	 * only place it was wanted. Narrow it at the call site with the schema you
+	 * already have.
+	 */
+	structuredOutput?: unknown
 	lastError?: string
 }
 
