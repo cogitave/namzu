@@ -265,23 +265,38 @@ describe('a body that fits', () => {
 	})
 })
 
-describe('Ctrl+O, which used to be the way', () => {
-	it('is still bound, and says what to press instead', async () => {
-		// It is not deleted out from under anyone. Advertised for a long time as
-		// toggling full expansion, it never could reopen output already drawn —
-		// but it was not inert either: it pre-armed rows that had not arrived yet.
-		// So it keeps answering, and what it answers is the replacement.
-		const harness = await twoCollapsedBlocks()
+describe('Ctrl+O, where it cannot reach', () => {
+	it('says so, and names the command that can', async () => {
+		// The key reopens collapsed bodies in place, but only for rows still in
+		// the live window. On a terminal with no room for one — here, one too
+		// short to hold a row above the composer and the status bar — every row
+		// has been printed to scrollback, and a printed row cannot be rewritten.
+		//
+		// Refusing is the whole point. A key that silently appended a copy when
+		// it could not redraw would be two commands wearing one name, and the
+		// operator would have no way to tell which one they just got.
+		const rows = Object.getOwnPropertyDescriptor(process.stdout, 'rows')
+		Object.defineProperty(process.stdout, 'rows', { value: 16, configurable: true })
+		try {
+			const harness = await twoCollapsedBlocks()
 
-		harness.stdin.write('\x0f') // Ctrl+O
-		await frameShows(harness.lastFrame, 'Ctrl+O is deprecated')
+			harness.stdin.write('\x0f') // Ctrl+O
+			await frameShows(harness.lastFrame, 'Nothing on screen can be expanded in place')
 
-		const frame = harness.lastFrame() ?? ''
-		expect(frame, 'the key went back to being silent').toContain('Ctrl+O is deprecated')
-		expect(frame, 'said it was gone without saying what replaced it').toContain('/expand')
-		// And it must not have expanded anything: the whole point is that it
-		// cannot, and a notice plus a silent expansion would be two answers.
-		expect(frame, 'the deprecated key expanded something anyway').not.toContain('result-line-12')
+			const frame = harness.lastFrame() ?? ''
+			expect(frame, 'the key went back to being silent').toContain(
+				'Nothing on screen can be expanded in place',
+			)
+			expect(frame, 'refused without saying what does work').toContain('/expand')
+			// And it must not have expanded anything: a notice plus a silent
+			// expansion would be two answers to one press.
+			expect(frame, 'the key expanded something it said it could not').not.toContain(
+				'result-line-12',
+			)
+		} finally {
+			if (rows) Object.defineProperty(process.stdout, 'rows', rows)
+			else Reflect.deleteProperty(process.stdout, 'rows')
+		}
 	})
 })
 

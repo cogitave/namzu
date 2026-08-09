@@ -8,18 +8,34 @@
 
 import { Box, Static, Text } from 'ink'
 import type { ReactNode } from 'react'
-import { useEffect, useState } from 'react'
+import { memo, useEffect, useState } from 'react'
 
 import { Markdown } from './Markdown.js'
 import { theme } from './theme.js'
 import type { TranscriptMessage } from './types.js'
 
 export interface TranscriptProps {
-	/** Finalized messages — rendered once via <Static> (printed to scrollback). */
+	/** Finalized messages, oldest first. */
 	readonly messages: readonly TranscriptMessage[]
 	/** The in-progress streaming message, re-rendered live below the static log. */
 	readonly pending: TranscriptMessage | null
 	readonly state: 'idle' | 'thinking' | 'tool' | 'awaiting-permission'
+	/**
+	 * How many of `messages` have been handed to scrollback.
+	 *
+	 * `messages[0, settled)` go through `<Static>`, which prints a row once and
+	 * never redraws it; the rest are drawn live and can still change — which is
+	 * what makes expanding a body already on screen possible at all. The caller
+	 * decides how many that is, because the answer depends on the terminal's
+	 * height and on the spacer's arithmetic; see `live-window.ts`. Passing
+	 * `messages.length` is the everything-is-static behaviour.
+	 *
+	 * It must never decrease for a given `resetKey`. `<Static>` counts what it
+	 * has emitted and renders only past that count, so a shrinking prefix leaves
+	 * rows unprinted, and a row already drawn live would be printed a second
+	 * time on its way back out.
+	 */
+	readonly settled: number
 	/** Bump to reset the static log (e.g. /clear, /resume). */
 	readonly resetKey: number
 	/**
@@ -43,22 +59,37 @@ type StaticRow =
 			readonly prev: TranscriptMessage | undefined
 	  }
 
-export function Transcript({ messages, pending, state, resetKey, header }: TranscriptProps) {
+export function Transcript({
+	messages,
+	pending,
+	state,
+	settled,
+	resetKey,
+	header,
+}: TranscriptProps) {
 	const spinner = useSpinner(state !== 'idle')
 
+	const inScrollback = Math.min(Math.max(settled, 0), messages.length)
 	// The banner is row 0 so it prints to the very top of scrollback; messages
 	// follow it. <Static> renders each row exactly once and never re-renders it,
-	// keeping memory + per-frame work bounded (the whole transcript was
-	// previously re-rendered on every spinner tick / token, which OOM'd long
-	// sessions) and removing flicker.
+	// so everything behind the live window costs nothing per frame — the whole
+	// transcript was once re-rendered on every spinner tick, which exhausted
+	// memory on long sessions.
 	const rows: StaticRow[] = [
 		...(header ? [{ kind: 'header' as const }] : []),
-		...messages.map((message, i) => ({
+		...messages.slice(0, inScrollback).map((message, i) => ({
 			kind: 'message' as const,
 			message,
 			prev: messages[i - 1],
 		})),
 	]
+	// The live window. Memoised per row, and that is what keeps this affordable:
+	// the spinner ticks about twelve times a second and every tick re-renders
+	// this component, so an unmemoised window would re-render its rows — parse
+	// their markdown, rebuild their elements — on each one. The rows themselves
+	// are unchanged objects between ticks, so the memo holds; the row that just
+	// changed is the only one that renders.
+	const live = messages.slice(inScrollback)
 	return (
 		<Box flexDirection="column">
 			<Static key={resetKey} items={rows}>
@@ -70,6 +101,14 @@ export function Transcript({ messages, pending, state, resetKey, header }: Trans
 					)
 				}
 			</Static>
+			{live.map((message, i) => (
+				<LiveRow
+					key={message.id}
+					message={message}
+					prev={messages[inScrollback + i - 1]}
+					spinner=""
+				/>
+			))}
 			{pending ? (
 				<MessageRow
 					message={pending}
@@ -87,6 +126,23 @@ export function Transcript({ messages, pending, state, resetKey, header }: Trans
 		</Box>
 	)
 }
+
+/**
+ * A row in the live window.
+ *
+ * Memoised on the whole props object rather than on a hand-picked key. React's
+ * default shallow compare over `{message, prev, spinner}` is already exactly
+ * "has anything about this row changed": the transcript is held as immutable
+ * rows, so an update rebuilds only the rows it touches and leaves every other
+ * object identical. A `(id, detailExpanded)` key would be the same answer for
+ * two fields and silently the wrong one for every other field a row has.
+ *
+ * Terminal width is deliberately NOT part of it. Nothing in a row's element
+ * tree depends on the width — wrapping is done by the layout engine from the
+ * same tree, and a resize re-lays-out without re-rendering — so a width key
+ * would be a prop that drives nothing.
+ */
+const LiveRow = memo(MessageRow)
 
 function MessageRow({
 	message,
@@ -141,12 +197,23 @@ function MessageRow({
 /**
  * Collapsible tool diff / output, aligned under the content gutter.
  *
- * `expanded` comes from the ROW, not from a view-wide setting, because a
- * view-wide setting reaches the wrong rows: `<Static>` renders each item once,
- * calling the CURRENT render function for items it has not emitted yet — so a
- * flag flipped now applies to rows that have not happened and to none of the
- * rows on screen. `/expand` therefore pushes a new row with the flag already
- * set, rather than trying to flip one on a row that has been printed.
+ * `expanded` comes from the ROW, and that is now load-bearing in the opposite
+ * direction from the reason it was written.
+ *
+ * It used to say that a view-wide setting could not work, because every
+ * finalized row went through `<Static>`: that renders each item once and calls
+ * the CURRENT render function only for items it has not emitted yet, so a flag
+ * flipped now would apply to rows that have not happened and to none of the
+ * rows on screen. True of a row in scrollback, and it is why `/expand` pushes a
+ * new row carrying the same lines rather than reopening the old one.
+ *
+ * It is not true of the live window. Those rows are re-rendered from state on
+ * every frame, so flipping this flag on one of them redraws that row in place —
+ * which is what the expand key now does, for the rows an operator is actually
+ * looking at. The flag stays on the row rather than becoming view-wide because
+ * the two mechanisms have to coexist: `/expand` still appends for anything that
+ * has settled into scrollback, and a view-wide flag would mean something
+ * different to each half.
  */
 function DetailBlock({
 	lines,

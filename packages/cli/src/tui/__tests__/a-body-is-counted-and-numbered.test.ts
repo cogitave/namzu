@@ -22,9 +22,9 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { spacerTranscript } from '../App.js'
 import { renderedDetailLines } from '../Transcript.js'
 import { estimateRenderedLines } from '../bottom-spacer.js'
+import { transcriptLines } from '../live-window.js'
 import type { TranscriptMessage } from '../types.js'
 
 const body = (n: number) => Array.from({ length: n }, (_, i) => `line-${i + 1}`)
@@ -81,7 +81,7 @@ describe('renderedDetailLines', () => {
 
 describe('what the spacer is given', () => {
 	it('includes the body under a tool call, not just the line above it', () => {
-		const lines = spacerTranscript([row({ detail: body(12) })])
+		const lines = transcriptLines([row({ detail: body(12) })])
 		// The call line plus six shown plus the hint.
 		expect(lines).toHaveLength(8)
 		expect(lines[0]).toContain('Bash(ls)')
@@ -91,13 +91,13 @@ describe('what the spacer is given', () => {
 		// `MessageRow` puts one above every entry but the first and the `⎿`
 		// results. Forty entries is forty rows — a whole viewport on most
 		// terminals, silently absent from the estimate.
-		const two = spacerTranscript([row({ id: 'a' }), row({ id: 'b' })])
+		const two = transcriptLines([row({ id: 'a' }), row({ id: 'b' })])
 		expect(two).toHaveLength(3)
 		expect(two[1]).toBe('')
 	})
 
 	it('does not count a gap before a result row, which hugs its call', () => {
-		const hugging = spacerTranscript([row({ id: 'a' }), row({ id: 'b', glyph: '⎿' })])
+		const hugging = transcriptLines([row({ id: 'a' }), row({ id: 'b', glyph: '⎿' })])
 		expect(hugging).toHaveLength(2)
 	})
 
@@ -107,13 +107,13 @@ describe('what the spacer is given', () => {
 			detail: body(200),
 			detailExpanded: true,
 		})
-		const measured = estimateRenderedLines(spacerTranscript([expanded]), 80)
+		const measured = estimateRenderedLines(transcriptLines([expanded]), 80)
 		expect(measured).toBeGreaterThan(200)
 	})
 
 	it('leaves out the row still streaming, which is not in the static log yet', () => {
 		// The live region is covered by the spacer's `liveRows`, so counting a
 		// pending row here would count it twice.
-		expect(spacerTranscript([row({ pending: true, detail: body(12) })])).toEqual([])
+		expect(transcriptLines([row({ pending: true, detail: body(12) })])).toEqual([])
 	})
 })

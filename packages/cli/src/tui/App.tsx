@@ -50,7 +50,8 @@ import { PermissionOverlay } from './PermissionOverlay.js'
 import { approvalIsDeliberate } from './consent-timing.js'
 import { Picker } from './Picker.js'
 import { type ContextFill, StatusBar } from './StatusBar.js'
-import { Transcript, renderedDetailLines, willCollapse } from './Transcript.js'
+import { Transcript, willCollapse } from './Transcript.js'
+import { liveWindow, transcriptLines } from './live-window.js'
 import { createAssistantMessage, createUserMessage } from '@namzu/sdk'
 import {
 	type CliSessions,
@@ -90,34 +91,15 @@ type RunningTool = ActiveTool & {
 }
 
 /**
- * Every line the finalized transcript will print, for the spacer to measure.
+ * Rows the live region occupies apart from the transcript window: the activity
+ * line, the composer frame and its padding, the status bar.
  *
- * Exported so the wiring is testable rather than only typecheckable. The
- * spacer's own docblock states the asymmetry it depends on: over-count the
- * content and the composer merely floats, under-count it and the composer is
- * pushed off the bottom. The caller used to pass each row's `content` alone,
- * which counted a six-line collapsed tool body as nothing at all — the estimate
- * ran low by six per tool call, in the direction that costs the usability
- * rather than the feature. `/expand` makes it acute: a row whose entire
- * substance is a two-hundred-line body would have been handed over as one line.
- *
- * A pending row is excluded because it is not in the static log yet; the
- * spacer's `liveRows` covers the live region.
+ * Counted generously, because over-counting costs a gap under the composer and
+ * under-counting costs the composer itself — and, now that a window of live
+ * rows sits above this furniture, under-counting also lets that window grow
+ * until the renderer gives up on incremental repaint. See `live-window.ts`.
  */
-export function spacerTranscript(messages: readonly TranscriptMessage[]): readonly string[] {
-	const finalized = messages.filter((m) => !m.pending)
-	return finalized.flatMap((m, i) => [
-		// The blank row `MessageRow` puts above every entry but the first and the
-		// `⎿` result rows. One row per entry sounds negligible and is not: forty
-		// entries is forty rows, which on most terminals is the whole viewport.
-		...(i > 0 && m.glyph !== '⎿' ? [''] : []),
-		// Indented by the two-column glyph gutter the content renders beside, so
-		// a long line is measured against the width it actually has.
-		`  ${m.content}`,
-		...renderedDetailLines(m),
-	])
-}
-
+const LIVE_FURNITURE_ROWS = 10
 
 export function App({ ctx }: AppProps) {
 	const { exit } = useApp()
@@ -167,6 +149,15 @@ export function App({ ctx }: AppProps) {
 	const [activeTools, setActiveTools] = useState<readonly ActiveTool[]>([])
 	// Bumped to reset the <Static> transcript log (on /clear and /resume).
 	const [resetKey, setResetKey] = useState<number>(0)
+	/**
+	 * How many finalized rows have been printed to scrollback.
+	 *
+	 * The floor under the live window, carried between renders so the split can
+	 * only ever move forward. Reset with the static log itself — after `/clear`
+	 * nothing has been printed under the new log, and a floor left behind would
+	 * hold the window shut for the length of the next conversation.
+	 */
+	const settledRef = useRef<number>(0)
 	// Messages typed while a turn is running — auto-sent when it settles.
 	const [queued, setQueued] = useState<readonly string[]>([])
 	const [resumeList, setResumeList] = useState<readonly RecentConversation[]>([])
@@ -255,6 +246,10 @@ export function App({ ctx }: AppProps) {
 	// cleaned of, one layer up.
 	const resetTranscript = useCallback(() => {
 		if (process.stdout.isTTY) process.stdout.write('\x1b[2J\x1b[3J\x1b[H')
+		// The scrollback floor goes with the log it counted. <Static> is remounted
+		// by the key below and has emitted nothing again; a floor that survived
+		// would keep the next conversation's rows out of the live window.
+		settledRef.current = 0
 		setResetKey((k) => k + 1)
 	}, [])
 
@@ -558,18 +553,37 @@ export function App({ ctx }: AppProps) {
 		void runProbe()
 	}, [ctx.cwd, runProbe])
 
+	const finalized = messages.filter((m) => !m.pending)
+	// How much of the transcript is still redrawable. Computed here rather than
+	// inside <Transcript> because the same split decides what the bottom spacer
+	// measures: rows in scrollback are content it has to make room for, rows in
+	// the window are part of the live region it is padding above. Two
+	// computations of one split would drift, and the direction they would drift
+	// in is a composer pushed off the screen.
+	//
+	// A ref, and mutated during render, because the split has to be MONOTONIC:
+	// a row that has been printed to scrollback can never come back, and `max`
+	// is idempotent, so a repeated render reaches the same answer.
+	const window = liveWindow({
+		messages: finalized,
+		rows: process.stdout.rows,
+		columns: process.stdout.columns,
+		furnitureRows: LIVE_FURNITURE_ROWS,
+		settled: settledRef.current,
+	})
+	settledRef.current = window.settled
+
 	// Blank rows above the composer, while the transcript is short enough that
-	// the answer is knowable. `liveRows` is the fixed furniture beneath the
-	// transcript — activity line, composer frame, status bar and their padding —
-	// counted generously, because over-counting costs a gap and under-counting
-	// costs the composer.
+	// the answer is knowable. `liveRows` is the furniture beneath the transcript
+	// PLUS the live window above it — the window is part of the live region, and
+	// leaving it out would have the spacer padding room that is already taken.
 	const spacerRows =
 		phase === 'ready'
 			? bottomSpacerRows({
 					rows: process.stdout.rows,
 					columns: process.stdout.columns,
-					transcript: spacerTranscript(messages),
-					liveRows: 10,
+					transcript: transcriptLines(finalized.slice(0, window.settled)),
+					liveRows: LIVE_FURNITURE_ROWS + window.rows,
 				})
 			: 0
 
@@ -1463,30 +1477,48 @@ export function App({ ctx }: AppProps) {
 				pushMessage('system', 'Interrupted.')
 				return
 			}
-			// Ctrl+O is deprecated, still bound, and now says so.
+			// Ctrl+O expands the collapsed bodies that are still redrawable.
 			//
 			// It was advertised — on every collapsed body — as toggling full
 			// expansion for everything, and in that use it did nothing: finalized
-			// rows go through `<Static>`, which renders `items.slice(index)` and
+			// rows went through `<Static>`, which renders `items.slice(index)` and
 			// calls the render function only for items it has not emitted yet, so
-			// output already on screen was beyond its reach.
+			// output already on screen was beyond its reach. Measured, with a
+			// twelve-line body up: pressing it produced one further frame whose
+			// transcript region was byte-identical to the one before.
 			//
-			// It was NOT inert, though, and the difference matters enough to have
-			// changed this design. `<Static>` calls the CURRENT render closure for
-			// each newly appended item, so pressing the key while a tool was
-			// running made that tool's result print in full when it arrived. A
-			// working behaviour — undiscoverable, unadvertised, and the opposite of
-			// what the hint under the row promised: you had to decide you wanted
-			// the output before you had seen that it was truncated.
-			//
-			// So it is not deleted out from under anyone. It stays bound for a
-			// release and answers with the reason and the replacement, which is
-			// more than it gave in the case an operator would actually try it.
+			// The rows at the end of the transcript are now drawn live rather than
+			// printed once, so for those the key does what it always claimed —
+			// flipping the flag re-renders the row where it already is. It reaches
+			// exactly as far back as the window does, and says so when that is
+			// nowhere. It does not quietly fall back to appending a copy: `/expand`
+			// is that, deliberately and visibly, and a key that sometimes redraws
+			// in place and sometimes prints a second copy further down would be two
+			// commands wearing one name.
 			if (key.ctrl && input === 'o') {
-				pushMessage(
-					'system',
-					'Ctrl+O is deprecated and no longer expands anything. It could never reopen output already on screen — finalized rows are printed once and never redrawn. Use /expand <n>; the number is in the hint under each collapsed body, and /expand on its own takes the most recent.',
-				)
+				// Taken outside the updater so both branches use the same one, as
+				// `/expand` does.
+				const id = nextId()
+				setMessages((prev) => {
+					const live = prev.filter((m) => !m.pending).slice(settledRef.current)
+					const collapsible = live.filter((m) => willCollapse(m.detail))
+					if (collapsible.length === 0) {
+						return [
+							...prev,
+							{
+								id,
+								role: 'system' as const,
+								content:
+									'Nothing on screen can be expanded in place. Only the last few rows stay redrawable; anything older has been printed to the terminal’s own scrollback, which cannot be rewritten. Use /expand <n> for those — the number is in the hint under each collapsed body, and /expand on its own takes the most recent.',
+							},
+						]
+					}
+					// Expanded unless they are all open already, in which case this
+					// closes them again — the toggle it was always described as.
+					const expanding = collapsible.some((m) => m.detailExpanded !== true)
+					const ids = new Set(collapsible.map((m) => m.id))
+					return prev.map((m) => (ids.has(m.id) ? { ...m, detailExpanded: expanding } : m))
+				})
 				return
 			}
 			if (key.ctrl && input === 'c') {
@@ -1552,10 +1584,11 @@ export function App({ ctx }: AppProps) {
 					<>
 						<TranscriptFrame>
 							<Transcript
-								messages={messages.filter((m) => !m.pending)}
+								messages={finalized}
 								pending={messages.find((m) => m.pending) ?? null}
 								state={state}
-																resetKey={resetKey}
+								settled={window.settled}
+								resetKey={resetKey}
 								header={
 									phase === 'ready' ? (
 										<Banner

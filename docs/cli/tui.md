@@ -1,7 +1,7 @@
 ---
 title: The TUI
 description: Launching namzu, the transcript and composer, slash commands, message queuing, /resume, /expand, and interrupting a running turn.
-last_updated: 2026-08-09
+last_updated: 2026-08-10
 status: current
 related_packages: ["@namzu/cli"]
 ---
@@ -209,15 +209,19 @@ Tool diffs and command output collapse to six lines with a hint that names itsel
  ▏ … +6 lines · /expand 3
 ```
 
+There are two ways in, and which one you get depends on how far back the output is.
+
+### `Ctrl+O` — reopen it where it is
+
+The last few entries of the transcript stay **redrawable**. `Ctrl+O` opens every collapsed body among them in place: the hint line is replaced by the lines it was hiding, nothing is printed twice, and pressing it again closes them.
+
+How far back it reaches depends on your terminal's height, because the redrawable window is bounded by how much of the screen it can occupy. On a short terminal — roughly under thirty rows — there is no room for one, and `Ctrl+O` says so and points you at `/expand` rather than quietly doing nothing.
+
+### `/expand [n]` — reach anything older
+
 `/expand 3` prints that body in full, and `/expand` on its own takes the most recent one. The full text arrives as a **new entry below**, so the collapsed one stays where it was and your scrollback keeps both.
 
-That is the mechanism, not a stylistic choice. Finalized transcript entries are written straight to the terminal's own scrollback and are never redrawn — which is what keeps a long session from growing without bound, and what makes your terminal's native scroll and text selection work over the whole conversation. Nothing can reach back and change an entry that has already been printed, so an expansion has to be something new on the end.
-
-### `Ctrl+O` is deprecated
-
-`Ctrl+O` used to be the way in, and it is still bound: pressing it tells you what to use instead. It no longer expands anything.
-
-It was advertised as toggling full expansion for everything, and against output already on screen it did nothing — for the reason above. Pressing it *before* a tool finished did work, in that the result printed in full when it arrived, but that meant deciding you wanted the output before you could see it had been truncated, and nothing said so. `/expand` reaches output the key never could.
+That is the mechanism, not a stylistic choice. Once an entry has scrolled past the redrawable window it is written straight to the terminal's own scrollback and is never redrawn — which is what keeps a long session from growing without bound, and what makes your terminal's native scroll and text selection work over the whole conversation. Nothing can reach back and change an entry that has already been printed, so an expansion of one has to be something new on the end.
 
 ## Sessions & resume
 

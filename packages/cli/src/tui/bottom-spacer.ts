@@ -51,17 +51,31 @@ export interface SpacerInput {
 	/** Terminal width, for wrapping. `undefined` falls back to 80. */
 	readonly columns: number | undefined
 	/**
-	 * The finalized transcript lines, as emitted — before ink renders them.
+	 * The lines of the transcript that have been printed to scrollback, as
+	 * emitted — before ink renders them.
 	 *
-	 * Every line a row will print, including the collapsed body under a tool
-	 * call. The caller used to pass each row's `content` alone, which counted an
-	 * eight-row tool result as one row: the estimate then ran low by seven, and
-	 * the asymmetry above says exactly what running low costs. `/expand` makes a
-	 * row whose whole substance is its body, so a caller that passed content
-	 * alone would hand a two-hundred-line row over as a single line.
+	 * Every line such a row will print, including the collapsed body under a
+	 * tool call. The caller used to pass each row's `content` alone, which
+	 * counted an eight-row tool result as one row: the estimate then ran low by
+	 * seven, and the asymmetry above says exactly what running low costs.
+	 * `/expand` makes a row whose whole substance is its body, so a caller that
+	 * passed content alone would hand a two-hundred-line row over as a single
+	 * line.
+	 *
+	 * Rows still in the live window belong in {@link liveRows}, not here. They
+	 * are two different quantities — content above the live region, and the live
+	 * region's own height — and this one is only the first.
 	 */
 	readonly transcript: readonly string[]
-	/** Rows the live region occupies: activity, composer frame, status bar. */
+	/**
+	 * Rows the live region occupies: the window of transcript rows that are
+	 * still redrawable, then the activity line, composer frame and status bar.
+	 *
+	 * A constant until the live window existed. It is now a function of what is
+	 * in that window, because an expanded body in it is thirty rows of live
+	 * region rather than eight, and a spacer that kept assuming the old constant
+	 * would pad the composer straight off the bottom. See `live-window.ts`.
+	 */
 	readonly liveRows: number
 }
 
