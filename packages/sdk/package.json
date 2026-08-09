@@ -20,6 +20,11 @@
 			"types": "./dist/index.d.ts",
 			"import": "./dist/index.js",
 			"default": "./dist/index.js"
+		},
+		"./testing": {
+			"types": "./dist/store/run/conformance.d.ts",
+			"import": "./dist/store/run/conformance.js",
+			"default": "./dist/store/run/conformance.js"
 		}
 	},
 	"files": [

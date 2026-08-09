@@ -6,6 +6,7 @@
     "loop-control",
     "duplex",
     "testing",
+    "checkpoint-store-conformance",
     "identities",
     "low-level",
     "replay"
