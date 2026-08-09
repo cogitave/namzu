@@ -6,19 +6,28 @@ Canonical instructions for AI agents working in this repository. `CLAUDE.md` imp
 
 Namzu is an AI agent platform. The monorepo ships:
 
-- `@namzu/contracts` — leaf types and wire schemas (no workspace imports)
 - `@namzu/sdk` — core runtime (agents, tools, providers, stores, compaction)
-- `@namzu/agents`, `@namzu/api`, `@namzu/cli` — applications
-- `@namzu/computer-use` — optional subprocess capability package
-- `@namzu/<provider>` — OpenAI, Anthropic, Bedrock, OpenRouter, HTTP, Ollama, LM Studio
+- `@namzu/cli` — the operator application
+- `@namzu/computer-use`, `@namzu/files`, `@namzu/sandbox` — optional capability packages
+- `@namzu/telemetry` — optional observability package
+- `@namzu/evals` — the eval suites
+- `@namzu/<provider>` — one driver package per service
 
 <dependency_direction>
 ```
-contracts  ←  sdk  ←  { agents | api | cli | computer-use | providers }
+sdk  ←  { cli | computer-use | files | sandbox | telemetry | evals | providers }
 ```
 
 No circular dependencies. Nothing imports from the same level or above.
 </dependency_direction>
+
+> This list previously named `@namzu/contracts`, `@namzu/agents` and
+> `@namzu/api`. **None of them exist**, and none appears in `packages/`. A
+> routing document is read by every agent before it reads anything else, so a
+> package named here is a place someone will look, import from, or reason
+> about the layering of — and the layering was stated in terms of two of them.
+> Corrected against `packages/` rather than against memory; if this list and
+> that directory ever disagree again, the directory is right.
 
 ## Build & Test
 

@@ -115,7 +115,7 @@ Cuts new versions of publishable packages via [Changesets](https://github.com/ch
 - `.changeset/config.json` — Changesets configuration.
   - `access: "public"` — all Namzu packages are public scope.
   - `updateInternalDependencies: "patch"` — when an internal dep bumps, dependents patch-bump.
-  - `ignore: ["@namzu/agents", "@namzu/api", "@namzu/cli"]` — gitignored workspace packages never published.
+  - `ignore: []` — nothing is excluded from versioning. This line previously claimed the list held `@namzu/agents`, `@namzu/api` and `@namzu/cli` as "gitignored workspace packages never published". All three parts were false: the array is empty, the first two packages do not exist, and `@namzu/cli` is published on every release. Anyone reading it would have concluded the CLI was unreleasable.
   - `___experimentalUnsafeOptions_WILL_CHANGE_IN_PATCH.onlyUpdatePeerDependentsWhenOutOfRange: true` — peer dependents only bump when the peer range would otherwise exclude the new version. Avoids unnecessary provider major-bumps on SDK minor releases.
 - `.github/workflows/release.yml` — the single unified release workflow.
 - `.github/scripts/verify-consumer-install.sh` — pre-publish tarball sanity check; also invoked from `ci.yml` on every PR.
