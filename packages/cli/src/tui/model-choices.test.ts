@@ -81,6 +81,25 @@ describe('modelStep', () => {
 			expect(step.notice).toContain('HTTP 503')
 		})
 
+		it('never tells the operator the fallback is the provider’s own default', () => {
+			// The row is labelled `(namzu default)` because it is namzu's pick out
+			// of its own registry. These four sentences sit beside that label and
+			// said "showing ITS default" — contradicting it on the same screen,
+			// and pointing an operator who did not expect this model at the
+			// provider instead of at `preferences.json`, which is where they can
+			// actually change it.
+			for (const listing of [
+				{ kind: 'timeout' },
+				{ kind: 'unsupported' },
+				{ kind: 'ok', models: [] },
+				{ kind: 'failed', reason: 'x' },
+			] as const) {
+				const notice = modelStep(DEFAULT, listing).notice ?? ''
+				expect(notice, JSON.stringify(listing)).not.toMatch(/its default|the provider's default/i)
+				expect(notice, JSON.stringify(listing)).toContain("namzu's pick")
+			}
+		})
+
 		it('always leaves the default selectable', () => {
 			for (const listing of [
 				{ kind: 'timeout' },

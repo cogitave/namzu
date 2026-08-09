@@ -1,7 +1,7 @@
 ---
 title: Providers & credentials
 description: How namzu discovers LLM credentials, the first-run provider picker, and switching providers.
-last_updated: 2026-08-08
+last_updated: 2026-08-09
 status: current
 related_packages: ["@namzu/cli", "@namzu/anthropic", "@namzu/openai", "@namzu/openrouter", "@namzu/ollama"]
 ---
@@ -107,7 +107,9 @@ Run `/model` inside the TUI to re-open the picker at any time. The new choice is
 }
 ```
 
-The order is yours to declare, and the file is meant to be read and edited directly — you do not need to launch the TUI to see it. Index 0 is the **primary**. A member that omits `model` uses that provider's registry default, resolved at launch, so it tracks the default instead of pinning whatever it was on the day you wrote it.
+The order is yours to declare, and the file is meant to be read and edited directly — you do not need to launch the TUI to see it. Index 0 is the **primary**.
+
+**A member that omits `model` gets namzu's own default for that provider**, from a table compiled into the release. It is resolved at launch, but it is not *refreshed* at launch: nothing asks the provider what its current default is, so the value moves only when you upgrade namzu, and between releases it can name a model the provider has superseded. If you care which model a member runs, give it an explicit `model`. Omitting it is the right choice when you want whatever namzu currently considers sensible, and the wrong one if you read it as tracking the provider.
 
 When the primary cannot serve a turn, namzu moves to the next member and carries on — see [When a member cannot serve](#when-a-member-cannot-serve).
 
@@ -121,13 +123,15 @@ If any of those fail, namzu names the offending position (`primary provider`, `f
 
 ### Seeing the chain
 
-`namzu doctor` prints it in order, one line per member, each carrying that member's position, label, the model it will use — marked `(default)` when it came from the registry rather than from your file — and whether a credential was found:
+`namzu doctor` prints it in order, one line per member, each carrying that member's position, label, the model it will use — marked `(namzu default)` when it came from namzu's registry rather than from your file — and whether a credential was found:
 
 ```
 providers.chain  2 providers configured, in order:
                  1. primary · <label> · <model> · credential found
-                 2. fallback 1 · <label> · <model> (default) · NO CREDENTIAL
+                 2. fallback 1 · <label> · <model> (namzu default) · NO CREDENTIAL
 ```
+
+The label names whose choice it is on purpose. A model marked this way is one namzu picked, not one the provider reported, and nothing refreshes it between releases — so a member showing a model you did not expect is fixed by giving that member an explicit `model`, not by looking for the setting at the provider.
 
 A fallback with no credential is a **warning**, not a failure — your primary still runs, so you are not blocked. A primary with no credential is a failure, because no run can start.
 

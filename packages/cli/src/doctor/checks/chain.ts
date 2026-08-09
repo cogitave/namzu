@@ -118,7 +118,12 @@ export async function describeProviderChain(
 	for (const [index, member] of members.entries()) {
 		const entry = PROVIDER_REGISTRY[member.id]
 		const position = index === 0 ? 'primary' : `fallback ${index}`
-		const model = member.model ?? `${entry.defaultModel} (default)`
+		// `(namzu default)`, not `(default)`. The value comes from namzu's own
+		// provider registry, and a bare "default" reads as the provider's current
+		// one — so an operator seeing a model they did not expect concludes the
+		// provider changed it, when the thing to do is pin `model` on this member.
+		// The picker already says it this way; this line is the same value.
+		const model = member.model ?? `${entry.defaultModel} (namzu default)`
 		const det = detected.find((d) => d.entry.id === member.id)
 		const usable = entry.requiresApiKey ? Boolean(det?.apiKey) : Boolean(det)
 		if (!usable) {
