@@ -144,6 +144,20 @@ export interface ToolExecutorConfig {
 	repairToolCall?: RepairToolCall
 }
 
+/**
+ * What a `post_tool_use` hook decided to show the model instead.
+ *
+ * `isError` is the field this type exists for. The override used to be a bare
+ * string, so the executor had no way to tell "the call failed" from "the call
+ * succeeded and the model may not see all of it" — and it assumed the first,
+ * which turned every redaction into a reported tool failure.
+ */
+interface PostToolOverride {
+	readonly output: string
+	readonly isError: boolean
+	readonly content?: ToolResultContent
+}
+
 type PreToolHookOutcome =
 	| { kind: 'continue'; input: unknown }
 	| { kind: 'skip'; input: unknown; output: string }
@@ -708,10 +722,14 @@ export class ToolExecutor {
 
 		const postOverride = post.override
 		if (postOverride !== null) {
-			output = postOverride
+			output = postOverride.output
 		}
 
-		const effectiveIsError = !result.success || postOverride !== null
+		// A failed call, or an override that says the call failed. A `replace`
+		// says the opposite, and reading it as a failure is what made redaction
+		// unusable: the model was told a successful call had gone wrong, and
+		// routed around it.
+		const effectiveIsError = !result.success || (postOverride?.isError ?? false)
 
 		if (this.workingStateManager) {
 			extractFromToolResult(this.workingStateManager, toolName, output, effectiveIsError)
@@ -756,17 +774,31 @@ export class ToolExecutor {
 			...(budgeted.spillPath ? { outputSpillPath: budgeted.spillPath } : {}),
 		})
 
+		const resolveContent = (): { content?: ToolResultContent } => {
+			if (postOverride?.content !== undefined) {
+				return { content: this.budgetContent(postOverride.content, toolName) }
+			}
+			if (postOverride?.isError) return {}
+			if (budgeted.truncated || result.content === undefined) return {}
+			return { content: this.budgetContent(result.content, toolName) }
+		}
+
 		return {
 			toolCallId: toolCall.id,
 			toolName,
 			output,
 			isError: effectiveIsError,
-			// A plugin override replaces what the model sees, and a spilled
-			// preview is no longer the tool's own payload — neither may carry
-			// rich content through.
-			...(result.content !== undefined && postOverride === null && !budgeted.truncated
-				? { content: this.budgetContent(result.content, toolName) }
-				: {}),
+			// Rich content follows the override's own decision.
+			//
+			// An ERROR override drops it: the payload is no longer the tool's,
+			// and shipping an image beside a failure message describes something
+			// the model was just told did not happen. A spilled preview drops it
+			// for the same reason.
+			//
+			// A REPLACE keeps it, because the common case is redacting text from
+			// a result whose image is unaffected — and a hook that needs it gone
+			// says so with `content`, which wins over both.
+			...resolveContent(),
 		}
 	}
 
@@ -919,6 +951,11 @@ export class ToolExecutor {
 						output: `Error: ${result.message}`,
 					}
 				case 'retry':
+				// There is no result to replace yet. Rejecting loudly beats
+				// silently ignoring it: a hook author who returned this here
+				// meant to redact something and would otherwise watch the secret
+				// go through.
+				case 'replace':
 					throw new Error(
 						`Plugin hook pre_tool_use returned unsupported action '${result.action}' for tool ${toolName}`,
 					)
@@ -1120,21 +1157,32 @@ export class ToolExecutor {
 		toolName: string,
 		input: unknown,
 		toolResult: ToolResult,
-	): Promise<{ override: string | null; retry: boolean }> {
+	): Promise<{ override: PostToolOverride | null; retry: boolean }> {
 		if (!this.config.pluginManager) return { override: null, retry: false }
 		const results = await this.config.pluginManager.executeHooks(
 			'post_tool_use',
 			{ runId: this.config.runId, toolName, toolInput: input, toolResult },
 			this.emitEvent,
 		)
-		let override: string | null = null
+		let override: PostToolOverride | null = null
 		let retry = false
 		for (const result of results) {
 			switch (result.action) {
 				case 'continue':
 					continue
 				case 'error':
-					override = `Error: ${result.message}`
+					override = { output: `Error: ${result.message}`, isError: true }
+					continue
+				// A redaction, not a failure. The call stood; the model is shown
+				// less of it. Rich content survives unless the hook replaced it —
+				// see the variant's own documentation for why that default, and
+				// for what a hook redacting a secret in an image has to do.
+				case 'replace':
+					override = {
+						output: result.output,
+						isError: false,
+						...(result.content !== undefined ? { content: result.content } : {}),
+					}
 					continue
 				// `retry` was a declared variant with no implementation: every
 				// site that consumed it threw. Here it finally means something

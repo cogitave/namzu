@@ -9,7 +9,7 @@ import {
 	PLUGIN_NAME_MAX_LENGTH,
 } from '../../constants/plugin/index.js'
 import type { PluginId, RunId } from '../ids/index.js'
-import type { Message } from '../message/index.js'
+import type { Message, ToolResultContent } from '../message/index.js'
 import type { ToolResult } from '../tool/index.js'
 
 // ---------------------------------------------------------------------------
@@ -191,6 +191,31 @@ export type PluginHookResult =
 	| { action: 'modify'; input: unknown }
 	| { action: 'error'; message: string }
 	| { action: 'retry' }
+	/**
+	 * Replace what the model sees, WITHOUT reporting the call as failed.
+	 *
+	 * The substitution seam already existed and was typed as a failure channel:
+	 * the only way a `post_tool_use` hook could change the output was
+	 * `action: 'error'`, which prefixes `Error: ` and sets the error flag. So
+	 * redacting a credential out of a successful result was delivered to the
+	 * model as a tool failure, and the model routed around a call that had
+	 * worked — retrying it, or reporting to the user that it had failed.
+	 *
+	 * That is the difference this variant exists for. `error` says the call went
+	 * wrong; this says the call went right and the model may not see all of it.
+	 *
+	 * `modify` is not this. It carries `input` and belongs to the pre-call
+	 * hooks, which is why `post_tool_use` rejects it — a result is not an input,
+	 * and reusing the variant would have made one action mean two things
+	 * depending on where it was returned.
+	 *
+	 * Rich content blocks SURVIVE a replace unless `content` is given, because
+	 * the common case is redacting text from a result whose image or resource
+	 * is unaffected. A hook that needs to drop them passes `content: []`, and a
+	 * hook redacting a secret that also appears in an image must — this variant
+	 * cannot inspect what it is preserving.
+	 */
+	| { action: 'replace'; output: string; content?: ToolResultContent }
 
 export function assertPluginHookResult(result: PluginHookResult): asserts result {
 	const action = result.action
@@ -200,6 +225,7 @@ export function assertPluginHookResult(result: PluginHookResult): asserts result
 		case 'modify':
 		case 'error':
 		case 'retry':
+		case 'replace':
 			break
 		default: {
 			const _exhaustive: never = action
