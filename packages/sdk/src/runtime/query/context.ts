@@ -17,6 +17,7 @@ import type { PermissionMode } from '../../types/permission/index.js'
 import type { LLMProvider } from '../../types/provider/index.js'
 import type { CheckpointStore } from '../../types/run/checkpoint-store.js'
 import type { AgentRunConfig } from '../../types/run/index.js'
+import type { RunStore } from '../../types/run/store.js'
 import type { ProjectId, ThreadId } from '../../types/session/ids.js'
 import type { ModelPricing } from '../../utils/cost.js'
 import { generateRunId } from '../../utils/id.js'
@@ -62,6 +63,7 @@ export interface RunContextConfig {
 	 * output directory.
 	 */
 	checkpointStore?: CheckpointStore
+	runStore?: RunStore
 
 	/**
 	 * Optional injected migrator — tests pass a stub; production code relies
@@ -186,6 +188,7 @@ export class RunContextFactory {
 			parentRunId: config.parentRunId,
 			depth: config.depth,
 			checkpointStore: config.checkpointStore,
+			runStore: config.runStore,
 		})
 
 		const trackingConfig = resolveActivityTracking(permissionMode, config.enableActivityTracking)
