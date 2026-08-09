@@ -1,5 +1,184 @@
 # Changelog
 
+## 21.0.0
+
+### Major Changes
+
+- 8975cce: `namzu doctor` no longer exits 0 when a check could not answer
+
+  **What breaks.** `namzu doctor` gains a new exit code, `69`, and a new status
+  word, `skipped`.
+
+  - **A CI step running `namzu doctor` can now fail where it used to pass.** If a
+    check times out, is aborted, or the thing it reads throws, the command exits
+    `69` instead of `0`. Nothing is claimed to have failed — `1` still means that
+    — but the report is incomplete, and it used to say so only in text nothing
+    reads. If you need the old behaviour while you look into it, treat `69` as
+    success explicitly rather than by accident.
+  - **`DoctorStatus` gains `'skipped'`.** An exhaustive `switch` over it, or a
+    `Record<DoctorStatus, …>`, stops compiling. Handle `skipped` as "there was
+    nothing here to check" — an ordinary state of a healthy machine, not a
+    problem.
+  - **`DoctorReport['exit']` gains `69`**, and `DoctorReport['summary']` gains a
+    required `skipped: number`. Code that constructs a `DoctorReport` by hand must
+    add the field; code that reads the summary can now rely on the counts summing
+    to `total`, which they did not while `skipped` was hidden inside
+    `inconclusive`.
+
+  **Why.** "Healthy" and "did not manage to look" shared an exit code in the one
+  command whose entire job is to report state it read. Fixing that needed the
+  status vocabulary split first, because `inconclusive` was carrying two facts:
+  _there is nothing here to check_ — an optional package absent, a registry with
+  no auto-discovery, nothing configured yet — and _this check did not answer_.
+  Only the second is a gap worth an exit code; making both non-zero would have
+  turned `namzu doctor` red on every healthy machine.
+
+  So `vault.registered`, `providers.registered`, `providers.chain` with no
+  preferences file, and `telemetry.installed` with the package absent now report
+  `skipped`, and they still exit `0`.
+
+  **Also fixed:** `telemetry.installed` reported `not installed (optional
+package)` for _any_ import failure, so a package that was present and threw on
+  load was reported as absent. Resolution and loading are now asked separately —
+  cannot resolve is `skipped`, resolves but throws is `fail`, with the reason.
+
+  **Why 69 and not 2.** `2` already means "no checks registered" here. `namzu
+eval` spells the same idea `2`, which it can because it never spent that number
+  on anything else; giving one number two meanings inside one command is worse
+  than giving one meaning two numbers across two. `69` is sysexits
+  `EX_UNAVAILABLE`.
+
+- 1582bdb: Run events carry a sequence, and the log can be read back
+
+  A consumer that loses its connection mid-run can now reconnect at a cursor and
+  receive every non-ephemeral event it missed — exactly once, in order, across a
+  process restart. Before this the event envelope carried no position at all, the
+  durable store had no read-back over the log, and a returning consumer had to
+  re-derive the whole run from scratch.
+
+  **Breaking, and it is one line if you implement `RunStore` yourself:** the
+  contract gains a required `readEvents(options?)`. Add it and you are done; both
+  shipped stores implement it. It is required rather than optional because a store
+  that records a transcript it cannot read back is write-only evidence, which is
+  the defect this contract exists to fix one level up — and optional would push a
+  capability hole into anything built on top of it.
+
+  **Nothing else breaks.** `seq` and `generation` are optional on the envelope, so
+  code that constructs `RunEvent` values still compiles. `RunEvent`'s
+  `schemaVersion` is deliberately NOT bumped: the version is for breaking envelope
+  changes, and a v4 stamp would imply `seq` is present when its absence is
+  meaningful.
+
+  What you get:
+
+  - **`seq` means the event is in the durable log.** The emitter takes a number,
+    appends the event stamped with it, and only a write that landed advances the
+    counter and reaches the live stream — so a cursor never points past the
+    evidence. Its absence is equally load-bearing: the high-frequency events that
+    are never persisted, an event whose durable write failed, and the delegation
+    lifecycle events the agent manager hands straight to your listener without
+    passing through the run's log. Never advance a cursor onto an event with no
+    `seq`.
+  - **`RunStore.readEvents({ sinceSeq })`**, exclusive on the cursor, oldest
+    first. Plus `readRunEventsIn(runDir)` for reading a run this process never
+    started — binding a `RunDiskStore` to read would create the run's directory.
+  - **`QueryParams.eventCursor` and `onEventReplay`**, and on `resumeRun` a
+    `listener` plus the verdict on its outcome. `resumeRun` previously drained the
+    run and discarded every event it produced, so the one API for continuing a run
+    another process started could not show anybody what the run was doing.
+  - **A typed verdict rather than a best effort.** `complete`, `replayed`, or
+    `unavailable` with `cursor_ahead`, `generation_changed` or `gap`. On any
+    refusal the run still resumes and nothing from the log is delivered, because a
+    consumer that receives a short catch-up folds a hole into its state and cannot
+    tell. `resolveRunEventReplay` is exported and pure.
+  - **`generation` is the claim fence**, so a takeover is ordered rather than
+    merely detectable. Absent on an unfenced run.
+  - **`MappedStreamEvent.id`** — `"<runId>:<seq>"`, keyed on the event's own run
+    because a parent's stream carries its children's events and each run numbers
+    its own log.
+
+  Three defects fixed on the way, each of which falsified the property:
+
+  - `resumeRun` dropped `parentRunId`, so a resumed **sub-run** bound
+    `<base>/<runId>` instead of `<base>/<parent>/children/<runId>` — a second,
+    empty transcript under a run id that already had one.
+  - `InMemoryRunStore.initRun` rebound to a new run id without clearing, so one
+    instance reused for a fork reported the previous run's evidence as this one's.
+  - A `transcript.jsonl` cut off mid-write merged its fragment with the **next**
+    whole event into one unparsable line, losing an event the emitter had counted
+    as durable. `initRun` now terminates a torn tail.
+
+  Not in scope, and stated because implying otherwise would be worse: streaming
+  deltas stay non-durable. What a late subscriber recovers is message-granular —
+  aggregated assistant text, tool results and the full lifecycle — not the
+  keystroke cadence that produced them. And the run store still takes no claim
+  fence, so monotonicity is a single-writer guarantee; `generation` is what makes
+  a second writer detectable rather than silent.
+
+### Minor Changes
+
+- 4df5cf1: `drainRuns` — the queue loop the cross-process claim shipped without
+
+  `claimRun`, `releaseRun`, the fenced `writeCheckpoint`, `listDurableRuns({ claimed: false })` and `resumeRun({ claimFence })` were all already here, and nothing outside the store's own tests called any of them. The two things the claim was built for — an approval inbox and a crash sweeper — still needed every host to write the same loop, including the two parts a host writes wrong: the release that belongs in a `finally` so a FAILED run goes back on the queue too, and the `null` claim that means "somebody got there first" rather than an error.
+
+  New: `drainRuns({ store, scope, holder, ttlMs, onRun, park?, signal?, maxConcurrent?, pageSize?, now? })`, plus the types `DrainRun`, `DrainRunsParams`, `DrainRunsResult`, `DrainFailure` and the constant `DEFAULT_DRAIN_PAGE_SIZE`. One bounded pass: list what nobody holds, claim it, hand it to your callback with its claim, release it. No timers, no processes, no `while (true)` — running it again is your scheduler's job.
+
+  **Read this before relying on "exactly once".** Two drainers never hold one run at the same time; that is absolute. Exactly-once over a pass is weaker and comes from the FILTER, not the claim: a listing is a snapshot, so between paging a row and claiming it another drainer can finish that run and release it. A claimed row is therefore re-read against `park` before any work starts, and one that no longer matches comes back as `stale`. An inbox drain (`park: ['outstanding']`) whose work answers the park is exactly-once. **With no park filter there is nothing to re-check and two drainers can both process one run** — a checkpoint store holds no run status by design, so "already done" is a fact only your own run records carry, and a crash sweep intersects with them inside `onRun`.
+
+  A store missing `listDurableRuns`, `claimRun` or `releaseRun` is refused with `capability_unavailable` **before anything is listed**, naming all three. It never degrades to "claimed by default", which would let every worker proceed on every run.
+
+  `@namzu/cli` gains `namzu drain --store <dir> --tenant <id> --project <id> --session <id>`, which claims each unheld run under that scope and continues it from its last checkpoint under that claim's fence. It is one pass and then exit: `namzu serve` still answers that namzu has no daemon, and this command is the shape that refusal implies — something your scheduler runs, not a service namzu owns. A run parked on a human decision is reported, never resumed past. Additive on both packages; nothing existing changes behaviour.
+
+- 5dc8b82: Publish the checkpoint-store conformance suite at `@namzu/sdk/testing`
+
+  `CheckpointStore` is an interface a host is expected to implement, and the
+  in-memory store's source calls itself "the reference a host reads when writing a
+  backend of its own". That claim was unbacked. Two days before this change the
+  two shipped implementations disagreed at the enforcement point — the in-memory
+  one accepted a checkpoint from a worker that had been superseded and then
+  released around, the disk one refused it — and the class documented as the
+  reference was the one carrying the defect. Nothing threw, nothing logged, and a
+  completed worker's checkpoint was silently replaced by a dead worker's. A host
+  writing its own backend had no way to find that out.
+
+  New: a `./testing` subpath exporting `defineCheckpointStoreConformance` and
+  `CHECKPOINT_STORE_CONTRACT_VERSION`. Nothing existing changes; the package's one
+  existing export is untouched.
+
+  ```typescript
+  import { describe, expect, it } from "vitest";
+  import { defineCheckpointStoreConformance } from "@namzu/sdk/testing";
+
+  defineCheckpointStoreConformance({
+    describe,
+    it,
+    expect,
+    label: "my-backend",
+    contractVersion: 1,
+    capabilities: { claims: true, listing: true, multiTenant: true },
+    makeStore: async (binding) => ({ store: await MyStore.connect(binding) }),
+  });
+  ```
+
+  The suite takes `describe`, `it` and `expect` as arguments, so it binds to no
+  test runner and installing `@namzu/sdk` pulls in no test dependency. It
+  covers the four rules the types cannot state and the two built-in stores
+  actually diverged on: claim exclusivity, claim expiry, refusal of a fenced-out
+  write, and listing scope isolation across tenants. `capabilities` names what
+  your backend can do so the suite asks only what it can answer.
+
+  **Take note before you wire it in.** Once you do, every assertion in the suite
+  is something your build fails on — so the suite's assertions are public API from
+  here, and tightening or adding one is a `major` for this package rather than a
+  `minor`, even though it adds no export. `contractVersion` is the seam that makes
+  such a bump legible: write the number as a literal (do **not** re-export the
+  constant, which makes the check unfailable), and a contract revision then fails
+  with `expected 'checkpoint-store contract v1' to be 'checkpoint-store contract
+v2'` instead of a scatter of assertion failures whose common cause is not
+  obvious.
+
+  Documented at `docs/sdk/runtime/checkpoint-store-conformance.md`.
+
 ## 20.4.0
 
 ### Minor Changes

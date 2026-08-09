@@ -1,5 +1,154 @@
 # @namzu/cli
 
+## 8.0.0
+
+### Major Changes
+
+- 8975cce: `namzu doctor` no longer exits 0 when a check could not answer
+
+  **What breaks.** `namzu doctor` gains a new exit code, `69`, and a new status
+  word, `skipped`.
+
+  - **A CI step running `namzu doctor` can now fail where it used to pass.** If a
+    check times out, is aborted, or the thing it reads throws, the command exits
+    `69` instead of `0`. Nothing is claimed to have failed — `1` still means that
+    — but the report is incomplete, and it used to say so only in text nothing
+    reads. If you need the old behaviour while you look into it, treat `69` as
+    success explicitly rather than by accident.
+  - **`DoctorStatus` gains `'skipped'`.** An exhaustive `switch` over it, or a
+    `Record<DoctorStatus, …>`, stops compiling. Handle `skipped` as "there was
+    nothing here to check" — an ordinary state of a healthy machine, not a
+    problem.
+  - **`DoctorReport['exit']` gains `69`**, and `DoctorReport['summary']` gains a
+    required `skipped: number`. Code that constructs a `DoctorReport` by hand must
+    add the field; code that reads the summary can now rely on the counts summing
+    to `total`, which they did not while `skipped` was hidden inside
+    `inconclusive`.
+
+  **Why.** "Healthy" and "did not manage to look" shared an exit code in the one
+  command whose entire job is to report state it read. Fixing that needed the
+  status vocabulary split first, because `inconclusive` was carrying two facts:
+  _there is nothing here to check_ — an optional package absent, a registry with
+  no auto-discovery, nothing configured yet — and _this check did not answer_.
+  Only the second is a gap worth an exit code; making both non-zero would have
+  turned `namzu doctor` red on every healthy machine.
+
+  So `vault.registered`, `providers.registered`, `providers.chain` with no
+  preferences file, and `telemetry.installed` with the package absent now report
+  `skipped`, and they still exit `0`.
+
+  **Also fixed:** `telemetry.installed` reported `not installed (optional
+package)` for _any_ import failure, so a package that was present and threw on
+  load was reported as absent. Resolution and loading are now asked separately —
+  cannot resolve is `skipped`, resolves but throws is `fail`, with the reason.
+
+  **Why 69 and not 2.** `2` already means "no checks registered" here. `namzu
+eval` spells the same idea `2`, which it can because it never spent that number
+  on anything else; giving one number two meanings inside one command is worse
+  than giving one meaning two numbers across two. `69` is sysexits
+  `EX_UNAVAILABLE`.
+
+- c3c8358: `run-stream`'s exit code now says whether you can do anything about the failure
+
+  **What breaks.** Four conditions that exited `0` now exit `1`, and two flags
+  that were accepted and ignored are now refused.
+
+  | Condition                                                                                                                            | Was                                  | Is                                 |
+  | ------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------ | ---------------------------------- |
+  | `--session <id>` and the conversation cannot be opened                                                                               | `0`                                  | `1`                                |
+  | No LLM provider available                                                                                                            | `0`                                  | `1`                                |
+  | The session has no provider for an environment reason (no credential, a driver that would not load, a chain that contradicts itself) | `0`                                  | `1`                                |
+  | A declared tool server is not available                                                                                              | `0`                                  | `1`                                |
+  | A command file that will not parse                                                                                                   | `0`                                  | `1`                                |
+  | `--continue` / `--resume`                                                                                                            | silently ignored, ran stateless, `0` | refused with an `error` event, `0` |
+
+  Everything else is unchanged. An unknown option, a missing prompt, a `--cwd`
+  that does not exist, a bad `--permission-mode`, an interactive command named
+  headlessly and a provider id that is not a provider all still exit `0`; so does
+  a run that started and failed; and an untrusted folder still exits `77`.
+
+  **If you have a host that treats non-zero as "the folder is untrusted"**, that
+  is the assumption to change: `77` still means only that, but `1` now means "a
+  person has to fix something before this can work". If your host retried on `0`,
+  it will stop looping on faults retrying could never fix — which is the point.
+
+  **Why.** The documented rule was _started and failed → 0; refused to start →
+  non-zero_, and applied to the real cases it did not sort them: an unknown
+  option, a missing prompt, a bad `--cwd` and an unavailable tool server are all
+  refusals to start, and all four exited `0` while an untrusted folder exited
+  `77`. The retry argument the source appealed to does not sort them either —
+  retrying an unknown option is as pointless as retrying an untrusted folder.
+
+  The axis that does: **can the caller reach the run it asked for by changing what
+  it sends?** Yes → `0`, and the host fixes its own invocation. No → non-zero,
+  because a person has to act. Dropping `--session` is not "the caller fixing it";
+  it abandons what was asked for.
+
+  `1` rather than a new code because `namzu run` — the same one-shot, differing
+  only in how it prints — already exits `1` for these conditions and `77` for
+  trust. `77` stays scoped to trust, because being unambiguous is its whole
+  justification.
+
+  **Two branches had to be split before they could be sorted.** `hasProvider ===
+false` covered both a provider id that is not a provider (yours to fix) and four
+  environment failures; a refused command expansion covered both a bad invocation
+  and a command file that will not parse. Each now carries the distinction as a
+  field — `AgentSession.errorKind` and the `fixable` flag on a `refused`
+  expansion — rather than leaving a caller to match on the message text, after
+  which the message could never be reworded.
+
+### Minor Changes
+
+- 4df5cf1: `drainRuns` — the queue loop the cross-process claim shipped without
+
+  `claimRun`, `releaseRun`, the fenced `writeCheckpoint`, `listDurableRuns({ claimed: false })` and `resumeRun({ claimFence })` were all already here, and nothing outside the store's own tests called any of them. The two things the claim was built for — an approval inbox and a crash sweeper — still needed every host to write the same loop, including the two parts a host writes wrong: the release that belongs in a `finally` so a FAILED run goes back on the queue too, and the `null` claim that means "somebody got there first" rather than an error.
+
+  New: `drainRuns({ store, scope, holder, ttlMs, onRun, park?, signal?, maxConcurrent?, pageSize?, now? })`, plus the types `DrainRun`, `DrainRunsParams`, `DrainRunsResult`, `DrainFailure` and the constant `DEFAULT_DRAIN_PAGE_SIZE`. One bounded pass: list what nobody holds, claim it, hand it to your callback with its claim, release it. No timers, no processes, no `while (true)` — running it again is your scheduler's job.
+
+  **Read this before relying on "exactly once".** Two drainers never hold one run at the same time; that is absolute. Exactly-once over a pass is weaker and comes from the FILTER, not the claim: a listing is a snapshot, so between paging a row and claiming it another drainer can finish that run and release it. A claimed row is therefore re-read against `park` before any work starts, and one that no longer matches comes back as `stale`. An inbox drain (`park: ['outstanding']`) whose work answers the park is exactly-once. **With no park filter there is nothing to re-check and two drainers can both process one run** — a checkpoint store holds no run status by design, so "already done" is a fact only your own run records carry, and a crash sweep intersects with them inside `onRun`.
+
+  A store missing `listDurableRuns`, `claimRun` or `releaseRun` is refused with `capability_unavailable` **before anything is listed**, naming all three. It never degrades to "claimed by default", which would let every worker proceed on every run.
+
+  `@namzu/cli` gains `namzu drain --store <dir> --tenant <id> --project <id> --session <id>`, which claims each unheld run under that scope and continues it from its last checkpoint under that claim's fence. It is one pass and then exit: `namzu serve` still answers that namzu has no daemon, and this command is the shape that refusal implies — something your scheduler runs, not a service namzu owns. A run parked on a human decision is reported, never resumed past. Additive on both packages; nothing existing changes behaviour.
+
+### Patch Changes
+
+- fce37b2: `/resume` now stops the turn it interrupts, and that turn is saved where it belongs
+
+  Selecting a conversation from the `/resume` picker while the agent was working
+  left the old turn running. Three things followed, and the last one outlived the
+  process:
+
+  - its tool rows and reply text kept appending into the resumed transcript, so
+    one conversation's output arrived in the middle of another;
+  - a follow-up you had queued for the old conversation was sent to the new one
+    the moment the screen went idle;
+  - when it finished, it wrote its messages into the **resumed** conversation's
+    stored history. `namzu` then showed you a turn you never had there, and fed it
+    to the model as context on the next one.
+
+  Selecting a conversation now interrupts the running turn first, the same way
+  `Esc` does. The interrupted turn is not discarded: it finishes reading its own
+  events, its reply so far is written to the conversation it was started in, and
+  the transcript says so — a tool call already dispatched is not undone, and the
+  line says that too. Cancelling the picker still changes nothing, and a
+  conversation that cannot be read now leaves the running turn alone rather than
+  stopping it on the way to a failure.
+
+  No API changed. If you script against `namzu`'s stored history, note that
+  records written by this defect are already on disk and this release does not
+  rewrite them.
+
+- Updated dependencies [8975cce]
+- Updated dependencies [4df5cf1]
+- Updated dependencies [1582bdb]
+- Updated dependencies [5dc8b82]
+  - @namzu/sdk@21.0.0
+  - @namzu/anthropic@3.2.0
+  - @namzu/ollama@2.1.0
+  - @namzu/openai@1.2.0
+  - @namzu/openrouter@2.1.0
+
 ## 7.0.0
 
 ### Major Changes
