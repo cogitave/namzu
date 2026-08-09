@@ -163,6 +163,15 @@ export type {
 	GateExec,
 	WorkspaceFingerprintOptions,
 } from './run/index.js'
+// The default `promoteMemory`: write what a run learned into a MemoryStore,
+// or write NOTHING. The hook was invoked at settle with the compaction
+// extractor's already-structured output and no shipped app supplied it, so
+// that structure was serialized into one system message and dropped when
+// the run ended. A run that learned nothing leaves no record at all — the
+// model reads this store, so noise here is context spent on a run that did
+// nothing.
+export { RUN_MEMORY_TAG, createMemoryPromoter } from './run/index.js'
+export type { MemoryPromoterOptions } from './run/index.js'
 
 // ─── personas, skills, advisory ──────────────────────────────────────────
 

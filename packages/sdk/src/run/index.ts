@@ -24,3 +24,6 @@ export type { FingerprintExec, WorkspaceFingerprintOptions } from './workspace-f
 
 export { checkLimitsDetailed, buildLimitConfig } from './LimitChecker.js'
 export type { LimitCheckerState, LimitCheckResult } from './LimitChecker.js'
+
+export { RUN_MEMORY_TAG, createMemoryPromoter } from './memory-promoter.js'
+export type { MemoryPromoterOptions } from './memory-promoter.js'

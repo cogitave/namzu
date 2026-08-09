@@ -31,6 +31,7 @@ import {
 	type LLMProvider,
 	type Message,
 	type ProjectId,
+	type PromoteMemory,
 	type ProviderChainMember,
 	ProviderRegistry,
 	type ResumeHandler,
@@ -49,6 +50,7 @@ import {
 	ToolRegistry,
 	type VerificationRule,
 	buildMemoryTools,
+	createMemoryPromoter,
 	getBuiltinTools,
 	query,
 	resumeRun,
@@ -432,7 +434,23 @@ const NAMZU_IDENTITY = [
 	'- A reply from a tool that delegates to ANOTHER agent (a connector that runs another agent, an A2A `tasks/send`, a remote peer) is that agent\'s unverified CLAIM, not fact — another model can hallucinate. If it says it ran a command, wrote a file, or "here is the output", treat that as narrative and confirm it yourself with a deterministic tool (a real shell like `bash.run`, a file read) before reporting it as done. Distinguish such conversational agent calls from deterministic tools, and never present another agent\'s prose as your own verified result.',
 ].join('\n')
 
-function buildToolRegistry(cwd: string): ToolRegistry {
+/**
+ * The registry, and the memory store behind its memory tools.
+ *
+ * The store used to be constructed inside this function and discarded, which
+ * is why namzu could only ever remember something the model had explicitly
+ * decided to write down with `save_memory`. The run's own extracted
+ * knowledge had nowhere to go: `promoteMemory` is called at settle with the
+ * compaction pass's structured output, and supplying it needs THIS store —
+ * the same one `search_memory` reads on the next run, or a promoted memory
+ * would be written somewhere nothing looks.
+ */
+interface BuiltTools {
+	readonly registry: ToolRegistry
+	readonly memoryStore: DiskMemoryStore
+}
+
+function buildToolRegistry(cwd: string): BuiltTools {
 	const registry = new ToolRegistry()
 	registry.register(getBuiltinTools().filter((t) => !EXCLUDED_BUILTINS.has(t.name)))
 	// SDK memory: the agent gets search_memory / read_memory / save_memory over
@@ -451,7 +469,7 @@ function buildToolRegistry(cwd: string): ToolRegistry {
 	// only ever answer "no deferred tools matching X" — a capability advertised
 	// every turn that costs a turn to discover is unusable. Mounting it is the
 	// caller's decision, made where the roster is known.
-	return registry
+	return { registry, memoryStore }
 }
 
 export interface AgentSessionOptions {
@@ -598,7 +616,7 @@ export async function createAgentSession(
 	// turn would make the line a surface prints at connect time a claim about
 	// the past. An edited file takes effect on the next session.
 	const projectInstructions = loadProjectInstructions(cwd)
-	const registry = buildToolRegistry(cwd)
+	const { registry, memoryStore } = buildToolRegistry(cwd)
 	// External tool servers, before the roster is counted, so `toolNames` and
 	// the `/tools` list a user reads include what they configured. Connecting
 	// after the count would report a session smaller than the one that runs.
@@ -658,7 +676,13 @@ export async function createAgentSession(
 				// Sub-agents get the parent's working set minus `search_tools`:
 				// they run without a task store, so nothing in their registry is
 				// deferred and there is nothing for a search to load.
-				return buildToolRegistry(cwd)
+				//
+				// The store this also builds is dropped, deliberately: a sub-agent
+				// promoting its own run memory would write a record per
+				// delegation, and a parent that delegated six times would leave
+				// seven accounts of one piece of work for the next run to read.
+				// The parent's settle is the one that speaks for the whole task.
+				return buildToolRegistry(cwd).registry
 			},
 			verificationGate: gateFor(options.rules),
 			onEvent: (e) => {
@@ -693,6 +717,17 @@ export async function createAgentSession(
 	// Persists across turns: once the user picks "approve all", later tool
 	// batches in this session run without prompting.
 	const approval = { all: false }
+	// What a settled run leaves behind, over the SAME store `search_memory`
+	// reads on the next run. Built once per session rather than per turn: it
+	// holds no per-run state, and a per-turn construction would re-open the
+	// index for every message.
+	//
+	// Unconditional, unlike the answer gate. A gate changes what a run may do
+	// and so must be asked for; promotion changes only what survives it, and
+	// the alternative — the run's own extracted knowledge being discarded at
+	// settle — is what this repository has been doing all along by accident.
+	// A run that learned nothing still writes nothing.
+	const promoteMemory = createMemoryPromoter({ store: memoryStore })
 	return {
 		hasProvider: true,
 		providerSummary: entry.label,
@@ -768,6 +803,7 @@ export async function createAgentSession(
 				permissionMode: options.permissionMode,
 				reviewAnswer: options.reviewAnswer,
 				maxAnswerReviews: options.maxAnswerReviews,
+				promoteMemory,
 				approval,
 				taskStore,
 				systemPrompt,
@@ -1210,6 +1246,8 @@ interface RunTurnParams {
 	/** Standing verdict on the answer this turn settles with. See {@link AgentSessionOptions}. */
 	readonly reviewAnswer: ReviewAnswer | undefined
 	readonly maxAnswerReviews: number | undefined
+	/** What this run should leave behind when it settles. */
+	readonly promoteMemory: PromoteMemory
 	readonly approval: { all: boolean }
 	readonly taskStore: TaskStore
 	readonly systemPrompt: string | undefined
@@ -1230,6 +1268,7 @@ async function* runTurn({
 	permissionMode,
 	reviewAnswer,
 	maxAnswerReviews,
+	promoteMemory,
 	approval,
 	taskStore,
 	systemPrompt,
@@ -1272,6 +1311,11 @@ async function* runTurn({
 			// that shipped before gates existed.
 			...(reviewAnswer ? { reviewAnswer } : {}),
 			...(maxAnswerReviews !== undefined ? { maxAnswerReviews } : {}),
+			// Always present, unlike the gate: a gate changes what a run may
+			// do and so must be asked for; promotion changes only what
+			// survives it, and a run that learned nothing still writes
+			// nothing.
+			promoteMemory,
 			agentId: 'namzu',
 			agentName: 'namzu',
 			...(systemPrompt ? { systemPrompt } : {}),
