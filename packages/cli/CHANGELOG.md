@@ -1,5 +1,39 @@
 # @namzu/cli
 
+## 8.4.0
+
+### Minor Changes
+
+- f84d2e3: `Ctrl+O` expands collapsed tool output in place again, for the rows still on
+  screen.
+
+  The last few transcript entries are now drawn live rather than printed once, so
+  pressing `Ctrl+O` replaces the `… +6 lines` hint with the lines it was hiding —
+  in the row where it already is, with nothing printed twice. Pressing it again
+  closes them.
+
+  How far back it reaches is bounded by your terminal's height, because the live
+  region has to stay well inside the viewport. On a terminal roughly under thirty
+  rows there is no room for one, and `Ctrl+O` says so and points at `/expand`
+  rather than doing nothing. `/expand <n>` is unchanged and remains the way to
+  reach anything older; it still appends the full body as a new entry.
+
+  Nothing changes for a caller: no exported type, flag or route moved.
+
+### Patch Changes
+
+- 908cbf6: Parse a streaming reply one block at a time instead of re-parsing the whole
+  message on every token.
+
+  The pending transcript row re-renders per token, and each render re-parsed the
+  entire message: a forty-block answer was parsed forty blocks deep on every
+  token, so the cost of streaming a reply grew with the square of its length. Long
+  replies now stream at a cost that tracks their length rather than its square.
+
+  Nothing changes for a caller. `@namzu/cli` exports no markdown API; the new
+  `scanBlocks` and `parseBlock` are internal to the terminal UI, and
+  `parseMarkdown` is now the composition of the two with identical output.
+
 ## 8.3.0
 
 ### Minor Changes
