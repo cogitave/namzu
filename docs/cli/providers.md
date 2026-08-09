@@ -12,8 +12,33 @@ namzu is **credential-first**: it never runs a login flow. On launch it discover
 
 ## If nothing is found, you can type one
 
-When no credential is discovered, the picker offers `k` — paste a key and use it
-straight away, without leaving namzu.
+When no credential is discovered, the picker offers `k` — paste a credential and
+use it straight away, without leaving namzu.
+
+**Both kinds are accepted**: an API key, or a subscription token. namzu reads
+which one you pasted from its own shape, sends it on the wire accordingly, and
+says which kind it took. A pasted subscription token comes with no refresh data,
+so it expires within hours and namzu cannot renew it — the screen tells you that
+as you paste, rather than letting you find out as an authentication failure in
+the middle of a turn. A subscription token discovered from the macOS Keychain
+*is* renewed automatically, because that one arrives with its refresh data.
+
+## A saved provider with no credential
+
+Launching with a provider saved in `~/.namzu/preferences.json` and no credential
+for it on the machine puts you **in the picker**, with the reason printed on it.
+From there you can press `k` to enter a credential for that saved provider, or
+choose a different one; `Esc` or `Ctrl+C` leaves.
+
+This is offered even when other providers *are* detected — the list you land on
+would otherwise name every provider except the one you actually chose.
+
+Entering a credential for the saved provider keeps the rest of your saved chain,
+including a pinned model. Choosing a different provider replaces it and is
+written to your preferences as usual.
+
+Before, this launched into a screen with a disabled composer whose only advice
+was to pick another provider — on the one screen that could not pick one.
 
 **It is kept in memory for that session only and is never written anywhere.**
 The screen says so before you type and again after. To make it durable, set the

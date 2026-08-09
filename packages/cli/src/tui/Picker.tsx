@@ -19,7 +19,13 @@ import {
 	unsupportedProviderMessage,
 } from '../integrations/providers/index.js'
 import { type ModelListing, describeProviderModels, verifyCredential } from './agent.js'
-import { describeDisposition, keyLooksUsable, maskKey, sessionCredential } from './credential-entry.js'
+import {
+	classifyCredential,
+	describeDisposition,
+	keyLooksUsable,
+	maskKey,
+	sessionCredential,
+} from './credential-entry.js'
 import { type ModelStep, modelStep } from './model-choices.js'
 import { theme } from './theme.js'
 
@@ -55,11 +61,53 @@ export interface PickerProps {
 	 * live credential into it.
 	 */
 	readonly verify?: typeof verifyCredential
+	/**
+	 * The provider a credential is MISSING for, when that is why this picker is
+	 * open.
+	 *
+	 * Two things follow from it, and both were the difference between routing an
+	 * operator here and helping them. Key entry becomes reachable on the
+	 * populated screen — with a local server running, an operator with no key for
+	 * their saved provider used to land on a list that offered no way to enter
+	 * one — and the entry targets THIS provider rather than the first
+	 * key-capable one in the registry, so the credential goes to the provider
+	 * that needed it instead of to whichever happens to be listed first.
+	 */
+	readonly keyEntryFor?: ProviderId | null
+	/**
+	 * Why this picker is open, printed on it.
+	 *
+	 * A prop and not a transcript line, because the transcript is NOT RENDERED
+	 * during this phase — the picker replaces it. Every refusal that routed here
+	 * pushed its sentence into the transcript and then drew a screen that does
+	 * not contain one, so the operator saw a provider list with no statement of
+	 * what was wrong, and the explanation appeared only once they had already
+	 * chosen and the transcript came back.
+	 *
+	 * That is the same shape as the defect this file's routing fixes, one layer
+	 * down: an explanation delivered somewhere it cannot be read.
+	 */
+	readonly notice?: string | null
 }
 
-/** Providers that take a typed API key. Local servers do not. */
+/** Providers that take a typed credential. Local servers do not. */
 function keyCapableProviders(): ProviderRegistryEntry[] {
 	return ALL_PROVIDER_IDS.map((id) => PROVIDER_REGISTRY[id]).filter((e) => e.requiresApiKey)
+}
+
+/**
+ * The provider `k` opens entry for.
+ *
+ * The saved one when this picker is open because its credential is missing;
+ * otherwise the first key-capable provider, which is what the empty screen has
+ * always done. Returns null when nothing here takes a typed credential.
+ */
+function keyEntryTarget(keyEntryFor: ProviderId | null | undefined): ProviderRegistryEntry | null {
+	if (keyEntryFor) {
+		const entry = PROVIDER_REGISTRY[keyEntryFor]
+		if (entry?.requiresApiKey) return entry
+	}
+	return keyCapableProviders()[0] ?? null
 }
 
 export function Picker({
@@ -71,6 +119,8 @@ export function Picker({
 	describeModels = describeProviderModels,
 	onCredential,
 	verify = verifyCredential,
+	keyEntryFor,
+	notice,
 }: PickerProps) {
 	const initialIndex =
 		(currentProvider !== null && currentProvider !== undefined
@@ -86,8 +136,13 @@ export function Picker({
 	} | null>(null)
 	// Key entry. `value` is the secret and never leaves this component except as
 	// a mask or as the credential handed to `onCredential`.
+	//
+	// The provider is held as the ENTRY, not as an index into a filtered registry
+	// list. The index form could only ever address the first key-capable
+	// provider, because nothing on this screen changed it — so a credential typed
+	// for a saved provider would have been built for a different one.
 	const [keyEntry, setKeyEntry] = useState<{
-		readonly providerIndex: number
+		readonly entry: ProviderRegistryEntry
 		readonly value: string
 		readonly status: 'typing' | 'checking'
 		readonly problem?: string
@@ -96,8 +151,7 @@ export function Picker({
 	const acceptKey = async (): Promise<void> => {
 		const state = keyEntry
 		if (!state) return
-		const entry = keyCapableProviders()[state.providerIndex]
-		if (!entry) return
+		const { entry } = state
 
 		const shape = keyLooksUsable(state.value)
 		if (!shape.ok) {
@@ -107,6 +161,10 @@ export function Picker({
 
 		setKeyEntry({ ...state, status: 'checking' })
 		const cred = sessionCredential(entry, state.value)
+		// Classified from the value the operator pasted, and read from the SAME
+		// function the session layer picks the wire header with, so the sentence
+		// on screen cannot disagree with the request that follows it.
+		const kind = classifyCredential(entry, state.value)
 		const verification = await verify(entry.id, cred)
 
 		if (verification.kind === 'rejected') {
@@ -115,11 +173,11 @@ export function Picker({
 			setKeyEntry({
 				...state,
 				status: 'typing',
-				problem: describeDisposition(entry, verification),
+				problem: describeDisposition(entry, verification, kind),
 			})
 			return
 		}
-		onCredential?.(cred, describeDisposition(entry, verification))
+		onCredential?.(cred, describeDisposition(entry, verification, kind))
 	}
 
 	useInput((input, key) => {
@@ -145,14 +203,29 @@ export function Picker({
 			return
 		}
 
-		// `k` from the empty screen. Only there: on a populated picker the letter
-		// would collide with navigation, and someone with a working credential is
-		// not the person this is for.
-		if (detected.length === 0 && onCredential && (input === 'k' || input === 'K')) {
-			if (keyCapableProviders().length > 0) {
-				setKeyEntry({ providerIndex: 0, value: '', status: 'typing' })
+		// `k` opens credential entry. Two screens offer it, for two reasons.
+		//
+		// The empty one always has: with nothing detected, entering a credential
+		// is the only thing that can happen here.
+		//
+		// The POPULATED one offers it when `keyEntryFor` is set, which was the
+		// gap. The old rule was "empty screen only", reasoned as "someone with a
+		// working credential is not the person this is for" — true then, and false
+		// for the person this change routes here, who has a saved provider with no
+		// credential and a local server that happens to be running. They arrived
+		// at a list that named every provider except a way to fix the one they
+		// chose. The letter does not collide with anything: navigation is arrows
+		// and digits.
+		if (
+			(detected.length === 0 || keyEntryFor) &&
+			onCredential &&
+			(input === 'k' || input === 'K')
+		) {
+			const target = keyEntryTarget(keyEntryFor)
+			if (target) {
+				setKeyEntry({ entry: target, value: '', status: 'typing' })
 			} else {
-				setErrorHint('No provider here takes a typed key.')
+				setErrorHint('No provider here takes a typed credential.')
 			}
 			return
 		}
@@ -235,16 +308,33 @@ export function Picker({
 		}
 	})
 
+	// Above every screen this picker draws, so the reason is on the same frame as
+	// the choice it is asking for.
+	const noticeBox = notice ? (
+		<Box paddingBottom={1}>
+			<Text color={theme.status.warn}>{notice}</Text>
+		</Box>
+	) : null
+
 	if (keyEntry) {
-		const entry = keyCapableProviders()[keyEntry.providerIndex]
+		const { entry } = keyEntry
+		// What the operator has typed SO FAR, classified live. It settles as they
+		// finish pasting, and it is the same question `acceptKey` asks — so the
+		// line below is a preview of the sentence they will get, not a second
+		// opinion about it.
+		const kind = classifyCredential(entry, keyEntry.value)
 		return (
 			<Box flexDirection="column" borderStyle="round" borderColor={theme.border.focus} paddingX={1}>
+				{noticeBox}
 				<Box flexDirection="column" paddingBottom={1}>
 					<Text color={theme.accent.system} bold>
-						Paste a key for {entry?.label ?? 'this provider'}
+						Paste a credential for {entry.label}
 					</Text>
+					{/* Both kinds are named because both are accepted, and someone
+					    holding a subscription token has no way to guess that a field
+					    labelled "key" wants it. */}
 					<Text color={theme.text.muted}>
-						↑↓ is not needed — type or paste, then enter. esc cancels.
+						An API key or a subscription token. Type or paste, then enter. esc cancels.
 					</Text>
 				</Box>
 				{/* The mask, never the value. */}
@@ -253,12 +343,18 @@ export function Picker({
 				</Text>
 				<Box paddingTop={1} flexDirection="column">
 					{keyEntry.status === 'checking' ? (
-						<Text color={theme.text.muted}>Checking it with {entry?.label}…</Text>
+						<Text color={theme.text.muted}>Checking it with {entry.label}…</Text>
 					) : (
 						<Text color={theme.text.secondary}>
 							Used for this session only — it is not written anywhere.
 						</Text>
 					)}
+					{keyEntry.value.length > 0 && kind === 'subscription-token' ? (
+						<Text color={theme.status.warn}>
+							Reads as a subscription token — it expires in a few hours and namzu has no
+							refresh data for a pasted one.
+						</Text>
+					) : null}
 					{keyEntry.problem ? <Text color={theme.status.warn}>{keyEntry.problem}</Text> : null}
 				</Box>
 			</Box>
@@ -276,6 +372,11 @@ export function Picker({
 		)
 	}
 
+	// Non-null exactly when `k` is live on the populated list — the same
+	// condition the key handler uses, read from one place so the hint and the
+	// keyboard cannot drift apart.
+	const entryTarget = keyEntryFor && onCredential ? keyEntryTarget(keyEntryFor) : null
+
 	if (detected.length === 0) {
 		return (
 			<Box
@@ -284,6 +385,7 @@ export function Picker({
 				borderColor={theme.status.warn}
 				paddingX={1}
 			>
+				{noticeBox}
 				<Text color={theme.status.warn} bold>
 					No providers detected
 				</Text>
@@ -315,12 +417,12 @@ export function Picker({
 				</Box>
 				<Box paddingTop={1}>
 					<Text color={theme.text.primary}>
-						Or press <Text color={theme.accent.system}>k</Text> to paste a key now and use it for
-						this session.
+						Or press <Text color={theme.accent.system}>k</Text> to paste a credential now and use
+						it for this session.
 					</Text>
 				</Box>
 				<Box paddingTop={1}>
-					<Text color={theme.text.muted}>k: enter a key · esc: exit picker</Text>
+					<Text color={theme.text.muted}>k: enter a credential · esc: exit picker</Text>
 				</Box>
 			</Box>
 		)
@@ -328,6 +430,7 @@ export function Picker({
 
 	return (
 		<Box flexDirection="column" borderStyle="round" borderColor={theme.border.focus} paddingX={1}>
+			{noticeBox}
 			<Box flexDirection="column" paddingBottom={1}>
 				<Text color={theme.accent.system} bold>
 					Choose a provider
@@ -348,7 +451,13 @@ export function Picker({
 				))}
 			</Box>
 			<Box flexDirection="column" paddingTop={1}>
-				<Text color={theme.text.muted}>↑↓ or 1-9 navigate · enter accept · esc cancel</Text>
+				{/* Named only when the key actually does something. A hint that
+				    advertises a key this screen ignores is the same defect as a
+				    message whose advice cannot be followed, one size down. */}
+				<Text color={theme.text.muted}>
+					↑↓ or 1-9 navigate · enter accept
+					{entryTarget ? ` · k enter a credential for ${entryTarget.label}` : ''} · esc cancel
+				</Text>
 				{errorHint ? <Text color={theme.status.warn}>{errorHint}</Text> : null}
 			</Box>
 		</Box>
