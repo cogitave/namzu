@@ -196,6 +196,14 @@ export function App({ ctx }: AppProps) {
 	 * conversation's rows and must keep arriving.
 	 */
 	const conversationGenRef = useRef<number>(0)
+	/**
+	 * Whether a conversation has been chosen and is still being read.
+	 *
+	 * The picker keeps the screen for that interval, and `Esc` stops cancelling:
+	 * the choice is already being acted on, so a press landing here would close
+	 * the picker over a switch that happens anyway.
+	 */
+	const resumeCommittedRef = useRef<boolean>(false)
 	const idRef = useRef<number>(0)
 	const nextId = useCallback(() => {
 		idRef.current += 1
@@ -554,20 +562,37 @@ export function App({ ctx }: AppProps) {
 	 * Nothing is disturbed until the new conversation is actually in hand. A
 	 * read that fails leaves a running turn running where it belongs, exactly as
 	 * cancelling the picker does.
+	 *
+	 * And the picker stays up for the length of the read rather than handing the
+	 * screen back first. A composer that is live over an unsettled switch takes
+	 * a message with nowhere to go: queued against a conversation being left, and
+	 * then either dropped by the interrupt below or sent to a conversation nobody
+	 * addressed it to. The screen should not accept input for a conversation that
+	 * is not decided yet, and a read is usually too fast to see.
 	 */
 	const resumeConversation = useCallback(
 		async (conv: RecentConversation) => {
 			const sessions = sessionsRef.current
 			const scope = scopeRef.current
-			setPhase('ready')
-			if (!sessions || !scope) return
+			if (!sessions || !scope) {
+				setPhase('ready')
+				return
+			}
+			// The operator has committed; `Esc` no longer cancels from here, or a
+			// press landing during the read would leave the picker closed and the
+			// switch happening anyway.
+			resumeCommittedRef.current = true
 			let msgs: Awaited<ReturnType<typeof loadConversation>>
 			try {
 				msgs = await loadConversation(sessions, conv.id)
 			} catch (err) {
+				resumeCommittedRef.current = false
+				setPhase('ready')
 				pushMessage('system', `Could not resume: ${err instanceof Error ? err.message : String(err)}`)
 				return
 			}
+			resumeCommittedRef.current = false
+			setPhase('ready')
 			const restored: TranscriptMessage[] = msgs
 				.filter((m) => m.role === 'user' || m.role === 'assistant')
 				.map((m) => ({
@@ -582,9 +607,14 @@ export function App({ ctx }: AppProps) {
 			scope.sessionId = conv.id // new turns now attribute to the resumed session
 			pushMessage('system', `Resumed: ${conv.title}`)
 			if (interrupted) {
+				// "is being saved", not "is saved". The write has not happened yet —
+				// it runs when the abandoned turn finishes unwinding, which is after
+				// this line — and a surface that reports a result it has not read is
+				// the defect class this whole change is about. If that write fails,
+				// the turn says so itself, in the same words `run-stream` uses.
 				pushMessage(
 					'system',
-					'The turn that was running was interrupted. Its reply so far is saved to the conversation it started in, so it is not in the transcript above. A tool call already dispatched was not undone.',
+					'The turn that was running was interrupted. Its reply so far is being saved to the conversation it started in, so it is not in the transcript above. A tool call already dispatched was not undone.',
 				)
 			}
 		},
@@ -785,10 +815,18 @@ export function App({ ctx }: AppProps) {
 					onPermission: ctx.skipPermissions ? undefined : onPermission,
 					extraSystem: composeSkillsPrompt(activeSkills) ?? undefined,
 				})) {
-					// A turn the operator has left is consumed but not rendered: the
-					// text still accumulates, so the reply persisted into its own
-					// conversation below is whole, and no row from it lands in a
-					// transcript it has nothing to do with.
+					// A turn the operator has left is consumed but not rendered: no row
+					// from it lands in a transcript it has nothing to do with, and its
+					// text keeps accumulating so that what gets saved does not depend
+					// on exactly when the switch happened.
+					//
+					// How much arrives after the switch is a property of the SESSION,
+					// not of this loop. The built-in one checks the signal at the top of
+					// each iteration and returns after a single `error: aborted`, so in
+					// practice very little does. The accumulation is here so a session
+					// that notices later — a different implementation, a generator
+					// parked in a tool call — still saves a whole reply rather than one
+					// truncated at the moment the operator happened to leave.
 					if (stillHere()) applyEvent(event, st)
 					else if (event.kind === 'delta') st.text += event.text
 				}
@@ -822,11 +860,31 @@ export function App({ ctx }: AppProps) {
 				}
 				// Persisted either way, and into the conversation this turn was
 				// started in — captured above, never re-read.
+				//
+				// Best-effort is about not FAILING, not about staying quiet. The
+				// rejection used to be swallowed whole, and it is the one failure here
+				// that makes a LATER surface wrong: `/resume` comes back missing a
+				// turn that was on screen, and the next turn in that conversation
+				// silently lacks it as context, with nothing connecting either to a
+				// write that failed minutes ago. `run-stream` already says this, in
+				// these words and for this reason.
+				//
+				// Said wherever the operator is now, even when that is a different
+				// conversation, because there is no other channel and it is news they
+				// need. Naming the conversation is what keeps it from reading as a
+				// fault of the one in front of them.
 				const sessions = sessionsRef.current
 				if (sessions && destination) {
 					const turn: Message[] = [createUserMessage(text)]
 					if (st.text.trim().length > 0) turn.push(createAssistantMessage(st.text))
-					void appendMessages(sessions, destination, turn).catch(() => {})
+					void appendMessages(sessions, destination, turn).catch((err: unknown) => {
+						pushMessage(
+							'system',
+							`A turn was not saved to conversation ${destination}: ${
+								err instanceof Error ? err.message : String(err)
+							}. That conversation's history will not include it, and its next turn will not have it as context.`,
+						)
+					})
 				}
 			}
 		},
@@ -1162,6 +1220,11 @@ export function App({ ctx }: AppProps) {
 			}
 			// Resume picker owns the keyboard while open.
 			if (phase === 'resume') {
+				// Once a conversation is being read, the keyboard does nothing here.
+				// The choice is already being acted on; a second Enter would start a
+				// second read and an Esc would hand back a screen that is about to be
+				// replaced regardless.
+				if (resumeCommittedRef.current) return
 				if (key.upArrow) setSelectedResume((i) => Math.max(0, i - 1))
 				else if (key.downArrow) setSelectedResume((i) => Math.min(resumeList.length - 1, i + 1))
 				else if (key.return) {

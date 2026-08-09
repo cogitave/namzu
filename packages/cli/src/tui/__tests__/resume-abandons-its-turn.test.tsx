@@ -13,11 +13,16 @@
  *      record, because `sessionId` was mutated on a `RunScope` the running loop
  *      held the same object of. That one outlived the process.
  *
- * The fake session deliberately keeps yielding after the abort, because that is
- * what a real one does: `abort()` returns and the `for await` unwinds whenever
- * it gets there. A generator that stopped politely on the signal would make
- * halves 2 and 3 untestable — the window they live in is exactly the interval
- * this fake holds open.
+ * The fake session keeps yielding after the abort, and it is worth being exact
+ * about what that models. `abort()` returns immediately and the `for await`
+ * unwinds whenever it gets there, so the window is real — but the BUILT-IN
+ * session checks the signal at the top of each iteration and returns after one
+ * `error: aborted`, so on that implementation very little arrives in it. This
+ * fake is therefore a session that notices the signal LATE, which is the case
+ * the guards have to hold for and the only one in which they are observable at
+ * all. A generator that stopped politely would close the window and make halves
+ * 2 and 3 untestable; claiming it is what the shipped session does would be a
+ * different error, so it is not claimed.
  *
  * The second test is the other side, and it is the one that was correct only by
  * placement: cancelling the picker must leave everything alone, and nothing
@@ -66,6 +71,16 @@ let abortSeenAtRelease = false
 
 /** Set by a test that wants the conversation read to fail. */
 let loadShouldFail = false
+/** Set by a test that wants the write of the abandoned turn to fail. */
+let appendShouldFail = false
+/** Held by a test that wants the conversation read to take an observable while. */
+let readHeld: Promise<void> | null = null
+let releaseTheRead: () => void = () => {}
+function holdTheRead(): void {
+	readHeld = new Promise<void>((r) => {
+		releaseTheRead = r
+	})
+}
 /** Set by a test that wants the abandoned turn to end by throwing. */
 let throwAtEnd = false
 /** Set by a test that wants the abandoned turn parked on a permission prompt. */
@@ -91,11 +106,13 @@ vi.mock('../../integrations/sessions/store.js', () => ({
 			sessionId,
 			contents: messages.map((m) => (typeof m.content === 'string' ? m.content : '')),
 		})
+		if (appendShouldFail) throw new Error('ENOSPC: no space left on device')
 	},
 	listRecent: async () => [
 		{ id: RESUMED, title: 'An earlier conversation', updatedAt: new Date().toISOString(), count: 2 },
 	],
 	loadConversation: async () => {
+		if (readHeld) await readHeld
 		if (loadShouldFail) throw new Error('DISKUNREADABLE')
 		return [
 			{ role: 'user', content: 'RESTOREDQUESTION', timestamp: 1 },
@@ -139,6 +156,12 @@ vi.mock('../agent.js', async (importOriginal) => {
 				const turn = signals.length
 				signals.push(opts?.signal)
 				const gate = nextGate()
+				// A delta BEFORE the wait, so the turn owns a streaming assistant row
+				// in the transcript that `/resume` then throws away. That is the shape
+				// where a late `appendToMessage` would target an id belonging to the
+				// discarded array and no-op in silence — invisible to a turn whose
+				// first event is a tool call.
+				yield { kind: 'delta', text: `EARLY${turn} ` } as AgentEvent
 				yield {
 					kind: 'tool-start',
 					toolUseId: 'c1',
@@ -181,6 +204,8 @@ beforeEach(() => {
 	signals.length = 0
 	abortSeenAtRelease = false
 	loadShouldFail = false
+	appendShouldFail = false
+	readHeld = null
 	throwAtEnd = false
 	askPermission = false
 	permissionAsked = false
@@ -189,8 +214,9 @@ beforeEach(() => {
 
 afterEach(() => {
 	// Released whatever the test did, so a failing assertion cannot leave a
-	// generator parked forever and take the next file down with it.
+	// generator or a read parked forever and take the next file down with it.
 	for (const g of gates) g.release()
+	releaseTheRead()
 	for (const h of mounted) h.unmount()
 	mounted.length = 0
 	vi.restoreAllMocks()
@@ -290,11 +316,61 @@ describe('/resume while a turn is running', () => {
 			'LEAKEDREPLY0',
 		)
 
+		// The reply the operator watched begin, before the switch, is part of what
+		// is saved — and its row is gone from the screen, so a late write against
+		// its id would be a silent no-op nothing else here would notice.
+		expect(appended[0]?.contents.join(' ')).toContain('EARLY0')
+
 		// 4 — and the operator is told, because those rows are correctly missing
 		// from the transcript they are now looking at.
 		expect(everything, 'the abandoned turn was dropped in silence').toContain(
-			'saved to the conversation it started in',
+			'being saved to the conversation it started in',
 		)
+	})
+
+	it('says so when the abandoned turn could not be saved after all', async () => {
+		// The notice above says the reply is BEING saved, present tense, because
+		// the write has not happened when it is printed. It runs later, detached,
+		// and its rejection used to be swallowed whole — so a resume could promise
+		// a turn was going somewhere and nothing would ever say it did not arrive.
+		// That is the same defect as the one being fixed, one step further on.
+		appendShouldFail = true
+		const harness = await pickerOpenMidTurn()
+
+		harness.stdin.write('\r')
+		await untilFrame(harness, 'RESTOREDANSWER', 'the conversation never loaded')
+		gates[0]?.release()
+		await untilFrame(harness, 'was not saved', 'the failed write was silent')
+
+		const everything = harness.frames.join('\n')
+		// Named, so it does not read as a fault of the conversation on screen.
+		expect(everything, 'did not say which conversation lost the turn').toContain(STARTED_IN)
+		expect(everything, 'named the fault without naming the consequence').toContain('context')
+	})
+
+	it('keeps the picker until the conversation is actually read', async () => {
+		// The composer is live in the `ready` phase, and handing it back before the
+		// read settles gives a message nowhere to go: queued against a conversation
+		// being left, then dropped by the interrupt or sent somewhere nobody
+		// addressed it. Esc stops cancelling for the same interval — the choice is
+		// already being acted on.
+		holdTheRead()
+		const harness = await pickerOpenMidTurn()
+
+		harness.stdin.write('\r')
+		await tick(120)
+		expect(harness.lastFrame(), 'the screen was handed back mid-read').toContain(
+			'Resume a conversation',
+		)
+
+		harness.stdin.write('\x1B')
+		await tick(80)
+		expect(harness.lastFrame(), 'esc cancelled a resume already under way').toContain(
+			'Resume a conversation',
+		)
+
+		releaseTheRead()
+		await untilFrame(harness, 'RESTOREDANSWER', 'the conversation never loaded')
 	})
 
 	it('keeps the abandoned turn from reporting its own failure into the resumed transcript', async () => {
