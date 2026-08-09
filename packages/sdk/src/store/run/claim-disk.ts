@@ -78,21 +78,40 @@ function isRunClaim(value: unknown): value is RunClaim {
 /**
  * Read the run's current claim, or `null` when there is none.
  *
- * A damaged claim file reads as `null` — no claim — rather than throwing.
- * That is the opposite of the checkpoint reader's discipline, and
- * deliberately so: a damaged checkpoint means a resume would fabricate state,
- * where a damaged claim means at worst that a run is taken over sooner than
- * intended. Refusing here would leave a run permanently unclaimable because
- * of one corrupt byte, which is the failure mode a lease exists to avoid.
+ * Three outcomes, not two, and the third is the one CI caught.
+ *
+ * A claim that cannot be parsed returns `'unreadable'`, NOT `null`. The first
+ * version collapsed them and three workers claimed one run on a loaded CI
+ * box: a reader can observe the claim file mid-replacement and get an empty
+ * or partial string, `JSON.parse` throws, "damaged" became "no claim", and
+ * every worker that saw it took the run. The window is invisible on an idle
+ * laptop and wide open under real contention.
+ *
+ * `ENOENT` is the only absence that means free. Everything else means "there
+ * is something here I could not read", and a lease must treat that as held —
+ * refuse rather than degrade, because degrading here hands one run to every
+ * worker at once, which is the exact condition this file exists to prevent.
+ *
+ * A permanently corrupt claim therefore blocks the run until its lease would
+ * have expired, and no longer: the expiry is judged from a claim that parses,
+ * so an unparseable one is simply retried by the next caller. That is the
+ * right cost — a run briefly unclaimable beats a run claimed twice.
  */
-export async function readClaim(runDir: string): Promise<RunClaim | null> {
+export async function readClaim(runDir: string): Promise<RunClaim | null | 'unreadable'> {
+	let raw: string
 	try {
-		const parsed: unknown = JSON.parse(await readFile(join(runDir, CLAIM_FILE), 'utf-8'))
-		return isRunClaim(parsed) ? parsed : null
+		raw = await readFile(join(runDir, CLAIM_FILE), 'utf-8')
 	} catch (err) {
+		// The ONLY absence that means "free". Nothing else may.
 		if (isErrno(err, 'ENOENT')) return null
-		if (err instanceof SyntaxError) return null
 		throw err
+	}
+
+	try {
+		const parsed: unknown = JSON.parse(raw)
+		return isRunClaim(parsed) ? parsed : 'unreadable'
+	} catch {
+		return 'unreadable'
 	}
 }
 
@@ -123,8 +142,9 @@ export async function acquireClaim(
 	}
 
 	const held = await readClaim(runDir)
-	// An unreadable claim is treated as none, and taking it needs the same
-	// serialization as reclaiming an expired one.
+	// Unreadable means somebody is mid-replacement, or the file is damaged.
+	// Either way there IS a claim here and this caller is not it.
+	if (held === 'unreadable') return null
 	if (held && now < held.expiresAt && held.holder !== options.holder) return null
 
 	// Reclaim or renew. Both replace the file and both must be serialized:
@@ -139,6 +159,7 @@ export async function acquireClaim(
 		// the read above and the guard being taken, and that read is the only
 		// thing standing between two workers and one fence.
 		const current = await readClaim(runDir)
+		if (current === 'unreadable') return null
 		if (current && now < current.expiresAt && current.holder !== options.holder) return null
 
 		const claim = fresh(current?.fence ?? held?.fence ?? 0)
@@ -197,6 +218,6 @@ async function takeGuard(guardPath: string, now: number): Promise<boolean> {
 /** Drop the claim if `fence` is the one currently recorded. */
 export async function releaseClaim(runDir: string, fence: ClaimFence): Promise<void> {
 	const held = await readClaim(runDir)
-	if (!held || held.fence !== fence) return
+	if (!held || held === 'unreadable' || held.fence !== fence) return
 	await unlink(join(runDir, CLAIM_FILE)).catch(() => undefined)
 }

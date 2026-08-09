@@ -105,7 +105,13 @@ export class DiskCheckpointStore implements CheckpointStore {
 			// A holder that stalled past its lease believes it still holds,
 			// and this is the only point at which it can be told otherwise.
 			const held = await readClaim(this.runDir(scope))
-			if (held && fence < held.fence) throw fencedOut(scope, fence, held.fence)
+			// An unreadable claim is not evidence that this write is still the
+			// current holding, and it is not evidence that it is not. The write
+			// proceeds: the fence check exists to stop a SUPERSEDED holding, and
+			// a byte nobody can parse does not establish one.
+			if (held && held !== 'unreadable' && fence < held.fence) {
+				throw fencedOut(scope, fence, held.fence)
+			}
 		}
 		await store.writeCheckpoint(checkpoint)
 	}
@@ -232,7 +238,7 @@ export class DiskCheckpointStore implements CheckpointStore {
 		now: number,
 	): Promise<DurableRunEntry> {
 		const claim = await readClaim(runDir)
-		return claim ? { ...entry, claim: toClaimSummary(claim, now) } : entry
+		return claim && claim !== 'unreadable' ? { ...entry, claim: toClaimSummary(claim, now) } : entry
 	}
 
 	/** Directory names under `dir`, or none when `dir` does not exist. */
