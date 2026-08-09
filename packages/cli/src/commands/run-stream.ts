@@ -168,8 +168,29 @@ export const runStreamCommand: CommandDef = {
 				cli = await openSessions(cwd)
 				conversationId = await resolveConversation(cli, sessionKey)
 				prior = await loadConversation(cli, conversationId as never)
-			} catch {
-				cli = null // persistence unavailable — run stateless rather than fail
+			} catch (err) {
+				// Refused, not run stateless.
+				//
+				// This used to set `cli = null` and fall through to the branch
+				// below, which reads prior turns from STDIN — so a caller who named
+				// a conversation got a turn answered against a different history,
+				// or none, reported as an ordinary success. `run.ts` already
+				// refuses the equivalent, in those words: someone who asked for a
+				// specific conversation and got a new one that looks the same finds
+				// out several turns later, having already acted on it.
+				//
+				// It cannot be softened into a warning, because we cannot say what
+				// was lost. `resolveConversation` creates the key on first use, so
+				// a fresh key legitimately has no prior turns — and the failure is
+				// exactly what stopped us finding out which case this is. "Could
+				// not look" is not "there was nothing there."
+				//
+				// In band, like every other failure here, because that is what the
+				// host reads. No session has been built at this point in the flow,
+				// so there is nothing to close on the way out.
+				return fail(
+					`could not open conversation "${sessionKey}": ${err instanceof Error ? err.message : String(err)}. Nothing ran, because continuing the wrong history is worse than not continuing. Drop --session to run this turn stateless.`,
+				)
 			}
 		}
 		if (!cli) {
@@ -271,6 +292,22 @@ export const runStreamCommand: CommandDef = {
 		// Persist the turn so a later `history --session <key>` (and the next
 		// turn's context) sees it. Best-effort — a store failure must not lose
 		// the reply the user already saw stream.
+		//
+		// Best-effort is about not FAILING, not about staying quiet. This used to
+		// swallow the error entirely, and it is the one failure here that makes a
+		// LATER command wrong: the stream ends `done`, the process exits 0, and a
+		// host has every reason to believe the turn is stored. Then
+		// `history --session` comes back missing a turn the user watched arrive,
+		// and the next turn's context silently lacks it — with nothing, anywhere,
+		// connecting that to a write that failed minutes earlier.
+		//
+		// So it is said, on the same channel and in the same shape as the config
+		// notices forty lines above, and for the reason written there: a host UI
+		// is the caller with no human watching, and its own event kind rather
+		// than an `error` because the run did succeed and a host treating this as
+		// a failure would be wrong. The consequence is named, not just the fault,
+		// because "could not persist" alone does not tell a host that its own
+		// later reads are now incomplete.
 		if (cli && conversationId) {
 			try {
 				const assistant: Message = {
@@ -279,8 +316,11 @@ export const runStreamCommand: CommandDef = {
 					timestamp: Date.now(),
 				} as Message
 				await appendMessages(cli, conversationId as never, [userMessage, assistant])
-			} catch {
-				// non-fatal
+			} catch (err) {
+				write({
+					kind: 'notice',
+					message: `this turn was not saved: ${err instanceof Error ? err.message : String(err)}. The reply above is complete, but history for this session will not include it and the next turn will not have it as context.`,
+				})
 			}
 		}
 
