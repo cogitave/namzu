@@ -84,6 +84,11 @@ probably belong under `docs/sdk/` instead.
   columns away, forty lines above. Unapplied knowledge, not missing knowledge.
 - [Verify the claim, including your own, including a comment's](verify-claims-including-your-own.md)
   — including a report's, including your own from an hour ago.
+- [Read back the protection you set, and refuse if you cannot](read-back-the-protection-you-set.md)
+  — asking for a permission is not holding one, and a wrong value is visible
+  where an unset file mode is not. Includes the platform axis: a readback inside
+  a platform branch cannot fail on any machine but one, so the predicate has to
+  be pure. Deleting a mode check killed no test on the machine it was written on.
 - [Never filter a verification down to something that can read green](never-filter-a-verification.md)
   — the check ran and its answer was invisible. Three incidents in one day.
 
