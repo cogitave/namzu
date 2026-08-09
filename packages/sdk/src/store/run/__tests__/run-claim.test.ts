@@ -265,8 +265,14 @@ describe('processes racing for one run', () => {
 	 */
 	const RUNS = 300
 
-	/** Race `workers` processes over a batch of runs, all released together. */
-	async function race(prefix: string, workers = 3): Promise<Map<string, number>> {
+	/**
+	 * Race `workers` processes over a batch of runs, all released together.
+	 *
+	 * Returns the fences won per run, not just a count. The count alone cannot
+	 * tell a reclaim from a fresh take, and one of the two tests below is about
+	 * exactly that difference.
+	 */
+	async function race(prefix: string, workers = 3): Promise<Map<string, number[]>> {
 		// Built output, not source: separate node processes with no loader,
 		// sharing nothing but `dir`.
 		const dist = join(here, '..', '..', '..', '..', 'dist')
@@ -283,10 +289,13 @@ describe('processes racing for one run', () => {
 			),
 		)
 
-		const claimsPerRun = new Map<string, number>()
+		const claimsPerRun = new Map<string, number[]>()
 		for (const r of results) {
-			const { won } = JSON.parse(r.stdout.trim()) as { won: { runId: string }[] }
-			for (const w of won) claimsPerRun.set(w.runId, (claimsPerRun.get(w.runId) ?? 0) + 1)
+			const { won } = JSON.parse(r.stdout.trim()) as {
+				won: { runId: string; fence: number }[]
+			}
+			for (const w of won)
+				claimsPerRun.set(w.runId, [...(claimsPerRun.get(w.runId) ?? []), w.fence])
 		}
 		return claimsPerRun
 	}
@@ -296,28 +305,43 @@ describe('processes racing for one run', () => {
 		expect(claims.size).toBe(RUNS)
 		// None claimed twice. Two holders of one run both restore the same
 		// checkpoint, both execute its tools and both write under one run id.
-		expect([...claims.values()].filter((n) => n !== 1)).toEqual([])
+		expect([...claims.values()].filter((f) => f.length !== 1)).toEqual([])
+		// A run nobody has held starts at 1. Stated so the reclaim test below
+		// has something to differ from.
+		expect([...claims.values()].filter((f) => f[0] !== 1)).toEqual([])
 	}, 60_000)
 
 	it('issues a dead holder’s run to exactly one reclaimer', async () => {
 		// A different mechanism from the one above, so it needs its own race.
 		// Taking a free run is a single exclusive create and the kernel picks
-		// the winner. RECLAIMING is read-judge-replace — three operations with
-		// two windows in them — and two workers that both read the same
-		// expired claim would both write, at the same fence, which fences
-		// neither of them out.
+		// the winner. RECLAIMING reads the current holding, judges it expired,
+		// and takes the NEXT number — and two workers that both read the same
+		// expired holding must not both end up with one fence, which would
+		// fence neither of them out.
+		//
+		// The seed is a holding, at `claims/7.json`. It used to be a
+		// `claim.json` in the run directory, and that file stopped being read
+		// when the fence became the file name — so this test seeded something
+		// nothing looked at, every run started from an empty counter, and it
+		// re-ran the fresh case above under a different name while its comment
+		// claimed otherwise. The fence assertion below is what makes the
+		// difference observable: 8 can only come from having read the 7.
 		for (let i = 0; i < RUNS; i++) {
-			const runDir = join(dir, `run_dead_${i}`)
-			await mkdir(runDir, { recursive: true })
+			const claimsDir = join(dir, `run_dead_${i}`, 'claims')
+			await mkdir(claimsDir, { recursive: true })
 			await writeFile(
-				join(runDir, 'claim.json'),
-				JSON.stringify({ holder: 'crashed', fence: 7, expiresAt: Date.now() - 60_000 }),
+				join(claimsDir, '7.json'),
+				JSON.stringify({ holder: 'crashed', expiresAt: Date.now() - 60_000 }),
 				'utf-8',
 			)
 		}
 
 		const claims = await race('run_dead_')
 		expect(claims.size).toBe(RUNS)
-		expect([...claims.values()].filter((n) => n !== 1)).toEqual([])
+		expect([...claims.values()].filter((f) => f.length !== 1)).toEqual([])
+		// Every reclaimer landed on 8: it read the dead holder's 7 and took the
+		// next number. Anything at 1 means the seed was invisible and this test
+		// is the fresh-claim test wearing a different name.
+		expect([...claims.values()].filter((f) => f[0] !== 8)).toEqual([])
 	}, 60_000)
 })
