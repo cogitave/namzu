@@ -222,6 +222,24 @@ afterEach(() => {
 	vi.restoreAllMocks()
 })
 
+/**
+ * Everything that was ever rendered, as one line of words.
+ *
+ * Read across `frames` rather than `lastFrame`, because finalized rows print
+ * once through `<Static>` and a later frame need not carry them — so
+ * `lastFrame` alone would be satisfied by output that DID land.
+ *
+ * Whitespace-collapsed, because Ink wraps at the terminal width and a sentence
+ * long enough to matter is a sentence long enough to wrap. An assertion holding
+ * a phrase that straddles the wrap point passes or fails on where the renderer
+ * broke the line, which is a fact about the column count of whoever ran it: this
+ * file went green locally and red on CI for exactly that, with the sentence
+ * plainly present in the dump. Matching words rather than layout is the fix.
+ */
+function said(harness: { frames: readonly string[] }): string {
+	return harness.frames.join('\n').replace(/\s+/g, ' ')
+}
+
 /** Wait for a frame to say something, rather than sleeping a fixed interval. */
 async function untilFrame(
 	harness: { lastFrame: () => string | undefined },
@@ -294,11 +312,10 @@ describe('/resume while a turn is running', () => {
 		// would go unreported.
 		expect(abortSeenAtRelease, 'the running turn was never aborted').toBe(true)
 
-		// 2 — nothing from it reached the screen after the switch. Read across
-		// every frame, not the last one: finalized rows print once through
-		// `<Static>` and a later frame need not carry them, so `lastFrame` alone
-		// would be satisfied by output that did land.
-		const everything = harness.frames.join('\n')
+		// 2 — nothing from it reached the screen after the switch. `said` reads
+		// across every frame and collapses the wrapping; see its docblock for why
+		// both halves of that matter.
+		const everything = said(harness)
 		expect(everything, "the abandoned turn's tool row landed in the resumed transcript").not.toContain(
 			'LEAKEDTOOL0',
 		)
@@ -342,7 +359,7 @@ describe('/resume while a turn is running', () => {
 		gates[0]?.release()
 		await untilFrame(harness, 'was not saved', 'the failed write was silent')
 
-		const everything = harness.frames.join('\n')
+		const everything = said(harness)
 		// Named, so it does not read as a fault of the conversation on screen.
 		expect(everything, 'did not say which conversation lost the turn').toContain(STARTED_IN)
 		expect(everything, 'named the fault without naming the consequence').toContain('context')
@@ -389,7 +406,7 @@ describe('/resume while a turn is running', () => {
 		await tick(120)
 
 		expect(
-			harness.frames.join('\n'),
+			said(harness),
 			"the abandoned turn's failure was reported into the resumed conversation",
 		).not.toContain('TURNBLEWUP')
 		// It still saved what it had, into its own conversation. A turn that fails
@@ -502,7 +519,7 @@ describe('/resume while a turn is running', () => {
 		await tick(120)
 
 		expect(abortSeenAtRelease, 'a failed resume aborted the turn anyway').toBe(false)
-		const everything = harness.frames.join('\n')
+		const everything = said(harness)
 		expect(everything, 'the turn stopped rendering into its own transcript').toContain('LEAKEDREPLY0')
 		expect(appended.map((a) => a.sessionId)).toEqual([STARTED_IN])
 	})
@@ -521,7 +538,7 @@ describe('/resume while a turn is running', () => {
 		await tick(120)
 
 		expect(abortSeenAtRelease, 'cancelling the picker aborted the turn').toBe(false)
-		const everything = harness.frames.join('\n')
+		const everything = said(harness)
 		expect(everything, 'the turn stopped rendering into its own transcript').toContain('LEAKEDREPLY0')
 		expect(appended.map((a) => a.sessionId)).toEqual([STARTED_IN])
 	})
