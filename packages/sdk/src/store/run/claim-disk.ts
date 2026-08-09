@@ -50,6 +50,40 @@
  * sweep reads exactly these files. Creating a new name never collides with a
  * reader.
  *
+ * ## The name appears already complete, because `link` publishes it
+ *
+ * An exclusive create decides the winner, but `wx` is open-THEN-write: for an
+ * instant the winning name exists and is empty. A reader landing in it parses
+ * nothing, reports the holding expired, and a second worker takes the next
+ * fence. Their fences differ so the loser's first checkpoint is refused — and
+ * both have already restored the run and executed its tools by then, and tool
+ * side effects are fenced by nothing.
+ *
+ * So the body is written to a temporary name first and the fence name is
+ * created by `link`ing to it. `link` fails `EEXIST` when the destination
+ * exists, so it arbitrates exactly as `wx` did, and the destination it creates
+ * is a second name for a file that was already whole. There is no instant at
+ * which the fence name exists and its body does not.
+ *
+ * Measured from separate OS processes on both platform families:
+ *
+ * - `link` refused an existing destination 20,000/20,000 times. Six writers
+ *   over 6,000 fences produced no fence with two winners and none with none.
+ * - Paired identical fixtures: `wx` showed an empty destination in 15,985 of
+ *   16,000 first observations, `link` in 0 of 16,000. All 156,000 frontier
+ *   observations were `ENOENT` or a complete parseable body — none empty, none
+ *   torn.
+ * - `rename` is disqualified, and not for the reason first assumed. It never
+ *   reports `EEXIST`; it silently REPLACES, 20,000/20,000. It cannot arbitrate
+ *   a race at all — two workers publishing one fence would both succeed and
+ *   the second would erase the first. (Its `EPERM`-under-readers failure is
+ *   real too, at 93.7% on the non-POSIX family, but the exclusivity failure
+ *   disqualifies it first.)
+ *
+ * Cost: three syscalls rather than one, +1.0 ms per acquisition on the
+ * non-POSIX family and +0.04 ms on POSIX, for an operation that runs once per
+ * run plus renewals.
+ *
  * ## What it still does not do
  *
  * It does not detect liveness. Nothing can from here: a stalled holder, a
@@ -59,8 +93,9 @@
  * writer.
  */
 
-import { mkdir, readFile, readdir, unlink, writeFile } from 'node:fs/promises'
+import { link, mkdir, readFile, readdir, stat, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { NamzuError } from '../../types/errors/index.js'
 import type { ClaimFence, ClaimRunOptions, RunClaim } from '../../types/run/checkpoint-store.js'
 
 /** Directory holding one file per holding, named for its fence. */
@@ -97,6 +132,16 @@ const MAX_ATTEMPTS = 8
  */
 const KEEP_BELOW_MAX = 32
 
+/**
+ * How old a scratch file must be before {@link prune} reclaims it.
+ *
+ * It brackets a `writeFile` of sixty-odd bytes and a `link`. Ten minutes is
+ * four orders of magnitude more than that takes, and the asymmetry is the
+ * point: reclaiming late costs a stale file until the next acquisition,
+ * reclaiming early fails a live publish that did nothing wrong.
+ */
+const TEMP_TTL_MS = 10 * 60_000
+
 function isErrno(err: unknown, code: string): boolean {
 	return typeof err === 'object' && err !== null && (err as NodeJS.ErrnoException).code === code
 }
@@ -125,28 +170,21 @@ function isClaimBody(value: unknown): value is ClaimBody {
 }
 
 /**
- * The highest fence ever issued for this run, or 0 when it has never been
- * claimed.
- *
- * Reads names only. This is deliberately the one question the contended path
- * asks, because a name cannot be half-written: a file either exists or does
- * not, where a body can be observed mid-write.
- */
-/**
  * A holding's name: its fence, and nothing else.
  *
- * **The name must contain the fence ALONE.** Putting the expiry in it too was
- * tried, to close the window where `wx` has created the file and not yet
- * written its body — and it silently destroyed the exclusion this whole
- * design rests on. Two workers computing the same fence at different instants
- * produce different names, so both creates succeed and both hold fence N. The
- * race test caught it immediately: seventeen of three hundred runs went to
- * two or three workers.
+ * **The destination name must be a pure function of the fence.** Putting the
+ * expiry in it too was tried, to close the window where `wx` has created the
+ * file and not yet written its body — and it silently destroyed the exclusion
+ * this whole design rests on. Two workers computing the same fence at
+ * different instants produce different names, so both creates succeed and
+ * both hold fence N. The race test caught it immediately: seventeen of three
+ * hundred runs went to two or three workers.
  *
- * The lesson is worth more than the fix: the exclusive create is only
- * exclusive over the *exact* name, so anything varying in that name is a hole
- * in it. The empty-body window is handled by reading, not by naming — see
- * {@link readClaim}.
+ * **The temporary name must be the exact opposite — unique per attempt.** See
+ * {@link tempNameFor}. The two rules are mirror images, and the pair is the
+ * insight: an exclusive create is exclusive over the *exact* name, so the name
+ * that has to arbitrate must not vary, and the name that must never arbitrate
+ * must never repeat.
  *
  * Strict decimal, bounded to fifteen digits. `Number` accepts `0x10`, `" 7"`,
  * `08` and `1e21`, and above 2^53 or in exponent form `fence + 1 === fence` —
@@ -161,10 +199,128 @@ function nameFor(fence: ClaimFence): string {
 	return `${fence}.json`
 }
 
-/** Every holding this run has on record, newest first. */
-async function listHoldings(
-	runDir: string,
-): Promise<{ name: string; fence: ClaimFence; expiresAt: number }[]> {
+/**
+ * The scratch name a body is written to before {@link publish} links it into
+ * place. Never a holding — the leading dot and the dashes cannot match
+ * {@link NAME}, so no listing can mistake one for a claim.
+ */
+const TEMP = /^\.tmp-/
+
+/** Distinguishes two attempts inside one process; the pid does the rest. */
+let attempts = 0
+
+/**
+ * A scratch name: unique per attempt, and deliberately NOT a function of the
+ * fence.
+ *
+ * This is the mirror of the rule on {@link NAME}, and it was measured by
+ * building it wrong on purpose. A temp named for the fence — the obvious
+ * choice, since that is what is being published — fails **silently** on POSIX:
+ * two workers write the same scratch path, one links the other's body, and 19
+ * of 20,000 fences published a body belonging to a process that did not win
+ * that name. The ledger looked perfect throughout: right count, no doubles,
+ * none missing, every body parseable. Only reading a body back and comparing
+ * its holder reveals it. On the non-POSIX family the same mistake crashed
+ * three of six writer processes with `EPERM`.
+ *
+ * So: pid to separate processes, a counter to separate attempts within one,
+ * and randomness to separate processes that share a pid across a container
+ * restart or a pid-namespace reuse.
+ *
+ * **The scratch file must live in the same directory as its destination.**
+ * `link` across filesystems fails `EXDEV` — measured, not assumed — so a temp
+ * directory anywhere else (`os.tmpdir()` being the tempting one) breaks every
+ * acquisition the moment the store's base directory is a mount of its own.
+ * That is a rule, not a preference.
+ */
+function tempNameFor(fence: ClaimFence): string {
+	attempts += 1
+	return `.tmp-${process.pid}-${attempts}-${Math.random().toString(36).slice(2, 10)}-${fence}`
+}
+
+/**
+ * Codes a filesystem with no hard-link support answers `link` with.
+ *
+ * `EXDEV` is in the list as a bug report rather than a platform limit: it can
+ * only mean the scratch file was moved out of the claims directory, against
+ * the rule on {@link tempNameFor}.
+ */
+const NO_LINK = new Set(['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS', 'EXDEV', 'EMLINK'])
+
+/**
+ * Write `body` and make it visible at `fence` — completely, or not at all.
+ *
+ * Throws an `EEXIST` `ErrnoException` when another caller already published
+ * that fence. That is the arbitration, and it is the caller's ordinary signal,
+ * not a fault.
+ *
+ * Some filesystems — a few network and removable volumes — support no hard
+ * link at all. **This refuses rather than falling back**, per
+ * [refuse-do-not-degrade](../../../../../docs/conventions/refuse-do-not-degrade.md).
+ * The only available fallback is the `wx` publish this replaced, and that one
+ * carries the defect described in the module header: two workers restore and
+ * run the same run. A claim that silently becomes non-exclusive is worse than
+ * one that will not start, because the host cannot tell which it got — and a
+ * host told plainly that this volume cannot arbitrate can move the base
+ * directory or keep one writer per run. It is unmeasured, because no such
+ * volume was available to measure; the error says so rather than implying a
+ * diagnosis it did not make.
+ */
+async function publish(claimsDir: string, fence: ClaimFence, body: ClaimBody): Promise<void> {
+	const tmp = join(claimsDir, tempNameFor(fence))
+
+	try {
+		await writeFile(tmp, JSON.stringify(body), { flag: 'wx' })
+	} catch (err) {
+		// A scratch name that already exists means the uniqueness rule on
+		// `tempNameFor` has been broken. Letting an `EEXIST` escape from HERE
+		// would read to the caller as "somebody else took this fence" — a lost
+		// race it never had — so it is renamed into what it actually is.
+		if (isErrno(err, 'EEXIST')) {
+			throw new NamzuError({
+				code: 'storage_error',
+				message: `acquireClaim: the scratch name ${tmp} already exists. Scratch names must be unique per attempt; a collision means two publishes are sharing one, which lets a claim publish a body it did not write. See the rule on \`tempNameFor\`.`,
+				details: { path: tmp, fence },
+				retryable: false,
+			})
+		}
+		throw err
+	}
+
+	try {
+		// The one decision. Exactly one caller creates this name, and the file
+		// it names is already whole.
+		await link(tmp, join(claimsDir, nameFor(fence)))
+	} catch (err) {
+		if (isErrno(err, 'EEXIST')) throw err
+		const code = (err as NodeJS.ErrnoException).code
+		if (code !== undefined && NO_LINK.has(code)) {
+			throw new NamzuError({
+				code: 'capability_unavailable',
+				message: `acquireClaim: this filesystem answered \`link\` with ${code}, so it cannot publish a run claim. The claim decides which of two workers owns a run by exclusively creating a hard link, and a filesystem without hard links cannot make that decision. Refusing rather than degrading: the only fallback is a non-atomic create, under which two workers both restore the run and both execute its tools with nothing fencing the side effects. Put the store's base directory on a filesystem with hard-link support (${claimsDir}), or run a single writer per run.`,
+				details: { path: claimsDir, code, fence },
+				retryable: false,
+			})
+		}
+		throw err
+	} finally {
+		// The link, if it landed, is an independent name for the same file.
+		// Failure here leaks a scratch file and nothing else; `prune` sweeps
+		// it, and no listing can mistake it for a holding.
+		await unlink(tmp).catch(() => undefined)
+	}
+}
+
+/**
+ * Every holding this run has on record, newest first.
+ *
+ * Names only — no expiry. It used to report `expiresAt: 0` alongside each
+ * name, which read as data and was a placeholder: the expiry has never been in
+ * the name since the fence became the whole of it. A caller that wants a
+ * deadline has to read the body, and {@link readClaim} is the only thing that
+ * does.
+ */
+async function listHoldings(runDir: string): Promise<{ name: string; fence: ClaimFence }[]> {
 	let names: string[]
 	try {
 		names = await readdir(join(runDir, CLAIMS_DIR))
@@ -173,15 +329,11 @@ async function listHoldings(
 		throw err
 	}
 
-	const found: { name: string; fence: ClaimFence; expiresAt: number }[] = []
+	const found: { name: string; fence: ClaimFence }[] = []
 	for (const name of names) {
 		const match = NAME.exec(name)
 		if (!match) continue
-		found.push({
-			name,
-			fence: Number(match[1]),
-			expiresAt: 0,
-		})
+		found.push({ name, fence: Number(match[1]) })
 	}
 	return found.sort((a, b) => b.fence - a.fence)
 }
@@ -212,19 +364,50 @@ export async function currentFence(runDir: string): Promise<ClaimFence> {
  * because a tidy-up lost a race with another worker doing the same tidy-up.
  */
 async function prune(claimsDir: string, max: ClaimFence): Promise<void> {
-	const floor = max - KEEP_BELOW_MAX
-	if (floor <= 0) return
 	let names: string[]
 	try {
 		names = await readdir(claimsDir)
 	} catch {
 		return
 	}
+
+	const floor = max - KEEP_BELOW_MAX
+	// Real time, deliberately, and not the caller's `now`. A lease clock is
+	// injectable so a test can age a claim out in one tick; the age of a file
+	// on disk is a question about the wall clock, and judging one with the
+	// other would let a test with `now: 1000` sweep every scratch file on the
+	// volume.
+	const wallClock = Date.now()
+
 	for (const name of names) {
 		const match = NAME.exec(name)
-		if (!match) continue
-		if (Number(match[1]) >= floor) continue
-		await unlink(join(claimsDir, name)).catch(() => undefined)
+		if (match) {
+			if (floor <= 0) continue
+			if (Number(match[1]) >= floor) continue
+			await unlink(join(claimsDir, name)).catch(() => undefined)
+			continue
+		}
+		if (!TEMP.test(name)) continue
+
+		// A crash between the scratch write and its unlink leaves one behind.
+		// It can never be read as a holding — the name cannot match `NAME` —
+		// but nothing reclaimed it either, so a run whose worker crashes in
+		// that window accumulated scratch files forever.
+		//
+		// By age, because ownership is unknowable: another process may be
+		// publishing through this very file right now, and unlinking it would
+		// fail its `link` for no reason. The threshold is enormous relative to
+		// the work it brackets — a `writeFile` of sixty-odd bytes followed by a
+		// `link` — so a scratch file this old belongs to a process that is not
+		// coming back.
+		const path = join(claimsDir, name)
+		try {
+			const info = await stat(path)
+			if (wallClock - info.mtimeMs < TEMP_TTL_MS) continue
+		} catch {
+			continue
+		}
+		await unlink(path).catch(() => undefined)
 	}
 }
 
@@ -241,21 +424,41 @@ export async function readClaim(runDir: string): Promise<RunClaim | null> {
 	const [top] = await listHoldings(runDir)
 	if (!top) return null
 
-	// The expiry comes from the NAME, so it is known the instant the file
-	// exists — before its body is written. `wx` is open-then-write, and a
-	// reader landing between the two used to see a holding it could not parse
-	// and report it expired, which invited a second worker to take a live run.
-	// Both would land on different fences, so the loser's first write is still
-	// refused — but they would both have restored and RUN the tools by then,
-	// and tool side effects are fenced by nothing.
-	const claim: RunClaim = { holder: '', fence: top.fence, expiresAt: top.expiresAt }
+	// Fence from the name, expiry only from the body — and an expiry of 0 says
+	// "no deadline could be established", which every caller reads as expired.
+	//
+	// This comment used to claim the expiry came from the name too, and was
+	// therefore known the instant the file existed. It was stale by a
+	// redesign, and it described the file's one real defect as handled: under
+	// the old `wx` publish a reader could land on a created-but-empty file,
+	// fail to parse it, and report a LIVE holding expired — which invited a
+	// second worker onto a running run. Both restored it and executed its
+	// tools before either was refused at its first checkpoint.
+	//
+	// What makes falling back safe now is the publish, not the naming: `link`
+	// makes the fence name appear complete or not at all, so an unparseable
+	// body means a genuinely damaged record rather than one being written. A
+	// damaged record SHOULD read as reclaimable — refusing to take it is what
+	// leaves a run permanently unclaimable, which is the failure a lease
+	// exists to prevent — and the taker is safe regardless, because it takes
+	// the next fence and the write check compares numbers.
+	const claim: RunClaim = { holder: '', fence: top.fence, expiresAt: 0 }
 
 	let raw: string
 	try {
 		raw = await readFile(join(runDir, CLAIMS_DIR, top.name), 'utf-8')
 	} catch (err) {
-		// Gone between the listing and the read: pruned, or mid-take. The name
-		// already told us everything the taker needs.
+		// Gone between the listing and the read. The name already told us
+		// everything the taker needs.
+		//
+		// Only `ENOENT` is tolerated, and on the non-POSIX family that is not
+		// the only code a vanishing file produces: a file already unlinked but
+		// still open elsewhere is delete-pending, and a reader gets `EPERM` —
+		// 4.6% of misses, measured. It cannot be reached from here today,
+		// because `prune` only unlinks fences far below the top and this reads
+		// only the top. Widen either one and this throws where it should
+		// return. Whoever does that should extend this catch, not delete the
+		// comment.
 		if (isErrno(err, 'ENOENT')) return claim
 		throw err
 	}
@@ -266,7 +469,11 @@ export async function readClaim(runDir: string): Promise<RunClaim | null> {
 		// distinguishes a clean release from a damaged record. The two facts
 		// the algorithm depends on are both in the name.
 		if (isClaimBody(parsed)) {
-			return { holder: parsed.holder, fence: top.fence, expiresAt: parsed.expiresAt }
+			return {
+				holder: parsed.holder,
+				fence: top.fence,
+				expiresAt: parsed.expiresAt,
+			}
 		}
 	} catch {
 		// fall through: an unreadable body leaves the holding intact and
@@ -313,27 +520,16 @@ export async function acquireClaim(
 		if (held && now < held.expiresAt && held.holder !== options.holder) return null
 
 		const fence = (held?.fence ?? 0) + 1
-		const body: ClaimBody = { holder: options.holder, expiresAt: now + options.ttlMs }
+		const body: ClaimBody = {
+			holder: options.holder,
+			expiresAt: now + options.ttlMs,
+		}
 
 		try {
-			// The one decision. Exactly one caller creates this name.
-			//
-			// One name, one winner. The expiry lives only in the body; see the
-			// note on NAME for why it must not appear here. Residual, and
-			// accepted rather than hidden: `wx` is
-			// open-then-write: between them the file exists and is empty, and
-			// a reader landing there sees a holding it cannot parse. Reading
-			// the expiry from the name makes that window harmless — the reader
-			// gets the real deadline and waits, instead of treating a live
-			// holding as expired and taking the run. Both workers would end up
-			// on different fences, so the loser's first WRITE is still
-			// refused; what is lost is exclusivity before that write, and a
-			// run's tools have already executed by then. Tool side effects are
-			// fenced by nothing. The reviewer could not observe this in 12,000
-			// reads; it is recorded because a loaded CI box once did.
-			await writeFile(join(claimsDir, nameFor(fence)), JSON.stringify(body), {
-				flag: 'wx',
-			})
+			// One name, one winner, and the winner's body is already whole
+			// when the name appears. The expiry lives only in the body; see
+			// the note on NAME for why it must not appear in the name.
+			await publish(claimsDir, fence, body)
 			await prune(claimsDir, fence)
 			return { holder: options.holder, fence, expiresAt: body.expiresAt }
 		} catch (err) {
@@ -366,11 +562,15 @@ export async function releaseClaim(runDir: string, fence: ClaimFence): Promise<v
 	if (!held || held.fence !== fence) return
 
 	const claimsDir = join(runDir, CLAIMS_DIR)
-	// Expiry 0 in the name: free the instant it lands, with no body needed to
-	// establish that. `released` in the body says WHY it is free.
+	// Expiry 0: free the instant it lands. `released` says WHY it is free,
+	// which is what separates a clean handover from a damaged record in the
+	// evidence an operator reads.
+	//
+	// Published the same way as a claim, so `isReleased` cannot catch it
+	// half-written and report a clean release as a corrupt one.
 	const body: ClaimBody = { holder: '', expiresAt: 0, released: true }
 	try {
-		await writeFile(join(claimsDir, nameFor(fence + 1)), JSON.stringify(body), { flag: 'wx' })
+		await publish(claimsDir, fence + 1, body)
 	} catch (err) {
 		// Somebody already took the next fence, which means the run is claimed
 		// again and there is nothing to release.

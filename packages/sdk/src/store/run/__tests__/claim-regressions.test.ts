@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readdir, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -111,7 +111,11 @@ describe('claim regressions', () => {
 		await mkdir(join(runDir, 'claims'), { recursive: true })
 		await writeFile(join(runDir, 'claims', '4.json'), '', 'utf-8')
 
-		const claim = await acquireClaim(runDir, { holder: 'w1', ttlMs: 60_000, now: 1_000 })
+		const claim = await acquireClaim(runDir, {
+			holder: 'w1',
+			ttlMs: 60_000,
+			now: 1_000,
+		})
 		expect(claim?.fence).toBeGreaterThan(4)
 		// Whoever held 4, alive or not, is now ordered behind this holding.
 		expect(await currentFence(runDir)).toBe(claim?.fence)
@@ -171,7 +175,11 @@ describe('claim regressions', () => {
 			{ tenantId: T1, projectId: P1, sessionId: S1 },
 		)
 
-		const stale = await acquireClaim(runDir, { holder: 'w1', ttlMs: 1, now: 1_000 })
+		const stale = await acquireClaim(runDir, {
+			holder: 'w1',
+			ttlMs: 1,
+			now: 1_000,
+		})
 		await acquireClaim(runDir, { holder: 'w2', ttlMs: 60_000, now: 5_000 })
 
 		const manager = new CheckpointManager(store, scope())
@@ -192,8 +200,128 @@ describe('claim regressions', () => {
 		).rejects.toThrow(/no longer holds it/)
 	})
 
+	it('never lets the fence name exist before the body under it', async () => {
+		// The defect this file's design exists to remove, and the last one left
+		// in it: `wx` is open-THEN-write, so between the two calls the winning
+		// name exists and is EMPTY. A reader landing there parses nothing,
+		// reports the live holding expired, and a second worker takes the next
+		// fence. Their fences differ, so the loser's first checkpoint is
+		// refused — and both have restored the run and executed its tools by
+		// then, and tool side effects are fenced by nothing. CI reproduced it
+		// once in three hundred cross-process runs.
+		//
+		// It is asserted on the FILE, not through `readClaim`, and that is the
+		// point rather than a shortcut. Going through `readClaim` was tried and
+		// is decoration: its `readdir` is a whole thread-pool round trip, so
+		// its `readFile` always lands after the window has closed — 16,375
+		// observations by 32 concurrent readers saw the defect zero times with
+		// the defect present. A watcher spinning on the one name the next
+		// acquire will take sees it immediately: ~29 empty bodies per 100
+		// publishes on the `wx` publish, 0 on this one.
+		//
+		// The property is a statement about the layout, so it belongs at the
+		// layout: from the instant the fence name is observable, its body is
+		// whole.
+		const claimsDir = join(runDir, 'claims')
+		await mkdir(claimsDir, { recursive: true })
+
+		let incomplete = 0
+		let whole = 0
+
+		for (let fence = 1; fence <= 120; fence++) {
+			// The name this acquire is about to take: the counter is empty, so
+			// the fences run 1..120 and each is known before it exists.
+			const dest = join(claimsDir, `${fence}.json`)
+			let stop = false
+			const watcher = (async () => {
+				while (!stop) {
+					try {
+						const raw = await readFile(dest, 'utf-8')
+						if (raw.length === 0) incomplete++
+						else {
+							JSON.parse(raw)
+							whole++
+						}
+					} catch (err) {
+						// Not yet published, which is the honest other state.
+						if ((err as NodeJS.ErrnoException).code === 'ENOENT') continue
+						// A body that parsed as far as the reader got and no
+						// further is the torn case, and it counts the same way.
+						if (err instanceof SyntaxError) incomplete++
+						else throw err
+					}
+				}
+			})()
+
+			const claim = await acquireClaim(runDir, {
+				holder: 'w1',
+				ttlMs: 60_000,
+				now: 1_000,
+			})
+			stop = true
+			await watcher
+			expect(claim?.fence).toBe(fence)
+		}
+
+		// Not a vacuous pass: the watcher has to have caught the file existing.
+		expect(whole).toBeGreaterThan(60)
+		expect({ incomplete, whole }).toEqual({ incomplete: 0, whole })
+	})
+
+	it('never lets a scratch file be read as a holding', async () => {
+		// The publish writes the body to a scratch name and links it into
+		// place. A crash between the link and the unlink leaves the scratch
+		// file behind, and it must be unmistakable for a claim: it carries a
+		// parseable claim body, so anything matching it by shape rather than by
+		// name would read it as one — and it is never the fence anybody holds.
+		await acquireClaim(runDir, { holder: 'w1', ttlMs: 60_000, now: 1_000 })
+		const claimsDir = join(runDir, 'claims')
+		await writeFile(
+			join(claimsDir, '.tmp-999-1-abcdefgh-7'),
+			JSON.stringify({ holder: 'ghost', expiresAt: 9_999_999 }),
+			'utf-8',
+		)
+
+		expect(await currentFence(runDir)).toBe(1)
+		expect((await readClaim(runDir))?.holder).toBe('w1')
+		// And a publish that completes takes its own scratch file with it —
+		// the sweep is for crashes, not for the ordinary path.
+		expect((await readdir(claimsDir)).filter((n) => n.startsWith('.tmp-'))).toEqual([
+			'.tmp-999-1-abcdefgh-7',
+		])
+	})
+
+	it('reclaims a scratch file a crashed publish left behind', async () => {
+		// Nothing used to. The name regex ignores a scratch file so it can
+		// never be mistaken for a holding — and `prune` ignored it too, so a
+		// worker crashing in that window leaked one per attempt forever.
+		const claimsDir = join(runDir, 'claims')
+		await mkdir(claimsDir, { recursive: true })
+		const stale = join(claimsDir, '.tmp-999-1-deadbeef-1')
+		await writeFile(stale, '{}', 'utf-8')
+		// Aged past the sweep's threshold. Real time, not the lease clock: the
+		// age of a file is a wall-clock question.
+		const old = new Date(Date.now() - 30 * 60_000)
+		await utimes(stale, old, old)
+
+		const fresh = join(claimsDir, '.tmp-999-2-cafebabe-1')
+		await writeFile(fresh, '{}', 'utf-8')
+
+		await acquireClaim(runDir, { holder: 'w1', ttlMs: 60_000, now: 1_000 })
+
+		const left = await readdir(claimsDir)
+		expect(left).not.toContain('.tmp-999-1-deadbeef-1')
+		// A scratch file young enough to belong to a publish in flight is left
+		// alone; unlinking it would fail that publish's `link` for no reason.
+		expect(left).toContain('.tmp-999-2-cafebabe-1')
+	})
+
 	it('keeps every holding on the record', async () => {
-		const first = await acquireClaim(runDir, { holder: 'w1', ttlMs: 1, now: 1_000 })
+		const first = await acquireClaim(runDir, {
+			holder: 'w1',
+			ttlMs: 1,
+			now: 1_000,
+		})
 		await acquireClaim(runDir, { holder: 'w2', ttlMs: 60_000, now: 5_000 })
 
 		const names = await readdir(join(runDir, 'claims'))
