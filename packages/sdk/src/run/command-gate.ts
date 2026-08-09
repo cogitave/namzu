@@ -189,9 +189,16 @@ export function createCommandGate(options: CommandGateOptions): ReviewAnswer {
 
 		// A gate that already failed, over a tree nothing has touched since.
 		// The command is skipped, and the attempt still counts.
+		//
+		// The comparison is a bare `===` rather than `now !== null && now ===
+		// …`. The guard above already establishes that the recorded
+		// fingerprint is non-null, so a `null` from this call cannot match it,
+		// and the extra clause was a branch nothing could reach — a mutation
+		// that deleted it killed no test, which is what a dead condition looks
+		// like from the outside.
 		if (last && last.fingerprint !== null) {
 			const now = await fingerprint()
-			if (now !== null && now === last.fingerprint) {
+			if (now === last.fingerprint) {
 				return { accept: false, feedback: unchangedFeedback(last.command, attempt) }
 			}
 		}

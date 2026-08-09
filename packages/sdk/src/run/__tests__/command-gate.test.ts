@@ -159,6 +159,36 @@ describe('an answer that changed nothing', () => {
 		await expect(reviewed(gate)).resolves.toEqual({ accept: true })
 	})
 
+	it('forgets the failure once the gate passes, so a revert is verified again', async () => {
+		const workspace = tree('fp-broken')
+		let failing = true
+		const exec = vi.fn(async () => (failing ? result({ exitCode: 1 }) : result()))
+		const gate = createCommandGate({
+			commands: ['pnpm test'],
+			cwd: '/w',
+			exec,
+			fingerprint: workspace.fingerprint,
+		})
+
+		await reviewed(gate) // fails, snapshot taken at `fp-broken`
+		failing = false
+		workspace.touch('fp-fixed')
+		await expect(reviewed(gate)).resolves.toEqual({ accept: true })
+
+		// The tree goes back to exactly the state the failure was recorded
+		// over — a revert, a stash, a checkout. A gate that kept the old
+		// snapshot would recognise it and answer "nothing changed" WITHOUT
+		// running the command, so a workspace that is broken again would be
+		// reported as merely stale.
+		failing = true
+		workspace.touch('fp-broken')
+		const third = await reviewed(gate)
+
+		expect(exec).toHaveBeenCalledTimes(3)
+		if (third.accept) throw new Error('unreachable')
+		expect(third.feedback).not.toContain('was NOT re-run')
+	})
+
 	it('re-runs when the workspace cannot be fingerprinted at all', async () => {
 		const workspace = tree()
 		const exec = vi.fn(async () => result({ exitCode: 1 }))
