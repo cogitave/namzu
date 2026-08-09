@@ -47,6 +47,14 @@ describe('runCli', () => {
 		expect(stdout).not.toMatch(/^\s+providers\s/m)
 		expect(stdout).toContain('skills')
 		expect(stdout).toContain('serve')
+		// Anchored to the command column, like `providers-json` above: a
+		// substring match on whole help output cannot tell a registered command
+		// from the word "drain" in a description. Registering the command is
+		// the whole point of the drain work — the SDK loop, the claim and the
+		// resume were all reachable from a test and from nothing an operator
+		// could type, which is the defect. Deleting the line in `cli.ts` that
+		// registers it must fail HERE.
+		expect(stdout).toMatch(/^\s+drain\b/m)
 		// `tools` was asserted here until the peer-daemon removal deleted the
 		// command. The assertion kept passing, because "tools" also occurs in
 		// the --dangerously-skip-permissions description ("Run tools without

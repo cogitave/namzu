@@ -22,8 +22,11 @@
  */
 
 import {
+	type CheckpointStore,
+	type ClaimFence,
 	DiskMemoryStore,
 	DiskTaskStore,
+	type DurableRunEntry,
 	type HITLResumeDecision,
 	type LLMProvider,
 	type Message,
@@ -31,6 +34,7 @@ import {
 	type ProviderChainMember,
 	ProviderRegistry,
 	type ResumeHandler,
+	type ResumeOutcome,
 	type RunEvent,
 	type RunId,
 	SearchToolsTool,
@@ -46,6 +50,7 @@ import {
 	buildMemoryTools,
 	getBuiltinTools,
 	query,
+	resumeRun,
 } from '@namzu/sdk'
 
 import { join } from 'node:path'
@@ -208,6 +213,29 @@ export interface SendOptions {
 	readonly extraSystem?: string
 }
 
+/** What {@link AgentSession.resumeDurable} needs that the session does not hold. */
+export interface ResumeDurableParams {
+	/**
+	 * The run to continue, straight out of a durable listing.
+	 *
+	 * A `DurableRunEntry` IS an addressable run scope, which is why it can be
+	 * passed here unreassembled — and why there is no chance of assembling it
+	 * wrong.
+	 */
+	readonly entry: DurableRunEntry
+	/** The backend the entry came from. */
+	readonly checkpointStore: CheckpointStore
+	/**
+	 * The fence of the claim this process holds on the run.
+	 *
+	 * Omit it only for a single-writer host. Present, it rides every durable
+	 * write the resumed run makes, so a worker that stalled past its lease
+	 * cannot overwrite the record of whoever took the run over.
+	 */
+	readonly claimFence?: ClaimFence
+	readonly signal?: AbortSignal
+}
+
 export interface AgentSession {
 	readonly hasProvider: boolean
 	readonly providerSummary: string | null
@@ -327,6 +355,21 @@ export interface AgentSession {
 	 */
 	readonly promptExemptTools: () => readonly string[]
 	send(messages: readonly Message[], opts?: SendOptions): AsyncIterable<AgentEvent>
+	/**
+	 * Continue a run some OTHER process started, from its durable state.
+	 *
+	 * The kernel could always do this — `resumeRun` joins a checkpoint back
+	 * to a running loop — and nothing in this package could reach it, because
+	 * the half a snapshot cannot carry (the provider client, the tool
+	 * registry, the working directory) lives inside this session and had no
+	 * way out. So `namzu` could produce durable runs and never pick one up.
+	 *
+	 * Returns the outcome rather than a stream: `resumeRun` drains the loop
+	 * and hands back a settled run, so there is nothing to render as it
+	 * happens. A parked run comes back as `awaiting-decision` and is NOT
+	 * resumed past — the answer is a human's, not a drainer's.
+	 */
+	resumeDurable(params: ResumeDurableParams): Promise<ResumeOutcome>
 	/**
 	 * Release what the session holds — today, the external tool servers.
 	 *
@@ -715,6 +758,66 @@ export async function createAgentSession(
 				opts,
 				taskGateway: subagentGateway,
 				childSteps,
+			})
+		},
+		resumeDurable: async ({ entry, checkpointStore, claimFence, signal }) => {
+			// The same prelude a turn runs, and for the same reasons: a lapsed
+			// OAuth token has to be renewed before the provider is used, and the
+			// fallback chain has to be built AFTER that so its members do not
+			// hold a client the refresh just replaced.
+			await refreshTokenIfNeeded()
+			const memoryPrompt = composeMemoryPrompt(readMemory())
+			const environmentPrompt = composeEnvironmentPrompt(await readEnvironmentFacts(cwd))
+			const systemPrompt =
+				[NAMZU_IDENTITY, environmentPrompt, memoryPrompt, projectInstructions.prompt]
+					.filter((s): s is string => Boolean(s))
+					.join('\n\n') || undefined
+
+			return resumeRun({
+				provider,
+				fallbackProviders: fallbackPlan.build(currentToken),
+				tools: registry,
+				taskStore,
+				...(subagentGateway ? { taskGateway: subagentGateway } : {}),
+				verificationGate: gateFor(options.rules),
+				compactionConfig: COMPACTION_CONFIG,
+				// NOT `emergencySave`, unlike a turn. The manager is a singleton
+				// whose `attach` detaches whoever held it before, so a caller
+				// resuming several runs in one process would leave only the last
+				// one covered — and would look covered. A turn owns its process
+				// end to end; a drainer does not.
+				runConfig: {
+					model,
+					timeoutMs: 600_000,
+					tokenBudget: 1_000_000,
+					maxIterations: 50,
+					maxResponseTokens: 8192,
+					permissionMode: 'auto',
+				},
+				agentId: 'namzu',
+				agentName: 'namzu',
+				...(systemPrompt ? { systemPrompt } : {}),
+				workingDirectory: cwd,
+				// No `onPermission`: there is nobody at a drainer's terminal, so a
+				// prompt would block the pass forever on a run nobody is watching.
+				// The gate's deny rules still apply.
+				resumeHandler: makeResumeHandler(approval, undefined, options.permissionMode, (n, i) =>
+					isPromptExempt(registry, n, i),
+				),
+				...(signal ? { signal } : {}),
+				// Attribution comes from the ENTRY, not from this session: the run
+				// belongs to whoever started it, and stamping the drainer's ids onto
+				// it would file another tenant's work under this one.
+				tenantId: entry.tenantId,
+				projectId: entry.projectId,
+				sessionId: entry.sessionId,
+				// …except the thread, which no checkpoint records — see
+				// `RunStateScope`. This one is the drainer's, and honestly so:
+				// supplied here rather than pretended to have been recovered.
+				threadId: scope.threadId,
+				scope: { ...entry, threadId: scope.threadId },
+				checkpointStore,
+				...(claimFence !== undefined ? { claimFence } : {}),
 			})
 		},
 	}
@@ -1728,6 +1831,14 @@ function emptySession(
 		promptExemptTools: () => [],
 		send: async function* () {
 			yield { kind: 'error' as const, message: errorHint }
+		},
+		// Throws rather than reporting `no-checkpoint`. A resume that reported
+		// "there is nothing to continue" when the truth is "this session has no
+		// provider" would let a drainer mark every run in a queue as a dead end
+		// and move on — an unavailable capability degrading a check into a
+		// wrong answer, on the one path where the answer is destructive.
+		resumeDurable: async () => {
+			throw new Error(errorHint)
 		},
 		close: async () => {
 			// Nothing was ever connected on this path.

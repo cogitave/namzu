@@ -14,6 +14,7 @@ import { fileURLToPath } from 'node:url'
 import { Command, CommanderError } from 'commander'
 
 import { doctorCommand } from './commands/doctor.js'
+import { drainCommand } from './commands/drain.js'
 import { evalCommand } from './commands/eval.js'
 import { registerAll } from './commands/registry.js'
 import {
@@ -102,6 +103,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		[
 			doctorCommand,
 			runCommand,
+			drainCommand,
 			evalCommand,
 			runStreamCommand,
 			historyCommand,

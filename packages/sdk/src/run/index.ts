@@ -5,5 +5,8 @@ export { RunDiskStore } from '../store/run/disk.js'
 export { createRunReporter } from './reporter.js'
 export type { RunReporter } from './reporter.js'
 
+export { DEFAULT_DRAIN_PAGE_SIZE, drainRuns } from './drain.js'
+export type { DrainFailure, DrainRun, DrainRunsParams, DrainRunsResult } from './drain.js'
+
 export { checkLimitsDetailed, buildLimitConfig } from './LimitChecker.js'
 export type { LimitCheckerState, LimitCheckResult } from './LimitChecker.js'

@@ -105,6 +105,62 @@ Two file-level details the read-back depends on:
 directory.
 
 See [Replay §7](../runtime/replay.md) for the cursor and its verdict.
+### Draining the queue
+
+Listing, claiming and resuming are three primitives, and composing them
+correctly is the same twenty lines in every host — with two places a host
+gets it wrong. `drainRuns` is that composition:
+
+```ts
+import { drainRuns, resumeRun } from '@namzu/sdk'
+
+const result = await drainRuns({
+  store,
+  scope: { tenantId, projectId, sessionId },
+  holder: `worker-${process.pid}`,
+  ttlMs: 600_000,
+  park: ['outstanding'],
+  onRun: (entry, claim) =>
+    resumeRun({
+      ...queryParams,
+      scope: { ...entry, threadId },
+      checkpointStore: store,
+      claimFence: claim.fence,
+    }),
+})
+```
+
+It makes **one bounded pass** — list what nobody holds, claim, work,
+release — and returns `{ listed, drained, skipped, stale, failed,
+unreleased, stopped }`. It is not a supervisor: no timers, no processes, no
+loop. Running it again is the caller's scheduler's job.
+
+The two places a hand-written loop goes wrong are both handled: the release
+is in a `finally`, so a run whose work THREW returns to the queue
+immediately instead of sitting out a full lease, and a `null` from
+`claimRun` is recorded as `skipped` rather than raised — "another worker got
+there first" is the ordinary outcome of two readers on one queue.
+
+Three properties worth knowing before relying on it:
+
+- **`claimFence` is the point.** It rides every durable write the resumed
+  run makes. Drop it and a worker stalled past its lease can overwrite the
+  record of whoever took the run over, with no error anywhere.
+- **Exactly-once comes from the filter, not the claim.** Two drainers never
+  hold one run at once — but a listing is a snapshot, so between paging a
+  row and claiming it another drainer can finish that run and release it. A
+  claimed row is re-read against `park` before any work starts and reported
+  as `stale` if it no longer matches. With **no** park filter there is
+  nothing to re-check, and two drainers can both process one run: a
+  checkpoint store carries no run status by design, so "already done" is a
+  fact only the host's own run records hold, and a crash sweep intersects
+  with them inside `onRun`.
+- **A store that cannot claim is refused before anything is listed**, with
+  `capability_unavailable` naming every missing method. It never degrades to
+  "claimed by default".
+
+`namzu drain` is the shipped caller — see
+[Headless usage](../../cli/headless.md).
 
 ### Resuming a part-executed tool batch
 

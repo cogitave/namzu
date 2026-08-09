@@ -136,12 +136,22 @@ vi.mock('../agent.js', async (importOriginal) => {
 			modelSummary: 'a-model',
 			toolNames: () => ['bash'],
 			errorHint: null,
+			// Required since #329 made the session say WHY it has no provider.
+			// Absent here because main does not build without it: this stub and
+			// that field landed in two PRs that each passed CI without seeing the
+			// other.
+			errorKind: null,
 			instructionFiles: [],
 			skippedInstructionFiles: [],
 			mcpConnected: [],
 			mcpFailed: [],
 			agentIds: [],
 			configNotices: [],
+			// The TUI never resumes a durable run; a stub that answered would make
+			// a resume look reachable from here.
+			resumeDurable: async () => {
+				throw new Error('not used by the TUI')
+			},
 			close: async () => {},
 			approvalLatched: () => false,
 			promptExemptTools: () => [],

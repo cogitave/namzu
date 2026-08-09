@@ -128,6 +128,19 @@ export {
 	checkLimitsDetailed,
 	createRunReporter,
 } from './run/index.js'
+// One bounded pass over a queue of durable runs: list what nobody holds,
+// claim it, work it, release it in a `finally`. Every primitive it composes
+// already shipped and nothing composed them, so an approval inbox and a
+// crash sweeper each still needed a host to write the loop — including the
+// two parts a host writes wrong, the release on the failure path and the
+// `null` claim that is not one. Not a daemon: it makes one pass and returns.
+export { DEFAULT_DRAIN_PAGE_SIZE, drainRuns } from './run/index.js'
+export type {
+	DrainFailure,
+	DrainRun,
+	DrainRunsParams,
+	DrainRunsResult,
+} from './run/index.js'
 
 // ─── personas, skills, advisory ──────────────────────────────────────────
 
