@@ -211,13 +211,17 @@ describe('the run record names the member that served', () => {
 			messages: [createUserMessage('hello')],
 		})
 
+		// Four steps for four iterations, including the answering turn — which
+		// is the one whose provenance nothing could see before it became a step.
 		expect(run.steps?.map((s) => s.servedBy?.providerId)).toEqual([
 			'primary',
+			fallback.id,
 			fallback.id,
 			fallback.id,
 		])
 		expect(run.steps?.map((s) => s.servedBy?.model)).toEqual([
 			'primary-model',
+			'fallback-model',
 			'fallback-model',
 			'fallback-model',
 		])
@@ -269,9 +273,19 @@ describe('the run record names the member that served', () => {
 			messages: [createUserMessage('hello')],
 		})
 
-		expect(run.steps?.map((s) => s.model)).toEqual(['primary-model', 'cheap-model'])
+		// The third entry is the answering turn, which asked for the run's model
+		// because `prepareStep` only overrode step 2.
+		expect(run.steps?.map((s) => s.model)).toEqual([
+			'primary-model',
+			'cheap-model',
+			'primary-model',
+		])
 		// And the same correction reaches the provenance, because a member
 		// declared without a model serves whatever the step asked for.
-		expect(run.steps?.map((s) => s.servedBy?.model)).toEqual(['primary-model', 'cheap-model'])
+		expect(run.steps?.map((s) => s.servedBy?.model)).toEqual([
+			'primary-model',
+			'cheap-model',
+			'primary-model',
+		])
 	})
 })
