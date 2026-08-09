@@ -200,6 +200,7 @@ export {
 	DiskTaskStore,
 	InMemoryCheckpointStore,
 	InMemoryMemoryIndex,
+	InMemoryRunStore,
 	InMemoryMemoryStore,
 	InMemoryStore,
 	InMemoryTaskStore,

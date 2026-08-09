@@ -9,6 +9,7 @@ import type { ProviderErrorInfo } from '../../types/provider/index.js'
 import type { CheckpointRunScope, CheckpointStore } from '../../types/run/checkpoint-store.js'
 import type { EmergencySaveData } from '../../types/run/emergency.js'
 import type { Run, RunPersistenceConfig, StepResult, StopReason } from '../../types/run/index.js'
+import type { RunStore } from '../../types/run/store.js'
 import type { ProjectId, ThreadId } from '../../types/session/ids.js'
 import { type ModelPricing, ZERO_COST, accumulateCost } from '../../utils/cost.js'
 import { generateEmergencySaveId } from '../../utils/id.js'
@@ -16,7 +17,7 @@ import type { Logger } from '../../utils/logger.js'
 
 export class RunPersistence {
 	private run: Run
-	private runStore: RunDiskStore
+	private runStore: RunStore
 	private checkpointStore: CheckpointStore
 	private pricing?: ModelPricing
 
@@ -38,10 +39,17 @@ export class RunPersistence {
 		this._tenantId = config.tenantId
 		this._projectId = config.projectId
 
-		this.runStore = new RunDiskStore({
-			baseDir: config.outputDir,
-			logger: config.log,
-		})
+		// The run's own evidence goes through the same kind of injectable seam
+		// the checkpoint store already had. Without it the transcript, the run
+		// record and the report could only ever live on a local filesystem —
+		// which for a kernel whose purpose is auditable evidence made the
+		// evidence the one thing that could not be pointed at durable storage.
+		this.runStore =
+			config.runStore ??
+			new RunDiskStore({
+				baseDir: config.outputDir,
+				logger: config.log,
+			})
 
 		// Checkpoints go through the injectable seam; the disk layout under
 		// `outputDir` (same tree the runStore writes to) stays the default.
@@ -137,7 +145,7 @@ export class RunPersistence {
 		return this.run
 	}
 
-	getRunStore(): RunDiskStore {
+	getRunStore(): RunStore {
 		return this.runStore
 	}
 
@@ -457,7 +465,9 @@ export class RunPersistence {
 	async persist(): Promise<void> {
 		await this.runStore.writeRunMeta(this.run)
 		await this.runStore.writeMessages(this.run)
-		await this.runStore.addToIndex(this.run)
+		// Optional on the contract: a backend whose runs are already queryable
+		// has no browsable directory to add a row to.
+		await this.runStore.addToIndex?.(this.run)
 
 		if (this.run.result) {
 			await this.runStore.writeReport(this.run.result)

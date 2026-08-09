@@ -70,6 +70,7 @@ import type {
 } from '../../types/run/index.js'
 import type { PromoteMemory } from '../../types/run/memory-promotion.js'
 import { memoryCandidateFor } from '../../types/run/memory-promotion.js'
+import type { RunStore } from '../../types/run/store.js'
 import type { Sandbox, SandboxProvider } from '../../types/sandbox/index.js'
 import type { ProjectId, ThreadId } from '../../types/session/ids.js'
 import type { Skill } from '../../types/skills/index.js'
@@ -412,6 +413,17 @@ export interface QueryParams {
 	 */
 	checkpointStore?: CheckpointStore
 
+	/**
+	 * Where this run records its own evidence — the run record, its messages,
+	 * its transcript and its report. Defaults to the disk layout under the
+	 * resolved output directory.
+	 *
+	 * The sibling of {@link QueryParams.checkpointStore}, and it should always
+	 * have been one: checkpoints could be pointed at durable storage and the
+	 * evidence could not.
+	 */
+	runStore?: RunStore
+
 	runId?: RunId
 
 	parentRunId?: RunId
@@ -610,6 +622,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		tenantId: params.tenantId,
 		pathBuilder: params.pathBuilder,
 		checkpointStore: params.checkpointStore,
+		runStore: params.runStore,
 		runId: params.runId,
 		parentRunId: params.parentRunId,
 		depth: params.depth,

@@ -3,6 +3,7 @@ export * from './prepare-step.js'
 export * from './stop-reason.js'
 export * from './config.js'
 export * from './checkpoint-store.js'
+export * from './store.js'
 export * from './entity.js'
 export * from './replay.js'
 // Domain `RunStatus` (session-hierarchy.md §4.6 state machine). Safe to
