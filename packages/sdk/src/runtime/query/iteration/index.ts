@@ -609,6 +609,62 @@ export class IterationOrchestrator {
 							)
 						}
 
+						// This iteration gets a step too.
+						//
+						// It did not, and the ledger's own contract said it should:
+						// `StepResult` is documented as "what one iteration of the
+						// agent loop did" and `stepNumber` as "1-based, matching
+						// `iteration` on the run events". Every path below emits
+						// `iteration_completed` with this iteration's number, and
+						// none of them recorded a step — so the events said
+						// iteration N happened and `steps` had no entry N. The
+						// invariant was not a definition anyone chose; it was
+						// already false.
+						//
+						// What it cost: measured on a two-iteration run, one tool
+						// call then an answer, 220 of 330 tokens belonged to no
+						// step. That is not a rounding error and it is structurally
+						// the worst turn to lose — the answering turn carries the
+						// largest prompt, so the unattributed share GROWS with
+						// context length.
+						//
+						// Recorded HERE, at the top of the branch, rather than at
+						// each of its exits. Every path out of this block is a
+						// `continue`, a `break` or a `return`, so one call covers
+						// the terminal answer, the forced-final summary, the
+						// auto-continuation, the structured-output re-prompt and the
+						// answer-review rejection — all of which spend a turn's
+						// tokens. Placing it at the exits instead would be five call
+						// sites to keep in agreement, and the one added later would
+						// be the one that got missed.
+						//
+						// No tool results, because this branch is defined by their
+						// absence. `toolExecutionMs` is 0 for the same reason.
+						//
+						// A step is an ITERATION'S MAIN TURN, and side calls are
+						// still not steps — the compaction verifier, the advisory
+						// executor, and the empty-completion retry a few lines below
+						// all spend tokens inside an iteration without being one.
+						// Their usage reaches `run.tokenUsage` and no step, so the
+						// ledger reconciles with the run total for a run that makes
+						// no side calls and undercounts by exactly those calls for a
+						// run that does. That residual is named rather than fixed
+						// here: attributing a side call needs a record that is not a
+						// step, which is a different claim.
+
+						this.recordStep({
+							stepNumber: iterationNum,
+							model: stepModel,
+							servedBy,
+							messageId,
+							response,
+							toolResults: [],
+							toolExecutionMs: 0,
+							startedAt: stepStartedAt,
+							usageBefore,
+							costBefore,
+						})
+
 						const hasContent =
 							response.message.content !== null && response.message.content.length > 0
 

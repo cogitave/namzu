@@ -100,6 +100,19 @@ stays at zero and the limit never trips.
 `Run.steps` carries one `StepResult` per iteration, and `onStepFinish`
 fires as each completes.
 
+**One step per iteration, including the turn that answers.** That turn used to
+be missing: the loop broke out before recording it, so a run's most expensive
+turn — the one carrying the whole conversation as its prompt — was absent, and
+a text-only run produced an empty ledger. The same held for an auto-continued
+turn, a structured-output re-prompt and a rejected answer.
+
+So `sum(steps[].usage)` now equals `run.tokenUsage`, and `steps[].stepNumber`
+matches the `iteration` on the run events, which is what `StepResult` always
+claimed. The one exception is a **side call** — compaction verification, the
+advisory executor, the retry after an empty completion. Those spend tokens
+inside an iteration without being one; they reach `run.tokenUsage` and no step,
+so a run that makes them reconciles short by exactly their cost.
+
 ```ts
 query({
   // …
@@ -146,10 +159,6 @@ end, absent when the configured one served throughout.
 
 Two limits worth knowing before you build on this:
 
-- **Only tool-calling turns are recorded.** The turn that produces the final
-  answer ends the loop before a step is written, so it is not in `steps`. On a
-  chain that falls over and answers immediately, `run.metadata.servingProvider`
-  is the only record of the swap.
 - **The built-in store writes `metadata`, not `steps`.** `run.json` carries
   `servingProvider`; per-step provenance reaches you on the returned `Run`, so
   persist that if you need it.
