@@ -1,5 +1,66 @@
 # @namzu/cli
 
+## 7.0.0
+
+### Major Changes
+
+- 97e356a: **`run-stream --session <key>` no longer answers against a history you did not
+  ask for, and no longer ends on a bare `done` when it failed to save the turn.**
+
+  Two bare `catch` blocks at opposite ends of the same command, both of which
+  produced an ordinary success.
+
+  ## What breaks
+
+  **A conversation that cannot be opened now stops the run.** Given `--session`,
+  if the store cannot be reached — an unwritable `.namzu`, a corrupt map file —
+  `run-stream` emits an `error` event and runs nothing. It used to fall through to
+  the stateless path, which takes prior turns from **stdin**, so a caller who named
+  a conversation got a turn composed against a different history, or none, and
+  `exit 0`.
+
+  _If you relied on that fallback:_ drop `--session`. That asks for the stateless
+  run explicitly, which is the only way the command can tell the two apart.
+
+  It is a refusal rather than a warning-and-continue because the command cannot say
+  what was lost. A key is created on first use, so a fresh key legitimately has no
+  prior turns — and the failure is precisely what stopped it finding out which case
+  it was in. "Could not look" is not "there was nothing there."
+
+  ## Also
+
+  **A turn that could not be saved now says so**, as a `notice` on the event
+  stream, naming the reason and the consequence: `history` for that session will
+  not include the turn and the next turn will not have it as context. The run still
+  succeeds and still exits 0 — the reply is complete and a host treating this as a
+  failed turn would be wrong. It was previously swallowed, which made a later
+  `namzu history` look broken with nothing connecting it to a write minutes
+  earlier.
+
+  `notice` is an existing event kind on this stream, already used for the config
+  notices a few lines above the same handler.
+
+### Patch Changes
+
+- 1e347cd: **The permission prompt names `Ctrl+C`, and says why it is different from `n`.**
+
+  `n` and `Esc` decline the tool call and the turn **continues** — the agent is
+  told, and tries something else. `Ctrl+C` declines and **stops the turn**. Two
+  different decisions, and the prompt listed only the first.
+
+  So the only key that stops namzu was the one an operator could not see from the
+  screen that governs it. Someone who wanted it to stop pressed `n`, watched it
+  carry on with a different approach, and had nothing on that screen to tell them
+  otherwise; the distinction existed only in the documentation.
+
+  The prompt now lists all four keys, grouped by outcome, on two lines — at four
+  keys a single line wraps mid-key on a narrow terminal, and this is the box you
+  read while deciding. The status-bar hint keeps its compact three-key echo, which
+  is budget-constrained by construction and shares a line with the working
+  directory, the provider and the model.
+
+  No behaviour changed. `Ctrl+C` has always done this.
+
 ## 6.0.2
 
 ### Patch Changes
