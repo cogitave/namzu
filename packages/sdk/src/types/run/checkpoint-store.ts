@@ -175,6 +175,17 @@ export interface DurableRunEntry extends CheckpointRunScope {
 	readonly latestCheckpointAt: number
 	/** Absent when the run has never parked. */
 	readonly park?: ParkSummary
+
+	/**
+	 * Absent when no process has ever claimed the run.
+	 *
+	 * A SIBLING of {@link DurableRunEntry.park}, not a member of
+	 * {@link ParkState} — see the note on that union. A park is a question put
+	 * to a human; a claim is a lease held by a process. A run can have both,
+	 * neither, or either, and the state a queue worker needs most is parked
+	 * AND unclaimed, which one union cannot say.
+	 */
+	readonly claim?: ClaimSummary
 }
 
 /**
@@ -208,6 +219,65 @@ export type DurableRunOrder =
 	 */
 	| 'createdAt'
 
+/**
+ * A monotonically increasing number identifying one holding of a run's claim.
+ *
+ * The load-bearing word is *fencing*. A mutex answers "may I proceed", and a
+ * holder that stalls past its lease — a long GC pause, a suspended container,
+ * a partitioned network — answers it "yes" and then writes, long after
+ * somebody else legitimately took over. A fence answers a different question
+ * at the moment of the WRITE: "is the holding I belong to still the current
+ * one". Every claim of a run mints a number strictly greater than the last,
+ * so a store can reject a write from a superseded holder without knowing
+ * anything about processes, clocks or liveness.
+ *
+ * Not a random token, deliberately: randomness proves identity and cannot
+ * establish *order*, and order is the entire mechanism.
+ */
+export type ClaimFence = number
+
+/** A holding of a run's claim, as issued to the process that took it. */
+export interface RunClaim {
+	/** Opaque caller-supplied identity — a worker id, a pod name. Evidence, not authority. */
+	readonly holder: string
+	/** See {@link ClaimFence}. Present it on every durable write. */
+	readonly fence: ClaimFence
+	/**
+	 * Absolute epoch ms after which the claim may be taken by somebody else.
+	 *
+	 * Absolute rather than a duration for the same reason a park's deadline
+	 * is: it has to survive the process that set it. A duration plus an
+	 * in-process timer cannot — the holder is the thing that dies.
+	 */
+	readonly expiresAt: number
+}
+
+/** A run's claim as a listing reports it. */
+export interface ClaimSummary {
+	readonly holder: string
+	readonly fence: ClaimFence
+	readonly expiresAt: number
+	/**
+	 * Whether the claim had expired at the instant the listing was taken.
+	 *
+	 * A separate field rather than something the caller derives from
+	 * `expiresAt`, because the caller would derive it against a DIFFERENT
+	 * clock than the store used, and one page would then disagree with
+	 * itself about which rows are available.
+	 */
+	readonly expired: boolean
+}
+
+/** What a caller asks for when taking a run. */
+export interface ClaimRunOptions {
+	/** Who is taking it. Recorded so an operator can see what holds a stuck run. */
+	readonly holder: string
+	/** How long the holding is good for, in ms. */
+	readonly ttlMs: number
+	/** Clock, for tests and so one operation judges every expiry against one instant. */
+	readonly now?: number
+}
+
 /** Filters and paging for {@link CheckpointStore.listDurableRuns}. */
 export interface ListDurableRunsOptions {
 	/**
@@ -223,6 +293,16 @@ export interface ListDurableRunsOptions {
 	 * to include it.
 	 */
 	readonly park?: readonly ParkState[]
+	/**
+	 * Keep only runs that are, or are not, currently held by a worker.
+	 *
+	 * `false` is the queue-reader's filter: give me the work nobody has. A
+	 * claim that has expired counts as NOT held, because that is what expiry
+	 * means and a reader that skipped expired claims would leave a dead
+	 * worker's runs invisible forever — the exact failure the lease exists to
+	 * prevent.
+	 */
+	readonly claimed?: boolean
 	/** Page size. Defaults to 100, clamped to at least 1. */
 	readonly limit?: number
 	/** Resume token from the previous page's {@link DurableRunPage.cursor}. */
@@ -279,8 +359,27 @@ export interface DurableRunPage {
  * proceed.
  */
 export interface CheckpointStore {
-	/** Persist one checkpoint. Overwrites an existing checkpoint with the same id. */
-	writeCheckpoint(scope: CheckpointRunScope, checkpoint: IterationCheckpoint): Promise<void>
+	/**
+	 * Persist one checkpoint. Overwrites an existing checkpoint with the same id.
+	 *
+	 * @param fence the {@link ClaimFence} of the holding this write belongs
+	 *   to, when the run is claimed. A store that supports claims REFUSES a
+	 *   write whose fence is below the run's current one — that refusal is
+	 *   what makes a claim a lease rather than a suggestion, because a holder
+	 *   stalled past its expiry believes it still holds and is wrong only at
+	 *   the moment it writes.
+	 *
+	 *   Omit it and the write is unfenced, which is exactly today's behaviour
+	 *   and correct for a single-writer deployment. A store MUST NOT start
+	 *   refusing unfenced writes because some other write carried a fence:
+	 *   that would make adding a claim to one worker break every worker that
+	 *   has not adopted it yet.
+	 */
+	writeCheckpoint(
+		scope: CheckpointRunScope,
+		checkpoint: IterationCheckpoint,
+		fence?: ClaimFence,
+	): Promise<void>
 
 	/** Load a single checkpoint by id. Returns `null` when it does not exist. */
 	readCheckpoint(
@@ -342,4 +441,69 @@ export interface CheckpointStore {
 		scope: CheckpointListingScope,
 		options?: ListDurableRunsOptions,
 	): Promise<DurableRunPage>
+
+	/**
+	 * Take exclusive working possession of a run, or report that somebody
+	 * else has it. OPTIONAL — see the optional-capability rule on this
+	 * interface.
+	 *
+	 * Returns the holding on success and `null` when the run is currently
+	 * held by somebody else. `null` is not an error: "another worker got
+	 * there first" is the ordinary outcome of a queue with more than one
+	 * reader, and a thrown exception would make the normal case look like a
+	 * fault.
+	 *
+	 * ### What it is for
+	 *
+	 * Putting parked runs on a queue and letting more than one worker drain
+	 * it. Without this, two workers restore the same checkpoint, both execute
+	 * the run's tools, and both write checkpoints under one run id — each
+	 * write minting a fresh checkpoint id, so two divergent chains land in
+	 * one list and the pending lookup returns whichever wrote last. Half the
+	 * work vanishes and nothing reports an error.
+	 *
+	 * ### The lease, and why it expires
+	 *
+	 * A claim is a LEASE, not a lock. A lock held by a process that dies is
+	 * held forever, and the runs behind it are unreachable by anything except
+	 * a human with a shell. The expiry is what makes a dead holder's work
+	 * recoverable without one.
+	 *
+	 * The expiry is also why a fence exists. A holder does not know it has
+	 * expired — a long pause, a suspended container and a partition all look
+	 * from the inside like time not passing — so it wakes and writes as
+	 * though it still holds. Liveness cannot be checked from here. What CAN
+	 * be checked, at the write, is whether the holding that write belongs to
+	 * is still the current one, and that is a comparison of two numbers.
+	 *
+	 * ### Reclaiming
+	 *
+	 * Calling this on a run whose claim has expired SUCCEEDS and mints a
+	 * fence strictly greater than the expired holding's. The previous holder
+	 * is not notified — it cannot be, that is the premise — it simply stops
+	 * being able to write.
+	 *
+	 * Calling it again as the CURRENT holder also succeeds and extends the
+	 * lease, minting a new fence. Renewal and reclamation are the same
+	 * operation from the store's side, which is why there is no separate
+	 * `renew`: two code paths that must agree about who holds a run is one
+	 * more than can be kept correct.
+	 */
+	claimRun?(scope: CheckpointRunScope, options: ClaimRunOptions): Promise<RunClaim | null>
+
+	/**
+	 * Give a claim up early. Idempotent: releasing a claim that already
+	 * expired, was superseded, or never existed succeeds as a no-op.
+	 *
+	 * Presenting a stale fence releases NOTHING — a worker that stalled past
+	 * its lease must not be able to hand away a run somebody else is now
+	 * holding, and that is the same fencing comparison the write path makes.
+	 *
+	 * Optional to call, not optional to matter: a worker that finishes and
+	 * releases returns the run to the queue immediately, where one that just
+	 * exits leaves it stuck until the lease expires. That is a latency
+	 * difference, never a correctness one, which is the property that lets a
+	 * crashed worker be indistinguishable from a slow one.
+	 */
+	releaseRun?(scope: CheckpointRunScope, fence: ClaimFence): Promise<void>
 }

@@ -3,11 +3,20 @@ import type {
 	CheckpointListingScope,
 	CheckpointRunScope,
 	CheckpointStore,
+	ClaimFence,
+	ClaimRunOptions,
 	DurableRunEntry,
 	DurableRunPage,
 	ListDurableRunsOptions,
+	RunClaim,
 } from '../../types/run/checkpoint-store.js'
-import { assertContiguousListingScope, paginateDurableRuns, toDurableRunEntry } from './listing.js'
+import {
+	assertContiguousListingScope,
+	fencedOut,
+	paginateDurableRuns,
+	toClaimSummary,
+	toDurableRunEntry,
+} from './listing.js'
 
 /**
  * Process-local {@link CheckpointStore}, keyed by the full five-layer scope.
@@ -35,7 +44,60 @@ export class InMemoryCheckpointStore implements CheckpointStore {
 		return [scope.tenantId, scope.projectId, scope.sessionId, scope.runId].join('/')
 	}
 
-	async writeCheckpoint(scope: CheckpointRunScope, checkpoint: IterationCheckpoint): Promise<void> {
+	/** `tenant/project/session/run` → the run's current holding, if any. */
+	private readonly claims = new Map<string, RunClaim>()
+
+	async claimRun(scope: CheckpointRunScope, options: ClaimRunOptions): Promise<RunClaim | null> {
+		const key = this.key(scope)
+		const now = options.now ?? Date.now()
+		const held = this.claims.get(key)
+
+		// Held by somebody else and still live. Not an error: two readers on
+		// one queue is the ordinary case.
+		if (held && now < held.expiresAt && held.holder !== options.holder) return null
+
+		// A reclaim of an expired holding and a renewal by the current holder
+		// are the same write. The fence advances either way, so a previous
+		// holder that wakes up is fenced out in both cases — a renewal that
+		// kept the fence would leave a stalled twin able to write.
+		const claim: RunClaim = {
+			holder: options.holder,
+			fence: (held?.fence ?? 0) + 1,
+			expiresAt: now + options.ttlMs,
+		}
+		this.claims.set(key, claim)
+		return claim
+	}
+
+	async releaseRun(scope: CheckpointRunScope, fence: ClaimFence): Promise<void> {
+		const key = this.key(scope)
+		const held = this.claims.get(key)
+		// A stale fence releases nothing. A worker that stalled past its lease
+		// must not be able to hand away a run somebody else now holds.
+		if (held && held.fence === fence) this.claims.delete(key)
+	}
+
+	async writeCheckpoint(
+		scope: CheckpointRunScope,
+		checkpoint: IterationCheckpoint,
+		fence?: ClaimFence,
+	): Promise<void> {
+		const key = this.key(scope)
+		// An unfenced write is allowed even on a claimed run: a host adopting
+		// claims on one worker must not break the workers that have not
+		// adopted them. A fenced write is checked, and that check is what
+		// makes the lease real.
+		if (fence !== undefined) {
+			const held = this.claims.get(key)
+			if (held && fence < held.fence) throw fencedOut(scope, fence, held.fence)
+		}
+		return this.writeUnchecked(scope, checkpoint)
+	}
+
+	private async writeUnchecked(
+		scope: CheckpointRunScope,
+		checkpoint: IterationCheckpoint,
+	): Promise<void> {
 		const key = this.key(scope)
 		let run = this.runs.get(key)
 		if (!run) {
@@ -93,7 +155,9 @@ export class InMemoryCheckpointStore implements CheckpointStore {
 			if (scope.sessionId !== undefined && runScope.sessionId !== scope.sessionId) continue
 
 			const entry = toDurableRunEntry(runScope, [...checkpoints.values()], now)
-			if (entry) entries.push(entry)
+			if (!entry) continue
+			const claim = this.claims.get(key)
+			entries.push(claim ? { ...entry, claim: toClaimSummary(claim, now) } : entry)
 		}
 
 		return paginateDurableRuns(entries, options)

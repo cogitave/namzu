@@ -7,14 +7,24 @@ import type {
 	CheckpointListingScope,
 	CheckpointRunScope,
 	CheckpointStore,
+	ClaimFence,
+	ClaimRunOptions,
 	DurableRunEntry,
 	DurableRunPage,
 	ListDurableRunsOptions,
+	RunClaim,
 } from '../../types/run/checkpoint-store.js'
 import type { RunStoreConfig } from '../../types/run/index.js'
 import type { ProjectId } from '../../types/session/ids.js'
+import { acquireClaim, readClaim, releaseClaim } from './claim-disk.js'
 import { RunDiskStore, readCheckpointsIn } from './disk.js'
-import { assertContiguousListingScope, paginateDurableRuns, toDurableRunEntry } from './listing.js'
+import {
+	assertContiguousListingScope,
+	fencedOut,
+	paginateDurableRuns,
+	toClaimSummary,
+	toDurableRunEntry,
+} from './listing.js'
 
 /**
  * The attribution a disk store's own layout does not record.
@@ -84,9 +94,42 @@ export class DiskCheckpointStore implements CheckpointStore {
 		return promise
 	}
 
-	async writeCheckpoint(scope: CheckpointRunScope, checkpoint: IterationCheckpoint): Promise<void> {
+	async writeCheckpoint(
+		scope: CheckpointRunScope,
+		checkpoint: IterationCheckpoint,
+		fence?: ClaimFence,
+	): Promise<void> {
 		const store = await this.bind(scope)
+		if (fence !== undefined) {
+			// Read at the moment of the write, not at the start of the run.
+			// A holder that stalled past its lease believes it still holds,
+			// and this is the only point at which it can be told otherwise.
+			const held = await readClaim(this.runDir(scope))
+			if (held && fence < held.fence) throw fencedOut(scope, fence, held.fence)
+		}
 		await store.writeCheckpoint(checkpoint)
+	}
+
+	async claimRun(scope: CheckpointRunScope, options: ClaimRunOptions): Promise<RunClaim | null> {
+		return acquireClaim(this.runDir(scope), options)
+	}
+
+	async releaseRun(scope: CheckpointRunScope, fence: ClaimFence): Promise<void> {
+		await releaseClaim(this.runDir(scope), fence)
+	}
+
+	/**
+	 * The run's directory, resolved the same way `RunDiskStore.initRun` does.
+	 *
+	 * Duplicated rather than shared because the claim path must be derivable
+	 * WITHOUT binding a store — binding creates the directory, and a claim
+	 * read is a read. Kept beside the layout comment on `listDurableRuns` so
+	 * the two stay together if the layout ever moves.
+	 */
+	private runDir(scope: CheckpointRunScope): string {
+		return scope.parentRunId
+			? join(this.config.baseDir, scope.parentRunId, 'children', scope.runId)
+			: join(this.config.baseDir, scope.runId)
 	}
 
 	async readCheckpoint(
@@ -163,19 +206,33 @@ export class DiskCheckpointStore implements CheckpointStore {
 			const runDir = join(this.config.baseDir, runId)
 
 			const own = toDurableRunEntry({ ...attribution, runId }, await readCheckpointsIn(runDir), now)
-			if (own) entries.push(own)
+			if (own) entries.push(await this.withClaim(own, runDir, now))
 
 			for (const childId of await this.readRunDirs(join(runDir, 'children'))) {
+				const childDir = join(runDir, 'children', childId)
 				const child = toDurableRunEntry(
 					{ ...attribution, runId: childId, parentRunId: runId },
-					await readCheckpointsIn(join(runDir, 'children', childId)),
+					await readCheckpointsIn(childDir),
 					now,
 				)
-				if (child) entries.push(child)
+				if (child) entries.push(await this.withClaim(child, childDir, now))
 			}
 		}
 
 		return paginateDurableRuns(entries, options)
+	}
+
+	/**
+	 * Attach the run's claim to its listing row, judged against the page's
+	 * own clock so one page cannot disagree with itself about availability.
+	 */
+	private async withClaim(
+		entry: DurableRunEntry,
+		runDir: string,
+		now: number,
+	): Promise<DurableRunEntry> {
+		const claim = await readClaim(runDir)
+		return claim ? { ...entry, claim: toClaimSummary(claim, now) } : entry
 	}
 
 	/** Directory names under `dir`, or none when `dir` does not exist. */

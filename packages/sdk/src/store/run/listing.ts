@@ -14,12 +14,16 @@ import type {
 	CheckpointListingScope,
 	CheckpointRunScope,
 	CheckpointStore,
+	ClaimFence,
+	ClaimRunOptions,
+	ClaimSummary,
 	DurableRunEntry,
 	DurableRunOrder,
 	DurableRunPage,
 	ListDurableRunsOptions,
 	ParkState,
 	ParkSummary,
+	RunClaim,
 } from '../../types/run/checkpoint-store.js'
 
 /** Page size when the caller names none. */
@@ -186,10 +190,19 @@ export function paginateDurableRuns(
 	options?: ListDurableRunsOptions,
 ): DurableRunPage {
 	const wanted = options?.park
-	const filtered =
+	const byPark =
 		wanted && wanted.length > 0
 			? entries.filter((e) => e.park !== undefined && wanted.includes(e.park.state))
 			: entries
+
+	// An expired claim counts as unheld. That is what expiry means, and a
+	// queue reader that treated an expired claim as held would leave a dead
+	// worker's runs invisible forever — the exact failure a lease exists to
+	// prevent, reintroduced by the filter that reads it.
+	const filtered =
+		options?.claimed === undefined
+			? byPark
+			: byPark.filter((e) => (e.claim !== undefined && !e.claim.expired) === options.claimed)
 
 	// Both orders sort on a key that cannot move under a paging caller — see
 	// the contract comment on `listDurableRuns`.
@@ -304,4 +317,106 @@ export async function listDurableRuns(
 	}
 	assertContiguousListingScope(scope, 'listDurableRuns')
 	return store.listDurableRuns(scope, options)
+}
+
+/**
+ * Take working possession of a run, refusing when the store cannot arbitrate.
+ *
+ * The refusal is the entire safety property. `claimRun` is optional on the
+ * contract, and the natural way to reach an absent optional method is to skip
+ * it — which here means every worker proceeds, believing it holds a run
+ * nobody arbitrated. Two workers then restore the same checkpoint, both run
+ * the tools, and both write under one run id; half the work vanishes with no
+ * error anywhere.
+ *
+ * So a store with no claim support does not get "claimed by default". It gets
+ * an error naming the deployment shape it cannot support. A single-writer
+ * host never calls this and is unaffected.
+ *
+ * Returns `null` — not an error — when another holder has the run. That is
+ * the ordinary outcome of two readers on one queue, and a caller loops to the
+ * next run rather than handling a fault.
+ */
+export async function claimRun(
+	store: CheckpointStore,
+	scope: CheckpointRunScope,
+	options: ClaimRunOptions,
+): Promise<RunClaim | null> {
+	if (typeof store.claimRun !== 'function') {
+		throw new NamzuError({
+			code: 'capability_unavailable',
+			message:
+				'claimRun: the injected checkpoint store does not implement `claimRun`, so it cannot arbitrate between two workers taking the same run. Refusing rather than proceeding unclaimed — proceeding would let two workers restore one checkpoint, both execute its tools, and both write under one run id, which loses half the work and reports nothing. Supply a store that implements it, or run a single writer per run.',
+			details: { runId: scope.runId },
+		})
+	}
+	if (!Number.isFinite(options.ttlMs) || options.ttlMs <= 0) {
+		throw new NamzuError({
+			code: 'invalid_config',
+			message: `claimRun: ttlMs must be a positive number of milliseconds, got ${String(options.ttlMs)}. A lease that expires immediately is a lease every worker can take at once, which is the condition this call exists to prevent.`,
+			details: { runId: scope.runId, ttlMs: options.ttlMs },
+		})
+	}
+	return store.claimRun(scope, options)
+}
+
+/**
+ * Give a claim up early, refusing when the store cannot arbitrate.
+ *
+ * Refuses for the same reason as {@link claimRun}: a host that believes it is
+ * releasing a claim on a store that has none is a host that believes the
+ * whole mechanism is running.
+ */
+export async function releaseRun(
+	store: CheckpointStore,
+	scope: CheckpointRunScope,
+	fence: ClaimFence,
+): Promise<void> {
+	if (typeof store.releaseRun !== 'function') {
+		throw new NamzuError({
+			code: 'capability_unavailable',
+			message:
+				'releaseRun: the injected checkpoint store does not implement `releaseRun`. A release that silently does nothing would leave the run held until its lease expires while the caller believes it is back on the queue.',
+			details: { runId: scope.runId },
+		})
+	}
+	return store.releaseRun(scope, fence)
+}
+
+/**
+ * The refusal a store raises when a write presents a superseded fence.
+ *
+ * Shared so both shipped stores say the same thing, and so a host writing its
+ * own backend raises something a caller can branch on rather than a message
+ * string. This is the moment a stalled worker learns it lost the run — the
+ * only moment it CAN learn, since from the inside a pause and a partition
+ * both look like time not passing.
+ */
+export function fencedOut(
+	scope: CheckpointRunScope,
+	presented: number,
+	current: number,
+): NamzuError {
+	return new NamzuError({
+		code: 'storage_error',
+		message: `writeCheckpoint: refusing a write for run ${scope.runId} fenced at ${presented} — the run is now claimed at ${current}. Another worker took this run over, so this process no longer holds it and its work is not the record. Stop the run rather than retrying: the claim is gone, not busy.`,
+		details: { runId: scope.runId, presentedFence: presented, currentFence: current },
+		retryable: false,
+	})
+}
+
+/**
+ * Whether a recorded claim still holds at `now`, and the summary a listing
+ * reports for it.
+ */
+export function toClaimSummary(claim: RunClaim, now: number): ClaimSummary {
+	return {
+		holder: claim.holder,
+		fence: claim.fence,
+		expiresAt: claim.expiresAt,
+		// Judged here, once, against the store's clock. Left to the caller it
+		// would be judged against a different one, and a single page could
+		// then disagree with itself about which rows are available.
+		expired: now >= claim.expiresAt,
+	}
 }
