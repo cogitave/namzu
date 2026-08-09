@@ -170,6 +170,44 @@ describe.each(BACKENDS)('a run claim (%s)', (_kind, make) => {
 		expect(third).toBeNull()
 	})
 
+	it('still refuses a superseded fence after the new holder releases', async () => {
+		// The silent one. Not a duplicate write — a LOST one.
+		//
+		// w1 stalls at its fence. w2 reclaims, does the work, and releases
+		// cleanly, which is the documented `finally { releaseRun() }`. w1 then
+		// wakes believing it still holds the run and writes. If that write is
+		// accepted, its checkpoint carries a fresh `createdAt`, sorts newest,
+		// and the next resume restores w1's stale history — so w2's completed
+		// work vanishes with no error anywhere.
+		//
+		// The in-memory store accepted it, because the release deleted the
+		// claim and the check read the claim rather than the high-water mark.
+		// The disk store refused it, because the release appends a tombstone
+		// and the check reads file names. Two shipped stores disagreeing at
+		// the enforcement point is the thing this test exists to prevent: a
+		// host writing its own backend reads the reference.
+		const stale = await claimRun(store, scope(), { holder: 'w1', ttlMs: 1_000, now: NOW })
+		const live = await claimRun(store, scope(), { holder: 'w2', ttlMs: 60_000, now: NOW + 2_000 })
+		await releaseRun(store, scope(), live?.fence as number)
+
+		await expect(store.writeCheckpoint(scope(), checkpoint(), stale?.fence)).rejects.toThrow(
+			/no longer holds it/,
+		)
+	})
+
+	it('refuses the fence its own holder just released', async () => {
+		// The same hole one step shorter, and the one that pins the release
+		// itself rather than a reclaim before it. A holder that gives a run
+		// back has given up the right to write to it; nothing else took the
+		// run in between, so only the release can be what refuses this.
+		const claim = await claimRun(store, scope(), { holder: 'w1', ttlMs: 60_000, now: NOW })
+		await releaseRun(store, scope(), claim?.fence as number)
+
+		await expect(store.writeCheckpoint(scope(), checkpoint(), claim?.fence)).rejects.toThrow(
+			/no longer holds it/,
+		)
+	})
+
 	it('returns the run to the queue when its holder releases', async () => {
 		const claim = await claimRun(store, scope(), { holder: 'w1', ttlMs: 60_000, now: NOW })
 		await releaseRun(store, scope(), claim?.fence as number)

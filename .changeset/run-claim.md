@@ -123,3 +123,12 @@ it is the only thing separating a renewal from a theft. They are on the
 
 `InMemoryCheckpointStore` implements it too, and is single-process by
 construction — use it for tests and single-writer hosts, not for two workers.
+It enforces the fence against the same high-water mark it mints from, so the
+two shipped stores refuse exactly the same writes. They did not, briefly, and
+the divergence was worth naming: the in-memory store checked the *live* claim,
+which a release deletes, so a worker that stalled could still write after
+another worker had reclaimed the run, finished it and released cleanly. That
+is not a duplicate — it is a **silent loss**, because the stale write carries a
+fresh timestamp and becomes what the next resume restores. A host writing its
+own backend reads the in-memory store as the reference, so check the
+high-water mark, not the current holding.

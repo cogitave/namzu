@@ -95,7 +95,18 @@ export class InMemoryCheckpointStore implements CheckpointStore {
 		// The high-water mark deliberately survives this. Dropping the claim
 		// returns the run to the queue; forgetting the number it reached would
 		// re-issue a fence a stalled worker still believes it holds.
-		if (held && held.fence === fence) this.claims.delete(key)
+		if (!held || held.fence !== fence) return
+		this.claims.delete(key)
+		// And the counter steps past the released holding, because the disk
+		// store's release does: it appends a TOMBSTONE at `fence + 1`, which
+		// raises the maximum name and therefore the fence every later write is
+		// checked against. Without this step a holder that released could still
+		// write with the fence it just gave up — refused on disk, accepted here.
+		//
+		// The consequence is visible in the numbering: a released run's next
+		// claim is `fence + 2` in both stores, because the tombstone consumed
+		// one. That is parity, not an off-by-one.
+		this.highWater.set(key, fence + 1)
 	}
 
 	async writeCheckpoint(
@@ -109,8 +120,27 @@ export class InMemoryCheckpointStore implements CheckpointStore {
 		// adopted them. A fenced write is checked, and that check is what
 		// makes the lease real.
 		if (fence !== undefined) {
-			const held = this.claims.get(key)
-			if (held && fence < held.fence) throw fencedOut(scope, fence, held.fence)
+			// Against the HIGH-WATER MARK, not the live claim, and the difference
+			// is a silent loss rather than a duplicate.
+			//
+			// `releaseRun` deletes the claim. Reading `claims` here meant that
+			// between a release and the next take there was no holding to
+			// compare against, so `held` was `undefined` and every fence was
+			// accepted however stale. w1 stalls at fence 1; w2 reclaims at 2,
+			// finishes the work, releases cleanly; w1 wakes and writes with
+			// fence 1 — accepted — and its checkpoint carries a fresh
+			// `createdAt`, so it sorts newest and the next resume restores w1's
+			// stale history. w2's completed work is gone, with no error
+			// anywhere.
+			//
+			// The disk store refuses that write, because `currentFence` reads
+			// file names and the release tombstone raised the maximum. The
+			// minting side here already counted from the high-water mark; only
+			// the enforcement side was left reading the claim, so the two
+			// shipped stores disagreed at the one point that decides whether a
+			// lease is real.
+			const current = this.highWater.get(key) ?? 0
+			if (fence < current) throw fencedOut(scope, fence, current)
 		}
 		return this.writeUnchecked(scope, checkpoint)
 	}
