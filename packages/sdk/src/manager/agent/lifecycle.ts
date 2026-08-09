@@ -48,8 +48,8 @@ import type { ThreadManager } from '../thread/lifecycle.js'
  *
  * Phase 9 Known Delta #5: fields are now unconditional required. The legacy
  * "run without deps" compat branch was removed; every `AgentManager` consumer
- * (SDK internals, `@namzu/agents`, `@namzu/api`, `@namzu/cli`) MUST wire the
- * full set before instantiating. Convention #0 (no workarounds): the
+ * (SDK internals and `@namzu/cli`; the list here once also named two packages
+ * that do not exist) MUST wire the full set before instantiating. Convention #0 (no workarounds): the
  * partially-wired mode was a migration-window bridge; 0.2.0 closes it.
  *
  * `workspaceRegistry` is required but may be empty — spawns without a

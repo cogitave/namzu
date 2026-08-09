@@ -80,7 +80,7 @@ There is no `surface` field. Page topic is implied by directory placement (`docs
    <mapping>
      - New exported SDK type → `"@namzu/sdk"`.
      - CLI flag change → `"@namzu/cli"`.
-     - Wire schema field added → `"@namzu/contracts"` (and consumers like `"@namzu/api"`).
+     - Wire schema field added → `"@namzu/sdk"`, where the wire types live. This example used to name two packages that do not exist.
      - Provider-specific config key → `"@namzu/<provider>"` and usually `"@namzu/sdk"` if it surfaces in SDK config too.
    </mapping>
 
