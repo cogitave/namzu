@@ -1,7 +1,7 @@
 ---
 title: Headless runs
 description: namzu run and namzu run-stream — one prompt, no terminal. Shared options, the working directory, exit codes, and the NDJSON event stream.
-last_updated: 2026-08-07
+last_updated: 2026-08-09
 status: current
 related_packages: ["@namzu/cli"]
 ---
@@ -176,6 +176,29 @@ namzu history --session <key> [--cwd <path>]
 `history` prints the conversation's user and assistant messages as a JSON array.
 An empty array means the session exists and has no messages — it is not an
 error.
+
+### When the store will not cooperate
+
+**A conversation that cannot be opened stops the run.** If `--session` is given
+and the store cannot be reached — an unwritable `.namzu`, a corrupt map file —
+`run-stream` emits an `error` event and runs nothing. It does not quietly fall
+back to the stateless path, because that path takes prior turns from stdin: a
+caller who named a conversation would get an answer composed against a different
+history, or none, reported as an ordinary success.
+
+It cannot be a warning-and-continue either, because the command cannot say what
+was lost. A key is created on first use, so a fresh key legitimately has no
+prior turns — and the failure is exactly what stopped it finding out which case
+it is in. If you want the turn to run regardless, drop `--session`; that asks
+for the stateless run explicitly.
+
+**A turn that cannot be saved is reported and not fatal.** If the reply streamed
+but appending it to the store failed, the run finishes normally and emits a
+`notice` naming the reason and the consequence: `history` for that session will
+not include the turn, and the next turn will not have it as context. It is a
+`notice` rather than an `error` because the run genuinely succeeded — a host
+treating it as a failed turn would be wrong — but silence here is what made a
+later `history` look broken with nothing to connect it to.
 
 ## Exit codes
 
