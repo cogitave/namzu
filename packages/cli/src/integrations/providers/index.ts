@@ -11,10 +11,29 @@ export {
 	readAgentKeychainCredential,
 } from './keychain.js'
 export {
+	clearStoredSubscriptionCredential,
+	CREDENTIALS_FILE_VERSION,
+	CredentialStoreError,
+	credentialsPath,
+	readStoredSubscriptionCredential,
+	writeStoredSubscriptionCredential,
+} from './credential-store.js'
+export { OAUTH_SCOPES, REDIRECT_URI } from './identity.js'
+export {
+	type CredentialOrigin,
 	ensureFreshAnthropicToken,
 	type OAuthMetadata,
+	readSubscriptionCredential,
 	refreshAgentOAuthToken,
 } from './oauth.js'
+export {
+	beginSubscriptionLogin,
+	type LoginOutcome,
+	parsePastedInput,
+	type SubscriptionLogin,
+	type SubscriptionLoginOptions,
+	subscriptionDetectedProvider,
+} from './subscription-login.js'
 export {
 	type CapabilityDisagreement,
 	chainCapabilityDisagreements,

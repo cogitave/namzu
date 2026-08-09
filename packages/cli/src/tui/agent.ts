@@ -82,8 +82,8 @@ import {
 	isAnthropicOAuthToken,
 	isRegistered,
 	primaryProvider,
-	readAgentKeychainCredential,
 	readPreferences,
+	readSubscriptionCredential,
 	resolveChainCapabilities,
 	unresolvedMembers,
 	unsupportedProviderMessage,
@@ -581,18 +581,26 @@ export async function createAgentSession(
 	// OAuth access tokens on this path are short-lived (~8h). They rarely lapse
 	// *during* a turn, but they do between turns — an idle session that sends
 	// again hours later would otherwise 401. So before each turn (see `send`)
-	// we re-read the keychain (another process may have rotated it) and refresh a
-	// stale token, rebuilding the client only when the token actually changed.
-	// Gated on `det.oauth` so env / secrets credentials are never touched.
-	const keychainRefresh = primary.id === 'anthropic' && Boolean(det?.oauth)
+	// we re-read the credential store (another process may have rotated it) and
+	// refresh a stale token, rebuilding the client only when the token actually
+	// changed. Gated on `det.oauth` so env / secrets credentials are never
+	// touched.
+	//
+	// `origin` decides WHICH store, and travels with the credential from
+	// discovery rather than being assumed here: namzu's own store and the
+	// borrowed Keychain entry both produce a refreshable credential, and reading
+	// one while writing the other would refresh forever without ever landing.
+	const subscriptionRefresh = primary.id === 'anthropic' && Boolean(det?.oauth)
+	const credentialOrigin = det?.oauth?.origin ?? 'keychain'
 	let currentToken = det?.apiKey
 	const refreshTokenIfNeeded = async (): Promise<void> => {
-		if (!keychainRefresh) return
-		const cred = readAgentKeychainCredential()
+		if (!subscriptionRefresh) return
+		const cred = readSubscriptionCredential(credentialOrigin)
 		if (!cred) return
 		const fresh = await ensureFreshAnthropicToken(cred.accessToken, {
 			refreshToken: cred.refreshToken,
 			expiresAt: cred.expiresAt,
+			origin: credentialOrigin,
 		})
 		if (fresh === currentToken) return
 		currentToken = fresh

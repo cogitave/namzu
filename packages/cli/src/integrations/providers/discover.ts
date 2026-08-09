@@ -1,11 +1,13 @@
 /**
  * Credential discoverer for LLM provider clients.
  *
- * For each entry in `PROVIDER_REGISTRY`, ask three questions in order:
+ * For each entry in `PROVIDER_REGISTRY`, ask four questions in order:
  *   1. Is one of its env vars set in `process.env`?
- *   2. Is there an OAuth credential in the login Keychain? (macOS only, and
+ *   2. Is there a subscription credential in namzu's own store — the one the
+ *      login flow writes? (every platform, and only `anthropic` consumes it.)
+ *   3. Is there an OAuth credential in the login Keychain? (macOS only, and
  *      only `anthropic` consumes it.)
- *   3. Is the probe URL (if any) reachable right now?
+ *   4. Is the probe URL (if any) reachable right now?
  *
  * The header used to say "three" and list two, and the one it omitted was the
  * Keychain — the question that reads a secret off the machine, so the one a
@@ -13,11 +15,18 @@
  * tell that the list stopped being maintained; in a file about credentials that
  * is worth more than a typo.
  *
- * **The Keychain path is macOS-only and that is a gap, not a nuance.**
- * `readAgentKeychainCredential` returns `null` on any other platform before it
- * looks at anything, so on Windows and Linux exactly two doors exist: an
- * environment variable, and a reachable local server. An operator whose
- * credential lives in their OS credential store gets no help from namzu there.
+ * **The Keychain path is macOS-only, and question 2 is why that is no longer a
+ * hole.** `readAgentKeychainCredential` returns `null` on any other platform
+ * before it looks at anything; it reads a credential belonging to a
+ * co-installed tool, so it can only ever help someone who has that tool, on
+ * that operating system. namzu's own store is asked first among the credential
+ * sources and works everywhere, which is what makes signing in from inside
+ * namzu useful on a machine that has neither.
+ *
+ * Order between the two matters when both answer. namzu's own store wins,
+ * because it is the one namzu wrote and refreshes; preferring a borrowed
+ * credential over the operator's own sign-in would make the login look
+ * ineffective on precisely the machine where they bothered to run it.
  *
  * The first positive answer per provider wins; subsequent sources are
  * recorded as "also available from" so the picker can show alternatives
@@ -52,13 +61,21 @@
  * picker can render immediately and refine if discovery completes later.
  */
 
+import { credentialsPath, readStoredSubscriptionCredential } from './credential-store.js'
 import { KEYCHAIN_SERVICE, readAgentKeychainCredential } from './keychain.js'
+import type { CredentialOrigin } from './oauth.js'
 import { PROVIDER_REGISTRY, type ProviderId, type ProviderRegistryEntry } from './registry.js'
 
 export type DetectionSource =
 	| { readonly kind: 'env'; readonly envName: string }
 	| { readonly kind: 'probe'; readonly url: string }
 	| { readonly kind: 'keychain'; readonly service: string }
+	/**
+	 * namzu's own credential store — a subscription the operator signed in to
+	 * from inside namzu. Carries the path because "where did this come from"
+	 * is the first question asked of a credential nobody typed.
+	 */
+	| { readonly kind: 'stored'; readonly path: string }
 	/**
 	 * Typed into a running namzu and held in memory for this session.
 	 *
@@ -79,10 +96,19 @@ export interface DetectedProvider {
 	readonly baseUrl?: string
 	/**
 	 * OAuth refresh metadata, present only when `apiKey` is an OAuth access
-	 * token carrying a refresh token + expiry (the Keychain source). Lets
-	 * the session layer renew a lapsed token instead of failing with a 401.
+	 * token carrying a refresh token + expiry (namzu's own store, or the
+	 * Keychain). Lets the session layer renew a lapsed token instead of
+	 * failing with a 401.
+	 *
+	 * `origin` travels with it because the refresh has to be written BACK, and
+	 * the two sources are not interchangeable: one is namzu's file and the
+	 * other is a co-installed tool's Keychain entry.
 	 */
-	readonly oauth?: { readonly refreshToken?: string; readonly expiresAt?: number }
+	readonly oauth?: {
+		readonly refreshToken?: string
+		readonly expiresAt?: number
+		readonly origin?: CredentialOrigin
+	}
 	/** Other sources that also satisfy this provider — informational. */
 	readonly alternatives: readonly DetectionSource[]
 }
@@ -100,6 +126,8 @@ export interface DiscoverOptions {
 	readonly skipProbes?: boolean
 	/** Skip the macOS Keychain read (tests, non-darwin runs). */
 	readonly skipKeychain?: boolean
+	/** Skip namzu's own credential store (tests, and `--no-stored-credential`). */
+	readonly skipStored?: boolean
 }
 
 const DEFAULT_PROBE_TIMEOUT_MS = 500
@@ -110,9 +138,13 @@ export async function discoverProviders(
 	const env = opts.env ?? process.env
 	const detected: DetectedProvider[] = []
 
-	// macOS-only: read the third-party OAuth credential stored in the login
-	// Keychain once. Only anthropic consumes it, but we scan up front so
-	// the loop body stays uniform.
+	// Read both credential sources once, up front, so the loop body stays
+	// uniform. Only anthropic consumes either.
+	const storedCredential = opts.skipStored
+		? null
+		: readStoredSubscriptionCredential(...(opts.home === undefined ? [] : [opts.home]))
+	// macOS-only: the OAuth credential a co-installed tool keeps in the login
+	// Keychain.
 	const keychainCredential = opts.skipKeychain ? null : readAgentKeychainCredential()
 
 	for (const id of Object.keys(PROVIDER_REGISTRY) as readonly ProviderId[]) {
@@ -127,15 +159,30 @@ export async function discoverProviders(
 				sources.push({ kind: 'env', envName })
 			}
 		}
+		if (id === 'anthropic' && storedCredential) {
+			if (apiKey === undefined) apiKey = storedCredential.accessToken
+			sources.push({
+				kind: 'stored',
+				path: credentialsPath(...(opts.home === undefined ? [] : [opts.home])),
+			})
+			// Only carry refresh metadata when this token is the one we'll
+			// actually use (an env/secrets token has no refresh path).
+			if (apiKey === storedCredential.accessToken) {
+				oauth = {
+					refreshToken: storedCredential.refreshToken,
+					expiresAt: storedCredential.expiresAt,
+					origin: 'stored',
+				}
+			}
+		}
 		if (id === 'anthropic' && keychainCredential) {
 			if (apiKey === undefined) apiKey = keychainCredential.accessToken
 			sources.push({ kind: 'keychain', service: KEYCHAIN_SERVICE })
-			// Only carry refresh metadata when the Keychain token is the one we'll
-			// actually use (an env/secrets token has no refresh path).
 			if (apiKey === keychainCredential.accessToken) {
 				oauth = {
 					refreshToken: keychainCredential.refreshToken,
 					expiresAt: keychainCredential.expiresAt,
+					origin: 'keychain',
 				}
 			}
 		}
