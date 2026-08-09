@@ -94,6 +94,14 @@ afterEach(() => {
 	vi.restoreAllMocks()
 })
 
+/** Wait for the durable trust write, or give up. */
+async function trustedWithin(timeoutMs = 3_000): Promise<void> {
+	const started = performance.now()
+	while (trusted.length === 0 && performance.now() - started < timeoutMs) {
+		await tick(20)
+	}
+}
+
 /** Move the stubbed clock past the settle window. */
 function settle(): void {
 	nowMs += APPROVAL_SETTLE_MS + 1
@@ -102,8 +110,20 @@ function settle(): void {
 async function gateOnScreen() {
 	const harness = render(<App ctx={ctx} />)
 	mounted.push(harness)
-	await tick(60)
+	// Poll for the gate, then let its effects flush. The effect that stamps when
+	// the gate appeared runs after the commit that draws it, and the settle
+	// window is measured from that stamp — so pressing a key in the gap between
+	// "drawn" and "stamped" is measured against no stamp at all and refused.
+	// A fixed wait here made that gap load-dependent.
+	const started = performance.now()
+	while (
+		!(harness.lastFrame() ?? '').includes('Do you trust') &&
+		performance.now() - started < 3_000
+	) {
+		await tick(20)
+	}
 	expect(harness.lastFrame(), 'the trust gate never appeared').toContain('Do you trust')
+	await tick(60)
 	return harness
 }
 
@@ -137,7 +157,10 @@ describe('the trust gate', () => {
 
 		settle()
 		stdin.write('y')
-		await tick(200)
+		// Polled, not slept. A fixed wait here passed alone and failed inside the
+		// full parallel run — the same transform-load cliff this suite has met
+		// before, and a flake in the waiting rather than in what is asserted.
+		await trustedWithin()
 
 		expect(trusted).toEqual(['C:/a/folder'])
 	})
