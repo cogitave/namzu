@@ -42,6 +42,7 @@ rather than treating it as prompt text, so `namzu run --format json "…"` exits
 | --- | --- |
 | [The TUI](./tui.md) | Header, transcript/composer, slash commands + autocomplete, queuing, `/resume`, `/expand`, interrupting |
 | [Headless runs](./headless.md) | `run` and `run-stream`, their shared options, `--cwd`, permission modes, resuming, exit codes, the NDJSON event stream |
+| [`namzu doctor`](./doctor.md) | What it checks, the five status words, and what each exit code tells a script — including the one that says a check could not answer |
 | [Providers & credentials](./providers.md) | How credentials are discovered, the first-run picker, switching providers |
 | [Tools & permission](./tools.md) | Builtin + memory + task tools, deferred tools and `search_tools`, how a call is decided, permission modes, the safety gate, bypass mode |
 | [External tool servers](./tool-servers.md) | Declaring tool servers in `namzu.config.json`, naming, failures, lifetime |

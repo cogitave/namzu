@@ -31,9 +31,15 @@ function check(env: Record<string, string> = {}) {
 }
 
 describe('the provider chain check', () => {
-	it('is inconclusive, not failing, when nothing is configured yet', async () => {
+	it('is skipped, not failing and not unanswered, when nothing is configured yet', async () => {
+		// `skipped` rather than `inconclusive`: the check reached an answer, and
+		// the answer is that there is no chain here. It used to say
+		// `inconclusive`, which after the split means "could not answer" and now
+		// carries exit 69 — so a machine with a key in the environment and no
+		// preferences file, which is an ordinary working namzu, would have made
+		// `namzu doctor` non-zero.
 		const r = await check()
-		expect(r.status).toBe('inconclusive')
+		expect(r.status).toBe('skipped')
 		expect(r.message ?? '').toMatch(/no provider chain configured/)
 	})
 

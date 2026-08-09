@@ -6,6 +6,22 @@
  *   1   EXIT_FAIL           — one or more checks reported `fail`
  *   2   EXIT_NO_CONFIG      — Namzu is not configured in this environment
  *                             (no checks registered, no config file found)
+ *   69  EXIT_UNAVAILABLE    — sysexits EX_UNAVAILABLE; something the command
+ *                             needed was not there, so it could not ESTABLISH
+ *                             what it was asked to report. Distinct from 0 for
+ *                             the reason 2 is distinct from 1: a report that
+ *                             could not look tells you nothing about the part
+ *                             it did look at, and collapsing the two lets
+ *                             "healthy" and "did not check" share a number.
+ *                             Distinct from 70 because a check that timed out
+ *                             on a loaded machine is not a bug in this CLI.
+ *
+ *                             `namzu eval` spells the same idea `2`
+ *                             (`EVAL_EXIT.inconclusive`) and that is not an
+ *                             oversight: `doctor` had already spent 2 on "no
+ *                             checks registered", and giving one number two
+ *                             meanings inside one command is worse than giving
+ *                             one meaning two numbers across two.
  *   64  EXIT_USAGE          — sysexits EX_USAGE; the caller's arguments are
  *                             wrong. Distinct from 70 on purpose: 70 says the
  *                             CLI is broken and is worth a bug report, 64 says
@@ -26,6 +42,7 @@ export const EXIT_OK = 0
 export const EXIT_FAIL = 1
 export const EXIT_NO_CONFIG = 2
 export const EXIT_USAGE = 64
+export const EXIT_UNAVAILABLE = 69
 export const EXIT_INTERNAL_ERROR = 70
 export const EXIT_UNTRUSTED = 77
 
@@ -34,5 +51,6 @@ export type CliExitCode =
 	| typeof EXIT_FAIL
 	| typeof EXIT_NO_CONFIG
 	| typeof EXIT_USAGE
+	| typeof EXIT_UNAVAILABLE
 	| typeof EXIT_INTERNAL_ERROR
 	| typeof EXIT_UNTRUSTED

@@ -250,9 +250,34 @@ function buildReport(records: readonly DoctorCheckRecord[], version: string): Do
 		fail: records.filter((r) => r.status === 'fail').length,
 		inconclusive: records.filter((r) => r.status === 'inconclusive').length,
 		warn: records.filter((r) => r.status === 'warn').length,
+		skipped: records.filter((r) => r.status === 'skipped').length,
 		total: records.length,
 	}
-	const exit: DoctorReport['exit'] = summary.fail > 0 ? 1 : summary.total === 0 ? 2 : 0
+	/**
+	 * What this command's exit code means, decided here because here is where
+	 * the codes are.
+	 *
+	 * `inconclusive` used not to appear in this expression at all, so a check
+	 * that COULD NOT ANSWER exited `0` — the same number as a machine where
+	 * everything passed. A script could not tell "namzu is healthy" from "namzu
+	 * did not manage to look", in the one command whose entire job is to report
+	 * state it read.
+	 *
+	 * The order is the ranking, and it is deliberate:
+	 *
+	 * - `fail` outranks `inconclusive`. A definite failure is the actionable
+	 *   fact, and `1` does not claim health, so nothing is lost by reporting it
+	 *   even when part of the run is also unknown.
+	 * - `2` stays above `inconclusive` because an empty run has no checks to be
+	 *   inconclusive about; the two cannot both be true.
+	 * - `skipped` never moves this off `0`. A skipped check is an ordinary state
+	 *   of a healthy machine — an optional package absent, a registry with
+	 *   nothing to discover — and a diagnostic that went non-zero on every
+	 *   healthy machine would be turned off within a week, which is the failure
+	 *   mode of a check that fires where nothing is wrong.
+	 */
+	const exit: DoctorReport['exit'] =
+		summary.fail > 0 ? 1 : summary.total === 0 ? 2 : summary.inconclusive > 0 ? 69 : 0
 	return Object.freeze({
 		version,
 		timestamp: new Date().toISOString(),

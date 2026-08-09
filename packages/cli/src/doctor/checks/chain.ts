@@ -78,8 +78,18 @@ export async function describeProviderChain(
 	}
 
 	if (read.status === 'missing') {
+		// `skipped`: this check LOOKED and there is no chain here to describe.
+		// Not `inconclusive`, which now means the check could not answer — the
+		// answer was reached, and it is "there is none".
+		//
+		// Not `warn` either, which in this file means namzu is usable but
+		// degraded. A machine with no preferences file and a key in the
+		// environment is an ordinary working namzu: `run` builds a default chain
+		// from what it detects, and whether a credential exists at all is
+		// `providers.credentials`' question, answered there and not restated
+		// here.
 		return {
-			status: 'inconclusive',
+			status: 'skipped',
 			message: `no provider chain configured (${path} does not exist)`,
 			remediation: 'Run `namzu` and pick a provider; the choice is saved to that file.',
 		}

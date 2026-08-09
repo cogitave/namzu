@@ -1,7 +1,12 @@
 import type { DoctorCheck, DoctorCheckResult } from '@namzu/sdk'
 
 /**
- * Built-in provider probe is intentionally inconclusive in v1.
+ * Built-in provider probe is intentionally `skipped` in v1.
+ *
+ * `skipped` rather than `inconclusive` for the reason spelled out on
+ * `vault.registered`: there is no discovery mechanism here to fail, so this is
+ * a permanent absence of a subject rather than a question that went unanswered,
+ * and only the latter is worth an exit code.
  *
  * Provider auto-discovery requires walking `ProviderRegistry`, which is
  * a module-private map populated by side-effecting calls in consumer
@@ -20,7 +25,7 @@ export const providersRegisteredCheck: DoctorCheck = {
 	id: 'providers.registered',
 	category: 'providers',
 	run: async (): Promise<DoctorCheckResult> => ({
-		status: 'inconclusive',
+		status: 'skipped',
 		message:
 			'no provider auto-discovery in v1; register a provider check via registerDoctorCheck for your specific provider configuration (call provider.doctorCheck?() per registered provider)',
 	}),
