@@ -100,8 +100,19 @@ vi.mock('../agent.js', async (importOriginal) => {
 					])
 					return
 				}
-				// Long enough for the test to type into a live composer.
-				await new Promise((r) => setTimeout(r, 120))
+				// The prompt opens when the test says it has finished typing, not
+				// after a duration.
+				//
+				// It used to wait 120ms, described as "long enough for the test to
+				// type into a live composer" — which made "was the composer still
+				// live" a question about how loaded the machine was. Under the full
+				// parallel suite the prompt could open first, the keystrokes were
+				// dropped by a composer that is disabled while a prompt is up, and
+				// the failure reported was "the draft never reached the composer": a
+				// true statement about a composer that was never asked. It is the
+				// same defect the branch above already fixed by waiting on the abort
+				// signal instead of a clock.
+				await permissionGate
 				const req: PermissionRequest = {
 					toolCalls: [{ id: 'c1', name: 'bash', summary: 'rm -rf build', isDestructive: true }],
 				}
@@ -141,10 +152,24 @@ async function frameShows(
 let nowMs = 1_000_000
 const mounted: { unmount: () => void }[] = []
 
+/**
+ * Held closed until the test has finished typing into the live composer.
+ *
+ * The permission prompt disables the composer, so every keystroke a test wants
+ * to leave in a draft has to land before the prompt opens. Sequencing that on a
+ * timer makes the test a race against the machine; the mocked turn waits on
+ * this instead, and {@link letThePromptOpen} is the test saying it is ready.
+ */
+let permissionGate: Promise<void> = Promise.resolve()
+let letThePromptOpen: () => void = () => {}
+
 beforeEach(() => {
 	decisions.length = 0
 	askPermission = true
 	nowMs = 1_000_000
+	permissionGate = new Promise<void>((resolve) => {
+		letThePromptOpen = resolve
+	})
 	vi.spyOn(Date, 'now').mockImplementation(() => nowMs)
 })
 
@@ -178,6 +203,8 @@ async function turnRunningWithDraft(draft: string) {
 	harness.stdin.write(draft)
 	await frameShows(harness.lastFrame, draft)
 	expect(harness.lastFrame(), 'the draft never reached the composer').toContain(draft)
+	// The draft is in. The prompt may open now.
+	letThePromptOpen()
 	return harness
 }
 
@@ -204,16 +231,20 @@ describe('a draft while a permission prompt comes and goes', () => {
 		// notice after sending an incomplete message.
 		const harness = render(<App ctx={ctx} />)
 		mounted.push(harness)
-		await tick(80)
+		await frameShows(harness.lastFrame, 'Type a message')
+		await tick(60)
 		harness.stdin.write('go')
 		await tick(20)
 		harness.stdin.write('\r')
-		await tick(40)
+		// The turn's first delta, so the submit has been processed and the
+		// composer is free again. A fixed wait here is a guess about the machine.
+		await frameShows(harness.lastFrame, 'working')
 		// A newline in one keypress is held as a paste chip.
 		harness.stdin.write('first line\nsecond line')
-		await tick(40)
+		await frameShows(harness.lastFrame, 'Pasted text')
 		expect(harness.lastFrame(), 'the paste chip never appeared').toContain('Pasted text')
 
+		letThePromptOpen()
 		await frameShows(harness.lastFrame, 'wants to run')
 		expect(harness.lastFrame()).toContain('wants to run')
 		harness.stdin.write('\x1B')
