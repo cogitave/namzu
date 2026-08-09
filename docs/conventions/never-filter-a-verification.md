@@ -7,7 +7,7 @@ diataxis: explanation
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-04T00:00:00Z
-lastReviewed: 2026-08-07
+lastReviewed: 2026-08-09
 resource: .github/workflows/ci.yml
 tags: [convention, verification, tooling]
 ---
@@ -115,6 +115,45 @@ The same rule pointed at a tool rather than a filter. Two from one session:
 Both were caught by re-running through the real command and reading *why* it
 failed. A mutation that "passes" tells you nothing until you have seen the
 assertion in the failure output.
+
+## The door where nothing is read at all
+
+Every incident above has someone reading the wrong thing. This one has nobody
+reading anything, and it did the most damage.
+
+A one-line correction to a changeset was applied by a script that read the file
+from the API, edited the text, and wrote it back. The read expression contained a
+parse error. The error printed. **The script kept going**, built the new content
+out of nothing, and the write succeeded — truncating another agent's changeset to
+a single paragraph and taking its frontmatter, and with it every version
+declaration in the pull request, out of the file. The write reported success
+because it did exactly what it was told.
+
+The shell in use does not stop on an error by default. So a step that failed and
+a step that succeeded look identical to the step after them, and a script is a
+gate only if something in it refuses to continue. Nothing here refused.
+
+This is the rule's limit case. The others say *read the verdict*; this one says
+**there has to be a verdict at all**. A sequence of commands where failure does
+not stop the sequence is not a check that was misread — it is a check that was
+never taken.
+
+Three things follow, and the third is the one that saved it:
+
+1. **Make failure stop the sequence**, explicitly, in any shell that does not do
+   it for you. One step per command is better than a clever one-liner precisely
+   because the boundary between steps is where the stopping happens.
+2. **Never write a file from data you have not seen.** Build the new content,
+   look at it, then write. Here the intended content had a frontmatter block; one
+   glance would have ended it.
+3. **Verify against the store you wrote to.** The file was read back from the
+   remote and compared byte-for-byte against what was intended, which is how the
+   damage was found within a minute rather than at the next release. Reading back
+   what you just wrote is cheap and it is the only check that cannot be satisfied
+   by the write's own report.
+
+Recorded because the blast radius was somebody else's work, on a branch that was
+already green.
 
 ## Related
 
