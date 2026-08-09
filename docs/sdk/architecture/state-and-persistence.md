@@ -1,7 +1,7 @@
 ---
 title: State and Persistence
 description: How @namzu/sdk models sessions, stores, checkpoints, tasks, memory, and durable run state.
-last_updated: 2026-08-03
+last_updated: 2026-08-09
 status: current
 related_packages: ["@namzu/sdk"]
 ---
@@ -59,6 +59,21 @@ The important pattern is that stores persist or retrieve data, but they do not o
 - `RunPersistence` coordinates the runtime-facing state transitions around that disk layer.
 
 The disk layout is intentionally file-oriented and append-friendly rather than database-first.
+
+### Enumerating runs, not just addressing one
+
+Checkpoint persistence goes through `CheckpointStore`, whose four core
+accessors each take a full run scope. `listDurableRuns` is the fifth and
+optional one, and the only read above the run: given a contiguous prefix of
+tenant → project → session it returns every run with durable checkpoint
+state, each row carrying its own scope and its park disposition. That is
+what an approval inbox and the `hitlParkTtlMs` reclamation sweep are built
+from; see [Replay §7](../runtime/replay.md).
+
+`RunDiskStore.listRuns` is the older, narrower answer and is deprecated. It
+reads `index.json`, whose entries carry no attribution and whose writer
+skips every sub-run, so a row cannot be turned back into something a
+sweeper could resume.
 
 ### Resuming a part-executed tool batch
 

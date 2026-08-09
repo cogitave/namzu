@@ -1,7 +1,7 @@
 ---
 title: Replay
-description: Fork an existing run from any checkpoint with optional controlled mutations. Useful for debugging, regression tests, and counterfactual "what if" analysis.
-last_updated: 2026-08-03
+description: Fork an existing run from any checkpoint with optional controlled mutations, resume a parked run from another process, and enumerate the runs waiting on a human or on a reclamation sweep.
+last_updated: 2026-08-09
 status: current
 related_packages: ["@namzu/sdk"]
 ---
@@ -178,6 +178,65 @@ and keeps the answer once it arrives — a gate that cannot say what was
 approved is not an audit trail. `RunState` is a flat, JSON-safe snapshot;
 `parseRunState` refuses a snapshot from an incompatible SDK version rather
 than half-restoring a run that looks healthy and has lost its budgets.
+
+### Finding parked runs you do not already know about
+
+`loadRunState` and `findPendingCheckpoint` both need a `runId`, so they
+answer "is *this* run waiting" and not "which runs are waiting". The second
+question is `listDurableRuns`, a listing above the run:
+
+```ts
+import { listDurableRuns } from '@namzu/sdk'
+
+// An approval inbox: every outstanding park under one tenant.
+let cursor: string | undefined
+do {
+  const page = await listDurableRuns(
+    checkpointStore,
+    { tenantId, projectId },
+    { park: ['outstanding'], limit: 50, cursor },
+  )
+  for (const entry of page.entries) {
+    // An entry IS a `CheckpointRunScope`, so it goes straight back in.
+    const checkpoint = await findPendingCheckpoint(checkpointStore, entry)
+    // Render `checkpoint.pending.request` to a human.
+  }
+  cursor = page.cursor
+} while (cursor)
+```
+
+The listing scope is a **contiguous prefix** of tenant → project → session.
+`tenantId` is required; a `sessionId` with no `projectId` is refused rather
+than guessed at, because a flat backend could answer it and a hierarchical
+one could not.
+
+Swap the filter for `['expired']` and you have the sweep `hitlParkTtlMs`
+describes — every park whose window closed with no answer, ready for
+`CheckpointManager.expire`.
+
+Three properties worth knowing before you build on it:
+
+- **Sub-runs are included**, with `parentRunId` on the row. A park is
+  durable at any delegation depth, so an inbox that skipped them would drop
+  every approval raised by delegated work.
+- **Rows are ordered by `runId`, not by time.** A cursor has to sort on a
+  key that cannot move, and every timestamp derivable from checkpoints
+  moves — the newest advances when the run checkpoints again, the oldest
+  when pruning deletes oldest-first. Run ids carry no timestamp, so sort the
+  page yourself on `latestCheckpointAt` or `park.parkedAt` if you want
+  oldest-first.
+- **An entry carries no run status, and cannot.** A checkpoint is written
+  mid-flight, so this store cannot tell a run that finished from one that
+  died. A crash sweep is: list every run with durable state, intersect with
+  your own run records, resume the difference.
+
+`listDurableRuns` is optional on the `CheckpointStore` interface — both
+built-in stores implement it, and a store that does not gets a refusal
+rather than an empty page, because "nothing is waiting on a human" is not
+what "I cannot tell" means. `InMemoryCheckpointStore` is exported as the
+reference for a backend of your own; `DiskCheckpointStore` takes its
+tenant/project/session as a second constructor argument, because the disk
+layout records none of them.
 
 Park recording is lazy (`parkRecordDelayMs`, default 250 ms) so a
 programmatic handler never pays for it. The exception is a `pause`

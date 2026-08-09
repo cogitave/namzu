@@ -42,9 +42,14 @@ export class InMemoryCheckpointStore implements CheckpointStore {
 			run = new Map()
 			this.runs.set(key, run)
 		}
-		// The scope is recorded on every write rather than only the first,
-		// because `parentRunId` is what makes a sub-run's row addressable and
-		// a run whose first write omitted it would stay unaddressable forever.
+		// The run's scope is kept beside its checkpoints because the key is a
+		// joined string and a listing has to hand back the parts — above all
+		// `parentRunId`, which is what makes a sub-run's row addressable.
+		//
+		// Written on every call rather than only the first, and that is
+		// simplicity, not defence: a run's scope is fixed when the run is
+		// constructed, so the two cannot differ, and a `has` guard here would
+		// be a branch no input can take.
 		this.scopes.set(key, {
 			tenantId: scope.tenantId,
 			projectId: scope.projectId,

@@ -144,6 +144,34 @@ describe('an approval inbox, through an injected store', () => {
 		expect(page.entries[0]?.parentRunId).toBeUndefined()
 	})
 
+	it('narrows to a project and to a session, not only to a tenant', async () => {
+		const store = new InMemoryCheckpointStore()
+		await store.writeCheckpoint(scope('run_a'), checkpoint('run_a', 1))
+		await store.writeCheckpoint(
+			scope('run_b', { projectId: 'prj_other' as ProjectId }),
+			checkpoint('run_b', 2),
+		)
+		await store.writeCheckpoint(
+			scope('run_c', { sessionId: 'ses_other' as SessionId }),
+			checkpoint('run_c', 3),
+		)
+
+		// One tenant can hold many projects and one project many sessions. A
+		// store that answered every narrowing with the tenant's whole set
+		// would look right against a single-session fixture and hand an
+		// operator another team's queue in production.
+		expect(
+			(await listDurableRuns(store, { tenantId: T1, projectId: P1 }, { now: NOW })).entries.map(
+				(e) => e.runId,
+			),
+		).toEqual(['run_a', 'run_c'])
+		expect(
+			(
+				await listDurableRuns(store, { tenantId: T1, projectId: P1, sessionId: S1 }, { now: NOW })
+			).entries.map((e) => e.runId),
+		).toEqual(['run_a'])
+	})
+
 	it('hands a row straight back to the read that answers it', async () => {
 		const store = new InMemoryCheckpointStore()
 		const cp = checkpoint('run_a', 1, outstanding('run_a'))
@@ -305,9 +333,25 @@ describe('paging', () => {
 		} while (cursor !== undefined && guard < 10)
 
 		expect(seen).toEqual(['run_a', 'run_b', 'run_c', 'run_d', 'run_e'])
-		// An exhausted listing returns no cursor, so `while (cursor)`
-		// terminates rather than fetching one empty page to discover it.
 		expect(cursor).toBeUndefined()
+	})
+
+	it('withholds the cursor on the page that exhausts the listing', async () => {
+		const store = await seed()
+
+		// Asserting only that the walk terminates does not distinguish this
+		// from a store that hands out one more cursor and answers it with an
+		// empty page. It terminates either way; a mutation removing the
+		// exhaustion check survived that test. The contract says a store never
+		// returns a cursor it already knows yields nothing, so assert the
+		// last page directly.
+		const last = await listDurableRuns(store, ALL, { limit: 2, cursor: 'run_c', now: NOW })
+		expect(last.entries.map((e) => e.runId)).toEqual(['run_d', 'run_e'])
+		expect(last.cursor).toBeUndefined()
+
+		// And a page that fills exactly, with more behind it, still carries one.
+		const middle = await listDurableRuns(store, ALL, { limit: 2, cursor: 'run_a', now: NOW })
+		expect(middle.cursor).toBe('run_c')
 	})
 
 	it('does not lose or repeat a run when the sort key would have moved', async () => {
@@ -365,6 +409,25 @@ describe('what it refuses to answer', () => {
 		// the backend's storage shape is not a contract.
 		await expect(
 			listDurableRuns(store, { tenantId: T1, sessionId: S1 } as CheckpointListingScope),
+		).rejects.toThrow(/contiguous prefix/)
+	})
+
+	it('refuses the hole even when the store below would have answered', async () => {
+		// The shipped stores validate too, so removing the helper's own check
+		// changed nothing observable — a mutation that killed no test. The
+		// helper's check is the backstop for a HOST-supplied store, and a
+		// backstop only two compliant stores stand behind is untested by
+		// construction. This is a store that does not validate.
+		const permissive: CheckpointStore = {
+			writeCheckpoint: async () => {},
+			readCheckpoint: async () => null,
+			listCheckpoints: async () => [],
+			deleteCheckpoint: async () => {},
+			listDurableRuns: async () => ({ entries: [] }),
+		}
+
+		await expect(
+			listDurableRuns(permissive, { tenantId: T1, sessionId: S1 } as CheckpointListingScope),
 		).rejects.toThrow(/contiguous prefix/)
 	})
 })
