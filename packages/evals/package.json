@@ -1,7 +1,7 @@
 {
   "name": "@namzu/evals",
   "version": "0.1.0",
-  "description": "Namzu's own kernel behaviour suites, runnable with `namzu eval` against an installed kernel.",
+  "description": "Namzu's own behaviour and security suites, runnable with `namzu eval` against an installed kernel.",
   "license": "FSL-1.1-MIT",
   "type": "module",
   "homepage": "https://github.com/cogitave/namzu#readme",
@@ -14,10 +14,12 @@
     "url": "https://github.com/cogitave/namzu/issues"
   },
   "exports": {
-    "./kernel/*": "./kernel/*"
+    "./kernel/*": "./kernel/*",
+    "./security/*": "./security/*"
   },
   "files": [
     "kernel",
+    "security",
     "LICENSE.md",
     "README.md",
     "CHANGELOG.md"
