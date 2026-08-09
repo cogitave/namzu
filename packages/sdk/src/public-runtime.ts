@@ -141,6 +141,28 @@ export type {
 	DrainRunsParams,
 	DrainRunsResult,
 } from './run/index.js'
+// A `ReviewAnswer` that runs shell commands, so "don't finish until the
+// build passes" needs no TypeScript. `reviewAnswer` was the seam for this
+// and nothing shipped supplied one. Skips re-running a command whose
+// failure the workspace has not changed since — the difference between a
+// bounded loop and one that spends its whole budget confirming a failure it
+// already reported.
+export {
+	DEFAULT_GATE_MAX_RETRIES,
+	DEFAULT_GATE_OUTPUT_CHARS,
+	DEFAULT_GATE_TIMEOUT_MS,
+	FINGERPRINT_MAX_BYTES,
+	FINGERPRINT_TIMEOUT_MS,
+	clipOutput,
+	createCommandGate,
+	fingerprintWorkspace,
+} from './run/index.js'
+export type {
+	CommandGateOptions,
+	FingerprintExec,
+	GateExec,
+	WorkspaceFingerprintOptions,
+} from './run/index.js'
 
 // ─── personas, skills, advisory ──────────────────────────────────────────
 

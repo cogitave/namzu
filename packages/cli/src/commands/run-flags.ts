@@ -22,6 +22,9 @@
 import { statSync } from 'node:fs'
 import { resolve } from 'node:path'
 
+import { DEFAULT_GATE_MAX_RETRIES, createCommandGate } from '@namzu/sdk'
+import type { ReviewAnswer } from '@namzu/sdk'
+
 import type { Preferences, ProviderChoice, ProviderId } from '../integrations/providers/index.js'
 
 export interface RunFlags {
@@ -51,6 +54,21 @@ export interface RunFlags {
 	resume: string | null
 	skills: string[]
 	/**
+	 * `--gate '<command>'`, repeatable — commands that must pass before the
+	 * run is allowed to settle.
+	 *
+	 * An ARRAY rather than a single value, and repeat-to-append rather than
+	 * last-wins, because "typecheck AND test" is the ordinary case and a
+	 * last-wins flag would silently drop the first one. Order is preserved:
+	 * they run in the order given and stop at the first failure.
+	 */
+	gates: string[]
+	/**
+	 * `--gate-retries <n>`: how many times a failing gate may hand the answer
+	 * back before the run stops with `answer_rejected`.
+	 */
+	gateRetries: number | null
+	/**
 	 * `--flags` this parser does not know.
 	 *
 	 * Collected rather than folded into `rest`, because `rest` becomes the
@@ -74,6 +92,8 @@ export function parseRunFlags(rawArgs: readonly string[]): RunFlags {
 		continueLast: false,
 		resume: null,
 		skills: [],
+		gates: [],
+		gateRetries: null,
 		unknown: [],
 		rest: [],
 	}
@@ -186,6 +206,32 @@ export function parseRunFlags(rawArgs: readonly string[]): RunFlags {
 			)
 		)
 			continue
+		// Appends rather than replaces. `--gate a --gate b` means both, in that
+		// order; a last-wins reading would run only `b` and report success on a
+		// project whose types do not compile.
+		if (
+			take(
+				a,
+				'gate',
+				(v) => {
+					const cmd = v.trim()
+					if (cmd) out.gates.push(cmd)
+				},
+				idx,
+			)
+		)
+			continue
+		if (
+			take(
+				a,
+				'gate-retries',
+				(v) => {
+					out.gateRetries = Number(v)
+				},
+				idx,
+			)
+		)
+			continue
 		// Was accepted and ignored, because a headless run never prompted and so
 		// had nothing to bypass. Now that an operator can write rules, it means
 		// something: `auto` for the calls no rule decided. It still cannot reopen
@@ -252,6 +298,36 @@ export async function loadSkillsContext(
 		return composeSkillsPrompt(active) ?? undefined
 	} catch {
 		return undefined
+	}
+}
+
+/**
+ * The `reviewAnswer` a `--gate` set implies, or `undefined` for no gates.
+ *
+ * Lives beside the parser for the reason at the top of this file: both
+ * headless commands take the same input, so both must build the same gate
+ * from it. A flag parsed by the shared parser and honoured by only one
+ * command is worse than a flag neither has — the operator gets a run that
+ * accepted `--gate` and settled on a red build, with nothing to read that
+ * says why.
+ *
+ * Returns the reviewer AND the rejection budget together, because the two
+ * have to agree: the gate stops executing after `maxRetries` and the run
+ * stops after `maxAnswerReviews`, and a run whose budget outlasts its gate
+ * spends its remaining turns being told the same thing.
+ */
+export function buildGate(
+	flags: Pick<RunFlags, 'gates' | 'gateRetries'>,
+	cwd: string,
+): { reviewAnswer: ReviewAnswer; maxAnswerReviews: number } | undefined {
+	if (flags.gates.length === 0) return undefined
+	const retries =
+		flags.gateRetries !== null && Number.isInteger(flags.gateRetries) && flags.gateRetries > 0
+			? flags.gateRetries
+			: DEFAULT_GATE_MAX_RETRIES
+	return {
+		reviewAnswer: createCommandGate({ commands: flags.gates, cwd, maxRetries: retries }),
+		maxAnswerReviews: retries,
 	}
 }
 
