@@ -71,12 +71,30 @@ Cuts new versions of publishable packages via [Changesets](https://github.com/ch
 
 3. Verify CI is green on the Version Packages PR. The pre-merge `consumer install`, `publint`, and `@arethetypeswrong/cli` steps in `.github/workflows/ci.yml` catch peer-range drift and package-shape defects before publish.
 
-4. Merge the PR to `main`. The `.github/workflows/release.yml` workflow triggers automatically:
+4. **Confirm the PR is not stale: every changeset on `main` must appear in its diff.**
+
+   ```bash
+   git ls-tree origin/main --name-only .changeset/   # minus README.md and config.json
+   gh pr diff <n> --name-only | grep '^\.changeset/'
+   ```
+
+   A changeset on `main` that the PR does not consume means the PR was computed
+   before that changeset landed — merge it and the version numbers it wrote are
+   spent on a state that no longer exists. The workflow then re-versions instead
+   of publishing and opens a fresh PR, so nothing is lost, but the bump has
+   already been written: `@namzu/cli` `4.4.0` exists in the CHANGELOG and on no
+   registry for exactly this reason.
+
+   This happens whenever a feature PR is merged shortly before the version PR.
+   Waiting for the version PR to *exist* is not enough — it already existed; it
+   was out of date. Check what it consumes, not that it is there.
+
+5. Merge the PR to `main`. The `.github/workflows/release.yml` workflow triggers automatically:
    - Runs the full install + build + lint + typecheck + test pipeline.
    - Runs the pre-publish consumer-install check (`.github/scripts/verify-consumer-install.sh`) against the packed tarballs.
    - Invokes `pnpm changeset publish` — publishes every bumped package to npm with provenance, creates Git tags (`@namzu/<pkg>@<version>`), and GitHub Releases.
 
-5. Monitor `https://github.com/cogitave/namzu/actions` for the release run. Confirm each published package appears on npm under its expected dist-tag.
+6. Monitor `https://github.com/cogitave/namzu/actions` for the release run. **Confirm each published package appears on npm under its expected dist-tag by asking npm, not by reading the workflow's exit status** — `npm view <pkg> version` against the version in `package.json` on `main`. A release run can succeed without publishing: if it re-versions instead, it exits green and opens a PR. Green means the run did what it decided to do, not that a package shipped.
 </procedure_phase_2>
 
 ## Hard rules
@@ -86,6 +104,7 @@ Cuts new versions of publishable packages via [Changesets](https://github.com/ch
 - Never invoke `npm publish` or `pnpm publish` directly. The release workflow is the authority, and it runs `changeset publish`.
 - Never skip hooks (`--no-verify`, `--no-gpg-sign`) during a release commit.
 - Never merge a "Version Packages" PR if CI is red on it — the red gate is catching a real publish-time regression.
+- Never merge a "Version Packages" PR that does not consume every changeset on `main` (Phase 2, step 4). Its existence is not evidence of its currency.
 - Peer range widening / narrowing happens via Changesets config (`___experimentalUnsafeOptions_WILL_CHANGE_IN_PATCH.onlyUpdatePeerDependentsWhenOutOfRange`). Do not hand-edit peer ranges in `package.json` files unless the change is a policy decision being ratified in a session (e.g., the original `>=0.1.6 <1.0.0` policy set in ses_012).
 - NPM Trusted Publisher is configured via OIDC (provenance). Do not add an `NPM_TOKEN` secret unless switching to classic auth.
 </hard_rules>

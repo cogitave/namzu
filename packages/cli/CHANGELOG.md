@@ -86,6 +86,20 @@
 
 ## 4.4.0
 
+> **This version was never published.** `4.3.1` is followed on the registry by
+> `4.4.1`; there is no `4.4.0` to install, and this section is kept rather than
+> deleted because the work below did ship — inside `4.4.1`.
+>
+> What happened: the release PR that produced these version numbers had been
+> computed before the changeset for `4.4.1` landed on `main`, so merging it
+> bumped versions against a state that was already stale. The release workflow
+> declined to publish and opened a fresh version PR instead, which is the
+> correct behaviour and is why nothing was lost — but the bump had already been
+> written, so this number was spent without ever reaching npm.
+>
+> The precondition that prevents it is now in the release skill: before merging
+> a version PR, every changeset present on `main` must appear in that PR's diff.
+
 ### Minor Changes
 
 - 3eed8a0: **A provider namzu cannot build is no longer offered as if it could.** Three
