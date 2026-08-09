@@ -227,6 +227,13 @@ let attempts = 0
  * and randomness to separate processes that share a pid across a container
  * restart or a pid-namespace reuse.
  *
+ * The fence is on the end as well, and it is the one part carrying no
+ * uniqueness — it is there so an operator reading a leaked scratch file can
+ * tell which publish abandoned it. Uniqueness comes entirely from the three
+ * parts before it, which is what keeps this the mirror of {@link NAME} rather
+ * than a second copy of it. Anything appended for a human must stay in that
+ * position: informative, and load-bearing for nothing.
+ *
  * **The scratch file must live in the same directory as its destination.**
  * `link` across filesystems fails `EXDEV` — measured, not assumed — so a temp
  * directory anywhere else (`os.tmpdir()` being the tempting one) breaks every
