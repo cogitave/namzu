@@ -72,6 +72,7 @@ import { SLASH_COMMANDS } from '../tui/slashCommands.js'
 import { expandHeadlessCommand } from '../user-commands/store.js'
 import {
 	applyProviderFlags,
+	buildGate,
 	loadSkillsContext,
 	parseRunFlags,
 	resolveWorkingDirectory,
@@ -313,9 +314,14 @@ export const runStreamCommand: CommandDef = {
 		// The resolved `--cwd` is what the agent's tools resolve against, not just
 		// where the session store lives — a run told to work in another checkout
 		// has to glob, read and edit files there.
+		const gate = buildGate(flags, cwd)
 		const session = await createAgentSession(prefs, probe.detected, {
 			cwd,
 			rules: permissions.rules,
+			// The operator's --gate commands, as a standing condition on the
+			// answer. Spread rather than passed as undefined so a run without
+			// gates is byte-identical to the one that shipped before them.
+			...(gate ?? {}),
 			permissionMode: modeResult.mode,
 			...(ctx.config.mcpServers ? { mcpServers: ctx.config.mcpServers } : {}),
 		})

@@ -35,6 +35,7 @@ import {
 	ProviderRegistry,
 	type ResumeHandler,
 	type ResumeOutcome,
+	type ReviewAnswer,
 	type RunEvent,
 	type RunId,
 	SearchToolsTool,
@@ -483,6 +484,20 @@ export interface AgentSessionOptions {
 	 * config. Absent means none, which is what it meant before they existed.
 	 */
 	readonly mcpServers?: McpServersConfig
+	/**
+	 * Judge the answer a turn is about to settle with, and hand it back with
+	 * feedback when it is not good enough.
+	 *
+	 * A SESSION option rather than a `SendOptions` one, because a gate is a
+	 * standing condition on the run — "don't finish until the build passes" —
+	 * not a property of one message. Absent leaves the loop byte-identical.
+	 */
+	readonly reviewAnswer?: ReviewAnswer
+	/**
+	 * Rejections the reviewer is allowed before the run stops with
+	 * `answer_rejected`. Absent uses the kernel's default.
+	 */
+	readonly maxAnswerReviews?: number
 }
 
 export async function createAgentSession(
@@ -751,6 +766,8 @@ export async function createAgentSession(
 				workingDirectory: cwd,
 				rules: options.rules,
 				permissionMode: options.permissionMode,
+				reviewAnswer: options.reviewAnswer,
+				maxAnswerReviews: options.maxAnswerReviews,
 				approval,
 				taskStore,
 				systemPrompt,
@@ -1190,6 +1207,9 @@ interface RunTurnParams {
 	/** Operator rules for this run, already compiled. */
 	readonly rules: readonly VerificationRule[] | undefined
 	readonly permissionMode: PermissionMode | undefined
+	/** Standing verdict on the answer this turn settles with. See {@link AgentSessionOptions}. */
+	readonly reviewAnswer: ReviewAnswer | undefined
+	readonly maxAnswerReviews: number | undefined
 	readonly approval: { all: boolean }
 	readonly taskStore: TaskStore
 	readonly systemPrompt: string | undefined
@@ -1208,6 +1228,8 @@ async function* runTurn({
 	workingDirectory,
 	rules,
 	permissionMode,
+	reviewAnswer,
+	maxAnswerReviews,
 	approval,
 	taskStore,
 	systemPrompt,
@@ -1245,6 +1267,11 @@ async function* runTurn({
 				maxResponseTokens: 8192,
 				permissionMode: 'auto',
 			},
+			// The operator's gate, if they set one. Omitted rather than passed
+			// as undefined so a run with no gate is byte-identical to the one
+			// that shipped before gates existed.
+			...(reviewAnswer ? { reviewAnswer } : {}),
+			...(maxAnswerReviews !== undefined ? { maxAnswerReviews } : {}),
 			agentId: 'namzu',
 			agentName: 'namzu',
 			...(systemPrompt ? { systemPrompt } : {}),

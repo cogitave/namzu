@@ -32,6 +32,7 @@ import { expandHeadlessCommand } from '../user-commands/store.js'
 import { resolveResume } from './resume.js'
 import {
 	applyProviderFlags,
+	buildGate,
 	loadSkillsContext,
 	parseRunFlags,
 	resolveWorkingDirectory,
@@ -135,6 +136,8 @@ export const runCommand: CommandDef = {
 		'  --skills <a,b,c>      Load these skills as context for the turn',
 		'  --continue, -c        Resume the most recent conversation here',
 		'  --resume <id>         Resume that conversation, and no other',
+		'  --gate <command>      Must pass before the run may finish; repeatable',
+		'  --gate-retries <n>    Fix attempts a failing gate allows (default 3)',
 		'  --permission-mode <m> prompt | auto | strict — what happens to a call',
 		'                        no [permissions] rule decided (default: auto)',
 		'  --trust               Accept this folder for THIS run',
@@ -153,6 +156,18 @@ export const runCommand: CommandDef = {
 		'strict for an unattended run that must refuse anything no rule allowed.',
 		'',
 		'A mode only decides calls no rule decided: it can never reopen a deny.',
+		'',
+		'--gate is the unattended-operator flag: the run is not allowed to settle',
+		'until every gate command exits 0. A failure comes back to the model as the',
+		'next turn, naming the command, the exit code and the output. Repeat the',
+		'flag for several, and they run in order, stopping at the first failure.',
+		'',
+		'A gate is not re-run when the answer changed nothing on disk: the model is',
+		'told the workspace is unchanged instead, which is cheaper and a different',
+		'instruction from repeating a failure it has already been shown. The',
+		'attempt still counts. When the attempts run out the run stops with',
+		'answer_rejected and a non-zero exit — never with a green run over a red',
+		'build.',
 		'',
 		"The working directory's AGENTS.md files — that directory and every one up",
 		'to the repository root — are loaded as standing instructions for the run,',
@@ -260,9 +275,14 @@ export const runCommand: CommandDef = {
 			ctx.formatter.error({ message: `${where}: ${d.message}` })
 		}
 
+		const gate = buildGate(flags, resolved.cwd)
 		const session = await createAgentSession(prefs, probe.detected, {
 			cwd: resolved.cwd,
 			rules: permissions.rules,
+			// The operator's --gate commands, as a standing condition on the
+			// answer. Spread rather than passed as undefined so a run without
+			// gates is byte-identical to the one that shipped before them.
+			...(gate ?? {}),
 			permissionMode: modeResult.mode,
 			...(ctx.config.mcpServers ? { mcpServers: ctx.config.mcpServers } : {}),
 		})

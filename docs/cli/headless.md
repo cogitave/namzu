@@ -113,6 +113,8 @@ prompt.
 | `--permission-mode <m>` | `prompt`, `auto` or `strict` — what happens to a call no rule decided. See [Permission modes](#permission-modes). |
 | `--yolo` / `--dangerously-skip-permissions` | `--permission-mode auto`. |
 | `--trust` | Accept this folder for **this run**. See [The folder has to be trusted](#the-folder-has-to-be-trusted). |
+| `--gate <command>` | A command that must pass before the run may finish. Repeatable. See [Gates](#gates). |
+| `--gate-retries <n>` | Fix attempts a failing gate allows. Default 3. |
 | `--continue` (`-c`) | Reopen the most recent conversation here. `namzu run` only. |
 | `--resume <id>` | Reopen the conversation you name. `namzu run` only. |
 | `--` | End of options. Everything after it is prompt text, verbatim. |
@@ -141,6 +143,63 @@ you change that.
 
 The safety gate that refuses catastrophic shell commands sits above every mode
 and cannot be turned off by any flag. See [Tools & permission](./tools.md).
+
+## Gates
+
+```bash
+namzu run --gate 'pnpm typecheck' --gate 'pnpm test' "fix the failing tests"
+```
+
+A gate is a command that must exit 0 before the run is allowed to settle. When
+the model stops calling tools and is about to answer, the gates run; a failure
+comes back as the model's next user turn — naming the command, the attempt, the
+exit code and the output — and it tries again.
+
+This is the unattended-operator flag. Without it, "fix the tests" ends whenever
+the model believes it is done, and whether that is true is discovered later by
+somebody reading CI.
+
+Repeat the flag for several gates. They run **in order and stop at the first
+failure**, because that is what a person means by "typecheck then test": a type
+error makes the test output noise about the same cause, and showing the model
+both invites it to fix the symptom. Repeating appends — it is not last-wins,
+which would silently run only the last one.
+
+### A gate is not re-run over a workspace nothing touched
+
+If the model answers again having changed no file, the command is **not run a
+second time**. The model is told the workspace is byte-for-byte identical to
+what it was when that command failed, and that it must edit something before
+trying to finish.
+
+That is both cheaper — a test suite is usually the most expensive thing in the
+loop — and a *different* instruction. Repeating the same failure hands the model
+the same prompt that just failed to help it.
+
+The attempt still counts. Skipping the command is a saving, not a pardon: an
+answer that changed nothing has been rejected, and a run whose budget never saw
+that would loop for free.
+
+The change detector hashes `git status --porcelain`, the binary diff against
+`HEAD`, and the contents of every untracked file — with a symlink recorded as
+its target, so a link repointed at a different file is a change even when the
+bytes behind it are the same. When it cannot tell — not a git repository, no
+commits yet, git failed, output too large — the command **runs**. The cost of
+re-running unnecessarily is one execution; the cost of wrongly skipping is a
+verification that silently did not happen.
+
+### When the attempts run out
+
+The run stops with the stop reason `answer_rejected` and a non-zero exit. It
+does not settle: an answer that never passed its gate has not passed it, and a
+green run over a red build is the outcome the flag exists to prevent.
+
+`--gate-retries <n>` sets how many attempts a gate gets (default 3). It bounds
+both the gate and the run's rejection budget together, so the run cannot outlive
+the gate and spend its remaining turns being told the gate has given up.
+
+The same loop is available to any SDK host as `createCommandGate`, and the
+detector on its own as `fingerprintWorkspace`.
 
 ## The working directory
 
