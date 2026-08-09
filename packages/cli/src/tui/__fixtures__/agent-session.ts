@@ -41,6 +41,10 @@ export function fakeAgentSession(overrides: Partial<AgentSession> = {}): AgentSe
 		modelSummary: 'mock-model',
 		toolNames: () => [],
 		errorHint: null,
+		// No failure, so nothing to classify. A test about the refusal codes sets
+		// this and `hasProvider` together — they are one fact in two fields, and a
+		// session with a kind and a provider describes nothing real.
+		errorKind: null,
 		instructionFiles: [],
 		skippedInstructionFiles: [],
 		mcpConnected: [],

@@ -232,6 +232,25 @@ export interface AgentSession {
 	readonly toolNames: () => readonly string[]
 	readonly errorHint: string | null
 	/**
+	 * WHY there is no provider, for a caller that has to act differently on the
+	 * two answers. `null` when there is one.
+	 *
+	 * - `invocation` — the caller asked for something that does not exist. A
+	 *   provider id that is not in the registry is the case: whoever typed it
+	 *   fixes it by typing something else.
+	 * - `environment` — the ask was fine and the machine cannot serve it. No
+	 *   credential, a driver package that would not load, a chain that
+	 *   contradicts itself, a client that would not construct. Nothing the
+	 *   caller sends changes any of that; a person has to go and do something.
+	 *
+	 * Reported as a field rather than left to be read out of `errorHint`,
+	 * because a caller that has to distinguish two conditions and is given only
+	 * prose ends up matching on the message text — after which the message can
+	 * never be reworded. `exit-codes.ts` makes exactly that argument about
+	 * `77`, and this is the same argument one level in.
+	 */
+	readonly errorKind: 'invocation' | 'environment' | null
+	/**
 	 * Absolute paths of the `AGENTS.md` files whose text is in this session's
 	 * system prompt — outermost first, exactly the set that was injected.
 	 *
@@ -434,7 +453,10 @@ export async function createAgentSession(
 	const primary = primaryProvider(prefs)
 	const entry = PROVIDER_REGISTRY[primary.id]
 	if (!entry) {
-		return emptySession(`Unknown provider "${primary.id}" — pick another.`)
+		// The one failure on this path that whoever asked can fix by asking for
+		// something else: `--provider` is a flag, and this id is not a provider.
+		// Every other refusal below is about the machine.
+		return emptySession(`Unknown provider "${primary.id}" — pick another.`, 'invocation')
 	}
 	const det = findDetected(detected, primary.id)
 	if (entry.requiresApiKey && (!det || !det.apiKey)) {
@@ -635,6 +657,7 @@ export async function createAgentSession(
 		],
 		close: () => mcp.close(),
 		errorHint: null,
+		errorKind: null,
 		// Reads the same object the handler mutates, at call time.
 		approvalLatched: () => approval.all,
 		promptExemptTools: () => promptExemptToolNames(registry),
@@ -1677,9 +1700,13 @@ function firstLine(result: string): string {
 	return truncate(cleaned.split('\n').find((l) => l.trim().length > 0) ?? '', 120)
 }
 
-function emptySession(errorHint: string): AgentSession {
+function emptySession(
+	errorHint: string,
+	errorKind: 'invocation' | 'environment' = 'environment',
+): AgentSession {
 	return {
 		hasProvider: false,
+		errorKind,
 		providerSummary: null,
 		modelSummary: null,
 		toolNames: () => [],
