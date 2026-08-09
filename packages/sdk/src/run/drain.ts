@@ -312,13 +312,21 @@ export async function drainRuns(params: DrainRunsParams): Promise<DrainRunsResul
 		return fresh !== undefined && park.includes(fresh.state)
 	}
 
+	/**
+	 * One run: take it, work it, give it back.
+	 *
+	 * **No cancellation check here, and its absence is deliberate.** One was
+	 * written, and a mutation test found nothing could kill it: the batch
+	 * below dispatches with `.map(handle)`, which calls every handler
+	 * synchronously before any of them awaits, so a signal that aborts during
+	 * a batch cannot be observed at the top of a handler that has already
+	 * been entered — and a signal that aborts BETWEEN batches is caught by
+	 * the check in the loop, which runs first. A branch nothing can reach is
+	 * a declaration nothing drives, so it is gone rather than covered by a
+	 * test that would have proved nothing
+	 * (`docs/conventions/declared-but-undriven.md`).
+	 */
 	const handle = async (entry: DurableRunEntry): Promise<void> => {
-		// Re-checked per run rather than per page: a cancelled pass should stop
-		// taking new leases at the next run, not at the next hundred.
-		if (signal?.aborted) {
-			stopped = true
-			return
-		}
 		const claim = await claimRun(store, entry, {
 			holder,
 			ttlMs,

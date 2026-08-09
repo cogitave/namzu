@@ -68,6 +68,9 @@ if (barrierMs) {
 	if (wait > 0) await new Promise((r) => setTimeout(r, wait))
 }
 
+/** Whether the store refused a deliberately superseded write, per run. */
+const probes = []
+
 const result = await drainRuns({
 	store,
 	scope: { tenantId, projectId, sessionId },
@@ -78,13 +81,30 @@ const result = await drainRuns({
 	park: ['outstanding'],
 	onRun: async (entry, claim) => {
 		const kind = mode === 'hang' ? 'started' : 'done'
-		// A marker naming who did the work and under which holding, written
-		// WITH that fence so the store itself vouches for it.
+		// A marker naming who did the work and under which holding.
+		//
+		// The fence is passed, but note what that on its OWN can and cannot
+		// show: a fenced write and an unfenced one are byte-identical in
+		// effect when the presented fence is the current one, so no assertion
+		// about this checkpoint can distinguish them. Dropping `claim.fence`
+		// here is an equivalent mutation, measured. The probe below is what
+		// makes the fence path observable during a drain.
 		await store.writeCheckpoint(
 			entry,
 			checkpoint(entry.runId, `cp_${kind}_${holder}_${claim.fence}`),
 			claim.fence,
 		)
+		// A deliberately superseded write, at a fence below every holding this
+		// run has ever had. It MUST be refused, and it must leave nothing
+		// behind — that is the enforcement a stalled worker meets, exercised
+		// here at the moment of an ordinary drain rather than only in the
+		// dead-holder scenario.
+		try {
+			await store.writeCheckpoint(entry, checkpoint(entry.runId, `cp_probe_${holder}_0`), 0)
+			probes.push({ runId: entry.runId, fencedOut: false })
+		} catch {
+			probes.push({ runId: entry.runId, fencedOut: true })
+		}
 		if (mode === 'hang') {
 			// Tell the parent the lease is held and the work is under way, then
 			// stop being a process that will ever finish. The park stays
@@ -106,4 +126,4 @@ const result = await drainRuns({
 	},
 })
 
-process.stdout.write(`${JSON.stringify({ holder, ...result })}\n`)
+process.stdout.write(`${JSON.stringify({ holder, probes, ...result })}\n`)

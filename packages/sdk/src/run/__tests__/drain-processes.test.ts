@@ -40,11 +40,31 @@ const SESSION = 'ses_drain' as SessionId
 
 interface WorkerLine {
 	readonly holder: string
+	readonly listed: number
 	readonly drained: readonly string[]
 	readonly skipped: readonly string[]
 	readonly stale: readonly string[]
 	readonly failed: readonly { runId: string; error: string }[]
 	readonly unreleased: readonly { runId: string; error: string }[]
+	readonly probes: readonly { runId: string; fencedOut: boolean }[]
+}
+
+/** Spawn one drainer to completion and read its report. */
+async function drainer(holder: string, opts: { ttlMs?: number; barrier?: string } = {}) {
+	const args = [
+		worker,
+		dist,
+		dir,
+		TENANT,
+		PROJECT,
+		SESSION,
+		holder,
+		String(opts.ttlMs ?? 60_000),
+		'drain',
+	]
+	if (opts.barrier) args.push(opts.barrier)
+	const { stdout } = await exec(process.execPath, args)
+	return JSON.parse(stdout.trim()) as WorkerLine
 }
 
 let dir: string
@@ -147,24 +167,7 @@ describe('two drainer processes over one queue', () => {
 		// drainer to empty the queue before the other begins — and contenders
 		// that never overlap are not contending.
 		const at = String(Date.now() + 1_500)
-		const results = await Promise.all(
-			['w0', 'w1'].map((holder) =>
-				exec(process.execPath, [
-					worker,
-					dist,
-					dir,
-					TENANT,
-					PROJECT,
-					SESSION,
-					holder,
-					'60000',
-					'drain',
-					at,
-				]),
-			),
-		)
-
-		const lines = results.map((r) => JSON.parse(r.stdout.trim()) as WorkerLine)
+		const lines = await Promise.all(['w0', 'w1'].map((h) => drainer(h, { barrier: at })))
 		const drained = lines.flatMap((l) => l.drained)
 
 		// Exactly once IN TOTAL. Two drainers that both took a run would both
@@ -191,11 +194,54 @@ describe('two drainer processes over one queue', () => {
 			const markers = await workMarkers(runId)
 			expect(markers).toHaveLength(1)
 			const [marker] = markers as [Marker]
-			// Written WITH that fence, so the store itself accepted it as the
-			// current holding, and the holder in the id is the process that
-			// reported draining this run.
+			// The holder in the id is the process that reported draining it.
+			//
+			// Note what this does NOT show: that the marker was written WITH
+			// the fence. A fenced write and an unfenced one are identical in
+			// effect when the presented fence is current, so no assertion about
+			// this checkpoint can tell them apart — measured, by mutating the
+			// worker to drop `claim.fence` and watching this test stay green.
+			// The probe below is the observable part.
 			expect(lines.find((l) => l.holder === marker.holder)?.drained).toContain(runId)
 			expect(marker.fence).toBeGreaterThan(0)
+		}
+
+		// Every drainer's deliberately superseded write was refused, and left
+		// nothing behind. This is the fence being ENFORCED during an ordinary
+		// drain, rather than only in the dead-holder case below.
+		const probes = lines.flatMap((l) => l.probes)
+		expect(probes).toHaveLength(runIds.length)
+		expect(probes.every((p) => p.fencedOut)).toBe(true)
+		for (const runId of runIds) {
+			expect((await workMarkers(runId)).some((m) => m.id.startsWith('cp_probe_'))).toBe(false)
+		}
+	}, 60_000)
+
+	it('does not re-do a run the other drainer already finished', async () => {
+		const runIds = ['run_s0', 'run_s1', 'run_s2']
+		await seed(runIds)
+
+		// STAGGERED, not simultaneous, and that is the whole test. The
+		// simultaneous case above passes even without the park filter: both
+		// drainers page the queue before either has released anything, so the
+		// second is excluded by the CLAIM and never reaches the window. The
+		// window is the other order — one drainer lists AFTER the other
+		// finished and released — and only a re-read under the claim closes
+		// it. Running them in sequence makes that order certain instead of
+		// leaving it to how fast the disk was that day.
+		const first = await drainer('w_first')
+		expect([...first.drained].sort()).toEqual(runIds)
+
+		const second = await drainer('w_second')
+
+		// Nothing left for it: doing the work answered each park, so the runs
+		// no longer match the filter. Remove `park` from the drainer and this
+		// is 3 runs drained a second time, with the claim raising no objection
+		// whatever — it is not the claim's job.
+		expect(second.drained).toEqual([])
+		expect(second.failed).toEqual([])
+		for (const runId of runIds) {
+			expect(await workMarkers(runId)).toHaveLength(1)
 		}
 	}, 60_000)
 })
