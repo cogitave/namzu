@@ -1,0 +1,229 @@
+/**
+ * Shared machinery for {@link CheckpointStore.listDurableRuns}.
+ *
+ * Every rule the listing promises — the contiguous-prefix refusal, the park
+ * precedence, the ordering, the paging — lives here and is used by BOTH
+ * shipped implementations. A rule implemented twice is a rule that holds in
+ * one store and not the other, and the whole point of a store contract is
+ * that a host can swap the backend without swapping the semantics.
+ */
+
+import { NamzuError } from '../../types/errors/index.js'
+import type { IterationCheckpoint, PendingDecision } from '../../types/hitl/index.js'
+import type {
+	CheckpointListingScope,
+	CheckpointRunScope,
+	CheckpointStore,
+	DurableRunEntry,
+	DurableRunPage,
+	ListDurableRunsOptions,
+	ParkState,
+	ParkSummary,
+} from '../../types/run/checkpoint-store.js'
+
+/** Page size when the caller names none. */
+export const DEFAULT_DURABLE_RUN_LIMIT = 100
+
+/**
+ * Refuse a listing scope with a hole in it.
+ *
+ * `{ tenantId, sessionId }` reads as "that session under whichever project
+ * holds it". A flat backend can answer it; a hierarchical one cannot look up
+ * a session without its project. Answering differently per backend is the
+ * one thing the contract exists to prevent, so neither answers: the caller
+ * names the project it means.
+ */
+export function assertContiguousListingScope(scope: CheckpointListingScope, caller: string): void {
+	if (scope.sessionId !== undefined && scope.projectId === undefined) {
+		throw new NamzuError({
+			code: 'invalid_config',
+			message: `${caller}: listing scope has a hole — \`sessionId\` was supplied without \`projectId\`. A run listing scope is a contiguous prefix of tenant → project → session; name the project the session belongs to.`,
+			details: { tenantId: scope.tenantId, sessionId: scope.sessionId },
+		})
+	}
+}
+
+/** Whether a park's absolute deadline has passed. No deadline never expires. */
+function isPastDeadline(pending: PendingDecision, now: number): boolean {
+	return pending.deadlineAt !== undefined && now >= pending.deadlineAt
+}
+
+/**
+ * Which of the three states a recorded park is in.
+ *
+ * `resolved` is checked FIRST: a park that was answered after its deadline
+ * passed is answered, not expired. Reading the deadline first would report
+ * a decision a human actually made as an expiry nobody made, and the
+ * checkpoint is the evidence record for exactly that question.
+ */
+function parkStateOf(pending: PendingDecision, now: number): ParkState {
+	if (pending.resolvedAt !== undefined) return 'resolved'
+	return isPastDeadline(pending, now) ? 'expired' : 'outstanding'
+}
+
+function toParkSummary(
+	cp: IterationCheckpoint,
+	pending: PendingDecision,
+	now: number,
+): ParkSummary {
+	return {
+		state: parkStateOf(pending, now),
+		checkpointId: cp.id,
+		requestType: pending.request.type,
+		parkedAt: pending.parkedAt,
+		...(pending.deadlineAt !== undefined ? { deadlineAt: pending.deadlineAt } : {}),
+		...(pending.resolvedAt !== undefined ? { resolvedAt: pending.resolvedAt } : {}),
+	}
+}
+
+/**
+ * The one park that describes what a run is doing now, out of every park it
+ * ever recorded.
+ *
+ * Precedence: newest `outstanding`, else newest `expired`, else newest
+ * `resolved`.
+ *
+ * `outstanding` wins because that is the question an inbox is asking, and
+ * because the answer has to be the SAME checkpoint `findPendingCheckpoint`
+ * returns. A run can hold several parks — it parks, a human answers, it runs
+ * on, it parks again — and it can hold an outstanding one that is older than
+ * a resolved one only in the reverse case, where an earlier park expired
+ * unanswered and the run was resumed past it. Ranking by recency alone would
+ * then hand an inbox a resolved checkpoint and report the live park as
+ * nothing.
+ *
+ * @param checkpoints the run's checkpoints, any order.
+ */
+export function summarizePark(
+	checkpoints: readonly IterationCheckpoint[],
+	now: number,
+): ParkSummary | undefined {
+	let best: ParkSummary | undefined
+	let bestRank = -1
+	let bestParkedAt = Number.NEGATIVE_INFINITY
+
+	for (const cp of checkpoints) {
+		const pending = cp.pending
+		if (!pending) continue
+		const summary = toParkSummary(cp, pending, now)
+		const rank = PARK_RANK[summary.state]
+		if (rank > bestRank || (rank === bestRank && pending.parkedAt > bestParkedAt)) {
+			best = summary
+			bestRank = rank
+			bestParkedAt = pending.parkedAt
+		}
+	}
+
+	return best
+}
+
+const PARK_RANK: Record<ParkState, number> = {
+	resolved: 0,
+	expired: 1,
+	outstanding: 2,
+}
+
+/**
+ * Project one run's checkpoints into a listing entry.
+ *
+ * Returns `null` for a run with no checkpoints: the listing is of runs with
+ * DURABLE state, and a run with nothing stored has nothing a sweeper could
+ * resume. A disk walk hits this case for real — a sub-run's directory is
+ * created as a bare shell under its own id before anything is written to it.
+ */
+export function toDurableRunEntry(
+	scope: CheckpointRunScope,
+	checkpoints: readonly IterationCheckpoint[],
+	now: number,
+): DurableRunEntry | null {
+	if (checkpoints.length === 0) return null
+
+	let latest = checkpoints[0] as IterationCheckpoint
+	for (const cp of checkpoints) {
+		if (cp.createdAt > latest.createdAt) latest = cp
+	}
+
+	const park = summarizePark(checkpoints, now)
+
+	return {
+		tenantId: scope.tenantId,
+		projectId: scope.projectId,
+		sessionId: scope.sessionId,
+		runId: scope.runId,
+		...(scope.parentRunId ? { parentRunId: scope.parentRunId } : {}),
+		checkpointCount: checkpoints.length,
+		latestCheckpointId: latest.id,
+		latestCheckpointAt: latest.createdAt,
+		...(park ? { park } : {}),
+	}
+}
+
+/**
+ * Apply the park filter, the contract's ordering and the cursor to a set of
+ * entries an implementation has gathered.
+ *
+ * Both shipped stores gather differently — one walks a directory tree, one
+ * reads a map — and then hand the result here, so "ordered by `runId`, page
+ * ends where the next begins" is one implementation rather than two.
+ */
+export function paginateDurableRuns(
+	entries: readonly DurableRunEntry[],
+	options?: ListDurableRunsOptions,
+): DurableRunPage {
+	const wanted = options?.park
+	const filtered =
+		wanted && wanted.length > 0
+			? entries.filter((e) => e.park !== undefined && wanted.includes(e.park.state))
+			: entries
+
+	// Ordered by `runId` because it is the only per-run key that cannot move
+	// under a paging caller — see the contract comment on `listDurableRuns`.
+	const ordered = [...filtered].sort((a, b) => (a.runId < b.runId ? -1 : a.runId > b.runId ? 1 : 0))
+
+	const after = options?.cursor
+	const start = after === undefined ? 0 : ordered.findIndex((e) => e.runId > after)
+	const from = start < 0 ? ordered.length : start
+
+	const limit = Math.max(1, Math.trunc(options?.limit ?? DEFAULT_DURABLE_RUN_LIMIT))
+	const page = ordered.slice(from, from + limit)
+	const exhausted = from + page.length >= ordered.length
+
+	return {
+		entries: page,
+		// No cursor when there is nothing behind it, so `while (cursor)`
+		// terminates rather than fetching one empty page to find out.
+		...(exhausted || page.length === 0
+			? {}
+			: { cursor: (page[page.length - 1] as DurableRunEntry).runId }),
+	}
+}
+
+/**
+ * Every run with durable state under a scope, refusing when the store cannot
+ * answer.
+ *
+ * The refusal is the point. `listDurableRuns` is optional on the contract so
+ * that adding it did not break every host that had already implemented the
+ * interface — and an optional capability reached without a check degrades
+ * into a wrong answer: a store that cannot list would hand an approval inbox
+ * an empty page, and "nothing is waiting on a human" is not what "I cannot
+ * tell" means. A host that gets this error knows to supply a backend that
+ * implements the listing; a host that got `[]` would ship an inbox that
+ * silently never fires.
+ */
+export async function listDurableRuns(
+	store: CheckpointStore,
+	scope: CheckpointListingScope,
+	options?: ListDurableRunsOptions,
+): Promise<DurableRunPage> {
+	if (typeof store.listDurableRuns !== 'function') {
+		throw new NamzuError({
+			code: 'capability_unavailable',
+			message:
+				'listDurableRuns: the injected checkpoint store does not implement `listDurableRuns`, so it cannot enumerate runs above a run id. Refusing rather than reporting an empty listing, which would read as "no runs are parked" when the truth is that this store cannot tell. Supply a store that implements it (the built-in disk and in-memory stores both do).',
+			details: { tenantId: scope.tenantId },
+		})
+	}
+	assertContiguousListingScope(scope, 'listDurableRuns')
+	return store.listDurableRuns(scope, options)
+}

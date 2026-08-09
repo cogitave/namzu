@@ -45,12 +45,26 @@ export class RunPersistence {
 
 		// Checkpoints go through the injectable seam; the disk layout under
 		// `outputDir` (same tree the runStore writes to) stays the default.
+		//
+		// The attribution is handed over because the layout does not record
+		// it — there is no tenant segment in the path at all — and without it
+		// the default store can persist checkpoints but cannot ENUMERATE
+		// them, which is the state the contract just stopped being in. A
+		// listing capability the default store declines is a capability no
+		// host reaches.
 		this.checkpointStore =
 			config.checkpointStore ??
-			new DiskCheckpointStore({
-				baseDir: config.outputDir,
-				logger: config.log,
-			})
+			new DiskCheckpointStore(
+				{
+					baseDir: config.outputDir,
+					logger: config.log,
+				},
+				{
+					tenantId: config.tenantId,
+					projectId: config.projectId,
+					sessionId: config.sessionId,
+				},
+			)
 
 		this.run = {
 			id: config.runId,

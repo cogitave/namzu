@@ -198,11 +198,26 @@ export {
 	DiskCheckpointStore,
 	DiskMemoryStore,
 	DiskTaskStore,
+	InMemoryCheckpointStore,
 	InMemoryMemoryIndex,
 	InMemoryMemoryStore,
 	InMemoryStore,
 	InMemoryTaskStore,
 	RunDiskStore,
+} from './store/index.js'
+export type { DiskCheckpointStoreAttribution } from './store/index.js'
+// Enumerating runs above a run id — the read an approval inbox and a park
+// sweep are built from, and the one the contract had no way to express.
+// `listDurableRuns` REFUSES on a store that cannot list rather than
+// reporting an empty page, because "nothing is waiting on a human" is not
+// what "I cannot tell" means.
+export {
+	DEFAULT_DURABLE_RUN_LIMIT,
+	assertContiguousListingScope,
+	listDurableRuns,
+	paginateDurableRuns,
+	summarizePark,
+	toDurableRunEntry,
 } from './store/index.js'
 
 export {
