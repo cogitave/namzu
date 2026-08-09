@@ -136,6 +136,19 @@ export interface RunPersistenceConfig {
 	 * hosts inject a scope-keyed backend (e.g. Postgres) here.
 	 */
 	checkpointStore?: CheckpointStore
+
+	/**
+	 * Optional run-evidence persistence override. Defaults to the disk layout
+	 * under `outputDir` (a
+	 * {@link import('../../store/run/disk.js').RunDiskStore}); hosts inject
+	 * their own backend here.
+	 *
+	 * The sibling of `checkpointStore`, and it should have been one from the
+	 * start: checkpoints got an injectable seam while the run record, its
+	 * messages, its transcript and its report did not, so the evidence was
+	 * the one part of a run that could not leave the local filesystem.
+	 */
+	runStore?: import('./store.js').RunStore
 }
 
 export interface RunStoreConfig {

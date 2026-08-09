@@ -2,6 +2,7 @@ import { appendFile, mkdir, readFile, readdir, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { CheckpointId, IterationCheckpoint } from '../../types/hitl/index.js'
 import type { Run, RunEvent, RunStoreConfig } from '../../types/run/index.js'
+import type { CompletedToolRecord, RunStore } from '../../types/run/store.js'
 import { atomicWriteFile } from '../../utils/atomic-write.js'
 import { type Logger, getRootLogger } from '../../utils/logger.js'
 import { defineSchema, migrate, stamp } from '../schema.js'
@@ -16,15 +17,16 @@ import { defineSchema, migrate, stamp } from '../schema.js'
  */
 const SCHEMA = defineSchema({ kind: 'run-store', current: 1, migrations: {} })
 
-/** One finished tool call, recovered from the transcript. */
-export interface CompletedToolRecord {
-	readonly toolUseId: string
-	readonly toolName: string
-	readonly result: string
-	readonly isError: boolean
-}
+/**
+ * One finished tool call, recovered from the transcript.
+ *
+ * Re-exported from the store contract rather than declared twice. Two
+ * declarations of one concept, each populated by its own mapper, is the shape
+ * this repository has a rule about.
+ */
+export type { CompletedToolRecord }
 
-export class RunDiskStore {
+export class RunDiskStore implements RunStore {
 	private baseDir: string
 	private runDir: string | null = null
 	private log: Logger
