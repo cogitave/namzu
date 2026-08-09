@@ -5,6 +5,25 @@ import type { RunEvent } from '../../types/run/events.js'
 export interface MappedStreamEvent {
 	wire: StreamEventType
 	data: Record<string, unknown>
+	/**
+	 * The cursor a client resubscribes at, as `<runId>:<seq>`.
+	 *
+	 * Not a bare number, and the reason is structural: a parent's stream also
+	 * carries its children's events, each numbered in its OWN run's log, so one
+	 * scalar over a mixed stream would compare positions from two different
+	 * sequences. The run id is what makes the position addressable — a client
+	 * keeps one cursor per run id and sends the right one back.
+	 *
+	 * This is what an SSE `id:` line should carry, which is why it sits beside
+	 * the payload rather than inside it: a framer writes it without having to
+	 * understand what kind of event it is.
+	 *
+	 * Absent when the event is not recoverable — every ephemeral event, every
+	 * event whose durable write failed, and every delegation-lifecycle event
+	 * that never passed through the run's log at all. A client must not advance
+	 * its cursor on one, and the absence is how it knows.
+	 */
+	id?: string
 }
 
 type EventTransform<K extends RunEvent['type']> = {
@@ -525,7 +544,15 @@ export function mapRunToStreamEvent(event: RunEvent, runId: RunId): MappedStream
 		data.parent_task_id = annotated.parentTaskId
 	}
 
-	return { wire: mapping.wire, data }
+	// Keyed on the event's OWN run id, not the stream's. A child's event
+	// arriving on a parent's stream is numbered in the child's log, so stamping
+	// the enclosing run here would produce a cursor that addresses the wrong
+	// sequence — and it would look right.
+	return {
+		wire: mapping.wire,
+		data,
+		...(event.seq !== undefined ? { id: `${event.runId}:${event.seq}` } : {}),
+	}
 }
 
 /** @deprecated Use mapRunToStreamEvent */

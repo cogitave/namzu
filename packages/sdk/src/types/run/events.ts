@@ -15,6 +15,7 @@ import type {
 import type { PlanStep } from '../plan/index.js'
 import type { PluginHookEvent, PluginHookResult } from '../plugin/index.js'
 import type { TaskStatus } from '../task/index.js'
+import type { ClaimFence } from './checkpoint-store.js'
 import type { Lineage } from './lineage.js'
 import type { MessageStopReason, StopReason } from './stop-reason.js'
 import type {
@@ -43,6 +44,57 @@ interface RunEventEnvelope {
 	 */
 	schemaVersion?: 3
 	lineage?: Lineage
+	/**
+	 * This event's position in its OWN run's durable event log, from 1.
+	 *
+	 * **Present means recorded.** The emitter takes a candidate number, appends
+	 * the event stamped with it, and only then advances the counter and hands
+	 * the event to the live stream — so a `seq` a consumer can see is a `seq`
+	 * the log contains. That is what makes it usable as a cursor: reconnect,
+	 * ask for everything above it, and nothing is missed and nothing arrives
+	 * twice.
+	 *
+	 * **Absent means not recoverable**, and three different things arrive that
+	 * way:
+	 *
+	 *  - the high-frequency events {@link isEphemeralEvent} names, which are
+	 *    deliberately never persisted;
+	 *  - an event whose durable write FAILED — it still reaches the live
+	 *    stream, unstamped, because losing the news of a failure is worse than
+	 *    delivering it without a cursor;
+	 *  - the delegation lifecycle events (`agent_pending`, `agent_completed`,
+	 *    `agent_failed`, `agent_canceled` and the three sub-session variants),
+	 *    which the agent manager hands straight to a host's listener without
+	 *    passing through the run's event translator at all. They are not in any
+	 *    run's log, and the missing `seq` is how a consumer learns that rather
+	 *    than discovering it after a reconnect.
+	 *
+	 * **Per run, not per stream.** A parent's listener also receives its
+	 * children's events, each numbered in its own run's log, so a consumer
+	 * keeps one cursor per `runId`. The SSE mapper carries the pair as
+	 * `<runId>:<seq>` for exactly this reason.
+	 *
+	 * Monotonic under a single writer. The run store takes no claim fence
+	 * today (see `QueryParams.claimFence`), so two workers that both took one
+	 * run can both append — `generation` is what makes that detectable.
+	 */
+	seq?: number
+	/**
+	 * The claim fence the run was being written under, when it holds a claim.
+	 *
+	 * A sequence alone lies across a takeover: a client at seq 400 reconnects
+	 * to a run whose store lost its log, the new writer starts at 1, and the
+	 * client's cursor silently addresses a different sequence space. The fence
+	 * is already the arbiter of who may write and it only increases, so
+	 * carrying it here makes a takeover ORDERED rather than merely
+	 * distinguishable.
+	 *
+	 * Absent when the run was written unfenced, which is every run that took no
+	 * claim. A cursor then relies on the log persisting — the disk store's
+	 * does, an in-memory store's does not, and `cursor_ahead` is the verdict
+	 * that catches the difference.
+	 */
+	generation?: ClaimFence
 }
 
 type CoreRunEvent =
@@ -679,11 +731,36 @@ type CoreRunEvent =
  */
 export type RunEvent =
 	| (CoreRunEvent & RunEventEnvelope)
-	| SubsessionSpawnedEvent
-	| SubsessionMessagedEvent
-	| SubsessionIdledEvent
+	// Intersected so `seq` is READABLE on every member of the union — TypeScript
+	// refuses a property access on a union where one member lacks the field, and
+	// a consumer holding a cursor has to be able to ask any event for its
+	// number. These three never carry one, and that is the answer rather than an
+	// omission: they are emitted straight to a host's listener and reach no run's
+	// durable log.
+	| (SubsessionSpawnedEvent & RunEventEnvelope)
+	| (SubsessionMessagedEvent & RunEventEnvelope)
+	| (SubsessionIdledEvent & RunEventEnvelope)
 
 export type RunEventListener = (event: RunEvent) => void | Promise<void>
+
+/**
+ * A run event as the durable log gives it back.
+ *
+ * `seq` and `timestamp` are REQUIRED here and optional on the live envelope,
+ * which is the whole difference between the two types: a recorded event has a
+ * position and a moment, and a live one may be neither recorded nor
+ * recoverable.
+ *
+ * `timestamp` is not new — both store implementations have always stamped it
+ * on write. It was simply never declared anywhere, so the field was persisted
+ * by two writers, typed by neither, and read by nobody. Declaring it is what
+ * lets the read-back stop casting.
+ */
+export type PersistedRunEvent = RunEvent & {
+	readonly seq: number
+	/** Epoch ms at which the store recorded the event. */
+	readonly timestamp: number
+}
 
 /**
  * Event types whose volume makes durable persistence wasteful.

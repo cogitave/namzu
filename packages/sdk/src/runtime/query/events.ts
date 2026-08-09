@@ -4,6 +4,7 @@ import { buildProbeContext } from '../../probe/context.js'
 import { type ProbeRegistry, probe as defaultProbeRegistry } from '../../probe/registry.js'
 import type { ActivityEvent, ActivityStore } from '../../store/activity/memory.js'
 import type { RunId } from '../../types/ids/index.js'
+import type { ClaimFence } from '../../types/run/checkpoint-store.js'
 import { isEphemeralEvent } from '../../types/run/events.js'
 import type { RunEvent } from '../../types/run/index.js'
 import type { TaskEvent, TaskStore } from '../../types/task/index.js'
@@ -37,6 +38,22 @@ export class EventTranslator {
 		this.probes = probeRegistry
 	}
 
+	/**
+	 * The claim this run is being written under, when it holds one.
+	 *
+	 * Stamped on every durable event as its `generation`, so a consumer whose
+	 * cursor predates a takeover is told its sequence space changed instead of
+	 * being handed a splice from a different writer's log.
+	 */
+	private generation: ClaimFence | undefined
+
+	/** Serializes sequence assignment against the append. See {@link emitEvent}. */
+	private appendChain: Promise<void> = Promise.resolve()
+
+	setGeneration(fence: ClaimFence | undefined): void {
+		this.generation = fence
+	}
+
 	readonly emitEvent: EmitEvent = async (event: RunEvent): Promise<void> => {
 		this.probes.dispatch(event, buildProbeContext({ runId: event.runId }))
 
@@ -64,15 +81,62 @@ export class EventTranslator {
 			// briefly than to drop a state transition.
 		}
 
-		this.pendingEvents.push(event)
-
 		// D1 middle path: ephemeral events never enter `transcript.jsonl`.
 		// They live only on the in-memory bus for live UI rendering.
 		// Replay (`runtime/query/replay/prepare.ts`) reads checkpoints
 		// not transcripts, so this preserves replay fidelity while
 		// eliminating the durable bloat review flagged.
-		if (!isEphemeralEvent(event)) {
-			await this.runMgr.getRunStore().appendEvent(event)
+		if (isEphemeralEvent(event)) {
+			// No number, and that is the honest statement: nothing will
+			// persist this, so a consumer must never advance a cursor to it.
+			this.pendingEvents.push(event)
+			return
+		}
+
+		// One appender at a time, and this is not a precaution — it is the fix
+		// for a measured defect. Taking the number, awaiting the write and then
+		// committing is a read-modify-write, and emits genuinely interleave:
+		// the task store, the plan manager and a batch of parallel tools all
+		// emit into this one funnel. Measured on a two-tool run, three events
+		// took the number 15 and two took 12. A duplicated sequence is worse
+		// than a missing one — a consumer asking for everything above 15 is
+		// handed part of the run it already had, spliced in as if it were new.
+		const previous = this.appendChain
+		let release!: () => void
+		this.appendChain = new Promise<void>((resolve) => {
+			release = resolve
+		})
+
+		try {
+			await previous
+
+			// The number is a claim that the event is IN the log, so it is taken
+			// against the append and not before it. The candidate goes to the
+			// store first; only a write that landed advances the counter and
+			// reaches the live stream carrying it.
+			//
+			// The failure path still delivers the event — unstamped. A store
+			// that cannot record a `run_failed` must not also swallow it, and an
+			// unstamped event says exactly what is true of it: it happened, and
+			// it is not recoverable.
+			const seq = this.runMgr.nextEventSeq()
+			const stamped = {
+				...event,
+				seq,
+				...(this.generation !== undefined ? { generation: this.generation } : {}),
+			} as RunEvent
+
+			try {
+				await this.runMgr.getRunStore().appendEvent(stamped)
+			} catch (err) {
+				this.pendingEvents.push(event)
+				throw err
+			}
+
+			this.runMgr.commitEventSeq(seq)
+			this.pendingEvents.push(stamped)
+		} finally {
+			release()
 		}
 	};
 

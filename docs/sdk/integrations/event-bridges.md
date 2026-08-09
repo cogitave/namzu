@@ -1,7 +1,7 @@
 ---
 title: Event Bridges
 description: Bridge internal Namzu runtime events to SSE and A2A wire formats, and convert messages, runs, and agent metadata into protocol-friendly shapes.
-last_updated: 2026-08-06
+last_updated: 2026-08-09
 status: current
 related_packages: ["@namzu/sdk"]
 ---
@@ -65,6 +65,30 @@ while (true) {
   }
 }
 ```
+
+### The cursor a client reconnects at
+
+**New in `@namzu/sdk` 21.0.0.** A mapped event carries `id` — `"<runId>:<seq>"`
+— whenever the underlying event is in the run's durable log. It sits beside the
+payload rather than inside `data` because that is what an SSE `id:` line
+should carry, and a framer writes it without having to know what kind of event
+it is:
+
+```ts
+if (mapped.id) res.write(`id: ${mapped.id}\n`)
+res.write(`event: ${mapped.wire}\ndata: ${JSON.stringify(mapped.data)}\n\n`)
+```
+
+`id` is **absent** on every event that is not recoverable: the ephemeral ones
+(`message.delta`, `tool.input_delta`, `reasoning.delta`, `tool.progress`) and
+any event whose durable write failed. A client must not advance its cursor onto
+one.
+
+It is keyed on the event's **own** run, not on the stream it arrives on. A
+parent's stream carries its children's events and each run numbers its own log,
+so one scalar over a mixed stream would compare positions from two different
+sequences — and would look right. Keep one cursor per run id and send the right
+one back. See [Replay §7](../runtime/replay.md).
 
 Typical mapped wire events include:
 

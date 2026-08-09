@@ -1,6 +1,8 @@
 import type { PendingDecision } from '../../types/hitl/index.js'
 import type { CheckpointStore, ClaimFence } from '../../types/run/checkpoint-store.js'
 import type { Run } from '../../types/run/entity.js'
+import type { RunEventReplay } from '../../types/run/event-cursor.js'
+import type { RunEventListener } from '../../types/run/events.js'
 import type { RunState } from '../../types/run/state.js'
 import { type QueryParams, drainQuery } from './index.js'
 import { type RunStateScope, loadRunState } from './run-state.js'
@@ -23,7 +25,21 @@ export type ResumeOutcome =
 			readonly pending: PendingDecision
 			readonly state: RunState
 	  }
-	| { readonly resumed: true; readonly run: Run; readonly state: RunState }
+	| {
+			readonly resumed: true
+			readonly run: Run
+			readonly state: RunState
+			/**
+			 * What became of {@link ResumeRunParams.eventCursor}. Absent when no
+			 * cursor was supplied.
+			 *
+			 * Reported rather than thrown: a stale cursor is the client's
+			 * problem and the run still had to be resumed. A caller that sees
+			 * `unavailable` re-derives its view from the run's transcript
+			 * instead of folding a hole into it.
+			 */
+			readonly replay?: RunEventReplay
+	  }
 
 /**
  * The half of a run that cannot be serialized, plus where to look.
@@ -52,6 +68,20 @@ export interface ResumeRunParams
 	 * Absent means the parked checkpoint if there is one, else the newest.
 	 */
 	readonly checkpointId?: RunState['checkpointId']
+
+	/**
+	 * Where to send the resumed run's events.
+	 *
+	 * This call had none, and the consequence was total: it drains the run to
+	 * completion and every event the run emits — every tool call, every park,
+	 * every token update — was discarded, because `drainQuery` forwards to a
+	 * listener and none was ever passed. So the one API for continuing a run
+	 * another process started could not show anybody what the run was doing.
+	 *
+	 * It is also what makes {@link ResumeRunParams.eventCursor} mean anything:
+	 * a catch-up delivered into a stream nobody receives is not a catch-up.
+	 */
+	readonly listener?: RunEventListener
 }
 
 /**
@@ -76,7 +106,16 @@ export interface ResumeRunParams
  * resumed past without the answer it is waiting for.
  */
 export async function resumeRun(params: ResumeRunParams): Promise<ResumeOutcome> {
-	const { scope, checkpointStore, checkpointId, pendingDecision, claimFence, ...rest } = params
+	const {
+		scope,
+		checkpointStore,
+		checkpointId,
+		pendingDecision,
+		claimFence,
+		listener,
+		onEventReplay,
+		...rest
+	} = params
 
 	const state = await loadRunState(checkpointStore, scope, checkpointId)
 	if (!state?.checkpointId) return { resumed: false, reason: 'no-checkpoint' }
@@ -89,15 +128,31 @@ export async function resumeRun(params: ResumeRunParams): Promise<ResumeOutcome>
 		return { resumed: false, reason: 'awaiting-decision', pending: outstanding, state }
 	}
 
-	const run = await drainQuery({
-		...rest,
-		messages: [],
-		runId: state.runId,
-		resumeFromCheckpoint: state.checkpointId,
-		checkpointStore,
-		...(claimFence !== undefined ? { claimFence } : {}),
-		...(pendingDecision ? { pendingDecision } : {}),
-	} as QueryParams)
+	let replay: RunEventReplay | undefined
 
-	return { resumed: true, run, state }
+	const run = await drainQuery(
+		{
+			...rest,
+			messages: [],
+			runId: state.runId,
+			// Forwarded, and it is not cosmetic: the run store nests a sub-run's
+			// evidence under `<parent>/children/<run>`, so resuming a sub-run
+			// without this binds `<base>/<run>` instead — a second, empty
+			// transcript under a run id that already has one, a sequence that
+			// restarts at 1, and a catch-up that reports a live run as having
+			// produced nothing.
+			...(state.parentRunId !== undefined ? { parentRunId: state.parentRunId } : {}),
+			resumeFromCheckpoint: state.checkpointId,
+			checkpointStore,
+			...(claimFence !== undefined ? { claimFence } : {}),
+			...(pendingDecision ? { pendingDecision } : {}),
+			onEventReplay: (verdict: RunEventReplay) => {
+				replay = verdict
+				onEventReplay?.(verdict)
+			},
+		} as QueryParams,
+		listener,
+	)
+
+	return { resumed: true, run, state, ...(replay !== undefined ? { replay } : {}) }
 }

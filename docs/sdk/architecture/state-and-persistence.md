@@ -75,6 +75,37 @@ reads `index.json`, whose entries carry no attribution and whose writer
 skips every sub-run, so a row cannot be turned back into something a
 sweeper could resume.
 
+### The event log is addressable, and readable back
+
+**New in `@namzu/sdk` 21.0.0.** `RunStore.readEvents({ sinceSeq })` is a
+**required** accessor: a store that records a transcript it cannot read back is
+write-only evidence, which is the defect the contract exists to fix one level
+up. It returns the run's durable events oldest first, above an exclusive
+cursor, each carrying the `seq` and `timestamp` the log holds.
+
+`RunPersistence` owns the counter. `init()` seeds it from the log, which is why
+a resumed run continues its sequence instead of starting a second one inside
+it, and assignment is serialized against the append — emits genuinely
+interleave (the task store, the plan manager, a batch of parallel tools all
+reach one funnel) and a duplicated sequence is worse than a missing one.
+
+Two file-level details the read-back depends on:
+
+- A line written before events were numbered takes its **1-based position** as
+  its sequence, so a legacy transcript keeps its evidence and the emitter
+  resumes above it rather than on top of it.
+- `initRun` **terminates a torn last line**. A process killed during an append
+  leaves a fragment with no newline, and the next append lands on the same line
+  — so the fragment and a whole, correct event merge into one unparsable line
+  and the reader skips both. Ending the fragment costs the fragment and nothing
+  after it.
+
+`readRunEventsIn(runDir)` is the free-function form, for the same reason
+`readCheckpointsIn` is one: binding a store to read would create the run
+directory.
+
+See [Replay §7](../runtime/replay.md) for the cursor and its verdict.
+
 ### Resuming a part-executed tool batch
 
 A batch's results reach the message history only once the **whole** batch

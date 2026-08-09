@@ -1,8 +1,8 @@
 import { appendFile, mkdir, readFile, readdir, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { CheckpointId, IterationCheckpoint } from '../../types/hitl/index.js'
-import type { Run, RunEvent, RunStoreConfig } from '../../types/run/index.js'
-import type { CompletedToolRecord, RunStore } from '../../types/run/store.js'
+import type { PersistedRunEvent, Run, RunEvent, RunStoreConfig } from '../../types/run/index.js'
+import type { CompletedToolRecord, ReadRunEventsOptions, RunStore } from '../../types/run/store.js'
 import { atomicWriteFile } from '../../utils/atomic-write.js'
 import { type Logger, getRootLogger } from '../../utils/logger.js'
 import { defineSchema, migrate, stamp } from '../schema.js'
@@ -51,6 +51,7 @@ export class RunDiskStore implements RunStore {
 			this.runDir = join(this.baseDir, runId)
 		}
 		await mkdir(this.runDir, { recursive: true })
+		await healTornTranscript(this.runDir)
 		this.log.info(`Run directory created: ${this.runDir}`)
 		return this.runDir
 	}
@@ -64,6 +65,10 @@ export class RunDiskStore implements RunStore {
 		})}\n`
 
 		await appendFile(join(dir, 'transcript.jsonl'), line, 'utf-8')
+	}
+
+	async readEvents(options?: ReadRunEventsOptions): Promise<readonly PersistedRunEvent[]> {
+		return readRunEventsIn(this.requireInit(), options)
 	}
 
 	/**
@@ -294,6 +299,105 @@ export class RunDiskStore implements RunStore {
 			resolve?.()
 		}
 	}
+}
+
+/**
+ * Every durable event under one run directory, oldest first.
+ *
+ * A free function for the same reason {@link readCheckpointsIn} is one: a
+ * caller catching up on a run this process never started would otherwise have
+ * to bind a {@link RunDiskStore} to read it, and binding one CREATES the
+ * directory. A read that mints an empty run directory then answers "no events"
+ * is indistinguishable from a run that genuinely has none.
+ *
+ * ## Unsequenced lines take their position
+ *
+ * A transcript written before events were numbered carries no `seq` at all.
+ * Numbering those lines by their 1-based position is what keeps their evidence
+ * reachable: a legacy run of five lines reads back as 1..5, seeds the emitter
+ * at 5, and its next event is 6 — continuous, and stable on every later read.
+ * Skipping them instead would erase a run's whole history from a catch-up, and
+ * synthesising nothing at all would put the emitter back at 1 on top of a log
+ * that already has five entries.
+ *
+ * A damaged line is skipped rather than refused, which is the one place this
+ * differs from the checkpoint reader next door, and deliberately: a checkpoint
+ * is read to RESUME from, so a damaged one must stop the resume, while the
+ * transcript is read to REPORT from, and dropping every event after a torn line
+ * would be a larger loss than the torn line itself. The position count still
+ * advances over it, so the numbering of the events after it is unchanged.
+ */
+export async function readRunEventsIn(
+	runDir: string,
+	options?: ReadRunEventsOptions,
+): Promise<readonly PersistedRunEvent[]> {
+	let raw: string
+	try {
+		raw = await readFile(join(runDir, 'transcript.jsonl'), 'utf-8')
+	} catch (err) {
+		if (isFileNotFound(err)) return []
+		throw err
+	}
+
+	const sinceSeq = options?.sinceSeq ?? 0
+	const events: PersistedRunEvent[] = []
+	let position = 0
+
+	for (const line of raw.split('\n')) {
+		if (line.length === 0) continue
+		position += 1
+
+		let parsed: Record<string, unknown>
+		try {
+			parsed = JSON.parse(line) as Record<string, unknown>
+		} catch {
+			continue
+		}
+		if (parsed === null || typeof parsed !== 'object' || typeof parsed.type !== 'string') continue
+
+		const seq = typeof parsed.seq === 'number' ? parsed.seq : position
+		if (seq <= sinceSeq) continue
+
+		events.push({
+			...parsed,
+			seq,
+			// Stamped by `appendEvent` since long before it was declared. A line
+			// that predates even that gets the only honest answer available:
+			// zero, which sorts before every real moment and cannot be mistaken
+			// for one.
+			timestamp: typeof parsed.timestamp === 'number' ? parsed.timestamp : 0,
+		} as unknown as PersistedRunEvent)
+	}
+
+	return events
+}
+
+/**
+ * Terminate a transcript whose last line was cut off mid-write.
+ *
+ * A process killed during `appendFile` leaves a fragment with no newline. The
+ * next append lands on the same line, so the fragment and a WHOLE, correct
+ * event merge into one unparsable line — and the reader skips it. The event was
+ * written, the emitter counted it as durable, and it is gone.
+ *
+ * Ending the fragment is enough. It stays unreadable and is skipped as it
+ * always was; everything appended after it survives, which is the difference
+ * between losing one event and losing one event plus the next.
+ *
+ * Called from `initRun`, which is the only moment the store knows nothing is
+ * mid-write.
+ */
+async function healTornTranscript(runDir: string): Promise<void> {
+	const path = join(runDir, 'transcript.jsonl')
+	let raw: string
+	try {
+		raw = await readFile(path, 'utf-8')
+	} catch (err) {
+		if (isFileNotFound(err)) return
+		throw err
+	}
+	if (raw.length === 0 || raw.endsWith('\n')) return
+	await appendFile(path, '\n', 'utf-8')
 }
 
 /**
