@@ -80,6 +80,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 			modelSummary: 'a-model',
 			toolNames: () => ['bash'],
 			errorHint: null,
+			errorKind: null,
 			instructionFiles: [],
 			skippedInstructionFiles: [],
 			mcpConnected: [],

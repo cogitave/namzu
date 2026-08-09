@@ -16,20 +16,48 @@
  * persisted (stateless one-shot).
  *
  * Status lines never hit stdout (logger silenced) so every stdout line is a
- * valid JSON event. Provider/credential failures are emitted as a final
- * `{"kind":"error",…}` line (exit 0) so the host surfaces them in-band.
+ * valid JSON event, and EVERY failure is reported in band, including the ones
+ * that also carry an exit code.
  *
- * ONE condition breaks that rule and exits non-zero: a working directory the
- * operator has not trusted. Exit 0 is right for a run that STARTED and failed,
- * which a host renders and may sensibly retry; a folder that was never trusted
- * is a refusal to start, and a host that cannot tell the two apart retries the
- * one thing retrying cannot fix. That case gets both — the explanation as an
- * event, and `77` as the fact that nothing ran.
+ * ## What the exit code means
+ *
+ * It used to be explained as "a run that STARTED and failed exits 0; a refusal
+ * to start exits non-zero", and that rule did not sort the cases it was applied
+ * to. An unknown option, a missing prompt, a `--cwd` that is not there and a
+ * tool server that will not connect are all refusals to start, and all four
+ * exited 0 while an untrusted folder exited 77. Neither does the retry argument
+ * the old comment appealed to: retrying an unknown option is exactly as
+ * pointless as retrying an untrusted folder.
+ *
+ * The axis that does sort them:
+ *
+ *   CAN THE CALLER REACH THE RUN IT ASKED FOR BY CHANGING WHAT IT SENDS?
+ *
+ * - **Yes → `0`.** The host reads the `error` event and fixes its own
+ *   invocation. An unknown option, no prompt, a `--cwd` that does not exist, a
+ *   `--permission-mode` that is not a mode, an interactive command named
+ *   headlessly, a provider id that is not a provider.
+ * - **A run that started and failed → `0`.** Unchanged: that is an outcome to
+ *   render, and possibly to retry.
+ * - **No → non-zero, because a person has to go and do something.** `77` when
+ *   the folder is untrusted — kept to that one condition, because being
+ *   unambiguous is its entire justification. `1` for everything else in this
+ *   group: a conversation that cannot be opened, no provider available, a
+ *   credential or driver the session needs, a declared tool server that is not
+ *   there, a command file that will not parse.
+ *
+ * `1` rather than a new code because `namzu run` — the same one-shot, differing
+ * only in how it prints — already exits `1` for these conditions and `77` for
+ * trust. A host that shells to one for a script and the other for a UI must not
+ * be handed two tables for one fact.
+ *
+ * Dropping `--session` is NOT "the caller fixing it": it abandons what was
+ * asked for rather than achieving it.
  */
 
 import { type Message, configureLogger } from '@namzu/sdk'
 
-import { EXIT_UNTRUSTED } from '../exit-codes.js'
+import { EXIT_FAIL, EXIT_OK, EXIT_UNTRUSTED } from '../exit-codes.js'
 import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
 import {
 	appendMessages,
@@ -103,26 +131,61 @@ export const runStreamCommand: CommandDef = {
 		'Takes the same options as `namzu run`, including --permission-mode and',
 		'the [permissions] table from the config file.',
 		'',
+		'History is bound with --session <id>. --continue and --resume are `run`',
+		'options and are refused here rather than ignored.',
+		'',
 		'The folder has to be trusted: run `namzu` here once and accept the',
 		'prompt, or pass --trust for one run. An untrusted folder emits an error',
-		'event and exits 77 without running anything — the one case where this',
-		'command exits non-zero, because nothing started and a retry cannot help.',
+		'event and exits 77 without running anything.',
 		'',
 		'Needs a provider. Set a credential in the environment, or run namzu',
 		'once to pick one interactively.',
+		'',
+		'Every failure is an event on stdout. The exit code says whether YOU can',
+		'do anything about it: 0 when changing what you send would reach the run',
+		'(a wrong option, no prompt, a bad --cwd) and when a run started and',
+		'failed; 1 when it would not (no provider, a tool server that is not',
+		'there, a conversation that cannot be opened); 77 when the folder has not',
+		'been trusted, which only a person can change.',
 	].join('\n'),
 	handler: async ({ ctx, rawArgs }) => {
 		const write = (o: unknown): void => {
 			process.stdout.write(`${JSON.stringify(o)}\n`)
 		}
+		/**
+		 * Report and stop.
+		 *
+		 * Always in band, always terminated with `done`, and the code says only
+		 * whether the caller can reach the run by sending something else. The
+		 * argument for each case is in this file's header; the two spellings exist
+		 * so that every call site below has to state which side it is on rather
+		 * than inheriting a default nobody re-reads.
+		 */
 		const fail = (message: string): number => {
 			write({ kind: 'error', message })
 			write({ kind: 'done' })
-			return 0
+			return EXIT_OK
+		}
+		const refuse = (message: string): number => {
+			write({ kind: 'error', message })
+			write({ kind: 'done' })
+			return EXIT_FAIL
 		}
 
 		const flags = parseRunFlags(rawArgs)
 		if (flags.unknown.length > 0) return fail(unknownOptionMessage(flags.unknown))
+		// `--continue` and `--resume` parse here because the two commands share one
+		// parser, and this command reads neither. Accepting a flag and doing
+		// nothing with it is the failure mode the shared parser was introduced to
+		// end: a host that asked to reopen a conversation was given a stateless
+		// run, reported as an ordinary success, and the next turn had no history
+		// with nothing anywhere connecting the two. Refused instead, and named,
+		// because a host CAN fix this — `--session` is the flag it wanted.
+		if (flags.continueLast || flags.resume !== null) {
+			return fail(
+				'run-stream does not take --continue or --resume; they are `namzu run` options. Bind history with --session <id>, which keys a persisted conversation in this folder.',
+			)
+		}
 		const sessionKey = flags.session
 		const prompt = flags.rest.join(' ').trim()
 		if (!prompt) return fail('no prompt — pass it as an argument')
@@ -137,7 +200,13 @@ export const runStreamCommand: CommandDef = {
 			cwd,
 			builtins: SLASH_COMMANDS.map((c) => c.name),
 		})
-		if (expansion.kind === 'refused') return fail(expansion.reason)
+		// Two different refusals wear this one word. An interactive builtin named
+		// headlessly, or arguments handed to a template that takes none, are fixed
+		// by sending a different prompt. A command FILE that will not parse is not
+		// — and no prompt fixes a file.
+		if (expansion.kind === 'refused') {
+			return expansion.fixable ? fail(expansion.reason) : refuse(expansion.reason)
+		}
 		const finalPrompt = expansion.kind === 'expanded' ? expansion.prompt : prompt
 
 		// Before the session store is opened, before anything is read or run in
@@ -188,7 +257,15 @@ export const runStreamCommand: CommandDef = {
 				// In band, like every other failure here, because that is what the
 				// host reads. No session has been built at this point in the flow,
 				// so there is nothing to close on the way out.
-				return fail(
+				//
+				// Non-zero, which is the correction #321 is about. `resolveConversation`
+				// CREATES the key on first use, so this cannot be a key the host got
+				// wrong — the only way here is the store itself: an unwritable
+				// `.namzu`, a corrupt map file. Nothing the host sends changes that,
+				// so a host treating 0 as "render the error and move on" would loop
+				// on an environment fault it could have raised to a person. Dropping
+				// `--session` is not a fix; it abandons what was asked for.
+				return refuse(
 					`could not open conversation "${sessionKey}": ${err instanceof Error ? err.message : String(err)}. Nothing ran, because continuing the wrong history is worse than not continuing. Drop --session to run this turn stateless.`,
 				)
 			}
@@ -202,7 +279,9 @@ export const runStreamCommand: CommandDef = {
 		const probe = await probeAgentSession()
 		let prefs = probe.preferences ?? defaultPrefs(probe.detected)
 		if (!prefs) {
-			return fail(
+			// Nothing detected and nothing configured. `--provider` cannot conjure a
+			// credential, so no argument the host changes gets past this line.
+			return refuse(
 				'no LLM provider available — set a credential (e.g. ANTHROPIC_API_KEY) or run `namzu` to pick one',
 			)
 		}
@@ -242,7 +321,18 @@ export const runStreamCommand: CommandDef = {
 		})
 		if (!session.hasProvider) {
 			await session.close()
-			return fail(session.errorHint ?? 'agent is not ready')
+			// The one branch here that is genuinely BOTH. `createAgentSession`
+			// refuses an id that is not a provider — which `--provider` put there,
+			// so the host fixes it — and, with the same result object, a missing
+			// credential, a driver package that would not load, a chain that
+			// contradicts itself, a client that would not construct. None of those
+			// four move for any argument.
+			//
+			// The session says which, in a field. Deciding it here by reading its
+			// `errorHint` would be the message-matching that `exit-codes.ts` exists
+			// to prevent, and would make that sentence unrewordable.
+			const message = session.errorHint ?? 'agent is not ready'
+			return session.errorKind === 'invocation' ? fail(message) : refuse(message)
 		}
 		// A configured tool server that is not here means the turn cannot do what
 		// the operator set it up to do, and this command answers a host, not a
@@ -253,7 +343,10 @@ export const runStreamCommand: CommandDef = {
 				.map((f) => `tool server "${f.name}" is not available: ${f.reason}`)
 				.join('; ')
 			await session.close()
-			return fail(said)
+			// The servers come from `namzu.config.json`, not from the invocation, so
+			// there is no argument the host can change to bring one up. `run`
+			// already exits 1 here.
+			return refuse(said)
 		}
 
 		// "Printed on every launch" has to reach a host UI too, or the one caller

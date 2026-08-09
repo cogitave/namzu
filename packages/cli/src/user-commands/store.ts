@@ -147,7 +147,18 @@ export type HeadlessExpansion =
 	/** Not a command. Send it as written. */
 	| { readonly kind: 'unchanged'; readonly prompt: string }
 	| { readonly kind: 'expanded'; readonly prompt: string; readonly name: string }
-	| { readonly kind: 'refused'; readonly reason: string }
+	/**
+	 * `fixable` says whether the caller can get what it asked for by sending
+	 * something else.
+	 *
+	 * `true` — an interactive builtin named headlessly, or arguments given to a
+	 * template that takes none. Change the prompt and it works.
+	 *
+	 * `false` — the command FILE is the problem, and no prompt fixes a file. The
+	 * two used to be one `refused`, which is fine for a person reading the
+	 * reason and not for a host process deciding whether to try again.
+	 */
+	| { readonly kind: 'refused'; readonly reason: string; readonly fixable: boolean }
 
 /**
  * Resolve a headless prompt that may name one of the operator's own commands.
@@ -192,6 +203,7 @@ export function expandHeadlessCommand(
 		return {
 			kind: 'refused',
 			reason: `/${name} is an interactive command and does nothing in \`namzu run\`. Run \`namzu\` for the terminal agent, or pass a prompt instead.`,
+			fixable: true,
 		}
 	}
 
@@ -206,7 +218,11 @@ export function expandHeadlessCommand(
 	const expanded = expandCommand(found, rest.join(' '))
 	return expanded.ok
 		? { kind: 'expanded', prompt: expanded.prompt, name }
-		: { kind: 'refused', reason: expanded.reason }
+		: // A command whose FILE is the problem is not fixable by sending a
+			// different prompt. Taken from `found.problem` rather than from the
+			// refusal reason, because that is where the fact lives — reading it back
+			// out of the sentence would make the sentence unrewordable.
+			{ kind: 'refused', reason: expanded.reason, fixable: found.problem === undefined }
 }
 
 export type ExpandResult =

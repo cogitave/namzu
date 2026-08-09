@@ -181,10 +181,15 @@ error.
 
 **A conversation that cannot be opened stops the run.** If `--session` is given
 and the store cannot be reached — an unwritable `.namzu`, a corrupt map file —
-`run-stream` emits an `error` event and runs nothing. It does not quietly fall
-back to the stateless path, because that path takes prior turns from stdin: a
-caller who named a conversation would get an answer composed against a different
-history, or none, reported as an ordinary success.
+`run-stream` emits an `error` event, runs nothing, and **exits `1`**. It does not
+quietly fall back to the stateless path, because that path takes prior turns
+from stdin: a caller who named a conversation would get an answer composed
+against a different history, or none, reported as an ordinary success.
+
+The exit code is `1` rather than `0` because a key is *created* on first use —
+so this can never be a key you got wrong, only the store itself. Nothing you
+send changes an unwritable `.namzu`, and a host treating `0` as "render the
+error and move on" would loop on a fault it could have raised to a person.
 
 It cannot be a warning-and-continue either, because the command cannot say what
 was lost. A key is created on first use, so a fresh key legitimately has no
@@ -220,21 +225,48 @@ one a human decision about a folder can fix, and a caller that cannot tell them
 apart ends up matching on the message text — after which the message can never
 be reworded.
 
+### `run-stream`
+
 `namzu run-stream` answers a host that is line-scanning stdout, not a shell, so
-it reports the same conditions **in band** and exits 0. Every run ends with a
-terminal event, including a refusal:
+**every** failure is reported in band — including the ones that also carry an
+exit code. Every run ends with a terminal event, refusals included:
 
 ```json
 {"kind":"error","message":"--cwd does not exist: /projects/typo"}
 {"kind":"done"}
 ```
 
-**One exception, and it is deliberate: an untrusted folder exits `77`.** The
-"errors are in band, exit 0" rule is about a run that *started* and failed,
-which a host should render and may sensibly retry. A folder that has not been
-trusted is a refusal to start, and a host that cannot tell those apart will
-retry the one thing retrying cannot fix. It gets both: the explanation as an
-event, and the exit code as the fact that nothing ran.
+The exit code answers one question, and only that one:
+
+> **Can the caller reach the run it asked for by changing what it sends?**
+
+| Code | When |
+| --- | --- |
+| `0` | **Yes.** An unknown option, no prompt, a `--cwd` that does not exist, a `--permission-mode` that is not a mode, an interactive command named headlessly, a provider id that is not a provider. Read the `error` event, fix the invocation, send it again. |
+| `0` | A run that **started** and failed. That is an outcome to render, and possibly to retry. |
+| `1` | **No.** A named conversation that cannot be opened, no provider available, a credential or driver the session needs, a declared tool server that is not there, a command file that will not parse. A person has to go and do something first. |
+| `77` | The folder has not been trusted. Also "no", and kept its own code because only a human decision about a folder changes it. |
+
+**This rule replaced one that did not sort the cases.** The old wording was
+*started and failed → 0; refused to start → non-zero*, and by it an unknown
+option, a missing prompt, a bad `--cwd` and an unavailable tool server were all
+refusals to start — and all four exited `0` while an untrusted folder exited
+`77`. The retry argument does not sort them either: retrying an unknown option
+is exactly as pointless as retrying an untrusted folder.
+
+`1` rather than a new code because `namzu run` — the same one-shot, differing
+only in how it prints — already exits `1` for these conditions and `77` for
+trust. A host that shells to one for a script and the other for a UI should not
+be handed two tables for one fact.
+
+**Dropping `--session` is not "the caller fixing it."** It abandons what was
+asked for rather than achieving it, which is why a conversation that cannot be
+opened is on the non-zero side.
+
+**`--continue` and `--resume` are refused, not ignored.** They are `namzu run`
+options; `run-stream` binds history with `--session <id>`. They used to parse
+and do nothing, so a host that asked to reopen a conversation was given a fresh
+one and told it had succeeded.
 
 ## The event stream
 
@@ -358,7 +390,12 @@ lists what is there.
 
 **Both are `namzu run` only.** `run-stream` gets its prior turns from `--session`
 or from a JSON `Message[]` on stdin; that is the channel a host UI already has,
-and it is the one to use there.
+and it is the one to use there. Passing either to `run-stream` is refused with
+an `error` event naming `--session`, and exits `0` — the refusal is fixable by
+sending a different flag. The two commands share one option parser, so the flags
+used to parse and then do nothing: a host that asked to reopen a conversation
+got a fresh one, reported as an ordinary success. This paragraph was already
+true of the intent and false of the code.
 
 **Both refuse when the conversation cannot be reopened, and say why. Neither
 ever falls back to starting a new one.**

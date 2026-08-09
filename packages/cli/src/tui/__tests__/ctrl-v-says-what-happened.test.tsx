@@ -54,6 +54,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 			modelSummary: 'a-model',
 			toolNames: () => [],
 			errorHint: null,
+			errorKind: null,
 			instructionFiles: [],
 			skippedInstructionFiles: [],
 			mcpConnected: [],
