@@ -52,7 +52,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 			hasProvider: true,
 			providerSummary: 'a-provider',
 			modelSummary: 'a-model',
-			toolNames: [],
+			toolNames: () => [],
 			errorHint: null,
 			instructionFiles: [],
 			skippedInstructionFiles: [],

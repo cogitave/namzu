@@ -137,7 +137,7 @@ describe('a tool server declared in namzu.config.json', () => {
 			expect(session.mcpConnected).toEqual([{ name: 'tickets', toolCount: 1 }])
 			// The load-bearing one. Connecting and adapting is not the feature —
 			// the model has to be able to see and call it.
-			expect(session.toolNames).toContain('mcp_tickets_create')
+			expect(session.toolNames()).toContain('mcp_tickets_create')
 		} finally {
 			await session.close()
 		}
@@ -154,9 +154,9 @@ describe('a tool server declared in namzu.config.json', () => {
 			mcpServers: { tickets: { command: process.execPath, args: [server] } },
 		})
 		try {
-			expect(session.toolNames).toContain('bash')
-			expect(session.toolNames).toContain('read')
-			expect(session.toolNames).toContain('mcp_tickets_create')
+			expect(session.toolNames()).toContain('bash')
+			expect(session.toolNames()).toContain('read')
+			expect(session.toolNames()).toContain('mcp_tickets_create')
 		} finally {
 			await session.close()
 		}
@@ -171,7 +171,7 @@ describe('a tool server declared in namzu.config.json', () => {
 		try {
 			expect(session.mcpConnected).toEqual([])
 			expect(session.mcpFailed.map((f) => f.name)).toEqual(['tickets'])
-			expect(session.toolNames.some((n) => n.startsWith('mcp_'))).toBe(false)
+			expect(session.toolNames().some((n) => n.startsWith('mcp_'))).toBe(false)
 		} finally {
 			await session.close()
 		}
@@ -183,7 +183,7 @@ describe('a tool server declared in namzu.config.json', () => {
 		try {
 			expect(session.mcpConnected).toEqual([])
 			expect(session.mcpFailed).toEqual([])
-			expect(session.toolNames.some((n) => n.startsWith('mcp_'))).toBe(false)
+			expect(session.toolNames().some((n) => n.startsWith('mcp_'))).toBe(false)
 		} finally {
 			await session.close()
 		}

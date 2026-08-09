@@ -58,7 +58,18 @@ export type SlashAction =
 	| { kind: 'none' }
 
 export interface SlashContext {
-	readonly availableTools: readonly string[]
+	/**
+	 * Every tool the agent can call, read when the command runs.
+	 *
+	 * A function, and it is the same function `neverPrompted` below already is,
+	 * for the same reason — see the note there. It was an array, captured when
+	 * the session was built, which is before the task tools register. So the
+	 * command whose entire job is "what can this thing call" answered from a
+	 * snapshot taken too early, while `/permissions` two commands down read the
+	 * registry live. On the same screen, `/permissions` could name a tool as
+	 * never-prompted that `/tools` did not list at all.
+	 */
+	readonly availableTools: () => readonly string[]
 	readonly providerSummary: string | null
 	readonly modelSummary: string | null
 	/**
@@ -213,14 +224,20 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
 	{
 		name: 'tools',
 		description: 'List tools the agent can call.',
-		action: (ctx) => ({
-			kind: 'message',
-			role: 'system',
-			content:
-				ctx.availableTools.length === 0
-					? 'No tools registered yet — the agent session may still be connecting.'
-					: `Registered tools (${ctx.availableTools.length}):\n  ${ctx.availableTools.join('\n  ')}`,
-		}),
+		action: (ctx) => {
+			// Asked now, not when the session was built. Some of these register
+			// during the first turn, so a list captured earlier is a list of what
+			// was callable then — and this command is asked in the present tense.
+			const tools = ctx.availableTools()
+			return {
+				kind: 'message',
+				role: 'system',
+				content:
+					tools.length === 0
+						? 'No tools registered yet — the agent session may still be connecting.'
+						: `Registered tools (${tools.length}):\n  ${tools.join('\n  ')}`,
+			}
+		},
 	},
 	{
 		name: 'remember',

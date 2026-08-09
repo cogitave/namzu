@@ -303,7 +303,12 @@ export function App({ ctx }: AppProps) {
 				setPhase('ready')
 				pushMessage(
 					'system',
-					`Connected to ${s.providerSummary}${s.modelSummary ? ` · ${s.modelSummary}` : ''} · ${s.toolNames.length} tools`,
+					// Counted here, at connect. The number is deliberately the one true
+					// at this moment rather than the one that will be true after the
+					// first turn registers the deferred tools — a line reporting that a
+					// connection just happened should describe the connection that just
+					// happened. `/tools` is the present-tense question and asks later.
+					`Connected to ${s.providerSummary}${s.modelSummary ? ` · ${s.modelSummary}` : ''} · ${s.toolNames().length} tools`,
 				)
 				// Before the rest: a limitation the operator accepted once and has
 				// been living with since is the thing they are least likely to
@@ -409,7 +414,9 @@ export function App({ ctx }: AppProps) {
 			: 0
 
 	const slashCtx: SlashContext = {
-		availableTools: session?.toolNames ?? [],
+		// Called when `/tools` renders, not read here — the same shape, and the
+		// same reason, as `neverPrompted` below.
+		availableTools: () => session?.toolNames() ?? [],
 		providerSummary: session?.providerSummary ?? null,
 		modelSummary: session?.modelSummary ?? null,
 		// The same state the status bar reads, unformatted. `/cost` prints exact

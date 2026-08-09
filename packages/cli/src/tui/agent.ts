@@ -212,7 +212,24 @@ export interface AgentSession {
 	readonly hasProvider: boolean
 	readonly providerSummary: string | null
 	readonly modelSummary: string | null
-	readonly toolNames: readonly string[]
+	/**
+	 * Every tool this session can call, by name, read at call time.
+	 *
+	 * A FUNCTION, for the reason stated one field down about `promptExemptTools`
+	 * and reached here late: the roster is not final when the session is built.
+	 * The task tools register deferred inside the first `query()`, so a value
+	 * captured at construction names a set the operator never had — and `/tools`,
+	 * whose entire job is to answer "what can this thing call", was reading
+	 * exactly that captured value while `/permissions`, one command over, read
+	 * the registry live. The two could disagree on the same screen: the exempt
+	 * roster naming `task_create` as never-prompted, and the tool list not
+	 * showing `task_create` at all.
+	 *
+	 * The connect line calls it at connect time and gets the same number it
+	 * always did — the deferred tools genuinely are not registered yet at that
+	 * moment, and a line about what just happened should say what was true then.
+	 */
+	readonly toolNames: () => readonly string[]
 	readonly errorHint: string | null
 	/**
 	 * Absolute paths of the `AGENTS.md` files whose text is in this session's
@@ -576,7 +593,6 @@ export async function createAgentSession(
 	} catch {
 		// Sub-agents unavailable this session — non-fatal.
 	}
-	const activeToolNames = registry.getCallableTools().map((t) => t.name)
 	// Task store → query registers task_create / task_update / task_list as
 	// DEFERRED tools and emits task_created/task_updated, so the agent can track
 	// a plan for the current request. Tasks are run-scoped.
@@ -585,6 +601,10 @@ export async function createAgentSession(
 	// the roster it searches. They are registered inside query(), after this
 	// function returns, which is why the connect line reports no count of them —
 	// counting here would mean restating query's registration order in the CLI.
+	//
+	// It is also why `toolNames` below reads the registry rather than a list
+	// captured on this line. The count at connect time is unchanged; what
+	// changes is that asking again later gets a later answer.
 	const taskStore: TaskStore = new DiskTaskStore({
 		baseDir: join(cwd, '.namzu'),
 		defaultRunId: 'run_namzu-cli' as RunId,
@@ -597,7 +617,10 @@ export async function createAgentSession(
 		hasProvider: true,
 		providerSummary: entry.label,
 		modelSummary: model,
-		toolNames: activeToolNames,
+		// Reads the same registry object the deferred registration mutates, at
+		// call time — the pair of `promptExemptTools` below, and for the same
+		// reason.
+		toolNames: () => registry.getCallableTools().map((t) => t.name),
 		agentIds: allowedAgentIds,
 		instructionFiles: projectInstructions.files.map((f) => f.path),
 		skippedInstructionFiles: projectInstructions.skipped,
@@ -1659,7 +1682,7 @@ function emptySession(errorHint: string): AgentSession {
 		hasProvider: false,
 		providerSummary: null,
 		modelSummary: null,
-		toolNames: [],
+		toolNames: () => [],
 		// No provider, so no runtime was built and there is nothing to delegate
 		// to — the same reason `toolNames` is empty.
 		agentIds: [],
