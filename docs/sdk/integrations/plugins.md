@@ -205,6 +205,39 @@ Hook events currently available:
 - `iteration_start`
 - `iteration_end`
 
+### Sanitizing a tool result without failing the call
+
+A `post_tool_use` hook returns `{ action: 'replace', output }` to change what the model sees while the call still stands as successful:
+
+```ts
+{
+  event: 'post_tool_use',
+  handler: async ({ toolResult }) => {
+    const cleaned = redact(toolResult.output)
+    return cleaned === toolResult.output
+      ? { action: 'continue' }
+      : { action: 'replace', output: cleaned }
+  },
+}
+```
+
+This is the difference between the two substitution actions:
+
+| | `error` | `replace` |
+| --- | --- | --- |
+| model sees | `Error: <message>` | your `output`, verbatim |
+| `isError` | `true` | follows the tool — `false` on a successful call |
+| rich content | dropped | **preserved** |
+
+Before `replace` existed the only way to change an output was `error`, so redacting a credential arrived at the model as a **tool failure** — and a model told a call failed routes around it, retrying it or reporting to the user that it did not work.
+
+Two rules worth knowing:
+
+- **Rich content survives a replace.** The common case is redacting text from a result whose image is unaffected. A hook that needs the blocks gone passes `content: []` — and a hook redacting a secret that *also* appears in an image must, because the replace cannot inspect what it is preserving.
+- **A replace cannot promote a failure.** A tool that returned `success: false` stays an error even if a hook rewrites its message. The tool decides whether the work happened; the hook decides what may be shown.
+
+`replace` is rejected on `pre_tool_use` — there is no result to replace yet — and on the lifecycle events, loudly rather than silently, so a hook author who meant to redact something finds out instead of watching the secret go through.
+
 ### What a model-call hook is shown
 
 `pre_llm_call` carries `context.request` — the call the run is about to make — and `post_llm_call` carries `context.response`:
