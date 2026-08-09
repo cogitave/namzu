@@ -7,18 +7,15 @@ import { promisify } from 'node:util'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { removeTempDirAsync } from '../../../__fixtures__/temp-dir.js'
 
-import type { IterationCheckpoint } from '../../../types/hitl/index.js'
-import type {
-	CheckpointId,
-	ProjectId,
-	RunId,
-	SessionId,
-	TenantId,
-} from '../../../types/ids/index.js'
+import type { ProjectId, RunId, SessionId, TenantId } from '../../../types/ids/index.js'
 import type { CheckpointRunScope, CheckpointStore } from '../../../types/run/checkpoint-store.js'
 import { DiskCheckpointStore } from '../checkpoint-disk.js'
 import { InMemoryCheckpointStore } from '../checkpoint-memory.js'
-import { claimRun, listDurableRuns, releaseRun } from '../listing.js'
+import {
+	CHECKPOINT_STORE_CONTRACT_VERSION,
+	defineCheckpointStoreConformance,
+} from '../conformance.js'
+import { claimRun, releaseRun } from '../listing.js'
 
 /**
  * Two workers draining a queue are two PROCESSES. A single-process test of a
@@ -27,229 +24,124 @@ import { claimRun, listDurableRuns, releaseRun } from '../listing.js'
  * and the race never happens. So the contention test below spawns real
  * children that share nothing but a directory.
  *
- * Everything else here is about the two facts a lease has to get right and a
- * mutex does not: it expires, and a holder that stalls past its expiry does
- * not know it.
+ * Everything a single process CAN establish about the lease — exclusivity,
+ * expiry, that a superseded write is refused, that a listing answers for one
+ * tenant only — now lives in `../conformance.ts` and ships, because the
+ * in-memory store calls itself the reference a host reads when writing a
+ * backend of its own and that claim was worth exactly nothing while the suite
+ * backing it was unpublishable. Both shipped backends answer it below.
+ *
+ * What stays here is what is not a property of the CONTRACT: the real-process
+ * race, which no host can run against its own store without this repository's
+ * worker script, and the refusals the `listing.ts` helpers raise for a store
+ * that implements neither.
  */
 
-const T1 = 'tnt_claim' as TenantId
-const P1 = 'prj_claim' as ProjectId
-const S1 = 'ses_claim' as SessionId
-
-function scope(runId = 'run_a'): CheckpointRunScope {
-	return { tenantId: T1, projectId: P1, sessionId: S1, runId: runId as RunId }
-}
-
-let seq = 0
-function checkpoint(runId = 'run_a'): IterationCheckpoint {
-	seq += 1
-	return {
-		id: `cp_${seq}` as CheckpointId,
-		runId: runId as RunId,
-		iteration: 1,
-		messages: [],
-		tokenUsage: {
-			promptTokens: 1,
-			completionTokens: 1,
-			totalTokens: 2,
-			cachedTokens: 0,
-			cacheWriteTokens: 0,
-		},
-		costInfo: { totalCost: 0 } as IterationCheckpoint['costInfo'],
-		guardState: { iterationCount: 1, elapsedMs: 1 },
-		createdAt: Date.now(),
-	}
-}
-
-const NOW = 5_000_000
+const scope = (runId: string): CheckpointRunScope => ({
+	tenantId: 'tnt_claim' as TenantId,
+	projectId: 'prj_claim' as ProjectId,
+	sessionId: 'ses_claim' as SessionId,
+	runId: runId as RunId,
+})
 
 /**
  * Both shipped stores answer the same suite. A claim implemented one way in
  * memory and another on disk is two claims, and a host tests against one and
  * ships the other.
  */
-const BACKENDS: readonly ['in-memory' | 'disk', (dir: string) => CheckpointStore][] = [
-	['in-memory', () => new InMemoryCheckpointStore()],
+defineCheckpointStoreConformance({
+	describe,
+	it,
+	expect,
+	label: 'in-memory',
+	// The literal, not the imported constant — see the constant's own note.
+	// Re-exporting it into this slot would make the check unfailable.
+	contractVersion: 1,
+	// The only implementation that can hold more than one tenant at once: the
+	// disk layout has no tenant segment in it.
+	capabilities: { claims: true, listing: true, multiTenant: true },
+	makeStore: () => ({ store: new InMemoryCheckpointStore() }),
+})
+
+defineCheckpointStoreConformance({
+	describe,
+	it,
+	expect,
+	label: 'disk',
+	contractVersion: 1,
+	capabilities: { claims: true, listing: true, multiTenant: false },
 	// The disk store is the one a host actually gets, and the only one whose
 	// arbitration has to survive leaving the process.
-	[
-		'disk',
-		(dir) =>
-			new DiskCheckpointStore({ baseDir: dir }, { tenantId: T1, projectId: P1, sessionId: S1 }),
-	],
-]
+	makeStore: async (binding) => {
+		const dir = await mkdtemp(join(tmpdir(), 'namzu-claim-'))
+		return {
+			store: new DiskCheckpointStore({ baseDir: dir }, binding),
+			dispose: () => removeTempDirAsync(dir),
+		}
+	},
+})
 
-describe.each(BACKENDS)('a run claim (%s)', (_kind, make) => {
-	let dir: string
-	let store: CheckpointStore
+describe('the two shipped stores, side by side', () => {
+	/**
+	 * Not in the conformance suite, and deliberately.
+	 *
+	 * The published contract promises fences are monotonic and unique. It does
+	 * NOT promise particular numbers, and it must not: a host backing this with
+	 * a database sequence gets gaps for free, and a suite that failed such a
+	 * backend would be enforcing an implementation detail of two filesystems.
+	 *
+	 * Inside this repository the exact numbering IS a claim, though — the
+	 * in-memory store's source says a released run's next claim is `fence + 2`
+	 * "in both stores, because the tombstone consumed one. That is parity, not
+	 * an off-by-one." A mutation that moved the disk tombstone to `fence + 2`
+	 * (making the next claim `fence + 3`) killed no test at all, so that
+	 * sentence was undriven. This is the one that drives it.
+	 */
+	it('numbers a released run’s next claim identically', async () => {
+		const dir = await mkdtemp(join(tmpdir(), 'namzu-parity-'))
+		try {
+			const stores: CheckpointStore[] = [
+				new InMemoryCheckpointStore(),
+				new DiskCheckpointStore(
+					{ baseDir: dir },
+					{
+						tenantId: 'tnt_claim' as TenantId,
+						projectId: 'prj_claim' as ProjectId,
+						sessionId: 'ses_claim' as SessionId,
+					},
+				),
+			]
 
-	beforeEach(async () => {
-		dir = await mkdtemp(join(tmpdir(), 'namzu-claim-'))
-		store = make(dir)
+			const nextFences: number[] = []
+			for (const store of stores) {
+				const first = await claimRun(store, scope('run_parity'), {
+					holder: 'w1',
+					ttlMs: 60_000,
+					now: 1,
+				})
+				await releaseRun(store, scope('run_parity'), first?.fence as number)
+				const second = await claimRun(store, scope('run_parity'), {
+					holder: 'w2',
+					ttlMs: 60_000,
+					now: 2,
+				})
+				expect(first?.fence).toBe(1)
+				nextFences.push(second?.fence as number)
+			}
+
+			// The tombstone consumed exactly one number, in both.
+			expect(nextFences).toEqual([3, 3])
+		} finally {
+			await removeTempDirAsync(dir)
+		}
 	})
 
-	afterEach(async () => {
-		await removeTempDirAsync(dir)
-	})
-
-	it('gives the run to the first taker and refuses the second', async () => {
-		const first = await claimRun(store, scope(), { holder: 'w1', ttlMs: 60_000, now: NOW })
-		const second = await claimRun(store, scope(), { holder: 'w2', ttlMs: 60_000, now: NOW })
-
-		expect(first?.holder).toBe('w1')
-		// `null`, not a throw: two readers on one queue is the ordinary case,
-		// and an exception would make the normal outcome look like a fault.
-		expect(second).toBeNull()
-	})
-
-	it('lets a later worker take a run whose holder went away', async () => {
-		const first = await claimRun(store, scope(), { holder: 'w1', ttlMs: 1_000, now: NOW })
-		const second = await claimRun(store, scope(), {
-			holder: 'w2',
-			ttlMs: 60_000,
-			now: NOW + 2_000,
-		})
-
-		// A lock held by a dead process is held forever. The expiry is the
-		// whole difference between a lease and a wedged run.
-		expect(second?.holder).toBe('w2')
-		expect(second?.fence).toBeGreaterThan(first?.fence as number)
-	})
-
-	it('fences the stalled holder out at the moment it writes', async () => {
-		const first = await claimRun(store, scope(), { holder: 'w1', ttlMs: 1_000, now: NOW })
-		await claimRun(store, scope(), { holder: 'w2', ttlMs: 60_000, now: NOW + 2_000 })
-
-		// `w1` believes it still holds the run. It cannot know otherwise: a
-		// long pause, a suspended container and a partition all look from the
-		// inside like time not passing. The write is the only place it can be
-		// told, and this is that place.
-		await expect(store.writeCheckpoint(scope(), checkpoint(), first?.fence)).rejects.toThrow(
-			/no longer holds it/,
-		)
-	})
-
-	it('lets the current holder keep writing', async () => {
-		const claim = await claimRun(store, scope(), { holder: 'w1', ttlMs: 60_000, now: NOW })
-		await expect(
-			store.writeCheckpoint(scope(), checkpoint(), claim?.fence),
-		).resolves.toBeUndefined()
-	})
-
-	it('advances the fence on renewal, so a stalled twin cannot write', async () => {
-		const first = await claimRun(store, scope(), { holder: 'w1', ttlMs: 1_000, now: NOW })
-		const renewed = await claimRun(store, scope(), { holder: 'w1', ttlMs: 60_000, now: NOW + 500 })
-
-		// Renewal and reclamation are one operation, and both advance. A
-		// renewal that kept the fence would leave any duplicate of the holder
-		// — a retried job, a double-scheduled pod — able to write with the
-		// number it captured before.
-		expect(renewed?.fence).toBeGreaterThan(first?.fence as number)
-		await expect(store.writeCheckpoint(scope(), checkpoint(), first?.fence)).rejects.toThrow(
-			/no longer holds it/,
-		)
-	})
-
-	it('still accepts an unfenced write on a claimed run', async () => {
-		await claimRun(store, scope(), { holder: 'w1', ttlMs: 60_000, now: NOW })
-		// A host that adopts claims on one worker must not break the workers
-		// that have not adopted them yet. Refusing here would make the
-		// capability impossible to roll out incrementally.
-		await expect(store.writeCheckpoint(scope(), checkpoint())).resolves.toBeUndefined()
-	})
-
-	it('releases only on the fence that currently holds it', async () => {
-		const first = await claimRun(store, scope(), { holder: 'w1', ttlMs: 1_000, now: NOW })
-		await claimRun(store, scope(), { holder: 'w2', ttlMs: 60_000, now: NOW + 2_000 })
-
-		// A worker that stalled past its lease must not be able to hand away
-		// a run somebody else is now holding.
-		await releaseRun(store, scope(), first?.fence as number)
-
-		const third = await claimRun(store, scope(), { holder: 'w3', ttlMs: 60_000, now: NOW + 3_000 })
-		expect(third).toBeNull()
-	})
-
-	it('still refuses a superseded fence after the new holder releases', async () => {
-		// The silent one. Not a duplicate write — a LOST one.
-		//
-		// w1 stalls at its fence. w2 reclaims, does the work, and releases
-		// cleanly, which is the documented `finally { releaseRun() }`. w1 then
-		// wakes believing it still holds the run and writes. If that write is
-		// accepted, its checkpoint carries a fresh `createdAt`, sorts newest,
-		// and the next resume restores w1's stale history — so w2's completed
-		// work vanishes with no error anywhere.
-		//
-		// The in-memory store accepted it, because the release deleted the
-		// claim and the check read the claim rather than the high-water mark.
-		// The disk store refused it, because the release appends a tombstone
-		// and the check reads file names. Two shipped stores disagreeing at
-		// the enforcement point is the thing this test exists to prevent: a
-		// host writing its own backend reads the reference.
-		const stale = await claimRun(store, scope(), { holder: 'w1', ttlMs: 1_000, now: NOW })
-		const live = await claimRun(store, scope(), { holder: 'w2', ttlMs: 60_000, now: NOW + 2_000 })
-		await releaseRun(store, scope(), live?.fence as number)
-
-		await expect(store.writeCheckpoint(scope(), checkpoint(), stale?.fence)).rejects.toThrow(
-			/no longer holds it/,
-		)
-	})
-
-	it('refuses the fence its own holder just released', async () => {
-		// The same hole one step shorter, and the one that pins the release
-		// itself rather than a reclaim before it. A holder that gives a run
-		// back has given up the right to write to it; nothing else took the
-		// run in between, so only the release can be what refuses this.
-		const claim = await claimRun(store, scope(), { holder: 'w1', ttlMs: 60_000, now: NOW })
-		await releaseRun(store, scope(), claim?.fence as number)
-
-		await expect(store.writeCheckpoint(scope(), checkpoint(), claim?.fence)).rejects.toThrow(
-			/no longer holds it/,
-		)
-	})
-
-	it('returns the run to the queue when its holder releases', async () => {
-		const claim = await claimRun(store, scope(), { holder: 'w1', ttlMs: 60_000, now: NOW })
-		await releaseRun(store, scope(), claim?.fence as number)
-
-		const next = await claimRun(store, scope(), { holder: 'w2', ttlMs: 60_000, now: NOW + 1 })
-		expect(next?.holder).toBe('w2')
-	})
-
-	it('shows the queue reader which runs nobody holds', async () => {
-		await store.writeCheckpoint(scope('run_a'), checkpoint('run_a'))
-		await store.writeCheckpoint(scope('run_b'), checkpoint('run_b'))
-		await store.writeCheckpoint(scope('run_c'), checkpoint('run_c'))
-
-		await claimRun(store, scope('run_a'), { holder: 'w1', ttlMs: 60_000, now: NOW })
-		await claimRun(store, scope('run_b'), { holder: 'w1', ttlMs: 1_000, now: NOW })
-
-		const free = await listDurableRuns(
-			store,
-			{ tenantId: T1 },
-			{ claimed: false, now: NOW + 2_000 },
-		)
-		// `run_b`'s holder is gone. An expired claim counts as unheld, or a
-		// dead worker's runs stay invisible forever — the failure the lease
-		// exists to prevent, reintroduced by the filter that reads it.
-		expect(free.entries.map((e) => e.runId)).toEqual(['run_b', 'run_c'])
-
-		const taken = await listDurableRuns(
-			store,
-			{ tenantId: T1 },
-			{ claimed: true, now: NOW + 2_000 },
-		)
-		expect(taken.entries.map((e) => e.runId)).toEqual(['run_a'])
-		expect(taken.entries[0]?.claim?.holder).toBe('w1')
-		expect(taken.entries[0]?.claim?.expired).toBe(false)
-	})
-
-	it('refuses a lease with no duration', async () => {
-		// A lease that expires immediately is a lease every worker can take at
-		// once, which is the condition this call exists to prevent.
-		await expect(claimRun(store, scope(), { holder: 'w1', ttlMs: 0, now: NOW })).rejects.toThrow(
-			/positive number of milliseconds/,
-		)
+	it('is the revision this build ships', () => {
+		// The two calls above hard-code `1`, which is the point of the check
+		// they feed. Nothing else in the repository would notice the constant
+		// moving without them — and a bumped constant with unbumped callers is
+		// a `major` that shipped as a `minor`.
+		expect(CHECKPOINT_STORE_CONTRACT_VERSION).toBe(1)
 	})
 })
 
@@ -265,13 +157,15 @@ describe('a store that cannot arbitrate', () => {
 		// Skipping an absent optional method is the natural thing to do and
 		// the fatal one: every worker would proceed believing it holds a run
 		// nobody arbitrated.
-		await expect(claimRun(cannot, scope(), { holder: 'w1', ttlMs: 1_000 })).rejects.toThrow(
+		await expect(claimRun(cannot, scope('run_a'), { holder: 'w1', ttlMs: 1_000 })).rejects.toThrow(
 			/does not implement `claimRun`/,
 		)
 	})
 
 	it('refuses to release rather than pretending it did', async () => {
-		await expect(releaseRun(cannot, scope(), 1)).rejects.toThrow(/does not implement `releaseRun`/)
+		await expect(releaseRun(cannot, scope('run_a'), 1)).rejects.toThrow(
+			/does not implement `releaseRun`/,
+		)
 	})
 })
 
