@@ -13,8 +13,10 @@
  */
 
 import { Box, Text } from 'ink'
+import { memo, useRef } from 'react'
 
-import { type InlineSpan, type MdBlock, parseInline, parseMarkdown } from './markdownParser.js'
+import { type BlockCache, createBlockCache } from './markdown-block-cache.js'
+import { type InlineSpan, type MdBlock, parseInline } from './markdownParser.js'
 import { theme } from './theme.js'
 
 const CODE_COLOR = theme.status.ok
@@ -24,8 +26,24 @@ export interface MarkdownProps {
 	readonly color?: string
 }
 
+/**
+ * A message's markdown, parsed incrementally.
+ *
+ * The cache is per mounted component, so it lives exactly as long as the row
+ * it serves and is collected with it — a module-level one would hold every
+ * block of every message for the life of the process, which is the shape of
+ * the retention problem the transcript already had to solve once.
+ *
+ * The blocks it returns are reused between renders when their source text has
+ * not changed, and {@link BlockView} is memoised on them, so a streaming reply
+ * re-renders only the block currently being written. See
+ * `markdown-block-cache.ts` for why the key is the block's raw text and why
+ * the tail of the document is never stored.
+ */
 export function Markdown({ text, color = theme.text.primary }: MarkdownProps) {
-	const blocks = parseMarkdown(text)
+	const cache = useRef<BlockCache>(undefined)
+	cache.current ??= createBlockCache()
+	const blocks = cache.current.parse(text)
 	return (
 		<Box flexDirection="column">
 			{blocks.map((block, i) => (
@@ -35,7 +53,16 @@ export function Markdown({ text, color = theme.text.primary }: MarkdownProps) {
 	)
 }
 
-function BlockView({
+/**
+ * One block.
+ *
+ * Memoised on its props, all three of which are stable across a token when the
+ * block is: the cache hands back the same `block` and `prev` objects and
+ * `color` is a constant. Without this the cache would still save the parse and
+ * then throw the saving away — `parseInline` runs here, per span, on every
+ * render, and it is the more expensive half.
+ */
+const BlockView = memo(function BlockView({
 	block,
 	prev,
 	color,
@@ -107,7 +134,7 @@ function BlockView({
 				</Box>
 			)
 	}
-}
+})
 
 const TABLE_MAX_COL = 32
 

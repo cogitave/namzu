@@ -8,6 +8,28 @@
  * use), not a full CommonMark implementation. Syntax highlighting inside
  * code blocks is intentionally out of scope; code is shown in one code
  * color, which reads cleanly without a highlighter dependency.
+ *
+ * ## Two halves, because a streaming reply is re-parsed on every token
+ *
+ * {@link parseMarkdown} is {@link scanBlocks} followed by {@link parseBlock}
+ * per segment, and the split is what makes the per-block cache in
+ * `markdown-block-cache.ts` possible: scanning finds where each top-level
+ * block starts and ends, and parsing turns one block's raw text into one
+ * {@link MdBlock}. The cache can then skip the second half for text it has
+ * already seen.
+ *
+ * **{@link parseBlock} is a pure function of the segment handed to it** —
+ * nothing about a block's meaning depends on another block. That is what makes
+ * a cache keyed on raw text sound rather than merely convenient, and it is a
+ * property to preserve: reference-style link definitions (`[a]: http://…`),
+ * for instance, would make one block's rendering depend on another's presence
+ * and would have to be either implemented across the whole document or not at
+ * all. This subset has no such construct, and nothing here should acquire one
+ * without revisiting the cache.
+ *
+ * There is one classifier, {@link classify}. The scanner uses it to find
+ * boundaries and {@link parseBlock} uses it to dispatch, so "what is this
+ * line" is decided in a single place rather than once per half.
  */
 
 export interface InlineSpan {
@@ -50,76 +72,128 @@ function tableCells(line: string): string[] {
 		.map((c) => c.trim())
 }
 
-/** Parse markdown source into a flat list of block elements. */
-export function parseMarkdown(src: string): MdBlock[] {
-	const lines = src.split('\n')
-	const blocks: MdBlock[] = []
-	let para: string[] = []
+/**
+ * What a line begins, given the line after it.
+ *
+ * The single site for "which construct is this". `'blank'` begins nothing and
+ * `'text'` begins (or continues) a paragraph; the rest name themselves. The
+ * order of the tests is the order the old single-pass parser applied them, and
+ * it is load-bearing: a `| … |` line is a table only when a separator follows,
+ * and falls through to a paragraph otherwise.
+ */
+type BlockKind = 'code' | 'table' | 'heading' | 'bullet' | 'blank' | 'text'
 
-	const flushPara = () => {
-		if (para.length > 0) {
-			blocks.push({ type: 'paragraph', text: para.join(' ') })
-			para = []
+function classify(line: string, next: string | undefined): BlockKind {
+	if (FENCE.test(line)) return 'code'
+	// Table: a `| … |` header row immediately followed by a `|---|` separator.
+	if (TABLE_ROW.test(line) && next !== undefined && TABLE_SEP.test(next)) return 'table'
+	if (HEADING.test(line)) return 'heading'
+	if (BULLET.test(line)) return 'bullet'
+	if (line.trim().length === 0) return 'blank'
+	return 'text'
+}
+
+/**
+ * Split markdown source into the raw text of each top-level block, in order.
+ *
+ * Blank lines separate blocks and belong to none, so they appear in no segment.
+ * Every other line lands in exactly one, which is what lets a segment be used
+ * as a cache key: two runs that produce the same segment produce the same
+ * block, because {@link parseBlock} reads nothing else.
+ */
+export function scanBlocks(src: string): string[] {
+	const lines = src.split('\n')
+	const segments: string[] = []
+	let i = 0
+	while (i < lines.length) {
+		const line = lines[i] ?? ''
+		switch (classify(line, lines[i + 1])) {
+			case 'blank':
+				i++
+				break
+			case 'code': {
+				// Run to the closing fence, or to the end of the text — a reply
+				// still streaming in has an open fence for as long as it is inside
+				// one, and that is a code block with what has arrived so far.
+				let end = i + 1
+				while (end < lines.length && !FENCE.test(lines[end] ?? '')) end++
+				const last = Math.min(end, lines.length - 1)
+				segments.push(lines.slice(i, last + 1).join('\n'))
+				i = end + 1
+				break
+			}
+			case 'table': {
+				let end = i + 2 // header + separator
+				while (end < lines.length && TABLE_ROW.test(lines[end] ?? '')) end++
+				segments.push(lines.slice(i, end).join('\n'))
+				i = end
+				break
+			}
+			case 'heading':
+			case 'bullet':
+				segments.push(line)
+				i++
+				break
+			default: {
+				// A paragraph is every following line that begins nothing else.
+				let end = i
+				while (end < lines.length && classify(lines[end] ?? '', lines[end + 1]) === 'text') end++
+				segments.push(lines.slice(i, end).join('\n'))
+				i = end
+				break
+			}
 		}
 	}
+	return segments
+}
 
-	for (let i = 0; i < lines.length; i++) {
-		const line = lines[i] ?? ''
-		const fence = FENCE.exec(line)
-		if (fence) {
-			flushPara()
-			const lang = fence[1] ? fence[1] : undefined
-			const codeLines: string[] = []
-			i++
-			while (i < lines.length && !FENCE.test(lines[i] ?? '')) {
-				codeLines.push(lines[i] ?? '')
-				i++
+/** Parse one block's raw text — a segment from {@link scanBlocks} — into a block. */
+export function parseBlock(raw: string): MdBlock {
+	const lines = raw.split('\n')
+	const first = lines[0] ?? ''
+	switch (classify(first, lines[1])) {
+		case 'code': {
+			const lang = FENCE.exec(first)?.[1]
+			// The closing fence is part of the segment when the block is closed and
+			// absent while it is still arriving, so it is dropped only if present.
+			// A segment that is nothing but its opening fence reads as closed and
+			// is right either way: there is no body to drop a line from.
+			const closed = FENCE.test(lines[lines.length - 1] ?? '')
+			return {
+				type: 'code',
+				...(lang ? { lang } : {}),
+				lines: closed ? lines.slice(1, -1) : lines.slice(1),
 			}
-			// `i` now points at the closing fence (or end); the for-loop ++ skips it.
-			blocks.push({ type: 'code', lang, lines: codeLines })
-			continue
 		}
-		// Table: a `| … |` header row immediately followed by a `|---|` separator.
-		if (TABLE_ROW.test(line) && i + 1 < lines.length && TABLE_SEP.test(lines[i + 1] ?? '')) {
-			flushPara()
-			const headers = tableCells(line)
-			i += 2 // skip header + separator
-			const rows: string[][] = []
-			while (i < lines.length && TABLE_ROW.test(lines[i] ?? '')) {
-				rows.push(tableCells(lines[i] ?? ''))
-				i++
+		case 'table':
+			return {
+				type: 'table',
+				headers: tableCells(first),
+				rows: lines.slice(2).map(tableCells),
 			}
-			i-- // for-loop ++ will re-advance past the last consumed row
-			blocks.push({ type: 'table', headers, rows })
-			continue
+		case 'heading': {
+			const heading = HEADING.exec(first)
+			return { type: 'heading', level: heading?.[1]?.length ?? 1, text: heading?.[2] ?? '' }
 		}
-		const heading = HEADING.exec(line)
-		if (heading) {
-			flushPara()
-			blocks.push({ type: 'heading', level: heading[1]?.length ?? 1, text: heading[2] ?? '' })
-			continue
-		}
-		const bullet = BULLET.exec(line)
-		if (bullet) {
-			flushPara()
-			const rawMarker = bullet[2] ?? '-'
+		case 'bullet': {
+			const bullet = BULLET.exec(first)
+			const rawMarker = bullet?.[2] ?? '-'
 			const ordered = /\d/.test(rawMarker)
-			blocks.push({
+			return {
 				type: 'bullet',
 				ordered,
 				marker: ordered ? rawMarker.replace(/[.)]$/, '') : '•',
-				text: bullet[3] ?? '',
-			})
-			continue
+				text: bullet?.[3] ?? '',
+			}
 		}
-		if (line.trim().length === 0) {
-			flushPara()
-			continue
-		}
-		para.push(line.trim())
+		default:
+			return { type: 'paragraph', text: lines.map((l) => l.trim()).join(' ') }
 	}
-	flushPara()
-	return blocks
+}
+
+/** Parse markdown source into a flat list of block elements. */
+export function parseMarkdown(src: string): MdBlock[] {
+	return scanBlocks(src).map(parseBlock)
 }
 
 const INLINE = /(`[^`]+`)|(\[[^\]]+\]\([^)]+\))|(\*\*[^*]+\*\*)|(__[^_]+__)|(\*[^*]+\*)|(_[^_]+_)/
