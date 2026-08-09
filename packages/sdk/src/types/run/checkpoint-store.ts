@@ -488,6 +488,29 @@ export interface CheckpointStore {
 	 * operation from the store's side, which is why there is no separate
 	 * `renew`: two code paths that must agree about who holds a run is one
 	 * more than can be kept correct.
+	 *
+	 * ### What a backend implementing this MUST guarantee
+	 *
+	 * These are the properties the fence comparison depends on. None of them
+	 * is checkable from here, and every one of them was violated by the first
+	 * built-in implementation, so they are written down rather than assumed:
+	 *
+	 *  1. **A fence exceeds every fence ever issued for the run** — including
+	 *     across a release, and across deletion of whatever recorded it. A
+	 *     counter that rewinds re-issues a number a stalled worker still
+	 *     believes it holds, and that worker's writes become legal again.
+	 *  2. **Fences are unique.** The write check is `fence < current`, so two
+	 *     holders at one number are both admitted. Equality is permissive
+	 *     here, which makes a duplicate worse than a gap.
+	 *  3. **The fence check is atomic with the write.** Reading the current
+	 *     fence and then writing is check-then-act, and the gap is a race. A
+	 *     database gets this free (`UPDATE … WHERE fence >= ?`); a filesystem
+	 *     does not, and the built-in disk store narrows rather than closes it.
+	 *  4. **`holder` is unique per process.** It is evidence rather than
+	 *     authority, but it is the only thing distinguishing a RENEWAL from a
+	 *     theft — two workers sharing a holder string take a live, unexpired
+	 *     claim from each other instantly. Use something per-process, not a
+	 *     per-deployment name.
 	 */
 	claimRun?(scope: CheckpointRunScope, options: ClaimRunOptions): Promise<RunClaim | null>
 

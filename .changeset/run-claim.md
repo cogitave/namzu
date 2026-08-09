@@ -65,8 +65,18 @@ forever. New types: `RunClaim`, `ClaimFence`, `ClaimSummary`,
 `ClaimRunOptions`. New helpers: `claimRun`, `releaseRun`, `toClaimSummary`,
 `fencedOut`.
 
-The built-in disk store implements this across processes with
-`O_CREAT | O_EXCL`, so the kernel picks the winner rather than a
-read-then-write. `InMemoryCheckpointStore` implements it too, and is
-single-process by construction — use it for tests and single-writer hosts,
-not for two workers.
+The built-in disk store keeps one file per holding, named for its fence, and
+takes a run by exclusively creating the next number — so the kernel picks the
+winner in a single operation, the counter cannot rewind across a release, and
+a body nobody can parse never hides the ordering.
+
+**If you implement this yourself**, four properties the fence comparison
+depends on and none of which the kernel can check: a fence must exceed every
+fence ever issued for that run, including across a release; fences must be
+unique, because the check is `<` and equality admits both holders; the check
+must be atomic with the write; and `holder` must be unique per process, since
+it is the only thing separating a renewal from a theft. They are on the
+`claimRun` doc comment in full.
+
+`InMemoryCheckpointStore` implements it too, and is single-process by
+construction — use it for tests and single-writer hosts, not for two workers.

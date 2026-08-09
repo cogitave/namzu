@@ -16,7 +16,7 @@ import type {
 } from '../../types/run/checkpoint-store.js'
 import type { RunStoreConfig } from '../../types/run/index.js'
 import type { ProjectId } from '../../types/session/ids.js'
-import { acquireClaim, readClaim, releaseClaim } from './claim-disk.js'
+import { acquireClaim, currentFence, readClaim, releaseClaim } from './claim-disk.js'
 import { RunDiskStore, readCheckpointsIn } from './disk.js'
 import {
 	assertContiguousListingScope,
@@ -104,14 +104,11 @@ export class DiskCheckpointStore implements CheckpointStore {
 			// Read at the moment of the write, not at the start of the run.
 			// A holder that stalled past its lease believes it still holds,
 			// and this is the only point at which it can be told otherwise.
-			const held = await readClaim(this.runDir(scope))
-			// An unreadable claim is not evidence that this write is still the
-			// current holding, and it is not evidence that it is not. The write
-			// proceeds: the fence check exists to stop a SUPERSEDED holding, and
-			// a byte nobody can parse does not establish one.
-			if (held && held !== 'unreadable' && fence < held.fence) {
-				throw fencedOut(scope, fence, held.fence)
-			}
+			// Names only, no parsing. The fence is the file name, so a corrupt
+			// body cannot make this check skip itself — which the previous shape
+			// did, at the one site whose entire job is refusing.
+			const current = await currentFence(this.runDir(scope))
+			if (fence < current) throw fencedOut(scope, fence, current)
 		}
 		await store.writeCheckpoint(checkpoint)
 	}
@@ -238,7 +235,12 @@ export class DiskCheckpointStore implements CheckpointStore {
 		now: number,
 	): Promise<DurableRunEntry> {
 		const claim = await readClaim(runDir)
-		return claim && claim !== 'unreadable' ? { ...entry, claim: toClaimSummary(claim, now) } : entry
+		// A holding whose body could not be read still appears on the row,
+		// carrying an expiry of 0 so it reads as available. Dropping the field
+		// entirely — which is what happened before — put the run under
+		// `claimed: false` by looking unclaimed rather than by being
+		// reclaimable, so a queue reader was told a wedged run was free work.
+		return claim ? { ...entry, claim: toClaimSummary(claim, now) } : entry
 	}
 
 	/** Directory names under `dir`, or none when `dir` does not exist. */
