@@ -146,19 +146,30 @@ function isErrno(err: unknown, code: string): boolean {
 	return typeof err === 'object' && err !== null && (err as NodeJS.ErrnoException).code === code
 }
 
-/** The stored body. The fence is the file name, not this. */
+/**
+ * The stored body. The fence is the file name, not this.
+ *
+ * There is no `released` flag, and there was one. It existed so a listing
+ * could tell a clean release from a damaged record, and **nothing ever asked**
+ * — the only reader was an exported `isReleased` with no caller anywhere, not
+ * re-exported from the package and absent from the public surface baseline.
+ * `ClaimSummary`, which is the type a listing row actually carries, never
+ * gained a field for it, so the distinction the flag was written for was never
+ * available at the place it was meant to serve.
+ *
+ * Removed rather than wired, because the two states are the SAME ANSWER to
+ * every caller there is: released, damaged and mid-take all mean "take the
+ * next number". Wiring it would have added a public field and a fresh parity
+ * obligation between the two shipped stores to carry a difference no consumer
+ * can act on — surface to keep correct forever for nobody.
+ *
+ * An operator still has the distinction where operators actually work, on the
+ * disk: a tombstone is valid JSON with an empty `holder` and an `expiresAt` of
+ * 0, and a damaged record does not parse.
+ */
 interface ClaimBody {
 	readonly holder: string
 	readonly expiresAt: number
-	/**
-	 * Set only on a release tombstone.
-	 *
-	 * One field, and it separates three states a listing previously could not
-	 * tell apart: released cleanly, damaged beyond reading, and being written
-	 * right now. All three are "take the next number" to a taker, and they
-	 * are three different things to whoever is asked why a run stalled.
-	 */
-	readonly released?: boolean
 }
 
 function isClaimBody(value: unknown): value is ClaimBody {
@@ -291,7 +302,23 @@ async function publish(claimsDir: string, fence: ClaimFence, body: ClaimBody): P
 				retryable: false,
 			})
 		}
-		throw err
+		// Anything else — no permission on the directory, a full disk, a
+		// read-only mount — escapes as a bare errno naming a dotted temporary
+		// file, with nothing in it about claims or runs. This write is the
+		// first thing that touches the directory, so it is where a
+		// misconfigured deployment surfaces, and `EPERM: open
+		// '…/.tmp-4131-2-k3f9a1x8-1'` is the least useful place to find out.
+		//
+		// Wrapped for the same reason as the `link` failure below it: the
+		// operator needs the run, the directory and the operation, not the
+		// scratch name this attempt happened to draw.
+		throw new NamzuError({
+			code: 'storage_error',
+			message: `acquireClaim: could not write a claim into ${claimsDir} (${(err as NodeJS.ErrnoException).code ?? 'unknown error'}). This is the run's claim directory, and taking a run writes to it — check that the process can create files there. Refusing rather than proceeding: a claim that cannot be recorded is a claim nobody else can be refused against.`,
+			details: { path: claimsDir, code: (err as NodeJS.ErrnoException).code, fence },
+			cause: err,
+			retryable: false,
+		})
 	}
 
 	try {
@@ -490,26 +517,6 @@ export async function readClaim(runDir: string): Promise<RunClaim | null> {
 	return claim
 }
 
-/**
- * Whether a holding is a clean release rather than a live or lapsed claim.
- *
- * A tombstone and a damaged record used to be byte-identical, so a listing
- * could not tell "released cleanly" from "this record is corrupt" from
- * "somebody is mid-take". Correct for the taker, which only needs the number,
- * and blind for the operator — in a repository whose premise is auditable
- * evidence.
- */
-export async function isReleased(runDir: string): Promise<boolean> {
-	const [top] = await listHoldings(runDir)
-	if (!top) return false
-	try {
-		const parsed: unknown = JSON.parse(await readFile(join(runDir, CLAIMS_DIR, top.name), 'utf-8'))
-		return typeof parsed === 'object' && parsed !== null && (parsed as ClaimBody).released === true
-	} catch {
-		return false
-	}
-}
-
 /** Take or extend the run's claim. `null` when somebody else holds it. */
 export async function acquireClaim(
 	runDir: string,
@@ -569,13 +576,13 @@ export async function releaseClaim(runDir: string, fence: ClaimFence): Promise<v
 	if (!held || held.fence !== fence) return
 
 	const claimsDir = join(runDir, CLAIMS_DIR)
-	// Expiry 0: free the instant it lands. `released` says WHY it is free,
-	// which is what separates a clean handover from a damaged record in the
-	// evidence an operator reads.
+	// Expiry 0 and no holder: free the instant it lands. That pair IS the
+	// tombstone — an empty holder with a zero expiry is not a shape a live
+	// claim can take, so it reads as a clean handover to anyone looking at the
+	// directory, without a flag no caller consumes. See {@link ClaimBody}.
 	//
-	// Published the same way as a claim, so `isReleased` cannot catch it
-	// half-written and report a clean release as a corrupt one.
-	const body: ClaimBody = { holder: '', expiresAt: 0, released: true }
+	// Published the same way as a claim, so nothing can catch it half-written.
+	const body: ClaimBody = { holder: '', expiresAt: 0 }
 	try {
 		await publish(claimsDir, fence + 1, body)
 	} catch (err) {

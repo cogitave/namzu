@@ -316,6 +316,34 @@ describe('claim regressions', () => {
 		expect(left).toContain('.tmp-999-2-cafebabe-1')
 	})
 
+	it('bounds the claims directory as a run renews', async () => {
+		// Append-only is right — a name that disappears can be re-issued — but
+		// unbounded is not, and every claim operation lists this directory.
+		// Measured before pruning existed: 0.14 ms per operation at 10
+		// holdings, 3.4 at 10,000, 78.6 at 200,000, and three processes
+		// contending on ONE run produced 4,772 files in eight seconds. A single
+		// holder renewing a 60-second lease produced 4,421. One busy run
+		// reaches the 78 ms regime in minutes and drags the checkpoint write
+		// path of every claimed run with it.
+		//
+		// `KEEP_BELOW_MAX` was asserted nowhere, so raising it to a million
+		// brought the growth back with the suite still green.
+		for (let i = 0; i < 80; i++) {
+			await acquireClaim(runDir, { holder: 'w1', ttlMs: 60_000, now: 1_000 })
+		}
+
+		const holdings = (await readdir(join(runDir, 'claims'))).filter((n) => /^[0-9]+\.json$/.test(n))
+		// 80 issued, and the window kept is bounded by the constant rather than
+		// by the run's age.
+		expect(holdings.length).toBeLessThanOrEqual(33)
+		// And it is a WINDOW, not a purge: recent handovers are the evidence a
+		// contested run gets reconstructed from.
+		expect(holdings.length).toBeGreaterThanOrEqual(2)
+		// Pruning below the maximum cannot rewind the counter, which is the
+		// property that makes it safe at all.
+		expect(await currentFence(runDir)).toBe(80)
+	})
+
 	it('keeps every holding on the record', async () => {
 		const first = await acquireClaim(runDir, {
 			holder: 'w1',
