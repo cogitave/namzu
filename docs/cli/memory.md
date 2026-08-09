@@ -1,7 +1,7 @@
 ---
 title: Memory
 description: How namzu remembers across sessions via ~/.namzu/USER.md and MEMORY.md, plus the /remember and /memory commands.
-last_updated: 2026-05-25
+last_updated: 2026-08-09
 status: current
 related_packages: ["@namzu/cli"]
 ---
@@ -47,5 +47,42 @@ In a later session:
 ## Agent memory (structured)
 
 Separately from the always-injected files above, the agent has its own **structured memory** it manages on demand via tools — `save_memory`, `search_memory`, and `read_memory` — backed by the SDK's store at `.namzu/memory`. namzu uses these to record and recall notes itself during a task (rather than everything living in the always-on prompt). You don't drive these directly; the `/remember` + `MEMORY.md`/`USER.md` flow above is the user-facing memory.
+
+### What a run leaves behind on its own
+
+namzu could **store** a memory and could not **form** one. Until now the only
+path into the structured store was the model choosing to call `save_memory`, so
+a run that worked something out and never thought to write it down lost it —
+along with everything the compaction pass had already extracted and structured
+on the way there.
+
+Now, when a run settles, what it learned is offered to the same store
+`search_memory` reads: the user requirements it was given, the decisions it
+made, what it discovered, what it tried that did not work, and facts about the
+environment. One markdown record per run, tagged `run-memory`, carrying the
+run's id so a surprising memory can be traced back to what actually happened.
+
+**A run that learned nothing leaves nothing.** Not an empty record — nothing.
+Only those five categories count. The task does not, because every run has one
+and it is just the prompt restated; the list of files touched does not, because
+every run that opened anything has one and it says what was *touched* rather
+than what was *learned*. The model reads this store on later runs, so a record
+per run would not merely waste disk: it would spend context on runs that
+discovered nothing.
+
+If entries were dropped during the run because a category filled up, the record
+says so. Somebody reading it should know they are reading a truncated account.
+
+Sub-agents do not write their own records. A task that delegated six times
+would otherwise leave seven accounts of one piece of work for the next run to
+read; the parent's settle speaks for the whole task.
+
+A memory that fails to form never fails the run and never retracts an answer
+that was already produced — the failure is logged and the run stands.
+
+SDK hosts get the same thing as `createMemoryPromoter`, and can replace it
+wholesale by passing their own `promoteMemory` to `query`. Deduplication,
+merging with a previous run's record and expiry are deliberately not decided
+here; they are policies a host owns.
 
 `/recall` over past conversations is covered by [`/resume`](./tui.md#sessions--resume).

@@ -2,6 +2,9 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { ToolRegistry } from '../../../registry/index.js'
+import { createMemoryPromoter } from '../../../run/memory-promoter.js'
+import { InMemoryMemoryStore } from '../../../store/memory/memory.js'
+import type { MemoryStore } from '../../../types/memory/index.js'
 import type { RunMemoryCandidate } from '../../../types/run/memory-promotion.js'
 import { memoryCandidateFor } from '../../../types/run/memory-promotion.js'
 import {
@@ -78,6 +81,55 @@ describe('what a finished run leaves behind', () => {
 
 		expect(settled.status).toBe('completed')
 		expect(settled.result).toBe('done')
+	})
+
+	it('holds that promise for the SHIPPED promoter over a broken store', async () => {
+		// The same promise, now that something actually supplies the hook.
+		// The test above proves the runtime swallows a throw; this proves the
+		// thing hosts will really pass in is covered by it — and
+		// `createMemoryPromoter` deliberately does NOT catch, because the
+		// runtime is the one place that logs the failure.
+		const settled = await run({
+			promoteMemory: createMemoryPromoter({
+				store: {
+					create: async () => {
+						throw new Error('the memory store is unreachable')
+					},
+				} as unknown as MemoryStore,
+			}),
+		})
+
+		expect(settled.status).toBe('completed')
+		expect(settled.result).toBe('done')
+	})
+
+	it('leaves the store empty when the run discovered nothing', async () => {
+		// End to end, through the real runtime: a mock turn produces a task
+		// and no knowledge, so the shipped promoter writes nothing.
+		//
+		// Asserted as EMPTINESS rather than as "the promoter was called". A
+		// promoter that wrote a record per run would be called exactly the
+		// same number of times, and would fill the store the model reads on
+		// later runs with accounts of runs that found nothing.
+		const store = new InMemoryMemoryStore()
+		await run({ promoteMemory: createMemoryPromoter({ store }) })
+
+		expect((await store.list()).totalCount).toBe(0)
+	})
+
+	it('writes one record when the run did learn something', async () => {
+		// The guard on the test above: a promoter that never writes passes it
+		// while being the defect this whole hook exists to fix.
+		const store = new InMemoryMemoryStore()
+		const promote = createMemoryPromoter({ store })
+		await run({
+			promoteMemory: (candidate) =>
+				promote({ ...candidate, userRequirements: ['never email an invoice twice'] }),
+		})
+
+		const page = await store.list()
+		expect(page.totalCount).toBe(1)
+		expect(page.entries[0]?.title).toContain('invoice')
 	})
 
 	it('awaits an async host before the run returns', async () => {
