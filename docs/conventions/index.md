@@ -37,13 +37,15 @@ Read the rule that matches what you are about to change before you change it.
 ### Tests that prove something
 
 - [Mutate every test](mutation-check-every-test.md) — and a unit test on a
-  helper never proves the caller invokes it.
+  helper never proves the caller invokes it. A kill by one unit is the fixture
+  discriminating, not the code.
 - [A test can be sound and still be about the wrong thing](sound-about-the-wrong-thing.md)
   — right path, wrong observer, wrong moment. A live run is not exempt.
 - [A fixture unlike production tests a system that does not ship](fixture-must-match-production.md)
   — the defect lives in a branch an empty listener set never enters.
 - [A check that cannot fail is worse than no check](a-check-that-cannot-fail.md)
-  — it teaches the next reader that the checks here are decoration.
+  — it teaches the next reader that the checks here are decoration. Includes the
+  loose matcher: `toContain(old)` cannot see a change that only adds around it.
 
 ### Reading the evidence
 
