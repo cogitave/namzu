@@ -175,12 +175,27 @@ export function buildAgentTool(opts: AgentToolOptions): ToolDefinition {
 			// the other one.
 			const succeeded = taskSucceeded(completed)
 
+			// A schema-configured child answers with an OBJECT, and this used to
+			// hand the parent model the child's prose instead — so a supervisor
+			// fanning out to five specialists got five strings and had to
+			// re-parse what it had just caused to be serialized.
+			//
+			// `structuredOutput` wins over `result` when present, and reading it
+			// first is what makes that true. They agree by construction anyway:
+			// `setStructuredOutput` serializes the value into `result`, so this
+			// preference is about which field is authoritative rather than about
+			// which string is produced.
+			const structured = completed.result?.structuredOutput
 			const resultText =
-				typeof completed.result?.result === 'string'
-					? completed.result.result
-					: completed.result?.result !== undefined
-						? JSON.stringify(completed.result.result)
-						: ''
+				structured !== undefined
+					? typeof structured === 'string'
+						? structured
+						: JSON.stringify(structured)
+					: typeof completed.result?.result === 'string'
+						? completed.result.result
+						: completed.result?.result !== undefined
+							? JSON.stringify(completed.result.result)
+							: ''
 
 			if (!succeeded) {
 				const detail =

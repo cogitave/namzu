@@ -333,7 +333,28 @@ const run = await runToCompletion(
 )
 
 run.structuredOutput // { verdict, findings } — already validated
+run.result           // the same value, serialized
 ```
+
+`run.result` carries `JSON.stringify(structuredOutput)` on a structured run. It used to hold whatever prose an *earlier* turn produced — result resolution walks back from the message tail and stops at the first non-assistant message, and a structured run's last assistant turn is a tool call — so a host reading it got a sentence from the middle of the run presented as the answer. Read `run.messages` if you want the model's last prose.
+
+### It reaches a caller, not just the run
+
+The same value comes back through every boundary above `query()`:
+
+```ts
+// The front door can ask for a schema, and hands the parsed value back.
+const { structuredOutput } = await runAgent({
+  provider, model, prompt,
+  structuredOutput: { schema },
+})
+```
+
+- `BaseAgentResult.structuredOutput` — so an archetype's `run()` returns the object, not only text.
+- **Both delegation surfaces** — `Agent` and `create_task` return a schema-configured child's *object* to the parent, rather than the prose beside it. A supervisor fanning out to specialists gets typed answers instead of strings its model has to re-parse.
+- `run.json` persists it, so a run fetched by id still carries its answer.
+
+A child with no schema is unchanged: its prose is still what the parent receives.
 
 A model that answers in prose instead is re-prompted. If it still will not comply within `maxRetries`, the run settles with `stopReason: 'structured_output_failed'` rather than grinding against `maxIterations` — you get a clear failure instead of an expensive one.
 

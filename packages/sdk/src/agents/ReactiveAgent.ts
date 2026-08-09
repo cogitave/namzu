@@ -157,6 +157,7 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 			durationMs: Date.now() - startTime,
 			messages: run.messages,
 			result: run.result,
+			structuredOutput: run.structuredOutput,
 			lastError: run.lastError,
 			toolCallCount,
 		}
