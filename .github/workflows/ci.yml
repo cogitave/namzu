@@ -51,7 +51,28 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        node-version: [22, 24]
+        # Eight steps below run on ONE leg rather than every leg — the
+        # deterministic gates, which read the tree and would answer identically
+        # on each, plus the two that install. Which leg carries them is declared
+        # HERE, on the entry, instead of being spelled as `node-version == 24`
+        # eight times further down.
+        #
+        # The literal spelling worked and could stop working silently. It named
+        # a version that lives in this list, so replacing 24 with a newer
+        # runtime — an ordinary, unrelated edit — would leave eight `if`
+        # conditions matching nothing. No step fails; they are simply skipped,
+        # and a skipped step is green. Eight gates would go quiet in a diff that
+        # never mentioned them.
+        #
+        # Attached to the entry, the flag cannot be separated from the version
+        # by accident: whoever changes the runtime is editing the block that
+        # carries it. See `docs/conventions/a-check-that-cannot-fail.md` — a
+        # gate whose condition can quietly become unsatisfiable is that rule
+        # aimed at CI rather than at a test.
+        include:
+          - node-version: 22
+          - node-version: 24
+            gates: true
 
     steps:
       - uses: actions/checkout@v5
@@ -113,7 +134,7 @@ jobs:
       # `docs/conventions/an-optional-dependency-may-not-degrade-a-check.md`
       # exists to prevent. Reviewing the diff is the control for bashisms.
       - name: Installer parses as POSIX sh
-        if: matrix.node-version == 24
+        if: matrix.gates
         run: |
           sh -n install.sh
           dash -n install.sh
@@ -146,15 +167,15 @@ jobs:
       #      classified (required | baselineExempt | exempt).
       # Both are non-bypassable by design (no SKIP_* env var).
       - name: SDK coverage (produce summary)
-        if: matrix.node-version == 24
+        if: matrix.gates
         run: pnpm --filter @namzu/sdk test:coverage
 
       - name: SDK coverage floor gate
-        if: matrix.node-version == 24
+        if: matrix.gates
         run: node .github/scripts/check-sdk-module-coverage.mjs
 
       - name: SDK test-presence gate
-        if: matrix.node-version == 24
+        if: matrix.gates
         run: node .github/scripts/check-sdk-test-presence.mjs
 
       # The registry verifies a provenance attestation against
@@ -162,7 +183,7 @@ jobs:
       # time, after every sibling package has already gone out. Checking it
       # here costs a second; finding out at the registry costs a release.
       - name: Publish-metadata gate
-        if: matrix.node-version == 24
+        if: matrix.gates
         run: node .github/scripts/check-publish-metadata.mjs
 
       # Pre-publish package validation — runs on every PR + every push to main.
@@ -170,7 +191,7 @@ jobs:
       # bugs before they reach a publish tag. Only runs on one node version
       # in the matrix to avoid quadrupling install work.
       - name: Pre-publish consumer install check
-        if: matrix.node-version == 24
+        if: matrix.gates
         run: bash .github/scripts/verify-consumer-install.sh
 
       # Public-surface regression guard (ses_011-sdk-public-surface).
@@ -179,11 +200,11 @@ jobs:
       # error classes, zod schemas). Intentional widenings update the
       # baseline in the same commit.
       - name: Public-surface regression check
-        if: matrix.node-version == 24
+        if: matrix.gates
         run: node .github/scripts/verify-public-surface.mjs
 
       - name: publint (package.json shape)
-        if: matrix.node-version == 24
+        if: matrix.gates
         run: |
           for pkg in sdk sandbox telemetry computer-use providers/anthropic providers/bedrock providers/http providers/lmstudio providers/ollama providers/openai providers/openrouter; do
             echo "::group::publint packages/$pkg"
