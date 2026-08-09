@@ -8,7 +8,7 @@
  *
  * ## The default is always offered
  *
- * Every branch returns at least the provider's `defaultModel`. A screen that
+ * Every branch returns at least namzu's `defaultModel` for the provider. A screen that
  * can end with nothing selectable is a dead end for someone who came here to
  * get on with a task, and the default is exactly the value they would have got
  * by not visiting this step.
@@ -27,7 +27,7 @@ import type { ModelListing } from './agent.js'
 export interface ModelChoice {
 	readonly id: string
 	readonly label: string
-	/** Shown beside the row. `(default)` for the provider's own default. */
+	/** Shown beside the row. `(namzu default)` for the value namzu picks. */
 	readonly note?: string
 }
 
@@ -47,7 +47,7 @@ export interface ModelStep {
 /**
  * Build the model step for one provider.
  *
- * @param defaultModel The provider's own default, always offered.
+ * @param defaultModel namzu's default for this provider, always offered.
  * @param listing What asking the provider produced.
  * @param currentModel The model in force now, if any — so re-opening the picker
  *   starts on what is already selected rather than resetting to the default.
@@ -58,7 +58,7 @@ export function modelStep(
 	currentModel?: string,
 ): ModelStep {
 	const fallback = (notice: string): ModelStep => ({
-		choices: [{ id: defaultModel, label: defaultModel, note: '(default)' }],
+		choices: [{ id: defaultModel, label: defaultModel, note: '(namzu default)' }],
 		notice,
 		initialIndex: 0,
 	})
@@ -89,11 +89,11 @@ export function modelStep(
 		choices.push({
 			id: m.id,
 			label: m.name,
-			...(m.id === defaultModel ? { note: '(default)' } : {}),
+			...(m.id === defaultModel ? { note: '(namzu default)' } : {}),
 		})
 	}
 	if (!seen.has(defaultModel)) {
-		choices.unshift({ id: defaultModel, label: defaultModel, note: '(default)' })
+		choices.unshift({ id: defaultModel, label: defaultModel, note: '(namzu default)' })
 	}
 
 	const wanted = currentModel ?? defaultModel

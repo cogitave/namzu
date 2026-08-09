@@ -30,7 +30,22 @@ export interface ProviderRegistryEntry {
 	 * discoverer issues a HEAD/GET and treats 2xx as "available".
 	 */
 	readonly probeUrl?: string
-	/** Default model when the user does not pick one in the picker. */
+	/**
+	 * Default model when the user does not pick one in the picker.
+	 *
+	 * **These are namzu's picks, not the provider's, and they go stale.** A
+	 * hardcoded default fails silently: nothing errors, the run just happens on
+	 * an older model than the operator assumes, and only a reader who already
+	 * knows the current generation would notice. One sat two generations behind
+	 * for exactly that reason.
+	 *
+	 * Resolving them at runtime was considered and refused: it buys a network
+	 * call, a cache, and a staleness question on every launch, and the offline
+	 * path is where this defect would reappear invisibly. So the constant stays
+	 * and the obligation is stated instead — **re-check these at every provider
+	 * model release.** The picker labels the value as namzu's default so an
+	 * operator can see it is a choice rather than a recommendation.
+	 */
 	readonly defaultModel: string
 	/** Does this provider require an apiKey? `false` for purely local. */
 	readonly requiresApiKey: boolean
@@ -65,7 +80,7 @@ export const PROVIDER_REGISTRY: Readonly<Record<ProviderId, ProviderRegistryEntr
 			// variant, then claude-code's OAuth env (often present when the user
 			// has claude-code installed).
 			envVars: ['ANTHROPIC_API_KEY', 'ANTHROPIC_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN'],
-			defaultModel: 'claude-opus-4-7',
+			defaultModel: 'claude-opus-5',
 			requiresApiKey: true,
 			constructible: true,
 		},
@@ -82,7 +97,7 @@ export const PROVIDER_REGISTRY: Readonly<Record<ProviderId, ProviderRegistryEntr
 			label: 'OpenRouter',
 			envVars: ['OPENROUTER_API_KEY'],
 			defaultBaseUrl: 'https://openrouter.ai/api/v1',
-			defaultModel: 'anthropic/claude-opus-4-7',
+			defaultModel: 'anthropic/claude-opus-5',
 			requiresApiKey: true,
 			constructible: true,
 		},
@@ -110,6 +125,15 @@ export const PROVIDER_REGISTRY: Readonly<Record<ProviderId, ProviderRegistryEntr
 			id: 'bedrock',
 			label: 'AWS Bedrock',
 			envVars: ['AWS_ACCESS_KEY_ID'], // SDK reads the rest from the AWS chain
+			// UNVERIFIED, and left as-is deliberately. This driver talks to the
+			// Converse API, whose ids are date-stamped and version-suffixed
+			// (`<vendor>.<model>-<yyyymmdd>-v<n>:0`). This value carries the
+			// suffix but no date, so it matches that shape and the newer bare
+			// alias equally badly. Nobody here has a credential to prove which
+			// the endpoint accepts, and inventing a date would be a fabricated
+			// id that looks authoritative — so it is recorded rather than
+			// guessed at. Unreachable today in any case: `constructible: false`
+			// means this build cannot construct the driver at all.
 			defaultModel: 'anthropic.claude-opus-4-7-v1:0',
 			requiresApiKey: true,
 			constructible: false,
