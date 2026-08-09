@@ -21,8 +21,31 @@ export interface TranscriptMessage {
 	readonly glyphColor?: string
 	/** Dim suffix after the content (e.g. a tool's elapsed time). */
 	readonly meta?: string
-	/** Collapsible body under the line (tool diff / output); see Ctrl+O. */
+	/** Collapsible body under the line (tool diff / output). */
 	readonly detail?: readonly string[]
+	/**
+	 * The number this row's collapse hint prints, so `/expand <n>` can name it.
+	 *
+	 * Assigned once, when the row is pushed, and monotone for the life of the
+	 * transcript. Deliberately NOT an index into the message list: system, user
+	 * and assistant rows sit between the ones that carry detail, so an index
+	 * would name a different row every time one of those arrived.
+	 */
+	readonly detailRef?: number
+	/**
+	 * This row prints its whole body, with no collapse and no hint.
+	 *
+	 * A property of the ROW rather than a setting on the view, and that is
+	 * forced rather than chosen. Finalized rows render through Ink's `<Static>`,
+	 * which renders `items.slice(index)` and calls the render function only for
+	 * items it has not emitted yet — so a view-wide "expanded" flag reaches rows
+	 * that have not arrived and no row that has. That is what the key this
+	 * replaced actually did, and why it was worse than useless: it expanded
+	 * output you had not seen and could not touch the output you were looking at.
+	 * The only expansion available to a row already on screen is a NEW row, which
+	 * is what `/expand` pushes and what this flag marks.
+	 */
+	readonly detailExpanded?: boolean
 }
 
 export interface TuiContext {

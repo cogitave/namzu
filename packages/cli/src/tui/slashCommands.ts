@@ -1,9 +1,11 @@
 /**
  * Slash command registry + parser. Pure logic — no React. Unit-tested.
  *
- * A command's `action` returns either a `system` message to push onto the
- * transcript, an `exit` signal, or `void` (no transcript change). The
- * caller (App) maps results onto state.
+ * A command's `action` returns a `SlashAction` — see the union below, which has
+ * grown well past the "message, exit, or nothing" this line used to claim. The
+ * caller (App) maps every kind onto state, and its switch is exhaustive: a kind
+ * added here and not handled there falls out of the switch into the send path
+ * and dispatches the operator's `/command` to the model as prose.
  *
  * `/cost`, `/permissions` and `/agents` are RENDERERS. Every number and rule
  * they print was already computed — the kernel emits usage on its own event,
@@ -12,6 +14,13 @@
  * asks the model, recomputes anything, or reaches past what the session
  * already carries. A command that had to compute its own answer would be a
  * second source for a fact the kernel already owns, and the two would drift.
+ *
+ * `/expand` is the same discipline with the split drawn one step earlier. The
+ * lines it prints were captured when the tool ran and are held on the transcript
+ * row, which this module cannot see and must not: it validates the argument and
+ * hands App a `which`, and App — the only thing that knows what rows exist —
+ * resolves it. Giving this module the transcript to search would put the answer
+ * to "does block 4 exist" in two places at once.
  */
 
 import type { VerificationRule } from '@namzu/sdk'
@@ -28,6 +37,15 @@ export type SlashAction =
 	| { kind: 'list-skills' }
 	| { kind: 'load-skill'; name: string }
 	| { kind: 'resume' }
+	/**
+	 * Print a collapsed tool body in full, as a NEW transcript row.
+	 *
+	 * `which` is the number the collapse hint printed, or `'last'` for the most
+	 * recent one. This module validates the shape of the argument and stops
+	 * there: whether such a block exists is a fact about the transcript, which
+	 * App owns and this module deliberately does not see.
+	 */
+	| { kind: 'expand'; which: number | 'last' }
 	/**
 	 * Drive a turn with text the command composed rather than the user typed.
 	 *
@@ -228,6 +246,34 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
 		name: 'resume',
 		description: 'Resume a past conversation in this folder.',
 		action: () => ({ kind: 'resume' }),
+	},
+	{
+		name: 'expand',
+		description: 'Print a collapsed tool output in full: /expand [n].',
+		action: (_ctx, args) => {
+			const arg = args.join(' ').trim()
+			// Bare `/expand` means the most recent one. That is what a person types
+			// the moment output truncates in front of them, and making them read a
+			// number back off the screen first would be a toll on the common case.
+			if (arg.length === 0) return { kind: 'expand', which: 'last' }
+			// Matched as the literal decimal a hint can print, and nothing else.
+			//
+			// `parseInt` would read `2nd` as 2 and expand a block the operator did
+			// not name. `Number` plus `Number.isInteger` fixes that one and still
+			// admits `0x10`, `1e2`, `+3` and `3.0` — four spellings no hint has
+			// ever shown, each of which turns a typo into a valid reference to
+			// some OTHER block. What this accepts is exactly what the screen can
+			// produce, which is the only set with no silently-wrong answer in it.
+			if (!/^[1-9][0-9]*$/.test(arg)) {
+				return {
+					kind: 'message',
+					role: 'system',
+					content:
+						'Usage: /expand [n], where n is the number in the "… +N lines · /expand n" hint under a collapsed tool output. /expand on its own takes the most recent one.',
+				}
+			}
+			return { kind: 'expand', which: Number(arg) }
+		},
 	},
 	{
 		name: 'skill',
