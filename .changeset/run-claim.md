@@ -34,6 +34,27 @@ for (const entry of page.entries) {
 }
 ```
 
+## What the fence covers, and what it does not
+
+**The fence protects checkpoints. It does not yet protect the rest of a run's
+durable state.** Read this before you rely on it.
+
+`writeCheckpoint` is the only write that takes a fence today. When a run
+settles it also writes its run record, its full message history, its report
+and its index row, and all four go through a different store that has no
+fence parameter. So two workers that both took the same run — because one
+stalled past its lease and the other reclaimed it — are stopped from
+corrupting the checkpoint chain, and **still overwrite each other's run
+record, transcript and report.**
+
+That is a real bound, not a theoretical one. It means a claim today buys you
+a coherent resume point, not a coherent run.
+
+Closing it needs the run store to become injectable and fence-aware, which is
+separate work; until then, treat a claim as protecting the state a resume
+reads and assume the settle-time artefacts are last-writer-wins. If that is
+not good enough for your deployment, keep one writer per run.
+
 **It is a lease, not a lock.** A lock held by a process that dies is held
 forever and its runs need a human with a shell. Calling `claimRun` on a run
 whose claim has expired succeeds and mints a higher fence; the dead holder is
