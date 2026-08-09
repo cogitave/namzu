@@ -152,6 +152,21 @@ export interface ParkSummary {
  * scope, intersect with the host's own run records, resume the difference.
  */
 export interface DurableRunEntry extends CheckpointRunScope {
+	/**
+	 * When the run was attributed. Absent when it was never recorded.
+	 *
+	 * The only per-run key this store holds that does not move, which is why
+	 * it is the one an oldest-first listing can page over — see
+	 * {@link CheckpointStore.listDurableRuns} and
+	 * `IterationCheckpoint.runCreatedAt`.
+	 *
+	 * **Absent means "not recorded", and a caller should render it that way
+	 * rather than as a date it invents.** Every run checkpointed by a build
+	 * carrying the stamp has one; a run that has none was checkpointed
+	 * before the stamp existed.
+	 */
+	readonly runCreatedAt?: number
+
 	/** How many checkpoints the run has right now. Pruning lowers it. */
 	readonly checkpointCount: number
 	/** Newest checkpoint by `createdAt` — the one a resume restores by default. */
@@ -162,8 +177,46 @@ export interface DurableRunEntry extends CheckpointRunScope {
 	readonly park?: ParkSummary
 }
 
+/**
+ * Which order a listing comes back in.
+ *
+ * Explicit rather than implied, because the two available orders answer
+ * different questions and neither is right for both. "Show me every run
+ * waiting on a human" wants stable paging; "show me the one that has been
+ * waiting longest" wants chronology. A listing that silently picked one
+ * would be the same ambiguity the scope type removed by splitting.
+ */
+export type DurableRunOrder =
+	/**
+	 * By `runId` ascending. Stable and total, and meaningless as chronology —
+	 * run ids carry no timestamp. The default, because it is what shipped.
+	 */
+	| 'runId'
+	/**
+	 * Oldest first, by {@link DurableRunEntry.runCreatedAt} then `runId`.
+	 * This is the triage order: it answers which run has been waiting
+	 * longest. Safe to page over, because the stamp is recorded once at
+	 * attribution and never rewritten.
+	 *
+	 * **Runs whose creation was never recorded come FIRST**, ordered among
+	 * themselves by `runId`. That is not a guess dressed up as a date: the
+	 * stamp is written by the checkpoint manager, so a run lacking it on
+	 * every checkpoint was checkpointed by a build that predates the stamp,
+	 * and therefore predates every run that has one. Their
+	 * `runCreatedAt` is absent on the row, so a caller can render "unknown"
+	 * instead of a date nobody recorded.
+	 */
+	| 'createdAt'
+
 /** Filters and paging for {@link CheckpointStore.listDurableRuns}. */
 export interface ListDurableRunsOptions {
+	/**
+	 * Ordering, and therefore what the cursor is a position in. Defaults to
+	 * `'runId'`. A cursor is only meaningful within one order — do not carry
+	 * one across a change of `orderBy`.
+	 */
+	readonly orderBy?: DurableRunOrder
+
 	/**
 	 * Keep only runs whose park is in one of these states. A run that never
 	 * parked has no state and is excluded by ANY value here; omit the filter
@@ -256,30 +309,30 @@ export interface CheckpointStore {
 	 * for an unanswered park, and until this existed the sweep had no way to
 	 * enumerate what to sweep.
 	 *
-	 * ### Ordering, and why it is not chronological
+	 * ### Ordering
 	 *
-	 * Rows come back ordered by `runId` ascending, and the cursor is a
-	 * position in that order.
+	 * Two orders, named by `options.orderBy`, and the cursor is a position in
+	 * whichever one was asked for. See {@link DurableRunOrder}.
 	 *
-	 * A cursor has to sort on a key that cannot move, or a paging caller
-	 * skips rows and repeats rows. Every time-valued key this store can
-	 * derive per run DOES move: the newest checkpoint's timestamp advances
-	 * whenever the run checkpoints again, and the oldest one's advances
-	 * whenever `CheckpointManager.prune` deletes oldest-first, which is what
-	 * pruning does. `runId` is the only immutable, unique per-run key
-	 * available, and being unique it is already a total order — the
-	 * degenerate case of the rule `orderChildren` follows (sort on a key that
-	 * cannot move, make the order total with an id), not a departure from it.
+	 * Both sort on a key that cannot MOVE, which is the property a cursor
+	 * needs — sort on a moving key and a paging caller skips rows and repeats
+	 * rows. That rules out every time a checkpoint store can derive on its
+	 * own: the newest checkpoint's timestamp advances whenever the run
+	 * checkpoints again, and the oldest one's advances whenever
+	 * `CheckpointManager.prune` deletes oldest-first, which is what pruning
+	 * does. It leaves `runId`, which is immutable and unique but carries no
+	 * timestamp, and `runCreatedAt`, which is recorded once at attribution
+	 * and denormalized onto every checkpoint so pruning cannot reach it.
 	 *
-	 * The cost is that page order is arbitrary rather than oldest-first,
-	 * because run ids carry no timestamp. Entries carry `latestCheckpointAt`
-	 * and `park.parkedAt` so a caller can sort what it has read.
+	 * `'runId'` alone is already a total order. `'createdAt'` tiebreaks on
+	 * `runId`, which is the rule `orderChildren` follows: sort on a key that
+	 * cannot move, make the order total with an id.
 	 *
 	 * A run whose FIRST checkpoint is written after paging began may be
-	 * missed by that pass — it lands at whatever `runId` it minted, possibly
-	 * behind the cursor. That is the right trade for a queue: the sweep runs
-	 * again and picks it up next pass, whereas a moving sort key loses runs
-	 * that already existed.
+	 * missed by that pass, in either order — it lands wherever its key puts
+	 * it, possibly behind the cursor. That is the right trade for a queue:
+	 * the sweep runs again and picks it up next pass, whereas a moving sort
+	 * key loses runs that already existed.
 	 *
 	 * @param scope contiguous prefix; `tenantId` required. Implementations
 	 *   reject a hole (`sessionId` with no `projectId`) rather than guessing.

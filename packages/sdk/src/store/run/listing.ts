@@ -15,6 +15,7 @@ import type {
 	CheckpointRunScope,
 	CheckpointStore,
 	DurableRunEntry,
+	DurableRunOrder,
 	DurableRunPage,
 	ListDurableRunsOptions,
 	ParkState,
@@ -139,8 +140,21 @@ export function toDurableRunEntry(
 	if (checkpoints.length === 0) return null
 
 	let latest = checkpoints[0] as IterationCheckpoint
+	// The EARLIEST recorded stamp, not the one on any particular checkpoint.
+	// Every checkpoint of a run carries the same value, so under that
+	// invariant the minimum is that value. Taking the minimum rather than
+	// reading one checkpoint is what makes the read safe if the invariant is
+	// ever broken: it can only err toward the run's true attribution, never
+	// away from it, and it cannot move when a later checkpoint is added.
+	let runCreatedAt: number | undefined
 	for (const cp of checkpoints) {
 		if (cp.createdAt > latest.createdAt) latest = cp
+		if (
+			cp.runCreatedAt !== undefined &&
+			(runCreatedAt === undefined || cp.runCreatedAt < runCreatedAt)
+		) {
+			runCreatedAt = cp.runCreatedAt
+		}
 	}
 
 	const park = summarizePark(checkpoints, now)
@@ -151,6 +165,7 @@ export function toDurableRunEntry(
 		sessionId: scope.sessionId,
 		runId: scope.runId,
 		...(scope.parentRunId ? { parentRunId: scope.parentRunId } : {}),
+		...(runCreatedAt !== undefined ? { runCreatedAt } : {}),
 		checkpointCount: checkpoints.length,
 		latestCheckpointId: latest.id,
 		latestCheckpointAt: latest.createdAt,
@@ -176,12 +191,16 @@ export function paginateDurableRuns(
 			? entries.filter((e) => e.park !== undefined && wanted.includes(e.park.state))
 			: entries
 
-	// Ordered by `runId` because it is the only per-run key that cannot move
-	// under a paging caller — see the contract comment on `listDurableRuns`.
-	const ordered = [...filtered].sort((a, b) => (a.runId < b.runId ? -1 : a.runId > b.runId ? 1 : 0))
+	// Both orders sort on a key that cannot move under a paging caller — see
+	// the contract comment on `listDurableRuns`.
+	const orderBy = options?.orderBy ?? 'runId'
+	const ordered = [...filtered].sort((a, b) =>
+		compareKeys(sortKey(a, orderBy), sortKey(b, orderBy)),
+	)
 
-	const after = options?.cursor
-	const start = after === undefined ? 0 : ordered.findIndex((e) => e.runId > after)
+	const after = options?.cursor === undefined ? undefined : decodeCursor(options.cursor, orderBy)
+	const start =
+		after === undefined ? 0 : ordered.findIndex((e) => compareKeys(sortKey(e, orderBy), after) > 0)
 	const from = start < 0 ? ordered.length : start
 
 	const limit = Math.max(1, Math.trunc(options?.limit ?? DEFAULT_DURABLE_RUN_LIMIT))
@@ -194,8 +213,67 @@ export function paginateDurableRuns(
 		// terminates rather than fetching one empty page to find out.
 		...(exhausted || page.length === 0
 			? {}
-			: { cursor: (page[page.length - 1] as DurableRunEntry).runId }),
+			: { cursor: encodeCursor(sortKey(page[page.length - 1] as DurableRunEntry, orderBy)) }),
 	}
+}
+
+/**
+ * A row's position in the requested order, as a comparable tuple.
+ *
+ * The first element is a rank rather than the timestamp itself, so that
+ * "never recorded" is a position in its own right instead of a number
+ * standing in for one. In `createdAt` order it ranks 0 and everything
+ * stamped ranks 1 — unrecorded runs first, and truthfully so: the stamp is
+ * written by the checkpoint manager, so a run without one was checkpointed
+ * by a build that predates it, and predates every run that has one.
+ */
+type SortKey = readonly [number, number, string]
+
+function sortKey(entry: DurableRunEntry, orderBy: DurableRunOrder): SortKey {
+	if (orderBy === 'runId') return [0, 0, entry.runId]
+	return entry.runCreatedAt === undefined
+		? [0, 0, entry.runId]
+		: [1, entry.runCreatedAt, entry.runId]
+}
+
+function compareKeys(a: SortKey, b: SortKey): number {
+	if (a[0] !== b[0]) return a[0] - b[0]
+	if (a[1] !== b[1]) return a[1] - b[1]
+	return a[2] < b[2] ? -1 : a[2] > b[2] ? 1 : 0
+}
+
+/**
+ * The cursor is the last row's key, and nothing else.
+ *
+ * Opaque to callers by contract — the shape is written down here rather than
+ * in the type so a host is not tempted to construct one. Run ids come from a
+ * 36-character lowercase alphabet with a `run_` prefix and contain no
+ * separator, so joining on `:` is unambiguous.
+ */
+function encodeCursor(key: SortKey): string {
+	return `${key[0]}:${key[1]}:${key[2]}`
+}
+
+function decodeCursor(cursor: string, orderBy: DurableRunOrder): SortKey {
+	const first = cursor.indexOf(':')
+	const second = cursor.indexOf(':', first + 1)
+	if (first < 0 || second < 0) {
+		throw new NamzuError({
+			code: 'invalid_config',
+			message: `listDurableRuns: "${cursor}" is not a cursor this listing issued. Pass back the \`cursor\` from the previous page rather than constructing one; its shape is not part of the contract.`,
+			details: { cursor, orderBy },
+		})
+	}
+	const rank = Number(cursor.slice(0, first))
+	const stamp = Number(cursor.slice(first + 1, second))
+	if (!Number.isFinite(rank) || !Number.isFinite(stamp)) {
+		throw new NamzuError({
+			code: 'invalid_config',
+			message: `listDurableRuns: cursor "${cursor}" is malformed — its position fields are not numbers. Pass back the \`cursor\` from the previous page.`,
+			details: { cursor, orderBy },
+		})
+	}
+	return [rank, stamp, cursor.slice(second + 1)]
 }
 
 /**

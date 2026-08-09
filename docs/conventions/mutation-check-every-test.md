@@ -173,6 +173,38 @@ failure as evidence about the old behaviour before adjusting the test, and
 record why the adjustment was needed — otherwise the next reader sees an
 unexplained edit to an unrelated test in a bug-fix diff.
 
+## A kill that exists and is not evidence
+
+Three independent sightings in one night, across three agents, of one shape:
+**the mutation was restored, something did go wrong, and what went wrong was
+not a failing test.**
+
+- A mutation made a cursor a no-op, and three paging tests looped on that
+  cursor with nothing stopping them. The suite **hung** instead of going red.
+  A stall reads as flaky infrastructure and gets retried; a failure names the
+  defect. Bounded every walk, and the same mutation then killed six tests in
+  under a second.
+- A test process was **killed on a timeout** at fifteen seconds. The kill is
+  not a verdict on the code — it is a verdict on nothing at all — and it
+  arrives looking exactly like one.
+- A mutation's **margin vanished at a particular fixture size**, so the same
+  mutation killed or did not depending on how much data the fixture carried.
+
+The rule that follows: a mutation run yields three outcomes, not two — killed,
+survived, and *did not answer*. Only the first two are evidence. Treat a hang,
+a timeout kill, a crash before assertions, or a result that moves with fixture
+size as an unanswered mutation and fix the harness or the test until it
+answers. A table that folds "did not answer" into either column is reporting a
+number it did not measure.
+
+The same applies to the anchors a text-matching harness uses. They go stale
+**exactly when the code they guard changes**, which is the only time any of it
+matters, and a harness that skips a stale mutation and prints the rest reads
+green while guarding less than it claims. Make a zero-match or a multi-match
+anchor abort the run rather than become a row — a multi-match is the worse
+one, because a string replace takes the first occurrence and reports a kill
+for a mutation it only half made.
+
 ## Related
 
 - [A declaration nothing drives is a defect](declared-but-undriven.md)

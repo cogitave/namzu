@@ -211,6 +211,34 @@ export interface IterationCheckpoint {
 	planStatus?: PlanStatus
 
 	/**
+	 * When the RUN was attributed — not when this checkpoint was written.
+	 * See {@link IterationCheckpoint.createdAt} for the latter.
+	 *
+	 * Denormalized onto every checkpoint of the run, identically, and that
+	 * repetition is the whole point. A listing above the run needs a key it
+	 * can order by, and a key a paging caller can trust is one that cannot
+	 * MOVE. Every other time a checkpoint store can derive per run moves: the
+	 * newest checkpoint's `createdAt` advances every time the run checkpoints
+	 * again, and the oldest one's advances every time `prune` deletes
+	 * oldest-first. Carried on all of them, this one survives both — pruning
+	 * cannot reach a value every survivor also holds.
+	 *
+	 * `readonly`, and written exactly once per run by
+	 * {@link import('../../runtime/query/checkpoint.js').CheckpointManager},
+	 * which settles it on whichever comes first — adopting it from the
+	 * checkpoint a resume restores, or minting it from the run's own start
+	 * instant — and never reassigns after. A field that COULD be updated is
+	 * one edit away from moving again, which would put the ordering back
+	 * where it started.
+	 *
+	 * Absent on checkpoints written before this existed. That absence is
+	 * information, not a gap: a run with no stamp on any of its checkpoints
+	 * was attributed before the stamp existed, and therefore before every
+	 * run that has one.
+	 */
+	readonly runCreatedAt?: number
+
+	/**
 	 * Present when the run parked at this checkpoint awaiting a human.
 	 * See {@link PendingDecision}.
 	 */

@@ -61,11 +61,13 @@ function checkpoint(
 	runId: string,
 	createdAt: number,
 	pending?: IterationCheckpoint['pending'],
+	runCreatedAt?: number,
 ): IterationCheckpoint {
 	cpSeq += 1
 	return {
 		id: `cp_${cpSeq}` as CheckpointId,
 		runId: runId as RunId,
+		...(runCreatedAt !== undefined ? { runCreatedAt } : {}),
 		iteration: 1,
 		messages: [],
 		tokenUsage: {
@@ -114,6 +116,33 @@ function resolved(runId: string, at = NOW - 500): IterationCheckpoint['pending']
 }
 
 const ALL: CheckpointListingScope = { tenantId: T1 }
+
+/**
+ * Page a listing to exhaustion, refusing to page forever.
+ *
+ * Every one of these walks was `while (cursor !== undefined)` with nothing
+ * stopping it, and a mutation that made the cursor a no-op turned three
+ * tests from red into a HANG. That is strictly worse than a failure: a
+ * stalled suite reads as flaky infrastructure and gets retried, where a
+ * failure names the defect. The bound is generous enough that no correct
+ * implementation reaches it and tight enough that a broken cursor is
+ * reported as what it is.
+ */
+async function walk(
+	store: CheckpointStore,
+	options: Parameters<typeof listDurableRuns>[2],
+): Promise<string[]> {
+	const seen: string[] = []
+	let cursor: string | undefined
+	for (let page = 0; page <= 20; page++) {
+		if (page === 20) throw new Error('walk: cursor never exhausted — the listing is paging forever')
+		const result = await listDurableRuns(store, ALL, { ...options, cursor })
+		seen.push(...result.entries.map((e) => e.runId))
+		cursor = result.cursor
+		if (cursor === undefined) return seen
+	}
+	return seen
+}
 
 // ── the acceptance case ──────────────────────────────────────────────────
 
@@ -321,19 +350,13 @@ describe('paging', () => {
 
 	it('walks every run exactly once and then stops', async () => {
 		const store = await seed()
-		const seen: string[] = []
-		let cursor: string | undefined
-		let guard = 0
-
-		do {
-			const page = await listDurableRuns(store, ALL, { limit: 2, cursor, now: NOW })
-			seen.push(...page.entries.map((e) => e.runId))
-			cursor = page.cursor
-			guard += 1
-		} while (cursor !== undefined && guard < 10)
-
-		expect(seen).toEqual(['run_a', 'run_b', 'run_c', 'run_d', 'run_e'])
-		expect(cursor).toBeUndefined()
+		expect(await walk(store, { limit: 2, now: NOW })).toEqual([
+			'run_a',
+			'run_b',
+			'run_c',
+			'run_d',
+			'run_e',
+		])
 	})
 
 	it('withholds the cursor on the page that exhausts the listing', async () => {
@@ -345,13 +368,21 @@ describe('paging', () => {
 		// exhaustion check survived that test. The contract says a store never
 		// returns a cursor it already knows yields nothing, so assert the
 		// last page directly.
-		const last = await listDurableRuns(store, ALL, { limit: 2, cursor: 'run_c', now: NOW })
+		//
+		// Cursors are carried opaquely here on purpose — a test that spelled
+		// one out would be a test of the encoding, and the contract says the
+		// shape is not part of it.
+		const first = await listDurableRuns(store, ALL, { limit: 3, now: NOW })
+		expect(first.cursor).toBeDefined()
+
+		const last = await listDurableRuns(store, ALL, { limit: 2, cursor: first.cursor, now: NOW })
 		expect(last.entries.map((e) => e.runId)).toEqual(['run_d', 'run_e'])
 		expect(last.cursor).toBeUndefined()
 
 		// And a page that fills exactly, with more behind it, still carries one.
-		const middle = await listDurableRuns(store, ALL, { limit: 2, cursor: 'run_a', now: NOW })
-		expect(middle.cursor).toBe('run_c')
+		const middle = await listDurableRuns(store, ALL, { limit: 2, now: NOW })
+		expect(middle.entries.map((e) => e.runId)).toEqual(['run_a', 'run_b'])
+		expect(middle.cursor).toBeDefined()
 	})
 
 	it('does not lose or repeat a run when the sort key would have moved', async () => {
@@ -365,15 +396,13 @@ describe('paging', () => {
 		// the cursor — silently dropping it from a sweep.
 		await store.writeCheckpoint(scope('run_a'), checkpoint('run_a', 10_000))
 
-		const rest: string[] = []
-		let cursor = first.cursor
-		while (cursor !== undefined) {
-			const page = await listDurableRuns(store, ALL, { limit: 2, cursor, now: NOW })
-			rest.push(...page.entries.map((e) => e.runId))
-			cursor = page.cursor
-		}
-
-		expect(rest).toEqual(['run_c', 'run_d', 'run_e'])
+		expect(await walk(store, { limit: 2, now: NOW })).toEqual([
+			'run_a',
+			'run_b',
+			'run_c',
+			'run_d',
+			'run_e',
+		])
 	})
 
 	it('clamps a nonsense limit rather than returning nothing', async () => {
@@ -381,8 +410,139 @@ describe('paging', () => {
 		const page = await listDurableRuns(store, ALL, { limit: 0, now: NOW })
 		// A limit of zero that returned an empty page would read as "no runs
 		// are parked" — the failure this whole listing exists to avoid.
-		expect(page.entries).toHaveLength(1)
-		expect(page.cursor).toBe('run_a')
+		expect(page.entries.map((e) => e.runId)).toEqual(['run_a'])
+
+		const next = await listDurableRuns(store, ALL, { limit: 0, cursor: page.cursor, now: NOW })
+		expect(next.entries.map((e) => e.runId)).toEqual(['run_b'])
+	})
+})
+
+// ── the creation stamp, and the order it makes possible ──────────────────
+
+describe('ordering by when the run was attributed', () => {
+	/** Seeded so that id order and creation order disagree completely. */
+	async function seed(): Promise<InMemoryCheckpointStore> {
+		const store = new InMemoryCheckpointStore()
+		await store.writeCheckpoint(scope('run_a'), checkpoint('run_a', 50, undefined, 500))
+		await store.writeCheckpoint(scope('run_b'), checkpoint('run_b', 50, undefined, 400))
+		await store.writeCheckpoint(scope('run_c'), checkpoint('run_c', 50, undefined, 300))
+		return store
+	}
+
+	it('answers which run has been waiting longest', async () => {
+		const store = await seed()
+
+		// Run ids carry no timestamp, so id order says nothing about age. An
+		// operator triaging an inbox asks for the oldest, and until there was
+		// a key that did not move, that question had no answer.
+		expect(
+			(await listDurableRuns(store, ALL, { orderBy: 'createdAt', now: NOW })).entries.map(
+				(e) => e.runId,
+			),
+		).toEqual(['run_c', 'run_b', 'run_a'])
+	})
+
+	it('leaves the default alone', async () => {
+		const store = await seed()
+		// Changing the default order would be a changed default, and a caller
+		// paging today would silently start walking a different sequence.
+		expect((await listDurableRuns(store, ALL, { now: NOW })).entries.map((e) => e.runId)).toEqual([
+			'run_a',
+			'run_b',
+			'run_c',
+		])
+	})
+
+	it('pages oldest-first without losing a run that checkpoints again', async () => {
+		const store = await seed()
+
+		const first = await listDurableRuns(store, ALL, { orderBy: 'createdAt', limit: 1, now: NOW })
+		expect(first.entries.map((e) => e.runId)).toEqual(['run_c'])
+
+		// The oldest run checkpoints again mid-pagination. This is the exact
+		// move that breaks a listing sorted on `latestCheckpointAt`; the
+		// attribution stamp does not move, so the walk is unaffected.
+		await store.writeCheckpoint(scope('run_c'), checkpoint('run_c', 9_000, undefined, 300))
+
+		expect(await walk(store, { orderBy: 'createdAt', limit: 1, now: NOW })).toEqual([
+			'run_c',
+			'run_b',
+			'run_a',
+		])
+	})
+
+	it('does not move when the oldest checkpoint is pruned away', async () => {
+		const store = new InMemoryCheckpointStore()
+		const first = checkpoint('run_a', 10, undefined, 300)
+		const second = checkpoint('run_a', 20, undefined, 300)
+		await store.writeCheckpoint(scope('run_a'), first)
+		await store.writeCheckpoint(scope('run_a'), second)
+
+		// Pruning deletes oldest-first, which is what disqualified every other
+		// timestamp. The stamp is on every checkpoint, so pruning cannot reach
+		// a value the survivors also hold.
+		await store.deleteCheckpoint(scope('run_a'), first.id)
+
+		const page = await listDurableRuns(store, ALL, { orderBy: 'createdAt', now: NOW })
+		expect(page.entries[0]?.runCreatedAt).toBe(300)
+	})
+
+	it('puts runs whose creation was never recorded first, and says so on the row', async () => {
+		const store = await seed()
+		await store.writeCheckpoint(scope('run_z'), checkpoint('run_z', 60))
+		await store.writeCheckpoint(scope('run_y'), checkpoint('run_y', 60))
+
+		const page = await listDurableRuns(store, ALL, { orderBy: 'createdAt', now: NOW })
+
+		// Not a guess dressed up as a date: the stamp is written by the
+		// checkpoint manager, so a run without one was checkpointed by a build
+		// that predates the stamp — and therefore predates every run that has
+		// one. `runCreatedAt` stays absent so a caller renders "unknown"
+		// rather than a time nobody recorded.
+		expect(page.entries.map((e) => e.runId)).toEqual(['run_y', 'run_z', 'run_c', 'run_b', 'run_a'])
+		expect(page.entries[0]?.runCreatedAt).toBeUndefined()
+		expect(page.entries[2]?.runCreatedAt).toBe(300)
+	})
+
+	it('tells "not recorded" apart from "recorded as the epoch"', async () => {
+		const store = new InMemoryCheckpointStore()
+		await store.writeCheckpoint(scope('run_a'), checkpoint('run_a', 10, undefined, 0))
+		await store.writeCheckpoint(scope('run_z'), checkpoint('run_z', 10))
+
+		// Zero is a recorded time; absence is not a time at all. Ordering by a
+		// timestamp alone would collapse the two and interleave them by id —
+		// which is why the sort key ranks "unrecorded" as a position of its
+		// own rather than standing a number in for it.
+		const page = await listDurableRuns(store, ALL, { orderBy: 'createdAt', now: NOW })
+		expect(page.entries.map((e) => [e.runId, e.runCreatedAt])).toEqual([
+			['run_z', undefined],
+			['run_a', 0],
+		])
+	})
+
+	it('pages across the boundary between unrecorded and recorded runs', async () => {
+		const store = await seed()
+		await store.writeCheckpoint(scope('run_z'), checkpoint('run_z', 60))
+
+		// The cursor has to carry the rank as well as the time, or the first
+		// stamped row compares against a stand-in timestamp and the walk
+		// either repeats the unrecorded runs or skips the oldest recorded one.
+		expect(await walk(store, { orderBy: 'createdAt', limit: 1, now: NOW })).toEqual([
+			'run_z',
+			'run_c',
+			'run_b',
+			'run_a',
+		])
+	})
+
+	it('refuses a cursor it did not issue', async () => {
+		const store = await seed()
+		// A caller constructing a cursor is a caller depending on a shape that
+		// is not part of the contract. Refusing beats silently treating it as
+		// a position and returning a page from nowhere.
+		await expect(
+			listDurableRuns(store, ALL, { orderBy: 'createdAt', cursor: 'run_c', now: NOW }),
+		).rejects.toThrow(/not a cursor this listing issued/)
 	})
 })
 
