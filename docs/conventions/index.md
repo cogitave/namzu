@@ -95,9 +95,15 @@ the code as a comment instead.
 
 Every file here carries front matter the documentation gate reads: `uid`,
 `title`, `description`, `type`, `diataxis`, `owner`, `status`, `timestamp` and
-`lastReviewed`, plus an optional `resource` naming the code the incident lives
-in. Where `resource` is set, the gate fails the build if that code has moved
-since the rule was last touched. Run it with `pnpm docs:check`.
+`lastReviewed`. Run it with `pnpm docs:check`.
+
+**Do not add a `resource`.** This paragraph used to instruct the opposite — name
+the code the incident lives in — which is what put a sentinel on all eight pages
+and is the practice the section at the top of this file removed. The two
+sentences contradicted each other for the length of one commit, which is a
+smaller version of the thing conventions exist to stop: a reader following the
+instruction here would have rebuilt exactly what the reasoning above explains
+away.
 
 `verified` records who last re-established a rule against source, and when. It
 is absent on most of these, and that absence is accurate rather than an
