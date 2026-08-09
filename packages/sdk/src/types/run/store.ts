@@ -28,7 +28,19 @@
  */
 
 import type { Run } from './entity.js'
-import type { RunEvent } from './events.js'
+import type { PersistedRunEvent, RunEvent } from './events.js'
+
+/** What a caller asks the log for. See {@link RunStore.readEvents}. */
+export interface ReadRunEventsOptions {
+	/**
+	 * Return only events ABOVE this sequence — strictly greater, never equal.
+	 *
+	 * The exclusive boundary is what makes a cursor round-trip: a consumer that
+	 * last saw `seq: 12` passes 12 and receives 13 onward, so nothing is
+	 * delivered twice. Absent means the whole log.
+	 */
+	readonly sinceSeq?: number
+}
 
 /**
  * One finished tool call, recovered from the run's own transcript.
@@ -70,6 +82,36 @@ export interface RunStore {
 	 * the backend, so a store must not re-filter.
 	 */
 	appendEvent(event: RunEvent): Promise<void>
+
+	/**
+	 * Read the run's durable event log back, oldest first.
+	 *
+	 * Required, unlike {@link RunStore.addToIndex}, and the asymmetry is the
+	 * point: a store that records a transcript it cannot read back is
+	 * write-only evidence, which is the defect the whole contract exists to
+	 * fix one level up. It is also what a reconnecting consumer catches up
+	 * through — "refresh the page and keep watching the answer arrive" is this
+	 * method plus a cursor and nothing else.
+	 *
+	 * Three obligations, each of which a consumer relies on:
+	 *
+	 *  1. **Ascending by `seq`, in the order the events were appended.** Do not
+	 *     sort a log back into order — a log that needs sorting was written by
+	 *     two processes, and hiding that produces a plausible transcript of a
+	 *     run that never happened.
+	 *  2. **`sinceSeq` is exclusive.** See {@link ReadRunEventsOptions}.
+	 *  3. **Contiguous, or honestly short.** A backend that prunes may return a
+	 *     first event above `sinceSeq + 1`; that is a gap, the caller detects
+	 *     it, and the reconnect is refused rather than spliced. Do NOT
+	 *     manufacture placeholders to close it.
+	 *
+	 * High-frequency events never enter the log (see
+	 * {@link RunStore.appendEvent}), so what a late subscriber recovers is
+	 * message-granular, not keystroke-granular. Aggregated assistant text,
+	 * every tool result and the full message list are all intact; the deltas
+	 * that composed them are not, and are not meant to be.
+	 */
+	readEvents(options?: ReadRunEventsOptions): Promise<readonly PersistedRunEvent[]>
 
 	/**
 	 * Persist the run's final report. Returns a location, or `null` when the

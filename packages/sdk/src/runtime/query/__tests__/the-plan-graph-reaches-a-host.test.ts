@@ -1,5 +1,7 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
+import { RunPersistence } from '../../../manager/run/persistence.js'
+import { InMemoryRunStore } from '../../../store/run/memory.js'
 import { InMemoryTaskStore } from '../../../store/task/memory.js'
 import type { RunId } from '../../../types/ids/index.js'
 import type { RunEvent } from '../../../types/run/index.js'
@@ -17,22 +19,49 @@ import { EventTranslator } from '../events.js'
 
 const RUN = 'run_graph' as RunId
 
+const LOG = {
+	info: vi.fn(),
+	warn: vi.fn(),
+	error: vi.fn(),
+	debug: vi.fn(),
+	child: vi.fn(() => LOG),
+}
+
 /**
- * Only what the emitter touches — and it touches more than the id.
+ * The real `RunPersistence`, over the in-memory run store.
  *
- * `emitEvent` appends to the run store, so a fake without one produces an
- * unhandled rejection AFTER the assertions have passed: every test reports
- * green and the process exits non-zero. Worth stating because that is the
- * failure shape this session has been unpicking all day, arriving here in a
- * test fixture.
+ * This was a hand-written object with an `id` and a stub `getRunStore`, and it
+ * kept growing a member behind the emitter: first a store, because `emitEvent`
+ * appends and a fake without one produced an unhandled rejection AFTER the
+ * assertions passed — green tests, non-zero exit; then the event-sequence
+ * counter. The fixture was tracking production one discovery at a time, which
+ * is the shape the rule about fixtures unlike production names. Using the real
+ * class ends that: the next member the emitter reaches for is simply there.
  */
-const runMgr = {
-	id: RUN,
-	getRunStore: () => ({ appendEvent: async () => undefined }),
-} as never
+function persistence(): RunPersistence {
+	return new RunPersistence({
+		runId: RUN,
+		agentId: 'a',
+		agentName: 'A',
+		runConfig: {},
+		providerId: 'mock',
+		// Nothing may be written: the injected store is not a filesystem.
+		outputDir: '/namzu-nonexistent-should-never-be-written',
+		log: LOG,
+		sessionId: 'ses_graph',
+		threadId: 'thd_graph',
+		projectId: 'prj_graph',
+		tenantId: 'tnt_graph',
+		runStore: new InMemoryRunStore(),
+		// biome-ignore lint/suspicious/noExplicitAny: branded id types are not
+		// what this test is about; the wiring is.
+	} as any)
+}
 
 async function capture(body: (store: InMemoryTaskStore) => Promise<void>): Promise<RunEvent[]> {
 	const store = new InMemoryTaskStore()
+	const runMgr = persistence()
+	await runMgr.init()
 	const emitter = new EventTranslator(runMgr)
 	const stop = emitter.wireTaskStore(store, RUN)
 

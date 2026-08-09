@@ -1,6 +1,6 @@
 import type { Run } from '../../types/run/entity.js'
-import type { RunEvent } from '../../types/run/events.js'
-import type { CompletedToolRecord, RunStore } from '../../types/run/store.js'
+import type { PersistedRunEvent, RunEvent } from '../../types/run/events.js'
+import type { CompletedToolRecord, ReadRunEventsOptions, RunStore } from '../../types/run/store.js'
 
 /**
  * Process-local {@link RunStore}: a run's evidence with no filesystem.
@@ -22,9 +22,21 @@ export class InMemoryRunStore implements RunStore {
 	private meta: Run | null = null
 	private messages: Run['messages'] = []
 	private report: string | null = null
-	private readonly events: RunEvent[] = []
+	private events: PersistedRunEvent[] = []
 
 	async initRun(runId: string, parentRunId?: string): Promise<string | null> {
+		// Rebinding to a DIFFERENT run starts that run's evidence empty. The disk
+		// store gets this for free — a different id is a different directory —
+		// and this one has to say it, because one instance reused for a replay
+		// fork otherwise reports the origin run's events, its messages and its
+		// report as the new run's own. Evidence attributed to the wrong run is
+		// worse than none: it is wrong and it looks right.
+		if (this.runId !== null && this.runId !== runId) {
+			this.meta = null
+			this.messages = []
+			this.report = null
+			this.events = []
+		}
 		this.runId = runId
 		this.parentRunId = parentRunId
 		// No location, and that is the honest answer rather than a defect.
@@ -68,7 +80,25 @@ export class InMemoryRunStore implements RunStore {
 		// line — a parity test compares the two read-backs, and a timestamp
 		// present in one medium and absent in the other would make identical
 		// runs look different depending on where they were recorded.
-		this.events.push({ ...event, timestamp: Date.now() } as unknown as RunEvent)
+		//
+		// An unsequenced event takes its position in the log, which is the same
+		// rule the disk reader applies to a line written before events were
+		// numbered. Nothing in the kernel appends unsequenced today; the rule is
+		// here so the two backends cannot answer differently if something does.
+		this.events.push({
+			...event,
+			seq: event.seq ?? this.events.length + 1,
+			timestamp: Date.now(),
+		} as unknown as PersistedRunEvent)
+	}
+
+	async readEvents(options?: ReadRunEventsOptions): Promise<readonly PersistedRunEvent[]> {
+		this.requireInit()
+		const sinceSeq = options?.sinceSeq ?? 0
+		// Copied, not sliced by reference, for the same reason `writeRunMeta`
+		// clones: a caller holding the array must not be able to reach into the
+		// log through it.
+		return this.events.filter((event) => event.seq > sinceSeq).map((event) => ({ ...event }))
 	}
 
 	async writeReport(content: string): Promise<string | null> {
@@ -114,7 +144,7 @@ export class InMemoryRunStore implements RunStore {
 		meta: Run | null
 		messages: Run['messages']
 		report: string | null
-		events: readonly RunEvent[]
+		events: readonly PersistedRunEvent[]
 	} {
 		return { meta: this.meta, messages: this.messages, report: this.report, events: this.events }
 	}

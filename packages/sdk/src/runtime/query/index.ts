@@ -15,6 +15,7 @@ import { restoreWorkingState, snapshotWorkingState } from '../../compaction/wire
 import type { CompactionConfig } from '../../config/runtime.js'
 import { TOOL_OUTPUT_DIR_NAME } from '../../constants/tools/index.js'
 import { EmergencySaveManager } from '../../manager/run/emergency.js'
+import type { RunPersistence } from '../../manager/run/persistence.js'
 import { resolveProviderCapabilities } from '../../provider/capabilities.js'
 import {
 	type ProviderChainMember,
@@ -59,6 +60,8 @@ import type { LLMProvider } from '../../types/provider/index.js'
 import type { TaskRouterConfig } from '../../types/router/index.js'
 import type { ReviewAnswer } from '../../types/run/answer-review.js'
 import type { CheckpointStore, ClaimFence } from '../../types/run/checkpoint-store.js'
+import type { RunEventCursor, RunEventReplay } from '../../types/run/event-cursor.js'
+import { resolveRunEventReplay } from '../../types/run/event-cursor.js'
 import type {
 	AgentRunConfig,
 	PrepareStepChain,
@@ -444,6 +447,43 @@ export interface QueryParams {
 	 * evidence could not.
 	 */
 	runStore?: RunStore
+
+	/**
+	 * Where a reconnecting consumer left off, so this run's stream can start by
+	 * handing back what it missed.
+	 *
+	 * The case this serves is the one that exists without a network hop: the
+	 * process holding the run died, and the consumer watching it is coming back
+	 * to a run that has to be resumed. Pair it with `resumeFromCheckpoint` — or
+	 * reach it through {@link import('./resume-run.js').resumeRun}, which is the
+	 * surface that does both — and the missed durable events are yielded, in
+	 * order, before the resumed run emits anything of its own.
+	 *
+	 * On a run with no log to catch up on the cursor is answered honestly rather
+	 * than ignored: a `sinceSeq` above what exists is `cursor_ahead`, not
+	 * silence.
+	 *
+	 * What comes back is message-granular. Streaming deltas are never persisted
+	 * — see {@link import('../../types/run/store.js').RunStore.appendEvent} —
+	 * so a late subscriber recovers the assistant text, the tool results and the
+	 * lifecycle, not the keystroke cadence that produced them.
+	 */
+	eventCursor?: RunEventCursor
+
+	/**
+	 * What became of {@link QueryParams.eventCursor}.
+	 *
+	 * A callback rather than an event on the stream, because the answer is about
+	 * the SUBSCRIPTION and not about the run — and rather than a throw, because
+	 * a stale cursor is a client's problem and must not be able to stop a run
+	 * from continuing. A host that receives `unavailable` re-derives from the
+	 * transcript; one that receives nothing at all would splice a hole into its
+	 * state and never know.
+	 *
+	 * Called once, before the run's first event, and only when a cursor was
+	 * supplied.
+	 */
+	onEventReplay?: (replay: RunEventReplay) => void
 
 	runId?: RunId
 
@@ -1038,6 +1078,10 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		// fence exists, the refusal exists, and no checkpoint a RUN writes ever
 		// carries a number — so a stalled worker is refused nowhere.
 		checkpointMgr.setClaimFence(params.claimFence)
+		// And every EVENT it records carries the same fence as its generation,
+		// so a consumer whose cursor was minted under an older holding is told
+		// the sequence space changed rather than handed a splice from it.
+		eventTranslator.setGeneration(params.claimFence)
 
 		// A question raised from inside a tool becomes a real checkpoint
 		// here. It used to park under a synthetic id nothing ever wrote, so
@@ -1114,6 +1158,20 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 
 		try {
 			await ctx.runMgr.init()
+
+			// A consumer coming back gets what it missed BEFORE the run says
+			// anything new, which is the only order that lets it fold one
+			// stream into one state. It has to follow `init()` — that is what
+			// binds the store and reads the log's head — and precede every
+			// emit below.
+			if (params.eventCursor) {
+				yield* catchUpFromCursor(
+					ctx.runMgr,
+					params.eventCursor,
+					params.onEventReplay,
+					params.claimFence,
+				)
+			}
 
 			// Handed over here, and the position is load-bearing in BOTH
 			// directions. It has to follow `wirePlanManager`, or a host that
@@ -1592,6 +1650,35 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 
 		return await resultAssembler.finalize()
 	})()
+}
+
+/**
+ * Hand a returning consumer what it missed, or tell it why it cannot have it.
+ *
+ * Yields NOTHING on a refusal. A partial catch-up is the failure this exists to
+ * prevent: a consumer that receives some of the gap folds it into its state and
+ * cannot tell the state is wrong, where one that receives an explicit
+ * `unavailable` re-derives from the transcript and is right. The run continues
+ * either way — a stale cursor belongs to the client, and must not be able to
+ * stop the work.
+ */
+async function* catchUpFromCursor(
+	runMgr: RunPersistence,
+	cursor: RunEventCursor,
+	onEventReplay: ((replay: RunEventReplay) => void) | undefined,
+	generation: ClaimFence | undefined,
+): AsyncGenerator<RunEvent, void> {
+	const missed = await runMgr.getRunStore().readEvents({ sinceSeq: cursor.sinceSeq })
+	const replay = resolveRunEventReplay(
+		cursor,
+		{ lastSeq: runMgr.lastEventSeq, ...(generation !== undefined ? { generation } : {}) },
+		missed,
+	)
+
+	onEventReplay?.(replay)
+
+	if (replay.status !== 'replayed') return
+	for (const event of replay.events) yield event
 }
 
 export async function drainQuery(

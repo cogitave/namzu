@@ -174,9 +174,52 @@ export class RunPersistence {
 		return this.runStore.getRunDir()
 	}
 
+	/**
+	 * Highest sequence already in this run's durable event log.
+	 *
+	 * Seeded by {@link init} and advanced by {@link commitEventSeq}. Held here
+	 * rather than on the event translator because the translator is built
+	 * before `init` has run and would need a second, forgettable hop to learn
+	 * the seed — where `init` is already mandatory, already awaited, and
+	 * already the thing that binds the store.
+	 */
+	private _lastEventSeq = 0
+
+	/** Highest sequence this run's log holds. Zero before anything is recorded. */
+	get lastEventSeq(): number {
+		return this._lastEventSeq
+	}
+
 	async init(): Promise<void> {
 		await this.runStore.initRun(this.run.id, this.run.parentRunId)
+		// A resume reuses the run id and therefore the same log, so the counter
+		// has to continue that log rather than start a second sequence inside
+		// it. Without this, a run recalled after a crash re-numbers from 1 and a
+		// consumer holding a cursor at 40 is told, truthfully and uselessly,
+		// that there is nothing above it.
+		const existing = await this.runStore.readEvents()
+		this._lastEventSeq = existing.at(-1)?.seq ?? 0
 		await this.runStore.writeRunMeta(this.run)
+	}
+
+	/**
+	 * The number the NEXT durable event would take. Not yet taken — see
+	 * {@link commitEventSeq}.
+	 */
+	nextEventSeq(): number {
+		return this._lastEventSeq + 1
+	}
+
+	/**
+	 * Take the candidate number, once its event is actually in the log.
+	 *
+	 * Split from {@link nextEventSeq} so a failed append consumes nothing: a
+	 * `seq` is a claim that the event is recoverable, and advancing the counter
+	 * before the write lands would leave a hole no event fills and hand a live
+	 * consumer a cursor pointing at it.
+	 */
+	commitEventSeq(seq: number): void {
+		if (seq > this._lastEventSeq) this._lastEventSeq = seq
 	}
 
 	markRunning(): void {

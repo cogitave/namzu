@@ -223,6 +223,15 @@ export {
 // two workers restore one checkpoint, both run its tools and both write under
 // one run id — which loses half the work and reports nothing.
 export { claimRun, fencedOut, releaseRun, toClaimSummary } from './store/index.js'
+// Reading a run's durable event log back — what a consumer that lost its
+// connection catches up through. `readRunEventsIn` takes a directory rather
+// than a bound store because binding one CREATES the run directory, and a read
+// that mints an empty run then reports it as having no events is worse than an
+// error. `resolveRunEventReplay` decides what a cursor is owed, and REFUSES
+// rather than delivering a partial catch-up a consumer would fold into its
+// state without knowing it had a hole in it.
+export { readRunEventsIn } from './store/index.js'
+export { resolveRunEventReplay } from './types/run/event-cursor.js'
 
 export {
 	AgentRegistry,

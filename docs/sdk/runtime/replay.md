@@ -323,6 +323,80 @@ tool calls no longer match the recorded request: consent to one batch is
 not consent to a different one. In that case the repair path runs as
 before.
 
+### Reconnecting to a run you were watching
+
+**New in `@namzu/sdk` 21.0.0.** Every event a run records durably carries a
+`seq` — its position in that run's own event log, from 1 — and the log can be
+read back. Together they are how a consumer that lost its connection catches
+up instead of re-deriving the whole run from scratch.
+
+```ts
+const outcome = await resumeRun({
+  ...params,
+  scope,
+  checkpointStore,
+  // The last `seq` this consumer actually received.
+  eventCursor: { sinceSeq: 41, generation: claim?.fence },
+  listener: (event) => stream.write(event),
+})
+
+if (outcome.resumed && outcome.replay?.status === 'unavailable') {
+  // Nothing was delivered. Re-derive from the run's transcript.
+}
+```
+
+`listener` is also new, and until it existed `resumeRun` drained the run and
+discarded every event it produced.
+
+**A `seq` means the event is in the log.** The emitter takes a number, appends
+the event stamped with it, and only a write that landed advances the counter
+and reaches the live stream — so a cursor never points past the evidence. Its
+absence is equally load-bearing and covers three cases: the high-frequency
+events that are deliberately never persisted (`text_delta`,
+`tool_input_delta`, `reasoning_delta`, `tool_progress`), an event whose durable
+write failed, and the delegation lifecycle events (`agent_pending`,
+`agent_completed`, `agent_failed`, `agent_canceled` and the three sub-session
+variants) which the agent manager hands straight to your listener without
+passing through the run's log at all. **Never advance a cursor onto an event
+with no `seq`.**
+
+**One cursor per run id.** A parent's stream carries its children's events, and
+each run numbers its own log. The SSE mapper stamps `id: "<runId>:<seq>"` for
+exactly this reason.
+
+**What comes back is message-granular.** Aggregated assistant text, every tool
+result and the full lifecycle are all recovered; the deltas that composed them
+are not, and are not meant to be.
+
+`eventCursor` is answered with a verdict rather than a best effort, because a
+consumer that receives a *short* catch-up folds a hole into its state and
+cannot tell:
+
+| `replay.status` | Meaning |
+| --- | --- |
+| `complete` | The cursor is already at the log's head. |
+| `replayed` | `events` is contiguous from `sinceSeq + 1`. |
+| `unavailable` + `cursor_ahead` | The consumer claims more than exists — what a lost log looks like from outside. An in-memory run store on a restarted process seeds at zero while the consumer still holds 400. |
+| `unavailable` + `generation_changed` | The run was taken over under a higher claim fence, so the two sequence spaces are not comparable. |
+| `unavailable` + `gap` | The store's oldest available event is above `sinceSeq + 1`. A pruning backend, caught at the boundary. |
+
+On any `unavailable` the run still resumes and **nothing** from the log is
+delivered. A stale cursor belongs to the client and must not be able to stop
+the work.
+
+`generation` is the claim fence (§"More than one worker on the queue"), and it
+is absent on an unfenced run. Without it a takeover is invisible: a consumer at
+seq 400 reconnects to a run whose store lost its log, the next holder starts at
+1, and the cursor silently addresses a different sequence space. Because the
+fence only increases, a takeover here is *ordered*, not merely detectable.
+
+`RunStore.readEvents({ sinceSeq })` is the primitive underneath, and it is
+**required** on the contract — a store that records a transcript it cannot read
+back is write-only evidence. To read a run this process never started, use
+`readRunEventsIn(runDir)` rather than binding a `RunDiskStore`: binding one
+creates the run directory, and a read that mints an empty run then reports it
+as having no events is indistinguishable from a run that genuinely has none.
+
 ## 8. Security
 
 `prepareReplayState` and `listCheckpoints` read the source run's directory directly — they do not consult a multi-tenant gatekeeper because today there is no tenant field on `Run` or on the `RunDiskStore` read API. Single-tenant deployments are safe by default; multi-tenant operators must enforce tenant scoping at the caller (e.g. by validating the `runId` belongs to the requesting tenant before invoking replay).
