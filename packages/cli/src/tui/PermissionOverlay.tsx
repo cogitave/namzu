@@ -56,24 +56,45 @@ export function PermissionOverlay({ toolCalls }: PermissionOverlayProps) {
 					</Box>
 				))}
 			</Box>
-			<Box>
+			{/* Every key that decides this prompt, and what each one decides.
+			    `Ctrl+C` was missing, and it is the only one with a DIFFERENT
+			    outcome: `n` and `esc` decline this batch and the turn carries on
+			    trying something else, while `Ctrl+C` ends the turn. So someone
+			    who wanted namzu to stop pressed `n`, watched it continue, and had
+			    no way to learn otherwise from this screen — the distinction was
+			    written down only in `docs/cli/tools.md`.
+
+			    Two rows rather than one: at four keys the line wraps on a narrow
+			    terminal and wraps mid-key, and this is the box an operator reads
+			    while deciding. Grouped by outcome, so the reading is "these two
+			    let it continue, this one does not" rather than a list of four
+			    equals. The status bar keeps the compact three-key echo — it is
+			    budget-constrained by construction and this box is on screen
+			    whenever it applies. */}
+			<Box flexDirection="column">
 				<Text color={theme.text.muted}>
 					<Text color={theme.status.ok} bold>
 						y
 					</Text>{' '}
 					approve ·{' '}
-					<Text color={theme.status.error} bold>
-						n
-					</Text>{' '}
-					reject ·{' '}
 					<Text color={theme.accent.user} bold>
 						a
 					</Text>{' '}
-					approve all for this session ·{' '}
+					approve all for this session
+				</Text>
+				<Text color={theme.text.muted}>
+					<Text color={theme.status.error} bold>
+						n
+					</Text>{' '}
+					or{' '}
 					<Text color={theme.status.error} bold>
 						esc
 					</Text>{' '}
-					reject
+					decline, and the agent tries something else ·{' '}
+					<Text color={theme.status.error} bold>
+						ctrl+c
+					</Text>{' '}
+					decline and stop the turn
 				</Text>
 			</Box>
 		</Box>
