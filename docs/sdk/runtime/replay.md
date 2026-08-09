@@ -246,6 +246,34 @@ Three properties worth knowing before you build on it:
   died. A crash sweep is: list every run with durable state, intersect with
   your own run records, resume the difference.
 
+### More than one worker on the queue
+
+A listing plus a resume is enough for one worker. Two need arbitration, or
+both restore the same checkpoint, both execute its tools, and both write
+under one run id — half the work vanishing with no error anywhere.
+
+```ts
+const claim = await claimRun(store, entry, { holder: 'worker-3', ttlMs: 60_000 })
+if (!claim) continue // somebody else got there first — not an error
+```
+
+Add `claimed: false` to the listing options and a reader sees only the work
+nobody holds. An **expired** claim counts as unheld: that is what expiry
+means, and treating it as held would leave a dead worker's runs invisible
+forever.
+
+It is a **lease**, not a lock. Claiming a run whose lease expired succeeds
+and mints a higher fence. The previous holder is never notified — it cannot
+be, since from the inside a pause, a suspended container and a partition all
+look like time not passing — so it wakes and writes as though it still holds.
+That is why every durable write should carry `claim.fence`: the store refuses
+a write from a superseded holding, and the write is the only place a stalled
+worker can learn it lost the run.
+
+Renewing is the same call. There is no separate `renew`, because two code
+paths that must agree about who holds a run is one more than can be kept
+correct.
+
 `listDurableRuns` is optional on the `CheckpointStore` interface — both
 built-in stores implement it, and a store that does not gets a refusal
 rather than an empty page, because "nothing is waiting on a human" is not
