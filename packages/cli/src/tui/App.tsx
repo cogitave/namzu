@@ -182,6 +182,28 @@ export function App({ ctx }: AppProps) {
 	// turns attribute to the resumed conversation.
 	const sessionsRef = useRef<CliSessions | null>(null)
 	const scopeRef = useRef<RunScope | null>(null)
+	/**
+	 * How many times the operator has switched conversations.
+	 *
+	 * `abort()` returns long before the `for await` in `runTurn` unwinds, so an
+	 * abandoned turn keeps producing events for a while after `/resume` has
+	 * already replaced the screen. This counter is what tells those events they
+	 * are late: a turn captures the value at send time and renders nothing once
+	 * it stops matching.
+	 *
+	 * Bumped ONLY by `resumeConversation`. `/clear` resets the transcript too and
+	 * stays in the same conversation — its turn's rows are still that
+	 * conversation's rows and must keep arriving.
+	 */
+	const conversationGenRef = useRef<number>(0)
+	/**
+	 * Whether a conversation has been chosen and is still being read.
+	 *
+	 * The picker keeps the screen for that interval, and `Esc` stops cancelling:
+	 * the choice is already being acted on, so a press landing here would close
+	 * the picker over a switch that happens anyway.
+	 */
+	const resumeCommittedRef = useRef<boolean>(false)
 	const idRef = useRef<number>(0)
 	const nextId = useCallback(() => {
 		idRef.current += 1
@@ -467,33 +489,6 @@ export function App({ ctx }: AppProps) {
 		}
 	}, [ensureSessions, pushMessage])
 
-	// Load the chosen conversation into the transcript and continue in it.
-	const resumeConversation = useCallback(
-		async (conv: RecentConversation) => {
-			const sessions = sessionsRef.current
-			const scope = scopeRef.current
-			setPhase('ready')
-			if (!sessions || !scope) return
-			try {
-				const msgs = await loadConversation(sessions, conv.id)
-				const restored: TranscriptMessage[] = msgs
-					.filter((m) => m.role === 'user' || m.role === 'assistant')
-					.map((m) => ({
-						id: nextId(),
-						role: m.role as 'user' | 'assistant',
-						content: typeof m.content === 'string' ? m.content : '',
-					}))
-				resetTranscript()
-				setMessages(restored)
-				scope.sessionId = conv.id // new turns now attribute to the resumed session
-				pushMessage('system', `Resumed: ${conv.title}`)
-			} catch (err) {
-				pushMessage('system', `Could not resume: ${err instanceof Error ? err.message : String(err)}`)
-			}
-		},
-		[nextId, pushMessage],
-	)
-
 	// Resolve a pending permission prompt with the user's decision and tear
 	// down the overlay. No-op if nothing is pending.
 	const resolvePermission = useCallback((decision: PermissionDecision) => {
@@ -503,6 +498,128 @@ export function App({ ctx }: AppProps) {
 		setPermission(null)
 		if (resolve) resolve(decision)
 	}, [])
+
+	/**
+	 * Stop the running turn, and hand the screen back in a usable state.
+	 *
+	 * Returns whether there was one to stop, because the caller has different
+	 * things to say in the two cases.
+	 *
+	 * The screen cleanup lives HERE, at the act that decided to stop, rather
+	 * than in the turn's own `finally`. That was safe only while nothing could
+	 * start another turn in between. `/resume` can — the abandoned loop unwinds
+	 * long after the resumed conversation is on screen, and possibly after a
+	 * turn in it has already begun — so a `finally` that resets the composer,
+	 * the active tools and the abort handle would be resetting somebody else's.
+	 *
+	 * The pending permission prompt is settled first. A turn parked on that
+	 * promise never reaches its own `finally` at all, so aborting alone would
+	 * leave it hanging with its reply unsaved. It is the same decision Ctrl+C
+	 * sends at that prompt, for the same reason.
+	 */
+	const interruptTurn = useCallback((): boolean => {
+		if (permissionResolveRef.current) resolvePermission({ kind: 'reject', feedback: 'User interrupted.' })
+		const ac = abortRef.current
+		if (!ac) return false
+		ac.abort()
+		// Dropped now so a second interrupt does not re-abort, and the queue with
+		// it: interrupting means stop, not "run the next one".
+		abortRef.current = null
+		setQueued([])
+		clearActiveTools()
+		setState('idle')
+		return true
+	}, [clearActiveTools, resolvePermission])
+
+	/**
+	 * Load the chosen conversation into the transcript and continue in it.
+	 *
+	 * A turn may still be running when this happens — the composer stays live
+	 * while the agent works, and a slash action is dispatched ahead of the
+	 * message queue — and until this aborted it, three things went wrong at
+	 * once. Its rows appended into the resumed transcript. Its queued follow-ups
+	 * would have run against a conversation nobody asked them of. And, the one
+	 * that outlived the process, its `appendMessages` wrote into the RESUMED
+	 * conversation's durable record, because `sessionId` was mutated on a
+	 * `RunScope` the running loop held the very same object of.
+	 *
+	 * The mutation below stays, and it is the sharing that makes it necessary:
+	 * `createAgentSession` closed over this exact object and spreads it into
+	 * every `query()`, so replacing it here would leave the agent attributing
+	 * every future turn to the conversation the operator has left. `RunScope`
+	 * says as much — `sessionId` is its one non-`readonly` field. What changed is
+	 * on the other side: a turn now fixes its own destination when it starts
+	 * (see `runTurn`), so a shared cursor moving under it can no longer decide
+	 * where it lands.
+	 *
+	 * The abandoned turn is not dropped in silence. It goes on consuming its own
+	 * events, so its reply is whole, and persists into the conversation it
+	 * belongs to; the operator is told that here, because those rows are
+	 * correctly absent from the transcript now in front of them, and a turn that
+	 * vanishes with no account of where it went is the same defect as one that
+	 * lands in the wrong place.
+	 *
+	 * Nothing is disturbed until the new conversation is actually in hand. A
+	 * read that fails leaves a running turn running where it belongs, exactly as
+	 * cancelling the picker does.
+	 *
+	 * And the picker stays up for the length of the read rather than handing the
+	 * screen back first. A composer that is live over an unsettled switch takes
+	 * a message with nowhere to go: queued against a conversation being left, and
+	 * then either dropped by the interrupt below or sent to a conversation nobody
+	 * addressed it to. The screen should not accept input for a conversation that
+	 * is not decided yet, and a read is usually too fast to see.
+	 */
+	const resumeConversation = useCallback(
+		async (conv: RecentConversation) => {
+			const sessions = sessionsRef.current
+			const scope = scopeRef.current
+			if (!sessions || !scope) {
+				setPhase('ready')
+				return
+			}
+			// The operator has committed; `Esc` no longer cancels from here, or a
+			// press landing during the read would leave the picker closed and the
+			// switch happening anyway.
+			resumeCommittedRef.current = true
+			let msgs: Awaited<ReturnType<typeof loadConversation>>
+			try {
+				msgs = await loadConversation(sessions, conv.id)
+			} catch (err) {
+				resumeCommittedRef.current = false
+				setPhase('ready')
+				pushMessage('system', `Could not resume: ${err instanceof Error ? err.message : String(err)}`)
+				return
+			}
+			resumeCommittedRef.current = false
+			setPhase('ready')
+			const restored: TranscriptMessage[] = msgs
+				.filter((m) => m.role === 'user' || m.role === 'assistant')
+				.map((m) => ({
+					id: nextId(),
+					role: m.role as 'user' | 'assistant',
+					content: typeof m.content === 'string' ? m.content : '',
+				}))
+			const interrupted = interruptTurn()
+			conversationGenRef.current += 1
+			resetTranscript()
+			setMessages(restored)
+			scope.sessionId = conv.id // new turns now attribute to the resumed session
+			pushMessage('system', `Resumed: ${conv.title}`)
+			if (interrupted) {
+				// "is being saved", not "is saved". The write has not happened yet —
+				// it runs when the abandoned turn finishes unwinding, which is after
+				// this line — and a surface that reports a result it has not read is
+				// the defect class this whole change is about. If that write fails,
+				// the turn says so itself, in the same words `run-stream` uses.
+				pushMessage(
+					'system',
+					'The turn that was running was interrupted. Its reply so far is being saved to the conversation it started in, so it is not in the transcript above. A tool call already dispatched was not undone.',
+				)
+			}
+		},
+		[interruptTurn, nextId, pushMessage, resetTranscript],
+	)
 
 	// Bridge passed into session.send(): the agent calls this before a
 	// non-read-only tool batch; it parks until the user presses y/n/a.
@@ -677,6 +794,19 @@ export function App({ ctx }: AppProps) {
 			const st = { assistantId: null as string | null, text: '' }
 			const ac = new AbortController()
 			abortRef.current = ac
+			// Where this turn will be saved, and which transcript its rows belong
+			// to. Both fixed HERE, at the one moment they are knowable.
+			//
+			// `/resume` can land between this line and the `finally` below, and
+			// `abort()` returns long before the loop unwinds — so after a mid-turn
+			// switch the finally ALWAYS runs on the far side of it. Reading
+			// `scopeRef.current` down there wrote this turn into whichever
+			// conversation happened to be open when it finished, and that record
+			// outlives the process. A string captured now cannot be reassigned by
+			// anyone.
+			const destination = scopeRef.current?.sessionId ?? null
+			const turnGeneration = conversationGenRef.current
+			const stillHere = (): boolean => conversationGenRef.current === turnGeneration
 			try {
 				for await (const event of session.send(priorForSdk, {
 					signal: ac.signal,
@@ -685,26 +815,76 @@ export function App({ ctx }: AppProps) {
 					onPermission: ctx.skipPermissions ? undefined : onPermission,
 					extraSystem: composeSkillsPrompt(activeSkills) ?? undefined,
 				})) {
-					applyEvent(event, st)
+					// A turn the operator has left is consumed but not rendered: no row
+					// from it lands in a transcript it has nothing to do with, and its
+					// text keeps accumulating so that what gets saved does not depend
+					// on exactly when the switch happened.
+					//
+					// How much arrives after the switch is a property of the SESSION,
+					// not of this loop. The built-in one checks the signal at the top of
+					// each iteration and returns after a single `error: aborted`, so in
+					// practice very little does. The accumulation is here so a session
+					// that notices later — a different implementation, a generator
+					// parked in a tool call — still saves a whole reply rather than one
+					// truncated at the moment the operator happened to leave.
+					if (stillHere()) applyEvent(event, st)
+					else if (event.kind === 'delta') st.text += event.text
 				}
 			} catch (err) {
-				if (st.assistantId) finalizeMessage(st.assistantId)
-				pushMessage('system', `Error: ${err instanceof Error ? err.message : String(err)}`)
+				// Reported only where it means something. In the conversation the
+				// operator has moved on from, this row would be the same misplacement
+				// the generation exists to stop — and it would be the more confusing
+				// half of it, because an abort reads as an error.
+				if (stillHere()) {
+					if (st.assistantId) finalizeMessage(st.assistantId)
+					pushMessage('system', `Error: ${err instanceof Error ? err.message : String(err)}`)
+				}
 			} finally {
-				abortRef.current = null
-				permissionResolveRef.current = null
-				permissionOpenedAtRef.current = null
-				setPermission(null)
-				clearActiveTools()
-				setState('idle')
-				// Persist the turn to the SDK session store (best-effort) so it can
-				// be resumed later. User message + the assistant's reply text.
+				// The screen belongs to the conversation on it, which after a
+				// `/resume` is no longer this turn's. `interruptTurn` already did this
+				// cleanup at the moment it decided to stop; repeating it here would
+				// clear the state of whatever has started since.
+				if (stillHere()) {
+					// Unguarded, and it can be: a second turn cannot start in the
+					// conversation this one is running in — the composer queues instead
+					// — so within one generation this handle is still ours. An
+					// `=== ac` comparison here read as prudence and was a check that
+					// could not fail, which teaches the next reader that the checks
+					// around it are decoration too.
+					abortRef.current = null
+					permissionResolveRef.current = null
+					permissionOpenedAtRef.current = null
+					setPermission(null)
+					clearActiveTools()
+					setState('idle')
+				}
+				// Persisted either way, and into the conversation this turn was
+				// started in — captured above, never re-read.
+				//
+				// Best-effort is about not FAILING, not about staying quiet. The
+				// rejection used to be swallowed whole, and it is the one failure here
+				// that makes a LATER surface wrong: `/resume` comes back missing a
+				// turn that was on screen, and the next turn in that conversation
+				// silently lacks it as context, with nothing connecting either to a
+				// write that failed minutes ago. `run-stream` already says this, in
+				// these words and for this reason.
+				//
+				// Said wherever the operator is now, even when that is a different
+				// conversation, because there is no other channel and it is news they
+				// need. Naming the conversation is what keeps it from reading as a
+				// fault of the one in front of them.
 				const sessions = sessionsRef.current
-				const scope = scopeRef.current
-				if (sessions && scope) {
+				if (sessions && destination) {
 					const turn: Message[] = [createUserMessage(text)]
 					if (st.text.trim().length > 0) turn.push(createAssistantMessage(st.text))
-					void appendMessages(sessions, scope.sessionId, turn).catch(() => {})
+					void appendMessages(sessions, destination, turn).catch((err: unknown) => {
+						pushMessage(
+							'system',
+							`A turn was not saved to conversation ${destination}: ${
+								err instanceof Error ? err.message : String(err)
+							}. That conversation's history will not include it, and its next turn will not have it as context.`,
+						)
+					})
 				}
 			}
 		},
@@ -1040,6 +1220,11 @@ export function App({ ctx }: AppProps) {
 			}
 			// Resume picker owns the keyboard while open.
 			if (phase === 'resume') {
+				// Once a conversation is being read, the keyboard does nothing here.
+				// The choice is already being acted on; a second Enter would start a
+				// second read and an Esc would hand back a screen that is about to be
+				// replaced regardless.
+				if (resumeCommittedRef.current) return
 				if (key.upArrow) setSelectedResume((i) => Math.max(0, i - 1))
 				else if (key.downArrow) setSelectedResume((i) => Math.min(resumeList.length - 1, i + 1))
 				else if (key.return) {
@@ -1101,9 +1286,7 @@ export function App({ ctx }: AppProps) {
 			// Esc interrupts a running turn (Ctrl+C stays reserved for exit). Mirrors
 			// the Ctrl+C interrupt path: abort, drop the queue, one "Interrupted." line.
 			if (key.escape && abortRef.current) {
-				abortRef.current.abort()
-				abortRef.current = null
-				setQueued([])
+				interruptTurn()
 				pushMessage('system', 'Interrupted.')
 				return
 			}
@@ -1135,13 +1318,9 @@ export function App({ ctx }: AppProps) {
 			}
 			if (key.ctrl && input === 'c') {
 				// A turn is running → first Ctrl+C interrupts it, not exits.
-				if (abortRef.current) {
-					abortRef.current.abort()
-					// Drop the ref now so a second Ctrl+C arms exit instead of
-					// re-aborting (which spammed "Interrupted." lines), and clear any
-					// queued messages — interrupting means stop, not "run the next one".
-					abortRef.current = null
-					setQueued([])
+				// Drops the ref, so a second Ctrl+C arms exit instead of re-aborting
+				// (which spammed "Interrupted." lines).
+				if (interruptTurn()) {
 					pushMessage('system', 'Interrupted.')
 					return
 				}
