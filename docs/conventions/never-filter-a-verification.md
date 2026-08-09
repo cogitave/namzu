@@ -8,7 +8,6 @@ owner: cogitave/namzu
 status: active
 timestamp: 2026-08-04T00:00:00Z
 lastReviewed: 2026-08-09
-resource: .github/workflows/ci.yml
 tags: [convention, verification, tooling]
 ---
 
@@ -154,6 +153,26 @@ Three things follow, and the third is the one that saved it:
 
 Recorded because the blast radius was somebody else's work, on a branch that was
 already green.
+
+## Why this page has no `resource:`
+
+It pointed at the CI workflow, and the workflow is not what this rule is about.
+A change there cannot make the rule false: the rule is about the habit of
+putting something between yourself and a verdict, and it would be exactly as
+true if this repository had no CI at all.
+
+What the pointer actually did was demand a re-read of the rule every time an
+unrelated line of the workflow moved — which is the dynamic the gate's own
+guidance warns about, a churning sentinel that trains everyone to wave the
+failure through. It fired on a change to which matrix leg carries the gates,
+and there was nothing to re-establish.
+
+So the key is gone rather than re-dated. `resource:` should name code whose
+change could make the document **wrong**, not code the document happens to be
+about; and an absent key honestly reads as "no code can invalidate this",
+which is the true statement here. Same reasoning as
+[alternation-unmounts-state](alternation-unmounts-state.md), which reached it
+first.
 
 ## Related
 
