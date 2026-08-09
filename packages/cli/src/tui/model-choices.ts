@@ -63,19 +63,27 @@ export function modelStep(
 		initialIndex: 0,
 	})
 
+	// "namzu's pick", never "its default", in all four. The row beside these
+	// sentences is labelled `(namzu default)` because the value comes from
+	// namzu's registry and not from the provider — and these said the opposite
+	// on the same screen. It changes what an operator does about a model they
+	// did not expect: whose default it is decides whether they go looking at the
+	// provider, or pin `model` on this member in `preferences.json`.
 	if (listing.kind === 'unsupported') {
-		return fallback('This provider does not publish a model list. Showing its default.')
+		return fallback("This provider does not publish a model list. Showing namzu's pick for it.")
 	}
 	if (listing.kind === 'timeout') {
 		// Deliberately not "no models". The provider may have hundreds; it just
 		// did not answer inside 3s, and that is a retryable condition.
-		return fallback('The provider did not answer in time. Showing its default — try again to list.')
+		return fallback(
+			"The provider did not answer in time. Showing namzu's pick for it — try again to list.",
+		)
 	}
 	if (listing.kind === 'failed') {
-		return fallback(`Could not list models: ${listing.reason}. Showing the default.`)
+		return fallback(`Could not list models: ${listing.reason}. Showing namzu's pick for it.`)
 	}
 	if (listing.models.length === 0) {
-		return fallback('The provider returned no models. Showing its default.')
+		return fallback("The provider returned no models. Showing namzu's pick for it.")
 	}
 
 	// A real list. Make sure the default is in it and marked, because a list

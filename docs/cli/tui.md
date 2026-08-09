@@ -89,9 +89,12 @@ list:
 | *does not publish a model list* | this driver has no listing capability |
 | *could not list models: …* | it errored, with its own reason |
 
-In every one of those cases the provider's default is still offered and
-selectable, so the step is never a dead end. The default is marked `(default)`
-wherever it appears.
+In every one of those cases a model is still offered and selectable, so the step
+is never a dead end. That model is marked **`(namzu default)`** wherever it
+appears, and the label is precise: it is namzu's own choice for the provider,
+not something the provider told us. Nothing refreshes it between releases, so if
+it is not the model you expected, set `model` on that entry in
+`~/.namzu/preferences.json` rather than looking for the setting at the provider.
 
 Your choice is written to `~/.namzu/preferences.json` as the primary entry's
 `model`, and it is what the next turn is sent with. See

@@ -54,10 +54,15 @@ describe('the provider chain check', () => {
 		expect(message).toContain('a-model')
 	})
 
-	it('shows the registry default for a member that pinned no model', async () => {
+	it('says WHOSE default a member that pinned no model gets', async () => {
+		// `(namzu default)`, not `(default)`. The value is namzu's registry entry,
+		// and a bare "default" reads as the provider's current one — which sends
+		// an operator looking at the wrong place when the model is not what they
+		// expected. Asserted as the whole phrase for that reason: `(default)`
+		// alone is a substring of it and would pass either way.
 		writePrefs({ version: 3, providers: [{ id: 'anthropic' }] })
 		const r = await check({ ANTHROPIC_API_KEY: 'x' })
-		expect(r.message ?? '').toContain('(default)')
+		expect(r.message ?? '').toContain('(namzu default)')
 	})
 
 	it('WARNS when only a fallback is unusable — the primary still runs', async () => {
