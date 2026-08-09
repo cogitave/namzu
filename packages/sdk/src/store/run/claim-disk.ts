@@ -191,19 +191,30 @@ async function takeGuard(guardPath: string, now: number): Promise<boolean> {
 		if (!isErrno(err, 'EEXIST')) throw err
 	}
 
-	let takenAt = 0
+	// An unreadable guard is a guard being written RIGHT NOW, not an ancient
+	// one. This is the same mistake as the claim reader made, one function
+	// over, and it produced the same symptom: reading the file mid-write threw,
+	// the catch left `takenAt` at 0, `now - 0` cleared any TTL, and the guard
+	// was broken the instant it was taken. Two workers then ran the reclaim
+	// concurrently and both wrote — which is precisely what the guard exists to
+	// stop.
+	//
+	// So a guard is breakable only when its timestamp PARSES and is genuinely
+	// old. Anything else means somebody holds it.
+	let takenAt: number | undefined
 	try {
 		const parsed: unknown = JSON.parse(await readFile(guardPath, 'utf-8'))
 		if (typeof parsed === 'object' && parsed !== null) {
 			const at = (parsed as { at?: unknown }).at
 			if (typeof at === 'number' && Number.isFinite(at)) takenAt = at
 		}
-	} catch {
-		// Unreadable guard: treat as abandoned. It is held across two file
-		// operations, so an unparseable one is a crashed writer.
+	} catch (err) {
+		// Gone between the failed create and this read: the holder finished
+		// and released. Retry from the top rather than assuming anything.
+		if (isErrno(err, 'ENOENT')) return false
 	}
 
-	if (now - takenAt < RECLAIM_GUARD_TTL_MS) return false
+	if (takenAt === undefined || now - takenAt < RECLAIM_GUARD_TTL_MS) return false
 
 	await unlink(guardPath).catch(() => undefined)
 	try {
