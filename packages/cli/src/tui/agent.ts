@@ -81,6 +81,7 @@ import {
 	findDetected,
 	isAnthropicOAuthToken,
 	isRegistered,
+	missingCredentialMessage,
 	primaryProvider,
 	readAgentKeychainCredential,
 	readPreferences,
@@ -387,6 +388,27 @@ export interface AgentSessionContext {
 	readonly preferences: Preferences | null
 	readonly needsRepickReason: string | null
 	readonly detected: readonly DetectedProvider[]
+	/**
+	 * The saved chain is fine and the MACHINE has no credential for its primary.
+	 *
+	 * A separate field rather than a second flavour of `needsRepickReason`, and
+	 * separate from nulling `preferences`, because the three readers of this
+	 * object want different things from it:
+	 *
+	 *  - the TUI routes into the picker, where the operator can enter a
+	 *    credential or choose something else;
+	 *  - `run`, `run-stream` and `drain` do `probe.preferences ?? defaultPrefs(...)`,
+	 *    so nulling preferences here would silently move a scripted run onto
+	 *    whatever else happened to be detected — the opposite of a refusal;
+	 *  - `createAgentSession` refuses again on its own, which is what keeps those
+	 *    headless exit codes and their `errorKind` classification unchanged.
+	 *
+	 * Carries the provider id as well as the sentence: a surface that offers to
+	 * take a credential has to know which provider it is for, and re-deriving
+	 * that from `preferences` at the call site is the same lookup in a second
+	 * place.
+	 */
+	readonly credentialGap: { readonly providerId: ProviderId; readonly reason: string } | null
 }
 
 /**
@@ -398,12 +420,55 @@ export async function probeAgentSession(): Promise<AgentSessionContext> {
 	const detected = await discoverProviders()
 	switch (read.status) {
 		case 'ok':
-			return { preferences: read.prefs, needsRepickReason: null, detected }
+			return {
+				preferences: read.prefs,
+				needsRepickReason: null,
+				detected,
+				credentialGap: credentialGap(read.prefs, detected),
+			}
 		case 'missing':
-			return { preferences: null, needsRepickReason: null, detected }
+			return { preferences: null, needsRepickReason: null, detected, credentialGap: null }
 		case 'needs-repick':
-			return { preferences: null, needsRepickReason: read.reason, detected }
+			return {
+				preferences: null,
+				needsRepickReason: read.reason,
+				detected,
+				credentialGap: null,
+			}
 	}
+}
+
+/**
+ * Whether the saved primary needs a key that discovery did not find.
+ *
+ * Asked HERE rather than at construction, which is where it used to be asked
+ * and is the whole defect. `createAgentSession` can only answer by returning an
+ * empty session, and an empty session sets the `unhealthy` phase — a disabled
+ * composer from which `/model` cannot be typed. So the refusal ended with "or
+ * pick another provider" printed on the one screen that will not let you. The
+ * neighbouring branch, an unbuildable primary, was moved to read time for
+ * exactly this reason; see `describeInvalidChain` in `preferences.ts`.
+ *
+ * Only the PRIMARY, matching that neighbour's asymmetry. A fallback with no
+ * credential is dropped from the chain at launch with a notice (`planFallbacks`)
+ * and the session still runs on the primary the operator has; taking that
+ * session away over a spare would be the trade the notice already refuses.
+ */
+function credentialGap(
+	prefs: Preferences,
+	detected: readonly DetectedProvider[],
+): { providerId: ProviderId; reason: string } | null {
+	const primary = primaryProvider(prefs)
+	const entry = PROVIDER_REGISTRY[primary.id]
+	// An id that is not a provider, or one with no driver in this build, is
+	// already `needs-repick` from `readPreferences` and never reaches here. If
+	// one ever did, it is not a credential problem and must not be reported as
+	// one — a wrong diagnosis sends the operator to paste a key that would not
+	// have helped.
+	if (!entry || !entry.constructible || !entry.requiresApiKey) return null
+	const det = findDetected(detected, primary.id)
+	if (det?.apiKey) return null
+	return { providerId: primary.id, reason: missingCredentialMessage(entry) }
 }
 
 // Builtins we don't expose: `verify_outputs` — a host-side check rather
@@ -536,8 +601,16 @@ export async function createAgentSession(
 	}
 	const det = findDetected(detected, primary.id)
 	if (entry.requiresApiKey && (!det || !det.apiKey)) {
+		// The BACKSTOP, not the operator-facing answer. The TUI never reaches this
+		// line any more: `probeAgentSession` reports the same gap as a
+		// `credentialGap` and the App routes into the picker, where a credential
+		// can actually be entered. What still arrives here is a headless caller —
+		// `run`, `run-stream`, `drain` — which has no picker and for which both
+		// pieces of advice below are real: an environment variable, or
+		// `--provider`. Keeping the refusal is what makes those runs fail rather
+		// than quietly start on something else.
 		return emptySession(
-			`No credential found for ${entry.label}. Set one of: ${entry.envVars.join(', ')} — or pick another provider.`,
+			`No credential found for ${entry.label}. Set one of: ${entry.envVars.join(', ')} — or pass --provider with one that is configured.`,
 		)
 	}
 	try {

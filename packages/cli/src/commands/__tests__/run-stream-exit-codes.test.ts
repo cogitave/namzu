@@ -50,6 +50,7 @@ vi.mock('../../tui/agent.js', () => ({
 	probeAgentSession: vi.fn(async () => ({
 		preferences: { version: 3, providers: [{ id: 'anthropic' }], subagents: { active: [] } },
 		needsRepickReason: null,
+		credentialGap: null,
 		detected: [],
 	})),
 	createAgentSession: vi.fn(async () => fakeAgentSession()),
@@ -91,6 +92,7 @@ beforeEach(() => {
 	vi.mocked(probeAgentSession).mockImplementation(async () => ({
 		preferences: { version: 3, providers: [{ id: 'anthropic' }], subagents: { active: [] } },
 		needsRepickReason: null,
+		credentialGap: null,
 		detected: [],
 	}))
 	vi.mocked(createAgentSession).mockImplementation(async () => fakeAgentSession())
@@ -186,6 +188,7 @@ describe('exit 1 — nothing the caller sends changes it', () => {
 		vi.mocked(probeAgentSession).mockImplementation(async () => ({
 			preferences: null,
 			needsRepickReason: null,
+			credentialGap: null,
 			detected: [],
 		}))
 		const r = await run(['hello'])

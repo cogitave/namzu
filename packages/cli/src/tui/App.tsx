@@ -121,6 +121,26 @@ export function App({ ctx }: AppProps) {
 	const [session, setSession] = useState<AgentSession | null>(null)
 	const [detected, setDetected] = useState<readonly DetectedProvider[]>([])
 	const [currentProvider, setCurrentProvider] = useState<ProviderId | null>(null)
+	/**
+	 * The provider the picker offers to take a credential FOR, set only when this
+	 * picker is open because that provider's credential is missing.
+	 *
+	 * Null for `/model` and for first run, where the picker is a choice rather
+	 * than a repair and offering to key in a credential for a provider nobody has
+	 * chosen yet would be answering a question that was not asked.
+	 */
+	const [keyEntryFor, setKeyEntryFor] = useState<ProviderId | null>(null)
+	/** The chain read from disk, held while the picker repairs its credential. */
+	const savedPrefsRef = useRef<Preferences | null>(null)
+	/**
+	 * Why the picker is open, drawn ON the picker.
+	 *
+	 * Pushed into the transcript as well — it belongs in the scrollback the
+	 * operator keeps — but the transcript is not rendered during this phase, so
+	 * the transcript copy alone was an explanation nobody could read at the
+	 * moment it mattered. Both refusals that route here use it.
+	 */
+	const [pickerNotice, setPickerNotice] = useState<string | null>(null)
 	const [permission, setPermission] = useState<PermissionRequest | null>(null)
 	const [activeSkills, setActiveSkills] = useState<ReadonlyArray<{ name: string; body: string }>>(
 		[],
@@ -378,6 +398,24 @@ export function App({ ctx }: AppProps) {
 			setDetected(probe.detected)
 			if (probe.needsRepickReason) {
 				pushMessage('system', probe.needsRepickReason)
+				setPickerNotice(probe.needsRepickReason)
+				setPhase('picker')
+				return
+			}
+			// The saved provider is fine and this machine has no credential for it.
+			// Routed to the picker, exactly like the unbuildable-primary case, and
+			// for the same reason: hydrating would produce a session with no
+			// provider, which sets `unhealthy` — a disabled composer where nothing
+			// the message suggested can be done. The picker is where a credential
+			// can be entered, so the picker is where the refusal belongs.
+			if (probe.credentialGap) {
+				// Kept, not discarded. The file is valid; only the secret is absent,
+				// so the chain it declares — model pins and fallbacks included — is
+				// still the operator's answer once one is supplied.
+				savedPrefsRef.current = probe.preferences
+				setKeyEntryFor(probe.credentialGap.providerId)
+				pushMessage('system', probe.credentialGap.reason)
+				setPickerNotice(probe.credentialGap.reason)
 				setPhase('picker')
 				return
 			}
@@ -913,6 +951,11 @@ export function App({ ctx }: AppProps) {
 						exit()
 						return
 					case 'repick':
+						// Opened as a choice, not as a repair. A launch-time refusal
+						// left on screen here would explain a problem that has since
+						// been solved — the session behind this picker is running.
+						setPickerNotice(null)
+						setKeyEntryFor(null)
 						setPhase('picker')
 						return
 					case 'remember':
@@ -1132,16 +1175,26 @@ export function App({ ctx }: AppProps) {
 		(credential: DetectedProvider, disposition: string) => {
 			const next = [credential, ...detected.filter((d) => d.entry.id !== credential.entry.id)]
 			setDetected(next)
+			setKeyEntryFor(null)
+			setPickerNotice(null)
 			// The disposition, not the key. `credential` never reaches a message.
 			pushMessage('system', disposition)
-			void hydrateSession(
-				{
-					version: 3,
-					providers: [{ id: credential.entry.id as ProviderId }],
-					subagents: { active: [] },
-				},
-				next,
-			)
+			// The SAVED chain when the credential is for the provider that was
+			// already chosen, and a fresh one-member chain otherwise. Rebuilding
+			// from the id alone would have been a quiet demotion in the one case
+			// this routing creates: an operator whose file pins a model, and whose
+			// only problem was a missing secret, would have been moved onto the
+			// registry default for supplying it.
+			const saved = savedPrefsRef.current
+			const prefs: Preferences =
+				saved && primaryProvider(saved).id === credential.entry.id
+					? saved
+					: {
+							version: 3,
+							providers: [{ id: credential.entry.id as ProviderId }],
+							subagents: { active: [] },
+						}
+			void hydrateSession(prefs, next)
 		},
 		[detected, hydrateSession, pushMessage],
 	)
@@ -1160,6 +1213,8 @@ export function App({ ctx }: AppProps) {
 				],
 				subagents: { active: [] },
 			}
+			setKeyEntryFor(null)
+			setPickerNotice(null)
 			try {
 				writePreferences(prefs)
 			} catch (err) {
@@ -1372,6 +1427,8 @@ export function App({ ctx }: AppProps) {
 						onSubmit={handlePickerSubmit}
 						onCancel={handlePickerCancel}
 						onCredential={handleTypedCredential}
+						keyEntryFor={keyEntryFor}
+						notice={pickerNotice}
 					/>
 				) : (
 					<>

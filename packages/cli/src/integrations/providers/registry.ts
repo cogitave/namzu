@@ -181,3 +181,24 @@ export function unsupportedProviderMessage(id: string): string {
 	)
 	return `${label} ("${id}") is not available in this build of namzu — it has no driver bundled, so no session can use it. Pick one of: ${usable}. Following it is tracked in cogitave/namzu#257.`
 }
+
+/**
+ * The sentence an operator reads when their SAVED provider needs a credential
+ * and this machine has none.
+ *
+ * Deliberately different from the one `createAgentSession` prints for the same
+ * fact, and the difference is the whole point. That one is read by a headless
+ * run, where the answers are an environment variable or `--provider`. This one
+ * is printed directly above the picker, so it names what the picker offers:
+ * enter one now, or choose something else. Advice that matches the screen it is
+ * printed on is the property the unbuildable-primary refusal already has and
+ * this case did not — see `docs/conventions/read-the-neighbour.md`.
+ *
+ * The environment variables are still named. They are how the credential
+ * becomes durable, and the entry screen holds one only for the session.
+ */
+export function missingCredentialMessage(entry: ProviderRegistryEntry): string {
+	const looked =
+		entry.envVars.length > 0 ? ` namzu looked for ${entry.envVars.join(', ')} and found none.` : ''
+	return `No credential found for ${entry.label}, your saved provider.${looked} Enter one below with "k", or choose a different provider.`
+}

@@ -26,7 +26,37 @@
  * unverifiable.
  */
 
-import type { DetectedProvider, ProviderRegistryEntry } from '../integrations/providers/index.js'
+import {
+	type DetectedProvider,
+	type ProviderRegistryEntry,
+	isAnthropicOAuthToken,
+} from '../integrations/providers/index.js'
+
+/**
+ * Which kind of secret was pasted.
+ *
+ * The distinction is not cosmetic: the two travel differently on the wire —
+ * `constructProvider` sends one as `authToken` and the other as `apiKey` — and
+ * they expire differently. A subscription token is short-lived and is renewed
+ * from refresh metadata that only the discovered credential carries; a hand
+ * pasted one has none, so it lapses in hours with nothing to renew it. An
+ * operator who is not told that at the moment they paste discovers it as a 401
+ * mid-turn, which is the difference between a feature and a trap.
+ */
+export type CredentialKind = 'api-key' | 'subscription-token'
+
+/**
+ * Classify a pasted secret by its own shape.
+ *
+ * Reuses the classifier the session layer already decides the wire header with
+ * (`isAnthropicOAuthToken`), so the screen cannot say one thing while the
+ * request says another. Every other provider takes an API key and nothing else,
+ * so asking the question of them would invent a distinction they do not have.
+ */
+export function classifyCredential(entry: ProviderRegistryEntry, key: string): CredentialKind {
+	if (entry.id !== 'anthropic') return 'api-key'
+	return isAnthropicOAuthToken(key.trim()) ? 'subscription-token' : 'api-key'
+}
 
 /**
  * What a key looks like on screen. Never the key.
@@ -58,11 +88,15 @@ export function keyLooksUsable(key: string): { ok: true } | { ok: false; reason:
 	if (/\s/.test(trimmed)) {
 		return { ok: false, reason: 'That contains a space — check for a truncated or wrapped paste.' }
 	}
-	if (trimmed.startsWith('$') || trimmed.includes('=')) {
+	// Assignment-SHAPED, not "contains an equals sign". The old test rejected any
+	// `=` anywhere, which is fine for an API key and wrong for a subscription
+	// token: a JWT-shaped one is base64 and may carry `=` padding, so the screen
+	// refused a valid credential and blamed the operator's paste for it. This
+	// still catches the case the check exists for — `ANTHROPIC_API_KEY=sk-…`
+	// copied out of a shell profile — because that has a variable name in front.
+	if (trimmed.startsWith('$') || /^[A-Za-z_][A-Za-z0-9_]*=/.test(trimmed)) {
 		return {
 			ok: false,
-			// The classic: pasting `ANTHROPIC_API_KEY=sk-…` or `$MY_KEY` from a
-			// shell profile rather than the value.
 			reason: 'That looks like a shell assignment or variable. Paste the key itself.',
 		}
 	}
@@ -79,27 +113,33 @@ export type Verification =
 /**
  * What namzu tells the operator it did with what they typed.
  *
- * Every branch says three things: that it worked or did not, that the key is
- * held for this session only, and the environment variable that persists it.
- * The middle one is the part a person is most likely to assume otherwise —
- * typing a credential into an application usually means it was saved.
+ * Every branch says four things: that it worked or did not, WHICH KIND of
+ * credential it took, that it is held for this session only, and the
+ * environment variable that persists it. The third is the part a person is most
+ * likely to assume otherwise — typing a credential into an application usually
+ * means it was saved.
+ *
+ * The kind is said out loud because the two behave differently after this
+ * screen, and only one of them can be renewed. See {@link CredentialKind}.
  */
 export function describeDisposition(
 	entry: ProviderRegistryEntry,
 	verification: Verification,
+	kind: CredentialKind = 'api-key',
 ): string {
+	const noun = kind === 'subscription-token' ? 'subscription token' : 'API key'
 	const persist = entry.envVars[0]
 	const durable = persist
 		? `To keep it, set ${persist} in your shell and restart.`
 		: 'To keep it, configure the credential in your environment and restart.'
 
 	if (verification.kind === 'rejected') {
-		return `${entry.label} rejected that key: ${verification.reason}\nNothing was stored.`
+		return `${entry.label} rejected that ${noun}: ${verification.reason}\nNothing was stored.`
 	}
 
 	const checked =
 		verification.kind === 'verified'
-			? `${entry.label} accepted the key.`
+			? `${entry.label} accepted the ${noun}.`
 			: // Said plainly rather than implied. Claiming a key is good would be
 				// inventing a verification that did not happen — and this now covers
 				// two ways of not happening: a driver that declares no credential
@@ -107,9 +147,20 @@ export function describeDisposition(
 				// wording asserted the first ("offers no way to check it"), which
 				// would be false for a probe that timed out. Neither is a bad key,
 				// and neither is a checked one.
-				`Key accepted, but NOT checked — ${entry.label} could not confirm it just now, so the first message will be the test.`
+				`${noun.replace(/^./, (c) => c.toUpperCase())} accepted, but NOT checked — ${entry.label} could not confirm it just now, so the first message will be the test.`
 
-	return `${checked}\nHeld in memory for this session only — it is not written anywhere. ${durable}`
+	// Disclosed HERE, at the paste, and not left to be discovered as a 401 in the
+	// middle of a turn. A discovered subscription token arrives with a refresh
+	// token and an expiry, and the session layer renews it between turns; a
+	// pasted one carries neither, so there is nothing to renew it with. Saying
+	// "it lasts hours" is the honest form of a limitation we cannot remove
+	// without an authorization flow namzu does not have.
+	const expiry =
+		kind === 'subscription-token'
+			? '\nA pasted subscription token has no refresh data with it, so it expires in a few hours and namzu cannot renew it — expect to enter it again.'
+			: ''
+
+	return `${checked}\nHeld in memory for this session only — it is not written anywhere. ${durable}${expiry}`
 }
 
 /**
@@ -118,6 +169,13 @@ export function describeDisposition(
  * Shaped exactly like a discovered one so every downstream path — session
  * construction, the model picker, `/provider` — treats it identically. The only
  * difference is `source`, so a surface can say where it came from.
+ *
+ * `oauth` is deliberately NOT set, for a subscription token as much as for an
+ * API key. That field means "this credential can be renewed from a refresh
+ * token", the session layer gates its refresh on it, and a hand-pasted token
+ * supplies no refresh token — so filling it in would claim a renewal path that
+ * does not exist and turn a disclosed expiry into a silent 401. The disclosure
+ * in `describeDisposition` is the substitute.
  */
 export function sessionCredential(entry: ProviderRegistryEntry, key: string): DetectedProvider {
 	return {

@@ -37,6 +37,7 @@ export {
 } from './preferences.js'
 export {
 	ALL_PROVIDER_IDS,
+	missingCredentialMessage,
 	PROVIDER_REGISTRY,
 	type ProviderId,
 	type ProviderRegistryEntry,

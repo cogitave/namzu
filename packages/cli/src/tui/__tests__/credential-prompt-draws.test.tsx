@@ -53,7 +53,10 @@ describe('the no-credential screen', () => {
 		expect(lastFrame()).toContain('No providers detected')
 		// The cliff this closes: the screen used to end at "restart namzu".
 		expect(lastFrame()).toContain('restart namzu')
-		expect(lastFrame()).toMatch(/press .*k.* to paste a key|k: enter a key/s)
+		// "credential" and not "key": the screen accepts a subscription token as
+		// well, and a field labelled for one of the two kinds is a field the
+		// holder of the other kind will not use.
+		expect(lastFrame()).toMatch(/press .*k.* to paste a credential|k: enter a credential/s)
 		unmount()
 	})
 })
@@ -63,7 +66,7 @@ describe('the credential prompt', () => {
 		const { lastFrame, stdin, unmount } = open()
 		stdin.write('k')
 		await flush()
-		expect(lastFrame()).toContain('Paste a key')
+		expect(lastFrame()).toContain('Paste a credential')
 		unmount()
 	})
 
@@ -127,7 +130,7 @@ describe('the credential prompt', () => {
 		expect(frame).toContain('HTTP 401')
 		expect(frame).toContain('Nothing was stored')
 		// Still on the screen, so a one-character slip is fixable...
-		expect(frame).toContain('Paste a key')
+		expect(frame).toContain('Paste a credential')
 		// ...and the key is still not on it.
 		expect(frame).not.toContain(KEY)
 		expect(onCredential).not.toHaveBeenCalled()
