@@ -140,6 +140,7 @@ export type {
 	DrainRun,
 	DrainRunsParams,
 	DrainRunsResult,
+} from './run/index.js'
 // A `ReviewAnswer` that runs shell commands, so "don't finish until the
 // build passes" needs no TypeScript. `reviewAnswer` was the seam for this
 // and nothing shipped supplied one. Skips re-running a command whose
