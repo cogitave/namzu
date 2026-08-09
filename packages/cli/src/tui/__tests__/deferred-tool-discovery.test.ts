@@ -101,7 +101,7 @@ describe('search_tools is mounted only where a deferred roster exists', () => {
 
 		// The session opens a task store, so query() defers the task tools and
 		// the search has a roster.
-		expect(session.toolNames).toContain('search_tools')
+		expect(session.toolNames()).toContain('search_tools')
 
 		expect(
 			capturedBuildTools,

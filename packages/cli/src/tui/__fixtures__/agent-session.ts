@@ -39,7 +39,7 @@ export function fakeAgentSession(overrides: Partial<AgentSession> = {}): AgentSe
 		hasProvider: true,
 		providerSummary: 'mock',
 		modelSummary: 'mock-model',
-		toolNames: [],
+		toolNames: () => [],
 		errorHint: null,
 		instructionFiles: [],
 		skippedInstructionFiles: [],

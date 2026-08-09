@@ -59,7 +59,7 @@ function writeCommand(name: string, body: string): void {
 
 function context(userCommands: SlashContext['userCommands']): SlashContext {
 	return {
-		availableTools: [],
+		availableTools: () => [],
 		providerSummary: 'mock (mock)',
 		modelSummary: 'mock-model',
 		usage: null,

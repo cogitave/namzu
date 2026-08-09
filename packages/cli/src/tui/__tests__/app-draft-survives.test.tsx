@@ -56,7 +56,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 			hasProvider: true,
 			providerSummary: 'a-provider',
 			modelSummary: 'a-model',
-			toolNames: ['bash'],
+			toolNames: () => ['bash'],
 			errorHint: null,
 			instructionFiles: [],
 			skippedInstructionFiles: [],

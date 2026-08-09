@@ -32,7 +32,7 @@ function permissions(over: Partial<SlashContext['permissions']> = {}): SlashCont
  */
 function context(over: Partial<SlashContext> = {}): SlashContext {
 	return {
-		availableTools: [],
+		availableTools: () => [],
 		providerSummary: null,
 		modelSummary: null,
 		usage: null,
@@ -47,7 +47,7 @@ function context(over: Partial<SlashContext> = {}): SlashContext {
 const ctx: SlashContext = context()
 
 const ctxWithTools: SlashContext = context({
-	availableTools: ['Bash', 'Read', 'Edit'],
+	availableTools: () => ['Bash', 'Read', 'Edit'],
 	providerSummary: 'anthropic-personal (anthropic)',
 	modelSummary: 'claude-opus-4-7',
 })

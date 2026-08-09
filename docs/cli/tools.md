@@ -1,7 +1,7 @@
 ---
 title: Tools & permission
 description: Builtin tools, agent memory + task tools, deferred tools and search_tools, how a tool call is decided, the permissions file, the safety gate, and bypass mode.
-last_updated: 2026-08-05
+last_updated: 2026-08-09
 status: current
 related_packages: ["@namzu/cli", "@namzu/sdk"]
 ---
@@ -35,6 +35,8 @@ The agent can lay out a multi-step plan with the task tools. New tasks appear in
 A **deferred** tool is registered but not offered to the model directly: it costs a name in the prompt rather than a full JSON schema, and the model loads it when it needs it by calling `search_tools`. That keeps per-turn token cost flat as the tool count grows.
 
 In a namzu session the task tools above are the deferred set — they are registered when the session opens a task store, and `search_tools` is mounted alongside them so the model can reach them.
+
+They register during the **first turn**, not at connect. So `Connected to … · N tools` does not count them — it reports what was callable at the moment it connected — while `/tools` and `/permissions` are asked later and answer for the moment you ask. Running one turn and then `/tools` is the reliable way to see the full roster.
 
 A sub-agent runs without a task store, so it has nothing deferred, and `search_tools` is not mounted there at all: a tool whose only possible answer is "nothing matched" costs a turn to discover that.
 
