@@ -1,5 +1,6 @@
 {
 	"$comment": "Coverage gate config for @namzu/sdk. Consumed by .github/scripts/check-sdk-module-coverage.mjs and check-sdk-test-presence.mjs. The bucket rules were ratified in ses_006-test-coverage-sprint.",
+	"$comment_pricing": "`pricing` is `required` with a measured floor, and the floor only means anything because its generated rate table is excluded from coverage in vitest.config.ts. Measured with the table IN: 299 lines, 282 of them the generated data, all counted covered the moment anything imports the module — so the aggregate read 100% while describing almost nothing, and the resolver could have lost a third of its lines and still cleared 97%. Measured with it OUT: 17 lines and 10 branches, all in index.ts, 100%/100%. Floor is measured minus 3 per the policy in check-sdk-module-coverage.mjs. Note the module is small enough that 3 points is less than one branch, so any uncovered branch in the resolver fails this gate — that is intended, not an accident of rounding.",
 	"modules": {
 		"required": [
 			"__fixtures__",
@@ -66,6 +67,10 @@
 		"directory": {
 			"line": 85,
 			"branch": 82
+		},
+		"pricing": {
+			"line": 97,
+			"branch": 97
 		},
 		"rag": {
 			"line": 92,
