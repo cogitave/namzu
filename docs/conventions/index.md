@@ -68,7 +68,9 @@ probably belong under `docs/sdk/` instead.
 
 - [Mutate every test](mutation-check-every-test.md) — and a unit test on a
   helper never proves the caller invokes it. A kill by one unit is the fixture
-  discriminating, not the code.
+  discriminating, not the code. Write the second round to find gaps rather than
+  to confirm the first: twenty aimed mutations all died, and ten written with
+  the opposite intent produced seven survivors.
 - [A test can be sound and still be about the wrong thing](sound-about-the-wrong-thing.md)
   — right path, wrong observer, wrong moment. A live run is not exempt.
 - [A fixture unlike production tests a system that does not ship](fixture-must-match-production.md)
