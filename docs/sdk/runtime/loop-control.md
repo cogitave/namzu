@@ -1,7 +1,7 @@
 ---
 title: Loop Control and Resilience
 description: Stop conditions, step records, provider retry, budgets across resume, compaction triggers and outcomes, and extended thinking and effort in the @namzu/sdk agent loop.
-last_updated: 2026-08-05
+last_updated: 2026-08-10
 status: current
 related_packages: ["@namzu/sdk", "@namzu/anthropic"]
 ---
@@ -148,12 +148,62 @@ query({
 | `stepNumber`, `model`, `messageId` | identity |
 | `servedBy` | which provider and model actually answered |
 | `content`, `toolCalls`, `toolResults` | what happened |
-| `finishReason` | why the turn ended |
+| `finishReason` | how the turn ended |
+| `failure` | what went wrong, on a turn that ended in `error` |
 | `usage`, `costDelta` | **this step's** consumption, not the running total |
 | `startedAt`, `durationMs`, `toolExecutionMs` | timing, split by phase |
 
-`toolResults` is ordered by the tool *calls*, so it lines up with
-`toolCalls` index for index.
+`toolResults` is ordered by the tool *calls*. On a turn that completed it
+lines up index for index; on a turn that failed it is shorter, because only
+the outcomes that came back are recorded. Pair by `toolCallId` if you handle
+both.
+
+### The turn that failed
+
+An iteration that throws leaves a step like every other iteration does.
+It used to leave nothing — the loop recorded a span exception and re-threw —
+so a ledger was complete except on the turns that went wrong, which reads as
+"nothing went wrong" precisely where something did.
+
+`finishReason` therefore carries two values no provider reports:
+
+| Value | |
+| --- | --- |
+| `error` | the iteration threw. `failure` says what happened |
+| `cancelled` | a Stop tore the turn down. There is no failure to report |
+
+```ts
+for (const step of run.steps ?? []) {
+  if (step.finishReason !== 'error') continue
+  console.log(step.stepNumber, step.failure?.code, step.failure?.message)
+}
+```
+
+`failure` carries `{ message, code, status?, retryable }`, classified the same
+way `run.lastProviderError` is, so the two agree when the failed step is the
+one that ended the run. `code` is `unknown` when the failure was not a
+provider failure at all — a lifecycle hook that threw, say — which is the
+honest reading rather than a more specific-looking guess.
+
+What such a step carries is what the iteration got as far as knowing:
+
+- `usage` is the same subtraction every step makes. A turn that failed after
+  the model answered carries that answer's tokens; one that failed before it
+  carries the zero it actually spent.
+- `messageId` is present whenever the iteration reached the provider call,
+  including a stream that died part-way — the events carry both
+  `message_started` and `message_completed` for it, so the id is a trail.
+  It is absent when the turn failed before any message was announced.
+- `servedBy` is absent when nothing answered. `run.metadata.servingProvider`
+  is the field that still names the member whose failure ended the run.
+
+At most one step exists per iteration. A failure that lands *after* the step
+was recorded — in the advisory phase, or a trailing lifecycle hook — leaves
+that step's own verdict alone and reaches you as the run's error, rather than
+adding a second entry that would double-count the turn.
+
+Reading them back needs no special path: a failed run settles rather than
+throwing, so `run.steps` carries the ledger including its last, failed entry.
 
 ### What was asked for, and what answered
 
