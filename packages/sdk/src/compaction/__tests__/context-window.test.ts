@@ -27,8 +27,8 @@ describe('lookupContextWindow', () => {
 	// The window is not a property of the family. Within one family and one
 	// major version, 4.5 is 200k and 4.6+ is 1M, so a key covering the whole
 	// family gets one of the two wrong. The table shipped with exactly that
-	// bug: a bare `claude-opus-4` key answered 200k for every 4.x, which
-	// made a 1M run compact at ~14% full.
+	// bug: a family-level key answered 200k for every 4.x, which made a
+	// 1M run compact at ~14% full. The ids below are the assertion.
 	it('separates the 1M models from the 200k ones inside the same family', () => {
 		expect(lookupContextWindow('claude-opus-4-8')).toBe(1_000_000)
 		expect(lookupContextWindow('claude-opus-4-7')).toBe(1_000_000)
