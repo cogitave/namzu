@@ -206,6 +206,66 @@ typing the host differently.
 A policy that cannot be read **denies**. An allowlist that fails open is
 not an allowlist.
 
+### Where the name goes, not just what it is called
+
+An allowlist entry names a host. **DNS decides where that host is**, and the
+caller may control it — so an allowlisted name is a permitted *spelling*
+until something has looked at the address behind it. `api.example.com` with
+an `A` record pointing at `169.254.169.254` is the instance metadata service
+wearing a permitted name, and on the plain-HTTP path the brokered credential
+goes on the request *before* it is sent. Without an address check the
+credential-brokering design is the delivery mechanism.
+
+So the boundary refuses these, whatever the allowlist says:
+
+| Refused | v4 | v6 |
+| --- | --- | --- |
+| loopback | `127.0.0.0/8` | `::1` |
+| private | `10/8`, `172.16/12`, `192.168/16` | `fc00::/7` unique-local |
+| link-local (metadata) | `169.254.0.0/16` | `fe80::/10` |
+| carrier / shared | `100.64.0.0/10` | — |
+| unspecified, multicast, reserved | `0/8`, `224/4`, `240/4` | `::`, `ff00::/8` |
+
+A v4 address written as IPv6 — `::ffff:169.254.169.254`, `::ffff:a9fe:a9fe`,
+or the same thing written out in full — is the same address and is refused
+the same way. A v4-only screen passes all three, which is a known way through
+this kind of filter rather than an oversight.
+
+**The screening happens inside the resolution the socket performs**, not
+before it. Resolve-check-then-connect leaves the socket free to resolve a
+second time, and the second answer is the one that decides where the bytes
+go — so a name that alternates records walks through a check that passed a
+moment earlier. Every address in the record set is screened, not just the one
+that would have been used, because a set mixing a public address with an
+inward one is the ordinary shape of this and screening only the winner makes
+the outcome depend on resolver ordering. The host stays the **name** on the
+request, so SNI and certificate validation still check the name the allowlist
+approved.
+
+### When the private address is the point
+
+Some deployments genuinely proxy to a service on a private network. Name it:
+
+```ts
+allowInwardFor: ['.internal.example'],
+```
+
+Per host, matched by the same rules as the allowlist. There is deliberately
+no switch that turns the screen off — one would hand every other allowlisted
+name the same reach, which is the hole the screen exists to close.
+
+A refusal says which kind of address it was (`loopback`, `link-local`,
+`private`), because those are different mistakes with different fixes, and it
+reaches `onDenied` as well as the requester.
+
+**On the tunnel path this bounds the destination and nothing more.** The
+allowlist reads the name in the `CONNECT` line — the only part of that
+exchange ever in clear text — and the address screen makes that a real bound
+on where the tunnel terminates. What travels inside it afterwards is opaque
+to this process, including the name the caller puts in its own TLS handshake.
+A tunnel to an allowlisted host is not a guarantee that only allowlisted
+traffic crosses it.
+
 ### Changing the policy while the sandbox runs
 
 `sandbox.setNetworkPolicy({ allowedHosts })` narrows or widens a live
@@ -245,4 +305,5 @@ would let the proxy read every byte the agent sends anywhere. That is a
 strictly larger risk than the one being mitigated, so it is not built. A
 workload that needs brokering speaks plain HTTP to the proxy and lets it
 upgrade to HTTPS upstream. The allowlist is still enforced on CONNECT,
-because the target names the host in clear text.
+because the target names the host in clear text — and so is the address
+screen, so a permitted name cannot be a route inward.

@@ -43,7 +43,11 @@ import {
 	withHint,
 } from '@namzu/sdk'
 import { EgressProxy } from '../../egress/index.js'
-import type { BrokeredCredential, RunningEgressProxy } from '../../egress/index.js'
+import type {
+	BrokeredCredential,
+	EgressProxyOptions,
+	RunningEgressProxy,
+} from '../../egress/index.js'
 
 import {
 	ContainerSandboxLayoutValidationError,
@@ -96,6 +100,22 @@ export interface DockerBackendInternalConfig {
 	 * permits. Here it is held host-side and applied at the boundary.
 	 */
 	readonly brokeredCredentials?: readonly BrokeredCredential[]
+
+	/**
+	 * Allowlisted hosts permitted to resolve to an inward address anyway.
+	 *
+	 * The egress boundary refuses a host that resolves to loopback, a private
+	 * range or the link-local metadata block, whatever the allowlist says —
+	 * because an allowlisted name whose DNS someone else controls is not a
+	 * permitted destination, it is a permitted spelling. An operator who
+	 * genuinely proxies to one service on a private network names it here.
+	 *
+	 * Per host, matched by the allowlist's own rules so `.internal.example`
+	 * covers subdomains. There is deliberately no switch that turns the screen
+	 * off: one would hand every other allowlisted name the same reach, which
+	 * is the hole the screen exists to close.
+	 */
+	readonly allowInwardFor?: readonly string[]
 
 	readonly network?: 'none' | 'bridge' | string
 	readonly readyPollIntervalMs?: number
@@ -218,6 +238,29 @@ export function needsEgressProxy(egress: EgressPolicy | undefined): boolean {
 }
 
 /**
+ * The options the boundary is built from, as a value.
+ *
+ * Extracted for the same reason {@link resolveNetwork} is: everything
+ * downstream of here needs a running Docker daemon, so a policy that never
+ * reached the proxy could only be caught by an operator noticing their
+ * traffic denied in production. A knob a host sets and the boundary never
+ * receives is the failure this shape exists to make testable.
+ */
+export function egressProxyOptions(
+	config: Pick<DockerBackendInternalConfig, 'brokeredCredentials' | 'allowInwardFor'>,
+	policy: EgressPolicy,
+): EgressProxyOptions {
+	return {
+		// Re-resolved per request rather than captured once, so a `resolver`
+		// policy that rotates is honoured and `setNetworkPolicy` can swap it
+		// on a live sandbox.
+		allowedHosts: () => resolveAllowedHosts(policy),
+		credentials: config.brokeredCredentials ?? [],
+		...(config.allowInwardFor ? { allowInwardFor: config.allowInwardFor } : {}),
+	}
+}
+
+/**
  * Confinement flags applied to every container.
  *
  * A sandbox whose containers run as root with the full default capability
@@ -251,13 +294,7 @@ async function spawnDockerSandbox(
 	let egressProxy: RunningEgressProxy | undefined
 	if (needsEgressProxy(options.egress) && options.egress) {
 		const policy = options.egress
-		egressProxy = await new EgressProxy({
-			// Re-resolved per request rather than captured once, so a
-			// `resolver` policy that rotates is honoured and
-			// `setNetworkPolicy` can swap it on a live sandbox.
-			allowedHosts: () => resolveAllowedHosts(policy),
-			credentials: config.brokeredCredentials ?? [],
-		}).listen()
+		egressProxy = await new EgressProxy(egressProxyOptions(config, policy)).listen()
 	}
 
 	const network = resolveNetwork(

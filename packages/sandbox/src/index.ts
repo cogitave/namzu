@@ -211,6 +211,22 @@ export interface ContainerBackendConfig {
 	 */
 	readonly network?: 'none' | 'bridge' | string
 	/**
+	 * Allowlisted hosts permitted to resolve to an inward address anyway.
+	 *
+	 * The egress boundary refuses a host that resolves to loopback, a
+	 * private range, or the link-local block cloud metadata services answer
+	 * on — whatever the allowlist says, because an allowlisted name whose
+	 * DNS someone else controls is a permitted spelling rather than a
+	 * permitted destination. A deployment that genuinely proxies to one
+	 * service on a private network names that service here.
+	 *
+	 * Per host, matched by the allowlist's own rules so `.internal.example`
+	 * covers subdomains. There is deliberately no switch that turns the
+	 * screen off: one would hand every other allowlisted name the same
+	 * reach, which is the hole the screen exists to close.
+	 */
+	readonly allowInwardFor?: readonly string[]
+	/**
 	 * Optional `--label key=value` pairs applied to the spawned
 	 * container. Hosts use this to make the container findable from
 	 * out-of-band cleanup paths (reaper jobs, monitoring filters)
@@ -549,6 +565,7 @@ function pickBackend(config: SandboxProviderConfig): SandboxBackend {
 				? { hostReachability: backend.hostReachability }
 				: {}),
 			...(backend.network !== undefined ? { network: backend.network } : {}),
+			...(backend.allowInwardFor !== undefined ? { allowInwardFor: backend.allowInwardFor } : {}),
 			...(backend.labels !== undefined ? { labels: backend.labels } : {}),
 		})
 	}
@@ -599,6 +616,7 @@ function pickBackend(config: SandboxProviderConfig): SandboxBackend {
 				? { hostReachability: backend.hostReachability }
 				: {}),
 			...(backend.network !== undefined ? { network: backend.network } : {}),
+			...(backend.allowInwardFor !== undefined ? { allowInwardFor: backend.allowInwardFor } : {}),
 			...(backend.labels !== undefined ? { labels: backend.labels } : {}),
 		})
 	}
