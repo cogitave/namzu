@@ -23,7 +23,22 @@ export const GENAI = {
 
 	TOOL_NAME: 'gen_ai.tool.name',
 	TOOL_TYPE: 'gen_ai.tool.type',
-	TOOL_CALL_ID: 'gen_ai.tool.call_id',
+
+	/**
+	 * The id of the tool call this span is about.
+	 *
+	 * Spelled `call.id`, matching the registry and matching the two
+	 * neighbours above — this read `gen_ai.tool.call_id`, one underscore
+	 * where the convention has a dot, so a consumer grouping by the
+	 * conventional name found nothing under it. Nothing errored, because a
+	 * span attribute is a free-form key and a wrong one is simply a key
+	 * nobody asked for.
+	 *
+	 * Pinned by `telemetry/__tests__/tool-call-id-attribute.test.ts`, which
+	 * also drives the emitter: the spelling was only half the defect, and
+	 * the constant had no writer at all.
+	 */
+	TOOL_CALL_ID: 'gen_ai.tool.call.id',
 
 	AGENT_NAME: 'gen_ai.agent.name',
 	AGENT_ID: 'gen_ai.agent.id',
