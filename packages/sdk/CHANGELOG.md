@@ -1,5 +1,81 @@
 # Changelog
 
+## 25.0.0
+
+### Major Changes
+
+- 917e4a5: A failed iteration now leaves a step, so the run ledger has no hole where the failure was
+
+  `recordStep` had two call sites and both were on success paths. An iteration
+  that threw recorded a span exception and re-threw with nothing written down, so
+  a ledger was complete except on the turns that failed — which reads as "nothing
+  went wrong" precisely where something did, and a reader could not tell
+  iteration N failing from iteration N never happening.
+
+  The failing turn now gets a `StepResult` like every other turn, from the same
+  writer, so failures and successes sort together. It carries what the iteration
+  got as far as knowing: the model asked for, the tokens actually spent, the tool
+  calls the model made, and what went wrong.
+
+  **Three breaking changes to `StepResult`, all on the read side.**
+
+  - `finishReason` gains `'error'` and `'cancelled'`. If you `switch` on it
+    exhaustively, add the two cases. `'error'` means the iteration threw and
+    `failure` says why; `'cancelled'` means a Stop tore the turn down.
+  - `messageId` is now optional. It is absent only on a step whose iteration
+    failed before the model's message was announced — a lifecycle hook that
+    threw, a transport error before the first chunk. If you read it
+    unconditionally, guard it. It is still present on every turn that reached the
+    provider, including a stream that died part-way.
+  - `toolResults` may now be shorter than `toolCalls` on a step that failed: only
+    outcomes that came back are recorded, because `{output: '', isError: false}`
+    for a tool that never ran reads as an empty success. Pair by `toolCallId`
+    rather than by index if you handle failed steps.
+
+  New: `failure?: StepFailure` — `{ message, code, status?, retryable }`,
+  classified the same way `run.lastProviderError` is. `code` is `'unknown'` for a
+  failure that was not a provider failure at all, which is the honest reading
+  rather than a more specific-looking guess.
+
+  Also: an iteration records at most one step. A failure landing after the step
+  was already recorded — in the advisory phase, or a trailing lifecycle hook —
+  leaves that step's own verdict alone rather than adding a second entry that
+  would double-count the turn against `run.tokenUsage`.
+
+- e6818ee: Tool retry now backs off with full jitter instead of re-running immediately
+
+  The in-loop tool retry had no delay at all: a failed call went straight back
+  into execution, as many times as its budget allowed. The failures worth
+  retrying are exactly the ones an immediate retry makes worse — a rate limit
+  answers the second call faster than it recovers, a contended lock is still
+  held — so the loop was most likely to prolong the condition it was retrying
+  against.
+
+  Attempts are now spaced on the same curve the provider path has always used,
+  from the same implementation: exponential from `initialDelayMs`, doubling per
+  attempt, capped at `maxDelayMs`, each wait drawn uniformly from `[0, curve]`.
+  The jitter matters here specifically because a batch of the model's parallel
+  calls executes together, so calls that fail together against one endpoint
+  would be resynchronised by any fixed wait.
+
+  **This is a changed default, which is why it is major.** A retryable tool call
+  that previously re-ran instantly now waits — 500ms doubling to a 16s ceiling
+  before jitter — so any host whose tools declare `maxRetries` sees new latency
+  on the retry path. Nothing else waits: a tool that never opted into retrying,
+  which is the shipped default of `maxRetries: 0`, never reaches this code.
+
+  To keep the old timing exactly, set the wait to zero:
+
+  ```ts
+  query({ toolRetryBackoff: { initialDelayMs: 0, maxDelayMs: 0 } });
+  ```
+
+  `toolRetryBackoff` is new on `query()` and on `ReactiveAgentConfig`, and takes
+  a partial `{ initialDelayMs?, maxDelayMs? }`.
+
+  A Stop arriving during a wait now ends the retrying and hands the model the
+  failure already in hand, rather than leaving that `tool_use` unanswered.
+
 ## 24.0.0
 
 ### Major Changes
