@@ -11,7 +11,7 @@
  *      empty-state mode (explains where to put credentials).
  */
 
-import type { ImageAttachment, Message } from '@namzu/sdk'
+import type { CostInfo, ImageAttachment, Message } from '@namzu/sdk'
 import { Box, Text, useApp, useInput } from 'ink'
 import { relative } from 'node:path'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -155,7 +155,7 @@ export function App({ ctx }: AppProps) {
 	// per keypress is a cost nobody asked for. A file added mid-session is
 	// picked up by `/model` (which re-hydrates) or a restart.
 	const [userCommands, setUserCommands] = useState<readonly UserCommand[]>([])
-	const [usage, setUsage] = useState<{ totalTokens: number; costUsd: number } | null>(null)
+	const [usage, setUsage] = useState<{ totalTokens: number; cost: CostInfo } | null>(null)
 	// Context fill, straight from the kernel and held apart from `usage` —
 	// they are different quantities and conflating them is what made the
 	// gauge climb with turn count instead of with context.
@@ -957,7 +957,7 @@ export function App({ ctx }: AppProps) {
 					break
 				}
 				case 'usage':
-					setUsage({ totalTokens: event.totalTokens, costUsd: event.costUsd })
+					setUsage({ totalTokens: event.totalTokens, cost: event.cost })
 					// Mirrored verbatim, absences included. A run that reports no
 					// window clears the gauge rather than leaving the last one up:
 					// a stale bar is read as current, and this bar's whole defect

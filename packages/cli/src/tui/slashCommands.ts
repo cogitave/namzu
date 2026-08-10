@@ -23,7 +23,7 @@
  * to "does block 4 exist" in two places at once.
  */
 
-import type { VerificationRule } from '@namzu/sdk'
+import type { CostInfo, VerificationRule } from '@namzu/sdk'
 
 import { type UserCommand, expandCommand } from '../user-commands/store.js'
 import { isCompletionArgument } from './login-prompt.js'
@@ -93,7 +93,7 @@ export interface SlashContext {
 	 * figures — an abbreviation is right for a bar that must fit and wrong for
 	 * a question someone asked on purpose.
 	 */
-	readonly usage: { readonly totalTokens: number; readonly costUsd: number } | null
+	readonly usage: { readonly totalTokens: number; readonly cost: CostInfo } | null
 	/** What decides a tool call right now — flags, config, and session state. */
 	readonly permissions: {
 		/** `--yolo` / `--dangerously-skip-permissions`. */
@@ -444,16 +444,56 @@ export function renderCost(usage: SlashContext['usage']): string {
 	if (usage === null) {
 		return 'No usage reported yet. The kernel emits it as a turn runs, so this fills in after the first exchange.'
 	}
-	const cost =
-		usage.costUsd > 0 ? `$${usage.costUsd.toFixed(4)}` : '$0.0000 (this provider reported no price)'
-	return [
+
+	// Three states, and the third used to read as the first.
+	//
+	// This printed `'$0.0000 (this provider reported no price)'` for any total
+	// that was not above zero — which was every run, because nothing fed the
+	// kernel's cost calculation at all. Two things were wrong with it beyond
+	// the number. A run on a local model costs nothing and is NOT the same
+	// event as a run nobody can price; and the parenthetical asserted a fact
+	// about the provider that no code had checked. What was actually known is
+	// that this side has no rate for the model — a statement about namzu, not
+	// about the vendor, and the difference decides who the operator goes to.
+	//
+	// The kernel exports `describeCost` for exactly this distinction and it is
+	// deliberately NOT used here: it renders through `formatCost`, which rounds
+	// to two decimals above a cent, and this command exists to print exact
+	// figures (see `SlashContext.usage`). Rounding `$0.0731` to `$0.07` to
+	// reuse a helper would trade the property someone asked for against tidy
+	// code. The status bar, which must fit, is where the short form belongs.
+	const amount = `$${usage.cost.totalCost.toFixed(4)}`
+	const unpriced = usage.cost.unpricedTokens > 0
+	const lines = [
 		`Tokens: ${usage.totalTokens.toLocaleString('en-US')}`,
-		`Cost:   ${cost}`,
+		`Cost:   ${unpriced && usage.cost.totalCost === 0 ? 'not known' : amount}${
+			unpriced && usage.cost.totalCost > 0 ? ' and counting — see below' : ''
+		}`,
+		'',
+	]
+
+	if (unpriced) {
+		lines.push(
+			`${usage.cost.unpricedTokens.toLocaleString('en-US')} tokens ran on a model namzu has no rate`,
+			'for, so what they cost is not in this figure and cannot be. This is not',
+			'a claim that they were free. Declare the rate to price them.',
+		)
+	} else if (usage.cost.totalCost === 0) {
+		lines.push(
+			'A measured zero, not a missing figure: the model that served this run',
+			'bills nothing per token.',
+		)
+	} else {
+		lines.push('Every token in this run was charged at a known rate.')
+	}
+
+	lines.push(
 		'',
 		'Cumulative for this run, across every turn. Not a measure of how full',
 		'the context is — that is a different quantity and it goes down when the',
 		'conversation is compacted, while this only ever grows.',
-	].join('\n')
+	)
+	return lines.join('\n')
 }
 
 /** What decides a tool call, in the order it actually decides it. */
