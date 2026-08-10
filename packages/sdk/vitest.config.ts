@@ -21,6 +21,20 @@ export default defineConfig({
 				'src/**/__tests__/**',
 				'src/**/__fixtures__/**',
 				'src/types/**',
+				// Generated rate data: one exported array of literals, zero
+				// branches and zero functions. Same category as `types/` above
+				// — there is no behaviour in it to leave untested.
+				//
+				// This SHARPENS the gate rather than loosening it, which is
+				// worth stating because an exclusion usually does the
+				// opposite. The file is 282 of the module's 299 lines, and
+				// every one of them counts as covered the moment anything
+				// imports the module. Left in, the module reads 94% covered
+				// with its resolver entirely untested, and losing a third of
+				// that resolver's lines still clears a 97% floor. Taken out,
+				// the floor is measured against the 17 lines that actually
+				// decide something.
+				'src/pricing/catalogue.generated.ts',
 			],
 			all: true,
 			clean: true,
