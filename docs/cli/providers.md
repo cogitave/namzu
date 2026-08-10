@@ -12,8 +12,22 @@ namzu is **credential-first**: on launch it discovers credentials already presen
 
 ## Signing in with a subscription
 
-If you pay for a plan rather than for API usage, `/login` gets you a credential
-without an API key and without installing anything else.
+If you pay for a plan rather than for API usage, signing in gets you a
+credential without an API key and without installing anything else. There are
+three ways in, because there are three places you can be standing:
+
+| Where you are | What to do |
+|---|---|
+| At the provider picker with no credential | press **`l`** |
+| In a chat session | type **`/login`** |
+| At a shell, no TUI — a container, a script, SSH | run **`namzu login`** |
+
+`namzu login` is the one that always works: it prints the address, waits for
+your browser, and also reads a pasted address from standard input, so a machine
+with no browser at all is not stranded. `namzu logout` removes the credential.
+
+The rest of this section describes the in-session command; the other two
+behave the same way.
 
 ```
 /login

@@ -482,6 +482,57 @@ export function App({ ctx }: AppProps) {
 		[pushMessage],
 	)
 
+	/**
+	 * Sign in from the PICKER, where the transcript does not exist.
+	 *
+	 * Separate from `startOrFinishLogin` for one reason, and it is the reason
+	 * the sign-in was unreachable in the first place: during this phase the
+	 * picker replaces the transcript, so `pushMessage` writes to a surface
+	 * nobody can see. Everything this path says goes into `pickerNotice`, which
+	 * the picker renders.
+	 *
+	 * It uses the browser route only. There is no paste input on this screen,
+	 * and rather than invent one — a second text field beside the credential
+	 * one, on the screen an operator reaches when they are already stuck — the
+	 * no-browser case is handed to `namzu login`, which reads the pasted
+	 * address from standard input and exists for exactly that machine.
+	 */
+	const startLoginFromPicker = useCallback(async () => {
+		loginRef.current?.cancel()
+		loginRef.current = null
+		let start: SubscriptionLogin
+		try {
+			start = await beginSubscriptionLogin()
+		} catch (err) {
+			setPickerNotice(
+				`Could not start a sign-in: ${err instanceof Error ? err.message : String(err)}`,
+			)
+			return
+		}
+		loginRef.current = start
+		setPickerNotice(
+			describeLoginStart({
+				url: start.url,
+				loopback: start.loopback,
+				browserOpened: openInBrowser(start.url),
+				// Named for THIS screen. Telling someone at the picker to type a
+				// slash command is what made the feature unreachable; telling them
+				// to run a command in another terminal is something they can do
+				// from where they are sitting.
+				completionHint: 'run "namzu login" in a terminal and paste it there',
+			}),
+		)
+		const waiting = start.waitForCallback()
+		if (!waiting) return
+		const outcome = await waiting
+		if (loginRef.current !== start) return
+		loginRef.current = null
+		start.cancel()
+		if (!outcome.ok && outcome.reason.includes('cancelled')) return
+		setPickerNotice(describeLoginOutcome(outcome))
+		if (outcome.ok) await runProbeRef.current?.()
+	}, [])
+
 	const runProbe = useCallback(async () => {
 		try {
 			const probe = await probeAgentSession()
@@ -1577,6 +1628,7 @@ export function App({ ctx }: AppProps) {
 						onSubmit={handlePickerSubmit}
 						onCancel={handlePickerCancel}
 						onCredential={handleTypedCredential}
+						onLogin={() => void startLoginFromPicker()}
 						keyEntryFor={keyEntryFor}
 						notice={pickerNotice}
 					/>
