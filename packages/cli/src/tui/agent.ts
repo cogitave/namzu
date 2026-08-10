@@ -24,6 +24,7 @@
 import {
 	type CheckpointStore,
 	type ClaimFence,
+	type CostInfo,
 	DiskMemoryStore,
 	DiskTaskStore,
 	type DurableRunEntry,
@@ -117,7 +118,18 @@ export type AgentEvent =
 			readonly kind: 'usage'
 			/** CUMULATIVE run spend. Grows every turn; never a context size. */
 			readonly totalTokens: number
-			readonly costUsd: number
+			/**
+			 * The kernel's cost record, carried whole.
+			 *
+			 * This was `costUsd: number`, narrowed from the same object at the
+			 * mapping site, and the number on its own cannot answer the
+			 * question the screen asks. A total of zero means two different
+			 * things — the run cost nothing, or nobody could price it — and
+			 * `unpricedTokens` is what separates them. Passing only the total
+			 * left every surface downstream to guess, and both of them guessed
+			 * "free".
+			 */
+			readonly cost: CostInfo
 			/**
 			 * How full the context is NOW, and how full it may get.
 			 *
@@ -1625,7 +1637,7 @@ export function toAgentEvent(event: RunEvent): AgentEvent | null {
 			return {
 				kind: 'usage',
 				totalTokens: event.usage.totalTokens,
-				costUsd: event.cost.totalCost,
+				cost: event.cost,
 				...(event.contextTokens !== undefined ? { contextTokens: event.contextTokens } : {}),
 				...(event.contextMeasuredBy !== undefined
 					? { contextMeasuredBy: event.contextMeasuredBy }

@@ -216,12 +216,13 @@ describe('toAgentEvent labels a delegation with the label it required', () => {
  * one are not the same as carrying it.
  */
 describe('toAgentEvent carries the context figures across', () => {
+	const COST = { totalCost: 0.5, cacheDiscount: 0, unpricedTokens: 0 }
 	const usageEvent = (extra: Record<string, unknown>) =>
 		toAgentEvent({
 			type: 'token_usage_updated',
 			runId,
 			usage: { totalTokens: 90 },
-			cost: { totalCost: 0.5 },
+			cost: COST,
 			...extra,
 		} as unknown as RunEvent)
 
@@ -236,7 +237,7 @@ describe('toAgentEvent carries the context figures across', () => {
 		).toEqual({
 			kind: 'usage',
 			totalTokens: 90,
-			costUsd: 0.5,
+			cost: COST,
 			contextTokens: 12_000,
 			contextMeasuredBy: 'provider',
 			contextWindowTokens: 200_000,
@@ -251,7 +252,7 @@ describe('toAgentEvent carries the context figures across', () => {
 		// to show no proportion at all.
 		const mapped = usageEvent({})
 
-		expect(mapped).toEqual({ kind: 'usage', totalTokens: 90, costUsd: 0.5 })
+		expect(mapped).toEqual({ kind: 'usage', totalTokens: 90, cost: COST })
 		expect(mapped).not.toHaveProperty('contextTokens')
 		expect(mapped).not.toHaveProperty('contextWindowTokens')
 	})

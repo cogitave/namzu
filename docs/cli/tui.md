@@ -66,9 +66,29 @@ guessed window, so it climbed with turn count and read full on a conversation
 with room to spare. `/cost` names which one it is printing for that reason.
 
 Where the status bar abbreviates (`12.3k tok`), `/cost` prints the figure
-(`12,345`) — you asked on purpose, so you get the number. A provider that
-reports no price shows `$0.0000 (this provider reported no price)` rather than
-implying the run was free.
+(`12,345`) — you asked on purpose, so you get the number.
+
+**Three states, and two of them are not the same zero.** A run that cost
+nothing and a run nobody could price both report a total of `0`, so `/cost`
+says which it is:
+
+| What you see | What it means |
+|---|---|
+| `Cost:   $0.0731` | Every token was charged at a known rate. |
+| `Cost:   $0.0000` + *a measured zero* | The model that served the run bills nothing per token — local inference. |
+| `Cost:   not known` | Some or all of the run ran on a model namzu has no rate for. This is **not** a claim that it was free. |
+| `Cost:   $0.5000 and counting` | Partly priced. The figure is a floor, not the answer. |
+
+The status bar shows `$?` for the third and fourth, deliberately not a number:
+the one thing that must not happen on a line read at a glance is a figure
+standing in for a figure nobody has.
+
+This previously printed `$0.0000 (this provider reported no price)` for every
+total that was not above zero, which was wrong twice over — it collapsed the
+free run into the unpriced one, and it asserted something about the provider
+that nothing had checked. What is actually known is that *namzu* has no rate
+for the model, which is a statement about this side of the wire and points at a
+different fix. Declare a rate to price those tokens.
 
 ### Switching model
 
