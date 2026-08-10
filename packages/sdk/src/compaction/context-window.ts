@@ -13,6 +13,21 @@
  *
  * The table is a floor, not an oracle: a host that knows better passes
  * `contextWindowTokens` explicitly and this file is never consulted.
+ *
+ * "Floor" governs the model we do NOT recognise — that is what
+ * `DEFAULT_ASSUMED_CONTEXT_WINDOW` is for. It does not license a wrong
+ * number for a model the table names. Every entry below carried 200k for
+ * the whole Claude family, including the models whose window is 1M, and
+ * understating a window by 5x is not caution: the trigger fires at 0.7 x
+ * the divisor, so a 1M-window run compacted at ~14% full. Each of those
+ * runs paid a summarization pass it did not need and threw away the prompt
+ * cache prefix to do it.
+ *
+ * The values are read off the published model comparison rather than
+ * recalled. The durable fix is to ask the provider — the Models API
+ * reports a window per model id — which would end the drift this table
+ * accumulates every release. Until a driver does that, an entry here is
+ * only ever as fresh as the day someone checked it.
  */
 
 /**
@@ -31,10 +46,20 @@ export const DEFAULT_ASSUMED_CONTEXT_WINDOW = 128_000
  * over a shorter one that also prefixes it.
  */
 const WINDOWS: ReadonlyArray<readonly [prefix: string, tokens: number]> = [
-	['claude-fable-5', 200_000],
-	['claude-opus-5', 200_000],
-	['claude-sonnet-5', 200_000],
+	['claude-fable-5', 1_000_000],
+	['claude-mythos', 1_000_000],
+	['claude-opus-5', 1_000_000],
+	['claude-sonnet-5', 1_000_000],
+	['claude-opus-4-8', 1_000_000],
+	['claude-opus-4-7', 1_000_000],
+	['claude-opus-4-6', 1_000_000],
+	['claude-sonnet-4-6', 1_000_000],
+	// The 4.5 generation is 200k, so the two 4.5 keys have to out-rank the
+	// bare `claude-opus-4` / `claude-sonnet-4` entries below AND stay
+	// distinct from their 1M siblings above. Longest-key-wins does that.
 	['claude-haiku-4-5', 200_000],
+	['claude-sonnet-4-5', 200_000],
+	['claude-opus-4-5', 200_000],
 	['claude-opus-4', 200_000],
 	['claude-sonnet-4', 200_000],
 	['claude-3-7-sonnet', 200_000],
