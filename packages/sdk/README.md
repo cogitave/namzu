@@ -239,7 +239,7 @@ RAG is a full kernel subsystem, not a bolt-on. The pipeline:
 - `rag/ingestion.ts` — end-to-end ingest: document → chunks → embeddings → vector store.
 - `rag/vector-store.ts` — the `VectorStore` interface, tenant-scoped via `TenantId`. Bring your own backend (pgvector, Pinecone, an in-memory impl for tests).
 - `rag/knowledge-base.ts` — a named collection of documents with metadata and config.
-- `rag/retriever.ts` — the retrieval query path with configurable top-k, threshold, and reranking.
+- `rag/retriever.ts` — the retrieval query path: vector, keyword (BM25) or hybrid, with configurable top-k and score threshold. Hybrid normalises both rankings before blending them by `hybridAlpha`. **There is no rerank stage.** This line used to promise one; there was no rerank stage behind it and no setting to turn it on, so a reader could configure for it and receive nothing.
 - `rag/context-assembler.ts` — turns retrieval hits into prompt-ready context windows.
 - `rag/rag-tool.ts` — a first-class tool your agent can invoke, not an external integration.
 
