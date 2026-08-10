@@ -1,7 +1,7 @@
 ---
 title: Built-In Tools
 description: Reference for the built-in tools exported by @namzu/sdk, including their purpose, safety shape, deadlines, and common usage patterns.
-last_updated: 2026-08-05
+last_updated: 2026-08-10
 status: current
 related_packages: ["@namzu/sdk", "@namzu/computer-use"]
 ---
@@ -234,6 +234,8 @@ This pattern is especially useful when you want:
 - it is ideal when a final response must match a schema
 
 Use it when you want the model to finish by calling a schema-bound tool instead of producing free-form text.
+
+A successful call ends the run **only when it is the only call in its turn.** A model that emits `structured_output` alongside other tool calls gets those calls executed and their results delivered back to it, and the run continues — the answer was formed in the same turn as a request for information the model had not yet received, so it is not yet the final one. The next turn produces the answer with those results in hand. This costs one extra turn, and a model avoids it by calling `structured_output` on its own. The same rule already governs a tool marked `terminal`.
 
 ## 7. Computer Use Tool
 

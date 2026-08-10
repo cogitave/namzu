@@ -53,6 +53,9 @@ function harness(opts: {
 	const outputTool = createStructuredOutputTool(SCHEMA)
 	const registry = new Map<string, unknown>([[STRUCTURED_OUTPUT_TOOL_NAME, outputTool]])
 
+	/** Every tool that actually reached `execute`, in order — the side effects. */
+	const executedTools: string[] = []
+
 	const tools = {
 		get: vi.fn(
 			(name: string) =>
@@ -64,6 +67,7 @@ function harness(opts: {
 				},
 		),
 		execute: vi.fn(async (name: string, input: unknown) => {
+			executedTools.push(name)
 			if (name === STRUCTURED_OUTPUT_TOOL_NAME) {
 				const parsed = SCHEMA.safeParse(input)
 				if (!parsed.success) {
@@ -166,6 +170,7 @@ function harness(opts: {
 	return {
 		orchestrator,
 		messages,
+		executedTools,
 		stopReason: () => stopReason,
 		structured: () => structured,
 		iterations: () => iteration,
@@ -259,6 +264,132 @@ describe('structured final output', () => {
 		await drain(h.orchestrator)
 
 		expect(h.structured()).toEqual({ verdict: 'fail', notes: 'second try' })
+	})
+
+	/**
+	 * `terminalToolOutput` refuses to settle when a terminal call shared its
+	 * turn, because "a model that asked for other work meant to see those
+	 * results". `captureStructuredOutput` had no such guard, and the batch
+	 * executes BEFORE either is consulted — so a shared turn ran the other
+	 * tools, side effects and all, and then ended the run before any model
+	 * turn could read what came back.
+	 */
+	describe('when it shared its turn with other calls', () => {
+		it('hands the batch to the model instead of settling on top of it', async () => {
+			const provider = new MockLLMProvider({
+				turns: [
+					{
+						toolCalls: [
+							{ name: 'inspect_build' },
+							{
+								name: STRUCTURED_OUTPUT_TOOL_NAME,
+								// Attached in the same breath as the request, so it
+								// cannot have been informed by the answer.
+								args: { verdict: 'pass', notes: 'guessed before looking' },
+							},
+						],
+					},
+					{
+						toolCalls: [
+							{
+								name: STRUCTURED_OUTPUT_TOOL_NAME,
+								args: { verdict: 'fail', notes: 'inspect_build came back' },
+							},
+						],
+					},
+				],
+			})
+			const h = harness({ provider, structuredOutput: { schema: SCHEMA } })
+
+			await drain(h.orchestrator)
+
+			// The premise, and the reason this is worse than a discarded
+			// answer: the other tool ALREADY ran. Its side effects happened.
+			expect(h.executedTools).toContain('inspect_build')
+
+			// The defect: nothing consumed them. They now ride out in the very
+			// next request to the model, which is the only thing that makes
+			// having run them worth anything.
+			const secondRequest = provider.requests[1]
+			expect(secondRequest, 'the run settled instead of taking another turn').toBeDefined()
+			const relayed = (secondRequest?.messages ?? []).filter((m) => m.role === 'tool')
+			expect(JSON.stringify(relayed)).toContain('inspect_build ok')
+
+			// And the answer the caller receives is the one formed after that
+			// result, not the one the model attached before asking for it.
+			expect(h.structured()).toEqual({ verdict: 'fail', notes: 'inspect_build came back' })
+			expect(h.stopReason()).toBe('end_turn')
+			expect(h.iterations()).toBe(2)
+		})
+
+		it('does not spend a schema retry on a turn that produced a valid answer', async () => {
+			// `maxRetries: 1` allows one re-prompt. Charging these relays to
+			// that budget would kill the run on the second one, reported as
+			// `structured_output_failed` — a schema failure that did not
+			// happen, on a model that is visibly making progress.
+			const provider = new MockLLMProvider({
+				turns: [
+					{
+						toolCalls: [
+							{ name: 'read_a' },
+							{ name: STRUCTURED_OUTPUT_TOOL_NAME, args: { verdict: 'pass', notes: 'after a' } },
+						],
+					},
+					{
+						toolCalls: [
+							{ name: 'read_b' },
+							{ name: STRUCTURED_OUTPUT_TOOL_NAME, args: { verdict: 'pass', notes: 'after b' } },
+						],
+					},
+					{
+						toolCalls: [
+							{
+								name: STRUCTURED_OUTPUT_TOOL_NAME,
+								args: { verdict: 'pass', notes: 'alone at last' },
+							},
+						],
+					},
+				],
+			})
+			const h = harness({
+				provider,
+				structuredOutput: { schema: SCHEMA, maxRetries: 1 },
+				maxIterations: 10,
+			})
+
+			await drain(h.orchestrator)
+
+			expect(h.executedTools).toEqual(expect.arrayContaining(['read_a', 'read_b']))
+			expect(h.stopReason()).toBe('end_turn')
+			expect(h.structured()).toEqual({ verdict: 'pass', notes: 'alone at last' })
+		})
+
+		it('is bounded by maxIterations when the model never stops pairing', async () => {
+			// The pathology the paragraph above accepts, pinned: a model that
+			// pairs forever ends on the iteration ceiling rather than looping,
+			// hanging, or settling on an under-informed answer. This is the
+			// same bound `terminalToolOutput` relies on for its own relay.
+			const provider = new MockLLMProvider({
+				turns: [
+					{
+						toolCalls: [
+							{ name: 'again' },
+							{
+								name: STRUCTURED_OUTPUT_TOOL_NAME,
+								args: { verdict: 'pass', notes: 'never alone' },
+							},
+						],
+					},
+				],
+			})
+			const h = harness({ provider, structuredOutput: { schema: SCHEMA }, maxIterations: 4 })
+
+			await drain(h.orchestrator)
+
+			expect(h.iterations()).toBeLessThanOrEqual(5)
+			expect(h.structured()).toBeUndefined()
+			expect(h.stopReason()).toBe('max_iterations')
+		})
 	})
 
 	it('is inert when no structured output was requested', async () => {

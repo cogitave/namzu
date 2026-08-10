@@ -86,6 +86,11 @@ probably belong under `docs/sdk/` instead.
   columns away, forty lines above. Unapplied knowledge, not missing knowledge.
 - [Verify the claim, including your own, including a comment's](verify-claims-including-your-own.md)
   — including a report's, including your own from an hour ago.
+- [A sentence a test could falsify is a claim, not documentation](a-falsifiable-comment-is-a-test.md)
+  — its mirror, aimed at writing rather than reading. The tell is grammatical: a
+  sentence naming a condition and an outcome is a test you have not written.
+  Committed by an agent an hour after it caught the same shape in its own
+  harness.
 - [Read back the protection you set, and refuse if you cannot](read-back-the-protection-you-set.md)
   — asking for a permission is not holding one, and a wrong value is visible
   where an unset file mode is not. Includes the platform axis: a readback inside

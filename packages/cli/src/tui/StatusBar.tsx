@@ -6,6 +6,7 @@
  * so the eye can find the help-text without parsing the whole line.
  */
 
+import type { CostInfo } from '@namzu/sdk'
 import { Text, useStdout } from 'ink'
 
 import { theme } from './theme.js'
@@ -30,7 +31,7 @@ export interface StatusBarProps {
 	readonly model: string | null
 	readonly state: 'idle' | 'thinking' | 'tool' | 'awaiting-permission'
 	readonly hint?: string
-	readonly usage?: { totalTokens: number; costUsd: number } | null
+	readonly usage?: { totalTokens: number; cost: CostInfo } | null
 	/** Kernel-reported context fill — drives the gauge. */
 	readonly context?: ContextFill | null
 }
@@ -110,12 +111,21 @@ function colorForState(state: StatusBarProps['state']): string {
 	}
 }
 
-function formatUsage(usage: { totalTokens: number; costUsd: number }): string {
+function formatUsage(usage: { totalTokens: number; cost: CostInfo }): string {
 	const tok =
 		usage.totalTokens >= 1000
 			? `${(usage.totalTokens / 1000).toFixed(1)}k tok`
 			: `${usage.totalTokens} tok`
-	return usage.costUsd > 0 ? `${tok} · $${usage.costUsd.toFixed(2)}` : tok
+	// The bar has room for a figure, not for a sentence, so the unknown case
+	// gets a mark rather than an explanation and `/cost` carries the words.
+	//
+	// Showing tokens alone — what this did for any total not above zero — is
+	// the same claim the `/cost` page was making in longer form: an operator
+	// reads a missing cost as no cost. `$?` is deliberately not a number,
+	// because the one thing that must not happen here is a figure standing in
+	// for a figure nobody has.
+	if (usage.cost.unpricedTokens > 0) return `${tok} · $?`
+	return usage.cost.totalCost > 0 ? `${tok} · $${usage.cost.totalCost.toFixed(2)}` : tok
 }
 
 const GAUGE_WIDTH = 8

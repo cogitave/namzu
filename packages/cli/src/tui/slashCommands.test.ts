@@ -1,3 +1,4 @@
+import type { CostInfo } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -8,6 +9,17 @@ import {
 	parseSlash,
 	runSlash,
 } from './slashCommands.js'
+
+/**
+ * A cost record, built the way the kernel builds one.
+ *
+ * `unpricedTokens` defaults to 0 — "nothing is unaccounted for" — so a case
+ * that does not mention it is asserting a fully-priced run rather than
+ * accidentally describing an unknown one.
+ */
+function cost(totalCost: number, over: Partial<CostInfo> = {}): CostInfo {
+	return { totalCost, cacheDiscount: 0, unpricedTokens: 0, ...over }
+}
 
 /**
  * The permission half of a context, for the same reason `context` exists below:
@@ -177,24 +189,82 @@ describe('/cost', () => {
 	})
 
 	it('prints exact figures rather than the status bar abbreviation', () => {
-		const r = runSlash('/cost', context({ usage: { totalTokens: 12_345, costUsd: 0.0731 } }))
+		const r = runSlash('/cost', context({ usage: { totalTokens: 12_345, cost: cost(0.0731) } }))
 		expect(r?.kind).toBe('message')
 		if (r?.kind === 'message') {
 			// `12,345`, not `12.3k` — someone who asked wants the number.
 			expect(r.content).toContain('12,345')
+			// Four decimals, not `$0.07`. The kernel's own `describeCost` rounds
+			// above a cent, which is why this command does not use it.
 			expect(r.content).toContain('$0.0731')
 		}
 	})
 
-	it('names a zero price as unreported rather than as free', () => {
-		const r = runSlash('/cost', context({ usage: { totalTokens: 900, costUsd: 0 } }))
-		if (r?.kind === 'message') expect(r.content).toContain('reported no price')
+	// The three states this command has to keep apart. Two of them used to
+	// print the same sentence, and it was the wrong sentence for both.
+	it('reports a measured zero as free, not as a missing price', () => {
+		const r = runSlash('/cost', context({ usage: { totalTokens: 900, cost: cost(0) } }))
+		if (r?.kind === 'message') {
+			expect(r.content).toContain('measured zero')
+			expect(r.content).toContain('bills nothing')
+			// The old line said this about every zero, including this one.
+			expect(r.content).not.toContain('no price')
+		}
+	})
+
+	it('reports an unpriced run as not known, and says it is not a claim of free', () => {
+		const r = runSlash(
+			'/cost',
+			context({ usage: { totalTokens: 900, cost: cost(0, { unpricedTokens: 900 }) } }),
+		)
+		if (r?.kind === 'message') {
+			expect(r.content).toContain('not known')
+			expect(r.content).toContain('900 tokens')
+			// The whole clause, not the word `not` — which appears in the
+			// neighbouring sentence too, so asserting it alone held against a
+			// version with this disclaimer deleted. Matched against the prose
+			// with its wrapping collapsed: the sentence is the property, and
+			// where the line happens to break is not.
+			expect(r.content.replace(/\s+/g, ' ')).toContain('not a claim that they were free')
+			// It must not read as the free case.
+			expect(r.content).not.toContain('measured zero')
+			// And it must not assert something about the provider that nothing
+			// checked. The old copy did exactly that.
+			expect(r.content).not.toContain('provider reported')
+		}
+	})
+
+	it('gives the free and the unknown run different answers', () => {
+		// The assertion the old code could not have passed: both runs have a
+		// total of zero, and a reader has to be able to tell them apart. A test
+		// that only checked one of them in isolation would have passed against
+		// the single sentence that used to serve both.
+		const free = runSlash('/cost', context({ usage: { totalTokens: 900, cost: cost(0) } }))
+		const unknown = runSlash(
+			'/cost',
+			context({ usage: { totalTokens: 900, cost: cost(0, { unpricedTokens: 900 }) } }),
+		)
+		if (free?.kind === 'message' && unknown?.kind === 'message') {
+			expect(free.content).not.toBe(unknown.content)
+		}
+	})
+
+	it('says a partly-priced run is a floor rather than the answer', () => {
+		const r = runSlash(
+			'/cost',
+			context({ usage: { totalTokens: 1_000, cost: cost(0.5, { unpricedTokens: 400 }) } }),
+		)
+		if (r?.kind === 'message') {
+			expect(r.content).toContain('$0.5000')
+			expect(r.content).toContain('400 tokens')
+			expect(r.content).toContain('see below')
+		}
 	})
 
 	it('says the number is spend and not context fill', () => {
 		// The two were conflated once, in the gauge. A command that prints one
 		// without naming which it is invites the same misreading back.
-		const r = runSlash('/cost', context({ usage: { totalTokens: 10, costUsd: 1 } }))
+		const r = runSlash('/cost', context({ usage: { totalTokens: 10, cost: cost(1) } }))
 		if (r?.kind === 'message') {
 			expect(r.content).toContain('Cumulative')
 			expect(r.content).toContain('how full')
