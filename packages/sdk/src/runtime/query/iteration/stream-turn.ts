@@ -134,6 +134,19 @@ export async function* streamProviderTurn(
 	forceFinalize: boolean,
 	log: Logger,
 	parentSpan?: Span,
+	/**
+	 * The id to announce this message under.
+	 *
+	 * Supplied by the loop so a turn that THROWS still leaves the caller
+	 * holding the id it announced. The return value never arrives on a
+	 * failure, so without this the one case where a failed step most wants
+	 * to point at the event stream — a stream that died after
+	 * `message_started`, having already emitted `message_completed` on the
+	 * way out — is precisely the case that could not.
+	 *
+	 * Optional, so a caller with no use for the id is unchanged.
+	 */
+	announceAs?: import('../../../types/ids/index.js').MessageId,
 ): AsyncGenerator<RunEvent, StreamingTurnResult> {
 	// The `chat {model}` span the GenAI conventions require. There was none:
 	// `chatSpanName` existed with zero call sites, so a trace carried no LLM
@@ -151,7 +164,7 @@ export async function* streamProviderTurn(
 		...(params.maxTokens !== undefined ? { [GENAI.REQUEST_MAX_TOKENS]: params.maxTokens } : {}),
 	})
 
-	const messageId = generateMessageId()
+	const messageId = announceAs ?? generateMessageId()
 	await emitEvent({ type: 'message_started', runId, iteration, messageId })
 	yield* drainPending()
 
@@ -194,7 +207,12 @@ export async function* streamProviderTurn(
 	// verbatim — so the map is drained in index order at the end.
 	const reasoningBuckets = new Map<
 		number,
-		{ type: 'thinking' | 'redacted_thinking'; text: string; signature?: string; encrypted?: string }
+		{
+			type: 'thinking' | 'redacted_thinking'
+			text: string
+			signature?: string
+			encrypted?: string
+		}
 	>()
 
 	// Citations arrive as their own deltas, in the order the model made
@@ -205,7 +223,10 @@ export async function* streamProviderTurn(
 	let streamError: string | undefined
 	let streamCause: unknown
 
-	const stream = provider.chatStream({ ...params, stream: true }) as AsyncIterable<StreamChunk>
+	const stream = provider.chatStream({
+		...params,
+		stream: true,
+	}) as AsyncIterable<StreamChunk>
 
 	// Drive the stream manually so each `.next()` can be RACED against the run
 	// abort: a Stop tears the in-flight model request down (the provider got

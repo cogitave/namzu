@@ -171,7 +171,7 @@ describe('the run record names the member that served', () => {
 		expect(run.metadata.servingProvider).toBe(fallback.id)
 	})
 
-	it('names the serving member even when the run dies before a step is recorded', async () => {
+	it('names the serving member when no step can say who served', async () => {
 		const primary = failing('primary', 401)
 		const secondary = failing('secondary', 503)
 
@@ -181,11 +181,19 @@ describe('the run record names the member that served', () => {
 			messages: [createUserMessage('hello')],
 		})
 
-		// Nothing served, so there is no step ledger to read — which is exactly
-		// the case `metadata.servingProvider` exists for. The run still has to be
+		// Nothing served, so no step can carry `servedBy` — which is exactly the
+		// case `metadata.servingProvider` exists for. The run still has to be
 		// able to say whose failure ended it.
+		//
+		// This used to assert an EMPTY ledger, and that assertion was only ever
+		// true because a failed iteration recorded nothing at all. The failing
+		// turn now leaves a step like every other turn does, so the premise is
+		// restated where it actually holds: the step exists and is silent about
+		// provenance, because the chain was exhausted before anyone answered.
 		expect(run.status).toBe('failed')
-		expect(run.steps ?? []).toHaveLength(0)
+		expect(run.steps ?? []).toHaveLength(1)
+		expect(run.steps?.[0]?.servedBy).toBeUndefined()
+		expect(run.steps?.[0]?.finishReason).toBe('error')
 		expect(run.metadata.servingProvider).toBe('secondary')
 	})
 

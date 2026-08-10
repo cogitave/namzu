@@ -32,6 +32,7 @@ import type { AnswerReview } from '../../../types/run/answer-review.js'
 import type {
 	PrepareStepResult,
 	RunEvent,
+	StepFailure,
 	StepProvenance,
 	StepResult,
 	StopReason,
@@ -258,6 +259,30 @@ export class IterationOrchestrator {
 					{},
 					parentContext(this.ctx.rootSpan),
 				)
+
+				// Everything the step record needs, hoisted so the `catch` can
+				// read whatever the iteration got as far as computing.
+				//
+				// The failure path is the one the ledger's own argument was
+				// written for and the one it never reached: an iteration that
+				// threw recorded a span exception and re-threw, so the turn with
+				// no record was exactly the turn that went wrong. A reader could
+				// not tell that from a turn that never happened.
+				//
+				// Declared as `let` with real initial values rather than left
+				// undefined, because a failure BEFORE the snapshot below is
+				// taken has spent nothing, and these are then exact. The success
+				// path is untouched: the assignments inside the try still happen
+				// where they always did, so compaction and the working-memory
+				// refresh stay outside a successful step's window.
+				let stepStartedAt = Date.now()
+				let usageBefore: TokenUsage = { ...runMgr.tokenUsage }
+				let costBefore: CostInfo = { ...runMgr.costInfo }
+				let stepModel = model
+				let stepMessageId: MessageId | undefined
+				let stepResponse: ChatCompletionResponse | undefined
+				let stepServedBy: StepProvenance | undefined
+
 				try {
 					// Tool spans for this turn belong under this iteration. Inside
 					// the try rather than before it: a throw from any of these left
@@ -303,9 +328,9 @@ export class IterationOrchestrator {
 					// tool_use/tool_result blocks.
 					// Snapshot the cumulative counters so the step can report ITS
 					// own usage rather than the run total.
-					const stepStartedAt = Date.now()
-					const usageBefore = { ...runMgr.tokenUsage }
-					const costBefore = { ...runMgr.costInfo }
+					stepStartedAt = Date.now()
+					usageBefore = { ...runMgr.tokenUsage }
+					costBefore = { ...runMgr.costInfo }
 
 					// Shape this step before calling the model. `stopWhen` decides
 					// whether to keep going; this decides HOW. No-op when the host
@@ -320,7 +345,7 @@ export class IterationOrchestrator {
 					// still call any of them by name.
 					this.ctx.toolExecutor.setStepAllowedTools(stepAllowedTools)
 					const enforceToolInputSchema = enforcedModelInputToolNames(this.ctx.tools, llmTools)
-					const stepModel = step.model ?? model
+					stepModel = step.model ?? model
 
 					const baseMessages = forceFinalize
 						? [
@@ -389,6 +414,16 @@ export class IterationOrchestrator {
 					// aggregated `ChatCompletionResponse` for the legacy
 					// downstream paths (assistantMsg construction, working
 					// state extraction, telemetry attribute stamping).
+					//
+					// The message id is minted HERE, immediately before the call
+					// that announces it,
+					// rather than inside that call. The return value never arrives
+					// when the stream throws, so a step recorded from the catch
+					// could otherwise never name the message — and a stream that
+					// died part-way has already emitted both `message_started` and
+					// `message_completed` under this id, which is the trail a
+					// reader wants most on exactly that turn.
+					stepMessageId = generateMessageId()
 					const { response, messageId } = yield* streamProviderTurn(
 						this.ctx.provider,
 						{
@@ -424,7 +459,9 @@ export class IterationOrchestrator {
 						forceFinalize,
 						this.ctx.log,
 						iterSpan,
+						stepMessageId,
 					)
+					stepResponse = response
 
 					// Who answered THIS turn.
 					//
@@ -459,6 +496,7 @@ export class IterationOrchestrator {
 							chainIndex: member.index,
 						}
 					})()
+					stepServedBy = servedBy
 
 					// Main-loop turn: also records the prompt size compaction reads.
 					//
@@ -1014,6 +1052,76 @@ export class IterationOrchestrator {
 					})
 					yield* this.ctx.drainPending()
 				} catch (err) {
+					const cancelled = this.ctx.abortController.signal.aborted
+
+					// This iteration gets a step too, and it is the one the
+					// argument three hundred lines above was actually about.
+					//
+					// That docblock makes the case for a rejected tool batch — "a
+					// run that spent a turn getting its tools refused still spent
+					// the tokens" — and every call site it produced sat on a
+					// success path. So the ledger was complete except on the turns
+					// that failed, which is the worst shape it could have: an
+					// evidence record that goes quiet exactly where something went
+					// wrong reads as "nothing went wrong". A reader could not
+					// distinguish iteration N failing from iteration N never
+					// happening, while the events said plainly that it started.
+					//
+					// Recorded HERE, at the top of the catch, rather than at each
+					// of its exits — the same reasoning the success path already
+					// wrote down for itself. All three exits spend a turn: the
+					// cancellation breaks, the overflow-relief retry continues
+					// under a NEW iteration number (so its tokens belong to no
+					// later step), and the re-throw ends the run.
+					//
+					// What it carries is what the iteration got as far as knowing.
+					// `usage` is the same subtraction a successful step makes, so
+					// a turn that failed after the provider answered carries that
+					// answer's tokens, and one that failed before it carries the
+					// zero it actually spent. Nothing is estimated to fill a gap.
+					//
+					// At most ONE step per iteration. Both success paths record
+					// before the work that follows them — the advisory phase, the
+					// structured-output capture, the `iteration_end` hooks, the
+					// terminal `iteration_completed` — and any of those can throw
+					// into here. A second entry numbered N would double-count that
+					// turn's tokens against `run.tokenUsage`, which is the same
+					// class of wrong as dropping them and harder to notice, since
+					// the ledger would look fuller rather than emptier. That turn's
+					// own verdict is already written down; the failure that
+					// followed it reaches the caller as the run's error.
+					if (this.steps.at(-1)?.stepNumber === iterationNum) {
+						this.ctx.log.warn('Iteration failed after its step was already recorded', {
+							runId: runMgr.id,
+							iteration: iterationNum,
+							error: toErrorMessage(err),
+						})
+					} else {
+						this.recordStep({
+							stepNumber: iterationNum,
+							model: stepModel,
+							...(stepServedBy ? { servedBy: stepServedBy } : {}),
+							...(stepMessageId ? { messageId: stepMessageId } : {}),
+							...(stepResponse ? { response: stepResponse } : {}),
+							// Tool outcomes are produced and returned together by
+							// `runToolReview`, so a throw from inside it leaves none
+							// to salvage: an empty list here means "none came back",
+							// which is what the shorter-than-`toolCalls` contract
+							// says.
+							toolResults: [],
+							toolExecutionMs: 0,
+							startedAt: stepStartedAt,
+							usageBefore,
+							costBefore,
+							unfinished: cancelled
+								? { finishReason: 'cancelled' }
+								: {
+										finishReason: 'error',
+										failure: describeStepFailure(err, this.ctx.provider.id),
+									},
+						})
+					}
+
 					// A Stop that aborted the in-flight turn surfaces here as a
 					// thrown abort (the provider stream was raced against the run
 					// signal). Settle it as a CANCELLATION — mirroring the
@@ -1021,7 +1129,7 @@ export class IterationOrchestrator {
 					// recording it as an SDK failure (error span + failed activity)
 					// and re-throwing. The run then returns cleanly with a
 					// 'cancelled' stop reason instead of propagating an error.
-					if (this.ctx.abortController.signal.aborted) {
+					if (cancelled) {
 						runMgr.setStopReason('cancelled')
 						runMgr.markCancelled()
 						break
@@ -1308,39 +1416,69 @@ export class IterationOrchestrator {
 	private recordStep(input: {
 		stepNumber: number
 		model: string
-		servedBy: StepProvenance
-		messageId: MessageId
-		response: ChatCompletionResponse
+		servedBy?: StepProvenance
+		messageId?: MessageId
+		/**
+		 * The turn's response. Absent only when the iteration failed before
+		 * the provider produced one — see `unfinished`.
+		 */
+		response?: ChatCompletionResponse
 		toolResults: readonly ToolCallOutcome[]
 		toolExecutionMs: number
 		startedAt: number
 		usageBefore: TokenUsage
 		costBefore: CostInfo
+		/**
+		 * Set only by the `catch`, for an iteration that did not finish.
+		 *
+		 * The same writer builds both records on purpose: a failed turn's
+		 * step is a `StepResult` like any other, so a caller reconstructing
+		 * cost or history sorts them together instead of discovering that
+		 * failures live somewhere else.
+		 */
+		unfinished?: { finishReason: 'error' | 'cancelled'; failure?: StepFailure }
 	}): void {
 		const { runMgr } = this.ctx
-		const toolCalls = input.response.message.toolCalls ?? []
+		const toolCalls = input.response?.message.toolCalls ?? []
 		const byId = new Map(input.toolResults.map((r) => [r.toolCallId, r]))
 
 		const step: StepResult = {
 			stepNumber: input.stepNumber,
 			model: input.model,
-			servedBy: input.servedBy,
-			messageId: input.messageId,
-			content: input.response.message.content,
+			...(input.servedBy ? { servedBy: input.servedBy } : {}),
+			...(input.messageId ? { messageId: input.messageId } : {}),
+			content: input.response?.message.content ?? null,
 			toolCalls,
 			// Ordered by the tool CALLS, not by completion, so the record
 			// matches what the model asked for.
-			toolResults: toolCalls.map((tc) => {
+			//
+			// On an unfinished step the calls with no outcome are DROPPED
+			// rather than filled with `{output: '', isError: false}`. That
+			// filler is a reading of "the batch was refused" on the success
+			// path, where every call in a batch shares one verdict; under a
+			// step that says `error` it would say a tool ran and returned
+			// nothing successfully, which is the same lie one level down as
+			// the missing step itself.
+			toolResults: toolCalls.flatMap((tc) => {
 				const outcome = byId.get(tc.id)
-				return {
-					toolCallId: tc.id,
-					toolName: tc.function.name,
-					output: outcome?.output ?? '',
-					isError: outcome?.isError ?? false,
-					durationMs: 0,
-				}
+				if (input.unfinished && !outcome) return []
+				return [
+					{
+						toolCallId: tc.id,
+						toolName: tc.function.name,
+						output: outcome?.output ?? '',
+						isError: outcome?.isError ?? false,
+						durationMs: 0,
+					},
+				]
 			}),
-			finishReason: input.response.finishReason,
+			// The turn's own verdict where there is one. A step that ended in
+			// the catch has none — no provider reported `error` or
+			// `cancelled` — so `unfinished` wins even when a response had
+			// already arrived: a turn that answered and then threw during
+			// tool execution did not end in `tool_calls`.
+			finishReason: input.unfinished?.finishReason ?? input.response?.finishReason ?? 'error',
+			...(input.unfinished?.failure ? { failure: input.unfinished.failure } : {}),
 			usage: subtractUsage(runMgr.tokenUsage, input.usageBefore),
 			costDelta: {
 				...runMgr.costInfo,
@@ -1352,7 +1490,26 @@ export class IterationOrchestrator {
 		}
 
 		this.steps.push(step)
-		this.ctx.onStepFinish?.(step)
+
+		if (!input.unfinished) {
+			this.ctx.onStepFinish?.(step)
+			return
+		}
+
+		// Nothing here is allowed to throw over the failure that is already
+		// unwinding — the same rule `settleCancelledTurn` states for the
+		// cancellation path. A host callback that throws while being told a
+		// turn failed would REPLACE the reason the turn failed, so the run
+		// would report the observer's bug and lose the original.
+		try {
+			this.ctx.onStepFinish?.(step)
+		} catch (err) {
+			this.ctx.log.warn('onStepFinish threw while recording a failed step', {
+				runId: runMgr.id,
+				step: input.stepNumber,
+				error: toErrorMessage(err),
+			})
+		}
 	}
 
 	/** Turns spent asking the model again for a valid structured output. */
@@ -1618,6 +1775,26 @@ export class IterationOrchestrator {
 				error: toErrorMessage(err),
 			})
 		}
+	}
+}
+
+/**
+ * Fold whatever ended an iteration into the record a reader gets.
+ *
+ * Classified through `classifyProviderError` — the same call the catch
+ * already makes to decide whether compaction relief applies — so the step's
+ * verdict and the loop's own decision cannot drift apart. It also handles a
+ * failure that is not a provider failure at all: the code set's `unknown`
+ * means "unclassifiable", which is the true answer for a plugin hook that
+ * threw and is left saying so rather than dressed up as something specific.
+ */
+function describeStepFailure(err: unknown, providerId: string): StepFailure {
+	const classified = classifyProviderError(err, providerId)
+	return {
+		message: toErrorMessage(err),
+		code: classified.code,
+		...(classified.status !== undefined ? { status: classified.status } : {}),
+		retryable: classified.retryable,
 	}
 }
 
