@@ -1,7 +1,7 @@
 ---
 title: Bedrock Provider
 description: Configure @namzu/bedrock for AWS Bedrock Converse API usage with Namzu.
-last_updated: 2026-08-03
+last_updated: 2026-08-11
 status: current
 related_packages: ["@namzu/sdk", "@namzu/bedrock"]
 ---
@@ -111,14 +111,28 @@ The package exports `BEDROCK_CAPABILITIES`:
   supportsTools: true,
   supportsStreaming: true,
   supportsFunctionCalling: true,
-  supportsVision: true,
+  supportsVision: false,
   supportsDocuments: false,
 }
 ```
 
-An image travels as raw bytes beside the text, whether it came from a user attachment or from inside a tool result. A media type the service does not accept is named in the text instead, because sending it would fail the whole request.
+Images do not travel on this driver. A user attachment is not mapped into an image content block, and an image inside a tool result is replaced by a named placeholder saying what was there and how large it was — which is why `supportsVision` is `false` rather than a promise the message translation does not keep. This paragraph previously described images travelling as raw bytes, and the snapshot above previously reported `supportsVision: true`; neither was true of the package.
 
-Prompt caching is requested when the caller sets `cacheControl`, with breakpoints after the tool schemas, after the static system text, and after the last message.
+### Prompt caching
+
+Caching is requested when the caller sets `cacheControl` **and** the model is one Anthropic serves through Converse. The driver then emits three cache points:
+
+| Cache point | Placement | Omitted when |
+| --- | --- | --- |
+| tool schemas | after the last `toolSpec` in `toolConfig.tools` | the caller passes no tools |
+| static system text | after the last system message tagged `cacheHint: 'cache'` | no system message is tagged static |
+| conversation prefix | after the last content block of the last non-empty message | never, when caching is on |
+
+The prompt is assembled tools → system → messages, so each later point also covers every section before it.
+
+The model condition is not a formality. Converse is a multi-vendor wire, and prompt caching is a property of the models on it rather than of the wire, so a request carrying a cache point to a model that does not accept one is rejected outright. A model outside the gate therefore sends exactly the bytes it sends today, uncached, and `cacheControl` has no effect on it.
+
+Cache hits and writes are reported separately from ordinary input, as `cachedTokens` and `cacheWriteTokens` on the usage of every turn. Those counters were always mapped correctly — for a period the driver reported them while requesting no caching at all, so they read a truthful zero, and a caller could not distinguish "caching does not help this workload" from "caching was never asked for". A run with caching on and a stable prefix should show `cachedTokens` rising after the first turn; if it stays at zero, the prefix is changing rather than the caching being off.
 
 ## 9. Operational Notes
 

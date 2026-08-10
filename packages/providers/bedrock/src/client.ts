@@ -5,6 +5,7 @@ import {
 } from '@aws-sdk/client-bedrock-runtime'
 import type {
 	Message as BedrockMessage,
+	CachePointBlock,
 	ContentBlock,
 	ConversationRole,
 	ConverseStreamCommandOutput,
@@ -35,10 +36,70 @@ import {
 import { assertModelReachable, isAnthropicServedModel } from './model-reachability.js'
 import type { BedrockConfig } from './types.js'
 
-function extractSystemBlocks(messages: ChatCompletionParams['messages']): SystemContentBlock[] {
-	return messages
-		.filter((m) => m.role === 'system')
-		.map((m) => ({ text: typeof m.content === 'string' ? m.content : '' }))
+/**
+ * The marker that asks this wire to cache everything before it.
+ *
+ * Caching is not a flag on the request here — it is a block spliced into
+ * the content, and a request without one is uncached however the caller
+ * configured it. That is why nothing was cached before: the driver read
+ * the cache counters faithfully and never emitted a marker, so the
+ * counters were honestly zero and a caller could not tell "caching does
+ * not help this workload" from "caching was never asked for".
+ *
+ * `default` is the only member of the wire's cache-point enum. `ttl` is
+ * deliberately not set: omitting it takes the service's own default,
+ * and an extended TTL is priced differently, so choosing one is a cost
+ * decision rather than a translation.
+ */
+const CACHE_POINT: { cachePoint: CachePointBlock } = { cachePoint: { type: 'default' } }
+
+/**
+ * System text, with a cache point after the last STATIC block.
+ *
+ * Position is the whole point, not presence. The runtime tags its static
+ * segment `'cache'` and its per-run dynamic segment `'ephemeral'`, and a
+ * marker appended at the end of the array would put the dynamic text
+ * inside the cached prefix — which changes every run, so every read would
+ * miss and every write would be paid for. A caller would see cache writes
+ * and no reads, which looks like a cold cache forever.
+ *
+ * No static block means no system breakpoint, rather than a breakpoint in
+ * an arbitrary place.
+ */
+function extractSystemBlocks(
+	messages: ChatCompletionParams['messages'],
+	cachingEnabled = false,
+): SystemContentBlock[] {
+	const blocks: SystemContentBlock[] = []
+	let lastStatic = -1
+
+	for (const m of messages) {
+		if (m.role !== 'system') continue
+		blocks.push({ text: typeof m.content === 'string' ? m.content : '' })
+		if (m.cacheHint === 'cache') lastStatic = blocks.length - 1
+	}
+
+	if (cachingEnabled && lastStatic >= 0) blocks.splice(lastStatic + 1, 0, CACHE_POINT)
+
+	return blocks
+}
+
+/**
+ * The final cache point: after the last content block of the last
+ * non-empty message.
+ *
+ * An iteration only appends messages, so caching the whole conversation
+ * prefix here is what makes the NEXT turn read its history at cache rates
+ * — which on a long run is the largest single cost lever available.
+ */
+function applyMessageCachePoint(messages: BedrockMessage[]): void {
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const content = messages[i]?.content
+		if (content && content.length > 0) {
+			content.push(CACHE_POINT)
+			return
+		}
+	}
 }
 
 function toBedrockRole(role: string): ConversationRole {
@@ -138,7 +199,10 @@ function extractToolNamesFromHistory(messages: ChatCompletionParams['messages'])
 	return Array.from(names)
 }
 
-export function toBedrockToolConfig(params: ChatCompletionParams): ToolConfiguration | undefined {
+export function toBedrockToolConfig(
+	params: ChatCompletionParams,
+	cachingEnabled = false,
+): ToolConfiguration | undefined {
 	// 'none' means the model must not call a tool. This used to map to the
 	// wire's 'auto', which means it MAY — the opposite, and silent. No wire
 	// format lets a model call a tool it was never given, so send none.
@@ -167,6 +231,16 @@ export function toBedrockToolConfig(params: ChatCompletionParams): ToolConfigura
 					},
 				}) as Tool,
 		)
+
+		// After the schemas, so the tool block — the largest fixed prefix on
+		// a tool-using run, and the one that changes least — is cached.
+		//
+		// The reconstruction path below deliberately does not get one. Those
+		// are placeholder specs minted to keep the wire happy when history
+		// references a tool the caller no longer passes; their descriptions
+		// are the literal string `(completed)`, so caching them would pin a
+		// prefix that is not the caller's tool set.
+		if (cachingEnabled) tools.push(CACHE_POINT)
 
 		const toolChoice = formatToolChoice(params.toolChoice)
 		return { tools, toolChoice }
@@ -298,9 +372,26 @@ export class BedrockProvider implements LLMProvider {
 		// reason and the fix, rather than as an opaque validation error from
 		// a service that was asked for something this wire does not carry.
 		assertModelReachable(params.model)
-		const system = extractSystemBlocks(params.messages)
+
+		// The runtime asks for caching on every iteration by setting
+		// `cacheControl`. Honouring it costs three cache points — tools tail,
+		// static-system tail, last message — and the prompt is assembled
+		// tools → system → messages, so each later point also covers every
+		// section before it.
+		//
+		// Gated on the model family for the reason `isAnthropicServedModel`
+		// already exists: Converse is a multi-vendor wire, and prompt caching
+		// is a property of the models on it rather than of the wire. The gate
+		// fails toward today's behaviour — a model outside it sends exactly
+		// the bytes it sends now, uncached — because the alternative failure
+		// is a rejected request, which costs a caller a working integration
+		// rather than a discount they never had.
+		const cachingEnabled = params.cacheControl !== undefined && isAnthropicServedModel(params.model)
+
+		const system = extractSystemBlocks(params.messages, cachingEnabled)
 		const messages = toBedrockMessages(params.messages)
-		const toolConfig = toBedrockToolConfig(params)
+		if (cachingEnabled) applyMessageCachePoint(messages)
+		const toolConfig = toBedrockToolConfig(params, cachingEnabled)
 
 		const inferenceConfig: Record<string, unknown> = {}
 		if (params.maxTokens !== undefined) inferenceConfig.maxTokens = params.maxTokens
