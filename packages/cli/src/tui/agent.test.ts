@@ -118,10 +118,32 @@ describe('toAgentEvent', () => {
 			toAgentEvent({
 				type: 'token_usage_updated',
 				usage: { totalTokens: 1234 },
-				cost: { totalCost: 0.0456 },
+				cost: { totalCost: 0.0456, cacheDiscount: 0, unpricedTokens: 0 },
 				...env,
 			} as unknown as RunEvent),
-		).toEqual({ kind: 'usage', totalTokens: 1234, costUsd: 0.0456 })
+			// The cost record travels whole. Narrowing it to a single number
+			// here is what left every surface downstream unable to tell a run
+			// that cost nothing from one nobody could price.
+		).toEqual({
+			kind: 'usage',
+			totalTokens: 1234,
+			cost: { totalCost: 0.0456, cacheDiscount: 0, unpricedTokens: 0 },
+		})
+	})
+
+	it('carries unpriced tokens across the seam rather than zeroing them', () => {
+		// The case above cannot see this: its fixture has `unpricedTokens: 0`,
+		// so a mapping that hardcoded zero would satisfy it exactly. This is the
+		// only field on the record whose loss is silent — every surface
+		// downstream would keep rendering, and would render "free".
+		expect(
+			toAgentEvent({
+				type: 'token_usage_updated',
+				usage: { totalTokens: 4210 },
+				cost: { totalCost: 0, cacheDiscount: 0, unpricedTokens: 4210 },
+				...env,
+			} as unknown as RunEvent),
+		).toMatchObject({ cost: { unpricedTokens: 4210 } })
 	})
 
 	it('returns null for events the chat surface ignores', () => {
