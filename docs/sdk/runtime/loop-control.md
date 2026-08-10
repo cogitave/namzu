@@ -92,8 +92,29 @@ Three properties are load-bearing:
 `maxIterations`. These are the backstop, not the primary control: they
 answer "this has gone on too long", never "the work is done".
 
-`costLimitUsd` requires a `pricing` table on `query()`. Without one, cost
-stays at zero and the limit never trips.
+`costLimitUsd` is enforced against a real number now. The SDK ships a price
+catalogue and looks a rate up per turn from the driver and the model that
+served it, so no configuration is needed to get a cost.
+
+**It is refused rather than ignored when it cannot be measured.** Previously
+`costLimitUsd` required a `pricing` table on `query()`, and without one cost
+stayed at zero and the limit never tripped — a host that set a cap did not have
+one, and nothing said so. Today:
+
+- `query()` throws `invalid_config` at the start of the run if the configured
+  model has no rate and no `pricing` was supplied.
+- A run stops with `cost_unmeasurable` if a step or a provider-chain member
+  swaps to a model with no rate part-way through.
+
+To keep such a run going, pass `pricing` to declare the rate, add the model to
+the catalogue source, or bound the run with `tokenBudget` instead — which is
+always measurable.
+
+`Run.costInfo.unpricedTokens` is how a caller tells the two zeroes apart:
+`totalCost: 0` with no unpriced tokens means the run genuinely cost nothing
+(local inference), and `totalCost: 0` with unpriced tokens means nobody knows
+what it cost. `CostInfo.inputCostPer1M` and `outputCostPer1M` are absent when
+no single rate card describes the whole total.
 
 ## 2. Seeing What the Loop Did
 

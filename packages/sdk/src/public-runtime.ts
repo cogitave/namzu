@@ -49,10 +49,18 @@ export * from './utils/id.js'
 
 export {
 	accumulateCost,
+	accumulateUnpricedCost,
 	calculateCost,
+	describeCost,
 	formatCost,
 	ZERO_COST,
 } from './utils/cost.js'
+
+// The price catalogue. Exported because a driver package has to be able to ask
+// whether the models it offers an operator are ones the kernel can price —
+// `sdk ← providers` means the SDK's own tests can never reach a real driver's
+// model list, so that check lives in the driver and needs this.
+export { normaliseModelId, resolveModelPricing, VENDOR_RATES } from './pricing/index.js'
 export { toErrorMessage } from './utils/error.js'
 export { configureLogger, getRootLogger, Logger } from './utils/logger.js'
 export { buildToolResultHashes, hashToolResult } from './utils/hash.js'

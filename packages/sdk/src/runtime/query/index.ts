@@ -16,6 +16,7 @@ import type { CompactionConfig } from '../../config/runtime.js'
 import { TOOL_OUTPUT_DIR_NAME } from '../../constants/tools/index.js'
 import { EmergencySaveManager } from '../../manager/run/emergency.js'
 import type { RunPersistence } from '../../manager/run/persistence.js'
+import { resolveModelPricing } from '../../pricing/index.js'
 import { resolveProviderCapabilities } from '../../provider/capabilities.js'
 import {
 	type ProviderChainMember,
@@ -607,6 +608,46 @@ function assertCostIsAttributable(
 	})
 }
 
+/**
+ * Refuse a budget that cannot be measured.
+ *
+ * `runConfig.costLimitUsd` is enforced against `costInfo.totalCost`, and that
+ * total only moves for tokens something has a rate for. A model no rate card
+ * covers therefore produced a limit that could never trip — a host that set a
+ * cost cap had no cost cap, and nothing said so. That was every run before the
+ * price catalogue existed, which is how it went unnoticed.
+ *
+ * Refusing at the front is the cheap half of the answer: it costs the caller
+ * nothing, fires before any spend, and names both ways out. The other half is
+ * the `cost_unmeasurable` stop, for the models this cannot see — a step naming
+ * its own, or a chain member declaring one.
+ *
+ * This is the same shape `advisory/budget.ts` already applies to
+ * `AdvisoryBudget.maxCostPerRun`, one layer down, and for the same reason. The
+ * run path simply never had it.
+ */
+function assertBudgetIsMeasurable(params: QueryParams): void {
+	const limit = params.runConfig.costLimitUsd
+	if (limit === undefined || limit <= 0) return
+	// A host-supplied table prices whatever it is pointed at, so a caller who
+	// brought one has answered the question themselves.
+	if (params.pricing !== undefined) return
+	const model = params.runConfig.model
+	if (resolveModelPricing(params.provider.id, model) !== undefined) return
+
+	throw new NamzuError({
+		code: 'invalid_config',
+		message:
+			`runConfig.costLimitUsd is set to ${limit}, but no rate is known for model "${model}" on ` +
+			`provider "${params.provider.id}". The limit is enforced against the run's accumulated ` +
+			'cost, and tokens with no rate never reach that total — so the budget would read as ' +
+			'satisfied for the whole run and stop nothing. Either pass `pricing` to declare the rate ' +
+			'yourself, add the model to packages/sdk/src/pricing/rates.source.json, or drop ' +
+			'`costLimitUsd` and bound the run with `tokenBudget`, which is measurable here.',
+		details: { model, providerId: params.provider.id, costLimitUsd: limit },
+	})
+}
+
 export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run> {
 	// Boot-time filesystem migration (session-hierarchy.md §13.4.1). First
 	// call per process per root actually runs; subsequent calls short-circuit
@@ -639,6 +680,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		...(params.fallbackProviders ?? []),
 	]
 	assertCostIsAttributable(chain, params.pricing)
+	assertBudgetIsMeasurable(params)
 	const withRetry = (provider: LLMProvider): LLMProvider =>
 		params.retry === false
 			? provider

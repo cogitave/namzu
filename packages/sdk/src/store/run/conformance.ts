@@ -177,11 +177,17 @@ const FOREIGN_TENANT = 'tnt_conformance_other' as TenantId
 /** Fixed instant, so every expiry in a case is judged against one clock. */
 const NOW = 5_000_000
 
+/**
+ * A run that cost nothing and has nothing unaccounted for — the shape a store
+ * has to round-trip, not a claim about any real run. Carries no rate fields,
+ * matching `ZERO_COST`: a store fixture that invents `inputCostPer1M: 0` would
+ * be asserting a rate card of zero, which now means "this model is free"
+ * rather than "no rate was applied".
+ */
 const NO_COST: CostInfo = {
-	inputCostPer1M: 0,
-	outputCostPer1M: 0,
 	totalCost: 0,
 	cacheDiscount: 0,
+	unpricedTokens: 0,
 }
 
 let checkpointSeq = 0

@@ -24,6 +24,7 @@ const ZERO_COST = {
 	outputCostPer1M: 0,
 	totalCost: 0,
 	cacheDiscount: 0,
+	unpricedTokens: 0,
 }
 
 const SCOPE: CheckpointRunScope = {

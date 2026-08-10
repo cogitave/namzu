@@ -1,5 +1,6 @@
 import { AUTO_CONTINUATION_USER_MESSAGE } from '../../constants/continuation.js'
 import { EMPTY_TOKEN_USAGE } from '../../constants/limits.js'
+import { resolveModelPricing } from '../../pricing/index.js'
 import { DiskCheckpointStore } from '../../store/run/checkpoint-disk.js'
 import { RunDiskStore } from '../../store/run/disk.js'
 import { type CostInfo, type TokenUsage, accumulateTokenUsage } from '../../types/common/index.js'
@@ -11,9 +12,27 @@ import type { EmergencySaveData } from '../../types/run/emergency.js'
 import type { Run, RunPersistenceConfig, StepResult, StopReason } from '../../types/run/index.js'
 import type { RunStore } from '../../types/run/store.js'
 import type { ProjectId, ThreadId } from '../../types/session/ids.js'
-import { type ModelPricing, ZERO_COST, accumulateCost } from '../../utils/cost.js'
+import {
+	type ModelPricing,
+	ZERO_COST,
+	accumulateCost,
+	accumulateUnpricedCost,
+} from '../../utils/cost.js'
 import { generateEmergencySaveId } from '../../utils/id.js'
 import type { Logger } from '../../utils/logger.js'
+
+/**
+ * The pair a rate lookup needs: which driver, running which model.
+ *
+ * `model` may be absent because a driver can be pointed at whatever the host
+ * configured and some report nothing back. Absent resolves to no rate, which
+ * is the honest answer, EXCEPT for a driver that bills nothing whatever it
+ * runs — see `resolveModelPricing`.
+ */
+export interface PricingSubject {
+	readonly providerId: string
+	readonly model: string | undefined
+}
 
 export class RunPersistence {
 	private run: Run
@@ -266,12 +285,38 @@ export class RunPersistence {
 		this.run.messages.push(message)
 	}
 
-	accumulateUsage(usage: TokenUsage): void {
+	/**
+	 * Who served the tokens being accumulated, so a rate can be found for them.
+	 *
+	 * Both fields are required. The previous signature took usage alone and
+	 * priced it from one table the run was constructed with, which is why the
+	 * only way to get a non-zero cost was for a host to pass that table — and
+	 * no shipped surface did. Naming the subject at every call site is what
+	 * lets the catalogue answer, and it makes a site that cannot say who served
+	 * a compile error rather than a silent misattribution.
+	 */
+	private resolvePricing(servedBy: PricingSubject): ModelPricing | undefined {
+		// A host-supplied table wins. It is a deliberate declaration about this
+		// run, and `query()` already refuses to accept one alongside a provider
+		// chain of more than one member, so it cannot be silently spread across
+		// two rate cards here.
+		if (this.pricing) return this.pricing
+		return resolveModelPricing(servedBy.providerId, servedBy.model)
+	}
+
+	accumulateUsage(usage: TokenUsage, servedBy: PricingSubject): void {
 		this.run.tokenUsage = accumulateTokenUsage(this.run.tokenUsage, usage)
 
-		if (this.pricing) {
-			this.run.costInfo = accumulateCost(this.run.costInfo, usage, this.pricing)
-		}
+		const pricing = this.resolvePricing(servedBy)
+		// No rate is not the same as a rate of zero, and the difference is the
+		// whole point of this change. Tokens nobody can price are counted as
+		// such, so `costInfo.unpricedTokens` distinguishes "this cost nothing"
+		// from "nobody knows what this cost" — and so the budget guard can
+		// refuse rather than pass a limit it cannot measure.
+		this.run.costInfo =
+			pricing === undefined
+				? accumulateUnpricedCost(this.run.costInfo, usage)
+				: accumulateCost(this.run.costInfo, usage, pricing)
 	}
 
 	/**
@@ -287,8 +332,8 @@ export class RunPersistence {
 	 * plain {@link accumulateUsage} instead: their prompts are not the
 	 * run's context, and letting them write here would corrupt the signal.
 	 */
-	recordTurnUsage(usage: TokenUsage): void {
-		this.accumulateUsage(usage)
+	recordTurnUsage(usage: TokenUsage, servedBy: PricingSubject): void {
+		this.accumulateUsage(usage, servedBy)
 		this._lastPromptTokens = usage.promptTokens
 		// How much of the history that number covers. The loop pushes the
 		// assistant message and its tool results AFTER this call, so without
@@ -391,6 +436,21 @@ export class RunPersistence {
 	 */
 	setServingProvider(providerId: string): void {
 		this.run.metadata.servingProvider = providerId
+	}
+
+	/**
+	 * Who is serving right now, for a side-channel call that has no provenance
+	 * of its own.
+	 *
+	 * The main loop does not use this — it reads `servedBy` off the turn, which
+	 * is exact. Compaction and the closing summary go through the same wrapped
+	 * provider without recording who answered, and this is the best available
+	 * answer for them: the fallback decorator reports the head member's id
+	 * whoever is actually serving, so asking the provider would hand back the
+	 * declaration rather than the fact.
+	 */
+	get servingProviderId(): string {
+		return this.run.metadata.servingProvider ?? this.run.metadata.provider
 	}
 
 	clearLastPromptTokens(): void {

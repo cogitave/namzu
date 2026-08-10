@@ -1,5 +1,6 @@
-import { CHARS_PER_TOKEN } from '../constants/limits.js'
+import { CHARS_PER_TOKEN, ZERO_COST } from '../constants/limits.js'
 import { assembleSystemPrompt } from '../persona/assembler.js'
+import { resolveModelPricing } from '../pricing/index.js'
 import { collect } from '../provider/collect.js'
 
 import type { AdvisorDefinition, AdvisoryBudget } from '../types/advisory/config.js'
@@ -7,7 +8,7 @@ import type { AdvisoryRequest, AdvisoryResult } from '../types/advisory/result.j
 import type { CostInfo, TokenUsage } from '../types/common/index.js'
 import { type Message, createSystemMessage, createUserMessage } from '../types/message/index.js'
 import type { LLMToolSchema } from '../types/tool/index.js'
-import { calculateCost } from '../utils/cost.js'
+import { accumulateUnpricedCost, calculateCost } from '../utils/cost.js'
 import { type Logger, getRootLogger } from '../utils/logger.js'
 import { ADVISORY_RESPONSE_CONTRACT, parseAdvisoryResponse } from './parse.js'
 
@@ -221,16 +222,22 @@ export class AdvisoryExecutor {
 	}
 
 	/**
-	 * Cost for one call, from the advisor's own pricing.
+	 * Cost for one call, from the advisor's own pricing, then the catalogue.
 	 *
-	 * Zero when the advisor carries none — which is honest, not a
-	 * placeholder: a cost CAP over unpriced advisors is refused at
-	 * construction, so nothing enforces against this zero.
+	 * When neither has a rate this reports the tokens as UNPRICED rather than
+	 * as a cost of zero. The previous version returned a zero rate card and a
+	 * zero total, defended on the grounds that a cost CAP over unpriced
+	 * advisors is refused at construction so nothing enforces against it — true
+	 * of the cap, and beside the point for the reader. `AdvisoryResult.cost` is
+	 * reported to the host, and `$0.00` for a call that cost real money is the
+	 * exact defect this change exists to remove; it does not become acceptable
+	 * because the number happens to be unenforced.
 	 */
 	private computeCost(advisor: AdvisorDefinition, usage: TokenUsage): CostInfo {
-		if (!advisor.pricing) {
-			return { inputCostPer1M: 0, outputCostPer1M: 0, totalCost: 0, cacheDiscount: 0 }
+		const pricing = advisor.pricing ?? resolveModelPricing(advisor.provider.id, advisor.model)
+		if (!pricing) {
+			return accumulateUnpricedCost(ZERO_COST, usage)
 		}
-		return calculateCost(usage, advisor.pricing)
+		return calculateCost(usage, pricing)
 	}
 }

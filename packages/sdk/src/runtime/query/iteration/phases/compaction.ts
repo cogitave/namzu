@@ -542,19 +542,29 @@ export async function runCompactionCheck(
 	let compactedContent: string
 
 	if (config.llmVerification && manager.slotCount() < config.richStateThreshold) {
+		// Named once and used twice on purpose. The model the summariser is
+		// asked for is also the model its tokens are priced at, and computing
+		// the two separately is how they drift — a router that sends compaction
+		// to a cheap model while the bill is written against the expensive one
+		// is a mistake with no symptom.
+		const compactionModel = resolveTaskModel('compaction', ctx.taskRouter, ctx.runConfig.model)
 		compactedContent = await buildVerifiedSummary(
 			manager,
 			olderMessages,
 			ctx.provider,
 			config,
-			(usage) => ctx.runMgr.accumulateUsage(usage),
+			(usage) =>
+				ctx.runMgr.accumulateUsage(usage, {
+					providerId: ctx.runMgr.servingProviderId,
+					model: compactionModel,
+				}),
 			// The one model call a run makes that the user never asked for. It
 			// reads a transcript and writes a summary, which is the cheapest
 			// thing a small model does well, and it fires on exactly the long
 			// runs where the primary model is most expensive. `taskRouter` had
 			// been accepted, validated and threaded through four types since it
 			// was added, and nothing ever consulted it.
-			resolveTaskModel('compaction', ctx.taskRouter, ctx.runConfig.model),
+			compactionModel,
 		)
 	} else {
 		compactedContent = serializeState(manager.getState())

@@ -117,7 +117,15 @@ export async function runAdvisoryPhase(
 		// `tokenBudget: 200_000` and an `on_error` trigger could send well
 		// past 200k and never trip `token_budget`. The usage is already in
 		// hand — this just tells the accountant about it.
-		ctx.runMgr.accumulateUsage(executionResult.usage)
+		// Priced against the ADVISOR's own driver and model, not the run's. An
+		// advisor carries its own `provider`, so attributing its tokens to
+		// whoever is serving the main loop would price one vendor's work at
+		// another's card — which is the class of quiet wrongness the whole
+		// catalogue exists to remove, and it would be invisible here.
+		ctx.runMgr.accumulateUsage(executionResult.usage, {
+			providerId: advisor.provider.id,
+			model: advisor.model,
+		})
 
 		advisoryCtx.recordCall({
 			advisorId: advisor.id,

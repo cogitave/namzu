@@ -32,7 +32,13 @@ function step(n: number, toolNames: string[] = []): StepResult {
 			cachedTokens: 0,
 			cacheWriteTokens: 0,
 		},
-		costDelta: { inputCostPer1M: 0, outputCostPer1M: 0, totalCost: 0, cacheDiscount: 0 },
+		costDelta: {
+			inputCostPer1M: 0,
+			outputCostPer1M: 0,
+			totalCost: 0,
+			cacheDiscount: 0,
+			unpricedTokens: 0,
+		},
 		startedAt: 0,
 		durationMs: 0,
 		toolExecutionMs: 0,
@@ -52,7 +58,13 @@ function stateOf(steps: StepResult[]): StopConditionState {
 			cachedTokens: 0,
 			cacheWriteTokens: 0,
 		},
-		totalCost: { inputCostPer1M: 0, outputCostPer1M: 0, totalCost: 0, cacheDiscount: 0 },
+		totalCost: {
+			inputCostPer1M: 0,
+			outputCostPer1M: 0,
+			totalCost: 0,
+			cacheDiscount: 0,
+			unpricedTokens: 0,
+		},
 	}
 }
 

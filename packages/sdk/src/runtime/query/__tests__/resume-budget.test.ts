@@ -118,13 +118,21 @@ describe('RunPersistence.restoreUsage', () => {
 			tenantId: 'tn',
 		} as any)
 
-		mgr.accumulateUsage({
-			promptTokens: 10,
-			completionTokens: 5,
-			totalTokens: 15,
-			cachedTokens: 0,
-			cacheWriteTokens: 0,
-		})
+		// `mock` is in no rate card, which is the point here: this case is about
+		// token totals surviving a restore, and an unpriced subject keeps the
+		// cost arithmetic out of an assertion that is not about it.
+		const servedBy = { providerId: 'mock', model: 'mock-model' }
+
+		mgr.accumulateUsage(
+			{
+				promptTokens: 10,
+				completionTokens: 5,
+				totalTokens: 15,
+				cachedTokens: 0,
+				cacheWriteTokens: 0,
+			},
+			servedBy,
+		)
 		expect(mgr.tokenUsage.totalTokens).toBe(15)
 
 		mgr.restoreUsage(
@@ -135,7 +143,13 @@ describe('RunPersistence.restoreUsage', () => {
 				cachedTokens: 0,
 				cacheWriteTokens: 0,
 			},
-			{ inputCostPer1M: 0, outputCostPer1M: 0, totalCost: 4.8, cacheDiscount: 0 },
+			{
+				inputCostPer1M: 0,
+				outputCostPer1M: 0,
+				totalCost: 4.8,
+				cacheDiscount: 0,
+				unpricedTokens: 0,
+			},
 			7,
 		)
 
@@ -145,13 +159,16 @@ describe('RunPersistence.restoreUsage', () => {
 		expect(mgr.currentIteration).toBe(7)
 
 		// And the run keeps accumulating from the restored point.
-		mgr.accumulateUsage({
-			promptTokens: 1,
-			completionTokens: 1,
-			totalTokens: 2,
-			cachedTokens: 0,
-			cacheWriteTokens: 0,
-		})
+		mgr.accumulateUsage(
+			{
+				promptTokens: 1,
+				completionTokens: 1,
+				totalTokens: 2,
+				cachedTokens: 0,
+				cacheWriteTokens: 0,
+			},
+			servedBy,
+		)
 		expect(mgr.tokenUsage.totalTokens).toBe(1002)
 		expect(mgr.incrementIteration()).toBe(8)
 	})

@@ -80,7 +80,7 @@ At minimum, a practical run needs:
 | --- | --- |
 | `maxIterations` | Hard stop on iteration count |
 | `maxResponseTokens` | Output-size guard for model responses |
-| `costLimitUsd` | Cost budget guard when pricing is available |
+| `costLimitUsd` | Cost budget guard. Priced from the built-in catalogue; refused rather than ignored when the model has no rate |
 | `temperature` | Model creativity or variance control |
 
 These settings shape the runtime loop, not only the provider call.
