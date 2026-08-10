@@ -261,6 +261,71 @@ describe('structured final output', () => {
 		expect(h.structured()).toEqual({ verdict: 'fail', notes: 'second try' })
 	})
 
+	/**
+	 * The answer is not final while the model is still waiting to hear back.
+	 *
+	 * A terminal tool that shares its turn relays instead of settling
+	 * (`terminalToolOutput`), on the reasoning that the model asked for the
+	 * other work and should see it. The output tool had no such guard, so a
+	 * turn holding the answer AND a question ended the run: the other tools
+	 * ran, their results went nowhere, and the accepted answer was the one
+	 * the model composed BEFORE reading them.
+	 */
+	it('does not settle when the output call shares its turn with other work', async () => {
+		const provider = new MockLLMProvider({
+			turns: [
+				{
+					toolCalls: [
+						{ name: STRUCTURED_OUTPUT_TOOL_NAME, args: { verdict: 'pass', notes: 'guessed' } },
+						{ name: 'read' },
+					],
+				},
+				{
+					toolCalls: [
+						{
+							name: STRUCTURED_OUTPUT_TOOL_NAME,
+							args: { verdict: 'fail', notes: 'after reading' },
+						},
+					],
+				},
+			],
+		})
+		const h = harness({ provider, structuredOutput: { schema: SCHEMA } })
+
+		await drain(h.orchestrator)
+
+		// The answer formed AFTER the read, not the one composed beside it.
+		expect(h.structured()).toEqual({ verdict: 'fail', notes: 'after reading' })
+		expect(h.stopReason()).toBe('end_turn')
+		// A second model turn was actually paid for — which is what "the model
+		// saw the result" means. Asserting only that `read ok` is in the
+		// transcript proves nothing: the batch runs before the capture, so the
+		// result is in the message log either way. That assertion passes on the
+		// unfixed code, and a check that cannot fail is worse than none.
+		expect(h.iterations()).toBe(2)
+		expect(h.messages.some((m) => JSON.stringify(m.content).includes('read ok'))).toBe(true)
+	})
+
+	it('still settles a lone output call that arrives with nothing else', async () => {
+		// The guard must not cost the ordinary case a turn.
+		const provider = new MockLLMProvider({
+			turns: [
+				{
+					toolCalls: [
+						{ name: STRUCTURED_OUTPUT_TOOL_NAME, args: { verdict: 'pass', notes: 'alone' } },
+					],
+				},
+				{ text: 'should never be reached' },
+			],
+		})
+		const h = harness({ provider, structuredOutput: { schema: SCHEMA } })
+
+		await drain(h.orchestrator)
+
+		expect(h.structured()).toEqual({ verdict: 'pass', notes: 'alone' })
+		expect(h.iterations()).toBe(1)
+	})
+
 	it('is inert when no structured output was requested', async () => {
 		const provider = new MockLLMProvider({ turns: [{ text: 'plain answer' }] })
 		const h = harness({ provider })

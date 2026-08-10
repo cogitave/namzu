@@ -873,7 +873,7 @@ export class IterationOrchestrator {
 					// A successful `structured_output` call IS the answer, so the
 					// run ends here rather than paying for another turn whose only
 					// job would be to restate it.
-					if (this.captureStructuredOutput(reviewOutcome.results)) {
+					if (this.captureStructuredOutput(reviewOutcome.results, response)) {
 						this.ctx.log.info('Structured output produced — ending run', {
 							runId: runMgr.id,
 							iteration: iterationNum,
@@ -1415,10 +1415,48 @@ export class IterationOrchestrator {
 		return hit
 	}
 
-	private captureStructuredOutput(results: readonly ToolCallOutcome[]): boolean {
+	/**
+	 * Take the model's answer, unless it asked something in the same breath.
+	 *
+	 * The shared-turn guard is the same one `terminalToolOutput` applies two
+	 * methods up, and it was missing here — which made the two settle rules
+	 * disagree about the identical situation. A turn holding the answer AND
+	 * another call ended the run: the other tools had already executed, their
+	 * results went to no reader, and the accepted answer was the one the model
+	 * composed BEFORE it saw them.
+	 *
+	 * That is the part worth being precise about. The cost is not the wasted
+	 * call — it is that an answer formed while a question was outstanding was
+	 * recorded as final. The model asked for that information; it does not get
+	 * to be judged as having had it.
+	 *
+	 * So a shared turn relays instead: the results go back, and the model
+	 * answers again with them in hand. It costs one turn in a case that should
+	 * be rare, and only in that case — a lone call still settles immediately,
+	 * which is the path essentially every run takes.
+	 *
+	 * Bounded like every other non-settling turn, by `maxIterations`. The prose
+	 * retry limit does not apply, because this turn DID call the tool; a model
+	 * that shares every turn is not refusing to answer, it is refusing to stop
+	 * working, and that is what the iteration cap is for.
+	 */
+	private captureStructuredOutput(
+		results: readonly ToolCallOutcome[],
+		response: ChatCompletionResponse,
+	): boolean {
 		if (!this.needsStructuredOutput()) return false
 		const hit = results.find((r) => r.toolName === STRUCTURED_OUTPUT_TOOL_NAME && !r.isError)
 		if (!hit) return false
+
+		const structuredCallsInTurn = response.message.toolCalls?.length ?? 0
+		if (structuredCallsInTurn > 1) {
+			this.ctx.log.info('Structured output shared its turn — relaying instead of settling', {
+				runId: this.ctx.runMgr.id,
+				callsInTurn: structuredCallsInTurn,
+			})
+			return false
+		}
+
 		try {
 			this.ctx.runMgr.setStructuredOutput(JSON.parse(hit.output))
 		} catch {
