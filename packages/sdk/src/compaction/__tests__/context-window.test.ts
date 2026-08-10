@@ -15,13 +15,36 @@ import {
 
 describe('lookupContextWindow', () => {
 	it('resolves dated model ids through their family prefix', () => {
-		expect(lookupContextWindow('claude-opus-5-20260514')).toBe(200_000)
-		expect(lookupContextWindow('claude-sonnet-5')).toBe(200_000)
+		expect(lookupContextWindow('claude-opus-5-20260514')).toBe(1_000_000)
+		expect(lookupContextWindow('claude-sonnet-5')).toBe(1_000_000)
 	})
 
 	it('resolves namespaced ids from Bedrock and OpenRouter', () => {
-		expect(lookupContextWindow('us.anthropic.claude-sonnet-5-v1:0')).toBe(200_000)
-		expect(lookupContextWindow('anthropic/claude-opus-5')).toBe(200_000)
+		expect(lookupContextWindow('us.anthropic.claude-sonnet-5-v1:0')).toBe(1_000_000)
+		expect(lookupContextWindow('anthropic/claude-opus-5')).toBe(1_000_000)
+	})
+
+	// The window is not a property of the family. Within one family and one
+	// major version, 4.5 is 200k and 4.6+ is 1M, so a key covering the whole
+	// family gets one of the two wrong. The table shipped with exactly that
+	// bug: a bare `claude-opus-4` key answered 200k for every 4.x, which
+	// made a 1M run compact at ~14% full.
+	it('separates the 1M models from the 200k ones inside the same family', () => {
+		expect(lookupContextWindow('claude-opus-4-8')).toBe(1_000_000)
+		expect(lookupContextWindow('claude-opus-4-7')).toBe(1_000_000)
+		expect(lookupContextWindow('claude-opus-4-6')).toBe(1_000_000)
+		expect(lookupContextWindow('claude-sonnet-4-6')).toBe(1_000_000)
+
+		expect(lookupContextWindow('claude-opus-4-5-20251101')).toBe(200_000)
+		expect(lookupContextWindow('claude-sonnet-4-5-20250929')).toBe(200_000)
+		expect(lookupContextWindow('claude-haiku-4-5-20251001')).toBe(200_000)
+	})
+
+	it('keeps an unlisted Claude id on the conservative 200k floor', () => {
+		// Over-stating kills a run with `context_length_exceeded` and nothing
+		// recoverable; under-stating costs one summarization pass. An id this
+		// table has never seen takes the survivable error.
+		expect(lookupContextWindow('claude-something-unreleased')).toBe(200_000)
 	})
 
 	it('is case-insensitive', () => {
@@ -52,7 +75,7 @@ describe('resolveContextWindow', () => {
 
 	it('falls back to the model table', () => {
 		expect(resolveContextWindow(undefined, 'claude-opus-5')).toEqual({
-			tokens: 200_000,
+			tokens: 1_000_000,
 			source: 'model-table',
 		})
 	})
