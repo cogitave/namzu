@@ -214,6 +214,15 @@ const SKIP_PATHS = new Set(['.claude/worktrees'])
 const WIRE_VALUE_FILES = [
 	'packages/providers/',
 	'packages/sdk/src/compaction/context-window.ts',
+	// The model price catalogue: a table keyed by model id, and the resolver
+	// that reads it. Exactly the category the context-window table above is
+	// exempt for — deleting the ids would delete the feature, since a rate card
+	// that names no model prices nothing. The generated module carries its ids
+	// as quoted keys and would pass on the literal rule alone; the exemption is
+	// for the source comments that have to say which driver reports cache reads
+	// inside its prompt count and which reports them alongside, because that
+	// distinction IS the interoperability.
+	'packages/sdk/src/pricing/',
 	'packages/sdk/src/provider/registry.ts',
 	// A classifier whose whole job is to recognise OTHER parties' error
 	// shapes: which field carries the status, where the headers hang, what

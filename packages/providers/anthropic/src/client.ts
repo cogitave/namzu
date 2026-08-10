@@ -1080,38 +1080,9 @@ export class AnthropicProvider implements LLMProvider {
 	}
 
 	private knownModels(): ModelInfo[] {
-		return [
-			{
-				id: 'claude-sonnet-4-5-20250929',
-				name: 'Claude Sonnet 4.5',
-				contextWindow: 200_000,
-				maxOutputTokens: 64_000,
-				inputPrice: 3.0,
-				outputPrice: 15.0,
-				supportsToolUse: true,
-				supportsStreaming: true,
-			},
-			{
-				id: 'claude-opus-4-1-20250805',
-				name: 'Claude Opus 4.1',
-				contextWindow: 200_000,
-				maxOutputTokens: 32_000,
-				inputPrice: 15.0,
-				outputPrice: 75.0,
-				supportsToolUse: true,
-				supportsStreaming: true,
-			},
-			{
-				id: 'claude-haiku-4-5-20251001',
-				name: 'Claude Haiku 4.5',
-				contextWindow: 200_000,
-				maxOutputTokens: 64_000,
-				inputPrice: 1.0,
-				outputPrice: 5.0,
-				supportsToolUse: true,
-				supportsStreaming: true,
-			},
-		]
+		// Copied, not handed out: the constant is shared and a caller that
+		// sorted or spliced the returned array would edit the driver's menu.
+		return [...OFFLINE_MODEL_CATALOGUE]
 	}
 
 	async healthCheck(): Promise<boolean> {
@@ -1140,3 +1111,54 @@ export class AnthropicProvider implements LLMProvider {
 		return body?.type === 'disabled' ? capability.effortWhenDisabled : capability.effort
 	}
 }
+
+/**
+ * The menu this driver offers when the network cannot supply one.
+ *
+ * Module-level and exported so it can be READ without a client and without a
+ * request. It was a literal inside a private method, which made the one
+ * question worth asking of it unanswerable offline: does every model this
+ * driver offers to an operator have a rate in `@namzu/sdk`'s price catalogue?
+ *
+ * It did not. Two of these three normalised to ids the catalogue had no row
+ * for, so an operator who picked one off this menu got a run reporting its
+ * cost as unknown — and, with a `costLimitUsd` set, a run refused outright.
+ * That is a LOOKUP-KEY mismatch, and it is the failure the price catalogue's
+ * own regeneration gate is structurally blind to: `--check` proves the
+ * generated module is what its source produces, which says nothing about
+ * whether the keys in it match what a driver actually reports. Only a test
+ * that feeds real driver output through the real lookup can see it, and
+ * `__tests__/pricing-conformance.test.ts` is that test.
+ */
+export const OFFLINE_MODEL_CATALOGUE: readonly ModelInfo[] = [
+	{
+		id: 'claude-sonnet-4-5-20250929',
+		name: 'Claude Sonnet 4.5',
+		contextWindow: 200_000,
+		maxOutputTokens: 64_000,
+		inputPrice: 3.0,
+		outputPrice: 15.0,
+		supportsToolUse: true,
+		supportsStreaming: true,
+	},
+	{
+		id: 'claude-opus-4-1-20250805',
+		name: 'Claude Opus 4.1',
+		contextWindow: 200_000,
+		maxOutputTokens: 32_000,
+		inputPrice: 15.0,
+		outputPrice: 75.0,
+		supportsToolUse: true,
+		supportsStreaming: true,
+	},
+	{
+		id: 'claude-haiku-4-5-20251001',
+		name: 'Claude Haiku 4.5',
+		contextWindow: 200_000,
+		maxOutputTokens: 64_000,
+		inputPrice: 1.0,
+		outputPrice: 5.0,
+		supportsToolUse: true,
+		supportsStreaming: true,
+	},
+]

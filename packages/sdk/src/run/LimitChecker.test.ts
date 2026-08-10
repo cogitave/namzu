@@ -17,6 +17,7 @@ describe('token budget limits', () => {
 				aborted: false,
 				totalTokens: 10_000_000,
 				totalCost: 0,
+				unpricedTokens: 0,
 				currentIteration: 1,
 				startTime: Date.now(),
 			},

@@ -242,6 +242,7 @@ describe('mapRunToStreamEvent — mapped variants', () => {
 							outputCostPer1M: 0,
 							totalCost: 0,
 							cacheDiscount: 0,
+							unpricedTokens: 0,
 						},
 					},
 				},
@@ -387,6 +388,7 @@ describe('mapRunToStreamEvent — mapped variants', () => {
 			outputCostPer1M: 2,
 			totalCost: 0.01,
 			cacheDiscount: 0,
+			unpricedTokens: 0,
 		}
 		const r = mapRunToStreamEvent({ type: 'token_usage_updated', runId: RID, usage, cost }, RID)
 		expect(r?.wire).toBe('token.usage')

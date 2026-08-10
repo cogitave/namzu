@@ -40,6 +40,7 @@ function completedResult(): BaseAgentResult {
 			outputCostPer1M: 0,
 			totalCost: 0,
 			cacheDiscount: 0,
+			unpricedTokens: 0,
 		},
 		iterations: 3,
 		durationMs: 4_200,

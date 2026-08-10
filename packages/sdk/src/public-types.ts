@@ -98,7 +98,9 @@ export type {
 
 export type { AdvisoryCallContext, AdvisoryExecutionResult } from './advisory/index.js'
 
-export type { ModelPricing } from './utils/cost.js'
+export type { CacheRates, ModelPricing } from './utils/cost.js'
+export type { VendorRates } from './pricing/index.js'
+export type { PricingSubject } from './manager/run/persistence.js'
 export type { FrontmatterValue, ParsedFrontmatter } from './utils/frontmatter.js'
 export type { Logger } from './utils/logger.js'
 export type { ShellCompressOptions, ShellCompressResult } from './utils/shell-compress.js'

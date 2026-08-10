@@ -31,6 +31,7 @@ function makeCheckpoint(overrides: Partial<IterationCheckpoint> = {}): Iteration
 			outputCostPer1M: 0,
 			totalCost: 0,
 			cacheDiscount: 0,
+			unpricedTokens: 0,
 		},
 		guardState: { iterationCount: 1, elapsedMs: 100 },
 		createdAt: Date.now(),
@@ -141,12 +142,18 @@ describe('projectEmergencyToCheckpoint', () => {
 		expect(cp.tokenUsage).toBe(dump.tokenUsage)
 		expect(cp.createdAt).toBe(2_500)
 		expect(cp.guardState).toEqual({ iterationCount: 7, elapsedMs: 1_500 })
+		// The projection cannot know what the pre-crash tokens cost, and it now
+		// says so instead of saying they cost nothing. `{ ...ZERO_COST }` here
+		// was a run that had spent real money coming back as one that had
+		// spent none — and, because `ZERO_COST` is byte-identical to a total
+		// nothing has been added to, it also made the next accumulation adopt
+		// its own rate card as covering the pre-crash spend.
 		expect(cp.costInfo).toEqual({
-			inputCostPer1M: 0,
-			outputCostPer1M: 0,
 			totalCost: 0,
 			cacheDiscount: 0,
+			unpricedTokens: dump.tokenUsage.totalTokens,
 		})
+		expect(cp.costInfo.unpricedTokens).toBeGreaterThan(0)
 	})
 
 	it('derives a deterministic CheckpointId from the emergency save id', () => {

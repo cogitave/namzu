@@ -43,10 +43,31 @@ export function toCheckpointListEntry(cp: IterationCheckpoint): CheckpointListEn
  * the same restore path as any other checkpoint.
  *
  * The projection is lossy: `costInfo`, `guardState.elapsedMs` and
- * `toolResultHashes` are not captured at emergency-save time and default
- * to zero/empty values. The synthetic
+ * `toolResultHashes` are not captured at emergency-save time. The synthetic
  * checkpoint id is derived deterministically from the emergency save id so
  * re-projecting the same dump yields the same {@link CheckpointId}.
+ *
+ * ## The cost projection says "unknown", not "zero"
+ *
+ * `costInfo` used to default to `{ ...ZERO_COST }` beside a `tokenUsage` the
+ * dump preserves faithfully — a run that had spent real money coming back as
+ * one that had spent nothing. That is the same lie the price catalogue was
+ * added to end, arriving through the restore path instead of the accumulation
+ * one, and it took `runConfig.costLimitUsd` back to being enforced against a
+ * zero with it.
+ *
+ * It also broke the accumulator downstream. `accumulateCost` decides whether
+ * one rate card describes the whole total by asking whether the total is
+ * FRESH — zero cost, zero unpriced tokens, no rates — and `ZERO_COST` is
+ * exactly that shape. So the first turn after such a resume adopted its own
+ * rate card as covering the pre-crash spend too, and reported a number that
+ * was confidently wrong while looking like a measured one.
+ *
+ * Saying instead that the pre-crash tokens are UNPRICED is the true statement,
+ * in the vocabulary {@link CostInfo} already has: nobody knows what they cost,
+ * because nothing recorded it. It needs no marker of its own to stay correct,
+ * and it is not fresh-shaped, so the accumulator does the right thing without
+ * being told about this path at all.
  *
  * See ses_005-deterministic-replay design §2 + §5.2.
  */
@@ -64,7 +85,7 @@ export function projectEmergencyToCheckpoint(dump: EmergencySaveData): Iteration
 		iteration: dump.currentIteration,
 		messages: dump.messages,
 		tokenUsage: dump.tokenUsage,
-		costInfo: { ...ZERO_COST },
+		costInfo: { ...ZERO_COST, unpricedTokens: dump.tokenUsage.totalTokens },
 		guardState: {
 			iterationCount: dump.currentIteration,
 			elapsedMs: Math.max(0, dump.savedAt - dump.startedAt),

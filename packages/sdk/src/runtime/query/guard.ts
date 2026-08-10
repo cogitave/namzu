@@ -92,6 +92,7 @@ export class GuardCoordinator {
 			aborted: abortSignal.aborted,
 			totalTokens: runMgr.tokenUsage.totalTokens,
 			totalCost: runMgr.costInfo.totalCost,
+			unpricedTokens: runMgr.costInfo.unpricedTokens,
 			currentIteration: runMgr.currentIteration,
 			startTime: this.startTime,
 		}

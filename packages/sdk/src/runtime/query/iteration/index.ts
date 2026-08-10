@@ -461,7 +461,17 @@ export class IterationOrchestrator {
 					})()
 
 					// Main-loop turn: also records the prompt size compaction reads.
-					runMgr.recordTurnUsage(response.usage)
+					//
+					// `servedBy` is what prices it, and it is the exact pair —
+					// the member at the cursor when the stream ended, and the
+					// model it was asked for. This is the seam that ended the
+					// always-zero cost: the rate lookup happens per turn,
+					// against who actually answered, rather than against one
+					// table the run was constructed with.
+					runMgr.recordTurnUsage(response.usage, {
+						providerId: servedBy.providerId,
+						model: servedBy.model,
+					})
 
 					// The turn went through, so the run is not sitting on an
 					// irreducible prompt any more. Re-arm relief for the next one.
@@ -1529,7 +1539,10 @@ export class IterationOrchestrator {
 				}),
 			)
 
-			this.ctx.runMgr.accumulateUsage(response.usage)
+			this.ctx.runMgr.accumulateUsage(response.usage, {
+				providerId: this.ctx.runMgr.servingProviderId,
+				model,
+			})
 
 			const assistantMsg = createAssistantMessage(response.message.content)
 			this.ctx.runMgr.pushMessage(assistantMsg)

@@ -152,6 +152,29 @@ jobs:
       - name: External-name audit
         run: node scripts/audit-external-names.mjs
 
+      # The model price catalogue is a generated module that is checked in, and
+      # a generated file that has drifted from its generator is a lie with a
+      # timestamp: it reads as reviewed data and is whatever somebody last
+      # typed. This re-derives it from `rates.source.json` and diffs.
+      #
+      # Offline by construction, and that is the design rather than a
+      # convenience. A check that fetched the rates would fail whenever the
+      # source was unreachable, and the only tolerable response to that — skip
+      # when the network is down — turns "I cannot establish this" into "this
+      # is satisfied", which is the failure
+      # docs/conventions/an-optional-dependency-may-not-degrade-a-check.md
+      # exists to prevent. So the rates are reviewed into the tree and this
+      # gate only has to prove f(source) == committed, which it can always do.
+      #
+      # What it does NOT prove, stated because a green run gets taken as an
+      # answer: that the KEYS in the table match the model ids a driver
+      # actually reports. That is a different question, and it is asked by the
+      # pricing-conformance test inside the driver package that ships an
+      # offline model menu — the only place a real driver's model list can be
+      # reached, since the kernel must not import a driver.
+      - name: Model price catalogue matches its source
+        run: node scripts/generate-model-prices.mjs --check
+
       # The installer is the one path with no fallback: it runs before namzu
       # exists, on whatever shell the machine has, and a syntax error in it is
       # discovered by the person who has nothing installed yet. Both shells

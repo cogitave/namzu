@@ -106,7 +106,13 @@ function buildCtx(opts: {
 			cachedTokens: 0,
 			cacheWriteTokens: 0,
 		},
-		costInfo: { inputCostPer1M: 0, outputCostPer1M: 0, totalCost: 0, cacheDiscount: 0 },
+		costInfo: {
+			inputCostPer1M: 0,
+			outputCostPer1M: 0,
+			totalCost: 0,
+			cacheDiscount: 0,
+			unpricedTokens: 0,
+		},
 		get currentIteration() {
 			return iteration
 		},

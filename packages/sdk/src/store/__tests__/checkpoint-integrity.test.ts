@@ -62,6 +62,7 @@ function checkpoint(id: string, iteration: number): IterationCheckpoint {
 			inputCostPer1M: 0,
 			outputCostPer1M: 0,
 			cacheDiscount: 0,
+			unpricedTokens: 0,
 		},
 		guardState: { iterationCount: iteration, elapsedMs: 0 },
 		createdAt: 1_000 + iteration,

@@ -93,7 +93,13 @@ function makeAdvisoryCtx(options: MockAdvisoryCtxOptions = {}) {
 				cachedTokens: 0,
 				cacheWriteTokens: 0,
 			},
-			cost: { inputCostPer1M: 0, outputCostPer1M: 0, totalCost: 0, cacheDiscount: 0 },
+			cost: {
+				inputCostPer1M: 0,
+				outputCostPer1M: 0,
+				totalCost: 0,
+				cacheDiscount: 0,
+				unpricedTokens: 0,
+			},
 			durationMs: 1,
 		}
 	})
@@ -157,6 +163,7 @@ function makeCtx(options: MockCtxOptions = {}): {
 				outputCostPer1M: 0,
 				totalCost: 0,
 				cacheDiscount: 0,
+				unpricedTokens: 0,
 			},
 			pushMessage,
 		},

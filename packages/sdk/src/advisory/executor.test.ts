@@ -128,17 +128,26 @@ describe('AdvisoryExecutor — consult happy path', () => {
 		expect(roles.at(-1)).toBe('user')
 	})
 
-	it('returns {result, usage, cost, durationMs}; cost is zero-valued', async () => {
+	it('returns {result, usage, cost, durationMs}; an unpriced advisor reports unknown', async () => {
+		// This used to assert `{ inputCostPer1M: 0, ..., totalCost: 0 }` — a
+		// rate card of zero and a bill of zero for a call that consumed 150
+		// tokens of somebody's money. It was defended on the grounds that a
+		// cost CAP over unpriced advisors is refused at construction, so
+		// nothing enforced against the zero. True, and beside the point:
+		// `AdvisoryResult.cost` is reported to the host, and `$0.00` for real
+		// spend is the defect the price catalogue exists to remove. It does not
+		// become acceptable because the number happens to be unenforced.
 		const e = new AdvisoryExecutor()
 		const out = await e.consult(advisor(), req, ctx())
 		expect(out.result.advice).toBe('advice text')
 		expect(out.usage.totalTokens).toBe(150)
 		expect(out.cost).toEqual({
-			inputCostPer1M: 0,
-			outputCostPer1M: 0,
 			totalCost: 0,
 			cacheDiscount: 0,
+			unpricedTokens: 150,
 		})
+		// No rate card is claimed, because none was applied.
+		expect(out.cost.inputCostPer1M).toBeUndefined()
 		expect(typeof out.durationMs).toBe('number')
 	})
 
