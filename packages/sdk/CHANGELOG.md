@@ -1,5 +1,88 @@
 # Changelog
 
+## 22.1.0
+
+### Minor Changes
+
+- a06ce07: A supervisor can be held to a schema, like the archetype beside it
+
+  `ReactiveAgent` has forwarded `structuredOutput` since the field existed.
+  `SupervisorAgentConfig` never declared it, and nothing in that file said why —
+  in a file where `maxDepth`, `allowDelegation`, `maxToolConcurrency` and
+  `siblingFailurePolicy` each carry a paragraph of argument for what they do and
+  do not cover. The kernel path is archetype-blind: `drainQuery` registers
+  `structured_output` from this config and the iteration loop captures it, so the
+  capability was always reachable through the raw kernel entry point and only the
+  hop from the surface hosts construct was missing.
+
+  Two hops were missing, in fact. `SupervisorAgent`'s result literal also did not
+  copy `run.structuredOutput`, while `ReactiveAgent`'s does —
+  `BaseAgentResult.structuredOutput` names "an archetype's result literal did not
+  copy it" as one of the defects it was written to close, and that defect was
+  still live in the sibling nobody checked. Wiring only the config would have
+  produced a settable field whose answer the host could not read.
+
+  **What this buys, stated plainly, because it is less than it sounds like.**
+  Structured output is terminal and exclusive by policy: `setStructuredOutput`
+  overwrites the run's result behind a sticky flag and the run ends on the turn
+  that produces the value. So this gives a supervisor a schema-constrained **final
+  answer** and nothing more. It does not shape a delegated child's answer — a
+  child carries its own config, so a host wanting typed worker results sets the
+  schema on the workers. It is not a return type for the fan-out, and it does not
+  arrive alongside prose.
+
+  One consequence a supervisor host in particular should know: because the answer
+  decides the run, delegated work still running when it lands is walked away from
+  rather than waited for. It is recorded — the run names it on `abandonedTaskIds`
+  — but no further turn delivers it. A supervisor that must read every child
+  before answering should wait for them and call `structured_output` after.
+
+  `minor`: additive. `SupervisorAgentConfig.structuredOutput` is optional and
+  `SupervisorAgentResult.structuredOutput` was already declared on
+  `BaseAgentResult`, so nothing narrows, nothing is renamed, and a supervisor
+  configured without a schema runs the path it ran before.
+
+### Patch Changes
+
+- 2249d89: A structured answer no longer settles a run on top of tool results nobody read
+
+  `captureStructuredOutput` ended the run on any successful `structured_output`
+  result, without regard for how many calls the turn carried. Its neighbour forty
+  lines away, `terminalToolOutput`, refuses exactly that situation and writes the
+  argument down: "a model that asked for other work meant to see those results".
+
+  The consequence is worse than a discarded answer, because of the order things
+  happen in. The batch executes in `runToolReview` _before_ either of these is
+  consulted — so a model that emitted `structured_output` alongside `write`, a
+  delegation, or any other call had those calls run, side effects and all, and
+  then the run broke out of the loop. The results went into the transcript and no
+  model turn ever read them. Work was spent, nothing consumed it, and nothing
+  said so.
+
+  There is a second reason, sharper than the neighbour's. The model produced that
+  answer in the same turn as a request for information it did not yet have — it
+  would not have asked otherwise — so the answer was under-informed by the model's
+  own account, and settling shipped it as final.
+
+  `structured_output` now settles the run only when it is the only call in its
+  turn. Sharing a turn relays: the results already in the transcript go back to
+  the model and the next turn produces the answer with them in hand. Refusing to
+  _execute_ the batch was the other candidate and was rejected — the defect is not
+  that the tools ran, it is that nobody read them.
+
+  **What you will notice.** A run whose model pairs `structured_output` with
+  another call now takes one more turn, and `run.structuredOutput` holds the
+  answer formed after those results rather than before them. If your model always
+  calls `structured_output` alone, nothing changes. Relays are deliberately _not_
+  charged to `structuredOutput.maxRetries`: that budget bounds a model that cannot
+  satisfy the schema, and this one did — a run that reads a file per turn while
+  optimistically attaching its answer is making progress and must not be reported
+  as `structured_output_failed`. `maxIterations` bounds it, as it already bounds
+  the same pathology for terminal tools.
+
+  `patch`: no exported symbol, type, or default changes. A behaviour that was
+  losing requested work is corrected.
+
 ## 22.0.0
 
 ### Major Changes
