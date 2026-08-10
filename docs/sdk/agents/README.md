@@ -1,7 +1,7 @@
 ---
 title: Agents and Orchestration
 description: Choose the right SDK agent class, understand delegation boundaries, and wire orchestration surfaces safely in @namzu/sdk.
-last_updated: 2026-08-06
+last_updated: 2026-08-10
 status: current
 related_packages: ["@namzu/sdk"]
 ---
@@ -287,6 +287,29 @@ and must still delegate to nobody — and comparing the roster against the
 executing agent fails in exactly that arrangement, because the ids differ. A
 supervisor whose roster holds one specialist and a run that *is* that specialist
 are indistinguishable in the roster alone.
+
+### Holding a supervisor to a schema
+
+`SupervisorAgentConfig.structuredOutput` takes the same
+`{ schema, maxRetries? }` as `ReactiveAgentConfig.structuredOutput`. The
+supervisor registers `structured_output` from it, the run is held to it, and the
+validated value arrives on `SupervisorAgentResult.structuredOutput` — the value
+is also serialized into `result`, so a text-shaped consumer needs no second
+serialization.
+
+Read what it covers narrowly. Structured output is **terminal and exclusive**:
+the run ends on the turn that produces the value, and the value overwrites the
+run's result. So this constrains the supervisor's **own final answer** and
+nothing else. It does not shape a delegated child's answer — a child carries its
+own config, so a host wanting typed worker results sets the schema on the
+workers — and it is not a return type for the fan-out.
+
+One consequence specific to a supervisor: because the answer decides the run,
+delegated work still running when it lands is walked away from rather than
+waited for. It is not lost from the record — the run names it on
+`abandonedTaskIds` — but no further turn delivers it. If a supervisor must see
+every child's result before answering, have it wait for the children first and
+call `structured_output` after.
 
 Two properties worth knowing:
 

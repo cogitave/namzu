@@ -342,6 +342,11 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 					// corrected for twice.
 					...(config.steering ? { steering: config.steering } : {}),
 					...(config.verificationGate ? { verificationGate: config.verificationGate } : {}),
+					// The one hop between the config and the tool. `drainQuery`
+					// registers `structured_output` from this and the loop
+					// captures it, so the kernel never cared which archetype it
+					// came from — only `ReactiveAgent` was passing it.
+					...(config.structuredOutput ? { structuredOutput: config.structuredOutput } : {}),
 					...(config.sandboxProvider ? { sandboxProvider: config.sandboxProvider } : {}),
 					// Working-memory / compaction seam (optional; absent => unchanged
 					// run path, byte-identical for every existing consumer).
@@ -368,6 +373,13 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 				durationMs: Date.now() - startTime,
 				messages: run.messages,
 				result: run.result,
+				// `BaseAgentResult.structuredOutput` names "an archetype's result
+				// literal did not copy it" as a defect it was written to close.
+				// This literal still did not copy it, so the same defect was live
+				// in the one archetype nobody checked: the value would have been
+				// produced, recorded on the run, serialized into `result`, and
+				// absent from the type a supervisor host actually reads.
+				structuredOutput: run.structuredOutput,
 				lastError: run.lastError,
 				taskResults,
 				completedTasks,
