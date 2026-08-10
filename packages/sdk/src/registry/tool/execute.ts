@@ -415,9 +415,21 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 
 		return tracer.startActiveSpan(toolSpanName(toolName), {}, parentCtx, async (span) => {
 			try {
+				// The call id joins this span to the assistant block that asked
+				// for it. Without it a trace shows that `Bash` ran four times
+				// this turn and cannot say which span answers which
+				// `tool_use` — and the id was already in hand here, threaded
+				// through `ToolContext` for the tools that reply
+				// asynchronously.
+				//
+				// Conditional because `toolUseId` is optional: a host calling
+				// a tool directly, outside a run, has no call to correlate to,
+				// and an attribute set to `undefined` is worse than an absent
+				// one — it reaches the exporter as a key with no value.
 				span.setAttributes({
 					[GENAI.TOOL_NAME]: toolName,
 					[GENAI.TOOL_TYPE]: 'function',
+					...(context.toolUseId !== undefined ? { [GENAI.TOOL_CALL_ID]: context.toolUseId } : {}),
 				})
 
 				const tool = this.getOrThrow(toolName)
