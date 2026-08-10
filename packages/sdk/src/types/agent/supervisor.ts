@@ -6,6 +6,7 @@ import type { LLMProvider } from '../provider/index.js'
 import type { TaskRouterConfig } from '../router/index.js'
 import type { SandboxProvider } from '../sandbox/index.js'
 import type { Skill } from '../skills/index.js'
+import type { StructuredOutputConfig } from '../structured-output/index.js'
 import type { ToolRegistryContract } from '../tool/index.js'
 import type { VerificationGateConfig } from '../verification/index.js'
 import type { BaseAgentConfig, BaseAgentResult } from './base.js'
@@ -171,6 +172,35 @@ export interface SupervisorAgentConfig extends BaseAgentConfig {
 	 * silently truncating.
 	 */
 	compactionConfig?: CompactionConfig
+
+	/**
+	 * Demand that the supervisor's own final answer match a schema.
+	 *
+	 * `ReactiveAgent` has forwarded this since the field existed and the
+	 * supervisor never took it, with nothing in this file saying why —
+	 * which in a file where `maxDepth`, `allowDelegation`,
+	 * `maxToolConcurrency` and `siblingFailurePolicy` each carry a
+	 * paragraph of argument is the signature of an oversight, not of a
+	 * decision. The kernel path is archetype-blind: `drainQuery` registers
+	 * `structured_output` from this config and the loop captures it, so the
+	 * capability was always there and only the hop was missing.
+	 *
+	 * **What it buys, exactly.** Structured output is terminal and
+	 * exclusive by policy: `setStructuredOutput` overwrites `Run.result`
+	 * behind a sticky flag and the run ends on the turn that produces it.
+	 * So this gives a supervisor a schema-constrained FINAL ANSWER and
+	 * nothing more. It does not shape a delegated child's answer — a child
+	 * carries its own config — it does not run alongside prose, and it is
+	 * not a return type for the fan-out. A host wanting typed results from
+	 * the workers sets the schema on the workers.
+	 *
+	 * One consequence a supervisor host in particular should know: the
+	 * answer decides the run, so delegated work still running when it lands
+	 * is walked away from rather than waited for. It is recorded — the run
+	 * names it on `abandonedTaskIds` — but it is not delivered. That is the
+	 * same precedence a terminal tool has, stated in the iteration loop.
+	 */
+	structuredOutput?: StructuredOutputConfig
 
 	/**
 	 * Optional neutral working-memory seam. When set, the SDK re-renders the
