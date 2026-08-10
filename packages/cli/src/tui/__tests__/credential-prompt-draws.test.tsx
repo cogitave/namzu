@@ -51,12 +51,57 @@ describe('the no-credential screen', () => {
 	it('offers the key entry rather than only telling you to restart', async () => {
 		const { lastFrame, unmount } = open()
 		expect(lastFrame()).toContain('No providers detected')
-		// The cliff this closes: the screen used to end at "restart namzu".
-		expect(lastFrame()).toContain('restart namzu')
+		// The cliff this closes: the screen used to end at restarting.
+		expect(lastFrame()).toContain('restart')
 		// "credential" and not "key": the screen accepts a subscription token as
 		// well, and a field labelled for one of the two kinds is a field the
 		// holder of the other kind will not use.
 		expect(lastFrame()).toMatch(/press .*k.* to paste a credential|k: enter a credential/s)
+		unmount()
+	})
+
+	/**
+	 * The screen an operator with nothing reaches has to name every way out.
+	 *
+	 * It shipped naming three sources and two exits while a working sign-in
+	 * existed, because the sign-in was a slash command and this screen has no
+	 * composer to type one into. The operator was told to set an environment
+	 * variable and restart.
+	 */
+	it('offers the sign-in, which is the only exit that needs no credential at all', async () => {
+		const onLogin = vi.fn()
+		const { lastFrame, stdin, unmount } = open({ onLogin })
+		expect(lastFrame()).toMatch(/press .*l.* to sign in|l: sign in/s)
+		stdin.write('l')
+		await flush()
+		expect(onLogin).toHaveBeenCalledTimes(1)
+		unmount()
+	})
+
+	it('accepts the capital, because a person reading "press l" may hold shift', async () => {
+		const onLogin = vi.fn()
+		const { stdin, unmount } = open({ onLogin })
+		stdin.write('L')
+		await flush()
+		expect(onLogin).toHaveBeenCalledTimes(1)
+		unmount()
+	})
+
+	it('does not offer a sign-in it cannot start', async () => {
+		// No handler means no route, and a key hint for a keystroke that does
+		// nothing is worse than no hint: it spends the one attempt an operator
+		// makes before concluding the screen is broken.
+		const { lastFrame, unmount } = open()
+		expect(lastFrame()).not.toMatch(/l: sign in/)
+		unmount()
+	})
+
+	it('names the credential store among the sources it scans', async () => {
+		// The list is what an operator is told to try. The store the sign-in
+		// writes was missing from it for a release, so the screen scanned a
+		// source it never mentioned.
+		const { lastFrame, unmount } = open()
+		expect(lastFrame()).toContain('.namzu/credentials.json')
 		unmount()
 	})
 })

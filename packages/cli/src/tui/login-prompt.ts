@@ -27,6 +27,18 @@ export function describeLoginStart(start: {
 	readonly url: string
 	readonly loopback: boolean
 	readonly browserOpened: boolean
+	/**
+	 * How the operator hands the result back HERE, in the surface they are
+	 * looking at.
+	 *
+	 * A parameter because the answer is different in each one — a slash command
+	 * in the chat, a keypress at the picker, a line of standard input at a bare
+	 * terminal — and this sentence is the one an operator with no browser
+	 * follows. Printing the chat's answer on the picker would send them to a
+	 * composer that is not on screen, which is the defect that made a shipped
+	 * sign-in unreachable.
+	 */
+	readonly completionHint?: string
 }): string {
 	const lines = [
 		start.browserOpened
@@ -38,26 +50,38 @@ export function describeLoginStart(start: {
 	]
 	lines.push(
 		start.loopback
-			? 'When the page finishes, namzu will pick it up automatically. If your browser is somewhere this machine cannot be reached from — a container, a remote shell — copy the address it lands on and run:'
+			? 'When the page finishes, namzu will pick it up automatically. If your browser is somewhere this machine cannot be reached from — a container, a remote shell — copy the address it lands on:'
 			: // Said plainly. The listener is what makes the automatic path work,
 				// and an operator who is not told it is missing will sit waiting for
 				// something that is never going to happen.
-				'The automatic hand-back is not available in this session (the port is in use, or this environment does not allow listening), so finish it by hand. Copy the address the browser lands on and run:',
+				'The automatic hand-back is not available in this session (the port is in use, or this environment does not allow listening), so finish it by hand. Copy the address the browser lands on:',
 	)
-	lines.push('', '  /login <the address, or just the code>')
+	lines.push('', `  ${start.completionHint ?? '/login <the address, or just the code>'}`)
 	return lines.join('\n')
 }
 
-/** What the operator reads when the attempt ends, either way. */
-export function describeLoginOutcome(outcome: LoginOutcome): string {
+/**
+ * What the operator reads when the attempt ends, either way.
+ *
+ * `retryHint` and `removeHint` name the commands as THIS surface spells them,
+ * for the same reason `completionHint` exists above. A failed sign-in run from
+ * a bare terminal used to end with "Run /login to try again" — a slash command,
+ * in a shell, where the thing to type is `namzu login`. Instructions that name
+ * another surface's spelling are the defect that made the sign-in unreachable
+ * from the picker; it is not any better in an error message.
+ */
+export function describeLoginOutcome(
+	outcome: LoginOutcome,
+	hints: { readonly retry?: string; readonly remove?: string } = {},
+): string {
 	if (!outcome.ok) {
-		return `${outcome.reason}\n\nRun /login to try again.`
+		return `${outcome.reason}\n\nRun ${hints.retry ?? '/login'} to try again.`
 	}
 	return [
 		'Signed in. The credential is stored on this machine, readable only by your account:',
 		`  ${outcome.storedAt}`,
 		'',
-		'namzu will refresh it as it expires, and will find it again next time it starts. Run /logout to remove it.',
+		`namzu will refresh it as it expires, and will find it again next time it starts. Run ${hints.remove ?? '/logout'} to remove it.`,
 	].join('\n')
 }
 

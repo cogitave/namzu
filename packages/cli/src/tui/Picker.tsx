@@ -53,6 +53,19 @@ export interface PickerProps {
 	 */
 	readonly onCredential?: (credential: DetectedProvider, disposition: string) => void
 	/**
+	 * Start a subscription sign-in from this screen. Absent means this picker
+	 * cannot start one.
+	 *
+	 * It has to be here, and the reason is the defect it repairs. The sign-in
+	 * shipped as `/login`, a slash command; slash commands are typed into the
+	 * composer; **the composer does not exist during this phase.** So the one
+	 * operator who most needs it — no credential at all, routed straight here —
+	 * was the one operator who could not reach it. The screen listed the
+	 * sources it scans, offered a key to paste, and said to restart, while a
+	 * working sign-in sat one unreachable keystroke away.
+	 */
+	readonly onLogin?: () => void
+	/**
 	 * Seam for tests: how a typed key is checked. Defaulted to the real thing,
 	 * so no production caller knows this exists.
 	 *
@@ -118,6 +131,7 @@ export function Picker({
 	onCancel,
 	describeModels = describeProviderModels,
 	onCredential,
+	onLogin,
 	verify = verifyCredential,
 	keyEntryFor,
 	notice,
@@ -216,6 +230,16 @@ export function Picker({
 		// at a list that named every provider except a way to fix the one they
 		// chose. The letter does not collide with anything: navigation is arrows
 		// and digits.
+		// `l` starts a subscription sign-in, on exactly the screens `k` is live
+		// on and for the same reason: these are the two states an operator
+		// reaches with nothing usable. Checked BEFORE `k` only in the sense of
+		// sitting beside it — the letters do not collide, and navigation is
+		// arrows and digits.
+		if ((detected.length === 0 || keyEntryFor) && onLogin && (input === 'l' || input === 'L')) {
+			onLogin()
+			return
+		}
+
 		if (
 			(detected.length === 0 || keyEntryFor) &&
 			onCredential &&
@@ -397,10 +421,15 @@ export function Picker({
 						{' '}
 						· env vars (ANTHROPIC_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY, …)
 					</Text>
-					{/* The summary line on the populated screen names three sources; this
-					    list is the same set and must not name fewer. It is the screen
-					    shown to the person with no credential, so an omission here is a
-					    source they are never told to try. */}
+					{/* The summary line on the populated screen names the same sources;
+					    this list is the same set and must not name fewer. It is the
+					    screen shown to the person with no credential, so an omission
+					    here is a source they are never told to try — which is exactly
+					    what happened to the store below when the sign-in shipped. */}
+					<Text color={theme.text.muted}>
+						{' '}
+						· a subscription signed in to from namzu (~/.namzu/credentials.json)
+					</Text>
 					<Text color={theme.text.muted}>
 						{' '}
 						· macOS Keychain (an existing OAuth sign-in; macOS only)
@@ -410,11 +439,14 @@ export function Picker({
 						· local servers (Ollama localhost:11434, LM Studio localhost:1234)
 					</Text>
 				</Box>
-				<Box paddingTop={1}>
-					<Text color={theme.text.secondary}>
-						Set one of the env vars above (or start a local server), then restart namzu.
-					</Text>
-				</Box>
+				{onLogin ? (
+					<Box paddingTop={1}>
+						<Text color={theme.text.primary}>
+							Press <Text color={theme.accent.system}>l</Text> to sign in with a subscription —
+							no API key, and namzu keeps it for next time.
+						</Text>
+					</Box>
+				) : null}
 				<Box paddingTop={1}>
 					<Text color={theme.text.primary}>
 						Or press <Text color={theme.accent.system}>k</Text> to paste a credential now and use
@@ -422,7 +454,14 @@ export function Picker({
 					</Text>
 				</Box>
 				<Box paddingTop={1}>
-					<Text color={theme.text.muted}>k: enter a credential · esc: exit picker</Text>
+					<Text color={theme.text.secondary}>
+						You can also set one of the env vars above (or start a local server) and restart.
+					</Text>
+				</Box>
+				<Box paddingTop={1}>
+					<Text color={theme.text.muted}>
+						{onLogin ? 'l: sign in · ' : ''}k: enter a credential · esc: exit picker
+					</Text>
 				</Box>
 			</Box>
 		)
@@ -456,7 +495,8 @@ export function Picker({
 				    message whose advice cannot be followed, one size down. */}
 				<Text color={theme.text.muted}>
 					↑↓ or 1-9 navigate · enter accept
-					{entryTarget ? ` · k enter a credential for ${entryTarget.label}` : ''} · esc cancel
+					{entryTarget ? ` · k enter a credential for ${entryTarget.label}` : ''}
+					{keyEntryFor && onLogin ? ' · l sign in with a subscription' : ''} · esc cancel
 				</Text>
 				{errorHint ? <Text color={theme.status.warn}>{errorHint}</Text> : null}
 			</Box>
