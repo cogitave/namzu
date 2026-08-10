@@ -32,6 +32,43 @@ import type { PendingAnswers, QuestionParkRecorder } from './question-park.js'
  */
 export const pauseId = (toolUseId: string, name: string): string => `${toolUseId}:${name}`
 
+/**
+ * Does this pause id belong to `callId`?
+ *
+ * The other half of the scheme above, and it lives beside the mint rather
+ * than at the gate that asks it, so the two cannot drift apart again. They
+ * already had: the resume gate compared the whole parked id against a raw
+ * tool-use id, which a composite can never equal, so a pause raised
+ * through {@link createToolPause} was refused by every cross-process
+ * resume — while the built-in question tool, whose `questionId` IS the raw
+ * id, passed the same gate and worked.
+ *
+ * Asked against an id actually present in the turn rather than by
+ * splitting the composite on `:`. The left half is the provider's tool-use
+ * id and nothing forbids a colon in it, so a split takes `call:9:confirm`
+ * apart at the wrong place and then compares against `call` — a string no
+ * provider minted. Testing a `<callId>:` prefix asks about candidates that
+ * exist instead.
+ *
+ * It is not exact, and the inexactness is bounded rather than absent: a
+ * call whose id is literally `call` matches a pause raised on `call:9`.
+ * That costs nothing while the real call is also in the turn, because the
+ * pause does belong to a call there; and when it is not, the answer is
+ * filed under a key no tool asks for, so the tool asks again. A resume
+ * that re-asks, never one that misdelivers — routing below is still an
+ * exact key match.
+ *
+ * Membership only — is there a call in this turn that this pause was
+ * raised from. The full composite still ROUTES the answer, by exact key in
+ * `PendingAnswers`, which is what keeps a call that pauses twice from
+ * delivering its second answer against its first question.
+ *
+ * Every sentence above that names a condition and an outcome is pinned in
+ * `__tests__/tool-pause.test.ts`, under "the id a resume gate matches on".
+ */
+export const isPauseForCall = (pause: string, callId: string): boolean =>
+	pause === callId || pause.startsWith(`${callId}:`)
+
 interface ToolPauseDeps {
 	readonly runId: RunId
 	readonly toolUseId: string

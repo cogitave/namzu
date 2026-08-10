@@ -98,7 +98,7 @@ import { isWorkingMemoryMessage } from './iteration/phases/working-memory.js'
 import { applyLifecycleHookResults } from './plugin-hooks.js'
 import { PromptBuilder } from './prompt.js'
 import type { PromptSegments } from './prompt.js'
-import type { PendingAnswers, QuestionParkBinding } from './question-park.js'
+import { PendingAnswers, QuestionParkBinding } from './question-park.js'
 import { ResultAssembler } from './result.js'
 import {
 	type PendingResumePlan,
@@ -168,14 +168,20 @@ export interface QueryParams {
 	emergencySave?: boolean
 
 	/**
-	 * Durability for questions raised from inside a tool.
+	 * Durability for questions raised by a tool that closed over its
+	 * binding before the run existed.
 	 *
-	 * The tool that asks is built before the run exists, so the binding is
-	 * created by whoever builds the tools and attached here — that is what
-	 * lets one tool instance be durable inside a run and inert outside one.
-	 * Without it, a question park exists only as a suspended `await`: kill
-	 * the process while somebody is looking at the card and the answer can
-	 * never be applied.
+	 * The built-in `ask_user_question` is built with the agent's tool
+	 * registry, so only whoever builds the tools can hand it one — that is
+	 * what lets a single tool instance be durable inside a run and inert
+	 * outside one. Without it, THAT tool's park is only a suspended
+	 * `await`: kill the process while somebody is looking at the card and
+	 * the answer can never be applied.
+	 *
+	 * Not required for `ToolContext.requestPause`. The run builds that
+	 * seam per call and binds its own recorder when none is passed, so a
+	 * pause raised from a host-authored tool is durable on every surface
+	 * rather than only on the one agent class that supplies this.
 	 */
 	questionParks?: QuestionParkBinding
 
@@ -192,10 +198,11 @@ export interface QueryParams {
 	/**
 	 * The registry a re-entered `ask_user_question` reads its answer from.
 	 *
-	 * Same shape as {@link questionParks}: the tool is built before the run
-	 * exists, so the instance is created by whoever builds the tools and
-	 * filled here on the resume path. Without it a resumed run re-asks a
-	 * question the user already answered.
+	 * Same shape, same reason and same limit as {@link questionParks}: it
+	 * exists for a tool that closed over the instance before the run did,
+	 * and without it a resumed run re-asks that tool's question. A pause
+	 * from `ToolContext.requestPause` needs none, because the run fills
+	 * its own on the resume path.
 	 */
 	pendingAnswers?: PendingAnswers
 
@@ -874,6 +881,25 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		? []
 		: withDeferredDiscoveryTool(params.tools, params.allowedTools)
 
+	// The two halves of a durable pause, owned by the RUN when the host
+	// does not own them.
+	//
+	// `SupervisorAgent` builds both before the run exists, because the
+	// tools it builds close over them, and it passes them in. Nothing else
+	// could: neither type is exported from `public-runtime.ts`, so a host
+	// on `ReactiveAgent`, `drainQuery` or `resumeRun` had no way to supply
+	// either — and `ToolContext.requestPause`, which every tool author is
+	// handed, silently wrote no checkpoint and could receive no answer on
+	// those surfaces. Which agent class the host happened to pick is not
+	// visible at the call site, so the degradation was invisible too.
+	//
+	// A run-local pair is enough for the general seam because `query()`
+	// builds its `createToolPause` itself, below, and can hand it the
+	// run's own. Pinned by the "a pause is durable on any surface" cases
+	// in `__tests__/tool-pause-resume.test.ts`.
+	const questionParks = params.questionParks ?? new QuestionParkBinding()
+	const pendingAnswers = params.pendingAnswers ?? new PendingAnswers()
+
 	//  is null only when the run has no disk layout (tests,
 	// in-memory hosts); the budget then degrades to middle-elision.
 	const runDirForTools = ctx.runMgr.getRunDir()
@@ -915,8 +941,8 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 					runId: ctx.runId,
 					toolUseId,
 					parkHandler: params.resumeHandler,
-					...(params.questionParks ? { recorder: params.questionParks } : {}),
-					...(params.pendingAnswers ? { pendingAnswers: params.pendingAnswers } : {}),
+					recorder: questionParks,
+					pendingAnswers,
 				}),
 		},
 		ctx.activityStore,
@@ -1130,7 +1156,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		// the checkpoint did not exist: nothing on disk said a human owed
 		// this run an answer, and a remote host could not observe the
 		// question at all.
-		params.questionParks?.bind({
+		questionParks.bind({
 			record: async (question) => {
 				try {
 					const checkpoint = await checkpointMgr.create(ctx.runMgr, ctx.runMgr.currentIteration)
@@ -1537,9 +1563,9 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				// closed over its registry when the agent was constructed,
 				// long before this run existed, so the answers are copied in
 				// rather than passed down.
-				if (pendingResume.answers && params.pendingAnswers) {
+				if (pendingResume.answers) {
 					for (const [questionId, answer] of pendingResume.answers.entries()) {
-						params.pendingAnswers.set(questionId, answer)
+						pendingAnswers.set(questionId, answer)
 					}
 				}
 
@@ -1642,7 +1668,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			// Same reasoning for the question channel: the tools outlive the
 			// run that bound them, so leaving it attached would have a later
 			// run's question written into this run's checkpoint store.
-			params.questionParks?.unbind()
+			questionParks.unbind()
 
 			// Offer what the run learned to whoever decides what is worth
 			// keeping. In `finally` and awaited: a run that failed still
