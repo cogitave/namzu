@@ -74,6 +74,7 @@ import {
 import { ResumePicker } from './ResumePicker.js'
 import { type UserCommand, discoverUserCommands } from '../user-commands/store.js'
 import { SLASH_COMMANDS, type SlashContext, runSlash } from './slashCommands.js'
+import { splitCompleteBlocks } from './stream-blocks.js'
 import { theme } from './theme.js'
 import type { TranscriptMessage, TuiContext } from './types.js'
 
@@ -82,6 +83,21 @@ export interface AppProps {
 }
 
 type LifecyclePhase = 'trust' | 'probing' | 'picker' | 'ready' | 'unhealthy' | 'resume'
+
+/**
+ * The streaming assistant bubble, carried across events within one turn.
+ *
+ * `text` is everything the model has said and is what gets persisted;
+ * `pending` is the part not yet on screen, held until it forms a whole block.
+ * The two are separate because they answer different questions — what was
+ * said, and what has been shown — and conflating them is how a reply gets
+ * saved with a paragraph the operator never saw, or shown twice.
+ */
+type StreamState = {
+	assistantId: string | null
+	text: string
+	pending?: string
+}
 
 /** A running tool tracked internally: the live row's fields plus what we need
  *  to commit it on completion (the tool name for matching, the call-time diff). */
@@ -298,6 +314,26 @@ export function App({ ctx }: AppProps) {
 	const appendToMessage = useCallback((id: string, delta: string) => {
 		setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, content: m.content + delta } : m)))
 	}, [])
+
+	/**
+	 * Put everything still buffered on screen, creating the bubble if needed.
+	 *
+	 * A `useCallback` beside the other transcript writers rather than a closure
+	 * inside `applyEvent`, because the error path in `runTurn` finalises the
+	 * bubble WITHOUT going through `applyEvent` — and a flush it could not
+	 * reach is text the operator never sees. Holding output back is only safe
+	 * if every exit releases it; this is the function every exit calls.
+	 */
+	const flushStream = useCallback(
+		(st: StreamState) => {
+			if (!st.pending || st.pending.length === 0) return
+			const id = st.assistantId ?? pushMessage('assistant', '', true)
+			st.assistantId = id
+			appendToMessage(id, st.pending)
+			st.pending = ''
+		},
+		[appendToMessage, pushMessage],
+	)
 
 	const finalizeMessage = useCallback((id: string, finalContent?: string) => {
 		setMessages((prev) =>
@@ -842,23 +878,37 @@ export function App({ ctx }: AppProps) {
 	// `st` carries the streaming-assistant bubble id + accumulated text across
 	// events within a turn/stream.
 	const applyEvent = useCallback(
-		(event: AgentEvent, st: { assistantId: string | null; text: string }) => {
+		(event: AgentEvent, st: StreamState) => {
 			const ensureAssistant = () => {
 				if (!st.assistantId) st.assistantId = pushMessage('assistant', '', true)
 				return st.assistantId
 			}
 			const closeAssistant = () => {
+				// Before finalising, never after: the tail of a reply is almost
+				// always an incomplete block, so a close that did not flush would
+				// drop the last paragraph of nearly every answer.
+				flushStream(st)
 				if (st.assistantId) {
 					finalizeMessage(st.assistantId)
 					st.assistantId = null
 				}
 			}
 			switch (event.kind) {
-				case 'delta':
+				case 'delta': {
 					setState('thinking')
 					st.text += event.text
-					appendToMessage(ensureAssistant(), event.text)
+					// Held, not appended. Appending each delta is what produced text
+					// that types itself out — nothing animates it, but a few
+					// characters at a time reads the same way, and an operator ends
+					// up watching a line grow instead of reading it.
+					st.pending = (st.pending ?? '') + event.text
+					const { ready, rest } = splitCompleteBlocks(st.pending)
+					if (ready.length > 0) {
+						st.pending = rest
+						appendToMessage(ensureAssistant(), ready)
+					}
 					break
+				}
 				case 'tool-start': {
 					closeAssistant()
 					setState('tool')
@@ -951,7 +1001,7 @@ export function App({ ctx }: AppProps) {
 					break
 			}
 		},
-		[appendToMessage, finalizeMessage, pushMessage],
+		[appendToMessage, finalizeMessage, flushStream, pushMessage],
 	)
 
 	const runTurn = useCallback(
@@ -994,7 +1044,7 @@ export function App({ ctx }: AppProps) {
 			setState('thinking')
 			// The model interleaves text → tool → text across iterations; `applyEvent`
 			// renders each one in order.
-			const st = { assistantId: null as string | null, text: '' }
+			const st: StreamState = { assistantId: null, text: '', pending: '' }
 			const ac = new AbortController()
 			abortRef.current = ac
 			// Where this turn will be saved, and which transcript its rows belong
@@ -1039,6 +1089,10 @@ export function App({ ctx }: AppProps) {
 				// the generation exists to stop — and it would be the more confusing
 				// half of it, because an abort reads as an error.
 				if (stillHere()) {
+					// Flushed first: this path does not go through `applyEvent`, so
+					// without it the partial answer the model had produced before
+					// the failure would be discarded along with the turn.
+					flushStream(st)
 					if (st.assistantId) finalizeMessage(st.assistantId)
 					pushMessage('system', `Error: ${err instanceof Error ? err.message : String(err)}`)
 				}
