@@ -801,6 +801,30 @@ retried — a missing file will not appear on the second attempt.
 A `post_tool_use` plugin hook returning `{ action: 'retry' }` also re-runs
 the tool, bounded by the same budget.
 
+**Attempts are spaced, with full jitter** — the same discipline §3 applies to
+model calls, from the same implementation. The loop had no delay at all: a
+retryable failure was re-run the instant it failed, which is the pattern most
+likely to prolong the condition being retried against. Waits double per
+attempt from `initialDelayMs`, each drawn uniformly from `[0, curve]`:
+
+```ts
+query({
+  // …
+  toolRetryBackoff: { initialDelayMs: 500, maxDelayMs: 16_000 }, // the defaults
+})
+```
+
+The jitter is not decoration here. A batch of the model's parallel calls runs
+together, so calls that fail together against one rate-limited endpoint would
+be resynchronised by any fixed wait — a thundering herd the loop assembles
+itself.
+
+Only a tool that opted into retrying ever reaches this, so a run whose tools
+all take the default budget of zero never waits. Set `initialDelayMs: 0` to
+restore the retry-immediately behaviour. A Stop during a wait ends the
+retrying and hands the model the failure already in hand, rather than leaving
+the call unanswered.
+
 ## 10. Typed Failures
 
 ```ts

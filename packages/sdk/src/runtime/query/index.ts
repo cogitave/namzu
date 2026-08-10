@@ -83,6 +83,7 @@ import type { TaskStore } from '../../types/task/index.js'
 import type { ToolRegistryContract } from '../../types/tool/index.js'
 import type { RepairToolCall } from '../../types/tool/repair.js'
 import type { VerificationGateConfig } from '../../types/verification/index.js'
+import type { BackoffPolicy } from '../../utils/backoff.js'
 import type { ModelPricing } from '../../utils/cost.js'
 import { getRootLogger } from '../../utils/logger.js'
 import { VerificationGate } from '../../verification/gate.js'
@@ -208,6 +209,17 @@ export interface QueryParams {
 
 	/** Default per-tool execution deadline. See {@link ToolDefinition.timeoutMs}. */
 	toolTimeoutMs?: number
+
+	/**
+	 * Wait between in-loop retries of a failed tool call, with full jitter.
+	 * Defaults to {@link DEFAULT_TOOL_RETRY_BACKOFF}.
+	 *
+	 * Only reached by a tool that opted into retrying
+	 * ({@link ToolDefinition.maxRetries}) or a `post_tool_use` hook that asked
+	 * for one. Set `initialDelayMs: 0` for the retry-immediately behaviour
+	 * this loop had before it had any backoff at all.
+	 */
+	toolRetryBackoff?: Partial<BackoffPolicy>
 
 	/** Max concurrently-executing concurrency-safe tools in one batch. */
 	maxToolConcurrency?: number
@@ -917,6 +929,9 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			invocationState: params.invocationState,
 			pluginManager: params.pluginManager,
 			...(params.toolTimeoutMs !== undefined ? { toolTimeoutMs: params.toolTimeoutMs } : {}),
+			...(params.toolRetryBackoff !== undefined
+				? { toolRetryBackoff: params.toolRetryBackoff }
+				: {}),
 			...(params.maxToolConcurrency !== undefined
 				? { maxToolConcurrency: params.maxToolConcurrency }
 				: {}),

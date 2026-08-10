@@ -58,6 +58,12 @@ function makeExecutor(
 			permissionMode: 'auto',
 			env: {},
 			abortSignal: new AbortController().signal,
+			// These cases are about WHICH failures are retried and how many
+			// times, not about the wait between attempts — and the wait is
+			// real. `tool-retry-backs-off.test.ts` owns the delay, on fake
+			// timers; leaving the default on here would spend seconds of the
+			// suite's runtime re-proving it slowly.
+			toolRetryBackoff: { initialDelayMs: 0, maxDelayMs: 0 },
 			...extra,
 		},
 		new ActivityStore(RUN_ID, { enabled: false, trackToolCalls: false, trackLlmTurns: false }),

@@ -86,6 +86,7 @@ export interface ReactiveAgentConfig extends BaseAgentConfig {
 	retry?: QueryParams['retry']
 	emergencySave?: boolean
 	toolTimeoutMs?: number
+	toolRetryBackoff?: QueryParams['toolRetryBackoff']
 	maxToolConcurrency?: number
 	maxToolOutputChars?: number
 	/**

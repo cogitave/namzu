@@ -82,6 +82,9 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 				...(config.retry !== undefined ? { retry: config.retry } : {}),
 				...(config.emergencySave !== undefined ? { emergencySave: config.emergencySave } : {}),
 				...(config.toolTimeoutMs !== undefined ? { toolTimeoutMs: config.toolTimeoutMs } : {}),
+				...(config.toolRetryBackoff !== undefined
+					? { toolRetryBackoff: config.toolRetryBackoff }
+					: {}),
 				...(config.maxToolConcurrency !== undefined
 					? { maxToolConcurrency: config.maxToolConcurrency }
 					: {}),

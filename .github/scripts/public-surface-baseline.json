@@ -689,6 +689,7 @@
     "AssistantMessage",
     "AuthConfig",
     "AuthType",
+    "BackoffPolicy",
     "BaseAgentConfig",
     "BaseAgentResult",
     "BaseConnector",
