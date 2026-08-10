@@ -15,7 +15,7 @@ import {
 } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
 import { PendingAnswers, QuestionParkBinding } from '../question-park.js'
-import { createToolPause, pauseId } from '../tool-pause.js'
+import { createToolPause, isPauseForCall, pauseId } from '../tool-pause.js'
 
 /**
  * The pause machinery is durable and excellent, and it was reachable from
@@ -152,6 +152,72 @@ describe('a pause raised from inside a tool', () => {
 		})
 
 		expect(await pause(request)).toEqual({ status: 'answered', selectedOptionIds: ['staging'] })
+	})
+})
+
+describe('the id a resume gate matches on', () => {
+	// The mint and the match are one scheme, and they disagreed: the gate
+	// compared a whole pause id against a raw tool-use id. A composite can
+	// never equal one, so the general seam's every cross-process resume was
+	// refused while the built-in question tool sailed through.
+
+	it('matches the bare tool-use id the built-in question tool parks under', () => {
+		// The narrow path, and the reason the defect stayed invisible: this
+		// is the only shape that ever passed the old gate.
+		expect(isPauseForCall('t1', 't1')).toBe(true)
+	})
+
+	it('matches a composite against the call it was raised from', () => {
+		expect(isPauseForCall(pauseId('call_1', 'target_environment'), 'call_1')).toBe(true)
+	})
+
+	it('does not match a composite against a different call in the turn', () => {
+		// The misdirection this gate exists for. Membership must not become
+		// "any pause matches any call".
+		expect(isPauseForCall(pauseId('call_1', 'target_environment'), 'call_2')).toBe(false)
+	})
+
+	it('does not match a call id that is only a textual prefix', () => {
+		// `call_1` is a prefix of `call_12` as text and not as an id. The
+		// separator is what makes the difference, so the check is for
+		// `call_1:` rather than for `call_1`.
+		expect(isPauseForCall(pauseId('call_12', 'confirm'), 'call_1')).toBe(false)
+	})
+
+	it('survives a tool-use id that contains the separator', () => {
+		// Why this is a prefix test against ids that are really there and
+		// not `split(':')[0]`. Splitting yields `call`, which is nobody's
+		// call, so the pause would be refused for a reason that has nothing
+		// to do with the run.
+		const pause = pauseId('call:9', 'confirm')
+
+		expect(isPauseForCall(pause, 'call:9')).toBe(true)
+		expect(isPauseForCall(pause, 'call_9')).toBe(false)
+	})
+
+	it('can also match a call whose id is a colon-prefix of the real one', () => {
+		// Recorded rather than papered over, because the first draft of the
+		// docblock claimed the opposite and this case is what disproved it.
+		//
+		// The exposure is bounded. While `call:9` is in the turn the verdict
+		// is right anyway — the pause does belong to a call there. When it is
+		// not, the answer ends up filed under a key no tool asks for, so the
+		// tool asks again: a resume that re-asks, never one that misdelivers,
+		// because `PendingAnswers` routes on the whole id.
+		expect(isPauseForCall(pauseId('call:9', 'confirm'), 'call')).toBe(true)
+	})
+
+	it('keeps two pauses on one call apart, which is what the composite is for', () => {
+		// Membership is not routing. Both pauses belong to `call_1`, so both
+		// pass this gate — and `PendingAnswers` still keys on the whole id,
+		// so "are you sure" cannot be answered with the reply to "which
+		// environment".
+		const first = pauseId('call_1', 'target_environment')
+		const second = pauseId('call_1', 'confirm')
+
+		expect(isPauseForCall(first, 'call_1')).toBe(true)
+		expect(isPauseForCall(second, 'call_1')).toBe(true)
+		expect(first).not.toBe(second)
 	})
 })
 

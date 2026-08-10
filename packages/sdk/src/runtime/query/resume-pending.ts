@@ -9,6 +9,7 @@ import type { ChatCompletionResponse } from '../../types/provider/index.js'
 import type { Logger } from '../../utils/logger.js'
 import type { PriorToolResults, ToolCallDenials, ToolExecutor } from './executor.js'
 import { PendingAnswers } from './question-park.js'
+import { isPauseForCall } from './tool-pause.js'
 
 /**
  * Apply a decision collected out-of-band to the tool calls a run parked on.
@@ -154,7 +155,15 @@ function planQuestionResume(
 	// otherwise have its answer delivered to whatever tool now holds that
 	// slot — the misdirection the asking tool's own id guard exists to
 	// prevent, checked here too because by then the tool has been entered.
-	if (!assistant.toolCalls.some((tc) => tc.id === questionId)) {
+	//
+	// Through `isPauseForCall` rather than by equality, because a parked
+	// question id is not a call id. The general seam appends the tool
+	// author's pause name to it, so equality compared
+	// `call_1:target_environment` against `call_1`, could never hold, and
+	// refused every cross-process resume of a host-authored pause. Only
+	// the built-in question tool got through, and only because it parks
+	// under the bare tool-use id.
+	if (!assistant.toolCalls.some((tc) => isPauseForCall(questionId, tc.id))) {
 		log.error('The parked question does not belong to any unanswered call in this turn', {
 			checkpointId: checkpoint.id,
 			questionId,
