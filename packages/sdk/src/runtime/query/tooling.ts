@@ -6,6 +6,7 @@ import type { PermissionMode } from '../../types/permission/index.js'
 import type { RunEvent } from '../../types/run/index.js'
 import type { RequestToolPause, ToolRegistryContract } from '../../types/tool/index.js'
 import type { RepairToolCall } from '../../types/tool/repair.js'
+import type { BackoffPolicy } from '../../utils/backoff.js'
 import type { Logger } from '../../utils/logger.js'
 import { ToolExecutor } from './executor.js'
 
@@ -22,6 +23,7 @@ export interface ToolingBootstrapConfig {
 	invocationState?: InvocationState
 	pluginManager?: PluginLifecycleManager
 	toolTimeoutMs?: number
+	toolRetryBackoff?: Partial<BackoffPolicy>
 	maxToolConcurrency?: number
 	maxToolOutputChars?: number
 	maxToolContentBytes?: number
@@ -50,6 +52,9 @@ export class ToolingBootstrap {
 				invocationState: config.invocationState,
 				pluginManager: config.pluginManager,
 				...(config.toolTimeoutMs !== undefined ? { toolTimeoutMs: config.toolTimeoutMs } : {}),
+				...(config.toolRetryBackoff !== undefined
+					? { toolRetryBackoff: config.toolRetryBackoff }
+					: {}),
 				...(config.maxToolConcurrency !== undefined
 					? { maxToolConcurrency: config.maxToolConcurrency }
 					: {}),

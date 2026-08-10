@@ -1,15 +1,20 @@
 import { classifyProviderError, isAbortError } from '../types/provider/errors.js'
 import type { ChatCompletionParams, LLMProvider, StreamChunk } from '../types/provider/index.js'
+import { type BackoffPolicy, backoffWithJitter, sleep } from '../utils/backoff.js'
 import type { Logger } from '../utils/logger.js'
 import { isProviderRequestError } from './errors.js'
 
-export interface ProviderRetryConfig {
+/**
+ * `BackoffPolicy` plus the provider-specific parts: how many attempts, and
+ * how long a server-directed wait may be honoured for.
+ *
+ * The curve itself lives in `utils/backoff.ts` and is shared with the tool
+ * executor's in-loop retry — which had no backoff at all while this one was
+ * being careful about jitter two directories away.
+ */
+export interface ProviderRetryConfig extends BackoffPolicy {
 	/** Retry attempts AFTER the initial try. `0` disables retrying. */
 	readonly maxRetries: number
-	/** First backoff, doubled each attempt. */
-	readonly initialDelayMs: number
-	/** Ceiling for a single backoff, before jitter. */
-	readonly maxDelayMs: number
 	/**
 	 * Cap on a server-directed `Retry-After`. A provider asking for 15
 	 * minutes should not silently park an interactive run for 15 minutes;
@@ -32,36 +37,6 @@ export const DEFAULT_PROVIDER_RETRY: ProviderRetryConfig = {
 	initialDelayMs: 500,
 	maxDelayMs: 16_000,
 	maxRetryAfterMs: 60_000,
-}
-
-/**
- * Full jitter (AWS's formulation): sleep a uniform random amount in
- * `[0, backoff]` rather than `backoff` exactly. Equal-jitter and no-jitter
- * both keep a fleet of clients that failed together retrying together;
- * full jitter is what actually spreads a thundering herd.
- */
-function backoffWithJitter(attempt: number, config: ProviderRetryConfig, random: () => number) {
-	const exponential = Math.min(config.initialDelayMs * 2 ** attempt, config.maxDelayMs)
-	return Math.round(random() * exponential)
-}
-
-function sleep(ms: number, signal?: AbortSignal): Promise<void> {
-	if (ms <= 0) return Promise.resolve()
-	return new Promise<void>((resolve, reject) => {
-		if (signal?.aborted) {
-			reject(signal.reason)
-			return
-		}
-		const timer = setTimeout(() => {
-			signal?.removeEventListener('abort', onAbort)
-			resolve()
-		}, ms)
-		const onAbort = () => {
-			clearTimeout(timer)
-			reject(signal?.reason)
-		}
-		signal?.addEventListener('abort', onAbort, { once: true })
-	})
 }
 
 export interface WithProviderRetryOptions {

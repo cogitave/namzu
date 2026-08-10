@@ -357,6 +357,11 @@ export type {
 	WithProviderFallbackOptions,
 	WithProviderRetryOptions,
 } from './provider/index.js'
+// The curve `ProviderRetryConfig` extends and `query({ toolRetryBackoff })`
+// takes a partial of. Both public surfaces name it, so a consumer has to be
+// able to name it too — a type reachable only through an inline `import(...)`
+// in a `.d.ts` is not a type anyone writes down.
+export type { BackoffPolicy } from './utils/backoff.js'
 
 export {
 	assertIsolation,

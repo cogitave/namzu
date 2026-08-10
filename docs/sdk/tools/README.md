@@ -1,7 +1,7 @@
 ---
 title: SDK Tools
 description: Define tools, register them in ToolRegistry, and understand built-in tool behavior in @namzu/sdk.
-last_updated: 2026-08-05
+last_updated: 2026-08-10
 status: current
 related_packages: ["@namzu/sdk", "@namzu/computer-use"]
 ---
@@ -433,6 +433,11 @@ silently re-running a write, a `git push` or a payment call is worse than
 never retrying at all. Even opted in, only failures marked `retryable` are
 retried — a missing file will not appear on the second attempt, and burning
 the budget on it just delays the error the model needs to see.
+
+Attempts are spaced by an exponential backoff with full jitter, defaulting to
+500ms doubling to a 16s ceiling. Tune it per run with
+`query({ toolRetryBackoff })`, or set `initialDelayMs: 0` to retry
+immediately. See [Loop Control §9](../runtime/loop-control.md#per-tool-retry-budget).
 
 **Repairing a malformed call.** `query({ repairToolCall })` gets a last
 look before the error reaches the model, and may rewrite the arguments and

@@ -34,6 +34,7 @@ import type {
 	ToolCallRepairReason,
 } from '../../types/tool/repair.js'
 import { abortReasonText } from '../../utils/abort.js'
+import { type BackoffPolicy, backoffWithJitter, sleep } from '../../utils/backoff.js'
 import { toErrorMessage } from '../../utils/error.js'
 import type { Logger } from '../../utils/logger.js'
 import { compressShellOutput } from '../../utils/shell-compress.js'
@@ -75,6 +76,33 @@ export const DEFAULT_TOOL_CONCURRENCY = 8
 export const HOOK_RETRY_BUDGET = 1
 
 /**
+ * Wait between in-loop tool retry attempts.
+ *
+ * There was none. A tool that declared itself retryable was re-run the
+ * instant it failed, as many times as its budget allowed — and the failures
+ * worth retrying are the ones an immediate retry makes worse: a rate limit
+ * answers the second call faster than it recovers, a contended lock is still
+ * held, a connection that has not finished opening has not finished opening.
+ *
+ * The numbers are the provider policy's, deliberately, and not because a tool
+ * is a model call. Nothing here has been measured against tools specifically,
+ * and inventing a second curve to look considered would be a guess wearing
+ * different digits; the shared one is at least the curve this codebase has
+ * already run in anger. Full jitter draws each wait from `[0, curve]`, so the
+ * first retry of a tool with the shipped budget waits under half a second on
+ * average.
+ *
+ * The ceiling is inert at the budgets anyone sets — a tool declaring
+ * `maxRetries: 3` never reaches 2s — and binds only a host that sets a large
+ * one. Override with {@link ToolExecutorConfig.toolRetryBackoff}; set
+ * `initialDelayMs: 0` for the previous no-wait behaviour.
+ */
+export const DEFAULT_TOOL_RETRY_BACKOFF: BackoffPolicy = {
+	initialDelayMs: 500,
+	maxDelayMs: 16_000,
+}
+
+/**
  * An empty arguments string means "no arguments", not "malformed" — the
  * shape a no-parameter tool arrives in.
  */
@@ -95,6 +123,16 @@ export interface ToolExecutorConfig {
 	pluginManager?: PluginLifecycleManager
 	/** Run-level default deadline; per-tool `timeoutMs` overrides it. */
 	toolTimeoutMs?: number
+	/**
+	 * Wait between in-loop retries of a failed tool call. Defaults to
+	 * {@link DEFAULT_TOOL_RETRY_BACKOFF}.
+	 *
+	 * Applies only to a tool that opted into retrying at all
+	 * ({@link ToolDefinition.maxRetries}) or to a `post_tool_use` hook that
+	 * asked for one, so a run whose tools all take the shipped default of
+	 * zero retries never sleeps here.
+	 */
+	toolRetryBackoff?: Partial<BackoffPolicy>
 	/** Max concurrently-executing concurrency-safe tools. */
 	maxToolConcurrency?: number
 
@@ -648,6 +686,10 @@ export class ToolExecutor {
 		// because the SDK cannot know a tool is idempotent — silently
 		// re-running a write or a payment is worse than never retrying.
 		const maxRetries = Math.max(0, this.config.tools.get(toolName)?.maxRetries ?? 0)
+		const backoff: BackoffPolicy = {
+			...DEFAULT_TOOL_RETRY_BACKOFF,
+			...this.config.toolRetryBackoff,
+		}
 		for (let attempt = 1; ; attempt++) {
 			// A missing file will not appear on the second attempt; burning
 			// the budget on it only delays the error the model needs to see.
@@ -664,14 +706,46 @@ export class ToolExecutor {
 			const budget = post.retry ? Math.max(maxRetries, HOOK_RETRY_BUDGET) : maxRetries
 			if (attempt > budget) break
 
+			// Wait before trying again, on the curve the provider path has
+			// used all along. This loop had NO delay: a tool failing on a
+			// transient condition — a rate-limited HTTP call, a lock, a cold
+			// connection — was re-run immediately, several times, which is the
+			// pattern most likely to prolong the very condition it is retrying
+			// against.
+			//
+			// Full jitter rather than a fixed wait, and the concurrency that
+			// makes it matter is one this loop creates itself: a model emits a
+			// batch of parallel calls, `executeBatch` runs up to
+			// DEFAULT_TOOL_CONCURRENCY of them at once, they hit the same
+			// rate-limited endpoint and fail together. A fixed backoff would
+			// resynchronise that batch on every attempt.
+			//
+			// `attempt` is 1-based here and `backoffWithJitter` is 0-based, so
+			// the first retry draws from `[0, initialDelayMs]`.
+			const delayMs = backoffWithJitter(attempt - 1, backoff)
+
 			this.log.info('Retrying a failed tool call', {
 				runId: this.config.runId,
 				tool: toolName,
 				attempt,
 				budget,
 				requestedByHook: post.retry,
+				delayMs,
 				error: result.error,
 			})
+
+			try {
+				await sleep(delayMs, this.config.abortSignal)
+			} catch {
+				// Stopped mid-backoff. Give up retrying and let the failure
+				// already in `result` be this call's answer, rather than
+				// throwing: every `tool_use` must be answered by a
+				// `tool_result` with the same id, and an abort escaping from
+				// here would leave this one open in the transcript for a
+				// resume to trip over.
+				break
+			}
+
 			result = await this.runOnce(toolName, input, toolContext)
 			post = await this.runPostToolHook(toolName, input, result)
 		}
