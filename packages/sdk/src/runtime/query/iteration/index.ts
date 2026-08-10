@@ -872,8 +872,9 @@ export class IterationOrchestrator {
 
 					// A successful `structured_output` call IS the answer, so the
 					// run ends here rather than paying for another turn whose only
-					// job would be to restate it.
-					if (this.captureStructuredOutput(reviewOutcome.results)) {
+					// job would be to restate it — unless it shared its turn with
+					// other calls, which relays instead. See the method.
+					if (this.captureStructuredOutput(reviewOutcome.results, response)) {
 						this.ctx.log.info('Structured output produced — ending run', {
 							runId: runMgr.id,
 							iteration: iterationNum,
@@ -1368,14 +1369,6 @@ export class IterationOrchestrator {
 	}
 
 	/**
-	 * Record the structured output if this batch produced one.
-	 *
-	 * The tool validates against the Zod schema before its `execute` runs,
-	 * so reaching here successfully means the value is already valid — a
-	 * failed parse comes back as an error result and simply does not
-	 * satisfy the demand, which sends the loop round again.
-	 */
-	/**
 	 * The answer a terminal tool produced, or `undefined` to keep looping.
 	 *
 	 * Deliberately narrow. A terminal call decides the run only when it is
@@ -1415,10 +1408,67 @@ export class IterationOrchestrator {
 		return hit
 	}
 
-	private captureStructuredOutput(results: readonly ToolCallOutcome[]): boolean {
+	/**
+	 * Record the structured output if this batch produced one.
+	 *
+	 * The tool validates against the Zod schema before its `execute` runs,
+	 * so reaching here successfully means the value is already valid — a
+	 * failed parse comes back as an error result and simply does not
+	 * satisfy the demand, which sends the loop round again.
+	 *
+	 * Narrow in the same way {@link terminalToolOutput} is, for its stated
+	 * reason and one that is sharper here. The neighbour refuses a shared
+	 * turn because "a model that asked for other work meant to see those
+	 * results". That applies unchanged. But the batch has ALREADY executed
+	 * by the time this runs — `runToolReview` settles it, side effects
+	 * included, before either of these is consulted — so settling here is
+	 * worse than discarding an answer the model wanted: the work happened,
+	 * its results went into the transcript, and the run ended before any
+	 * model turn could read them. Nothing consumed what was spent, and
+	 * nothing said so.
+	 *
+	 * Sharper, too, because of WHEN this value was produced. The model
+	 * emitted its final answer in the same turn as a request for
+	 * information it had not yet received — it would not have asked
+	 * otherwise — so the answer is under-informed on the model's own
+	 * account, and settling ships it as final.
+	 *
+	 * So: relay, do not settle. The results are already in the transcript,
+	 * the demand is still unsatisfied, and the next turn produces the
+	 * answer with them in hand. Refusing to EXECUTE the batch was the other
+	 * candidate and is wrong — the defect is not that the tools ran, it is
+	 * that nobody read them, and denying a model work it asked for to
+	 * protect an answer it has not finished forming gives up a real
+	 * capability for nothing. The price is one extra turn when the paired
+	 * call was a pure side effect whose result the model did not need;
+	 * that is the price `terminalToolOutput` already pays, and a model
+	 * avoids it by not pairing.
+	 *
+	 * NOT charged to `maxRetries`. That budget bounds a model that cannot
+	 * satisfy the SCHEMA, and this one did. A run reading two files a turn
+	 * while optimistically attaching its answer is making progress, and it
+	 * must not die reported as `structured_output_failed` — a failure that
+	 * did not happen. `maxIterations` is the bound for a model that keeps
+	 * doing work, and it is the bound the neighbour relies on for the
+	 * identical pathology.
+	 */
+	private captureStructuredOutput(
+		results: readonly ToolCallOutcome[],
+		response: ChatCompletionResponse,
+	): boolean {
 		if (!this.needsStructuredOutput()) return false
 		const hit = results.find((r) => r.toolName === STRUCTURED_OUTPUT_TOOL_NAME && !r.isError)
 		if (!hit) return false
+
+		const callCount = response.message.toolCalls?.length ?? 0
+		if (callCount > 1) {
+			this.ctx.log.info('Structured output shared its turn — relaying instead of settling', {
+				runId: this.ctx.runMgr.id,
+				callsInTurn: callCount,
+			})
+			return false
+		}
+
 		try {
 			this.ctx.runMgr.setStructuredOutput(JSON.parse(hit.output))
 		} catch {
