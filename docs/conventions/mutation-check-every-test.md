@@ -1,13 +1,13 @@
 ---
 uid: namzu.conventions.mutation-check-every-test
 title: Mutate every test, and never trust a helper test to prove its caller
-description: A passing test proves nothing until you have watched it fail. Break the thing it covers, confirm that that test and not a neighbour goes red, read the whole run rather than the summary line, and treat a table where everything dies as a map of what you have not tested rather than a proof.
+description: A passing test proves nothing until you have watched it fail. Break the thing it covers, confirm that that test and not a neighbour goes red, read the whole run rather than the summary line, and write the second round of mutations to find gaps rather than to confirm the first.
 type: Convention
 diataxis: explanation
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-04T00:00:00Z
-lastReviewed: 2026-08-09
+lastReviewed: 2026-08-10
 tags: [convention, testing, verification]
 ---
 
@@ -242,6 +242,56 @@ that produced these four was rebuilt so the dangerous operation does not
 exist — the ordering became a filename, taking a run became a single
 exclusive create, and the lock, the breaker and the window all went with it.
 A branch that is gone needs no test and cannot rot.
+
+## Write the second round to find gaps, not to confirm the first
+
+Amended 2026-08-10.
+
+The section above says what a full-green table means. This says what to do
+about it, because the failure has a specific and comfortable shape: **a
+mutation set written by the author of the tests, immediately after writing
+them, measures those tests' self-consistency and almost nothing else.** You
+reach for the mutations the tests were built around, they all die, and the
+table certifies the work you have just finished.
+
+Measured. Twenty mutations aimed at a new cost-pricing path — all twenty
+killed. A second batch of ten, written with the opposite intent, produced
+**seven survivors**:
+
+- Four were attribution: every end-to-end case ran one provider on the run's
+  own model, where "priced per turn against whoever answered" and "priced once
+  against the run's configured model" give the same number. Deleting the
+  per-turn lookup passed the whole suite. Only a case where a chain falls over
+  to a differently-priced member separates them.
+- Three were a generator's own validation branches. The gate only ever ran
+  against a source that passes, so every refusal in it was dead code wearing a
+  green check — deleting the duplicate-id check, the required-rate check and
+  one more each left the gate reporting success.
+
+None of those seven was obscure. They were invisible because the first batch
+was aimed at the code the tests were written from, and they became visible the
+moment the aim changed.
+
+**So run two rounds and give them different jobs.** The first confirms the
+tests fail when the behaviour breaks. The second is written *against* the
+first: list what round one never touched — the paths where two things happen
+to agree in the fixture, the failure branch of every guard, the validation a
+happy-path input never reaches, the argument that is passed but never varied —
+and aim there. Round two's survivors are the finding; round one's kills are
+the receipt.
+
+The tell that you are still in round one: every mutation you can think of is
+one you would have had to break the test to make. When the next mutation feels
+like it belongs to somebody else's review, you have crossed over.
+
+A survivor you cannot close is a result, not a failure. Record it — what it
+mutates, why closing it needs a test that does not exist yet, and how far the
+exposure reaches — rather than deleting the row or writing a test that cannot
+reach the branch. One survived in that batch: a summariser priced at the run's
+model rather than the routed one, needing a compaction path driven through a
+task router to reach. Naming it costs a sentence; a table quietly missing its
+one uncomfortable row costs the next reader their trust in the other
+twenty-nine.
 
 ## Related
 
