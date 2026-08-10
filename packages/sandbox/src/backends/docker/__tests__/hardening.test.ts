@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { resolveNetwork } from '../index.js'
+import { egressProxyOptions, resolveNetwork } from '../index.js'
 
 /**
  * `EgressPolicy` was accepted by the type, threaded through the options,
@@ -39,5 +39,47 @@ describe('resolveNetwork', () => {
 
 	it('names what it can do, so the failure is actionable', () => {
 		expect(() => resolveNetwork('bridge', { kind: 'static', allowedHosts: [] })).toThrow(/deny-all/)
+	})
+})
+
+/**
+ * The knobs a host sets have to arrive at the boundary.
+ *
+ * Everything past this function needs a running Docker daemon, so a config
+ * field that never reached `EgressProxy` would be caught by an operator
+ * watching production traffic get denied — with no way to fix it, because the
+ * escape hatch they were told to use is the one that went missing.
+ */
+describe('egressProxyOptions', () => {
+	const policy = { kind: 'static', allowedHosts: ['api.example.com'] } as const
+
+	it('carries the inward exemption to the boundary', () => {
+		const options = egressProxyOptions({ allowInwardFor: ['inside.example'] }, policy)
+		expect(options.allowInwardFor).toEqual(['inside.example'])
+	})
+
+	it('leaves it absent when the host named none, so the screen applies', () => {
+		// The other half of the same fact: a field populated whatever the host
+		// passed would satisfy the case above and say nothing.
+		expect(egressProxyOptions({}, policy).allowInwardFor).toBeUndefined()
+	})
+
+	it('carries the brokered credentials too', () => {
+		const credential = { host: 'api.example.com', header: 'authorization', value: 'real' }
+		expect(egressProxyOptions({ brokeredCredentials: [credential] }, policy).credentials).toEqual([
+			credential,
+		])
+	})
+
+	it('resolves the allowlist per call rather than capturing it', async () => {
+		// `setNetworkPolicy` swaps the policy on a live sandbox, and a
+		// snapshot taken at construction would enforce the policy the sandbox
+		// started with for the rest of its life.
+		let hosts: string[] = ['first.example']
+		const options = egressProxyOptions({}, { kind: 'resolver', resolve: async () => hosts })
+
+		expect(await options.allowedHosts()).toEqual(['first.example'])
+		hosts = ['second.example']
+		expect(await options.allowedHosts()).toEqual(['second.example'])
 	})
 })

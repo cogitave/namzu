@@ -4,6 +4,8 @@ import { request as httpsRequest } from 'node:https'
 import { connect as netConnect } from 'node:net'
 import type { Duplex } from 'node:stream'
 
+import { EgressAddressDenied, blockedLiteralReason, createScreeningLookup } from './address.js'
+import type { ScreeningLookupOptions } from './address.js'
 import { isHostAllowed, splitAuthority } from './allowlist.js'
 
 /**
@@ -59,6 +61,18 @@ export interface EgressProxyOptions {
 	 */
 	readonly upgradeToHttps?: boolean
 	readonly onDenied?: (host: string, reason: string) => void
+	/**
+	 * Allowlisted hosts permitted to resolve to an inward address anyway.
+	 *
+	 * Matched by the allowlist's own rules, so `.internal.example` covers
+	 * subdomains. Per host on purpose: an operator who genuinely proxies to
+	 * one service on a private network needs that one exempted, and a global
+	 * switch to get it would hand every other allowlisted name the same
+	 * reach — which is the hole this screen exists to close.
+	 */
+	readonly allowInwardFor?: readonly string[]
+	/** Injected in tests. Defaults to the platform resolver. */
+	readonly resolveAddresses?: ScreeningLookupOptions['resolve']
 }
 
 export interface RunningEgressProxy {
@@ -79,12 +93,28 @@ export class EgressProxy {
 	private readonly onDenied: ((host: string, reason: string) => void) | undefined
 	/** See the loop guard in `listen`. */
 	private selfPort: number | undefined
+	/**
+	 * The resolver both paths connect through.
+	 *
+	 * Held once rather than built per request so there is exactly one place
+	 * the address screen can be bypassed, and it is visible from here.
+	 */
+	private readonly lookup: ReturnType<typeof createScreeningLookup>
+	private readonly inwardAllowed: readonly string[]
 
 	constructor(options: EgressProxyOptions) {
 		this.resolveAllowed = options.allowedHosts
 		this.credentials = options.credentials ?? []
 		this.upgradeToHttps = options.upgradeToHttps ?? true
 		this.onDenied = options.onDenied
+		this.inwardAllowed = options.allowInwardFor ?? []
+		this.lookup = createScreeningLookup(
+			{
+				...(options.allowInwardFor ? { allowInwardFor: options.allowInwardFor } : {}),
+				...(options.resolveAddresses ? { resolve: options.resolveAddresses } : {}),
+			},
+			isHostAllowed,
+		)
 	}
 
 	async listen(port = 0): Promise<RunningEgressProxy> {
@@ -143,6 +173,18 @@ export class EgressProxy {
 		this.onDenied?.(host, reason)
 	}
 
+	/**
+	 * Why this target may not be dialled as written, or `null`.
+	 *
+	 * Covers the literal-address case only; a name is screened inside
+	 * `this.lookup`, which the socket calls. Both are needed — see
+	 * `blockedLiteralReason` for why one cannot cover the other.
+	 */
+	private literalDenial(host: string): string | null {
+		if (this.inwardAllowed.length > 0 && isHostAllowed(host, this.inwardAllowed)) return null
+		return blockedLiteralReason(host)
+	}
+
 	/** Plain HTTP. The only path where a credential can be stamped on. */
 	private async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
 		const target = parseTarget(req)
@@ -170,6 +212,20 @@ export class EgressProxy {
 			return
 		}
 
+		const literal = this.literalDenial(target.host)
+		if (literal) {
+			this.deny(target.host, `is a ${literal} address`)
+			res.writeHead(DENIED_STATUS, { 'content-type': 'text/plain' })
+			// Refused BEFORE the credential is looked up, let alone stamped.
+			// The ordering is the point: on this path the token goes on the
+			// headers a few lines below, so a check that ran after it would be
+			// deciding whether to send a request that already carried it.
+			res.end(
+				`Egress denied: ${target.host} is a ${literal} address, which is not reachable from a sandbox.\n`,
+			)
+			return
+		}
+
 		const headers = { ...req.headers }
 		// The proxy re-issues the request, so hop-by-hop headers about the
 		// hop that just ended must not be forwarded.
@@ -192,6 +248,11 @@ export class EgressProxy {
 				method: req.method,
 				path: target.path,
 				headers,
+				// `host` stays the NAME so SNI and certificate validation still
+				// check the name the allowlist approved; only the address the
+				// socket dials is screened. Swapping in the address here would
+				// break TLS verification, which is the wrong way to fix this.
+				lookup: this.lookup,
 			},
 			(response) => {
 				res.writeHead(response.statusCode ?? 502, response.headers)
@@ -200,6 +261,17 @@ export class EgressProxy {
 		)
 
 		upstream.on('error', (err) => {
+			// An address denial is a policy refusal, not a network fault, and
+			// telling them apart is the difference between an agent that stops
+			// and one that retries a forbidden host forever. The credential is
+			// already on `headers` at this point and has still not left the
+			// process: the socket never connected, so nothing was written.
+			if (err instanceof EgressAddressDenied) {
+				this.deny(err.host, `resolves to a ${err.reason} address`)
+				if (!res.headersSent) res.writeHead(DENIED_STATUS, { 'content-type': 'text/plain' })
+				res.end(`${err.message}\n`)
+				return
+			}
 			if (!res.headersSent) res.writeHead(502, { 'content-type': 'text/plain' })
 			res.end(`Upstream request failed: ${err.message}\n`)
 		})
@@ -216,6 +288,18 @@ export class EgressProxy {
 	 * agent sends anywhere, a strictly larger risk than the one being
 	 * mitigated. A workload that needs brokering speaks plain HTTP to the
 	 * proxy and lets it upgrade upstream.
+	 *
+	 * **And the allowlist here is a check on the name in the CONNECT line,
+	 * which is the only thing about this tunnel that is ever in clear text.**
+	 * The address screen makes it a check on where that name goes, which is a
+	 * real bound — a permitted name can no longer be a route to the host's own
+	 * network. It is not a check on what travels afterwards. Inside the tunnel
+	 * the bytes are the caller's, and the name the caller puts in its own TLS
+	 * handshake or `Host` header is not visible to this process, so against a
+	 * determined caller running inside the sandbox this path bounds the
+	 * DESTINATION and nothing else. Say so plainly rather than let a reader
+	 * infer that a tunnel to an allowlisted host carries only allowlisted
+	 * traffic.
 	 */
 	private async handleConnect(req: IncomingMessage, socket: Duplex, head: Buffer): Promise<void> {
 		const { host, port } = splitAuthority(req.url ?? '')
@@ -229,14 +313,34 @@ export class EgressProxy {
 			return
 		}
 
-		const upstream = netConnect(port ?? 443, host, () => {
+		const literal = this.literalDenial(host)
+		if (literal) {
+			this.deny(host, `is a ${literal} address`)
+			socket.write(
+				`HTTP/1.1 ${DENIED_STATUS} Forbidden\r\nContent-Type: text/plain\r\n\r\nEgress denied: ${host} is a ${literal} address, which is not reachable from a sandbox.\n`,
+			)
+			socket.end()
+			return
+		}
+
+		// Same screened resolver as the plain path. The tunnel carries no
+		// brokered credential, so the loss here is reach rather than a token —
+		// but an allowlisted name pointing inward still turns this proxy into
+		// a route to the host's own network, which is what a sandbox is for.
+		const upstream = netConnect({ port: port ?? 443, host, lookup: this.lookup }, () => {
 			socket.write('HTTP/1.1 200 Connection Established\r\n\r\n')
 			if (head.length > 0) upstream.write(head)
 			upstream.pipe(socket)
 			socket.pipe(upstream)
 		})
 
-		upstream.on('error', () => {
+		upstream.on('error', (err) => {
+			if (err instanceof EgressAddressDenied) {
+				this.deny(err.host, `resolves to a ${err.reason} address`)
+				socket.write(
+					`HTTP/1.1 ${DENIED_STATUS} Forbidden\r\nContent-Type: text/plain\r\n\r\n${err.message}\n`,
+				)
+			}
 			socket.end()
 		})
 		socket.on('error', () => {
