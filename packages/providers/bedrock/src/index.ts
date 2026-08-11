@@ -23,4 +23,5 @@ export function registerBedrock(options?: RegisterOptions): void {
 }
 
 export { BEDROCK_CAPABILITIES, BedrockProvider } from './client.js'
+export type { BedrockHealthReason, BedrockHealthReport } from './health.js'
 export type { BedrockConfig, BedrockProviderConfig } from './types.js'

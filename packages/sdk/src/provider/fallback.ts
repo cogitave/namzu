@@ -382,7 +382,13 @@ export function withProviderFallback(
 		},
 		chatStream,
 		...(first.provider.listModels ? { listModels: () => first.provider.listModels?.() } : {}),
-		...(first.provider.healthCheck ? { healthCheck: () => first.provider.healthCheck?.() } : {}),
-		...(first.provider.doctorCheck ? { doctorCheck: () => first.provider.doctorCheck?.() } : {}),
+		// Forwarded for the reason `retry.ts` forwards it: a wrapper that drops
+		// the model turns a probe the caller could answer into one it cannot.
+		...(first.provider.healthCheck
+			? { healthCheck: (model?: string) => first.provider.healthCheck?.(model) }
+			: {}),
+		...(first.provider.doctorCheck
+			? { doctorCheck: (model?: string) => first.provider.doctorCheck?.(model) }
+			: {}),
 	} as LLMProvider
 }

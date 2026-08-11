@@ -1,8 +1,4 @@
-import {
-	BedrockRuntimeClient,
-	ConverseCommand,
-	ConverseStreamCommand,
-} from '@aws-sdk/client-bedrock-runtime'
+import { BedrockRuntimeClient, ConverseStreamCommand } from '@aws-sdk/client-bedrock-runtime'
 import type {
 	Message as BedrockMessage,
 	CachePointBlock,
@@ -33,6 +29,8 @@ import {
 	isProviderRequestError,
 	providerVendorError,
 } from '@namzu/sdk'
+import type { BedrockHealthReport } from './health.js'
+import { report, reportForError } from './health.js'
 import { assertModelReachable, isAnthropicServedModel } from './model-reachability.js'
 import type { BedrockConfig } from './types.js'
 
@@ -276,6 +274,25 @@ function formatToolChoice(tc?: ToolChoice) {
 	return { auto: {} }
 }
 
+/**
+ * The failure Bedrock reported as a stream EVENT rather than as a throw.
+ *
+ * Several post-handshake failures arrive as members of the output union, after
+ * a 200. Ignoring them makes a throttled or failed stream look like a clean
+ * EOF — which is why this is read on the request path, and why the health probe
+ * reads it through the same function rather than through a second copy that
+ * could drift from this one.
+ */
+export function streamFailureIn(event: ConverseStreamOutput): unknown {
+	return (
+		('internalServerException' in event ? event.internalServerException : undefined) ??
+		('modelStreamErrorException' in event ? event.modelStreamErrorException : undefined) ??
+		('validationException' in event ? event.validationException : undefined) ??
+		('throttlingException' in event ? event.throttlingException : undefined) ??
+		('serviceUnavailableException' in event ? event.serviceUnavailableException : undefined)
+	)
+}
+
 interface RawBedrockUsage {
 	inputTokens?: number
 	outputTokens?: number
@@ -446,12 +463,7 @@ export class BedrockProvider implements LLMProvider {
 				// Bedrock reports several post-handshake failures as UNION
 				// EVENTS, not thrown exceptions. Ignoring these members makes a
 				// throttled or failed stream look like a clean EOF.
-				const streamFailure =
-					('internalServerException' in event ? event.internalServerException : undefined) ??
-					('modelStreamErrorException' in event ? event.modelStreamErrorException : undefined) ??
-					('validationException' in event ? event.validationException : undefined) ??
-					('throttlingException' in event ? event.throttlingException : undefined) ??
-					('serviceUnavailableException' in event ? event.serviceUnavailableException : undefined)
+				const streamFailure = streamFailureIn(event)
 				if (streamFailure) {
 					throw providerVendorError({
 						providerId: 'bedrock',
@@ -550,10 +562,40 @@ export class BedrockProvider implements LLMProvider {
 		}
 	}
 
+	/**
+	 * The menu this driver offers.
+	 *
+	 * Every Claude id here is the `bedrock-runtime` Model ID from the vendor's
+	 * own model card, and that is a correction rather than a preference: the
+	 * two entries this list used to carry — `anthropic.claude-sonnet-4-20250514`
+	 * and `anthropic.claude-haiku-4-20250514` — are ids `assertModelReachable`
+	 * refuses, so an operator picking either off the menu got a throw before any
+	 * request was built. A catalogue its own request path rejects is worse than
+	 * a short one.
+	 *
+	 * The card for Claude Haiku 4.5 is what settles that the predicate is right
+	 * rather than too strict. It lists the SAME model under two ids on two
+	 * endpoints: `anthropic.claude-haiku-4-5-20251001-v1:0` on
+	 * `bedrock-runtime`, and the unversioned `anthropic.claude-haiku-4-5` on
+	 * `bedrock-mantle`, at a different URL. The bare form is a real id for the
+	 * endpoint this driver does not speak — which is exactly the claim
+	 * `model-reachability.ts` makes, stated by the vendor in one table.
+	 *
+	 * "Claude Haiku 4" was never a model. The Haiku line goes 3.5 to 4.5, and
+	 * the id that shipped here carried Sonnet 4's launch date.
+	 *
+	 * `inputPrice`/`outputPrice` are per million tokens and are DISPLAY data:
+	 * `resolveModelPricing` in `@namzu/sdk` has no `bedrock` vendor, so no run
+	 * is costed from them. The Haiku 4.5 rates are the reviewed ones from that
+	 * package's own `rates.source.json`. AWS publishes Bedrock's on-demand rates
+	 * on a page that renders them client-side, so they could not be read here,
+	 * and if Bedrock diverges from the vendor's list price this row is wrong in
+	 * that direction only.
+	 */
 	async listModels(): Promise<ModelInfo[]> {
 		return [
 			{
-				id: 'anthropic.claude-sonnet-4-20250514',
+				id: 'anthropic.claude-sonnet-4-20250514-v1:0',
 				name: 'Claude Sonnet 4 (Bedrock)',
 				contextWindow: 200_000,
 				maxOutputTokens: 64_000,
@@ -563,12 +605,12 @@ export class BedrockProvider implements LLMProvider {
 				supportsStreaming: true,
 			},
 			{
-				id: 'anthropic.claude-haiku-4-20250514',
-				name: 'Claude Haiku 4 (Bedrock)',
+				id: 'anthropic.claude-haiku-4-5-20251001-v1:0',
+				name: 'Claude Haiku 4.5 (Bedrock)',
 				contextWindow: 200_000,
 				maxOutputTokens: 64_000,
-				inputPrice: 0.8,
-				outputPrice: 4.0,
+				inputPrice: 1.0,
+				outputPrice: 5.0,
 				supportsToolUse: true,
 				supportsStreaming: true,
 			},
@@ -585,19 +627,92 @@ export class BedrockProvider implements LLMProvider {
 		]
 	}
 
-	async healthCheck(): Promise<boolean> {
+	/**
+	 * Can this driver serve `model` right now?
+	 *
+	 * One bit, and deliberately still one bit. Widening the return type would
+	 * break every caller that writes `if (await provider.healthCheck())`
+	 * SILENTLY — the code keeps compiling and starts always passing, because a
+	 * result object is truthy. {@link doctorCheck} is the same probe with its
+	 * reasoning intact, and is what to call when the answer matters.
+	 *
+	 * `model` is required in practice though the type says optional: this
+	 * driver's config holds no model, so with nothing passed there is nothing to
+	 * probe, and the answer is `false` for the stated reason `no-model` rather
+	 * than for a guessed one. It used to probe a hardcoded id instead, which is
+	 * how it came to send an id its own reachability rule rejects and report the
+	 * refusal as an outage.
+	 */
+	async healthCheck(model?: string): Promise<boolean> {
+		return (await this.doctorCheck(model)).status === 'pass'
+	}
+
+	/**
+	 * The health probe, with the reason it reached its verdict.
+	 *
+	 * Probes with `ConverseStream` rather than `Converse` because that is the
+	 * command {@link chatStream} sends. They are separate IAM actions —
+	 * `bedrock:InvokeModelWithResponseStream` and `bedrock:InvokeModel` — so a
+	 * probe on the other one can pass under a policy every real call fails
+	 * under, which is a green check about a request nobody makes.
+	 *
+	 * It costs one inference of one token. Nothing cheaper on the runtime client
+	 * establishes credentials, region and model reachability together, and the
+	 * alternatives establish them for a permission the request path does not
+	 * use.
+	 */
+	async doctorCheck(model?: string): Promise<BedrockHealthReport> {
+		if (model === undefined || model.trim() === '') {
+			return report(
+				'no-model',
+				'No model id was given and this driver holds none in its config, so nothing was probed. This is not a report that Bedrock is unhealthy.',
+			)
+		}
+
+		const startedAt = Date.now()
+		const elapsed = () => Date.now() - startedAt
+
+		// The same rule the request path applies, applied here. Skipping it is
+		// how the previous check came to send an id this driver classifies as
+		// uninvokable and then read the service's refusal as an outage.
 		try {
-			const command = new ConverseCommand({
-				modelId: 'anthropic.claude-haiku-4-20250514',
+			assertModelReachable(model)
+		} catch (err) {
+			return report('unreachable-model', err instanceof Error ? err.message : String(err), {
+				model,
+				durationMs: elapsed(),
+			})
+		}
+
+		try {
+			const command = new ConverseStreamCommand({
+				modelId: model,
 				messages: [{ role: 'user', content: [{ text: 'hi' }] }],
 				inferenceConfig: { maxTokens: 1 },
 			})
-			const response = await this.client.send(command, {
-				requestTimeout: 5000,
-			})
-			return response.$metadata.httpStatusCode === 200
-		} catch {
-			return false
+			const response = await this.client.send(command, { requestTimeout: 5000 })
+
+			// No branch on the status code: this SDK throws for a non-2xx, so a
+			// handshake that returns at all returned success. A branch production
+			// cannot enter is one only a fixture unlike production could test.
+			if (!response.stream) {
+				return report('service', 'bedrock accepted the request and returned no stream body', {
+					model,
+					durationMs: elapsed(),
+				})
+			}
+
+			// The handshake is a 200 even when the model then refuses, because
+			// Bedrock reports those failures as members of the output union.
+			// Reading only the status would call that a pass.
+			for await (const event of response.stream as AsyncIterable<ConverseStreamOutput>) {
+				const failure = streamFailureIn(event)
+				if (failure) return reportForError(failure, model, elapsed())
+			}
+
+			return report('ok', `bedrock served ${model}`, { model, durationMs: elapsed() })
+		} catch (err) {
+			return reportForError(err, model, elapsed())
 		}
 	}
 }
