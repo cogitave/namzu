@@ -162,6 +162,33 @@ const TAG_TOKEN = /<\/?[A-Za-z][\w-]*(?:\s[^<>]*)?\/?>/g
 const DESCRIPTION_BLOCK = /<description>([\s\S]*?)<\/description>/gi
 
 /**
+ * Remove every tag token, including the ones removing a tag creates.
+ *
+ * One pass is not enough and the reason is not obvious: deleting an inner
+ * tag can splice its neighbours into a new one. `<<step>step>` loses the
+ * inner `<step>` and the halves close up into `<step>` again, so a line
+ * that is nothing but markup comes back non-empty and is offered to a
+ * human as a step to approve — which is the exact outcome this whole path
+ * exists to prevent.
+ *
+ * Repeating to a fixed point terminates: every pass that changes the
+ * string removes at least one token and so strictly shortens it.
+ *
+ * Only ever used to ANSWER "is there anything here besides markup". The
+ * result is never shown to anyone, so this is a test rather than a
+ * sanitiser, and it does not have to defend against every way a tag can
+ * be spelled.
+ */
+function withoutTags(text: string): string {
+	let current = text
+	for (;;) {
+		const next = current.replace(TAG_TOKEN, '')
+		if (next === current) return current
+		current = next
+	}
+}
+
+/**
  * Peel tag wrappers off the ENDS of one line, and nowhere else — a step
  * that legitimately says "wrap it in a <div>" keeps its sentence.
  */
@@ -228,12 +255,12 @@ function normalizeApprovePlanSteps(value: unknown): unknown {
 					.trim(),
 			),
 		)
-		.filter((line) => line.length > 0 && line.replace(TAG_TOKEN, '').trim().length > 0)
+		.filter((line) => line.length > 0 && withoutTags(line).trim().length > 0)
 
 	// Every line was markup: there is no plan in this string, and inventing
 	// one step reading `<steps>` is worse than saying so.
 	if (lines.length === 0) {
-		return unwrapStepLine(trimmed).replace(TAG_TOKEN, '').trim()
+		return withoutTags(unwrapStepLine(trimmed)).trim()
 			? [{ description: unwrapStepLine(trimmed) }]
 			: []
 	}

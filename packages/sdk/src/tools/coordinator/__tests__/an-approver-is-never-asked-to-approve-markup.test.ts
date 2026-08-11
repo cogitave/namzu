@@ -102,6 +102,26 @@ describe('an approver is never asked to approve markup', () => {
 		])
 	})
 
+	it('drops a line whose tags only look like content after one pass', () => {
+		// Removing a tag can splice its neighbours into a new one:
+		// `<<step>step>` loses the inner `<step>` and closes back up into
+		// `<step>`. A single pass therefore reports "something is left" for a
+		// line that is nothing but markup, and the approver is shown it.
+		//
+		// Raised by the static analyser as incomplete multi-character
+		// sanitization, which is the same defect under a security name.
+		expect(parseSteps('<<step>step>')).toEqual([])
+		expect(parseSteps('<steps>\n<<step>step>\n</steps>')).toEqual([])
+	})
+
+	it('still keeps the content when the doubled tag has words around it', () => {
+		// The fixed point must not eat the sentence — the failure mode of
+		// over-correcting here is silently deleting a real step.
+		expect(parseSteps('<<div>div>Render the summary')).toEqual([
+			{ description: '<<div>div>Render the summary' },
+		])
+	})
+
 	it('advertises the closed shape so a capable provider refuses the string outright', () => {
 		// Surviving the serialization is not the same as preventing it: the
 		// normalizer can only guess at a structure the model already threw
