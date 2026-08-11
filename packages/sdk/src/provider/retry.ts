@@ -231,7 +231,15 @@ export function withProviderRetry(
 		},
 		chatStream,
 		...(provider.listModels ? { listModels: () => provider.listModels?.() } : {}),
-		...(provider.healthCheck ? { healthCheck: () => provider.healthCheck?.() } : {}),
-		...(provider.doctorCheck ? { doctorCheck: () => provider.doctorCheck?.() } : {}),
+		// The model is forwarded, not dropped. A wrapper that swallowed it would
+		// leave the wrapped driver probing whatever it probes with no argument
+		// — which for at least one driver is "nothing", so the check would come
+		// back unanswerable purely because it was wrapped.
+		...(provider.healthCheck
+			? { healthCheck: (model?: string) => provider.healthCheck?.(model) }
+			: {}),
+		...(provider.doctorCheck
+			? { doctorCheck: (model?: string) => provider.doctorCheck?.(model) }
+			: {}),
 	} as LLMProvider
 }

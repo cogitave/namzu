@@ -48,7 +48,7 @@ const { provider, capabilities } = ProviderRegistry.create({
 
 ```ts
 const response = await provider.chat({
-  model: 'anthropic.claude-sonnet-4-20250514',
+  model: 'anthropic.claude-sonnet-4-20250514-v1:0',
   messages: [{ role: 'user', content: 'Say hello in one sentence.' }],
 })
 
@@ -82,7 +82,7 @@ const result = await agent.run(
   {
     provider,
     tools: new ToolRegistry(),
-    model: 'anthropic.claude-sonnet-4-20250514',
+    model: 'anthropic.claude-sonnet-4-20250514-v1:0',
     tokenBudget: 8_192,
     timeoutMs: 60_000,
     projectId: generateProjectId(),
@@ -134,14 +134,62 @@ The model condition is not a formality. Converse is a multi-vendor wire, and pro
 
 Cache hits and writes are reported separately from ordinary input, as `cachedTokens` and `cacheWriteTokens` on the usage of every turn. Those counters were always mapped correctly — for a period the driver reported them while requesting no caching at all, so they read a truthful zero, and a caller could not distinguish "caching does not help this workload" from "caching was never asked for". A run with caching on and a stable prefix should show `cachedTokens` rising after the first turn; if it stays at zero, the prefix is changing rather than the caching being off.
 
-## 9. Operational Notes
+## 9. Checking Health
+
+`healthCheck(model)` and `doctorCheck(model)` both take the model you intend to
+run. This driver's config carries no model, so a probe without one has no
+subject — it reports that, rather than reporting an outage:
+
+```ts
+const healthy = await provider.healthCheck('anthropic.claude-sonnet-4-20250514-v1:0')
+```
+
+The boolean is a summary. When the answer matters, ask for the reason:
+
+```ts
+const health = await provider.doctorCheck('anthropic.claude-sonnet-4-20250514-v1:0')
+
+if (health.status !== 'pass') {
+  console.error(health.reason, health.message, health.remediation)
+}
+```
+
+| `reason` | `status` | What happened |
+| --- | --- | --- |
+| `ok` | `pass` | The model answered. |
+| `no-model` | `skipped` | Nothing was probed, because no model id was given. |
+| `unreachable-model` | `fail` | This driver's own rule refuses the id. Nothing was sent. |
+| `no-credentials` | `fail` | No AWS credentials or region resolved here. The request never left the machine. |
+| `credentials` | `fail` | AWS answered and rejected the credential or its permissions. |
+| `unknown-model` | `fail` | The id is well-formed and this region serves no such model. |
+| `refused` | `fail` | The service looked at the request and would not take it. |
+| `throttled` | `warn` | Reached, authenticated, rate limited. The probe did not complete. |
+| `service` | `fail` | The service answered and could not serve the request. |
+| `unreachable-service` | `inconclusive` | Nothing was learned. Do not read this as an outage. |
+
+`healthCheck` is `true` only for `pass`, so a `warn` reads as not-healthy: the
+service is up, but the probe did not run to completion and traffic sent on the
+strength of it would be sent on no evidence.
+
+The probe sends one `ConverseStream` request capped at one output token — the
+same operation `chatStream` sends, so it exercises
+`bedrock:InvokeModelWithResponseStream` rather than a permission your real calls
+never use. It costs that one token.
+
+This check previously hardcoded `anthropic.claude-haiku-4-20250514` and reported
+every failure as a bare `false`. That id is one the driver itself classifies as
+unreachable, so the check could not pass at any credential, region or service
+state, and an operator could not tell a wrong key from an outage.
+
+## 10. Operational Notes
 
 - If you do not pass explicit credentials, the AWS SDK default credential chain is used.
 - Model access in Bedrock is region-specific, so enable the models you need in the target AWS region before testing.
-- The provider also implements `listModels()` and `healthCheck()`.
+- The provider also implements `listModels()`, `healthCheck(model)` and `doctorCheck(model)`; see the section above.
+- `listModels()` offers the `bedrock-runtime` Model IDs from the vendor's model cards. Every id it advertises is one this driver will actually send — it previously listed two the request path rejected before building a request.
 - Bedrock model identifiers differ from direct vendor identifiers, so keep your runtime model config Bedrock-specific.
 
-## 10. Common Errors
+## 11. Common Errors
 
 | Error | Meaning | Fix |
 | --- | --- | --- |

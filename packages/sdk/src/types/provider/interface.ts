@@ -73,7 +73,23 @@ export interface LLMProvider {
 	 */
 	probeCredential?(): Promise<void>
 
-	healthCheck?(): Promise<boolean>
+	/**
+	 * Is this driver able to serve traffic? A summary bit; `doctorCheck` is
+	 * the same probe with its reasoning intact.
+	 *
+	 * `model` is the model the CALLER intends to run, and it is a parameter
+	 * rather than something the driver reads off its own config because at
+	 * least one driver's config does not carry a model at all. That driver
+	 * hardcoded an id instead, which is how its check came to probe a model
+	 * nobody used — and, once the id went stale, could not pass at any
+	 * credential, region or service state. A health check against a model the
+	 * operator does not run tests the wrong thing even while the id is valid.
+	 *
+	 * Optional, and a driver may ignore it: one that probes an endpoint rather
+	 * than a model has nothing to do with the argument. Passing it is always
+	 * safe.
+	 */
+	healthCheck?(model?: string): Promise<boolean>
 
 	/**
 	 * Optional structured health probe used by `runDoctor()`.
@@ -82,8 +98,13 @@ export interface LLMProvider {
 	 * (latency, model availability, auth status, …). Providers that
 	 * cannot be cheaply probed should return `{ status: 'inconclusive' }`
 	 * so the doctor doesn't mark them as failing — see ses_007 Q6.4.
+	 *
+	 * Takes `model` for the reason `healthCheck` does, and a driver is free to
+	 * return a SUBTYPE of `DoctorCheckResult` carrying its own machine-readable
+	 * detail. `status` is what `runDoctor()` reads; a caller holding the
+	 * concrete driver can read more.
 	 */
-	doctorCheck?(): Promise<DoctorCheckResult>
+	doctorCheck?(model?: string): Promise<DoctorCheckResult>
 
 	/**
 	 * Which {@link ChatCompletionParams.effort} levels this model accepts,
