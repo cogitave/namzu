@@ -8,7 +8,7 @@ owner: bahadirarda
 status: current
 timestamp: 2026-08-09
 lastReviewed: 2026-08-09
-last_updated: 2026-08-09
+last_updated: 2026-08-11
 related_packages: ["@namzu/cli", "@namzu/sdk"]
 ---
 
@@ -52,6 +52,7 @@ never returned were reported identically, so the report could not distinguish
 | `2` | No checks were registered — namzu is not configured here, or a `--category` filter matched nothing. |
 | `69` | At least one check **could not answer**. Nothing was established to have failed, and nothing can be concluded from the rest of the report either. |
 | `70` | An internal CLI error (sysexits `EX_SOFTWARE`) — worth a bug report. |
+| `78` | A config file is there and could not be read, so **no check ran**. Distinct from `2`: `2` says namzu is not configured here, `78` says its configuration cannot be established, and those are fixed by opposite actions. See [A config namzu cannot read stops the run](./headless.md#a-config-namzu-cannot-read-stops-the-run). |
 
 `69` outranks `0` and is outranked by `1`. A definite failure is the actionable
 fact and `1` claims no health, so reporting it loses nothing; conversely a run

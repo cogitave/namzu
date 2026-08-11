@@ -48,5 +48,5 @@ export {
 	type FormatterOptions,
 	isFormatName,
 } from './output/index.js'
-export { loadConfig, type LoadConfigOptions } from './config/load.js'
+export { ConfigLoadError, loadConfig, type LoadConfigOptions } from './config/load.js'
 export { DEFAULT_CONFIG, type NamzuCliConfig } from './config/schema.js'
