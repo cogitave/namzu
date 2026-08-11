@@ -116,6 +116,14 @@ This file is a **router**, not a rulebook. Detail lives in the folders below; re
     **A lint finding is not evidence your branch caused it.** `pnpm lint` is `pnpm -r lint`, and each package's script is `biome check src/` — the package's whole source tree, never your diff. A worktree branched from an older `origin/main` therefore reports whatever was there at that commit. Check `git diff --name-only origin/main...HEAD` before you accept a hit as yours, and never reformat a file your branch did not change in order to make a gate pass.
 
     `scripts/audit-external-names.mjs` skips this directory by path, so running it from the shared checkout never audits a worktree; run it from inside your worktree to audit the tree you are actually changing.
+
+    The three above are mechanics — where state lives and what a gate reads. The two below are etiquette, and they are the ones that have actually destroyed work.
+
+    **Never check out a branch in a worktree you did not create.** The protection you would assume exists covers half the case: git refuses the *same* branch in two worktrees, and `git worktree add` on a held branch fails with `already used by worktree at <path>`. Nothing refuses a *different* branch in a directory somebody is working in. The switch carries their uncommitted modified and untracked files across rather than refusing them, so the occupant's work lands in the switcher's tree indistinguishable from their own — one `git add -A` from a commit on the wrong branch. A `git checkout` inside a script or a mutation harness does the same thing without anyone deciding to. If you need another branch, create your own directory.
+
+    **Stage explicit paths. Never `git add -A` or `git add .`.** This is what makes sharing a directory survivable when the rule above is broken, and it is the only one of these two that does not depend on anyone else behaving. Name the files you changed. Run `git status` when you enter a tree and treat anything already dirty as somebody else's until you know otherwise.
+
+    **Assume anything uncommitted can vanish, and commit early.** A commit is in the object database every worktree shares, so a branch survives another agent switching, removing or reverting inside your directory. Uncommitted work is the only kind that has ever been lost here. Write the `progress.md` entry the hook needs, then commit as soon as a change is coherent, rather than holding a large one in a working tree or parking it in a patch file.
   </worktrees>
 </routing>
 
@@ -176,6 +184,7 @@ A changeset body is read by a stranger deciding whether to take the upgrade. Nam
 - Never run destructive ops (`git reset --hard`, `git push --force`, `rm -rf`, `npm unpublish`) without explicit approval.
 - Never skip hooks (`--no-verify`, `--no-gpg-sign`) unless the user explicitly asks. The husky `pre-commit` hook (`.husky/pre-commit`) machine-enforces the per-commit progress gate: every active session in `.work/sessions/README.md` must have a `progress.md` mtime newer than the staged files. Bypass with `--no-verify` is forbidden by this rule, not by the hook itself.
 - File-scoped operations (lint, unit tests) may run freely. Risky operations (installs, pushes, infrastructure changes) require approval.
+- Never check out a branch in a worktree you did not create, and never `git add -A`. Both are about sharing a machine with other agents; the reasoning is in `<worktrees>` above rather than twice.
 </workflow_safety>
 
 ## Second-opinion loop
