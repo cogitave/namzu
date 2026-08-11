@@ -89,7 +89,26 @@ export class GitWorktreeDriver implements WorkspaceBackendDriver {
 		try {
 			await this.exec('git', argv)
 		} catch (cause) {
-			throw new WorkspaceBackendError({ op: 'create', kind: this.kind, cause })
+			// A non-zero exit here does not mean the worktree was not created.
+			// `git worktree add` runs the repository's post-checkout hook AFTER
+			// the checkout has completed, so a hook that fails — or that a
+			// timeout kills — reports failure over a worktree that is finished
+			// and usable. Treating the status as the answer throws away a good
+			// checkout AND leaks it: the path stays registered, and the next
+			// attempt fails differently, with "already exists".
+			//
+			// So the exit code is a hint and the repository is the evidence.
+			// The bar is deliberately high: registered under this exact path
+			// AND carrying the branch this call asked for. A registered path
+			// alone can be a half-finished checkout, or somebody else's.
+			if (!(await this.createdDespite(worktreePath, branch))) {
+				throw new WorkspaceBackendError({ op: 'create', kind: this.kind, cause })
+			}
+			this.log.warn('git-worktree add reported failure but the worktree is present', {
+				branch,
+				worktreePath,
+				cause: cause instanceof Error ? cause.message : String(cause),
+			})
 		}
 
 		const meta: GitWorktreeBackendMeta = {
@@ -139,6 +158,41 @@ export class GitWorktreeDriver implements WorkspaceBackendDriver {
 				return
 			}
 			throw new WorkspaceBackendError({ op: 'dispose', kind: this.kind, cause })
+		}
+	}
+
+	/**
+	 * Did the worktree arrive despite the command reporting failure?
+	 *
+	 * Answers only for the branch this call created. A path registered
+	 * without that branch is not this call's worktree — it is a leftover
+	 * from a killed attempt, or a checkout somebody else owns, and the two
+	 * are indistinguishable from here. Claiming either would mean handing
+	 * a caller a workspace whose contents nobody vouched for, so both are
+	 * left to surface as the failure they are.
+	 *
+	 * Any error while checking is itself a "no". This runs on a path that
+	 * has already gone wrong once, and guessing optimistically there is how
+	 * a recovery turns a bad situation into a wrong one.
+	 */
+	private async createdDespite(worktreePath: string, branch: string): Promise<boolean> {
+		try {
+			const { stdout } = await this.exec('git', [
+				'-C',
+				this.repoRoot,
+				'worktree',
+				'list',
+				'--porcelain',
+			])
+			const entry = parseWorktreeList(stdout, worktreePath)
+			// `--porcelain` writes the branch as a full ref (`refs/heads/x`),
+			// and `branch` here is the short name this call passed to `-b`.
+			// Comparing them directly is a check that can never pass, which
+			// would make this whole recovery path silently dead — the exact
+			// shape it exists to catch.
+			return entry?.branch === `refs/heads/${branch}`
+		} catch {
+			return false
 		}
 	}
 
