@@ -104,6 +104,29 @@ export interface SandboxExecOptions {
 	readonly env?: Record<string, string>
 	readonly cwd?: string
 	/**
+	 * Called as output arrives, before the command has finished.
+	 *
+	 * Every container-tier worker already streams its output a chunk at a
+	 * time — the wire carries `stdout_delta` and `stderr_delta` events —
+	 * and every backend concatenated them into a string and returned that
+	 * when the process exited. So a command that takes eight minutes said
+	 * nothing for eight minutes, on a transport that had been reporting
+	 * the whole time.
+	 *
+	 * Additive and optional: a backend that cannot stream simply never
+	 * calls it, and `SandboxExecResult.stdout` still carries the complete
+	 * output either way. A caller that wants only the result ignores this
+	 * and behaves exactly as before.
+	 *
+	 * The callback must not throw and must not be awaited — it is on the
+	 * read path of a running process, so a slow or failing consumer would
+	 * otherwise become a slow or failing command.
+	 */
+	readonly onOutput?: (chunk: {
+		readonly stream: 'stdout' | 'stderr'
+		readonly data: string
+	}) => void
+	/**
 	 * Cancellation for the command. A backend that honours it kills the
 	 * process; one that does not simply ignores it, so this is additive.
 	 *
