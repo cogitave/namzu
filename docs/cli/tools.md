@@ -101,6 +101,25 @@ permissions:
 An effect is `allow`, `ask` or `deny`, either for a whole tool or per argument
 pattern. More specific patterns are matched first.
 
+**An `allow` pattern has to match from the start of an argument's value.** So
+`"git status*"` allows `git status` and `git status --porcelain`, and does not
+allow `rm -rf ~/.ssh; git status` — which it used to, because the pattern was
+matched anywhere in the call's arguments and the text an operator named could be
+preceded by anything. If you want the loose form, write it: a pattern starting
+with `*`, such as `"*git status*"`, still matches anywhere.
+
+**A `deny` pattern is still matched anywhere, deliberately.** A deny that
+stopped matching would fail open — `"rm -rf*"` is meant to catch
+`sudo rm -rf /var` too — while a deny that matches too much only costs you a
+prompt.
+
+Two limits are worth knowing, because both follow from a pattern being matched
+against the call's arguments as a whole rather than against one named argument:
+a pattern can match the start of **any** argument's value, not only the one you
+had in mind, and the match is open-ended on the right, so `"git status *"` also
+covers `git statusx`. Write a `deny` for anything you need refused rather than
+relying on an `allow` being narrow.
+
 **`ask` is the default, so writing it changes nothing** — an unmatched call is
 already asked about. It is spelled out so a table can say what it means rather
 than leaving a reader to infer it from an absence, and it is why there is no way
