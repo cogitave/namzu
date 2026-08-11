@@ -673,10 +673,10 @@ async function execViaWorker(
 						| { type: 'error'; error: string }
 					if (event.type === 'stdout_delta') {
 						stdout += event.data
-						options.onOutput?.({ stream: 'stdout', data: event.data })
+						opts?.onOutput?.({ stream: 'stdout', data: event.data })
 					} else if (event.type === 'stderr_delta') {
 						stderr += event.data
-						options.onOutput?.({ stream: 'stderr', data: event.data })
+						opts?.onOutput?.({ stream: 'stderr', data: event.data })
 					} else if (event.type === 'result') {
 						exitCode = event.exitCode
 						timedOut = event.timedOut
