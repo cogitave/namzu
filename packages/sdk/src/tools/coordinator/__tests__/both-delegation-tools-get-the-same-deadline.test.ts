@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { DEFAULT_TOOL_TIMEOUT_MS } from '../../../runtime/query/executor.js'
 import { buildAgentTool } from '../agent.js'
-import { buildCoordinatorTools, DELEGATION_TIMEOUT_MS } from '../index.js'
+import { DELEGATION_TIMEOUT_MS, buildCoordinatorTools } from '../index.js'
 
 /**
  * Two tools delegate a whole agent run and block on it. One declared a
