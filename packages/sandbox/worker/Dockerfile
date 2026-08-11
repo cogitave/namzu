@@ -23,8 +23,13 @@
 #
 # Trust model:
 #   - Container is the trust boundary; host treats process inside
-#     as untrusted code. Worker listens on 127.0.0.1 only; outbound
-#     network goes through the egress proxy (P3.2).
+#     as untrusted code. The worker listens on every interface and
+#     authenticates nobody, so that boundary is the network the
+#     container is attached to — not the bind address. This line used
+#     to claim "127.0.0.1 only", which was never true of the default.
+#   - Outbound goes through the egress proxy where one is configured.
+#     It allows by resolved address and brokers credentials outbound;
+#     it does not authenticate anything inbound.
 #   - Non-root user (`namzu:1001`) for the worker process. Host
 #     mounts `/workspace` writable to that uid.
 # =============================================================================
