@@ -1,6 +1,9 @@
 export { StdioTransport } from './stdio.js'
 export { HttpSseTransport } from './http-sse.js'
 export { StreamableHttpTransport } from './streamable-http.js'
+// The server half. The three above connect this process to somebody
+// else's MCP server; this one lets somebody else's client drive ours.
+export { ServerStdioTransport } from './server-stdio.js'
 
 export { MCPClient } from './client.js'
 
