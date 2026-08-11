@@ -27,8 +27,8 @@ import {
 import { runCommand } from './commands/run.js'
 import { stubCommands } from './commands/stubs.js'
 import type { CommandContext } from './commands/types.js'
-import { loadConfig } from './config/load.js'
-import { EXIT_INTERNAL_ERROR } from './exit-codes.js'
+import { ConfigLoadError, loadConfig } from './config/load.js'
+import { EXIT_BAD_CONFIG, EXIT_INTERNAL_ERROR } from './exit-codes.js'
 import { type FormatName, createFormatter, isFormatName } from './output/index.js'
 import { compilePermissions } from './permissions/rules.js'
 
@@ -160,6 +160,15 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 	} catch (err) {
 		if (err instanceof CommanderError) {
 			return mapCommanderError(err)
+		}
+		// A config file the operator can fix. The message names the file and
+		// what is wrong with it; a stack trace would only point at the reader
+		// that noticed, which is not where the problem is.
+		if (err instanceof ConfigLoadError) {
+			process.stderr.write(
+				`${err.message}\nnamzu will not start with a config it cannot read. Fix the file or remove it.\n`,
+			)
+			return EXIT_BAD_CONFIG
 		}
 		process.stderr.write(
 			`Fatal: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`,

@@ -1,7 +1,7 @@
 ---
 title: Headless runs
 description: namzu run and namzu run-stream — one prompt, no terminal. Shared options, the working directory, exit codes, and the NDJSON event stream.
-last_updated: 2026-08-09
+last_updated: 2026-08-11
 status: current
 related_packages: ["@namzu/cli"]
 ---
@@ -275,6 +275,7 @@ later `history` look broken with nothing to connect it to.
 | `2` | No prompt was supplied. |
 | `64` | An argument is wrong (unknown option, bad `--cwd`), or a slash command was named and could not run — see [Your own slash commands](./tui.md#they-work-in-scripts-too). |
 | `77` | The folder has not been trusted, and **nothing ran**. Fixed by a decision, not by a different invocation — see [The folder has to be trusted](#the-folder-has-to-be-trusted). |
+| `78` | A config file is there and could not be read, and **nothing ran** — see [A config namzu cannot read stops the run](#a-config-namzu-cannot-read-stops-the-run). |
 
 A stopped run exits 1 even though it produced text, so
 `namzu run … > out.txt && deploy` cannot proceed on a partial or refused answer.
@@ -283,6 +284,32 @@ A stopped run exits 1 even though it produced text, so
 one a human decision about a folder can fix, and a caller that cannot tell them
 apart ends up matching on the message text — after which the message can never
 be reworded.
+
+## A config namzu cannot read stops the run
+
+`namzu.config.json` and `~/.namzu/config.yaml` are read before anything else
+happens. A file that is **not there** contributes nothing — that is the ordinary
+case and it stays the ordinary case. A file that **is** there and cannot be read
+— malformed, unopenable, or holding something that is not a mapping of settings
+— now ends the run with exit `78` and a message naming the file:
+
+```console
+$ namzu run "ship it"
+/srv/app/namzu.config.json is not valid JSON: Expected ',' or '}' after property value at position 34
+namzu will not start with a config it cannot read. Fix the file or remove it.
+$ echo $?
+78
+```
+
+This used to start anyway. An unreadable file was read as an empty one, and an
+empty one means no settings — including no `permissions`. A headless run sends
+every call no rule covered to `auto`, so a `deny` an operator had written became
+approval of exactly those calls, with nothing on stdout or stderr to say the
+table had been dropped. A missing brace was enough.
+
+The two situations no longer share a branch. For a run with no rules, remove the
+file or empty it; both still mean "no settings". What no longer means it is a
+file that says something namzu cannot read.
 
 ### `run-stream`
 

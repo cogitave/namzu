@@ -37,6 +37,18 @@
  *                             nothing else is. A caller who cannot tell them
  *                             apart matches on the message string, and then
  *                             the message can never be reworded.
+ *   78  EXIT_BAD_CONFIG     — sysexits EX_CONFIG; a config file is present and
+ *                             its contents could not be established, so the
+ *                             run refused to start rather than continue with
+ *                             settings it failed to read. Distinct from 2 for
+ *                             the reason 2 is distinct from 0: "namzu is not
+ *                             configured here" and "your configuration is
+ *                             unreadable" are fixed by opposite actions, and a
+ *                             caller that cannot tell them apart treats a
+ *                             broken file as an absent one — which is the
+ *                             fail-open this code exists to make visible.
+ *                             Distinct from 70 on the same grounds as 64: 70
+ *                             says this CLI is broken, 78 says the file is.
  */
 export const EXIT_OK = 0
 export const EXIT_FAIL = 1
@@ -45,6 +57,7 @@ export const EXIT_USAGE = 64
 export const EXIT_UNAVAILABLE = 69
 export const EXIT_INTERNAL_ERROR = 70
 export const EXIT_UNTRUSTED = 77
+export const EXIT_BAD_CONFIG = 78
 
 export type CliExitCode =
 	| typeof EXIT_OK
@@ -54,3 +67,4 @@ export type CliExitCode =
 	| typeof EXIT_UNAVAILABLE
 	| typeof EXIT_INTERNAL_ERROR
 	| typeof EXIT_UNTRUSTED
+	| typeof EXIT_BAD_CONFIG

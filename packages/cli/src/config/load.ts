@@ -11,6 +11,11 @@
  *
  * In M0 we wire steps 2, 3, 4, 5. CLI-flag merging happens in `bin.ts`
  * where Commander knows what was explicitly set vs defaulted.
+ *
+ * A file that is not there contributes nothing, and that is a default. A file
+ * that IS there and cannot be read throws {@link ConfigLoadError} — this loader
+ * has no way to say "some of your settings", and will not pretend the ones it
+ * failed to read were never written.
  */
 
 import { readFileSync } from 'node:fs'
@@ -48,24 +53,105 @@ export function loadConfig(opts: LoadConfigOptions = {}): NamzuCliConfig {
 	return mergeConfigs(DEFAULT_CONFIG, userCfg, projectCfg, envCfg)
 }
 
-function readYamlIfExists(path: string): MutableConfig {
-	const raw = safeRead(path)
-	if (raw === null) return {}
-	try {
-		return sanitize(yamlParse(raw))
-	} catch {
-		return {}
+/**
+ * A config file namzu could not read.
+ *
+ * Its own class rather than a bare `Error` so `cli.ts` can print the message on
+ * its own and exit `EXIT_BAD_CONFIG`, instead of the stack trace an internal
+ * error deserves and an operator's typo does not.
+ */
+export class ConfigLoadError extends Error {
+	/** The file whose contents could not be established. */
+	readonly path: string
+
+	constructor(path: string, message: string, options?: { cause?: unknown }) {
+		super(message, options)
+		this.name = 'ConfigLoadError'
+		this.path = path
 	}
 }
 
-function readJsonIfExists(path: string): MutableConfig {
-	const raw = safeRead(path)
+function readYamlIfExists(path: string): MutableConfig {
+	const raw = readIfPresent(path)
 	if (raw === null) return {}
+	let parsed: unknown
 	try {
-		return sanitize(JSON.parse(raw))
-	} catch {
-		return {}
+		parsed = yamlParse(raw)
+	} catch (cause) {
+		throw new ConfigLoadError(path, `${path} is not valid YAML: ${reasonOf(cause)}`, { cause })
 	}
+	return asConfigObject(path, parsed)
+}
+
+function readJsonIfExists(path: string): MutableConfig {
+	const raw = readIfPresent(path)
+	if (raw === null) return {}
+	let parsed: unknown
+	try {
+		parsed = JSON.parse(raw)
+	} catch (cause) {
+		throw new ConfigLoadError(path, `${path} is not valid JSON: ${reasonOf(cause)}`, { cause })
+	}
+	return asConfigObject(path, parsed)
+}
+
+/**
+ * The file's text, or `null` when the file is genuinely not there.
+ *
+ * Absent and unreadable used to share one `catch`, and the shared answer was
+ * `{}` — "no settings". For a file nobody wrote that is the right default. For
+ * one that exists and could not be opened it is the wrong one, and wrong in the
+ * direction that never announces itself: `permissions` is read from these files,
+ * so an unreadable config becomes an empty rule table, and a headless run
+ * resolves every call no rule covered to `auto`. The operator's deny list
+ * becomes approval of the same calls, on the one path where nobody is watching.
+ *
+ * So only "the file is not there" reads as no settings. `ENOENT` is the file
+ * itself missing; `ENOTDIR` is a parent that is not a directory, which means the
+ * same thing — nothing was ever written at that path. A permission error, a
+ * directory where a file belongs, or an I/O failure all mean the file exists and
+ * its contents could not be established, and that is a refusal.
+ *
+ * See `docs/conventions/an-optional-dependency-may-not-degrade-a-check.md`: the
+ * degradation that matters is the one turning "I cannot establish this" into
+ * "this is satisfied".
+ */
+function readIfPresent(path: string): string | null {
+	try {
+		return readFileSync(path, 'utf8')
+	} catch (cause) {
+		const code = (cause as NodeJS.ErrnoException | null)?.code
+		if (code === 'ENOENT' || code === 'ENOTDIR') return null
+		throw new ConfigLoadError(path, `${path} could not be read: ${reasonOf(cause)}`, { cause })
+	}
+}
+
+/**
+ * The parsed document as a config object, refusing anything that is not one.
+ *
+ * An empty file parses to `null`, and that is a genuine "no settings" — a file
+ * someone emptied says nothing, which is what it looks like. A scalar or a list
+ * is different: it is content namzu cannot read as settings, and admitting it as
+ * `{}` is the same fail-open as the unreadable file one function up, reached by
+ * a different route.
+ */
+function asConfigObject(path: string, parsed: unknown): MutableConfig {
+	if (parsed === null || parsed === undefined) return {}
+	if (typeof parsed !== 'object' || Array.isArray(parsed)) {
+		throw new ConfigLoadError(
+			path,
+			`${path} must contain a mapping of settings, but its top level is ${describe(parsed)}`,
+		)
+	}
+	return sanitize(parsed)
+}
+
+function describe(value: unknown): string {
+	return Array.isArray(value) ? 'a list' : `a ${typeof value}`
+}
+
+function reasonOf(cause: unknown): string {
+	return cause instanceof Error ? cause.message : String(cause)
 }
 
 /**
@@ -122,8 +208,7 @@ function readEnv(env: NodeJS.ProcessEnv): MutableConfig {
 	return out
 }
 
-function sanitize(value: unknown): MutableConfig {
-	if (typeof value !== 'object' || value === null) return {}
+function sanitize(value: object): MutableConfig {
 	const v = value as Record<string, unknown>
 	const out: MutableConfig = {}
 	for (const key of Object.keys(CONFIG_READERS) as (keyof NamzuCliConfig)[]) {
@@ -143,12 +228,4 @@ function mergeConfigs(...sources: readonly MutableConfig[]): NamzuCliConfig {
 	const out: MutableConfig = {}
 	for (const src of sources) Object.assign(out, src)
 	return out
-}
-
-function safeRead(path: string): string | null {
-	try {
-		return readFileSync(path, 'utf8')
-	} catch {
-		return null
-	}
 }
