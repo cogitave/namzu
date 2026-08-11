@@ -29,8 +29,12 @@
  *  - ACI runs the container in a Microsoft-owned isolation host;
  *    inside, the worker is a non-root user (image's `USER namzu`).
  *  - The container group can be subnet-injected (no public IP) when
- *    `subnetId` is supplied. Without it the IP is public — fine for
- *    benchmarking, NOT acceptable for production. Caller decides.
+ *    `subnetId` is supplied. Without it the address is public — fine for
+ *    benchmarking, NOT acceptable for production. The caller decides,
+ *    but has to say so: with neither `subnetId` nor `allowPublicAddress`
+ *    the backend refuses to claim. This line used to end "Caller
+ *    decides", and nothing asked them — omitting a field they had never
+ *    heard of chose the public address silently.
  *  - The Confidential variant of Standby Pools (AMD SEV-SNP TEE) is
  *    a pool-side knob, not a backend knob — the backend never
  *    chooses; it just PUTs against whichever pool the caller named.
@@ -88,11 +92,28 @@ export interface ACIStandbyPoolBackendInternalConfig {
 	 */
 	readonly getArmToken: ArmTokenProvider
 	/**
-	 * Optional subnet to inject the container group into (no public IP).
-	 * Strongly recommended for production. When omitted, ACI assigns a
-	 * public IP — fine for benchmarks, attack-surface for prod.
+	 * Subnet to inject the container group into, so it has no public
+	 * address. Omitting it means the platform assigns a public one, which
+	 * the backend now refuses unless {@link allowPublicAddress} says
+	 * otherwise — so this is optional in the type and required in practice
+	 * for anything but a benchmark.
 	 */
 	readonly subnetId?: string
+	/**
+	 * Claim a container group on a public address anyway, with no subnet.
+	 *
+	 * Off by default, and the default is the whole point. The worker this
+	 * backend dials has no authentication of any kind — its own docblock
+	 * says so — so a public address puts an unauthenticated control API on
+	 * the internet. That is a fine trade for a benchmark and never for
+	 * production, and the difference between the two is a decision an
+	 * operator makes rather than one a missing field makes for them.
+	 *
+	 * Named for what it grants rather than what it disables: an operator
+	 * reading `allowPublicAddress: true` in a config review knows what they
+	 * are looking at.
+	 */
+	readonly allowPublicAddress?: boolean
 	readonly readyPollIntervalMs?: number
 	readonly readyTimeoutMs?: number
 	/**
@@ -335,11 +356,41 @@ export function assertEnforceable(options: SandboxBackendOptions): void {
 	)
 }
 
+/**
+ * Refuse to claim a container group that will answer on a public address.
+ *
+ * The sibling above refuses controls this backend cannot enforce. This
+ * refuses one it *can* enforce and would otherwise skip by omission —
+ * which is the more dangerous shape, because nothing is being dropped and
+ * so nothing looks wrong. A caller who never heard of `subnetId` gets a
+ * working sandbox on the internet and no signal at all.
+ *
+ * What is on that address matters: `worker/server.js` states "Authn: none"
+ * in its own docblock and binds every interface. Inside a private network
+ * that is the boundary doing the work. With a public address there is no
+ * boundary left, and the worker's `/execute` is reachable by anyone.
+ *
+ * Defaulting to refusal rather than to a warning, because a warning on a
+ * path that otherwise succeeds is read once and never again.
+ */
+export function assertNotPubliclyAddressed(config: {
+	subnetId?: string
+	allowPublicAddress?: boolean
+}): void {
+	if (config.subnetId) return
+	if (config.allowPublicAddress) return
+
+	throw new Error(
+		'The standby-pool sandbox backend will not claim a container group without `subnetId`: with no subnet the platform assigns a public address, and the worker on it has no authentication of any kind, so its execute endpoint would be reachable from the internet. Supply `subnetId` to inject the group into a private network, or set `allowPublicAddress: true` if this is a benchmark and you mean it.',
+	)
+}
+
 async function spawnAciSandbox(
 	config: ACIStandbyPoolBackendInternalConfig,
 	options: SandboxBackendOptions,
 ): Promise<Sandbox> {
 	assertEnforceable(options)
+	assertNotPubliclyAddressed(config)
 	const id = generateSandboxId()
 	const prefix = config.containerNamePrefix ?? DEFAULT_CONTAINER_NAME_PREFIX
 	const cgName = `${prefix}-${id
