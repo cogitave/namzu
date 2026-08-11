@@ -40,6 +40,35 @@ pnpm build        # Build all packages
 
 Use `pnpm --filter <pkg>` to scope commands to a single package.
 
+<ci_gates>
+Those four are a **subset**. The `Build & Test` job in `.github/workflows/ci.yml` runs sixteen steps, in this order, and the branch is not green until every one passes.
+
+| CI step | Run it locally |
+|---|---|
+| Lint | `pnpm lint` |
+| Type check | `pnpm typecheck` |
+| Build | `pnpm -r build` |
+| Test | `pnpm -r test` |
+| Process-level regression tests | `pnpm --filter @namzu/sdk test:proc` |
+| External-name audit | `node scripts/audit-external-names.mjs` |
+| Model price catalogue matches its source | `node scripts/generate-model-prices.mjs --check` |
+| Installer parses as POSIX sh | `sh -n install.sh && dash -n install.sh` |
+| Evals | `node packages/cli/dist/bin.js eval --dir packages/evals --out eval-report.json` |
+| SDK coverage (produce summary) | `pnpm --filter @namzu/sdk test:coverage` |
+| SDK coverage floor gate | `node .github/scripts/check-sdk-module-coverage.mjs` |
+| SDK test-presence gate | `node .github/scripts/check-sdk-test-presence.mjs` |
+| Publish-metadata gate | `node .github/scripts/check-publish-metadata.mjs` |
+| Pre-publish consumer install check | `bash .github/scripts/verify-consumer-install.sh` |
+| Public-surface regression check | `node .github/scripts/verify-public-surface.mjs` |
+| publint (package.json shape) | `npx -y publint@latest packages/<pkg>` |
+
+Eight of those carry `if: matrix.gates` and so run on one matrix leg only. Locally there is no leg, so run all sixteen.
+
+A **second job**, `Docs`, runs `node tools/check-docs.mjs` (= `pnpm docs:check`) on a full-history checkout. Its drift check compares a document's last commit against its `resource:`'s, which `git log` cannot answer on a shallow clone, so the gate refuses one rather than passing.
+
+**Why the short list is not enough.** A job stops at its first failing step, and every step after it is reported `skipped`, not `failure`. A red run therefore shows one red entry and a column of grey — and grey is not "these passed", it is "these were never asked". The four commands at the top of this section are the first four rows of that table: green on them establishes four of the sixteen steps and nothing whatsoever about the other twelve.
+</ci_gates>
+
 ## Where to find things
 
 This file is a **router**, not a rulebook. Detail lives in the folders below; read their `README.md` before drilling deeper.
@@ -76,6 +105,18 @@ This file is a **router**, not a rulebook. Detail lives in the folders below; re
   <runtime_state path=".namzu/">
     The repo's own dogfooding runtime state (threads, sessions, runs). Do not edit by hand.
   </runtime_state>
+
+  <worktrees path="(agent checkouts — the worktrees directory under the harness config)">
+    Path: `.claude/worktrees/<name>`, written here in a code span because the audit forbids that directory's name in bare prose. Most work in this repo now happens in one, and the directory is **gitignored** — a nested checkout committed as a gitlink is not clonable. So a worktree is a whole second copy of the tree carrying its own untracked state, and three things follow that have each cost a diagnosis.
+
+    **`.work/` is per-worktree. It is not shared and it does not travel with the branch.** Being gitignored is exactly why: a freshly added worktree has no `.work/` at all, and each existing one lists a different set of sessions in its own `.work/sessions/README.md`. The `pre-commit` hook resolves that index relative to the current working directory, so it gates on the sessions listed in **this** worktree — a session opened here is invisible to the shared checkout and to every sibling. Open your session where you are working; do not go looking for it elsewhere.
+
+    **A fresh worktree is not a working checkout until `pnpm install && pnpm -r build` has run in it.** Several gates read build output rather than source, and they name the source when they fail. Run `node .github/scripts/check-publish-metadata.mjs` in an unbuilt worktree and it reports, for thirteen of the fourteen publishable packages, that the package "would publish without its `main` (dist/index.js)". That is not a manifest defect: the script packs each package and asserts the declared entry point is in the tarball, and there is no `dist/` yet. The `Evals` gate fails the same way, because it invokes `packages/cli/dist/bin.js`.
+
+    **A lint finding is not evidence your branch caused it.** `pnpm lint` is `pnpm -r lint`, and each package's script is `biome check src/` — the package's whole source tree, never your diff. A worktree branched from an older `origin/main` therefore reports whatever was there at that commit. Check `git diff --name-only origin/main...HEAD` before you accept a hit as yours, and never reformat a file your branch did not change in order to make a gate pass.
+
+    `scripts/audit-external-names.mjs` skips this directory by path, so running it from the shared checkout never audits a worktree; run it from inside your worktree to audit the tree you are actually changing.
+  </worktrees>
 </routing>
 
 ## Documentation standard
@@ -97,7 +138,7 @@ The gate is authoritative only inside the directories listed in its `CONFORMING`
 2. Before a non-trivial change → read the relevant conventions.
 3. After drafting a plan → run an adversarial second-opinion check (see `codex-check` skill).
 4. **Every commit while an in-progress session exists** → `progress.md` entry is written **synchronously with the commit**, not as a follow-up. `.work/` is gitignored, so the entry does not enter the commit itself — it lives on local disk, and the discipline is that the working-tree update happens before `git commit` runs. This is non-negotiable — the log is what makes a fresh agent able to pick up after `/clear`, and a six-commit gap has happened before. An entry is one line minimum: `- <hash> <subject> — what/why` (hash filled post-commit); add a `**Deviation:**` line if the commit diverges from the ratified plan. See skill: `commit`.
-5. After implementation → `pnpm typecheck && pnpm lint && pnpm test` must all pass.
+5. After implementation → `pnpm typecheck && pnpm lint && pnpm test` must all pass. That trio is three of the sixteen steps CI runs, not the gate — before pushing, work the `<ci_gates>` table under **Build & Test**.
 6. Commit touches public surface (exported types, wire schema, CLI flags, API routes)? → **queue a `**Docs debt:**` line in the touching commit's `progress.md` entry**; the debt is cleared by running the `update-docs` skill before `freeze-session`. Queuing is mandatory per commit; actually writing `docs/` pages can batch at freeze time.
 7. Decisions turning final → freeze the session; extract stable rules into `docs/conventions/`, written to the documentation standard above.
 </flow>
@@ -124,6 +165,10 @@ Releases are driven by [Changesets](https://github.com/changesets/changesets). E
 - **Changing a default** ⇒ `major`, and the changeset names the value that changed and what a caller does to keep the old behaviour.
 
 A changeset body is read by a stranger deciding whether to take the upgrade. Name what breaks and what to do about it, not what the work was.
+
+**A version PR is a snapshot, and merging a stale one spends a version number on nothing.** Before merging `chore(release): version packages`, every changeset file present on `main` must appear in that PR's deleted files. One missing means the PR was computed before that changeset landed; merge it and the publish step sees pending changesets, opens a fresh version PR instead of publishing, and the bump it already wrote to the CHANGELOG reaches no registry. Its existence is not evidence of its currency — check what it consumes.
+
+**A green release run is not a publish, and a version number is not the fix.** Confirming a release means asking the registry, and picking the right run to watch in the first place. Both procedures, with the commands, are in skill: `release` (Phase 2, steps 4 and 6).
 </releases>
 
 <workflow_safety>

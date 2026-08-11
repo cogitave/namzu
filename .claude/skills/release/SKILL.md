@@ -94,7 +94,46 @@ Cuts new versions of publishable packages via [Changesets](https://github.com/ch
    - Runs the pre-publish consumer-install check (`.github/scripts/verify-consumer-install.sh`) against the packed tarballs.
    - Invokes `pnpm changeset publish` — publishes every bumped package to npm with provenance, creates Git tags (`@namzu/<pkg>@<version>`), and GitHub Releases.
 
-6. Monitor `https://github.com/cogitave/namzu/actions` for the release run. **Confirm each published package appears on npm under its expected dist-tag by asking npm, not by reading the workflow's exit status** — `npm view <pkg> version` against the version in `package.json` on `main`. A release run can succeed without publishing: if it re-versions instead, it exits green and opens a PR. Green means the run did what it decided to do, not that a package shipped.
+6. **Watch the right run.** Pick it by head SHA, never by recency:
+
+   ```bash
+   git fetch origin main && git rev-parse origin/main
+   gh run list --workflow=release.yml --limit 5 \
+     --json headSha,databaseId,status,conclusion,url
+   ```
+
+   `gh run list --limit 1` immediately after a merge returns the **previous**
+   push's run — the run for your merge commit has not been created yet. That
+   older run then completes green, because it was always going to, and says
+   nothing about the merge you just made. Take the entry whose `headSha` equals
+   `origin/main`; if no entry carries it, the run does not exist yet. Wait for
+   it rather than reading the top row.
+
+7. **Confirm the publish against the registry, not against the run.** A release
+   run can succeed without publishing: if it re-versions instead, it exits green
+   and opens a PR. Green means the run did what it decided to do.
+
+   Ask the registry itself rather than a package manager holding a local
+   metadata cache — a cached answer after a real publish still names the old
+   version, which reads exactly like a failed release:
+
+   ```bash
+   curl -sS https://registry.npmjs.org/@namzu/sdk/latest \
+     | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>console.log(JSON.parse(s).version))"
+   ```
+
+   Compare against the version in `package.json` on `main`, per package.
+
+8. **Confirm the fix is inside the tarball, not just in the version number.** A
+   version can be published from a build that does not contain the change; the
+   number agreeing proves a publish happened, not what it shipped. Fetch what
+   the registry actually holds and look:
+
+   ```bash
+   npm pack @namzu/sdk@<version> --pack-destination .
+   tar -tzf namzu-sdk-<version>.tgz | head
+   tar -xzOf namzu-sdk-<version>.tgz package/dist/<file> | grep <the change>
+   ```
 </procedure_phase_2>
 
 ## Hard rules
@@ -105,6 +144,7 @@ Cuts new versions of publishable packages via [Changesets](https://github.com/ch
 - Never skip hooks (`--no-verify`, `--no-gpg-sign`) during a release commit.
 - Never merge a "Version Packages" PR if CI is red on it — the red gate is catching a real publish-time regression.
 - Never merge a "Version Packages" PR that does not consume every changeset on `main` (Phase 2, step 4). Its existence is not evidence of its currency.
+- Never report a release as shipped on the strength of a green run. A run selected by recency is usually the previous push's, and a green one may have re-versioned rather than published (Phase 2, steps 6-7).
 - Peer range widening / narrowing happens via Changesets config (`___experimentalUnsafeOptions_WILL_CHANGE_IN_PATCH.onlyUpdatePeerDependentsWhenOutOfRange`). Do not hand-edit peer ranges in `package.json` files unless the change is a policy decision being ratified in a session (e.g., the original `>=0.1.6 <1.0.0` policy set in ses_012).
 - NPM Trusted Publisher is configured via OIDC (provenance). Do not add an `NPM_TOKEN` secret unless switching to classic auth.
 </hard_rules>
