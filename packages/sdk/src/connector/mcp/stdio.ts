@@ -13,6 +13,111 @@ import { type Logger, getRootLogger } from '../../utils/logger.js'
  */
 const TERMINATE_GRACE_MS = 2_000
 
+/**
+ * The variables a child needs in order to be a working process at all.
+ *
+ * This spawn used to pass `{ ...process.env, ...config.env }`, so a connected
+ * server received every credential the host happened to hold — measured at 119
+ * variables on a developer machine, including a planted secret the server had
+ * no reason to see. A server that needs one token was handed all of them, and
+ * nothing in the config said so.
+ *
+ * The list below is process plumbing, not secrets: where to find executables,
+ * where the home and temp directories are, what the locale is. Dropping any of
+ * it does not harden anything and does break servers — a child with no `PATH`
+ * cannot resolve its own interpreter.
+ *
+ * Anything else a server needs is now named: `env` gives it a literal value,
+ * and `inheritEnv` names a parent variable to pass through. Naming is the
+ * point — a grant that has to be written down is a grant somebody can review.
+ *
+ * Windows spellings are matched case-insensitively, because its environment is
+ * case-insensitive and a lookup for `Path` against a key stored as `PATH` would
+ * silently drop it — which would present as "the server does not start on
+ * Windows" rather than as anything to do with this list.
+ */
+const BASE_ENV_KEYS: readonly string[] = [
+	// Everywhere.
+	'PATH',
+	'LANG',
+	'LC_ALL',
+	'LC_CTYPE',
+	'TZ',
+	// POSIX.
+	'HOME',
+	'SHELL',
+	'TMPDIR',
+	'USER',
+	'LOGNAME',
+	// Windows. `SystemRoot` and `ComSpec` are load-bearing: without them a
+	// child cannot resolve system DLLs or the command interpreter.
+	'PATHEXT',
+	'SystemRoot',
+	'SystemDrive',
+	'ComSpec',
+	'WINDIR',
+	'TEMP',
+	'TMP',
+	'USERPROFILE',
+	'HOMEDRIVE',
+	'HOMEPATH',
+	'APPDATA',
+	'LOCALAPPDATA',
+	'PROGRAMDATA',
+	'PROGRAMFILES',
+	'NUMBER_OF_PROCESSORS',
+	'PROCESSOR_ARCHITECTURE',
+]
+
+/**
+ * Read one variable from the parent, honouring the platform's own casing rules.
+ *
+ * Node exposes `process.env` on Windows through a case-insensitive proxy, so a
+ * direct lookup already works there — but the KEY this returns has to be the
+ * one the parent actually uses, or a child comparing key names sees a spelling
+ * the host never set.
+ */
+function readParentVar(source: NodeJS.ProcessEnv, name: string): [string, string] | undefined {
+	const direct = source[name]
+	if (direct !== undefined) return [name, direct]
+	if (process.platform !== 'win32') return undefined
+	const lowered = name.toLowerCase()
+	for (const [key, value] of Object.entries(source)) {
+		if (key.toLowerCase() === lowered && value !== undefined) return [key, value]
+	}
+	return undefined
+}
+
+/**
+ * What the child is handed: plumbing, then the named inheritances, then the
+ * literal values.
+ *
+ * Later wins, and the order is the precedence an operator would guess: a
+ * literal `env` entry overrides an inherited one, and both override the base.
+ * Exported for the tests, which assert on the ENV rather than on the spawn —
+ * a test that only checked the config was accepted would have passed against
+ * the version this replaces.
+ */
+export function buildChildEnv(
+	config: Pick<MCPStdioTransportConfig, 'env' | 'inheritEnv'>,
+	source: NodeJS.ProcessEnv = process.env,
+): Record<string, string> {
+	const env: Record<string, string> = {}
+	for (const name of BASE_ENV_KEYS) {
+		const found = readParentVar(source, name)
+		if (found) env[found[0]] = found[1]
+	}
+	for (const name of config.inheritEnv ?? []) {
+		const found = readParentVar(source, name)
+		// A named variable the parent does not hold is simply absent. Refusing
+		// the spawn would turn an optional credential into a startup failure,
+		// and inventing an empty string would tell the server it has one.
+		if (found) env[found[0]] = found[1]
+	}
+	for (const [name, value] of Object.entries(config.env ?? {})) env[name] = value
+	return env
+}
+
 export class StdioTransport implements MCPTransport {
 	private process: ChildProcess | null = null
 	private messageHandlers: Array<(message: MCPJsonRpcMessage) => void> = []
@@ -32,7 +137,7 @@ export class StdioTransport implements MCPTransport {
 		if (this.connected) return
 
 		this.process = spawn(this.config.command, this.config.args ?? [], {
-			env: { ...process.env, ...this.config.env },
+			env: buildChildEnv(this.config),
 			cwd: this.config.cwd,
 			stdio: ['pipe', 'pipe', 'pipe'],
 		})

@@ -65,6 +65,18 @@ export interface McpServerSpec {
 	readonly command?: string
 	readonly args?: readonly string[]
 	readonly env?: Readonly<Record<string, string>>
+	/**
+	 * Variables from the operator's own environment this server may have.
+	 *
+	 * The child used to receive the whole parent environment, so every server
+	 * held every credential on the machine. It now gets process plumbing plus
+	 * what is named — so a server that needs one token is granted that token,
+	 * and the config is where a reviewer can see it.
+	 *
+	 * Prefer this over `env` for anything secret: `env` writes the value into
+	 * the config file, and this leaves it in the environment.
+	 */
+	readonly inheritEnv?: readonly string[]
 	/** Working directory for the child. Defaults to the agent's. */
 	readonly cwd?: string
 	/** HTTP: the server's endpoint. */
@@ -120,6 +132,7 @@ export function transportFor(spec: McpServerSpec, defaultCwd: string): MCPTransp
 			command: spec.command as string,
 			...(spec.args ? { args: [...spec.args] } : {}),
 			...(spec.env ? { env: { ...spec.env } } : {}),
+			...(spec.inheritEnv ? { inheritEnv: [...spec.inheritEnv] } : {}),
 			cwd: spec.cwd ?? defaultCwd,
 		}
 	}

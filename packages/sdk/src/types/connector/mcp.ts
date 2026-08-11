@@ -18,7 +18,24 @@ export interface MCPStdioTransportConfig extends MCPTransportConfigBase {
 	type: 'stdio'
 	command: string
 	args?: string[]
+	/** Literal values for the child. Highest precedence. */
 	env?: Record<string, string>
+	/**
+	 * Parent variables the child may have, named one at a time.
+	 *
+	 * The spawn used to pass the whole parent environment, so a server that
+	 * needed one token received every credential the host held. It now gets
+	 * process plumbing plus what is named here and in `env`, which is what
+	 * makes the grant reviewable: the config says which secrets cross the
+	 * boundary instead of the answer being "all of them".
+	 *
+	 * Use this rather than `env` for a credential — `env` puts the value in the
+	 * config file, and this keeps it in the environment where it already lives.
+	 *
+	 * A name the parent does not hold is absent from the child rather than
+	 * empty, and does not fail the spawn.
+	 */
+	inheritEnv?: readonly string[]
 	cwd?: string
 }
 
