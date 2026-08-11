@@ -1,5 +1,73 @@
 # Changelog
 
+## 26.1.0
+
+### Minor Changes
+
+- 3f44f0d: A command running in a sandbox now reports progress while it runs
+
+  Both halves of this existed and neither was connected to the other.
+
+  Every container worker streams its output a chunk at a time — the wire has always carried `stdout_delta` and `stderr_delta` events — and every backend concatenated those chunks into a string and returned it when the process exited. Separately, `ToolContext.report` exists precisely to answer "is it still working?", is supplied per call by the executor, emits a `tool_progress` event, and is mapped onto the event stream for live consumers. It had **no caller anywhere in the tree**.
+
+  So a command that ran for eight minutes said nothing for eight minutes, over a transport that had been reporting the whole time.
+
+  **New:** `SandboxExecOptions.onOutput`, called as output arrives. Optional and additive — a backend that cannot stream never calls it, and `SandboxExecResult.stdout` still carries the complete output either way, so a caller that ignores it behaves exactly as before. Wired through the two container backends that carry the streaming worker protocol.
+
+  **The `bash` builtin now uses it**, sending the last non-empty line of each chunk to `context.report`. A progress slot renders one line and replaces it, so sending a whole chunk would put a wall of text in a space that shows one line of it.
+
+  Progress is ephemeral by design — `tool_progress` is excluded from the durable transcript so a tool reporting every file it compiles cannot write thousands of lines into the record. The model is still given `result.stdout`; this is a status signal, not a second copy of the output.
+
+- 2737f74: The MCP server has a transport, and a failing post-checkout hook no longer discards a good worktree
+
+  Two independent gaps, both found by studying how a comparable product solves the same problems. Neither is a port: the code here is namzu's, and in both cases the missing piece was smaller than it looked because the machinery already existed.
+
+  **`MCPServer` had no way to run.** It is a complete implementation — `initialize`, `tools/list`, `tools/call`, resource and prompt providers — and nothing anywhere constructed one, because every transport in `connector/mcp/` is the _client_ side: they connect this process to somebody else's server. `ServerStdioTransport` is the other end, so somebody else's client can drive namzu.
+
+  Stdio first, deliberately. The client spawns the server as a child process, so there is no port, no bind address, and no inbound authentication question to answer wrongly. Note that stdout belongs to the protocol on this transport — a stray write corrupts the stream. This repository's logger writes to stderr, which is what makes it safe.
+
+  **`GitWorktreeDriver.create` trusted the exit code.** `git worktree add` runs the repository's post-checkout hook _after_ the checkout completes, so a hook that fails or is killed by a timeout reports failure over a worktree that is finished and usable. Trusting the status threw that worktree away and leaked it — the path stays registered, so the next attempt fails differently, with "already exists".
+
+  `create` now checks the repository when the command reports failure, and accepts only a worktree registered under this exact path carrying the branch this call asked for. A registered path alone proves nothing: it can be a half-finished checkout or one somebody else owns, and those two are indistinguishable from here. Any error while checking counts as a failure, because this runs on a path that has already gone wrong once.
+
+  No behaviour changes for a `create` that succeeds — the check runs only on the failure path.
+
+- bac980a: `approve_plan` now advertises a closed model-facing input schema, and its
+  string fallback stops turning markup into steps.
+
+  A model that serialises `steps` instead of building it tends to reach for
+  XML. The fallback split that string on newlines, so `<steps>`, `<step>` and
+  `</step>` each became a step — and a host numbered them in its approval card
+  and asked a person to approve `</steps>`. Observed on a real run.
+
+  Two changes, in the order they matter:
+
+  - `modelInputSchema` + `enforceModelInput`, the same instrument
+    `ask_user_question` already carries for the same failure. A capable
+    provider now constrains generation to the closed shape, so the array is
+    not serialised in the first place. The schema stays inside the strict
+    subset (`assertStrictSchema` is what would refuse it).
+  - The fallback reads the `<description>` blocks the model named when there
+    are any, drops tag-only lines when there are not, and yields no steps at
+    all for a string carrying no words — rather than inventing one that reads
+    `<steps>`.
+
+  Nothing to do on upgrade. A host that renders `plan.steps` verbatim gets
+  sentences where it used to get fragments; a host that already worked around
+  this can drop the workaround.
+
+### Patch Changes
+
+- fcc9a41: The `Agent` tool now bounds a delegated run by the hour, like its twin
+
+  `buildAgentTool` declared no `timeoutMs`, and declaring nothing is not "no deadline" — it is the executor's `DEFAULT_TOOL_TIMEOUT_MS`, 120 seconds. That is a reasonable bound for a tool call and an absurd one for a call that runs an entire agent to completion and blocks on it.
+
+  Its twin `create_task`, built by `buildCoordinatorTools` in the sibling module, has declared `DELEGATION_TIMEOUT_MS` (one hour) all along, and the measurement behind that number is recorded in its docblock: three delegated children took 4m21s, 5m58s and 8m04s, and all three parents gave up at 120 seconds. That fix reached one of the two delegation surfaces and never carried to the other.
+
+  **What changes for you.** A delegated run through the `Agent` tool that takes longer than two minutes now completes instead of being abandoned. If you were relying on the 120-second bound to catch a wedged child, note that the run budget and the iteration ceiling both still apply above this, and a wedged child is still caught — an hour later rather than two minutes later.
+
+  The two tools are now asserted to agree, so a future change to one deadline fails until it moves the other. That is the assertion, rather than each tool's number separately: drifting apart is the defect, and two independent assertions pass while it happens.
+
 ## 26.0.0
 
 ### Major Changes

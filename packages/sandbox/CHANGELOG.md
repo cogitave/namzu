@@ -1,5 +1,50 @@
 # @namzu/sandbox
 
+## 4.0.0
+
+### Major Changes
+
+- d33bfdd: The standby-pool backend refuses to claim a container group on a public address
+
+  Omitting `subnetId` meant the platform assigned a public address, and the backend claimed the group and dialled it without comment. The worker answering there has no authentication of any kind — `worker/server.js` states "Authn: none" in its own docblock — so an unauthenticated execute endpoint was reachable from the internet, chosen by a caller who had never heard of a field.
+
+  The backend now refuses that combination. Two ways forward, and the error names both:
+
+  - **`subnetId`** — inject the group into a private network. This is the production answer, and the file already recommended it.
+  - **`allowPublicAddress: true`** — a new option, off by default, for a benchmark where you mean it.
+
+  **This is `major` and it will stop a deployment that works today.** If you run this backend with no `subnetId`, the next claim throws instead of succeeding. That is deliberate: the alternative is a warning on a path that otherwise succeeds, which is read once and never again.
+
+  The trust-model docblock used to end "Caller decides". Nothing asked them — omitting a field chose the public address silently, which is not a decision. That sentence has been corrected rather than deleted, so a reader who saw the old one learns what changed.
+
+### Minor Changes
+
+- 3f44f0d: A command running in a sandbox now reports progress while it runs
+
+  Both halves of this existed and neither was connected to the other.
+
+  Every container worker streams its output a chunk at a time — the wire has always carried `stdout_delta` and `stderr_delta` events — and every backend concatenated those chunks into a string and returned it when the process exited. Separately, `ToolContext.report` exists precisely to answer "is it still working?", is supplied per call by the executor, emits a `tool_progress` event, and is mapped onto the event stream for live consumers. It had **no caller anywhere in the tree**.
+
+  So a command that ran for eight minutes said nothing for eight minutes, over a transport that had been reporting the whole time.
+
+  **New:** `SandboxExecOptions.onOutput`, called as output arrives. Optional and additive — a backend that cannot stream never calls it, and `SandboxExecResult.stdout` still carries the complete output either way, so a caller that ignores it behaves exactly as before. Wired through the two container backends that carry the streaming worker protocol.
+
+  **The `bash` builtin now uses it**, sending the last non-empty line of each chunk to `context.report`. A progress slot renders one line and replaces it, so sending a whole chunk would put a wall of text in a space that shows one line of it.
+
+  Progress is ephemeral by design — `tool_progress` is excluded from the durable transcript so a tool reporting every file it compiles cannot write thousands of lines into the record. The model is still given `result.stdout`; this is a status signal, not a second copy of the output.
+
+### Patch Changes
+
+- 1cb8cc9: The package description no longer claims an authentication this proxy does not have
+
+  `package.json#description` described the container tier as an "HTTP worker + JWT-authenticated egress proxy". The egress proxy has no inbound authentication of any kind — no token, no JWT, no check. The only occurrence of `proxy-authorization` in `src/egress/proxy.ts` is in the list of hop-by-hop headers it deletes, so the header a client would authenticate with is explicitly stripped.
+
+  This mattered more than an ordinary comment would, because a package description is the text on the registry page — where somebody decides whether this package is safe to depend on, before they have any source to read.
+
+  The description now says what the proxy actually is: loopback-bound, deciding by resolved address rather than by hostname, and brokering outbound credentials so a token never enters the sandbox. Those are the controls it has, and they are the ones worth knowing about.
+
+  No behaviour changes.
+
 ## 3.0.0
 
 ### Major Changes
