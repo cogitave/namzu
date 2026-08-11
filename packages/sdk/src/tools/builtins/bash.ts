@@ -60,6 +60,27 @@ const inputSchema = z.object({
 
 type BashInput = z.infer<typeof inputSchema>
 
+/**
+ * The last line worth showing from one chunk of streamed output.
+ *
+ * A progress line is a status, not a log: the host renders one line and
+ * replaces it as the next arrives, so sending a whole chunk sends a wall
+ * of text into a slot that shows one line of it. A chunk usually ends
+ * mid-line and usually ends with a newline, so the last NON-EMPTY line is
+ * the most recent complete thing the command actually said.
+ *
+ * Progress is capped rather than truncated with an ellipsis: this is
+ * glanced at, and a marker in a line nobody reads to the end is noise.
+ */
+function lastNonEmptyLine(chunk: string): string | undefined {
+	const lines = chunk.split('\n')
+	for (let i = lines.length - 1; i >= 0; i--) {
+		const line = lines[i]?.trim()
+		if (line) return line.length > 160 ? line.slice(0, 160) : line
+	}
+	return undefined
+}
+
 function isDangerousCommand(command: string): boolean {
 	return DANGEROUS_PATTERNS.some((pattern) => pattern.test(command))
 }
@@ -114,6 +135,19 @@ export const BashTool = defineTool({
 				// Same reason as the host path below: a Stop must reach the
 				// process, not just the promise waiting on it.
 				signal: context.abortSignal,
+				// The worker has always streamed its output; nothing asked for
+				// it, so a command that ran for minutes said nothing until it
+				// exited. `report` is ephemeral by design — it answers "is it
+				// still working?" for a live view and is excluded from the
+				// durable transcript — so this is a progress signal, not a
+				// second copy of the output. `result.stdout` remains the
+				// answer the model is given.
+				onOutput: context.report
+					? ({ data }) => {
+							const line = lastNonEmptyLine(data)
+							if (line) context.report?.(line)
+						}
+					: undefined,
 			})
 
 			if (result.timedOut) {

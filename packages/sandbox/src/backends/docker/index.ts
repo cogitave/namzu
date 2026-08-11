@@ -671,9 +671,13 @@ async function execViaWorker(
 								durationMs: number
 						  }
 						| { type: 'error'; error: string }
-					if (event.type === 'stdout_delta') stdout += event.data
-					else if (event.type === 'stderr_delta') stderr += event.data
-					else if (event.type === 'result') {
+					if (event.type === 'stdout_delta') {
+						stdout += event.data
+						opts?.onOutput?.({ stream: 'stdout', data: event.data })
+					} else if (event.type === 'stderr_delta') {
+						stderr += event.data
+						opts?.onOutput?.({ stream: 'stderr', data: event.data })
+					} else if (event.type === 'result') {
 						exitCode = event.exitCode
 						timedOut = event.timedOut
 					} else if (event.type === 'error') {
