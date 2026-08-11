@@ -31,12 +31,34 @@ An entry names **either** a command **or** a URL, never both.
 | --- | --- | --- |
 | `command` | a local server | The executable to run. |
 | `args` | a local server | Its arguments. |
-| `env` | a local server | Extra environment variables for the child. |
+| `env` | a local server | Literal environment variables for the child. |
+| `inheritEnv` | a local server | Names of variables from **your** environment the child may have. |
 | `cwd` | a local server | Its working directory. Defaults to the agent's. |
 | `url` | a remote server | The endpoint to connect to. |
 | `headers` | a remote server | Extra headers, for authentication. |
 
 An entry naming both, or neither, is refused **by name** rather than skipped — picking one for you would run something you did not ask to run.
+
+### What a local server is handed
+
+A local server gets process plumbing — `PATH`, the home and temp directories, the locale, and the platform equivalents — plus exactly what you name in `env` and `inheritEnv`. It does **not** get the rest of your environment.
+
+That is a change. It used to receive every variable the namzu process held, so a server needing one token was handed every credential on the machine, and nothing in the config recorded it. If a server stops authenticating after an upgrade, this is why, and the fix is to say what it may have:
+
+```json
+{
+  "mcpServers": {
+    "issues": {
+      "command": "some-mcp-server",
+      "inheritEnv": ["GITHUB_TOKEN"]
+    }
+  }
+}
+```
+
+Use `inheritEnv` rather than `env` for anything secret: `env` puts the literal value in a config file you probably commit, while `inheritEnv` names a variable and leaves the value in your environment. A name you have not set is simply absent for the child — the server sees no variable rather than an empty one, and the spawn still succeeds.
+
+A server declared by a **plugin** cannot use `inheritEnv`. A plugin naming the host variables its server receives would be granting itself a credential, which is the operator's call — declare that server under `mcpServers` instead.
 
 ## When a server does not come up
 
