@@ -7,6 +7,7 @@ import { defineTool } from '../defineTool.js'
 import { wrapUntrusted } from '../untrusted-envelope.js'
 import { failureLabel, taskSucceeded } from './outcome.js'
 
+import { DELEGATION_TIMEOUT_MS } from './index.js'
 import type { TaskLaunchedCallback } from './index.js'
 
 /**
@@ -107,6 +108,17 @@ export function buildAgentTool(opts: AgentToolOptions): ToolDefinition {
 		readOnly: false,
 		destructive: false,
 		concurrencySafe: true,
+		// Declaring nothing here does not mean "no deadline"; it means the
+		// executor's 120-second default, which is a bound for a tool call and
+		// absurd for a whole agent run. `create_task` in the sibling module
+		// carries the same reasoning and the same hour, and the measurement
+		// behind that number is in its docblock: three delegated children took
+		// 4m21s, 5m58s and 8m04s, and all three parents gave up at 120s.
+		//
+		// This surface did not get that fix when its twin did, and the file's
+		// own note above records the pair doing exactly this before. The two
+		// tools are twins; a bound applied to one of them is not applied.
+		timeoutMs: DELEGATION_TIMEOUT_MS,
 		...(opts.terminal !== undefined ? { terminal: opts.terminal } : {}),
 		async execute({ description, prompt, subagent_type }, context) {
 			// With a single registered subagent the type is optional — default to
