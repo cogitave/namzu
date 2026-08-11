@@ -157,6 +157,46 @@ const askUserQuestionModelInputSchema: Record<string, unknown> = {
 	additionalProperties: false,
 }
 
+/** One well-formed tag token: `<step>`, `</step>`, `<a href="…">`, `<br/>`. */
+const TAG_TOKEN = /<\/?[A-Za-z][\w-]*(?:\s[^<>]*)?\/?>/g
+const DESCRIPTION_BLOCK = /<description>([\s\S]*?)<\/description>/gi
+
+/**
+ * Peel tag wrappers off the ENDS of one line, and nowhere else — a step
+ * that legitimately says "wrap it in a <div>" keeps its sentence.
+ */
+function unwrapStepLine(line: string): string {
+	let text = line.trim()
+	for (;;) {
+		const next = text
+			.replace(/^<[A-Za-z][\w-]*(?:\s[^<>]*)?>\s*/, '')
+			.replace(/\s*<\/[A-Za-z][\w-]*>$/, '')
+			.trim()
+		if (next === text) break
+		text = next
+	}
+	return text
+}
+
+/**
+ * A step list the model serialized instead of building.
+ *
+ * The line-splitting fallback below is the general case, and it had one
+ * shape badly wrong. A model that serializes this array tends to reach for
+ * MARKUP, not for prose:
+ *
+ *     <steps>
+ *     <step>
+ *     <description>Convert the document to Word</description>
+ *     </step>
+ *     </steps>
+ *
+ * Split on newlines, that is seven "steps", five of which are tags. A host
+ * then numbered them in an approval card and asked a person to approve
+ * `</steps>` — reported from a real run. The descriptions the model named
+ * are right there, so read them; fall back to lines only when there are
+ * none, and drop the lines that carry no words at all.
+ */
 function normalizeApprovePlanSteps(value: unknown): unknown {
 	if (typeof value !== 'string') return value
 
@@ -171,19 +211,84 @@ function normalizeApprovePlanSteps(value: unknown): unknown {
 		}
 	}
 
+	const described = [...trimmed.matchAll(DESCRIPTION_BLOCK)]
+		.map((match) => (match[1] ?? '').trim())
+		.filter(Boolean)
+	if (described.length > 0) {
+		return described.map((description) => ({ description }))
+	}
+
 	const lines = trimmed
 		.split(/\r?\n+/)
 		.map((line) =>
-			line
-				.trim()
-				.replace(/^(?:[-*•]|\d+[.)])\s*/, '')
-				.trim(),
+			unwrapStepLine(
+				line
+					.trim()
+					.replace(/^(?:[-*•]|\d+[.)])\s*/, '')
+					.trim(),
+			),
 		)
-		.filter(Boolean)
+		.filter((line) => line.length > 0 && line.replace(TAG_TOKEN, '').trim().length > 0)
 
-	return (lines.length ? lines : [trimmed]).map((description) => ({
-		description,
-	}))
+	// Every line was markup: there is no plan in this string, and inventing
+	// one step reading `<steps>` is worse than saying so.
+	if (lines.length === 0) {
+		return unwrapStepLine(trimmed).replace(TAG_TOKEN, '').trim()
+			? [{ description: unwrapStepLine(trimmed) }]
+			: []
+	}
+
+	return lines.map((description) => ({ description }))
+}
+
+/**
+ * The single closed shape a capable provider constrains this call to —
+ * the same instrument `ask_user_question` carries, for the same failure.
+ *
+ * `steps` arriving as a STRING is what everything above exists to survive,
+ * and surviving it is not the same as preventing it: the normalizer can
+ * only guess at a structure the model already threw away. Advertising the
+ * closed shape turns the guess into a refusal at generation time.
+ */
+const approvePlanModelInputSchema: Record<string, unknown> = {
+	type: 'object',
+	properties: {
+		title: {
+			type: 'string',
+			description: 'Short title for the plan (e.g. "TypeScript Security & Performance Review").',
+		},
+		summary: {
+			type: 'string',
+			description: '1-3 sentence summary of what you plan to do.',
+		},
+		steps: {
+			type: 'array',
+			description:
+				'A JSON array of ordered step objects. Never a string, and never markup — no <step> or <description> tags.',
+			items: {
+				type: 'object',
+				properties: {
+					description: {
+						type: 'string',
+						description: 'What this step does, as one plain sentence a person can read.',
+					},
+					agent_id: {
+						type: 'string',
+						description: 'Which agent handles this; omit for steps you carry out yourself.',
+					},
+					depends_on: {
+						type: 'array',
+						items: { type: 'string' },
+						description: 'Descriptions of the steps that must finish before this one.',
+					},
+				},
+				required: ['description'],
+				additionalProperties: false,
+			},
+		},
+	},
+	required: ['title', 'summary', 'steps'],
+	additionalProperties: false,
 }
 
 /**
@@ -1013,6 +1118,10 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 					.preprocess(normalizeApprovePlanSteps, z.array(approvePlanStepSchema))
 					.describe('Ordered list of planned steps'),
 			}),
+			modelInputSchema: structuredClone(approvePlanModelInputSchema),
+			enforceModelInput: true,
+			validationErrorHint:
+				'Required shape: {"title":"…","summary":"…","steps":[{"description":"One plain sentence"}]}. "steps" must be a JSON array of objects — never a string, and never markup such as <step> or <description>.',
 			category: 'custom',
 			permissions: [],
 			readOnly: true,
