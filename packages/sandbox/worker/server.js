@@ -30,10 +30,19 @@
  *                         body: { path, content, encoding? }
  *                         response: { ok, bytesWritten }
  *
- * Authn: none. The container only listens on loopback inside its
- * own network namespace; the only thing that can talk to it is
- * the host adapter via Docker's port-forward. JWT-style auth is
- * the egress proxy's job (separate concern, P3.2).
+ * Authn: none, and nothing here checks a caller. What keeps that safe
+ * is the network the container is attached to, NOT the bind address —
+ * this listens on every interface by default and has to, for the
+ * reasons recorded at the `BIND` constant below. So the boundary is the
+ * network namespace, and wherever that boundary is absent this endpoint
+ * is reachable by whoever can route to it.
+ *
+ * This paragraph used to say the worker "only listens on loopback".
+ * It does not, ten lines from a comment that says so correctly, and a
+ * reader who found the true half stopped looking. The claim also
+ * promised authentication from the egress proxy, which has none of any
+ * kind — that proxy stamps credentials outbound and checks nothing
+ * inbound.
  */
 
 const http = require('node:http')
