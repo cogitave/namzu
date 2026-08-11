@@ -194,6 +194,27 @@ const CONFIG_READERS: ConfigReaders = {
 	// operator can see into a server that silently was never there.
 	mcpServers: (v) =>
 		typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as McpServersConfig) : undefined,
+	// Read field by field rather than shape-only, unlike the two above.
+	// Those hand their entries to a compiler that reports a bad one by name;
+	// this one is consumed directly, and a misspelled `require_isolation` or
+	// a string where a list belongs would otherwise become "no requirement"
+	// — a security control silently downgraded by a typo, which is the
+	// failure this whole change exists to remove.
+	sandbox: (v) => {
+		if (typeof v !== 'object' || v === null || Array.isArray(v)) return undefined
+		const raw = v as { enabled?: unknown; requireIsolation?: unknown }
+		const enabled = typeof raw.enabled === 'boolean' ? raw.enabled : undefined
+		const requireIsolation = Array.isArray(raw.requireIsolation)
+			? raw.requireIsolation.filter(
+					(c): c is 'filesystem' | 'network' | 'process' =>
+						c === 'filesystem' || c === 'network' || c === 'process',
+				)
+			: undefined
+		return {
+			...(enabled !== undefined ? { enabled } : {}),
+			...(requireIsolation !== undefined ? { requireIsolation } : {}),
+		}
+	},
 }
 
 function readEnv(env: NodeJS.ProcessEnv): MutableConfig {
