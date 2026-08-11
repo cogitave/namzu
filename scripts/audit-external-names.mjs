@@ -38,15 +38,56 @@
  * and leaving the rest unwritten would let a green run read as a rule that is
  * kept. It is not one.
  *
- * **Respelling walks through.** This matches literal spellings, so every
- * multi-token brand crushed into one entry here is evaded by writing it the way
- * prose actually writes it. Eleven variants were tried against the real script
- * and all eleven passed: a space (`lang chain`, `crew ai`, `chat gpt`, `auto
- * gen`, `llama index`, `open ai`), a hyphen, and an initialism. The sharpest
- * case is `huggingface`: the spaced form is the brand's OWN standard spelling,
- * so for that entry the list is simply spelled wrong for matching. This is a
- * design question — normalise the haystack, or carry real variants per brand —
- * not a lexical patch, and it is filed rather than guessed at here.
+ * **Respelling used to walk through, and mostly no longer does.** This matched
+ * literal spellings, so every multi-token brand crushed into one entry was
+ * evaded by writing it the way prose actually writes it — with a space, a
+ * hyphen, or as an initialism. Measured: eleven of eleven variants passed.
+ *
+ * Closed by `words`, below: an entry now carries the brand written in its OWN
+ * words, and the separator between those words is optional when matching, so
+ * one entry covers `LangChain`, `lang chain` and `lang-chain` at once. The
+ * sharpest case in the report was `huggingface`, where the spaced form is the
+ * brand's own standard spelling and the entry was therefore spelled wrong for
+ * matching; that is a data fix and it is separate from the matching fix.
+ *
+ * **What is deliberately still open**, because closing it costs more than it
+ * buys: the all-lowercase separated form of `open ai`. `an open AI model` is
+ * ordinary and correct English in this domain, and no casing rule separates it
+ * from a lowercase mention of the company — so the separated form of that one
+ * entry is matched only when every word of it is capitalised or ALL-CAPS
+ * (`separatedFormIsEnglish`). `Open AI` and `OPEN AI` are caught; `open ai` is
+ * not. A check that fires on correct prose is a check somebody switches off,
+ * which is the same failure by a different road.
+ *
+ * The rejected alternative was normalising the HAYSTACK — deleting separators
+ * before matching. It was built on the previous entry list and measured on the
+ * same fixtures rather than argued about, because it splits into two designs
+ * that fail differently:
+ *
+ *  - **Collapse, keep the `\b` anchors.** Closes 0 of 13 evasions and loses
+ *    7 of 7 canonical spellings. Collapsing `we copied OpenAI code` yields
+ *    `wecopiedOpenAIcode`, where there is no boundary left to anchor to, so the
+ *    check does not weaken — it stops working. It fails 7 of this file's own
+ *    discriminator cases.
+ *  - **Collapse, drop the anchors.** Closes 11 of 13, and fires on 4 of 15
+ *    ordinary-English controls: `an open airport`, `an open AI model`, `we auto
+ *    generate the client`, `the crew aims to keep the roster small`. That is
+ *    the trade the notes on `cursor`, `render` and `railway` already refuse,
+ *    and it still loses the two multi-word entries.
+ *
+ * Worth stating precisely, because the obvious guess is wrong: dropping the
+ * anchors does NOT resurrect `coherent` for `cohere` or `stranded` for
+ * `strands`. Those two are `collidesWithEnglish`, and the Title-Case guard
+ * catches them independently of the boundary. The false positives it does
+ * produce are the ones listed above, which is why they are listed rather than
+ * summarised.
+ *
+ * The approach here — the brand's own words, with an optional separator —
+ * closes 13 of 13 with 0 of 15 controls firing and 0 canonical spellings lost.
+ * Its cost is a maintenance surface the other option would not have had: a
+ * brand added without `words` is quietly matched the old way. That is real, it
+ * is why the note on `FORBIDDEN` is worded as an instruction, and it is not
+ * something this file can check for itself.
  *
  * **Four channels bypass every entry equally**, all confirmed by running this:
  *
@@ -60,7 +101,31 @@
  * and each is therefore a place a positioning sentence can sit unenforced. They
  * are accepted, not closed — and an accepted gap that is recorded is a
  * decision, while the same gap unrecorded is a surprise for whoever trusts the
- * green.
+ * green. The respelling fix does not change any of them: it decides what
+ * counts as the name, not which text is read.
+ *
+ * ## Prose this repository writes that nothing here reads, measured 2026-08-11
+ *
+ * This walks the working tree. Four surfaces carry authored prose and are not
+ * in it, and none is checked anywhere else either — established by looking
+ * rather than assumed:
+ *
+ *  - **Commit messages.** `.husky/` holds `pre-commit` and `post-commit` and no
+ *    `commit-msg`; there is no commitlint configuration in the repository and
+ *    no commitlint step in `.github/workflows/ci.yml`. So a commit message is
+ *    read by no gate at all, for this rule or any other.
+ *  - **PR titles and bodies**, **issue text**, and **branch names**. The audit
+ *    is invoked once, as `node scripts/audit-external-names.mjs` over a
+ *    checkout; none of those three is in a checkout.
+ *
+ * Not closed here, and the reason is a design question rather than effort: the
+ * text discussing this rule has to name the brands. The issue that produced
+ * this change is a table of eleven of them, and a PR body explaining a fix to
+ * the list cannot avoid them either. So the mechanism needs an exemption for
+ * the conversation ABOUT the rule before it can be turned on at all, and that
+ * is not a variation on this file — it is a hook plus a job that reads the
+ * forge API. Recorded so the next reader inherits the measurement instead of
+ * repeating it.
  */
 
 import { readdir, readFile } from 'node:fs/promises'
@@ -88,13 +153,32 @@ const ROOT = process.cwd()
 const FORBIDDEN = [
 	'anthropic',
 	'claude',
-	'chatgpt',
-	'openai',
-	'langchain',
-	'langgraph',
-	'llamaindex',
-	'autogen',
-	'crewai',
+	// `words` is how the brand is written in prose, and the separator between
+	// those words is optional when matching — so one entry covers the joined
+	// spelling, the spaced one and the hyphenated one. Every entry below whose
+	// canonical form crushes two words together needs it; without it the entry
+	// catches only the spelling nobody types.
+	//
+	// **When you add a brand here, write it in its own words.** That is the one
+	// thing this list cannot check for you: an entry with no `words` is not an
+	// error, it is today's behaviour, and today's behaviour is the defect this
+	// field exists to fix.
+	{ name: 'chatgpt', words: 'chat gpt' },
+	{
+		name: 'openai',
+		words: 'open ai',
+		// `an open AI model` is ordinary English here. See the header: the
+		// separated form is caught only when every word of it reads as a name.
+		separatedFormIsEnglish: true,
+		// An initialism is a different string, not a respelling, so it cannot
+		// be derived — it is data or it is missed.
+		aliases: ['oai'],
+	},
+	{ name: 'langchain', words: 'lang chain' },
+	{ name: 'langgraph', words: 'lang graph' },
+	{ name: 'llamaindex', words: 'llama index' },
+	{ name: 'autogen', words: 'auto gen' },
+	{ name: 'crewai', words: 'crew ai' },
 	// Issue #217. `strands` is a verb this codebase uses correctly about an
 	// orphaned session, and the sentence that first tripped the rule was a
 	// sentence ABOUT the rule tripping.
@@ -103,7 +187,12 @@ const FORBIDDEN = [
 	// 'cursor' is deliberately absent: it collides with the pagination
 	// cursor this codebase threads through every list call, and a rule that
 	// cries wolf on a correct word gets switched off.
-	'copilot',
+	//
+	// `co pilot` also matches the aviation sense, hyphenated or spaced. That is
+	// intended rather than tolerated: "namzu is your co-pilot" is positioning,
+	// which is the sentence this whole rule exists to refuse, and the one-word
+	// spelling was already matched in that sense before this change.
+	{ name: 'copilot', words: 'co pilot' },
 	'gemini',
 	'mistral',
 	// Found while fixing #217, by running the matcher rather than reading it:
@@ -111,7 +200,11 @@ const FORBIDDEN = [
 	// billed as general while leaving this would be fixing one instance of a
 	// class and calling the class done.
 	{ name: 'cohere', collidesWithEnglish: true },
-	'huggingface',
+	// The issue's sharpest finding, and a DATA defect rather than a matching
+	// one: `Hugging Face` is the brand's own standard spelling, so the
+	// one-word form this entry carried is the unusual one and the entry was
+	// doing no work at all. It would still do none under any matcher.
+	{ name: 'huggingface', words: 'hugging face' },
 	'pydantic',
 	'semantic kernel',
 	// Hosting and sandbox services namzu does NOT drive. They appeared as
@@ -138,7 +231,7 @@ const FORBIDDEN = [
 	// prose, as the honest self-reference of a repository that runs on it. That
 	// is a path-or-context exemption, not a lexical one, and it should be
 	// written when there is a line to point at.
-	'github actions',
+	{ name: 'github actions', aliases: ['gh actions'] },
 ]
 
 /**
@@ -170,10 +263,27 @@ const FORBIDDEN = [
 /**
  * `FORBIDDEN` normalised to one shape, so nothing downstream has to ask whether
  * an entry is a string or an object.
+ *
+ * Each entry becomes one or more terms carrying `words` — the brand split into
+ * the words prose writes it in — and every alias becomes a term of its own
+ * under the SAME reported `name`. Keeping the name separate from the spelling
+ * is what lets `DRIVEN_SERVICES`, the reporting line and the self-check tables
+ * go on identifying an entry by `openai` while the matcher works from
+ * `['open', 'ai']`; folding the two together would have made the prose
+ * exemption for a driven service depend on how its brand is punctuated.
  */
-const TERMS = FORBIDDEN.map((entry) =>
-	typeof entry === 'string' ? { name: entry, collidesWithEnglish: false } : entry,
-)
+const TERMS = FORBIDDEN.flatMap((entry) => {
+	const e = typeof entry === 'string' ? { name: entry } : entry
+	const base = {
+		name: e.name,
+		collidesWithEnglish: e.collidesWithEnglish ?? false,
+		separatedFormIsEnglish: e.separatedFormIsEnglish ?? false,
+	}
+	return [
+		{ ...base, words: (e.words ?? e.name).split(' ') },
+		...(e.aliases ?? []).map((alias) => ({ ...base, words: alias.split(' ') })),
+	]
+})
 
 /** Directories whose contents are never scanned, matched by name at any depth. */
 const SKIP_DIRS = new Set(['node_modules', 'dist', 'coverage', '.git', '.turbo'])
@@ -403,7 +513,40 @@ const WORKSPACE_PACKAGE_PATH = /\b(?:packages\/)?providers\/[a-z0-9][a-z0-9.-]*/
  * The transform is pinned by `DISCRIMINATOR_CASES` below rather than trusted.
  */
 function titleCase(name) {
-	return name.replace(/(^|\s)(\w)/g, (_m, lead, ch) => lead + ch.toUpperCase())
+	return titleWords(name.split(' ')).join(' ')
+}
+
+/** The same transform the matcher uses, on the split form it actually holds. */
+const titleWords = (words) => words.map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+
+/**
+ * What may sit between the words of a brand and still be the brand.
+ *
+ * Zero of them is the joined spelling a list like this always carried;
+ * one or more is how prose writes the same name. Making the separator
+ * OPTIONAL rather than required is what lets one entry cover `LangChain`,
+ * `lang chain` and `lang-chain` without three entries drifting apart.
+ */
+const SEPARATOR = '[-\\s]'
+
+/**
+ * Whether a separated match reads as a NAME rather than as two ordinary words.
+ *
+ * Only consulted for `separatedFormIsEnglish` entries, and only on a match that
+ * actually contains a separator. Every word has to be capitalised or ALL-CAPS:
+ * `Open AI` and `OPEN AI` qualify, `open AI` does not — which is the whole
+ * point, because `an open AI model` is a sentence this repository could
+ * legitimately write.
+ *
+ * No sentence-position test, unlike `collidesWithEnglish`. That guard exists
+ * because a capital at the start of a sentence is not evidence of a proper
+ * noun; here the SECOND word carrying a capital is evidence no sentence
+ * position explains, so the position never has to be asked about.
+ */
+function readsAsAName(text) {
+	return text
+		.split(/[-\s]+/)
+		.every((word) => /^[A-Z]/.test(word) || (word === word.toUpperCase() && /[A-Z]/.test(word)))
 }
 
 /**
@@ -446,21 +589,38 @@ function startsASentence(haystack, index) {
  * Title-Case not at the start of a sentence, or ALL-CAPS anywhere.
  */
 function matches(term, haystack) {
-	const escaped = term.name.replace(/ /g, '\\s+')
-	const titled = titleCase(term.name).replace(/ /g, '\\s+')
+	// Joined and separated are built as two patterns rather than one with an
+	// optional separator, because the entry's verdict differs between them:
+	// a brand written as one word is never ordinary English, and the same
+	// brand written as two words sometimes is. One pattern could match both
+	// and could not tell them apart afterwards.
+	const joined = term.words.join('')
+	const separated = term.words.join(`${SEPARATOR}+`)
+	const titledJoined = titleWords(term.words).join('')
+	const titledSeparated = titleWords(term.words).join(`${SEPARATOR}+`)
 
 	if (term.collidesWithEnglish) {
 		// ALL-CAPS is never the ordinary English sense in running prose, so it
 		// needs no position test.
-		if (new RegExp(`\\b${term.name.toUpperCase().replace(/ /g, '\\s+')}\\b`).test(haystack)) {
-			return true
-		}
-		const standalone = new RegExp(`\\b${titled}\\b`, 'g')
+		if (new RegExp(`\\b${separated.toUpperCase()}\\b`).test(haystack)) return true
+		const standalone = new RegExp(`\\b${titledSeparated}\\b`, 'g')
 		for (let hit = standalone.exec(haystack); hit; hit = standalone.exec(haystack)) {
 			if (!startsASentence(haystack, hit.index)) return true
 		}
-	} else if (new RegExp(`\\b${escaped}\\b`, 'i').test(haystack)) {
-		return true
+	} else {
+		// The joined spelling, unconditionally — `OpenAI`, `openai`,
+		// `LangChain`. This is the branch that existed before, and nothing
+		// about it changes.
+		if (new RegExp(`\\b${joined}\\b`, 'i').test(haystack)) return true
+
+		// The separated spellings, which are the eleven that used to walk
+		// through. Guarded only where the words are also an English phrase.
+		if (term.words.length > 1) {
+			const spaced = new RegExp(`\\b${separated}\\b`, 'gi')
+			for (let hit = spaced.exec(haystack); hit; hit = spaced.exec(haystack)) {
+				if (!term.separatedFormIsEnglish || readsAsAName(hit[0])) return true
+			}
+		}
 	}
 
 	// Case-SENSITIVE, deliberately. A camelCase boundary is defined by the
@@ -468,9 +628,17 @@ function matches(term, haystack) {
 	// rule starts matching any word that merely begins with the name —
 	// `coherent` for `cohere`, `stranded` for `strands`. That false
 	// positive is exactly how a rule like this gets switched off.
+	//
+	// The third spelling is the brand's own words in lowerCamel — `langChain`,
+	// `openAi` — which the two below cannot reach: they look for the name run
+	// together in one case, and an identifier that capitalises the SECOND word
+	// is neither. `langChainAdapter` used to pass, and a borrowed name inside
+	// an identifier is the case this branch exists for.
+	const camelJoined = [term.words[0], ...titleWords(term.words.slice(1))].join('')
 	return (
-		new RegExp(`\\b${escaped}(?=[A-Z0-9_-])`).test(haystack) ||
-		new RegExp(`\\b${titled}(?=[A-Z0-9_-])`).test(haystack)
+		new RegExp(`\\b${joined}(?=[A-Z0-9_-])`).test(haystack) ||
+		new RegExp(`\\b${titledJoined}(?=[A-Z0-9_-])`).test(haystack) ||
+		(term.words.length > 1 && new RegExp(`\\b${camelJoined}(?=[A-Z0-9_-])`).test(haystack))
 	)
 }
 
@@ -506,6 +674,56 @@ const DISCRIMINATOR_CASES = [
 	// Multi-word entries, which is what the title-case repair is for.
 	['we copied Semantic Kernel planner design', 'semantic kernel', true],
 	['we copied Fly Machines API design', 'fly machines', true],
+
+	// ---- issue #255: the eleven respellings that used to walk through ----
+	//
+	// Every one of these was measured passing against the previous matcher, so
+	// each line here is a case that went from green to red on purpose. They are
+	// in this table rather than in a separate fixture because `scripts/` has no
+	// test runner: this table IS the test, and it runs before every scan.
+	['we took the streaming shape from Open AI', 'openai', true],
+	['we took the streaming shape from OAI', 'openai', true],
+	['the Co-Pilot seat model is not ours', 'copilot', true],
+	['their Hugging Face integration does this differently', 'huggingface', true],
+	['this mirrors how lang chain sequences its steps', 'langchain', true],
+	['this mirrors how lang graph sequences its steps', 'langgraph', true],
+	['their llama index retriever ranks differently', 'llamaindex', true],
+	['the crew ai roster model is not ours', 'crewai', true],
+	['the chat gpt product is not what this drives', 'chatgpt', true],
+	['the auto gen conversation loop works another way', 'autogen', true],
+	['the GH Actions runner does this for us', 'github actions', true],
+
+	// The hyphen, separately from the space: they are one optional separator in
+	// the pattern, and a change that dropped either would still pass the other.
+	['this mirrors how lang-chain sequences its steps', 'langchain', true],
+	['their hugging-face integration does this differently', 'huggingface', true],
+
+	// An identifier that capitalises the brand's second word.
+	['const langChainAdapter = null', 'langchain', true],
+
+	// ---- the false-positive controls, which are the other half ----
+	//
+	// A matcher that fires on these is worse than the one it replaces: the
+	// notes on `cursor`, `render` and `railway` refuse exactly this trade, and
+	// a check that cries wolf is a check somebody switches off.
+	['an open airport has nothing to do with this', 'openai', false],
+	['an open standard for tool calls', 'openai', false],
+	['we auto generate the client from the schema', 'autogen', false],
+	['a language chain of prompts is not a design', 'langchain', false],
+	['the index of llama weights is not a product name', 'llamaindex', false],
+	['a crew of agents shares one budget', 'crewai', false],
+	['hugging the cache line keeps the loop hot', 'huggingface', false],
+	['a chat surface renders the transcript', 'chatgpt', false],
+	['the graph language of the plan is our own', 'langgraph', false],
+
+	// The one respelling left open, recorded as a case so it is a DECISION with
+	// a line to point at rather than an oversight. `an open AI model` is
+	// ordinary English here and no casing rule separates it from a lowercase
+	// mention of the company, so the separated form is caught only when it
+	// reads as a name. The capitalised spellings above are the ones a person
+	// actually writes.
+	['an open AI model runs on the operator machine', 'openai', false],
+	['we took the streaming shape from open ai', 'openai', false],
 ]
 
 /** Pins the transform itself; the first-letter-only version fails line one. */
@@ -523,12 +741,15 @@ function selfCheck() {
 		if (actual !== expected) broken.push(`titleCase(${input}) = ${actual}, expected ${expected}`)
 	}
 	for (const [text, name, expected] of DISCRIMINATOR_CASES) {
-		const term = TERMS.find((t) => t.name === name)
-		if (!term) {
+		// Every term reported under this name, not the first one: an alias is a
+		// term of its own sharing the name, so `find` would test the canonical
+		// spelling and silently never test the alias.
+		const terms = TERMS.filter((t) => t.name === name)
+		if (terms.length === 0) {
 			broken.push(`no forbidden entry named ${name}`)
 			continue
 		}
-		const actual = matches(term, text)
+		const actual = terms.some((term) => matches(term, text))
 		if (actual !== expected) {
 			broken.push(`[${name}] ${expected ? 'should flag' : 'should ignore'}: ${text}`)
 		}
