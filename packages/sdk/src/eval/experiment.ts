@@ -7,6 +7,7 @@ import type {
 	Score,
 	Scorer,
 } from './types.js'
+import type { ScoreUncertainty } from './uncertainty.js'
 import { describeUncertainty, uncertaintyOf } from './uncertainty.js'
 
 export interface ExperimentConfig<TInput = unknown> {
@@ -283,6 +284,23 @@ function meanByScorer(results: readonly CaseResult[]): Record<string, number> {
  * Failures print their scorer reasons, because a CI log that says
  * "0.62" is a log that sends someone back to reproduce it by hand.
  */
+/**
+ * Uncertainty for a report that did not carry its own.
+ *
+ * A suite file is loaded at runtime and may be plain JavaScript, so a
+ * report can reach here hand-built — the type cannot stop it. Deriving
+ * from the cases it does carry is better than either alternative:
+ * printing the mean alone leaves the reader where they started, and
+ * refusing to format would turn a missing convenience into a broken
+ * command.
+ *
+ * Uses the same exclusion `runExperiment` uses, so a derived interval and
+ * a carried one are the same number rather than two conventions.
+ */
+function derivedUncertainty(report: ExperimentReport): ScoreUncertainty {
+	return uncertaintyOf(report.cases.filter((c) => c.status !== 'inconclusive').map((c) => c.mean))
+}
+
 export function formatReport(report: ExperimentReport): string {
 	const lines: string[] = [
 		`${report.name}: ${report.passed}/${report.cases.length} passed (mean ${report.mean.toFixed(2)}) in ${report.durationMs}ms`,
@@ -292,7 +310,7 @@ export function formatReport(report: ExperimentReport): string {
 		// at the n a hand-built suite has they are usually the same run
 		// twice. Computing the interval and not showing it would leave the
 		// reader exactly where they started.
-		`  ${describeUncertainty(report.mean, report.uncertainty)}`,
+		`  ${describeUncertainty(report.mean, report.uncertainty ?? derivedUncertainty(report))}`,
 		'',
 	]
 

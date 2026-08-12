@@ -149,11 +149,17 @@ export interface ExperimentReport {
 	 *
 	 * A mean on its own has been read as a result, and at the n a
 	 * hand-built suite has it usually is not one: two runs three points
-	 * apart are normally the same run twice. Carried beside the mean rather
-	 * than offered as a helper, so a surface printing the score has the
-	 * interval in hand and has to decide to omit it.
+	 * apart are normally the same run twice.
+	 *
+	 * Optional, and deliberately so after trying it the other way. A suite
+	 * file is loaded at runtime and may be plain JavaScript, so a required
+	 * field is not enforced at the boundary that matters — it buys type
+	 * safety for one kind of consumer and a crash for the other. Producers
+	 * that go through `runExperiment` always set it; `formatReport` derives
+	 * it from {@link cases} when a hand-built report does not, so no report
+	 * is printed without an interval either way.
 	 */
-	uncertainty: ScoreUncertainty
+	uncertainty?: ScoreUncertainty
 	passed: number
 	failed: number
 	/** Cases where no scorer could produce a judgement. */
