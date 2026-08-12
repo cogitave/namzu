@@ -322,6 +322,36 @@ export interface ToolDefinition<TInput = unknown> {
 	isReadOnly?(input: TInput): boolean
 	isDestructive?(input: TInput): boolean
 	isConcurrencySafe?(input: TInput): boolean
+
+	/**
+	 * Where this tool came from, when it did not come from here.
+	 *
+	 * Absent means host-defined: this process, code the operator installed,
+	 * no untrusted party in the chain. Present means a connected server
+	 * supplied both the tool and its own description of what the tool does
+	 * — including whether it is read-only, which three separate gates were
+	 * treating as a fact rather than as the hint the wire calls it.
+	 *
+	 * See {@link isTrustedReadOnly}. This field exists so a gate can tell
+	 * the two apart; `isReadOnly` keeps reporting faithfully what the
+	 * server said, because the outbound re-export and the destructive
+	 * label shown to a human both need the server's own answer.
+	 */
+	provenance?: ToolProvenance
+}
+
+export interface ToolProvenance {
+	/** The connected server this tool came from, named as configured. */
+	readonly server: string
+	/**
+	 * The operator marked this server's read-only claims as trustworthy.
+	 *
+	 * Per server, never global: one switch meaning "trust annotations"
+	 * hands every connected server the same reach, which is the hole it
+	 * would be closing. Default false — an unmarked server's claim raises
+	 * the requirement and never lowers it.
+	 */
+	readonly readOnlyHintTrusted: boolean
 }
 
 export type ToolPermission =
