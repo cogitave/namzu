@@ -40,6 +40,7 @@ import {
 	type ReviewAnswer,
 	type RunEvent,
 	type RunId,
+	type SandboxProvider,
 	SearchToolsTool,
 	type SessionId,
 	type StopReason,
@@ -53,13 +54,16 @@ import {
 	buildMemoryTools,
 	createMemoryPromoter,
 	getBuiltinTools,
+	getRootLogger,
 	query,
 	resumeRun,
 } from '@namzu/sdk'
 
 import { join } from 'node:path'
+import type { SandboxConfig } from '../config/schema.js'
 import { composeEnvironmentPrompt, readEnvironmentFacts } from '../context/environment.js'
 import { loadProjectInstructions } from '../context/project.js'
+import { resolveSandbox } from '../context/sandbox.js'
 import {
 	type ConnectedMcpServer,
 	type FailedMcpServer,
@@ -593,6 +597,16 @@ export interface AgentSessionOptions {
 	 * `answer_rejected`. Absent uses the kernel's default.
 	 */
 	readonly maxAnswerReviews?: number
+	/**
+	 * Isolation for the commands this session runs. Absent means ON with
+	 * the platform's defaults.
+	 *
+	 * Absent used to mean the opposite, and not by decision: nothing in
+	 * this package ever built a provider, so `context.sandbox` was always
+	 * undefined and every command ran in this process with this
+	 * environment.
+	 */
+	readonly sandbox?: SandboxConfig
 }
 
 export async function createAgentSession(
@@ -709,6 +723,11 @@ export async function createAgentSession(
 	// turn would make the line a surface prints at connect time a claim about
 	// the past. An edited file takes effect on the next session.
 	const projectInstructions = loadProjectInstructions(cwd)
+	// Before the registry, because a `requireIsolation` this machine cannot
+	// meet throws here — and failing before the session is built is the
+	// difference between "namzu refused to start" and a half-constructed
+	// session reporting a tool error on the first command.
+	const sandbox = resolveSandbox(getRootLogger(), options.sandbox)
 	const { registry, memoryStore } = buildToolRegistry(cwd)
 	// External tool servers, before the roster is counted, so `toolNames` and
 	// the `/tools` list a user reads include what they configured. Connecting
@@ -904,6 +923,7 @@ export async function createAgentSession(
 				opts,
 				taskGateway: subagentGateway,
 				childSteps,
+				...(sandbox.provider ? { sandboxProvider: sandbox.provider } : {}),
 			})
 		},
 		resumeDurable: async ({ entry, checkpointStore, claimFence, signal }) => {
@@ -1348,6 +1368,11 @@ interface RunTurnParams {
 	readonly opts: SendOptions | undefined
 	readonly taskGateway: TaskGateway | undefined
 	readonly childSteps: string[]
+	/**
+	 * Where this turn's commands run. Absent means the host process, which
+	 * is what every turn did before the CLI built one.
+	 */
+	readonly sandboxProvider?: SandboxProvider
 }
 
 async function* runTurn({
@@ -1369,6 +1394,7 @@ async function* runTurn({
 	opts,
 	taskGateway,
 	childSteps,
+	sandboxProvider,
 }: RunTurnParams): AsyncIterable<AgentEvent> {
 	const signal = opts?.signal
 	try {
@@ -1385,6 +1411,7 @@ async function* runTurn({
 			// empty array, so passing it here discarded the operator's rules on the
 			// path that runs every top-level turn. The sub-agent path called
 			// `gateFor` and this one did not.
+			...(sandboxProvider ? { sandboxProvider } : {}),
 			verificationGate: gateFor(rules),
 			compactionConfig: COMPACTION_CONFIG,
 			// The CLI owns its process end to end, so it can safely hand the

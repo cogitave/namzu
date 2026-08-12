@@ -6,6 +6,7 @@
 
 import type { VerificationRule } from '@namzu/sdk'
 
+import type { SandboxConfig } from '../config/schema.js'
 import type { McpServersConfig } from '../integrations/mcp/servers.js'
 
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool'
@@ -70,4 +71,10 @@ export interface TuiContext {
 	 * they declared has to be there whichever way they started namzu.
 	 */
 	readonly mcpServers?: McpServersConfig
+	/**
+	 * Isolation config, by the same reasoning as the two above: it belongs
+	 * to the user, not to a command, so it has to reach the session
+	 * whichever way namzu was started.
+	 */
+	readonly sandbox?: SandboxConfig
 }

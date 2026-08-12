@@ -371,6 +371,7 @@ export function App({ ctx }: AppProps) {
 				cwd: ctx.cwd,
 				rules: ctx.rules,
 				...(ctx.mcpServers ? { mcpServers: ctx.mcpServers } : {}),
+				...(ctx.sandbox ? { sandbox: ctx.sandbox } : {}),
 			})
 			// Re-hydration (a provider switch via /model) builds a second session;
 			// without this the first one's tool-server child processes stay alive

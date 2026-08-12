@@ -144,6 +144,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 				skipPermissions,
 				rules: permissions.rules,
 				...(tuiCtx.config.mcpServers ? { mcpServers: tuiCtx.config.mcpServers } : {}),
+				...(tuiCtx.config.sandbox ? { sandbox: tuiCtx.config.sandbox } : {}),
 			})
 			const code = await Promise.resolve(0)
 			setExitCode(code)
