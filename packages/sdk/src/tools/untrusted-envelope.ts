@@ -2,11 +2,31 @@
  * Framing for content the agent did not author and must not obey.
  *
  * An unlabelled block of text in a tool result reads exactly like the agent's
- * own instructions. The mitigation that survives contact with a real model is
- * not filtering — it is saying plainly whose words these are and that they are
+ * own instructions. This says plainly whose words these are and that they are
  * material rather than direction. That is the floor this estate already
  * states: data is not instructions, and a tool result cannot escalate what an
  * agent may do.
+ *
+ * **It marks provenance. It refuses nothing, and it does not stop an
+ * attacker who is trying.** This paragraph used to claim the framing was
+ * "the mitigation that survives contact with a real model", and that is
+ * measurably wrong. Nasr et al., "The Attacker Moves Second"
+ * (arXiv:2510.09023), broke twelve published defences at above 90% attack
+ * success once the attacker adapts; the majority had originally reported
+ * near-zero success. Delimiting specifically goes from as low as 1% under
+ * a static benchmark to above 95% under adaptive attack.
+ *
+ * So read every number for a prompt-level defence as static unless it says
+ * otherwise, and treat this envelope as raising cost rather than as a
+ * boundary. What survives an adapting attacker in the same literature is
+ * architectural: AgentDojo (arXiv:2406.13352) found tool isolation and
+ * tool filtering the effective mitigations, and this repository's real
+ * boundaries are of that kind — the permission gate, the sandbox, the
+ * egress proxy deciding by resolved address.
+ *
+ * The two details below still matter. They are what stops the framing
+ * being trivially removable by the content itself, which is a lower bar
+ * than stopping an attacker and worth clearing anyway.
  *
  * Two details make the difference between a boundary and a decoration, and
  * both were missing from this repo's first envelope:
