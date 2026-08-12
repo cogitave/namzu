@@ -34,10 +34,16 @@ import type { MCPClient } from './client.js'
 /**
  * Marks where a remote party's words begin and end.
  *
- * A prompt is composed by a SERVER. Untrusted content arriving through a
- * tool result is the standard prompt-injection surface, and the mitigation
- * that survives contact is saying plainly whose words these are — an
- * unlabelled block reads exactly like the agent's own instructions.
+ * A prompt is composed by a SERVER. Untrusted content arriving this way is
+ * the standard prompt-injection surface, and an unlabelled block reads
+ * exactly like the agent's own instructions — so this says whose words
+ * they are.
+ *
+ * Marking, not stopping. See `tools/untrusted-envelope.ts` for the
+ * measurement: delimiting reports near-zero attack success on a static
+ * benchmark and above 95% once the attacker adapts (arXiv:2510.09023).
+ * This paragraph used to call it "the mitigation that survives contact",
+ * which was the same overstatement in a second file.
  */
 export function renderPromptMessages(
 	serverName: string,
