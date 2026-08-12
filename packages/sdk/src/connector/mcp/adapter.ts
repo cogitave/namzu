@@ -419,6 +419,12 @@ export function mcpToolToToolDefinition(
 	tool: MCPToolDefinition,
 	client: MCPClient,
 	serverName: string,
+	/**
+	 * The operator marked this server's read-only claims trustworthy.
+	 * Default false: an unmarked server's claim raises the requirement and
+	 * never lowers it. See `isTrustedReadOnly`.
+	 */
+	readOnlyHintTrusted = false,
 ): ToolDefinition {
 	const inputSchema = mcpJsonSchemaToZod(tool.inputSchema)
 	const toolName = `mcp_${serverName}_${tool.name}`
@@ -436,9 +442,14 @@ export function mcpToolToToolDefinition(
 			: {}),
 		category: 'network',
 		permissions: ['network_access'],
+		// Reports what the SERVER said, faithfully. The outbound re-export
+		// and the destructive label a human is shown both need the server's
+		// own answer; whether a gate may act on it is decided separately, by
+		// `isTrustedReadOnly` reading `provenance` below.
 		isReadOnly: () => tool.annotations?.readOnlyHint ?? false,
 		isDestructive: () => tool.annotations?.destructiveHint ?? false,
 		isConcurrencySafe: () => true,
+		provenance: { server: serverName, readOnlyHintTrusted },
 
 		async execute(input: unknown, _context: ToolContext): Promise<ToolResult> {
 			const result = await client.callTool(tool.name, input as Record<string, unknown>)

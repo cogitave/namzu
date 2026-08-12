@@ -3,6 +3,7 @@ import { assertStrictSchema } from '../../provider/strict-schema.js'
 import { GENAI, NAMZU, toolSpanName } from '../../telemetry/attributes.js'
 import { recordToolCall } from '../../telemetry/metrics.js'
 import { getTracer } from '../../telemetry/runtime-accessors.js'
+import { isTrustedReadOnly } from '../../tools/trusted-read-only.js'
 import type {
 	LLMToolSchema,
 	ToolAvailability,
@@ -487,7 +488,7 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 
 				const mode = context.permissionContext?.mode ?? 'auto'
 				if (mode === 'plan') {
-					const isReadOnly = tool.isReadOnly ? tool.isReadOnly(rawInput) : false
+					const isReadOnly = isTrustedReadOnly(tool, rawInput)
 					if (!isReadOnly) {
 						const msg = `plan mode: non-read-only tool "${toolName}" blocked`
 						span.setAttributes({

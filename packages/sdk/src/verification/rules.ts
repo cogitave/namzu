@@ -1,4 +1,5 @@
 import { DANGEROUS_PATTERNS } from '../constants/tools/index.js'
+import { isTrustedReadOnly } from '../tools/trusted-read-only.js'
 import type { ToolDefinition } from '../types/tool/index.js'
 import type { GateDecision, VerificationRule } from '../types/verification/index.js'
 
@@ -12,7 +13,10 @@ export function evaluateRule(
 ): GateDecision | null {
 	switch (rule.type) {
 		case 'allow_read_only': {
-			return toolDef?.isReadOnly?.(toolInput) ? 'allow' : null
+			// A server's own claim about its own tool cannot settle this. See
+			// `isTrustedReadOnly`: a self-declaration may raise the requirement
+			// and never lower it.
+			return isTrustedReadOnly(toolDef, toolInput) ? 'allow' : null
 		}
 
 		case 'deny_dangerous_patterns': {

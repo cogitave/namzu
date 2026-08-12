@@ -63,6 +63,7 @@ export {
 export { normaliseModelId, resolveModelPricing, VENDOR_RATES } from './pricing/index.js'
 export { toErrorMessage } from './utils/error.js'
 export { configureLogger, getRootLogger, Logger } from './utils/logger.js'
+export { isTrustedReadOnly } from './tools/trusted-read-only.js'
 export { buildToolResultHashes, hashToolResult } from './utils/hash.js'
 export {
 	compressShellOutput,

@@ -55,6 +55,7 @@ import {
 	createMemoryPromoter,
 	getBuiltinTools,
 	getRootLogger,
+	isTrustedReadOnly,
 	query,
 	resumeRun,
 } from '@namzu/sdk'
@@ -1604,7 +1605,11 @@ const PROMPT_EXEMPT_WRITES = new Set(['task_create', 'task_update'])
 export function isPromptExempt(registry: ToolRegistry, name: string, input: unknown): boolean {
 	if (PROMPT_EXEMPT_WRITES.has(name.toLowerCase())) return true
 	const tool = registry.get(name) ?? registry.get(name.toLowerCase())
-	return tool?.isReadOnly?.(input) ?? false
+	// A connected server's own claim about its own tool cannot skip the
+	// prompt. Same predicate the kernel gate and plan mode use -- three
+	// doors, one rule, because fixing two would close the issue and leave
+	// the boundary open.
+	return isTrustedReadOnly(tool, input)
 }
 
 /** The exempt roster, sorted, for the surface that has to NAME it. */
