@@ -1,4 +1,5 @@
 import type { StepResult } from '../types/run/step.js'
+import type { ScoreUncertainty } from './uncertainty.js'
 
 /**
  * One case in a dataset: an input, and what a good run looks like.
@@ -143,6 +144,16 @@ export interface ExperimentReport {
 	cases: readonly CaseResult[]
 	/** Mean score across the cases that produced one. */
 	mean: number
+	/**
+	 * How much of {@link mean} is signal.
+	 *
+	 * A mean on its own has been read as a result, and at the n a
+	 * hand-built suite has it usually is not one: two runs three points
+	 * apart are normally the same run twice. Carried beside the mean rather
+	 * than offered as a helper, so a surface printing the score has the
+	 * interval in hand and has to decide to omit it.
+	 */
+	uncertainty: ScoreUncertainty
 	passed: number
 	failed: number
 	/** Cases where no scorer could produce a judgement. */

@@ -7,6 +7,7 @@ import type {
 	Score,
 	Scorer,
 } from './types.js'
+import { describeUncertainty, uncertaintyOf } from './uncertainty.js'
 
 export interface ExperimentConfig<TInput = unknown> {
 	name: string
@@ -151,6 +152,10 @@ export async function runExperiment<TInput>(
 		name: config.name,
 		cases: settled,
 		mean,
+		// Over the same cases the mean is over. Computing spread across a
+		// different denominator than the average it qualifies would produce
+		// an interval that does not belong to the number beside it.
+		uncertainty: uncertaintyOf(scored.map((r) => r.mean)),
 		passed: settled.filter((r) => r.status === 'passed').length,
 		failed: settled.filter((r) => r.status === 'failed').length,
 		inconclusive: settled.filter((r) => r.status === 'inconclusive').length,
@@ -281,6 +286,13 @@ function meanByScorer(results: readonly CaseResult[]): Record<string, number> {
 export function formatReport(report: ExperimentReport): string {
 	const lines: string[] = [
 		`${report.name}: ${report.passed}/${report.cases.length} passed (mean ${report.mean.toFixed(2)}) in ${report.durationMs}ms`,
+		// On its own line and always printed, including when the interval is
+		// undefined. A mean printed alone is the thing that has been
+		// over-read: two runs three points apart look like a difference, and
+		// at the n a hand-built suite has they are usually the same run
+		// twice. Computing the interval and not showing it would leave the
+		// reader exactly where they started.
+		`  ${describeUncertainty(report.mean, report.uncertainty)}`,
 		'',
 	]
 
