@@ -10,6 +10,8 @@ export {
 	stepBudgetScorer,
 	trajectoryScorer,
 } from './scorers.js'
+export { describeUncertainty, uncertaintyOf } from './uncertainty.js'
+export type { ScoreUncertainty } from './uncertainty.js'
 export type {
 	CaseResult,
 	CaseStatus,

@@ -1,4 +1,5 @@
 import type { StepResult } from '../types/run/step.js'
+import type { ScoreUncertainty } from './uncertainty.js'
 
 /**
  * One case in a dataset: an input, and what a good run looks like.
@@ -143,6 +144,22 @@ export interface ExperimentReport {
 	cases: readonly CaseResult[]
 	/** Mean score across the cases that produced one. */
 	mean: number
+	/**
+	 * How much of {@link mean} is signal.
+	 *
+	 * A mean on its own has been read as a result, and at the n a
+	 * hand-built suite has it usually is not one: two runs three points
+	 * apart are normally the same run twice.
+	 *
+	 * Optional, and deliberately so after trying it the other way. A suite
+	 * file is loaded at runtime and may be plain JavaScript, so a required
+	 * field is not enforced at the boundary that matters — it buys type
+	 * safety for one kind of consumer and a crash for the other. Producers
+	 * that go through `runExperiment` always set it; `formatReport` derives
+	 * it from {@link cases} when a hand-built report does not, so no report
+	 * is printed without an interval either way.
+	 */
+	uncertainty?: ScoreUncertainty
 	passed: number
 	failed: number
 	/** Cases where no scorer could produce a judgement. */
