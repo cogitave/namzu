@@ -1,5 +1,59 @@
 # @namzu/cli
 
+## 11.0.0
+
+### Major Changes
+
+- ee70817: A connected server no longer decides whether its own tool calls need approval
+
+  A server declared whether its own tools were read-only, and that declaration settled whether a call was approved without asking. The thing being gated supplied the input to the gate — on **three** independent paths: the kernel's `allow_read_only` rule, the CLI's prompt exemption, and the plan-mode pass in the executor.
+
+  The wire calls those fields _hints_. All three read them as facts.
+
+  **The asymmetry is the fix.** A self-declaration may raise the requirement and never lower it:
+
+  - `destructiveHint: true` from a server is still believed. A server volunteering that its tool is dangerous moves toward caution, and disbelieving it buys nothing.
+  - `readOnlyHint: true` no longer settles a call or skips a prompt on its own.
+
+  **Trust comes from the operator, per server.** A tool supplied by a connected server now carries `provenance: { server, readOnlyHintTrusted }`, and `isTrustedReadOnly` is the single predicate all three gates use. Never a global switch: one flag meaning "trust annotations" hands every connected server the same reach, which is the hole it would be closing.
+
+  `isReadOnly` still reports faithfully what the server said. Provenance and policy are different questions, and collapsing them would corrupt the outbound re-export and the destructive label a human is shown in order to fix a gate.
+
+  **What changes for you.** Calls to a connected server's read-only tools that were auto-approved now go to review or a prompt. Host-defined tools are unaffected and need no opt-in — they came from this process, with no untrusted party in the chain. To restore the old behaviour for a server you run yourself, mark that server's read-only hints trusted.
+
+  **More prompts is not automatically safer.** Measured work on approval UX finds miss rates rising with session length, so the per-server opt-in matters as much as the tightening does: an operator flooded with prompts approves by reflex, and that is the failure this change is trying to avoid, not cause.
+
+- a8e2acf: The CLI runs commands in a sandbox, and you can configure it
+
+  `sandboxProvider` appeared **zero times** in this package. `query()` attaches a sandbox only when one is supplied, so `context.sandbox` was always undefined and `BashTool` took its fallback branch — `execAsync` in the host process, with `{ ...process.env }`. Every credential your shell holds went to every command the model chose to run, on every path, interactive included. The isolation the documentation described held nowhere.
+
+  **A sandbox is now attached by default.** Nothing to configure to get it.
+
+  **And it is yours to control**, under a new `sandbox` block:
+
+  ```yaml
+  sandbox:
+    enabled: true # default; false runs on the host
+    requireIsolation: [filesystem, network] # refuse to start unless enforced
+  ```
+
+  `requireIsolation` is empty by default, and that default is honest rather than safe: available isolation differs per platform, so requiring anything by default would refuse to run on machines where the CLI works today. Name a control and you get a refusal at startup instead of a surprise at runtime.
+
+  **Every session reports what it got**, including when the answer is "nothing". A sandbox that confines nothing is not the same as no sandbox and is not protection, so the notice says which controls are enforced and which are not, and says outright when commands are unconfined.
+
+  **Why `major`.** Commands now run inside a sandbox, so anything reaching a path outside the workspace, or the network where the platform confines it, behaves differently. Set `sandbox.enabled: false` to keep the old behaviour — a real choice with a real reason, announced on startup rather than assumed.
+
+### Patch Changes
+
+- Updated dependencies [ee70817]
+- Updated dependencies [2730fac]
+- Updated dependencies [cce731b]
+  - @namzu/sdk@27.0.0
+  - @namzu/anthropic@3.3.0
+  - @namzu/ollama@2.1.0
+  - @namzu/openai@1.2.0
+  - @namzu/openrouter@2.1.0
+
 ## 10.0.0
 
 ### Major Changes
