@@ -1,5 +1,60 @@
 # Changelog
 
+## 27.0.0
+
+### Major Changes
+
+- ee70817: A connected server no longer decides whether its own tool calls need approval
+
+  A server declared whether its own tools were read-only, and that declaration settled whether a call was approved without asking. The thing being gated supplied the input to the gate — on **three** independent paths: the kernel's `allow_read_only` rule, the CLI's prompt exemption, and the plan-mode pass in the executor.
+
+  The wire calls those fields _hints_. All three read them as facts.
+
+  **The asymmetry is the fix.** A self-declaration may raise the requirement and never lower it:
+
+  - `destructiveHint: true` from a server is still believed. A server volunteering that its tool is dangerous moves toward caution, and disbelieving it buys nothing.
+  - `readOnlyHint: true` no longer settles a call or skips a prompt on its own.
+
+  **Trust comes from the operator, per server.** A tool supplied by a connected server now carries `provenance: { server, readOnlyHintTrusted }`, and `isTrustedReadOnly` is the single predicate all three gates use. Never a global switch: one flag meaning "trust annotations" hands every connected server the same reach, which is the hole it would be closing.
+
+  `isReadOnly` still reports faithfully what the server said. Provenance and policy are different questions, and collapsing them would corrupt the outbound re-export and the destructive label a human is shown in order to fix a gate.
+
+  **What changes for you.** Calls to a connected server's read-only tools that were auto-approved now go to review or a prompt. Host-defined tools are unaffected and need no opt-in — they came from this process, with no untrusted party in the chain. To restore the old behaviour for a server you run yourself, mark that server's read-only hints trusted.
+
+  **More prompts is not automatically safer.** Measured work on approval UX finds miss rates rising with session length, so the per-server opt-in matters as much as the tightening does: an operator flooded with prompts approves by reflex, and that is the failure this change is trying to avoid, not cause.
+
+### Minor Changes
+
+- cce731b: An eval score now carries the interval a reader should apply to it
+
+  `ExperimentReport` reported a mean and nothing else, so two runs three points apart read as a difference. At the n a hand-built suite has, that is usually the same run twice, and there was no number on the page that would have said so.
+
+  `ExperimentReport.uncertainty` carries the standard deviation, the standard error, the 95% margin and the interval, and `formatReport` prints it beside the mean. Computed over the same cases the mean is computed over — an interval drawn from a different denominator does not belong to the number next to it.
+
+  Two decisions worth knowing:
+
+  **The interval uses Student's t, not 1.96.** At n=5 the true two-sided multiplier is 2.776, so a normal-approximation interval is nearly 30% too narrow exactly where a suite is small enough for that to mislead. Eval suites are small.
+
+  **It says it assumes the cases are independent, because they may not be.** Clustered standard errors run up to 3× the naive figure when cases come in related groups — several derived from one scenario, one document, one seed. This harness has no grouping key on a case, so there is nothing to cluster on and the naive figure is what is reported. Where a suite builds several cases from one source, treat the interval as a floor.
+
+  A single case reports no interval at all rather than ±0. One case has no spread to measure, and ±0 would be the most confident-looking output a suite can produce from the least evidence it can have.
+
+  Reference: Evan Miller, "Adding Error Bars to Evals" (arXiv:2411.00640).
+
+### Patch Changes
+
+- 2730fac: Compaction's failure list now drops its oldest entry, not its middle one
+
+  Every list in working state protects its earliest entries when it has to evict, and the reason is written down: early decisions are load-bearing, and the one that set a run's approach should outlive twenty-five incidental notes.
+
+  For failures that reasoning is backwards. The earliest failure is the one the model has most likely already worked around; the recent one is what it reads to decide what to do differently. So the slot was permanently protecting the least useful entries and evicting the most useful.
+
+  It is not neutral ballast either. Sinha et al., "The Illusion of Diminishing Returns" (arXiv:2509.09677), inject errors into a model's own history at controlled rates and measure accuracy far later in the run: conditioning a model on its own error-prone history raises the likelihood of further errors, and scaling does not rescue it. A permanently-protected stale failure is exactly that input.
+
+  Nothing decided failures should keep their oldest entries — the behaviour was inherited from a helper written for a slot where it is correct. Only the failure slot changes; decisions, discoveries and environment keep their existing policy, and there are tests pinning that.
+
+  This does not change the rule that error results survive compaction. That rule is about keeping the error that steers, and keeping the recent one honours it better than keeping the first.
+
 ## 26.1.0
 
 ### Minor Changes
