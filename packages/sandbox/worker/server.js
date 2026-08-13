@@ -50,6 +50,16 @@ const { spawn } = require('node:child_process')
 const fs = require('node:fs/promises')
 const path = require('node:path')
 
+/**
+ * Prefix every variable this worker reads its own configuration from.
+ *
+ * Load-bearing: {@link childEnvironment} strips it, so the prefix is the
+ * boundary between "the worker's configuration" and "the environment the
+ * sandbox is supposed to run commands in". A new setting that does not use
+ * it is handed to untrusted code automatically.
+ */
+const WORKER_CONFIG_PREFIX = 'NAMZU_SANDBOX_'
+
 const PORT = Number(process.env.NAMZU_SANDBOX_PORT || 2024)
 const WORKSPACE_ROOT = process.env.NAMZU_SANDBOX_WORKSPACE || '/workspace'
 const READ_ROOTS = normalizeRoots(
@@ -227,6 +237,48 @@ function resolveTimeoutMs(rawTimeoutMs) {
 	return timeoutMs
 }
 
+/**
+ * The environment a spawned command runs in.
+ *
+ * This used to be `{ ...process.env, ...body.env }`, which handed the
+ * worker's ENTIRE environment to every command the agent runs — by
+ * construction, on every call, visible in a bare `env` in any shell
+ * transcript. That is a stronger exposure than "untrusted code could read
+ * `/proc/self/environ` if it thought to": it is active propagation, and the
+ * agent does not have to go looking.
+ *
+ * What rode along: `NAMZU_SANDBOX_WORKSPACE`, `_READ_ROOTS` and
+ * `_WRITE_ROOTS` — the confinement layout itself, handed to the code being
+ * confined — plus every other setting below. So the boundary announced its
+ * own shape to the thing it was drawn around.
+ *
+ * Stripping by prefix rather than by an allowlist of known-safe names is
+ * deliberate, and it is the difference between this working and this
+ * breaking egress:
+ *
+ *  - `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` are set on the container ON
+ *    PURPOSE, so that tooling inside routes through the egress boundary. An
+ *    allowlist assembled from first principles drops them and every
+ *    proxied workload silently stops being proxied — which would look
+ *    exactly like the policy working.
+ *  - A host's own `options.env` arrives on this same channel and is meant
+ *    to reach commands. It is indistinguishable from the worker's config
+ *    once both are in `process.env`; the prefix is the only thing that
+ *    tells them apart.
+ *
+ * `body.env` is applied AFTER the strip and is not filtered. Inheritance is
+ * implicit and gets the default; an explicit per-call value is a caller
+ * deciding, including a caller that deliberately sets a prefixed name.
+ */
+function childEnvironment(requested) {
+	const inherited = {}
+	for (const key of Object.keys(process.env)) {
+		if (key.startsWith(WORKER_CONFIG_PREFIX)) continue
+		inherited[key] = process.env[key]
+	}
+	return { ...inherited, ...(requested || {}) }
+}
+
 async function handleExecute(req, res) {
 	let body
 	try {
@@ -287,7 +339,7 @@ async function handleExecute(req, res) {
 	try {
 		child = spawn(body.command, Array.isArray(body.args) ? body.args : [], {
 			cwd,
-			env: { ...process.env, ...(body.env || {}) },
+			env: childEnvironment(body.env),
 			stdio: [body.stdin === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
 		})
 	} catch (err) {
