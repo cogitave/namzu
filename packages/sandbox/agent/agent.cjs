@@ -387,7 +387,7 @@ function handleConnection(socket) {
 }
 
 function dispatch(socket, req) {
-	const op = req && req.op
+	const op = req?.op
 	if (op === 'healthz') {
 		writeFrame(socket, { ok: true })
 		socket.end()
@@ -484,7 +484,7 @@ async function main() {
 	// never lands on a connection severed by the resume.
 	process.on('SIGUSR1', () => {
 		reListenOnResume().catch((err) => {
-			console.error('[namzu-fc-agent] re-listen on resume failed:', err && err.message)
+			console.error('[namzu-fc-agent] re-listen on resume failed:', err?.message)
 		})
 	})
 }
@@ -504,7 +504,7 @@ module.exports = {
 
 if (require.main === module) {
 	main().catch((err) => {
-		console.error('[namzu-fc-agent] fatal:', err && err.stack ? err.stack : err)
+		console.error('[namzu-fc-agent] fatal:', err?.stack ? err.stack : err)
 		process.exit(1)
 	})
 }

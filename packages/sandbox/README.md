@@ -138,9 +138,13 @@ doesn't have to forward identity through `provider.create`.
 
 Every container is launched with:
 
-- `--cap-drop=ALL` — `CAP_DAC_OVERRIDE` alone walks past the read-only bind
-  mounts the layout sets up, so the default capability set makes the mount
-  layout advisory rather than enforced.
+- `--cap-drop=ALL` — two independent reasons, and the second is easy to lose.
+  `CAP_DAC_OVERRIDE` alone walks past the read-only bind mounts the layout
+  sets up, so the default capability set makes the mount layout advisory
+  rather than enforced. Separately, an `--internal` network denies egress by
+  giving the container no route out — and restoring one is a single
+  `ip route add`, refused only because `NET_ADMIN` is absent. The network
+  removes the route; this flag removes the ability to put it back.
 - `--security-opt=no-new-privileges` — without it a setuid binary in the
   image re-escalates after the drop.
 - the configured network, which defaults to `none` (see the egress table
@@ -155,6 +159,27 @@ uid depends on the image's own filesystem ownership and forcing one breaks
 every image that expects root at startup. Set it whenever the image
 supports a non-root user — a container running as root is one bind-mount
 misconfiguration away from writing the host.
+
+### The environment a command runs in
+
+The worker strips every variable prefixed `NAMZU_SANDBOX_` before spawning
+a command. Those are its own configuration — the workspace root and both
+root lists among them — and passing them on handed the confinement layout
+to the code being confined.
+
+Everything else is inherited, which is deliberate and not an oversight:
+
+- `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` are set on the container so
+  tooling inside routes through the egress boundary. A workload that never
+  received them would stop being proxied, which looks exactly like the
+  policy working.
+- Anything you passed as `options.env` is meant to reach commands, and once
+  it is in the worker's environment the prefix is the only thing separating
+  it from the worker's own settings.
+
+Per-call `env` is applied after the strip and is **not** filtered, so a
+caller that deliberately sets a prefixed name still gets it. If a workload
+needs the workspace root, note that it is also the command's `cwd`.
 
 ## Status
 

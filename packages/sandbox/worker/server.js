@@ -541,12 +541,17 @@ const server = http.createServer(async (req, res) => {
 		// see a socket close on that one request and retry whatever
 		// it was doing, but the next request lands on a still-alive
 		// worker.
-		console.error('[namzu-sandbox-worker] uncaught handler error:', err && err.stack ? err.stack : err)
+		console.error('[namzu-sandbox-worker] uncaught handler error:', err?.stack ? err.stack : err)
 		try {
 			if (!res.headersSent) {
-				writeJson(res, 500, { error: 'internal', message: err && err.message ? err.message : String(err) })
+				writeJson(res, 500, {
+					error: 'internal',
+					message: err?.message ? err.message : String(err),
+				})
 			} else {
-				try { res.end() } catch {}
+				try {
+					res.end()
+				} catch {}
 			}
 		} catch {}
 	}
@@ -558,10 +563,10 @@ const server = http.createServer(async (req, res) => {
 // exit produces the catastrophic "every subsequent tool call fetch
 // fails because the container is gone" pattern.
 process.on('unhandledRejection', (err) => {
-	console.error('[namzu-sandbox-worker] unhandledRejection:', err && err.stack ? err.stack : err)
+	console.error('[namzu-sandbox-worker] unhandledRejection:', err?.stack ? err.stack : err)
 })
 process.on('uncaughtException', (err) => {
-	console.error('[namzu-sandbox-worker] uncaughtException:', err && err.stack ? err.stack : err)
+	console.error('[namzu-sandbox-worker] uncaughtException:', err?.stack ? err.stack : err)
 })
 
 // Bind address picks `0.0.0.0` by default so a sibling container

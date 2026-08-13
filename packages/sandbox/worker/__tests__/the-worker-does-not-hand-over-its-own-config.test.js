@@ -133,74 +133,98 @@ describe('the environment a sandboxed command runs in', () => {
 		worker = undefined
 	}, NEEDS_TWO_PROCESSES)
 
-	it('does not describe the confinement layout to the confined code', async () => {
-		// The concrete case. A command could read the workspace root and both
-		// root lists straight out of its own environment.
-		worker = await spawnWorker()
+	it(
+		'does not describe the confinement layout to the confined code',
+		async () => {
+			// The concrete case. A command could read the workspace root and both
+			// root lists straight out of its own environment.
+			worker = await spawnWorker()
 
-		const seen = await environmentSeenByChild(worker)
+			const seen = await environmentSeenByChild(worker)
 
-		expect(seen.NAMZU_SANDBOX_WORKSPACE).toBeUndefined()
-		expect(seen.NAMZU_SANDBOX_READ_ROOTS).toBeUndefined()
-		expect(seen.NAMZU_SANDBOX_WRITE_ROOTS).toBeUndefined()
-	}, NEEDS_TWO_PROCESSES)
+			expect(seen.NAMZU_SANDBOX_WORKSPACE).toBeUndefined()
+			expect(seen.NAMZU_SANDBOX_READ_ROOTS).toBeUndefined()
+			expect(seen.NAMZU_SANDBOX_WRITE_ROOTS).toBeUndefined()
+		},
+		NEEDS_TWO_PROCESSES,
+	)
 
-	it('strips by prefix, so a setting added later is covered without being listed', async () => {
-		// A deny-list of known names would leak whatever is added next. The
-		// prefix is the boundary, which is why the constant carries a docblock
-		// saying so.
-		worker = await spawnWorker({ NAMZU_SANDBOX_SOME_FUTURE_SECRET: 'must-not-propagate' })
+	it(
+		'strips by prefix, so a setting added later is covered without being listed',
+		async () => {
+			// A deny-list of known names would leak whatever is added next. The
+			// prefix is the boundary, which is why the constant carries a docblock
+			// saying so.
+			worker = await spawnWorker({ NAMZU_SANDBOX_SOME_FUTURE_SECRET: 'must-not-propagate' })
 
-		const seen = await environmentSeenByChild(worker)
+			const seen = await environmentSeenByChild(worker)
 
-		expect(seen.NAMZU_SANDBOX_SOME_FUTURE_SECRET).toBeUndefined()
-		expect(Object.keys(seen).filter((k) => k.startsWith('NAMZU_SANDBOX_'))).toEqual([])
-	}, NEEDS_TWO_PROCESSES)
+			expect(seen.NAMZU_SANDBOX_SOME_FUTURE_SECRET).toBeUndefined()
+			expect(Object.keys(seen).filter((k) => k.startsWith('NAMZU_SANDBOX_'))).toEqual([])
+		},
+		NEEDS_TWO_PROCESSES,
+	)
 
-	it('still passes the proxy variables, which are set on purpose', async () => {
-		// The half that makes an allowlist wrong. The egress boundary works by
-		// tooling inside honouring these; dropping them stops every workload
-		// being proxied, which looks exactly like the policy working.
-		worker = await spawnWorker({
-			HTTP_PROXY: 'http://namzu-egress:8080',
-			HTTPS_PROXY: 'http://namzu-egress:8080',
-			NO_PROXY: 'localhost,127.0.0.1',
-		})
+	it(
+		'still passes the proxy variables, which are set on purpose',
+		async () => {
+			// The half that makes an allowlist wrong. The egress boundary works by
+			// tooling inside honouring these; dropping them stops every workload
+			// being proxied, which looks exactly like the policy working.
+			worker = await spawnWorker({
+				HTTP_PROXY: 'http://namzu-egress:8080',
+				HTTPS_PROXY: 'http://namzu-egress:8080',
+				NO_PROXY: 'localhost,127.0.0.1',
+			})
 
-		const seen = await environmentSeenByChild(worker)
+			const seen = await environmentSeenByChild(worker)
 
-		expect(seen.HTTP_PROXY).toBe('http://namzu-egress:8080')
-		expect(seen.HTTPS_PROXY).toBe('http://namzu-egress:8080')
-		expect(seen.NO_PROXY).toBe('localhost,127.0.0.1')
-	}, NEEDS_TWO_PROCESSES)
+			expect(seen.HTTP_PROXY).toBe('http://namzu-egress:8080')
+			expect(seen.HTTPS_PROXY).toBe('http://namzu-egress:8080')
+			expect(seen.NO_PROXY).toBe('localhost,127.0.0.1')
+		},
+		NEEDS_TWO_PROCESSES,
+	)
 
-	it('still passes the host’s own environment, which is meant to reach commands', async () => {
-		// A host's `options.env` arrives on the same channel as the worker's
-		// config and is indistinguishable from it once both are in
-		// `process.env`. Only the prefix tells them apart.
-		worker = await spawnWorker({ MY_APP_TOKEN: 'host-supplied' })
+	it(
+		'still passes the host’s own environment, which is meant to reach commands',
+		async () => {
+			// A host's `options.env` arrives on the same channel as the worker's
+			// config and is indistinguishable from it once both are in
+			// `process.env`. Only the prefix tells them apart.
+			worker = await spawnWorker({ MY_APP_TOKEN: 'host-supplied' })
 
-		const seen = await environmentSeenByChild(worker)
+			const seen = await environmentSeenByChild(worker)
 
-		expect(seen.MY_APP_TOKEN).toBe('host-supplied')
-	}, NEEDS_TWO_PROCESSES)
+			expect(seen.MY_APP_TOKEN).toBe('host-supplied')
+		},
+		NEEDS_TWO_PROCESSES,
+	)
 
-	it('still passes PATH, or nothing would run at all', async () => {
-		worker = await spawnWorker()
+	it(
+		'still passes PATH, or nothing would run at all',
+		async () => {
+			worker = await spawnWorker()
 
-		const seen = await environmentSeenByChild(worker)
+			const seen = await environmentSeenByChild(worker)
 
-		expect(seen.PATH ?? seen.Path).toBeTruthy()
-	}, NEEDS_TWO_PROCESSES)
+			expect(seen.PATH ?? seen.Path).toBeTruthy()
+		},
+		NEEDS_TWO_PROCESSES,
+	)
 
-	it('lets an explicit per-call value through, including a prefixed one', async () => {
-		// Inheritance is implicit and gets the default; `body.env` is a caller
-		// deciding. Filtering that too would silently drop a value the caller
-		// asked for by name.
-		worker = await spawnWorker()
+	it(
+		'lets an explicit per-call value through, including a prefixed one',
+		async () => {
+			// Inheritance is implicit and gets the default; `body.env` is a caller
+			// deciding. Filtering that too would silently drop a value the caller
+			// asked for by name.
+			worker = await spawnWorker()
 
-		const seen = await environmentSeenByChild(worker, { NAMZU_SANDBOX_WORKSPACE: 'chosen' })
+			const seen = await environmentSeenByChild(worker, { NAMZU_SANDBOX_WORKSPACE: 'chosen' })
 
-		expect(seen.NAMZU_SANDBOX_WORKSPACE).toBe('chosen')
-	}, NEEDS_TWO_PROCESSES)
+			expect(seen.NAMZU_SANDBOX_WORKSPACE).toBe('chosen')
+		},
+		NEEDS_TWO_PROCESSES,
+	)
 })
