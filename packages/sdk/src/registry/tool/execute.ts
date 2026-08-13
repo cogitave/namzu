@@ -4,6 +4,7 @@ import { GENAI, NAMZU, toolSpanName } from '../../telemetry/attributes.js'
 import { recordToolCall } from '../../telemetry/metrics.js'
 import { getTracer } from '../../telemetry/runtime-accessors.js'
 import { isTrustedReadOnly } from '../../tools/trusted-read-only.js'
+import type { ToolResultGuardrailSpec } from '../../types/guardrail/index.js'
 import type {
 	LLMToolSchema,
 	ToolAvailability,
@@ -16,6 +17,7 @@ import type {
 import { toErrorMessage } from '../../utils/error.js'
 import { ManagedRegistry } from '../ManagedRegistry.js'
 import { renderToolSchema } from './schema.js'
+import { ToolResultHalted, screenToolResult } from './screen.js'
 
 export type { ToolExecutionResult }
 
@@ -133,10 +135,12 @@ export function describeWithOutput(
 export class ToolRegistry extends ManagedRegistry<ToolDefinition> {
 	private availability: Map<string, ToolAvailability> = new Map()
 	private tierConfig?: ToolTierConfig
+	private resultGuardrails?: readonly ToolResultGuardrailSpec[]
 
 	constructor(config?: ToolRegistryConfig) {
 		super({ componentName: 'ToolRegistry', idField: 'name', logger: config?.logger })
 		this.tierConfig = config?.tierConfig
+		this.resultGuardrails = config?.resultGuardrails
 	}
 
 	override register(id: string, tool: ToolDefinition): void
@@ -565,7 +569,25 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 				try {
 					this.log.debug(`Executing tool: ${toolName}`)
 					const startedAt = Date.now()
-					const result = await tool.execute(finalInput, context)
+					const produced = await tool.execute(finalInput, context)
+					// Screened here, which is the only place a result can be
+					// examined before anything acts on it: the executor applies
+					// the output budget to what this returns, and compaction
+					// summarises later still. `provenance` is carried in so a
+					// screen can tell a connected server's words from a
+					// first-party tool's — a connector's result is framed with
+					// the server's name, and a screen reading only the value
+					// cannot use that.
+					const result = await screenToolResult(
+						this.resultGuardrails,
+						produced,
+						{
+							toolName,
+							input: finalInput,
+							...(tool.provenance ? { provenance: tool.provenance } : {}),
+						},
+						this.log,
+					)
 					const durationMs = Date.now() - startedAt
 					this.log.debug(`Tool completed: ${toolName}`, {
 						success: result.success,
@@ -587,6 +609,20 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 
 					return result
 				} catch (err) {
+					// A terminal refusal must not be converted into a failed
+					// tool call. Everything below turns an exception into a
+					// result the model reads and works around, which is what
+					// `refuse` is for — doing it to a `halt` would silently
+					// demote the one verdict that says the run must not
+					// continue.
+					if (err instanceof ToolResultHalted) {
+						span.setAttributes({
+							[NAMZU.TOOL_SUCCESS]: false,
+							[NAMZU.TOOL_ERROR]: err.message,
+						})
+						span.setStatus({ code: SpanStatusCode.ERROR, message: err.message })
+						throw err
+					}
 					const errorMessage = toErrorMessage(err)
 					this.log.error(`Tool execution error: ${toolName}`, {
 						error: errorMessage,

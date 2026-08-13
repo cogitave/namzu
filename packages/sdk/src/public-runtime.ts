@@ -739,7 +739,12 @@ export type { TokenUsageSample } from './telemetry/metrics.js'
 export {
 	promptInjectionGuardrail,
 	secretRedactionGuardrail,
+	toolResultInjectionGuardrail,
 } from './runtime/query/guardrail-presets.js'
+// Thrown by a tool-result screen that returned `halt`. Exported because a
+// host has to be able to tell it from an ordinary failure — that is the
+// entire difference between the two refusal outcomes.
+export { ToolResultHalted } from './registry/tool/screen.js'
 
 // Error taxonomy. `toPlatformError` is the load-bearing one: it normalizes
 // ANYTHING thrown into the declared `PlatformError` shape, so a host writes

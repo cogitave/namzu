@@ -2,6 +2,8 @@ import type {
 	GuardrailVerdict,
 	NamedGuardrail,
 	OutputGuardrail,
+	ToolResultGuardrail,
+	ToolResultVerdict,
 } from '../../types/guardrail/index.js'
 
 /**
@@ -100,6 +102,12 @@ const INJECTION_PATTERNS: readonly RegExp[] = [
  * Input-side because it is cheapest there — nothing has been spent — and
  * because the same text reaching the model is the thing you are trying to
  * prevent.
+ *
+ * It cannot see an INDIRECT injection, and that is not a limitation of the
+ * patterns: an injection carried in a web page or a connected server's
+ * answer never appears in the run's input at all. See
+ * {@link toolResultInjectionGuardrail}, which is the same list at the other
+ * boundary.
  */
 export function promptInjectionGuardrail(): NamedGuardrail<
 	(ctx: { messages: readonly { readonly content: unknown }[] }) => GuardrailVerdict
@@ -116,6 +124,48 @@ export function promptInjectionGuardrail(): NamedGuardrail<
 							reason: 'input matched a known instruction-override pattern',
 						}
 					}
+				}
+			}
+			return { action: 'pass' }
+		},
+	}
+}
+
+/**
+ * Flag likely instruction-override attempts in what a TOOL returned.
+ *
+ * The case the input-side screen structurally cannot reach. An indirect
+ * injection arrives in a fetched page or a connected server's answer, so it
+ * is never in the run's input — by the time it matters the run is
+ * legitimate and the payload is riding on a result the model asked for.
+ *
+ * `refuse`, not `halt`: a hostile result is a reason to abandon that call,
+ * not the run. The model is told the answer was refused and can choose
+ * something else, which is the behaviour that keeps the control switched on
+ * — a screen that ends a run on a false positive gets removed, and then it
+ * protects nothing.
+ *
+ * **Detection is partial and this says so rather than implying coverage.**
+ * The pattern list is shared with the input-side screen, so the same caveat
+ * holds: an injection phrased as ordinary prose, or written in a language
+ * the list does not cover, passes. Pattern-matching and delimiting both
+ * measure poorly against an attacker who adapts. This raises the cost of
+ * the lazy attack; it is not a boundary, and nothing here should be
+ * described as one.
+ */
+export function toolResultInjectionGuardrail(): NamedGuardrail<ToolResultGuardrail> {
+	return {
+		name: 'tool-result-injection',
+		check: ({ output, provenance }): ToolResultVerdict => {
+			for (const pattern of INJECTION_PATTERNS) {
+				if (!pattern.test(output)) continue
+				// Naming the source is most of what the model needs in order
+				// to act. "A result was refused" is not something it can route
+				// around; "the answer from weather-co was refused" is.
+				const source = provenance ? `the connected server "${provenance.server}"` : 'this tool'
+				return {
+					action: 'refuse',
+					reason: `the result from ${source} matched a known instruction-override pattern`,
 				}
 			}
 			return { action: 'pass' }
