@@ -341,6 +341,30 @@ export function egressProxyOptions(
  * `--cap-drop=ALL` is deliberately not softened by a re-add list: a
  * workload that genuinely needs a capability should say so through
  * `extraRunArgs` and be visible in review.
+ *
+ * **It carries a second, independent load, and this is the one that would
+ * survive being forgotten.** An egress policy of `deny-all` is enforced by
+ * the container's network being `--internal`, which gives it no route out.
+ * Measured against Docker 29.6: a container on such a network has only its
+ * own subnet in `ip route` and no default, and `ip route add default via
+ * <a sibling>` answers `RTNETLINK answers: Operation not permitted` —
+ * already, with docker's DEFAULT capability set, before this flag is
+ * applied. `NET_ADMIN` is what would lift that, and dropping every
+ * capability is what guarantees the workload does not have it.
+ *
+ * So the internal network removes the route and this flag removes the
+ * ability to put one back. Both are needed. Measured on a container given
+ * `--cap-add=NET_ADMIN`, adding the route and reaching a sibling attached
+ * to an external bridge produces `download timed out` rather than
+ * `Network unreachable` — the route existed, the packet left, and the
+ * dual-homed sibling forwarded it (`net.ipv4.ip_forward` is `1` inside a
+ * container). Nothing masquerades the internal subnet so no reply finds its
+ * way back and no connection establishes, **but that is not a security
+ * property**: one-way egress is sufficient for exfiltration, and what was
+ * measured is that the handshake fails, not that the packet was dropped.
+ *
+ * Recorded here because the first justification above would survive
+ * softening this flag and the second would not.
  */
 const HARDENING_ARGS: readonly string[] = ['--cap-drop=ALL', '--security-opt=no-new-privileges']
 

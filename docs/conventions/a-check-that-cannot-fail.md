@@ -1,13 +1,13 @@
 ---
 uid: namzu.conventions.a-check-that-cannot-fail
 title: A check that cannot fail is worse than no check
-description: A guard placed where its condition can never be false protects nothing, and it teaches the next reader that the checks here are decoration — so the one that matters gets skimmed too. The same shape reaches assertions, where a matcher can accept the value it exists to reject.
+description: A guard whose condition can never be false protects nothing, and teaches the next reader that the checks here are decoration. The same shape reaches a matcher that accepts what it exists to reject, and a suite that never runs — whose absence the runner reports as success.
 type: Convention
 diataxis: explanation
 owner: cogitave/namzu
 status: active
 timestamp: 2026-08-04T00:00:00Z
-lastReviewed: 2026-08-09
+lastReviewed: 2026-08-13
 tags: [convention, verification, code-review]
 ---
 
@@ -89,11 +89,91 @@ The fix is always the same: assert the **whole** phrase, or anchor it. Prefer
 matching what a reader would see in full — the complete marker, the complete
 line — over the fragment that happens to be distinctive today.
 
+## The check that was never asked
+
+Amended 2026-08-13.
+
+The three forms above are all *present and evaluated* — a guard whose condition
+cannot be false, a test on a path the defect is not on, a matcher that accepts
+what it exists to reject. There is a fourth, and it is the worst of the family
+because nothing about it is wrong except that it never happened:
+
+**the check is correct, would have caught the defect, and is never run — and
+the runner reports that as success.**
+
+### The incident
+
+`packages/sandbox` has a smoke suite that spawns a real container, completes
+the worker handshake and asserts the leaf-mount permission contract. It is
+careful work. Its docstring explains that on CI it *fails fast* rather than
+skipping, "so a CI misconfiguration cannot silently mask a regression". A
+dedicated workflow builds the reference image and runs it on every change to
+the package.
+
+It had never run. Not once.
+
+Three things had to line up, and each is individually reasonable:
+
+1. `vitest.config.ts` excludes `**/*.smoke.test.ts` so the default `pnpm test`
+   stays daemon-free. Correct, and it governs **every run that config is used
+   for** — including the `test:smoke` run that exists to run them.
+2. `test:smoke` tried to re-include them by naming them as CLI arguments.
+   Positional arguments are a **filter applied to what discovery already
+   found**, not an include. They cannot re-add an excluded file.
+3. `--passWithNoTests` turned the resulting empty run into exit `0`.
+
+So the job printed `No test files found, exiting with code 0` and went green,
+after building a Debian image with a browser and an office suite in it to run
+nothing at all. Six words in a log, in a workflow nobody had reason to read,
+because it was passing.
+
+The fail-fast guard from the docstring could not fire either. It lives inside
+a file that was never loaded. **A guard against misconfiguration cannot survive
+a misconfiguration that prevents it from being read** — which is the same
+lesson as the rest of this page, arriving one level up.
+
+What it was hiding: the backend could not create a sandbox on its own
+documented defaults. `create()` died inside a `docker inspect` template, and
+the error blamed a container that was alive and well.
+
+### The tell
+
+You have a suite with a *dedicated* runner — a separate script, config, or
+workflow, usually because it is slow, needs a daemon, or would flake beside the
+unit tests. That separation is the risk. A suite in the default run announces
+its own absence by changing the count; a suite with its own path announces
+nothing to anyone.
+
+Ask two questions of any such runner:
+
+- **What is the last non-zero test count it printed?** Not "does it pass" —
+  passing is what the failure looks like. Read the summary line and find the
+  number. If you cannot find one in the log, that is the answer.
+- **Does its exit code distinguish "everything passed" from "nothing ran"?**
+  `--passWithNoTests` and its equivalents collapse the two on purpose, which is
+  right for a package that genuinely has no tests and wrong for one whose whole
+  point is a suite. Do not set it on a runner named after the suite it runs.
+
+### The fix, both halves
+
+Give the separated suite a config that *includes* it rather than a filter that
+hopes to, and drop the pass-with-no-tests flag from that runner so an empty run
+is a failure. Then check the two configs against each other: the exclude in one
+and the include in the other are now a pair, and changing either alone makes
+the suite invisible to both.
+
 ## Related
 
+- [Never filter a verification](never-filter-a-verification.md) — the adjacent
+  failure, and the contrast worth holding: there the check *runs* and its answer
+  is discarded; here the check never runs and its absence is reported as a pass.
+  Both end at a green summary line that means something other than "this is
+  fine".
 - [Mutate every test](mutation-check-every-test.md) — how you establish that a
   check can fail, rather than arguing that it can. The loose matcher above is
   the case mutation cannot report, which is why it is written down here as a
-  shape to recognise before you run one.
+  shape to recognise before you run one. Note that mutation cannot reach the
+  fourth form either: a suite that never runs kills nothing, and reads
+  identically to a suite with no coverage of the mutated line.
 - [An optional dependency may degrade a feature, never a check](an-optional-dependency-may-not-degrade-a-check.md)
   — a guard that cannot fail because its precondition was defaulted away.
