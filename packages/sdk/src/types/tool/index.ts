@@ -1,5 +1,10 @@
 import type { z } from 'zod'
 import type { Logger } from '../../utils/logger.js'
+// Type-only, and circular by design: a tool-result guardrail is described in
+// terms of the tool that produced the result, and the registry that holds
+// the guardrails is described here. Erased at compile time, so neither
+// module exists at runtime to depend on the other.
+import type { ToolResultGuardrailSpec } from '../guardrail/index.js'
 import type { RunId } from '../ids/index.js'
 import type { InvocationState } from '../invocation/index.js'
 import type { PermissionMode } from '../permission/index.js'
@@ -390,6 +395,16 @@ export interface ToolTierConfig {
 export interface ToolRegistryConfig {
 	logger?: Logger
 	tierConfig?: ToolTierConfig
+	/**
+	 * Screens run against every tool result before anything downstream
+	 * reads it — the output budget, compaction, and the model itself are
+	 * all past this point.
+	 *
+	 * Absent means no screening, which is what shipped before this existed:
+	 * a connected server's text reached the model unexamined. See
+	 * {@link ToolResultGuardrailSpec}.
+	 */
+	resultGuardrails?: readonly ToolResultGuardrailSpec[]
 }
 
 export interface ToolExecutionResult extends ToolResult {

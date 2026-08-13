@@ -1,7 +1,7 @@
 ---
 title: Safety and Operations
 description: Sandboxing, verification, bus coordination, telemetry, and operational guardrails inside @namzu/sdk.
-last_updated: 2026-08-03
+last_updated: 2026-08-13
 status: current
 related_packages: ["@namzu/sdk", "@namzu/computer-use"]
 ---
@@ -81,6 +81,7 @@ which surface it was written on, and nobody had chosen that.
 | Surface | A handler that throws | Why |
 | --- | --- | --- |
 | Input / output guardrail | **blocks** | It was asked whether this is safe and did not answer |
+| Tool-result screen | **refuses the call** | Same question, narrower subject: this result's safety is unknown, which is not the same as the run being unsalvageable |
 | Tool veto (probe) | **denies** | It was asked whether this may run and did not permit it |
 | Plugin lifecycle hook | **fails the run** | Same reasoning: a refused hook is not a passed one |
 | Observer probe | **skipped** | It was never asked a question, so it has no answer to withhold |
@@ -93,6 +94,45 @@ A denial names the probe that produced it, so a buggy veto is diagnosable
 rather than mysterious. That exposure — a bad handler refusing every call —
 is real, and it is the same one the guardrail already accepted: a wrongly
 permitted destructive call is not recoverable at all, and a refusal is.
+
+### The tool-result screen, and why it has two refusals
+
+`ToolRegistryConfig.resultGuardrails` runs against every tool result before
+anything downstream reads it. Position is the point: the registry returns to
+the executor, the executor applies the output budget and spills what is over
+it, and compaction summarises later still — so screening here is upstream of
+both by construction. A summariser does not distinguish trusted text from
+untrusted, and content carried into a summary outlives the result it came
+from.
+
+It is the only boundary that can see an **indirect** injection. The
+input-side screen is correctly scoped and structurally cannot reach one: a
+payload arriving in a fetched page or a connected server's answer is never
+in the run's input.
+
+A verdict is `pass`, `rewrite`, `refuse` or `halt`. Two refusals rather than
+one, because at this boundary they mean genuinely different things:
+
+- **`refuse`** is recoverable. The `tool_use` fails carrying the reason, and
+  the model can choose something else. Not blank and not dropped — a model
+  shown an empty result concludes the tool found nothing, which is a
+  different claim and a false one.
+- **`halt`** is terminal, and throws `ToolResultHalted` rather than
+  returning. It has to throw: the registry's failure path turns every
+  exception into a result the model reads and works around, which is what
+  `refuse` already is, so a halt reported as a failed call would be silently
+  demoted.
+
+`rewrite` is for **redaction** — a credential that should not enter context,
+removed at the last boundary before it does. It is not for neutralising an
+injection. Editing an attack presumes you understood the payload well enough
+to defang it; the systems that screen for attacks block instead. The two are
+the same mechanism and only the discipline separates them.
+
+`toolResultInjectionGuardrail()` ships as a preset over the same pattern list
+the input-side screen uses. Its detection is partial and it says so: an
+injection phrased as ordinary prose, or in a language the list does not
+cover, passes. It raises the cost of the lazy attack. It is not a boundary.
 
 ## 3. Verification Gate
 
