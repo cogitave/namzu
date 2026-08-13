@@ -14,10 +14,13 @@ describe('resolveNetwork', () => {
 		expect(resolveNetwork('bridge', undefined)).toBe('bridge')
 	})
 
-	it('enforces deny-all natively', () => {
-		// Docker can actually do this one, so there is no excuse for
-		// accepting the policy and ignoring it.
-		expect(resolveNetwork('bridge', { kind: 'deny-all' })).toBe('none')
+	it('keeps the network for deny-all, because the container is reached THROUGH it', () => {
+		// This used to answer `'none'`, which reads as the strictest possible
+		// answer and was in fact unusable: `--network none` removes the
+		// interface the worker is reached on, not just the route out. What
+		// makes the kept network a boundary is `assertNetworkCarriesThePolicy`,
+		// which has its own file.
+		expect(resolveNetwork('locked-down', { kind: 'deny-all' })).toBe('locked-down')
 	})
 
 	it('allow-all keeps the configured network', () => {

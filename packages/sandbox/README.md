@@ -64,11 +64,34 @@ throws instead of quietly ignoring it:
 
 | Backend | `deny-all` | `allow-all` | `static` | `resolver` |
 |---|---|---|---|---|
-| `container:docker` | enforced (`--network none`) | enforced | **throws** — no proxy to filter through | **throws** |
+| `container:docker` | enforced on an `--internal` network, and **throws** under `hostReachability: 'host-port'` | enforced | **throws** — no proxy to filter through | **throws** |
 | `container:standby-pool` | **throws** | **throws** | **throws** | **throws** |
 | `microvm:firecracker` | enforced (empty allowlist) | enforced (no allowlist) | enforced | enforced — `resolve()` is called and its result forwarded |
 
-Two rows carry the same lesson from opposite directions.
+### The network has to be able to carry the policy
+
+`network` and `hostReachability` are not independent of the egress policy,
+and pairing them wrongly used to produce a container nobody could reach:
+
+| You want | `network` | `hostReachability` |
+|---|---|---|
+| no egress, enforced | a network created `--internal` | `container-network` |
+| egress, restricted by allowlist | a bridge, plus an egress proxy | either |
+| egress, unrestricted | a bridge | either |
+
+Docker binds a published port to the container's address by NAT, so a
+container with no route out has no address to bind to and **nothing is
+published** — that holds for `--network none` and for an `--internal`
+network alike. `deny-all` needs exactly such a network. The two
+requirements are opposites, so *no egress plus a published host port* is
+impossible rather than unsupported; closing that means moving the worker's
+control channel off TCP.
+
+`create()` checks both against the daemon and refuses with the reason.
+Note that the `network` default of `'none'` is one of the pairings it
+refuses.
+
+Two rows of the table above carry the same lesson from opposite directions.
 
 The docker row used to accept a restrictive policy and silently grant the
 configured network, which is worse than not supporting the feature: the
@@ -120,7 +143,8 @@ Every container is launched with:
   layout advisory rather than enforced.
 - `--security-opt=no-new-privileges` — without it a setuid binary in the
   image re-escalates after the drop.
-- `--network none` by default (see the egress table above).
+- the configured network, which defaults to `none` (see the egress table
+  above, and the network note below it).
 
 There is deliberately **no re-add list** for capabilities. A workload that
 genuinely needs one should say so somewhere a reviewer sees it, not inherit
