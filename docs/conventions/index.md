@@ -78,6 +78,8 @@ probably belong under `docs/sdk/` instead.
 - [A check that cannot fail is worse than no check](a-check-that-cannot-fail.md)
   — it teaches the next reader that the checks here are decoration. Includes the
   loose matcher: `toContain(old)` cannot see a change that only adds around it.
+  And the check that was never asked: a suite excluded from its own runner,
+  reported as a pass. A separated suite announces its absence to nobody.
 
 ### Reading the evidence
 
