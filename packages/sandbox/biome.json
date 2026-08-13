@@ -52,9 +52,19 @@
     }
   },
   "files": {
-    "include": ["src/**/*.ts"]
+    "include": ["src/**/*.ts", "worker/**/*.js", "agent/**/*.cjs"]
   },
   "overrides": [
+    {
+      "include": ["worker/**/*.js", "agent/**/*.cjs"],
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noConsole": "off"
+          }
+        }
+      }
+    },
     {
       "include": ["src/**/__tests__/**/*.ts"],
       "linter": {

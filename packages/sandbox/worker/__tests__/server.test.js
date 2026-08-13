@@ -98,15 +98,6 @@ function getFreePort() {
 	})
 }
 
-async function readNdjson(res) {
-	const text = await res.text()
-	return text
-		.split('\n')
-		.map((line) => line.trim())
-		.filter(Boolean)
-		.map((line) => JSON.parse(line))
-}
-
 describe('worker /execute — timeoutMs ceiling', () => {
 	let worker
 
