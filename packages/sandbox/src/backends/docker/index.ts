@@ -186,10 +186,17 @@ export function buildDockerBackend(config: DockerBackendInternalConfig): Sandbox
  *
  * The policy used to be accepted and silently ignored, which is worse than
  * not supporting it: a host that set `deny-all` believed the container had
- * no network and it had the configured one. Docker can enforce `deny-all`
- * natively (`--network none`); it cannot enforce a host allowlist without
- * a proxy this backend does not have, so those policies are REFUSED rather
- * than quietly downgraded to "allow everything".
+ * no network and it had the configured one. It cannot enforce a host
+ * allowlist without a proxy this backend does not have, so those policies
+ * are REFUSED rather than quietly downgraded to "allow everything".
+ *
+ * `deny-all` used to answer `'none'`, which reads as the strictest possible
+ * answer and produced a sandbox nobody could reach. `--network none`
+ * removes every interface, and this backend's control channel is inbound
+ * TCP to the worker — so removing the interfaces removes the way IN, not
+ * just the way out. It now keeps the configured network, and
+ * {@link assertNetworkCarriesThePolicy} is what makes that network a
+ * boundary.
  */
 export function resolveNetwork(
 	configured: string,
@@ -200,7 +207,6 @@ export function resolveNetwork(
 
 	switch (egress.kind) {
 		case 'deny-all':
-			return 'none'
 		case 'allow-all':
 			return configured
 		default:
@@ -235,6 +241,68 @@ export async function resolveAllowedHosts(egress: EgressPolicy): Promise<readonl
 /** Whether a policy needs a boundary before it can be enforced at all. */
 export function needsEgressProxy(egress: EgressPolicy | undefined): boolean {
 	return egress?.kind === 'static' || egress?.kind === 'resolver'
+}
+
+/**
+ * Whether the daemon says a network has no route out.
+ *
+ * Takes the raw `docker network inspect --format '{{.Internal}}'` output
+ * rather than reading it, so every decision below is testable without a
+ * daemon and the daemon call stays one line. Anything other than a literal
+ * `true` counts as "not internal": an unreadable answer is not evidence of
+ * a boundary.
+ */
+export function isInternalNetwork(inspectedInternalFlag: string): boolean {
+	return inspectedInternalFlag.trim() === 'true'
+}
+
+/**
+ * Refuse a container whose network cannot do what was asked of it.
+ *
+ * Two requirements meet on the same object here, and both were previously
+ * unstated — which is how the backend came to ship a default configuration
+ * that could not create a sandbox at all:
+ *
+ *  - **A published host port needs a route out.** Docker binds the port by
+ *    NAT to the container's address, so a container with no address gets no
+ *    binding. Measured against Docker 29.6: `--network none --publish
+ *    127.0.0.1::2024` is *accepted*, `NetworkSettings.Ports` comes back
+ *    `{"2024/tcp":[]}`, and `docker port` prints nothing. An `--internal`
+ *    network behaves the same way. The port readback then failed with
+ *    `index of untyped nil` and reported it as "the container exited
+ *    immediately" — blaming a container that was alive and well.
+ *  - **`deny-all` needs a network with no route out.** Since it no longer
+ *    answers `--network none`, the configured name is all that stands
+ *    between the policy and ordinary outbound networking, and a name says
+ *    nothing. `deny-all` pointed at the default bridge would be full egress
+ *    under a policy object claiming none — the "accepted and silently
+ *    ignored" failure the rest of this file exists to refuse.
+ *
+ * They are exact opposites, so `deny-all` over a published host port is
+ * impossible rather than merely unsupported: no arrangement of docker
+ * networking both denies all egress and lets the host reach the worker over
+ * TCP. Closing that needs the control channel moved off TCP — see #398 —
+ * and is not a flag this function could accept.
+ */
+export function assertNetworkCarriesThePolicy(
+	network: string,
+	reachability: 'host-port' | 'container-network',
+	egress: EgressPolicy | undefined,
+	inspectedInternalFlag: string,
+): void {
+	const internal = isInternalNetwork(inspectedInternalFlag)
+
+	if (reachability === 'host-port' && (network === 'none' || internal)) {
+		throw new Error(
+			`The docker sandbox backend cannot publish the worker's port on network '${network}': docker binds a published port to the container's address, and a container with no route out has no address to bind to, so nothing is published and the sandbox is unreachable. Either give config.network a bridge that has one, or set hostReachability: 'container-network' and reach the worker by container name. Refusing rather than starting a container nobody can reach.`,
+		)
+	}
+
+	if (egress?.kind === 'deny-all' && !internal) {
+		throw new Error(
+			`The docker sandbox backend was asked for an egress policy of 'deny-all' on network '${network}', but that network is not internal, so the container can still reach the world. Create it with 'docker network create --internal ${network}' — an internal bridge denies egress in the kernel, rather than through an environment variable a workload may decline to read, while sibling containers still reach the worker by name. Refusing rather than reporting a boundary that is not there.`,
+		)
+	}
 }
 
 /**
@@ -297,13 +365,33 @@ async function spawnDockerSandbox(
 		egressProxy = await new EgressProxy(egressProxyOptions(config, policy)).listen()
 	}
 
+	const hostReachability = config.hostReachability ?? 'host-port'
 	const network = resolveNetwork(
 		config.network ?? 'none',
 		options.egress,
 		egressProxy !== undefined,
 	)
+	// Whether this network can carry the reachability mode and the policy is
+	// a fact about the network, so it is checked against the daemon rather
+	// than inferred from its name. Before the container starts on purpose: a
+	// refusal here is a wiring mistake and must not arrive dressed as a
+	// container that failed to come up, which is exactly how it used to
+	// arrive.
+	try {
+		assertNetworkCarriesThePolicy(
+			network,
+			hostReachability,
+			options.egress,
+			await inspectNetworkInternalFlag(docker, network),
+		)
+	} catch (err) {
+		// The allowlist kinds start a proxy above, and this is outside the
+		// try/catch that owns teardown — so without this the refusal would
+		// leave a listening server on loopback stamping real credentials.
+		await egressProxy?.close().catch(() => undefined)
+		throw err
+	}
 	const runtime = config.runtime
-	const hostReachability = config.hostReachability ?? 'host-port'
 	const containerName = `namzu-sandbox-${id}`
 
 	// All bind sources come from the consumer-supplied layout. The
@@ -804,6 +892,23 @@ function runOnce(binary: string, args: string[]): Promise<string> {
 			else reject(new Error(`${binary} ${args.join(' ')} exited ${code}: ${stderr.trim()}`))
 		})
 	})
+}
+
+/**
+ * Read a network's `Internal` flag from the daemon.
+ *
+ * A network that does not exist, or a daemon that is down, comes back as the
+ * empty string rather than throwing, so {@link assertNetworkCarriesThePolicy}
+ * refuses it for the reason the caller actually cares about — "this is not
+ * a boundary" — instead of surfacing a docker CLI error that says nothing
+ * about the egress policy that prompted the lookup.
+ */
+async function inspectNetworkInternalFlag(docker: string, network: string): Promise<string> {
+	try {
+		return await runOnce(docker, ['network', 'inspect', '--format', '{{.Internal}}', network])
+	} catch {
+		return ''
+	}
 }
 
 function runOnceQuiet(binary: string, args: string[]): Promise<void> {

@@ -49,6 +49,16 @@ import { createSandboxProvider } from '../../../index.js'
 const IMAGE = process.env.NAMZU_SANDBOX_SMOKE_IMAGE ?? 'namzu-sandbox-worker:smoke'
 const IS_CI = process.env.CI === 'true'
 
+/**
+ * These cases reach the worker over a published host port, which docker
+ * binds to the container's address — so the network has to be one that
+ * gives it an address. The `network` default of `'none'` does not, and this
+ * file used to rely on it: every case here would have failed at `create()`
+ * with `index of untyped nil` out of a `docker inspect` template, had the
+ * suite ever been discovered.
+ */
+const SMOKE_NETWORK = 'bridge'
+
 function dockerAvailable(): boolean {
 	const probe = spawnSync('docker', ['version', '--format', '{{.Server.Version}}'], {
 		stdio: 'ignore',
@@ -93,7 +103,7 @@ describe.skipIf(skipReason !== null)('docker smoke — leaf permissions', () => 
 
 	it('uid 1001 can write to the outputs bind, and the host sees the file', async () => {
 		const provider = createSandboxProvider({
-			backend: { tier: 'container', image: IMAGE },
+			backend: { tier: 'container', image: IMAGE, network: SMOKE_NETWORK },
 			layout: {
 				outputs: { source: { type: 'hostDir', hostPath: outputsHost } },
 			},
@@ -116,7 +126,7 @@ describe.skipIf(skipReason !== null)('docker smoke — leaf permissions', () => 
 
 	it('unbound leaves do not exist — uploads/transcripts/tool_results are ENOENT, not empty', async () => {
 		const provider = createSandboxProvider({
-			backend: { tier: 'container', image: IMAGE },
+			backend: { tier: 'container', image: IMAGE, network: SMOKE_NETWORK },
 			layout: {
 				outputs: { source: { type: 'hostDir', hostPath: outputsHost } },
 				// Intentionally leave uploads / toolResults / transcripts
@@ -146,7 +156,7 @@ describe.skipIf(skipReason !== null)('docker smoke — leaf permissions', () => 
 
 	it('uid 1001 cannot mkdir into the root-owned 0555 parent /mnt/user-data', async () => {
 		const provider = createSandboxProvider({
-			backend: { tier: 'container', image: IMAGE },
+			backend: { tier: 'container', image: IMAGE, network: SMOKE_NETWORK },
 			layout: {
 				outputs: { source: { type: 'hostDir', hostPath: outputsHost } },
 			},

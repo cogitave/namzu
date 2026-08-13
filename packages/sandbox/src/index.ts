@@ -203,11 +203,19 @@ export interface ContainerBackendConfig {
 	readonly hostReachability?: 'host-port' | 'container-network'
 	/**
 	 * Docker network the spawned container attaches to. Default
-	 * `'none'` (no inbound or outbound network). Set to a docker
-	 * bridge name when `hostReachability='container-network'` so the
-	 * SDK consumer (also on that bridge) can reach the worker by
-	 * container DNS name. Egress from the sandbox is governed
-	 * separately by `EgressPolicy`.
+	 * `'none'` (no inbound or outbound network).
+	 *
+	 * **The default does not work with the default `hostReachability`,
+	 * and `create()` refuses rather than starting a container nobody can
+	 * reach.** Docker binds a published port to the container's address,
+	 * so a container with no route out has no address to bind to and
+	 * nothing is published. Name a bridge here to reach the worker by host
+	 * port, or set `hostReachability: 'container-network'` and reach it by
+	 * container name — that mode works on an `--internal` network, which
+	 * is also the only way to get `deny-all` enforced.
+	 *
+	 * Egress from the sandbox is governed separately by `EgressPolicy`,
+	 * which is checked against this network rather than trusted.
 	 */
 	readonly network?: 'none' | 'bridge' | string
 	/**
