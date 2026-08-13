@@ -53,8 +53,17 @@ async function spawnWorker(env) {
 	}
 }
 
-/** A worker spawn plus a child process does not fit in vitest's 5s default. */
-const NEEDS_TWO_PROCESSES = 30_000
+/**
+ * A worker spawn plus a child process does not fit in vitest's 5s default.
+ *
+ * Generous rather than tight on purpose. These wait on two real process
+ * starts, so the number bounds a machine under load rather than the work —
+ * a healthy run exits as soon as the assertion is made and pays nothing for
+ * the headroom, while a tight bound turns a busy CI runner into a red build
+ * that says nothing about the subject. One failure was observed here with a
+ * heavy repo-wide script running alongside.
+ */
+const NEEDS_TWO_PROCESSES = 60_000
 
 function waitForListening(child) {
 	return new Promise((resolve, reject) => {
