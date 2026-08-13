@@ -47,8 +47,30 @@ export class WorkingStateManager {
 		this.pushWithEviction('decisions', this.state.decisions, decision, this.config.maxListSize)
 	}
 
+	/**
+	 * Failures evict OLDEST-first, unlike every other slot here.
+	 *
+	 * `keepFirstEntries` exists because early decisions are load-bearing —
+	 * the one that set the run's approach outlives twenty-five incidental
+	 * notes. That reasoning is right for decisions and backwards for
+	 * failures: the earliest failure is the one the model has most likely
+	 * already worked around, and the recent one is the thing it reads to
+	 * decide what to do differently.
+	 *
+	 * It also matters more than a preference. Sinha et al.,
+	 * "The Illusion of Diminishing Returns" (arXiv:2509.09677), inject
+	 * errors into a model's own history at controlled rates and measure
+	 * accuracy far later in the run: conditioning a model on its own
+	 * error-prone history raises the likelihood of further errors, and
+	 * scaling does not rescue it. So a permanently-protected early failure
+	 * is not neutral ballast — it is the input that paper measures.
+	 *
+	 * Nothing here decided failures should keep their oldest entries; the
+	 * behaviour was inherited from a shared helper written for a slot where
+	 * it is correct.
+	 */
 	addFailure(failure: string): void {
-		this.pushWithEviction('failures', this.state.failures, failure, this.config.maxListSize)
+		this.pushWithEviction('failures', this.state.failures, failure, this.config.maxListSize, 0)
 	}
 
 	addDiscovery(discovery: string): void {
@@ -141,9 +163,23 @@ export class WorkingStateManager {
 	 * condenser uses. The eviction is counted so the serializer can say
 	 * something was dropped rather than presenting a gap as complete.
 	 */
-	private pushWithEviction(slot: string, list: string[], item: string, max: number): void {
+	private pushWithEviction(
+		slot: string,
+		list: string[],
+		item: string,
+		max: number,
+		/**
+		 * Entries to protect at the front. Defaults to the configured
+		 * `keepFirstEntries`; pass 0 for a slot where the early entries are
+		 * the ones to lose. See {@link addFailure}.
+		 */
+		keepFirstOverride?: number,
+	): void {
 		list.push(item)
-		const keepFirst = Math.min(this.config.keepFirstEntries, Math.max(0, max - 1))
+		const keepFirst = Math.min(
+			keepFirstOverride ?? this.config.keepFirstEntries,
+			Math.max(0, max - 1),
+		)
 		while (list.length > max) {
 			list.splice(keepFirst, 1)
 			this.state.evicted[slot] = (this.state.evicted[slot] ?? 0) + 1
