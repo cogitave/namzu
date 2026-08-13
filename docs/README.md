@@ -1,7 +1,7 @@
 ---
 title: Namzu Documentation
 description: Entry point for the Namzu documentation covering the SDK, computer-use package, and provider packages.
-last_updated: 2026-08-07
+last_updated: 2026-08-13
 status: current
 related_packages: ["@namzu/sdk", "@namzu/computer-use", "@namzu/openai", "@namzu/anthropic", "@namzu/bedrock", "@namzu/openrouter", "@namzu/http", "@namzu/ollama", "@namzu/lmstudio"]
 ---
@@ -42,6 +42,7 @@ Ignored and unpublished workspace areas are intentionally excluded from this doc
 | [SDK Observability](./sdk/observability/README.md) | Telemetry and instrumentation surfaces |
 | [SDK Architecture](./sdk/architecture/README.md) | Understand the internal folder boundaries and recurring patterns inside `@namzu/sdk` |
 | [SDK Quickstart](./sdk/quickstart.md) | Run a minimal reactive agent with a real provider |
+| [Security Report](./security-report.md) | Review Namzu's security architecture, implemented controls, residual risks, deployment responsibilities, and remediation priorities |
 | [Computer Use](./computer-use/README.md) | Add desktop control to a Namzu tool registry |
 | [Computer Use Action Reference](./computer-use/action-reference.md) | Inspect the full `computer_use` action contract |
 | [Computer Use Host Lifecycle](./computer-use/host-lifecycle.md) | Understand host initialization, capabilities, and disposal |
@@ -52,17 +53,18 @@ Ignored and unpublished workspace areas are intentionally excluded from this doc
 ## 3. Recommended Reading Order
 
 1. Read [Getting Started](./getting-started.md) to pick the package set you need.
-2. Read [SDK Quickstart](./sdk/quickstart.md) once you are ready to run an agent.
-3. Read [Provider Selection Guide](./providers/selection-guide.md) before choosing a production provider package.
-4. Read [SDK Runtime](./sdk/runtime/README.md) before diving into individual runtime fields.
-5. Read [SDK Agents](./sdk/agents/README.md) when you need more than the one-agent quickstart path.
-6. Read [SDK Tools](./sdk/tools/README.md) before exposing a real tool surface to models.
-7. Read [SDK Provider Integration](./sdk/provider-integration/README.md) if you need registry-level provider wiring or direct provider calls.
-8. Read [SDK Integrations](./sdk/integrations/README.md) if the runtime needs external systems, MCP interoperability, or plugin-managed tools.
-9. Read [SDK Sessions](./sdk/sessions/README.md) before persisting project or delegation state.
-10. Read [SDK Observability](./sdk/observability/README.md) if you need production tracing or metrics.
-11. Read [SDK Architecture](./sdk/architecture/README.md) if you are extending or contributing to the SDK internals.
-12. Read [Computer Use](./computer-use/README.md) only if your agent needs desktop interaction.
+2. Read the [Security Report](./security-report.md) before designing a production or multi-tenant deployment.
+3. Read [SDK Quickstart](./sdk/quickstart.md) once you are ready to run an agent.
+4. Read [Provider Selection Guide](./providers/selection-guide.md) before choosing a production provider package.
+5. Read [SDK Runtime](./sdk/runtime/README.md) before diving into individual runtime fields.
+6. Read [SDK Agents](./sdk/agents/README.md) when you need more than the one-agent quickstart path.
+7. Read [SDK Tools](./sdk/tools/README.md) before exposing a real tool surface to models.
+8. Read [SDK Provider Integration](./sdk/provider-integration/README.md) if you need registry-level provider wiring or direct provider calls.
+9. Read [SDK Integrations](./sdk/integrations/README.md) if the runtime needs external systems, MCP interoperability, or plugin-managed tools.
+10. Read [SDK Sessions](./sdk/sessions/README.md) before persisting project or delegation state.
+11. Read [SDK Observability](./sdk/observability/README.md) if you need production tracing or metrics.
+12. Read [SDK Architecture](./sdk/architecture/README.md) if you are extending or contributing to the SDK internals.
+13. Read [Computer Use](./computer-use/README.md) only if your agent needs desktop interaction.
 
 ## 4. Documentation Conventions
 
@@ -76,6 +78,7 @@ These docs follow a simple publishing model so they work both in-repo and on a s
 ## Related
 
 - [Getting Started](./getting-started.md)
+- [Security Report](./security-report.md)
 - [SDK Overview](./sdk/README.md)
 - [SDK Runtime](./sdk/runtime/README.md)
 - [SDK Agents](./sdk/agents/README.md)
