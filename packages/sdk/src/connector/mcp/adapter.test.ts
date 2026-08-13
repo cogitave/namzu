@@ -167,7 +167,14 @@ describe('mcpToolToToolDefinition', () => {
 		const result = await tool.execute({ q: 'hi' }, {} as ToolContext)
 		expect(client.callTool).toHaveBeenCalledWith('search', { q: 'hi' })
 		expect(result.success).toBe(true)
-		expect(result.output).toBe('hello')
+		// `toContain`, not `toBe`: the server's text is now framed as the
+		// server's words on its way to the model, so an exact match would be
+		// asserting the envelope's absence. This test is about the call
+		// happening and the result reaching the caller; the framing has its
+		// own file, and the raw text is still asserted here so a change that
+		// dropped the content would fail.
+		expect(result.output).toContain('hello')
+		expect(result.output).toContain('namzu-untrusted')
 	})
 })
 
