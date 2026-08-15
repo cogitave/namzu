@@ -331,8 +331,46 @@ export function buildGate(
 	}
 }
 
+/**
+ * Options that belong to the program rather than to a command, so they are
+ * only accepted BEFORE the command name.
+ *
+ * Listed here so the refusal below can tell the two mistakes apart. Keep in
+ * step with the `.option(...)` calls on the program in `cli.ts`.
+ */
+const GLOBAL_ONLY_OPTIONS: ReadonlySet<string> = new Set([
+	'-v',
+	'--verbose',
+	'-q',
+	'--quiet',
+	'--log-format',
+	'-f',
+	'--format',
+])
+
 /** The `--flags` refusal message both commands use, so they word it the same. */
 export function unknownOptionMessage(unknown: readonly string[]): string {
+	// Two different mistakes reached the same sentence, and only one of them
+	// was ever about a dash.
+	//
+	// `namzu run "..." --verbose` is the order a person types, and the generic
+	// message answered it with "pass `--` before a prompt that starts with a
+	// dash" — advice for a prompt beginning with `-`, which this is not. The
+	// reader is then looking at the wrong half of their command line. The flag
+	// is real, it works, and it is simply positional.
+	//
+	// Same rule as the permission gate and the trust prompt: a refusal that
+	// does not say what to do instead produces a retry of the same thing.
+	const misplaced = unknown.filter((option) =>
+		GLOBAL_ONLY_OPTIONS.has(option.split('=')[0] ?? option),
+	)
+	if (misplaced.length > 0) {
+		const example = misplaced[0]
+		return (
+			`${misplaced.join(', ')} ${misplaced.length === 1 ? 'is a global option' : 'are global options'}, ` +
+			`accepted before the command rather than after it — try \`namzu ${example} <command> …\``
+		)
+	}
 	return `unknown option(s): ${unknown.join(', ')} — pass \`--\` before a prompt that starts with a dash`
 }
 
