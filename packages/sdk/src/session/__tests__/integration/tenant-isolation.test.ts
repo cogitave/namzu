@@ -27,11 +27,11 @@ async function seedTenantAResources() {
 		DEFAULT_TENANT,
 	)
 	const parent = await store.createSession(
-		{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor('usr_a') },
+		{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor('usr_a') },
 		DEFAULT_TENANT,
 	)
 	const child = await store.createSession(
-		{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor('agt_a') },
+		{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor('agt_a') },
 		DEFAULT_TENANT,
 	)
 	const sub = await store.createSubSession(
@@ -203,7 +203,7 @@ describe('Integration — tenant isolation', () => {
 		await expect(
 			store.createSession(
 				{
-					threadId: TEST_THREAD_ID,
+					topicId: TEST_THREAD_ID,
 					projectId: project.id,
 					currentActor: userActor('usr_intruder', OTHER_TENANT),
 				},
@@ -239,7 +239,7 @@ describe('Integration — tenant isolation', () => {
 		)
 		const otherChild = await store.createSession(
 			{
-				threadId: TEST_THREAD_ID,
+				topicId: TEST_THREAD_ID,
 				projectId: otherProject.id,
 				currentActor: userActor('usr_other', OTHER_TENANT),
 			},
@@ -274,7 +274,7 @@ describe('Integration — tenant isolation', () => {
 			await store.createProject({ tenantId: DEFAULT_TENANT, name: 'del' }, DEFAULT_TENANT)
 		).id
 		const lonely = await store.createSession(
-			{ threadId: TEST_THREAD_ID, projectId: project, currentActor: userActor('usr_lonely') },
+			{ topicId: TEST_THREAD_ID, projectId: project, currentActor: userActor('usr_lonely') },
 			DEFAULT_TENANT,
 		)
 		await expect(store.deleteSession(lonely.id, OTHER_TENANT)).rejects.toBeInstanceOf(

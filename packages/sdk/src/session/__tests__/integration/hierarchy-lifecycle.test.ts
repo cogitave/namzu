@@ -26,7 +26,7 @@ describe('Integration — hierarchy lifecycle', () => {
 		expect(project.tenantId.startsWith('tnt_')).toBe(true)
 
 		const session = await store.createSession(
-			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor('usr_a') },
+			{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor('usr_a') },
 			tenant,
 		)
 		expect(session.id.startsWith('ses_')).toBe(true)
@@ -37,7 +37,7 @@ describe('Integration — hierarchy lifecycle', () => {
 		expect(session.previousActors).toEqual([])
 
 		const childSession = await store.createSession(
-			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor('agt_worker') },
+			{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor('agt_worker') },
 			tenant,
 		)
 		const subSession = await store.createSubSession(
@@ -62,15 +62,15 @@ describe('Integration — hierarchy lifecycle', () => {
 
 		const project = await store.createProject({ tenantId: tenant, name: 'drill' }, tenant)
 		const parent = await store.createSession(
-			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor('usr_root') },
+			{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor('usr_root') },
 			tenant,
 		)
 		const childA = await store.createSession(
-			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor('agt_a') },
+			{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor('agt_a') },
 			tenant,
 		)
 		const childB = await store.createSession(
-			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor('agt_b') },
+			{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor('agt_b') },
 			tenant,
 		)
 		await store.createSubSession(
@@ -123,7 +123,7 @@ describe('Integration — hierarchy lifecycle', () => {
 		const userC = userActor('usr_c')
 
 		const session = await store.createSession(
-			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: userA },
+			{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: userA },
 			tenant,
 		)
 
@@ -157,11 +157,11 @@ describe('Integration — hierarchy lifecycle', () => {
 
 		const project = await store.createProject({ tenantId: tenant, name: 'cycle' }, tenant)
 		const sA = await store.createSession(
-			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor('usr_a') },
+			{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor('usr_a') },
 			tenant,
 		)
 		const sB = await store.createSession(
-			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor('usr_b') },
+			{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor('usr_b') },
 			tenant,
 		)
 
@@ -198,11 +198,11 @@ describe('Integration — hierarchy lifecycle', () => {
 
 		const project = await store.createProject({ tenantId: tenant, name: 'lifecycle' }, tenant)
 		const parent = await store.createSession(
-			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor('usr_a') },
+			{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor('usr_a') },
 			tenant,
 		)
 		const child = await store.createSession(
-			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor('agt_a') },
+			{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor('agt_a') },
 			tenant,
 		)
 		const sub = await store.createSubSession(

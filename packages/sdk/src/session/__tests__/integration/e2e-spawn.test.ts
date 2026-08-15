@@ -109,7 +109,7 @@ describe('E2E — SubSession spawn → kernel summary → parent drill', () => {
 		}
 
 		const parentSession = await store.createSession(
-			{ threadId: thread.id, projectId: project.id, currentActor: userActor },
+			{ topicId: thread.id, projectId: project.id, currentActor: userActor },
 			tenant,
 		)
 		// Parent Run in flight — session active while the spawn is happening.
@@ -145,7 +145,7 @@ describe('E2E — SubSession spawn → kernel summary → parent drill', () => {
 			depth: 0,
 			budgetTracker: { total: 100_000, remaining: 100_000 },
 			tenantId: tenant,
-			threadId: thread.id,
+			topicId: thread.id,
 			sessionId: parentSession.id,
 			projectId: project.id,
 			parentActor: userActor,
@@ -235,7 +235,7 @@ describe('E2E — SubSession spawn → kernel summary → parent drill', () => {
 			tenantId: tenant,
 		}
 		const parentSession = await store.createSession(
-			{ threadId: thread.id, projectId: project.id, currentActor: userActor },
+			{ topicId: thread.id, projectId: project.id, currentActor: userActor },
 			tenant,
 		)
 		await store.updateSession({ ...parentSession, status: 'active' }, tenant)
@@ -274,7 +274,7 @@ describe('E2E — SubSession spawn → kernel summary → parent drill', () => {
 				depth: 0,
 				budgetTracker: { total: 10_000, remaining: 10_000 },
 				tenantId: tenant,
-				threadId: thread.id,
+				topicId: thread.id,
 				sessionId: parentSession.id,
 				projectId: project.id,
 				parentActor: userActor,

@@ -88,7 +88,7 @@ async function runOnce(parentSpan?: Span) {
 		messages: [createUserMessage('go')],
 		workingDirectory,
 		sessionId: 'ses_t' as SessionId,
-		threadId: 'thd_t' as ThreadId,
+		topicId: 'thd_t' as ThreadId,
 		projectId: 'prj_t' as ProjectId,
 		tenantId: 'tnt_t' as TenantId,
 		...(parentSpan ? { parentSpan } : {}),

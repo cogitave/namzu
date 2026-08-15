@@ -18,11 +18,12 @@
  * awareness preserves the single-boundary ownership boundary that Phase 2
  * has just introduced for this layer (Convention #0).
  *
- * NZ-TOPIC-01 renamed this from `ThreadStore`/`createThread` etc. The
- * `threadId` parameter name below is UNCHANGED on purpose — it is the FK
- * field a Session carries to its owning Topic, and renaming that field is
- * NZ-TOPIC-03's job (it has its own data-migration story). Only the
- * container/store/method names moved here.
+ * NZ-TOPIC-01 renamed this from `ThreadStore`/`createThread` etc, leaving
+ * the `threadId` parameter below alone — it is the FK field a Session
+ * carries to its owning Topic, and that rename had its own data-migration
+ * story (persisted `session.json` records already on disk, see
+ * `store/session/disk.ts`). NZ-TOPIC-03 lands it: the parameter below is
+ * `topicId` now, matching the `Session.topicId` it identifies.
  */
 
 import type { Topic } from '../../types/topic/entity.js'
@@ -63,7 +64,7 @@ export interface TopicStore {
 	 * Read a Topic by id. Returns `null` when absent. Cross-tenant reads
 	 * reject with `TenantIsolationError`.
 	 */
-	getTopic(threadId: ThreadId, tenantId: TenantId): Promise<Topic | null>
+	getTopic(topicId: ThreadId, tenantId: TenantId): Promise<Topic | null>
 
 	/**
 	 * Persist a mutation to a Topic record. CAS on `ownerVersion`: if the
@@ -86,7 +87,7 @@ export interface TopicStore {
 	 * TopicManager) enforces the precondition that no Sessions reference
 	 * this topic. Convention #5: deny-by-default, no implicit cascade.
 	 */
-	deleteTopic(threadId: ThreadId, tenantId: TenantId): Promise<void>
+	deleteTopic(topicId: ThreadId, tenantId: TenantId): Promise<void>
 
 	/**
 	 * List all Topics under a project for the given tenant, ordered by

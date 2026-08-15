@@ -155,7 +155,7 @@ describe('the run logger reaches withProviderRetry, withProviderFallback and bui
 			agentName: 'Shared Logger Agent',
 			workingDirectory: await mkWorkdir(),
 			sessionId: 'ses_shared' as SessionId,
-			threadId: 'thd_shared' as ThreadId,
+			topicId: 'thd_shared' as ThreadId,
 			projectId: 'prj_shared' as ProjectId,
 			tenantId: 'tnt_shared' as TenantId,
 			messages: [createUserMessage('hello')],

@@ -26,8 +26,8 @@ import { type Logger, resolveLogger } from '../../utils/logger.js'
 
 /**
  * Config accepted by {@link RunContextFactory.build}. `sessionId`,
- * `threadId`, `projectId`, and `tenantId` are required — runs carry the full
- * five-layer scope (Tenant → Project → Thread → Session → Run) per
+ * `topicId`, `projectId`, and `tenantId` are required — runs carry the full
+ * five-layer scope (Tenant → Project → Topic → Session → Run) per
  * Convention #17.
  *
  * `pathBuilder` is optional; when absent a {@link DefaultPathBuilder} is
@@ -58,7 +58,7 @@ export interface RunContextConfig {
 	signal?: AbortSignal
 
 	sessionId: SessionId
-	threadId: ThreadId
+	topicId: ThreadId
 	projectId: ProjectId
 	tenantId: TenantId
 
@@ -95,7 +95,7 @@ export interface RunContextConfig {
 export interface RunContext {
 	runId: RunId
 	sessionId: SessionId
-	threadId: ThreadId
+	topicId: ThreadId
 	projectId: ProjectId
 	tenantId: TenantId
 	runMgr: RunPersistence
@@ -173,13 +173,7 @@ export class RunContextFactory {
 	static buildLogger(
 		config: Pick<
 			RunContextConfig,
-			| 'agentName'
-			| 'runConfig'
-			| 'sessionId'
-			| 'threadId'
-			| 'projectId'
-			| 'tenantId'
-			| 'parentRunId'
+			'agentName' | 'runConfig' | 'sessionId' | 'topicId' | 'projectId' | 'tenantId' | 'parentRunId'
 		> & {
 			runId: RunId
 		},
@@ -190,7 +184,7 @@ export class RunContextFactory {
 			[NAMZU.RUN_ID]: config.runId,
 			...(config.parentRunId ? { [NAMZU.RUN_PARENT_ID]: config.parentRunId } : {}),
 			[NAMZU.SESSION_ID]: config.sessionId,
-			[NAMZU.THREAD_ID]: config.threadId,
+			[NAMZU.THREAD_ID]: config.topicId,
 			[NAMZU.PROJECT_ID]: config.projectId,
 			[NAMZU.TENANT_ID]: config.tenantId,
 		})
@@ -237,7 +231,7 @@ export class RunContextFactory {
 			pricing: config.pricing,
 			log,
 			sessionId: config.sessionId,
-			threadId: config.threadId,
+			topicId: config.topicId,
 			tenantId: config.tenantId,
 			projectId: config.projectId,
 			parentRunId: config.parentRunId,
@@ -253,7 +247,7 @@ export class RunContextFactory {
 		return {
 			runId,
 			sessionId: config.sessionId,
-			threadId: config.threadId,
+			topicId: config.topicId,
 			projectId: config.projectId,
 			tenantId: config.tenantId,
 			runMgr,

@@ -4,7 +4,7 @@
  * NEUTRAL by construction: opaque strings + a number, NO host/Postgres/disk
  * types. It mirrors `AgentRuntimeContext.notes: readonly string[]` and the
  * `web-search` seam discipline — the host closes over everything else
- * (threadId, output dir, tenancy) when it builds the provider, so the SDK
+ * (topicId, output dir, tenancy) when it builds the provider, so the SDK
  * never learns a domain type. The SDK only POSITIONS the returned string at
  * the primacy edge; the host OWNS the content and its authority framing.
  */

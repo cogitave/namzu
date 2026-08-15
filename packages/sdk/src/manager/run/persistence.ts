@@ -48,7 +48,7 @@ export class RunPersistence {
 	private _lastPromptMessageCount?: number
 	private log: Logger
 	private readonly _sessionId: SessionId
-	private readonly _threadId: ThreadId
+	private readonly _topicId: ThreadId
 	private readonly _tenantId: TenantId
 	private readonly _projectId: ProjectId
 
@@ -56,7 +56,7 @@ export class RunPersistence {
 		this.pricing = config.pricing
 		this.log = config.log
 		this._sessionId = config.sessionId
-		this._threadId = config.threadId
+		this._topicId = config.topicId
 		this._tenantId = config.tenantId
 		this._projectId = config.projectId
 
@@ -122,8 +122,8 @@ export class RunPersistence {
 		return this._sessionId
 	}
 
-	get threadId(): ThreadId {
-		return this._threadId
+	get topicId(): ThreadId {
+		return this._topicId
 	}
 
 	get tenantId(): TenantId {

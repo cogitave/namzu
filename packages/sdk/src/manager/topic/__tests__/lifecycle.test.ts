@@ -81,7 +81,7 @@ describe('TopicManager', () => {
 			const { topic, project, manager, sessionStore } = await harness()
 			const session = await sessionStore.createSession(
 				{
-					threadId: topic.id,
+					topicId: topic.id,
 					projectId: project.id,
 					currentActor: userActor(tenantA),
 				},
@@ -110,7 +110,7 @@ describe('TopicManager', () => {
 			await topicStore.updateTopic({ ...topic, status: 'archived' }, tenantA)
 			const smuggled = await sessionStore.createSession(
 				{
-					threadId: topic.id,
+					topicId: topic.id,
 					projectId: project.id,
 					currentActor: userActor(tenantA),
 				},
@@ -134,7 +134,7 @@ describe('TopicManager', () => {
 				const { topic, project, manager, sessionStore } = await harness()
 				const session = await sessionStore.createSession(
 					{
-						threadId: topic.id,
+						topicId: topic.id,
 						projectId: project.id,
 						currentActor: userActor(tenantA),
 					},
@@ -151,7 +151,7 @@ describe('TopicManager', () => {
 			// `createSession` defaults to `idle`; force the others via updateSession.
 			await sessionStore.createSession(
 				{
-					threadId: topic.id,
+					topicId: topic.id,
 					projectId: project.id,
 					currentActor: userActor(tenantA),
 				},
@@ -159,7 +159,7 @@ describe('TopicManager', () => {
 			)
 			const sFailed = await sessionStore.createSession(
 				{
-					threadId: topic.id,
+					topicId: topic.id,
 					projectId: project.id,
 					currentActor: agentActor(tenantA),
 				},
@@ -178,7 +178,7 @@ describe('TopicManager', () => {
 			// `topic`.
 			const otherSession = await sessionStore.createSession(
 				{
-					threadId: other.id,
+					topicId: other.id,
 					projectId: project.id,
 					currentActor: userActor(tenantA),
 				},
@@ -193,7 +193,7 @@ describe('TopicManager', () => {
 
 		it('does not leak cross-tenant sessions into the precondition', async () => {
 			// Shared stores across tenants (production shape). A session with
-			// the same threadId string under tenantB must not block archival
+			// the same topicId string under tenantB must not block archival
 			// of tenantA's topic.
 			const topicStore = new InMemoryTopicStore()
 			const sessionStore = new InMemorySessionStore()
@@ -203,9 +203,9 @@ describe('TopicManager', () => {
 			const pB = await sessionStore.createProject({ tenantId: tenantB, name: 'pb' }, tenantB)
 			const tA = await topicStore.createTopic({ projectId: pA.id, title: 'ta' }, tenantA)
 
-			// Cross-tenant session with the same threadId string as tA.
+			// Cross-tenant session with the same topicId string as tA.
 			const bSession = await sessionStore.createSession(
-				{ threadId: tA.id, projectId: pB.id, currentActor: userActor(tenantB) },
+				{ topicId: tA.id, projectId: pB.id, currentActor: userActor(tenantB) },
 				tenantB,
 			)
 			await sessionStore.updateSession({ ...bSession, status: 'active' }, tenantB)
@@ -227,7 +227,7 @@ describe('TopicManager', () => {
 			const { topic, project, manager, sessionStore } = await harness()
 			const session = await sessionStore.createSession(
 				{
-					threadId: topic.id,
+					topicId: topic.id,
 					projectId: project.id,
 					currentActor: userActor(tenantA),
 				},
@@ -248,13 +248,13 @@ describe('TopicManager', () => {
 
 		it('detects orphaned sessions referencing a missing topic', async () => {
 			// Topic record is destroyed via the store directly, but a session
-			// still carries its threadId. Manager.delete must reject rather
+			// still carries its topicId. Manager.delete must reject rather
 			// than silently succeed on the "topic is already gone" short-cut
 			// (the session scan runs unconditionally).
 			const { topic, project, manager, sessionStore, topicStore } = await harness()
 			const orphan = await sessionStore.createSession(
 				{
-					threadId: topic.id,
+					topicId: topic.id,
 					projectId: project.id,
 					currentActor: userActor(tenantA),
 				},

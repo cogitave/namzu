@@ -22,7 +22,7 @@ function user(): ActorRef {
 function makeSession(status: SessionStatus): Session {
 	return {
 		id: 'ses_a' as SessionId,
-		threadId: thread,
+		topicId: thread,
 		projectId: project,
 		tenantId: tenant,
 		status,

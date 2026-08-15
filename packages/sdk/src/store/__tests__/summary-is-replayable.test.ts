@@ -55,7 +55,7 @@ describe("a completed run's audit trail replays to its own summary", () => {
 				messages: [createUserMessage('hello')],
 				workingDirectory,
 				sessionId: 'ses_replay' as SessionId,
-				threadId: 'thd_replay' as ThreadId,
+				topicId: 'thd_replay' as ThreadId,
 				projectId: 'prj_replay' as ProjectId,
 				tenantId: 'tnt_replay' as TenantId,
 				runStore,

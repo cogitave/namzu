@@ -92,7 +92,7 @@ async function runWith(options: {
 			timeoutMs: 30_000,
 			maxIterations: 2,
 			sessionId: 'ses_sup',
-			threadId: 'thd_sup',
+			topicId: 'thd_sup',
 			projectId: 'prj_sup',
 			tenantId: 'tnt_sup',
 		} as never,

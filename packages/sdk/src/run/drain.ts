@@ -55,7 +55,7 @@ export const DEFAULT_DRAIN_PAGE_SIZE = 100
  * onRun: (entry, claim) =>
  *   resumeRun({
  *     ...yourQueryParams,
- *     scope: { ...entry, threadId },
+ *     scope: { ...entry, topicId },
  *     checkpointStore: store,
  *     claimFence: claim.fence,
  *   })

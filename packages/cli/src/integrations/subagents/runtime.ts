@@ -128,7 +128,7 @@ export async function createSubagentRuntime(
 	// The trigger to add one is the day this store is replaced by a persistent
 	// one, or the project id starts arriving from a caller.
 	const parentSession = await store.createSession(
-		{ threadId: thread.id, projectId: project.id, currentActor: userActor },
+		{ topicId: thread.id, projectId: project.id, currentActor: userActor },
 		tenantId,
 	)
 	await store.updateSession({ ...parentSession, status: 'active' }, tenantId)
@@ -165,7 +165,7 @@ export async function createSubagentRuntime(
 		depth: 0,
 		budgetTracker: { total: 1_000_000, remaining: 1_000_000 },
 		tenantId,
-		threadId: thread.id,
+		topicId: thread.id,
 		sessionId: parentSession.id,
 		projectId: project.id,
 		parentActor: userActor,

@@ -34,13 +34,13 @@ export interface HandoffAssignment {
 	tenantId: TenantId
 	/**
 	 * Topic-layer scope the source session belongs to. Handoff recipients
-	 * always land on the same Thread (cross-thread handoff is forbidden —
+	 * always land on the same Topic (cross-topic handoff is forbidden —
 	 * a new actor taking over a conversation stays on the same topic).
-	 * Validated against `source.threadId` at execute time.
+	 * Validated against `source.topicId` at execute time.
 	 */
-	threadId: ThreadId
+	topicId: ThreadId
 	/**
-	 * Denormalized from the owning Thread. Kept alongside `threadId` as the
+	 * Denormalized from the owning Topic. Kept alongside `topicId` as the
 	 * Session record itself carries both (see `Session` JSDoc). Consistency
 	 * validated against `source.projectId` at execute time.
 	 */

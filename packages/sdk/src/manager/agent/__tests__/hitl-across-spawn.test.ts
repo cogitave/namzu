@@ -78,7 +78,7 @@ async function harness() {
 	const project = await store.createProject({ tenantId: tenant, name: 'p' }, tenant)
 	const thread = await threadStore.createTopic({ projectId: project.id, title: 'hitl' }, tenant)
 	const parent = await store.createSession(
-		{ threadId: thread.id, projectId: project.id, currentActor: actor(tenant) },
+		{ topicId: thread.id, projectId: project.id, currentActor: actor(tenant) },
 		tenant,
 	)
 	await store.updateSession({ ...parent, status: 'active' }, tenant)
@@ -139,7 +139,7 @@ async function harness() {
 			depth: 0,
 			budgetTracker: { total: 100_000, remaining: 100_000 },
 			tenantId: tenant,
-			threadId: thread.id,
+			topicId: thread.id,
 			sessionId: parent.id,
 			projectId: project.id,
 			parentActor: actor(tenant),

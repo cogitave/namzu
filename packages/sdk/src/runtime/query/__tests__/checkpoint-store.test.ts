@@ -269,7 +269,7 @@ describe('query() with an injected checkpointStore', () => {
 			messages: [createUserMessage('use the echo tool')],
 			workingDirectory,
 			sessionId: 'ses_cp_inject' as SessionId,
-			threadId: 'thd_cp_inject' as ThreadId,
+			topicId: 'thd_cp_inject' as ThreadId,
 			projectId: 'prj_cp_inject' as ProjectId,
 			tenantId: 'tnt_cp_inject' as TenantId,
 		})

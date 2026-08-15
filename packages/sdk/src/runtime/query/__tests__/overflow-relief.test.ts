@@ -77,7 +77,7 @@ async function run(provider: MockLLMProvider, compaction: boolean) {
 		messages,
 		workingDirectory,
 		sessionId: 'ses_o' as SessionId,
-		threadId: 'thd_o' as ThreadId,
+		topicId: 'thd_o' as ThreadId,
 		projectId: 'prj_o' as ProjectId,
 		tenantId: 'tnt_o' as TenantId,
 		retry: false,

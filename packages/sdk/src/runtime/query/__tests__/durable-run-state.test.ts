@@ -37,7 +37,7 @@ beforeEach(async () => {
 		tenantId: 'tnt_d' as TenantId,
 		projectId: 'prj_d' as ProjectId,
 		sessionId: 'ses_d' as SessionId,
-		threadId: 'thd_d' as ThreadId,
+		topicId: 'thd_d' as ThreadId,
 		runId: RUN_ID,
 	}
 })
@@ -191,5 +191,31 @@ describe('parseRunState', () => {
 	it('accepts an object as well as a string', () => {
 		const state = { version: RUN_STATE_VERSION, runId: RUN_ID }
 		expect(parseRunState(state).runId).toBe(RUN_ID)
+	})
+
+	it('coerces a version-1 snapshot: threadId becomes topicId, threadId is gone (NZ-TOPIC-03)', () => {
+		// Exactly the pre-rename shape a host could have serialized under the
+		// old RUN_STATE_VERSION: 1 and be reading back today.
+		const legacy = {
+			version: 1,
+			runId: RUN_ID,
+			sessionId: 'ses_d',
+			threadId: 'thd_d',
+			projectId: 'prj_d',
+			tenantId: 'tnt_d',
+		}
+		const revived = parseRunState(JSON.stringify(legacy))
+		expect(revived.version).toBe(RUN_STATE_VERSION)
+		expect((revived as unknown as { topicId?: unknown }).topicId).toBe('thd_d')
+		expect((revived as unknown as { threadId?: unknown }).threadId).toBeUndefined()
+	})
+
+	it('coerces a version-1 snapshot with no threadId without stamping a stray topicId', () => {
+		const legacy = { version: 1, runId: RUN_ID }
+		const revived = parseRunState(JSON.stringify(legacy))
+		expect(revived.version).toBe(RUN_STATE_VERSION)
+		// toEqual would forgive an unconditionally-added `topicId: undefined`;
+		// the `in` check does not, which is the whole point of this assertion.
+		expect('topicId' in revived).toBe(false)
 	})
 })

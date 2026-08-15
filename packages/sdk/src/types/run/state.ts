@@ -25,15 +25,17 @@ import type { StopReason } from './stop-reason.js'
  */
 export interface RunState {
 	/**
-	 * Schema version. Bumped when the shape changes incompatibly, so a
-	 * host that stored a snapshot with an older SDK gets a clear failure
-	 * from {@link parseRunState} instead of a partial restore.
+	 * Schema version. A v1 snapshot (the pre-NZ-TOPIC-03 shape — `threadId`
+	 * instead of `topicId`) is coerced forward by {@link parseRunState}; any
+	 * other unrecognized version is refused with a clear failure rather than
+	 * a partial restore, because silently dropping fields this build does
+	 * not know about is the outcome worth failing loudly to avoid.
 	 */
-	readonly version: 1
+	readonly version: 2
 
 	readonly runId: RunId
 	readonly sessionId: SessionId
-	readonly threadId: ThreadId
+	readonly topicId: ThreadId
 	readonly projectId: ProjectId
 	readonly tenantId: TenantId
 	/** Present for sub-runs, so a hierarchical store can key the snapshot. */
@@ -87,7 +89,10 @@ export class RunStateVersionError extends Error {
 	}
 }
 
-export const RUN_STATE_VERSION = 1 as const
+export const RUN_STATE_VERSION = 2 as const
+
+/** The shape `RunState` had before NZ-TOPIC-03: `threadId`, not `topicId`. */
+const RUN_STATE_LEGACY_VERSION = 1
 
 /**
  * Parse a serialized snapshot, refusing anything this SDK cannot fully
@@ -96,14 +101,42 @@ export const RUN_STATE_VERSION = 1 as const
  * The version guard is the point. A snapshot is written by one deployment
  * and read by another, possibly weeks later and possibly after an SDK
  * upgrade; a silent partial restore there produces a run that looks healthy
- * and has lost its budgets. Failing loudly is the only honest option.
+ * and has lost its budgets. Failing loudly is the only honest option — for
+ * every version this build does not otherwise recognize. Version 1 is the
+ * one exception: it is coerced forward rather than refused, the same
+ * shape-tolerant rename `store/schema.ts`'s migrations use for the on-disk
+ * session record, because a host that parks a run across this release
+ * would otherwise have every in-flight snapshot refused on the way back in.
+ * `threadId` is renamed only when present, so a v1 snapshot a host wrote
+ * with the field already absent does not gain a stamped `topicId:
+ * undefined`. Nothing here re-persists the coerced snapshot — a host that
+ * calls `parseRunState` and then serializes the result back out upgrades
+ * the record on THAT write, same as `store/schema.ts`'s "migrate on read,
+ * re-stamp on next write" contract.
+ *
+ * A snapshot from a NEWER build read by an OLDER SDK is refused, not
+ * partially restored: that SDK's `RUN_STATE_VERSION` is still 1, so a v2
+ * record's `version: 2` matches neither the current version nor the one
+ * legacy version it knows how to coerce, and falls through to the throw
+ * below.
  */
 export function parseRunState(json: string | unknown): RunState {
 	const raw: unknown = typeof json === 'string' ? JSON.parse(json) : json
 	if (typeof raw !== 'object' || raw === null) {
 		throw new RunStateVersionError(raw, RUN_STATE_VERSION)
 	}
-	const version = (raw as { version?: unknown }).version
+	const record = raw as Record<string, unknown>
+	const version = record.version
+
+	if (version === RUN_STATE_LEGACY_VERSION) {
+		const { threadId, ...rest } = record
+		return {
+			...rest,
+			version: RUN_STATE_VERSION,
+			...(threadId !== undefined ? { topicId: threadId } : {}),
+		} as RunState
+	}
+
 	if (version !== RUN_STATE_VERSION) {
 		throw new RunStateVersionError(version, RUN_STATE_VERSION)
 	}

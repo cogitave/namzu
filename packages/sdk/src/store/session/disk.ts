@@ -65,7 +65,38 @@ import type { LinkageView } from './linkage.js'
  * Bump `current` and add the migration for the step you are leaving when
  * the shape changes.
  */
-const SCHEMA = defineSchema({ kind: 'session-store', current: 1, migrations: {} })
+const SCHEMA = defineSchema({
+	kind: 'session-store',
+	current: 2,
+	migrations: { 1: migrateSessionStoreThreadIdToTopicId },
+})
+
+/**
+ * v1 → v2: the FK field `session.json` carries to its owning Topic was
+ * spelled `threadId`. NZ-TOPIC-01 renamed the layer, not the field
+ * (comment on `types/topic/store.ts`); NZ-TOPIC-03 is that rename landing,
+ * with this as its data migration.
+ *
+ * One migration function runs over every kind this schema stamps —
+ * project.json, session.json, subsession.json, summary.json, and each
+ * `messages.jsonl` line — via the single shared `readJson` / `migrate`
+ * call. Only `PersistedSession` ever carried `threadId`; an unconditional
+ * rewrite here would stamp `topicId: undefined` onto the other three kinds
+ * and onto every message line ever written. Exported, not module-private,
+ * so that guarantee is unit-testable directly against the function rather
+ * than only observable through whichever deserializer happens to forward
+ * an extra field today (most of them don't — they map named fields, which
+ * is exactly why a stray key here would otherwise go unnoticed). NOT part
+ * of the package's public surface: `store/session/index.ts` re-exports
+ * `DiskSessionStore` by explicit name only, no wildcard.
+ */
+export function migrateSessionStoreThreadIdToTopicId(
+	record: Record<string, unknown>,
+): Record<string, unknown> {
+	if (!('threadId' in record)) return record
+	const { threadId, ...rest } = record
+	return { ...rest, topicId: threadId }
+}
 
 /**
  * Config for {@link DiskSessionStore}. `rootDir` is absolute; all files live
@@ -90,7 +121,7 @@ interface PersistedProject {
 
 interface PersistedSession {
 	id: SessionId
-	threadId: ThreadId
+	topicId: ThreadId
 	projectId: ProjectId
 	tenantId: TenantId
 	status: Session['status']
@@ -321,7 +352,7 @@ export class DiskSessionStore implements SessionStore {
 		const now = new Date()
 		const session: Session = {
 			id: generateSessionId(),
-			threadId: params.threadId,
+			topicId: params.topicId,
 			projectId: params.projectId,
 			tenantId,
 			status: 'idle',
@@ -352,23 +383,24 @@ export class DiskSessionStore implements SessionStore {
 		return deserializeSession(raw)
 	}
 
-	async listSessions(threadId: ThreadId, tenantId: TenantId): Promise<readonly Session[]> {
+	async listSessionsByTopic(topicId: ThreadId, tenantId: TenantId): Promise<readonly Session[]> {
 		// Walk projects/*/sessions/* and filter on the persisted record. Sessions
-		// don't live under a thread-scoped path in the current layout — the
-		// denormalized `threadId` on every session.json is the authority.
+		// don't live under a topic-scoped path in the current layout — the
+		// denormalized `topicId` on every session.json is the authority.
 		//
 		// This used to say "matches DiskThreadStore.listThreads in scan
 		// semantics" — that class is gone (NZ-TOPIC-02, ses_020: zero production
 		// callers, never public, no tests). This function's own scan doesn't
 		// change; the comparison just isn't holding anything up anymore, so it's
-		// removed rather than left pointing at a deleted file.
+		// removed rather than left pointing at a deleted file. Renamed from
+		// `listSessions` alongside the field it reads (NZ-TOPIC-03).
 		//
 		// Cost: O(all sessions across all projects in the root) per call. The
 		// MVP disk store prioritizes simplicity over index freshness, matching
 		// `buildLinkageView` / `locateSession` which use the same pattern. A
-		// production driver would maintain a threadId → sessionIds secondary
+		// production driver would maintain a topicId → sessionIds secondary
 		// index populated on createSession / deleteSession. Acceptable for
-		// ThreadManager archive/delete today because those operations are
+		// TopicManager archive/delete today because those operations are
 		// admin-initiated and infrequent.
 		const projectsDir = join(this.rootDir, 'projects')
 		let projectDirs: string[]
@@ -396,7 +428,7 @@ export class DiskSessionStore implements SessionStore {
 				const raw = await readJson<PersistedSession>(join(path, 'session.json'))
 				if (!raw) continue
 				if (raw.tenantId !== tenantId) continue
-				if (raw.threadId !== threadId) continue
+				if (raw.topicId !== topicId) continue
 				results.push(deserializeSession(raw))
 				this.sessionIndex.set(raw.id, {
 					sessionId: raw.id,
@@ -414,9 +446,9 @@ export class DiskSessionStore implements SessionStore {
 		tenantId: TenantId,
 	): Promise<readonly Session[]> {
 		// One directory, not the whole root: sessions live under their project,
-		// so this is the cheap direction. `listSessions` has to scan every
-		// project precisely because `threadId` is denormalised onto the record
-		// rather than expressed in the layout.
+		// so this is the cheap direction. `listSessionsByTopic` has to scan
+		// every project precisely because `topicId` is denormalised onto the
+		// record rather than expressed in the layout.
 		const sessionsRoot = join(this.projectDir(projectId), 'sessions')
 		let sessionDirs: string[]
 		try {
@@ -1011,7 +1043,7 @@ function deserializeProject(p: PersistedProject): Project {
 function serializeSession(s: Session): PersistedSession {
 	return {
 		id: s.id,
-		threadId: s.threadId,
+		topicId: s.topicId,
 		projectId: s.projectId,
 		tenantId: s.tenantId,
 		status: s.status,
@@ -1027,7 +1059,7 @@ function serializeSession(s: Session): PersistedSession {
 function deserializeSession(s: PersistedSession): Session {
 	return {
 		id: s.id,
-		threadId: s.threadId,
+		topicId: s.topicId,
 		projectId: s.projectId,
 		tenantId: s.tenantId,
 		status: s.status,

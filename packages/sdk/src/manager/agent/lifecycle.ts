@@ -221,7 +221,7 @@ export class AgentManager {
 			budgetTracker: context.budgetTracker,
 			factoryOptions: context.factoryOptions,
 			tenantId: context.tenantId,
-			threadId: context.threadId,
+			topicId: context.topicId,
 			sessionId: spawnRecord.childSessionId,
 			projectId: context.projectId,
 			parentActor: childParentActor,
@@ -303,7 +303,7 @@ export class AgentManager {
 			// configBuilder may not have been updated to emit these yet; we
 			// stamp them here so query() sees them regardless.
 			childConfig.sessionId = spawnRecord?.childSessionId ?? context.sessionId
-			childConfig.threadId = context.threadId
+			childConfig.topicId = context.topicId
 			childConfig.projectId = context.projectId
 			childConfig.tenantId = context.tenantId
 			// Stamp the trace parent the same way, rather than trusting every
@@ -359,7 +359,7 @@ export class AgentManager {
 				effort: options.configOverrides?.effort,
 				env: options.configOverrides?.env,
 				sessionId: spawnRecord.childSessionId,
-				threadId: context.threadId,
+				topicId: context.topicId,
 				projectId: context.projectId,
 				tenantId: context.tenantId,
 				parentRunId: context.parentRunId,
@@ -579,16 +579,16 @@ export class AgentManager {
 		// Scope: this gate enforces the archive invariant at the production
 		// ingress path (AgentManager.sendMessage + handoff flows). Direct
 		// callers of `SessionStore.createSession` bypass it — the store layer
-		// is intentionally unaware of thread status to preserve its
+		// is intentionally unaware of topic status to preserve its
 		// single-responsibility boundary.
-		await this.deps.threadManager.requireOpen(context.threadId, context.tenantId)
+		await this.deps.threadManager.requireOpen(context.topicId, context.tenantId)
 
 		// Parent session cross-check: validate that `options.parentSessionId`
-		// exists for this tenant AND lives under the same thread as the
-		// context. A mismatched `context.threadId` would otherwise attach the
-		// child's sub-session edge to a parent in a different thread —
-		// corrupting the hierarchy invariant (cross-thread spawn is forbidden
-		// by design). Mirrors the `source.threadId === assignment.threadId`
+		// exists for this tenant AND lives under the same topic as the
+		// context. A mismatched `context.topicId` would otherwise attach the
+		// child's sub-session edge to a parent in a different topic —
+		// corrupting the hierarchy invariant (cross-topic spawn is forbidden
+		// by design). Mirrors the `source.topicId === assignment.topicId`
 		// check in handoff (Phase 2.4).
 		const parentSession = await store.getSession(options.parentSessionId, context.tenantId)
 		if (!parentSession) {
@@ -596,9 +596,9 @@ export class AgentManager {
 				`Parent session ${options.parentSessionId} not found for tenant ${context.tenantId} — spawn rejected`,
 			)
 		}
-		if (parentSession.threadId !== context.threadId) {
+		if (parentSession.topicId !== context.topicId) {
 			throw new Error(
-				`Thread mismatch on spawn: parent session ${parentSession.id} is on thread ${parentSession.threadId}, but context.threadId=${context.threadId}. Cross-thread spawn is forbidden (session-hierarchy.md §6.3).`,
+				`Topic mismatch on spawn: parent session ${parentSession.id} is on topic ${parentSession.topicId}, but context.topicId=${context.topicId}. Cross-topic spawn is forbidden (session-hierarchy.md §6.3).`,
 			)
 		}
 		if (parentSession.projectId !== context.projectId) {
@@ -640,13 +640,13 @@ export class AgentManager {
 			parentActor: context.parentActor,
 		}
 
-		// Child session inherits the parent's threadId verbatim (cross-thread
+		// Child session inherits the parent's topicId verbatim (cross-topic
 		// spawn is forbidden by design — a delegated sub-agent stays on the
 		// same topic). Phase 2.6 elides the previous parent-session read by
-		// carrying `threadId` on `AgentTaskContext`.
+		// carrying `topicId` on `AgentTaskContext`.
 		const childSession = await store.createSession(
 			{
-				threadId: context.threadId,
+				topicId: context.topicId,
 				projectId: context.projectId,
 				currentActor: childActor,
 			},

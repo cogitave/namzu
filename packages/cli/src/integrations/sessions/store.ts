@@ -30,7 +30,7 @@ const THREAD = 'thd_namzu-cli' as ThreadId
 export interface CliSessions {
 	readonly store: DiskSessionStore
 	readonly projectId: ProjectId
-	readonly threadId: ThreadId
+	readonly topicId: ThreadId
 	readonly tenantId: TenantId
 	/** Absolute path of the cwd's `.namzu` root (where pointers live). */
 	readonly root: string
@@ -69,7 +69,7 @@ export async function openSessions(cwd: string): Promise<CliSessions> {
 		mkdirSync(root, { recursive: true })
 		writeFileSync(pointerPath, `${JSON.stringify({ projectId }, null, 2)}\n`, { mode: 0o600 })
 	}
-	return { store, projectId, threadId: THREAD, tenantId: TENANT, root }
+	return { store, projectId, topicId: THREAD, tenantId: TENANT, root }
 }
 
 // Maps an embedder's own session key (e.g. a desktop host's uuid) to a
@@ -123,7 +123,7 @@ export async function resolveConversation(s: CliSessions, key: string): Promise<
 export async function startConversation(s: CliSessions): Promise<SessionId> {
 	await requireOpenProject(s.store, s.projectId, s.tenantId, 'cli-session')
 	const session = await s.store.createSession(
-		{ threadId: s.threadId, projectId: s.projectId, currentActor: null },
+		{ topicId: s.topicId, projectId: s.projectId, currentActor: null },
 		s.tenantId,
 	)
 	return session.id
@@ -147,7 +147,7 @@ export async function loadConversation(s: CliSessions, sessionId: SessionId): Pr
 
 /** Recent non-empty conversations, newest first — for the `/resume` list. */
 export async function listRecent(s: CliSessions, limit = 20): Promise<RecentConversation[]> {
-	const sessions = await s.store.listSessions(s.threadId, s.tenantId)
+	const sessions = await s.store.listSessionsByTopic(s.topicId, s.tenantId)
 	const out: RecentConversation[] = []
 	for (const sess of sessions) {
 		const messages = await s.store.loadMessages(sess.id, s.tenantId)

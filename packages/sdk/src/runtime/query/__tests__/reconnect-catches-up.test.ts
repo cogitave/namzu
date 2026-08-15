@@ -47,7 +47,7 @@ const SCOPE: RunStateScope = {
 	projectId: 'prj_re' as ProjectId,
 	sessionId: 'ses_re' as SessionId,
 	runId: 'run_re' as RunId,
-	threadId: 'thd_re' as ThreadId,
+	topicId: 'thd_re' as ThreadId,
 }
 
 const dirs: string[] = []
@@ -102,7 +102,7 @@ async function resumeParams(baseDir: string, checkpointStore: InMemoryCheckpoint
 		agentName: 'Reconnect Agent',
 		workingDirectory: baseDir,
 		sessionId: SCOPE.sessionId,
-		threadId: SCOPE.threadId,
+		topicId: SCOPE.topicId,
 		projectId: SCOPE.projectId,
 		tenantId: SCOPE.tenantId,
 		// A NEW store object over the SAME directory: what the second process
@@ -142,7 +142,7 @@ async function crashedRun(): Promise<{
 		workingDirectory: baseDir,
 		runId: SCOPE.runId,
 		sessionId: SCOPE.sessionId,
-		threadId: SCOPE.threadId,
+		topicId: SCOPE.topicId,
 		projectId: SCOPE.projectId,
 		tenantId: SCOPE.tenantId,
 		runStore: diskStore(baseDir),

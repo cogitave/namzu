@@ -99,7 +99,7 @@ async function runSupervisor(resumeHandler?: ResumeHandler) {
 				timeoutMs: 30_000,
 				maxIterations: 4,
 				sessionId: 'ses_sup',
-				threadId: 'thd_sup',
+				topicId: 'thd_sup',
 				projectId: 'prj_sup',
 				tenantId: 'tnt_sup',
 				...(resumeHandler ? { resumeHandler } : {}),

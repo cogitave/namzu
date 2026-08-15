@@ -111,7 +111,7 @@ export interface BaseAgentConfig {
 	 * need to be updated before this tightens. Tightening to required
 	 * lands with the `AgentFactoryOptions` triple refactor.
 	 */
-	threadId?: ThreadId
+	topicId?: ThreadId
 
 	/** Session under which the run executes. See `projectId` for the tightening plan. */
 	sessionId?: SessionId

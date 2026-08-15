@@ -67,7 +67,7 @@ describe('Integration — archive gate (Phase 2.6)', () => {
 				buildTaskContext({
 					sessionId: session.id,
 					projectId: project.id,
-					threadId: thread.id,
+					topicId: thread.id,
 					tenantId: DEFAULT_TENANT,
 					parentActor: actor,
 				}),
@@ -75,7 +75,7 @@ describe('Integration — archive gate (Phase 2.6)', () => {
 		).rejects.toBeInstanceOf(ThreadClosedError)
 
 		// Archive invariant held: no new child sessions under the archived thread.
-		const underThread = await harness.store.listSessions(thread.id, DEFAULT_TENANT)
+		const underThread = await harness.store.listSessionsByTopic(thread.id, DEFAULT_TENANT)
 		expect(underThread).toHaveLength(1)
 		expect(underThread[0]?.id).toBe(session.id)
 	})
@@ -97,7 +97,7 @@ describe('Integration — archive gate (Phase 2.6)', () => {
 			tenantId: DEFAULT_TENANT,
 		}
 		const session = await store.createSession(
-			{ threadId: thread.id, projectId: project.id, currentActor: sourceActor },
+			{ topicId: thread.id, projectId: project.id, currentActor: sourceActor },
 			DEFAULT_TENANT,
 		)
 
@@ -133,7 +133,7 @@ describe('Integration — archive gate (Phase 2.6)', () => {
 			mode: 'single',
 			sourceSessionId: session.id,
 			tenantId: DEFAULT_TENANT,
-			threadId: thread.id,
+			topicId: thread.id,
 			projectId: project.id,
 			sourceActor,
 			recipientActor: userActor('usr_target'),
@@ -164,7 +164,7 @@ describe('Integration — archive gate (Phase 2.6)', () => {
 			DEFAULT_TENANT,
 		)
 		const source = await store.createSession(
-			{ threadId: thread.id, projectId: project.id, currentActor: userActor('usr_source') },
+			{ topicId: thread.id, projectId: project.id, currentActor: userActor('usr_source') },
 			DEFAULT_TENANT,
 		)
 
@@ -203,7 +203,7 @@ describe('Integration — archive gate (Phase 2.6)', () => {
 				mode: 'broadcast' as const,
 				sourceSessionId: source.id,
 				tenantId: DEFAULT_TENANT,
-				threadId: thread.id,
+				topicId: thread.id,
 				projectId: project.id,
 				sourceActor: userActor('usr_source'),
 				recipientActor,
@@ -271,7 +271,7 @@ describe('Integration — archive gate (Phase 2.6)', () => {
 					depth: 0,
 					budgetTracker: { total: 10_000, remaining: 10_000 },
 					tenantId: DEFAULT_TENANT,
-					threadId: thread.id,
+					topicId: thread.id,
 					sessionId: session.id,
 					projectId: project.id,
 					parentActor: childActor,
@@ -281,7 +281,7 @@ describe('Integration — archive gate (Phase 2.6)', () => {
 
 		// The gate tripped before any observable side effect — listSessions
 		// still shows only the original seeded session, not a smuggled child.
-		const underThread = await harness.store.listSessions(thread.id, DEFAULT_TENANT)
+		const underThread = await harness.store.listSessionsByTopic(thread.id, DEFAULT_TENANT)
 		expect(underThread).toHaveLength(1)
 		expect(underThread[0]?.id).toBe(session.id)
 	})

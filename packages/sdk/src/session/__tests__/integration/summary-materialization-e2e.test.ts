@@ -31,7 +31,7 @@ async function seedActive(store: InMemorySessionStore) {
 		DEFAULT_TENANT,
 	)
 	const session = await store.createSession(
-		{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor('agt_worker') },
+		{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor('agt_worker') },
 		DEFAULT_TENANT,
 	)
 	await store.updateSession({ ...session, status: 'active' }, DEFAULT_TENANT)

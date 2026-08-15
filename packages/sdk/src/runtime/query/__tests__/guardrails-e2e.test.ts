@@ -62,7 +62,7 @@ async function run(opts: {
 			messages: [createUserMessage('what is the deploy key?')],
 			workingDirectory,
 			sessionId: 'ses_guardrail' as SessionId,
-			threadId: 'thd_guardrail' as ThreadId,
+			topicId: 'thd_guardrail' as ThreadId,
 			projectId: 'prj_guardrail' as ProjectId,
 			tenantId: 'tnt_guardrail' as TenantId,
 			...(opts.inputGuardrails ? { inputGuardrails: opts.inputGuardrails } : {}),

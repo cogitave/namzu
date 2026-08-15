@@ -409,13 +409,13 @@ export interface QueryParams {
 	sessionId: SessionId
 
 	/**
-	 * Topic the Session lives under. Required in 0.3.0 — every run carries
-	 * the full five-layer scope (Tenant → Project → Thread → Session →
-	 * Run). Denormalized from `session.threadId`; callers build this
-	 * alongside `sessionId` so the query pipeline never needs a second
-	 * SessionStore round-trip to recover it.
+	 * Topic the Session lives under. Required — every run carries the full
+	 * five-layer scope (Tenant → Project → Topic → Session → Run).
+	 * Denormalized from `session.topicId`; callers build this alongside
+	 * `sessionId` so the query pipeline never needs a second SessionStore
+	 * round-trip to recover it.
 	 */
-	threadId: ThreadId
+	topicId: ThreadId
 
 	/** Long-lived goal scope for the run. Required. */
 	projectId: ProjectId
@@ -687,7 +687,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		runId,
 		parentRunId: params.parentRunId,
 		sessionId: params.sessionId,
-		threadId: params.threadId,
+		topicId: params.topicId,
 		projectId: params.projectId,
 		tenantId: params.tenantId,
 	})
@@ -785,7 +785,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		messages: params.messages,
 		signal: params.signal,
 		sessionId: params.sessionId,
-		threadId: params.threadId,
+		topicId: params.topicId,
 		projectId: params.projectId,
 		tenantId: params.tenantId,
 		pathBuilder: params.pathBuilder,

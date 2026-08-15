@@ -107,7 +107,7 @@ async function seedIdle(store: InMemorySessionStore, threadStore: InMemoryThread
 		tenant,
 	)
 	const session = await store.createSession(
-		{ threadId: thread.id, projectId: project.id, currentActor: user('usr_source') },
+		{ topicId: thread.id, projectId: project.id, currentActor: user('usr_source') },
 		tenant,
 	)
 	return { project, thread, session }
@@ -116,7 +116,7 @@ async function seedIdle(store: InMemorySessionStore, threadStore: InMemoryThread
 function buildAssignment(
 	sourceSessionId: SessionId,
 	projectId: Awaited<ReturnType<InMemorySessionStore['createProject']>>['id'],
-	threadId: Awaited<ReturnType<InMemoryThreadStore['createTopic']>>['id'],
+	topicId: Awaited<ReturnType<InMemoryThreadStore['createTopic']>>['id'],
 	expectedOwnerVersion: number,
 	recipient: ActorRef = user('usr_target'),
 ): HandoffAssignment {
@@ -125,7 +125,7 @@ function buildAssignment(
 		mode: 'single',
 		sourceSessionId,
 		tenantId: tenant,
-		threadId,
+		topicId,
 		projectId,
 		sourceActor: user('usr_source'),
 		recipientActor: recipient,
@@ -245,14 +245,14 @@ describe('executeSingleHandoff', () => {
 		// store hardcodes defaults {4,8,10}. Build a depth-4 chain then attempt
 		// handoff on depth-4 node (ancestry length 5 > 4).
 		const root = await store.createSession(
-			{ threadId: thread.id, projectId: project.id, currentActor: user('usr_source') },
+			{ topicId: thread.id, projectId: project.id, currentActor: user('usr_source') },
 			tenant,
 		)
 		let parent = root.id
 		let tail: SessionId = root.id
 		for (let i = 0; i < 4; i++) {
 			const child = await store.createSession(
-				{ threadId: thread.id, projectId: project.id, currentActor: user(`usr_${i}`) },
+				{ topicId: thread.id, projectId: project.id, currentActor: user(`usr_${i}`) },
 				tenant,
 			)
 			await store.createSubSession(

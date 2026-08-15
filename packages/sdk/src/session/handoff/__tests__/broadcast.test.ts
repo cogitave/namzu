@@ -99,7 +99,7 @@ async function seedIdle(store: InMemorySessionStore, threadStore: InMemoryThread
 		tenant,
 	)
 	const session = await store.createSession(
-		{ threadId: thread.id, projectId: project.id, currentActor: user('usr_source') },
+		{ topicId: thread.id, projectId: project.id, currentActor: user('usr_source') },
 		tenant,
 	)
 	return { project, thread, session }
@@ -108,7 +108,7 @@ async function seedIdle(store: InMemorySessionStore, threadStore: InMemoryThread
 function buildAssignments(
 	sourceSessionId: SessionId,
 	projectId: ProjectId,
-	threadId: Awaited<ReturnType<InMemoryThreadStore['createTopic']>>['id'],
+	topicId: Awaited<ReturnType<InMemoryThreadStore['createTopic']>>['id'],
 	expectedOwnerVersion: number,
 	recipients: ActorRef[],
 	broadcastId = 'bc_1',
@@ -118,7 +118,7 @@ function buildAssignments(
 		mode: 'broadcast' as const,
 		sourceSessionId,
 		tenantId: tenant,
-		threadId,
+		topicId,
 		projectId,
 		sourceActor: user('usr_source'),
 		recipientActor,

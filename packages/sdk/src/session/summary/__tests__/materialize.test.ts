@@ -30,7 +30,7 @@ function makeSummaryIdGenerator(): () => SummaryId {
 async function seedActiveSession(store: InMemorySessionStore, tenantId: TenantId) {
 	const project = await store.createProject({ tenantId, name: 'p1' }, tenantId)
 	const session = await store.createSession(
-		{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor(tenantId) },
+		{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor(tenantId) },
 		tenantId,
 	)
 	// Put the session into `active` so the materializer's status-flip behavior
@@ -231,7 +231,7 @@ describe('SessionSummaryMaterializer.materialize', () => {
 		const store = new InMemorySessionStore()
 		const project = await store.createProject({ tenantId: tenantA, name: 'p1' }, tenantA)
 		const session = await store.createSession(
-			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor(tenantA) },
+			{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor(tenantA) },
 			tenantA,
 		)
 		// session.status defaults to 'idle'
@@ -254,7 +254,7 @@ describe('SessionSummaryMaterializer.materialize', () => {
 		const store = new InMemorySessionStore()
 		const project = await store.createProject({ tenantId: tenantA, name: 'p1' }, tenantA)
 		const session = await store.createSession(
-			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor(tenantA) },
+			{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor(tenantA) },
 			tenantA,
 		)
 		await store.updateSession({ ...session, status: 'failed' }, tenantA)

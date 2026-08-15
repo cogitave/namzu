@@ -66,7 +66,7 @@ async function run(tool: ToolDefinition) {
 			messages: [createUserMessage('build it')],
 			workingDirectory,
 			sessionId: 'ses_p' as SessionId,
-			threadId: 'thd_p' as ThreadId,
+			topicId: 'thd_p' as ThreadId,
 			projectId: 'prj_p' as ProjectId,
 			tenantId: 'tnt_p' as TenantId,
 		},

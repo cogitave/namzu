@@ -97,7 +97,7 @@ export async function executeSingleHandoff(
 	// fails fastest with `ThreadClosedError` rather than a lock rejection or
 	// capacity error. Checked BEFORE the CAS lock so a denied handoff leaves
 	// the source session untouched.
-	await deps.threadManager.requireOpen(assignment.threadId, tenantId)
+	await deps.threadManager.requireOpen(assignment.topicId, tenantId)
 
 	// 1. Load source session + tenant check.
 	const source = await deps.store.getSession(assignment.sourceSessionId, tenantId)
@@ -110,9 +110,9 @@ export async function executeSingleHandoff(
 			resource: `session(${source.id})`,
 		})
 	}
-	if (source.threadId !== assignment.threadId) {
+	if (source.topicId !== assignment.topicId) {
 		throw new Error(
-			`Assignment threadId ${assignment.threadId} does not match source session threadId ${source.threadId}`,
+			`Assignment topicId ${assignment.topicId} does not match source session topicId ${source.topicId}`,
 		)
 	}
 	if (source.projectId !== assignment.projectId) {
@@ -190,7 +190,7 @@ export async function executeSingleHandoff(
 
 		const recipientSession = await deps.store.createSession(
 			{
-				threadId: source.threadId,
+				topicId: source.topicId,
 				projectId: source.projectId,
 				currentActor: assignment.recipientActor,
 			},

@@ -78,7 +78,7 @@ async function buildLinearChain(
 	let previous: SessionId | null = null
 	for (let i = 0; i < length; i++) {
 		const s = await store.createSession(
-			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor(`agt_${i}`) },
+			{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor(`agt_${i}`) },
 			DEFAULT_TENANT,
 		)
 		if (previous) {
@@ -270,15 +270,15 @@ describe('Integration — prevArtifactRef DAG against real store', () => {
 			DEFAULT_TENANT,
 		)
 		const sA = await store.createSession(
-			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor('agt_a') },
+			{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor('agt_a') },
 			DEFAULT_TENANT,
 		)
 		const sB = await store.createSession(
-			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor('agt_b') },
+			{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor('agt_b') },
 			DEFAULT_TENANT,
 		)
 		const sC = await store.createSession(
-			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor('agt_c') },
+			{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor('agt_c') },
 			DEFAULT_TENANT,
 		)
 

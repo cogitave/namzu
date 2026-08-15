@@ -161,7 +161,7 @@ async function harness(
 	const userActor: ActorRef = { kind: 'user', userId: 'usr_root' as UserId, tenantId: tenant }
 
 	const parentSession = await store.createSession(
-		{ threadId: thread.id, projectId: project.id, currentActor: userActor },
+		{ topicId: thread.id, projectId: project.id, currentActor: userActor },
 		tenant,
 	)
 	await store.updateSession({ ...parentSession, status: 'active' }, tenant)
@@ -194,7 +194,7 @@ async function harness(
 		depth: 0,
 		budgetTracker: { total: 100_000, remaining: 100_000 },
 		tenantId: tenant,
-		threadId: thread.id,
+		topicId: thread.id,
 		sessionId: parentSession.id,
 		projectId: project.id,
 		parentActor: userActor,

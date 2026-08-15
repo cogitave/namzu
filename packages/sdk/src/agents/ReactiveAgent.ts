@@ -57,9 +57,9 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 		const runId = this.createRunId()
 		this.bindRun(runId, config.logger)
 
-		if (!config.sessionId || !config.threadId || !config.projectId || !config.tenantId) {
+		if (!config.sessionId || !config.topicId || !config.projectId || !config.tenantId) {
 			throw new Error(
-				'ReactiveAgent requires sessionId, threadId, projectId, and tenantId in config (session-hierarchy.md §12.1).',
+				'ReactiveAgent requires sessionId, topicId, projectId, and tenantId in config (session-hierarchy.md §12.1).',
 			)
 		}
 
@@ -130,7 +130,7 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 				agentName: this.metadata.name,
 				workingDirectory: input.workingDirectory,
 				sessionId: config.sessionId,
-				threadId: config.threadId,
+				topicId: config.topicId,
 				projectId: config.projectId,
 				tenantId: config.tenantId,
 				runId,

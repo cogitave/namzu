@@ -193,7 +193,7 @@ export class InMemorySessionStore implements SessionStore {
 		const now = new Date()
 		const session: Session = {
 			id: generateSessionId(),
-			threadId: params.threadId,
+			topicId: params.topicId,
 			projectId: params.projectId,
 			tenantId,
 			status: 'idle',
@@ -215,11 +215,11 @@ export class InMemorySessionStore implements SessionStore {
 		return record.session
 	}
 
-	async listSessions(threadId: ThreadId, tenantId: TenantId): Promise<readonly Session[]> {
+	async listSessionsByTopic(topicId: ThreadId, tenantId: TenantId): Promise<readonly Session[]> {
 		const matches: Session[] = []
 		for (const record of this.sessions.values()) {
 			if (record.tenantId !== tenantId) continue
-			if (record.session.threadId !== threadId) continue
+			if (record.session.topicId !== topicId) continue
 			matches.push(record.session)
 		}
 		matches.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())

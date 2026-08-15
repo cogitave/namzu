@@ -77,7 +77,7 @@ async function harness(): Promise<Harness> {
 			tenantId: 'tnt_r' as TenantId,
 			projectId: 'prj_r' as ProjectId,
 			sessionId: 'ses_r' as SessionId,
-			threadId: 'thd_r' as ThreadId,
+			topicId: 'thd_r' as ThreadId,
 			runId: 'run_r' as RunId,
 		},
 	}
@@ -101,7 +101,7 @@ function baseParams(h: Harness, provider: MockLLMProvider, resumeHandler: Resume
 		agentName: 'Resumable',
 		workingDirectory: h.dir,
 		sessionId: h.scope.sessionId,
-		threadId: h.scope.threadId,
+		topicId: h.scope.topicId,
 		projectId: h.scope.projectId,
 		tenantId: h.scope.tenantId,
 	}

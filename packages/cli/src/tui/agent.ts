@@ -1089,11 +1089,11 @@ export async function createAgentSession(
 				tenantId: entry.tenantId,
 				projectId: entry.projectId,
 				sessionId: entry.sessionId,
-				// …except the thread, which no checkpoint records — see
+				// …except the topic, which no checkpoint records — see
 				// `RunStateScope`. This one is the drainer's, and honestly so:
 				// supplied here rather than pretended to have been recovered.
-				threadId: scope.threadId,
-				scope: { ...entry, threadId: scope.threadId },
+				topicId: scope.topicId,
+				scope: { ...entry, topicId: scope.topicId },
 				checkpointStore,
 				...(claimFence !== undefined ? { claimFence } : {}),
 			})
@@ -1369,7 +1369,7 @@ export async function listProviderModels(
 
 export interface RunScope {
 	sessionId: SessionId
-	readonly threadId: ThreadId
+	readonly topicId: ThreadId
 	readonly projectId: ProjectId
 	readonly tenantId: TenantId
 }
@@ -1379,7 +1379,7 @@ function mintScope(): RunScope {
 	const suffix = `tui-${Date.now().toString(36)}`
 	return {
 		sessionId: `ses_${suffix}`,
-		threadId: `thd_${suffix}`,
+		topicId: `thd_${suffix}`,
 		projectId: `prj_${suffix}`,
 		tenantId: `tnt_${suffix}`,
 	}

@@ -21,7 +21,7 @@ async function seedProject(store: InMemorySessionStore) {
 	const threadStore = new InMemoryThreadStore()
 	const thread = await threadStore.createTopic({ projectId: project.id, title: 'default' }, tenant)
 	const root = await store.createSession(
-		{ threadId: thread.id, projectId: project.id, currentActor: user() },
+		{ topicId: thread.id, projectId: project.id, currentActor: user() },
 		tenant,
 	)
 	return { project, thread, root }
@@ -31,9 +31,9 @@ async function spawnChild(
 	store: InMemorySessionStore,
 	parentId: SessionId,
 	projectId: ProjectId,
-	threadId: ThreadId,
+	topicId: ThreadId,
 ): Promise<{ childId: SessionId }> {
-	const child = await store.createSession({ threadId, projectId, currentActor: user() }, tenant)
+	const child = await store.createSession({ topicId, projectId, currentActor: user() }, tenant)
 	await store.createSubSession(
 		{
 			parentSessionId: parentId,

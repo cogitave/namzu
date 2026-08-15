@@ -61,7 +61,7 @@ const SCOPE: RunStateScope = {
 	projectId: 'prj_pause' as ProjectId,
 	sessionId: 'ses_pause' as SessionId,
 	runId: 'run_pause' as RunId,
-	threadId: 'thd_pause' as ThreadId,
+	topicId: 'thd_pause' as ThreadId,
 }
 
 const PAUSE = {
@@ -235,7 +235,7 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 			agentName: 'Pause Agent',
 			workingDirectory: await mkWorkdir(),
 			sessionId: SCOPE.sessionId,
-			threadId: SCOPE.threadId,
+			topicId: SCOPE.topicId,
 			projectId: SCOPE.projectId,
 			tenantId: SCOPE.tenantId,
 		}

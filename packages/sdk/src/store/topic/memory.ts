@@ -46,10 +46,10 @@ export class InMemoryTopicStore implements TopicStore {
 		return topic
 	}
 
-	async getTopic(threadId: ThreadId, tenantId: TenantId): Promise<Topic | null> {
-		const record = this.topics.get(threadId)
+	async getTopic(topicId: ThreadId, tenantId: TenantId): Promise<Topic | null> {
+		const record = this.topics.get(topicId)
 		if (!record) return null
-		this.assertTenant(record.tenantId, tenantId, `topic(${threadId})`)
+		this.assertTenant(record.tenantId, tenantId, `topic(${topicId})`)
 		return record.topic
 	}
 
@@ -85,11 +85,11 @@ export class InMemoryTopicStore implements TopicStore {
 		this.topics.set(topic.id, { tenantId, topic: updated })
 	}
 
-	async deleteTopic(threadId: ThreadId, tenantId: TenantId): Promise<void> {
-		const record = this.topics.get(threadId)
+	async deleteTopic(topicId: ThreadId, tenantId: TenantId): Promise<void> {
+		const record = this.topics.get(topicId)
 		if (!record) return // Idempotent: missing = no-op.
-		this.assertTenant(record.tenantId, tenantId, `topic(${threadId})`)
-		this.topics.delete(threadId)
+		this.assertTenant(record.tenantId, tenantId, `topic(${topicId})`)
+		this.topics.delete(topicId)
 	}
 
 	async listTopics(projectId: ProjectId, tenantId: TenantId): Promise<readonly Topic[]> {

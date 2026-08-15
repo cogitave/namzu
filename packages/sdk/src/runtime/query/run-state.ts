@@ -9,7 +9,7 @@ import { findPendingCheckpoint } from './checkpoint.js'
  * A {@link CheckpointRunScope} plus the one attribution field checkpoints
  * do not record.
  *
- * `threadId` is denormalized onto a run at `query()` time and never written
+ * `topicId` is denormalized onto a run at `query()` time and never written
  * into a checkpoint, so a snapshot rebuilt from the store alone cannot
  * derive it. Requiring the caller to supply it is better than inventing one
  * or widening `RunState` to make it optional: the field is required by
@@ -17,7 +17,7 @@ import { findPendingCheckpoint } from './checkpoint.js'
  * and less clearly.
  */
 export interface RunStateScope extends CheckpointRunScope {
-	threadId: ThreadId
+	topicId: ThreadId
 }
 
 /**
@@ -42,7 +42,7 @@ export function captureRunState(
 		version: RUN_STATE_VERSION,
 		runId: runMgr.id,
 		sessionId: scope.sessionId,
-		threadId: scope.threadId,
+		topicId: scope.topicId,
 		projectId: scope.projectId,
 		tenantId: scope.tenantId,
 		...(scope.parentRunId ? { parentRunId: scope.parentRunId } : {}),
@@ -98,7 +98,7 @@ export async function loadRunState(
 		version: RUN_STATE_VERSION,
 		runId: checkpoint.runId,
 		sessionId: scope.sessionId,
-		threadId: scope.threadId,
+		topicId: scope.topicId,
 		projectId: scope.projectId,
 		tenantId: scope.tenantId,
 		...(scope.parentRunId ? { parentRunId: scope.parentRunId } : {}),

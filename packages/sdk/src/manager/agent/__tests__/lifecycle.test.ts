@@ -123,7 +123,7 @@ interface Harness {
 	manager: AgentManager
 	parentSession: Awaited<ReturnType<InMemorySessionStore['createSession']>>
 	projectId: import('../../../types/session/ids.js').ProjectId
-	threadId: ThreadId
+	topicId: ThreadId
 	registry: AgentRegistry
 }
 
@@ -140,7 +140,7 @@ async function buildHarness(
 		tenantId,
 	)
 	const parentSession = await store.createSession(
-		{ threadId: thread.id, projectId: project.id, currentActor: user(tenantId) },
+		{ topicId: thread.id, projectId: project.id, currentActor: user(tenantId) },
 		tenantId,
 	)
 	// Parent runs kick the session into 'active' so the materializer can
@@ -172,7 +172,7 @@ async function buildHarness(
 		manager,
 		parentSession: { ...parentSession, status: 'active' },
 		projectId: project.id,
-		threadId: thread.id,
+		topicId: thread.id,
 		registry,
 	}
 }
@@ -180,7 +180,7 @@ async function buildHarness(
 function buildContext(
 	parentSessionId: SessionId,
 	projectId: import('../../../types/session/ids.js').ProjectId,
-	threadId: ThreadId,
+	topicId: ThreadId,
 	tenantId: TenantId = tenant,
 	depth = 0,
 ): AgentTaskContext {
@@ -191,7 +191,7 @@ function buildContext(
 		depth,
 		budgetTracker: { total: 100_000, remaining: 100_000 },
 		tenantId,
-		threadId,
+		topicId,
 		sessionId: parentSessionId,
 		projectId,
 		parentActor: user(tenantId),
@@ -233,7 +233,7 @@ describe('AgentManager.sendMessage — Phase 6 SubSession spawn', () => {
 
 		const task = await harness.manager.sendMessage(
 			buildOptions('child-1', harness.parentSession.id, harness.projectId),
-			buildContext(harness.parentSession.id, harness.projectId, harness.threadId),
+			buildContext(harness.parentSession.id, harness.projectId, harness.topicId),
 			listener,
 		)
 		await waitForTask(harness.manager, task.taskId)
@@ -279,7 +279,7 @@ describe('AgentManager.sendMessage — Phase 6 SubSession spawn', () => {
 		for (let i = 0; i < 8; i++) {
 			const sibling = await harness.store.createSession(
 				{
-					threadId: harness.threadId,
+					topicId: harness.topicId,
 					projectId: harness.projectId,
 					currentActor: agentActor('sibling'),
 				},
@@ -299,7 +299,7 @@ describe('AgentManager.sendMessage — Phase 6 SubSession spawn', () => {
 		await expect(
 			harness.manager.sendMessage(
 				buildOptions('child-1', harness.parentSession.id, harness.projectId),
-				buildContext(harness.parentSession.id, harness.projectId, harness.threadId),
+				buildContext(harness.parentSession.id, harness.projectId, harness.topicId),
 			),
 		).rejects.toBeInstanceOf(DelegationCapacityExceeded)
 	})
@@ -312,7 +312,7 @@ describe('AgentManager.sendMessage — Phase 6 SubSession spawn', () => {
 		for (let i = 0; i < 7; i++) {
 			const sibling = await harness.store.createSession(
 				{
-					threadId: harness.threadId,
+					topicId: harness.topicId,
 					projectId: harness.projectId,
 					currentActor: agentActor('sibling'),
 				},
@@ -335,11 +335,11 @@ describe('AgentManager.sendMessage — Phase 6 SubSession spawn', () => {
 		const attempts = await Promise.allSettled([
 			harness.manager.sendMessage(
 				buildOptions('child-1', harness.parentSession.id, harness.projectId),
-				buildContext(harness.parentSession.id, harness.projectId, harness.threadId),
+				buildContext(harness.parentSession.id, harness.projectId, harness.topicId),
 			),
 			harness.manager.sendMessage(
 				buildOptions('child-1', harness.parentSession.id, harness.projectId),
-				buildContext(harness.parentSession.id, harness.projectId, harness.threadId),
+				buildContext(harness.parentSession.id, harness.projectId, harness.topicId),
 			),
 		])
 
@@ -360,7 +360,7 @@ describe('AgentManager.sendMessage — Phase 6 SubSession spawn', () => {
 		let parentId: SessionId = harness.parentSession.id
 		for (let i = 0; i < 4; i++) {
 			const child = await harness.store.createSession(
-				{ threadId: harness.threadId, projectId: harness.projectId, currentActor: agentActor('c') },
+				{ topicId: harness.topicId, projectId: harness.projectId, currentActor: agentActor('c') },
 				tenant,
 			)
 			await harness.store.createSubSession(
@@ -378,7 +378,7 @@ describe('AgentManager.sendMessage — Phase 6 SubSession spawn', () => {
 		await expect(
 			harness.manager.sendMessage(
 				buildOptions('child-1', parentId, harness.projectId),
-				buildContext(parentId, harness.projectId, harness.threadId, tenant, 0),
+				buildContext(parentId, harness.projectId, harness.topicId, tenant, 0),
 			),
 		).rejects.toBeInstanceOf(DelegationCapacityExceeded)
 	})
@@ -389,7 +389,7 @@ describe('AgentManager.sendMessage — Phase 6 SubSession spawn', () => {
 
 		const task = await harness.manager.sendMessage(
 			buildOptions('child-fail', harness.parentSession.id, harness.projectId),
-			buildContext(harness.parentSession.id, harness.projectId, harness.threadId),
+			buildContext(harness.parentSession.id, harness.projectId, harness.topicId),
 		)
 		await waitForTask(harness.manager, task.taskId)
 
@@ -412,7 +412,7 @@ describe('AgentManager.sendMessage — Phase 6 SubSession spawn', () => {
 
 		const task = await harness.manager.sendMessage(
 			buildOptions('child-msgs', harness.parentSession.id, harness.projectId),
-			buildContext(harness.parentSession.id, harness.projectId, harness.threadId),
+			buildContext(harness.parentSession.id, harness.projectId, harness.topicId),
 		)
 		await waitForTask(harness.manager, task.taskId)
 
@@ -434,7 +434,7 @@ describe('AgentManager.sendMessage — Phase 6 SubSession spawn', () => {
 
 		// Seed c1 under parentSession, c2 under c1.
 		const c1 = await harness.store.createSession(
-			{ threadId: harness.threadId, projectId: harness.projectId, currentActor: agentActor('c1') },
+			{ topicId: harness.topicId, projectId: harness.projectId, currentActor: agentActor('c1') },
 			tenant,
 		)
 		await harness.store.createSubSession(
@@ -447,7 +447,7 @@ describe('AgentManager.sendMessage — Phase 6 SubSession spawn', () => {
 			tenant,
 		)
 		const c2 = await harness.store.createSession(
-			{ threadId: harness.threadId, projectId: harness.projectId, currentActor: agentActor('c2') },
+			{ topicId: harness.topicId, projectId: harness.projectId, currentActor: agentActor('c2') },
 			tenant,
 		)
 		await harness.store.createSubSession(
@@ -463,7 +463,7 @@ describe('AgentManager.sendMessage — Phase 6 SubSession spawn', () => {
 		const events: RunEvent[] = []
 		const task = await harness.manager.sendMessage(
 			buildOptions('grandchild', c2.id, harness.projectId),
-			buildContext(c2.id, harness.projectId, harness.threadId),
+			buildContext(c2.id, harness.projectId, harness.topicId),
 			(e) => {
 				events.push(e)
 			},
@@ -510,7 +510,7 @@ describe('AgentManager.sendMessage — Phase 6 SubSession spawn', () => {
 		await expect(
 			harness.manager.sendMessage(
 				mismatchedOptions,
-				buildContext(harness.parentSession.id, harness.projectId, harness.threadId, tenant),
+				buildContext(harness.parentSession.id, harness.projectId, harness.topicId, tenant),
 			),
 		).rejects.toThrow(/Tenant mismatch/)
 	})
@@ -537,7 +537,7 @@ describe('AgentManager.sendMessage — budget and deadline arithmetic', () => {
 			return successResult()
 		})
 		const harness = await buildHarness(childAgent)
-		const context = buildContext(harness.parentSession.id, harness.projectId, harness.threadId)
+		const context = buildContext(harness.parentSession.id, harness.projectId, harness.topicId)
 		context.budgetTracker = { total: 100_000, remaining: 100_000 }
 
 		const task = await harness.manager.sendMessage(
@@ -561,7 +561,7 @@ describe('AgentManager.sendMessage — budget and deadline arithmetic', () => {
 			return successResult()
 		})
 		const harness = await buildHarness(childAgent)
-		const context = buildContext(harness.parentSession.id, harness.projectId, harness.threadId)
+		const context = buildContext(harness.parentSession.id, harness.projectId, harness.topicId)
 		context.budgetTracker = { total: 100_000, remaining: 20 }
 
 		const task = await harness.manager.sendMessage(
@@ -581,7 +581,7 @@ describe('AgentManager.sendMessage — budget and deadline arithmetic', () => {
 		// uncapped child. Budget exhaustion must not invert into no budget.
 		const childAgent = makeAgent('child-broke', async () => successResult())
 		const harness = await buildHarness(childAgent)
-		const context = buildContext(harness.parentSession.id, harness.projectId, harness.threadId)
+		const context = buildContext(harness.parentSession.id, harness.projectId, harness.topicId)
 		context.budgetTracker = { total: 100_000, remaining: 1 }
 
 		await expect(
@@ -602,7 +602,7 @@ describe('AgentManager.sendMessage — budget and deadline arithmetic', () => {
 			return successResult()
 		})
 		const harness = await buildHarness(childAgent)
-		const context = buildContext(harness.parentSession.id, harness.projectId, harness.threadId)
+		const context = buildContext(harness.parentSession.id, harness.projectId, harness.topicId)
 		context.budgetTracker = { total: 100_000, remaining: 100_000 }
 
 		// Go through the GATEWAY, which is where the clone was: calling
@@ -646,7 +646,7 @@ describe('AgentManager.sendMessage — budget and deadline arithmetic', () => {
 			usage: { ...EMPTY_TOKEN_USAGE, totalTokens: 1_000 },
 		}))
 		const harness = await buildHarness(childAgent)
-		const context = buildContext(harness.parentSession.id, harness.projectId, harness.threadId)
+		const context = buildContext(harness.parentSession.id, harness.projectId, harness.topicId)
 		context.budgetTracker = { total: 100_000, remaining: 100_000 }
 
 		const gateway = new LocalTaskGateway(harness.manager, context)
@@ -674,7 +674,7 @@ describe('AgentManager.sendMessage — budget and deadline arithmetic', () => {
 			return successResult()
 		})
 		const harness = await buildHarness(childAgent)
-		const context = buildContext(harness.parentSession.id, harness.projectId, harness.threadId)
+		const context = buildContext(harness.parentSession.id, harness.projectId, harness.topicId)
 		context.budgetTracker = { total: 100_000, remaining: 100_000 }
 
 		const gateway = new LocalTaskGateway(harness.manager, context)
@@ -728,7 +728,7 @@ describe('LocalTaskGateway — what a failed child means for its siblings', () =
 			threadManager: harness.threadManager,
 		})
 
-		const context = buildContext(harness.parentSession.id, harness.projectId, harness.threadId)
+		const context = buildContext(harness.parentSession.id, harness.projectId, harness.topicId)
 		const gateway = new LocalTaskGateway(
 			manager,
 			context,
@@ -817,7 +817,7 @@ describe('a concurrent fan-out shares one budget', () => {
 		// ONE tracker, shared, as a real parent's context is.
 		const shared = { total: 100_000, remaining: 100_000 }
 		const context = {
-			...buildContext(harness.parentSession.id, harness.projectId, harness.threadId),
+			...buildContext(harness.parentSession.id, harness.projectId, harness.topicId),
 			budgetTracker: shared,
 		}
 

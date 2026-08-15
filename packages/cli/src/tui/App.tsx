@@ -353,7 +353,7 @@ export function App({ ctx }: AppProps) {
 			sessionsRef.current = sessions
 			scopeRef.current = {
 				sessionId,
-				threadId: sessions.threadId,
+				topicId: sessions.topicId,
 				projectId: sessions.projectId,
 				tenantId: sessions.tenantId,
 			}

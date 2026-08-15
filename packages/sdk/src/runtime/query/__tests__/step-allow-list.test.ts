@@ -148,7 +148,7 @@ async function run(opts: {
 				maxResponseTokens: 256,
 			},
 			sessionId: 'ses_allow' as SessionId,
-			threadId: 'thd_allow' as ThreadId,
+			topicId: 'thd_allow' as ThreadId,
 			projectId: 'prj_allow' as ProjectId,
 			tenantId: 'tnt_allow' as TenantId,
 		},

@@ -24,7 +24,7 @@ export function isTerminalAgentTaskState(state: AgentTaskState): boolean {
 
 /**
  * Context carried into {@link AgentManager.sendMessage}. `tenantId`,
- * `threadId`, `sessionId`, `projectId`, and `parentActor` are required —
+ * `topicId`, `sessionId`, `projectId`, and `parentActor` are required —
  * the spawn path is the ingress point for the session hierarchy; callers
  * must provide the full scoping set.
  */
@@ -62,13 +62,13 @@ export interface AgentTaskContext {
 	tenantId: TenantId
 
 	/**
-	 * Topic the current task belongs to. Required in 0.3.0 — spawn copies
-	 * this onto the child session without a second ThreadStore round-trip,
-	 * and gates creation on {@link ThreadManager.requireOpen}. Children
-	 * inherit the parent's `threadId` verbatim; cross-thread spawn is
-	 * forbidden by design (a delegated sub-agent stays on the same topic).
+	 * Topic the current task belongs to. Required — spawn copies this onto
+	 * the child session without a second TopicStore round-trip, and gates
+	 * creation on {@link TopicManager.requireOpen}. Children inherit the
+	 * parent's `topicId` verbatim; cross-topic spawn is forbidden by design
+	 * (a delegated sub-agent stays on the same topic).
 	 */
-	threadId: ThreadId
+	topicId: ThreadId
 
 	/**
 	 * Parent session under which any sub-agent spawn is recorded. Required

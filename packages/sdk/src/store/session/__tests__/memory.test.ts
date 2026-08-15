@@ -28,7 +28,7 @@ const tenantB = 'tnt_beta' as TenantId
 async function seed(store: InMemorySessionStore, tenantId: TenantId) {
 	const project = await store.createProject({ tenantId, name: 'p1' }, tenantId)
 	const session = await store.createSession(
-		{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor(tenantId) },
+		{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor(tenantId) },
 		tenantId,
 	)
 	return { project, session }
@@ -87,7 +87,7 @@ describe('InMemorySessionStore', () => {
 
 		// Create a child session + link via sub-session.
 		const child = await store.createSession(
-			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor(tenantA) },
+			{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor(tenantA) },
 			tenantA,
 		)
 		const sub = await store.createSubSession(
@@ -142,7 +142,7 @@ describe('InMemorySessionStore', () => {
 		const { project: pB, session: rootB } = await seed(store, tenantB)
 
 		const childA = await store.createSession(
-			{ threadId: TEST_THREAD_ID, projectId: pA.id, currentActor: agentActor(tenantA) },
+			{ topicId: TEST_THREAD_ID, projectId: pA.id, currentActor: agentActor(tenantA) },
 			tenantA,
 		)
 		await store.createSubSession(
@@ -156,7 +156,7 @@ describe('InMemorySessionStore', () => {
 		)
 
 		const childB = await store.createSession(
-			{ threadId: TEST_THREAD_ID, projectId: pB.id, currentActor: agentActor(tenantB) },
+			{ topicId: TEST_THREAD_ID, projectId: pB.id, currentActor: agentActor(tenantB) },
 			tenantB,
 		)
 		await store.createSubSession(
@@ -189,7 +189,7 @@ describe('InMemorySessionStore', () => {
 		const store = new InMemorySessionStore()
 		const { project, session: rootA } = await seed(store, tenantA)
 		const sessionB = await store.createSession(
-			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor(tenantA) },
+			{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor(tenantA) },
 			tenantA,
 		)
 
@@ -238,7 +238,7 @@ describe('InMemorySessionStore', () => {
 		const store = new InMemorySessionStore()
 		const { project, session: root } = await seed(store, tenantA)
 		const child = await store.createSession(
-			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor(tenantA) },
+			{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor(tenantA) },
 			tenantA,
 		)
 		await store.createSubSession(
@@ -268,7 +268,7 @@ describe('InMemorySessionStore', () => {
 		const store = new InMemorySessionStore()
 		const { project, session: root } = await seed(store, tenantA)
 		const child = await store.createSession(
-			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor(tenantA) },
+			{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor(tenantA) },
 			tenantA,
 		)
 		const sub = await store.createSubSession(
@@ -296,11 +296,11 @@ describe('InMemorySessionStore', () => {
 		const { project, session: root } = await seed(store, tenantA)
 
 		const c1 = await store.createSession(
-			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor(tenantA) },
+			{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor(tenantA) },
 			tenantA,
 		)
 		const c2 = await store.createSession(
-			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor(tenantA) },
+			{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor(tenantA) },
 			tenantA,
 		)
 
@@ -328,34 +328,34 @@ describe('InMemorySessionStore', () => {
 		expect(new Set(ids)).toEqual(new Set([s1.id, s2.id]))
 	})
 
-	describe('listSessions(threadId, tenantId)', () => {
+	describe('listSessions(topicId, tenantId)', () => {
 		const threadX = 'thd_x' as ThreadId
 		const threadY = 'thd_y' as ThreadId
 
 		it('returns [] when the thread has no sessions', async () => {
 			const store = new InMemorySessionStore()
-			expect(await store.listSessions(threadX, tenantA)).toEqual([])
+			expect(await store.listSessionsByTopic(threadX, tenantA)).toEqual([])
 		})
 
-		it('returns only sessions whose threadId matches, for the caller tenant', async () => {
+		it('returns only sessions whose topicId matches, for the caller tenant', async () => {
 			const store = new InMemorySessionStore()
 			const project = await store.createProject({ tenantId: tenantA, name: 'p' }, tenantA)
 
 			const sX1 = await store.createSession(
-				{ threadId: threadX, projectId: project.id, currentActor: userActor(tenantA) },
+				{ topicId: threadX, projectId: project.id, currentActor: userActor(tenantA) },
 				tenantA,
 			)
 			const sX2 = await store.createSession(
-				{ threadId: threadX, projectId: project.id, currentActor: userActor(tenantA) },
+				{ topicId: threadX, projectId: project.id, currentActor: userActor(tenantA) },
 				tenantA,
 			)
 			// Same project, different thread — must not appear.
 			await store.createSession(
-				{ threadId: threadY, projectId: project.id, currentActor: userActor(tenantA) },
+				{ topicId: threadY, projectId: project.id, currentActor: userActor(tenantA) },
 				tenantA,
 			)
 
-			const listed = await store.listSessions(threadX, tenantA)
+			const listed = await store.listSessionsByTopic(threadX, tenantA)
 			expect(listed.map((s) => s.id).sort()).toEqual([sX1.id, sX2.id].sort())
 		})
 
@@ -364,21 +364,21 @@ describe('InMemorySessionStore', () => {
 			const project = await store.createProject({ tenantId: tenantA, name: 'p' }, tenantA)
 
 			const first = await store.createSession(
-				{ threadId: threadX, projectId: project.id, currentActor: userActor(tenantA) },
+				{ topicId: threadX, projectId: project.id, currentActor: userActor(tenantA) },
 				tenantA,
 			)
 			// Nudge clock for deterministic ordering; in-memory uses `new Date()`.
 			await new Promise((r) => setTimeout(r, 2))
 			const second = await store.createSession(
-				{ threadId: threadX, projectId: project.id, currentActor: userActor(tenantA) },
+				{ topicId: threadX, projectId: project.id, currentActor: userActor(tenantA) },
 				tenantA,
 			)
 
-			const listed = await store.listSessions(threadX, tenantA)
+			const listed = await store.listSessionsByTopic(threadX, tenantA)
 			expect(listed.map((s) => s.id)).toEqual([first.id, second.id])
 		})
 
-		it('silently skips cross-tenant sessions sharing the same threadId', async () => {
+		it('silently skips cross-tenant sessions sharing the same topicId', async () => {
 			// Thread ids are tenant-scoped in practice but nothing at the type
 			// level prevents the same string identifier being reused across
 			// tenants — the listing must filter by tenant without erroring.
@@ -387,15 +387,15 @@ describe('InMemorySessionStore', () => {
 			const pB = await store.createProject({ tenantId: tenantB, name: 'pb' }, tenantB)
 
 			const own = await store.createSession(
-				{ threadId: threadX, projectId: pA.id, currentActor: userActor(tenantA) },
+				{ topicId: threadX, projectId: pA.id, currentActor: userActor(tenantA) },
 				tenantA,
 			)
 			await store.createSession(
-				{ threadId: threadX, projectId: pB.id, currentActor: userActor(tenantB) },
+				{ topicId: threadX, projectId: pB.id, currentActor: userActor(tenantB) },
 				tenantB,
 			)
 
-			const listed = await store.listSessions(threadX, tenantA)
+			const listed = await store.listSessionsByTopic(threadX, tenantA)
 			expect(listed.map((s) => s.id)).toEqual([own.id])
 		})
 	})

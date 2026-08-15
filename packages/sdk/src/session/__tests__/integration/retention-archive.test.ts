@@ -31,11 +31,11 @@ async function seedIdleSubSession(store: InMemorySessionStore) {
 		DEFAULT_TENANT,
 	)
 	const parent = await store.createSession(
-		{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor('usr_a') },
+		{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor('usr_a') },
 		DEFAULT_TENANT,
 	)
 	const child = await store.createSession(
-		{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor('agt_w') },
+		{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor('agt_w') },
 		DEFAULT_TENANT,
 	)
 	const sub = await store.createSubSession(

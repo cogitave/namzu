@@ -78,7 +78,7 @@ const config = (provider: unknown, idempotencyKey?: string): ReactiveAgentConfig
 		tokenBudget: 1_000,
 		timeoutMs: 10_000,
 		sessionId: 'ses_1',
-		threadId: 'thr_1',
+		topicId: 'thr_1',
 		projectId: 'prj_1',
 		tenantId: 'ten_1',
 		...(idempotencyKey ? { idempotencyKey } : {}),

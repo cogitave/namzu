@@ -66,7 +66,7 @@ function buildDeps(
 function buildAssignments(
 	sourceSessionId: SessionId,
 	projectId: ProjectId,
-	threadId: ThreadId,
+	topicId: ThreadId,
 	recipients: ActorRef[],
 	broadcastId = 'bc_integration',
 	expectedOwnerVersion = 0,
@@ -76,7 +76,7 @@ function buildAssignments(
 		mode: 'broadcast' as const,
 		sourceSessionId,
 		tenantId: DEFAULT_TENANT,
-		threadId,
+		topicId,
 		projectId,
 		sourceActor: userActor('usr_source'),
 		recipientActor,
@@ -99,7 +99,7 @@ describe('Integration — broadcast handoff E2E', () => {
 			DEFAULT_TENANT,
 		)
 		const source = await store.createSession(
-			{ threadId: thread.id, projectId: project.id, currentActor: userActor('usr_source') },
+			{ topicId: thread.id, projectId: project.id, currentActor: userActor('usr_source') },
 			DEFAULT_TENANT,
 		)
 
@@ -149,7 +149,7 @@ describe('Integration — broadcast handoff E2E', () => {
 			DEFAULT_TENANT,
 		)
 		const source = await store.createSession(
-			{ threadId: thread.id, projectId: project.id, currentActor: userActor('usr_source') },
+			{ topicId: thread.id, projectId: project.id, currentActor: userActor('usr_source') },
 			DEFAULT_TENANT,
 		)
 
@@ -213,7 +213,7 @@ describe('Integration — broadcast handoff E2E', () => {
 		)
 		const coordinator = userActor('usr_source')
 		const source = await store.createSession(
-			{ threadId: thread.id, projectId: project.id, currentActor: coordinator },
+			{ topicId: thread.id, projectId: project.id, currentActor: coordinator },
 			DEFAULT_TENANT,
 		)
 
@@ -244,7 +244,7 @@ describe('Integration — broadcast handoff E2E', () => {
 			DEFAULT_TENANT,
 		)
 		const source = await store.createSession(
-			{ threadId: thread.id, projectId: project.id, currentActor: userActor('usr_source') },
+			{ topicId: thread.id, projectId: project.id, currentActor: userActor('usr_source') },
 			DEFAULT_TENANT,
 		)
 

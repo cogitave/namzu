@@ -64,7 +64,7 @@ function baseParams(provider: LLMProvider, tools: ToolRegistry, workingDirectory
 		agentName: 'Test Agent',
 		workingDirectory,
 		sessionId: 'ses_chain' as SessionId,
-		threadId: 'thd_chain' as ThreadId,
+		topicId: 'thd_chain' as ThreadId,
 		projectId: 'prj_chain' as ProjectId,
 		tenantId: 'tnt_chain' as TenantId,
 		// No sleeping in a unit test: every fallover here is on a code the retry

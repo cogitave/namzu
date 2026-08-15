@@ -46,11 +46,11 @@ function agentActor(tenantId: TenantId): ActorRef {
 async function seedIdleSubSession(store: InMemorySessionStore) {
 	const project = await store.createProject({ tenantId: tenantA, name: 'p' }, tenantA)
 	const parent = await store.createSession(
-		{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor(tenantA) },
+		{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor(tenantA) },
 		tenantA,
 	)
 	const child = await store.createSession(
-		{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor(tenantA) },
+		{ topicId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor(tenantA) },
 		tenantA,
 	)
 	const sub = await store.createSubSession(

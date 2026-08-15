@@ -120,9 +120,9 @@ export interface AgentRunConfig {
 }
 
 /**
- * Config for {@link RunPersistence}. `sessionId`, `threadId`, `tenantId`,
+ * Config for {@link RunPersistence}. `sessionId`, `topicId`, `tenantId`,
  * and `projectId` are required — every Run is attributed across the full
- * five-layer scope (Tenant → Project → Thread → Session → Run,
+ * five-layer scope (Tenant → Project → Topic → Session → Run,
  * Convention #17).
  */
 export interface RunPersistenceConfig {
@@ -136,7 +136,7 @@ export interface RunPersistenceConfig {
 	log: Logger
 
 	sessionId: SessionId
-	threadId: ThreadId
+	topicId: ThreadId
 	tenantId: TenantId
 	projectId: ProjectId
 

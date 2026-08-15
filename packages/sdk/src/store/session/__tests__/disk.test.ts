@@ -24,7 +24,7 @@ function agentActor(tenantId: TenantId): ActorRef {
 async function seed(store: DiskSessionStore, tenantId: TenantId) {
 	const project = await store.createProject({ tenantId, name: 'p1' }, tenantId)
 	const session = await store.createSession(
-		{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: userActor(tenantId) },
+		{ topicId: TEST_TOPIC_ID, projectId: project.id, currentActor: userActor(tenantId) },
 		tenantId,
 	)
 	return { project, session }
@@ -46,7 +46,7 @@ describe('DiskSessionStore', () => {
 	it('writes the canonical directory layout (projects/.../sessions/.../subsessions)', async () => {
 		const { project, session } = await seed(store, tenantA)
 		const child = await store.createSession(
-			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor(tenantA) },
+			{ topicId: TEST_TOPIC_ID, projectId: project.id, currentActor: agentActor(tenantA) },
 			tenantA,
 		)
 		const sub = await store.createSubSession(
@@ -144,7 +144,7 @@ describe('DiskSessionStore', () => {
 	it('drill returns children and ancestry after a cold reload', async () => {
 		const { project, session: root } = await seed(store, tenantA)
 		const child = await store.createSession(
-			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor(tenantA) },
+			{ topicId: TEST_TOPIC_ID, projectId: project.id, currentActor: agentActor(tenantA) },
 			tenantA,
 		)
 		await store.createSubSession(
@@ -279,7 +279,7 @@ describe('DiskSessionStore', () => {
 	it('deleteSession rejects if sub-sessions are still attached', async () => {
 		const { project, session: root } = await seed(store, tenantA)
 		const child = await store.createSession(
-			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor(tenantA) },
+			{ topicId: TEST_TOPIC_ID, projectId: project.id, currentActor: agentActor(tenantA) },
 			tenantA,
 		)
 		await store.createSubSession(
@@ -298,7 +298,7 @@ describe('DiskSessionStore', () => {
 	it('deleteSubSession removes the sub-session directory and is idempotent', async () => {
 		const { project, session: root } = await seed(store, tenantA)
 		const child = await store.createSession(
-			{ threadId: TEST_THREAD_ID, projectId: project.id, currentActor: agentActor(tenantA) },
+			{ topicId: TEST_TOPIC_ID, projectId: project.id, currentActor: agentActor(tenantA) },
 			tenantA,
 		)
 		const sub = await store.createSubSession(
@@ -340,51 +340,51 @@ describe('DiskSessionStore', () => {
 		await expect(store.getSummary(session.id, tenantB)).rejects.toBeInstanceOf(TenantIsolationError)
 	})
 
-	describe('listSessions(threadId, tenantId)', () => {
-		const threadX = 'thd_x' as ThreadId
-		const threadY = 'thd_y' as ThreadId
+	describe('listSessionsByTopic(topicId, tenantId)', () => {
+		const topicX = 'thd_x' as ThreadId
+		const topicY = 'thd_y' as ThreadId
 
 		it('returns [] when the projects root is empty', async () => {
 			// Fresh temp root — no projects directory yet.
-			expect(await store.listSessions(threadX, tenantA)).toEqual([])
+			expect(await store.listSessionsByTopic(topicX, tenantA)).toEqual([])
 		})
 
-		it('filters by threadId and tenant; orders by createdAt ascending', async () => {
+		it('filters by topicId and tenant; orders by createdAt ascending', async () => {
 			const project = await store.createProject({ tenantId: tenantA, name: 'p' }, tenantA)
 
 			const first = await store.createSession(
-				{ threadId: threadX, projectId: project.id, currentActor: userActor(tenantA) },
+				{ topicId: topicX, projectId: project.id, currentActor: userActor(tenantA) },
 				tenantA,
 			)
 			await new Promise((r) => setTimeout(r, 2))
 			const second = await store.createSession(
-				{ threadId: threadX, projectId: project.id, currentActor: userActor(tenantA) },
+				{ topicId: topicX, projectId: project.id, currentActor: userActor(tenantA) },
 				tenantA,
 			)
-			// Same project, different thread — must not appear.
+			// Same project, different topic — must not appear.
 			await store.createSession(
-				{ threadId: threadY, projectId: project.id, currentActor: userActor(tenantA) },
+				{ topicId: topicY, projectId: project.id, currentActor: userActor(tenantA) },
 				tenantA,
 			)
 
-			const listed = await store.listSessions(threadX, tenantA)
+			const listed = await store.listSessionsByTopic(topicX, tenantA)
 			expect(listed.map((s) => s.id)).toEqual([first.id, second.id])
 		})
 
-		it('skips cross-tenant sessions even when threadId matches', async () => {
+		it('skips cross-tenant sessions even when topicId matches', async () => {
 			const pA = await store.createProject({ tenantId: tenantA, name: 'pa' }, tenantA)
 			const pB = await store.createProject({ tenantId: tenantB, name: 'pb' }, tenantB)
 
 			const own = await store.createSession(
-				{ threadId: threadX, projectId: pA.id, currentActor: userActor(tenantA) },
+				{ topicId: topicX, projectId: pA.id, currentActor: userActor(tenantA) },
 				tenantA,
 			)
 			await store.createSession(
-				{ threadId: threadX, projectId: pB.id, currentActor: userActor(tenantB) },
+				{ topicId: topicX, projectId: pB.id, currentActor: userActor(tenantB) },
 				tenantB,
 			)
 
-			const listed = await store.listSessions(threadX, tenantA)
+			const listed = await store.listSessionsByTopic(topicX, tenantA)
 			expect(listed.map((s) => s.id)).toEqual([own.id])
 		})
 	})
@@ -395,4 +395,4 @@ import type { SessionId } from '../../../types/ids/index.js'
 import type { SummaryId, ThreadId } from '../../../types/session/ids.js'
 import type { SessionSummaryRef } from '../../../types/summary/ref.js'
 
-const TEST_THREAD_ID = 'thd_test' as ThreadId
+const TEST_TOPIC_ID = 'thd_test' as ThreadId

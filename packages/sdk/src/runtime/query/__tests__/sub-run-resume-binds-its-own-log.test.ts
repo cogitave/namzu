@@ -43,7 +43,7 @@ const SCOPE: RunStateScope = {
 	projectId: 'prj_sub' as ProjectId,
 	sessionId: 'ses_sub' as SessionId,
 	runId: 'run_child' as RunId,
-	threadId: 'thd_sub' as ThreadId,
+	topicId: 'thd_sub' as ThreadId,
 	parentRunId: PARENT,
 }
 
@@ -90,7 +90,7 @@ describe('a resumed sub-run continues its own log', () => {
 			parentRunId: PARENT,
 			depth: 1,
 			sessionId: SCOPE.sessionId,
-			threadId: SCOPE.threadId,
+			topicId: SCOPE.topicId,
 			projectId: SCOPE.projectId,
 			tenantId: SCOPE.tenantId,
 			runStore: new RunDiskStore({ baseDir: runsDir, logger: LOG }),
@@ -121,7 +121,7 @@ describe('a resumed sub-run continues its own log', () => {
 			agentName: 'Sub Agent',
 			workingDirectory: baseDir,
 			sessionId: SCOPE.sessionId,
-			threadId: SCOPE.threadId,
+			topicId: SCOPE.topicId,
 			projectId: SCOPE.projectId,
 			tenantId: SCOPE.tenantId,
 			runStore: new RunDiskStore({ baseDir: runsDir, logger: LOG }),

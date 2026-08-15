@@ -17,7 +17,7 @@
  *
  * Assertions in both cases:
  *   - sendMessage rejects with the underlying error.
- *   - SessionStore.listSessions(threadId) returns no row with the child id.
+ *   - SessionStore.listSessionsByTopic(topicId) returns no row with the child id.
  *   - Parent session remains untouched (status, currentActor).
  *   - Fan-out cap reclaims the slot (next spawn succeeds up to the same
  *     width).
@@ -148,7 +148,7 @@ describe('provisionSpawn compensating rollback', () => {
 		}
 
 		const parentSession = await store.createSession(
-			{ threadId: thread.id, projectId: project.id, currentActor: userActor },
+			{ topicId: thread.id, projectId: project.id, currentActor: userActor },
 			tenant,
 		)
 		await store.updateSession({ ...parentSession, status: 'active' }, tenant)
@@ -182,7 +182,7 @@ describe('provisionSpawn compensating rollback', () => {
 			depth: 0,
 			budgetTracker: { total: 100_000, remaining: 100_000 },
 			tenantId: tenant,
-			threadId: thread.id,
+			topicId: thread.id,
 			sessionId: parentSession.id,
 			projectId: project.id,
 			parentActor: userActor,
@@ -205,7 +205,7 @@ describe('provisionSpawn compensating rollback', () => {
 
 		// Child session is gone — archive/delete flows and fan-out caps see
 		// zero child attached to the thread beyond the parent.
-		const sessionsOnThread = await store.listSessions(thread.id, tenant)
+		const sessionsOnThread = await store.listSessionsByTopic(thread.id, tenant)
 		expect(sessionsOnThread.map((s) => s.id)).toEqual([parentSession.id])
 
 		// Parent session is untouched.
@@ -243,7 +243,7 @@ describe('provisionSpawn compensating rollback', () => {
 		}
 
 		const parentSession = await store.createSession(
-			{ threadId: thread.id, projectId: project.id, currentActor: userActor },
+			{ topicId: thread.id, projectId: project.id, currentActor: userActor },
 			tenant,
 		)
 		await store.updateSession({ ...parentSession, status: 'active' }, tenant)
@@ -276,7 +276,7 @@ describe('provisionSpawn compensating rollback', () => {
 			depth: 0,
 			budgetTracker: { total: 100_000, remaining: 100_000 },
 			tenantId: tenant,
-			threadId: thread.id,
+			topicId: thread.id,
 			sessionId: parentSession.id,
 			projectId: project.id,
 			parentActor: userActor,
@@ -303,7 +303,7 @@ describe('provisionSpawn compensating rollback', () => {
 		)
 
 		// Still no child session under the thread.
-		const sessionsOnThread = await store.listSessions(thread.id, tenant)
+		const sessionsOnThread = await store.listSessionsByTopic(thread.id, tenant)
 		expect(sessionsOnThread.map((s) => s.id)).toEqual([parentSession.id])
 
 		// No lingering subsession rows — both attempts rolled back cleanly.

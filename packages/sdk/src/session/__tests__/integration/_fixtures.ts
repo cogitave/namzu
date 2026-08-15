@@ -229,8 +229,8 @@ export function buildHarness(options: IntegrationHarnessOptions = {}): Integrati
 }
 
 /**
- * Seeds a Tenant → Project → Thread → Session quadruple and flips the session
- * into `active` so it is a legal spawn parent. Returns the project, thread,
+ * Seeds a Tenant → Project → Topic → Session quadruple and flips the session
+ * into `active` so it is a legal spawn parent. Returns the project, topic,
  * and active session for the caller to drive spawns against.
  */
 export async function seedActiveParent(
@@ -253,7 +253,7 @@ export async function seedActiveParent(
 		tenantId,
 	)
 	const session = await harness.store.createSession(
-		{ threadId: thread.id, projectId: project.id, currentActor: actor },
+		{ topicId: thread.id, projectId: project.id, currentActor: actor },
 		tenantId,
 	)
 	await harness.store.updateSession({ ...session, status: 'active' as Session['status'] }, tenantId)
@@ -268,7 +268,7 @@ export async function seedActiveParent(
 export function buildTaskContext(params: {
 	sessionId: SessionId
 	projectId: ProjectId
-	threadId: ThreadId
+	topicId: ThreadId
 	tenantId: TenantId
 	parentActor: ActorRef
 	depth?: number
@@ -285,7 +285,7 @@ export function buildTaskContext(params: {
 			remaining: params.budget ?? 100_000,
 		},
 		tenantId: params.tenantId,
-		threadId: params.threadId,
+		topicId: params.topicId,
 		sessionId: params.sessionId,
 		projectId: params.projectId,
 		parentActor: params.parentActor,

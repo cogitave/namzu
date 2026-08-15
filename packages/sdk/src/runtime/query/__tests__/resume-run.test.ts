@@ -35,7 +35,7 @@ const SCOPE: RunStateScope = {
 	projectId: 'prj_resume' as ProjectId,
 	sessionId: 'ses_resume' as SessionId,
 	runId: 'run_resume' as RunId,
-	threadId: 'thd_resume' as ThreadId,
+	topicId: 'thd_resume' as ThreadId,
 }
 
 const ZERO_USAGE = {
@@ -155,7 +155,7 @@ async function baseParams(store: CheckpointStore) {
 		agentName: 'Resume Agent',
 		workingDirectory: await mkWorkdir(),
 		sessionId: SCOPE.sessionId,
-		threadId: SCOPE.threadId,
+		topicId: SCOPE.topicId,
 		projectId: SCOPE.projectId,
 		tenantId: SCOPE.tenantId,
 		// Required by the contract, and rightly so: a resume that lands on a

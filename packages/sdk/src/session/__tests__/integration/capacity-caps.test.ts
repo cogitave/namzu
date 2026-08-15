@@ -36,7 +36,7 @@ describe('Integration — capacity caps at spawn sites', () => {
 		let parentSessionId = (
 			await harness.store.createSession(
 				{
-					threadId: thread.id,
+					topicId: thread.id,
 					projectId: project.id,
 					currentActor: chainActors[0] ?? userActor('usr_root'),
 				},
@@ -48,7 +48,7 @@ describe('Integration — capacity caps at spawn sites', () => {
 
 		for (let i = 0; i < 4; i++) {
 			const child = await harness.store.createSession(
-				{ threadId: thread.id, projectId: project.id, currentActor: agentActor(`agt_${i}`) },
+				{ topicId: thread.id, projectId: project.id, currentActor: agentActor(`agt_${i}`) },
 				DEFAULT_TENANT,
 			)
 			await harness.store.createSubSession(
@@ -72,7 +72,7 @@ describe('Integration — capacity caps at spawn sites', () => {
 		const context = buildTaskContext({
 			sessionId: tail,
 			projectId: project.id,
-			threadId: thread.id,
+			topicId: thread.id,
 			tenantId: DEFAULT_TENANT,
 			parentActor: userActor('usr_root'),
 		})
@@ -96,7 +96,7 @@ describe('Integration — capacity caps at spawn sites', () => {
 		// Seed 8 existing children directly through the store.
 		for (let i = 0; i < 8; i++) {
 			const child = await harness.store.createSession(
-				{ threadId: thread.id, projectId: project.id, currentActor: agentActor(`agt_${i}`) },
+				{ topicId: thread.id, projectId: project.id, currentActor: agentActor(`agt_${i}`) },
 				DEFAULT_TENANT,
 			)
 			await harness.store.createSubSession(
@@ -115,7 +115,7 @@ describe('Integration — capacity caps at spawn sites', () => {
 		const context = buildTaskContext({
 			sessionId: session.id,
 			projectId: project.id,
-			threadId: thread.id,
+			topicId: thread.id,
 			tenantId: DEFAULT_TENANT,
 			parentActor: actor,
 		})
@@ -148,7 +148,7 @@ describe('Integration — capacity caps at spawn sites', () => {
 		const context = buildTaskContext({
 			sessionId: session.id,
 			projectId: project.id,
-			threadId: thread.id,
+			topicId: thread.id,
 			tenantId: DEFAULT_TENANT,
 			parentActor: actor,
 		})

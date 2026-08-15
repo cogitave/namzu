@@ -110,13 +110,13 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 		const runId = this.createRunId()
 		this.bindRun(runId, config.logger)
 
-		if (!config.sessionId || !config.threadId || !config.projectId || !config.tenantId) {
+		if (!config.sessionId || !config.topicId || !config.projectId || !config.tenantId) {
 			throw new Error(
-				'SupervisorAgent requires sessionId, threadId, projectId, and tenantId in config (session-hierarchy.md §12.1).',
+				'SupervisorAgent requires sessionId, topicId, projectId, and tenantId in config (session-hierarchy.md §12.1).',
 			)
 		}
 		const sessionId = config.sessionId
-		const threadId = config.threadId
+		const topicId = config.topicId
 		const projectId = config.projectId
 		const tenantId = config.tenantId
 
@@ -158,7 +158,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 				// human and the workers it launched approved themselves.
 				...(config.resumeHandler ? { resumeHandler: config.resumeHandler } : {}),
 				tenantId,
-				threadId,
+				topicId,
 				sessionId,
 				projectId,
 				parentActor,
@@ -320,7 +320,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 					messages: input.messages,
 					signal: input.signal,
 					sessionId,
-					threadId,
+					topicId,
 					projectId,
 					tenantId,
 					runId,

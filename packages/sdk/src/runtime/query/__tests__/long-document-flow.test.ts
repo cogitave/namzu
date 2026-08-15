@@ -158,7 +158,7 @@ describe('query long-document tool flow', () => {
 				messages: [createUserMessage('create a long document')],
 				workingDirectory,
 				sessionId: 'ses_long_document_flow' as SessionId,
-				threadId: 'thd_long_document_flow' as ThreadId,
+				topicId: 'thd_long_document_flow' as ThreadId,
 				projectId: 'prj_long_document_flow' as ProjectId,
 				tenantId: 'tnt_long_document_flow' as TenantId,
 			},

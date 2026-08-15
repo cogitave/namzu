@@ -116,8 +116,8 @@ export async function executeBroadcastHandoff(
 		if (a.expectedOwnerVersion !== first.expectedOwnerVersion) {
 			throw new Error('executeBroadcastHandoff: all assignments must share expectedOwnerVersion')
 		}
-		if (a.threadId !== first.threadId) {
-			throw new Error('executeBroadcastHandoff: all assignments must share threadId')
+		if (a.topicId !== first.topicId) {
+			throw new Error('executeBroadcastHandoff: all assignments must share topicId')
 		}
 		if (a.projectId !== first.projectId) {
 			throw new Error('executeBroadcastHandoff: all assignments must share projectId')
@@ -143,9 +143,9 @@ export async function executeBroadcastHandoff(
 
 	// Thread archive gate (Phase 2.6) — runs BEFORE source load/capacity so an
 	// archived thread fails fastest with `ThreadClosedError`. All assignments
-	// share `threadId` by the shape validation above. Runs BEFORE the CAS
+	// share `topicId` by the shape validation above. Runs BEFORE the CAS
 	// lock so a denied fan-out leaves the source session untouched.
-	await deps.threadManager.requireOpen(first.threadId, tenantId)
+	await deps.threadManager.requireOpen(first.topicId, tenantId)
 
 	// 3. Load source + tenant check.
 	const source = await deps.store.getSession(first.sourceSessionId, tenantId)
@@ -158,9 +158,9 @@ export async function executeBroadcastHandoff(
 			resource: `session(${source.id})`,
 		})
 	}
-	if (source.threadId !== first.threadId) {
+	if (source.topicId !== first.topicId) {
 		throw new Error(
-			`Assignment threadId ${first.threadId} does not match source threadId ${source.threadId}`,
+			`Assignment topicId ${first.topicId} does not match source topicId ${source.topicId}`,
 		)
 	}
 	if (source.projectId !== first.projectId) {
@@ -245,7 +245,7 @@ export async function executeBroadcastHandoff(
 
 			const childSession = await deps.store.createSession(
 				{
-					threadId: source.threadId,
+					topicId: source.topicId,
 					projectId: source.projectId,
 					currentActor: assignment.recipientActor,
 				},

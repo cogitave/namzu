@@ -89,7 +89,7 @@ function baseParams(provider: LLMProvider, tools: ToolRegistry, workingDirectory
 		agentName: 'Test Agent',
 		workingDirectory,
 		sessionId: 'ses_capability' as SessionId,
-		threadId: 'thd_capability' as ThreadId,
+		topicId: 'thd_capability' as ThreadId,
 		projectId: 'prj_capability' as ProjectId,
 		tenantId: 'tnt_capability' as TenantId,
 	}

@@ -106,7 +106,7 @@ function run(opts: {
 		},
 		projectId: generateProjectId(),
 		sessionId: generateSessionId(),
-		threadId: generateThreadId(),
+		topicId: generateThreadId(),
 		tenantId: generateTenantId(),
 	})
 }

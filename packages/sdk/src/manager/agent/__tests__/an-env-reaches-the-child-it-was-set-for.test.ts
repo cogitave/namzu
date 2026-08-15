@@ -110,7 +110,7 @@ async function spawnWith(options: {
 	const thread = await threadStore.createTopic({ projectId: project.id, title: 't' }, TENANT)
 	const parentActor = { kind: 'agent', agentId: 'sup' as AgentId, tenantId: TENANT } as const
 	const parentSession = await store.createSession(
-		{ threadId: thread.id, projectId: project.id, currentActor: parentActor },
+		{ topicId: thread.id, projectId: project.id, currentActor: parentActor },
 		TENANT,
 	)
 	await store.updateSession({ ...parentSession, status: 'active' }, TENANT)
@@ -137,7 +137,7 @@ async function spawnWith(options: {
 		depth: 0,
 		budgetTracker: { total: 100_000, remaining: 100_000 },
 		tenantId: TENANT,
-		threadId: thread.id,
+		topicId: thread.id,
 		sessionId: parentSession.id,
 		projectId: project.id,
 		parentActor,

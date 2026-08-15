@@ -85,7 +85,7 @@ describe('Integration — single-recipient handoff E2E', () => {
 		const sourceActor = userActor('usr_source')
 		const recipientActor = userActor('usr_target')
 		const session = await store.createSession(
-			{ threadId: thread.id, projectId: project.id, currentActor: sourceActor },
+			{ topicId: thread.id, projectId: project.id, currentActor: sourceActor },
 			DEFAULT_TENANT,
 		)
 
@@ -95,7 +95,7 @@ describe('Integration — single-recipient handoff E2E', () => {
 			mode: 'single',
 			sourceSessionId: session.id,
 			tenantId: DEFAULT_TENANT,
-			threadId: thread.id,
+			topicId: thread.id,
 			projectId: project.id,
 			sourceActor,
 			recipientActor,
@@ -147,7 +147,7 @@ describe('Integration — single-recipient handoff E2E', () => {
 			DEFAULT_TENANT,
 		)
 		const session = await store.createSession(
-			{ threadId: thread.id, projectId: project.id, currentActor: userActor('usr_source') },
+			{ topicId: thread.id, projectId: project.id, currentActor: userActor('usr_source') },
 			DEFAULT_TENANT,
 		)
 
@@ -157,7 +157,7 @@ describe('Integration — single-recipient handoff E2E', () => {
 			mode: 'single',
 			sourceSessionId: session.id,
 			tenantId: OTHER_TENANT,
-			threadId: thread.id,
+			topicId: thread.id,
 			projectId: project.id,
 			sourceActor: userActor('usr_source', OTHER_TENANT),
 			recipientActor: userActor('usr_target', OTHER_TENANT),
@@ -182,7 +182,7 @@ describe('Integration — single-recipient handoff E2E', () => {
 			DEFAULT_TENANT,
 		)
 		const source = await store.createSession(
-			{ threadId: thread.id, projectId: project.id, currentActor: userActor('usr_source') },
+			{ topicId: thread.id, projectId: project.id, currentActor: userActor('usr_source') },
 			DEFAULT_TENANT,
 		)
 
@@ -192,7 +192,7 @@ describe('Integration — single-recipient handoff E2E', () => {
 			mode: 'single',
 			sourceSessionId: source.id,
 			tenantId: DEFAULT_TENANT,
-			threadId: thread.id,
+			topicId: thread.id,
 			projectId: project.id,
 			sourceActor: userActor('usr_source'),
 			recipientActor: userActor('usr_target'),
@@ -234,7 +234,7 @@ describe('Integration — single-recipient handoff E2E', () => {
 			DEFAULT_TENANT,
 		)
 		const source = await store.createSession(
-			{ threadId: thread.id, projectId: project.id, currentActor: userActor('usr_source') },
+			{ topicId: thread.id, projectId: project.id, currentActor: userActor('usr_source') },
 			DEFAULT_TENANT,
 		)
 		const { deps } = buildHandoffDeps(store, threadStore)
@@ -244,7 +244,7 @@ describe('Integration — single-recipient handoff E2E', () => {
 			mode: 'single',
 			sourceSessionId: source.id,
 			tenantId: DEFAULT_TENANT,
-			threadId: thread.id,
+			topicId: thread.id,
 			projectId: project.id,
 			sourceActor: userActor('usr_source'),
 			recipientActor: userActor('usr_target'),

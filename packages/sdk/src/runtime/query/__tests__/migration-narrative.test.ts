@@ -41,7 +41,7 @@ function baseParams(workingDirectory: string, suffix: string) {
 		messages: [createUserMessage('go')],
 		workingDirectory,
 		sessionId: `ses_boot_${suffix}` as SessionId,
-		threadId: `thd_boot_${suffix}` as ThreadId,
+		topicId: `thd_boot_${suffix}` as ThreadId,
 		projectId: `prj_boot_${suffix}` as ProjectId,
 		tenantId: `tnt_boot_${suffix}` as TenantId,
 	}

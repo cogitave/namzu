@@ -23,7 +23,7 @@ function mockProvider(): LLMProvider {
 
 function buildConfig(overrides: Partial<Parameters<typeof RunContextFactory.build>[0]> = {}) {
 	const sessionId = 'ses_test' as SessionId
-	const threadId = 'thd_test' as ThreadId
+	const topicId = 'thd_test' as ThreadId
 	const projectId = 'prj_test' as ProjectId
 	const tenantId = 'tnt_test' as TenantId
 	const runConfig: AgentRunConfig = {
@@ -39,7 +39,7 @@ function buildConfig(overrides: Partial<Parameters<typeof RunContextFactory.buil
 		provider: mockProvider(),
 		messages: [],
 		sessionId,
-		threadId,
+		topicId,
 		projectId,
 		tenantId,
 		workingDirectory: '/tmp/run-context-test',
@@ -48,12 +48,12 @@ function buildConfig(overrides: Partial<Parameters<typeof RunContextFactory.buil
 }
 
 describe('RunContextFactory.build', () => {
-	it('requires sessionId, threadId, projectId, tenantId and returns them on the context', () => {
+	it('requires sessionId, topicId, projectId, tenantId and returns them on the context', () => {
 		const cfg = buildConfig()
 		const ctx = RunContextFactory.build(cfg)
 
 		expect(ctx.sessionId).toBe(cfg.sessionId)
-		expect(ctx.threadId).toBe(cfg.threadId)
+		expect(ctx.topicId).toBe(cfg.topicId)
 		expect(ctx.projectId).toBe(cfg.projectId)
 		expect(ctx.tenantId).toBe(cfg.tenantId)
 	})
@@ -85,12 +85,12 @@ describe('RunContextFactory.build', () => {
 		expect(ctx.outputDir).not.toContain('threads')
 	})
 
-	it('seeds RunPersistence with propagated sessionId/threadId/tenantId/projectId', () => {
+	it('seeds RunPersistence with propagated sessionId/topicId/tenantId/projectId', () => {
 		const cfg = buildConfig()
 		const ctx = RunContextFactory.build(cfg)
 
 		expect(ctx.runMgr.sessionId).toBe(cfg.sessionId)
-		expect(ctx.runMgr.threadId).toBe(cfg.threadId)
+		expect(ctx.runMgr.topicId).toBe(cfg.topicId)
 		expect(ctx.runMgr.tenantId).toBe(cfg.tenantId)
 		expect(ctx.runMgr.projectId).toBe(cfg.projectId)
 	})
@@ -144,7 +144,7 @@ describe('RunContextFactory.buildLogger', () => {
 			runConfig: cfg.runConfig,
 			runId,
 			sessionId: cfg.sessionId,
-			threadId: cfg.threadId,
+			topicId: cfg.topicId,
 			projectId: cfg.projectId,
 			tenantId: cfg.tenantId,
 		})
@@ -154,7 +154,7 @@ describe('RunContextFactory.buildLogger', () => {
 		expect(records[0]?.attributes[NAMZU.RUN_ID]).toBe(runId)
 		expect(records[0]?.attributes[GENAI.AGENT_NAME]).toBe(cfg.agentName)
 		expect(records[0]?.attributes[NAMZU.SESSION_ID]).toBe(cfg.sessionId)
-		expect(records[0]?.attributes[NAMZU.THREAD_ID]).toBe(cfg.threadId)
+		expect(records[0]?.attributes[NAMZU.THREAD_ID]).toBe(cfg.topicId)
 		expect(records[0]?.attributes[NAMZU.PROJECT_ID]).toBe(cfg.projectId)
 		expect(records[0]?.attributes[NAMZU.TENANT_ID]).toBe(cfg.tenantId)
 		// The load-bearing regression test for the fromSink scope bug
@@ -192,7 +192,7 @@ describe('RunContextFactory.buildLogger', () => {
 			runConfig: { ...cfg.runConfig, logger: marker },
 			runId: 'run_marker' as RunId,
 			sessionId: cfg.sessionId,
-			threadId: cfg.threadId,
+			topicId: cfg.topicId,
 			projectId: cfg.projectId,
 			tenantId: cfg.tenantId,
 		})
@@ -216,7 +216,7 @@ describe('RunContextFactory.build accepts a pre-built logger', () => {
 			runConfig: cfg.runConfig,
 			runId,
 			sessionId: cfg.sessionId,
-			threadId: cfg.threadId,
+			topicId: cfg.topicId,
 			projectId: cfg.projectId,
 			tenantId: cfg.tenantId,
 		})

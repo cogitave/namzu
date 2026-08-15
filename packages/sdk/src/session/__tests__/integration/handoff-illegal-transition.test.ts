@@ -69,7 +69,7 @@ async function seedIdleSession(store: InMemorySessionStore, threadStore: InMemor
 		DEFAULT_TENANT,
 	)
 	const session = await store.createSession(
-		{ threadId: thread.id, projectId: project.id, currentActor: userActor('usr_source') },
+		{ topicId: thread.id, projectId: project.id, currentActor: userActor('usr_source') },
 		DEFAULT_TENANT,
 	)
 	return { project, thread, session }
@@ -78,14 +78,14 @@ async function seedIdleSession(store: InMemorySessionStore, threadStore: InMemor
 function buildAssignment(
 	sourceSessionId: Awaited<ReturnType<InMemorySessionStore['createSession']>>['id'],
 	projectId: Awaited<ReturnType<InMemorySessionStore['createProject']>>['id'],
-	threadId: ThreadId,
+	topicId: ThreadId,
 ): HandoffAssignment {
 	return {
 		id: generateHandoffId(),
 		mode: 'single',
 		sourceSessionId,
 		tenantId: DEFAULT_TENANT,
-		threadId,
+		topicId,
 		projectId,
 		sourceActor: userActor('usr_source'),
 		recipientActor: userActor('usr_target'),

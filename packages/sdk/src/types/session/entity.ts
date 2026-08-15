@@ -21,14 +21,16 @@ export type SessionStatus =
  * Multi-turn work unit owned by exactly one {@link ActorRef} at a time.
  *
  * Scope identifiers:
- *   - `threadId` — the topic-level {@link import('../thread/entity.js').Thread}
- *     this Session lives under. Set at creation, immutable; Sessions never
- *     move threads.
+ *   - `topicId` — the {@link import('../topic/entity.js').Topic} this
+ *     Session lives under. Set at creation, immutable; Sessions never move
+ *     topics. Spelled `threadId` before NZ-TOPIC-03 — see
+ *     `session/migration/id-prefix.ts` for the UNRELATED `thd_` meaning
+ *     that rename did not touch (D2, ses_020).
  *   - `projectId` — the {@link import('../project/entity.js').Project} the
- *     owning Thread belongs to. **Denormalized** from `thread.projectId` at
+ *     owning Topic belongs to. **Denormalized** from `topic.projectId` at
  *     creation time; immutable. Kept on the Session record for ergonomic
  *     access (Project-scoped consumers — handoff validators, archival,
- *     retention — would otherwise need a second round-trip to ThreadStore
+ *     retention — would otherwise need a second round-trip to TopicStore
  *     on every read). This is NOT a deprecated mirror of a fading field;
  *     it is a deliberate denormalization of structurally-immutable derived
  *     data.
@@ -46,7 +48,7 @@ export type SessionStatus =
  */
 export interface Session {
 	id: SessionId
-	threadId: ThreadId
+	topicId: ThreadId
 	projectId: ProjectId
 	tenantId: TenantId
 	status: SessionStatus

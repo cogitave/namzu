@@ -25,16 +25,16 @@ import type { ProjectId, SubSessionId, SummaryId, ThreadId } from '../session/id
  * Params for {@link SessionStore.createSession}. The store owns id generation,
  * `ownerVersion` initialization, and timestamps.
  *
- * Both `threadId` and `projectId` are required. `projectId` must equal the
- * `projectId` of the thread identified by `threadId`; the store does NOT
+ * Both `topicId` and `projectId` are required. `projectId` must equal the
+ * `projectId` of the topic identified by `topicId`; the store does NOT
  * perform that cross-store consistency check (it has no TopicStore handle
  * by design — see the store-boundary rationale in {@link import('../topic/store.js').TopicStore}). The
  * caller is the authority; typically spawn and handoff paths copy both from
- * a freshly-loaded `Thread` record or from their own context which already
+ * a freshly-loaded `Topic` record or from their own context which already
  * tracks both.
  */
 export interface CreateSessionParams {
-	threadId: ThreadId
+	topicId: ThreadId
 	projectId: ProjectId
 	/**
 	 * Initial owner of the session. May be `null` for bootstrap scenarios where
@@ -218,32 +218,37 @@ export interface SessionStore {
 	updateSession(session: Session, tenantId: TenantId, expectedOwnerVersion?: number): Promise<void>
 
 	/**
-	 * List every Session that belongs to the given Thread for the caller's
+	 * List every Session that belongs to the given Topic for the caller's
 	 * tenant, ordered by `createdAt` ascending. Returns an empty array when
 	 * none exist.
 	 *
-	 * Thread-scoped queries rely on `session.threadId` (set at creation, never
-	 * rewritten). Cross-tenant sessions that happen to share the supplied
-	 * `threadId` are silently skipped — the listing is tenant-scoped, not an
-	 * isolation violation (the caller did not request a specific record).
+	 * Renamed from `listSessions` alongside the `threadId` → `topicId` field
+	 * rename (NZ-TOPIC-03) — a query method named after the retired word
+	 * would have kept pointing at the concept this whole chain exists to
+	 * rename. Topic-scoped queries rely on `session.topicId` (set at
+	 * creation, never rewritten). Cross-tenant sessions that happen to share
+	 * the supplied `topicId` are silently skipped — the listing is
+	 * tenant-scoped, not an isolation violation (the caller did not request
+	 * a specific record).
 	 *
-	 * Exists to back ThreadManager's archival + delete preconditions
+	 * Exists to back TopicManager's archival + delete preconditions
 	 * ({@link import('../../manager/topic/lifecycle.js').TopicManager.archive}
 	 * rejects when any session is in a non-terminal state; `delete` rejects
-	 * while any session still references the thread). Keeping this primitive
+	 * while any session still references the topic). Keeping this primitive
 	 * on {@link SessionStore} preserves the store-ownership boundary —
 	 * TopicStore stays unaware of session layout (Convention #0).
 	 */
-	listSessions(threadId: ThreadId, tenantId: TenantId): Promise<readonly Session[]>
+	listSessionsByTopic(topicId: ThreadId, tenantId: TenantId): Promise<readonly Session[]>
 
 	/**
 	 * Every Session attached to a workspace, oldest first. OPTIONAL.
 	 *
-	 * The project-scoped sibling of {@link SessionStore.listSessions}, and the
-	 * one the archive precondition reads: closing a workspace has to know what
-	 * is still running in it, and "what is running in this thread" was never
-	 * the question — a project can hold sessions across many threads, and after
-	 * the Thread level is removed it is the only grouping left.
+	 * The project-scoped sibling of {@link SessionStore.listSessionsByTopic},
+	 * and the one the archive precondition reads: closing a workspace has to
+	 * know what is still running in it, and "what is running in this topic"
+	 * was never the question — a project can hold sessions across many
+	 * topics, and after the Topic level is removed it is the only grouping
+	 * left.
 	 */
 	listSessionsByProject?(projectId: ProjectId, tenantId: TenantId): Promise<readonly Session[]>
 

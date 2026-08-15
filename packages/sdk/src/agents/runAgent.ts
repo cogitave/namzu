@@ -35,7 +35,7 @@ import {
  */
 export interface AgentIdentity {
 	sessionId?: SessionId
-	threadId?: ThreadId
+	topicId?: ThreadId
 	projectId?: ProjectId
 	tenantId?: TenantId
 }
@@ -212,7 +212,7 @@ export const DEFAULT_TIMEOUT_MS = 300_000
 export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult> {
 	const identity: Required<AgentIdentity> = {
 		sessionId: options.sessionId ?? generateSessionId(),
-		threadId: options.threadId ?? generateThreadId(),
+		topicId: options.topicId ?? generateThreadId(),
 		projectId: options.projectId ?? generateProjectId(),
 		tenantId: options.tenantId ?? generateTenantId(),
 	}

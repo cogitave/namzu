@@ -49,7 +49,7 @@ describe('Integration — event stream ordering + lineage + schemaVersion', () =
 			buildTaskContext({
 				sessionId: session.id,
 				projectId: project.id,
-				threadId: thread.id,
+				topicId: thread.id,
 				tenantId: DEFAULT_TENANT,
 				parentActor: actor,
 			}),
@@ -89,7 +89,7 @@ describe('Integration — event stream ordering + lineage + schemaVersion', () =
 			buildTaskContext({
 				sessionId: session.id,
 				projectId: project.id,
-				threadId: thread.id,
+				topicId: thread.id,
 				tenantId: DEFAULT_TENANT,
 				parentActor: actor,
 			}),
@@ -131,7 +131,7 @@ describe('Integration — event stream ordering + lineage + schemaVersion', () =
 			'mid',
 			async (_input: AgentInput, config: BaseAgentConfig): Promise<BaseAgentResult> => {
 				// Spawn a level-2 child from inside the mid-agent's run.
-				if (!config.sessionId || !config.threadId || !config.projectId || !config.tenantId) {
+				if (!config.sessionId || !config.topicId || !config.projectId || !config.tenantId) {
 					throw new Error('mid agent missing session scoping')
 				}
 				// Flip child session to active so it is a legal spawn parent.
@@ -156,7 +156,7 @@ describe('Integration — event stream ordering + lineage + schemaVersion', () =
 						depth: 1,
 						budgetTracker: { total: 10_000, remaining: 10_000 },
 						tenantId: config.tenantId,
-						threadId: config.threadId,
+						topicId: config.topicId,
 						sessionId: childSessionId,
 						projectId: config.projectId,
 						parentActor: { kind: 'agent', agentId: 'mid' as never, tenantId: config.tenantId },
@@ -195,7 +195,7 @@ describe('Integration — event stream ordering + lineage + schemaVersion', () =
 			buildTaskContext({
 				sessionId: session.id,
 				projectId: project.id,
-				threadId: thread.id,
+				topicId: thread.id,
 				tenantId: DEFAULT_TENANT,
 				parentActor: actor,
 			}),
@@ -250,7 +250,7 @@ describe('Integration — event stream ordering + lineage + schemaVersion', () =
 		const midAgent = buildAgentCustom(
 			'mid',
 			async (_input: AgentInput, config: BaseAgentConfig): Promise<BaseAgentResult> => {
-				if (!config.sessionId || !config.threadId || !config.projectId || !config.tenantId) {
+				if (!config.sessionId || !config.topicId || !config.projectId || !config.tenantId) {
 					throw new Error('mid missing scope')
 				}
 				const cs = await harness.store.getSession(config.sessionId, config.tenantId)
@@ -277,7 +277,7 @@ describe('Integration — event stream ordering + lineage + schemaVersion', () =
 						depth: 1,
 						budgetTracker: { total: 10_000, remaining: 10_000 },
 						tenantId: config.tenantId,
-						threadId: config.threadId,
+						topicId: config.topicId,
 						sessionId: config.sessionId,
 						projectId: config.projectId,
 						parentActor: {
@@ -318,7 +318,7 @@ describe('Integration — event stream ordering + lineage + schemaVersion', () =
 			buildTaskContext({
 				sessionId: session.id,
 				projectId: project.id,
-				threadId: thread.id,
+				topicId: thread.id,
 				tenantId: DEFAULT_TENANT,
 				parentActor: actor,
 			}),
@@ -391,7 +391,7 @@ describe('Integration — event stream ordering + lineage + schemaVersion', () =
 			buildTaskContext({
 				sessionId: session.id,
 				projectId: project.id,
-				threadId: thread.id,
+				topicId: thread.id,
 				tenantId: DEFAULT_TENANT,
 				parentActor: actor,
 			}),

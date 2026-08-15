@@ -23,13 +23,17 @@
  * `manager/thread/lifecycle.ts`). `ThreadManager` keeps working, unaliased —
  * `public-runtime.ts` re-exports it as a literal identity binding to this
  * class, not a wrapper, so `instanceof` and `===` both still hold for a
- * caller who has not migrated. The `threadId` parameter names on every
- * method below are UNCHANGED on purpose: that FK-field rename is
- * NZ-TOPIC-03's job, not this one. `threadStore` (a DI dependency, not the
- * FK) is renamed to `topicStore`. The thrown error classes
- * (`ThreadClosedError`/`ThreadNotEmptyError`) are ALSO unchanged this
- * release — `session/errors.ts` is not in this task's file list; renaming
- * them with a proper deprecated alias is a clean follow-up.
+ * caller who has not migrated. NZ-TOPIC-03 renamed the `threadId`
+ * parameter on every method below to `topicId` — the FK-field rename that
+ * release deliberately deferred, now landed with its own data migration in
+ * `store/session/disk.ts`. `threadStore` (a DI dependency, not the FK)
+ * stayed `topicStore` from that same release. The thrown error classes
+ * (`ThreadClosedError`/`ThreadNotEmptyError`) are STILL unchanged, and so
+ * is their `details.threadId` field — `session/errors.ts` is still not in
+ * this task's file list; renaming them with a proper deprecated alias
+ * remains a clean follow-up. Constructing one from a `topicId` local below
+ * therefore spells the key out (`{ threadId: topicId, ... }`) rather than
+ * using shorthand.
  */
 
 import {
@@ -80,8 +84,8 @@ export class TopicManager {
 	}
 
 	/** Read a Topic by id; returns `null` when absent for the tenant. */
-	get(threadId: ThreadId, tenantId: TenantId): Promise<Topic | null> {
-		return this.deps.topicStore.getTopic(threadId, tenantId)
+	get(topicId: ThreadId, tenantId: TenantId): Promise<Topic | null> {
+		return this.deps.topicStore.getTopic(topicId, tenantId)
 	}
 
 	/**
@@ -107,13 +111,13 @@ export class TopicManager {
 	 * Convention #5: deny-by-default. A missing Topic is a hard error, not a
 	 * silent "assume archived".
 	 */
-	async requireOpen(threadId: ThreadId, tenantId: TenantId): Promise<Topic> {
-		const topic = await this.deps.topicStore.getTopic(threadId, tenantId)
+	async requireOpen(topicId: ThreadId, tenantId: TenantId): Promise<Topic> {
+		const topic = await this.deps.topicStore.getTopic(topicId, tenantId)
 		if (!topic) {
-			throw new Error(`Topic ${threadId} not found`)
+			throw new Error(`Topic ${topicId} not found`)
 		}
 		if (topic.status === 'archived') {
-			throw new ThreadClosedError({ threadId, op: 'require-open' })
+			throw new ThreadClosedError({ threadId: topicId, op: 'require-open' })
 		}
 		return topic
 	}
@@ -151,10 +155,10 @@ export class TopicManager {
 	 * through the ingress paths; direct store consumers are out of scope
 	 * for the archive invariant.
 	 */
-	async archive(threadId: ThreadId, tenantId: TenantId): Promise<Topic> {
-		const topic = await this.deps.topicStore.getTopic(threadId, tenantId)
+	async archive(topicId: ThreadId, tenantId: TenantId): Promise<Topic> {
+		const topic = await this.deps.topicStore.getTopic(topicId, tenantId)
 		if (!topic) {
-			throw new Error(`Topic ${threadId} not found`)
+			throw new Error(`Topic ${topicId} not found`)
 		}
 
 		// Always enforce the blocking-session invariant — even on re-archival.
@@ -162,11 +166,11 @@ export class TopicManager {
 		// (direct store mutation, concurrent spawn before a write-barrier
 		// existed), surfacing that via ThreadNotEmptyError is more useful to
 		// operators than a silent idempotent success.
-		const sessions = await this.deps.sessionStore.listSessions(threadId, tenantId)
+		const sessions = await this.deps.sessionStore.listSessionsByTopic(topicId, tenantId)
 		const blocking = sessions.filter((s) => ARCHIVAL_BLOCKING_STATUSES.has(s.status))
 		if (blocking.length > 0) {
 			throw new ThreadNotEmptyError({
-				threadId,
+				threadId: topicId,
 				tenantId,
 				op: 'archive',
 				blockingSessions: summarizeBlocking(blocking),
@@ -185,9 +189,9 @@ export class TopicManager {
 		await this.deps.topicStore.updateTopic(next, tenantId)
 		// updateTopic advances ownerVersion + updatedAt; re-read so the returned
 		// record reflects the persisted state (callers rely on version monotonicity).
-		const reloaded = await this.deps.topicStore.getTopic(threadId, tenantId)
+		const reloaded = await this.deps.topicStore.getTopic(topicId, tenantId)
 		if (!reloaded) {
-			throw new Error(`Topic ${threadId} vanished between archive and read-back`)
+			throw new Error(`Topic ${topicId} vanished between archive and read-back`)
 		}
 		return reloaded
 	}
@@ -205,18 +209,18 @@ export class TopicManager {
 	 * topic + empty session list is a no-op at the store layer. Convention
 	 * #5: deny-by-default; no implicit cascade into SessionStore.
 	 */
-	async delete(threadId: ThreadId, tenantId: TenantId): Promise<void> {
-		const sessions = await this.deps.sessionStore.listSessions(threadId, tenantId)
+	async delete(topicId: ThreadId, tenantId: TenantId): Promise<void> {
+		const sessions = await this.deps.sessionStore.listSessionsByTopic(topicId, tenantId)
 		if (sessions.length > 0) {
 			throw new ThreadNotEmptyError({
-				threadId,
+				threadId: topicId,
 				tenantId,
 				op: 'delete',
 				blockingSessions: summarizeBlocking(sessions),
 				totalBlockingSessions: sessions.length,
 			})
 		}
-		await this.deps.topicStore.deleteTopic(threadId, tenantId)
+		await this.deps.topicStore.deleteTopic(topicId, tenantId)
 	}
 }
 
