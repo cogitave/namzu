@@ -21,10 +21,10 @@
 import { describe, expect, it } from 'vitest'
 import { EMPTY_TOKEN_USAGE } from '../../../constants/limits.js'
 import { AgentManager } from '../../../manager/agent/lifecycle.js'
-import { ThreadManager } from '../../../manager/thread/lifecycle.js'
+import { TopicManager as ThreadManager } from '../../../manager/topic/lifecycle.js'
 import { AgentRegistry } from '../../../registry/agent/definitions.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
-import { InMemoryThreadStore } from '../../../store/thread/memory.js'
+import { InMemoryTopicStore as InMemoryThreadStore } from '../../../store/topic/memory.js'
 import type {
 	AgentCapabilities,
 	AgentInput,
@@ -153,7 +153,7 @@ async function harness(
 	const store = new InMemorySessionStore()
 	const threadStore = new InMemoryThreadStore()
 	const project = await store.createProject({ tenantId: tenant, name: 'workspace-project' }, tenant)
-	const thread = await threadStore.createThread(
+	const thread = await threadStore.createTopic(
 		{ projectId: project.id, title: 'workspace-topic' },
 		tenant,
 	)
@@ -184,7 +184,7 @@ async function harness(
 		summaryMaterializer: materializer,
 		workspaceRegistry,
 		capacity: new DefaultCapacityValidator(store),
-		threadManager: new ThreadManager({ threadStore, sessionStore: store }),
+		threadManager: new ThreadManager({ topicStore: threadStore, sessionStore: store }),
 	})
 
 	const taskContext: AgentTaskContext = {

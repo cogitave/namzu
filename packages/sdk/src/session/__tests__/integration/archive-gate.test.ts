@@ -13,9 +13,9 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
-import { ThreadManager } from '../../../manager/thread/lifecycle.js'
+import { TopicManager as ThreadManager } from '../../../manager/topic/lifecycle.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
-import { InMemoryThreadStore } from '../../../store/thread/memory.js'
+import { InMemoryTopicStore as InMemoryThreadStore } from '../../../store/topic/memory.js'
 import type { AgentId, RunId, UserId } from '../../../types/ids/index.js'
 import type { ActorRef } from '../../../types/session/actor.js'
 import { generateHandoffId } from '../../../utils/id.js'
@@ -87,7 +87,7 @@ describe('Integration — archive gate (Phase 2.6)', () => {
 			{ tenantId: DEFAULT_TENANT, name: 'archive-single' },
 			DEFAULT_TENANT,
 		)
-		const thread = await threadStore.createThread(
+		const thread = await threadStore.createTopic(
 			{ projectId: project.id, title: 'archive-single' },
 			DEFAULT_TENANT,
 		)
@@ -103,7 +103,7 @@ describe('Integration — archive gate (Phase 2.6)', () => {
 
 		// Archive the thread directly — session is idle, so archive precondition
 		// holds via listSessions.
-		const threadManager = new ThreadManager({ threadStore, sessionStore: store })
+		const threadManager = new ThreadManager({ topicStore: threadStore, sessionStore: store })
 		await threadManager.archive(thread.id, DEFAULT_TENANT)
 
 		const driver = new GitWorktreeDriver({
@@ -159,7 +159,7 @@ describe('Integration — archive gate (Phase 2.6)', () => {
 			{ tenantId: DEFAULT_TENANT, name: 'archive-bc' },
 			DEFAULT_TENANT,
 		)
-		const thread = await threadStore.createThread(
+		const thread = await threadStore.createTopic(
 			{ projectId: project.id, title: 'archive-bc' },
 			DEFAULT_TENANT,
 		)
@@ -168,7 +168,7 @@ describe('Integration — archive gate (Phase 2.6)', () => {
 			DEFAULT_TENANT,
 		)
 
-		const threadManager = new ThreadManager({ threadStore, sessionStore: store })
+		const threadManager = new ThreadManager({ topicStore: threadStore, sessionStore: store })
 		await threadManager.archive(thread.id, DEFAULT_TENANT)
 
 		let worktreeAdds = 0

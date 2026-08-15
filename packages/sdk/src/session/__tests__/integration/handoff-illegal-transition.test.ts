@@ -16,9 +16,9 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { ThreadManager } from '../../../manager/thread/lifecycle.js'
+import { TopicManager as ThreadManager } from '../../../manager/topic/lifecycle.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
-import { InMemoryThreadStore } from '../../../store/thread/memory.js'
+import { InMemoryTopicStore as InMemoryThreadStore } from '../../../store/topic/memory.js'
 import type { ThreadId } from '../../../types/session/ids.js'
 import { generateHandoffId } from '../../../utils/id.js'
 import type { HandoffAssignment } from '../../handoff/assignment.js'
@@ -54,7 +54,7 @@ function buildDeps(
 		workspaceRegistry,
 		capacity: new DefaultCapacityValidator(store),
 		events,
-		threadManager: new ThreadManager({ threadStore, sessionStore: store }),
+		threadManager: new ThreadManager({ topicStore: threadStore, sessionStore: store }),
 		...(runStatus !== undefined && { runStatus }),
 	}
 }
@@ -64,7 +64,7 @@ async function seedIdleSession(store: InMemorySessionStore, threadStore: InMemor
 		{ tenantId: DEFAULT_TENANT, name: 'illegal' },
 		DEFAULT_TENANT,
 	)
-	const thread = await threadStore.createThread(
+	const thread = await threadStore.createTopic(
 		{ projectId: project.id, title: 'illegal' },
 		DEFAULT_TENANT,
 	)

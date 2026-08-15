@@ -27,8 +27,8 @@ import type { ProjectId, SubSessionId, SummaryId, ThreadId } from '../session/id
  *
  * Both `threadId` and `projectId` are required. `projectId` must equal the
  * `projectId` of the thread identified by `threadId`; the store does NOT
- * perform that cross-store consistency check (it has no ThreadStore handle
- * by design — see the store-boundary rationale in {@link ThreadStore}). The
+ * perform that cross-store consistency check (it has no TopicStore handle
+ * by design — see the store-boundary rationale in {@link import('../topic/store.js').TopicStore}). The
  * caller is the authority; typically spawn and handoff paths copy both from
  * a freshly-loaded `Thread` record or from their own context which already
  * tracks both.
@@ -228,11 +228,11 @@ export interface SessionStore {
 	 * isolation violation (the caller did not request a specific record).
 	 *
 	 * Exists to back ThreadManager's archival + delete preconditions
-	 * ({@link import('../../manager/thread/lifecycle.js').ThreadManager.archive}
+	 * ({@link import('../../manager/topic/lifecycle.js').TopicManager.archive}
 	 * rejects when any session is in a non-terminal state; `delete` rejects
 	 * while any session still references the thread). Keeping this primitive
 	 * on {@link SessionStore} preserves the store-ownership boundary —
-	 * ThreadStore stays unaware of session layout (Convention #0).
+	 * TopicStore stays unaware of session layout (Convention #0).
 	 */
 	listSessions(threadId: ThreadId, tenantId: TenantId): Promise<readonly Session[]>
 

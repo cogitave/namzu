@@ -13,9 +13,9 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
-import { ThreadManager } from '../../../manager/thread/lifecycle.js'
+import { TopicManager as ThreadManager } from '../../../manager/topic/lifecycle.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
-import { InMemoryThreadStore } from '../../../store/thread/memory.js'
+import { InMemoryTopicStore as InMemoryThreadStore } from '../../../store/topic/memory.js'
 import type { TenantId } from '../../../types/ids/index.js'
 import type { Session } from '../../../types/session/entity.js'
 import { generateHandoffId } from '../../../utils/id.js'
@@ -57,7 +57,7 @@ function buildHandoffDeps(
 		return originalUpdate(session, tenantId)
 	}
 
-	const threadManager = new ThreadManager({ threadStore, sessionStore: store })
+	const threadManager = new ThreadManager({ topicStore: threadStore, sessionStore: store })
 	return {
 		deps: {
 			store,
@@ -78,7 +78,7 @@ describe('Integration — single-recipient handoff E2E', () => {
 			{ tenantId: DEFAULT_TENANT, name: 'ho' },
 			DEFAULT_TENANT,
 		)
-		const thread = await threadStore.createThread(
+		const thread = await threadStore.createTopic(
 			{ projectId: project.id, title: 'ho' },
 			DEFAULT_TENANT,
 		)
@@ -142,7 +142,7 @@ describe('Integration — single-recipient handoff E2E', () => {
 			{ tenantId: DEFAULT_TENANT, name: 'ct' },
 			DEFAULT_TENANT,
 		)
-		const thread = await threadStore.createThread(
+		const thread = await threadStore.createTopic(
 			{ projectId: project.id, title: 'ct' },
 			DEFAULT_TENANT,
 		)
@@ -177,7 +177,7 @@ describe('Integration — single-recipient handoff E2E', () => {
 			{ tenantId: DEFAULT_TENANT, name: 'wsp' },
 			DEFAULT_TENANT,
 		)
-		const thread = await threadStore.createThread(
+		const thread = await threadStore.createTopic(
 			{ projectId: project.id, title: 'wsp' },
 			DEFAULT_TENANT,
 		)
@@ -229,7 +229,7 @@ describe('Integration — single-recipient handoff E2E', () => {
 			{ tenantId: DEFAULT_TENANT, name: 'denorm' },
 			DEFAULT_TENANT,
 		)
-		const thread = await threadStore.createThread(
+		const thread = await threadStore.createTopic(
 			{ projectId: project.id, title: 'denorm' },
 			DEFAULT_TENANT,
 		)

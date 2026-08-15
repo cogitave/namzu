@@ -53,6 +53,14 @@ export type KnowledgeBaseRef = `kbs_${string}`
 // `types/session/ids.ts` barrel re-exports these for co-location ergonomics.
 export type ProjectId = `prj_${string}`
 export type ThreadId = `thd_${string}`
+/**
+ * NZ-TOPIC-01: alias introduced so the Topic layer (renamed from Thread) has
+ * its own nameable id type. Structurally identical to {@link ThreadId} this
+ * release -- both mean `thd_${string}` -- because the on-disk id prefix is
+ * unchanged; NZ-TOPIC-04 is the task that narrows the runtime prefix to
+ * `top_` and turns this into a real distinction.
+ */
+export type TopicId = ThreadId
 export type SubSessionId = `sub_${string}`
 export type HandoffId = `hof_${string}`
 export type WorkspaceId = `wsp_${string}`

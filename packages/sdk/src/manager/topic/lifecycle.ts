@@ -1,11 +1,11 @@
 /**
- * ThreadManager — thin orchestrator over {@link ThreadStore} and
+ * TopicManager — thin orchestrator over {@link TopicStore} and
  * {@link SessionStore}.
  *
- * Owns user-facing lifecycle operations on the Thread topic layer plus the
+ * Owns user-facing lifecycle operations on the Topic layer plus the
  * archive-gate contract enforced at session-creation ingress sites.
  *
- * Phase 2.6 wired `ThreadManager.requireOpen` into three ingress paths:
+ * Phase 2.6 wired `TopicManager.requireOpen` into three ingress paths:
  *   - {@link AgentManager.provisionSpawn} (child session creation)
  *   - `executeSingleHandoff` (recipient session creation)
  *   - `executeBroadcastHandoff` (N recipient sessions per fan-out)
@@ -18,6 +18,18 @@
  * themselves stay unaware of each other's layout (Convention #0), which is
  * why the gate lives at the manager layer rather than as a universal store
  * interceptor (see `archive` JSDoc for the direct-store-bypass boundary).
+ *
+ * NZ-TOPIC-01 renamed this class from `ThreadManager` (moved from
+ * `manager/thread/lifecycle.ts`). `ThreadManager` keeps working, unaliased —
+ * `public-runtime.ts` re-exports it as a literal identity binding to this
+ * class, not a wrapper, so `instanceof` and `===` both still hold for a
+ * caller who has not migrated. The `threadId` parameter names on every
+ * method below are UNCHANGED on purpose: that FK-field rename is
+ * NZ-TOPIC-03's job, not this one. `threadStore` (a DI dependency, not the
+ * FK) is renamed to `topicStore`. The thrown error classes
+ * (`ThreadClosedError`/`ThreadNotEmptyError`) are ALSO unchanged this
+ * release — `session/errors.ts` is not in this task's file list; renaming
+ * them with a proper deprecated alias is a clean follow-up.
  */
 
 import {
@@ -29,22 +41,22 @@ import type { TenantId } from '../../types/ids/index.js'
 import type { Session, SessionStatus } from '../../types/session/entity.js'
 import type { ProjectId, ThreadId } from '../../types/session/ids.js'
 import type { SessionStore } from '../../types/session/store.js'
-import type { Thread } from '../../types/thread/entity.js'
-import type { CreateThreadParams, ThreadStore } from '../../types/thread/store.js'
+import type { Topic } from '../../types/topic/entity.js'
+import type { CreateTopicParams, TopicStore } from '../../types/topic/store.js'
 
-export interface ThreadManagerDeps {
-	readonly threadStore: ThreadStore
+export interface TopicManagerDeps {
+	readonly topicStore: TopicStore
 	readonly sessionStore: SessionStore
 }
 
 /**
- * Session statuses that block Thread archival. A session in any of these
+ * Session statuses that block Topic archival. A session in any of these
  * states has live work in-flight (mid-run, mid-handoff, blocked on human
- * input, or orchestrating a broadcast merge) — freezing the Thread while any
+ * input, or orchestrating a broadcast merge) — freezing the Topic while any
  * of them are active would strand resumable work.
  *
  * `idle`, `failed`, and `archived` are archival-compatible: they are
- * quiescent or already-terminal, so a newly-frozen Thread can safely contain
+ * quiescent or already-terminal, so a newly-frozen Topic can safely contain
  * them. This list mirrors the `SessionStatus` discriminants that represent
  * "not-yet-done" work (session-hierarchy.md §5.1).
  */
@@ -55,83 +67,83 @@ const ARCHIVAL_BLOCKING_STATUSES: ReadonlySet<SessionStatus> = new Set([
 	'awaiting_merge',
 ])
 
-export class ThreadManager {
-	private readonly deps: ThreadManagerDeps
+export class TopicManager {
+	private readonly deps: TopicManagerDeps
 
-	constructor(deps: ThreadManagerDeps) {
+	constructor(deps: TopicManagerDeps) {
 		this.deps = deps
 	}
 
-	/** Persist a new Thread. Thin passthrough for uniformity at the manager surface. */
-	create(params: CreateThreadParams, tenantId: TenantId): Promise<Thread> {
-		return this.deps.threadStore.createThread(params, tenantId)
+	/** Persist a new Topic. Thin passthrough for uniformity at the manager surface. */
+	create(params: CreateTopicParams, tenantId: TenantId): Promise<Topic> {
+		return this.deps.topicStore.createTopic(params, tenantId)
 	}
 
-	/** Read a Thread by id; returns `null` when absent for the tenant. */
-	get(threadId: ThreadId, tenantId: TenantId): Promise<Thread | null> {
-		return this.deps.threadStore.getThread(threadId, tenantId)
+	/** Read a Topic by id; returns `null` when absent for the tenant. */
+	get(threadId: ThreadId, tenantId: TenantId): Promise<Topic | null> {
+		return this.deps.topicStore.getTopic(threadId, tenantId)
 	}
 
 	/**
-	 * CAS update on a Thread. Propagates {@link import('../../session/errors.js').StaleThreadError}
+	 * CAS update on a Topic. Propagates {@link import('../../session/errors.js').StaleThreadError}
 	 * from the store on `ownerVersion` mismatch — callers re-read, re-apply,
 	 * and retry.
 	 */
-	update(thread: Thread, tenantId: TenantId): Promise<void> {
-		return this.deps.threadStore.updateThread(thread, tenantId)
+	update(topic: Topic, tenantId: TenantId): Promise<void> {
+		return this.deps.topicStore.updateTopic(topic, tenantId)
 	}
 
-	/** List Threads under a Project, ordered by `createdAt` ascending. */
-	list(projectId: ProjectId, tenantId: TenantId): Promise<readonly Thread[]> {
-		return this.deps.threadStore.listThreads(projectId, tenantId)
+	/** List Topics under a Project, ordered by `createdAt` ascending. */
+	list(projectId: ProjectId, tenantId: TenantId): Promise<readonly Topic[]> {
+		return this.deps.topicStore.listTopics(projectId, tenantId)
 	}
 
 	/**
-	 * Load a Thread and assert it is in `'open'` state. Used by the spawn path
+	 * Load a Topic and assert it is in `'open'` state. Used by the spawn path
 	 * as a precondition — a SubSession cannot be created under an archived
-	 * Thread. Throws on absence and on archival; returns the loaded Thread on
+	 * Topic. Throws on absence and on archival; returns the loaded Topic on
 	 * success so callers can avoid the second round-trip.
 	 *
-	 * Convention #5: deny-by-default. A missing Thread is a hard error, not a
+	 * Convention #5: deny-by-default. A missing Topic is a hard error, not a
 	 * silent "assume archived".
 	 */
-	async requireOpen(threadId: ThreadId, tenantId: TenantId): Promise<Thread> {
-		const thread = await this.deps.threadStore.getThread(threadId, tenantId)
-		if (!thread) {
-			throw new Error(`Thread ${threadId} not found`)
+	async requireOpen(threadId: ThreadId, tenantId: TenantId): Promise<Topic> {
+		const topic = await this.deps.topicStore.getTopic(threadId, tenantId)
+		if (!topic) {
+			throw new Error(`Topic ${threadId} not found`)
 		}
-		if (thread.status === 'archived') {
+		if (topic.status === 'archived') {
 			throw new ThreadClosedError({ threadId, op: 'require-open' })
 		}
-		return thread
+		return topic
 	}
 
 	/**
-	 * Flip a Thread to `'archived'` via CAS on {@link Thread.ownerVersion}.
+	 * Flip a Topic to `'archived'` via CAS on {@link Topic.ownerVersion}.
 	 *
 	 * Preconditions (checked in order):
-	 *   1. Thread exists for the tenant (throws on absence).
+	 *   1. Topic exists for the tenant (throws on absence).
 	 *   2. No attached Session is in a non-terminal state (see
 	 *      {@link ARCHIVAL_BLOCKING_STATUSES}). The presence check runs
 	 *      **before** the idempotent-archive short-circuit so that an already
-	 *      archived thread harboring a live session still surfaces as
+	 *      archived topic harboring a live session still surfaces as
 	 *      {@link ThreadNotEmptyError} rather than a silent success.
-	 *   3. If the thread is already `'archived'` the method short-circuits
-	 *      without an `updateThread` write (idempotent re-archival). The
+	 *   3. If the topic is already `'archived'` the method short-circuits
+	 *      without an `updateTopic` write (idempotent re-archival). The
 	 *      returned record reflects the current persisted state.
 	 *
 	 * On a fresh archive transition the underlying
-	 * {@link ThreadStore.updateThread} call commits with `ownerVersion + 1`.
+	 * {@link TopicStore.updateTopic} call commits with `ownerVersion + 1`.
 	 * A {@link import('../../session/errors.js').StaleThreadError} from a
 	 * concurrent writer propagates unchanged — the caller is expected to
-	 * re-read + retry (mirrors the `updateThread` contract).
+	 * re-read + retry (mirrors the `updateTopic` contract).
 	 *
-	 * Gate scope (Phase 2.6): `ThreadManager.requireOpen` is wired into
+	 * Gate scope (Phase 2.6): `TopicManager.requireOpen` is wired into
 	 * `AgentManager.provisionSpawn` and both handoff flows, so the production
-	 * ingress paths cannot attach new sessions under an archived thread.
+	 * ingress paths cannot attach new sessions under an archived topic.
 	 * `SessionStore.createSession` / `updateSession` remain public and
 	 * ungated at the store layer — a direct caller can still mutate a
-	 * session after archival (the store has no `ThreadStore` handle by
+	 * session after archival (the store has no `TopicStore` handle by
 	 * design; cross-store awareness lives in the manager). The defensive
 	 * re-check above catches a smuggled live session on a subsequent
 	 * archive call, but does not prevent the direct-store write from
@@ -139,14 +151,14 @@ export class ThreadManager {
 	 * through the ingress paths; direct store consumers are out of scope
 	 * for the archive invariant.
 	 */
-	async archive(threadId: ThreadId, tenantId: TenantId): Promise<Thread> {
-		const thread = await this.deps.threadStore.getThread(threadId, tenantId)
-		if (!thread) {
-			throw new Error(`Thread ${threadId} not found`)
+	async archive(threadId: ThreadId, tenantId: TenantId): Promise<Topic> {
+		const topic = await this.deps.topicStore.getTopic(threadId, tenantId)
+		if (!topic) {
+			throw new Error(`Topic ${threadId} not found`)
 		}
 
 		// Always enforce the blocking-session invariant — even on re-archival.
-		// If the thread is already archived but somehow gained a live session
+		// If the topic is already archived but somehow gained a live session
 		// (direct store mutation, concurrent spawn before a write-barrier
 		// existed), surfacing that via ThreadNotEmptyError is more useful to
 		// operators than a silent idempotent success.
@@ -162,35 +174,35 @@ export class ThreadManager {
 			})
 		}
 
-		if (thread.status === 'archived') {
+		if (topic.status === 'archived') {
 			// Idempotent: already archived, no live sessions attached. Skip the
-			// write (updateThread would still bump ownerVersion for no semantic
+			// write (updateTopic would still bump ownerVersion for no semantic
 			// change).
-			return thread
+			return topic
 		}
 
-		const next: Thread = { ...thread, status: 'archived' }
-		await this.deps.threadStore.updateThread(next, tenantId)
-		// updateThread advances ownerVersion + updatedAt; re-read so the returned
+		const next: Topic = { ...topic, status: 'archived' }
+		await this.deps.topicStore.updateTopic(next, tenantId)
+		// updateTopic advances ownerVersion + updatedAt; re-read so the returned
 		// record reflects the persisted state (callers rely on version monotonicity).
-		const reloaded = await this.deps.threadStore.getThread(threadId, tenantId)
+		const reloaded = await this.deps.topicStore.getTopic(threadId, tenantId)
 		if (!reloaded) {
-			throw new Error(`Thread ${threadId} vanished between archive and read-back`)
+			throw new Error(`Topic ${threadId} vanished between archive and read-back`)
 		}
 		return reloaded
 	}
 
 	/**
-	 * Hard-delete a Thread record. Rejects with {@link ThreadNotEmptyError}
-	 * (`op: 'delete'`) when ANY Session still references the Thread —
+	 * Hard-delete a Topic record. Rejects with {@link ThreadNotEmptyError}
+	 * (`op: 'delete'`) when ANY Session still references the Topic —
 	 * deletion is stricter than archival, which tolerates quiescent sessions.
 	 * Callers must first delete or archive-and-tombstone every attached
 	 * session (via {@link SessionStore.deleteSession}) before invoking.
 	 *
 	 * The session scan runs unconditionally, so orphaned sessions pointing at
-	 * a missing thread are still detected and reject the delete. Idempotent
-	 * for genuinely absent threads (no sessions, no thread record) — missing
-	 * thread + empty session list is a no-op at the store layer. Convention
+	 * a missing topic are still detected and reject the delete. Idempotent
+	 * for genuinely absent topics (no sessions, no topic record) — missing
+	 * topic + empty session list is a no-op at the store layer. Convention
 	 * #5: deny-by-default; no implicit cascade into SessionStore.
 	 */
 	async delete(threadId: ThreadId, tenantId: TenantId): Promise<void> {
@@ -204,7 +216,7 @@ export class ThreadManager {
 				totalBlockingSessions: sessions.length,
 			})
 		}
-		await this.deps.threadStore.deleteThread(threadId, tenantId)
+		await this.deps.topicStore.deleteTopic(threadId, tenantId)
 	}
 }
 

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { ThreadManager } from '../../../manager/thread/lifecycle.js'
+import { TopicManager as ThreadManager } from '../../../manager/topic/lifecycle.js'
 import {
 	type ExecFile,
 	type ExecFileResult,
@@ -7,7 +7,7 @@ import {
 } from '../../../session/workspace/git-worktree.js'
 import { WorkspaceBackendRegistry } from '../../../session/workspace/registry.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
-import { InMemoryThreadStore } from '../../../store/thread/memory.js'
+import { InMemoryTopicStore as InMemoryThreadStore } from '../../../store/topic/memory.js'
 import type { SessionId, TenantId, UserId } from '../../../types/ids/index.js'
 import type { ActorRef } from '../../../types/session/actor.js'
 import type { ProjectId } from '../../../types/session/ids.js'
@@ -79,7 +79,7 @@ function buildDeps(
 		onBroadcastRollback: vi.fn<(ev: HandoffBroadcastRollbackEvent) => void>(),
 	}
 
-	const threadManager = new ThreadManager({ threadStore, sessionStore: store })
+	const threadManager = new ThreadManager({ topicStore: threadStore, sessionStore: store })
 	return {
 		deps: {
 			store,
@@ -94,7 +94,7 @@ function buildDeps(
 
 async function seedIdle(store: InMemorySessionStore, threadStore: InMemoryThreadStore) {
 	const project = await store.createProject({ tenantId: tenant, name: 'p' }, tenant)
-	const thread = await threadStore.createThread(
+	const thread = await threadStore.createTopic(
 		{ projectId: project.id, title: 'handoff-broadcast-test' },
 		tenant,
 	)
@@ -108,7 +108,7 @@ async function seedIdle(store: InMemorySessionStore, threadStore: InMemoryThread
 function buildAssignments(
 	sourceSessionId: SessionId,
 	projectId: ProjectId,
-	threadId: Awaited<ReturnType<InMemoryThreadStore['createThread']>>['id'],
+	threadId: Awaited<ReturnType<InMemoryThreadStore['createTopic']>>['id'],
 	expectedOwnerVersion: number,
 	recipients: ActorRef[],
 	broadcastId = 'bc_1',

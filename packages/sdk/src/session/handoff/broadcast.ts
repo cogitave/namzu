@@ -22,7 +22,7 @@
  */
 
 import { requireOpenProject } from '../../manager/project/lifecycle.js'
-import type { ThreadManager } from '../../manager/thread/lifecycle.js'
+import type { TopicManager } from '../../manager/topic/lifecycle.js'
 import type { SessionId, TenantId } from '../../types/ids/index.js'
 import type { Session } from '../../types/session/entity.js'
 import type { SubSessionId } from '../../types/session/ids.js'
@@ -48,7 +48,7 @@ export interface BroadcastHandoffDeps {
 	 * Added in Phase 2.6; checked once per broadcast (all recipients share
 	 * a threadId by the fan-out invariant validated above).
 	 */
-	threadManager: ThreadManager
+	threadManager: TopicManager
 }
 
 /**

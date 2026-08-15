@@ -18,10 +18,10 @@
 import { describe, expect, it } from 'vitest'
 import { EMPTY_TOKEN_USAGE } from '../../../constants/limits.js'
 import { AgentManager } from '../../../manager/agent/lifecycle.js'
-import { ThreadManager } from '../../../manager/thread/lifecycle.js'
+import { TopicManager as ThreadManager } from '../../../manager/topic/lifecycle.js'
 import { AgentRegistry } from '../../../registry/agent/definitions.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
-import { InMemoryThreadStore } from '../../../store/thread/memory.js'
+import { InMemoryTopicStore as InMemoryThreadStore } from '../../../store/topic/memory.js'
 import type {
 	AgentCapabilities,
 	AgentInput,
@@ -97,7 +97,7 @@ describe('E2E — SubSession spawn → kernel summary → parent drill', () => {
 		const store = new InMemorySessionStore()
 		const threadStore = new InMemoryThreadStore()
 		const project = await store.createProject({ tenantId: tenant, name: 'e2e-project' }, tenant)
-		const thread = await threadStore.createThread(
+		const thread = await threadStore.createTopic(
 			{ projectId: project.id, title: 'e2e-spawn' },
 			tenant,
 		)
@@ -124,7 +124,7 @@ describe('E2E — SubSession spawn → kernel summary → parent drill', () => {
 		const registry = new AgentRegistry()
 		registry.register(buildDefinition(buildAgent('worker')))
 
-		const threadManager = new ThreadManager({ threadStore, sessionStore: store })
+		const threadManager = new ThreadManager({ topicStore: threadStore, sessionStore: store })
 		const manager = new AgentManager(registry, undefined, {
 			sessionStore: store,
 			summaryMaterializer: materializer,
@@ -224,7 +224,7 @@ describe('E2E — SubSession spawn → kernel summary → parent drill', () => {
 		const store = new InMemorySessionStore()
 		const threadStore = new InMemoryThreadStore()
 		const project = await store.createProject({ tenantId: tenant, name: 'e2e-gap' }, tenant)
-		const thread = await threadStore.createThread(
+		const thread = await threadStore.createTopic(
 			{ projectId: project.id, title: 'e2e-gap' },
 			tenant,
 		)
@@ -249,7 +249,7 @@ describe('E2E — SubSession spawn → kernel summary → parent drill', () => {
 		const registry = new AgentRegistry()
 		registry.register(buildDefinition(buildAgent('worker')))
 
-		const threadManager = new ThreadManager({ threadStore, sessionStore: store })
+		const threadManager = new ThreadManager({ topicStore: threadStore, sessionStore: store })
 		const manager = new AgentManager(registry, undefined, {
 			sessionStore: store,
 			summaryMaterializer: materializer,

@@ -7,6 +7,7 @@ import type {
 	DoctorStatus,
 	Logger,
 } from '@namzu/sdk'
+import { SCOPE_ATTRIBUTE } from '@namzu/sdk'
 
 const DEFAULT_PER_CHECK_TIMEOUT_MS = 5_000
 const DEFAULT_WALL_CLOCK_TIMEOUT_MS = 10_000
@@ -49,7 +50,7 @@ export class DoctorRegistry {
 	private log?: Logger
 
 	setLogger(log: Logger): void {
-		this.log = log.child({ component: 'DoctorRegistry' })
+		this.log = log.child({ [SCOPE_ATTRIBUTE]: 'doctor' })
 	}
 
 	register(check: DoctorCheck): void {

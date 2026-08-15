@@ -10,9 +10,9 @@
  */
 
 import { describe, expect, it, vi } from 'vitest'
-import { ThreadManager } from '../../../manager/thread/lifecycle.js'
+import { TopicManager as ThreadManager } from '../../../manager/topic/lifecycle.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
-import { InMemoryThreadStore } from '../../../store/thread/memory.js'
+import { InMemoryTopicStore as InMemoryThreadStore } from '../../../store/topic/memory.js'
 import type { SessionId } from '../../../types/ids/index.js'
 import type { ActorRef } from '../../../types/session/actor.js'
 import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
@@ -57,7 +57,7 @@ function buildDeps(
 			workspaceRegistry,
 			capacity: new DefaultCapacityValidator(store),
 			events: sink,
-			threadManager: new ThreadManager({ threadStore, sessionStore: store }),
+			threadManager: new ThreadManager({ topicStore: threadStore, sessionStore: store }),
 		},
 		events: { ...sink, onBroadcastRollback },
 	}
@@ -94,7 +94,7 @@ describe('Integration — broadcast handoff E2E', () => {
 			{ tenantId: DEFAULT_TENANT, name: 'bc-happy' },
 			DEFAULT_TENANT,
 		)
-		const thread = await threadStore.createThread(
+		const thread = await threadStore.createTopic(
 			{ projectId: project.id, title: 'bc-happy' },
 			DEFAULT_TENANT,
 		)
@@ -144,7 +144,7 @@ describe('Integration — broadcast handoff E2E', () => {
 			{ tenantId: DEFAULT_TENANT, name: 'bc-rb' },
 			DEFAULT_TENANT,
 		)
-		const thread = await threadStore.createThread(
+		const thread = await threadStore.createTopic(
 			{ projectId: project.id, title: 'bc-rb' },
 			DEFAULT_TENANT,
 		)
@@ -207,7 +207,7 @@ describe('Integration — broadcast handoff E2E', () => {
 			{ tenantId: DEFAULT_TENANT, name: 'coord' },
 			DEFAULT_TENANT,
 		)
-		const thread = await threadStore.createThread(
+		const thread = await threadStore.createTopic(
 			{ projectId: project.id, title: 'coord' },
 			DEFAULT_TENANT,
 		)
@@ -239,7 +239,7 @@ describe('Integration — broadcast handoff E2E', () => {
 			{ tenantId: DEFAULT_TENANT, name: 'iso' },
 			DEFAULT_TENANT,
 		)
-		const thread = await threadStore.createThread(
+		const thread = await threadStore.createTopic(
 			{ projectId: project.id, title: 'iso' },
 			DEFAULT_TENANT,
 		)

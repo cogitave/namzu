@@ -16,8 +16,12 @@ export type {
 export { PlanManager } from './plan/lifecycle.js'
 export type { PlanEvent, PlanEventListener, PlanApprovalHandler } from './plan/lifecycle.js'
 
-export { ThreadManager } from './thread/lifecycle.js'
-export type { ThreadManagerDeps } from './thread/lifecycle.js'
+export {
+	TopicManager,
+	/** @deprecated Use {@link TopicManager}. Literal identity re-export, not a wrapper -- instanceof/=== still hold. */
+	TopicManager as ThreadManager,
+} from './topic/lifecycle.js'
+export type { TopicManagerDeps } from './topic/lifecycle.js'
 
 export { AgentManager } from './agent/lifecycle.js'
 

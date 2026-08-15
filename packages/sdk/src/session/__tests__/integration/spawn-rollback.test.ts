@@ -26,10 +26,10 @@
 import { describe, expect, it } from 'vitest'
 import { EMPTY_TOKEN_USAGE } from '../../../constants/limits.js'
 import { AgentManager } from '../../../manager/agent/lifecycle.js'
-import { ThreadManager } from '../../../manager/thread/lifecycle.js'
+import { TopicManager as ThreadManager } from '../../../manager/topic/lifecycle.js'
 import { AgentRegistry } from '../../../registry/agent/definitions.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
-import { InMemoryThreadStore } from '../../../store/thread/memory.js'
+import { InMemoryTopicStore as InMemoryThreadStore } from '../../../store/topic/memory.js'
 import type {
 	AgentCapabilities,
 	AgentInput,
@@ -136,7 +136,7 @@ describe('provisionSpawn compensating rollback', () => {
 			{ tenantId: tenant, name: 'rollback-project' },
 			tenant,
 		)
-		const thread = await threadStore.createThread(
+		const thread = await threadStore.createTopic(
 			{ projectId: project.id, title: 'rollback-topic' },
 			tenant,
 		)
@@ -166,7 +166,7 @@ describe('provisionSpawn compensating rollback', () => {
 		const failingDriver = new FailingWorkspaceDriver()
 		workspaceRegistry.register(failingDriver)
 
-		const threadManager = new ThreadManager({ threadStore, sessionStore: store })
+		const threadManager = new ThreadManager({ topicStore: threadStore, sessionStore: store })
 		const manager = new AgentManager(registry, undefined, {
 			sessionStore: store,
 			summaryMaterializer: materializer,
@@ -231,7 +231,7 @@ describe('provisionSpawn compensating rollback', () => {
 			},
 			tenant,
 		)
-		const thread = await threadStore.createThread(
+		const thread = await threadStore.createTopic(
 			{ projectId: project.id, title: 'rollback-width-topic' },
 			tenant,
 		)
@@ -260,7 +260,7 @@ describe('provisionSpawn compensating rollback', () => {
 		const workspaceRegistry = new WorkspaceBackendRegistry()
 		workspaceRegistry.register(new FailingWorkspaceDriver())
 
-		const threadManager = new ThreadManager({ threadStore, sessionStore: store })
+		const threadManager = new ThreadManager({ topicStore: threadStore, sessionStore: store })
 		const manager = new AgentManager(registry, undefined, {
 			sessionStore: store,
 			summaryMaterializer: materializer,

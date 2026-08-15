@@ -37,7 +37,7 @@ import { toErrorMessage } from '../../utils/error.js'
 import { generateTaskId } from '../../utils/id.js'
 import { type Logger, getRootLogger } from '../../utils/logger.js'
 import { requireOpenProject } from '../project/lifecycle.js'
-import type { ThreadManager } from '../thread/lifecycle.js'
+import type { TopicManager } from '../topic/lifecycle.js'
 
 /**
  * Dependencies threaded into {@link AgentManager}. Phase 6 promoted the
@@ -70,7 +70,7 @@ export interface AgentManagerDeps {
 	 * `ThreadManager.archive` was best-effort because spawn could still
 	 * attach a live session under an archived Thread.
 	 */
-	readonly threadManager: ThreadManager
+	readonly threadManager: TopicManager
 }
 
 interface ChildSpawnRecord {

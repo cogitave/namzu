@@ -6,7 +6,7 @@ import { DefaultCapacityValidator } from '../../../session/handoff/capacity.js'
 import { SessionSummaryMaterializer } from '../../../session/summary/materialize.js'
 import { WorkspaceBackendRegistry } from '../../../session/workspace/registry.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
-import { InMemoryThreadStore } from '../../../store/thread/memory.js'
+import { InMemoryTopicStore as InMemoryThreadStore } from '../../../store/topic/memory.js'
 import type { BaseAgentConfig, BaseAgentResult } from '../../../types/agent/base.js'
 import type { Agent } from '../../../types/agent/core.js'
 import type { AgentDefinition } from '../../../types/agent/factory.js'
@@ -14,7 +14,7 @@ import type { AgentTaskContext } from '../../../types/agent/task.js'
 import type { AgentId, TenantId } from '../../../types/ids/index.js'
 import type { SummaryId } from '../../../types/session/ids.js'
 import { ZERO_COST } from '../../../utils/cost.js'
-import { ThreadManager } from '../../thread/lifecycle.js'
+import { TopicManager as ThreadManager } from '../../topic/lifecycle.js'
 import { AgentManager } from '../lifecycle.js'
 
 /**
@@ -107,7 +107,7 @@ async function spawnWith(options: {
 	const store = new InMemorySessionStore()
 	const threadStore = new InMemoryThreadStore()
 	const project = await store.createProject({ tenantId: TENANT, name: 'p' }, TENANT)
-	const thread = await threadStore.createThread({ projectId: project.id, title: 't' }, TENANT)
+	const thread = await threadStore.createTopic({ projectId: project.id, title: 't' }, TENANT)
 	const parentActor = { kind: 'agent', agentId: 'sup' as AgentId, tenantId: TENANT } as const
 	const parentSession = await store.createSession(
 		{ threadId: thread.id, projectId: project.id, currentActor: parentActor },
@@ -121,7 +121,7 @@ async function spawnWith(options: {
 	let n = 0
 	const manager = new AgentManager(registry, undefined, {
 		sessionStore: store,
-		threadManager: new ThreadManager({ threadStore, sessionStore: store }),
+		threadManager: new ThreadManager({ topicStore: threadStore, sessionStore: store }),
 		workspaceRegistry: new WorkspaceBackendRegistry(),
 		capacity: new DefaultCapacityValidator(store),
 		summaryMaterializer: new SessionSummaryMaterializer({

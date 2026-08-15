@@ -143,7 +143,7 @@ export class ThreadClosedError extends Error {
 }
 
 /**
- * Raised by {@link import('../manager/thread/lifecycle.js').ThreadManager.archive}
+ * Raised by {@link import('../manager/topic/lifecycle.js').TopicManager.archive}
  * and `.delete` when the Thread's session-presence precondition is violated:
  *
  * - `op: 'archive'` — at least one Session under the Thread is in a

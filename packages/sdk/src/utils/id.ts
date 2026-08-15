@@ -59,9 +59,12 @@ export function generateProjectId(): ProjectId {
 	return generateId('prj_')
 }
 
-export function generateThreadId(): ThreadId {
+export function generateTopicId(): ThreadId {
 	return generateId('thd_')
 }
+
+/** @deprecated Use {@link generateTopicId}. */
+export const generateThreadId = generateTopicId
 
 export function generateRunId(): RunId {
 	return generateId('run_')

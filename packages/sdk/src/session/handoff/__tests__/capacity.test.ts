@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
-import { InMemoryThreadStore } from '../../../store/thread/memory.js'
+import { InMemoryTopicStore as InMemoryThreadStore } from '../../../store/topic/memory.js'
 import type { AgentId, SessionId, TenantId, UserId } from '../../../types/ids/index.js'
 import type { ActorRef } from '../../../types/session/actor.js'
 import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
@@ -19,7 +19,7 @@ function agent(): ActorRef {
 async function seedProject(store: InMemorySessionStore) {
 	const project = await store.createProject({ tenantId: tenant, name: 'p' }, tenant)
 	const threadStore = new InMemoryThreadStore()
-	const thread = await threadStore.createThread({ projectId: project.id, title: 'default' }, tenant)
+	const thread = await threadStore.createTopic({ projectId: project.id, title: 'default' }, tenant)
 	const root = await store.createSession(
 		{ threadId: thread.id, projectId: project.id, currentActor: user() },
 		tenant,

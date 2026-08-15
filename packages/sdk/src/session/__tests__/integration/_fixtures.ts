@@ -15,10 +15,10 @@
 import { vi } from 'vitest'
 import { EMPTY_TOKEN_USAGE } from '../../../constants/limits.js'
 import { AgentManager } from '../../../manager/agent/lifecycle.js'
-import { ThreadManager } from '../../../manager/thread/lifecycle.js'
+import { TopicManager as ThreadManager } from '../../../manager/topic/lifecycle.js'
 import { AgentRegistry } from '../../../registry/agent/definitions.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
-import { InMemoryThreadStore } from '../../../store/thread/memory.js'
+import { InMemoryTopicStore as InMemoryThreadStore } from '../../../store/topic/memory.js'
 import type {
 	AgentCapabilities,
 	AgentInput,
@@ -205,7 +205,7 @@ export function buildHarness(options: IntegrationHarnessOptions = {}): Integrati
 	})
 
 	const capacity = new DefaultCapacityValidator(store)
-	const threadManager = new ThreadManager({ threadStore, sessionStore: store })
+	const threadManager = new ThreadManager({ topicStore: threadStore, sessionStore: store })
 	const registry = new AgentRegistry()
 	const manager = new AgentManager(registry, undefined, {
 		sessionStore: store,
@@ -248,7 +248,7 @@ export async function seedActiveParent(
 		{ tenantId, name: options?.projectName ?? 'integration-project' },
 		tenantId,
 	)
-	const thread = await harness.threadStore.createThread(
+	const thread = await harness.threadStore.createTopic(
 		{ projectId: project.id, title: options?.threadTitle ?? 'default' },
 		tenantId,
 	)

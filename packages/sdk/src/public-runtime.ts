@@ -340,10 +340,20 @@ export {
 	// manager, which is the reason it is a function over a store.
 	requireOpenProject,
 	RunPersistence,
+	TopicManager,
+	// @deprecated Use `TopicManager`. Kept as a literal identity re-export
+	// (not a wrapper) so instanceof/=== still hold for callers who have not
+	// migrated -- removal is a later major per AGENTS.md's
+	// deprecate-before-remove rule.
 	ThreadManager,
 } from './manager/index.js'
 
-export { InMemoryThreadStore } from './store/thread/memory.js'
+export {
+	InMemoryTopicStore,
+	// @deprecated Use `InMemoryTopicStore`. Literal identity re-export, not a
+	// wrapper -- instanceof/=== still hold.
+	InMemoryTopicStore as InMemoryThreadStore,
+} from './store/topic/memory.js'
 
 export { LocalTaskGateway } from './gateway/local.js'
 // Exported because `buildCoordinatorTools` is: a host that builds the

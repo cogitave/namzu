@@ -5,14 +5,14 @@ import { DefaultCapacityValidator } from '../../../session/handoff/capacity.js'
 import { SessionSummaryMaterializer } from '../../../session/summary/materialize.js'
 import { WorkspaceBackendRegistry } from '../../../session/workspace/registry.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
-import { InMemoryThreadStore } from '../../../store/thread/memory.js'
+import { InMemoryTopicStore as InMemoryThreadStore } from '../../../store/topic/memory.js'
 import type { BaseAgentConfig, BaseAgentResult } from '../../../types/agent/base.js'
 import type { Agent } from '../../../types/agent/core.js'
 import type { AgentTaskContext, SendMessageOptions } from '../../../types/agent/task.js'
 import type { ResumeHandler } from '../../../types/hitl/index.js'
 import type { TenantId } from '../../../types/ids/index.js'
 import type { ActorRef } from '../../../types/session/actor.js'
-import { ThreadManager } from '../../thread/lifecycle.js'
+import { TopicManager as ThreadManager } from '../../topic/lifecycle.js'
 import { AgentManager } from '../lifecycle.js'
 
 /**
@@ -74,9 +74,9 @@ async function harness() {
 	const seen: BaseAgentConfig[] = []
 	const store = new InMemorySessionStore()
 	const threadStore = new InMemoryThreadStore()
-	const threadManager = new ThreadManager({ threadStore, sessionStore: store })
+	const threadManager = new ThreadManager({ topicStore: threadStore, sessionStore: store })
 	const project = await store.createProject({ tenantId: tenant, name: 'p' }, tenant)
-	const thread = await threadStore.createThread({ projectId: project.id, title: 'hitl' }, tenant)
+	const thread = await threadStore.createTopic({ projectId: project.id, title: 'hitl' }, tenant)
 	const parent = await store.createSession(
 		{ threadId: thread.id, projectId: project.id, currentActor: actor(tenant) },
 		tenant,

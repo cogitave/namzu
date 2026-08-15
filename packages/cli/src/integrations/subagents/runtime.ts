@@ -23,7 +23,7 @@ import {
 	type Agent as CoreAgent,
 	DefaultCapacityValidator,
 	InMemorySessionStore,
-	InMemoryThreadStore,
+	InMemoryTopicStore,
 	type LLMProvider,
 	LocalTaskGateway,
 	ReactiveAgent,
@@ -34,9 +34,9 @@ import {
 	type SummaryId,
 	type TaskGateway,
 	type TenantId,
-	ThreadManager,
 	type ToolDefinition,
 	type ToolRegistryContract,
+	TopicManager,
 	type UserId,
 	type VerificationGateConfig,
 	WorkspaceBackendRegistry,
@@ -106,11 +106,11 @@ export async function createSubagentRuntime(
 ): Promise<SubagentRuntime> {
 	const tenantId = 'tnt_namzu-cli' as TenantId
 	const store = new InMemorySessionStore()
-	const threadStore = new InMemoryThreadStore()
+	const topicStore = new InMemoryTopicStore()
 
 	const userActor: ActorRef = { kind: 'user', userId: 'usr_namzu' as UserId, tenantId }
 	const project = await store.createProject({ tenantId, name: 'namzu-cli' }, tenantId)
-	const thread = await threadStore.createThread(
+	const thread = await topicStore.createTopic(
 		{ projectId: project.id, title: 'namzu-cli' },
 		tenantId,
 	)
@@ -149,7 +149,7 @@ export async function createSubagentRuntime(
 		),
 	)
 
-	const threadManager = new ThreadManager({ threadStore, sessionStore: store })
+	const threadManager = new TopicManager({ topicStore, sessionStore: store })
 	const manager = new AgentManager(registry, undefined, {
 		sessionStore: store,
 		summaryMaterializer: materializer,
