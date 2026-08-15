@@ -41,7 +41,7 @@ pnpm build        # Build all packages
 Use `pnpm --filter <pkg>` to scope commands to a single package.
 
 <ci_gates>
-Those four are a **subset**. The `Build & Test` job in `.github/workflows/ci.yml` runs sixteen steps, in this order, and the branch is not green until every one passes.
+Those four are a **subset**. The `Build & Test` job in `.github/workflows/ci.yml` runs seventeen steps, in this order, and the branch is not green until every one passes.
 
 | CI step | Run it locally |
 |---|---|
@@ -51,6 +51,7 @@ Those four are a **subset**. The `Build & Test` job in `.github/workflows/ci.yml
 | Test | `pnpm -r test` |
 | Process-level regression tests | `pnpm --filter @namzu/sdk test:proc` |
 | External-name audit | `node scripts/audit-external-names.mjs` |
+| Log standard gate | `node --import tsx --test scripts/__tests__/check-log-standard.test.ts && node scripts/check-log-standard.mjs` |
 | Model price catalogue matches its source | `node scripts/generate-model-prices.mjs --check` |
 | Installer parses as POSIX sh | `sh -n install.sh && dash -n install.sh` |
 | Evals | `node packages/cli/dist/bin.js eval --dir packages/evals --out eval-report.json` |
@@ -62,11 +63,11 @@ Those four are a **subset**. The `Build & Test` job in `.github/workflows/ci.yml
 | Public-surface regression check | `node .github/scripts/verify-public-surface.mjs` |
 | publint (package.json shape) | `npx -y publint@latest packages/<pkg>` |
 
-Eight of those carry `if: matrix.gates` and so run on one matrix leg only. Locally there is no leg, so run all sixteen.
+Eight of those carry `if: matrix.gates` and so run on one matrix leg only. Locally there is no leg, so run all seventeen.
 
 A **second job**, `Docs`, runs `node tools/check-docs.mjs` (= `pnpm docs:check`) on a full-history checkout. Its drift check compares a document's last commit against its `resource:`'s, which `git log` cannot answer on a shallow clone, so the gate refuses one rather than passing.
 
-**Why the short list is not enough.** A job stops at its first failing step, and every step after it is reported `skipped`, not `failure`. A red run therefore shows one red entry and a column of grey — and grey is not "these passed", it is "these were never asked". The four commands at the top of this section are the first four rows of that table: green on them establishes four of the sixteen steps and nothing whatsoever about the other twelve.
+**Why the short list is not enough.** A job stops at its first failing step, and every step after it is reported `skipped`, not `failure`. A red run therefore shows one red entry and a column of grey — and grey is not "these passed", it is "these were never asked". The four commands at the top of this section are the first four rows of that table: green on them establishes four of the seventeen steps and nothing whatsoever about the other thirteen.
 </ci_gates>
 
 ## Where to find things
@@ -146,7 +147,7 @@ The gate is authoritative only inside the directories listed in its `CONFORMING`
 2. Before a non-trivial change → read the relevant conventions.
 3. After drafting a plan → run an adversarial second-opinion check (see `codex-check` skill).
 4. **Every commit while an in-progress session exists** → `progress.md` entry is written **synchronously with the commit**, not as a follow-up. `.work/` is gitignored, so the entry does not enter the commit itself — it lives on local disk, and the discipline is that the working-tree update happens before `git commit` runs. This is non-negotiable — the log is what makes a fresh agent able to pick up after `/clear`, and a six-commit gap has happened before. An entry is one line minimum: `- <hash> <subject> — what/why` (hash filled post-commit); add a `**Deviation:**` line if the commit diverges from the ratified plan. See skill: `commit`.
-5. After implementation → `pnpm typecheck && pnpm lint && pnpm test` must all pass. That trio is three of the sixteen steps CI runs, not the gate — before pushing, work the `<ci_gates>` table under **Build & Test**.
+5. After implementation → `pnpm typecheck && pnpm lint && pnpm test` must all pass. That trio is three of the seventeen steps CI runs, not the gate — before pushing, work the `<ci_gates>` table under **Build & Test**.
 6. Commit touches public surface (exported types, wire schema, CLI flags, API routes)? → **queue a `**Docs debt:**` line in the touching commit's `progress.md` entry**; the debt is cleared by running the `update-docs` skill before `freeze-session`. Queuing is mandatory per commit; actually writing `docs/` pages can batch at freeze time.
 7. Decisions turning final → freeze the session; extract stable rules into `docs/conventions/`, written to the documentation standard above.
 </flow>

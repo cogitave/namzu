@@ -1,0 +1,106 @@
+{
+	"$comment": "Log-standard gate config, consumed by scripts/check-log-standard.mjs. Two ratchets (exact-equality counts, both directions) and two allowlists (exact per-file, per-symbol counts with a reason). Regenerate the two ratchet numbers with `node scripts/check-log-standard.mjs --write` in the same commit that changes them; the allowlists are edited by hand because a new or removed site needs a human-authored reason, which --write cannot supply.",
+	"$comment_scope": "getRootLoggerCount and unnamespacedBindingCount are scoped to packages/sdk/src (excluding __tests__, __fixtures__ and *.test.ts). consoleAllowlist and streamWriteAllowlist are scoped to packages/*/src across every package (one directory below packages/ — packages/providers/<name>/src is nested one level deeper and out of scope; see the script's file header).",
+	"getRootLoggerCount": 36,
+	"unnamespacedBindingCount": 45,
+	"consoleAllowlist": [
+		{
+			"file": "packages/telemetry/src/provider.ts",
+			"symbol": "console.error",
+			"count": 1,
+			"reason": "the dependency direction sdk ← telemetry (AGENTS.md) forbids this package from importing the SDK logger, and this is telemetry's own shutdown error-of-last-resort path — there is no Logger available to it here."
+		}
+	],
+	"streamWriteAllowlist": [
+		{
+			"file": "packages/sdk/src/utils/logger.ts",
+			"symbol": "process.stderr.write",
+			"count": 2,
+			"reason": "createLoggerImpl's own sink — the one place a Logger produced by getRootLogger() actually reaches a stream. Every other production write is expected to go through a Logger, not around one."
+		},
+		{
+			"file": "packages/cli/src/output/json.ts",
+			"symbol": "process.stdout.write",
+			"count": 1,
+			"reason": "JsonFormatter.print — the CLI's user-facing result channel, a deliberately separate host-protocol channel from the structured logger."
+		},
+		{
+			"file": "packages/cli/src/output/json.ts",
+			"symbol": "process.stderr.write",
+			"count": 2,
+			"reason": "JsonFormatter.info/error — the same Formatter's diagnostic-to-stderr half."
+		},
+		{
+			"file": "packages/cli/src/output/text.ts",
+			"symbol": "process.stdout.write",
+			"count": 1,
+			"reason": "TextFormatter.print — same host-protocol channel as JsonFormatter, rendered as text."
+		},
+		{
+			"file": "packages/cli/src/output/text.ts",
+			"symbol": "process.stderr.write",
+			"count": 3,
+			"reason": "TextFormatter.info/error — error() writes the message and, when details are present, the details block as two separate writes."
+		},
+		{
+			"file": "packages/cli/src/output/yaml.ts",
+			"symbol": "process.stdout.write",
+			"count": 1,
+			"reason": "YamlFormatter.print — same host-protocol channel, rendered as YAML."
+		},
+		{
+			"file": "packages/cli/src/output/yaml.ts",
+			"symbol": "process.stderr.write",
+			"count": 2,
+			"reason": "YamlFormatter.info/error."
+		},
+		{
+			"file": "packages/cli/src/bin.ts",
+			"symbol": "process.stderr.write",
+			"count": 1,
+			"reason": "the process entrypoint's fatal-error handler, reached when runCli's own promise rejects — before any Logger exists to write through."
+		},
+		{
+			"file": "packages/cli/src/cli.ts",
+			"symbol": "process.stdout.write",
+			"count": 1,
+			"reason": "the no-TTY notice for interactive mode — a one-line usage message, not a diagnostic."
+		},
+		{
+			"file": "packages/cli/src/cli.ts",
+			"symbol": "process.stderr.write",
+			"count": 2,
+			"reason": "runCli's top-level catch: a bad-config message and a fatal-error message, both bootstrap-time paths in the same category as bin.ts."
+		},
+		{
+			"file": "packages/cli/src/commands/doctor.ts",
+			"symbol": "process.stderr.write",
+			"count": 1,
+			"reason": "the command's own argument-parsing usage error, printed before a Logger or Formatter is constructed for this invocation."
+		},
+		{
+			"file": "packages/cli/src/commands/doctor.ts",
+			"symbol": "process.stdout.write",
+			"count": 3,
+			"reason": "the doctor command's own report renderer (help text, JSON report, human report) — like run-stream.ts, this command bypasses the shared output/Formatter."
+		},
+		{
+			"file": "packages/cli/src/commands/run-stream.ts",
+			"symbol": "process.stdout.write",
+			"count": 11,
+			"reason": "the NDJSON stdout protocol documented at the top of this file — one JSON object per line for a host process to line-scan. The logger is silenced for the command's lifetime for exactly this reason: no stray log line may land on this channel."
+		},
+		{
+			"file": "packages/cli/src/tui/App.tsx",
+			"symbol": "process.stdout.write",
+			"count": 1,
+			"reason": "raw ANSI terminal control (clear screen + scrollback) on transcript reset — an escape sequence, not a diagnostic."
+		},
+		{
+			"file": "packages/cli/src/tui/index.tsx",
+			"symbol": "process.stdout.write",
+			"count": 1,
+			"reason": "the same raw terminal control at TUI startup; configureLogger({ level: 'silent' }) immediately above is what actually keeps a log line off this stream."
+		}
+	]
+}

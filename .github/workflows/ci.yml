@@ -152,6 +152,25 @@ jobs:
       - name: External-name audit
         run: node scripts/audit-external-names.mjs
 
+      # Seed of the eventual nine-rule log-standard gate (LOG-02): the four
+      # rules a plain syntactic AST walk can decide today — the console.* and
+      # process.std*.write allowlists, and two exact-equality ratchets
+      # (getRootLogger() reads and un-namespaced `component:` bindings) in
+      # packages/sdk/src. The type-aware rules — attribute-key namespace,
+      # string-literal bodies, secret-adjacent values, EventName coverage —
+      # need the TypeScript checker to resolve a call's receiver and wait for
+      # LOG-14.
+      #
+      # scripts/__tests__/check-log-standard.test.ts has no package of its
+      # own for `pnpm -r test` above to pick up, so it runs here, in the same
+      # step as the gate it proves. Skipping that would be exactly "the check
+      # that was never asked" (docs/conventions/a-check-that-cannot-fail.md)
+      # aimed at a test file instead of a suite.
+      - name: Log standard gate
+        run: |
+          node --import tsx --test scripts/__tests__/check-log-standard.test.ts
+          node scripts/check-log-standard.mjs
+
       # The model price catalogue is a generated module that is checked in, and
       # a generated file that has drifted from its generator is a lie with a
       # timestamp: it reads as reviewed data and is whatever somebody last
