@@ -116,6 +116,14 @@ from reading as permission.
 - [Never filter a verification down to something that can read green](never-filter-a-verification.md)
   — the check ran and its answer was invisible. Three incidents in one day.
 
+### Logging
+
+- [One log record has one shape, and rules 3 and 4 prove it against the type, not the name](one-record-one-shape.md)
+  — two of six enforced rules resolve on the real `Logger` and `LogAttributes`
+  types rather than a name match, closing what a name-matching walk cannot
+  see. 87 non-constant bodies and 802 un-namespaced attribute keys, measured
+  and ratcheted rather than assumed away.
+
 ## How to add one
 
 When a session's decisions turn final, promote the rules that apply beyond that

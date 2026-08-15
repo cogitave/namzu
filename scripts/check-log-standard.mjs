@@ -7,22 +7,26 @@
  *   a constant body and namespaced attributes. Nothing under `packages/*\/src`
  *   reads a logger from module scope or writes to a stream directly."
  *
- * This is the SEED (LOG-02), not the finished gate. The full rule set has
- * nine checks; five of them need `ts.createProgram` + the type checker to
- * resolve a call's RECEIVER — is this really a `Logger`, or an unrelated
- * object that happens to have an `.info()` method — and those wait for
- * LOG-14. The four implemented here are decidable from syntax alone, because
- * what they match is not a receiver type but a fixed name: `console` and
- * `process` are globals, `getRootLogger` is a specific imported function, and
- * `component` is a literal property key. A syntactic walk (`ts.createSourceFile`
- * only — no program, no type checker, no build output required) finds all
- * four without false positives on the tree as it stands today.
+ * This started as a SEED (LOG-02): four rules decidable from syntax alone —
+ * `console`/`process` are globals, `getRootLogger` is a specific imported
+ * function, `component` is a literal property key, none of which need a
+ * receiver's TYPE. LOG-13 added the two rules that DO: rule 3 (constant
+ * message body) and rule 4 (namespaced attribute keys) both turn on whether
+ * a call's RECEIVER really is a `Logger` — an unrelated object with an
+ * `.info()` method must NOT be flagged — and there is no syntactic
+ * substitute for asking the compiler that. Six of the full rule set's nine
+ * checks are enforced as of LOG-13; the remaining three were named in the
+ * original design as also needing the type checker and are left for a
+ * later task — this file is closer to the finished gate than it was, not
+ * at it.
  *
- * That precision is real but bounded, and the bound is worth stating rather
- * than discovering later: `const c = console; c.log(...)`, a `Logger` reached
- * through a wrapper class, or a `component` key on some unrelated object all
- * walk through this gate unnoticed. Closing that is what the type-aware rules
- * in LOG-14 are for — this seed does not claim to be them.
+ * The four syntax-only rules stay exactly as precise, and exactly as
+ * bounded, as before: `const c = console; c.log(...)`, a `Logger` reached
+ * through a wrapper class, or a `component` key on some unrelated object
+ * still walk through THOSE four rules unnoticed by name alone. Rules 3 and
+ * 4, in the "Type-aware layer" section below, close that same gap for
+ * message bodies and attribute keys specifically, by resolving the
+ * receiver's TYPE instead of its spelling.
  *
  * A note on overlap: `packages/*\/biome.json` already sets
  * `suspicious.noConsole: "warn"`, but no package's lint script raises
@@ -78,6 +82,17 @@
  * SDK-only counts. `consoleAllowlist` and `streamWriteAllowlist` are not
  * narrowed; they already have real, permitted sites outside the SDK
  * (`packages/telemetry`, `packages/cli`).
+ *
+ * `constantBodyViolationCount` and `namespacedAttributeKeyViolationCount`
+ * (rules 3 and 4) are NOT narrowed either, for the same reason as the two
+ * allowlists: `Logger` is used well outside the SDK (`packages/cli`'s own
+ * `this.log`/`getRootLogger()` call sites), so narrowing to
+ * `packages/sdk/src/` would silently stop watching every one of them. Both
+ * ratchets are non-zero at the time LOG-13 lands — 87 and 802 respectively —
+ * which is the honest count of a real, pre-existing gap this task's own
+ * risk section anticipated, not a defect in the rule: driving either to
+ * zero is its own future task, the same shape LOG-09 was for
+ * `unnamespacedBindingCount`.
  *
  * Convention: "enumerate what counts, don't infer" — the same discipline as
  * `.github/scripts/check-sdk-test-presence.mjs`, in temperament rather than
@@ -331,6 +346,337 @@ export function checkUnnamespacedBindingRatchet(fileEntries, config) {
 }
 
 // ---------------------------------------------------------------------------
+// Type-aware layer (LOG-13, closing two of the five checks the file header's
+// SEED note names — "constant log bodies" and "namespaced attribute keys").
+// Everything above this line is pure AST: no ts.Program, no type checker,
+// callable on synthetic in-memory text with no file on disk, which is what
+// let the first four rules' tests hand fixture TEXT directly. Rules 3 and 4
+// cannot work that way: "is this receiver really a Logger" and "is this
+// attribute bag really namespaced" are both questions about a DECLARED
+// TYPE, and there is no syntactic substitute for asking the compiler (see
+// .github/scripts/verify-public-surface.mjs, which already drives
+// ts.createProgram from a script in this repo — the same technique, read
+// from there rather than invented fresh). Every fixture these two rules run
+// against is consequently a REAL file on disk under
+// scripts/__fixtures__/log-standard/, importing the ACTUAL `Logger` and
+// `LogAttributes` types from packages/sdk/src — never a hand-rolled
+// stand-in interface, which is exactly the shallow-fixture failure
+// fixture-must-match-production names.
+// ---------------------------------------------------------------------------
+
+/**
+ * Compiler options for the gate's OWN Program — deliberately not the
+ * workspace's strict tsconfig.json. This Program exists to resolve TYPES
+ * (is this receiver assignable to Logger, is this bag assignable to
+ * LogAttributes), never to raise diagnostics; strict/noUnusedLocals/etc.
+ * would spend time checking things nothing here reads. Verified directly:
+ * flipping `strict: true` on this exact PROGRAM_OPTIONS object, over the
+ * same file set, changes namespacedAttributeKeyViolationCount from 805 to
+ * 766 pre-fix (constantBodyViolationCount is unaffected) — the ratchet
+ * numbers below describe THIS Program's answer, not a claim about what the
+ * workspace's own strict tsconfig would say if asked the same question.
+ */
+const PROGRAM_OPTIONS = {
+	target: ts.ScriptTarget.ES2022,
+	module: ts.ModuleKind.NodeNext,
+	moduleResolution: ts.ModuleResolutionKind.NodeNext,
+	lib: ['lib.es2022.d.ts'],
+	types: ['node'],
+	esModuleInterop: true,
+	skipLibCheck: true,
+	resolveJsonModule: true,
+	jsx: ts.JsxEmit.ReactJSX,
+	jsxImportSource: 'react',
+	noEmit: true,
+}
+
+/**
+ * One ts.Program over every absolute path in `fullPaths`. Measured at ~0.9s
+ * over the whole workspace (602 files across packages/*\/src) on the tree at
+ * seed time (2026-08-16) — cheap next to the steps around it in CI, because
+ * NodeNext moduleResolution walks straight through each OTHER package's
+ * node_modules symlink to its BUILT dist/*.d.ts, not back through this
+ * gate's own source list. That means the "Log standard gate" CI step (see
+ * .github/workflows/ci.yml) depends on the "Build" step ahead of it the
+ * same way .github/scripts/verify-public-surface.mjs already does — and
+ * locally, a worktree that has not run `pnpm -r build` resolves every
+ * CROSS-package Logger/LogAttributes reference to an error type, which
+ * silently reads as "not a Logger" rather than failing loudly. See the
+ * worktrees section of AGENTS.md for why an unbuilt worktree fails gates
+ * that read build output; this is now one of them.
+ */
+function buildProgram(fullPaths) {
+	return ts.createProgram(fullPaths, PROGRAM_OPTIONS)
+}
+
+/** The declared TYPE of a named export, resolved through the checker rather
+ * than hand-written — so if `Logger` or `LogAttributes` ever changes shape,
+ * both rules below move with it instead of drifting from a copy. */
+function resolveExportedType(program, checker, fileSuffix, exportName) {
+	const source = program.getSourceFiles().find((f) => f.fileName.endsWith(fileSuffix))
+	if (!source) {
+		throw new Error(
+			`log-standard type-aware setup: ${fileSuffix} is not part of the built Program — is collectSourceFiles() missing it, or did the file move?`,
+		)
+	}
+	const moduleSymbol = checker.getSymbolAtLocation(source)
+	const exported = moduleSymbol && checker.getExportsOfModule(moduleSymbol).find((s) => s.getName() === exportName)
+	if (!exported) throw new Error(`log-standard type-aware setup: ${exportName} is not exported from ${fileSuffix}`)
+	return checker.getDeclaredTypeOfSymbol(exported)
+}
+
+const LOG_METHOD_NAMES = new Set(['debug', 'info', 'warn', 'error'])
+const ATTRIBUTE_KEY_PATTERN = /^(namzu|gen_ai|service|exception)\./
+const MAX_ATTRIBUTE_BAG_HOPS = 5
+
+/**
+ * Resolves a COMPUTED property key to literal text when — and only when —
+ * it provably folds to one: a string literal directly, or (through at most
+ * one import alias) a reference to a top-level `const x = '...'`. Anything
+ * else — a parameter, a `let`, a function call, a ternary — is NOT
+ * resolvable, and the caller treats "not resolvable" as a violation: deny
+ * what cannot be verified (`refuse-do-not-degrade`) rather than silently
+ * accept an unprovable key. `EVENT_NAME_ATTRIBUTE`/`SCOPE_ATTRIBUTE` are the
+ * real, present-tense case this exists for — both are `const EVENT_NAME_
+ * ATTRIBUTE = 'namzu.event.name'` in utils/log/types.ts, imported wherever
+ * a computed `[EVENT_NAME_ATTRIBUTE]: ...` key appears, and both fold to a
+ * literal that already matches the namespace pattern. Without the alias
+ * hop, every one of those real call sites reads as unresolvable — measured
+ * directly while building this rule, before the hop was added.
+ */
+function resolveLiteralKeyText(expr, checker) {
+	if (ts.isStringLiteral(expr) || ts.isNoSubstitutionTemplateLiteral(expr)) return expr.text
+	if (!ts.isIdentifier(expr)) return undefined
+	let symbol = checker.getSymbolAtLocation(expr)
+	if (symbol && symbol.flags & ts.SymbolFlags.Alias) symbol = checker.getAliasedSymbol(symbol)
+	const decl = symbol?.valueDeclaration
+	if (!decl || !ts.isVariableDeclaration(decl) || !decl.initializer || !ts.isStringLiteral(decl.initializer)) return undefined
+	const declList = decl.parent
+	if (!ts.isVariableDeclarationList(declList) || !(declList.flags & ts.NodeFlags.Const)) return undefined
+	return decl.initializer.text
+}
+
+/**
+ * Finds the Logger-typed receiver of a call to debug/info/warn/error and
+ * returns the method name, or undefined if this is not one of those four
+ * calls OR its receiver does not resolve to Logger. Structural, via
+ * `checker.isTypeAssignableTo` against the REAL `Logger` interface declared
+ * in packages/sdk/src/utils/logger.ts — never a name match. `Logger` has
+ * never been a nominal type here (that file's own header: it is frozen,
+ * INPUT position on the public surface), so anything shaped like one
+ * already behaves like one at every call site; anything missing a member
+ * or with an incompatible signature — `Formatter` in
+ * packages/cli/src/output/*, which also has `.info()`/`.error()` — is NOT
+ * assignable and is correctly left alone. Verified against the real
+ * Formatter/Console call sites on this tree while building this rule: all
+ * read as non-Logger, none misdetected.
+ *
+ * Two receiver shapes a name-only walk cannot tell apart from an ordinary
+ * one:
+ *   - `x.info(...)` / `this.log.info(...)` — ordinary and ALIASED property
+ *     access (`const l = logger; l.info(...)`); the object's TYPE is what
+ *     is checked, not its spelling. `this.log?.info(...)` (optional
+ *     chaining on a `log?: Logger` field) resolves through the SAME path —
+ *     `checker.getTypeAtLocation` on the object of an optional-chain
+ *     access already returns the non-nullable narrowed type, confirmed
+ *     against packages/cli/src/doctor/registry.ts's `this.log?.warn(...)`
+ *     sites.
+ *   - `info(...)` after `const { info } = someLogger` — DESTRUCTURED; no
+ *     receiver exists at the call site at all, so this walks back to the
+ *     ORIGINATING object's initializer and checks that instead.
+ */
+function loggerCallMethodName(node, loggerType, checker) {
+	if (ts.isPropertyAccessExpression(node.expression) && LOG_METHOD_NAMES.has(node.expression.name.text)) {
+		const receiverType = checker.getTypeAtLocation(node.expression.expression)
+		return checker.isTypeAssignableTo(receiverType, loggerType) ? node.expression.name.text : undefined
+	}
+	if (ts.isIdentifier(node.expression) && LOG_METHOD_NAMES.has(node.expression.text)) {
+		const symbol = checker.getSymbolAtLocation(node.expression)
+		const decl = symbol?.valueDeclaration
+		if (!decl || !ts.isBindingElement(decl) || !ts.isObjectBindingPattern(decl.parent)) return undefined
+		const varDecl = decl.parent.parent
+		if (!ts.isVariableDeclaration(varDecl) || !varDecl.initializer) return undefined
+		const originType = checker.getTypeAtLocation(varDecl.initializer)
+		return checker.isTypeAssignableTo(originType, loggerType) ? node.expression.text : undefined
+	}
+	return undefined
+}
+
+/**
+ * Walks an attribute bag — the whole 2nd argument to a confirmed Logger
+ * call, a spread's expression, or one branch of a ternary — and returns
+ * violation records (empty = compliant). Two modes, chosen by shape:
+ *
+ *   - An OBJECT LITERAL is walked property by property: each key is
+ *     checked against ATTRIBUTE_KEY_PATTERN directly (or, for a computed
+ *     key, via resolveLiteralKeyText — unresolvable is a violation, not a
+ *     skip, per refuse-do-not-degrade). A nested spread recurses into this
+ *     same function.
+ *   - Anything else — an identifier, a call, a property access — cannot be
+ *     walked property by property, so it is trusted ONLY when its type is
+ *     STRUCTURALLY EQUAL to LogAttributes: assignable BOTH ways, not just
+ *     into it. One direction alone is not enough — `Record<AttributeKey,
+ *     AttributeValue>` tolerates an object with an unlisted property like
+ *     `{ errorCode: string }` on the permissive (into) side, because a
+ *     mapped type over a template-literal key pattern has no fixed set of
+ *     REQUIRED properties for a normal structural check to enforce; only
+ *     the reverse direction — is LogAttributes itself assignable back to
+ *     `{ errorCode: string }` — fails, because the generic pattern type has
+ *     no concrete `errorCode` member. Measured directly while building this
+ *     rule: `{ errorCode: string }` is one-way assignable to LogAttributes,
+ *     and a single-direction check would have passed it silently.
+ *
+ *     Symbol identity was tried and rejected for this: packages/sdk/src
+ *     resolves `LogAttributes` from ITS OWN source file, but every OTHER
+ *     package resolves the same type through `@namzu/sdk`'s BUILT
+ *     dist/index.d.ts — a separate parse with a separate symbol for an
+ *     identical shape. `sym === theOneCanonicalSymbol` floors every
+ *     downstream package; bidirectional structural equality does not care
+ *     which file declared it.
+ *
+ *   Before falling to the type check, an UNANNOTATED local (`const x =
+ *   {...}`, no `: LogAttributes`) is chased back to its initializer and
+ *   walked there instead — bounded by MAX_ATTRIBUTE_BAG_HOPS — so a
+ *   perfectly namespaced bag someone forgot to annotate is not flagged just
+ *   for lacking an annotation the type check alone would require.
+ */
+function checkAttributeBag(expr, checker, logAttributesType, hops = 0) {
+	if (ts.isObjectLiteralExpression(expr)) {
+		const violations = []
+		for (const prop of expr.properties) {
+			if (ts.isPropertyAssignment(prop) || ts.isShorthandPropertyAssignment(prop)) {
+				let keyText
+				if (ts.isShorthandPropertyAssignment(prop)) {
+					keyText = prop.name.text
+				} else if (ts.isComputedPropertyName(prop.name)) {
+					keyText = resolveLiteralKeyText(prop.name.expression, checker)
+					if (keyText === undefined) {
+						violations.push({ detail: 'a computed attribute key that does not fold to a literal string' })
+						continue
+					}
+				} else if (ts.isIdentifier(prop.name) || ts.isStringLiteral(prop.name)) {
+					keyText = prop.name.text
+				} else {
+					keyText = prop.name.getText()
+				}
+				if (!ATTRIBUTE_KEY_PATTERN.test(keyText)) {
+					violations.push({ detail: `attribute key "${keyText}" does not start with namzu./gen_ai./service./exception.` })
+				}
+			} else if (ts.isSpreadAssignment(prop)) {
+				violations.push(...checkAttributeBag(prop.expression, checker, logAttributesType, hops))
+			}
+			// A method/getter/setter inside a plain data-bag literal is exotic
+			// enough that it does not appear anywhere on this tree — left
+			// unhandled deliberately rather than guessed at.
+		}
+		return violations
+	}
+	if (ts.isParenthesizedExpression(expr)) return checkAttributeBag(expr.expression, checker, logAttributesType, hops)
+	if (ts.isConditionalExpression(expr)) {
+		return [
+			...checkAttributeBag(expr.whenTrue, checker, logAttributesType, hops),
+			...checkAttributeBag(expr.whenFalse, checker, logAttributesType, hops),
+		]
+	}
+	if (hops < MAX_ATTRIBUTE_BAG_HOPS && ts.isIdentifier(expr)) {
+		let symbol = checker.getSymbolAtLocation(expr)
+		if (symbol && symbol.flags & ts.SymbolFlags.Alias) symbol = checker.getAliasedSymbol(symbol)
+		const decl = symbol?.valueDeclaration
+		if (decl && ts.isVariableDeclaration(decl) && !decl.type && decl.initializer) {
+			return checkAttributeBag(decl.initializer, checker, logAttributesType, hops + 1)
+		}
+	}
+	const type = checker.getTypeAtLocation(expr)
+	const assignableIn = checker.isTypeAssignableTo(type, logAttributesType)
+	const assignableOut = checker.isTypeAssignableTo(logAttributesType, type)
+	if (assignableIn && assignableOut) return []
+	return [{ detail: `attribute bag is not provably LogAttributes (resolved type: ${checker.typeToString(type)})` }]
+}
+
+/** Raw count behind checkConstantBody — factored out so `--write` can
+ * recompute it without going through the ratchet-compare wrapper, the same
+ * split `countSdkOnlyOccurrences` already has for the two syntax-only
+ * ratchets above. */
+function countConstantBodyViolations(program, fullPaths) {
+	const checker = program.getTypeChecker()
+	const loggerType = resolveExportedType(program, checker, 'packages/sdk/src/utils/logger.ts', 'Logger')
+	let count = 0
+	for (const full of fullPaths) {
+		const source = program.getSourceFile(full)
+		if (!source) throw new Error(`countConstantBodyViolations: ${full} is not part of the Program`)
+		const walk = (node) => {
+			if (ts.isCallExpression(node) && loggerCallMethodName(node, loggerType, checker)) {
+				const first = node.arguments[0]
+				if (first) {
+					const isTemplateWithHole = ts.isTemplateExpression(first)
+					const isPlusConcat = ts.isBinaryExpression(first) && first.operatorToken.kind === ts.SyntaxKind.PlusToken
+					if (isTemplateWithHole || isPlusConcat) count++
+				}
+			}
+			ts.forEachChild(node, walk)
+		}
+		walk(source)
+	}
+	return count
+}
+
+/** Raw count behind checkNamespacedAttributeKeys — see
+ * countConstantBodyViolations above for why this is split out. */
+function countNamespacedAttributeKeyViolations(program, fullPaths) {
+	const checker = program.getTypeChecker()
+	const loggerType = resolveExportedType(program, checker, 'packages/sdk/src/utils/logger.ts', 'Logger')
+	const logAttributesType = resolveExportedType(program, checker, 'packages/sdk/src/utils/log/attributes.ts', 'LogAttributes')
+	let count = 0
+	for (const full of fullPaths) {
+		const source = program.getSourceFile(full)
+		if (!source) throw new Error(`countNamespacedAttributeKeyViolations: ${full} is not part of the Program`)
+		const walk = (node) => {
+			if (ts.isCallExpression(node) && loggerCallMethodName(node, loggerType, checker)) {
+				const second = node.arguments[1]
+				if (second) count += checkAttributeBag(second, checker, logAttributesType).length
+			}
+			ts.forEachChild(node, walk)
+		}
+		walk(source)
+	}
+	return count
+}
+
+export function checkConstantBody(program, fullPaths, config) {
+	// MUTATION-MARKER:constantBody:START
+	const actual = countConstantBodyViolations(program, fullPaths)
+	if (actual === config.constantBodyViolationCount) return []
+	return [
+		{
+			rule: 'constantBodyViolationCount',
+			file: null,
+			message: `${actual} Logger call(s) have a non-constant message body (a template literal with a hole, or a ` +
+				`\`+\` concatenation) as the first argument; scripts/log-standard.json#constantBodyViolationCount ` +
+				`records ${config.constantBodyViolationCount}. The ratchet fails on any mismatch, not only an increase — ` +
+				'move the variable into a namespaced attribute instead of editing the count to make this pass.',
+		},
+	]
+	// MUTATION-MARKER:constantBody:END
+}
+
+export function checkNamespacedAttributeKeys(program, fullPaths, config) {
+	// MUTATION-MARKER:namespacedAttributeKeys:START
+	const actual = countNamespacedAttributeKeyViolations(program, fullPaths)
+	if (actual === config.namespacedAttributeKeyViolationCount) return []
+	return [
+		{
+			rule: 'namespacedAttributeKeyViolationCount',
+			file: null,
+			message: `${actual} attribute key(s) across all Logger calls do not match ` +
+				'^(namzu|gen_ai|service|exception)\\. — including unresolvable computed keys and attribute bags not ' +
+				`provably LogAttributes; scripts/log-standard.json#namespacedAttributeKeyViolationCount records ` +
+				`${config.namespacedAttributeKeyViolationCount}. The ratchet fails on any mismatch, not only an increase.`,
+		},
+	]
+	// MUTATION-MARKER:namespacedAttributeKeys:END
+}
+
+// ---------------------------------------------------------------------------
 // CLI entrypoint
 // ---------------------------------------------------------------------------
 
@@ -341,24 +687,38 @@ function formatViolation(v) {
 function main() {
 	const config = JSON.parse(readFileSync(configPath, 'utf8'))
 	const fileEntries = loadFileEntries()
+	// Rules 3 and 4 need real files on disk, not the {rel, text} pairs the
+	// six syntax-only checks above use — a ts.Program reads from the
+	// filesystem itself via its CompilerHost. Same file set, same scope
+	// (packages/*\/src, one level below packages/), just addressed by path
+	// instead of pre-loaded text.
+	const fullPaths = collectSourceFiles().map(({ full }) => full)
+	const program = buildProgram(fullPaths)
 
 	if (process.argv.includes('--write')) {
 		const nextGetRootLoggerCount = countSdkOnlyOccurrences(fileEntries, isGetRootLoggerCall)
 		const nextUnnamespacedBindingCount = countSdkOnlyOccurrences(fileEntries, isComponentBinding)
+		const nextConstantBodyViolationCount = countConstantBodyViolations(program, fullPaths)
+		const nextNamespacedAttributeKeyViolationCount = countNamespacedAttributeKeyViolations(program, fullPaths)
 		const next = {
 			...config,
 			getRootLoggerCount: nextGetRootLoggerCount,
 			unnamespacedBindingCount: nextUnnamespacedBindingCount,
+			constantBodyViolationCount: nextConstantBodyViolationCount,
+			namespacedAttributeKeyViolationCount: nextNamespacedAttributeKeyViolationCount,
 		}
 		writeFileSync(configPath, `${JSON.stringify(next, null, '\t')}\n`)
 		console.log(
 			`scripts/log-standard.json written: getRootLoggerCount ${config.getRootLoggerCount} -> ` +
 				`${nextGetRootLoggerCount}, unnamespacedBindingCount ${config.unnamespacedBindingCount} -> ` +
-				`${nextUnnamespacedBindingCount}`,
+				`${nextUnnamespacedBindingCount}, constantBodyViolationCount ${config.constantBodyViolationCount} -> ` +
+				`${nextConstantBodyViolationCount}, namespacedAttributeKeyViolationCount ` +
+				`${config.namespacedAttributeKeyViolationCount} -> ${nextNamespacedAttributeKeyViolationCount}`,
 		)
 		console.log(
-			'The console.* and stream-write allowlists are not touched by --write: a new or removed site needs a ' +
-				'human-authored reason, not a guess. Edit scripts/log-standard.json directly.',
+			'The console.* and stream-write allowlists, and the (permanently empty) rule-3/rule-4 excludes lists, are ' +
+				'not touched by --write: a new or removed site needs a human-authored reason, not a guess. Edit ' +
+				'scripts/log-standard.json directly.',
 		)
 		process.exit(0)
 	}
@@ -368,6 +728,8 @@ function main() {
 		...checkStreamWriteAllowlist(fileEntries, config),
 		...checkGetRootLoggerRatchet(fileEntries, config),
 		...checkUnnamespacedBindingRatchet(fileEntries, config),
+		...checkConstantBody(program, fullPaths, config),
+		...checkNamespacedAttributeKeys(program, fullPaths, config),
 	]
 
 	if (violations.length === 0) {

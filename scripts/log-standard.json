@@ -1,8 +1,13 @@
 {
-	"$comment": "Log-standard gate config, consumed by scripts/check-log-standard.mjs. Two ratchets (exact-equality counts, both directions) and two allowlists (exact per-file, per-symbol counts with a reason). Regenerate the two ratchet numbers with `node scripts/check-log-standard.mjs --write` in the same commit that changes them; the allowlists are edited by hand because a new or removed site needs a human-authored reason, which --write cannot supply.",
+	"$comment": "Log-standard gate config, consumed by scripts/check-log-standard.mjs. Four ratchets (exact-equality counts, both directions) and two allowlists (exact per-file, per-symbol counts with a reason). Regenerate all four ratchet numbers with `node scripts/check-log-standard.mjs --write` in the same commit that changes them; the allowlists are edited by hand because a new or removed site needs a human-authored reason, which --write cannot supply.",
+	"$comment_type_aware": "constantBodyViolationCount (rule 3) and namespacedAttributeKeyViolationCount (rule 4), added in LOG-13, are ratchets exactly like the two above — NOT allowlists. constantBodyExcludes and namespacedAttributeKeyExcludes are permanently-empty guard fields: checkConstantBody/checkNamespacedAttributeKeys never read them, so populating either would not suppress anything — it would only make scripts/__tests__/check-log-standard.test.ts's excludes-guard test fail. That is deliberate: a path excluded from 'is this receiver a Logger' or 'is this key namespaced' is a path where neither guarantee holds.",
 	"$comment_scope": "getRootLoggerCount and unnamespacedBindingCount are scoped to packages/sdk/src (excluding __tests__, __fixtures__ and *.test.ts). consoleAllowlist and streamWriteAllowlist are scoped to packages/*/src across every package (one directory below packages/ — packages/providers/<name>/src is nested one level deeper and out of scope; see the script's file header).",
 	"getRootLoggerCount": 1,
 	"unnamespacedBindingCount": 40,
+	"constantBodyViolationCount": 87,
+	"namespacedAttributeKeyViolationCount": 802,
+	"constantBodyExcludes": [],
+	"namespacedAttributeKeyExcludes": [],
 	"consoleAllowlist": [
 		{
 			"file": "packages/telemetry/src/provider.ts",

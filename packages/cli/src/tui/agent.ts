@@ -32,6 +32,7 @@ import {
 	EVENT_NAME_ATTRIBUTE,
 	type HITLResumeDecision,
 	type LLMProvider,
+	type LogAttributes,
 	type Message,
 	type ProjectId,
 	type PromoteMemory,
@@ -2110,7 +2111,7 @@ function firstLine(result: string): string {
 	return truncate(cleaned.split('\n').find((l) => l.trim().length > 0) ?? '', 120)
 }
 
-function exceptionAttributes(err: unknown): Record<string, string> {
+function exceptionAttributes(err: unknown): LogAttributes {
 	const error = err instanceof Error ? err : new Error(String(err))
 	return {
 		'exception.type': error.constructor?.name ?? 'Error',

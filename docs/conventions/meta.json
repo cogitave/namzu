@@ -20,6 +20,8 @@
     "verify-claims-including-your-own",
     "a-falsifiable-comment-is-a-test",
     "read-back-the-protection-you-set",
-    "never-filter-a-verification"
+    "never-filter-a-verification",
+    "---Logging---",
+    "one-record-one-shape"
   ]
 }

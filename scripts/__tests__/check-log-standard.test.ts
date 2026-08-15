@@ -25,12 +25,15 @@ import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
+import ts from 'typescript'
 
 import {
 	checkConsoleAllowlist,
 	checkStreamWriteAllowlist,
 	checkGetRootLoggerRatchet,
 	checkUnnamespacedBindingRatchet,
+	checkConstantBody,
+	checkNamespacedAttributeKeys,
 } from '../check-log-standard.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -181,6 +184,141 @@ describe('checkUnnamespacedBindingRatchet', () => {
 })
 
 // ---------------------------------------------------------------------------
+// The two type-aware rules (LOG-13). Neither can run on synthetic in-memory
+// text the way the four rules above do — both turn on a DECLARED TYPE, and
+// there is no type without a real Program resolving real imports. Every
+// fixture these two rules run against is consequently a REAL file on disk
+// under scripts/__fixtures__/log-standard/, importing the ACTUAL `Logger`
+// and `LogAttributes` types from packages/sdk/src — per
+// fixture-must-match-production, never a hand-rolled stand-in interface.
+// Each describe block below builds its OWN small ts.Program over just the
+// fixture(s) it needs (a handful of files, not the whole 600+-file
+// workspace `main()` builds one over) — fast, and exactly the `program`
+// shape checkConstantBody/checkNamespacedAttributeKeys expect.
+// ---------------------------------------------------------------------------
+
+const FIXTURE_PROGRAM_OPTIONS = {
+	target: ts.ScriptTarget.ES2022,
+	module: ts.ModuleKind.NodeNext,
+	moduleResolution: ts.ModuleResolutionKind.NodeNext,
+	types: ['node'],
+	esModuleInterop: true,
+	skipLibCheck: true,
+	noEmit: true,
+}
+
+function buildFixtureProgram(fileNames) {
+	return ts.createProgram(fileNames, FIXTURE_PROGRAM_OPTIONS)
+}
+
+describe('checkConstantBody', () => {
+	const FIXTURE = join(fixturesDir, 'constant-body-violation.ts')
+	const program = buildFixtureProgram([FIXTURE])
+
+	test('passes when the stored count matches the two real violations — a template literal with a hole, and a `+` concatenation', () => {
+		assert.deepEqual(checkConstantBody(program, [FIXTURE], { constantBodyViolationCount: 2 }), [])
+	})
+
+	test('fails in both directions around the two real violations (dies to: comparing with > instead of !==)', () => {
+		assert.equal(checkConstantBody(program, [FIXTURE], { constantBodyViolationCount: 1 }).length, 1)
+		assert.equal(checkConstantBody(program, [FIXTURE], { constantBodyViolationCount: 3 }).length, 1)
+	})
+
+	test('a no-substitution template literal and a plain string body both stay outside the count (dies to: flagging every template literal, hole or not)', () => {
+		// The fixture's third call — log.debug('constant body, passes', ...) —
+		// is already excluded from the count of 2 asserted above. This test
+		// names that fact directly rather than leaving it implicit in the
+		// arithmetic: if a mutant flagged EVERY template literal regardless of
+		// substitutions, the debug() call's plain string would still not be a
+		// template literal at all, so that specific mutant would not be caught
+		// here — the next test (receiver-type resolution) and the mutation
+		// proof below are what catch a `TemplateExpression`-vs-any-template
+		// confusion; this one documents the debug() call is deliberately inert.
+		assert.deepEqual(checkConstantBody(program, [FIXTURE], { constantBodyViolationCount: 2 }), [])
+	})
+
+	describe('receiver-type resolution', () => {
+		const RECEIVER_FIXTURE = join(fixturesDir, 'receiver-type-violation.ts')
+		const receiverProgram = buildFixtureProgram([RECEIVER_FIXTURE])
+
+		test('an aliased Logger, a destructured Logger, and a structurally non-Logger object with the same three method names all resolve correctly: the count is exactly 2, not 3 (dies to: matching the method NAME instead of the receiver TYPE, which would also flag the non-Logger call and count 3)', () => {
+			assert.deepEqual(checkConstantBody(receiverProgram, [RECEIVER_FIXTURE], { constantBodyViolationCount: 2 }), [])
+			assert.equal(checkConstantBody(receiverProgram, [RECEIVER_FIXTURE], { constantBodyViolationCount: 3 }).length, 1)
+		})
+	})
+})
+
+describe('checkNamespacedAttributeKeys', () => {
+	const FIXTURE = join(fixturesDir, 'attribute-key-violation.ts')
+	const program = buildFixtureProgram([FIXTURE])
+
+	test('passes when the stored count matches the five real violations', () => {
+		assert.deepEqual(checkNamespacedAttributeKeys(program, [FIXTURE], { namespacedAttributeKeyViolationCount: 5 }), [])
+	})
+
+	test('fails in both directions around the five real violations (dies to: comparing with > instead of !==)', () => {
+		assert.equal(checkNamespacedAttributeKeys(program, [FIXTURE], { namespacedAttributeKeyViolationCount: 4 }).length, 1)
+		assert.equal(checkNamespacedAttributeKeys(program, [FIXTURE], { namespacedAttributeKeyViolationCount: 6 }).length, 1)
+	})
+
+	// The fixture's five violations, named explicitly so the count of 5
+	// above is not the only place this suite states what it is proving:
+	//   - a literal un-namespaced key ('a' call: { requestId })
+	//   - a shorthand un-namespaced key ('b' call: { id })
+	//   - a computed key that does not fold to a literal string ('d' call)
+	//   - an untyped identifier whose OWN shape is un-namespaced ('h' call:
+	//     `badBag`) — the case a bare `isTypeAssignableTo(t, LogAttributes)`
+	//     (one direction only) would have missed, because a mapped type over
+	//     a template-literal key pattern tolerates an object with an extra,
+	//     unlisted property on that permissive side. Bidirectional
+	//     assignability is what rejects it — see checkAttributeBag's own
+	//     comment in the script for the measured example.
+	//   - a spread of a plain, un-namespaced object ('j' call: `...untypedExtra`)
+	// and, NOT counted among the five, on purpose:
+	//   - a computed key that DOES fold to a literal ('c' call,
+	//     EVENT_NAME_ATTRIBUTE-shaped) — proves computed keys are resolved,
+	//     not universally rejected
+	//   - a plain namespaced literal key ('e' call)
+	//   - an identifier and a function call, each explicitly typed/declared
+	//     to return LogAttributes ('f' and 'g' calls)
+	//   - a spread of a LogAttributes-typed value ('i' call)
+	// A single count assertion cannot show its work per-case, so this
+	// comment is the record of what the number actually verifies.
+	test('the computed-key and structural-type paths are both exercised, not skipped (dies to: a literal-key-only walk, which would report 4 instead of 5 — silently passing the unresolvable computed key)', () => {
+		assert.deepEqual(checkNamespacedAttributeKeys(program, [FIXTURE], { namespacedAttributeKeyViolationCount: 5 }), [])
+	})
+
+	describe('receiver-type resolution', () => {
+		const RECEIVER_FIXTURE = join(fixturesDir, 'receiver-type-violation.ts')
+		const receiverProgram = buildFixtureProgram([RECEIVER_FIXTURE])
+
+		test('an un-namespaced key on a structurally non-Logger receiver is not counted (dies to: checking attribute keys by call shape alone, without first confirming the receiver is a Logger)', () => {
+			assert.deepEqual(
+				checkNamespacedAttributeKeys(receiverProgram, [RECEIVER_FIXTURE], { namespacedAttributeKeyViolationCount: 0 }),
+				[],
+			)
+		})
+	})
+})
+
+// ---------------------------------------------------------------------------
+// The rule-3/rule-4 ratchets carry no path-based suppression, unlike the
+// console/stream-write allowlists — by design (LOG-13's acceptance): a path
+// excluded from "is this receiver a Logger" or "is this key namespaced" is a
+// path where an operator cannot trust either guarantee. These two config
+// keys exist ONLY so this test has something to fail against —
+// checkConstantBody and checkNamespacedAttributeKeys never read them, so
+// populating one would not even suppress anything; it would just leave this
+// test as the one honest signal that someone tried.
+// ---------------------------------------------------------------------------
+
+test('the rule-3 and rule-4 excludes lists in log-standard.json stay empty (dies to: adding a per-file exclusion for either rule)', () => {
+	const config = JSON.parse(readFileSync(join(__dirname, '..', 'log-standard.json'), 'utf8'))
+	assert.deepEqual(config.constantBodyExcludes, [])
+	assert.deepEqual(config.namespacedAttributeKeyExcludes, [])
+})
+
+// ---------------------------------------------------------------------------
 // Mutation proof (per docs/conventions/mutation-check-every-test.md): for
 // each rule, stub its ENTIRE check-function body to `return []` inside a
 // throwaway copy of the real script's source — a literal textual deletion,
@@ -256,6 +394,41 @@ describe('mutation proof', () => {
 	}
 })
 
+// The two type-aware rules take (program, fullPaths, config) rather than
+// (fileEntries, config) — a Program is not fixture text, and building one
+// belongs in THIS file (the real `ts` import), not inside the mutated
+// module — so they get their own small loop instead of joining `cases`
+// above rather than forcing an awkward shared shape onto both kinds of rule.
+describe('mutation proof — type-aware rules', () => {
+	const typeAwareCases = [
+		{
+			marker: 'constantBody',
+			fixture: 'constant-body-violation.ts',
+			config: { constantBodyViolationCount: 0 },
+			run: (mod, fullPaths, config) => mod.checkConstantBody(buildFixtureProgram(fullPaths), fullPaths, config),
+		},
+		{
+			marker: 'namespacedAttributeKeys',
+			fixture: 'attribute-key-violation.ts',
+			config: { namespacedAttributeKeyViolationCount: 0 },
+			run: (mod, fullPaths, config) => mod.checkNamespacedAttributeKeys(buildFixtureProgram(fullPaths), fullPaths, config),
+		},
+	]
+
+	for (const { marker, fixture, config, run } of typeAwareCases) {
+		test(`deleting the ${marker} rule flips its fixture from failing to passing`, async () => {
+			const fullPaths = [join(fixturesDir, fixture)]
+			const real = { checkConstantBody, checkNamespacedAttributeKeys }
+			const before = run(real, fullPaths, config)
+			assert.ok(before.length > 0, `expected the real ${marker} rule to report a violation on its own fixture`)
+
+			const mutated = await importWithRuleDeleted(marker)
+			const afterDeletion = run(mutated, fullPaths, config)
+			assert.deepEqual(afterDeletion, [], `expected deleting ${marker} to make its fixture pass; it still reported a violation`)
+		})
+	}
+})
+
 // ---------------------------------------------------------------------------
 // No escape hatch.
 // ---------------------------------------------------------------------------
@@ -271,7 +444,10 @@ test('the script has no env-var escape hatch — it never reads process.env (die
 // the rule logic is sound in isolation; only this proves the numbers
 // currently recorded in log-standard.json actually describe packages/*/src
 // on this commit. It is the one test in this file that goes red on its own,
-// with no code change, the moment the tree drifts from the file.
+// with no code change, the moment the tree drifts from the file — now
+// including the two type-aware ratchets, since main() builds its own
+// Program over the whole tree and calls checkConstantBody /
+// checkNamespacedAttributeKeys the same as the four syntax-only rules.
 // ---------------------------------------------------------------------------
 
 test('node scripts/check-log-standard.mjs exits 0 against the tree as it stands', () => {
