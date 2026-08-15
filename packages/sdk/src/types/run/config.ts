@@ -102,6 +102,21 @@ export interface AgentRunConfig {
 	 * Default `undefined` — no deadline, today's behaviour.
 	 */
 	hitlParkTtlMs?: number
+
+	/**
+	 * Override the logger a run's log lines derive from.
+	 *
+	 * This is an override of the SOURCE, not a substitute for correlation:
+	 * `RunContextFactory.buildLogger` always calls `.child()` on whichever
+	 * logger this resolves to, so a host-supplied logger still gains
+	 * `namzu.run.id`, `sessionId`, `threadId`, `projectId` and `tenantId` —
+	 * the same binding the process default gets. A host that wants its own
+	 * sink, format or destination threaded through every record a run
+	 * produces sets this once; a host that wants the process default
+	 * (`getRootLogger()`) sets nothing, which is what absent has always
+	 * meant.
+	 */
+	logger?: Logger
 }
 
 /**

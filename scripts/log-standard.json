@@ -1,7 +1,7 @@
 {
 	"$comment": "Log-standard gate config, consumed by scripts/check-log-standard.mjs. Two ratchets (exact-equality counts, both directions) and two allowlists (exact per-file, per-symbol counts with a reason). Regenerate the two ratchet numbers with `node scripts/check-log-standard.mjs --write` in the same commit that changes them; the allowlists are edited by hand because a new or removed site needs a human-authored reason, which --write cannot supply.",
 	"$comment_scope": "getRootLoggerCount and unnamespacedBindingCount are scoped to packages/sdk/src (excluding __tests__, __fixtures__ and *.test.ts). consoleAllowlist and streamWriteAllowlist are scoped to packages/*/src across every package (one directory below packages/ — packages/providers/<name>/src is nested one level deeper and out of scope; see the script's file header).",
-	"getRootLoggerCount": 40,
+	"getRootLoggerCount": 37,
 	"unnamespacedBindingCount": 48,
 	"consoleAllowlist": [
 		{

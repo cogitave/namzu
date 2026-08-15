@@ -1,4 +1,5 @@
 import { join } from 'node:path'
+import { NAMZU } from '../../constants/telemetry/index.js'
 import { PlanManager } from '../../manager/plan/lifecycle.js'
 import { RunPersistence } from '../../manager/run/persistence.js'
 import {
@@ -20,7 +21,7 @@ import type { RunStore } from '../../types/run/store.js'
 import type { ProjectId, ThreadId } from '../../types/session/ids.js'
 import type { ModelPricing } from '../../utils/cost.js'
 import { generateRunId } from '../../utils/id.js'
-import { type Logger, getRootLogger } from '../../utils/logger.js'
+import { type Logger, resolveLogger } from '../../utils/logger.js'
 
 /**
  * Config accepted by {@link RunContextFactory.build}. `sessionId`,
@@ -82,6 +83,11 @@ export interface RunContextConfig {
 	parentRunId?: RunId
 
 	depth?: number
+
+	/**
+	 * A pre-built, already-correlated logger — what {@link RunContextFactory.buildLogger} returns. When present, `build` uses this instead of constructing its own, which is what lets a caller hand the SAME logger to `withProviderRetry`/`withProviderFallback` (themselves inputs to `build` — see `runtime/query/index.ts`) and to the `RunContext` this config becomes, rather than each reaching for its own child of `getRootLogger()` and losing the guarantee that a retry warning and the run it retried for share one `namzu.run.id`. Absent means what it always meant: `build` derives its own via `buildLogger`.
+	 */
+	log?: Logger
 }
 
 /** Result of {@link RunContextFactory.build}. */
@@ -135,6 +141,53 @@ export class RunContextFactory {
 		return promise
 	}
 
+	/**
+	 * The run's one correlated logger, built once and handed to every
+	 * consumer that used to construct its own. Split out of `build` because
+	 * `build` is not the first thing in `query()` that needs a logger: the
+	 * provider retry and fallback wrappers (`runtime/query/index.ts`) are
+	 * THEMSELVES inputs to `build` (`resilientProvider`), so a caller has to
+	 * be able to get a correlated logger BEFORE `build` runs, not after —
+	 * the reordering the design's own boundary table found does not
+	 * type-check when attempted the other way round.
+	 *
+	 * `runId` is a REQUIRED field here, not the `config.runId ??
+	 * generateRunId()` fallback `build` still does for its own direct
+	 * callers below. The whole reason to extract this is that the SAME id
+	 * ends up bound on the log and stamped onto the `RunContext` it is
+	 * later attached to — generating it twice, once here and once in
+	 * `build`, would silently hand the log and the run two different ids.
+	 * The caller (`query()`) resolves the id once and passes it to both
+	 * this and `build`.
+	 *
+	 * The base logger comes from `resolveLogger`, not `getRootLogger`
+	 * directly — the fallback-to-the-process-default read now lives there
+	 * instead of duplicated at every site that used to reach for the global
+	 * on its own. A host that set `runConfig.logger` gets ITS OWN logger as
+	 * the base `.child()` is called on, so every record this run's retry
+	 * and fallback wrappers write still reaches the host's destination:
+	 * `buildLogger` layers correlation on top, it does not replace the
+	 * source.
+	 */
+	static buildLogger(
+		config: Pick<
+			RunContextConfig,
+			'agentName' | 'runConfig' | 'sessionId' | 'threadId' | 'projectId' | 'tenantId'
+		> & {
+			runId: RunId
+		},
+	): Logger {
+		return resolveLogger(config.runConfig.logger).child({
+			component: 'query',
+			agent: config.agentName,
+			[NAMZU.RUN_ID]: config.runId,
+			sessionId: config.sessionId,
+			threadId: config.threadId,
+			projectId: config.projectId,
+			tenantId: config.tenantId,
+		})
+	}
+
 	static build(config: RunContextConfig): RunContext {
 		const abortController = new AbortController()
 		if (config.signal) {
@@ -164,15 +217,7 @@ export class RunContextFactory {
 		const outputDir = pathBuilder.sessionDir(config.projectId, config.sessionId)
 		const runsDir = join(outputDir, 'runs')
 
-		const log = getRootLogger().child({
-			component: 'query',
-			agent: config.agentName,
-			runId,
-			sessionId: config.sessionId,
-			threadId: config.threadId,
-			projectId: config.projectId,
-			tenantId: config.tenantId,
-		})
+		const log = config.log ?? RunContextFactory.buildLogger({ ...config, runId })
 
 		const runMgr = new RunPersistence({
 			runId,

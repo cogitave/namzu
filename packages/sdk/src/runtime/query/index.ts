@@ -87,8 +87,8 @@ import type { RepairToolCall } from '../../types/tool/repair.js'
 import type { VerificationGateConfig } from '../../types/verification/index.js'
 import type { BackoffPolicy } from '../../utils/backoff.js'
 import type { ModelPricing } from '../../utils/cost.js'
+import { generateRunId } from '../../utils/id.js'
 import { EVENT_NAME_ATTRIBUTE } from '../../utils/log/types.js'
-import { getRootLogger } from '../../utils/logger.js'
 import { VerificationGate } from '../../verification/gate.js'
 import { CheckpointManager } from './checkpoint.js'
 import type { ContextCache } from './context-cache.js'
@@ -671,6 +671,26 @@ function assertBudgetIsMeasurable(params: QueryParams): void {
 }
 
 export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run> {
+	// The run's one correlated logger, built before anything below needs
+	// one — the migration check, the retry/fallback wrappers and `ctx`
+	// itself all read this SAME object, so a retry warning and the run
+	// record it retried for carry the identical `namzu.run.id` instead of
+	// three separate `getRootLogger()` reads that happened to agree by
+	// accident. `runId` is resolved here, once, rather than left to
+	// `build`'s own `config.runId ?? generateRunId()` fallback —
+	// generating it twice would silently hand the log and the run two
+	// different ids.
+	const runId = params.runId ?? generateRunId()
+	const log = RunContextFactory.buildLogger({
+		agentName: params.agentName,
+		runConfig: params.runConfig,
+		runId,
+		sessionId: params.sessionId,
+		threadId: params.threadId,
+		projectId: params.projectId,
+		tenantId: params.tenantId,
+	})
+
 	// Boot-time filesystem migration (session-hierarchy.md §13.4.1). First
 	// call per process per root actually runs; subsequent calls short-circuit
 	// via the in-memory guard in `context.ts`. Kept here rather than inside
@@ -684,10 +704,9 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 	// `NOOP_FILESYSTEM_MIGRATION_SINK` (see `context.ts`), so any other path
 	// that reaches `ensureMigrated` keeps today's silent behaviour.
 	const cwdForMigration = params.workingDirectory ?? process.cwd()
-	const bootLog = getRootLogger()
 	const migrationResult = await RunContextFactory.ensureMigrated(
 		`${cwdForMigration}/.namzu`,
-		new DefaultFilesystemMigrator(loggingMigrationSink(bootLog)),
+		new DefaultFilesystemMigrator(loggingMigrationSink(log)),
 	)
 	// `loggingMigrationSink` only ever hears about `kind: 'migrated'` — the
 	// only outcome `DefaultFilesystemMigrator` ever hands its sink (see the
@@ -697,7 +716,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 	// new arm in every exhaustive switch already written over it — a major —
 	// for two outcomes `migrationResult.kind` already fully describes.
 	if (migrationResult.kind !== 'migrated') {
-		bootLog.debug('filesystem migration: nothing to do', {
+		log.debug('filesystem migration: nothing to do', {
 			[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.MIGRATION_COMPLETED,
 			kind: migrationResult.kind,
 			markerPath: migrationResult.markerPath,
@@ -729,9 +748,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 	assertCostIsAttributable(chain, params.pricing)
 	assertBudgetIsMeasurable(params)
 	const withRetry = (provider: LLMProvider): LLMProvider =>
-		params.retry === false
-			? provider
-			: withProviderRetry(provider, { config: params.retry, log: getRootLogger() })
+		params.retry === false ? provider : withProviderRetry(provider, { config: params.retry, log })
 	// Who is serving right now, for the run RECORD rather than for the request.
 	//
 	// It starts at the head and moves only when the chain does, which is the
@@ -745,7 +762,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 	const resilientProvider = withProviderFallback(
 		chain.map((member) => ({ ...member, provider: withRetry(member.provider) })),
 		{
-			log: getRootLogger(),
+			log,
 			onSwap: (to) => {
 				serving.current = to
 				// `ctx` is declared below and is initialized before anything can
@@ -773,9 +790,10 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		pathBuilder: params.pathBuilder,
 		checkpointStore: params.checkpointStore,
 		runStore: params.runStore,
-		runId: params.runId,
+		runId,
 		parentRunId: params.parentRunId,
 		depth: params.depth,
+		log,
 	})
 
 	ctx.planManager.setApprovalHandler(async (request) => {

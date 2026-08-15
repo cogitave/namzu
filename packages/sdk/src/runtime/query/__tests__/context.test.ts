@@ -2,13 +2,14 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { NAMZU } from '../../../constants/telemetry/index.js'
 import { DefaultPathBuilder, type PathBuilder } from '../../../session/workspace/path-builder.js'
 import { posix } from '../../../test-support/paths.js'
 import type { RunId, SessionId, TenantId } from '../../../types/ids/index.js'
 import type { LLMProvider } from '../../../types/provider/index.js'
 import type { AgentRunConfig } from '../../../types/run/index.js'
 import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
-import type { LogRecord, LogSink } from '../../../utils/log/index.js'
+import { type LogRecord, type LogSink, createLogger } from '../../../utils/log/index.js'
 import { __resetProcessSinkForTests, installProcessSink } from '../../../utils/log/process-sink.js'
 import { RunContextFactory } from '../context.js'
 
@@ -123,6 +124,113 @@ describe('RunContextFactory.build', () => {
 		host.abort()
 
 		expect(ctx.abortController.signal.aborted).toBe(true)
+	})
+})
+
+describe('RunContextFactory.buildLogger', () => {
+	afterEach(() => {
+		__resetProcessSinkForTests()
+	})
+
+	it('binds namzu.run.id and the rest of the run scope onto the process root by default', () => {
+		const records: LogRecord[] = []
+		const sink: LogSink = { emit: (record) => records.push(record) }
+		installProcessSink(sink, 'debug', { replace: true })
+
+		const cfg = buildConfig()
+		const runId = 'run_built' as RunId
+		const log = RunContextFactory.buildLogger({
+			agentName: cfg.agentName,
+			runConfig: cfg.runConfig,
+			runId,
+			sessionId: cfg.sessionId,
+			threadId: cfg.threadId,
+			projectId: cfg.projectId,
+			tenantId: cfg.tenantId,
+		})
+		log.info('hello')
+
+		expect(records).toHaveLength(1)
+		expect(records[0]?.attributes[NAMZU.RUN_ID]).toBe(runId)
+		expect(records[0]?.attributes.agent).toBe(cfg.agentName)
+		expect(records[0]?.attributes.sessionId).toBe(cfg.sessionId)
+		expect(records[0]?.attributes.threadId).toBe(cfg.threadId)
+		expect(records[0]?.attributes.projectId).toBe(cfg.projectId)
+		expect(records[0]?.attributes.tenantId).toBe(cfg.tenantId)
+	})
+
+	it('derives from a host-supplied runConfig.logger instead of the process root, when one is given', () => {
+		// A capturing sink installed as the process DEFAULT — proves nothing by
+		// itself, since every logger in this test would be reachable from it
+		// too if buildLogger ignored the host's own logger. The marker logger
+		// below points at a SEPARATE sink `installProcessSink` never touches,
+		// so a record landing there and not here is the only way to tell
+		// "derived from the host's logger" apart from "derived from the root
+		// that happens to look the same".
+		const rootRecords: LogRecord[] = []
+		const rootSink: LogSink = { emit: (record) => rootRecords.push(record) }
+		installProcessSink(rootSink, 'debug', { replace: true })
+
+		const markerRecords: LogRecord[] = []
+		const markerSink: LogSink = { emit: (record) => markerRecords.push(record) }
+		const marker = createLogger({
+			sink: markerSink,
+			level: { current: 'debug' },
+			resource: { 'service.name': 'namzu' },
+			scope: 'namzu',
+		})
+
+		const cfg = buildConfig()
+		const log = RunContextFactory.buildLogger({
+			agentName: cfg.agentName,
+			runConfig: { ...cfg.runConfig, logger: marker },
+			runId: 'run_marker' as RunId,
+			sessionId: cfg.sessionId,
+			threadId: cfg.threadId,
+			projectId: cfg.projectId,
+			tenantId: cfg.tenantId,
+		})
+		log.info('hello')
+
+		expect(markerRecords).toHaveLength(1)
+		expect(rootRecords).toHaveLength(0)
+	})
+})
+
+describe('RunContextFactory.build accepts a pre-built logger', () => {
+	afterEach(() => {
+		__resetProcessSinkForTests()
+	})
+
+	it('uses config.log unchanged instead of constructing its own via buildLogger', () => {
+		const cfg = buildConfig()
+		const runId = 'run_prebuilt' as RunId
+		const preBuilt = RunContextFactory.buildLogger({
+			agentName: cfg.agentName,
+			runConfig: cfg.runConfig,
+			runId,
+			sessionId: cfg.sessionId,
+			threadId: cfg.threadId,
+			projectId: cfg.projectId,
+			tenantId: cfg.tenantId,
+		})
+
+		const ctx = RunContextFactory.build(buildConfig({ runId, log: preBuilt }))
+
+		expect(ctx.log).toBe(preBuilt)
+	})
+
+	it('falls back to buildLogger — same correlated shape as the direct call — when config.log is absent', () => {
+		const records: LogRecord[] = []
+		const sink: LogSink = { emit: (record) => records.push(record) }
+		installProcessSink(sink, 'debug', { replace: true })
+
+		const runId = 'run_auto' as RunId
+		const ctx = RunContextFactory.build(buildConfig({ runId }))
+		ctx.log.info('hello')
+
+		expect(records).toHaveLength(1)
+		expect(records[0]?.attributes[NAMZU.RUN_ID]).toBe(runId)
 	})
 })
 

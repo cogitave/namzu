@@ -91,6 +91,18 @@ export function getRootLogger(): Logger {
 	return _rootLogger
 }
 
+/**
+ * Fall back to the process root only when nobody supplied their own. Kept
+ * here rather than inlined at each call site so a boundary that threads a
+ * host-supplied logger — `RunContextFactory.buildLogger` is the first — can
+ * stay entirely free of `getRootLogger()` itself: `runtime/query/context.ts`
+ * and `runtime/query/index.ts` no longer call it directly, and this is the
+ * one place that still does on their behalf.
+ */
+export function resolveLogger(logger: Logger | undefined): Logger {
+	return logger ?? getRootLogger()
+}
+
 /** Adapts the record pipeline back to the legacy `Logger` shape. */
 function fromSink(sink: LogSink, level: LevelFilter, bound: LogContext = {}): Logger {
 	const created = createLogger({
