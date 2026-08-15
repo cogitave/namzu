@@ -10,6 +10,7 @@
 // unwrapping, while a caller that wants to observe the pipeline — a test,
 // `namzu doctor` later — reads `.counters` off the same reference.
 
+import { getActiveSpanContext } from '../../telemetry/runtime-accessors.js'
 import type { LogContext, Logger } from '../logger.js'
 import { capAttributeCount, capTotalSize, truncateValues } from './caps.js'
 import { redactRecord } from './redact.js'
@@ -66,6 +67,15 @@ function build(
 		// spelling.
 		const merged: Record<string, unknown> = { ...bound, ...data }
 		const { [EVENT_NAME_ATTRIBUTE]: rawEventName, ...attributes } = merged
+		// Resolved HERE, at emit time, off the live `@opentelemetry/api` global —
+		// never once at `createLogger` construction and captured in this
+		// closure. `telemetry/metrics.ts` documents the construction-time
+		// version of this mistake already happening once, for a meter: a bag
+		// that captured the no-op instance at construction stayed no-op for the
+		// rest of the process even after a real one registered later.
+		// `undefined` with no telemetry configured — see `getActiveSpanContext`'s
+		// own doc for why that is the default, not a case this file detects.
+		const spanContext = getActiveSpanContext()
 		let record: LogRecord = {
 			timestamp: now,
 			observedTimestamp: now,
@@ -76,6 +86,15 @@ function build(
 			resource: options.resource,
 			attributes,
 			...(typeof rawEventName === 'string' ? { eventName: rawEventName } : {}),
+			// All three or none: a trace id with no span id would be a
+			// half-address (see `LogRecord.traceId`'s doc).
+			...(spanContext
+				? {
+						traceId: spanContext.traceId,
+						spanId: spanContext.spanId,
+						traceFlags: spanContext.traceFlags,
+					}
+				: {}),
 		}
 
 		// Order matters: redact BEFORE capping. Truncating a value first could

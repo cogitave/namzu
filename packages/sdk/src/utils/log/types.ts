@@ -35,14 +35,17 @@ export interface Resource {
 
 /**
  * A structural subset of the OTel Logs Data Model — the fields this
- * increment actually populates. `traceId` and `spanId` are still not here:
- * each arrives, together with the emitter that writes it, in later work.
- * Declaring them now and leaving them unwritten would be the same defect
- * with extra steps — present on the type, wrong in every record.
+ * kernel actually populates. `traceId`, `spanId` and `traceFlags` arrived
+ * together with the emitter that writes them: `createLogger`'s `emit`,
+ * reading `telemetry/runtime-accessors.ts`'s `getActiveSpanContext()` on
+ * every accepted record. See their own doc comment below for what
+ * "arrived" means when nothing is active — declaring them and leaving them
+ * unwritten would have been the same defect with extra steps, present on
+ * the type and wrong in every record.
  *
- * `eventName` IS here, and it arrives a different way than the rest of the
- * record. No field on `LoggerOptions` sets it and `Logger` gains no method
- * for it — `Logger` is in INPUT position on the public surface (see the file
+ * `eventName` arrives a different way than the rest of the record. No
+ * field on `LoggerOptions` sets it and `Logger` gains no method for it —
+ * `Logger` is in INPUT position on the public surface (see the file
  * header), so a fifth method would break every host's existing
  * implementation. Instead a call site sets `EVENT_NAME_ATTRIBUTE` on the
  * `data` it already passes to `debug`/`info`/`warn`/`error`; `createLogger`
@@ -68,6 +71,27 @@ export interface LogRecord {
 	 *  set one. Absent on the great majority of records — only the boot
 	 *  narrative and other named events carry it. */
 	readonly eventName?: string
+	/**
+	 * The active span's identity at the moment this record was built —
+	 * resolved fresh per record by `createLogger`'s `emit`, from
+	 * `telemetry/runtime-accessors.ts`'s `getActiveSpanContext()`. All three
+	 * of `traceId`, `spanId` and `traceFlags` arrive together or not at
+	 * all: a trace id with no span id would be a half-address, useless to a
+	 * trace viewer's join and worse than the plain absence a reader can
+	 * already tell apart from "unwritten".
+	 *
+	 * Genuinely ABSENT — not `''`, not `'unknown'` — whenever nothing is
+	 * active: no tracer provider registered, or a real one registered with
+	 * no context manager to carry it past the first `await` (the default
+	 * `NoopContextManager` `@opentelemetry/api` ships is exactly that; see
+	 * `getActiveSpanContext`'s own doc). Reading the active context this
+	 * way cannot make a check fail on a host that never configured
+	 * telemetry — it can only ever add information that was not there
+	 * before.
+	 */
+	readonly traceId?: string
+	readonly spanId?: string
+	readonly traceFlags?: number
 }
 
 /**
