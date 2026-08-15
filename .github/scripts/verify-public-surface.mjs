@@ -74,21 +74,38 @@ function declaredExports() {
 	const checker = program.getTypeChecker()
 	const moduleSymbol = checker.getSymbolAtLocation(source)
 	if (!moduleSymbol) throw new Error(`${sdkTypesPath} resolved to no module symbol.`)
-	return checker
-		.getExportsOfModule(moduleSymbol)
-		.map((symbol) => symbol.getName())
-		.sort()
+	const exported = checker.getExportsOfModule(moduleSymbol)
+	return {
+		names: exported.map((symbol) => symbol.getName()).sort(),
+		// The checker has already resolved every symbol, so its JSDoc tags come
+		// for free — no second program, no second parse.
+		//
+		// This is the view that makes a deprecation wave auditable. The runtime
+		// and declared lists are bare names, so a transitional alias and a
+		// permanent export look identical the moment the baseline is
+		// regenerated. Worse, SemVer rule 8's requirement is specifically that
+		// the OLD name carries `@deprecated` — and without this, an alias could
+		// ship with the tag omitted and every gate would report the surface
+		// intact. The gate would be true about the names and silent about the
+		// only property the rule is written around.
+		deprecated: exported
+			.filter((symbol) => symbol.getJsDocTags().some((tag) => tag.name === 'deprecated'))
+			.map((symbol) => symbol.getName())
+			.sort(),
+	}
 }
 
-const currentDeclared = declaredExports()
+const declared = declaredExports()
+const currentDeclared = declared.names
+const currentDeprecated = declared.deprecated
 
 if (process.argv.includes('--write')) {
 	writeFileSync(
 		baselinePath,
-		`${JSON.stringify({ runtime: currentRuntime, declared: currentDeclared }, null, 2)}\n`,
+		`${JSON.stringify({ runtime: currentRuntime, declared: currentDeclared, deprecated: currentDeprecated }, null, 2)}\n`,
 	)
 	console.log(
-		`baseline written: ${currentRuntime.length} runtime, ${currentDeclared.length} declared`,
+		`baseline written: ${currentRuntime.length} runtime, ${currentDeclared.length} declared, ${currentDeprecated.length} deprecated`,
 	)
 	process.exit(0)
 }
@@ -98,11 +115,15 @@ const raw = JSON.parse(readFileSync(baselinePath, 'utf8'))
 // existed. Reading that shape still works, and reports the declared view as
 // entirely new — which is the correct thing to say about a surface nothing
 // had recorded.
-const baseline = Array.isArray(raw) ? { runtime: raw, declared: [] } : raw
+const baseline = Array.isArray(raw) ? { runtime: raw, declared: [], deprecated: [] } : raw
 
 const VIEWS = [
 	{ label: 'runtime', baseline: baseline.runtime ?? [], current: currentRuntime },
 	{ label: 'declared', baseline: baseline.declared ?? [], current: currentDeclared },
+	// Both directions fail, and both should. ADDING a deprecation is a surface
+	// decision — it announces a removal — and REMOVING one is the louder half:
+	// it un-announces a removal consumers may already be migrating for.
+	{ label: 'deprecated', baseline: baseline.deprecated ?? [], current: currentDeprecated },
 ]
 
 let failed = false

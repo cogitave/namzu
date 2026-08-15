@@ -341,17 +341,27 @@ export {
 	requireOpenProject,
 	RunPersistence,
 	TopicManager,
-	// @deprecated Use `TopicManager`. Kept as a literal identity re-export
-	// (not a wrapper) so instanceof/=== still hold for callers who have not
-	// migrated -- removal is a later major per AGENTS.md's
-	// deprecate-before-remove rule.
+	/**
+	 * @deprecated Use {@link TopicManager}. A literal identity re-export, not a
+	 * wrapper, so `instanceof` and `===` still hold for callers who have not
+	 * migrated. Removal is a later major per AGENTS.md's deprecate-before-remove
+	 * rule.
+	 *
+	 * JSDoc rather than `//`: the public-surface gate reads
+	 * `symbol.getJsDocTags()`, and a line comment is invisible to it. This one
+	 * WAS a line comment, and the gate's first run reported the alias as an
+	 * ordinary permanent export — marked to a human reader and unmarked to
+	 * every tool.
+	 */
 	ThreadManager,
 } from './manager/index.js'
 
 export {
 	InMemoryTopicStore,
-	// @deprecated Use `InMemoryTopicStore`. Literal identity re-export, not a
-	// wrapper -- instanceof/=== still hold.
+	/**
+	 * @deprecated Use {@link InMemoryTopicStore}. A literal identity re-export,
+	 * not a wrapper, so `instanceof` and `===` still hold.
+	 */
 	InMemoryTopicStore as InMemoryThreadStore,
 } from './store/topic/memory.js'
 

@@ -1924,5 +1924,14 @@
     "writeMarker",
     "zodErrorToApiError",
     "zodToMCPJsonSchema"
+  ],
+  "deprecated": [
+    "AgentRun",
+    "AgentSession",
+    "HOOK_MAX_CONCURRENT",
+    "InMemoryThreadStore",
+    "MAX_RECENT_ACTIVITIES",
+    "ThreadManager",
+    "generateThreadId"
   ]
 }
