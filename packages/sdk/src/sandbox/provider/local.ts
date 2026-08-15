@@ -1,4 +1,4 @@
-import { execSync, spawn } from 'node:child_process'
+import { execFileSync, execSync, spawn } from 'node:child_process'
 import { realpathSync } from 'node:fs'
 import {
 	readFile as fsReadFile,
@@ -330,6 +330,55 @@ function buildSafeEnv(
 }
 
 // ---------------------------------------------------------------------------
+// Process-tree termination
+// ---------------------------------------------------------------------------
+
+/**
+ * Kill a spawned command and everything IT forked — not just the direct
+ * child pid.
+ *
+ * Every caller here reaches `spawnProcess` through `/bin/sh -c "cmd"` (see
+ * bash.ts), and under this class's own `linux-namespace`/`macos-seatbelt`
+ * isolation tiers that shell is itself wrapped again (`unshare …/sandbox-exec
+ * … -- /bin/sh -c "cmd"`, see `buildLimitedSpawn`). Either way, `child.pid`
+ * names the OUTERMOST wrapper Node spawned, not `cmd` — signalling only that
+ * pid, which is both what `child.kill()` does and what `spawn`'s own
+ * `signal` option does internally on abort, reaps the wrapper and leaves
+ * `cmd`, and anything it forked, running past both a cancel and a timeout.
+ *
+ * POSIX: `spawnProcess` spawns with `detached: true`, which makes the child
+ * the leader of a new process group (pgid === pid) instead of joining this
+ * Node process's own. A negative pid signals that whole group in one call.
+ * Group membership is a host-kernel fact that a fork()'d descendant
+ * inherits from its parent whether or not it — or an ancestor such as
+ * `unshare --pid` — subsequently entered a new PID namespace, so this
+ * reaches `cmd` and its descendants along with the wrapper itself even
+ * under the namespaced isolation tiers.
+ *
+ * Windows has no process-group id to sign a kill with — `process.kill` with
+ * a negative pid there either throws or silently does nothing, depending on
+ * the signal — so there is no equivalent single call. The OS's own
+ * tree-walk, `taskkill /T`, runs instead. Windows also has no soft-vs-forced
+ * distinction the way SIGTERM/SIGKILL do: `child.kill()` there already
+ * terminates unconditionally, so `/F` is passed every time this runs,
+ * including the post-grace call that follows a POSIX SIGTERM — against an
+ * already-dead tree that second call is a deliberate no-op, the same as the
+ * POSIX SIGKILL that follows a SIGTERM which already worked.
+ */
+function killTree(child: ReturnType<typeof spawn>, signal: NodeJS.Signals): void {
+	if (!child.pid) return
+	try {
+		if (process.platform === 'win32') {
+			execFileSync('taskkill', ['/pid', String(child.pid), '/t', '/f'], { stdio: 'ignore' })
+		} else {
+			process.kill(-child.pid, signal)
+		}
+	} catch {
+		// Group (or tree) already gone
+	}
+}
+
+// ---------------------------------------------------------------------------
 // LocalSandbox
 // ---------------------------------------------------------------------------
 
@@ -521,6 +570,12 @@ class LocalSandbox implements Sandbox {
 					env,
 					stdio: ['pipe', 'pipe', 'pipe'],
 					signal,
+					// Leader of its own process group (POSIX only — Windows has
+					// nothing to opt into here), not a member of this Node
+					// process's. That is what lets `killTree` below reach `cmd`
+					// and its descendants with one `-pid` signal instead of only
+					// the shell sitting in front of them.
+					detached: process.platform !== 'win32',
 				})
 			} catch (err) {
 				rejectPromise(err)
@@ -541,16 +596,12 @@ class LocalSandbox implements Sandbox {
 					// timeout would tell the model to retry with a longer
 					// budget for something a human just stopped.
 					timedOut = ac.signal.aborted
-					// Give process a grace period, then SIGKILL
-					if (child.pid) {
-						setTimeout(() => {
-							try {
-								child.kill('SIGKILL')
-							} catch {
-								// Process may have already exited
-							}
-						}, SANDBOX_KILL_GRACE_MS)
-					}
+					// `spawn`'s own `signal` handling already reached `child.pid`
+					// — the outermost wrapper — but that was never the process
+					// this call exists to stop. Reach the whole tree, then give
+					// it a grace period before forcing it.
+					killTree(child, 'SIGTERM')
+					setTimeout(() => killTree(child, 'SIGKILL'), SANDBOX_KILL_GRACE_MS)
 					return
 				}
 				rejectPromise(err)
