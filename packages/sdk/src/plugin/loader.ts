@@ -9,13 +9,21 @@ import {
 import { type PluginManifest, PluginManifestSchema } from '../types/plugin/index.js'
 import { getRootLogger } from '../utils/logger.js'
 
-const logger = getRootLogger().child({ component: 'PluginLoader' })
-
 /**
  * Scans a directory for subdirectories containing a plugin manifest.
  * Returns an array of absolute paths to plugin directories.
  */
 export async function discoverPlugins(parentDir: string): Promise<string[]> {
+	// Resolved here, not at module scope. A module-scope
+	// `getRootLogger().child(...)` ran once, at import time — before any
+	// host's `configureLogger()` call had a chance to run — and `child()`
+	// bakes `minLevel` into the closure `log()` reads from forever after
+	// (`utils/logger.ts`), so whatever level was live at that one moment
+	// was permanent. `configureLogger` replaces the `_rootLogger` binding
+	// rather than mutating the object it points at, so caching the CHILD
+	// (as this loader did) survives no later call at all — including the
+	// CLI's own `configureLogger({ level: 'silent' })`.
+	const logger = getRootLogger().child({ component: 'PluginLoader' })
 	const dirs: string[] = []
 
 	try {
@@ -144,6 +152,9 @@ export async function discoverAllPluginDirs(
 	workingDirectory?: string,
 	options?: PluginDiscoveryOptions,
 ): Promise<{ project: string[]; user: string[] }> {
+	// Resolved here too — see discoverPlugins above for why module scope
+	// froze this logger's level, and its very reference, at import time.
+	const logger = getRootLogger().child({ component: 'PluginLoader' })
 	if (options?.enabled === false || options?.autoDiscovery === false) {
 		logger.debug('Plugin discovery skipped', {
 			enabled: options.enabled,

@@ -7,8 +7,6 @@ import type {
 import { getRootLogger } from '../utils/logger.js'
 import { discoverSkills, loadSkill } from './loader.js'
 
-const logger = getRootLogger().child({ component: 'SkillRegistry' })
-
 export class SkillRegistry {
 	private skills = new Map<string, Skill>()
 
@@ -27,6 +25,16 @@ export class SkillRegistry {
 			results.push(skill)
 		}
 
+		// Resolved here, not at module scope. A module-scope
+		// `getRootLogger().child(...)` ran once, at import time — before any
+		// host's `configureLogger()` call had a chance to run — and `child()`
+		// bakes `minLevel` into the closure `log()` reads from forever after
+		// (`utils/logger.ts`), so whatever level was live at that one moment
+		// was permanent. `configureLogger` replaces the `_rootLogger` binding
+		// rather than mutating the object it points at, so caching the CHILD
+		// (as this registry did) survives no later call at all — including
+		// the CLI's own `configureLogger({ level: 'silent' })`.
+		const logger = getRootLogger().child({ component: 'SkillRegistry' })
 		logger.debug('Registered skills from directory', {
 			parentDir,
 			count: results.length,
@@ -98,6 +106,9 @@ export async function resolveSkillChain(
 
 	const resolved = [...resolvedMap.values()]
 
+	// Resolved here too — see registerAll above for why module scope froze
+	// this logger's level, and its very reference, at import time.
+	const logger = getRootLogger().child({ component: 'SkillRegistry' })
 	logger.debug('Resolved skill chain', {
 		inherited: inherited.map((s) => s.metadata.name),
 		own: own.map((s) => s.metadata.name),
