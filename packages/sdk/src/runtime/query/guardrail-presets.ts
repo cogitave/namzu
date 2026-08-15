@@ -1,3 +1,4 @@
+import { OUTPUT_SECRET_PATTERNS } from '../../constants/secret-patterns.js'
 import type {
 	GuardrailVerdict,
 	NamedGuardrail,
@@ -9,21 +10,17 @@ import type {
 /**
  * Patterns for credentials that must never leave a run.
  *
- * Deliberately narrow and prefix-anchored. A loose "looks like a secret"
- * regex over agent output produces false positives on ordinary code, and a
- * redactor that fires on the wrong thing gets switched off — at which
- * point it protects nothing.
+ * Deliberately narrow and prefix-anchored, unchanged by the move to
+ * `constants/secret-patterns.ts`: a loose "looks like a secret" regex over
+ * agent output produces false positives on ordinary code, and a redactor
+ * that fires on the wrong thing gets switched off — at which point it
+ * protects nothing. The wider, field-name-aware set `provider/errors.ts`
+ * needs lives in the same leaf module as `LOG_SECRET_PATTERNS`; it is not
+ * used here because a false positive on THIS boundary rewrites the
+ * caller's answer, and a false positive there only costs a redacted log
+ * value.
  */
-const SECRET_PATTERNS: ReadonlyArray<readonly [label: string, pattern: RegExp]> = [
-	['aws-access-key', /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g],
-	['github-token', /\bgh[pousr]_[A-Za-z0-9]{36,}\b/g],
-	['openai-key', /\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}\b/g],
-	['anthropic-key', /\bsk-ant-[A-Za-z0-9_-]{20,}\b/g],
-	['slack-token', /\bxox[abprs]-[A-Za-z0-9-]{10,}\b/g],
-	['google-api-key', /\bAIza[0-9A-Za-z_-]{35}\b/g],
-	['private-key-block', /-----BEGIN (?:RSA |EC |OPENSSH |PGP )?PRIVATE KEY-----/g],
-	['jwt', /\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/g],
-]
+const SECRET_PATTERNS = OUTPUT_SECRET_PATTERNS
 
 export interface SecretRedactionOptions {
 	/**

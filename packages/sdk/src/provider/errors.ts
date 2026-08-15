@@ -29,6 +29,7 @@
  *    the failure from the layer that should decide.
  */
 
+import { LOG_SECRET_PATTERNS } from '../constants/secret-patterns.js'
 import type { ProviderErrorKind, ProviderRequestErrorInit } from '../types/provider/error.js'
 export type {
 	ProviderErrorInfo,
@@ -96,15 +97,14 @@ const DETAIL_MAX = 400
  * error body can echo the request, and a request can carry a key. The answer
  * is to scrub what looks like a credential rather than to throw away the
  * sentence that names the broken field.
+ *
+ * The pattern set itself now lives in `constants/secret-patterns.ts`, as
+ * `LOG_SECRET_PATTERNS` — the union of this table and the narrower one
+ * `runtime/query/guardrail-presets.ts` matches model OUTPUT against. A
+ * false positive here only redacts a word out of a diagnostic `detail`
+ * nobody reads as the credential itself, which is why this call site gets
+ * the wider set and the output guardrail does not.
  */
-const SECRET_PATTERNS: readonly RegExp[] = [
-	/\b(?:sk|pk|rk)[-_][A-Za-z0-9_-]{12,}/g,
-	/\bnpm_[A-Za-z0-9]{20,}/g,
-	/\bgh[pousr]_[A-Za-z0-9]{20,}/g,
-	/\bBearer\s+[A-Za-z0-9._~+/-]{12,}=*/gi,
-	/\bAKIA[0-9A-Z]{16}\b/g,
-	/("(?:api[_-]?key|authorization|token|secret|password)"\s*:\s*)"[^"]*"/gi,
-]
 
 /**
  * The provider's own account of what was wrong, safe to log.
@@ -134,10 +134,11 @@ export function vendorDetail(body: unknown): string | undefined {
 
 export function redactSecrets(text: string): string {
 	let out = text
-	for (const pattern of SECRET_PATTERNS) {
-		out = out.replace(pattern, (_match, prefix?: string) =>
-			prefix === undefined ? '[redacted]' : `${prefix}"[redacted]"`,
-		)
+	for (const [label, pattern] of LOG_SECRET_PATTERNS) {
+		// Whole match replaced with the label, never the matched text — same
+		// convention `secretRedactionGuardrail` already uses, so a `[REDACTED:…]`
+		// marker means the same thing wherever it is read.
+		out = out.replace(pattern, `[REDACTED:${label}]`)
 	}
 	return out
 }

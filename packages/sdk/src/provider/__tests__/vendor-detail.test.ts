@@ -75,7 +75,12 @@ describe('a credential never rides along', () => {
 	])('scrubs %s (%s)', (secret) => {
 		const scrubbed = redactSecrets(`upstream rejected token ${secret} for this request`)
 		expect(scrubbed).not.toContain(secret)
-		expect(scrubbed).toContain('[redacted]')
+		// The marker changed from a bare '[redacted]' to a labelled
+		// '[REDACTED:<label>]' when this table moved to the shared union —
+		// see constants/secret-patterns.ts. The label itself is asserted by
+		// that module's own test suite; this one only needs to know a match
+		// happened.
+		expect(scrubbed).toContain('[REDACTED:')
 	})
 
 	it('scrubs a bearer header the vendor echoed back', () => {
@@ -101,7 +106,7 @@ describe('a credential never rides along', () => {
 		})
 
 		expect(err.detail).not.toContain('AbCdEfGhIjKlMnOpQrStUv')
-		expect(err.detail).toContain('[redacted]')
+		expect(err.detail).toContain('[REDACTED:')
 		expect(err.message).not.toContain('AbCdEfGhIjKlMnOpQrStUv')
 	})
 })
