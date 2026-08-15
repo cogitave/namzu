@@ -20,6 +20,7 @@ import type {
 import type { MCPClientId } from '../../types/ids/index.js'
 import { toErrorMessage } from '../../utils/error.js'
 import { generateMCPClientId } from '../../utils/id.js'
+import type { LogAttributes } from '../../utils/log/index.js'
 import { type Logger, getRootLogger } from '../../utils/logger.js'
 import { HttpSseTransport } from './http-sse.js'
 import { StdioTransport } from './stdio.js'
@@ -128,7 +129,10 @@ export class MCPClient {
 				clientId: this.id,
 				serverName: this.config.serverName,
 			})
-			this.log.info(`Connected to MCP server: ${result.serverInfo.name}`)
+			const connectedAttributes: LogAttributes = {
+				'namzu.connector.server.name': result.serverInfo.name,
+			}
+			this.log.info('Connected to MCP server', connectedAttributes)
 
 			return result
 		} catch (err) {

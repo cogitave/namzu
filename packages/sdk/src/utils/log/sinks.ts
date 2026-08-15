@@ -71,11 +71,29 @@ const SEVERITY_LABEL: Record<LogRecord['severityText'], string> = {
 // biome-ignore lint/suspicious/noControlCharactersInRegex: this pattern IS the control-character filter — the escapes below are ASCII text (`\x00`-`\x1F`, `\x7F`), not raw bytes pasted into the source.
 const CONTROL_BYTE = /[\x00-\x1F\x7F]/g
 
+// U+2028 (LINE SEPARATOR) and U+2029 (PARAGRAPH SEPARATOR) are not ASCII
+// control bytes, so CONTROL_BYTE above never matches either — but both are
+// LineTerminator characters to a reader that splits on them, the exact gap
+// jsonLinesSink above documents and closes for its own NDJSON output.
+// `JSON.stringify` does not escape either codepoint, so the attribute half
+// of a record — which reaches this file as already-serialized JSON text,
+// below — can still carry either straight through unescaped. Built via
+// `fromCharCode` and plain `.split()/.join()` rather than a backslash-u
+// escape in a regex literal, for the same reason jsonLinesSink's own
+// separators are: typed directly, either escape risks becoming the raw
+// codepoint again instead of the six characters of escape text, and a raw
+// instance of either inside a regex literal is a LineTerminator to the JS
+// parser itself and fails to compile.
+const LINE_SEPARATOR = String.fromCharCode(0x2028)
+const PARAGRAPH_SEPARATOR = String.fromCharCode(0x2029)
+
 function escapeForDisplay(text: string): string {
-	return text.replace(
-		CONTROL_BYTE,
-		(byte) => `\\x${byte.charCodeAt(0).toString(16).padStart(2, '0')}`,
-	)
+	return text
+		.replace(CONTROL_BYTE, (byte) => `\\x${byte.charCodeAt(0).toString(16).padStart(2, '0')}`)
+		.split(LINE_SEPARATOR)
+		.join('\\u2028')
+		.split(PARAGRAPH_SEPARATOR)
+		.join('\\u2029')
 }
 
 /**
@@ -93,13 +111,20 @@ export function prettySink(stream: NodeJS.WritableStream): LogSink {
 			const scope = escapeForDisplay(record.scope.name)
 			const body = escapeForDisplay(record.body)
 
-			// JSON.stringify already escapes every control byte — ESC (0x1B)
-			// included — inside each attribute value as literal `\uXXXX` text, so
-			// a forged escape sequence carried in an attribute never reaches the
-			// terminal as bytes. Only body/scope above are concatenated raw and
-			// need the separate pass.
+			// JSON.stringify turns every ASCII control byte 0x00-0x1F — ESC
+			// included — into literal `\uXXXX` text inside each attribute value,
+			// but it does not touch DEL (0x7F) or U+2028/U+2029: none of the
+			// three are in JSON's mandatory escape set, so all three used to
+			// reach this stream exactly as JSON.stringify left them — DEL as a
+			// raw byte, U+2028/U+2029 as raw codepoints — the same gap
+			// jsonLinesSink already closed on its own path, just left open
+			// here. Running escapeForDisplay over the already-serialized JSON
+			// text closes it: every OTHER control byte JSON.stringify already
+			// turned into backslash text has no raw byte left for the regex to
+			// match, so this only ever touches the three it left behind.
 			const attributeKeys = Object.keys(record.attributes)
-			const attributes = attributeKeys.length > 0 ? ` ${JSON.stringify(record.attributes)}` : ''
+			const attributes =
+				attributeKeys.length > 0 ? ` ${escapeForDisplay(JSON.stringify(record.attributes))}` : ''
 
 			stream.write(`[${timestamp}] [${level}] [${scope}] ${body}${attributes}\n`)
 		},

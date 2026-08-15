@@ -73,6 +73,7 @@ export {
 	installProcessSink,
 	jsonLinesSink,
 	LevelFilter,
+	LogAttributes,
 	LogRecord,
 	LogSink,
 	LogSinkCounters,

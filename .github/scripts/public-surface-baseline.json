@@ -1050,6 +1050,7 @@
     "LocalTaskGateway",
     "LockAcquireResult",
     "LockId",
+    "LogAttributes",
     "LogRecord",
     "LogSink",
     "LogSinkCounters",

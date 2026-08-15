@@ -11,6 +11,7 @@ export type {
 	Resource,
 	Severity,
 } from './types.js'
+export type { LogAttributes } from './attributes.js'
 export { createLogger, NOOP_LOGGER } from './create-logger.js'
 export { installProcessSink } from './process-sink.js'
 export { jsonLinesSink, NOOP_SINK, prettySink } from './sinks.js'

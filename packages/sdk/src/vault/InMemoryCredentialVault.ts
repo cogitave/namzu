@@ -1,6 +1,7 @@
 import type { AuthConfig, CredentialRef, CredentialVault } from '../types/connector/index.js'
 import type { ConnectorId, CredentialId, TenantId } from '../types/ids/index.js'
 import { generateCredentialId } from '../utils/id.js'
+import type { LogAttributes } from '../utils/log/index.js'
 import { type Logger, getRootLogger } from '../utils/logger.js'
 
 export class InMemoryCredentialVault implements CredentialVault {
@@ -30,7 +31,12 @@ export class InMemoryCredentialVault implements CredentialVault {
 
 		this.refs.set(id, ref)
 		this.secrets.set(id, auth)
-		this.log.info(`Credential stored: ${id} (${label}) for tenant ${tenantId}`)
+		const storedAttributes: LogAttributes = {
+			'namzu.credential.id': id,
+			'namzu.credential.label': label,
+			'namzu.tenant.id': tenantId,
+		}
+		this.log.info('Credential stored', storedAttributes)
 		return ref
 	}
 
@@ -43,7 +49,10 @@ export class InMemoryCredentialVault implements CredentialVault {
 		this.refs.delete(credentialId)
 		this.secrets.delete(credentialId)
 		if (existed) {
-			this.log.info(`Credential revoked: ${credentialId}`)
+			const revokedAttributes: LogAttributes = {
+				'namzu.credential.id': credentialId,
+			}
+			this.log.info('Credential revoked', revokedAttributes)
 		}
 		return existed
 	}
