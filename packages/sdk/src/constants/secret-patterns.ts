@@ -74,12 +74,17 @@ export const OUTPUT_SECRET_PATTERNS: readonly SecretPattern[] = [
  *  - `github-token` uses the wider `{20,}` threshold `provider/errors.ts`
  *    used, not the guardrail's `{36,}` — the union takes the broader of
  *    two disagreeing thresholds for the same vendor, never the narrower.
- *  - `openai-key` and `generic-key` each carry a negative lookahead
- *    excluding the vendor-specific `sk-ant-`/`sk-proj-` shapes that would
- *    otherwise ALSO match a plain `sk-`/`pk-`/`rk-` prefix scan. Without
- *    it, deleting `anthropic-key` would leave an anthropic-shaped key
- *    caught anyway (by `openai-key`, then by `generic-key`), and the
- *    pattern that actually fired would misname what it found.
+ *  - The two broad `sk-`-family entries each carry a negative lookahead
+ *    excluding the `sk-ant-` and `sk-proj-` shapes, which a plain
+ *    `sk-`/`pk-`/`rk-` prefix scan would otherwise ALSO match. Without the
+ *    lookaheads, deleting the narrower entry for one of those shapes leaves a
+ *    value of that shape still caught — by the broad entries, in array order —
+ *    so the redaction succeeds while the label names the wrong issuer.
+ *
+ *    A mislabelled redaction is not a cosmetic problem: the label is what an
+ *    operator greps for when rotating one credential and not another. That is
+ *    also why the mutation check deletes each entry in turn and asserts only
+ *    its own sample breaks.
  */
 export const LOG_SECRET_PATTERNS: readonly SecretPattern[] = [
 	['aws-access-key', /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g],
