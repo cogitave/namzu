@@ -3,6 +3,7 @@ import { promisify } from 'node:util'
 import { z } from 'zod'
 import { DANGEROUS_PATTERNS } from '../../constants/tools/index.js'
 import { defineTool } from '../defineTool.js'
+import { scrubInheritedEnv } from '../env-scrub.js'
 
 const execAsync = promisify(exec)
 // Namzu owns its own bash timeout knob — `NAMZU_BASH_TIMEOUT_MS`.
@@ -206,11 +207,18 @@ export const BashTool = defineTool({
 		// branch above already reports all of it; this branch did not, so the
 		// same command told the model two different amounts depending on where
 		// it happened to run.
+		// The inherited half is scrubbed; `context.env` is not. Inheritance is
+		// implicit — nobody decided this command should see `process.env` — while
+		// a `context.env` key is one a host wrote on purpose. See
+		// `../env-scrub.ts` for why this is a denylist here and an allowlist in
+		// the sandbox, and for what it therefore does not catch.
+		const inherited = scrubInheritedEnv()
+
 		try {
 			const { stdout, stderr } = await execAsync(input.command, {
 				cwd: context.workingDirectory,
 				timeout: input.timeout,
-				env: { ...process.env, ...context.env },
+				env: { ...inherited.env, ...context.env },
 				maxBuffer: DEFAULT_BASH_MAX_BUFFER_BYTES,
 				signal: context.abortSignal,
 			})
@@ -237,7 +245,16 @@ export const BashTool = defineTool({
 			// from "exited 1".
 			const timedOut = failure.killed === true && failure.signal === 'SIGTERM'
 			const exitCode = typeof failure.code === 'number' ? failure.code : undefined
-			const output = formatShellOutput(failure.stdout, failure.stderr)
+			// Only on the failure path. A successful command did not need to know,
+			// and appending this to every result would make the common case noisy
+			// to buy nothing. A failing one is exactly where "authentication
+			// failed" has to be distinguishable from "the variable was withheld".
+			const output = [
+				formatShellOutput(failure.stdout, failure.stderr),
+				describeWithheldEnv(inherited.dropped),
+			]
+				.filter(Boolean)
+				.join('\n\n')
 
 			return {
 				success: false,
@@ -267,6 +284,25 @@ function formatShellOutput(stdout: string | undefined, stderr: string | undefine
 	return [stdout ? `STDOUT:\n${stdout}` : '', stderr ? `STDERR:\n${stderr}` : '']
 		.filter(Boolean)
 		.join('\n\n')
+}
+
+/** How many withheld names to print before summarising the rest. */
+const WITHHELD_ENV_PREVIEW = 10
+
+/**
+ * Name the credential-shaped variables this command did not inherit.
+ *
+ * Names only, never values. A command that failed because it wanted
+ * `FOO_TOKEN` otherwise reports an authentication error pointing nowhere; the
+ * next move — have the host pass it explicitly through `context.env` — is only
+ * available to a reader who knows it was withheld rather than unset.
+ */
+function describeWithheldEnv(dropped: readonly string[]): string {
+	if (dropped.length === 0) return ''
+	const shown = dropped.slice(0, WITHHELD_ENV_PREVIEW).join(', ')
+	const rest = dropped.length - WITHHELD_ENV_PREVIEW
+	const names = rest > 0 ? `${shown}, and ${rest} more` : shown
+	return `NOTE: ${dropped.length} credential-shaped environment variable(s) were withheld from this command and are unset rather than empty: ${names}. A host that means this command to have one passes it explicitly.`
 }
 
 function readPositiveIntEnv(key: string, fallback: number): number {

@@ -135,3 +135,79 @@ describe('a command that runs out of time', () => {
 		expect(result.error).toContain('timed out')
 	}, 20_000)
 })
+
+describe('what the command inherits from the host', () => {
+	// `node -e` rather than `env` or `set`: this suite's commands have to behave
+	// the same under `cmd.exe` and `sh`, and node is the one interpreter both
+	// are guaranteed to reach.
+	const READ = (name: string) => `node -e "console.log(process.env.${name} || 'UNSET')"`
+
+	it('does not hand the model a credential it inherited', async () => {
+		// The defect this closes: the host path spawned with `...process.env`,
+		// so a command that printed its environment returned the operator's
+		// provider keys into a transcript that is persisted and re-sent to the
+		// provider on every later turn of the run.
+		process.env.NAMZU_PROC_FAKE_API_KEY = 'sk-must-not-appear'
+		try {
+			const result = await run({ command: READ('NAMZU_PROC_FAKE_API_KEY') })
+
+			expect(result.success).toBe(true)
+			expect(result.output, 'an inherited credential reached the model').not.toContain(
+				'sk-must-not-appear',
+			)
+			expect(result.output).toContain('UNSET')
+		} finally {
+			delete process.env.NAMZU_PROC_FAKE_API_KEY
+		}
+	})
+
+	it('still inherits the variables a build needs', async () => {
+		// The complement, and the one that fails if the denylist is ever
+		// tightened into an allowlist: withholding everything would pass the
+		// test above while breaking every `pnpm test` an agent runs.
+		process.env.NAMZU_PROC_PLAIN_VAR = 'inherited-ok'
+		try {
+			const result = await run({ command: READ('NAMZU_PROC_PLAIN_VAR') })
+
+			expect(result.output).toContain('inherited-ok')
+		} finally {
+			delete process.env.NAMZU_PROC_PLAIN_VAR
+		}
+	})
+
+	it('lets a host hand over a credential on purpose', async () => {
+		// The asymmetry is the design: inheritance is implicit and therefore
+		// scrubbed, an explicit `context.env` entry is a decision someone made
+		// and is passed through even though its name is credential-shaped.
+		const context = ctx()
+		;(context as { env?: Record<string, string> }).env = { NAMZU_PROC_GIVEN_TOKEN: 'handed-over' }
+
+		const result = await run({ command: READ('NAMZU_PROC_GIVEN_TOKEN') }, context)
+
+		expect(result.output).toContain('handed-over')
+	})
+
+	it('names what it withheld when the command fails', async () => {
+		// A command that wanted the variable otherwise reports an
+		// authentication error pointing nowhere. The note is on the failure
+		// path only, so a successful command is not made noisy to buy nothing.
+		process.env.NAMZU_PROC_WITHHELD_TOKEN = 'nope'
+		try {
+			const failing = await run({ command: 'node -e "process.exit(3)"' })
+			const succeeding = await run({ command: 'echo fine' })
+
+			expect(failing.success).toBe(false)
+			// Asserted on the note rather than on this variable's name: the
+			// preview is the first ten names alphabetically, and a developer
+			// machine with ten credential-shaped variables sorting before `N`
+			// would push this one into the "and N more" tail. A test that only
+			// passes on a tidy environment is a test that fails for whoever has
+			// a busy one.
+			expect(failing.output).toContain('credential-shaped environment variable')
+			expect(failing.output, 'the withheld value was printed').not.toContain('nope')
+			expect(succeeding.output, 'a successful command was made noisy').not.toContain('withheld')
+		} finally {
+			delete process.env.NAMZU_PROC_WITHHELD_TOKEN
+		}
+	})
+})
