@@ -17,6 +17,16 @@
  * where both stores are in scope. Keeping ThreadStore free of cross-store
  * awareness preserves the single-boundary ownership boundary that Phase 2
  * has just introduced for this layer (Convention #0).
+ *
+ * As of NZ-TOPIC-02 (ses_020) there is exactly one implementation of this
+ * interface in the tree: {@link import('../../store/thread/memory.js').InMemoryThreadStore}.
+ * A disk-backed implementation existed and was deleted rather than driven —
+ * `new DiskThreadStore` had no production caller anywhere in the monorepo,
+ * was absent from the public-surface baseline, and had no test coverage; see
+ * the decision record in .work/sessions/ses_020-fit-gap-and-hygiene/README.md
+ * (D3) for the full reasoning. A durable ThreadStore is still owed to the
+ * Topic-layer capability work (fit-gap finding F4) — write the next one
+ * against a real caller and a real test from the start, not ahead of one.
  */
 
 import type { Thread } from '../../types/thread/entity.js'

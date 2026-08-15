@@ -355,8 +355,13 @@ export class DiskSessionStore implements SessionStore {
 	async listSessions(threadId: ThreadId, tenantId: TenantId): Promise<readonly Session[]> {
 		// Walk projects/*/sessions/* and filter on the persisted record. Sessions
 		// don't live under a thread-scoped path in the current layout — the
-		// denormalized `threadId` on every session.json is the authority. Matches
-		// DiskThreadStore.listThreads in scan semantics.
+		// denormalized `threadId` on every session.json is the authority.
+		//
+		// This used to say "matches DiskThreadStore.listThreads in scan
+		// semantics" — that class is gone (NZ-TOPIC-02, ses_020: zero production
+		// callers, never public, no tests). This function's own scan doesn't
+		// change; the comparison just isn't holding anything up anymore, so it's
+		// removed rather than left pointing at a deleted file.
 		//
 		// Cost: O(all sessions across all projects in the root) per call. The
 		// MVP disk store prioritizes simplicity over index freshness, matching
