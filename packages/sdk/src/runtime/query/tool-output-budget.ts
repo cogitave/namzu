@@ -169,15 +169,48 @@ function spill(
 	onError?: (message: string) => void,
 ): string | undefined {
 	try {
-		mkdirSync(dir, { recursive: true })
+		// `0o700` on the directory and `0o600` on the file: a spilled output is
+		// routinely the largest and most sensitive thing a run produces — whole
+		// files, whole command outputs — and the default `0o755`/`0o644` made
+		// every one of them world-readable on a shared host.
+		//
+		// The mode is applied to directories this call CREATES. A spill
+		// directory the host made itself keeps whatever mode the host chose,
+		// which is the host's decision to make and not this function's to
+		// override.
+		mkdirSync(dir, { recursive: true, mode: 0o700 })
 		// The tool_use id is already unique per call and safe as a filename.
 		const path = join(dir, `${toolUseId}.txt`)
-		writeFileSync(path, content, 'utf-8')
+		// `wx`, not the default `w`. `w` creates-or-truncates and FOLLOWS a
+		// symlink, at a path anything that can write to this directory could
+		// predict and pre-plant — so the kernel would overwrite the symlink's
+		// target with content the model chose. `wx` fails with EEXIST instead,
+		// and never follows.
+		//
+		// The property being bought is exclusivity of the open, not
+		// unpredictability of the name: `toolUseId` is already unique per call,
+		// so randomising the filename would add nothing this does not already
+		// have. Do not "improve" it back to a random name and a plain `w` —
+		// that trades a guarantee for a guess.
+		writeFileSync(path, content, { encoding: 'utf-8', flag: 'wx', mode: 0o600 })
 		return path
 	} catch (err) {
 		// A spill failure must never fail the tool call — the model still
 		// gets the preview, just without a path to recover the rest.
-		onError?.(err instanceof Error ? err.message : String(err))
+		//
+		// EEXIST is reported as its own sentence rather than folded into the
+		// generic message, because the two causes lead to opposite next moves:
+		// a stale file from a reused output directory is housekeeping, while
+		// something arriving at a path only this run should know is the case
+		// the exclusive open exists to refuse, and an operator has to be able
+		// to tell them apart from the log line alone.
+		const code = (err as NodeJS.ErrnoException | undefined)?.code
+		const detail = err instanceof Error ? err.message : String(err)
+		onError?.(
+			code === 'EEXIST'
+				? `Refused to overwrite an existing file at the spill path; the output was not retained. ${detail}`
+				: detail,
+		)
 		return undefined
 	}
 }
