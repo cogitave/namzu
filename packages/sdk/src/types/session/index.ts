@@ -4,6 +4,7 @@
 
 export type {
 	ProjectId,
+	/** @deprecated Use `TopicId`. */
 	ThreadId,
 	SubSessionId,
 	HandoffId,

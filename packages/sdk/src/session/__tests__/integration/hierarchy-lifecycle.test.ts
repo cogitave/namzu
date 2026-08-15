@@ -14,7 +14,7 @@ import type { ThreadId } from '../../../types/session/ids.js'
 import { TenantIsolationError } from '../../errors.js'
 import { DEFAULT_TENANT, agentActor, buildHarness, userActor } from './_fixtures.js'
 
-const TEST_THREAD_ID = 'thd_test' as ThreadId
+const TEST_THREAD_ID = 'top_test' as ThreadId
 
 describe('Integration — hierarchy lifecycle', () => {
 	it('creates Tenant → Project → Session → SubSession with properly branded IDs', async () => {

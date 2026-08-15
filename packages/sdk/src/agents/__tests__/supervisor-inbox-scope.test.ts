@@ -91,7 +91,7 @@ async function runOnce(
 			timeoutMs: 30_000,
 			maxIterations: 2,
 			sessionId: 'ses_scope',
-			topicId: 'thd_scope',
+			topicId: 'top_scope',
 			projectId: 'prj_scope',
 			tenantId: 'tnt_scope',
 		} as never,

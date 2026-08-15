@@ -9,7 +9,7 @@
 
 import type { SessionId, TenantId } from '../types/ids/index.js'
 import type { SessionStatus } from '../types/session/entity.js'
-import type { ProjectId, ThreadId } from '../types/session/ids.js'
+import type { ProjectId, TopicId } from '../types/session/ids.js'
 import type { WorkspaceBackendKind } from './workspace/driver.js'
 
 /**
@@ -80,12 +80,12 @@ export class WorkspaceBackendError extends Error {
  */
 export class StaleThreadError extends Error {
 	readonly details: {
-		threadId: ThreadId
+		threadId: TopicId
 		expectedVersion: number
 		actualVersion: number
 	}
 
-	constructor(details: { threadId: ThreadId; expectedVersion: number; actualVersion: number }) {
+	constructor(details: { threadId: TopicId; expectedVersion: number; actualVersion: number }) {
 		super(
 			`Stale Thread ${details.threadId}: expected ownerVersion=${details.expectedVersion}, actual=${details.actualVersion}`,
 		)
@@ -131,11 +131,11 @@ export class StaleSessionError extends Error {
  */
 export class ThreadClosedError extends Error {
 	readonly details: {
-		threadId: ThreadId
+		threadId: TopicId
 		op: string
 	}
 
-	constructor(details: { threadId: ThreadId; op: string }) {
+	constructor(details: { threadId: TopicId; op: string }) {
 		super(`Thread ${details.threadId} is archived; operation '${details.op}' rejected`)
 		this.name = 'ThreadClosedError'
 		this.details = details
@@ -165,7 +165,7 @@ export const THREAD_NOT_EMPTY_SAMPLE_LIMIT = 50
 
 export class ThreadNotEmptyError extends Error {
 	readonly details: {
-		threadId: ThreadId
+		threadId: TopicId
 		tenantId: TenantId
 		op: 'archive' | 'delete'
 		blockingSessions: ReadonlyArray<{ sessionId: SessionId; status: SessionStatus }>
@@ -173,7 +173,7 @@ export class ThreadNotEmptyError extends Error {
 	}
 
 	constructor(details: {
-		threadId: ThreadId
+		threadId: TopicId
 		tenantId: TenantId
 		op: 'archive' | 'delete'
 		blockingSessions: ReadonlyArray<{ sessionId: SessionId; status: SessionStatus }>

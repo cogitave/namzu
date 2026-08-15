@@ -344,24 +344,16 @@ export {
 	/**
 	 * @deprecated Use {@link TopicManager}. A literal identity re-export, not a
 	 * wrapper, so `instanceof` and `===` still hold for callers who have not
-	 * migrated. Removal is a later major per AGENTS.md's deprecate-before-remove
-	 * rule.
-	 *
-	 * JSDoc rather than `//`: the public-surface gate reads
-	 * `symbol.getJsDocTags()`, and a line comment is invisible to it. This one
-	 * WAS a line comment, and the gate's first run reported the alias as an
-	 * ordinary permanent export — marked to a human reader and unmarked to
-	 * every tool.
+	 * migrated. Removal is NZ-TOPIC-05 -- NZ-TOPIC-01 marked it deprecated but
+	 * that release never reached npm, so this major is the first one a consumer
+	 * can actually see the warning in.
 	 */
 	ThreadManager,
 } from './manager/index.js'
 
 export {
 	InMemoryTopicStore,
-	/**
-	 * @deprecated Use {@link InMemoryTopicStore}. A literal identity re-export,
-	 * not a wrapper, so `instanceof` and `===` still hold.
-	 */
+	/** @deprecated Use {@link InMemoryTopicStore}. Removal is NZ-TOPIC-05. */
 	InMemoryTopicStore as InMemoryThreadStore,
 } from './store/topic/memory.js'
 
@@ -607,6 +599,8 @@ export {
 } from './session/intervention/index.js'
 
 export {
+	acceptLegacyContainerId,
+	/** @deprecated Use {@link acceptLegacyContainerId}. Removal is NZ-TOPIC-05. */
 	acceptLegacyThreadId,
 	acquireMigrationLock,
 	DefaultFilesystemMigrator,
@@ -620,6 +614,8 @@ export {
 	NOOP_FILESYSTEM_MIGRATION_SINK,
 	NOOP_MIGRATION_WARNING_SINK,
 	readMarker,
+	rejectLegacyContainerPrefix,
+	/** @deprecated Use {@link rejectLegacyContainerPrefix}. Removal is NZ-TOPIC-05. */
 	rejectLegacyPrefix,
 	releaseMigrationLock,
 	StalePrefixError,

@@ -52,7 +52,7 @@ async function run(
 			agentName: 'Context Agent',
 			workingDirectory: dir,
 			sessionId: 'ses_ctx',
-			topicId: 'thd_ctx',
+			topicId: 'top_ctx',
 			projectId: 'prj_ctx',
 			tenantId: 'tnt_ctx',
 			messages: [createUserMessage('go')],

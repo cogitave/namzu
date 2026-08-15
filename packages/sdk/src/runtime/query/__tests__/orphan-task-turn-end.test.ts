@@ -81,7 +81,7 @@ describe('end of turn with running agent tasks', () => {
 				workingDirectory,
 				taskGateway: orphanTaskGateway(),
 				sessionId: 'ses_orphan_task' as SessionId,
-				topicId: 'thd_orphan_task' as ThreadId,
+				topicId: 'top_orphan_task' as ThreadId,
 				projectId: 'prj_orphan_task' as ProjectId,
 				tenantId: 'tnt_orphan_task' as TenantId,
 			},

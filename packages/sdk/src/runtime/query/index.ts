@@ -78,7 +78,7 @@ import type { PromoteMemory } from '../../types/run/memory-promotion.js'
 import { memoryCandidateFor } from '../../types/run/memory-promotion.js'
 import type { RunStore } from '../../types/run/store.js'
 import type { Sandbox, SandboxProvider } from '../../types/sandbox/index.js'
-import type { ProjectId, ThreadId } from '../../types/session/ids.js'
+import type { ProjectId, TopicId } from '../../types/session/ids.js'
 import type { Skill } from '../../types/skills/index.js'
 import type { StructuredOutputConfig } from '../../types/structured-output/index.js'
 import type { TaskStore } from '../../types/task/index.js'
@@ -415,7 +415,7 @@ export interface QueryParams {
 	 * `sessionId` so the query pipeline never needs a second SessionStore
 	 * round-trip to recover it.
 	 */
-	topicId: ThreadId
+	topicId: TopicId
 
 	/** Long-lived goal scope for the run. Required. */
 	projectId: ProjectId

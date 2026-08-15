@@ -18,7 +18,7 @@ import type { ProjectId, SubSessionId, SummaryId, ThreadId } from '../../../type
 import { TenantIsolationError } from '../../errors.js'
 import { DEFAULT_TENANT, OTHER_TENANT, agentActor, userActor } from './_fixtures.js'
 
-const TEST_THREAD_ID = 'thd_test' as ThreadId
+const TEST_THREAD_ID = 'top_test' as ThreadId
 
 async function seedTenantAResources() {
 	const store = new InMemorySessionStore()

@@ -23,7 +23,7 @@ import { SessionAlreadySummarizedError } from '../../summary/errors.js'
 import { SessionSummaryMaterializer } from '../../summary/materialize.js'
 import { DEFAULT_TENANT, agentActor } from './_fixtures.js'
 
-const TEST_THREAD_ID = 'thd_test' as ThreadId
+const TEST_THREAD_ID = 'top_test' as ThreadId
 
 async function seedActive(store: InMemorySessionStore) {
 	const project = await store.createProject(

@@ -74,7 +74,7 @@ describe('an agent can hand out a shell a single run has to itself', () => {
 			tools: new ToolRegistry(),
 			systemPrompt: 'hold',
 			sessionId: 'ses_fan' as never,
-			topicId: 'thd_fan' as never,
+			topicId: 'top_fan' as never,
 			projectId: 'prj_fan' as never,
 			tenantId: 'tnt_fan' as never,
 		}

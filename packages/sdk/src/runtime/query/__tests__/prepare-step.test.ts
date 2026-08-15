@@ -74,7 +74,7 @@ async function run(opts: {
 		messages: [createUserMessage('do the work')],
 		workingDirectory,
 		sessionId: 'ses_p' as SessionId,
-		topicId: 'thd_p' as ThreadId,
+		topicId: 'top_p' as ThreadId,
 		projectId: 'prj_p' as ProjectId,
 		tenantId: 'tnt_p' as TenantId,
 		...(opts.prepareStep ? { prepareStep: opts.prepareStep } : {}),

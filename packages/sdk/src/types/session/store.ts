@@ -19,7 +19,7 @@ import type {
 import type { SessionSummaryRef } from '../../types/summary/ref.js'
 import type { MessageId, SessionId, TenantId } from '../ids/index.js'
 import type { Message } from '../message/index.js'
-import type { ProjectId, SubSessionId, SummaryId, ThreadId } from '../session/ids.js'
+import type { ProjectId, SubSessionId, SummaryId, TopicId } from '../session/ids.js'
 
 /**
  * Params for {@link SessionStore.createSession}. The store owns id generation,
@@ -34,7 +34,7 @@ import type { ProjectId, SubSessionId, SummaryId, ThreadId } from '../session/id
  * tracks both.
  */
 export interface CreateSessionParams {
-	topicId: ThreadId
+	topicId: TopicId
 	projectId: ProjectId
 	/**
 	 * Initial owner of the session. May be `null` for bootstrap scenarios where
@@ -238,7 +238,7 @@ export interface SessionStore {
 	 * on {@link SessionStore} preserves the store-ownership boundary —
 	 * TopicStore stays unaware of session layout (Convention #0).
 	 */
-	listSessionsByTopic(topicId: ThreadId, tenantId: TenantId): Promise<readonly Session[]>
+	listSessionsByTopic(topicId: TopicId, tenantId: TenantId): Promise<readonly Session[]>
 
 	/**
 	 * Every Session attached to a workspace, oldest first. OPTIONAL.

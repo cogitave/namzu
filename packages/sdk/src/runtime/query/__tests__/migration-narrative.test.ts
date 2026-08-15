@@ -13,7 +13,7 @@ import {
 } from '../../../session/migration/index.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
-import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
+import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import type { LogRecord, LogSink } from '../../../utils/log/index.js'
 import { __resetProcessSinkForTests, installProcessSink } from '../../../utils/log/process-sink.js'
 import { drainQuery } from '../index.js'
@@ -41,7 +41,7 @@ function baseParams(workingDirectory: string, suffix: string) {
 		messages: [createUserMessage('go')],
 		workingDirectory,
 		sessionId: `ses_boot_${suffix}` as SessionId,
-		topicId: `thd_boot_${suffix}` as ThreadId,
+		topicId: `top_boot_${suffix}` as TopicId,
 		projectId: `prj_boot_${suffix}` as ProjectId,
 		tenantId: `tnt_boot_${suffix}` as TenantId,
 	}

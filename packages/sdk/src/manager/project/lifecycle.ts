@@ -2,7 +2,7 @@
  * ProjectManager — open/close a workspace, and the gate the ingress paths read.
  *
  * This is the Thread archival model moved to the level that survives. Thread
- * carried `status` and `ThreadManager.requireOpen`; Project — the thing a
+ * carried `status` and `TopicManager.requireOpen`; Project — the thing a
  * tenant actually owns, configures, and closes — carried nothing, so archiving
  * a workspace meant nothing to the code. See the hierarchy plan.
  *

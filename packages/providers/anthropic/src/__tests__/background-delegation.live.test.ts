@@ -156,7 +156,7 @@ describe.skipIf(!KEY)('a background worker reaches a real supervisor', () => {
 				maxResponseTokens: 1_024,
 			},
 			sessionId: 'ses_live_delegation',
-			topicId: 'thd_live_delegation',
+			topicId: 'top_live_delegation',
 			projectId: 'prj_live_delegation',
 			tenantId: 'tnt_live_delegation',
 		})
@@ -223,7 +223,7 @@ describe.skipIf(!KEY)('a background worker reaches a real supervisor', () => {
 				maxResponseTokens: 1_024,
 			},
 			sessionId: 'ses_live_delegation',
-			topicId: 'thd_live_delegation',
+			topicId: 'top_live_delegation',
 			projectId: 'prj_live_delegation',
 			tenantId: 'tnt_live_delegation',
 		})

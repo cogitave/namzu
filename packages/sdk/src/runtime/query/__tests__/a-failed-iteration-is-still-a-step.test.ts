@@ -71,7 +71,7 @@ function baseParams(provider: MockLLMProvider, tools: ToolRegistry, workingDirec
 		agentName: 'Fail Agent',
 		workingDirectory,
 		sessionId: 'ses_fail' as SessionId,
-		topicId: 'thd_fail' as ThreadId,
+		topicId: 'top_fail' as ThreadId,
 		projectId: 'prj_fail' as ProjectId,
 		tenantId: 'tnt_fail' as TenantId,
 		retry: false as const,

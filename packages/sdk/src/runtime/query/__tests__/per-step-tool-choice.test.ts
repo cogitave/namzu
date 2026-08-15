@@ -64,7 +64,7 @@ async function baseParams(provider: MockLLMProvider, tools: ToolRegistry) {
 		agentName: 'Tool Choice Agent',
 		workingDirectory: await mkWorkdir(),
 		sessionId: 'ses_tc' as SessionId,
-		topicId: 'thd_tc' as ThreadId,
+		topicId: 'top_tc' as ThreadId,
 		projectId: 'prj_tc' as ProjectId,
 		tenantId: 'tnt_tc' as TenantId,
 		messages: [createUserMessage('go')],

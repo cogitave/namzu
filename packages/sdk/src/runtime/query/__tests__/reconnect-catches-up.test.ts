@@ -47,7 +47,7 @@ const SCOPE: RunStateScope = {
 	projectId: 'prj_re' as ProjectId,
 	sessionId: 'ses_re' as SessionId,
 	runId: 'run_re' as RunId,
-	topicId: 'thd_re' as ThreadId,
+	topicId: 'top_re' as ThreadId,
 }
 
 const dirs: string[] = []

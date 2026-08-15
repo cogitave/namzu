@@ -77,7 +77,7 @@ async function harness(): Promise<Harness> {
 			tenantId: 'tnt_r' as TenantId,
 			projectId: 'prj_r' as ProjectId,
 			sessionId: 'ses_r' as SessionId,
-			topicId: 'thd_r' as ThreadId,
+			topicId: 'top_r' as ThreadId,
 			runId: 'run_r' as RunId,
 		},
 	}

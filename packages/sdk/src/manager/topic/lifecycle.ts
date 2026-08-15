@@ -20,19 +20,21 @@
  * interceptor (see `archive` JSDoc for the direct-store-bypass boundary).
  *
  * NZ-TOPIC-01 renamed this class from `ThreadManager` (moved from
- * `manager/thread/lifecycle.ts`). `ThreadManager` keeps working, unaliased —
- * `public-runtime.ts` re-exports it as a literal identity binding to this
- * class, not a wrapper, so `instanceof` and `===` both still hold for a
- * caller who has not migrated. NZ-TOPIC-03 renamed the `threadId`
- * parameter on every method below to `topicId` — the FK-field rename that
- * release deliberately deferred, now landed with its own data migration in
- * `store/session/disk.ts`. `threadStore` (a DI dependency, not the FK)
- * stayed `topicStore` from that same release. The thrown error classes
- * (`ThreadClosedError`/`ThreadNotEmptyError`) are STILL unchanged, and so
- * is their `details.threadId` field — `session/errors.ts` is still not in
- * this task's file list; renaming them with a proper deprecated alias
- * remains a clean follow-up. Constructing one from a `topicId` local below
- * therefore spells the key out (`{ threadId: topicId, ... }`) rather than
+ * `manager/thread/lifecycle.ts`). NZ-TOPIC-04 deleted the `ThreadManager`
+ * alias entirely (see AGENTS.md's deprecate-before-remove note in the
+ * changeset for why a major, not a minor, was the right call here) — the
+ * class only lives under `TopicManager` now. NZ-TOPIC-03 renamed the
+ * `threadId` parameter on every method below to `topicId` — the FK-field
+ * rename that release deliberately deferred, now landed with its own data
+ * migration in `store/session/disk.ts`. `threadStore` (a DI dependency,
+ * not the FK) stayed `topicStore` from that same release. The thrown
+ * error classes (`ThreadClosedError`/`ThreadNotEmptyError`) are STILL
+ * unchanged in name, and so is their `details.threadId` field's NAME —
+ * `session/errors.ts` remains deliberately out of scope for the class and
+ * field renames (a clean follow-up), though NZ-TOPIC-04 did narrow the
+ * TYPE backing that field from `ThreadId` to `TopicId` since the former no
+ * longer exists. Constructing one from a `topicId` local below therefore
+ * still spells the key out (`{ threadId: topicId, ... }`) rather than
  * using shorthand.
  */
 
@@ -43,7 +45,7 @@ import {
 } from '../../session/errors.js'
 import type { TenantId } from '../../types/ids/index.js'
 import type { Session, SessionStatus } from '../../types/session/entity.js'
-import type { ProjectId, ThreadId } from '../../types/session/ids.js'
+import type { ProjectId, TopicId } from '../../types/session/ids.js'
 import type { SessionStore } from '../../types/session/store.js'
 import type { Topic } from '../../types/topic/entity.js'
 import type { CreateTopicParams, TopicStore } from '../../types/topic/store.js'
@@ -84,7 +86,7 @@ export class TopicManager {
 	}
 
 	/** Read a Topic by id; returns `null` when absent for the tenant. */
-	get(topicId: ThreadId, tenantId: TenantId): Promise<Topic | null> {
+	get(topicId: TopicId, tenantId: TenantId): Promise<Topic | null> {
 		return this.deps.topicStore.getTopic(topicId, tenantId)
 	}
 
@@ -111,7 +113,7 @@ export class TopicManager {
 	 * Convention #5: deny-by-default. A missing Topic is a hard error, not a
 	 * silent "assume archived".
 	 */
-	async requireOpen(topicId: ThreadId, tenantId: TenantId): Promise<Topic> {
+	async requireOpen(topicId: TopicId, tenantId: TenantId): Promise<Topic> {
 		const topic = await this.deps.topicStore.getTopic(topicId, tenantId)
 		if (!topic) {
 			throw new Error(`Topic ${topicId} not found`)
@@ -155,7 +157,7 @@ export class TopicManager {
 	 * through the ingress paths; direct store consumers are out of scope
 	 * for the archive invariant.
 	 */
-	async archive(topicId: ThreadId, tenantId: TenantId): Promise<Topic> {
+	async archive(topicId: TopicId, tenantId: TenantId): Promise<Topic> {
 		const topic = await this.deps.topicStore.getTopic(topicId, tenantId)
 		if (!topic) {
 			throw new Error(`Topic ${topicId} not found`)
@@ -209,7 +211,7 @@ export class TopicManager {
 	 * topic + empty session list is a no-op at the store layer. Convention
 	 * #5: deny-by-default; no implicit cascade into SessionStore.
 	 */
-	async delete(topicId: ThreadId, tenantId: TenantId): Promise<void> {
+	async delete(topicId: TopicId, tenantId: TenantId): Promise<void> {
 		const sessions = await this.deps.sessionStore.listSessionsByTopic(topicId, tenantId)
 		if (sessions.length > 0) {
 			throw new ThreadNotEmptyError({

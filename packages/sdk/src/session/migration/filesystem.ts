@@ -2,6 +2,12 @@
  * Boot-time filesystem re-layout — `.namzu/threads/{thd_X}/` →
  * `.namzu/projects/{prj_legacy_<X>}/sessions/ses_legacy_default/runs/...`.
  *
+ * The `thd_X` this module reads off the filesystem is D2 meaning (a), the
+ * pre-0.2.0 top-level container — unrelated to and untouched by
+ * NZ-TOPIC-04's narrowing of the live Topic layer's id to `top_*`. As of
+ * that task `thd_*` means only what this module has always used it to
+ * mean; see `session/migration/id-prefix.ts` for the disambiguation.
+ *
  * Trigger: first {@link RunContextFactory.build} call per process. The
  * factory invokes {@link DefaultFilesystemMigrator.migrate} before resolving
  * any path so legacy runs are never orphaned by the new layout.

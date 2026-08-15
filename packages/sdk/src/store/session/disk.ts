@@ -29,7 +29,7 @@ import type { MessageId, SessionId, TenantId } from '../../types/ids/index.js'
 import type { Message } from '../../types/message/index.js'
 import type { Project, ProjectStatus } from '../../types/project/entity.js'
 import type { Session } from '../../types/session/entity.js'
-import type { ProjectId, SubSessionId, SummaryId, ThreadId } from '../../types/session/ids.js'
+import type { ProjectId, SubSessionId, SummaryId, TopicId } from '../../types/session/ids.js'
 import type { SessionMessage } from '../../types/session/messages.js'
 import type {
 	CreateProjectParams,
@@ -67,9 +67,35 @@ import type { LinkageView } from './linkage.js'
  */
 const SCHEMA = defineSchema({
 	kind: 'session-store',
-	current: 2,
-	migrations: { 1: migrateSessionStoreThreadIdToTopicId },
+	current: 3,
+	migrations: {
+		1: migrateSessionStoreThreadIdToTopicId,
+		2: migrateSessionStoreTopicIdPrefix,
+	},
 })
+
+/**
+ * v2 → v3: NZ-TOPIC-04 narrows the Topic id prefix from `thd_` to `top_`.
+ * The FIELD is already `topicId` (the v1→v2 step above handled that); this
+ * step rewrites only the VALUE, and only when it still carries the old
+ * prefix — a record already at v3, or one that just arrived here via the
+ * v1→v2 step in the same `migrate()` call, has `topicId` starting `top_`
+ * (or `thd_`, freshly renamed from `threadId` — this step runs on it next
+ * in the same pass) either way, and the check below is what makes running
+ * it on an already-correct value a same-object no-op rather than a
+ * needless copy. Same one-function-runs-over-every-kind shape as its
+ * v1→v2 sibling: only `PersistedSession.topicId` is ever `thd_`-prefixed,
+ * so every other kind this schema stamps (project.json, subsession.json,
+ * summary.json, each messages.jsonl line) has no `topicId` key and comes
+ * back untouched.
+ */
+export function migrateSessionStoreTopicIdPrefix(
+	record: Record<string, unknown>,
+): Record<string, unknown> {
+	const topicId = record.topicId
+	if (typeof topicId !== 'string' || !topicId.startsWith('thd_')) return record
+	return { ...record, topicId: `top_${topicId.slice('thd_'.length)}` }
+}
 
 /**
  * v1 → v2: the FK field `session.json` carries to its owning Topic was
@@ -121,7 +147,7 @@ interface PersistedProject {
 
 interface PersistedSession {
 	id: SessionId
-	topicId: ThreadId
+	topicId: TopicId
 	projectId: ProjectId
 	tenantId: TenantId
 	status: Session['status']
@@ -383,7 +409,7 @@ export class DiskSessionStore implements SessionStore {
 		return deserializeSession(raw)
 	}
 
-	async listSessionsByTopic(topicId: ThreadId, tenantId: TenantId): Promise<readonly Session[]> {
+	async listSessionsByTopic(topicId: TopicId, tenantId: TenantId): Promise<readonly Session[]> {
 		// Walk projects/*/sessions/* and filter on the persisted record. Sessions
 		// don't live under a topic-scoped path in the current layout — the
 		// denormalized `topicId` on every session.json is the authority.

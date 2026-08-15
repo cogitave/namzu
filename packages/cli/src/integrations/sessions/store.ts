@@ -19,18 +19,18 @@ import {
 	type ProjectId,
 	type SessionId,
 	type TenantId,
-	type ThreadId,
+	type TopicId,
 	UNKNOWN_TENANT_ID,
 	requireOpenProject,
 } from '@namzu/sdk'
 
 const TENANT = UNKNOWN_TENANT_ID as TenantId
-const THREAD = 'thd_namzu-cli' as ThreadId
+const THREAD = 'top_namzu-cli' as TopicId
 
 export interface CliSessions {
 	readonly store: DiskSessionStore
 	readonly projectId: ProjectId
-	readonly topicId: ThreadId
+	readonly topicId: TopicId
 	readonly tenantId: TenantId
 	/** Absolute path of the cwd's `.namzu` root (where pointers live). */
 	readonly root: string

@@ -18,7 +18,7 @@ export type { PlanEvent, PlanEventListener, PlanApprovalHandler } from './plan/l
 
 export {
 	TopicManager,
-	/** @deprecated Use {@link TopicManager}. Literal identity re-export, not a wrapper -- instanceof/=== still hold. */
+	/** @deprecated Use {@link TopicManager}. Literal identity re-export -- instanceof/=== still hold. Removal is NZ-TOPIC-05. */
 	TopicManager as ThreadManager,
 } from './topic/lifecycle.js'
 export type { TopicManagerDeps } from './topic/lifecycle.js'

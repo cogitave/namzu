@@ -183,7 +183,7 @@ async function fanOut(policy?: SiblingFailurePolicy): Promise<FanOutManager> {
 			timeoutMs: 30_000,
 			maxIterations: 3,
 			sessionId: 'ses_policy',
-			topicId: 'thd_policy',
+			topicId: 'top_policy',
 			projectId: 'prj_policy',
 			tenantId: 'tnt_policy',
 			...(policy ? { siblingFailurePolicy: policy } : {}),

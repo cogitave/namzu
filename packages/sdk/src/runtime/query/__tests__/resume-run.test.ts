@@ -35,7 +35,7 @@ const SCOPE: RunStateScope = {
 	projectId: 'prj_resume' as ProjectId,
 	sessionId: 'ses_resume' as SessionId,
 	runId: 'run_resume' as RunId,
-	topicId: 'thd_resume' as ThreadId,
+	topicId: 'top_resume' as ThreadId,
 }
 
 const ZERO_USAGE = {

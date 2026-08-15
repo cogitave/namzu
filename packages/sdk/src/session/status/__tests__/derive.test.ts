@@ -13,7 +13,7 @@ import { deriveStatus } from '../derive.js'
 
 const tenant = 'tnt_a' as TenantId
 const project = 'prj_a' as ProjectId
-const thread = 'thd_a' as ThreadId
+const thread = 'top_a' as ThreadId
 
 function user(): ActorRef {
 	return { kind: 'user', userId: 'usr_a' as UserId, tenantId: tenant }

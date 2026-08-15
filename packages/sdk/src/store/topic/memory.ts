@@ -17,7 +17,7 @@
 
 import { StaleThreadError, TenantIsolationError } from '../../session/errors.js'
 import type { TenantId } from '../../types/ids/index.js'
-import type { ProjectId, ThreadId } from '../../types/session/ids.js'
+import type { ProjectId, TopicId } from '../../types/session/ids.js'
 import type { Topic } from '../../types/topic/entity.js'
 import type { CreateTopicParams, TopicStore } from '../../types/topic/store.js'
 import { generateTopicId } from '../../utils/id.js'
@@ -28,7 +28,7 @@ interface TopicRecord {
 }
 
 export class InMemoryTopicStore implements TopicStore {
-	private readonly topics = new Map<ThreadId, TopicRecord>()
+	private readonly topics = new Map<TopicId, TopicRecord>()
 
 	async createTopic(params: CreateTopicParams, tenantId: TenantId): Promise<Topic> {
 		const now = new Date()
@@ -46,7 +46,7 @@ export class InMemoryTopicStore implements TopicStore {
 		return topic
 	}
 
-	async getTopic(topicId: ThreadId, tenantId: TenantId): Promise<Topic | null> {
+	async getTopic(topicId: TopicId, tenantId: TenantId): Promise<Topic | null> {
 		const record = this.topics.get(topicId)
 		if (!record) return null
 		this.assertTenant(record.tenantId, tenantId, `topic(${topicId})`)
@@ -85,7 +85,7 @@ export class InMemoryTopicStore implements TopicStore {
 		this.topics.set(topic.id, { tenantId, topic: updated })
 	}
 
-	async deleteTopic(topicId: ThreadId, tenantId: TenantId): Promise<void> {
+	async deleteTopic(topicId: TopicId, tenantId: TenantId): Promise<void> {
 		const record = this.topics.get(topicId)
 		if (!record) return // Idempotent: missing = no-op.
 		this.assertTenant(record.tenantId, tenantId, `topic(${topicId})`)

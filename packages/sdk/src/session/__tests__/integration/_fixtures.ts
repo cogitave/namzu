@@ -32,7 +32,7 @@ import type { AgentId, RunId, SessionId, TenantId, UserId } from '../../../types
 import { createAssistantMessage } from '../../../types/message/index.js'
 import type { ActorRef } from '../../../types/session/actor.js'
 import type { Session } from '../../../types/session/entity.js'
-import type { ProjectId, SummaryId, ThreadId } from '../../../types/session/ids.js'
+import type { ProjectId, SummaryId, TopicId } from '../../../types/session/ids.js'
 import { ZERO_COST } from '../../../utils/cost.js'
 import { DefaultCapacityValidator } from '../../handoff/capacity.js'
 import { SessionSummaryMaterializer } from '../../summary/materialize.js'
@@ -268,7 +268,7 @@ export async function seedActiveParent(
 export function buildTaskContext(params: {
 	sessionId: SessionId
 	projectId: ProjectId
-	topicId: ThreadId
+	topicId: TopicId
 	tenantId: TenantId
 	parentActor: ActorRef
 	depth?: number

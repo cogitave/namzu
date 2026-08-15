@@ -100,7 +100,7 @@ function context(): AgentTaskContext {
 		depth: 0,
 		budgetTracker: { total: 100_000, remaining: 100_000 },
 		tenantId: 'tnt_t' as TenantId,
-		topicId: 'thd_t' as ThreadId,
+		topicId: 'top_t' as ThreadId,
 		sessionId: 'ses_t' as SessionId,
 		projectId: 'prj_t' as ProjectId,
 		parentActor: { kind: 'agent', agentId: 'supervisor' as AgentId, tenantId: 'tnt_t' as TenantId },

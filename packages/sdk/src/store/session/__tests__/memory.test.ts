@@ -3,11 +3,11 @@ import { TenantIsolationError } from '../../../session/errors.js'
 import type { AgentId, SessionId, TenantId, UserId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { ActorRef } from '../../../types/session/actor.js'
-import type { ThreadId } from '../../../types/session/ids.js'
+import type { TopicId } from '../../../types/session/ids.js'
 import type { SubSession } from '../../../types/session/sub-session.js'
 import { InMemorySessionStore } from '../memory.js'
 
-const TEST_THREAD_ID = 'thd_test' as ThreadId
+const TEST_THREAD_ID = 'top_test' as TopicId
 
 function userActor(tenantId: TenantId): ActorRef {
 	return { kind: 'user', userId: 'usr_a' as UserId, tenantId }
@@ -329,8 +329,8 @@ describe('InMemorySessionStore', () => {
 	})
 
 	describe('listSessions(topicId, tenantId)', () => {
-		const threadX = 'thd_x' as ThreadId
-		const threadY = 'thd_y' as ThreadId
+		const threadX = 'top_x' as TopicId
+		const threadY = 'top_y' as TopicId
 
 		it('returns [] when the thread has no sessions', async () => {
 			const store = new InMemorySessionStore()

@@ -13,7 +13,7 @@ import type { CheckpointRunScope, CheckpointStore } from '../../types/run/checkp
 import type { EmergencySaveData } from '../../types/run/emergency.js'
 import type { Run, RunPersistenceConfig, StepResult, StopReason } from '../../types/run/index.js'
 import type { RunStore } from '../../types/run/store.js'
-import type { ProjectId, ThreadId } from '../../types/session/ids.js'
+import type { ProjectId, TopicId } from '../../types/session/ids.js'
 import {
 	type ModelPricing,
 	ZERO_COST,
@@ -48,7 +48,7 @@ export class RunPersistence {
 	private _lastPromptMessageCount?: number
 	private log: Logger
 	private readonly _sessionId: SessionId
-	private readonly _topicId: ThreadId
+	private readonly _topicId: TopicId
 	private readonly _tenantId: TenantId
 	private readonly _projectId: ProjectId
 
@@ -122,7 +122,7 @@ export class RunPersistence {
 		return this._sessionId
 	}
 
-	get topicId(): ThreadId {
+	get topicId(): TopicId {
 		return this._topicId
 	}
 

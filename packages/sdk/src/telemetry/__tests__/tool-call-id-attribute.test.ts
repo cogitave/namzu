@@ -175,7 +175,7 @@ describe('the tool span carries the id of the call it is about', () => {
 			agentName: 'Call Id Agent',
 			workingDirectory: dir,
 			sessionId: 'ses_callid',
-			topicId: 'thd_callid',
+			topicId: 'top_callid',
 			projectId: 'prj_callid',
 			tenantId: 'tnt_callid',
 			messages: [createUserMessage('go')],

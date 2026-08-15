@@ -106,7 +106,7 @@ function baseParams(
 		agentName: 'Test Agent',
 		workingDirectory,
 		sessionId: 'ses_prov' as SessionId,
-		topicId: 'thd_prov' as ThreadId,
+		topicId: 'top_prov' as ThreadId,
 		projectId: 'prj_prov' as ProjectId,
 		tenantId: 'tnt_prov' as TenantId,
 		// Every failure below is on a code the retry decorator declines, so this

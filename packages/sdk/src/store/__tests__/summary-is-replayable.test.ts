@@ -10,7 +10,7 @@ import { drainQuery } from '../../runtime/query/index.js'
 import type { SessionId, TenantId } from '../../types/ids/index.js'
 import { createUserMessage } from '../../types/message/index.js'
 import { replayRun } from '../../types/run/audit.js'
-import type { ProjectId, ThreadId } from '../../types/session/ids.js'
+import type { ProjectId, TopicId } from '../../types/session/ids.js'
 import { InMemoryRunStore } from '../run/memory.js'
 
 /**
@@ -55,7 +55,7 @@ describe("a completed run's audit trail replays to its own summary", () => {
 				messages: [createUserMessage('hello')],
 				workingDirectory,
 				sessionId: 'ses_replay' as SessionId,
-				topicId: 'thd_replay' as ThreadId,
+				topicId: 'top_replay' as TopicId,
 				projectId: 'prj_replay' as ProjectId,
 				tenantId: 'tnt_replay' as TenantId,
 				runStore,

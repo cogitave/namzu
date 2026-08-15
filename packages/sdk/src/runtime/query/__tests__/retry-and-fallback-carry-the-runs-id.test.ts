@@ -74,7 +74,7 @@ function baseParams(workingDirectory: string) {
 		agentName: 'Correlated Agent',
 		workingDirectory,
 		sessionId: 'ses_correlated' as SessionId,
-		topicId: 'thd_correlated' as ThreadId,
+		topicId: 'top_correlated' as ThreadId,
 		projectId: 'prj_correlated' as ProjectId,
 		tenantId: 'tnt_correlated' as TenantId,
 		retry: { maxRetries: 1, initialDelayMs: 1, maxDelayMs: 1 },

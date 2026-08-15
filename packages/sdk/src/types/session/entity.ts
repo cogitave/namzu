@@ -1,6 +1,6 @@
 import type { SessionId, TenantId } from '../ids/index.js'
 import type { ActorRef } from './actor.js'
-import type { ProjectId, ThreadId, WorkspaceId } from './ids.js'
+import type { ProjectId, TopicId, WorkspaceId } from './ids.js'
 
 /**
  * Session lifecycle states. See session-hierarchy.md §4.3 and the state
@@ -48,7 +48,7 @@ export type SessionStatus =
  */
 export interface Session {
 	id: SessionId
-	topicId: ThreadId
+	topicId: TopicId
 	projectId: ProjectId
 	tenantId: TenantId
 	status: SessionStatus

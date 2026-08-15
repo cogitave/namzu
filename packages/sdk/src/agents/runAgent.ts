@@ -1,6 +1,6 @@
 import { ToolRegistry } from '../registry/tool/execute.js'
 import { drainQuery } from '../runtime/query/index.js'
-import type { ProjectId, SessionId, TenantId, ThreadId } from '../types/ids/index.js'
+import type { ProjectId, SessionId, TenantId, TopicId } from '../types/ids/index.js'
 import type { Message } from '../types/message/index.js'
 import type { LLMProvider, ReasoningEffort, ThinkingConfig } from '../types/provider/index.js'
 import type { Run, RunEventListener } from '../types/run/index.js'
@@ -35,7 +35,7 @@ import {
  */
 export interface AgentIdentity {
 	sessionId?: SessionId
-	topicId?: ThreadId
+	topicId?: TopicId
 	projectId?: ProjectId
 	tenantId?: TenantId
 }

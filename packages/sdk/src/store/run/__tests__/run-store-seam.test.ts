@@ -32,7 +32,7 @@ function persistence(runStore?: InMemoryRunStore) {
 		outputDir: '/namzu-nonexistent-should-never-be-written',
 		log: LOG,
 		sessionId: 'ses_seam',
-		topicId: 'thd_seam',
+		topicId: 'top_seam',
 		projectId: 'prj_seam',
 		tenantId: 'tnt_seam',
 		...(runStore ? { runStore } : {}),

@@ -3,7 +3,11 @@
 // See session-hierarchy.md §13.3.1 (ID prefix) + §13.4.1 (filesystem).
 
 export {
+	acceptLegacyContainerId,
+	/** @deprecated Use `acceptLegacyContainerId`. */
 	acceptLegacyThreadId,
+	rejectLegacyContainerPrefix,
+	/** @deprecated Use `rejectLegacyContainerPrefix`. */
 	rejectLegacyPrefix,
 	NOOP_MIGRATION_WARNING_SINK,
 	StalePrefixError,

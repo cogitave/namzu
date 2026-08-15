@@ -75,7 +75,7 @@ function baseParams(opts: {
 		agentName: 'Seam',
 		workingDirectory: opts.dir,
 		sessionId: 'ses_seam' as SessionId,
-		topicId: 'thd_seam' as ThreadId,
+		topicId: 'top_seam' as ThreadId,
 		projectId: 'prj_seam' as ProjectId,
 		tenantId: 'tnt_seam' as TenantId,
 	}

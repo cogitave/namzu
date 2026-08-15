@@ -54,15 +54,32 @@ export type KnowledgeBaseRef = `kbs_${string}`
 // five-layer hierarchy (Project → Thread → Session → SubSession → Run). The
 // `types/session/ids.ts` barrel re-exports these for co-location ergonomics.
 export type ProjectId = `prj_${string}`
-export type ThreadId = `thd_${string}`
 /**
- * NZ-TOPIC-01: alias introduced so the Topic layer (renamed from Thread) has
- * its own nameable id type. Structurally identical to {@link ThreadId} this
- * release -- both mean `thd_${string}` -- because the on-disk id prefix is
- * unchanged; NZ-TOPIC-04 is the task that narrows the runtime prefix to
- * `top_` and turns this into a real distinction.
+ * NZ-TOPIC-04: narrowed from the NZ-TOPIC-01 alias `type TopicId = ThreadId`
+ * (both `thd_${string}`) to its own prefix. `thd_` from here on means only
+ * the pre-0.2.0 top-level container (`session/migration/id-prefix.ts`,
+ * `session/migration/filesystem.ts`) -- a meaning `ThreadId` never carried;
+ * it was purely the deprecated name for THIS type. Deleted rather than
+ * repurposed to mean the legacy container instead: a name whose meaning
+ * silently changes under unmigrated callers is worse than a name that is
+ * gone (Convention #0, no silent long-lived compat).
  */
-export type TopicId = ThreadId
+export type TopicId = `top_${string}`
+/**
+ * @deprecated Use {@link TopicId}. Removal is NZ-TOPIC-05.
+ *
+ * NZ-TOPIC-01 introduced `TopicId` as an alias OF this name; NZ-TOPIC-04
+ * reverses the direction. So this alias now follows `TopicId` to the `top_`
+ * prefix instead of keeping `thd_` — a consumer still compiling against the
+ * old name gets the new prefix, which is exactly what the major announces.
+ *
+ * It is kept rather than deleted because the deprecation NZ-TOPIC-01 wrote
+ * has never reached a registry: `@namzu/sdk` on npm is 27.1.0, and the
+ * changeset that would publish it is still unconsumed in `.changeset/`. A
+ * removal here would be a rename with no alias wearing a major's clothes.
+ * This release is the one that carries the warning; the next may remove it.
+ */
+export type ThreadId = TopicId
 export type SubSessionId = `sub_${string}`
 export type HandoffId = `hof_${string}`
 export type WorkspaceId = `wsp_${string}`

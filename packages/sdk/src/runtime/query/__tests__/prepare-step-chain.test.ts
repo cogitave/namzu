@@ -47,7 +47,7 @@ async function run(prepareStep: PrepareStepChain) {
 		messages: [createUserMessage('do the work')],
 		workingDirectory,
 		sessionId: 'ses_c' as SessionId,
-		topicId: 'thd_c' as ThreadId,
+		topicId: 'top_c' as ThreadId,
 		projectId: 'prj_c' as ProjectId,
 		tenantId: 'tnt_c' as TenantId,
 		prepareStep,

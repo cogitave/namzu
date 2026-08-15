@@ -50,9 +50,9 @@ import {
 	type TaskGateway,
 	type TaskStore,
 	type TenantId,
-	type ThreadId,
 	type ToolCallSummary,
 	ToolRegistry,
+	type TopicId,
 	type VerificationRule,
 	buildMemoryTools,
 	createMemoryPromoter,
@@ -1370,7 +1370,7 @@ export async function listProviderModels(
 
 export interface RunScope {
 	sessionId: SessionId
-	readonly topicId: ThreadId
+	readonly topicId: TopicId
 	readonly projectId: ProjectId
 	readonly tenantId: TenantId
 }
@@ -1380,7 +1380,7 @@ function mintScope(): RunScope {
 	const suffix = `tui-${Date.now().toString(36)}`
 	return {
 		sessionId: `ses_${suffix}`,
-		topicId: `thd_${suffix}`,
+		topicId: `top_${suffix}`,
 		projectId: `prj_${suffix}`,
 		tenantId: `tnt_${suffix}`,
 	}

@@ -61,7 +61,7 @@ const SCOPE: RunStateScope = {
 	projectId: 'prj_pause' as ProjectId,
 	sessionId: 'ses_pause' as SessionId,
 	runId: 'run_pause' as RunId,
-	topicId: 'thd_pause' as ThreadId,
+	topicId: 'top_pause' as ThreadId,
 }
 
 const PAUSE = {

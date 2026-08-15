@@ -24,7 +24,7 @@ async function seed(): Promise<{ store: InMemorySessionStore; session: Session }
 	const store = new InMemorySessionStore()
 	const project = await store.createProject({ tenantId: TENANT, name: 'cas' }, TENANT)
 	const session = await store.createSession(
-		{ topicId: 'thd_cas' as never, projectId: project.id, currentActor: null },
+		{ topicId: 'top_cas' as never, projectId: project.id, currentActor: null },
 		TENANT,
 	)
 	return { store, session }

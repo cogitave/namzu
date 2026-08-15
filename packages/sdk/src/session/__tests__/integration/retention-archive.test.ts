@@ -23,7 +23,7 @@ import { DiskArchiveBackend } from '../../retention/disk-backend.js'
 import { WorkspaceBackendRegistry } from '../../workspace/registry.js'
 import { DEFAULT_TENANT, agentActor, userActor } from './_fixtures.js'
 
-const TEST_THREAD_ID = 'thd_test' as ThreadId
+const TEST_THREAD_ID = 'top_test' as ThreadId
 
 async function seedIdleSubSession(store: InMemorySessionStore) {
 	const project = await store.createProject(

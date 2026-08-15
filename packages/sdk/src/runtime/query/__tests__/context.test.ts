@@ -8,7 +8,7 @@ import { posix } from '../../../test-support/paths.js'
 import type { RunId, SessionId, TenantId } from '../../../types/ids/index.js'
 import type { LLMProvider } from '../../../types/provider/index.js'
 import type { AgentRunConfig } from '../../../types/run/index.js'
-import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
+import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { type LogRecord, type LogSink, createLogger } from '../../../utils/log/index.js'
 import { __resetProcessSinkForTests, installProcessSink } from '../../../utils/log/process-sink.js'
 import { RunContextFactory } from '../context.js'
@@ -23,7 +23,7 @@ function mockProvider(): LLMProvider {
 
 function buildConfig(overrides: Partial<Parameters<typeof RunContextFactory.build>[0]> = {}) {
 	const sessionId = 'ses_test' as SessionId
-	const topicId = 'thd_test' as ThreadId
+	const topicId = 'top_test' as TopicId
 	const projectId = 'prj_test' as ProjectId
 	const tenantId = 'tnt_test' as TenantId
 	const runConfig: AgentRunConfig = {

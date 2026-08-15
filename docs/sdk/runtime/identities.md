@@ -18,7 +18,7 @@ For `ReactiveAgent.run()` and the kernel spawn path, four fields matter most:
 | --- | --- | --- |
 | `tenantId` | Isolation boundary between organizations, users, or workspaces | Reused across all work for the same tenant |
 | `projectId` | Long-lived folder-bound goal scope | Reused across many threads, sessions, and runs |
-| `threadId` | Topic- or objective-level grouping key | Reused across many sessions for one line-of-work |
+| `topicId` | Topic- or objective-level grouping key | Reused across many sessions for one line-of-work |
 | `sessionId` | One immediate working session inside a thread | Reused across one interactive session or task burst |
 
 If any of these is missing, the runtime throws before starting the run.
@@ -29,7 +29,7 @@ These IDs drive real behavior:
 
 - `tenantId` protects isolation boundaries
 - `projectId` gives the runtime a durable project scope, bound to a folder in local mode
-- `threadId` groups many sessions under one line-of-work. It is **not** what an A2A connection attaches to — that is `projectId` (see [A2A Context](../sessions/a2a-threading.md))
+- `topicId` groups many sessions under one line-of-work. It is **not** what an A2A connection attaches to — that is `projectId` (see [A2A Context](../sessions/a2a-threading.md))
 - `sessionId` groups immediate run activity under one active session
 
 Without them, state and persistence would collapse into anonymous runs, which breaks the hierarchy-aware architecture.
@@ -41,7 +41,7 @@ The SDK exports generator helpers so applications do not need to handcraft ID st
 ```ts
 import {
   generateProjectId,
-  generateThreadId,
+  generateTopicId,
   generateSessionId,
   generateTenantId,
   generateRunId,
@@ -49,7 +49,7 @@ import {
 
 const tenantId = generateTenantId()
 const projectId = generateProjectId()
-const threadId = generateThreadId()
+const topicId = generateTopicId()
 const sessionId = generateSessionId()
 const runId = generateRunId()
 ```
@@ -60,7 +60,7 @@ const runId = generateRunId()
 | --- | --- | --- |
 | `generateTenantId()` | `tnt_` | Tenant scope |
 | `generateProjectId()` | `prj_` | Project scope (folder-bound) |
-| `generateThreadId()` | `thd_` | Thread scope (topic/objective) |
+| `generateTopicId()` | `top_` | Topic scope (objective/line-of-work) |
 | `generateSessionId()` | `ses_` | Session scope |
 | `generateRunId()` | `run_` | Run records |
 | `generateMessageId()` | `msg_` | Message records |
@@ -76,9 +76,9 @@ Use this rule of thumb:
 
 - keep `tenantId` stable for one tenant
 - keep `projectId` stable for one folder-bound goal or repository
-- keep `threadId` stable while working on the same topic or objective
+- keep `topicId` stable while working on the same topic or objective
 - keep `sessionId` stable while a user is continuing the same active working session
-- create a new `threadId` when the topic changes (new objective, new line-of-work)
+- create a new `topicId` when the topic changes (new objective, new line-of-work)
 - create a new `sessionId` when you intentionally start a fresh session under the same thread
 
 A typical application maps them like this:
@@ -87,7 +87,7 @@ A typical application maps them like this:
 | --- | --- |
 | organization or workspace | `tenantId` |
 | repository, workspace folder, long-running assistant goal | `projectId` |
-| issue, ticket, objective, line-of-work | `threadId` |
+| issue, ticket, objective, line-of-work | `topicId` |
 | current chat tab, active coding session, temporary execution thread | `sessionId` |
 
 ## 6. Minimal Example
@@ -99,7 +99,7 @@ import {
   generateProjectId,
   generateSessionId,
   generateTenantId,
-  generateThreadId,
+  generateTopicId,
 } from '@namzu/sdk'
 
 const agent = new ReactiveAgent({
@@ -124,7 +124,7 @@ const result = await agent.run(
     timeoutMs: 60_000,
     tenantId: generateTenantId(),
     projectId: generateProjectId(),
-    threadId: generateThreadId(),
+    topicId: generateTopicId(),
     sessionId: generateSessionId(),
   },
 )
@@ -141,7 +141,7 @@ What remains true is smaller and worth stating plainly:
 - **Project** is folder-bound, and it is the A2A sharing boundary. A peer holding a `contextId` holds a Project.
 - **Thread** is a path-independent grouping key over sessions. It owns no message stream, no status, no participant set and no directory of its own.
 
-So use `threadId` when you want to group sessions by topic or objective and query them back. Do not reach for it as an isolation or sharing boundary — it is not one. If one peer should see part of a workspace and not the rest, give it a separate Project.
+So use `topicId` when you want to group sessions by topic or objective and query them back. Do not reach for it as an isolation or sharing boundary — it is not one. If one peer should see part of a workspace and not the rest, give it a separate Project.
 
 The layer's future is under discussion; see section 4 of [A2A Context](../sessions/a2a-threading.md). Nothing has been deprecated, and a "default" thread per project remains fine.
 
@@ -152,8 +152,8 @@ The layer's future is under discussion; see section 4 of [A2A Context](../sessio
 | generating a new `projectId` on every single message | breaks long-lived project grouping |
 | reusing one `sessionId` forever | collapses separate active sessions into one lineage |
 | using one `tenantId` for every user or customer | removes meaningful isolation boundaries |
-| treating `threadId` as disposable or optional | loses the topic-level grouping you would otherwise query back |
-| expecting `threadId` to scope what an A2A peer can see | it does not — `projectId` is the A2A boundary |
+| treating `topicId` as disposable or optional | loses the topic-level grouping you would otherwise query back |
+| expecting `topicId` to scope what an A2A peer can see | it does not — `projectId` is the A2A boundary |
 | hardcoding raw strings without validation | makes ID drift and debugging harder |
 
 ## 9. App-Level Recommendation
@@ -162,7 +162,7 @@ If your application already has durable IDs, map them once and keep them stable:
 
 - map your workspace or org ID to `tenantId`
 - map your repository or folder ID to `projectId`
-- map your issue, ticket, or objective ID to `threadId`
+- map your issue, ticket, or objective ID to `topicId`
 - map your active chat/session UI instance to `sessionId`
 
 Only use generator helpers when you do not already have a durable identity model.

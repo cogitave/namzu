@@ -4,7 +4,7 @@ import type { ResumeHandler } from '../hitl/index.js'
 import type { RunId, SessionId, TaskId, TenantId } from '../ids/index.js'
 import type { Message } from '../message/index.js'
 import type { RunEventListener } from '../run/events.js'
-import type { ProjectId, ThreadId } from '../session/ids.js'
+import type { ProjectId, TopicId } from '../session/ids.js'
 import type { AgentInput, BaseAgentConfig, BaseAgentResult } from './base.js'
 import type { Agent } from './core.js'
 import type { AgentFactoryOptions } from './factory.js'
@@ -68,7 +68,7 @@ export interface AgentTaskContext {
 	 * parent's `topicId` verbatim; cross-topic spawn is forbidden by design
 	 * (a delegated sub-agent stays on the same topic).
 	 */
-	topicId: ThreadId
+	topicId: TopicId
 
 	/**
 	 * Parent session under which any sub-agent spawn is recorded. Required

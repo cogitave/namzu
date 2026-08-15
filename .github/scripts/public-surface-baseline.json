@@ -297,6 +297,7 @@
     "ZERO_COST",
     "a2aMessageToCreateRun",
     "a2aMessageToInput",
+    "acceptLegacyContainerId",
     "acceptLegacyThreadId",
     "accumulateCost",
     "accumulateTokenUsage",
@@ -531,6 +532,7 @@
     "recordTokenUsage",
     "recordToolCall",
     "registerMock",
+    "rejectLegacyContainerPrefix",
     "rejectLegacyPrefix",
     "releaseMigrationLock",
     "releaseRun",
@@ -1630,6 +1632,7 @@
     "ZodToJsonSchema",
     "a2aMessageToCreateRun",
     "a2aMessageToInput",
+    "acceptLegacyContainerId",
     "acceptLegacyThreadId",
     "accumulateCost",
     "accumulateTokenUsage",
@@ -1869,6 +1872,7 @@
     "recordTokenUsage",
     "recordToolCall",
     "registerMock",
+    "rejectLegacyContainerPrefix",
     "rejectLegacyPrefix",
     "releaseMigrationLock",
     "releaseRun",
@@ -1931,7 +1935,10 @@
     "HOOK_MAX_CONCURRENT",
     "InMemoryThreadStore",
     "MAX_RECENT_ACTIVITIES",
+    "ThreadId",
     "ThreadManager",
-    "generateThreadId"
+    "acceptLegacyThreadId",
+    "generateThreadId",
+    "rejectLegacyPrefix"
   ]
 }

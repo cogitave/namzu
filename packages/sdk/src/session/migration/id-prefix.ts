@@ -1,18 +1,30 @@
 /**
- * ID-prefix migration window — read-side compat for legacy `thd_*` IDs.
+ * ID-prefix migration window — read-side compat for the pre-0.2.0 top-level
+ * `thd_*` container id (D2 meaning (a), ses_020). NZ-TOPIC-04 narrowed the
+ * Topic layer's own id (D2 meaning (b)) to `top_*`, so as of this release
+ * `thd_*` means ONLY the legacy container everywhere in this codebase — see
+ * `types/ids/index.ts` for where the two meanings used to collide.
  *
- * Consumers that touch raw legacy IDs (filesystem migrator, wire decoders,
- * CLI imports) route through {@link acceptLegacyThreadId} so the warning
- * signal is structured rather than ad-hoc console output (Convention #18).
+ * Consumers that touch raw legacy container IDs (the filesystem migrator,
+ * wire decoders, CLI imports) route through {@link acceptLegacyContainerId}
+ * so the warning signal is structured rather than ad-hoc console output
+ * (Convention #18).
  *
  * | Window state | Reader accepts      | Writer emits | Legacy read behaviour         |
  * |--------------|---------------------|--------------|-------------------------------|
  * | OPEN (now)   | `thd_*` AND `prj_*` | `prj_*` only | emits `MigrationWarning` once |
  * | CLOSED       | `prj_*` only        | `prj_*` only | rejects `StalePrefixError`    |
  *
- * The {@link WINDOW_OPEN} constant is the single switch that flips this
- * module from soft-accept to hard-reject. Convention #0: no silent
- * long-lived compat — the window is explicit and fails closed when closed.
+ * The {@link WINDOW_OPEN} constant is the module-level default for
+ * {@link acceptLegacyContainerId}'s `windowOpen` parameter — the single
+ * knob that flips this module from soft-accept to hard-reject in
+ * production. The writer guard {@link rejectLegacyContainerPrefix} has no
+ * such fork: a writer must never emit `thd_*` in EITHER window state (see
+ * the table's Writer column, unchanged across both rows), so it takes no
+ * `windowOpen` parameter at all — one would be unused, which is its own
+ * failure mode (a-check-that-cannot-fail, applied to an argument no less
+ * than to a branch). Convention #0: no silent long-lived compat — the
+ * window is explicit and fails closed when closed.
  */
 
 import type { ProjectId } from '../../types/session/ids.js'
@@ -58,7 +70,7 @@ export class StalePrefixError extends Error {
 	constructor(details: { rawId: string; kind: 'thd_rejected' | 'unknown_prefix' }) {
 		const reason =
 			details.kind === 'thd_rejected'
-				? `Stale ThreadId prefix '${details.rawId.slice(0, 4)}…' — run 'namzu sdk migrate-ids' before 0.3.0`
+				? `Stale legacy container id prefix '${details.rawId.slice(0, 4)}…' — run 'namzu sdk migrate-ids' before 0.3.0`
 				: `Unknown ID prefix '${details.rawId.slice(0, 4)}…' — expected 'prj_' or 'thd_'`
 		super(reason)
 		this.name = 'StalePrefixError'
@@ -80,25 +92,34 @@ export const WINDOW_OPEN = true
 const seenLegacy = new Set<string>()
 
 /**
- * Accept-on-read for legacy `thd_*` IDs during the 0.2.x window.
+ * Accept-on-read for legacy container `thd_*` IDs during the 0.2.x window.
  *
  * Contract:
  *  - `prj_*` inputs return as-is; no warning emitted.
  *  - `thd_*` inputs normalize to `prj_<suffix>` and emit a single
  *    {@link MigrationWarning} per distinct input string per process.
- *  - Everything else throws {@link StalePrefixError}.
- *  - When {@link WINDOW_OPEN} flips to `false`, the `thd_*` branch throws
- *    too — single knob, single commit.
+ *  - Everything else (including a live `top_*` Topic id — NZ-TOPIC-04)
+ *    throws {@link StalePrefixError} with `kind: 'unknown_prefix'}`.
+ *  - `windowOpen` (default {@link WINDOW_OPEN}) is an explicit parameter
+ *    rather than a read of the module constant so the CLOSED branch below
+ *    is reachable from a test without mutating shared module state
+ *    (a-check-that-cannot-fail). When `false`, the `thd_*` branch throws
+ *    too — single knob, single commit, now also a single argument a test
+ *    can flip per-call.
  *
  * Testing hook: {@link __resetSeenLegacyForTests} clears the dedup Set so
  * each test starts with a clean emission history.
  */
-export function acceptLegacyThreadId(raw: string, sink: MigrationWarningSink): ProjectId {
+export function acceptLegacyContainerId(
+	raw: string,
+	sink: MigrationWarningSink,
+	windowOpen: boolean = WINDOW_OPEN,
+): ProjectId {
 	if (raw.startsWith('prj_')) {
 		return raw as ProjectId
 	}
 	if (raw.startsWith('thd_')) {
-		if (!WINDOW_OPEN) {
+		if (!windowOpen) {
 			throw new StalePrefixError({ rawId: raw, kind: 'thd_rejected' })
 		}
 		const normalized = `prj_${raw.slice('thd_'.length)}` as ProjectId
@@ -118,13 +139,16 @@ export function acceptLegacyThreadId(raw: string, sink: MigrationWarningSink): P
 }
 
 /**
- * Writer guard: reject emission of `thd_*` at encode time. Phase 1's
- * {@link generateProjectId} already emits `prj_*` only; this helper exists
- * so write paths that handle raw strings (e.g. synthesis during filesystem
- * migration) can fail fast on accidental legacy re-emission. Convention #0:
- * no silent back-sliding to the old prefix.
+ * Writer guard: reject emission of a legacy container `thd_*` id at encode
+ * time. Phase 1's {@link generateProjectId} already emits `prj_*` only;
+ * this helper exists so write paths that handle raw strings (e.g.
+ * synthesis during filesystem migration) can fail fast on accidental
+ * legacy re-emission. No `windowOpen` parameter — unlike the reader above,
+ * this guard's outcome does not fork on migration-window state; a writer
+ * must never emit `thd_*` in either window (see the module header's
+ * Writer column). Convention #0: no silent back-sliding to the old prefix.
  */
-export function rejectLegacyPrefix(id: string): void {
+export function rejectLegacyContainerPrefix(id: string): void {
 	if (id.startsWith('thd_')) {
 		throw new StalePrefixError({ rawId: id, kind: 'thd_rejected' })
 	}
@@ -132,10 +156,23 @@ export function rejectLegacyPrefix(id: string): void {
 
 /**
  * Test-only: clear the process-level dedup Set so subsequent
- * {@link acceptLegacyThreadId} calls emit warnings again. Production code
+ * {@link acceptLegacyContainerId} calls emit warnings again. Production code
  * must never call this — the whole point is one warning per distinct
  * legacy id per process.
  */
+/**
+ * @deprecated Use {@link acceptLegacyContainerId}. Removal is NZ-TOPIC-05.
+ *
+ * The rename is the whole point of NZ-TOPIC-04 — `thd_` meant both the
+ * pre-0.2.0 top-level container this coerces and the live Topic layer, and
+ * only this function's NAME said which. The alias exists so the rename
+ * reaches a consumer as a warning first.
+ */
+export const acceptLegacyThreadId = acceptLegacyContainerId
+
+/** @deprecated Use {@link rejectLegacyContainerPrefix}. Removal is NZ-TOPIC-05. */
+export const rejectLegacyPrefix = rejectLegacyContainerPrefix
+
 export function __resetSeenLegacyForTests(): void {
 	seenLegacy.clear()
 }

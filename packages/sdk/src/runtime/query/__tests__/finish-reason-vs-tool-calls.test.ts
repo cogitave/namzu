@@ -120,7 +120,7 @@ async function run(reported: 'stop' | 'tool_calls') {
 		agentName: 'Test Agent',
 		workingDirectory: await mkWorkdir(),
 		sessionId: 'ses_finish' as SessionId,
-		topicId: 'thd_finish' as ThreadId,
+		topicId: 'top_finish' as ThreadId,
 		projectId: 'prj_finish' as ProjectId,
 		tenantId: 'tnt_finish' as TenantId,
 	})
@@ -195,7 +195,7 @@ describe('a provider that says stop while asking for a tool', () => {
 			agentName: 'Test Agent',
 			workingDirectory: await mkWorkdir(),
 			sessionId: 'ses_plain' as SessionId,
-			topicId: 'thd_plain' as ThreadId,
+			topicId: 'top_plain' as ThreadId,
 			projectId: 'prj_plain' as ProjectId,
 			tenantId: 'tnt_plain' as TenantId,
 		})

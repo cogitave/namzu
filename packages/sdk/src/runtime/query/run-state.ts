@@ -2,7 +2,7 @@ import type { RunPersistence } from '../../manager/run/persistence.js'
 import type { CheckpointId, IterationCheckpoint } from '../../types/hitl/index.js'
 import type { CheckpointRunScope, CheckpointStore } from '../../types/run/checkpoint-store.js'
 import { RUN_STATE_VERSION, type RunState } from '../../types/run/state.js'
-import type { ThreadId } from '../../types/session/ids.js'
+import type { TopicId } from '../../types/session/ids.js'
 import { findPendingCheckpoint } from './checkpoint.js'
 
 /**
@@ -17,7 +17,7 @@ import { findPendingCheckpoint } from './checkpoint.js'
  * and less clearly.
  */
 export interface RunStateScope extends CheckpointRunScope {
-	topicId: ThreadId
+	topicId: TopicId
 }
 
 /**

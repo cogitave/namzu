@@ -2,7 +2,7 @@ import type { ModelPricing } from '../../utils/cost.js'
 import type { Logger } from '../../utils/logger.js'
 import type { RunId, SessionId, TenantId } from '../ids/index.js'
 import type { PermissionMode } from '../permission/index.js'
-import type { ProjectId, ThreadId } from '../session/ids.js'
+import type { ProjectId, TopicId } from '../session/ids.js'
 import type { CheckpointStore } from './checkpoint-store.js'
 
 export interface AgentRunConfig {
@@ -136,7 +136,7 @@ export interface RunPersistenceConfig {
 	log: Logger
 
 	sessionId: SessionId
-	topicId: ThreadId
+	topicId: TopicId
 	tenantId: TenantId
 	projectId: ProjectId
 

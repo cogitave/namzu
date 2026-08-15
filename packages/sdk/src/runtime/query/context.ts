@@ -18,7 +18,7 @@ import type { LLMProvider } from '../../types/provider/index.js'
 import type { CheckpointStore } from '../../types/run/checkpoint-store.js'
 import type { AgentRunConfig } from '../../types/run/index.js'
 import type { RunStore } from '../../types/run/store.js'
-import type { ProjectId, ThreadId } from '../../types/session/ids.js'
+import type { ProjectId, TopicId } from '../../types/session/ids.js'
 import type { ModelPricing } from '../../utils/cost.js'
 import { generateRunId } from '../../utils/id.js'
 import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
@@ -58,7 +58,7 @@ export interface RunContextConfig {
 	signal?: AbortSignal
 
 	sessionId: SessionId
-	topicId: ThreadId
+	topicId: TopicId
 	projectId: ProjectId
 	tenantId: TenantId
 
@@ -95,7 +95,7 @@ export interface RunContextConfig {
 export interface RunContext {
 	runId: RunId
 	sessionId: SessionId
-	topicId: ThreadId
+	topicId: TopicId
 	projectId: ProjectId
 	tenantId: TenantId
 	runMgr: RunPersistence

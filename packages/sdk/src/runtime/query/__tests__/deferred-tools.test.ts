@@ -68,7 +68,7 @@ describe('query deferred tool discovery', () => {
 			messages: [createUserMessage('what tools can you use?')],
 			workingDirectory,
 			sessionId: 'ses_deferred_tools' as SessionId,
-			topicId: 'thd_deferred_tools' as ThreadId,
+			topicId: 'top_deferred_tools' as ThreadId,
 			projectId: 'prj_deferred_tools' as ProjectId,
 			tenantId: 'tnt_deferred_tools' as TenantId,
 		})
@@ -120,7 +120,7 @@ describe('query deferred tool discovery', () => {
 			messages: [createUserMessage('generate D-01')],
 			workingDirectory,
 			sessionId: 'ses_deferred_allowed_tools' as SessionId,
-			topicId: 'thd_deferred_allowed_tools' as ThreadId,
+			topicId: 'top_deferred_allowed_tools' as ThreadId,
 			projectId: 'prj_deferred_allowed_tools' as ProjectId,
 			tenantId: 'tnt_deferred_allowed_tools' as TenantId,
 		})

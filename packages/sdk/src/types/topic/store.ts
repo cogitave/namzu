@@ -28,7 +28,7 @@
 
 import type { Topic } from '../../types/topic/entity.js'
 import type { TenantId } from '../ids/index.js'
-import type { ProjectId, ThreadId } from '../session/ids.js'
+import type { ProjectId, TopicId } from '../session/ids.js'
 
 /**
  * Params for {@link TopicStore.createTopic}. The store owns id generation,
@@ -64,7 +64,7 @@ export interface TopicStore {
 	 * Read a Topic by id. Returns `null` when absent. Cross-tenant reads
 	 * reject with `TenantIsolationError`.
 	 */
-	getTopic(topicId: ThreadId, tenantId: TenantId): Promise<Topic | null>
+	getTopic(topicId: TopicId, tenantId: TenantId): Promise<Topic | null>
 
 	/**
 	 * Persist a mutation to a Topic record. CAS on `ownerVersion`: if the
@@ -87,7 +87,7 @@ export interface TopicStore {
 	 * TopicManager) enforces the precondition that no Sessions reference
 	 * this topic. Convention #5: deny-by-default, no implicit cascade.
 	 */
-	deleteTopic(topicId: ThreadId, tenantId: TenantId): Promise<void>
+	deleteTopic(topicId: TopicId, tenantId: TenantId): Promise<void>
 
 	/**
 	 * List all Topics under a project for the given tenant, ordered by

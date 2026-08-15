@@ -120,7 +120,7 @@ async function runOnce(turns: { text?: string }[]): Promise<void> {
 		agentName: 'Chat Span Agent',
 		workingDirectory: dir,
 		sessionId: 'ses_cs',
-		topicId: 'thd_cs',
+		topicId: 'top_cs',
 		projectId: 'prj_cs',
 		tenantId: 'tnt_cs',
 		messages: [createUserMessage('go')],

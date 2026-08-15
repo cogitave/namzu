@@ -149,7 +149,7 @@ describe('a completion delivered on the way out leaves the answer readable', () 
 				maxResponseTokens: 256,
 			},
 			sessionId: 'ses_answer' as SessionId,
-			topicId: 'thd_answer' as ThreadId,
+			topicId: 'top_answer' as ThreadId,
 			projectId: 'prj_answer' as ProjectId,
 			tenantId: 'tnt_answer' as TenantId,
 		})

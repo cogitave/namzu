@@ -6,8 +6,9 @@
  * unknown prefixes via {@link StalePrefixError}.
  *
  * Orthogonal to `session/migration/__tests__/id-prefix.test.ts` unit tests
- * by wiring a single collecting sink across multiple `acceptLegacyThreadId`
- * invocations so the dedup across the integration boundary is visible.
+ * by wiring a single collecting sink across multiple
+ * `acceptLegacyContainerId` invocations so the dedup across the integration
+ * boundary is visible.
  */
 
 import { beforeEach, describe, expect, it } from 'vitest'
@@ -17,7 +18,7 @@ import {
 	type MigrationWarningSink,
 	StalePrefixError,
 	__resetSeenLegacyForTests,
-	acceptLegacyThreadId,
+	acceptLegacyContainerId,
 } from '../../migration/id-prefix.js'
 
 function collectingSink(): { emitted: MigrationWarning[]; sink: MigrationWarningSink } {
@@ -37,9 +38,9 @@ describe('Integration — ID-prefix migration window', () => {
 		__resetSeenLegacyForTests()
 	})
 
-	it('acceptLegacyThreadId("thd_abc") coerces to prj_abc and emits warning once', () => {
+	it('acceptLegacyContainerId("thd_abc") coerces to prj_abc and emits warning once', () => {
 		const { emitted, sink } = collectingSink()
-		const result = acceptLegacyThreadId('thd_abc', sink)
+		const result = acceptLegacyContainerId('thd_abc', sink)
 
 		expect(result).toBe('prj_abc' as ProjectId)
 		expect(emitted).toHaveLength(1)
@@ -51,36 +52,47 @@ describe('Integration — ID-prefix migration window', () => {
 
 	it('second call with same id → no duplicate warning (process-level dedup)', () => {
 		const { emitted, sink } = collectingSink()
-		acceptLegacyThreadId('thd_abc', sink)
-		acceptLegacyThreadId('thd_abc', sink)
-		acceptLegacyThreadId('thd_abc', sink)
+		acceptLegacyContainerId('thd_abc', sink)
+		acceptLegacyContainerId('thd_abc', sink)
+		acceptLegacyContainerId('thd_abc', sink)
 		expect(emitted).toHaveLength(1)
 	})
 
 	it('distinct legacy ids emit distinct warnings', () => {
 		const { emitted, sink } = collectingSink()
-		acceptLegacyThreadId('thd_abc', sink)
-		acceptLegacyThreadId('thd_xyz', sink)
-		acceptLegacyThreadId('thd_abc', sink) // dedup, no emission
+		acceptLegacyContainerId('thd_abc', sink)
+		acceptLegacyContainerId('thd_xyz', sink)
+		acceptLegacyContainerId('thd_abc', sink) // dedup, no emission
 		expect(emitted).toHaveLength(2)
 		expect(emitted.map((w) => w.legacyId).sort()).toEqual(['thd_abc', 'thd_xyz'])
 	})
 
-	it('acceptLegacyThreadId("prj_abc") returns as-is with no warning', () => {
+	it('acceptLegacyContainerId("prj_abc") returns as-is with no warning', () => {
 		const { emitted, sink } = collectingSink()
-		const result = acceptLegacyThreadId('prj_abc', sink)
+		const result = acceptLegacyContainerId('prj_abc', sink)
 		expect(result).toBe('prj_abc' as ProjectId)
 		expect(emitted).toHaveLength(0)
 	})
 
-	it('acceptLegacyThreadId("xyz_abc") rejects with StalePrefixError (unknown_prefix)', () => {
+	it('acceptLegacyContainerId("xyz_abc") rejects with StalePrefixError (unknown_prefix)', () => {
 		const { sink } = collectingSink()
 		try {
-			acceptLegacyThreadId('xyz_abc', sink)
+			acceptLegacyContainerId('xyz_abc', sink)
 			expect.fail('expected StalePrefixError')
 		} catch (err) {
 			expect(err).toBeInstanceOf(StalePrefixError)
 			expect((err as StalePrefixError).details.rawId).toBe('xyz_abc')
+			expect((err as StalePrefixError).details.kind).toBe('unknown_prefix')
+		}
+	})
+
+	it('acceptLegacyContainerId("top_abc") rejects as unknown_prefix, not coerced (NZ-TOPIC-04)', () => {
+		const { sink } = collectingSink()
+		try {
+			acceptLegacyContainerId('top_abc', sink)
+			expect.fail('expected StalePrefixError')
+		} catch (err) {
+			expect(err).toBeInstanceOf(StalePrefixError)
 			expect((err as StalePrefixError).details.kind).toBe('unknown_prefix')
 		}
 	})
@@ -92,10 +104,10 @@ describe('Integration — ID-prefix migration window', () => {
 		const sinkA = collectingSink()
 		const sinkB = collectingSink()
 
-		acceptLegacyThreadId('thd_shared', sinkA.sink)
+		acceptLegacyContainerId('thd_shared', sinkA.sink)
 		expect(sinkA.emitted).toHaveLength(1)
 
-		acceptLegacyThreadId('thd_shared', sinkB.sink)
+		acceptLegacyContainerId('thd_shared', sinkB.sink)
 		expect(sinkB.emitted).toHaveLength(0) // process-wide dedup
 	})
 })

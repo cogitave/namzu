@@ -66,7 +66,7 @@ async function baseConfig(provider: MockLLMProvider, tools: ToolRegistry) {
 			provider,
 			tools,
 			sessionId: 'ses_r' as SessionId,
-			topicId: 'thd_r' as ThreadId,
+			topicId: 'top_r' as ThreadId,
 			projectId: 'prj_r' as ProjectId,
 			tenantId: 'tnt_r' as TenantId,
 		} satisfies ReactiveAgentConfig,

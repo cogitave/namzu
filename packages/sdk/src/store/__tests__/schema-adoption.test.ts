@@ -5,10 +5,14 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 
-import type { ProjectId, SessionId, TenantId, ThreadId, UserId } from '../../types/ids/index.js'
+import type { ProjectId, SessionId, TenantId, TopicId, UserId } from '../../types/ids/index.js'
 import { createUserMessage } from '../../types/message/index.js'
 import type { ActorRef } from '../../types/session/actor.js'
-import { DiskSessionStore, migrateSessionStoreThreadIdToTopicId } from '../session/disk.js'
+import {
+	DiskSessionStore,
+	migrateSessionStoreThreadIdToTopicId,
+	migrateSessionStoreTopicIdPrefix,
+} from '../session/disk.js'
 
 /**
  * The primitive is unit-tested next door. What matters here is that a store
@@ -17,7 +21,7 @@ import { DiskSessionStore, migrateSessionStoreThreadIdToTopicId } from '../sessi
  */
 
 const TENANT = 'tnt_schema' as TenantId
-const THREAD = 'thd_schema' as ThreadId
+const TOPIC = 'top_schema' as TopicId
 
 const actor = (): ActorRef => ({ kind: 'user', userId: 'usr_a' as UserId, tenantId: TENANT })
 
@@ -36,7 +40,7 @@ afterEach(() => {
 async function seed(): Promise<{ projectId: ProjectId; sessionId: SessionId }> {
 	const project = await store.createProject({ tenantId: TENANT, name: 'p' }, TENANT)
 	const session = await store.createSession(
-		{ topicId: THREAD, projectId: project.id, currentActor: actor() },
+		{ topicId: TOPIC, projectId: project.id, currentActor: actor() },
 		TENANT,
 	)
 	return { projectId: project.id, sessionId: session.id }
@@ -49,10 +53,10 @@ describe('what lands on disk', () => {
 	it('stamps a session record', async () => {
 		const { projectId, sessionId } = await seed()
 		const raw = JSON.parse(await readFile(sessionPath(projectId, sessionId), 'utf-8'))
-		// v2 as of NZ-TOPIC-03 — the `threadId` → `topicId` rename bumped the
-		// shared session-store schema, so every record this build writes now
-		// carries the current stamp, not the one the mechanism launched with.
-		expect(raw.schemaVersion).toBe(2)
+		// v3 as of NZ-TOPIC-04 — the `thd_` -> `top_` prefix narrowing bumped the
+		// shared session-store schema again, so every record this build writes
+		// now carries the current stamp, not the one NZ-TOPIC-03 left it at.
+		expect(raw.schemaVersion).toBe(3)
 	})
 
 	it('stamps every line of the append-only message log', async () => {
@@ -68,7 +72,7 @@ describe('what lands on disk', () => {
 		expect(lines).toHaveLength(2)
 		// An append-only log is written by many builds over its lifetime, so
 		// its lines can legitimately differ in version — each carries its own.
-		for (const line of lines) expect(JSON.parse(line).schemaVersion).toBe(2)
+		for (const line of lines) expect(JSON.parse(line).schemaVersion).toBe(3)
 	})
 })
 
@@ -128,11 +132,14 @@ describe('threadId → topicId (NZ-TOPIC-03, v1→v2)', () => {
 		const dir = join(rootDir, 'projects', project.id, 'sessions', sessionId)
 		await mkdir(dir, { recursive: true })
 		// Exactly what every session.json on a user's disk looks like before
-		// this release: unstamped (schemaVersion absent, so version 1 by
-		// `store/schema.ts`'s own definition) and spelled `threadId`.
+		// NZ-TOPIC-03: unstamped (schemaVersion absent, so version 1 by
+		// `store/schema.ts`'s own definition) and spelled `threadId`. Also
+		// still `thd_`-valued, which is exactly what a real pre-TOPIC-03 file
+		// would be (TOPIC-04's `top_` narrowing did not exist yet either) — so
+		// this record legitimately chains through BOTH migration steps below.
 		const legacy = {
 			id: sessionId,
-			threadId: THREAD,
+			threadId: 'thd_legacy',
 			projectId: project.id,
 			tenantId: TENANT,
 			status: 'idle',
@@ -147,10 +154,12 @@ describe('threadId → topicId (NZ-TOPIC-03, v1→v2)', () => {
 
 		const loaded = await store.getSession(sessionId, TENANT)
 		expect(loaded).not.toBeNull()
-		expect((loaded as unknown as { topicId?: unknown })?.topicId).toBe(THREAD)
+		// v1 chains straight through v1->v2 (rename) AND v2->v3 (top_ rewrite)
+		// in the same migrate() call — a record this old was never `top_` and
+		// must not still read back `thd_`.
+		expect((loaded as unknown as { topicId?: unknown })?.topicId).toBe('top_legacy')
 		// `deserializeSession` only ever reads `topicId` off the persisted
-		// record now, so this is really asserting the migration ran at all —
-		// without it `topicId` above reads `undefined`, not `THREAD`.
+		// record now, so this is really asserting the migration ran at all.
 		expect((loaded as unknown as { threadId?: unknown })?.threadId).toBeUndefined()
 	})
 
@@ -164,7 +173,7 @@ describe('threadId → topicId (NZ-TOPIC-03, v1→v2)', () => {
 		await mkdir(dir, { recursive: true })
 		const legacy = {
 			id: sessionId,
-			threadId: THREAD,
+			threadId: 'thd_legacy2',
 			projectId: project.id,
 			tenantId: TENANT,
 			status: 'idle',
@@ -182,8 +191,8 @@ describe('threadId → topicId (NZ-TOPIC-03, v1→v2)', () => {
 		await store.updateSession({ ...loaded, status: 'active' }, TENANT)
 
 		const rewritten = JSON.parse(await readFile(join(dir, 'session.json'), 'utf-8'))
-		expect(rewritten.schemaVersion).toBe(2)
-		expect(rewritten.topicId).toBe(THREAD)
+		expect(rewritten.schemaVersion).toBe(3)
+		expect(rewritten.topicId).toBe('top_legacy2')
 		expect(rewritten.threadId).toBeUndefined()
 	})
 
@@ -198,8 +207,7 @@ describe('threadId → topicId (NZ-TOPIC-03, v1→v2)', () => {
 		// record.threadId` implementation (no presence check) would add a
 		// `topicId: undefined` own-property to a record that never had the
 		// key. `toEqual` treats an undefined-valued extra property as no
-		// difference; `toStrictEqual` does not, which is the whole reason
-		// this assertion is able to fail at all.
+		// difference; `toStrictEqual` does not.
 		const messageLine = {
 			id: 'msg_x',
 			sessionId: 'ses_x',
@@ -218,17 +226,107 @@ describe('threadId → topicId (NZ-TOPIC-03, v1→v2)', () => {
 	it('migrateSessionStoreThreadIdToTopicId renames threadId and removes it when present', () => {
 		const legacySession = {
 			id: 'ses_x',
-			threadId: THREAD,
+			threadId: 'thd_x',
 			projectId: 'prj_x',
 			tenantId: TENANT,
 		}
 		const migrated = migrateSessionStoreThreadIdToTopicId({ ...legacySession })
 		expect(migrated).toStrictEqual({
 			id: 'ses_x',
-			topicId: THREAD,
+			topicId: 'thd_x',
 			projectId: 'prj_x',
 			tenantId: TENANT,
 		})
 		expect('threadId' in migrated).toBe(false)
+	})
+})
+
+describe('topicId thd_ → top_ prefix (NZ-TOPIC-04, v2→v3)', () => {
+	it('migrates a v2 session.json whose topicId still carries the thd_ prefix', async () => {
+		const project = await store.createProject({ tenantId: TENANT, name: 'p' }, TENANT)
+		const sessionId = 'ses_v2legacy' as SessionId
+		const dir = join(rootDir, 'projects', project.id, 'sessions', sessionId)
+		await mkdir(dir, { recursive: true })
+		// Exactly what NZ-TOPIC-03 alone (pre-NZ-TOPIC-04) wrote: field already
+		// renamed to `topicId`, value still `thd_`-prefixed, stamped v2.
+		const v2Record = {
+			id: sessionId,
+			topicId: 'thd_v2',
+			projectId: project.id,
+			tenantId: TENANT,
+			status: 'idle',
+			currentActor: null,
+			previousActors: [],
+			workspaceId: null,
+			ownerVersion: 0,
+			createdAt: new Date().toISOString(),
+			updatedAt: new Date().toISOString(),
+			schemaVersion: 2,
+		}
+		await writeFile(join(dir, 'session.json'), JSON.stringify(v2Record), 'utf-8')
+
+		const loaded = await store.getSession(sessionId, TENANT)
+		expect(loaded).not.toBeNull()
+		expect((loaded as unknown as { topicId?: unknown })?.topicId).toBe('top_v2')
+	})
+
+	it('running the migration a second time is a no-op: file bytes are unchanged because a read never writes', async () => {
+		const project = await store.createProject({ tenantId: TENANT, name: 'p' }, TENANT)
+		const sessionId = 'ses_v2idem' as SessionId
+		const dir = join(rootDir, 'projects', project.id, 'sessions', sessionId)
+		await mkdir(dir, { recursive: true })
+		const v2Record = {
+			id: sessionId,
+			topicId: 'thd_idem',
+			projectId: project.id,
+			tenantId: TENANT,
+			status: 'idle',
+			currentActor: null,
+			previousActors: [],
+			workspaceId: null,
+			ownerVersion: 0,
+			createdAt: new Date().toISOString(),
+			updatedAt: new Date().toISOString(),
+			schemaVersion: 2,
+		}
+		const path = join(dir, 'session.json')
+		const raw = JSON.stringify(v2Record)
+		await writeFile(path, raw, 'utf-8')
+
+		await store.getSession(sessionId, TENANT)
+		const afterFirstRead = await readFile(path, 'utf-8')
+		await store.getSession(sessionId, TENANT)
+		const afterSecondRead = await readFile(path, 'utf-8')
+
+		// Unlike `filesystem.ts`'s marker-gated boot migration, this migration
+		// is a lazy per-record read: nothing writes, so "run it twice" cannot
+		// double-prefix a value even in principle. Both reads leave the exact
+		// pre-migration bytes on disk (still `thd_idem` — only the in-memory
+		// return value is migrated), and the two reads agree with each other.
+		expect(afterFirstRead).toBe(raw)
+		expect(afterSecondRead).toBe(raw)
+	})
+
+	it('migrateSessionStoreTopicIdPrefix leaves a record with no topicId untouched (same reference)', () => {
+		const projectLine = { id: 'prj_x', tenantId: TENANT, name: 'p' }
+		expect(migrateSessionStoreTopicIdPrefix(projectLine)).toBe(projectLine)
+	})
+
+	it('migrateSessionStoreTopicIdPrefix leaves an already top_-prefixed topicId untouched (same reference, no double-rewrite)', () => {
+		const record = { id: 'ses_x', topicId: 'top_already', tenantId: TENANT }
+		// Reference equality, not just value equality: proves the no-op branch
+		// returns the SAME object rather than a fresh shallow copy.
+		expect(migrateSessionStoreTopicIdPrefix(record)).toBe(record)
+	})
+
+	it('migrateSessionStoreTopicIdPrefix rewrites a thd_-prefixed topicId to top_ and nothing else', () => {
+		const record = { id: 'ses_x', topicId: 'thd_rewrite', tenantId: TENANT, extra: 'kept' }
+		const migrated = migrateSessionStoreTopicIdPrefix({ ...record })
+		expect(migrated).toStrictEqual({
+			id: 'ses_x',
+			topicId: 'top_rewrite',
+			tenantId: TENANT,
+			extra: 'kept',
+		})
 	})
 })

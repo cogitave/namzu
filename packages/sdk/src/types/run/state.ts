@@ -2,7 +2,7 @@ import type { AgentStatus, CostInfo, TokenUsage } from '../common/index.js'
 import type { CheckpointId, PendingDecision } from '../hitl/index.js'
 import type { RunId, SessionId, TenantId } from '../ids/index.js'
 import type { Message } from '../message/index.js'
-import type { ProjectId, ThreadId } from '../session/ids.js'
+import type { ProjectId, TopicId } from '../session/ids.js'
 import type { StopReason } from './stop-reason.js'
 
 /**
@@ -26,16 +26,19 @@ import type { StopReason } from './stop-reason.js'
 export interface RunState {
 	/**
 	 * Schema version. A v1 snapshot (the pre-NZ-TOPIC-03 shape — `threadId`
-	 * instead of `topicId`) is coerced forward by {@link parseRunState}; any
-	 * other unrecognized version is refused with a clear failure rather than
-	 * a partial restore, because silently dropping fields this build does
-	 * not know about is the outcome worth failing loudly to avoid.
+	 * instead of `topicId`) and a v2 snapshot (the shape between NZ-TOPIC-03
+	 * and NZ-TOPIC-04 — `topicId` already the field name, but its value can
+	 * still carry the pre-narrowing `thd_` prefix) are both coerced forward
+	 * by {@link parseRunState}; any other unrecognized version is refused
+	 * with a clear failure rather than a partial restore, because silently
+	 * dropping fields this build does not know about is the outcome worth
+	 * failing loudly to avoid.
 	 */
-	readonly version: 2
+	readonly version: 3
 
 	readonly runId: RunId
 	readonly sessionId: SessionId
-	readonly topicId: ThreadId
+	readonly topicId: TopicId
 	readonly projectId: ProjectId
 	readonly tenantId: TenantId
 	/** Present for sub-runs, so a hierarchical store can key the snapshot. */
@@ -89,10 +92,30 @@ export class RunStateVersionError extends Error {
 	}
 }
 
-export const RUN_STATE_VERSION = 2 as const
+export const RUN_STATE_VERSION = 3 as const
 
 /** The shape `RunState` had before NZ-TOPIC-03: `threadId`, not `topicId`. */
 const RUN_STATE_LEGACY_VERSION = 1
+
+/**
+ * The shape `RunState` had between NZ-TOPIC-03 and NZ-TOPIC-04: `topicId`
+ * is already the field name, but its value can still carry the
+ * pre-narrowing `thd_` prefix.
+ */
+const RUN_STATE_PRE_PREFIX_VERSION = 2
+
+/**
+ * Shared by both legacy branches below: rewrite a `thd_`-prefixed topicId
+ * value to `top_`, leaving everything else — including an absent topicId —
+ * untouched. Mirrors `store/session/disk.ts`'s
+ * `migrateSessionStoreTopicIdPrefix`: same no-op-when-already-correct
+ * shape, same reason (idempotence under a repeated migration pass).
+ */
+function rewriteLegacyTopicIdPrefix(record: Record<string, unknown>): Record<string, unknown> {
+	const topicId = record.topicId
+	if (typeof topicId !== 'string' || !topicId.startsWith('thd_')) return record
+	return { ...record, topicId: `top_${topicId.slice('thd_'.length)}` }
+}
 
 /**
  * Parse a serialized snapshot, refusing anything this SDK cannot fully
@@ -102,23 +125,24 @@ const RUN_STATE_LEGACY_VERSION = 1
  * and read by another, possibly weeks later and possibly after an SDK
  * upgrade; a silent partial restore there produces a run that looks healthy
  * and has lost its budgets. Failing loudly is the only honest option — for
- * every version this build does not otherwise recognize. Version 1 is the
- * one exception: it is coerced forward rather than refused, the same
- * shape-tolerant rename `store/schema.ts`'s migrations use for the on-disk
- * session record, because a host that parks a run across this release
- * would otherwise have every in-flight snapshot refused on the way back in.
- * `threadId` is renamed only when present, so a v1 snapshot a host wrote
- * with the field already absent does not gain a stamped `topicId:
- * undefined`. Nothing here re-persists the coerced snapshot — a host that
- * calls `parseRunState` and then serializes the result back out upgrades
- * the record on THAT write, same as `store/schema.ts`'s "migrate on read,
+ * every version this build does not otherwise recognize. Versions 1 and 2
+ * are the exceptions: both are coerced forward rather than refused, the
+ * same shape-tolerant rename `store/schema.ts`'s migrations use for the
+ * on-disk session record, because a host that parks a run across either
+ * release boundary would otherwise have every in-flight snapshot refused
+ * on the way back in. `threadId` is renamed only when present (v1), and
+ * a `thd_`-prefixed `topicId` is rewritten only when present (v1 and v2),
+ * so a snapshot a host wrote with the field already absent, or already
+ * `top_`-prefixed, does not gain a stamped or double-rewritten value.
+ * Nothing here re-persists the coerced snapshot — a host that calls
+ * `parseRunState` and then serializes the result back out upgrades the
+ * record on THAT write, same as `store/schema.ts`'s "migrate on read,
  * re-stamp on next write" contract.
  *
  * A snapshot from a NEWER build read by an OLDER SDK is refused, not
- * partially restored: that SDK's `RUN_STATE_VERSION` is still 1, so a v2
- * record's `version: 2` matches neither the current version nor the one
- * legacy version it knows how to coerce, and falls through to the throw
- * below.
+ * partially restored: that SDK's `RUN_STATE_VERSION` is behind, so a
+ * record's `version` matches neither the current version nor a legacy
+ * version it knows how to coerce, and falls through to the throw below.
  */
 export function parseRunState(json: string | unknown): RunState {
 	const raw: unknown = typeof json === 'string' ? JSON.parse(json) : json
@@ -130,10 +154,20 @@ export function parseRunState(json: string | unknown): RunState {
 
 	if (version === RUN_STATE_LEGACY_VERSION) {
 		const { threadId, ...rest } = record
-		return {
+		const withTopicId = {
 			...rest,
-			version: RUN_STATE_VERSION,
 			...(threadId !== undefined ? { topicId: threadId } : {}),
+		}
+		return {
+			...rewriteLegacyTopicIdPrefix(withTopicId),
+			version: RUN_STATE_VERSION,
+		} as RunState
+	}
+
+	if (version === RUN_STATE_PRE_PREFIX_VERSION) {
+		return {
+			...rewriteLegacyTopicIdPrefix(record),
+			version: RUN_STATE_VERSION,
 		} as RunState
 	}
 

@@ -14,7 +14,7 @@ import type { MessageId, SessionId, TenantId } from '../../types/ids/index.js'
 import type { Message } from '../../types/message/index.js'
 import type { Project, ProjectStatus } from '../../types/project/entity.js'
 import type { Session } from '../../types/session/entity.js'
-import type { ProjectId, SubSessionId, ThreadId } from '../../types/session/ids.js'
+import type { ProjectId, SubSessionId, TopicId } from '../../types/session/ids.js'
 import type { SessionMessage } from '../../types/session/messages.js'
 import type {
 	CreateProjectParams,
@@ -215,7 +215,7 @@ export class InMemorySessionStore implements SessionStore {
 		return record.session
 	}
 
-	async listSessionsByTopic(topicId: ThreadId, tenantId: TenantId): Promise<readonly Session[]> {
+	async listSessionsByTopic(topicId: TopicId, tenantId: TenantId): Promise<readonly Session[]> {
 		const matches: Session[] = []
 		for (const record of this.sessions.values()) {
 			if (record.tenantId !== tenantId) continue

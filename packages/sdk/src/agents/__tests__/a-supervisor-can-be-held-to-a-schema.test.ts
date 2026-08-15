@@ -98,7 +98,7 @@ async function supervise(opts: {
 			timeoutMs: 30_000,
 			maxIterations: 4,
 			sessionId: 'ses_schema',
-			topicId: 'thd_schema',
+			topicId: 'top_schema',
 			projectId: 'prj_schema',
 			tenantId: 'tnt_schema',
 			...(opts.withSchema ? { structuredOutput: { schema: VERDICT } } : {}),

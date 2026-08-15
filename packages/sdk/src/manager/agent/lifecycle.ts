@@ -64,10 +64,10 @@ export interface AgentManagerDeps {
 	readonly summaryMaterializer: SessionSummaryMaterializer
 	readonly capacity: CapacityValidator
 	/**
-	 * Gate session creation on the parent Thread being `'open'` via
-	 * {@link ThreadManager.requireOpen}. Added in Phase 2.6 to close the
+	 * Gate session creation on the parent Topic being `'open'` via
+	 * {@link TopicManager.requireOpen}. Added in Phase 2.6 to close the
 	 * archive-gate gap flagged by the Phase 2.5 commit: without this,
-	 * `ThreadManager.archive` was best-effort because spawn could still
+	 * `TopicManager.archive` was best-effort because spawn could still
 	 * attach a live session under an archived Thread.
 	 */
 	readonly threadManager: TopicManager
@@ -574,7 +574,7 @@ export class AgentManager {
 		// Thread archive gate — runs FIRST so an archived thread fails fastest
 		// with the correct error (not DelegationCapacityExceeded or a project
 		// lookup error). Phase 2.6 closes the gap the Phase 2.5 commit
-		// flagged: without it, `ThreadManager.archive` could be undermined by
+		// flagged: without it, `TopicManager.archive` could be undermined by
 		// a concurrent spawn landing a live session post-archival.
 		// Scope: this gate enforces the archive invariant at the production
 		// ingress path (AgentManager.sendMessage + handoff flows). Direct

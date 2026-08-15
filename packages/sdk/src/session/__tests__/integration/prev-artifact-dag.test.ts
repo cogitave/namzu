@@ -32,7 +32,7 @@ import {
 } from '../../intervention/prev-artifact.js'
 import { DEFAULT_TENANT, agentActor, userActor } from './_fixtures.js'
 
-const TEST_THREAD_ID = 'thd_test' as ThreadId
+const TEST_THREAD_ID = 'top_test' as ThreadId
 
 /**
  * Build a live loader pointing at a real InMemorySessionStore. Each node

@@ -43,7 +43,7 @@ const SCOPE: RunStateScope = {
 	projectId: 'prj_sub' as ProjectId,
 	sessionId: 'ses_sub' as SessionId,
 	runId: 'run_child' as RunId,
-	topicId: 'thd_sub' as ThreadId,
+	topicId: 'top_sub' as ThreadId,
 	parentRunId: PARENT,
 }
 

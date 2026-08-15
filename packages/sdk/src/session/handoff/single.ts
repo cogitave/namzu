@@ -67,9 +67,9 @@ export interface SingleHandoffDeps {
 	events: HandoffEventSink
 	runStatus?: RunStatusResolver
 	/**
-	 * Gate the recipient-session creation on the Thread being `'open'`.
+	 * Gate the recipient-session creation on the Topic being `'open'`.
 	 * Added in Phase 2.6 to mirror spawn — a handoff into an archived
-	 * Thread would otherwise undermine `ThreadManager.archive`.
+	 * Topic would otherwise undermine `TopicManager.archive`.
 	 */
 	threadManager: TopicManager
 }

@@ -19,7 +19,7 @@ import {
 } from '../archive.js'
 import { DiskArchiveBackend } from '../disk-backend.js'
 
-const TEST_THREAD_ID = 'thd_test' as ThreadId
+const TEST_THREAD_ID = 'top_test' as ThreadId
 
 const tenantA = 'tnt_alpha' as TenantId
 

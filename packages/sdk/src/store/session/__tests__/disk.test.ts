@@ -341,8 +341,8 @@ describe('DiskSessionStore', () => {
 	})
 
 	describe('listSessionsByTopic(topicId, tenantId)', () => {
-		const topicX = 'thd_x' as ThreadId
-		const topicY = 'thd_y' as ThreadId
+		const topicX = 'top_x' as TopicId
+		const topicY = 'top_y' as TopicId
 
 		it('returns [] when the projects root is empty', async () => {
 			// Fresh temp root — no projects directory yet.
@@ -392,7 +392,7 @@ describe('DiskSessionStore', () => {
 
 // Import after use so tests are self-contained w.r.t. types we already use.
 import type { SessionId } from '../../../types/ids/index.js'
-import type { SummaryId, ThreadId } from '../../../types/session/ids.js'
+import type { SummaryId, TopicId } from '../../../types/session/ids.js'
 import type { SessionSummaryRef } from '../../../types/summary/ref.js'
 
-const TEST_TOPIC_ID = 'thd_test' as ThreadId
+const TEST_TOPIC_ID = 'top_test' as TopicId

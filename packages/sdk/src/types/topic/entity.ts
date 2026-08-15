@@ -24,9 +24,9 @@ export type TopicStatus = 'open' | 'archived'
  *
  * NZ-TOPIC-01 renamed this entity from `Thread` to `Topic` — its own docstring
  * already called it a "Topic-level container" before the identifier caught up.
- * The exported {@link import('../ids/index.js').TopicId} still carries the
- * `thd_` prefix this release (NZ-TOPIC-04 narrows it to `top_`); nothing about
- * the on-disk id shape changed here, only the name a caller writes.
+ * NZ-TOPIC-04 narrows the exported {@link import('../ids/index.js').TopicId}
+ * from the pre-0.2.0 `thd_` shape to `top_`; on-disk records written under
+ * the old prefix are migrated on read (`store/session/disk.ts`).
  *
  * A Topic groups together many Sessions that address the same coherent
  * topic or line-of-work within a Project (e.g. "auth refactor", "billing

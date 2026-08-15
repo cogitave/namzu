@@ -48,7 +48,7 @@ async function run(overrides: Partial<AgentRunConfig>, turns: unknown[]): Promis
 		agentName: 'Effort Agent',
 		workingDirectory: dir,
 		sessionId: 'ses_effort',
-		topicId: 'thd_effort',
+		topicId: 'top_effort',
 		projectId: 'prj_effort',
 		tenantId: 'tnt_effort',
 		messages: [createUserMessage('go')],

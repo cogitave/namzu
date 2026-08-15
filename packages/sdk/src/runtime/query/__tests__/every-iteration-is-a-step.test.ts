@@ -58,7 +58,7 @@ function baseParams(
 		agentName: 'Step Agent',
 		workingDirectory,
 		sessionId: 'ses_step' as SessionId,
-		topicId: 'thd_step' as ThreadId,
+		topicId: 'top_step' as ThreadId,
 		projectId: 'prj_step' as ProjectId,
 		tenantId: 'tnt_step' as TenantId,
 		retry: false as const,

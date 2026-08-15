@@ -10,7 +10,7 @@
 
 import type { SessionId, TenantId } from '../../types/ids/index.js'
 import type { ActorRef } from '../../types/session/actor.js'
-import type { HandoffId, ProjectId, ThreadId, WorkspaceId } from '../../types/session/ids.js'
+import type { HandoffId, ProjectId, TopicId, WorkspaceId } from '../../types/session/ids.js'
 
 /**
  * Handoff mode discriminator. `single` transfers ownership of the source
@@ -38,7 +38,7 @@ export interface HandoffAssignment {
 	 * a new actor taking over a conversation stays on the same topic).
 	 * Validated against `source.topicId` at execute time.
 	 */
-	topicId: ThreadId
+	topicId: TopicId
 	/**
 	 * Denormalized from the owning Topic. Kept alongside `topicId` as the
 	 * Session record itself carries both (see `Session` JSDoc). Consistency

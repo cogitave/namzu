@@ -74,6 +74,11 @@ describe('every project id the SDK mints passes the schema the SDK exports', () 
 			'prj_a b',
 			'proj_abc',
 			'thd_abc',
+			// NZ-TOPIC-04: the live Topic layer's own prefix must be exactly as
+			// unwelcome here as the legacy container's — this schema names
+			// Project ids, not Topic ids, and the two must never be mistaken
+			// for one another at the validation boundary.
+			'top_abc',
 			'',
 		]
 

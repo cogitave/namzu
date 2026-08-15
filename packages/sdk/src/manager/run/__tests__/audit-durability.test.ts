@@ -39,7 +39,7 @@ function makeRunMgr(opts: { runStore: RunStore; log?: Logger }): RunPersistence 
 		outputDir: '/tmp/namzu-audit-durability-test',
 		log: opts.log ?? NOOP_LOGGER,
 		sessionId: 'ses_audit_durability' as SessionId,
-		topicId: 'thd_audit_durability' as ThreadId,
+		topicId: 'top_audit_durability' as ThreadId,
 		tenantId: 'tnt_audit_durability' as TenantId,
 		projectId: 'prj_audit_durability' as ProjectId,
 		runStore: opts.runStore,
