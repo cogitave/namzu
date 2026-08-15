@@ -1,3 +1,5 @@
+import { NAMZU } from '../constants/telemetry/index.js'
+import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
 import { type Logger, getRootLogger } from '../utils/logger.js'
 import { Registry } from './Registry.js'
 
@@ -22,7 +24,8 @@ export class ManagedRegistry<TDefinition> extends Registry<TDefinition> {
 		this.idField = config.idField
 		this.computeId = config.computeId
 		this.log = (config.logger ?? getRootLogger()).child({
-			component: config.componentName,
+			[SCOPE_ATTRIBUTE]: 'registry',
+			[NAMZU.REGISTRY_NAME]: config.componentName,
 		})
 	}
 

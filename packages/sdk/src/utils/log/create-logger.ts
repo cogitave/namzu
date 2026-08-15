@@ -24,6 +24,7 @@ import {
 	type LogSinkCounters,
 	type LoggerOptions,
 	type MutableLogSinkCounters,
+	SCOPE_ATTRIBUTE,
 	type Severity,
 } from './types.js'
 
@@ -150,7 +151,19 @@ function build(
 		info: (message, data) => emit('info', message, data),
 		warn: (message, data) => emit('warn', message, data),
 		error: (message, data) => emit('error', message, data),
-		child: (context) => build(options, counters, { ...bound, ...context }),
+		child: (context) => {
+			// The one context key that changes a PROPERTY OF THE LOGGER
+			// (`options.scope`) rather than joining `bound` as an ordinary
+			// attribute — see `SCOPE_ATTRIBUTE`'s own doc comment in `./types.js`.
+			// Stripped out of `rest` before merging, for the same reason
+			// `EVENT_NAME_ATTRIBUTE` is stripped out of `attributes` above: an
+			// attribute and a property carrying the same value would be the same
+			// name spelled two ways in one record.
+			const { [SCOPE_ATTRIBUTE]: scopeOverride, ...rest } = context
+			const nextOptions =
+				typeof scopeOverride === 'string' ? { ...options, scope: scopeOverride } : options
+			return build(nextOptions, counters, { ...bound, ...rest })
+		},
 		counters,
 	}
 }

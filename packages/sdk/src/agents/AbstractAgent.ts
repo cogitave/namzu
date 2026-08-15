@@ -1,4 +1,5 @@
 import { EMPTY_TOKEN_USAGE } from '../constants/limits.js'
+import { GENAI, NAMZU } from '../constants/telemetry/index.js'
 import type {
 	Agent,
 	AgentCapabilities,
@@ -14,6 +15,7 @@ import type { RunEvent, RunEventListener } from '../types/run/index.js'
 import { ZERO_COST } from '../utils/cost.js'
 import { toErrorMessage } from '../utils/error.js'
 import { generateRunId } from '../utils/id.js'
+import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
 import { type Logger, getRootLogger } from '../utils/logger.js'
 import { InvocationLock } from './lock.js'
 
@@ -48,8 +50,9 @@ export abstract class AbstractAgent<
 		this.abortController = new AbortController()
 		this.invocationLock = new InvocationLock()
 		this.log = getRootLogger().child({
-			component: `Agent:${metadata.type}`,
-			agentId: metadata.id,
+			[SCOPE_ATTRIBUTE]: 'agents',
+			[NAMZU.AGENT_TYPE]: metadata.type,
+			[GENAI.AGENT_ID]: metadata.id,
 		})
 	}
 

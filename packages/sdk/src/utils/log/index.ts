@@ -21,4 +21,4 @@ export { jsonLinesSink, NOOP_SINK, prettySink } from './sinks.js'
 // (the CLI's boot narrative, NZ-BOOT-05) names an event without duplicating
 // the reserved key `createLogger` promotes off of — see the doc comment on
 // the constant itself in `./types.js`.
-export { EVENT_NAME_ATTRIBUTE } from './types.js'
+export { EVENT_NAME_ATTRIBUTE, SCOPE_ATTRIBUTE } from './types.js'

@@ -1,4 +1,5 @@
 import type { BaseConnector } from '../../connector/BaseConnector.js'
+import { NAMZU } from '../../constants/telemetry/index.js'
 import type { ConnectorRegistry } from '../../registry/connector/definitions.js'
 import type {
 	ConnectorConfig,
@@ -18,6 +19,7 @@ import type {
 	TenantId,
 } from '../../types/ids/index.js'
 import { toErrorMessage } from '../../utils/error.js'
+import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, getRootLogger } from '../../utils/logger.js'
 import { ConnectorManager } from './lifecycle.js'
 
@@ -52,7 +54,7 @@ export class TenantConnectorManager {
 		this.registry = config.registry
 		this.credentialVault = config.credentialVault
 		this.defaultRateLimit = config.defaultRateLimit
-		this.log = getRootLogger().child({ component: 'TenantConnectorManager' })
+		this.log = getRootLogger().child({ [SCOPE_ATTRIBUTE]: 'manager/connector' })
 	}
 
 	registerTenant(descriptor: TenantDescriptor, rateLimit?: TenantRateLimitConfig): void {
@@ -61,7 +63,8 @@ export class TenantConnectorManager {
 			return
 		}
 
-		const manager = new ConnectorManager({ registry: this.registry })
+		const tenantLog = this.log.child({ [NAMZU.TENANT_ID]: descriptor.id })
+		const manager = new ConnectorManager({ registry: this.registry, log: tenantLog })
 
 		manager.on((event) => {
 			this.emitTenantEvent(descriptor.id, event)

@@ -12,10 +12,20 @@ import type {
 import type { ConnectorId, ConnectorInstanceId } from '../../types/ids/index.js'
 import { toErrorMessage } from '../../utils/error.js'
 import { generateConnectorInstanceId } from '../../utils/id.js'
+import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, getRootLogger } from '../../utils/logger.js'
 
 export interface ConnectorManagerConfig {
 	registry: ConnectorRegistry
+	/**
+	 * A pre-built, already-correlated logger. A caller that already knows
+	 * something this manager cannot derive on its own — which tenant it was
+	 * constructed for, most concretely (see `TenantConnectorManager`) —
+	 * supplies one here so every record this manager's connectors log
+	 * carries that correlation. Falls back to `getRootLogger()` when absent,
+	 * same as before this field existed.
+	 */
+	log?: Logger
 }
 
 export class ConnectorManager {
@@ -27,7 +37,7 @@ export class ConnectorManager {
 
 	constructor(config: ConnectorManagerConfig) {
 		this.registry = config.registry
-		this.log = getRootLogger().child({ component: 'ConnectorManager' })
+		this.log = (config.log ?? getRootLogger()).child({ [SCOPE_ATTRIBUTE]: 'manager/connector' })
 	}
 
 	on(listener: ConnectorEventListener): void {

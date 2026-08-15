@@ -107,6 +107,24 @@ export interface LogRecord {
 export const EVENT_NAME_ATTRIBUTE = 'namzu.event.name'
 
 /**
+ * The one context key `Logger.child()` treats specially, at every backing
+ * implementation: set it on the object passed to `child()` and the value
+ * REPLACES the logger's `scope.name` for every record that logger (and its
+ * own descendants) emit from then on, rather than being copied into
+ * `attributes` — the same "one name spelled once" rule `EVENT_NAME_ATTRIBUTE`
+ * follows, applied to a property of the LOGGER instead of a property of one
+ * CALL. Scope is stamped once per `child()`, not read per record, which is
+ * why it lives here rather than as an ordinary attribute: a module's
+ * identity does not change between one log line and the next inside it.
+ *
+ * A plain, un-namespaced key (historically `component`) is deliberately NOT
+ * treated as an alias for this. A call site that still binds `component`
+ * gets an ordinary, inert attribute, not a scope change — see the
+ * `component`-is-inert tests in `utils/__tests__/log-scope-attribute.test.ts`.
+ */
+export const SCOPE_ATTRIBUTE = 'namzu.log.scope'
+
+/**
  * The other attribute key `createLogger` treats specially, alongside
  * `EVENT_NAME_ATTRIBUTE` above: set it on the `data` passed to a `Logger`
  * call to the THROWN VALUE ITSELF — not a string a call site already built

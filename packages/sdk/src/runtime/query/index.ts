@@ -685,6 +685,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		agentName: params.agentName,
 		runConfig: params.runConfig,
 		runId,
+		parentRunId: params.parentRunId,
 		sessionId: params.sessionId,
 		threadId: params.threadId,
 		projectId: params.projectId,

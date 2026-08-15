@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { NAMZU } from '../../../constants/telemetry/index.js'
+import { GENAI, NAMZU } from '../../../constants/telemetry/index.js'
 import { DefaultPathBuilder, type PathBuilder } from '../../../session/workspace/path-builder.js'
 import { posix } from '../../../test-support/paths.js'
 import type { RunId, SessionId, TenantId } from '../../../types/ids/index.js'
@@ -152,11 +152,17 @@ describe('RunContextFactory.buildLogger', () => {
 
 		expect(records).toHaveLength(1)
 		expect(records[0]?.attributes[NAMZU.RUN_ID]).toBe(runId)
-		expect(records[0]?.attributes.agent).toBe(cfg.agentName)
-		expect(records[0]?.attributes.sessionId).toBe(cfg.sessionId)
-		expect(records[0]?.attributes.threadId).toBe(cfg.threadId)
-		expect(records[0]?.attributes.projectId).toBe(cfg.projectId)
-		expect(records[0]?.attributes.tenantId).toBe(cfg.tenantId)
+		expect(records[0]?.attributes[GENAI.AGENT_NAME]).toBe(cfg.agentName)
+		expect(records[0]?.attributes[NAMZU.SESSION_ID]).toBe(cfg.sessionId)
+		expect(records[0]?.attributes[NAMZU.THREAD_ID]).toBe(cfg.threadId)
+		expect(records[0]?.attributes[NAMZU.PROJECT_ID]).toBe(cfg.projectId)
+		expect(records[0]?.attributes[NAMZU.TENANT_ID]).toBe(cfg.tenantId)
+		// The load-bearing regression test for the fromSink scope bug
+		// (utils/logger.ts): before that fix, EVERY getRootLogger()-derived
+		// child reported scope.name 'namzu' regardless of what buildLogger
+		// bound via SCOPE_ATTRIBUTE. This installs a REAL process sink (see
+		// above) and reads the record's scope, not a mock.
+		expect(records[0]?.scope.name).toBe('runtime/query')
 	})
 
 	it('derives from a host-supplied runConfig.logger instead of the process root, when one is given', () => {

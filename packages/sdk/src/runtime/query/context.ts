@@ -1,5 +1,5 @@
 import { join } from 'node:path'
-import { NAMZU } from '../../constants/telemetry/index.js'
+import { GENAI, NAMZU } from '../../constants/telemetry/index.js'
 import { PlanManager } from '../../manager/plan/lifecycle.js'
 import { RunPersistence } from '../../manager/run/persistence.js'
 import {
@@ -21,6 +21,7 @@ import type { RunStore } from '../../types/run/store.js'
 import type { ProjectId, ThreadId } from '../../types/session/ids.js'
 import type { ModelPricing } from '../../utils/cost.js'
 import { generateRunId } from '../../utils/id.js'
+import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
 
 /**
@@ -172,19 +173,26 @@ export class RunContextFactory {
 	static buildLogger(
 		config: Pick<
 			RunContextConfig,
-			'agentName' | 'runConfig' | 'sessionId' | 'threadId' | 'projectId' | 'tenantId'
+			| 'agentName'
+			| 'runConfig'
+			| 'sessionId'
+			| 'threadId'
+			| 'projectId'
+			| 'tenantId'
+			| 'parentRunId'
 		> & {
 			runId: RunId
 		},
 	): Logger {
 		return resolveLogger(config.runConfig.logger).child({
-			component: 'query',
-			agent: config.agentName,
+			[SCOPE_ATTRIBUTE]: 'runtime/query',
+			[GENAI.AGENT_NAME]: config.agentName,
 			[NAMZU.RUN_ID]: config.runId,
-			sessionId: config.sessionId,
-			threadId: config.threadId,
-			projectId: config.projectId,
-			tenantId: config.tenantId,
+			...(config.parentRunId ? { [NAMZU.RUN_PARENT_ID]: config.parentRunId } : {}),
+			[NAMZU.SESSION_ID]: config.sessionId,
+			[NAMZU.THREAD_ID]: config.threadId,
+			[NAMZU.PROJECT_ID]: config.projectId,
+			[NAMZU.TENANT_ID]: config.tenantId,
 		})
 	}
 

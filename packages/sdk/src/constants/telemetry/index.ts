@@ -54,6 +54,52 @@ export const NAMZU = {
 	CACHE_READ_TOKENS: 'namzu.cache.read_tokens',
 	CACHE_WRITE_TOKENS: 'namzu.cache.write_tokens',
 	CACHE_DISCOUNT: 'namzu.cache.discount',
+
+	// Correlation attributes for the run's own logger — see
+	// RunContextFactory.buildLogger (runtime/query/context.ts). RUN_ID above
+	// already covered the run itself; these are the layers above it
+	// (Tenant -> Project -> Thread -> Session -> Run, Convention #17) that
+	// used to reach the run's logger as four bare, un-namespaced keys.
+	SESSION_ID: 'namzu.session.id',
+	THREAD_ID: 'namzu.thread.id',
+	PROJECT_ID: 'namzu.project.id',
+	TENANT_ID: 'namzu.tenant.id',
+	// Set only when a run was started by another run (the sub-agent gateway
+	// path) — see query()'s params.parentRunId in runtime/query/index.ts.
+	// Previously reached the RunContext's own fields but never the logger.
+	RUN_PARENT_ID: 'namzu.run.parent_id',
+
+	// AbstractAgent's per-instance identity (agents/AbstractAgent.ts). The id
+	// half reuses GENAI.AGENT_ID — an agent's id is the same concept whether
+	// it is read off a span or a log record, and GENAI.AGENT_ID already
+	// exists and is already bound at the run's own correlated logger and
+	// root span. TYPE has no GENAI analogue, so it is new.
+	AGENT_TYPE: 'namzu.agent.type',
+
+	// ManagedRegistry's per-subclass distinction (registry/ManagedRegistry.ts).
+	// scope.name is fixed to 'registry' for every ManagedRegistry subclass —
+	// they all log through this one file — so the per-instance name that
+	// `component: config.componentName` used to carry moves here instead.
+	// `ManagedRegistryConfig.componentName`'s FIELD NAME is unchanged.
+	REGISTRY_NAME: 'namzu.registry.name',
+
+	// InMemoryCredentialVault (vault/InMemoryCredentialVault.ts) — closes a
+	// PRE-EXISTING violation of "no attribute string literal at a call
+	// site": both keys already existed as raw string literals there before
+	// this change. Values are unchanged.
+	CREDENTIAL_ID: 'namzu.credential.id',
+	CREDENTIAL_LABEL: 'namzu.credential.label',
+
+	// MCPClient (connector/mcp/client.ts). SERVER_ID is the OPERATOR's own
+	// configured identifier for the connector instance being dialed;
+	// SERVER_NAME is the REMOTE server's own self-reported name from its
+	// initialize response — kept separate on purpose, since the remote's
+	// self-report is attacker-influenced data (see
+	// connector/mcp/__tests__/a-server-cannot-forge-a-second-log-line.test.ts).
+	// SERVER_NAME closes the same kind of pre-existing literal violation as
+	// the two CREDENTIAL_* keys above.
+	SERVER_ID: 'namzu.connector.server.id',
+	SERVER_NAME: 'namzu.connector.server.name',
 } as const
 
 /**

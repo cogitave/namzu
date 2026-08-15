@@ -21,6 +21,7 @@ import type { MCPClientId } from '../../types/ids/index.js'
 import { toErrorMessage } from '../../utils/error.js'
 import { generateMCPClientId } from '../../utils/id.js'
 import type { LogAttributes } from '../../utils/log/index.js'
+import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, getRootLogger } from '../../utils/logger.js'
 import { HttpSseTransport } from './http-sse.js'
 import { StdioTransport } from './stdio.js'
@@ -32,6 +33,7 @@ import {
 	MCP_PROTOCOL_VERSION,
 	MCP_SUPPORTED_PROTOCOL_VERSIONS,
 } from '../../constants/mcp/index.js'
+import { NAMZU } from '../../constants/telemetry/index.js'
 import { VERSION } from '../../version.js'
 
 /** Runaway guard for a server whose cursor never ends. */
@@ -65,7 +67,10 @@ export class MCPClient {
 		this.config = config
 		this.id = config.id ?? generateMCPClientId()
 		this.transport = this.createTransport(config.transport)
-		this.log = getRootLogger().child({ component: 'MCPClient', serverId: config.serverName })
+		this.log = getRootLogger().child({
+			[SCOPE_ATTRIBUTE]: 'connector/mcp',
+			[NAMZU.SERVER_ID]: config.serverName,
+		})
 	}
 
 	async connect(): Promise<MCPInitializeResult> {
@@ -130,7 +135,7 @@ export class MCPClient {
 				serverName: this.config.serverName,
 			})
 			const connectedAttributes: LogAttributes = {
-				'namzu.connector.server.name': result.serverInfo.name,
+				[NAMZU.SERVER_NAME]: result.serverInfo.name,
 			}
 			this.log.info('Connected to MCP server', connectedAttributes)
 

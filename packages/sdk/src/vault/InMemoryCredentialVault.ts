@@ -1,7 +1,9 @@
+import { NAMZU } from '../constants/telemetry/index.js'
 import type { AuthConfig, CredentialRef, CredentialVault } from '../types/connector/index.js'
 import type { ConnectorId, CredentialId, TenantId } from '../types/ids/index.js'
 import { generateCredentialId } from '../utils/id.js'
 import type { LogAttributes } from '../utils/log/index.js'
+import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
 import { type Logger, getRootLogger } from '../utils/logger.js'
 
 export class InMemoryCredentialVault implements CredentialVault {
@@ -10,7 +12,7 @@ export class InMemoryCredentialVault implements CredentialVault {
 	private log: Logger
 
 	constructor() {
-		this.log = getRootLogger().child({ component: 'InMemoryCredentialVault' })
+		this.log = getRootLogger().child({ [SCOPE_ATTRIBUTE]: 'vault' })
 	}
 
 	async store(
@@ -32,9 +34,9 @@ export class InMemoryCredentialVault implements CredentialVault {
 		this.refs.set(id, ref)
 		this.secrets.set(id, auth)
 		const storedAttributes: LogAttributes = {
-			'namzu.credential.id': id,
-			'namzu.credential.label': label,
-			'namzu.tenant.id': tenantId,
+			[NAMZU.CREDENTIAL_ID]: id,
+			[NAMZU.CREDENTIAL_LABEL]: label,
+			[NAMZU.TENANT_ID]: tenantId,
 		}
 		this.log.info('Credential stored', storedAttributes)
 		return ref
@@ -50,7 +52,7 @@ export class InMemoryCredentialVault implements CredentialVault {
 		this.secrets.delete(credentialId)
 		if (existed) {
 			const revokedAttributes: LogAttributes = {
-				'namzu.credential.id': credentialId,
+				[NAMZU.CREDENTIAL_ID]: credentialId,
 			}
 			this.log.info('Credential revoked', revokedAttributes)
 		}

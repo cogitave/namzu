@@ -1,6 +1,6 @@
 import { createLogger } from './log/create-logger.js'
 import { getProcessSink } from './log/process-sink.js'
-import type { LevelFilter, LogSink } from './log/types.js'
+import { type LevelFilter, type LogSink, SCOPE_ATTRIBUTE } from './log/types.js'
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'silent'
 
@@ -45,9 +45,10 @@ function createLoggerImpl(name: string, minLevel: LogLevel, parentContext: LogCo
 	}
 
 	function child(context: LogContext): Logger {
-		return createLoggerImpl(context.component ? String(context.component) : name, minLevel, {
+		const { [SCOPE_ATTRIBUTE]: scopeOverride, ...rest } = context
+		return createLoggerImpl(typeof scopeOverride === 'string' ? scopeOverride : name, minLevel, {
 			...parentContext,
-			...context,
+			...rest,
 		})
 	}
 
@@ -103,13 +104,28 @@ export function resolveLogger(logger: Logger | undefined): Logger {
 	return logger ?? getRootLogger()
 }
 
-/** Adapts the record pipeline back to the legacy `Logger` shape. */
-function fromSink(sink: LogSink, level: LevelFilter, bound: LogContext = {}): Logger {
+/**
+ * Adapts the record pipeline back to the legacy `Logger` shape. `scope`
+ * threads through recursive `child()` calls the same way `bound` does.
+ * Previously fixed at `'namzu'` on every recursive call regardless of what
+ * a caller bound — meaning every `getRootLogger()`-derived child logger
+ * (the majority of call sites in this package) reported the SAME
+ * `scope.name` no matter what `SCOPE_ATTRIBUTE` it was given. This is the
+ * single highest-leverage line in the LOG-09 migration: see the direct
+ * regression test in `runtime/query/__tests__/context.test.ts` and
+ * `utils/__tests__/log-scope-attribute.test.ts`.
+ */
+function fromSink(
+	sink: LogSink,
+	level: LevelFilter,
+	bound: LogContext = {},
+	scope = 'namzu',
+): Logger {
 	const created = createLogger({
 		sink,
 		level: { current: level },
 		resource: { 'service.name': 'namzu' },
-		scope: 'namzu',
+		scope,
 	})
 	const write =
 		(severity: 'debug' | 'info' | 'warn' | 'error') => (message: string, data?: LogContext) => {
@@ -120,7 +136,15 @@ function fromSink(sink: LogSink, level: LevelFilter, bound: LogContext = {}): Lo
 		info: write('info'),
 		warn: write('warn'),
 		error: write('error'),
-		child: (context: LogContext) => fromSink(sink, level, { ...bound, ...context }),
+		child: (context: LogContext) => {
+			const { [SCOPE_ATTRIBUTE]: scopeOverride, ...rest } = context
+			return fromSink(
+				sink,
+				level,
+				{ ...bound, ...rest },
+				typeof scopeOverride === 'string' ? scopeOverride : scope,
+			)
+		},
 	}
 }
 

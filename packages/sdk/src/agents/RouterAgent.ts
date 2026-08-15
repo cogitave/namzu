@@ -1,4 +1,5 @@
 import { EMPTY_TOKEN_USAGE } from '../constants/limits.js'
+import { GENAI } from '../constants/telemetry/index.js'
 import { collect } from '../provider/collect.js'
 import { FallbackResolver } from '../runtime/decision/fallback.js'
 import { DecisionParser } from '../runtime/decision/parser.js'
@@ -15,6 +16,7 @@ import { deriveChildState } from '../types/invocation/index.js'
 import { createSystemMessage, createUserMessage } from '../types/message/index.js'
 import type { RunEventListener } from '../types/run/index.js'
 import { ZERO_COST } from '../utils/cost.js'
+import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
 import { getRootLogger } from '../utils/logger.js'
 import { AbstractAgent } from './AbstractAgent.js'
 
@@ -146,7 +148,10 @@ export class RouterAgent extends AbstractAgent<RouterAgentConfig, RouterAgentRes
 	}
 
 	private async route(input: AgentInput, config: RouterAgentConfig): Promise<RoutingDecision> {
-		const log = getRootLogger().child({ component: 'RouterAgent', agent: this.metadata.name })
+		const log = getRootLogger().child({
+			[SCOPE_ATTRIBUTE]: 'agents',
+			[GENAI.AGENT_NAME]: this.metadata.name,
+		})
 
 		const validAgentIds = config.routes.map((r) => r.agentId)
 		const fallbackAgentId = config.fallbackAgentId ?? config.routes[0]?.agentId ?? ''

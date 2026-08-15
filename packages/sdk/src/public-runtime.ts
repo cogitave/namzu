@@ -81,6 +81,7 @@ export {
 	NOOP_SINK,
 	prettySink,
 	Resource,
+	SCOPE_ATTRIBUTE,
 	Severity,
 } from './utils/log/index.js'
 
