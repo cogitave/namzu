@@ -63,6 +63,25 @@ export {
 export { normaliseModelId, resolveModelPricing, VENDOR_RATES } from './pricing/index.js'
 export { toErrorMessage } from './utils/error.js'
 export { configureLogger, getRootLogger, Logger } from './utils/logger.js'
+
+// The LogSink seam — additive. `Logger`/`getRootLogger`/`configureLogger`
+// above are unchanged; this is the new seam that replaces them going
+// forward once a host (the CLI) is migrated to call it.
+export {
+	createLogger,
+	installProcessSink,
+	jsonLinesSink,
+	LevelFilter,
+	LogRecord,
+	LogSink,
+	LogSinkCounters,
+	NOOP_LOGGER,
+	NOOP_SINK,
+	prettySink,
+	Resource,
+	Severity,
+} from './utils/log/index.js'
+
 export { isTrustedReadOnly } from './tools/trusted-read-only.js'
 export { buildToolResultHashes, hashToolResult } from './utils/hash.js'
 export {

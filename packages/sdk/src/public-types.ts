@@ -103,6 +103,14 @@ export type { VendorRates } from './pricing/index.js'
 export type { PricingSubject } from './manager/run/persistence.js'
 export type { FrontmatterValue, ParsedFrontmatter } from './utils/frontmatter.js'
 export type { Logger } from './utils/logger.js'
+export type {
+	LevelFilter,
+	LogRecord,
+	LogSink,
+	LogSinkCounters,
+	Resource,
+	Severity,
+} from './utils/log/index.js'
 export type { ShellCompressOptions, ShellCompressResult } from './utils/shell-compress.js'
 
 export type { QueryParams } from './runtime/query/index.js'

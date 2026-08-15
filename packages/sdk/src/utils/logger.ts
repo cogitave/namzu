@@ -58,6 +58,15 @@ function createLoggerImpl(name: string, minLevel: LogLevel, parentContext: LogCo
 
 let _rootLogger: Logger | null = null
 
+/**
+ * @deprecated Prefer `installProcessSink` (own the process's log
+ * destination) or `createLogger` (build a logger scoped to a run, tenant or
+ * subsystem) from `packages/sdk/src/utils/log/`. `getRootLogger` and
+ * `configureLogger` read and write one process-wide global with no
+ * destination lever beyond a level threshold — the reason every CLI entry
+ * point historically had only one option: switch it off entirely.
+ * Unchanged behaviour; this JSDoc is the only edit.
+ */
 export function getRootLogger(): Logger {
 	if (!_rootLogger) {
 		_rootLogger = createLoggerImpl('namzu', 'info', {})
@@ -65,6 +74,11 @@ export function getRootLogger(): Logger {
 	return _rootLogger
 }
 
+/**
+ * @deprecated See `getRootLogger`'s deprecation note. `installProcessSink`
+ * is the strictly more capable replacement — it picks a destination, not
+ * only a threshold. Unchanged behaviour; this JSDoc is the only edit.
+ */
 export function configureLogger(options: { level?: LogLevel }): void {
 	_rootLogger = createLoggerImpl('namzu', options.level ?? 'info', {})
 }
