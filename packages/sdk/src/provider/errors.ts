@@ -367,6 +367,20 @@ function vendorRetryAfter(err: unknown): string | undefined {
  * attached as `cause`. A `cause` is exactly what a structured logger walks, so
  * keeping one for debuggability would reintroduce the leak it is meant to close.
  *
+ * `utils/log/exception.ts` now walks a `cause` chain for whatever DOES carry
+ * one, to put `exception.stacktrace` in a log record instead of just the
+ * caught error's own message. That mapper existing is not a reason to start
+ * attaching one here: every one of the six drivers in `packages/providers/*`
+ * (openai, anthropic, ollama, bedrock, openrouter, lmstudio) throws through
+ * this function specifically because none of them can otherwise avoid
+ * handing a structured logger the credential a vendor SDK just echoed back.
+ * Each driver's own `error-taxonomy.test.ts` asserts `'cause' in (err as
+ * object)` is `false` on ITS OWN thrown error, not just on this function in
+ * isolation — that is what would catch a driver that stops going through
+ * `providerVendorError`/`providerHttpError` and attaches one directly.
+ * `packages/sdk/src/provider/__tests__/errors.test.ts` pins the same thing
+ * against this shared function directly. See `docs/conventions/index.md`.
+ *
  * `name` is checked too, because AWS models its failures as distinct classes
  * (`ThrottlingException`, `ValidationException`, `AccessDeniedException`) rather
  * than as status codes.

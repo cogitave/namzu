@@ -106,6 +106,25 @@ export interface LogRecord {
  */
 export const EVENT_NAME_ATTRIBUTE = 'namzu.event.name'
 
+/**
+ * The other attribute key `createLogger` treats specially, alongside
+ * `EVENT_NAME_ATTRIBUTE` above: set it on the `data` passed to a `Logger`
+ * call to the THROWN VALUE ITSELF — not a string a call site already built
+ * with `toErrorMessage` — and `errorAttributes` (`./exception.ts`) maps it
+ * to `exception.type` / `exception.message` / `exception.stacktrace` before
+ * the record reaches redaction and the size caps, exactly like any other
+ * attribute a call site set by hand. Removed from `attributes` the same way
+ * `EVENT_NAME_ATTRIBUTE` is, so the raw `Error` object this key held is
+ * never itself what a sink tries to serialize.
+ *
+ * Spelled `err`, not `error`: dozens of existing call sites already pass
+ * `{ error: toErrorMessage(err) }` — a STRING built by hand — and giving the
+ * new, structured path a different key means both shapes keep compiling
+ * side by side instead of one silently shadowing the other depending on
+ * which call site wrote last.
+ */
+export const ERR_ATTRIBUTE = 'err'
+
 export interface LogSink {
 	/**
 	 * Must not throw. `createLogger`'s dispatch enforces this regardless —

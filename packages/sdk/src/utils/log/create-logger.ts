@@ -13,9 +13,11 @@
 import { getActiveSpanContext } from '../../telemetry/runtime-accessors.js'
 import type { LogContext, Logger } from '../logger.js'
 import { capAttributeCount, capTotalSize, truncateValues } from './caps.js'
+import { errorAttributes } from './exception.js'
 import { redactRecord } from './redact.js'
 import { NOOP_SINK } from './sinks.js'
 import {
+	ERR_ATTRIBUTE,
 	EVENT_NAME_ATTRIBUTE,
 	type LevelFilter,
 	type LogRecord,
@@ -61,12 +63,27 @@ function build(
 		if (SEVERITY_RANK[severityText] < LEVEL_RANK[options.level.current]) return
 
 		const now = Date.now()
-		// Promote the one reserved key before anything else touches
+		// Promote the two reserved keys before anything else touches
 		// `attributes` — redact/cap below only ever see the caller's real
-		// attributes, never the event name a second time under a second
-		// spelling.
+		// attributes, never the event name or the raw thrown value a second
+		// time under a second spelling. `err` maps through `errorAttributes`
+		// (bounded, cycle-safe cause walk — see ./exception.ts) rather than
+		// being copied verbatim: the whole point of the reserved key is that
+		// the THROWN VALUE reaches the mapper, not a string a call site
+		// already built with `toErrorMessage` and so already lost the stack
+		// and cause off of.
 		const merged: Record<string, unknown> = { ...bound, ...data }
-		const { [EVENT_NAME_ATTRIBUTE]: rawEventName, ...attributes } = merged
+		const { [EVENT_NAME_ATTRIBUTE]: rawEventName, [ERR_ATTRIBUTE]: rawErr, ...attributes } = merged
+		// Computed here, before redact/cap run, so `exception.stacktrace` gets
+		// exactly the same treatment as an attribute any call site set by
+		// hand — see the redaction-pipeline test planting a secret inside a
+		// NESTED cause's message specifically to pin this ordering. `rawErr`
+		// wins over a same-named `exception.*` key set by hand: once a call
+		// site hands over the real thrown value, that value is the
+		// authoritative source, not whatever text a caller pre-computed
+		// before this reserved key existed.
+		const attributesWithException =
+			rawErr !== undefined ? { ...attributes, ...errorAttributes(rawErr) } : attributes
 		// Resolved HERE, at emit time, off the live `@opentelemetry/api` global —
 		// never once at `createLogger` construction and captured in this
 		// closure. `telemetry/metrics.ts` documents the construction-time
@@ -84,7 +101,7 @@ function build(
 			body,
 			scope: { name: options.scope },
 			resource: options.resource,
-			attributes,
+			attributes: attributesWithException,
 			...(typeof rawEventName === 'string' ? { eventName: rawEventName } : {}),
 			// All three or none: a trace id with no span id would be a
 			// half-address (see `LogRecord.traceId`'s doc).
