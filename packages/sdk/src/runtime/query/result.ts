@@ -60,6 +60,20 @@ export class ResultAssembler {
 			planManager.completePlan()
 		}
 
+		// The run's own terminal verdict — first-class in the audit trail per
+		// LOG-14, scoped deliberately: only the one outcome `AuditOutcome` can
+		// name for a settled run today ('completed' → 'success'). This also
+		// covers a guardrail-blocked run, which reaches `status: 'completed'`
+		// via the `markCompleted` call above — "completed is not succeeded"
+		// (see `types/run/events.ts`'s `run_completed` doc), and the granular
+		// 'refused' entry for the block itself was already recorded at the
+		// point it happened. 'cancelled'/'paused' are left unaudited here
+		// rather than forced into a mapping nothing asked for — a later minor
+		// can widen `AuditOutcome` additively when that scope is taken on.
+		if (runMgr.status === 'completed') {
+			await runMgr.recordAudit({ what: { action: 'run_completed' }, outcome: 'success' })
+		}
+
 		await emitEvent({
 			type: 'run_completed',
 			runId: runMgr.id,
@@ -165,6 +179,15 @@ export class ResultAssembler {
 		// point — classification is structural and belongs at the boundary,
 		// remediation is editorial and belongs in a list a human appends to.
 		const explanation = explainError(err) ?? undefined
+
+		// Same terminal-verdict recording as the success path in completeRun —
+		// see LOG-14, design §5. Placed AFTER the early `resumeFrom !== undefined`
+		// return above, so a paused/resumable run is never audited as 'failure'.
+		await runMgr.recordAudit({
+			what: { action: 'run_failed' },
+			outcome: 'failure',
+			reason: errorMessage,
+		})
 
 		await emitEvent({
 			type: 'run_failed',

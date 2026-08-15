@@ -35,6 +35,8 @@ export type EmergencySaveId = `esave_${string}`
 export type MemoryId = `mem_${string}`
 export type PluginId = `plg_${string}`
 export type SandboxId = `sbx_${string}`
+/** LOG-14: the audit trail's own record id — distinct from `RunEvent.seq`. */
+export type AuditEventId = `aud_${string}`
 
 // Actor identifiers (Session Hierarchy §4.3). Branded so actor refs cannot be
 // constructed from bare strings.

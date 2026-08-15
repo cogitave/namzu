@@ -25,6 +25,9 @@ import { runToolReview } from './tool-review.js'
  * Plus the policy invariant discovered alongside it: a human "approve" on
  * the gate's mixed-decision path must not execute the calls the gate
  * denied.
+ *
+ * Plus, since LOG-14: a gate denial is a first-class 'refused' AuditEvent,
+ * never an absent record.
  */
 
 const RUN_ID = 'run_denial_test' as RunId
@@ -60,10 +63,23 @@ function response(): ChatCompletionResponse {
 	} as ChatCompletionResponse
 }
 
+/** Only the `read` call, for a scenario the gate all-allows. */
+function readOnlyResponse(): ChatCompletionResponse {
+	const resp = response()
+	return {
+		...resp,
+		message: {
+			...resp.message,
+			toolCalls: resp.message.toolCalls?.filter((tc) => tc.function.name === 'read'),
+		},
+	}
+}
+
 interface Harness {
 	ctx: IterationContext
 	messages: Message[]
 	executed: string[]
+	recordAudit: ReturnType<typeof vi.fn>
 }
 
 /** The schema fills defaults; tests only state the rules they care about. */
@@ -85,6 +101,7 @@ function harness(opts: {
 	const executed: string[] = []
 	const messages: Message[] = []
 	const log = makeLogger()
+	const recordAudit = vi.fn(async () => undefined as never)
 
 	const toolDefs: Record<string, { readOnly: boolean; category: string }> = {
 		read: { readOnly: true, category: 'filesystem' },
@@ -141,6 +158,7 @@ function harness(opts: {
 			},
 			setStopReason: vi.fn(),
 			markCancelled: vi.fn(),
+			recordAudit,
 		},
 		checkpointMgr: { create: async () => ({ id: 'cp_1' }) },
 		emitEvent: async () => {},
@@ -149,7 +167,7 @@ function harness(opts: {
 		verificationGate: opts.gate ? new VerificationGate(opts.gate, log) : undefined,
 	} as unknown as IterationContext
 
-	return { ctx, messages, executed }
+	return { ctx, messages, executed, recordAudit }
 }
 
 /** Drain the generator and return its decision. */
@@ -266,5 +284,36 @@ describe('runToolReview — a gate denial outranks a human approval', () => {
 
 		expect(h.executed).toEqual(['read'])
 		expectEveryToolCallAnswered(h.messages, resp)
+	})
+})
+
+describe('runToolReview — a gate denial is a first-class audit event (LOG-14)', () => {
+	it('records one refused AuditEvent per gate-denied tool call', async () => {
+		const h = harness({
+			gate: gateConfig({ rules: [{ type: 'deny_by_name', toolNames: ['read', 'bash'] }] }),
+		})
+		const resp = response()
+		await run(h.ctx, resp)
+
+		expect(h.recordAudit).toHaveBeenCalledTimes(2)
+		expect(h.recordAudit).toHaveBeenCalledWith(
+			expect.objectContaining({
+				what: expect.objectContaining({ action: 'tool_call', tool: 'read' }),
+				outcome: 'refused',
+			}),
+		)
+		expect(h.recordAudit).toHaveBeenCalledWith(
+			expect.objectContaining({
+				what: expect.objectContaining({ action: 'tool_call', tool: 'bash' }),
+				outcome: 'refused',
+			}),
+		)
+	})
+
+	it('a call the gate ALLOWS is never audited as refused', async () => {
+		const h = harness({ gate: gateConfig({ allowReadOnlyTools: true }) })
+		await run(h.ctx, readOnlyResponse())
+
+		expect(h.recordAudit).not.toHaveBeenCalled()
 	})
 })

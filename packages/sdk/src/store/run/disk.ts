@@ -1,7 +1,13 @@
 import { appendFile, mkdir, readFile, readdir, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { CheckpointId, IterationCheckpoint } from '../../types/hitl/index.js'
-import type { PersistedRunEvent, Run, RunEvent, RunStoreConfig } from '../../types/run/index.js'
+import type {
+	AuditEvent,
+	PersistedRunEvent,
+	Run,
+	RunEvent,
+	RunStoreConfig,
+} from '../../types/run/index.js'
 import type { CompletedToolRecord, ReadRunEventsOptions, RunStore } from '../../types/run/store.js'
 import { atomicWriteFile } from '../../utils/atomic-write.js'
 import { type Logger, getRootLogger } from '../../utils/logger.js'
@@ -52,6 +58,7 @@ export class RunDiskStore implements RunStore {
 		}
 		await mkdir(this.runDir, { recursive: true })
 		await healTornTranscript(this.runDir)
+		await healTornAuditTrail(this.runDir)
 		this.log.info(`Run directory created: ${this.runDir}`)
 		return this.runDir
 	}
@@ -69,6 +76,44 @@ export class RunDiskStore implements RunStore {
 
 	async readEvents(options?: ReadRunEventsOptions): Promise<readonly PersistedRunEvent[]> {
 		return readRunEventsIn(this.requireInit(), options)
+	}
+
+	async appendAuditEvent(event: AuditEvent): Promise<void> {
+		const dir = this.requireInit()
+		// One JSON object per line, exactly like `transcript.jsonl` — but its
+		// own file, on its own sequence space (`AuditEvent.seq`), because an
+		// audit trail sharing bytes with an operational log inherits that
+		// log's operational habits (rotation, truncation) whether or not
+		// anyone intended them to apply here.
+		await appendFile(join(dir, 'audit.jsonl'), `${JSON.stringify(event)}\n`, 'utf-8')
+	}
+
+	async readAuditEvents(): Promise<readonly AuditEvent[]> {
+		const dir = this.requireInit()
+		let raw: string
+		try {
+			raw = await readFile(join(dir, 'audit.jsonl'), 'utf-8')
+		} catch (err) {
+			if (isFileNotFound(err)) return []
+			throw err
+		}
+
+		const events: AuditEvent[] = []
+		for (const line of raw.split('\n')) {
+			if (line.length === 0) continue
+			try {
+				events.push(JSON.parse(line) as AuditEvent)
+			} catch {
+				// A torn last line is the normal shape of a file that was being
+				// appended to when the process died — the same failure mode
+				// `readRunEventsIn` skips past for `transcript.jsonl`, and for
+				// the same reason: every whole line before it is still good,
+				// and refusing the whole trail over one incomplete tail entry
+				// would discard evidence the crash did not actually destroy.
+				continue
+			}
+		}
+		return events
 	}
 
 	/**
@@ -389,6 +434,29 @@ export async function readRunEventsIn(
  */
 async function healTornTranscript(runDir: string): Promise<void> {
 	const path = join(runDir, 'transcript.jsonl')
+	let raw: string
+	try {
+		raw = await readFile(path, 'utf-8')
+	} catch (err) {
+		if (isFileNotFound(err)) return
+		throw err
+	}
+	if (raw.length === 0 || raw.endsWith('\n')) return
+	await appendFile(path, '\n', 'utf-8')
+}
+
+/**
+ * Terminate an audit trail whose last line was cut off mid-write.
+ *
+ * Same failure mode {@link healTornTranscript} exists for, on `audit.jsonl`'s
+ * own file: a process killed mid-`appendFile` leaves a fragment with no
+ * newline, and the NEXT append would land on that same line — merging a
+ * whole, correct event into an unparsable one and losing BOTH rather than
+ * just the fragment. Called from `initRun`, the only moment the store knows
+ * nothing is mid-write, exactly like its transcript counterpart.
+ */
+async function healTornAuditTrail(runDir: string): Promise<void> {
+	const path = join(runDir, 'audit.jsonl')
 	let raw: string
 	try {
 		raw = await readFile(path, 'utf-8')

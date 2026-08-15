@@ -6,6 +6,7 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { InMemoryRunStore } from '../../../store/run/memory.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { RunEvent } from '../../../types/run/index.js'
@@ -20,6 +21,10 @@ import { drainQuery } from '../index.js'
  * blocked run actually settles as blocked and never calls the model, and
  * that a rewrite reaches `Run.result` — which is the only thing a host
  * consumes.
+ *
+ * Since LOG-14: a guardrail BLOCK is also a first-class 'refused' entry in
+ * the audit trail, not merely the `guardrail_triggered` RunEvent a host
+ * happens to be subscribed to when it fires.
  */
 
 const workdirs: string[] = []
@@ -33,6 +38,7 @@ async function run(opts: {
 	responseText: string
 	inputGuardrails?: Parameters<typeof drainQuery>[0]['inputGuardrails']
 	outputGuardrails?: Parameters<typeof drainQuery>[0]['outputGuardrails']
+	runStore?: Parameters<typeof drainQuery>[0]['runStore']
 }) {
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-guardrail-'))
 	workdirs.push(workingDirectory)
@@ -61,6 +67,7 @@ async function run(opts: {
 			tenantId: 'tnt_guardrail' as TenantId,
 			...(opts.inputGuardrails ? { inputGuardrails: opts.inputGuardrails } : {}),
 			...(opts.outputGuardrails ? { outputGuardrails: opts.outputGuardrails } : {}),
+			...(opts.runStore ? { runStore: opts.runStore } : {}),
 		},
 		(event) => {
 			events.push(event)
@@ -161,5 +168,44 @@ describe('output guardrails through query()', () => {
 		expect(result.result).not.toContain('AKIAIOSFODNN7EXAMPLE')
 		// …which is exactly why the correction is announced.
 		expect(events.some((e) => e.type === 'guardrail_triggered')).toBe(true)
+	})
+})
+
+describe('guardrail blocks are audited (LOG-14)', () => {
+	it('an input guardrail block records a refused AuditEvent', async () => {
+		const runStore = new InMemoryRunStore()
+		const { result } = await run({
+			responseText: 'should never be produced',
+			inputGuardrails: [
+				{ name: 'no-secrets-asked', check: () => ({ action: 'block', reason: 'asked for a key' }) },
+			],
+			runStore,
+		})
+
+		expect(result.stopReason).toBe('input_guardrail')
+
+		const trail = await runStore.readAuditEvents()
+		const refusal = trail.find((e) => e.outcome === 'refused')
+		expect(refusal).toMatchObject({
+			what: { action: 'guardrail:input', resource: 'no-secrets-asked' },
+			reason: 'asked for a key',
+		})
+	})
+
+	it('an output guardrail block records a refused AuditEvent', async () => {
+		const runStore = new InMemoryRunStore()
+		const { result } = await run({
+			responseText: 'AKIAIOSFODNN7EXAMPLE',
+			outputGuardrails: [secretRedactionGuardrail({ onMatch: 'block' })],
+			runStore,
+		})
+
+		expect(result.stopReason).toBe('output_guardrail')
+
+		const trail = await runStore.readAuditEvents()
+		const refusal = trail.find((e) => e.outcome === 'refused')
+		expect(refusal).toMatchObject({
+			what: { action: 'guardrail:output', resource: 'secret-redaction' },
+		})
 	})
 })

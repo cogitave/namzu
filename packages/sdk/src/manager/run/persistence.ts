@@ -3,10 +3,12 @@ import { EMPTY_TOKEN_USAGE } from '../../constants/limits.js'
 import { resolveModelPricing } from '../../pricing/index.js'
 import { DiskCheckpointStore } from '../../store/run/checkpoint-disk.js'
 import { RunDiskStore } from '../../store/run/disk.js'
+import { getActiveSpanContext } from '../../telemetry/runtime-accessors.js'
 import { type CostInfo, type TokenUsage, accumulateTokenUsage } from '../../types/common/index.js'
 import type { RunId, SessionId, TenantId } from '../../types/ids/index.js'
 import type { Message } from '../../types/message/index.js'
 import type { ProviderErrorInfo } from '../../types/provider/index.js'
+import type { AuditEvent, AuditEventInput } from '../../types/run/audit.js'
 import type { CheckpointRunScope, CheckpointStore } from '../../types/run/checkpoint-store.js'
 import type { EmergencySaveData } from '../../types/run/emergency.js'
 import type { Run, RunPersistenceConfig, StepResult, StopReason } from '../../types/run/index.js'
@@ -18,7 +20,7 @@ import {
 	accumulateCost,
 	accumulateUnpricedCost,
 } from '../../utils/cost.js'
-import { generateEmergencySaveId } from '../../utils/id.js'
+import { generateAuditEventId, generateEmergencySaveId } from '../../utils/id.js'
 import type { Logger } from '../../utils/logger.js'
 
 /**
@@ -209,6 +211,24 @@ export class RunPersistence {
 		return this._lastEventSeq
 	}
 
+	/**
+	 * Own counter for the audit trail's `seq` — a SEPARATE sequence space
+	 * from {@link _lastEventSeq}. See `types/run/audit.ts`'s doc on
+	 * `AuditEvent.seq`: the operational RunEvent transcript and the audit
+	 * trail are two logs, and forcing them to share one counter just because
+	 * both happen to be monotonic would make an unrelated burst on one trail
+	 * move the other's cursor.
+	 *
+	 * Not chain-serialized against concurrent writers the way
+	 * `EventTranslator.emitEvent` serializes `RunEvent.seq` (see
+	 * `runtime/query/events.ts`'s `appendChain`) — every call site that
+	 * exists today awaits each `recordAudit` before the next one starts for
+	 * the same run. A future call site that fires audits concurrently would
+	 * need the same serialization; add it there when that call site exists,
+	 * not speculatively here.
+	 */
+	private _lastAuditSeq = 0
+
 	async init(): Promise<void> {
 		await this.runStore.initRun(this.run.id, this.run.parentRunId)
 		// A resume reuses the run id and therefore the same log, so the counter
@@ -218,6 +238,12 @@ export class RunPersistence {
 		// that there is nothing above it.
 		const existing = await this.runStore.readEvents()
 		this._lastEventSeq = existing.at(-1)?.seq ?? 0
+		// Same reasoning, for the audit trail's OWN sequence space. Safe to
+		// degrade to `[]` when the bound store never implements it —
+		// `recordAudit` refuses on such a store regardless (see its own doc),
+		// so seeding at zero here costs nothing a later write would have used.
+		const existingAudit = (await this.runStore.readAuditEvents?.()) ?? []
+		this._lastAuditSeq = existingAudit.at(-1)?.seq ?? 0
 		await this.runStore.writeRunMeta(this.run)
 	}
 
@@ -563,6 +589,81 @@ export class RunPersistence {
 			processSignal: signal,
 			lastError: this.run.lastError,
 		}
+	}
+
+	/**
+	 * Append one entry to this run's audit trail, and — only once that write
+	 * has actually landed — emit the bridge pointer to the operational log.
+	 * See ses_020's logging design §5.
+	 *
+	 * **Durability is unconditional and the failure mode is asymmetric with
+	 * logging on purpose.** `RunStore.appendAuditEvent` is OPTIONAL on the
+	 * contract (a host's custom store may not implement it, same as
+	 * `addToIndex`), but silently running without an audit trail is exactly
+	 * the degradation `refuse-do-not-degrade` forbids — so a bound store that
+	 * lacks it is a THROWN error here, not a skipped write. Because this is
+	 * called from every run's terminal path (see `runtime/query/result.ts`),
+	 * a store lacking it will throw on the FIRST run against it — this is a
+	 * major-version compatibility break for any host with a custom RunStore,
+	 * documented as such in this release's changeset. When the store DOES
+	 * implement it, a rejection from `appendAuditEvent` is NOT caught: it
+	 * propagates to the caller, because an audit write failing must fail the
+	 * operation it was recording — unlike `createLogger`'s `dispatch`, which
+	 * swallows a throwing sink and counts it. See
+	 * `manager/run/__tests__/audit-durability.test.ts`, which pins both
+	 * halves of that asymmetry against ONE call, including the bridge log
+	 * record below going through a throwing sink.
+	 */
+	async recordAudit(input: AuditEventInput): Promise<AuditEvent> {
+		const span = getActiveSpanContext()
+		const event: AuditEvent = {
+			id: generateAuditEventId(),
+			runId: this.run.id,
+			seq: this._lastAuditSeq + 1,
+			timestamp: Date.now(),
+			who: {
+				agentId: this.run.metadata.agentId,
+				tenantId: this._tenantId,
+				...(input.persona !== undefined ? { persona: input.persona } : {}),
+			},
+			what: input.what,
+			outcome: input.outcome,
+			// The run's cumulative total AT THIS MOMENT — matching `Run.costInfo`'s
+			// own semantics (see `accumulateCost`: the field IS the running total,
+			// not a delta, so "last write wins" is already how the derived summary
+			// treats it).
+			cost: this.run.costInfo,
+			...(input.reason !== undefined ? { reason: input.reason } : {}),
+			...(span ? { traceId: span.traceId, spanId: span.spanId } : {}),
+		}
+
+		if (!this.runStore.appendAuditEvent) {
+			throw new Error(
+				"This run's RunStore does not implement appendAuditEvent. A backend that cannot " +
+					'durably record the audit trail must refuse rather than run with one silently ' +
+					'absent — implement RunStore.appendAuditEvent (and readAuditEvents), or bind this ' +
+					'run to a store that does.',
+			)
+		}
+		await this.runStore.appendAuditEvent(event)
+		// Advanced only once the write actually landed — same discipline
+		// `commitEventSeq` applies to the RunEvent stream. The append above
+		// already threw before this line is reached on a failed write, so there
+		// is no phantom claim on a `seq` no entry occupies.
+		if (event.seq > this._lastAuditSeq) this._lastAuditSeq = event.seq
+
+		// The bridge, one direction only (design §5): AT MOST ONE operational
+		// record per audit write, carrying a POINTER — id and seq — never the
+		// event's own content. Never caught: this is an ordinary logger call
+		// and `createLogger`'s own dispatch already swallows a throwing sink,
+		// which is the asymmetry this method exists to preserve rather than
+		// reimplement.
+		this.log.info('namzu.audit.written', {
+			'namzu.audit.event_id': event.id,
+			'namzu.audit.seq': event.seq,
+		})
+
+		return event
 	}
 
 	async persist(): Promise<void> {

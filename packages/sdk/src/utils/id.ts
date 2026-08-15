@@ -3,6 +3,7 @@ import type {
 	ActivityId,
 	AdvisoryCallId,
 	AdvisoryId,
+	AuditEventId,
 	CheckpointId,
 	ChunkId,
 	ConnectorId,
@@ -152,6 +153,10 @@ export function generateAdvisoryId(): AdvisoryId {
 
 export function generateAdvisoryCallId(): AdvisoryCallId {
 	return generateId('advc_')
+}
+
+export function generateAuditEventId(): AuditEventId {
+	return generateId('aud_')
 }
 
 export function generateEmergencySaveId(): EmergencySaveId {

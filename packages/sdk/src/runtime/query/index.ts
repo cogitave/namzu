@@ -1606,6 +1606,15 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 					...(inputVerdict.reason ? { reason: inputVerdict.reason } : {}),
 				})
 				yield* eventTranslator.drainPending()
+				// A guardrail block is a refusal — first-class in the audit trail
+				// (LOG-14, design §5), not merely a RunEvent a host happens to be
+				// subscribed to when it fires.
+				await ctx.runMgr.recordAudit({
+					what: { action: 'guardrail:input', resource: inputVerdict.name },
+					outcome: 'refused',
+					reason: inputVerdict.reason ?? 'blocked by an input guardrail',
+					...(params.persona?.identity.role ? { persona: params.persona.identity.role } : {}),
+				})
 				ctx.runMgr.setStopReason('input_guardrail')
 				ctx.runMgr.setLastError(inputVerdict.reason ?? 'blocked by an input guardrail')
 				yield* resultAssembler.completeRun(rootSpan)
@@ -1698,6 +1707,13 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 						...(outputVerdict.reason ? { reason: outputVerdict.reason } : {}),
 					})
 					yield* eventTranslator.drainPending()
+					// Same reasoning as the input-guardrail branch above.
+					await ctx.runMgr.recordAudit({
+						what: { action: 'guardrail:output', resource: outputVerdict.name },
+						outcome: 'refused',
+						reason: outputVerdict.reason ?? 'blocked by an output guardrail',
+						...(params.persona?.identity.role ? { persona: params.persona.identity.role } : {}),
+					})
 					ctx.runMgr.setStopReason('output_guardrail')
 					ctx.runMgr.setLastError(outputVerdict.reason ?? 'blocked by an output guardrail')
 					ctx.runMgr.setResult('')

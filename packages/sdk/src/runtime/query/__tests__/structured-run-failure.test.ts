@@ -39,6 +39,9 @@ async function failWith(err: unknown): Promise<RunEvent[]> {
 			stopReason: undefined,
 			markFailed: () => {},
 			getRun: () => ({ id: RID }),
+			// LOG-14: `handleError` now calls `recordAudit` on the run_failed path,
+			// which every test in this file reaches.
+			recordAudit: async () => undefined as never,
 		} as never,
 		planManager: { isActive: false, failPlan: () => {} } as never,
 		activityStore: { enabled: false } as never,

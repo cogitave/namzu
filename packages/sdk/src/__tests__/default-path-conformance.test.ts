@@ -114,6 +114,12 @@ function harness(opts: { decision: HITLResumeDecision; turns: unknown[] }) {
 		},
 		setStructuredOutput: vi.fn(),
 		markCancelled: vi.fn(),
+		// LOG-14: a gate denial now calls `recordAudit` inside `runToolReview`
+		// — the 'a gate denial...' and 'a human approval cannot release...'
+		// tests below drive an actual denial through this stub, so it has to
+		// answer the call or the loop throws mid-review instead of the
+		// assertion running at all.
+		recordAudit: vi.fn(async () => undefined as never),
 	}
 
 	const orchestrator = new IterationOrchestrator({

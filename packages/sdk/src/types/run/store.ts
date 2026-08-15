@@ -27,6 +27,7 @@
  * re-keyed per call, it happens once, deliberately, as its own change.
  */
 
+import type { AuditEvent } from './audit.js'
 import type { Run } from './entity.js'
 import type { PersistedRunEvent, RunEvent } from './events.js'
 
@@ -139,6 +140,45 @@ export interface RunStore {
 	 * filesystem. Valid only after {@link RunStore.initRun}.
 	 */
 	getRunDir(): string | null
+
+	/**
+	 * Append one entry to this run's AUDIT trail. OPTIONAL on the contract,
+	 * the same way {@link RunStore.addToIndex} is — an existing custom
+	 * `RunStore` keeps compiling without it. Unlike `addToIndex`, though, its
+	 * absence is not a shrug:
+	 * {@link import('../../manager/run/persistence.js').RunPersistence.recordAudit}
+	 * REFUSES rather than silently running a bound store that lacks it, per
+	 * `refuse-do-not-degrade` — an audit trail nobody can point at is not a
+	 * degraded feature, it is the kernel's central claim quietly not being
+	 * true. NOTE: because `recordAudit` is called from every run's terminal
+	 * path, a `RunStore` implementer that adopts this contract without also
+	 * implementing this method will see every run throw. See the major-bump
+	 * changeset.
+	 *
+	 * A SEPARATE trail from {@link RunStore.appendEvent}: an operational log
+	 * is level-filtered, sampled, rotatable and legitimately absent when no
+	 * host installed a sink. None of that is acceptable for evidence of what
+	 * an agent did, under whose identity, at what cost, and whether it was
+	 * allowed — see `types/run/audit.ts` for the full reasoning (ses_020's
+	 * logging design §5).
+	 *
+	 * A write that rejects here must fail the caller's operation. This is the
+	 * one place on this whole contract where that is true — every other write
+	 * here may be retried or reported by a caller that chooses to; this one
+	 * is durability's last line, and a caller that catches and continues past
+	 * a rejection here has silently degraded the audit trail into decoration.
+	 */
+	appendAuditEvent?(event: AuditEvent): Promise<void>
+
+	/**
+	 * Read the run's audit trail back, oldest first. OPTIONAL for the same
+	 * reason {@link RunStore.appendAuditEvent} is. What a resumed run seeds
+	 * its next audit `seq` from, and the input to
+	 * {@link import('./audit.js').replayRun}. See {@link RunStore.readEvents}
+	 * for the ordering and gap obligations — the same three apply here,
+	 * against this trail's own sequence space.
+	 */
+	readAuditEvents?(): Promise<readonly AuditEvent[]>
 
 	/**
 	 * Record the run in a browsable catalogue of runs. OPTIONAL.

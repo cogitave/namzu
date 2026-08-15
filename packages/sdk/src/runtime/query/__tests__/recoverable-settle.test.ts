@@ -50,6 +50,12 @@ async function settle(err: unknown, resumeFrom?: CheckpointId) {
 			setStopReason: (reason: string) => marks.push(`stop:${reason}`),
 			setLastError: () => marks.push('lastError'),
 			getRun: () => ({ id: RID }),
+			// LOG-14: `handleError` now calls `recordAudit` on the run_failed
+			// path. The `describe('a failure that pausing would not help', ...)`
+			// tests below reach it; the `describe('a transient failure with
+			// somewhere to resume from', ...)` tests take the earlier `paused`
+			// return and never touch this.
+			recordAudit: async () => undefined as never,
 		} as never,
 		planManager: { isActive: false, failPlan: () => marks.push('planFailed') } as never,
 		activityStore: { enabled: false } as never,

@@ -58,6 +58,12 @@ function record(name: string) {
 }
 
 vi.mock('../runtime-accessors.js', () => ({
+	// The module has more than one export, and a factory mock replaces ALL of
+	// them — so omitting this one does not fall through to the real
+	// implementation, it makes the import undefined. `recordAudit` reads the
+	// active span to stamp an audit event, so a partial mock here surfaces as
+	// a run failure in a file that is not about spans at all.
+	getActiveSpanContext: () => undefined,
 	getTracer: () => ({
 		startSpan: (name: string) => record(name),
 		startActiveSpan: (name: string, _o: unknown, _c: unknown, fn: (s: unknown) => unknown) =>

@@ -125,7 +125,17 @@ export async function* runToolReview(
 
 		for (const gr of gateResults) {
 			if (gr.gateResult.decision === 'deny') {
-				gateDenied.set(gr.toolCall.id, `Blocked by the verification gate: ${gr.gateResult.reason}`)
+				const reason = `Blocked by the verification gate: ${gr.gateResult.reason}`
+				gateDenied.set(gr.toolCall.id, reason)
+				// A gate denial is a refusal — first-class in the audit trail, never
+				// an absent record (LOG-14, design §5). Written here, once per
+				// denied call, regardless of which path the rest of this function
+				// takes afterwards.
+				await ctx.runMgr.recordAudit({
+					what: { action: 'tool_call', tool: gr.toolCall.name },
+					outcome: 'refused',
+					reason,
+				})
 			}
 		}
 

@@ -1,3 +1,4 @@
+import type { AuditEvent } from '../../types/run/audit.js'
 import type { Run } from '../../types/run/entity.js'
 import type { PersistedRunEvent, RunEvent } from '../../types/run/events.js'
 import type { CompletedToolRecord, ReadRunEventsOptions, RunStore } from '../../types/run/store.js'
@@ -23,6 +24,7 @@ export class InMemoryRunStore implements RunStore {
 	private messages: Run['messages'] = []
 	private report: string | null = null
 	private events: PersistedRunEvent[] = []
+	private auditEvents: AuditEvent[] = []
 
 	async initRun(runId: string, parentRunId?: string): Promise<string | null> {
 		// Rebinding to a DIFFERENT run starts that run's evidence empty. The disk
@@ -36,6 +38,7 @@ export class InMemoryRunStore implements RunStore {
 			this.messages = []
 			this.report = null
 			this.events = []
+			this.auditEvents = []
 		}
 		this.runId = runId
 		this.parentRunId = parentRunId
@@ -101,6 +104,19 @@ export class InMemoryRunStore implements RunStore {
 		return this.events.filter((event) => event.seq > sinceSeq).map((event) => ({ ...event }))
 	}
 
+	async appendAuditEvent(event: AuditEvent): Promise<void> {
+		this.requireInit()
+		// Copied, not referenced — same reasoning as `writeRunMeta`: a caller
+		// must not be able to reach into the trail through the object it handed
+		// over.
+		this.auditEvents.push({ ...event })
+	}
+
+	async readAuditEvents(): Promise<readonly AuditEvent[]> {
+		this.requireInit()
+		return this.auditEvents.map((event) => ({ ...event }))
+	}
+
 	async writeReport(content: string): Promise<string | null> {
 		this.requireInit()
 		this.report = content
@@ -145,7 +161,14 @@ export class InMemoryRunStore implements RunStore {
 		messages: Run['messages']
 		report: string | null
 		events: readonly PersistedRunEvent[]
+		auditEvents: readonly AuditEvent[]
 	} {
-		return { meta: this.meta, messages: this.messages, report: this.report, events: this.events }
+		return {
+			meta: this.meta,
+			messages: this.messages,
+			report: this.report,
+			events: this.events,
+			auditEvents: this.auditEvents,
+		}
 	}
 }

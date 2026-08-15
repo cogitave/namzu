@@ -64,6 +64,21 @@ probably belong under `docs/sdk/` instead.
   — a default fallback turned "I cannot establish this" into "this is
   satisfied".
 
+**A deliberate omission is not the same shape as a missing feature, and a new
+capability does not retroactively license it.** `packages/sdk/src/provider/errors.ts`
+and every one of the six provider clients (`openai`, `anthropic`, `ollama`,
+`bedrock`, `openrouter`, `lmstudio`) refuse to attach `cause` to a classified
+provider error, on purpose: a vendor SDK builds its own error message FROM the
+response body, so a credential the upstream echoed back is already inside
+`err.message` before any of this code runs, and a `cause` survives every
+logger that serializes an error chain. `utils/log/exception.ts` shipping a
+bounded, cycle-safe `cause` walk for logging is not evidence that walk is now
+safe everywhere it was previously refused — the mapper existing does not
+override the reason the omission exists, and each client's own regression
+test (plus `packages/sdk/src/provider/__tests__/errors.test.ts` for the
+shared function) is what keeps a future "finally something walks `cause`"
+from reading as permission.
+
 ### Tests that prove something
 
 - [Mutate every test](mutation-check-every-test.md) — and a unit test on a
