@@ -11,7 +11,7 @@ import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { Command, CommanderError } from 'commander'
+import { Command, CommanderError, Option } from 'commander'
 
 import { doctorCommand } from './commands/doctor.js'
 import { drainCommand } from './commands/drain.js'
@@ -29,6 +29,8 @@ import { stubCommands } from './commands/stubs.js'
 import type { CommandContext } from './commands/types.js'
 import { ConfigLoadError, loadConfig } from './config/load.js'
 import { EXIT_BAD_CONFIG, EXIT_INTERNAL_ERROR } from './exit-codes.js'
+import { resolveLogFormat, resolveLogLevel } from './logging.js'
+import type { ResolvedLogging } from './logging.js'
 import { type FormatName, createFormatter, isFormatName } from './output/index.js'
 import { compilePermissions } from './permissions/rules.js'
 
@@ -70,7 +72,16 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		.description('Operator CLI for the Namzu agent platform')
 		.version(CLI_VERSION, '-V, --version', 'Print version and exit')
 		.option('-f, --format <type>', 'Output format: text, json, yaml')
-		.option('-q, --quiet', 'Suppress non-essential output')
+		.option('-q, --quiet', 'Suppress non-essential output; also raises the log floor to warn')
+		.addOption(
+			new Option('-v, --verbose', 'Emit debug-level log records to stderr').conflicts('quiet'),
+		)
+		.addOption(
+			new Option(
+				'--log-format <format>',
+				'Log record format for run/drain/TUI-flush output: pretty (default) or json. namzu run-stream always writes json, regardless of this flag.',
+			).choices(['pretty', 'json']),
+		)
 		.option(
 			'--dangerously-skip-permissions',
 			'Run tools without asking for approval (no permission prompts). Only use in a sandbox or a folder you fully trust.',
@@ -85,16 +96,32 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 	let ctx: CommandContext | null = null
 	const getContext = (): CommandContext => {
 		if (ctx) return ctx
-		const globalOpts = program.opts<{ format?: string; quiet?: boolean }>()
+		const globalOpts = program.opts<{
+			format?: string
+			quiet?: boolean
+			verbose?: boolean
+			logFormat?: string
+		}>()
 		const fileConfig = loadConfig()
 		const format: FormatName =
 			globalOpts.format && isFormatName(globalOpts.format)
 				? globalOpts.format
 				: (fileConfig.format ?? 'text')
 		const quiet = globalOpts.quiet ?? fileConfig.quiet ?? false
+		// Resolved from the ACTUAL parsed flags, not `quiet` above — that value
+		// already folds in NAMZU_QUIET and a config file's `quiet: true`.
+		// "Flag beats env" (LOG-05) means the literal --verbose/--quiet on THIS
+		// command line beats NAMZU_LOG_LEVEL; widening it to every source that
+		// can produce `quiet: true` would let NAMZU_QUIET silently override an
+		// operator's own NAMZU_LOG_LEVEL, which neither variable promises.
+		const logging: ResolvedLogging = {
+			level: resolveLogLevel({ verbose: globalOpts.verbose, quiet: globalOpts.quiet }),
+			format: resolveLogFormat({ logFormat: globalOpts.logFormat }),
+		}
 		ctx = {
 			formatter: createFormatter(format, { quiet }),
 			config: { ...fileConfig, format, quiet },
+			logging,
 		}
 		return ctx
 	}
@@ -143,6 +170,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 				version: CLI_VERSION,
 				skipPermissions,
 				rules: permissions.rules,
+				logging: tuiCtx.logging,
 				...(tuiCtx.config.mcpServers ? { mcpServers: tuiCtx.config.mcpServers } : {}),
 				...(tuiCtx.config.sandbox ? { sandbox: tuiCtx.config.sandbox } : {}),
 			})
@@ -191,6 +219,7 @@ function mapCommanderError(err: CommanderError): number {
 		case 'commander.invalidArgument':
 		case 'commander.invalidOptionArgument':
 		case 'commander.excessArguments':
+		case 'commander.conflictingOption':
 			return EX_USAGE
 		default:
 			return EXIT_INTERNAL_ERROR

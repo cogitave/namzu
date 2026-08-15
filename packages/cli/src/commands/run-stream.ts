@@ -15,9 +15,9 @@
  * prior history may be supplied on stdin as a JSON `Message[]` and nothing is
  * persisted (stateless one-shot).
  *
- * Status lines never hit stdout (logger silenced) so every stdout line is a
- * valid JSON event, and EVERY failure is reported in band, including the ones
- * that also carry an exit code.
+ * Status lines go to stderr as NDJSON (LOG-05), never stdout, so every
+ * stdout line is a valid JSON event, and EVERY failure is reported in band,
+ * including the ones that also carry an exit code.
  *
  * ## What the exit code means
  *
@@ -55,7 +55,7 @@
  * asked for rather than achieving it.
  */
 
-import { type Message, configureLogger } from '@namzu/sdk'
+import { type Message, installProcessSink, jsonLinesSink } from '@namzu/sdk'
 
 import { EXIT_FAIL, EXIT_OK, EXIT_UNTRUSTED } from '../exit-codes.js'
 import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
@@ -65,6 +65,7 @@ import {
 	openSessions,
 	resolveConversation,
 } from '../integrations/sessions/store.js'
+import { contextLogging } from '../logging.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { resolvePermissionMode } from '../permissions/mode.js'
 import { compilePermissions } from '../permissions/rules.js'
@@ -275,7 +276,13 @@ export const runStreamCommand: CommandDef = {
 			prior = parsePriorMessages(await readStdin())
 		}
 
-		configureLogger({ level: 'silent' })
+		// Always NDJSON on stderr, regardless of --log-format/NAMZU_LOG_FORMAT
+		// — this is the machine-read channel §6.6 of the logging design
+		// describes, and stdout's own protocol is unaffected by anything the
+		// operator passes, so stderr here stays that way too. `{ replace:
+		// true }`: see `run.ts`'s identical comment.
+		const logging = contextLogging(ctx)
+		installProcessSink(jsonLinesSink(process.stderr), logging.level, { replace: true })
 		const { probeAgentSession, createAgentSession } = await import('../tui/agent.js')
 		const probe = await probeAgentSession()
 		let prefs = probe.preferences ?? defaultPrefs(probe.detected)
@@ -532,10 +539,16 @@ export const providersJSONCommand: CommandDef = {
 	name: 'providers-json',
 	description: 'Print providers + per-provider models as JSON (for host UIs)',
 	passThrough: true,
-	handler: async () => {
+	handler: async ({ ctx }) => {
 		try {
-			const { configureLogger } = await import('@namzu/sdk')
-			configureLogger({ level: 'silent' })
+			// Always NDJSON on stderr — same reasoning as run-stream's own sink
+			// above; this command answers a host UI polling for a picker list,
+			// not a person reading a terminal. installProcessSink/jsonLinesSink
+			// are already statically imported at the top of this file, so the
+			// dynamic import('@namzu/sdk') this replaced bought nothing — it
+			// re-fetched a module already loaded for `Message`.
+			const logging = contextLogging(ctx)
+			installProcessSink(jsonLinesSink(process.stderr), logging.level, { replace: true })
 			const { PROVIDER_REGISTRY, ALL_PROVIDER_IDS, findDetected } = await import(
 				'../integrations/providers/index.js'
 			)

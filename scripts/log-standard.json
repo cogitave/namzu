@@ -101,6 +101,12 @@
 			"symbol": "process.stdout.write",
 			"count": 1,
 			"reason": "the same raw terminal control at TUI startup; configureLogger({ level: 'silent' }) immediately above is what actually keeps a log line off this stream."
+		},
+		{
+			"file": "packages/cli/src/tui/log-pane.tsx",
+			"symbol": "process.stderr.write",
+			"count": 1,
+			"reason": "installTuiLogSink's fatal handler. Ink owns the screen while the TUI runs, so this sink buffers rather than writes; on a crash it flushes the buffer and then writes the error itself, after Ink's render loop has stopped. This file IS the TUI's sink implementation — the one place permitted to touch the stream directly on the way out of a process that is already ending."
 		}
 	]
 }

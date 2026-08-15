@@ -1,3 +1,7 @@
+import { createLogger } from './log/create-logger.js'
+import { getProcessSink } from './log/process-sink.js'
+import type { LevelFilter, LogSink } from './log/types.js'
+
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'silent'
 
 export type LogContext = Record<string, unknown>
@@ -68,10 +72,44 @@ let _rootLogger: Logger | null = null
  * Unchanged behaviour; this JSDoc is the only edit.
  */
 export function getRootLogger(): Logger {
+	// A process sink, when one is installed, wins over both the cached logger
+	// and the stderr default. Resolved per CALL rather than cached, for the
+	// same reason the new pipeline reads its level per record: a logger handed
+	// out before `installProcessSink` ran would otherwise keep writing to
+	// stderr forever, which is the exact shape of the three frozen loaders
+	// this migration just fixed.
+	//
+	// This bridge is what lets the ~39 existing `getRootLogger()` call sites
+	// reach a host's sink without being rewritten in one commit. They keep the
+	// old interface and gain the new destination.
+	const installed = getProcessSink()
+	if (installed) return fromSink(installed.sink, installed.level)
+
 	if (!_rootLogger) {
 		_rootLogger = createLoggerImpl('namzu', 'info', {})
 	}
 	return _rootLogger
+}
+
+/** Adapts the record pipeline back to the legacy `Logger` shape. */
+function fromSink(sink: LogSink, level: LevelFilter, bound: LogContext = {}): Logger {
+	const created = createLogger({
+		sink,
+		level: { current: level },
+		resource: { 'service.name': 'namzu' },
+		scope: 'namzu',
+	})
+	const write =
+		(severity: 'debug' | 'info' | 'warn' | 'error') => (message: string, data?: LogContext) => {
+			created[severity](message, { ...bound, ...data })
+		}
+	return {
+		debug: write('debug'),
+		info: write('info'),
+		warn: write('warn'),
+		error: write('error'),
+		child: (context: LogContext) => fromSink(sink, level, { ...bound, ...context }),
+	}
 }
 
 /**

@@ -1,9 +1,19 @@
 import type { NamzuCliConfig } from '../config/schema.js'
+import type { ResolvedLogging } from '../logging.js'
 import type { Formatter } from '../output/index.js'
 
 export interface CommandContext {
 	readonly formatter: Formatter
 	readonly config: NamzuCliConfig
+	/**
+	 * `--verbose`/`--quiet`/`NAMZU_LOG_LEVEL` and `--log-format`/
+	 * `NAMZU_LOG_FORMAT`, resolved once in `cli.ts#getContext()` — flag
+	 * beating env, per `../logging.ts`. Optional so a `ctx` a test built by
+	 * hand without a `logging` field does not have to grow one just to keep
+	 * compiling; `contextLogging()` gives such a handler the same default
+	 * `getContext()` would have produced with no flags set.
+	 */
+	readonly logging?: ResolvedLogging
 }
 
 export interface CommandHandlerArgs {

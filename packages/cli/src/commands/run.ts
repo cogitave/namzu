@@ -18,12 +18,13 @@
 
 import { relative } from 'node:path'
 
-import { configureLogger } from '@namzu/sdk'
+import { installProcessSink } from '@namzu/sdk'
 import type { Message, StopReason } from '@namzu/sdk'
 
 import { EXIT_UNTRUSTED, EXIT_USAGE } from '../exit-codes.js'
 import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
 import { openSessions } from '../integrations/sessions/store.js'
+import { contextLogging, createStderrSink } from '../logging.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { resolvePermissionMode } from '../permissions/mode.js'
 import { compilePermissions } from '../permissions/rules.js'
@@ -241,7 +242,16 @@ export const runCommand: CommandDef = {
 			return EXIT_UNTRUSTED
 		}
 
-		configureLogger({ level: 'silent' })
+		// The CLI owns stderr, not the kernel it drives (LOG-05) — a live sink
+		// at the level --verbose/--quiet/NAMZU_LOG_LEVEL named, instead of
+		// forcing the level to `silent` via `configureLogger`, which threw
+		// every diagnostic away regardless of what anyone asked for.
+		// `{ replace: true }`: a real invocation calls this once, but this
+		// package's own test suite calls a command's handler more than once
+		// per process, which a refusing second install would break for
+		// reasons that have nothing to do with what those tests are about.
+		const logging = contextLogging(ctx)
+		installProcessSink(createStderrSink(logging.format), logging.level, { replace: true })
 		const { probeAgentSession, createAgentSession } = await import('../tui/agent.js')
 		const probe = await probeAgentSession()
 		let prefs = probe.preferences ?? defaultPrefs(probe.detected)

@@ -22,12 +22,12 @@
  * one.
  */
 
-import { DiskCheckpointStore, drainRuns } from '@namzu/sdk'
+import { DiskCheckpointStore, drainRuns, installProcessSink } from '@namzu/sdk'
 import type { DurableRunEntry, ProjectId, SessionId, TenantId } from '@namzu/sdk'
-import { configureLogger } from '@namzu/sdk'
 
 import { EXIT_UNTRUSTED, EXIT_USAGE } from '../exit-codes.js'
 import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
+import { contextLogging, createStderrSink } from '../logging.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { applyProviderFlags, resolveWorkingDirectory } from './run-flags.js'
 import type { CommandDef } from './types.js'
@@ -235,7 +235,14 @@ export const drainCommand: CommandDef = {
 			return EXIT_UNTRUSTED
 		}
 
-		configureLogger({ level: 'silent' })
+		// The CLI owns stderr, not the kernel it drives (LOG-05) — a live sink
+		// at the level --verbose/--quiet/NAMZU_LOG_LEVEL named, instead of
+		// forcing the level to `silent` via `configureLogger`. `{ replace:
+		// true }`: see the identical comment in `run.ts` — a real invocation
+		// calls this once, this package's own tests call a handler's more
+		// than once per process.
+		const logging = contextLogging(ctx)
+		installProcessSink(createStderrSink(logging.format), logging.level, { replace: true })
 		const { probeAgentSession, createAgentSession } = await import('../tui/agent.js')
 		const probe = await probeAgentSession()
 		let prefs = probe.preferences ?? defaultPrefs(probe.detected)

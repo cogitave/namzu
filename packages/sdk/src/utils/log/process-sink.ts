@@ -3,10 +3,11 @@
 // process), but a destination, not only a threshold: `configureLogger` could
 // only raise or lower a level against a fixed `process.stderr.write`.
 //
-// Nothing in `@namzu/sdk` reads the installed sink yet. This function's
-// contract — refuse a second, unannounced install — has to be correct and
-// tested from the moment it exists, not from the moment a caller (the CLI)
-// starts consuming it, so the refusal is exercised directly here.
+// `getRootLogger` reads this: when a sink is installed, the deprecated
+// accessor routes through it instead of writing straight to stderr. That
+// bridge is what makes the seam reachable without rewriting the ~39 existing
+// `getRootLogger()` call sites in one commit — they keep the old shape and
+// gain the new destination.
 
 import type { LevelFilter, LogSink } from './types.js'
 
@@ -30,4 +31,22 @@ export function installProcessSink(
 		)
 	}
 	_processSink = { sink, level }
+}
+
+/** The installed destination, or `undefined` when nobody claimed the process. */
+export function getProcessSink():
+	| { readonly sink: LogSink; readonly level: LevelFilter }
+	| undefined {
+	return _processSink
+}
+
+/**
+ * Test-only: forget the installed sink.
+ *
+ * Production must never call this — the refusal above is the whole contract,
+ * and a reset that production could reach would let a second caller take the
+ * destination by clearing the first one rather than by saying `replace`.
+ */
+export function __resetProcessSinkForTests(): void {
+	_processSink = undefined
 }

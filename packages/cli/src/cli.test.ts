@@ -126,4 +126,36 @@ describe('runCli', () => {
 		expect(code).toBe(64)
 		expect(stderr).toContain('unknown option: --frobnicate')
 	})
+
+	// LOG-05: --verbose/--quiet raise or lower the log floor; --log-format
+	// chooses the sink's rendering. Both are Commander-level concerns —
+	// conflicting flags and an unrecognised format value — refused before
+	// any subcommand's handler runs, so `doctor --help` (already exercised
+	// above, and cheap: it returns before the real diagnostic registry
+	// runs) stands in for all five entry points; WHICH entry point installs
+	// WHICH sink is commands/__tests__/*-log-sink.test.ts and
+	// tui/__tests__/log-pane.test.ts's job, not this file's.
+	it('--verbose and --quiet together are refused as conflicting options (EX_USAGE)', async () => {
+		const code = await invoke(['--verbose', '--quiet', 'doctor'])
+		expect(code).toBe(64)
+		expect(stderr).toContain('cannot be used with')
+	})
+
+	it('--log-format rejects a value that is not pretty or json (EX_USAGE)', async () => {
+		const code = await invoke(['--log-format', 'xml', 'doctor'])
+		expect(code).toBe(64)
+		expect(stderr).toContain('Allowed choices are pretty, json')
+	})
+
+	it('--verbose alone and --log-format json alone both parse (no conflict, a real value)', async () => {
+		// `doctor --help` rather than bare `doctor`: the point is that the two
+		// new global flags parse without throwing — dies if either Option lost
+		// its .conflicts()/.choices() declaration — not a live run of the real
+		// diagnostic registry, which reads the actual sandbox/providers/vault
+		// state and is unmocked here. Bare `doctor` would make this test's
+		// pass/fail depend on the machine it runs on and add several seconds
+		// against a 10s wall-clock default, for no assertion this test needs.
+		const code = await invoke(['--verbose', '--log-format', 'json', 'doctor', '--help'])
+		expect(code).toBe(0)
+	})
 })

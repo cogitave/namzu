@@ -49,5 +49,13 @@ import { defineConfig } from 'vitest/config'
 export default defineConfig({
 	test: {
 		testTimeout: 15_000,
+		// LOG-05: every entry point now installs a REAL stderr sink instead of
+		// forcing the level to `silent` via `configureLogger`, so a `ctx` a
+		// test built by hand without a `logging` field falls back to
+		// resolving the level from NAMZU_LOG_LEVEL — see `contextLogging` in
+		// `src/logging.ts`. Defaulting that env var to `silent` here
+		// (`src/test-setup.ts`) keeps the dozen-plus existing fixtures across
+		// this package quiet without editing any of them.
+		setupFiles: ['./src/test-setup.ts'],
 	},
 })

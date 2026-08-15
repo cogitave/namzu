@@ -8,6 +8,7 @@ import type { VerificationRule } from '@namzu/sdk'
 
 import type { SandboxConfig } from '../config/schema.js'
 import type { McpServersConfig } from '../integrations/mcp/servers.js'
+import type { ResolvedLogging } from '../logging.js'
 
 export type MessageRole = 'user' | 'assistant' | 'system' | 'tool'
 
@@ -77,4 +78,12 @@ export interface TuiContext {
 	 * whichever way namzu was started.
 	 */
 	readonly sandbox?: SandboxConfig
+	/**
+	 * --verbose/--quiet/NAMZU_LOG_LEVEL and --log-format/NAMZU_LOG_FORMAT,
+	 * resolved once in `cli.ts` before the TUI launches. Optional for the
+	 * same reason as `CommandContext.logging`: the many `<App ctx={...}>`
+	 * fixtures under `tui/__tests__/` never touch logging and should not
+	 * have to grow a field to keep compiling.
+	 */
+	readonly logging?: ResolvedLogging
 }
