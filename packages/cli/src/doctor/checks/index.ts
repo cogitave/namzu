@@ -3,6 +3,7 @@ import type { DoctorCheck, DoctorCheckResult } from '@namzu/sdk'
 import { capabilityCheckId } from '../../context/capabilities.js'
 import { providerChainCheck } from './chain.js'
 import { credentialSourcesCheck } from './credentials.js'
+import { invariantsCheck } from './invariants.js'
 import { providersRegisteredCheck } from './providers.js'
 import { cwdWritableCheck, tmpdirWritableCheck } from './runtime.js'
 import { sandboxPlatformCheck } from './sandbox.js'
@@ -52,6 +53,7 @@ export {
 	providersRegisteredCheck,
 	cwdWritableCheck,
 	tmpdirWritableCheck,
+	invariantsCheck,
 	sandboxPlatformCheck,
 	telemetryInstalledCheck,
 	vaultRegisteredCheck,
@@ -72,4 +74,5 @@ export const builtInDoctorChecks: readonly DoctorCheck[] = [
 	filesInstalledCheck,
 	computerUseInstalledCheck,
 	telemetryInstalledCheck,
+	invariantsCheck,
 ]

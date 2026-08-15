@@ -97,6 +97,7 @@ import { link, mkdir, readFile, readdir, stat, unlink, writeFile } from 'node:fs
 import { join } from 'node:path'
 import { NamzuError } from '../../types/errors/index.js'
 import type { ClaimFence, ClaimRunOptions, RunClaim } from '../../types/run/checkpoint-store.js'
+import { invariants } from '../../verification/invariants.js'
 
 /** Directory holding one file per holding, named for its fence. */
 const CLAIMS_DIR = 'claims'
@@ -591,3 +592,47 @@ export async function releaseClaim(runDir: string, fence: ClaimFence): Promise<v
 		if (!isErrno(err, 'EEXIST')) throw err
 	}
 }
+
+/**
+ * Ctx for `store.run:single-open-writer`, registered just below: the fence
+ * a specific writer is about to act under, checked against the run's
+ * actual current fence. This is the same comparison
+ * `DiskCheckpointStore.writeCheckpoint` already makes inline before every
+ * write (see `checkpoint-disk.ts`), asked here as a query rather than an
+ * enforcement, so it can be answered without a write attached and so a
+ * violation has a name and a counter. The write path's own refusal is
+ * untouched — it still enforces on its own, unconditionally, because a
+ * write that could only be refused by first asking a registry would be the
+ * false pass `an-optional-dependency-may-not-degrade-a-check` describes if
+ * that registry were ever skipped.
+ */
+interface SingleOpenWriterContext {
+	readonly runDir: string
+	readonly presentedFence: ClaimFence
+}
+
+invariants.register<SingleOpenWriterContext | undefined>(
+	'store.run',
+	'single-open-writer',
+	async (ctx) => {
+		if (!ctx) {
+			return {
+				state: 'unknown',
+				reason:
+					'no run directory given — this invariant is evaluated per run, not for the process as a whole',
+			}
+		}
+		const current = await currentFence(ctx.runDir)
+		if (ctx.presentedFence < current) {
+			const held = await readClaim(ctx.runDir)
+			const holderNote = held?.holder ? ` (now held by "${held.holder}")` : ''
+			return {
+				state: 'violated',
+				detail:
+					`presented fence ${ctx.presentedFence} is behind this run's current fence ` +
+					`${current}${holderNote} — another worker has taken this run over`,
+			}
+		}
+		return { state: 'holds' }
+	},
+)

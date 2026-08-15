@@ -10,6 +10,7 @@ import { CHARS_PER_TOKEN } from '../../../../constants/limits.js'
 import { resolveTaskModel } from '../../../../router/task-router.js'
 import type { Message } from '../../../../types/message/index.js'
 import { createSystemMessage } from '../../../../types/message/index.js'
+import { invariants } from '../../../../verification/invariants.js'
 import type { IterationContext } from './context.js'
 import { isWorkingMemoryMessage } from './working-memory.js'
 
@@ -229,7 +230,10 @@ function totalChars(messages: readonly { content: unknown }[]): number {
  * repairing it would trade a clear "this reducer split a tool pair" for an
  * opaque rejection a call later, with the reducer never implicated. The
  * invariant is written on {@link ContextReducer}; enforcing it where it is
- * violated is what makes it true rather than aspirational.
+ * violated is what makes it true rather than aspirational — and, below, it
+ * is registered as `compaction:no-split-tool-pair` on the shared invariant
+ * registry, so an operator can ask whether this build still holds it and
+ * how many times it has not.
  */
 /**
  * Put a compaction that shed nothing on the wire.
@@ -258,6 +262,43 @@ async function declined(
 		...(error !== undefined ? { error } : {}),
 	})
 }
+
+/**
+ * Ctx for `compaction:no-split-tool-pair`, registered just below: the
+ * candidate history a reducer just returned, not yet installed. Passed on
+ * every live call, in `applyReducer`; `namzu doctor` calls the same check
+ * with no ctx at all and reads `unknown` back, because there is no
+ * candidate reduction to ask about outside a live compaction pass.
+ */
+interface ToolPairInvariantContext {
+	readonly messages: readonly Message[]
+}
+
+/**
+ * `compaction:no-split-tool-pair` — the same {@link findDanglingMessages}
+ * call the inline `if` used to make, registered so `namzu doctor` can list
+ * it and a violation counts somewhere an operator can read. The check
+ * itself, and the decision `applyReducer` makes with its answer, are
+ * unchanged.
+ */
+invariants.register<ToolPairInvariantContext | undefined>(
+	'compaction',
+	'no-split-tool-pair',
+	(ctx) => {
+		if (!ctx) {
+			return {
+				state: 'unknown',
+				reason: 'no candidate reduction to check outside a live compaction pass',
+			}
+		}
+		return findDanglingMessages([...ctx.messages]).isValid
+			? { state: 'holds' }
+			: {
+					state: 'violated',
+					detail: 'reducer output splits a tool_use/tool_result pair across the cut',
+				}
+	},
+)
 
 async function applyReducer(
 	ctx: IterationContext,
@@ -296,11 +337,15 @@ async function applyReducer(
 		return
 	}
 
-	if (!findDanglingMessages([...next]).isValid) {
+	const toolPairOutcome = await invariants.evaluate('compaction:no-split-tool-pair', {
+		messages: next,
+	})
+	if (toolPairOutcome.state === 'violated') {
 		ctx.log.warn('Context reducer split a tool pair — refusing its result', {
 			runId: ctx.runMgr.id,
 			reason: reduction.reason,
 			hint: 'use findSafeTrimIndex to move a cut off a tool_use/tool_result boundary',
+			detail: toolPairOutcome.detail,
 		})
 		await declined(ctx, 'split_tool_pair', before)
 		return

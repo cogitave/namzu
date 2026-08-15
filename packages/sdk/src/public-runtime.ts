@@ -507,6 +507,21 @@ export {
 	VerificationGate,
 } from './verification/index.js'
 
+// NZ-BOOT-03: the module-attributed invariant registry. `compaction.ts` and
+// `claim-disk.ts` register themselves against the shared `invariants`
+// instance at import time (see each file); `namzu doctor` and any host can
+// read `invariants.listIds()` to see what this build claims about its own
+// live state, which is the whole point — a registry with nothing on it
+// would be exactly the kind of declaration this task exists to close.
+export {
+	createInvariantRegistry,
+	InvariantNameCollisionError,
+	invariants,
+	InvariantRegistry,
+	ModuleInvariantError,
+} from './verification/index.js'
+export type { InvariantCheck, InvariantOutcome } from './verification/index.js'
+
 // ─── probe (typed observation over AgentBus + RunEvent stream) ───────────
 
 export {
