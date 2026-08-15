@@ -13,6 +13,14 @@ import { fileURLToPath } from 'node:url'
 
 import { Command, CommanderError, Option } from 'commander'
 
+import {
+	BOOT_EVENT_NAMES,
+	EVENT_NAME_ATTRIBUTE,
+	VERSION as SDK_VERSION,
+	getRootLogger,
+	installProcessSink,
+} from '@namzu/sdk'
+
 import { doctorCommand } from './commands/doctor.js'
 import { drainCommand } from './commands/drain.js'
 import { evalCommand } from './commands/eval.js'
@@ -27,9 +35,15 @@ import {
 import { runCommand } from './commands/run.js'
 import { stubCommands } from './commands/stubs.js'
 import type { CommandContext } from './commands/types.js'
-import { ConfigLoadError, loadConfig } from './config/load.js'
+import {
+	ConfigLoadError,
+	type ConfigProvenance,
+	type ConfigSource,
+	loadConfigWithProvenance,
+} from './config/load.js'
+import type { NamzuCliConfig } from './config/schema.js'
 import { EXIT_BAD_CONFIG, EXIT_INTERNAL_ERROR } from './exit-codes.js'
-import { resolveLogFormat, resolveLogLevel } from './logging.js'
+import { createStderrSink, resolveLogFormat, resolveLogLevel } from './logging.js'
 import type { ResolvedLogging } from './logging.js'
 import { type FormatName, createFormatter, isFormatName } from './output/index.js'
 import { compilePermissions } from './permissions/rules.js'
@@ -102,7 +116,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			verbose?: boolean
 			logFormat?: string
 		}>()
-		const fileConfig = loadConfig()
+		const { config: fileConfig, provenance } = loadConfigWithProvenance()
 		const format: FormatName =
 			globalOpts.format && isFormatName(globalOpts.format)
 				? globalOpts.format
@@ -118,6 +132,19 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			level: resolveLogLevel({ verbose: globalOpts.verbose, quiet: globalOpts.quiet }),
 			format: resolveLogFormat({ logFormat: globalOpts.logFormat }),
 		}
+		// The process's log destination, claimed HERE — the first point ANY
+		// invocation has resolved a level/format — rather than left for
+		// whichever subcommand happens to reach `createAgentSession`. `doctor`
+		// and `login` never call that function at all; without this line, a
+		// debug-level `namzu.config.resolved` row would be unreachable under
+		// `--verbose` for either of them. `{ replace: true }` for the same
+		// reason every other call site takes it (`commands/run.ts`): a
+		// subcommand installs its OWN sink moments later, computed from the
+		// SAME `logging` this line just resolved, or a deliberately different
+		// one (the TUI's ring buffer) — never a second party fighting this one
+		// for the destination.
+		installProcessSink(createStderrSink(logging.format), logging.level, { replace: true })
+		emitBootNarrative(provenance, fileConfig)
 		ctx = {
 			formatter: createFormatter(format, { quiet }),
 			config: { ...fileConfig, format, quiet },
@@ -203,6 +230,93 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 			`Fatal: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}\n`,
 		)
 		return EXIT_INTERNAL_ERROR
+	}
+}
+
+/**
+ * The CLI-process third of the boot narrative — the two other thirds
+ * (`namzu.sandbox.resolved`/`.provider.resolved`/`.capability.*`/
+ * `.discovery.completed`/`.boot.ready`, and the SDK's own
+ * `namzu.migration.completed`) belong to `createAgentSession`
+ * (`tui/agent.ts`) and `query()` respectively, because they describe facts
+ * an agent session resolves — `doctor` and `login` never reach either.
+ *
+ * Exported (not re-exported from `./index.ts`) so `__tests__/` can drive it
+ * directly with a hand-built `ConfigProvenance` and a capturing sink,
+ * without needing a live Commander parse or a real config cascade on disk.
+ */
+export function emitBootNarrative(provenance: ConfigProvenance, config: NamzuCliConfig): void {
+	const log = getRootLogger()
+	log.info('namzu starting', {
+		[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.BOOT_START,
+		'namzu.boot.cli_version': CLI_VERSION,
+		'namzu.boot.sdk_version': SDK_VERSION,
+		'namzu.boot.node_version': process.version,
+		'namzu.boot.platform': `${process.platform}-${process.arch}`,
+	})
+
+	const counts: Record<ConfigSource['kind'], number> = {
+		default: 0,
+		'user-file': 0,
+		'project-file': 0,
+		env: 0,
+	}
+	for (const source of Object.values(provenance)) {
+		if (source) counts[source.kind]++
+	}
+	const keyCount = Object.keys(provenance).length
+	log.info(
+		`${keyCount} keys from default(${counts.default}) user-file(${counts['user-file']}) project-file(${counts['project-file']}) env(${counts.env})`,
+		{
+			[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.CONFIG_RESOLVED,
+			'namzu.config.key_count': keyCount,
+		},
+	)
+	// Per-key debug rows. The value is handed to the logger as JSON text, not
+	// hand-masked by key name and not omitted — the record-boundary
+	// redaction scan every sink sits behind
+	// (`packages/sdk/src/utils/log/redact.ts`) already screens every
+	// attribute value for a secret shape, the SAME defence `namzu run`'s
+	// stderr gets. A second, bespoke "these key names are secret" table
+	// here would duplicate that control and go stale the day a
+	// secret-shaped value arrives under a key nobody added to it — exactly
+	// the empty, undriven masking table this session already struck once.
+	for (const key of Object.keys(provenance) as (keyof NamzuCliConfig)[]) {
+		const source = provenance[key]
+		if (!source) continue
+		log.debug('config key resolved', {
+			[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.CONFIG_RESOLVED,
+			'namzu.config.key': key,
+			'namzu.config.value': JSON.stringify((config as Record<string, unknown>)[key]),
+			'namzu.config.source': describeConfigSource(source),
+		})
+	}
+
+	// The CLI never calls `registerTelemetry()` on any path today — this is
+	// therefore not a probe, it is the honest constant truth of the process
+	// that is running. §3.3's falsifiable claim ("every record inside an
+	// active span carries traceId/spanId") is what this line resolves the
+	// ambiguity for: absence of a trace id reads as "off", stated here,
+	// never silently as "dropped".
+	log.info(
+		'no LoggerProvider/TracerProvider registered; trace_id will be absent from every record this process emits',
+		{
+			[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.TELEMETRY_STATUS,
+			'namzu.telemetry.registered': false,
+		},
+	)
+}
+
+function describeConfigSource(source: ConfigSource): string {
+	switch (source.kind) {
+		case 'default':
+			return 'default'
+		case 'user-file':
+			return `user-file ${source.path}`
+		case 'project-file':
+			return `project-file ${source.path}`
+		case 'env':
+			return `env ${source.variable}`
 	}
 }
 

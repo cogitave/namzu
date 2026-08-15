@@ -32,6 +32,7 @@ export {
 export {
 	type CapabilityProbe,
 	NAMZU_OPTIONAL_CAPABILITIES,
+	probeCapabilities,
 	probeOptionalPackage,
 } from './context/capabilities.js'
 

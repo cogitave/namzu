@@ -22,12 +22,14 @@
  */
 
 import {
+	BOOT_EVENT_NAMES,
 	type CheckpointStore,
 	type ClaimFence,
 	type CostInfo,
 	DiskMemoryStore,
 	DiskTaskStore,
 	type DurableRunEntry,
+	EVENT_NAME_ATTRIBUTE,
 	type HITLResumeDecision,
 	type LLMProvider,
 	type Message,
@@ -62,9 +64,14 @@ import {
 
 import { join } from 'node:path'
 import type { SandboxConfig } from '../config/schema.js'
+import { type CapabilityProbe, probeCapabilities } from '../context/capabilities.js'
 import { composeEnvironmentPrompt, readEnvironmentFacts } from '../context/environment.js'
 import { loadProjectInstructions } from '../context/project.js'
-import { resolveSandbox } from '../context/sandbox.js'
+import {
+	type ResolvedSandbox,
+	resolveSandbox,
+	sandboxResolvedSeverity,
+} from '../context/sandbox.js'
 import {
 	type ConnectedMcpServer,
 	type FailedMcpServer,
@@ -670,6 +677,21 @@ export async function createAgentSession(
 	const fallbackPlan = planFallbacks(prefs.providers, detected)
 
 	const model = primary.model ?? entry.defaultModel
+	// One line naming the head and how many declared fallbacks are usable —
+	// `fallbackPlan.notices` already carries WHY each skipped member did (no
+	// credential, unknown id, not registered); this promotes that same
+	// information from a UI notice string to a boot record rather than
+	// computing it a second time.
+	getRootLogger().info('provider chain resolved', {
+		[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.PROVIDER_RESOLVED,
+		'gen_ai.request.model': model,
+		'namzu.provider.id': primary.id,
+		'namzu.provider.chain_length': prefs.providers.length,
+		'namzu.provider.skipped_count': fallbackPlan.notices.length,
+	})
+	for (const notice of fallbackPlan.notices) {
+		getRootLogger().warn(notice, { [EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.PROVIDER_RESOLVED })
+	}
 	let provider: LLMProvider
 	try {
 		provider = constructProvider(primary.id, det, model)
@@ -710,8 +732,16 @@ export async function createAgentSession(
 				{ ...(det as DetectedProvider), apiKey: fresh },
 				model,
 			)
-		} catch {
+		} catch (err) {
 			// Keep the previous client; the turn may still 401 but won't crash.
+			// Silent until now — a client rebuild failing after a token refresh
+			// had no trace anywhere, so the first sign of it was a live 401 an
+			// operator had no way to connect back to "the refresh happened, the
+			// rebuild didn't."
+			getRootLogger().warn(
+				'provider client rebuild after token refresh failed',
+				exceptionAttributes(err),
+			)
 		}
 	}
 	// Read ONCE, here, rather than per turn the way memory is.
@@ -727,14 +757,81 @@ export async function createAgentSession(
 	// Before the registry, because a `requireIsolation` this machine cannot
 	// meet throws here — and failing before the session is built is the
 	// difference between "namzu refused to start" and a half-constructed
-	// session reporting a tool error on the first command.
-	const sandbox = resolveSandbox(getRootLogger(), options.sandbox)
+	// session reporting a tool error on the first command. Ordering is load
+	// bearing on BOTH sides of this block: `resolveSandbox` stays BEFORE
+	// `buildToolRegistry` below (unchanged), and the emit two statements down
+	// stays strictly AFTER `resolveSandbox` returns — logging "attempting to
+	// resolve the sandbox" ahead of the call would say nothing `resolveSandbox`
+	// itself doesn't already say better, for a narrative that is supposed to
+	// report facts, not attempts.
+	let sandbox: ResolvedSandbox
+	try {
+		sandbox = resolveSandbox(getRootLogger(), options.sandbox)
+	} catch (err) {
+		// The one refusal in this function that does not go through
+		// `emptySession(...)`: `resolveSandbox` THROWS rather than degrading
+		// when `sandbox.requireIsolation` names a control this host cannot
+		// meet (see that function's own doc comment), and a caller half-built
+		// at that point has nothing to return a session FROM. Logged here,
+		// then re-thrown unchanged — `runCli`'s own top-level catch (already
+		// in place, untouched by this change) is what turns the throw into a
+		// non-zero exit; this is only responsible for the record existing
+		// before that happens.
+		getRootLogger().error(err instanceof Error ? err.message : String(err), {
+			[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.BOOT_REFUSED,
+			'namzu.refusal.kind': 'environment',
+		})
+		throw err
+	}
+	// AFTER resolveSandbox returns — the honest report of what THIS run got,
+	// never what was attempted. `unconfined` decides the severity: per the
+	// design, this is "the single highest-value line in the whole design,
+	// today computed and thrown away" — an operator reading default `info`
+	// output must see it specifically when nothing is enforced, not only
+	// under `--verbose`.
+	getRootLogger()[sandboxResolvedSeverity(sandbox)](sandbox.notice, {
+		[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.SANDBOX_RESOLVED,
+		'namzu.sandbox.unconfined': sandbox.unconfined,
+	})
 	const { registry, memoryStore } = buildToolRegistry(cwd)
 	// External tool servers, before the roster is counted, so `toolNames` and
 	// the `/tools` list a user reads include what they configured. Connecting
 	// after the count would report a session smaller than the one that runs.
 	const mcp = await connectMcpServers(options.mcpServers, { cwd })
 	if (mcp.tools.length > 0) registry.register([...mcp.tools])
+	// Connectors are the one discovery source THIS function performs —
+	// plugins and skills are loaded elsewhere (`run-flags.ts`'s
+	// `loadSkillsContext`, per turn) and neither is wired to the boot path
+	// yet, so a fabricated "plugins 0 · skills 0" here would claim a
+	// measurement that was never taken. This reports only what was.
+	getRootLogger().info('discovery complete', {
+		[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.DISCOVERY_COMPLETED,
+		'namzu.discovery.kind': 'connector',
+		'namzu.discovery.count': mcp.connected.length,
+		'namzu.discovery.tool_count': mcp.tools.length,
+		'namzu.discovery.failed_count': mcp.failed.length,
+	})
+	for (const server of mcp.connected) {
+		getRootLogger().debug('connector discovered', {
+			[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.DISCOVERY_COMPLETED,
+			'namzu.discovery.kind': 'connector',
+			'namzu.connector.name': server.name,
+			'namzu.connector.tool_count': server.toolCount,
+		})
+	}
+	for (const server of mcp.failed) {
+		getRootLogger().debug('connector failed to connect', {
+			[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.DISCOVERY_COMPLETED,
+			'namzu.discovery.kind': 'connector',
+			'namzu.connector.name': server.name,
+		})
+	}
+	// Detected once per session, not per capability check an operator might
+	// separately run via `namzu doctor` — same probe, same three-state
+	// answer, so the boot narrative and the doctor report can never disagree
+	// about whether @namzu/sandbox loaded.
+	const capabilities = await probeCapabilities()
+	logCapabilities(capabilities)
 	// This session passes a `taskStore` to query() below, which registers the
 	// task tools deferred — so `search_tools` has something to find here.
 	registry.register([SearchToolsTool])
@@ -807,8 +904,12 @@ export async function createAgentSession(
 		registry.register([sub.agentTool])
 		subagentGateway = sub.gateway
 		allowedAgentIds = sub.allowedAgentIds
-	} catch {
-		// Sub-agents unavailable this session — non-fatal.
+	} catch (err) {
+		// Sub-agents unavailable this session — non-fatal: `allowedAgentIds`
+		// stays empty and the chat still works. Silent until now, which was
+		// the wrong kind of non-fatal — an operator who expected delegation
+		// and got none had nothing on stderr to say why.
+		getRootLogger().warn('sub-agent runtime unavailable this session', exceptionAttributes(err))
 	}
 	// Task store → query registers task_create / task_update / task_list as
 	// DEFERRED tools and emits task_created/task_updated, so the agent can track
@@ -841,6 +942,16 @@ export async function createAgentSession(
 	// settle — is what this repository has been doing all along by accident.
 	// A run that learned nothing still writes nothing.
 	const promoteMemory = createMemoryPromoter({ store: memoryStore })
+	// The one terminal POSITIVE event on this path, emitted exactly once —
+	// every early return above goes through `emptySession`, which emits
+	// `namzu.boot.refused` instead, and the `resolveSandbox` throw path above
+	// emits its own `boot.refused` and never reaches this line at all. No
+	// boolean readiness field anywhere in the record: systemd's own `READY=1`
+	// has no `READY=0` counterpart, for the same reason — a field that CAN
+	// say "not ready" is a field some unaudited path can wrongly set true.
+	getRootLogger().info('agent session ready', {
+		[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.BOOT_READY,
+	})
 	return {
 		hasProvider: true,
 		providerSummary: entry.label,
@@ -1999,10 +2110,63 @@ function firstLine(result: string): string {
 	return truncate(cleaned.split('\n').find((l) => l.trim().length > 0) ?? '', 120)
 }
 
+function exceptionAttributes(err: unknown): Record<string, string> {
+	const error = err instanceof Error ? err : new Error(String(err))
+	return {
+		'exception.type': error.constructor?.name ?? 'Error',
+		'exception.message': error.message,
+	}
+}
+
+/**
+ * `namzu.capability.detected` per package at `debug`, one aggregate summary
+ * at `info` (the design's §6.3 `capability sandbox yes · files yes · …`
+ * line), and `namzu.capability.broken` at `error` for any package that
+ * resolved and failed to load. Never refuses the boot: nothing in
+ * `NamzuCliConfig` marks a capability required yet, so `broken` here is
+ * always the "not required by config" case §6.5 describes — an optional
+ * capability's failure degrades what this line SAYS, never whether
+ * `namzu.boot.ready` fires.
+ */
+function logCapabilities(probes: readonly CapabilityProbe[]): void {
+	const log = getRootLogger()
+	const summary = probes
+		.map((p) => `${p.specifier.split('/').pop()} ${p.state === 'present' ? 'yes' : 'no'}`)
+		.join(' · ')
+	log.info(summary, { [EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.CAPABILITY_DETECTED })
+	for (const probe of probes) {
+		if (probe.state === 'broken') {
+			log.error(`${probe.specifier} failed to load`, {
+				[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.CAPABILITY_BROKEN,
+				'namzu.capability.name': probe.specifier,
+				...exceptionAttributes(probe.error),
+			})
+			continue
+		}
+		log.debug(`${probe.specifier} ${probe.state}`, {
+			[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.CAPABILITY_DETECTED,
+			'namzu.capability.name': probe.specifier,
+			'namzu.capability.state': probe.state,
+			'namzu.capability.present': probe.state === 'present',
+			...(probe.state === 'present' ? { 'namzu.capability.version': probe.version } : {}),
+		})
+	}
+}
+
 function emptySession(
 	errorHint: string,
 	errorKind: 'invocation' | 'environment' = 'environment',
 ): AgentSession {
+	// Every path into this function is a boot refusal — `createAgentSession`
+	// is the whole extent of the session-construction half of the boot
+	// narrative, and every one of its early returns comes through here. One
+	// emission point instead of five call-site ones is what keeps that true
+	// instead of "true until the sixth `emptySession(...)` someone adds
+	// forgets it."
+	getRootLogger().error(errorHint, {
+		[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.BOOT_REFUSED,
+		'namzu.refusal.kind': errorKind,
+	})
 	return {
 		hasProvider: false,
 		errorKind,

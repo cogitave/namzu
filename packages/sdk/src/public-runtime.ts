@@ -69,6 +69,7 @@ export { configureLogger, getRootLogger, Logger } from './utils/logger.js'
 // forward once a host (the CLI) is migrated to call it.
 export {
 	createLogger,
+	EVENT_NAME_ATTRIBUTE,
 	installProcessSink,
 	jsonLinesSink,
 	LevelFilter,

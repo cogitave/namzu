@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { resolveSandbox } from '../sandbox.js'
+import { resolveSandbox, sandboxResolvedSeverity } from '../sandbox.js'
 
 /**
  * `sandboxProvider` appeared zero times in this package, so
@@ -87,5 +87,29 @@ describe('the sandbox for a run', () => {
 		expect(() =>
 			resolveSandbox(stubLogger(), { requireIsolation: ['filesystem', 'network', 'process'] }),
 		).toThrow()
+	})
+})
+
+describe('the sandbox-resolved boot record', () => {
+	// Deliberately NOT routed through `resolveSandbox` + a real
+	// `LocalSandboxProvider` — the platform this test runs on decides
+	// `unconfined`, and CI's platform is not every reader's. Testing the
+	// pure mapping directly is what makes both branches assertable on every
+	// machine, matching this file's own stated philosophy above.
+
+	it('is warn when the platform confines nothing', () => {
+		expect(sandboxResolvedSeverity({ unconfined: true, notice: 'sandbox off' })).toBe('warn')
+	})
+
+	it('is info when the platform confines something', () => {
+		expect(sandboxResolvedSeverity({ unconfined: false, notice: 'sandbox on' })).toBe('info')
+	})
+
+	it('agrees with a fully-enforcing ResolvedSandbox, not only a hand-built stub', () => {
+		// One assertion tying the pure mapping back to whatever THIS machine's
+		// resolveSandbox actually returns, so the two cannot silently diverge
+		// in meaning even though they are tested independently above.
+		const resolved = resolveSandbox(stubLogger(), undefined)
+		expect(sandboxResolvedSeverity(resolved)).toBe(resolved.unconfined ? 'warn' : 'info')
 	})
 })

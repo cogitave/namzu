@@ -88,3 +88,19 @@ export function resolveSandbox(log: Logger, config: SandboxConfig | undefined): 
 		unconfined: false,
 	}
 }
+
+/**
+ * `namzu.sandbox.resolved`'s severity: `warn` when nothing is confined,
+ * `info` otherwise. Extracted from the emit call site (`tui/agent.ts`) so
+ * this mapping — the one that decides whether an unconfined sandbox reads
+ * as routine or as something an operator should act on — is testable
+ * without depending on which isolation tier the test happens to run under.
+ * `resolveSandbox` reports whatever THIS machine actually enforces, and
+ * CI's machine is not every reader's; the existing tests in this file
+ * already work around that by branching at runtime on `resolved.unconfined`
+ * rather than asserting a fixed tier. A pure function over `ResolvedSandbox`
+ * sidesteps the need for that workaround entirely for this one property.
+ */
+export function sandboxResolvedSeverity(sandbox: ResolvedSandbox): 'info' | 'warn' {
+	return sandbox.unconfined ? 'warn' : 'info'
+}

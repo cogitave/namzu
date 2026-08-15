@@ -146,13 +146,13 @@ export async function probeOptionalPackage(specifier: string): Promise<Capabilit
 /**
  * Probe every optional capability namzu knows about.
  *
- * Deliberately NOT re-exported from the package index yet: its consumer is
- * the boot narrative, which is a later commit, and an exported symbol with no
- * caller is the shape `declared-but-undriven` is about. Its parts are each
- * driven today — the doctor builds one check per entry of the list, through
- * `probeOptionalPackage` — so this stays here, with the test that proves the
- * never-rejects property the boot path will depend on, and joins the public
- * surface in the commit that consumes it.
+ * Re-exported from the package index as of NZ-BOOT-05: `createAgentSession`
+ * (`packages/cli/src/tui/agent.ts`) is its first consumer, calling it once
+ * per session and turning the tri-state result into the
+ * `namzu.capability.detected` / `.broken` rows of the boot narrative. Kept
+ * module-internal until that commit — an exported symbol with no caller is
+ * the shape `declared-but-undriven` is about — and joins the public surface
+ * in the same commit that consumes it, per that convention's own remedy.
  *
  * Never rejects: `probeOptionalPackage` already turns every resolve/import
  * failure into a `broken` record rather than a thrown one, so this
