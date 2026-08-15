@@ -16,15 +16,24 @@ export type { RunDoctorOptions } from './doctor/registry.js'
 
 export {
 	builtInDoctorChecks,
+	computerUseInstalledCheck,
 	credentialSourcesCheck,
 	cwdWritableCheck,
+	filesInstalledCheck,
 	providerChainCheck,
 	providersRegisteredCheck,
+	sandboxInstalledCheck,
 	sandboxPlatformCheck,
 	telemetryInstalledCheck,
 	tmpdirWritableCheck,
 	vaultRegisteredCheck,
 } from './doctor/checks/index.js'
+
+export {
+	type CapabilityProbe,
+	NAMZU_OPTIONAL_CAPABILITIES,
+	probeOptionalPackage,
+} from './context/capabilities.js'
 
 export { runDoctorCommand } from './commands/doctor.js'
 
