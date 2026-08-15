@@ -38,7 +38,49 @@ export interface LoadConfigOptions {
 	readonly env?: NodeJS.ProcessEnv
 }
 
-export function loadConfig(opts: LoadConfigOptions = {}): NamzuCliConfig {
+/**
+ * A config value's source, one variant per cascade layer.
+ *
+ * `variable` on the `env` branch names which `NAMZU_*` variable actually won
+ * — not just that env won — because two fields can each be read from a
+ * different variable and "env" alone would not tell an operator which one to
+ * change. `path` on the file branches is the resolved path actually read,
+ * matching what `ConfigLoadError.path` would have named had that file failed
+ * to parse instead of merging cleanly.
+ */
+export type ConfigSource =
+	| { readonly kind: 'default' }
+	| { readonly kind: 'user-file'; readonly path: string }
+	| { readonly kind: 'project-file'; readonly path: string }
+	| { readonly kind: 'env'; readonly variable: string }
+
+/**
+ * Which `ConfigSource` won each key of the resolved config.
+ *
+ * A key absent from this map means no source set it, and that is different
+ * from `{ kind: 'default' }`: `DEFAULT_CONFIG` does not carry every field
+ * (`sandbox` has none), and fabricating a default source for a key nothing
+ * actually defaulted would misreport a field as set when it is not.
+ */
+export type ConfigProvenance = {
+	readonly [K in keyof NamzuCliConfig]?: ConfigSource
+}
+
+/**
+ * `loadConfig` plus the record of who won each key.
+ *
+ * A second entry point rather than widening `loadConfig` itself:
+ * `loadConfig` is exported from `../index.js` for embedded consumers, and
+ * `(opts?: LoadConfigOptions) => NamzuCliConfig` is a signature something out
+ * there may already depend on. `loadConfig` below is now defined in terms of
+ * this function precisely so the two cannot drift apart — there is one merge
+ * to reason about, not two copies of the same precedence logic kept in sync
+ * by hand.
+ */
+export function loadConfigWithProvenance(opts: LoadConfigOptions = {}): {
+	config: NamzuCliConfig
+	provenance: ConfigProvenance
+} {
 	const home = opts.home ?? homedir()
 	const cwd = opts.cwd ?? process.cwd()
 	const env = opts.env ?? process.env
@@ -48,9 +90,32 @@ export function loadConfig(opts: LoadConfigOptions = {}): NamzuCliConfig {
 
 	const userCfg = readYamlIfExists(userPath)
 	const projectCfg = readJsonIfExists(projectPath)
-	const envCfg = readEnv(env)
+	const { config: envCfg, variables: envVariables } = readEnv(env)
 
-	return mergeConfigs(DEFAULT_CONFIG, userCfg, projectCfg, envCfg)
+	return mergeConfigs(
+		constantLayer(DEFAULT_CONFIG, { kind: 'default' }),
+		constantLayer(userCfg, { kind: 'user-file', path: userPath }),
+		constantLayer(projectCfg, { kind: 'project-file', path: projectPath }),
+		{
+			config: envCfg,
+			sourceFor: (key) => {
+				const variable = envVariables[key]
+				// `readEnv` sets `variables[key]` in the same branch it sets
+				// `config[key]` — see `ENV_VARIABLE_NAMES` — so this is defined
+				// for every key this layer's config actually carries. Reaching
+				// `undefined` here means that pairing broke, which is a bug in
+				// this file, not a malformed environment.
+				if (variable === undefined) {
+					throw new Error(`no env variable recorded for config key '${key}'`)
+				}
+				return { kind: 'env', variable }
+			},
+		},
+	)
+}
+
+export function loadConfig(opts: LoadConfigOptions = {}): NamzuCliConfig {
+	return loadConfigWithProvenance(opts).config
 }
 
 /**
@@ -217,16 +282,59 @@ const CONFIG_READERS: ConfigReaders = {
 	},
 }
 
-function readEnv(env: NodeJS.ProcessEnv): MutableConfig {
-	const out: MutableConfig = {}
-	const format = env.NAMZU_FORMAT
-	if (format && isFormatName(format)) {
-		out.format = format
+/**
+ * Which `NAMZU_*` variable a field reads from, or `undefined` when env does
+ * not set it at all.
+ *
+ * A mapped type over every field of `NamzuCliConfig`, like `ConfigReaders`
+ * below — total, so a field added to the public config type forces a
+ * decision here too: name the variable, or say explicitly `undefined`
+ * because env does not carry it. `readEnv` reads this table rather than a
+ * literal string, so the variable name recorded in a `ConfigSource` can
+ * never drift from the one `readEnv` actually checked.
+ */
+type EnvVariableNames = {
+	readonly [K in keyof Required<NamzuCliConfig>]: string | undefined
+}
+
+export const ENV_VARIABLE_NAMES: EnvVariableNames = {
+	format: 'NAMZU_FORMAT',
+	quiet: 'NAMZU_QUIET',
+	permissions: undefined,
+	mcpServers: undefined,
+	sandbox: undefined,
+}
+
+/** Which `NAMZU_*` variable actually set each field `readEnv` found. */
+type EnvVariablesUsed = { -readonly [K in keyof NamzuCliConfig]?: string }
+
+function readEnv(env: NodeJS.ProcessEnv): { config: MutableConfig; variables: EnvVariablesUsed } {
+	const config: MutableConfig = {}
+	const variables: EnvVariablesUsed = {}
+
+	const formatVar = ENV_VARIABLE_NAMES.format
+	if (formatVar) {
+		const format = env[formatVar]
+		if (format && isFormatName(format)) {
+			config.format = format
+			variables.format = formatVar
+		}
 	}
-	const quiet = env.NAMZU_QUIET
-	if (quiet === '1' || quiet === 'true') out.quiet = true
-	if (quiet === '0' || quiet === 'false') out.quiet = false
-	return out
+
+	const quietVar = ENV_VARIABLE_NAMES.quiet
+	if (quietVar) {
+		const quiet = env[quietVar]
+		if (quiet === '1' || quiet === 'true') {
+			config.quiet = true
+			variables.quiet = quietVar
+		}
+		if (quiet === '0' || quiet === 'false') {
+			config.quiet = false
+			variables.quiet = quietVar
+		}
+	}
+
+	return { config, variables }
 }
 
 function sanitize(value: object): MutableConfig {
@@ -242,11 +350,48 @@ function sanitize(value: object): MutableConfig {
 	return out
 }
 
-// Returns `MutableConfig`, which is assignable to `NamzuCliConfig` because it
-// is derived from it. No cast — a field this function cannot carry is now a
-// compile error rather than a value that quietly never arrives.
-function mergeConfigs(...sources: readonly MutableConfig[]): NamzuCliConfig {
+/**
+ * One cascade layer: the fields it set, and where each one came from.
+ *
+ * `sourceFor` is a function rather than a constant `ConfigSource` because the
+ * env layer cannot use one value for every key — `format` and `quiet` can
+ * each come from a different `NAMZU_*` variable. The three file-derived
+ * layers below use `constantLayer`, where every key shares one source.
+ */
+interface ConfigLayer {
+	readonly config: MutableConfig
+	/** Called only for keys this layer's own `config` actually set. */
+	readonly sourceFor: (key: keyof NamzuCliConfig) => ConfigSource
+}
+
+function constantLayer(config: MutableConfig, source: ConfigSource): ConfigLayer {
+	return { config, sourceFor: () => source }
+}
+
+/**
+ * Merges cascade layers lowest-precedence first onto `MutableConfig`, with no
+ * cast on the result — see that type's own doc comment for why the cast used
+ * to be the bug this shape prevents. Still a per-key loop rather than
+ * `Object.assign`, now for two reasons instead of one: the original reason (a
+ * key `MutableConfig` cannot carry must fail to compile, not vanish) plus
+ * recording `ConfigProvenance` in the same pass a key is written, so a key
+ * can never land in one map and not the other.
+ */
+function mergeConfigs(...layers: readonly ConfigLayer[]): {
+	config: NamzuCliConfig
+	provenance: ConfigProvenance
+} {
 	const out: MutableConfig = {}
-	for (const src of sources) Object.assign(out, src)
-	return out
+	const provenance: { -readonly [K in keyof NamzuCliConfig]?: ConfigSource } = {}
+	for (const layer of layers) {
+		for (const key of Object.keys(layer.config) as (keyof NamzuCliConfig)[]) {
+			// Same widened-view assignment as `sanitize`: a cast on the target,
+			// not the value, is what lets a generic key write onto a
+			// heterogeneous mapped type without silently dropping a field this
+			// function cannot carry.
+			;(out as Record<string, unknown>)[key] = layer.config[key]
+			provenance[key] = layer.sourceFor(key)
+		}
+	}
+	return { config: out, provenance }
 }

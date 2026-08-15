@@ -1,9 +1,16 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-import { ConfigLoadError, loadConfig } from './load.js'
+import {
+	ConfigLoadError,
+	ENV_VARIABLE_NAMES,
+	type LoadConfigOptions,
+	loadConfig,
+	loadConfigWithProvenance,
+} from './load.js'
+import type { NamzuCliConfig } from './schema.js'
 
 function userConfig(contents: string): string {
 	const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
@@ -140,5 +147,113 @@ describe('a config that is legitimately absent or empty', () => {
 		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
 		writeFileSync(join(home, '.namzu'), 'not a directory')
 		expect(() => loadConfig({ home, cwd: tmpdir(), env: {} })).not.toThrow()
+	})
+})
+
+/**
+ * `loadConfigWithProvenance` is the one real merge path now — `loadConfig` is
+ * `loadConfigWithProvenance(opts).config`. These tests exercise the
+ * provenance half directly: which `ConfigSource` won each key, and the two
+ * invariants that make provenance trustworthy rather than decorative — a key
+ * present in `config` is present in `provenance` and vice versa, and a key
+ * nothing set is fabricated in neither.
+ */
+describe('loadConfigWithProvenance', () => {
+	it('records the project file as the source when it beats the user file, matching Object.assign precedence', () => {
+		const home = userConfig('format: yaml\n')
+		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		const projectPath = join(cwd, 'namzu.config.json')
+		writeFileSync(projectPath, JSON.stringify({ format: 'json' }))
+
+		const { config, provenance } = loadConfigWithProvenance({ home, cwd, env: {} })
+
+		expect(config.format).toBe('json')
+		expect(provenance.format).toEqual({
+			kind: 'project-file',
+			path: resolve(cwd, 'namzu.config.json'),
+		})
+	})
+
+	it('gives every key present on the resolved config a provenance entry, and no others, across all four sources', () => {
+		// format: nothing overrides it -> default.
+		// mcpServers: user-file.
+		// permissions: project-file.
+		// quiet: env.
+		// sandbox: nothing sets it at all -> must be absent from both maps.
+		const home = userConfig('mcpServers:\n  fs:\n    command: echo\n')
+		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		writeFileSync(join(cwd, 'namzu.config.json'), JSON.stringify({ permissions: {} }))
+
+		const { config, provenance } = loadConfigWithProvenance({
+			home,
+			cwd,
+			env: { NAMZU_QUIET: '1' },
+		})
+
+		expect(Object.keys(config).sort()).toEqual(['format', 'mcpServers', 'permissions', 'quiet'])
+		expect(Object.keys(provenance).sort()).toEqual(['format', 'mcpServers', 'permissions', 'quiet'])
+
+		expect(provenance.format).toEqual({ kind: 'default' })
+		expect(provenance.mcpServers).toEqual({
+			kind: 'user-file',
+			path: join(home, '.namzu', 'config.yaml'),
+		})
+		expect(provenance.permissions).toEqual({
+			kind: 'project-file',
+			path: resolve(cwd, 'namzu.config.json'),
+		})
+		expect(provenance.quiet).toEqual({ kind: 'env', variable: 'NAMZU_QUIET' })
+	})
+
+	it('does not fabricate a default source for a key DEFAULT_CONFIG does not carry', () => {
+		const home = mkdtempSync(join(tmpdir(), 'namzu-home-'))
+		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		const { config, provenance } = loadConfigWithProvenance({ home, cwd, env: {} })
+
+		expect(config.sandbox).toBeUndefined()
+		expect('sandbox' in provenance).toBe(false)
+	})
+
+	it('names the env variable, not just "env", when env wins over a project-file value', () => {
+		const cwd = mkdtempSync(join(tmpdir(), 'namzu-cwd-'))
+		writeFileSync(join(cwd, 'namzu.config.json'), JSON.stringify({ quiet: false }))
+
+		const { config, provenance } = loadConfigWithProvenance({
+			home: mkdtempSync(join(tmpdir(), 'namzu-home-')),
+			cwd,
+			env: { NAMZU_QUIET: '1' },
+		})
+
+		expect(config.quiet).toBe(true)
+		expect(provenance.quiet).toEqual({ kind: 'env', variable: 'NAMZU_QUIET' })
+	})
+})
+
+describe('type-level guarantees', () => {
+	it('loadConfig keeps its exact public signature — (opts?: LoadConfigOptions) => NamzuCliConfig', () => {
+		// `loadConfig` is re-exported from `../index.js` for embedded consumers
+		// who already depend on this exact shape. If a future refactor makes
+		// `loadConfig` return something wider (e.g. `{ config, provenance }`
+		// directly, skipping the `.config` projection), this assignment stops
+		// type-checking.
+		const signature: (opts?: LoadConfigOptions) => NamzuCliConfig = loadConfig
+		expect(typeof signature).toBe('function')
+	})
+
+	it('ENV_VARIABLE_NAMES is total over NamzuCliConfig — a new field must decide its env variable before this compiles', () => {
+		// Same discipline `ConfigReaders` already gives `sanitize` for reading a
+		// file, extended to the env layer's provenance: a field added to
+		// `NamzuCliConfig` without a matching `ENV_VARIABLE_NAMES` entry (even
+		// an explicit `undefined`) must fail to compile here, not silently
+		// resolve to "env never sets it" at runtime with no one having decided
+		// that on purpose.
+		type ConfigWithHypotheticalField = NamzuCliConfig & { readonly hypothetical?: string }
+		// @ts-expect-error — the production `ENV_VARIABLE_NAMES` has no
+		// `hypothetical` entry; a new config field must add one before this
+		// type-checks.
+		const coverage: {
+			readonly [K in keyof Required<ConfigWithHypotheticalField>]: string | undefined
+		} = ENV_VARIABLE_NAMES
+		expect(coverage.format).toBe('NAMZU_FORMAT')
 	})
 })
