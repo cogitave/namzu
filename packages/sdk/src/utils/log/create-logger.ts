@@ -14,13 +14,14 @@ import type { LogContext, Logger } from '../logger.js'
 import { capAttributeCount, capTotalSize, truncateValues } from './caps.js'
 import { redactRecord } from './redact.js'
 import { NOOP_SINK } from './sinks.js'
-import type {
-	LevelFilter,
-	LogRecord,
-	LogSinkCounters,
-	LoggerOptions,
-	MutableLogSinkCounters,
-	Severity,
+import {
+	EVENT_NAME_ATTRIBUTE,
+	type LevelFilter,
+	type LogRecord,
+	type LogSinkCounters,
+	type LoggerOptions,
+	type MutableLogSinkCounters,
+	type Severity,
 } from './types.js'
 
 const SEVERITY_RANK: Record<Severity, number> = { debug: 0, info: 1, warn: 2, error: 3 }
@@ -59,6 +60,12 @@ function build(
 		if (SEVERITY_RANK[severityText] < LEVEL_RANK[options.level.current]) return
 
 		const now = Date.now()
+		// Promote the one reserved key before anything else touches
+		// `attributes` — redact/cap below only ever see the caller's real
+		// attributes, never the event name a second time under a second
+		// spelling.
+		const merged: Record<string, unknown> = { ...bound, ...data }
+		const { [EVENT_NAME_ATTRIBUTE]: rawEventName, ...attributes } = merged
 		let record: LogRecord = {
 			timestamp: now,
 			observedTimestamp: now,
@@ -67,7 +74,8 @@ function build(
 			body,
 			scope: { name: options.scope },
 			resource: options.resource,
-			attributes: { ...bound, ...data },
+			attributes,
+			...(typeof rawEventName === 'string' ? { eventName: rawEventName } : {}),
 		}
 
 		// Order matters: redact BEFORE capping. Truncating a value first could

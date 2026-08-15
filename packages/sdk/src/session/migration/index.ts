@@ -13,6 +13,7 @@ export type { MigrationWarning, MigrationWarningSink } from './id-prefix.js'
 
 export {
 	DefaultFilesystemMigrator,
+	loggingMigrationSink,
 	NOOP_FILESYSTEM_MIGRATION_SINK,
 	LEGACY_DEFAULT_SESSION_ID,
 	LEGACY_DEFAULT_PROJECT_PREFIX,

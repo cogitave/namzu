@@ -55,3 +55,32 @@ export const NAMZU = {
 	CACHE_WRITE_TOKENS: 'namzu.cache.write_tokens',
 	CACHE_DISCOUNT: 'namzu.cache.discount',
 } as const
+
+/**
+ * The boot narrative's closed event-name vocabulary — every `eventName` the
+ * SDK itself emits between process start and `namzu.boot.ready`. A call
+ * site spells `BOOT_EVENT_NAMES.X`, not the literal string, so a typo
+ * becomes a missing property at compile time rather than a name that
+ * silently never matches a host's filter.
+ *
+ * `BootEventName` is DERIVED from this record rather than declared beside
+ * it, so the two cannot drift — there is only one place a member is added.
+ * `LogRecord.eventName` itself stays `string`, not this union: widening it
+ * to a fixed union would make the field unusable for a future emitter
+ * naming events from a different vocabulary.
+ */
+export const BOOT_EVENT_NAMES = {
+	BOOT_START: 'namzu.boot.start',
+	CONFIG_RESOLVED: 'namzu.config.resolved',
+	SANDBOX_RESOLVED: 'namzu.sandbox.resolved',
+	PROVIDER_RESOLVED: 'namzu.provider.resolved',
+	CAPABILITY_DETECTED: 'namzu.capability.detected',
+	CAPABILITY_BROKEN: 'namzu.capability.broken',
+	TELEMETRY_STATUS: 'namzu.telemetry.status',
+	MIGRATION_COMPLETED: 'namzu.migration.completed',
+	DISCOVERY_COMPLETED: 'namzu.discovery.completed',
+	BOOT_REFUSED: 'namzu.boot.refused',
+	BOOT_READY: 'namzu.boot.ready',
+} as const
+
+export type BootEventName = (typeof BOOT_EVENT_NAMES)[keyof typeof BOOT_EVENT_NAMES]

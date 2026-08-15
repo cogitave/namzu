@@ -41,10 +41,13 @@
 
 import { mkdir, readdir, rename, stat } from 'node:fs/promises'
 import { join } from 'node:path'
+import { BOOT_EVENT_NAMES } from '../../constants/telemetry/index.js'
 import type { TenantId } from '../../types/ids/index.js'
 import { UNKNOWN_TENANT_ID } from '../../types/ids/index.js'
 import type { ProjectId, SessionId } from '../../types/session/ids.js'
 import { atomicWriteFile } from '../../utils/atomic-write.js'
+import { EVENT_NAME_ATTRIBUTE } from '../../utils/log/types.js'
+import type { Logger } from '../../utils/logger.js'
 import { FilesystemMigrationError } from './errors.js'
 import { acquireMigrationLock, readMarker, releaseMigrationLock, writeMarker } from './marker.js'
 
@@ -95,6 +98,40 @@ export interface FilesystemMigrationSink {
 
 export const NOOP_FILESYSTEM_MIGRATION_SINK: FilesystemMigrationSink = {
 	emit() {},
+}
+
+/**
+ * Wires the migration facts `DefaultFilesystemMigrator` already computes —
+ * `kind`, `migratedThreads`, `markerPath`, `at` — to a `Logger`, instead of
+ * the sink they are thrown at on every real boot today
+ * (`NOOP_FILESYSTEM_MIGRATION_SINK`, still `ensureMigrated`'s default — see
+ * `runtime/query/context.ts`). A caller opts into this by constructing its
+ * own `DefaultFilesystemMigrator(loggingMigrationSink(log))` and passing it
+ * to `ensureMigrated`, the way `runtime/query/index.ts` does; nothing here
+ * changes what the default migrator does.
+ *
+ * `FilesystemMigrationSink.emit` is only ever called with
+ * `type: 'filesystem.migrated'` (Step 6 in the module doc above) —
+ * `already_migrated` and `noop_no_legacy` never reach a sink at all, by the
+ * shape of `FilesystemMigrationEvent`. A caller that wants those two logged
+ * as well reads them straight off `ensureMigrated`'s resolved
+ * `FilesystemMigrationResult`, the way `runtime/query/index.ts` does,
+ * rather than this function growing a case the type it wraps cannot
+ * produce — widening `FilesystemMigrationEvent` to carry them would be a
+ * breaking change to every exhaustive switch already written over it.
+ */
+export function loggingMigrationSink(log: Logger): FilesystemMigrationSink {
+	return {
+		emit(event) {
+			const { result } = event
+			log.info('filesystem migration completed', {
+				[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.MIGRATION_COMPLETED,
+				kind: result.kind,
+				markerPath: result.markerPath,
+				migratedThreadCount: result.migratedThreads.length,
+			})
+		},
+	}
 }
 
 /** Interface so consumers can inject a stub migrator in tests. */

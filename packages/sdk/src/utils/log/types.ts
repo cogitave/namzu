@@ -35,10 +35,19 @@ export interface Resource {
 
 /**
  * A structural subset of the OTel Logs Data Model — the fields this
- * increment actually populates. `traceId`, `spanId` and `eventName` are not
- * here: each arrives, together with the emitter that writes it, in later
- * work. Declaring them now and leaving them unwritten would be the same
- * defect with extra steps — present on the type, wrong in every record.
+ * increment actually populates. `traceId` and `spanId` are still not here:
+ * each arrives, together with the emitter that writes it, in later work.
+ * Declaring them now and leaving them unwritten would be the same defect
+ * with extra steps — present on the type, wrong in every record.
+ *
+ * `eventName` IS here, and it arrives a different way than the rest of the
+ * record. No field on `LoggerOptions` sets it and `Logger` gains no method
+ * for it — `Logger` is in INPUT position on the public surface (see the file
+ * header), so a fifth method would break every host's existing
+ * implementation. Instead a call site sets `EVENT_NAME_ATTRIBUTE` on the
+ * `data` it already passes to `debug`/`info`/`warn`/`error`; `createLogger`
+ * promotes that one attribute onto this field and deletes it from
+ * `attributes` so the same name never appears twice in one record.
  */
 export interface LogRecord {
 	/** Epoch ms at the call site. */
@@ -55,7 +64,23 @@ export interface LogRecord {
 	 *  per call. */
 	readonly resource: Resource
 	readonly attributes: Readonly<Record<string, unknown>>
+	/** Promoted from the `EVENT_NAME_ATTRIBUTE` attribute when a call site
+	 *  set one. Absent on the great majority of records — only the boot
+	 *  narrative and other named events carry it. */
+	readonly eventName?: string
 }
+
+/**
+ * The one attribute key `createLogger` treats specially: set it on the
+ * `data` passed to a `Logger` call and the value is promoted to
+ * `LogRecord.eventName` and removed from `attributes`, rather than copied to
+ * both — an attribute and a field carrying the same value would be the same
+ * name spelled two ways in one record. Exported so the small number of call
+ * sites that name an event (see `BOOT_EVENT_NAMES` in
+ * `constants/telemetry`) spell the reserved key once, not as a duplicated
+ * string literal each has to keep in sync with this one.
+ */
+export const EVENT_NAME_ATTRIBUTE = 'namzu.event.name'
 
 export interface LogSink {
 	/**

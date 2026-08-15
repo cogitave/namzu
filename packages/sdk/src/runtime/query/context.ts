@@ -4,7 +4,6 @@ import { RunPersistence } from '../../manager/run/persistence.js'
 import {
 	DefaultFilesystemMigrator,
 	type FilesystemMigrationResult,
-	type FilesystemMigrationSink,
 	type FilesystemMigrator,
 	NOOP_FILESYSTEM_MIGRATION_SINK,
 } from '../../session/migration/index.js'
@@ -32,12 +31,18 @@ import { type Logger, getRootLogger } from '../../utils/logger.js'
  * `pathBuilder` is optional; when absent a {@link DefaultPathBuilder} is
  * constructed against `{workingDirectory}/.namzu`.
  *
- * `filesystemMigrator` + `migrationSink` are optional; when absent a
- * {@link DefaultFilesystemMigrator} wired to the
- * {@link NOOP_FILESYSTEM_MIGRATION_SINK} is used. Migration runs once per
- * process via {@link RunContextFactory.ensureMigrated}; the static `build`
- * method stays synchronous so existing call sites are not broken — async
- * callers (e.g. `query()`) invoke `ensureMigrated` themselves before build.
+ * `filesystemMigrator` is optional, but note what `build` actually does
+ * with it: nothing. Migration is not part of `build` — it runs once per
+ * process via {@link RunContextFactory.ensureMigrated}, kept out of `build`
+ * entirely so the static method stays synchronous for existing callers;
+ * `query()` calls `ensureMigrated` itself, with its own migrator, before it
+ * ever calls `build`. This field predates that split, and no code path
+ * threads it to `ensureMigrated` on `build`'s behalf. Its sibling
+ * `migrationSink` had the identical shape — declared, never read anywhere
+ * in the workspace — and NZ-BOOT-04 removed it
+ * (`docs/conventions/declared-but-undriven.md`) rather than invent a caller
+ * for a field nothing needed; `filesystemMigrator` is the same defect, left
+ * for a follow-up rather than folded into that change.
  */
 export interface RunContextConfig {
 	agentId: string
@@ -71,9 +76,6 @@ export interface RunContextConfig {
 	 * §13.4.1.
 	 */
 	filesystemMigrator?: FilesystemMigrator
-
-	/** Optional sink for `filesystem.migrated` events. Defaults to no-op. */
-	migrationSink?: FilesystemMigrationSink
 
 	runId?: RunId
 

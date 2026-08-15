@@ -1,10 +1,15 @@
-import { describe, expect, it, vi } from 'vitest'
+import { mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { DefaultPathBuilder, type PathBuilder } from '../../../session/workspace/path-builder.js'
 import { posix } from '../../../test-support/paths.js'
 import type { RunId, SessionId, TenantId } from '../../../types/ids/index.js'
 import type { LLMProvider } from '../../../types/provider/index.js'
 import type { AgentRunConfig } from '../../../types/run/index.js'
 import type { ProjectId, ThreadId } from '../../../types/session/ids.js'
+import type { LogRecord, LogSink } from '../../../utils/log/index.js'
+import { __resetProcessSinkForTests, installProcessSink } from '../../../utils/log/process-sink.js'
 import { RunContextFactory } from '../context.js'
 
 function mockProvider(): LLMProvider {
@@ -102,11 +107,6 @@ describe('RunContextFactory.build', () => {
 	})
 
 	it("carries the caller's stop reason across into the run", () => {
-		// This is the frame that was losing it. The host aborts with a
-		// sentence, the run re-aborts with nothing, and every layer below —
-		// the tool executor, the tool itself, the result the model reads —
-		// can only report that something stopped. The words do not survive
-		// the hop unless this site forwards them.
 		const host = new AbortController()
 		const ctx = RunContextFactory.build(buildConfig({ signal: host.signal }))
 
@@ -123,5 +123,29 @@ describe('RunContextFactory.build', () => {
 		host.abort()
 
 		expect(ctx.abortController.signal.aborted).toBe(true)
+	})
+})
+
+describe('RunContextFactory.ensureMigrated', () => {
+	afterEach(() => {
+		__resetProcessSinkForTests()
+	})
+
+	it('defaults to NOOP_FILESYSTEM_MIGRATION_SINK: migrating a legacy layout reaches no installed log sink', async () => {
+		const root = await mkdtemp(join(tmpdir(), 'namzu-ensure-migrated-'))
+		try {
+			await mkdir(join(root, 'threads', 'thd_abc', 'runs', 'run_1'), { recursive: true })
+
+			const records: LogRecord[] = []
+			const sink: LogSink = { emit: (record) => records.push(record) }
+			installProcessSink(sink, 'debug', { replace: true })
+
+			const result = await RunContextFactory.ensureMigrated(root)
+
+			expect(result.kind).toBe('migrated')
+			expect(records).toHaveLength(0)
+		} finally {
+			await rm(root, { recursive: true, force: true })
+		}
 	})
 })

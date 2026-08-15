@@ -3,8 +3,11 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { removeTempDirAsync } from '../../../__fixtures__/temp-dir.js'
+import { BOOT_EVENT_NAMES } from '../../../constants/telemetry/index.js'
 import { IS_WINDOWS } from '../../../test-support/paths.js'
 import { UNKNOWN_TENANT_ID } from '../../../types/ids/index.js'
+import { EVENT_NAME_ATTRIBUTE } from '../../../utils/log/types.js'
+import type { Logger } from '../../../utils/logger.js'
 import { FilesystemMigrationError } from '../errors.js'
 import {
 	DefaultFilesystemMigrator,
@@ -14,6 +17,7 @@ import {
 	LEGACY_DEFAULT_SESSION_ID,
 	MARKER_REL_PATH,
 	MIGRATION_VERSION,
+	loggingMigrationSink,
 } from '../filesystem.js'
 import { acquireMigrationLock, writeMarker } from '../marker.js'
 
@@ -268,4 +272,79 @@ describe('DefaultFilesystemMigrator.migrate', () => {
 			}
 		},
 	)
+
+	describe('loggingMigrationSink', () => {
+		function capturingLogger(): {
+			log: Logger
+			calls: { level: string; message: string; data?: Record<string, unknown> }[]
+		} {
+			const calls: { level: string; message: string; data?: Record<string, unknown> }[] = []
+			const log: Logger = {
+				debug: (message, data) => calls.push({ level: 'debug', message, data }),
+				info: (message, data) => calls.push({ level: 'info', message, data }),
+				warn: (message, data) => calls.push({ level: 'warn', message, data }),
+				error: (message, data) => calls.push({ level: 'error', message, data }),
+				child: () => log,
+			}
+			return { log, calls }
+		}
+
+		it('logs a migrated result at info, tagged namzu.migration.completed, with kind/markerPath/count', () => {
+			const { log, calls } = capturingLogger()
+			const sink = loggingMigrationSink(log)
+
+			sink.emit({
+				type: 'filesystem.migrated',
+				result: {
+					kind: 'migrated',
+					migratedThreads: [
+						{ legacyThreadId: 'thd_a', newProjectId: `${LEGACY_DEFAULT_PROJECT_PREFIX}a` },
+						{ legacyThreadId: 'thd_b', newProjectId: `${LEGACY_DEFAULT_PROJECT_PREFIX}b` },
+					],
+					markerPath: '/root/.migration/v0.2.0',
+					at: new Date(),
+				},
+			})
+
+			expect(calls).toHaveLength(1)
+			expect(calls[0]?.level).toBe('info')
+			expect(calls[0]?.data?.[EVENT_NAME_ATTRIBUTE]).toBe(BOOT_EVENT_NAMES.MIGRATION_COMPLETED)
+			expect(calls[0]?.data?.kind).toBe('migrated')
+			expect(calls[0]?.data?.markerPath).toBe('/root/.migration/v0.2.0')
+			expect(calls[0]?.data?.migratedThreadCount).toBe(2)
+		})
+
+		it('end to end: DefaultFilesystemMigrator(loggingMigrationSink(log)) logs exactly once on a real cold-boot migration', async () => {
+			await seedLegacyThread(root, 'thd_logtest', ['run_1'])
+			const { log, calls } = capturingLogger()
+
+			const migrator = new DefaultFilesystemMigrator(loggingMigrationSink(log))
+			const result = await migrator.migrate(root)
+
+			expect(result.kind).toBe('migrated')
+			expect(calls).toHaveLength(1)
+			expect(calls[0]?.data?.[EVENT_NAME_ATTRIBUTE]).toBe(BOOT_EVENT_NAMES.MIGRATION_COMPLETED)
+		})
+	})
+})
+
+describe('FilesystemMigrationEvent is a single-member union', () => {
+	it('has exactly one case — widening it to also carry already_migrated/noop_no_legacy stops this compiling', () => {
+		function describeEvent(event: FilesystemMigrationEvent): string {
+			switch (event.type) {
+				case 'filesystem.migrated':
+					return event.result.kind
+				default: {
+					const _exhaustive: never = event.type
+					throw new Error(`Unhandled filesystem migration event type: ${_exhaustive}`)
+				}
+			}
+		}
+
+		const event: FilesystemMigrationEvent = {
+			type: 'filesystem.migrated',
+			result: { kind: 'migrated', migratedThreads: [], markerPath: '/x', at: new Date() },
+		}
+		expect(describeEvent(event)).toBe('migrated')
+	})
 })

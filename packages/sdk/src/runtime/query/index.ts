@@ -13,6 +13,7 @@ import type { ContextReducer } from '../../compaction/reducer.js'
 import { serializeState as serializeWorkingState } from '../../compaction/serializer.js'
 import { restoreWorkingState, snapshotWorkingState } from '../../compaction/wire.js'
 import type { CompactionConfig } from '../../config/runtime.js'
+import { BOOT_EVENT_NAMES } from '../../constants/telemetry/index.js'
 import { TOOL_OUTPUT_DIR_NAME } from '../../constants/tools/index.js'
 import { EmergencySaveManager } from '../../manager/run/emergency.js'
 import type { RunPersistence } from '../../manager/run/persistence.js'
@@ -24,6 +25,7 @@ import {
 	withProviderFallback,
 } from '../../provider/fallback.js'
 import { type ProviderRetryConfig, withProviderRetry } from '../../provider/retry.js'
+import { DefaultFilesystemMigrator, loggingMigrationSink } from '../../session/migration/index.js'
 import type { PathBuilder } from '../../session/workspace/path-builder.js'
 import {
 	GENAI,
@@ -85,6 +87,7 @@ import type { RepairToolCall } from '../../types/tool/repair.js'
 import type { VerificationGateConfig } from '../../types/verification/index.js'
 import type { BackoffPolicy } from '../../utils/backoff.js'
 import type { ModelPricing } from '../../utils/cost.js'
+import { EVENT_NAME_ATTRIBUTE } from '../../utils/log/types.js'
 import { getRootLogger } from '../../utils/logger.js'
 import { VerificationGate } from '../../verification/gate.js'
 import { CheckpointManager } from './checkpoint.js'
@@ -673,8 +676,33 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 	// via the in-memory guard in `context.ts`. Kept here rather than inside
 	// the synchronous `RunContextFactory.build` so the factory signature stays
 	// sync for tests / non-async call sites.
+	//
+	// The migrator built here — not `ensureMigrated`'s own default — is what
+	// turns the migration facts `DefaultFilesystemMigrator` already computes
+	// into a `namzu.migration.completed` record instead of discarding them.
+	// `ensureMigrated`'s default parameter stays
+	// `NOOP_FILESYSTEM_MIGRATION_SINK` (see `context.ts`), so any other path
+	// that reaches `ensureMigrated` keeps today's silent behaviour.
 	const cwdForMigration = params.workingDirectory ?? process.cwd()
-	await RunContextFactory.ensureMigrated(`${cwdForMigration}/.namzu`)
+	const bootLog = getRootLogger()
+	const migrationResult = await RunContextFactory.ensureMigrated(
+		`${cwdForMigration}/.namzu`,
+		new DefaultFilesystemMigrator(loggingMigrationSink(bootLog)),
+	)
+	// `loggingMigrationSink` only ever hears about `kind: 'migrated'` — the
+	// only outcome `DefaultFilesystemMigrator` ever hands its sink (see the
+	// module doc on `FilesystemMigrationSink`). The other two are logged
+	// here, straight off the resolved result, rather than by widening
+	// `FilesystemMigrationEvent` to carry them: a wider union would need a
+	// new arm in every exhaustive switch already written over it — a major —
+	// for two outcomes `migrationResult.kind` already fully describes.
+	if (migrationResult.kind !== 'migrated') {
+		bootLog.debug('filesystem migration: nothing to do', {
+			[EVENT_NAME_ATTRIBUTE]: BOOT_EVENT_NAMES.MIGRATION_COMPLETED,
+			kind: migrationResult.kind,
+			markerPath: migrationResult.markerPath,
+		})
+	}
 
 	// Every model call in the run — the loop's turns, the forced-final
 	// summary, advisory and compaction side calls — goes through this one
