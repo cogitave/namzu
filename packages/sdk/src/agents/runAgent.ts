@@ -12,7 +12,7 @@ import {
 	generateProjectId,
 	generateSessionId,
 	generateTenantId,
-	generateThreadId,
+	generateTopicId,
 } from '../utils/id.js'
 
 /**
@@ -212,7 +212,7 @@ export const DEFAULT_TIMEOUT_MS = 300_000
 export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult> {
 	const identity: Required<AgentIdentity> = {
 		sessionId: options.sessionId ?? generateSessionId(),
-		topicId: options.topicId ?? generateThreadId(),
+		topicId: options.topicId ?? generateTopicId(),
 		projectId: options.projectId ?? generateProjectId(),
 		tenantId: options.tenantId ?? generateTenantId(),
 	}

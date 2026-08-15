@@ -79,14 +79,12 @@ async function runWith(
 			env: {},
 			abortSignal: new AbortController().signal,
 			pluginManager: managerReturning('post_tool_use', hookResults),
-		} as never,
-		new ActivityStore(
-			'run_redact' as never,
-			{
-				enabled: true,
-				trackToolCalls: true,
-			} as never,
-		),
+		},
+		new ActivityStore('run_redact' as never, {
+			enabled: true,
+			trackToolCalls: true,
+			trackLlmTurns: true,
+		}),
 		(async () => {}) as never,
 		logger as never,
 	)
@@ -103,7 +101,7 @@ async function runWith(
 			cachedTokens: 0,
 			cacheWriteTokens: 0,
 		},
-	} as never)
+	})
 	const outcome = batch.results[0]
 	if (!outcome) throw new Error('the executor produced no outcome')
 	return outcome

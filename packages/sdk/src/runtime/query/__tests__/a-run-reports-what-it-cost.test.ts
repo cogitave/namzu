@@ -12,7 +12,7 @@ import {
 	generateProjectId,
 	generateSessionId,
 	generateTenantId,
-	generateThreadId,
+	generateTopicId,
 } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
 
@@ -106,7 +106,7 @@ function run(opts: {
 		},
 		projectId: generateProjectId(),
 		sessionId: generateSessionId(),
-		topicId: generateThreadId(),
+		topicId: generateTopicId(),
 		tenantId: generateTenantId(),
 	})
 }

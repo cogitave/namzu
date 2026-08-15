@@ -8,7 +8,7 @@ import {
 	generateProjectId,
 	generateSessionId,
 	generateTenantId,
-	generateThreadId,
+	generateTopicId,
 } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
 
@@ -57,9 +57,9 @@ function run(opts: { citations?: Citation[] } = {}) {
 		runConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 2 },
 		projectId: generateProjectId(),
 		sessionId: generateSessionId(),
-		threadId: generateThreadId(),
+		topicId: generateTopicId(),
 		tenantId: generateTenantId(),
-	} as never)
+	})
 
 	return { settled, requests: provider.requests as ChatCompletionParams[] }
 }

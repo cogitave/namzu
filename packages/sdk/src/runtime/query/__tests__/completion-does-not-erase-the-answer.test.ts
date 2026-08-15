@@ -2,7 +2,9 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+
 import { z } from 'zod'
+import { stubTaskGateway } from '../../../__fixtures__/task-gateway.js'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 
 import { CompletionInbox } from '../../../gateway/completion-inbox.js'
@@ -82,15 +84,17 @@ describe('a completion delivered on the way out leaves the answer readable', () 
 		const inbox = new CompletionInbox()
 		let announce: ((h: TaskHandle) => void) | undefined
 		inbox.launched('tsk_bg' as TaskId)
-		inbox.attach({
-			onTaskCompleted: (cb: (h: TaskHandle) => void) => {
-				announce = cb
-				return () => {
-					announce = undefined
-				}
-			},
-			getTask: () => undefined,
-		} as never)
+		inbox.attach(
+			stubTaskGateway({
+				onTaskCompleted: (cb: (h: TaskHandle) => void) => {
+					announce = cb
+					return () => {
+						announce = undefined
+					}
+				},
+				getTask: () => undefined,
+			}),
+		)
 
 		/**
 		 * One tool call, then the iteration ceiling forces a closing turn. The
@@ -145,10 +149,10 @@ describe('a completion delivered on the way out leaves the answer readable', () 
 				maxResponseTokens: 256,
 			},
 			sessionId: 'ses_answer' as SessionId,
-			threadId: 'thd_answer' as ThreadId,
+			topicId: 'thd_answer' as ThreadId,
 			projectId: 'prj_answer' as ProjectId,
 			tenantId: 'tnt_answer' as TenantId,
-		} as never)
+		})
 
 		// Both halves, because either one alone is satisfied by a broken fix:
 		// dropping the delivery keeps the answer, and dropping the answer fix

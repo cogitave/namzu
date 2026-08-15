@@ -2,7 +2,9 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+
 import { z } from 'zod'
+import { stubTaskGateway } from '../../../__fixtures__/task-gateway.js'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 
 import { CompletionInbox } from '../../../gateway/completion-inbox.js'
@@ -201,13 +203,15 @@ function inboxHolding(taskId: string, result: string): CompletionInbox {
 	// launch: an inbox only hears about tasks its own run started, so a
 	// gateway shared between two supervisors cannot cross-deliver.
 	inbox.launched(taskId as TaskId)
-	inbox.attach({
-		onTaskCompleted: (cb: (h: TaskHandle) => void) => {
-			cb(completed(taskId, result))
-			return () => {}
-		},
-		getTask: () => undefined,
-	} as never)
+	inbox.attach(
+		stubTaskGateway({
+			onTaskCompleted: (cb: (h: TaskHandle) => void) => {
+				cb(completed(taskId, result))
+				return () => {}
+			},
+			getTask: () => undefined,
+		}),
+	)
 	return inbox
 }
 
@@ -302,15 +306,17 @@ describe('a run that ends some other way still hands over what finished', () => 
 		const inbox = new CompletionInbox()
 		inbox.launched('tsk_bg' as TaskId)
 		let announce: ((h: TaskHandle) => void) | undefined
-		inbox.attach({
-			onTaskCompleted: (cb: (h: TaskHandle) => void) => {
-				announce = cb
-				return () => {
-					announce = undefined
-				}
-			},
-			getTask: () => undefined,
-		} as never)
+		inbox.attach(
+			stubTaskGateway({
+				onTaskCompleted: (cb: (h: TaskHandle) => void) => {
+					announce = cb
+					return () => {
+						announce = undefined
+					}
+				},
+				getTask: () => undefined,
+			}),
+		)
 
 		// Settles from inside the tool call, so the completion is in hand
 		// BEFORE the exit is decided. The question under test is which exits
@@ -395,15 +401,17 @@ describe('a run that ends some other way still hands over what finished', () => 
 
 		const inbox = new CompletionInbox()
 		let announce: ((h: TaskHandle) => void) | undefined
-		inbox.attach({
-			onTaskCompleted: (cb: (h: TaskHandle) => void) => {
-				announce = cb
-				return () => {
-					announce = undefined
-				}
-			},
-			getTask: () => undefined,
-		} as never)
+		inbox.attach(
+			stubTaskGateway({
+				onTaskCompleted: (cb: (h: TaskHandle) => void) => {
+					announce = cb
+					return () => {
+						announce = undefined
+					}
+				},
+				getTask: () => undefined,
+			}),
+		)
 		// OUTSTANDING, not arrived: the exit-time delivery has nothing to hand
 		// over, so only a hold can produce this result.
 		inbox.expect('tsk_slow' as TaskId)
@@ -447,7 +455,7 @@ describe('a run that ends some other way still hands over what finished', () => 
 			topicId: 'thd_completion' as ThreadId,
 			projectId: 'prj_completion' as ProjectId,
 			tenantId: 'tnt_completion' as TenantId,
-		} as never)
+		})
 
 		const userText = (run.messages as { role: string; content: unknown }[])
 			.filter((m) => m.role === 'user')
@@ -482,15 +490,17 @@ describe('a run that ends some other way still hands over what finished', () => 
 
 		const inbox = new CompletionInbox()
 		let announce: ((h: TaskHandle) => void) | undefined
-		inbox.attach({
-			onTaskCompleted: (cb: (h: TaskHandle) => void) => {
-				announce = cb
-				return () => {
-					announce = undefined
-				}
-			},
-			getTask: () => undefined,
-		} as never)
+		inbox.attach(
+			stubTaskGateway({
+				onTaskCompleted: (cb: (h: TaskHandle) => void) => {
+					announce = cb
+					return () => {
+						announce = undefined
+					}
+				},
+				getTask: () => undefined,
+			}),
+		)
 		inbox.expect('tsk_slow' as TaskId)
 
 		const tools = new ToolRegistry()
@@ -562,7 +572,7 @@ describe('a run that ends some other way still hands over what finished', () => 
 			topicId: 'thd_completion' as ThreadId,
 			projectId: 'prj_completion' as ProjectId,
 			tenantId: 'tnt_completion' as TenantId,
-		} as never)
+		})
 
 		expect(asked, 'the predicate was never asked a second time').toBeGreaterThan(1)
 		expect(run.stopReason, 'a spent deferral coloured a later stop reason').toBe('end_turn')
@@ -579,7 +589,7 @@ describe('a run that ends some other way still hands over what finished', () => 
 		workdirs.push(workingDirectory)
 
 		const inbox = new CompletionInbox()
-		inbox.attach({ onTaskCompleted: () => () => {}, getTask: () => undefined } as never)
+		inbox.attach(stubTaskGateway({ onTaskCompleted: () => () => {}, getTask: () => undefined }))
 		// Launched, never settles, and the terminal tool ends the run over it.
 		inbox.expect('tsk_still_running' as TaskId)
 
@@ -598,7 +608,7 @@ describe('a run that ends some other way still hands over what finished', () => 
 				async execute() {
 					return { success: true, output: 'this call is the answer' }
 				},
-			} as never),
+			}),
 		)
 
 		const run = await drainQuery({
@@ -620,7 +630,7 @@ describe('a run that ends some other way still hands over what finished', () => 
 			topicId: 'thd_completion' as ThreadId,
 			projectId: 'prj_completion' as ProjectId,
 			tenantId: 'tnt_completion' as TenantId,
-		} as never)
+		})
 
 		expect(run.abandonedTaskIds, 'the run said nothing about the worker it left running').toEqual([
 			'tsk_still_running',

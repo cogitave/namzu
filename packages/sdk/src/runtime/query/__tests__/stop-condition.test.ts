@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import type { PlanManager } from '../../../manager/plan/lifecycle.js'
+import type { RunPersistence } from '../../../manager/run/persistence.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
+import type { IterationCheckpoint } from '../../../types/hitl/index.js'
 import type { RunId } from '../../../types/ids/index.js'
 import type { Message } from '../../../types/message/index.js'
 import type { LLMProvider } from '../../../types/provider/index.js'
@@ -9,7 +12,9 @@ import type { RunEvent, StepResult } from '../../../types/run/index.js'
 import { hasToolCall, stepCountIs } from '../../../types/run/step.js'
 import type { ToolRegistryContract } from '../../../types/tool/index.js'
 import type { Logger } from '../../../utils/logger.js'
+import type { CheckpointManager } from '../checkpoint.js'
 import { ToolExecutor } from '../executor.js'
+import type { GuardCoordinator } from '../guard.js'
 import { IterationOrchestrator } from '../iteration/index.js'
 
 /**
@@ -134,19 +139,21 @@ function buildCtx(opts: {
 
 	const orchestrator = new IterationOrchestrator({
 		provider: opts.provider,
-		runConfig: { model: 'mock', maxIterations },
+		runConfig: { model: 'mock', maxIterations, timeoutMs: 30_000, tokenBudget: 100_000 },
 		tools,
-		runMgr,
+		runMgr: runMgr as unknown as RunPersistence,
 		toolExecutor,
 		activityStore,
 		abortController: new AbortController(),
 		log,
 		emitEvent: async () => {},
 		drainPending: function* (): Generator<RunEvent> {},
-		checkpointMgr: { create: async () => ({ id: 'cp_1' }) },
+		checkpointMgr: {
+			create: async () => ({ id: 'cp_1' }) as unknown as IterationCheckpoint,
+		} as unknown as CheckpointManager,
 		resumeHandler: async () => ({ action: 'approve_tools' }),
 		// No plan gate in these cases; the loop consults it before iterating.
-		planManager: { active: undefined },
+		planManager: { active: null } as unknown as PlanManager,
 		// A simple iteration cap, so a missing stop condition surfaces as the
 		// cap rather than an infinite loop.
 		guard: {
@@ -156,10 +163,10 @@ function buildCtx(opts: {
 				isCancelled: false,
 				stopReason: 'max_iterations',
 			}),
-		},
+		} as unknown as GuardCoordinator,
 		...(opts.stopWhen ? { stopWhen: opts.stopWhen } : {}),
 		onStepFinish: (s: StepResult) => steps.push(s),
-	} as never)
+	})
 
 	return { orchestrator, executedTools, messages, steps, stopReason: () => stopReason }
 }

@@ -7,7 +7,7 @@ import {
 	generateProjectId,
 	generateSessionId,
 	generateTenantId,
-	generateThreadId,
+	generateTopicId,
 } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
 
@@ -42,7 +42,7 @@ async function runWithPlan(seed: (pm: PlanManager) => void): Promise<PlanManager
 		runConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 4 },
 		projectId: generateProjectId(),
 		sessionId: generateSessionId(),
-		threadId: generateThreadId(),
+		topicId: generateTopicId(),
 		tenantId: generateTenantId(),
 		// The documented host seam: `drainQuery` hands the plan manager over
 		// BEFORE the iteration loop, which is exactly what makes a host-driven
@@ -51,7 +51,7 @@ async function runWithPlan(seed: (pm: PlanManager) => void): Promise<PlanManager
 			captured = planManager
 			seed(planManager)
 		},
-	} as never)
+	})
 
 	if (!captured) throw new Error('onContextCreated never fired')
 	return captured

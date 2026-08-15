@@ -10,7 +10,7 @@ import {
 	generateProjectId,
 	generateSessionId,
 	generateTenantId,
-	generateThreadId,
+	generateTopicId,
 } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
 
@@ -43,7 +43,7 @@ async function runWithHooks(seen: Seen[], toolNames: readonly string[] = []) {
 			description: `${name} tool`,
 			inputSchema: z.object({}),
 			execute: () => Promise.resolve({ success: true, output: 'ok' }),
-		} as never)
+		})
 	}
 
 	return drainQuery({
@@ -67,10 +67,10 @@ async function runWithHooks(seen: Seen[], toolNames: readonly string[] = []) {
 		},
 		projectId: generateProjectId(),
 		sessionId: generateSessionId(),
-		threadId: generateThreadId(),
+		topicId: generateTopicId(),
 		tenantId: generateTenantId(),
 		pluginManager: recordingManager(seen),
-	} as never)
+	})
 }
 
 const pick = (seen: Seen[], event: PluginHookEvent) => seen.find((s) => s.event === event)?.ctx

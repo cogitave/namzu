@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import type { RunPersistence } from '../../../manager/run/persistence.js'
 import { NamzuError } from '../../../types/errors/index.js'
 import type { CheckpointId } from '../../../types/hitl/index.js'
 import type { RunId } from '../../../types/ids/index.js'
 import { ProviderError } from '../../../types/provider/errors.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import type { Run, RunEvent } from '../../../types/run/index.js'
 import { ResultAssembler } from '../result.js'
 
 /**
@@ -49,14 +50,14 @@ async function settle(err: unknown, resumeFrom?: CheckpointId) {
 			markFailed: () => marks.push('failed'),
 			setStopReason: (reason: string) => marks.push(`stop:${reason}`),
 			setLastError: () => marks.push('lastError'),
-			getRun: () => ({ id: RID }),
+			getRun: () => ({ id: RID }) as unknown as Run,
 			// LOG-14: `handleError` now calls `recordAudit` on the run_failed
 			// path. The `describe('a failure that pausing would not help', ...)`
 			// tests below reach it; the `describe('a transient failure with
 			// somewhere to resume from', ...)` tests take the earlier `paused`
 			// return and never touch this.
 			recordAudit: async () => undefined as never,
-		} as never,
+		} as unknown as RunPersistence,
 		planManager: { isActive: false, failPlan: () => marks.push('planFailed') } as never,
 		activityStore: { enabled: false } as never,
 		log: makeLogger() as never,
@@ -71,7 +72,7 @@ async function settle(err: unknown, resumeFrom?: CheckpointId) {
 			}
 		},
 		resumeCheckpointId: () => resumeFrom,
-	} as never)
+	})
 
 	const span = {
 		setAttributes: () => {},

@@ -92,7 +92,7 @@ drainQuery({
   messages: [{ role: 'user', content: 'go', timestamp: Date.now() }],
   workingDirectory: process.argv[4],
   runConfig: { model: 'm', timeoutMs: 20000, tokenBudget: 10000, maxIterations: 4, maxResponseTokens: 128 },
-  sessionId: 'ses_x', threadId: 'thd_x', projectId: 'prj_x', tenantId: 'tnt_x',
+  sessionId: 'ses_x', topicId: 'thd_x', projectId: 'prj_x', tenantId: 'tnt_x',
 }, (e) => { last = e.type }).then(
   (run) => console.log('RESULT ' + JSON.stringify({ status: run.status, stop: run.stopReason, last })),
   (err) => console.log('THREW ' + (err?.message ?? err)),

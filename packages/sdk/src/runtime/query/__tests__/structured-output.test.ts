@@ -1,12 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
+import type { PlanManager } from '../../../manager/plan/lifecycle.js'
+import type { RunPersistence } from '../../../manager/run/persistence.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
 import {
 	STRUCTURED_OUTPUT_TOOL_NAME,
 	createStructuredOutputTool,
 } from '../../../tools/builtins/structuredOutput.js'
+import type { IterationCheckpoint } from '../../../types/hitl/index.js'
 import type { RunId } from '../../../types/ids/index.js'
 import type { Message } from '../../../types/message/index.js'
 import type { LLMProvider } from '../../../types/provider/index.js'
@@ -14,7 +17,9 @@ import type { RunEvent } from '../../../types/run/index.js'
 import type { StructuredOutputConfig } from '../../../types/structured-output/index.js'
 import type { ToolRegistryContract } from '../../../types/tool/index.js'
 import type { Logger } from '../../../utils/logger.js'
+import type { CheckpointManager } from '../checkpoint.js'
 import { ToolExecutor } from '../executor.js'
+import type { GuardCoordinator } from '../guard.js'
 import { IterationOrchestrator } from '../iteration/index.js'
 
 /**
@@ -132,9 +137,9 @@ function harness(opts: {
 
 	const orchestrator = new IterationOrchestrator({
 		provider: opts.provider,
-		runConfig: { model: 'mock', maxIterations },
+		runConfig: { model: 'mock', maxIterations, timeoutMs: 30_000, tokenBudget: 100_000 },
 		tools,
-		runMgr,
+		runMgr: runMgr as unknown as RunPersistence,
 		toolExecutor: new ToolExecutor(
 			{
 				tools,
@@ -153,9 +158,11 @@ function harness(opts: {
 		log,
 		emitEvent: async () => {},
 		drainPending: function* (): Generator<RunEvent> {},
-		checkpointMgr: { create: async () => ({ id: 'cp_1' }) },
+		checkpointMgr: {
+			create: async () => ({ id: 'cp_1' }) as unknown as IterationCheckpoint,
+		} as unknown as CheckpointManager,
 		resumeHandler: async () => ({ action: 'approve_tools' }),
-		planManager: { active: undefined },
+		planManager: { active: null } as unknown as PlanManager,
 		guard: {
 			beforeIteration: () => ({
 				shouldStop: iteration >= maxIterations,
@@ -163,9 +170,9 @@ function harness(opts: {
 				isCancelled: false,
 				stopReason: 'max_iterations',
 			}),
-		},
+		} as unknown as GuardCoordinator,
 		...(opts.structuredOutput ? { structuredOutput: opts.structuredOutput } : {}),
-	} as never)
+	})
 
 	return {
 		orchestrator,

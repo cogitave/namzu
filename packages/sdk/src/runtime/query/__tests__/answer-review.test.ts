@@ -7,7 +7,7 @@ import {
 	generateProjectId,
 	generateSessionId,
 	generateTenantId,
-	generateThreadId,
+	generateTopicId,
 } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
 
@@ -28,8 +28,8 @@ function scriptedRun(
 ) {
 	let turn = 0
 	const provider = new MockLLMProvider({
-		responses: replies.map((content) => ({ content })),
-	} as never)
+		turns: replies.map((text) => ({ text })),
+	})
 	// The mock cycles its scripted replies; the counter is what lets a test
 	// assert how many turns the loop actually took.
 	const original = provider.chatStream.bind(provider)
@@ -51,11 +51,11 @@ function scriptedRun(
 				runConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 10 },
 				projectId: generateProjectId(),
 				sessionId: generateSessionId(),
-				threadId: generateThreadId(),
+				topicId: generateTopicId(),
 				tenantId: generateTenantId(),
 				reviewAnswer: (answer: string) => reviewAnswer(answer),
 				...(maxAnswerReviews !== undefined ? { maxAnswerReviews } : {}),
-			} as never),
+			}),
 	}
 }
 
@@ -86,7 +86,7 @@ describe('judging the answer a run is about to settle with', () => {
 	it('sends the feedback as the next user turn', async () => {
 		let seen: string | undefined
 		let calls = 0
-		const provider = new MockLLMProvider({ responses: [{ content: 'x' }] } as never)
+		const provider = new MockLLMProvider({ turns: [{ text: 'x' }] })
 		const original = provider.chatStream.bind(provider)
 		provider.chatStream = ((params: { messages: { role: string; content: string }[] }) => {
 			const last = params.messages[params.messages.length - 1]
@@ -105,11 +105,11 @@ describe('judging the answer a run is about to settle with', () => {
 			runConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 4 },
 			projectId: generateProjectId(),
 			sessionId: generateSessionId(),
-			threadId: generateThreadId(),
+			topicId: generateTopicId(),
 			tenantId: generateTenantId(),
 			reviewAnswer: () =>
 				calls === 1 ? { accept: false, feedback: 'FIX: tests red' } : { accept: true },
-		} as never)
+		})
 
 		// Prose, and in the slot the model reads — a code would have to be
 		// explained to it anyway.
@@ -151,7 +151,7 @@ describe('judging the answer a run is about to settle with', () => {
 	})
 
 	it('is not consulted at all when no reviewer was supplied', async () => {
-		const provider = new MockLLMProvider({ responses: [{ content: 'done' }] } as never)
+		const provider = new MockLLMProvider({ turns: [{ text: 'done' }] })
 		const run = await drainQuery({
 			provider,
 			tools: new ToolRegistry(),
@@ -162,11 +162,28 @@ describe('judging the answer a run is about to settle with', () => {
 			runConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 4 },
 			projectId: generateProjectId(),
 			sessionId: generateSessionId(),
-			threadId: generateThreadId(),
+			topicId: generateTopicId(),
 			tenantId: generateTenantId(),
-		} as never)
+		})
 
 		// The default path must be byte-identical for every existing caller.
 		expect(run.stopReason).not.toBe('answer_rejected')
+	})
+	it('hands the reviewer the answer the model actually produced', async () => {
+		// What the feature is named for, and the one thing nothing here
+		// asserted. Every other test in this file measures control flow — turn
+		// counts, call counts, stop reasons — and passed identically whether
+		// the mock was scripted or wired to a key `MockScript` does not read,
+		// which is the state this file was in. Reverting `turns:` to
+		// `responses:` fails only this test.
+		const seen: string[] = []
+		const scripted = scriptedRun(['the model said this'], (answer) => {
+			seen.push(answer)
+			return { accept: true }
+		})
+
+		await scripted.run()
+
+		expect(seen).toEqual(['the model said this'])
 	})
 })

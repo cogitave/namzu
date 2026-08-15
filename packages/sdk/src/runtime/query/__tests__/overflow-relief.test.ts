@@ -102,7 +102,7 @@ async function run(provider: MockLLMProvider, compaction: boolean) {
 						maxCharsPerNote: 500,
 						maxCharsPerRequirement: 300,
 						maxCharsPerTask: 400,
-					} as never,
+					},
 				}
 			: {}),
 	})

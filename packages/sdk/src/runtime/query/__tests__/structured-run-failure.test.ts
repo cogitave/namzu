@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { mapRunToA2AEvent } from '../../../bridge/a2a/mapper.js'
+import type { RunPersistence } from '../../../manager/run/persistence.js'
 import { NamzuError } from '../../../types/errors/index.js'
 import type { RunId } from '../../../types/ids/index.js'
 import { ProviderError } from '../../../types/provider/errors.js'
-import type { RunEvent } from '../../../types/run/index.js'
+import type { Run, RunEvent } from '../../../types/run/index.js'
 import { ResultAssembler } from '../result.js'
 
 /**
@@ -38,11 +39,11 @@ async function failWith(err: unknown): Promise<RunEvent[]> {
 			currentIteration: 1,
 			stopReason: undefined,
 			markFailed: () => {},
-			getRun: () => ({ id: RID }),
+			getRun: () => ({ id: RID }) as unknown as Run,
 			// LOG-14: `handleError` now calls `recordAudit` on the run_failed path,
 			// which every test in this file reaches.
 			recordAudit: async () => undefined as never,
-		} as never,
+		} as unknown as RunPersistence,
 		planManager: { isActive: false, failPlan: () => {} } as never,
 		activityStore: { enabled: false } as never,
 		log: makeLogger(),
@@ -56,7 +57,7 @@ async function failWith(err: unknown): Promise<RunEvent[]> {
 				if (next) yield next
 			}
 		},
-	} as never)
+	})
 
 	const span = {
 		setAttributes: () => {},

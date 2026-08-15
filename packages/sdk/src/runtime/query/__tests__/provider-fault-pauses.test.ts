@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
+import { MOCK_CAPABILITIES } from '../../../provider/index.js'
 import { ToolRegistry } from '../../../registry/index.js'
 import { ProviderError } from '../../../types/provider/errors.js'
 import {
 	generateProjectId,
 	generateSessionId,
 	generateTenantId,
-	generateThreadId,
+	generateTopicId,
 } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
 
@@ -37,7 +38,7 @@ function failingProvider(code: 'rate_limit' | 'auth', status: number) {
 	return {
 		id: 'test',
 		name: 'Test',
-		capabilities: {},
+		capabilities: MOCK_CAPABILITIES,
 		// biome-ignore lint/correctness/useYield: it fails before producing anything
 		async *chatStream() {
 			throw new ProviderError({
@@ -67,10 +68,10 @@ async function runAgainst(code: 'rate_limit' | 'auth', status: number) {
 			runConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 2 },
 			projectId: generateProjectId(),
 			sessionId: generateSessionId(),
-			threadId: generateThreadId(),
+			topicId: generateTopicId(),
 			tenantId: generateTenantId(),
 			retry: false,
-		} as never,
+		},
 		(event) => {
 			if (event.type === 'run_failed') failure = (event as { failure?: Failure }).failure
 		},

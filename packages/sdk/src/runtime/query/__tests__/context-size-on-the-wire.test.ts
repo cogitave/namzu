@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
+import { type CompactionConfig, CompactionConfigSchema } from '../../../config/runtime.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { createUserMessage } from '../../../types/message/index.js'
@@ -34,7 +35,7 @@ afterEach(async () => {
 type UsageEvent = Extract<RunEvent, { type: 'token_usage_updated' }>
 
 async function run(
-	compaction: Record<string, unknown> | undefined,
+	compaction: CompactionConfig | undefined,
 	turns: unknown[],
 ): Promise<UsageEvent[]> {
 	const seen: UsageEvent[] = []
@@ -51,11 +52,11 @@ async function run(
 			agentName: 'Context Agent',
 			workingDirectory: dir,
 			sessionId: 'ses_ctx',
-			threadId: 'thd_ctx',
+			topicId: 'thd_ctx',
 			projectId: 'prj_ctx',
 			tenantId: 'tnt_ctx',
 			messages: [createUserMessage('go')],
-		} as never,
+		},
 		(event: RunEvent) => {
 			if (event.type === 'token_usage_updated') seen.push(event)
 		},
@@ -64,12 +65,15 @@ async function run(
 	return seen
 }
 
-const COMPACTION = {
+// Through the same schema `query()` resolves a host's config with, so the
+// fixture carries production's defaults for the fifteen fields this test
+// does not care about rather than a bare object shaped like none of them.
+const COMPACTION = CompactionConfigSchema.parse({
 	strategy: 'sliding-window',
 	triggerThreshold: 0.9,
 	contextWindowTokens: 50_000,
 	keepRecentMessages: 4,
-}
+})
 
 describe('a run reports how much room its context has', () => {
 	it('carries the context size and the window together', async () => {

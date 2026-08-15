@@ -183,7 +183,7 @@ describe('the hold a run pays is the one its own budget allows', () => {
 				maxResponseTokens: 256,
 			},
 			sessionId: 'ses_grace' as SessionId,
-			threadId: 'thd_grace' as ThreadId,
+			topicId: 'thd_grace' as ThreadId,
 			projectId: 'prj_grace' as ProjectId,
 			tenantId: 'tnt_grace' as TenantId,
 		} as never)
@@ -252,7 +252,7 @@ describe('the hold a run pays is the one its own budget allows', () => {
 				maxResponseTokens: 256,
 			},
 			sessionId: 'ses_grace' as SessionId,
-			threadId: 'thd_grace' as ThreadId,
+			topicId: 'thd_grace' as ThreadId,
 			projectId: 'prj_grace' as ProjectId,
 			tenantId: 'tnt_grace' as TenantId,
 		} as never)

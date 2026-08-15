@@ -7,7 +7,7 @@ import {
 	generateProjectId,
 	generateSessionId,
 	generateTenantId,
-	generateThreadId,
+	generateTopicId,
 } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
 import { SteeringBinding } from '../steering.js'
@@ -40,7 +40,7 @@ async function runWithSteer(steerDuringTool?: string) {
 			if (steerDuringTool) steering.steer(steerDuringTool)
 			return { success: true, output: 'inspection done' }
 		},
-	} as never)
+	})
 
 	const provider = new MockLLMProvider({
 		turns: [
@@ -64,10 +64,10 @@ async function runWithSteer(steerDuringTool?: string) {
 		},
 		projectId: generateProjectId(),
 		sessionId: generateSessionId(),
-		threadId: generateThreadId(),
+		topicId: generateTopicId(),
 		tenantId: generateTenantId(),
 		steering,
-	} as never)
+	})
 
 	return { provider, steering }
 }

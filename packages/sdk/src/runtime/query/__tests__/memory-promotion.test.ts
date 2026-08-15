@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { CompactionConfigSchema } from '../../../config/runtime.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { ToolRegistry } from '../../../registry/index.js'
 import { createMemoryPromoter } from '../../../run/memory-promoter.js'
@@ -11,7 +12,7 @@ import {
 	generateProjectId,
 	generateSessionId,
 	generateTenantId,
-	generateThreadId,
+	generateTopicId,
 } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
 
@@ -43,11 +44,13 @@ function run(opts: {
 		runConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 2 },
 		projectId: generateProjectId(),
 		sessionId: generateSessionId(),
-		threadId: generateThreadId(),
+		topicId: generateTopicId(),
 		tenantId: generateTenantId(),
-		...(opts.compaction === false ? {} : { compactionConfig: { strategy: 'structured' } }),
+		...(opts.compaction === false
+			? {}
+			: { compactionConfig: CompactionConfigSchema.parse({ strategy: 'structured' }) }),
 		...(opts.promoteMemory ? { promoteMemory: opts.promoteMemory } : {}),
-	} as never)
+	})
 }
 
 describe('what a finished run leaves behind', () => {

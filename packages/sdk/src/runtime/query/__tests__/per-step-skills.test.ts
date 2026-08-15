@@ -54,12 +54,12 @@ async function run(provider: MockLLMProvider, over: Record<string, unknown> = {}
 		agentName: 'Skill Agent',
 		workingDirectory: dir,
 		sessionId: 'ses_sk' as SessionId,
-		threadId: 'thd_sk' as ThreadId,
+		topicId: 'thd_sk' as ThreadId,
 		projectId: 'prj_sk' as ProjectId,
 		tenantId: 'tnt_sk' as TenantId,
 		messages: [createUserMessage('go')],
 		...over,
-	} as never)
+	})
 }
 
 const sent = (provider: MockLLMProvider, index = 0): string =>

@@ -49,7 +49,7 @@ function persistence(): RunPersistence {
 		outputDir: '/namzu-nonexistent-should-never-be-written',
 		log: LOG,
 		sessionId: 'ses_graph',
-		threadId: 'thd_graph',
+		topicId: 'thd_graph',
 		projectId: 'prj_graph',
 		tenantId: 'tnt_graph',
 		runStore: new InMemoryRunStore(),

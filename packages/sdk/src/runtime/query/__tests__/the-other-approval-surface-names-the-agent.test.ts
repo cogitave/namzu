@@ -8,7 +8,7 @@ import {
 	generateProjectId,
 	generateSessionId,
 	generateTenantId,
-	generateThreadId,
+	generateTopicId,
 } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
 
@@ -47,7 +47,7 @@ async function agentIdSeenByResumeHandler(): Promise<PlanApprovalData['steps']> 
 		runConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 4 },
 		projectId: generateProjectId(),
 		sessionId: generateSessionId(),
-		threadId: generateThreadId(),
+		topicId: generateTopicId(),
 		tenantId: generateTenantId(),
 		// The ordinary host path: a resumeHandler, not a hand-installed
 		// PlanManager handler.
@@ -69,7 +69,7 @@ async function agentIdSeenByResumeHandler(): Promise<PlanApprovalData['steps']> 
 			planManager.markReady()
 			void planManager.requestApproval()
 		},
-	} as never)
+	})
 
 	if (!seen) throw new Error('the resume handler never received a plan approval')
 	return seen

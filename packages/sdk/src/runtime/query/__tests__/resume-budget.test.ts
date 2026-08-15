@@ -113,7 +113,7 @@ describe('RunPersistence.restoreUsage', () => {
 				})),
 			},
 			sessionId: 's',
-			threadId: 't',
+			topicId: 't',
 			projectId: 'p',
 			tenantId: 'tn',
 		} as any)

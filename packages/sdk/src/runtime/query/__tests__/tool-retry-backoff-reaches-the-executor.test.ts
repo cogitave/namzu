@@ -89,13 +89,13 @@ describe('the tool-retry backoff a caller sets reaches the executor', () => {
 			agentName: 'Reach Agent',
 			workingDirectory: dir,
 			sessionId: 'ses_reach' as SessionId,
-			threadId: 'thd_reach' as ThreadId,
+			topicId: 'thd_reach' as ThreadId,
 			projectId: 'prj_reach' as ProjectId,
 			tenantId: 'tnt_reach' as TenantId,
 			retry: false as const,
 			messages: [createUserMessage('hello')],
 			...extra,
-		} as never)
+		})
 	}
 
 	it('carries the policy through to the executor the run builds', async () => {

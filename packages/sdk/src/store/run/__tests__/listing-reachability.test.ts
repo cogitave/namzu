@@ -53,7 +53,7 @@ describe('the store a host actually gets', () => {
 			outputDir: dir,
 			log: LOG,
 			sessionId: 'ses_reach',
-			threadId: 'thd_reach',
+			topicId: 'thd_reach',
 			projectId: 'prj_reach',
 			tenantId: 'tnt_reach',
 			...(parentRunId ? { parentRunId } : {}),

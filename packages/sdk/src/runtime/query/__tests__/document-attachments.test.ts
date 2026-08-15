@@ -3,12 +3,13 @@ import { describe, expect, it } from 'vitest'
 import { resolveProviderCapabilities } from '../../../provider/capabilities.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { ToolRegistry } from '../../../registry/index.js'
+import type { MessageAttachment } from '../../../types/message/index.js'
 import type { ChatCompletionParams, ProviderCapabilities } from '../../../types/provider/index.js'
 import {
 	generateProjectId,
 	generateSessionId,
 	generateTenantId,
-	generateThreadId,
+	generateTopicId,
 } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
 
@@ -41,7 +42,7 @@ const capabilities = (over: Partial<ProviderCapabilities>): ProviderCapabilities
 	}) as ProviderCapabilities
 
 function runWith(opts: {
-	attachments: readonly unknown[]
+	attachments: readonly MessageAttachment[]
 	capabilities?: ProviderCapabilities
 	strict?: boolean
 }) {
@@ -60,10 +61,10 @@ function runWith(opts: {
 		runConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 2 },
 		projectId: generateProjectId(),
 		sessionId: generateSessionId(),
-		threadId: generateThreadId(),
+		topicId: generateTopicId(),
 		tenantId: generateTenantId(),
 		...(opts.strict ? { strictCapabilities: true } : {}),
-	} as never)
+	})
 
 	return { settled, requests: provider.requests as ChatCompletionParams[] }
 }

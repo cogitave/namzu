@@ -48,11 +48,11 @@ async function run(overrides: Partial<AgentRunConfig>, turns: unknown[]): Promis
 		agentName: 'Effort Agent',
 		workingDirectory: dir,
 		sessionId: 'ses_effort',
-		threadId: 'thd_effort',
+		topicId: 'thd_effort',
 		projectId: 'prj_effort',
 		tenantId: 'tnt_effort',
 		messages: [createUserMessage('go')],
-	} as never)
+	})
 
 	return provider
 }

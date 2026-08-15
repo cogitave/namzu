@@ -11,7 +11,7 @@ import {
 	generateProjectId,
 	generateSessionId,
 	generateTenantId,
-	generateThreadId,
+	generateTopicId,
 } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
 import { PendingAnswers, QuestionParkBinding } from '../question-park.js'
@@ -251,10 +251,10 @@ describe('the seam a tool author is handed', () => {
 			runConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 3 },
 			projectId: generateProjectId(),
 			sessionId: generateSessionId(),
-			threadId: generateThreadId(),
+			topicId: generateTopicId(),
 			tenantId: generateTenantId(),
 			resumeHandler: async () => ANSWER('call_1:target_environment', 'staging'),
-		} as never)
+		})
 	}
 
 	it('reaches a host-authored tool through the tool context', async () => {

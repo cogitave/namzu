@@ -120,11 +120,11 @@ async function runOnce(turns: { text?: string }[]): Promise<void> {
 		agentName: 'Chat Span Agent',
 		workingDirectory: dir,
 		sessionId: 'ses_cs',
-		threadId: 'thd_cs',
+		topicId: 'thd_cs',
 		projectId: 'prj_cs',
 		tenantId: 'tnt_cs',
 		messages: [createUserMessage('go')],
-	} as never)
+	})
 }
 
 const chatSpans = () => spans.filter((s) => s.name.startsWith('chat '))

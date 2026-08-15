@@ -57,7 +57,7 @@ function persistence(runStore: InMemoryRunStore, runId: string): RunPersistence 
 		outputDir: '/namzu-nonexistent-should-never-be-written',
 		log: LOG,
 		sessionId: 'ses_seq',
-		threadId: 'thd_seq',
+		topicId: 'thd_seq',
 		projectId: 'prj_seq',
 		tenantId: 'tnt_seq',
 		runStore,
@@ -98,7 +98,7 @@ async function params(runStore: InMemoryRunStore): Promise<QueryParams> {
 		agentName: 'Sequence Agent',
 		workingDirectory: await workdir(),
 		sessionId: 'ses_seq',
-		threadId: 'thd_seq',
+		topicId: 'thd_seq',
 		projectId: 'prj_seq',
 		tenantId: 'tnt_seq',
 		runStore,
@@ -247,7 +247,7 @@ describe('the sequence survives the process that was writing it', () => {
 			runId: 'run_restart',
 			iteration: 1,
 			seq: 2,
-		} as never)
+		})
 
 		// A different `RunPersistence` over the same store is what a second
 		// process is: the object graph is new, the log is not.

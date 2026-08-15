@@ -274,7 +274,7 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 			// Nobody answers: this stands in for the process that went away
 			// while the question was on somebody's screen.
 			resumeHandler: async () => ({ action: 'continue' }) as HITLResumeDecision,
-		} as never)
+		})
 
 		const parked = (await store.listCheckpoints(SCOPE)).find(
 			(cp) => cp.pending?.request.type === 'user_question',
@@ -334,7 +334,7 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 				asked(request.type)
 				return { action: 'continue' } as HITLResumeDecision
 			},
-		} as never)
+		})
 
 		expect(outcome.resumed).toBe(true)
 		// The consequence that cannot happen without every hop: the tool was
@@ -368,7 +368,7 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 			tools: new ToolRegistry(),
 			messages: [{ role: 'user', content: 'status' }],
 			resumeHandler: async () => ({ action: 'continue' }) as HITLResumeDecision,
-		} as never)
+		})
 
 		expect(bind).toHaveBeenCalledTimes(1)
 		// Released on the way out, so a later run cannot write into a
@@ -402,7 +402,7 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 				asked(request.type)
 				return { action: 'continue' } as HITLResumeDecision
 			},
-		} as never)
+		})
 
 		expect(seen.outcome).toEqual({ status: 'answered', selectedOptionIds: ['production'] })
 		expect(asked).not.toHaveBeenCalledWith('user_question')
@@ -423,7 +423,7 @@ describe('a pause raised from a host-authored tool survives the process', () => 
 			// gate must not have widened into accepting this.
 			pendingDecision: answerWith(pauseId('call_7', PAUSE.name), 'production'),
 			resumeHandler: async () => ({ action: 'continue' }) as HITLResumeDecision,
-		} as never)
+		})
 
 		expect(seen.outcome?.status).not.toBe('answered')
 	})
