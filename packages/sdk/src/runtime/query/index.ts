@@ -835,7 +835,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		return { approved: false, feedback: `Action: ${decision.action}` }
 	})
 
-	const eventTranslator = new EventTranslator(ctx.runMgr)
+	const eventTranslator = new EventTranslator(ctx.runMgr, undefined, ctx.log)
 	eventTranslator.wireActivityStore(ctx.activityStore, ctx.runId)
 	eventTranslator.wirePlanManager(ctx.planManager, ctx.runId)
 	const unsubscribeTaskStore = params.taskStore

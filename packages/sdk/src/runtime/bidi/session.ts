@@ -8,7 +8,7 @@ import type { RunId } from '../../types/ids/index.js'
 import type { ToolContext, ToolRegistryContract } from '../../types/tool/index.js'
 import { toErrorMessage } from '../../utils/error.js'
 import { generateRunId } from '../../utils/id.js'
-import { type Logger, getRootLogger } from '../../utils/logger.js'
+import { type Logger, resolveLogger } from '../../utils/logger.js'
 
 /**
  * Run tools for a duplex session.
@@ -53,7 +53,7 @@ export interface BidiRun {
 
 export async function startBidiRun(params: BidiRunParams): Promise<BidiRun> {
 	const runId = params.runId ?? generateRunId()
-	const log = (params.log ?? getRootLogger()).child({ component: 'BidiRun', runId })
+	const log = resolveLogger(params.log).child({ component: 'BidiRun', runId })
 	const session = await params.provider.connect({
 		...params.connect,
 		...(params.signal ? { signal: params.signal } : {}),

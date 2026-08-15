@@ -10,7 +10,7 @@ import type {
 } from '../../types/run/index.js'
 import type { CompletedToolRecord, ReadRunEventsOptions, RunStore } from '../../types/run/store.js'
 import { atomicWriteFile } from '../../utils/atomic-write.js'
-import { type Logger, getRootLogger } from '../../utils/logger.js'
+import { type Logger, resolveLogger } from '../../utils/logger.js'
 import { defineSchema, migrate, stamp } from '../schema.js'
 
 /**
@@ -40,7 +40,7 @@ export class RunDiskStore implements RunStore {
 
 	constructor(config: RunStoreConfig) {
 		this.baseDir = config.baseDir
-		this.log = (config.logger ?? getRootLogger()).child({ component: 'RunDiskStore' })
+		this.log = resolveLogger(config.logger).child({ component: 'RunDiskStore' })
 	}
 
 	private requireInit(): string {

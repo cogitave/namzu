@@ -10,6 +10,7 @@ import type {
 	HybridExecutionContextConfig,
 	RemoteTarget,
 } from '../../types/connector/index.js'
+import type { Logger } from '../../utils/logger.js'
 import { RemoteExecutionContext } from './remote.js'
 
 export interface HybridExecutionContextOptions {
@@ -23,6 +24,7 @@ export interface HybridExecutionContextOptions {
 	}
 	remotes: RemoteTarget[]
 	routingStrategy?: ExecutionRoutingStrategy
+	log?: Logger
 }
 
 export class HybridExecutionContext extends BaseExecutionContext implements CommandExecutor {
@@ -36,7 +38,7 @@ export class HybridExecutionContext extends BaseExecutionContext implements Comm
 	private roundRobinIndex = 0
 
 	constructor(options: HybridExecutionContextOptions) {
-		super()
+		super(options.log)
 		this.id = options.id
 		this.remoteTargets = options.remotes
 		this.routingStrategy = options.routingStrategy ?? 'local-first'
@@ -48,6 +50,7 @@ export class HybridExecutionContext extends BaseExecutionContext implements Comm
 			envVars: options.local.envVars,
 			capabilities: options.local.capabilities,
 			shell: options.local.shell,
+			log: options.log,
 		})
 
 		this.localCtx.on((event) => this.emit(event))
@@ -57,6 +60,7 @@ export class HybridExecutionContext extends BaseExecutionContext implements Comm
 			const remote = new RemoteExecutionContext({
 				id: remoteId,
 				target,
+				log: options.log,
 			})
 			remote.on((event) => this.emit(event))
 			this.remoteCtxs.set(remoteId, remote)

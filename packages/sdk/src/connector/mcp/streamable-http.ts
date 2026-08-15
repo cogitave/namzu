@@ -3,7 +3,7 @@ import type {
 	MCPStreamableHttpTransportConfig,
 	MCPTransport,
 } from '../../types/connector/index.js'
-import { type Logger, getRootLogger } from '../../utils/logger.js'
+import { type Logger, resolveLogger } from '../../utils/logger.js'
 
 const DEFAULT_TIMEOUT_MS = 30_000
 
@@ -15,8 +15,11 @@ export class StreamableHttpTransport implements MCPTransport {
 	private sessionId: string | null = null
 	private log: Logger
 
-	constructor(private readonly config: MCPStreamableHttpTransportConfig) {
-		this.log = getRootLogger().child({ component: 'StreamableHttpTransport' })
+	constructor(
+		private readonly config: MCPStreamableHttpTransportConfig,
+		log?: Logger,
+	) {
+		this.log = resolveLogger(log).child({ component: 'StreamableHttpTransport' })
 	}
 
 	async connect(): Promise<void> {

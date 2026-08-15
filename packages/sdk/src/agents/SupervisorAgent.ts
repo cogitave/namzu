@@ -19,6 +19,7 @@ import { deriveChildState } from '../types/invocation/index.js'
 import type { RunEventListener } from '../types/run/index.js'
 import type { ActorRef } from '../types/session/actor.js'
 import { ZERO_COST } from '../utils/cost.js'
+import type { Logger } from '../utils/logger.js'
 import { AbstractAgent } from './AbstractAgent.js'
 
 /**
@@ -65,17 +66,20 @@ export function countCompletedTasks(taskResults: readonly AgentTaskResult[]): nu
 export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, SupervisorAgentResult> {
 	readonly type = 'supervisor' as const
 
-	constructor(metadata: Omit<AgentMetadata, 'type' | 'capabilities'>) {
-		super({
-			...metadata,
-			type: 'supervisor',
-			capabilities: {
-				supportsTools: true,
-				supportsStreaming: true,
-				supportsConcurrency: true,
-				supportsSubAgents: true,
+	constructor(metadata: Omit<AgentMetadata, 'type' | 'capabilities'>, log?: Logger) {
+		super(
+			{
+				...metadata,
+				type: 'supervisor',
+				capabilities: {
+					supportsTools: true,
+					supportsStreaming: true,
+					supportsConcurrency: true,
+					supportsSubAgents: true,
+				},
 			},
-		})
+			log,
+		)
 	}
 
 	/**
@@ -104,6 +108,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 	): Promise<SupervisorAgentResult> {
 		const startTime = Date.now()
 		const runId = this.createRunId()
+		this.bindRun(runId, config.logger)
 
 		if (!config.sessionId || !config.threadId || !config.projectId || !config.tenantId) {
 			throw new Error(
@@ -165,6 +170,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 				...(config.siblingFailurePolicy
 					? { siblingFailurePolicy: config.siblingFailurePolicy }
 					: {}),
+				log: this.log,
 			})
 		} else {
 			throw new Error("SupervisorAgentConfig requires either 'gateway' or 'agentManager'")
@@ -186,7 +192,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 		//
 		// It attaches through `onTaskCompleted`, which every gateway already
 		// implements, so a host gateway needs no change to take part.
-		const completionInbox = new CompletionInbox()
+		const completionInbox = new CompletionInbox(this.log)
 		completionInbox.attach(gateway)
 
 		// From here to the return in a try/finally, so the listener is released
@@ -294,6 +300,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 						maxIterations: config.maxIterations,
 						temperature: config.temperature,
 						env: config.env,
+						logger: this.log,
 						// See ReactiveAgent: a hand-listed literal drops what nobody
 						// remembered to add, and reports nothing when it does.
 						...(config.thinking ? { thinking: config.thinking } : {}),

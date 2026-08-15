@@ -1,5 +1,4 @@
 import { EMPTY_TOKEN_USAGE } from '../constants/limits.js'
-import { GENAI } from '../constants/telemetry/index.js'
 import { collect } from '../provider/collect.js'
 import { FallbackResolver } from '../runtime/decision/fallback.js'
 import { DecisionParser } from '../runtime/decision/parser.js'
@@ -16,24 +15,26 @@ import { deriveChildState } from '../types/invocation/index.js'
 import { createSystemMessage, createUserMessage } from '../types/message/index.js'
 import type { RunEventListener } from '../types/run/index.js'
 import { ZERO_COST } from '../utils/cost.js'
-import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
-import { getRootLogger } from '../utils/logger.js'
+import type { Logger } from '../utils/logger.js'
 import { AbstractAgent } from './AbstractAgent.js'
 
 export class RouterAgent extends AbstractAgent<RouterAgentConfig, RouterAgentResult> {
 	readonly type = 'router' as const
 
-	constructor(metadata: Omit<AgentMetadata, 'type' | 'capabilities'>) {
-		super({
-			...metadata,
-			type: 'router',
-			capabilities: {
-				supportsTools: false,
-				supportsStreaming: true,
-				supportsConcurrency: false,
-				supportsSubAgents: true,
+	constructor(metadata: Omit<AgentMetadata, 'type' | 'capabilities'>, log?: Logger) {
+		super(
+			{
+				...metadata,
+				type: 'router',
+				capabilities: {
+					supportsTools: false,
+					supportsStreaming: true,
+					supportsConcurrency: false,
+					supportsSubAgents: true,
+				},
 			},
-		})
+			log,
+		)
 	}
 
 	/**
@@ -62,6 +63,7 @@ export class RouterAgent extends AbstractAgent<RouterAgentConfig, RouterAgentRes
 	): Promise<RouterAgentResult> {
 		const startTime = Date.now()
 		const runId = this.createRunId()
+		this.bindRun(runId, config.logger)
 
 		await this.emitEvent({ type: 'run_started', runId }, listener)
 
@@ -148,10 +150,12 @@ export class RouterAgent extends AbstractAgent<RouterAgentConfig, RouterAgentRes
 	}
 
 	private async route(input: AgentInput, config: RouterAgentConfig): Promise<RoutingDecision> {
-		const log = getRootLogger().child({
-			[SCOPE_ATTRIBUTE]: 'agents',
-			[GENAI.AGENT_NAME]: this.metadata.name,
-		})
+		// `this.log`, not a fresh `getRootLogger()` child — bound by `bindRun` in
+		// `runExclusive` before this is called, so a routing warning below
+		// carries the SAME `namzu.run.id` as the run it is routing. The old
+		// independent construction here is the exact bug LOG-10's acceptance
+		// criterion names: a route() log line with no run id at all.
+		const log = this.log
 
 		const validAgentIds = config.routes.map((r) => r.agentId)
 		const fallbackAgentId = config.fallbackAgentId ?? config.routes[0]?.agentId ?? ''

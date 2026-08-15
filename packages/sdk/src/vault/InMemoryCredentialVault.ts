@@ -4,15 +4,15 @@ import type { ConnectorId, CredentialId, TenantId } from '../types/ids/index.js'
 import { generateCredentialId } from '../utils/id.js'
 import type { LogAttributes } from '../utils/log/index.js'
 import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
-import { type Logger, getRootLogger } from '../utils/logger.js'
+import { type Logger, resolveLogger } from '../utils/logger.js'
 
 export class InMemoryCredentialVault implements CredentialVault {
 	private refs: Map<CredentialId, CredentialRef> = new Map()
 	private secrets: Map<CredentialId, AuthConfig> = new Map()
 	private log: Logger
 
-	constructor() {
-		this.log = getRootLogger().child({ [SCOPE_ATTRIBUTE]: 'vault' })
+	constructor(log?: Logger) {
+		this.log = resolveLogger(log).child({ [SCOPE_ATTRIBUTE]: 'vault' })
 	}
 
 	async store(

@@ -8,7 +8,7 @@ import type {
 	ConnectorMethod,
 } from '../types/connector/index.js'
 import type { ConnectorId } from '../types/ids/index.js'
-import { type Logger, getRootLogger } from '../utils/logger.js'
+import { type Logger, resolveLogger } from '../utils/logger.js'
 
 export abstract class BaseConnector<TConfig = unknown> implements ConnectorLifecycle<TConfig> {
 	abstract readonly id: ConnectorId
@@ -22,8 +22,8 @@ export abstract class BaseConnector<TConfig = unknown> implements ConnectorLifec
 	protected config: TConfig | null = null
 	protected auth: AuthConfig | undefined
 
-	constructor() {
-		this.log = getRootLogger().child({ component: this.constructor.name })
+	constructor(log?: Logger) {
+		this.log = resolveLogger(log).child({ component: this.constructor.name })
 	}
 
 	abstract connect(config: TConfig, auth?: AuthConfig): Promise<void>

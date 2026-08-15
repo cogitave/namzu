@@ -7,22 +7,26 @@ import type {
 } from '../types/agent/index.js'
 import type { AssistantMessage } from '../types/message/index.js'
 import type { RunEventListener } from '../types/run/index.js'
+import type { Logger } from '../utils/logger.js'
 import { AbstractAgent } from './AbstractAgent.js'
 
 export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAgentResult> {
 	readonly type = 'reactive' as const
 
-	constructor(metadata: Omit<AgentMetadata, 'type' | 'capabilities'>) {
-		super({
-			...metadata,
-			type: 'reactive',
-			capabilities: {
-				supportsTools: true,
-				supportsStreaming: true,
-				supportsConcurrency: false,
-				supportsSubAgents: false,
+	constructor(metadata: Omit<AgentMetadata, 'type' | 'capabilities'>, log?: Logger) {
+		super(
+			{
+				...metadata,
+				type: 'reactive',
+				capabilities: {
+					supportsTools: true,
+					supportsStreaming: true,
+					supportsConcurrency: false,
+					supportsSubAgents: false,
+				},
 			},
-		})
+			log,
+		)
 	}
 
 	/**
@@ -50,6 +54,8 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 		listener?: RunEventListener,
 	): Promise<ReactiveAgentResult> {
 		const startTime = Date.now()
+		const runId = this.createRunId()
+		this.bindRun(runId, config.logger)
 
 		if (!config.sessionId || !config.threadId || !config.projectId || !config.tenantId) {
 			throw new Error(
@@ -113,6 +119,7 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 					costLimitUsd: config.costLimitUsd,
 					permissionMode: config.permissionMode,
 					env: config.env,
+					logger: this.log,
 					// Hand-listed, so anything not named here is dropped in silence.
 					// That is how both of these came to be unreachable from every
 					// entry point except the raw kernel one.
@@ -126,6 +133,7 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 				threadId: config.threadId,
 				projectId: config.projectId,
 				tenantId: config.tenantId,
+				runId,
 				parentRunId: config.parentRunId,
 				depth: config.depth,
 				contextLevel: config.contextLevel,

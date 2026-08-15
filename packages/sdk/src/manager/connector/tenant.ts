@@ -20,7 +20,7 @@ import type {
 } from '../../types/ids/index.js'
 import { toErrorMessage } from '../../utils/error.js'
 import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
-import { type Logger, getRootLogger } from '../../utils/logger.js'
+import { type Logger, resolveLogger } from '../../utils/logger.js'
 import { ConnectorManager } from './lifecycle.js'
 
 interface RateWindow {
@@ -33,6 +33,15 @@ export interface TenantConnectorManagerConfig {
 	credentialVault?: CredentialVault
 
 	defaultRateLimit?: TenantRateLimitConfig
+
+	/**
+	 * A pre-built logger. `registerTenant` already builds a per-tenant CHILD
+	 * of `this.log` (bound with `namzu.tenant.id`) and hands it to each
+	 * tenant's `ConnectorManager` — this field was the one remaining gap: the
+	 * manager's OWN construction-time logger still had no injection point at
+	 * all. Falls back to the process logger when absent.
+	 */
+	log?: Logger
 }
 
 interface TenantState {
@@ -54,7 +63,7 @@ export class TenantConnectorManager {
 		this.registry = config.registry
 		this.credentialVault = config.credentialVault
 		this.defaultRateLimit = config.defaultRateLimit
-		this.log = getRootLogger().child({ [SCOPE_ATTRIBUTE]: 'manager/connector' })
+		this.log = resolveLogger(config.log).child({ [SCOPE_ATTRIBUTE]: 'manager/connector' })
 	}
 
 	registerTenant(descriptor: TenantDescriptor, rateLimit?: TenantRateLimitConfig): void {

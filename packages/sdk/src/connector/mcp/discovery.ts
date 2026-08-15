@@ -5,7 +5,7 @@ import type {
 } from '../../types/connector/index.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
 import { toErrorMessage } from '../../utils/error.js'
-import { type Logger, getRootLogger } from '../../utils/logger.js'
+import { type Logger, resolveLogger } from '../../utils/logger.js'
 import { mcpToolToToolDefinition } from './adapter.js'
 import type { MCPClient } from './client.js'
 import {
@@ -60,7 +60,12 @@ export class MCPToolDiscovery {
 	constructor(clients: MCPClient[], options: MCPToolDiscoveryOptions = {}) {
 		this.clients = clients
 		this.options = options
-		this.log = options.logger ?? getRootLogger().child({ component: 'MCPToolDiscovery' })
+		// Was `options.logger ?? getRootLogger().child(...)`: `??` binds looser
+		// than the method call, so when `options.logger` WAS supplied the
+		// `.child({component: ...})` binding never applied at all — a caller
+		// that injected a logger got NO scope stamp, silently. `resolveLogger`
+		// collapses the fallback so `.child()` always runs, for both paths.
+		this.log = resolveLogger(options.logger).child({ component: 'MCPToolDiscovery' })
 	}
 
 	addClient(client: MCPClient): void {

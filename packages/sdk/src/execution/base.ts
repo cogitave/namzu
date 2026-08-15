@@ -1,6 +1,6 @@
 import type { ExecutionContextLifecycle, ExecutionEnvironment } from '../types/execution/index.js'
 import { toErrorMessage } from '../utils/error.js'
-import { type Logger, getRootLogger } from '../utils/logger.js'
+import { type Logger, resolveLogger } from '../utils/logger.js'
 
 export interface BaseExecutionEvent {
 	type: string
@@ -18,8 +18,8 @@ export abstract class BaseExecutionContext implements ExecutionContextLifecycle 
 	protected ready = false
 	private listeners: ExecutionEventListener[] = []
 
-	constructor() {
-		this.log = getRootLogger().child({ component: this.constructor.name })
+	constructor(log?: Logger) {
+		this.log = resolveLogger(log).child({ component: this.constructor.name })
 	}
 
 	async initialize(): Promise<void> {

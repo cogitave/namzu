@@ -12,7 +12,7 @@ import type { TaskId } from '../types/ids/index.js'
 import { createUserMessage } from '../types/message/index.js'
 import type { RunEventListener } from '../types/run/events.js'
 import { toErrorMessage } from '../utils/error.js'
-import { getRootLogger } from '../utils/logger.js'
+import { type Logger, resolveLogger } from '../utils/logger.js'
 
 /**
  * How many launched tasks a gateway remembers.
@@ -53,18 +53,25 @@ export class LocalTaskGateway implements TaskGateway {
 	private siblingFailurePolicy: SiblingFailurePolicy = 'continue'
 	/** See {@link onTaskProgress}. */
 	private readonly progressListeners = new Set<(taskId: TaskId) => void>()
+	/** Raw, unresolved — kept as the caller handed it so each of the two log
+	 * sites below resolves it independently via `resolveLogger`, rather than
+	 * this constructor baking in ONE `.child()` binding both would then share
+	 * (which would also change how many `component:` bindings this file has,
+	 * a different ratchet than the one this task moves). */
+	private readonly log?: Logger
 
 	constructor(
 		agentManager: AgentManagerContract,
 		taskContext: AgentTaskContext,
 		listener?: RunEventListener,
 		parentInput?: Pick<AgentInput, 'taskStore' | 'runtimeToolOverrides' | 'runtimeContext'>,
-		options?: { siblingFailurePolicy?: SiblingFailurePolicy },
+		options?: { siblingFailurePolicy?: SiblingFailurePolicy; log?: Logger },
 	) {
 		this.agentManager = agentManager
 		this.taskContext = taskContext
 		this.listener = listener
 		this.parentInput = parentInput
+		this.log = options?.log
 		if (options?.siblingFailurePolicy) {
 			this.siblingFailurePolicy = options.siblingFailurePolicy
 		}
@@ -169,7 +176,7 @@ export class LocalTaskGateway implements TaskGateway {
 				}
 			})
 			.catch((err) => {
-				getRootLogger()
+				resolveLogger(this.log)
 					.child({ component: 'LocalTaskGateway' })
 					.error('Task completion tracking failed', {
 						taskId: task.taskId,
@@ -212,7 +219,7 @@ export class LocalTaskGateway implements TaskGateway {
 		}
 
 		if (cancelled.length > 0) {
-			getRootLogger()
+			resolveLogger(this.log)
 				.child({ component: 'LocalTaskGateway' })
 				.info('Cancelled siblings after a child failed', {
 					failed: finished.taskId,

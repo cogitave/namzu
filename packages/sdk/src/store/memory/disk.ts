@@ -11,7 +11,7 @@ import type {
 } from '../../types/memory/index.js'
 import { atomicWriteFile } from '../../utils/atomic-write.js'
 import { generateMemoryId } from '../../utils/id.js'
-import { type Logger, getRootLogger } from '../../utils/logger.js'
+import { type Logger, resolveLogger } from '../../utils/logger.js'
 import { defineSchema, migrate, stamp } from '../schema.js'
 import { InMemoryMemoryIndex } from './index.js'
 
@@ -38,7 +38,7 @@ export class DiskMemoryStore implements MemoryStore {
 
 	constructor(config: DiskMemoryStoreConfig) {
 		this.baseDir = join(config.baseDir, 'memory')
-		this.log = (config.logger ?? getRootLogger()).child({ component: 'DiskMemoryStore' })
+		this.log = resolveLogger(config.logger).child({ component: 'DiskMemoryStore' })
 	}
 
 	private get indexPath(): string {

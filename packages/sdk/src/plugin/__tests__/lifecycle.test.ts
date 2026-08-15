@@ -32,13 +32,22 @@ describe('PluginLifecycleManager', () => {
 			getAll: vi.fn(() => []),
 		} as any
 
-		logger = {
-			child: vi.fn(() => ({
+		// `child()` returns a Logger, and a Logger has `child` — so a stub whose
+		// child is a leaf breaks the moment production binds a scope on a scope,
+		// which it now does. A fixture unlike production tests a system that
+		// does not ship; this one is recursive the way the real thing is.
+		const makeLogger = (): Logger => {
+			const self = {
 				info: vi.fn(),
 				warn: vi.fn(),
 				error: vi.fn(),
 				debug: vi.fn(),
-			})),
+				child: vi.fn(() => makeLogger()),
+			}
+			return self as unknown as Logger
+		}
+		logger = {
+			child: vi.fn(() => makeLogger()),
 			info: vi.fn(),
 			warn: vi.fn(),
 			error: vi.fn(),

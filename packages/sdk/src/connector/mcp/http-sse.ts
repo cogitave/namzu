@@ -3,7 +3,7 @@ import type {
 	MCPJsonRpcMessage,
 	MCPTransport,
 } from '../../types/connector/index.js'
-import { type Logger, getRootLogger } from '../../utils/logger.js'
+import { type Logger, resolveLogger } from '../../utils/logger.js'
 
 /**
  * Trim trailing slashes without a regex.
@@ -30,11 +30,14 @@ export class HttpSseTransport implements MCPTransport {
 	private postUrl: string
 	private log: Logger
 
-	constructor(private readonly config: MCPHttpSseTransportConfig) {
+	constructor(
+		private readonly config: MCPHttpSseTransportConfig,
+		log?: Logger,
+	) {
 		const base = stripTrailingSlashes(config.url)
 		this.sseUrl = `${base}/sse`
 		this.postUrl = `${base}/message`
-		this.log = getRootLogger().child({ component: 'HttpSseTransport' })
+		this.log = resolveLogger(log).child({ component: 'HttpSseTransport' })
 	}
 
 	async connect(): Promise<void> {

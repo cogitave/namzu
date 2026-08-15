@@ -18,7 +18,7 @@ import type {
 } from '../../types/connector/index.js'
 import type { ConnectorId, EnvironmentId } from '../../types/ids/index.js'
 import { toErrorMessage } from '../../utils/error.js'
-import { type Logger, getRootLogger } from '../../utils/logger.js'
+import { type Logger, resolveLogger } from '../../utils/logger.js'
 import { ConnectorManager } from './lifecycle.js'
 
 export interface EnvironmentConnectorSetup {
@@ -37,6 +37,8 @@ export interface EnvironmentConnectorManagerConfig {
 	scopedRegistry: ScopedConnectorRegistry
 
 	credentialVault?: CredentialVault
+
+	log?: Logger
 }
 
 interface EnvironmentState {
@@ -59,7 +61,7 @@ export class EnvironmentConnectorManager {
 		this.connectorRegistry = config.connectorRegistry
 		this.scopedRegistry = config.scopedRegistry
 		this.credentialVault = config.credentialVault
-		this.log = getRootLogger().child({ component: 'EnvironmentConnectorManager' })
+		this.log = resolveLogger(config.log).child({ component: 'EnvironmentConnectorManager' })
 	}
 
 	registerEnvironment(setup: EnvironmentConnectorSetup): void {
@@ -69,7 +71,7 @@ export class EnvironmentConnectorManager {
 			return
 		}
 
-		const manager = new ConnectorManager({ registry: this.connectorRegistry })
+		const manager = new ConnectorManager({ registry: this.connectorRegistry, log: this.log })
 
 		manager.on((event) => this.emit(event))
 

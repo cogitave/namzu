@@ -4,20 +4,33 @@ import type {
 	SkillDisclosureLevel,
 	SkillLoadResult,
 } from '../types/skills/index.js'
-import { getRootLogger } from '../utils/logger.js'
+import { type Logger, resolveLogger } from '../utils/logger.js'
 import { discoverSkills, loadSkill } from './loader.js'
 
 export class SkillRegistry {
 	private skills = new Map<string, Skill>()
+	private readonly log: Logger
+
+	/**
+	 * Bound once, at construction — not per call and not at module scope.
+	 * Per-call construction (what `register`/`registerAll` did before this)
+	 * still reads `getRootLogger()` on every call with no way for a caller to
+	 * override it; module scope is worse still, for the reason `loadSkill`
+	 * and `discoverSkills` document. A host that wants its own destination
+	 * passes `log` here once.
+	 */
+	constructor(log?: Logger) {
+		this.log = resolveLogger(log).child({ component: 'SkillRegistry' })
+	}
 
 	async register(dirPath: string, level: SkillDisclosureLevel = 'metadata'): Promise<Skill> {
-		const result = await loadSkill(dirPath, level)
+		const result = await loadSkill(dirPath, level, this.log)
 		this.skills.set(result.skill.metadata.name, result.skill)
 		return result.skill
 	}
 
 	async registerAll(parentDir: string, level: SkillDisclosureLevel = 'metadata'): Promise<Skill[]> {
-		const dirs = await discoverSkills(parentDir)
+		const dirs = await discoverSkills(parentDir, this.log)
 		const results: Skill[] = []
 
 		for (const dir of dirs) {
@@ -25,17 +38,7 @@ export class SkillRegistry {
 			results.push(skill)
 		}
 
-		// Resolved here, not at module scope. A module-scope
-		// `getRootLogger().child(...)` ran once, at import time — before any
-		// host's `configureLogger()` call had a chance to run — and `child()`
-		// bakes `minLevel` into the closure `log()` reads from forever after
-		// (`utils/logger.ts`), so whatever level was live at that one moment
-		// was permanent. `configureLogger` replaces the `_rootLogger` binding
-		// rather than mutating the object it points at, so caching the CHILD
-		// (as this registry did) survives no later call at all — including
-		// the CLI's own `configureLogger({ level: 'silent' })`.
-		const logger = getRootLogger().child({ component: 'SkillRegistry' })
-		logger.debug('Registered skills from directory', {
+		this.log.debug('Registered skills from directory', {
 			parentDir,
 			count: results.length,
 			names: results.map((s) => s.metadata.name),
@@ -63,7 +66,7 @@ export class SkillRegistry {
 			}
 		}
 
-		const result = await loadSkill(existing.dirPath, level)
+		const result = await loadSkill(existing.dirPath, level, this.log)
 		this.skills.set(name, result.skill)
 		return result
 	}
@@ -85,9 +88,10 @@ export async function resolveSkillChain(
 	categorySkillsDir: string | undefined,
 	agentSkillsDir: string | undefined,
 	level: SkillDisclosureLevel = 'metadata',
+	log?: Logger,
 ): Promise<SkillChain> {
-	const categoryRegistry = new SkillRegistry()
-	const agentRegistry = new SkillRegistry()
+	const categoryRegistry = new SkillRegistry(log)
+	const agentRegistry = new SkillRegistry(log)
 
 	const inherited = categorySkillsDir
 		? await categoryRegistry.registerAll(categorySkillsDir, level)
@@ -106,14 +110,13 @@ export async function resolveSkillChain(
 
 	const resolved = [...resolvedMap.values()]
 
-	// Resolved here too — see registerAll above for why module scope froze
-	// this logger's level, and its very reference, at import time.
-	const logger = getRootLogger().child({ component: 'SkillRegistry' })
-	logger.debug('Resolved skill chain', {
-		inherited: inherited.map((s) => s.metadata.name),
-		own: own.map((s) => s.metadata.name),
-		resolved: resolved.map((s) => s.metadata.name),
-	})
+	resolveLogger(log)
+		.child({ component: 'SkillRegistry' })
+		.debug('Resolved skill chain', {
+			inherited: inherited.map((s) => s.metadata.name),
+			own: own.map((s) => s.metadata.name),
+			resolved: resolved.map((s) => s.metadata.name),
+		})
 
 	return { inherited, own, resolved }
 }

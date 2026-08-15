@@ -1,6 +1,6 @@
 import type { Run, RunEvent, RunEventListener } from '../types/run/index.js'
 import { formatCost } from '../utils/cost.js'
-import { type Logger, getRootLogger } from '../utils/logger.js'
+import { type Logger, resolveLogger } from '../utils/logger.js'
 
 function formatDuration(ms: number): string {
 	if (ms < 1000) return `${ms}ms`
@@ -17,7 +17,7 @@ export interface RunReporter {
 }
 
 export function createRunReporter(parentLogger?: Logger): RunReporter {
-	const log = (parentLogger ?? getRootLogger()).child({
+	const log = resolveLogger(parentLogger).child({
 		component: 'RunReporter',
 	})
 

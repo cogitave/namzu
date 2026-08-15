@@ -12,7 +12,7 @@ import type {
 } from '../../types/task/index.js'
 import { atomicWriteFile } from '../../utils/atomic-write.js'
 import { generateTaskId } from '../../utils/id.js'
-import { type Logger, getRootLogger } from '../../utils/logger.js'
+import { type Logger, resolveLogger } from '../../utils/logger.js'
 import { defineSchema, migrate, stamp } from '../schema.js'
 
 /**
@@ -64,7 +64,7 @@ export class DiskTaskStore implements TaskStore {
 		this.baseDir = config.baseDir
 		this.defaultRunId = config.defaultRunId
 		this.tenantId = config.tenantId
-		this.log = (config.logger ?? getRootLogger()).child({ component: 'DiskTaskStore' })
+		this.log = resolveLogger(config.logger).child({ component: 'DiskTaskStore' })
 	}
 
 	private taskDir(runId: RunId): string {

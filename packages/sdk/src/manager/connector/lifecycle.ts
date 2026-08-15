@@ -13,7 +13,7 @@ import type { ConnectorId, ConnectorInstanceId } from '../../types/ids/index.js'
 import { toErrorMessage } from '../../utils/error.js'
 import { generateConnectorInstanceId } from '../../utils/id.js'
 import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
-import { type Logger, getRootLogger } from '../../utils/logger.js'
+import { type Logger, resolveLogger } from '../../utils/logger.js'
 
 export interface ConnectorManagerConfig {
 	registry: ConnectorRegistry
@@ -37,7 +37,7 @@ export class ConnectorManager {
 
 	constructor(config: ConnectorManagerConfig) {
 		this.registry = config.registry
-		this.log = (config.log ?? getRootLogger()).child({ [SCOPE_ATTRIBUTE]: 'manager/connector' })
+		this.log = resolveLogger(config.log).child({ [SCOPE_ATTRIBUTE]: 'manager/connector' })
 	}
 
 	on(listener: ConnectorEventListener): void {

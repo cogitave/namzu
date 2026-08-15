@@ -9,7 +9,7 @@ import type { CostInfo, TokenUsage } from '../types/common/index.js'
 import { type Message, createSystemMessage, createUserMessage } from '../types/message/index.js'
 import type { LLMToolSchema } from '../types/tool/index.js'
 import { accumulateUnpricedCost, calculateCost } from '../utils/cost.js'
-import { type Logger, getRootLogger } from '../utils/logger.js'
+import { type Logger, resolveLogger } from '../utils/logger.js'
 import { ADVISORY_RESPONSE_CONTRACT, parseAdvisoryResponse } from './parse.js'
 
 /**
@@ -44,7 +44,7 @@ export class AdvisoryExecutor {
 	private readonly budget: AdvisoryBudget | undefined
 
 	constructor(logger?: Logger, budget?: AdvisoryBudget) {
-		this.logger = (logger ?? getRootLogger()).child({ component: 'AdvisoryExecutor' })
+		this.logger = resolveLogger(logger).child({ component: 'AdvisoryExecutor' })
 		this.budget = budget
 	}
 

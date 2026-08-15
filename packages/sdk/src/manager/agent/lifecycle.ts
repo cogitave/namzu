@@ -35,7 +35,7 @@ import { createChildAbortController } from '../../utils/abort.js'
 import { ZERO_COST } from '../../utils/cost.js'
 import { toErrorMessage } from '../../utils/error.js'
 import { generateTaskId } from '../../utils/id.js'
-import { type Logger, getRootLogger } from '../../utils/logger.js'
+import { type Logger, resolveLogger } from '../../utils/logger.js'
 import { requireOpenProject } from '../project/lifecycle.js'
 import type { TopicManager } from '../topic/lifecycle.js'
 
@@ -71,6 +71,19 @@ export interface AgentManagerDeps {
 	 * attach a live session under an archived Thread.
 	 */
 	readonly threadManager: TopicManager
+
+	/**
+	 * A pre-built logger. No in-package caller threads a real one today —
+	 * `packages/cli/src/integrations/subagents/runtime.ts` is the only
+	 * production `new AgentManager(...)` call, and CLI wiring is out of this
+	 * task's scope (`packages/cli` is not counted by `getRootLoggerCount`,
+	 * which is SDK-only) — but the field is genuinely host-reachable: it is
+	 * a plain object-literal parameter (no exported type import required to
+	 * satisfy it structurally) on `AgentManager`, which IS exported from
+	 * `public-runtime.ts`. Same standing as `RunConfig.logger` when it was
+	 * first added.
+	 */
+	readonly log?: Logger
 }
 
 interface ChildSpawnRecord {
@@ -122,7 +135,7 @@ export class AgentManager {
 	) {
 		this.registry = registry
 		this.config = { ...AGENT_MANAGER_DEFAULTS, ...config }
-		this.log = getRootLogger().child({ component: 'AgentManager' })
+		this.log = resolveLogger(deps.log).child({ component: 'AgentManager' })
 		this.deps = deps
 	}
 

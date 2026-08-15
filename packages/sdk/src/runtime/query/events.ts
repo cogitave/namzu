@@ -8,7 +8,7 @@ import type { ClaimFence } from '../../types/run/checkpoint-store.js'
 import { isEphemeralEvent } from '../../types/run/events.js'
 import type { RunEvent } from '../../types/run/index.js'
 import type { TaskEvent, TaskStore } from '../../types/task/index.js'
-import { getRootLogger } from '../../utils/logger.js'
+import { type Logger, resolveLogger } from '../../utils/logger.js'
 
 export type EmitEvent = (event: RunEvent) => Promise<void>
 
@@ -31,11 +31,16 @@ export class EventTranslator {
 	private runMgr: RunPersistence
 	private probes: ProbeRegistry
 	private droppedDeltaCount = 0
-	private readonly log = getRootLogger().child({ component: 'EventTranslator' })
+	private readonly log: Logger
 
-	constructor(runMgr: RunPersistence, probeRegistry: ProbeRegistry = defaultProbeRegistry) {
+	constructor(
+		runMgr: RunPersistence,
+		probeRegistry: ProbeRegistry = defaultProbeRegistry,
+		log?: Logger,
+	) {
 		this.runMgr = runMgr
 		this.probes = probeRegistry
+		this.log = resolveLogger(log).child({ component: 'EventTranslator' })
 	}
 
 	/**

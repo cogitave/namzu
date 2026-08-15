@@ -1,3 +1,4 @@
+import type { Logger } from '../../utils/logger.js'
 import type { AgentStatus, CostInfo, TokenUsage } from '../common/index.js'
 import type { ResumeHandler } from '../hitl/index.js'
 import type { RunId, SessionId, TenantId } from '../ids/index.js'
@@ -22,6 +23,16 @@ export interface BaseAgentConfig {
 	maxResponseTokens?: number
 	costLimitUsd?: number
 	permissionMode?: PermissionMode
+
+	/**
+	 * Override the logger this run's `AbstractAgent.bindRun` uses instead of
+	 * the logger the agent was CONSTRUCTED with. Same reason `thinking` and
+	 * `effort` are declared here rather than per-config: every concrete agent
+	 * builds its `runConfig` by hand-listing fields, and a field absent from a
+	 * hand-listed literal is dropped in silence. A host that wants one run's
+	 * output routed differently — without reconstructing the agent — sets this.
+	 */
+	logger?: Logger
 
 	/**
 	 * Extra environment variables for this agent's tools and sandboxed

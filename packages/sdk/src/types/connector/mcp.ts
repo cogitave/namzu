@@ -1,3 +1,4 @@
+import type { Logger } from '../../utils/logger.js'
 import type { ConnectorId, ConnectorInstanceId, MCPClientId, MCPServerId } from '../ids/index.js'
 import type {
 	ConnectorDefinition,
@@ -218,6 +219,13 @@ export interface MCPClientConfig {
 	 * forever — no error, no failure, just a run that stopped.
 	 */
 	requestTimeoutMs?: number
+	/**
+	 * A pre-built logger. Threaded into the transport `MCPClient` constructs
+	 * internally (`createTransport`), so a caller that supplies this gets a
+	 * correlated client AND a correlated transport from one field, rather
+	 * than each reaching for its own process-default child.
+	 */
+	logger?: Logger
 }
 
 export interface MCPClientState {

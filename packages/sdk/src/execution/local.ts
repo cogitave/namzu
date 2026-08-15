@@ -9,6 +9,7 @@ import type {
 	ExecutionCapability,
 	ExecutionEnvironment,
 } from '../types/execution/index.js'
+import type { Logger } from '../utils/logger.js'
 import { BaseExecutionContext } from './base.js'
 
 export interface LocalExecutionContextOptions {
@@ -18,6 +19,7 @@ export interface LocalExecutionContextOptions {
 	envVars?: Record<string, string>
 	capabilities?: ExecutionCapability[]
 	shell?: string
+	log?: Logger
 }
 
 export class LocalExecutionContext extends BaseExecutionContext implements CommandExecutor {
@@ -31,7 +33,7 @@ export class LocalExecutionContext extends BaseExecutionContext implements Comma
 	private shell: string | undefined
 
 	constructor(options: LocalExecutionContextOptions) {
-		super()
+		super(options.log)
 		this.id = options.id
 		this.cwd = resolve(options.cwd)
 		this.fsAccess = options.fsAccess ?? true

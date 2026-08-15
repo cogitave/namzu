@@ -14,7 +14,7 @@ import type { MCPPromptDefinition, MCPPromptMessage } from '../../types/connecto
 import type { MCPServerId } from '../../types/ids/index.js'
 import { toErrorMessage } from '../../utils/error.js'
 import { generateMCPServerId } from '../../utils/id.js'
-import { type Logger, getRootLogger } from '../../utils/logger.js'
+import { type Logger, resolveLogger } from '../../utils/logger.js'
 
 /**
  * A method this server does not implement.
@@ -73,13 +73,14 @@ export class MCPServer {
 		toolProvider: MCPServerToolProvider,
 		resourceProvider?: MCPServerResourceProvider,
 		promptProvider?: MCPServerPromptProvider,
+		log?: Logger,
 	) {
 		this.id = config.id ?? generateMCPServerId()
 		this.config = config
 		this.toolProvider = toolProvider
 		this.resourceProvider = resourceProvider
 		this.promptProvider = promptProvider
-		this.log = getRootLogger().child({ component: 'MCPServer', serverId: this.id })
+		this.log = resolveLogger(log).child({ component: 'MCPServer', serverId: this.id })
 	}
 
 	async start(transport: MCPTransport): Promise<void> {

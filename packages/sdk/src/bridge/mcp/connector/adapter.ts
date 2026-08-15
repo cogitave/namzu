@@ -11,7 +11,7 @@ import type {
 	MCPToolResult,
 } from '../../../types/connector/index.js'
 import type { ConnectorInstanceId } from '../../../types/ids/index.js'
-import { type Logger, getRootLogger } from '../../../utils/logger.js'
+import { type Logger, resolveLogger } from '../../../utils/logger.js'
 
 export class MCPConnectorBridge {
 	private manager: ConnectorManager
@@ -19,10 +19,10 @@ export class MCPConnectorBridge {
 	private mappings: MCPConnectorBridgeToolMapping[] = []
 	private log: Logger
 
-	constructor(config: { manager: ConnectorManager; prefix?: string }) {
+	constructor(config: { manager: ConnectorManager; prefix?: string; log?: Logger }) {
 		this.manager = config.manager
 		this.prefix = config.prefix ?? 'namzu'
-		this.log = getRootLogger().child({ component: 'MCPConnectorBridge' })
+		this.log = resolveLogger(config.log).child({ component: 'MCPConnectorBridge' })
 	}
 
 	listTools(instanceId?: ConnectorInstanceId): MCPToolDefinition[] {

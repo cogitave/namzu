@@ -302,6 +302,7 @@ export class PluginLifecycleManager {
 				args: config.args ? [...config.args] : undefined,
 				env: config.env ? { ...config.env } : undefined,
 			},
+			logger: this.log,
 		})
 
 		await client.connect()

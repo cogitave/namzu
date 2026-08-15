@@ -16,7 +16,7 @@ import { ZERO_COST } from '../utils/cost.js'
 import { toErrorMessage } from '../utils/error.js'
 import { generateRunId } from '../utils/id.js'
 import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
-import { type Logger, getRootLogger } from '../utils/logger.js'
+import { type Logger, resolveLogger } from '../utils/logger.js'
 import { InvocationLock } from './lock.js'
 
 export abstract class AbstractAgent<
@@ -27,6 +27,14 @@ export abstract class AbstractAgent<
 	abstract readonly type: AgentType
 	readonly metadata: AgentMetadata
 	protected log: Logger
+	/**
+	 * The logger bound at construction, before any run id exists. `this.log`
+	 * is rebound to a CHILD of this on every `bindRun` call — never the other
+	 * way — so `forRun()` (which builds a fresh shell from `this.metadata`)
+	 * can hand the new instance the same base identity without also handing
+	 * it a stale run id from whichever run happened to be live last.
+	 */
+	private readonly baseLog: Logger
 	protected abortController: AbortController
 	private readonly invocationLock: InvocationLock
 
@@ -45,15 +53,16 @@ export abstract class AbstractAgent<
 
 	protected currentRunId?: RunId
 
-	constructor(metadata: AgentMetadata) {
+	constructor(metadata: AgentMetadata, log?: Logger) {
 		this.metadata = metadata
 		this.abortController = new AbortController()
 		this.invocationLock = new InvocationLock()
-		this.log = getRootLogger().child({
+		this.baseLog = resolveLogger(log).child({
 			[SCOPE_ATTRIBUTE]: 'agents',
 			[NAMZU.AGENT_TYPE]: metadata.type,
 			[GENAI.AGENT_ID]: metadata.id,
 		})
+		this.log = this.baseLog
 	}
 
 	abstract run(input: AgentInput, config: TConfig, listener?: RunEventListener): Promise<TResult>
@@ -79,8 +88,11 @@ export abstract class AbstractAgent<
 	 */
 	forRun(): this {
 		try {
-			const Ctor = this.constructor as unknown as new (metadata: AgentMetadata) => this
-			return new Ctor(this.metadata)
+			const Ctor = this.constructor as unknown as new (
+				metadata: AgentMetadata,
+				log?: Logger,
+			) => this
+			return new Ctor(this.metadata, this.baseLog)
 		} catch (err) {
 			this.log.warn(
 				'Could not build a per-run shell; concurrent runs of this agent will still be refused',
@@ -198,6 +210,34 @@ export abstract class AbstractAgent<
 
 	protected createRunId(): RunId {
 		return generateRunId()
+	}
+
+	/**
+	 * Rebind this instance's logger to a specific run, so every record
+	 * `this.log` writes for the DURATION of that run carries `namzu.run.id` —
+	 * and every record after the NEXT call carries that run's id, not this
+	 * one.
+	 *
+	 * Constructor-time binding was the bug this exists to fix: an agent
+	 * constructed once and invoked twice (`forRun` aside — a host is free to
+	 * reuse one instance across sequential runs, and every concrete `run()`
+	 * takes fresh `input`/`config` precisely to allow it) held ONE logger for
+	 * its whole lifetime, so a warning from run two carried run one's id, or
+	 * none. Every concrete `run()` implementation calls this before touching
+	 * `this.log`, right after resolving the run's id — see `RouterAgent`,
+	 * `PipelineAgent`, `SupervisorAgent` and `ReactiveAgent`.
+	 *
+	 * `log` lets a per-run override (`BaseAgentConfig.logger`, a host setting
+	 * on ONE call to `.run()`) win over the agent's construction-time base,
+	 * without reconstructing the agent to get it.
+	 *
+	 * Also the one place `currentRunId` is actually assigned. It was declared
+	 * and read by `cancel()` but never written — a run could never be
+	 * cancelled by id because nothing ever recorded which run was current.
+	 */
+	protected bindRun(runId: RunId, log?: Logger): void {
+		this.currentRunId = runId
+		this.log = (log ?? this.baseLog).child({ [NAMZU.RUN_ID]: runId })
 	}
 
 	protected createEmptyResult(runId: RunId, startTime: number): BaseAgentResult {

@@ -95,10 +95,16 @@ export function getRootLogger(): Logger {
 /**
  * Fall back to the process root only when nobody supplied their own. Kept
  * here rather than inlined at each call site so a boundary that threads a
- * host-supplied logger — `RunContextFactory.buildLogger` is the first — can
- * stay entirely free of `getRootLogger()` itself: `runtime/query/context.ts`
- * and `runtime/query/index.ts` no longer call it directly, and this is the
- * one place that still does on their behalf.
+ * host-supplied logger can stay entirely free of `getRootLogger()` itself.
+ * `RunContextFactory.buildLogger` was the first caller (LOG-07); LOG-10
+ * moved every remaining constructor across `packages/sdk/src` onto this
+ * same seam, so this function's own fallback is now the ONLY place in the
+ * package that reads the process-wide global outside a host's direct call
+ * to `getRootLogger()` itself. `getRootLoggerCount` in
+ * `scripts/log-standard.json` measures exactly that: it cannot reach zero
+ * while an optional, non-breaking fallback exists at all — removing the
+ * fallback (flipping the default to `NOOP_LOGGER`) is LOG-20's major, not
+ * this seam's.
  */
 export function resolveLogger(logger: Logger | undefined): Logger {
 	return logger ?? getRootLogger()

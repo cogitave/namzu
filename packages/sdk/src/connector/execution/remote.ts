@@ -8,12 +8,14 @@ import type {
 	RemoteExecutionContextConfig,
 	RemoteTarget,
 } from '../../types/connector/index.js'
+import type { Logger } from '../../utils/logger.js'
 
 export interface RemoteExecutionContextOptions {
 	id: string
 	target: RemoteTarget
 	capabilities?: ExecutionCapability[]
 	commandHandler?: RemoteCommandHandler
+	log?: Logger
 }
 
 export class RemoteExecutionContext extends BaseExecutionContext {
@@ -26,7 +28,7 @@ export class RemoteExecutionContext extends BaseExecutionContext {
 	private commandHandler: RemoteCommandHandler | undefined
 
 	constructor(options: RemoteExecutionContextOptions) {
-		super()
+		super(options.log)
 		this.id = options.id
 		this.target = options.target
 		this.capabilities = options.capabilities ?? ['network']

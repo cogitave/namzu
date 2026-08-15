@@ -7,7 +7,7 @@ import type {
 	SkillMetadata,
 } from '../types/skills/index.js'
 import { type ParsedFrontmatter, parseFrontmatter } from '../utils/frontmatter.js'
-import { getRootLogger } from '../utils/logger.js'
+import { type Logger, resolveLogger } from '../utils/logger.js'
 
 const SKILL_FILENAME = 'SKILL.md'
 
@@ -133,6 +133,7 @@ function estimateTokens(text: string): number {
 export async function loadSkill(
 	dirPath: string,
 	level: SkillDisclosureLevel = 'metadata',
+	log?: Logger,
 ): Promise<SkillLoadResult> {
 	const skillMdPath = join(dirPath, SKILL_FILENAME)
 	const raw = await readFile(skillMdPath, 'utf-8')
@@ -160,7 +161,10 @@ export async function loadSkill(
 	// rather than mutating the object it points at, so caching the CHILD
 	// (as this loader did) survives no later call at all — including the
 	// CLI's own `configureLogger({ level: 'silent' })`.
-	const logger = getRootLogger().child({ component: 'SkillLoader' })
+	//
+	// `log`, when the caller has one (`SkillRegistry` now does), wins over
+	// the process default.
+	const logger = resolveLogger(log).child({ component: 'SkillLoader' })
 	logger.debug('Loaded skill', {
 		name: metadata.name,
 		level,
@@ -174,10 +178,10 @@ export async function loadSkill(
 	}
 }
 
-export async function discoverSkills(parentDir: string): Promise<string[]> {
+export async function discoverSkills(parentDir: string, log?: Logger): Promise<string[]> {
 	// Resolved here too — see loadSkill above for why module scope froze
 	// this logger's level, and its very reference, at import time.
-	const logger = getRootLogger().child({ component: 'SkillLoader' })
+	const logger = resolveLogger(log).child({ component: 'SkillLoader' })
 	const dirs: string[] = []
 
 	try {

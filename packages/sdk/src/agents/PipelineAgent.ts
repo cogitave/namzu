@@ -10,22 +10,26 @@ import type {
 import type { RunEventListener } from '../types/run/index.js'
 import { ZERO_COST } from '../utils/cost.js'
 import { toErrorMessage } from '../utils/error.js'
+import type { Logger } from '../utils/logger.js'
 import { AbstractAgent } from './AbstractAgent.js'
 
 export class PipelineAgent extends AbstractAgent<PipelineAgentConfig, PipelineAgentResult> {
 	readonly type = 'pipeline' as const
 
-	constructor(metadata: Omit<AgentMetadata, 'type' | 'capabilities'>) {
-		super({
-			...metadata,
-			type: 'pipeline',
-			capabilities: {
-				supportsTools: false,
-				supportsStreaming: false,
-				supportsConcurrency: false,
-				supportsSubAgents: false,
+	constructor(metadata: Omit<AgentMetadata, 'type' | 'capabilities'>, log?: Logger) {
+		super(
+			{
+				...metadata,
+				type: 'pipeline',
+				capabilities: {
+					supportsTools: false,
+					supportsStreaming: false,
+					supportsConcurrency: false,
+					supportsSubAgents: false,
+				},
 			},
-		})
+			log,
+		)
 	}
 
 	/**
@@ -54,6 +58,7 @@ export class PipelineAgent extends AbstractAgent<PipelineAgentConfig, PipelineAg
 	): Promise<PipelineAgentResult> {
 		const startTime = Date.now()
 		const runId = this.createRunId()
+		this.bindRun(runId, config.logger)
 		const stepResults: PipelineStepResult[] = []
 		const previousResults = new Map<string, unknown>()
 		let completedSteps = 0

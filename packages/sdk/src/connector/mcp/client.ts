@@ -22,7 +22,7 @@ import { toErrorMessage } from '../../utils/error.js'
 import { generateMCPClientId } from '../../utils/id.js'
 import type { LogAttributes } from '../../utils/log/index.js'
 import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
-import { type Logger, getRootLogger } from '../../utils/logger.js'
+import { type Logger, resolveLogger } from '../../utils/logger.js'
 import { HttpSseTransport } from './http-sse.js'
 import { StdioTransport } from './stdio.js'
 import { StreamableHttpTransport } from './streamable-http.js'
@@ -66,11 +66,14 @@ export class MCPClient {
 	constructor(config: MCPClientConfig) {
 		this.config = config
 		this.id = config.id ?? generateMCPClientId()
-		this.transport = this.createTransport(config.transport)
-		this.log = getRootLogger().child({
+		// Built BEFORE the transport, not after: `createTransport` threads
+		// `this.log` into whichever transport it constructs (LOG-10), so the
+		// transport's own logger has to exist by the time that call runs.
+		this.log = resolveLogger(config.logger).child({
 			[SCOPE_ATTRIBUTE]: 'connector/mcp',
 			[NAMZU.SERVER_ID]: config.serverName,
 		})
+		this.transport = this.createTransport(config.transport)
 	}
 
 	async connect(): Promise<MCPInitializeResult> {
@@ -338,12 +341,12 @@ export class MCPClient {
 	private createTransport(config: MCPTransportUnion): MCPTransport {
 		switch (config.type) {
 			case 'stdio':
-				return new StdioTransport(config)
+				return new StdioTransport(config, this.log)
 			case 'http-sse':
-				return new HttpSseTransport(config)
+				return new HttpSseTransport(config, this.log)
 			case 'streamable_http':
 			case 'streamable-http':
-				return new StreamableHttpTransport(config)
+				return new StreamableHttpTransport(config, this.log)
 			default:
 				throw new Error(`Unsupported MCP transport type: ${(config as MCPTransportUnion).type}`)
 		}

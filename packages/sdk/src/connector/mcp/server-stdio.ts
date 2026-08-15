@@ -1,7 +1,7 @@
 import type { Readable, Writable } from 'node:stream'
 
 import type { MCPJsonRpcMessage, MCPTransport } from '../../types/connector/mcp.js'
-import { type Logger, getRootLogger } from '../../utils/logger.js'
+import { type Logger, resolveLogger } from '../../utils/logger.js'
 
 /**
  * The server half of stdio, so `MCPServer` has something to run on.
@@ -48,10 +48,10 @@ export class ServerStdioTransport implements MCPTransport {
 	 * that replaced `process.stdin` would break every other test sharing
 	 * the runner.
 	 */
-	constructor(streams?: { input?: Readable; output?: Writable }) {
+	constructor(streams?: { input?: Readable; output?: Writable }, log?: Logger) {
 		this.input = streams?.input ?? process.stdin
 		this.output = streams?.output ?? process.stdout
-		this.log = getRootLogger().child({ component: 'ServerStdioTransport' })
+		this.log = resolveLogger(log).child({ component: 'ServerStdioTransport' })
 	}
 
 	async connect(): Promise<void> {

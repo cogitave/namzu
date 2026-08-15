@@ -4,7 +4,7 @@ import type {
 	MCPStdioTransportConfig,
 	MCPTransport,
 } from '../../types/connector/index.js'
-import { type Logger, getRootLogger } from '../../utils/logger.js'
+import { type Logger, resolveLogger } from '../../utils/logger.js'
 
 /**
  * How long a child gets to honour SIGTERM before SIGKILL. Two seconds is
@@ -129,8 +129,11 @@ export class StdioTransport implements MCPTransport {
 	private buffer = ''
 	private log: Logger
 
-	constructor(private readonly config: MCPStdioTransportConfig) {
-		this.log = getRootLogger().child({ component: 'StdioTransport' })
+	constructor(
+		private readonly config: MCPStdioTransportConfig,
+		log?: Logger,
+	) {
+		this.log = resolveLogger(log).child({ component: 'StdioTransport' })
 	}
 
 	async connect(): Promise<void> {

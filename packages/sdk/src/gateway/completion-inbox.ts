@@ -2,7 +2,7 @@ import { wrapUntrusted } from '../tools/untrusted-envelope.js'
 import type { TaskGateway, TaskHandle } from '../types/agent/gateway.js'
 import { isTerminalAgentTaskState } from '../types/agent/task.js'
 import type { TaskId } from '../types/ids/index.js'
-import { getRootLogger } from '../utils/logger.js'
+import { type Logger, resolveLogger } from '../utils/logger.js'
 
 /**
  * How many unclaimed announcements may wait for an owner at once.
@@ -99,6 +99,12 @@ export class CompletionInbox {
 	private gateway?: TaskGateway
 
 	/**
+	 * `log` is optional and unresolved until it is actually needed (the
+	 * eviction-warning path in `hold()`), same reason as `LocalTaskGateway`.
+	 */
+	constructor(private readonly log?: Logger) {}
+
+	/**
 	 * Start listening.
 	 *
 	 * Returns a detach function; calling `attach` twice is a no-op rather
@@ -145,7 +151,7 @@ export class CompletionInbox {
 			const oldest = this.unowned.keys().next()
 			if (!oldest.done) {
 				this.unowned.delete(oldest.value)
-				getRootLogger()
+				resolveLogger(this.log)
 					.child({ component: 'CompletionInbox' })
 					.warn(
 						"Unclaimed completion buffer is full — dropped the oldest. If that task was this run's, its result is now unreachable; raise UNOWNED_BUFFER_LIMIT or launch fewer tasks per turn.",

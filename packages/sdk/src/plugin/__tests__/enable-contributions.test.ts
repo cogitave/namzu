@@ -34,9 +34,19 @@ vi.mock('../../connector/mcp/adapter.js', () => ({
 	})),
 }))
 
+/**
+ * Recursive, because a real `Logger.child()` returns a `Logger` — which has a
+ * `child` of its own, to any depth.
+ *
+ * This stub used to stop at the grandchild: its `child` was a bare `vi.fn()`
+ * returning `undefined`, so the third `.child()` call handed back nothing and
+ * the next `.debug()` threw. That was invisible while production bound at most
+ * two levels, and became four broken tests the moment it bound three. A
+ * fixture unlike production tests a system that does not ship.
+ */
 function makeLogger(): Logger {
 	const s = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() }
-	return { ...s, child: vi.fn(() => ({ ...s, child: vi.fn() })) } as unknown as Logger
+	return { ...s, child: vi.fn(() => makeLogger()) } as unknown as Logger
 }
 
 function makePluginRegistry(base: Partial<PluginDefinition>): {
