@@ -38,8 +38,23 @@ export type SandboxId = `sbx_${string}`
 /** LOG-14: the audit trail's own record id — distinct from `RunEvent.seq`. */
 export type AuditEventId = `aud_${string}`
 
-// Actor identifiers (Session Hierarchy §4.3). Branded so actor refs cannot be
-// constructed from bare strings.
+// Actor identifiers (Session Hierarchy §4.3).
+//
+// This said "branded so actor refs cannot be constructed from bare strings",
+// and the compiler does not enforce that. Every id here is a bare
+// template-literal type, and TypeScript makes any matching string literal
+// assignable to one with no cast and no factory call — so
+// `const a: AgentId = 'agt_made-up'` compiles and is indistinguishable from
+// an id `generateAgentId()` minted. The sentence was a claim a test could
+// falsify, sitting in the source as documentation.
+//
+// What IS enforced today: the `as*Id` constructors in `utils/id.ts` check
+// the prefix at runtime and throw `InvalidIdError` otherwise. That is a
+// check a caller has to opt into, not a property of the type.
+//
+// The machinery to make the types nominal is in `./brand.ts`, unapplied —
+// flipping it turns every existing bare literal into an error at once, which
+// is a `major` with a migration in front of it.
 export type UserId = `usr_${string}`
 export type AgentId = `agt_${string}`
 

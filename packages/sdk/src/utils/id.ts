@@ -3,6 +3,7 @@ import type {
 	ActivityId,
 	AdvisoryCallId,
 	AdvisoryId,
+	AgentId,
 	AuditEventId,
 	CheckpointId,
 	ChunkId,
@@ -16,10 +17,13 @@ import type {
 	ExecutionContextId,
 	HandoffId,
 	KnowledgeBaseId,
+	KnowledgeBaseRef,
+	LockId,
 	MCPClientId,
 	MCPServerId,
 	MCPSessionId,
 	MemoryId,
+	MemoryStoreRef,
 	MessageId,
 	PlanId,
 	PluginId,
@@ -33,6 +37,8 @@ import type {
 	TenantId,
 	ToolCallId,
 	TopicId,
+	UserId,
+	VaultRef,
 	WorkspaceId,
 } from '../types/ids/index.js'
 
@@ -223,3 +229,98 @@ export function parsePluginId(raw: string): PluginId {
 export function parseSandboxId(raw: string): SandboxId {
 	return parseId<SandboxId>(raw, 'sbx_', 'SandboxId')
 }
+
+// ─── validating constructors ─────────────────────────────────────────────
+//
+// There is no runtime prefix check anywhere in this tree. The 700-odd
+// `as RunId` casts in it assert without verifying, so a `ses_` value cast to
+// `RunId` reaches a store key unremarked and the first sign of it is a
+// lookup that finds nothing.
+//
+// These are the check. One per id type rather than a single generic
+// `asId(prefix, value)`, and the repetition is the point: a generic loses
+// the return type, so the call site stops type-checking and the whole
+// exercise buys nothing. The implementations are one function.
+
+/** A string that does not carry the prefix the id type requires. */
+export class InvalidIdError extends Error {
+	constructor(
+		readonly value: string,
+		readonly expectedPrefix: string,
+	) {
+		super(
+			`Not a valid id: ${JSON.stringify(value)} does not start with ${JSON.stringify(expectedPrefix)}. Ids are minted by the matching generate*Id() factory; a literal from a log or a URL has to be checked before it is used as one.`,
+		)
+		this.name = 'InvalidIdError'
+	}
+}
+
+/**
+ * Builds one prefix check.
+ *
+ * Throws rather than returning `undefined`, per `refuse-do-not-degrade`: a
+ * caller holding a malformed id has no correct fallback available, and the
+ * value is on its way to becoming a store key. Returning the input
+ * unchanged on the happy path is also load-bearing — a constructor that
+ * allocated a copy would silently break `===` on ids used as map keys.
+ *
+ * The trailing underscore in every prefix is what makes them unambiguous:
+ * `mcpc_x` does not start with `mcp_`, and `advc_x` does not start with
+ * `adv_`, so no id type can swallow another's values.
+ */
+function makeIdParser<T extends string>(prefix: string): (value: string) => T {
+	return (value: string): T => {
+		if (!value.startsWith(prefix)) throw new InvalidIdError(value, prefix)
+		return value as T
+	}
+}
+
+export const asRunId = makeIdParser<RunId>('run_')
+export const asMessageId = makeIdParser<MessageId>('msg_')
+export const asSessionId = makeIdParser<SessionId>('ses_')
+export const asToolCallId = makeIdParser<ToolCallId>('call_')
+export const asActivityId = makeIdParser<ActivityId>('act_')
+export const asTaskId = makeIdParser<TaskId>('task_')
+export const asPlanId = makeIdParser<PlanId>('plan_')
+export const asKnowledgeBaseId = makeIdParser<KnowledgeBaseId>('kb_')
+export const asDocumentId = makeIdParser<DocumentId>('doc_')
+export const asChunkId = makeIdParser<ChunkId>('chk_')
+export const asConnectorId = makeIdParser<ConnectorId>('conn_')
+export const asConnectorInstanceId = makeIdParser<ConnectorInstanceId>('ci_')
+export const asTenantId = makeIdParser<TenantId>('tnt_')
+export const asCredentialId = makeIdParser<CredentialId>('cred_')
+export const asExecutionContextId = makeIdParser<ExecutionContextId>('ectx_')
+export const asMCPServerId = makeIdParser<MCPServerId>('mcp_')
+export const asMCPClientId = makeIdParser<MCPClientId>('mcpc_')
+export const asMCPSessionId = makeIdParser<MCPSessionId>('mcps_')
+export const asEnvironmentId = makeIdParser<EnvironmentId>('env_')
+export const asCheckpointId = makeIdParser<CheckpointId>('cp_')
+export const asLockId = makeIdParser<LockId>('lock_')
+export const asAdvisoryId = makeIdParser<AdvisoryId>('adv_')
+export const asAdvisoryCallId = makeIdParser<AdvisoryCallId>('advc_')
+export const asEmergencySaveId = makeIdParser<EmergencySaveId>('esave_')
+export const asMemoryId = makeIdParser<MemoryId>('mem_')
+export const asPluginId = makeIdParser<PluginId>('plg_')
+export const asSandboxId = makeIdParser<SandboxId>('sbx_')
+export const asAuditEventId = makeIdParser<AuditEventId>('aud_')
+export const asUserId = makeIdParser<UserId>('usr_')
+export const asAgentId = makeIdParser<AgentId>('agt_')
+export const asMemoryStoreRef = makeIdParser<MemoryStoreRef>('mms_')
+export const asVaultRef = makeIdParser<VaultRef>('vlt_')
+export const asKnowledgeBaseRef = makeIdParser<KnowledgeBaseRef>('kbs_')
+export const asProjectId = makeIdParser<ProjectId>('prj_')
+export const asTopicId = makeIdParser<TopicId>('top_')
+export const asSubSessionId = makeIdParser<SubSessionId>('sub_')
+export const asHandoffId = makeIdParser<HandoffId>('hof_')
+export const asWorkspaceId = makeIdParser<WorkspaceId>('wsp_')
+export const asSummaryId = makeIdParser<SummaryId>('sum_')
+export const asDeliverableId = makeIdParser<DeliverableId>('del_')
+
+// No `asThreadId`, deliberately. `ThreadId` is an alias of `TopicId` from
+// the Topic rename, so `asTopicId` already accepts every value one can hold
+// — and a parser shipped `@deprecated` on the day it is written is a name
+// that exists only to be removed. `declared-but-undriven`.
+
+// `ToolUseId` is a bare `string` — it comes from a provider, which chooses
+// its own shape, so there is no prefix to check and a constructor here would
+// be a check that cannot fail.
