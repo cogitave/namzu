@@ -158,6 +158,39 @@ export type PrepareStep = (
 ) => PrepareStepResult | undefined | Promise<PrepareStepResult | undefined>
 
 /**
+ * A refusal of the next model call, with the reason it happened.
+ *
+ * An object rather than a boolean, for two reasons that are both about the
+ * reader. A bare boolean does not say which polarity means stop — `true`
+ * is equally readable as "allowed" and as "veto" — and it carries nothing
+ * into the run record, so an operator finds a run that stopped and no
+ * account of why.
+ */
+export interface StepVeto {
+	readonly reason: string
+}
+
+/**
+ * Called before each model call, and able to refuse it.
+ *
+ * `prepareStep` can only RESHAPE a step — `activeTools`, `model`,
+ * `system`, `temperature` — and cannot reject one. `StopCondition` reads
+ * `steps`, so it fires after the step it disliked has already run and been
+ * paid for. Neither is what a host with a live rate limit, a revoked
+ * tenant or a spend ceiling needs, and the only remaining path was a
+ * durable checkpoint built for human review of tool calls.
+ *
+ * A throw fails CLOSED, deliberately opposite to `prepareStep` above.
+ * They are different kinds of hook: a broken step-SHAPER should not kill
+ * an otherwise healthy run, because nothing unsafe gets through when it is
+ * skipped. A broken step-REFUSER skipped is a refusal that did not happen,
+ * which is the thing it exists to prevent.
+ */
+export type BeforeStep = (
+	context: PrepareStepContext,
+) => StepVeto | undefined | Promise<StepVeto | undefined>
+
+/**
  * One shaping stage, or several applied in order.
  *
  * A single slot is enough for one concern and no help with two. A host

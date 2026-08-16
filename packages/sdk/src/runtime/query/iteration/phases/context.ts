@@ -20,6 +20,7 @@ import type { TaskRouterConfig } from '../../../../types/router/index.js'
 import type { ReviewAnswer } from '../../../../types/run/answer-review.js'
 import type {
 	AgentRunConfig,
+	BeforeStep,
 	PrepareStepChain,
 	RunEvent,
 	StepResult,
@@ -161,6 +162,7 @@ export interface IterationContext {
 
 	/** Host hook that shapes each step before the model call. */
 	readonly prepareStep?: PrepareStepChain
+	readonly beforeStep?: BeforeStep
 }
 
 export type PhaseSignal = 'continue' | 'stop'

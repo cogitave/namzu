@@ -67,6 +67,7 @@ import type { RunEventCursor, RunEventReplay } from '../../types/run/event-curso
 import { resolveRunEventReplay } from '../../types/run/event-cursor.js'
 import type {
 	AgentRunConfig,
+	BeforeStep,
 	PrepareStepChain,
 	Run,
 	RunEvent,
@@ -331,6 +332,11 @@ export interface QueryParams {
 	 * Fails open — a throw leaves the step with the run's configuration.
 	 */
 	prepareStep?: PrepareStepChain
+	/**
+	 * Refuse the next model call before it is made. See {@link BeforeStep}.
+	 * A throw fails CLOSED, opposite to `prepareStep` beside it.
+	 */
+	beforeStep?: BeforeStep
 
 	/**
 	 * Force the run to finish by calling a schema-validated tool, and land
@@ -1140,6 +1146,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		runConfig: params.runConfig,
 		...(params.stopWhen ? { stopWhen: params.stopWhen } : {}),
 		...(params.prepareStep ? { prepareStep: params.prepareStep } : {}),
+		...(params.beforeStep ? { beforeStep: params.beforeStep } : {}),
 		...(params.onStepFinish ? { onStepFinish: params.onStepFinish } : {}),
 		...(params.reviewAnswer ? { reviewAnswer: params.reviewAnswer } : {}),
 		...(params.maxAnswerReviews !== undefined ? { maxAnswerReviews: params.maxAnswerReviews } : {}),

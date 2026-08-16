@@ -112,6 +112,23 @@ describe('ReactiveAgent forwards the loop-control seams', () => {
 		expect(provider.requests[0]?.model).toBe('swapped-model')
 	})
 
+	it('reaches beforeStep, and a refusal costs no provider call', async () => {
+		// The reachability half. `beforeStep` is consulted deep in the
+		// iteration loop, and a config field that never arrives there is a
+		// hook a host configures and nothing honours — which reads exactly
+		// like a hook that decided not to fire.
+		const provider = new MockLLMProvider({ turns: [{ text: 'never' }] })
+		const { workingDirectory, config } = await baseConfig(provider, new ToolRegistry())
+
+		const result = await agent().run(
+			{ messages: [createUserMessage('go')], workingDirectory },
+			{ ...config, beforeStep: () => ({ reason: 'tenant suspended' }) },
+		)
+
+		expect(provider.requests).toHaveLength(0)
+		expect(result.stopReason).toBe('step_refused')
+	})
+
 	it('reaches an input guardrail, so a refusal costs nothing', async () => {
 		const provider = new MockLLMProvider({ turns: [{ text: 'never' }] })
 		const { workingDirectory, config } = await baseConfig(provider, new ToolRegistry())

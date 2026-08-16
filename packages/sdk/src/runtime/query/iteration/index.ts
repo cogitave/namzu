@@ -35,6 +35,7 @@ import type {
 	StepFailure,
 	StepProvenance,
 	StepResult,
+	StepVeto,
 	StopReason,
 } from '../../../types/run/index.js'
 import type { Skill } from '../../../types/skills/index.js'
@@ -228,6 +229,23 @@ export class IterationOrchestrator {
 					await this.requestFinalResponse(model, stopReason)
 					yield* this.ctx.drainPending()
 					runMgr.setStopReason(stopReason)
+					break
+				}
+
+				// Consulted here, after the guard and BEFORE the iteration is
+				// counted or the provider is called. `stopWhen` reads `steps`
+				// and so can only speak after the step it disliked has already
+				// run and been paid for; this is the seam a host with a live
+				// rate limit or a revoked tenant actually needs.
+				const veto = await this.beforeStep(runMgr.currentIteration + 1)
+				if (veto) {
+					this.ctx.log.info('Step refused by beforeStep', {
+						runId: runMgr.id,
+						iteration: runMgr.currentIteration + 1,
+						reason: veto.reason,
+					})
+					runMgr.setLastError(`beforeStep refused the next step: ${veto.reason}`)
+					runMgr.setStopReason('step_refused')
 					break
 				}
 
@@ -1309,6 +1327,35 @@ export class IterationOrchestrator {
 	 * otherwise healthy run, and unlike a safety check, nothing unsafe gets
 	 * through when it is skipped.
 	 */
+	/**
+	 * A host's chance to refuse the next model call.
+	 *
+	 * Fails CLOSED, which is the opposite of `prepareStep` below and the
+	 * reason they are separate hooks rather than one with two return
+	 * shapes. A broken step-SHAPER skipped costs a run its per-step tuning;
+	 * a broken step-REFUSER skipped is a refusal that did not happen, which
+	 * is precisely what the hook exists to prevent. The thrown error's
+	 * message becomes the reason, so an operator is not left with a run
+	 * that stopped and no account of it.
+	 */
+	private async beforeStep(stepNumber: number): Promise<StepVeto | undefined> {
+		const configured = this.ctx.beforeStep
+		if (!configured) return undefined
+		try {
+			return (
+				(await configured({
+					runId: this.ctx.runMgr.id,
+					stepNumber,
+					messages: this.ctx.runMgr.messages,
+					steps: this.steps,
+					prepared: {},
+				})) ?? undefined
+			)
+		} catch (err) {
+			return { reason: `beforeStep threw: ${toErrorMessage(err)}` }
+		}
+	}
+
 	private async prepareStep(stepNumber: number): Promise<{
 		allowedTools?: string[]
 		toolChoice?: ToolChoice

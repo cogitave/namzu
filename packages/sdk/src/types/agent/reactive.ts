@@ -6,7 +6,7 @@ import type { ResumeHandler } from '../hitl/index.js'
 import type { AgentPersona } from '../persona/index.js'
 import type { LLMProvider } from '../provider/index.js'
 import type { CheckpointStore } from '../run/checkpoint-store.js'
-import type { PrepareStepChain, StepResult, StopCondition } from '../run/index.js'
+import type { BeforeStep, PrepareStepChain, StepResult, StopCondition } from '../run/index.js'
 import type { SandboxProvider } from '../sandbox/index.js'
 import type { Skill } from '../skills/index.js'
 import type { StructuredOutputConfig } from '../structured-output/index.js'
@@ -100,6 +100,12 @@ export interface ReactiveAgentConfig extends BaseAgentConfig {
 	stopWhen?: StopCondition
 	onStepFinish?: (step: StepResult) => void
 	prepareStep?: PrepareStepChain
+	/**
+	 * Refuse the next model call before it is made. See {@link BeforeStep}.
+	 * A throw fails CLOSED, opposite to `prepareStep` beside it.
+	 */
+	beforeStep?: BeforeStep
+
 	structuredOutput?: StructuredOutputConfig
 	inputGuardrails?: readonly InputGuardrailSpec[]
 	outputGuardrails?: readonly OutputGuardrailSpec[]

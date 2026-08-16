@@ -38,6 +38,15 @@ export type StopReason =
 	| 'plan_rejected'
 	/** A caller-supplied `stopWhen` predicate returned true. */
 	| 'stop_condition'
+	/**
+	 * A host's `beforeStep` refused the next model call.
+	 *
+	 * Distinct from `stop_condition`, which reads `steps` and therefore
+	 * only fires AFTER the step it disliked ran and was paid for. This one
+	 * fires before the provider is called at all — the case a host with a
+	 * live rate limit, a revoked tenant or a spend ceiling actually has.
+	 */
+	| 'step_refused'
 	/** The model never produced a valid structured output within its retries. */
 	| 'structured_output_failed'
 	/**

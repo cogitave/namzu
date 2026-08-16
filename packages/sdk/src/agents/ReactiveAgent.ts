@@ -104,6 +104,7 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 				...(config.stopWhen ? { stopWhen: config.stopWhen } : {}),
 				...(config.onStepFinish ? { onStepFinish: config.onStepFinish } : {}),
 				...(config.prepareStep ? { prepareStep: config.prepareStep } : {}),
+				...(config.beforeStep ? { beforeStep: config.beforeStep } : {}),
 				...(config.structuredOutput ? { structuredOutput: config.structuredOutput } : {}),
 				...(config.inputGuardrails ? { inputGuardrails: config.inputGuardrails } : {}),
 				...(config.outputGuardrails ? { outputGuardrails: config.outputGuardrails } : {}),
