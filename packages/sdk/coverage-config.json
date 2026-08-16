@@ -21,6 +21,7 @@
 			"prompt",
 			"provider",
 			"read-model",
+			"run-query",
 			"rag",
 			"registry",
 			"runtime",

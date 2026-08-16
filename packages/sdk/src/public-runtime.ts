@@ -1050,3 +1050,9 @@ export {
 	UnknownReadModelError,
 	createRunStatusReadModel,
 } from './read-model/index.js'
+
+// Asking a finished run what happened, including what compaction removed.
+// `compaction_shed` has carried the removed messages since NZ-RUNREC-06 and
+// nothing read them back; evidence nobody can retrieve is evidence nobody
+// kept.
+export { RunQuery } from './run-query/index.js'
