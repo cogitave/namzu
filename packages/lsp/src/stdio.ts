@@ -1,7 +1,14 @@
 import { type ChildProcess, spawn } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
 
-import type { CodeNavigationProvider, CodeNavigationResult, SourceLocation } from './types.js'
+import type {
+	CodeNavigationProvider,
+	CodeNavigationResult,
+	HoverResult,
+	SourceLocation,
+	SymbolLocation,
+	SymbolSearchResult,
+} from './types.js'
 
 /**
  * One language server, over its stdin and stdout.
@@ -77,6 +84,16 @@ export class StdioCodeNavigationProvider implements CodeNavigationProvider {
 	private seq = 0
 	private readonly pending = new Map<number, Pending>()
 	private starting: Promise<void> | undefined
+	/**
+	 * What the server said it can do, read from the initialize RESULT.
+	 *
+	 * Read rather than probed. Sending `workspace/symbol` to a server that
+	 * does not implement it and swallowing the error works until a server
+	 * answers a different error for a different reason — a transient one, a
+	 * malformed query — and the fallback then fires for a capability the
+	 * server has. The handshake already carries the answer.
+	 */
+	private capabilities: Record<string, unknown> = {}
 	private startupError: string | undefined
 	private disposed = false
 
@@ -93,6 +110,73 @@ export class StdioCodeNavigationProvider implements CodeNavigationProvider {
 			// count by one and reads as a caller that does not exist.
 			context: { includeDeclaration: false },
 		})
+	}
+
+	async hover(file: string, line: number, character: number): Promise<HoverResult> {
+		try {
+			await this.start()
+		} catch (err) {
+			return { kind: 'failed', error: err instanceof Error ? err.message : String(err) }
+		}
+		if (this.capabilities.hoverProvider === false) {
+			return { kind: 'unsupported', reason: `${this.options.command} declares no hoverProvider.` }
+		}
+		try {
+			const result = await this.request('textDocument/hover', {
+				textDocument: { uri: pathToFileURL(file).href },
+				position: { line, character },
+			})
+			// EMPTY, not failed. Hovering over whitespace or a comment resolves
+			// to nothing, and a caller has to be able to tell that from a server
+			// that broke — the same distinction `locations: []` carries.
+			return { kind: 'hover', contents: hoverText(result) }
+		} catch (err) {
+			return toFailure(err, `${this.options.command}`, 'textDocument/hover')
+		}
+	}
+
+	async symbols(query: string, _scope?: string): Promise<SymbolSearchResult> {
+		try {
+			await this.start()
+		} catch (err) {
+			return { kind: 'failed', error: err instanceof Error ? err.message : String(err) }
+		}
+
+		// The DECLARED capability decides which request goes out. A server
+		// with a workspace index answers the whole repository; one with only
+		// document symbols answers the file it is given; one with neither is
+		// told so rather than asked and silently mishandled.
+		if (this.capabilities.workspaceSymbolProvider) {
+			try {
+				const result = await this.request('workspace/symbol', { query })
+				return { kind: 'symbols', symbols: toSymbols(result) }
+			} catch (err) {
+				return toFailure(err, this.options.command, 'workspace/symbol')
+			}
+		}
+		if (this.capabilities.documentSymbolProvider) {
+			if (!_scope) {
+				return {
+					kind: 'unsupported',
+					reason: `${this.options.command} has no workspace symbol index, so a symbol search needs a file to look in. Pass a scope.`,
+				}
+			}
+			try {
+				const result = await this.request('textDocument/documentSymbol', {
+					textDocument: { uri: pathToFileURL(_scope).href },
+				})
+				return {
+					kind: 'symbols',
+					symbols: toSymbols(result, _scope).filter((s) => s.name.includes(query)),
+				}
+			} catch (err) {
+				return toFailure(err, this.options.command, 'textDocument/documentSymbol')
+			}
+		}
+		return {
+			kind: 'unsupported',
+			reason: `${this.options.command} declares neither workspaceSymbolProvider nor documentSymbolProvider, so it cannot find a symbol by name.`,
+		}
 	}
 
 	private async navigate(
@@ -203,7 +287,7 @@ export class StdioCodeNavigationProvider implements CodeNavigationProvider {
 				timer.unref?.()
 			})
 
-			await Promise.race([
+			const initialized = await Promise.race([
 				this.request('initialize', {
 					processId: process.pid,
 					rootUri: pathToFileURL(this.options.rootDir).href,
@@ -213,6 +297,11 @@ export class StdioCodeNavigationProvider implements CodeNavigationProvider {
 				spawnFailure,
 				timeout,
 			])
+			// Stored from the initialize RESULT, which is the only place a
+			// server states what it can do. Everything downstream reads this
+			// instead of sending a request and interpreting the error.
+			this.capabilities =
+				(initialized as { capabilities?: Record<string, unknown> } | undefined)?.capabilities ?? {}
 			this.notify('initialized', {})
 		})().catch((err: unknown) => {
 			// Remembered, so a run that asks twenty times does not spawn twenty
@@ -349,4 +438,97 @@ function isLocation(value: unknown): value is LspLocation {
 	if (typeof value !== 'object' || value === null) return false
 	const candidate = value as { uri?: unknown; range?: { start?: unknown } }
 	return typeof candidate.uri === 'string' && typeof candidate.range?.start === 'object'
+}
+
+/**
+ * A thrown error as the right member of a result union.
+ *
+ * The two `unsupported`/`failed` arms are identical across all three result
+ * types, so this returns that shared shape and each caller widens it. A
+ * generic that claimed to produce `T` would be asserting into a union it
+ * cannot construct.
+ */
+function toFailure(
+	err: unknown,
+	command: string,
+	method: string,
+): { kind: 'unsupported'; reason: string } | { kind: 'failed'; error: string } {
+	const message = err instanceof Error ? err.message : String(err)
+	// A method the server does not implement is `unsupported`, not `failed`:
+	// a caller can fall back and say why the answer is approximate, where a
+	// failure means the answer is unknown.
+	if (/method not found|-32601/i.test(message)) {
+		return { kind: 'unsupported', reason: `${command} does not implement ${method}.` }
+	}
+	return { kind: 'failed', error: message }
+}
+
+/**
+ * The wire's several hover shapes, as one string.
+ *
+ * `contents` has been a string, a `{ language, value }` pair, an array of
+ * either, and a `{ kind, value }` markup object across revisions of the
+ * protocol, and servers in the field still send all of them. A reader that
+ * handled only the newest returns empty for a server that answered — which
+ * is indistinguishable, at the call site, from a symbol with no type.
+ */
+function hoverText(result: unknown): string {
+	if (result === null || result === undefined) return ''
+	const contents = (result as { contents?: unknown }).contents
+	return flattenHover(contents).join('\n').trim()
+}
+
+function flattenHover(value: unknown): string[] {
+	if (value === null || value === undefined) return []
+	if (typeof value === 'string') return [value]
+	if (Array.isArray(value)) return value.flatMap(flattenHover)
+	if (typeof value === 'object') {
+		const record = value as { value?: unknown; language?: unknown }
+		if (typeof record.value === 'string') return [record.value]
+	}
+	return []
+}
+
+/** `workspace/symbol` and `textDocument/documentSymbol` answer differently. */
+function toSymbols(result: unknown, fallbackPath?: string): SymbolLocation[] {
+	if (!Array.isArray(result)) return []
+	const out: SymbolLocation[] = []
+	for (const entry of result) {
+		if (typeof entry !== 'object' || entry === null) continue
+		const item = entry as {
+			name?: unknown
+			kind?: unknown
+			containerName?: unknown
+			location?: LspLocation
+			range?: LspLocation['range']
+			selectionRange?: LspLocation['range']
+			children?: unknown
+		}
+		if (typeof item.name !== 'string') continue
+
+		// `workspace/symbol` carries a `location`; `documentSymbol` carries a
+		// `range` and leaves the file implied by the request. Both are handled
+		// because the fallback path produces the second shape.
+		const location = item.location
+			? toSourceLocation(item.location)
+			: item.selectionRange || item.range
+				? toSourceLocation({
+						uri: fallbackPath ? pathToFileURL(fallbackPath).href : '',
+						range: (item.selectionRange ?? item.range) as LspLocation['range'],
+					})
+				: undefined
+		if (location) {
+			out.push({
+				...location,
+				name: item.name,
+				...(typeof item.kind === 'number' ? { symbolKind: item.kind } : {}),
+				...(typeof item.containerName === 'string' ? { containerName: item.containerName } : {}),
+			})
+		}
+		// `documentSymbol` is a TREE. A reader that took only the top level
+		// would miss every method, which is most of what somebody searching by
+		// name is looking for.
+		if (Array.isArray(item.children)) out.push(...toSymbols(item.children, fallbackPath))
+	}
+	return out
 }

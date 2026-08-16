@@ -28,7 +28,10 @@ export * from './constants/index.js'
 export type {
 	CodeNavigationProvider,
 	CodeNavigationResult,
+	HoverResult,
 	SourceLocation,
+	SymbolLocation,
+	SymbolSearchResult,
 } from './types/code-navigation/index.js'
 
 // ─── wire schemas + a2a (contracts/) ─────────────────────────────────────

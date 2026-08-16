@@ -23,16 +23,42 @@ import { resolveWithinReal } from '../paths.js'
  * because the two look alike from the outside.
  */
 
-const inputSchema = z.object({
+/**
+ * Position is required for `definition`/`hover`/`references` and MUST NOT be
+ * for `symbols`.
+ *
+ * A union rather than four optional fields with a comment. `symbols` exists
+ * precisely because an agent starting from a name has no line and no
+ * character — forcing it to supply them means inventing two numbers, and a
+ * model that invents them gets an answer about whatever happens to sit at
+ * 0:0. Making position unconditionally optional has the mirror failure: a
+ * `definition` call with no position silently resolves the top of the file.
+ */
+const positioned = z.object({
 	operation: z
-		.enum(['definition', 'references'])
+		.enum(['definition', 'references', 'hover'])
 		.describe(
-			'`definition` finds where the symbol under the position is declared. `references` finds everywhere it is used, which is what a rename or a deletion needs.',
+			'`definition` finds where the symbol under the position is declared, `references` finds everywhere it is used, `hover` gives its type and documentation.',
 		),
 	path: z.string().describe('File containing the symbol, relative to the working directory.'),
 	line: z.number().int().min(0).describe('Zero-based line of the symbol.'),
 	character: z.number().int().min(0).describe('Zero-based column of the symbol.'),
 })
+
+const byName = z.object({
+	operation: z
+		.literal('symbols')
+		.describe(
+			'Find a declaration by NAME, with no position. Start here: the other operations need a line and character, and this is how you get them.',
+		),
+	query: z.string().min(1).describe('The symbol name, or part of it.'),
+	path: z
+		.string()
+		.optional()
+		.describe('Optional file to scope the search to. Absent searches every configured language.'),
+})
+
+const inputSchema = z.discriminatedUnion('operation', [positioned, byName])
 
 type LspInput = z.infer<typeof inputSchema>
 
@@ -68,21 +94,70 @@ export const LspTool = defineTool({
 		// containment `read` and `grep` use. A language server indexes a
 		// workspace and will happily answer about `../../etc/passwd` if asked;
 		// the boundary is this tool's job, not the server's.
-		let absolute: string
-		try {
-			absolute = await resolveWithinReal(context.workingDirectory, input.path)
-		} catch (err) {
-			return {
-				success: false,
-				output: '',
-				error: err instanceof Error ? err.message : String(err),
+		let absolute: string | undefined
+		if (input.path !== undefined) {
+			try {
+				absolute = await resolveWithinReal(context.workingDirectory, input.path)
+			} catch (err) {
+				return {
+					success: false,
+					output: '',
+					error: err instanceof Error ? err.message : String(err),
+				}
+			}
+		}
+
+		if (input.operation === 'symbols') {
+			const result = await provider.symbols(input.query, absolute)
+			switch (result.kind) {
+				case 'symbols': {
+					if (result.symbols.length === 0) {
+						return {
+							success: true,
+							output: `No symbol matching "${input.query}" was found.`,
+							data: { operation: 'symbols', count: 0, symbols: [] },
+						}
+					}
+					return {
+						success: true,
+						output: result.symbols
+							.map((s) => `${s.name} — ${s.path}:${s.line}:${s.character}`)
+							.join('\n'),
+						data: { operation: 'symbols', count: result.symbols.length, symbols: result.symbols },
+					}
+				}
+				case 'unsupported':
+					return { success: false, output: '', error: unsupportedMessage(result.reason) }
+				case 'failed':
+					return { success: false, output: '', error: failedMessage(result.error) }
+			}
+		}
+
+		if (input.operation === 'hover') {
+			const result = await provider.hover(absolute as string, input.line, input.character)
+			switch (result.kind) {
+				case 'hover':
+					return {
+						success: true,
+						// An EMPTY hover is a real answer — whitespace, a comment, a
+						// token with no type — and it has to read differently from a
+						// server that broke.
+						output:
+							result.contents ||
+							`Nothing to show at ${input.path}:${input.line}:${input.character}.`,
+						data: { operation: 'hover', contents: result.contents },
+					}
+				case 'unsupported':
+					return { success: false, output: '', error: unsupportedMessage(result.reason) }
+				case 'failed':
+					return { success: false, output: '', error: failedMessage(result.error) }
 			}
 		}
 
 		const result =
 			input.operation === 'definition'
-				? await provider.definition(absolute, input.line, input.character)
-				: await provider.references(absolute, input.line, input.character)
+				? await provider.definition(absolute as string, input.line, input.character)
+				: await provider.references(absolute as string, input.line, input.character)
 
 		switch (result.kind) {
 			case 'locations': {
@@ -108,24 +183,22 @@ export const LspTool = defineTool({
 				}
 			}
 			case 'unsupported':
-				// Distinct from a failure on purpose: the model can fall back to
-				// `grep` and know why the answer is approximate.
-				return {
-					success: false,
-					output: '',
-					error: `${result.reason} Fall back to \`grep\`, and treat the result as textual rather than resolved.`,
-				}
+				return { success: false, output: '', error: unsupportedMessage(result.reason) }
 			case 'failed':
-				// NOT an empty result. An agent told a symbol has no callers
-				// deletes it; an agent told the resolver broke does something else.
-				return {
-					success: false,
-					output: '',
-					error: `Code navigation failed, so this answer is unknown rather than empty: ${result.error}`,
-				}
+				return { success: false, output: '', error: failedMessage(result.error) }
 		}
 	},
 })
+
+/** Distinct from a failure on purpose: the model can fall back and know why. */
+function unsupportedMessage(reason: string): string {
+	return `${reason} Fall back to \`grep\`, and treat the result as textual rather than resolved.`
+}
+
+/** NOT an empty result. An agent told a symbol has no callers deletes it. */
+function failedMessage(error: string): string {
+	return `Code navigation failed, so this answer is unknown rather than empty: ${error}`
+}
 
 /**
  * The tool, only when there is something for it to call.

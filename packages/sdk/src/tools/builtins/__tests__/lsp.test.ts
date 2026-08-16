@@ -39,8 +39,29 @@ function recording(answer: CodeNavigationResult): Recorded {
 				calls.push({ op: 'references', file, line, character })
 				return answer
 			},
+			hover: async (file, line, character) => {
+				calls.push({ op: 'hover', file, line, character })
+				return { kind: 'hover', contents: 'const x: number' }
+			},
+			symbols: async (query, scope) => {
+				calls.push({ op: 'symbols', file: scope ?? '', line: -1, character: -1 })
+				void query
+				return { kind: 'symbols', symbols: [] }
+			},
 			dispose: async () => {},
 		},
+	}
+}
+
+/** A provider typed as one, so a context built from it is assignable. */
+function providerWith(over: Partial<CodeNavigationProvider>): CodeNavigationProvider {
+	return {
+		definition: async () => ({ kind: 'locations', locations: [] }),
+		references: async () => ({ kind: 'locations', locations: [] }),
+		hover: async () => ({ kind: 'hover', contents: '' }),
+		symbols: async () => ({ kind: 'symbols', symbols: [] }),
+		dispose: async () => {},
+		...over,
 	}
 }
 
@@ -163,5 +184,86 @@ describe('the three answers', () => {
 		)
 		expect(result.success).toBe(false)
 		expect(result.error).toContain('no code navigation provider')
+	})
+})
+
+describe('the input schema', () => {
+	/**
+	 * Position is required where it means something and forbidden where it
+	 * does not, which is the whole reason this is a discriminated union
+	 * rather than four optional fields.
+	 */
+	const parse = (input: unknown) => LspTool.inputSchema.safeParse(input)
+
+	it('REJECTS a definition with no position', () => {
+		// Making position unconditionally optional kills this: a `definition`
+		// call with no line silently resolves whatever sits at the top of the
+		// file, and the model gets a confident answer about the wrong symbol.
+		expect(parse({ operation: 'definition', path: 'a.ts' }).success).toBe(false)
+		expect(parse({ operation: 'hover', path: 'a.ts', line: 1 }).success).toBe(false)
+		expect(parse({ operation: 'references', path: 'a.ts', character: 1 }).success).toBe(false)
+	})
+
+	it('ACCEPTS a symbols query with no position', () => {
+		// Making it unconditionally required kills this — and `symbols` exists
+		// precisely because an agent starting from a name has no position.
+		// Forcing one means inventing two numbers.
+		expect(parse({ operation: 'symbols', query: 'computeTotal' }).success).toBe(true)
+		expect(parse({ operation: 'symbols', query: 'computeTotal', path: 'a.ts' }).success).toBe(true)
+	})
+
+	it('accepts a positioned operation that has one', () => {
+		expect(parse({ operation: 'definition', path: 'a.ts', line: 0, character: 0 }).success).toBe(
+			true,
+		)
+	})
+
+	it('rejects a symbols call with an empty query', () => {
+		// An empty query matches everything on a fuzzy index, which is a
+		// thousand results and no information.
+		expect(parse({ operation: 'symbols', query: '' }).success).toBe(false)
+	})
+})
+
+describe('hover and symbols through the tool', () => {
+	let dir: string
+	beforeEach(() => {
+		dir = mkdtempSync(join(tmpdir(), 'namzu-lsp-'))
+		writeFileSync(join(dir, 'a.ts'), 'export const x = 1\n')
+	})
+	afterEach(() => rmSync(dir, { recursive: true, force: true }))
+
+	it('reports an EMPTY hover as an answer, not a failure', async () => {
+		const result = await LspTool.execute(
+			{ operation: 'hover', path: 'a.ts', line: 0, character: 0 },
+			{ workingDirectory: dir, codeNavigation: providerWith({}) } as ToolContext,
+		)
+
+		// Whitespace and comments resolve to nothing. That is a real answer and
+		// it must read differently from a server that broke.
+		expect(result.success).toBe(true)
+		expect(result.output).toContain('Nothing to show')
+	})
+
+	it('searches by name with no path at all', async () => {
+		const seen: (string | undefined)[] = []
+		const result = await LspTool.execute({ operation: 'symbols', query: 'computeTotal' }, {
+			workingDirectory: dir,
+			codeNavigation: providerWith({
+				symbols: async (_q, scope) => {
+					seen.push(scope)
+					return {
+						kind: 'symbols',
+						symbols: [{ path: '/w/a.ts', line: 4, character: 2, name: 'computeTotal' }],
+					}
+				},
+			}),
+		} as ToolContext)
+
+		expect(result.success).toBe(true)
+		expect(result.output).toContain('computeTotal — /w/a.ts:4:2')
+		// No path given, so no scope invented. A path resolved from nothing
+		// would silently narrow the search to one file.
+		expect(seen).toEqual([undefined])
 	})
 })

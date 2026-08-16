@@ -110,9 +110,42 @@ function handle(message) {
 	switch (method) {
 		case 'initialize':
 			return {
-				capabilities: { definitionProvider: true, referencesProvider: true },
+				capabilities: {
+					definitionProvider: true,
+					referencesProvider: true,
+					hoverProvider: true,
+					workspaceSymbolProvider: true,
+				},
 				serverInfo: { name: 'ts-language-service-fixture', version: '0.0.0' },
 			}
+		case 'textDocument/hover': {
+			const file = fileURLToPath(params.textDocument.uri)
+			const at = offsetAt(file, params.position.line, params.position.character)
+			const info = service.getQuickInfoAtPosition(file, at)
+			// `null` when nothing resolves — whitespace, a comment. The provider
+			// turns that into empty contents rather than a failure, and this is
+			// the shape a real server sends for it.
+			if (!info) return null
+			const signature = ts.displayPartsToString(info.displayParts ?? [])
+			const docs = ts.displayPartsToString(info.documentation ?? [])
+			return { contents: docs ? [signature, docs] : [signature] }
+		}
+		case 'workspace/symbol': {
+			// The real index: `getNavigateToItems` is what powers "go to symbol"
+			// in an editor, and it returns DECLARATIONS. A comment or a string
+			// containing the query is not one, which is the whole difference
+			// this operation is asserted on.
+			const items = service.getNavigateToItems(params.query ?? '') ?? []
+			return items.map((item) => ({
+				name: item.name,
+				kind: 2,
+				...(item.containerName ? { containerName: item.containerName } : {}),
+				location: {
+					uri: pathToFileURL(item.fileName).href,
+					range: toRange(item.fileName, item.textSpan.start, item.textSpan.length),
+				},
+			}))
+		}
 		case 'textDocument/definition': {
 			const file = fileURLToPath(params.textDocument.uri)
 			const at = offsetAt(file, params.position.line, params.position.character)

@@ -42,11 +42,53 @@ export type CodeNavigationResult =
 	| { readonly kind: 'unsupported'; readonly reason: string }
 	| { readonly kind: 'failed'; readonly error: string }
 
+/** A symbol found by name rather than by position. */
+export interface SymbolLocation extends SourceLocation {
+	readonly name: string
+	/** The wire's own symbol-kind number, when the server gave one. */
+	readonly symbolKind?: number
+	/** The class, module or namespace it sits in, when the server gave one. */
+	readonly containerName?: string
+}
+
+/**
+ * What hovering over a position says.
+ *
+ * `contents` may be EMPTY, and that is a real answer: hovering over
+ * whitespace or a comment resolves to nothing, and a caller must be able to
+ * tell that from a server that failed. Same reason `locations: []` is not a
+ * failure.
+ */
+export type HoverResult =
+	| { readonly kind: 'hover'; readonly contents: string }
+	| { readonly kind: 'unsupported'; readonly reason: string }
+	| { readonly kind: 'failed'; readonly error: string }
+
+export type SymbolSearchResult =
+	| { readonly kind: 'symbols'; readonly symbols: readonly SymbolLocation[] }
+	| { readonly kind: 'unsupported'; readonly reason: string }
+	| { readonly kind: 'failed'; readonly error: string }
+
 export interface CodeNavigationProvider {
 	/** Where the symbol under this position is declared. */
 	definition(file: string, line: number, character: number): Promise<CodeNavigationResult>
 	/** Everywhere the symbol under this position is used. */
 	references(file: string, line: number, character: number): Promise<CodeNavigationResult>
+	/** The symbol's type and documentation, without opening the file. */
+	hover(file: string, line: number, character: number): Promise<HoverResult>
+	/**
+	 * Find a declaration by NAME, with no position.
+	 *
+	 * The operation an agent reaches for first, and the one whose absence
+	 * made the rest unreachable: `definition` and `references` both need a
+	 * line and a character, and an agent starting from a name has neither.
+	 * Without this, every navigation began with a grep — which is the text
+	 * path this package exists to replace.
+	 *
+	 * `scope` is a file path or an extension that picks which language's
+	 * server answers. Absent means every configured language.
+	 */
+	symbols(query: string, scope?: string): Promise<SymbolSearchResult>
 	/**
 	 * Stop whatever backs it.
 	 *

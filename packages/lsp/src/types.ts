@@ -28,5 +28,8 @@
 export type {
 	CodeNavigationProvider,
 	CodeNavigationResult,
+	HoverResult,
 	SourceLocation,
+	SymbolLocation,
+	SymbolSearchResult,
 } from '@namzu/sdk'

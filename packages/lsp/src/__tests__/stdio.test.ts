@@ -29,8 +29,32 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const SERVER = join(HERE, '..', '__fixtures__', 'ts-language-server.mjs')
 const WORKSPACE = join(HERE, '..', '__fixtures__', 'workspace')
 
+/**
+ * Positions DERIVED from the fixture, never hard-coded.
+ *
+ * They were literals, and editing the fixture's doc comment silently moved
+ * every one of them — three tests failed pointing at a resolver that was
+ * fine. A position that is computed from the text cannot drift from it.
+ */
+function positionOf(
+	file: string,
+	needle: string,
+	occurrence = 1,
+): { line: number; character: number } {
+	const lines = readFileSync(file, 'utf8').split('\n')
+	let seen = 0
+	for (let line = 0; line < lines.length; line++) {
+		const character = lines[line]?.indexOf(needle) ?? -1
+		if (character === -1) continue
+		seen += 1
+		if (seen === occurrence) return { line, character: character + 1 }
+	}
+	throw new Error(`${needle} is not in ${file} — the fixture and this test disagree`)
+}
+
 /** `computeTotal`'s declaration, zero-based, as LSP counts. */
-const DECLARATION = { file: join(WORKSPACE, 'a.ts'), line: 7, character: 18 }
+const A_TS = join(WORKSPACE, 'a.ts')
+const DECLARATION = { file: A_TS, ...positionOf(A_TS, 'export function computeTotal') }
 
 const open: CodeNavigationProvider[] = []
 afterEach(async () => {
@@ -122,11 +146,16 @@ describe('references, against a real resolver', () => {
 		// And specifically: the comment mention, the string literal, and the
 		// unrelated same-named function are all things grep counts as call
 		// sites and a resolver does not.
-		expect(textual).toContain('a.ts:3')
-		expect(textual).toContain('a.ts:8')
+		// Derived, not hard-coded: the comment line and the string line move
+		// whenever the fixture's prose does, and a literal here fails pointing
+		// at a resolver that is fine.
+		const commentLine = positionOf(A_TS, '`computeTotal` also appears').line
+		const stringLine = positionOf(A_TS, "'computeTotal ran").line
+		expect(textual).toContain(`a.ts:${commentLine}`)
+		expect(textual).toContain(`a.ts:${stringLine}`)
 		expect(textual.some((t) => t.startsWith('unrelated.ts'))).toBe(true)
-		expect(resolved).not.toContain('a.ts:3')
-		expect(resolved).not.toContain('a.ts:8')
+		expect(resolved).not.toContain(`a.ts:${commentLine}`)
+		expect(resolved).not.toContain(`a.ts:${stringLine}`)
 		expect(resolved.some((r) => r.startsWith('unrelated.ts'))).toBe(false)
 	}, 40_000)
 })
