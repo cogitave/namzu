@@ -2,6 +2,7 @@ import type { ChatCompletionResponse } from '../../../../types/provider/index.js
 import type { RunEvent } from '../../../../types/run/index.js'
 import type { VerificationGate } from '../../../../verification/index.js'
 import type { ToolCallDenials } from '../../executor.js'
+import { attachRepeatNotice } from '../../repeat-call.js'
 import { attachSteering } from '../../steering.js'
 import { type IterationContext, awaitDecisionDurably } from './context.js'
 
@@ -83,12 +84,20 @@ export async function* runToolReview(
 		const batch = await ctx.toolExecutor.executeBatch(response, denials)
 		toolMs += Date.now() - startedAt
 		executed = batch.results
+		// Recorded AFTER execution and never before it: this advises, it does
+		// not deny, so the call has already run and its real result is in the
+		// batch. Wiring it ahead of `executeBatch` would make it a gate.
+		const notices = []
+		for (const summary of toolCallSummaries) {
+			const notice = ctx.repeatCalls?.record(summary.name, summary.input)
+			if (notice) notices.push(notice)
+		}
 		// Guidance the host queued while this batch was running rides out on
 		// the last result. This is the only legal slot for it: a `tool_use`
 		// block must be answered by a `tool_result` with the same id, so a
 		// user message wedged between them is rejected by the provider. Same
 		// delivery a denial already uses, without the refusal.
-		for (const msg of attachSteering(batch.messages, ctx.steering)) {
+		for (const msg of attachRepeatNotice(attachSteering(batch.messages, ctx.steering), notices)) {
 			ctx.runMgr.pushMessage(msg)
 		}
 	}

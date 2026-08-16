@@ -103,6 +103,7 @@ import { applyLifecycleHookResults } from './plugin-hooks.js'
 import { PromptBuilder } from './prompt.js'
 import type { PromptSegments } from './prompt.js'
 import { PendingAnswers, QuestionParkBinding } from './question-park.js'
+import { RepeatCallTracker } from './repeat-call.js'
 import { ResultAssembler } from './result.js'
 import {
 	type PendingResumePlan,
@@ -118,6 +119,16 @@ import { createToolPause } from './tool-pause.js'
 import { ToolingBootstrap } from './tooling.js'
 
 export interface QueryParams {
+	/**
+	 * Notice when the model issues the identical tool call repeatedly, and
+	 * say so on the next `tool_result`. Defaults on.
+	 *
+	 * `false` removes the tracker entirely rather than gating a branch, so
+	 * an opted-out run produces byte-identical messages to one from before
+	 * this existed.
+	 */
+	repeatCallAdvisory?: boolean
+
 	systemPrompt?: string
 	persona?: AgentPersona
 	skills?: Skill[]
@@ -1156,6 +1167,10 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		// Run-scoped. An approval is a statement about this run's work;
 		// carrying one into a later run would be reuse nobody agreed to.
 		toolGrants: new ToolGrantSet(),
+		// Run-scoped for the same reason. A repeat count carried into a later
+		// run is a claim about work nobody repeated, and a module-level map
+		// would leak exactly that way.
+		...(params.repeatCallAdvisory === false ? {} : { repeatCalls: new RepeatCallTracker() }),
 		compactionConfig: params.compactionConfig,
 		workingStateManager,
 		taskRouter: params.taskRouter,

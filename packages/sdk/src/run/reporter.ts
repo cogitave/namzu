@@ -278,13 +278,17 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				// the unrelieved case is the history taking two edits in one
 				// pass, and a reader who saw only the `compaction_completed`
 				// below would attribute the whole loss to it.
+				// Namespaced, unlike its neighbours above. Those are the standing
+				// inventory the `namespacedAttributeKeyViolationCount` ratchet
+				// froze; NEW keys have no reason to join it, and adding six
+				// would have moved a number LOG-22 exists to drive to zero.
 				log.info('Cleared oversized tool results', {
-					runId: event.runId,
-					iteration: event.iteration,
-					clearedCount: event.clearedCount,
-					charsReclaimed: event.charsReclaimed,
-					reclaimedTokens: event.reclaimedTokens,
-					reliefWasEnough: event.reliefWasEnough,
+					'namzu.run.id': event.runId,
+					'namzu.iteration': event.iteration,
+					'namzu.compaction.cleared_count': event.clearedCount,
+					'namzu.compaction.chars_reclaimed': event.charsReclaimed,
+					'namzu.compaction.reclaimed_tokens': event.reclaimedTokens,
+					'namzu.compaction.relief_was_enough': event.reliefWasEnough,
 				})
 				break
 

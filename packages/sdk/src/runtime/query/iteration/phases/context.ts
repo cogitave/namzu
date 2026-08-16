@@ -33,6 +33,7 @@ import type { CheckpointManager } from '../../checkpoint.js'
 import type { EmitEvent } from '../../events.js'
 import type { ToolExecutor } from '../../executor.js'
 import type { GuardCoordinator } from '../../guard.js'
+import type { RepeatCallTracker } from '../../repeat-call.js'
 import type { SteeringChannel } from '../../steering.js'
 import type { ToolGrantSet } from '../../tool-grants.js'
 
@@ -122,6 +123,12 @@ export interface IterationContext {
 	 * asked about again. Absent on paths that do not review tools.
 	 */
 	readonly toolGrants?: ToolGrantSet
+	/**
+	 * Absent when the host opted out with `repeatCallAdvisory: false`. The
+	 * opt-out is the ABSENCE, not a flag read at every call site, so a code
+	 * path that forgets to check the flag cannot advise anyway.
+	 */
+	readonly repeatCalls?: RepeatCallTracker
 
 	/** Per-task model overrides. Consulted for the compaction summary call. */
 	readonly taskRouter?: TaskRouterConfig

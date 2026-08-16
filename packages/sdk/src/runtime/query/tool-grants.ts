@@ -71,7 +71,7 @@ export class ToolGrantSet {
  * Arrays keep their order, which is meaningful; object key order is not,
  * and letting it into the key would make the same call hash two ways.
  */
-function stableStringify(value: unknown): string {
+export function stableStringify(value: unknown): string {
 	if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null'
 	if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`
 
