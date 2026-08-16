@@ -60,9 +60,11 @@ export class TelemetryProvider {
 	 * metric reader, so spans created through the real provider are
 	 * discarded at end() without touching any exporter.
 	 *
-	 * This matches the docs' stated semantics: "Disable exporter startup
-	 * while keeping the API surface available." (docs/sdk/observability
-	 * /README.md §4).
+	 * The distinction is load-bearing rather than incidental: a host's own
+	 * span processors are installed either way, so a collector attached
+	 * through `spanProcessors` keeps receiving spans under `'none'`. Pinned
+	 * in `__tests__/provider.test.ts`, which fails on a `start()` that
+	 * returns early for `'none'`.
 	 */
 	async start(): Promise<void> {
 		const resource = resourceFromAttributes({
