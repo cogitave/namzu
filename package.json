@@ -11,7 +11,7 @@
     "lint": "pnpm -r lint",
     "lint:fix": "pnpm -r lint:fix",
     "test": "pnpm -r test",
-    "test:scripts": "node --import tsx --test scripts/__tests__/check-log-standard.test.ts",
+    "test:scripts": "node --import tsx --test scripts/__tests__/*.test.ts",
     "docs:check": "node tools/check-docs.mjs",
     "docs:fences": "node tools/check-doc-fences.mjs",
     "sandbox:smoke": "pnpm --filter @namzu/sandbox test:smoke",

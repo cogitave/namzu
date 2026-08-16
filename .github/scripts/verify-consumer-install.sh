@@ -88,12 +88,25 @@ if [ -n "$PENDING_CHANGESETS" ]; then
   VERSION_SNAPSHOT=$(mktemp -d -t namzu-preversion.XXXXXX)
   (
     cd "$WORKSPACE_ROOT"
-    # `git ls-files` rather than a glob: it finds every tracked manifest and
+    # `git ls-files` for the MANIFESTS: it finds every tracked manifest and
     # changelog wherever a package lives, so a new package directory does not
     # silently fall outside the snapshot and survive the restore.
-    git ls-files -z 'packages/**/package.json' 'packages/**/CHANGELOG.md' '.changeset/*' \
+    git ls-files -z 'packages/**/package.json' 'packages/**/CHANGELOG.md' \
       | tar --null -cf - -T -
   ) | (cd "$VERSION_SNAPSHOT" && tar xf -)
+  # `.changeset/` is snapshotted from DISK, not from the index, and that is
+  # the whole point of separating it. `git ls-files` lists tracked files, an
+  # uncommitted changeset is by definition untracked, and `restore_versions`
+  # below does `rm -rf .changeset` before restoring — so every changeset a
+  # developer had just written was deleted by running this script. Silently,
+  # by a gate `AGENTS.md` tells every contributor to run before pushing, on
+  # the one file that declares what the push is supposed to release.
+  #
+  # The comment on `restore_versions` already states the rule this broke:
+  # a developer's uncommitted edit is not this script's to discard.
+  if [ -d "$WORKSPACE_ROOT/.changeset" ]; then
+    (cd "$WORKSPACE_ROOT" && tar cf - .changeset) | (cd "$VERSION_SNAPSHOT" && tar xf -)
+  fi
 
   pnpm --dir "$WORKSPACE_ROOT" exec changeset version
   echo ""
