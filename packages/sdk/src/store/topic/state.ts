@@ -2,6 +2,7 @@ import { mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import type { TenantId, TopicId } from '../../types/ids/index.js'
+import type { Message } from '../../types/message/index.js'
 import type { PermissionMode } from '../../types/permission/index.js'
 import { StaleTopicStateError, type TopicState } from '../../types/topic/state.js'
 import { DiskRecordStore } from '../kv/record-store.js'
@@ -44,16 +45,42 @@ export interface TopicStateStore {
 		mode: PermissionMode,
 		opts: { readonly revision: number },
 	): Promise<TopicState>
+
+	/**
+	 * Replace the next-run queue, under the same compare-and-set.
+	 *
+	 * Replace rather than append, so the caller that read the list is the
+	 * one that decides what the new one is — an append primitive would let
+	 * a caller add to a list it had never seen.
+	 */
+	setQueuedMessages(
+		topicId: TopicId,
+		tenantId: TenantId,
+		messages: readonly Message[],
+		opts: { readonly revision: number },
+	): Promise<TopicState>
 }
 
+/** The record after one accepted write. */
 function next(
 	topicId: TopicId,
 	tenantId: TenantId,
-	mode: PermissionMode,
-	revision: number,
+	previous: TopicState | null,
+	patch: { permissionMode?: PermissionMode; queuedMessages?: readonly Message[] },
 	now: number,
 ): TopicState {
-	return { topicId, tenantId, revision: revision + 1, permissionMode: mode, updatedAt: now }
+	return {
+		topicId,
+		tenantId,
+		revision: (previous?.revision ?? 0) + 1,
+		permissionMode: patch.permissionMode ?? previous?.permissionMode ?? 'auto',
+		...(patch.queuedMessages !== undefined
+			? { queuedMessages: patch.queuedMessages }
+			: previous?.queuedMessages
+				? { queuedMessages: previous.queuedMessages }
+				: {}),
+		updatedAt: now,
+	}
 }
 
 export class InMemoryTopicStateStore implements TopicStateStore {
@@ -84,7 +111,27 @@ export class InMemoryTopicStateStore implements TopicStateStore {
 				actualRevision: actual,
 			})
 		}
-		const record = next(topicId, tenantId, mode, actual, this.now())
+		const record = next(topicId, tenantId, existing, { permissionMode: mode }, this.now())
+		this.states.set(topicId, record)
+		return record
+	}
+
+	async setQueuedMessages(
+		topicId: TopicId,
+		tenantId: TenantId,
+		messages: readonly Message[],
+		opts: { revision: number },
+	): Promise<TopicState> {
+		const existing = await this.getState(topicId, tenantId)
+		const actual = existing?.revision ?? 0
+		if (opts.revision !== actual) {
+			throw new StaleTopicStateError({
+				topicId,
+				expectedRevision: opts.revision,
+				actualRevision: actual,
+			})
+		}
+		const record = next(topicId, tenantId, existing, { queuedMessages: messages }, this.now())
 		this.states.set(topicId, record)
 		return record
 	}
@@ -125,9 +172,33 @@ export class DiskTopicStateStore implements TopicStateStore {
 				actualRevision: actual,
 			})
 		}
-		const record = next(topicId, tenantId, mode, actual, this.now())
-		await mkdir(join(this.config.rootDir, 'topic-state'), { recursive: true })
-		await records.write(this.path(topicId), record)
+		const record = next(topicId, tenantId, existing, { permissionMode: mode }, this.now())
+		await this.persist(record)
 		return record
+	}
+
+	async setQueuedMessages(
+		topicId: TopicId,
+		tenantId: TenantId,
+		messages: readonly Message[],
+		opts: { revision: number },
+	): Promise<TopicState> {
+		const existing = await this.getState(topicId, tenantId)
+		const actual = existing?.revision ?? 0
+		if (opts.revision !== actual) {
+			throw new StaleTopicStateError({
+				topicId,
+				expectedRevision: opts.revision,
+				actualRevision: actual,
+			})
+		}
+		const record = next(topicId, tenantId, existing, { queuedMessages: messages }, this.now())
+		await this.persist(record)
+		return record
+	}
+
+	private async persist(record: TopicState): Promise<void> {
+		await mkdir(join(this.config.rootDir, 'topic-state'), { recursive: true })
+		await records.write(this.path(record.topicId), record)
 	}
 }

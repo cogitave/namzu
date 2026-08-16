@@ -30,6 +30,15 @@ export interface TopicState {
 	 */
 	readonly revision: number
 	readonly permissionMode: PermissionMode
+	/**
+	 * Messages left for the run that has not started yet.
+	 *
+	 * On the same record as the mode and under the same revision, so a host
+	 * queueing a message and one toggling the mode cannot silently overwrite
+	 * each other — they collide loudly instead, which is what a shared
+	 * conversation needs.
+	 */
+	readonly queuedMessages?: readonly import('../message/index.js').Message[]
 	readonly updatedAt: number
 }
 

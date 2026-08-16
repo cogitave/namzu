@@ -1,5 +1,6 @@
 import type { CompactionConfig } from '../../config/runtime.js'
 import type { QueryParams } from '../../runtime/query/index.js'
+import type { SteeringChannel } from '../../runtime/query/steering.js'
 import type { AdvisoryConfig } from '../advisory/index.js'
 import type { AuthorizationGateConfig } from '../authorization/index.js'
 import type { InputGuardrailSpec, OutputGuardrailSpec } from '../guardrail/index.js'
@@ -20,6 +21,17 @@ export interface ReactiveAgentConfig extends BaseAgentConfig {
 	systemPrompt?: string
 
 	persona?: AgentPersona
+
+	/**
+	 * Channel a host uses to hand guidance to this run's current turn.
+	 *
+	 * Present here for the same reason it is on `SupervisorAgentConfig`, and
+	 * the reason that file gives twice already: a capability the kernel
+	 * honours in `drainQuery` and not on the surface hosts actually
+	 * construct is a capability nobody can reach. This is the archetype most
+	 * hosts run, and it was the one that could not be steered at all.
+	 */
+	steering?: SteeringChannel
 
 	skills?: Skill[]
 

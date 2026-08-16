@@ -209,3 +209,5 @@ export type {
 } from './types/command/index.js'
 
 export type { TopicState } from './types/topic/state.js'
+
+export type { AgentHandle, AgentHandleOptions, AgentHandleStatus } from './agents/handle.js'

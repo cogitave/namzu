@@ -100,6 +100,11 @@ export { cancelCauseOf, RunCancelled } from './types/run/cancel-cause.js'
 // The collaboration mode, durable per Topic. It was resolved once per run
 // and copied into the executor, so leaving plan mode meant ending the run
 // and discarding the in-flight step to change one enum.
+// The object a host holds between runs. There was none: no way to ask
+// whether the agent is running, and nowhere to put "when you next run,
+// start with this".
+export { AgentNotRunningError, createAgentHandle } from './agents/handle.js'
+
 export {
 	DiskTopicStateStore,
 	InMemoryTopicStateStore,

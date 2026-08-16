@@ -6,6 +6,7 @@ import {
 	TriggerEvaluator,
 	assertBudgetEnforceable,
 } from '../../advisory/index.js'
+import { drainQueuedMessages } from '../../agents/handle.js'
 import { AuthorizationGate } from '../../authorization/gate.js'
 import { findDanglingMessages, removeDanglingMessages } from '../../compaction/dangling.js'
 import { extractFromUserMessage } from '../../compaction/extractor.js'
@@ -925,6 +926,31 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				})
 		: null
 
+	// Whatever a host left for "the next run", taken and cleared in one
+	// compare-and-set write. Prepended to the messages this run starts from,
+	// so it is in the FIRST request rather than arriving a turn late.
+	//
+	// Cleared as it is read: a queue read and cleared separately re-delivers
+	// on a crash between the two, and "start with this" arriving twice is a
+	// different instruction from the one that was left.
+	const queuedForThisRun: readonly Message[] = params.topicStateStore
+		? await drainQueuedMessages(params.topicStateStore, params.topicId, params.tenantId).catch(
+				(err: unknown) => {
+					log.debug('Could not drain the topic queue; starting without it', {
+						'namzu.topic.id': params.topicId,
+						'namzu.error.message': toErrorMessage(err),
+					})
+					return []
+				},
+			)
+		: []
+
+	// One effective list, used everywhere the run is seeded from. Three
+	// branches below push from it, and computing it at each would be three
+	// places to forget the queue.
+	const initialMessages: Message[] =
+		queuedForThisRun.length > 0 ? [...queuedForThisRun, ...params.messages] : params.messages
+
 	const ctx = RunContextFactory.build({
 		...(topicState ? { topicPermissionMode: topicState.permissionMode } : {}),
 		...(params.permissionModeRef ? { permissionModeRef: params.permissionModeRef } : {}),
@@ -935,7 +961,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		workingDirectory: params.workingDirectory,
 		pricing: params.pricing,
 		enableActivityTracking: params.enableActivityTracking,
-		messages: params.messages,
+		messages: initialMessages,
 		signal: params.signal,
 		sessionId: params.sessionId,
 		topicId: params.topicId,
@@ -1667,14 +1693,24 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 					}
 					ctx.runMgr.pushMessage(msg)
 				}
+
+				// The queue, on the resume path too. It is drained
+				// unconditionally above, so leaving this out would take a
+				// host's "start with this" off the record and deliver it
+				// nowhere — the one outcome a durable queue must not have.
+				//
+				// AFTER the restored history rather than before it: on a
+				// resume the conversation already exists, and a message left
+				// for "the next run" is the newest thing said, not the oldest.
+				for (const queued of queuedForThisRun) ctx.runMgr.pushMessage(queued)
 			} else if (params.continuationMode) {
-				for (const msg of params.messages) {
+				for (const msg of initialMessages) {
 					ctx.runMgr.pushMessage(msg)
 				}
 			} else {
 				pushSystemMessages()
 				let isFirstUserMessage = true
-				for (const msg of params.messages) {
+				for (const msg of initialMessages) {
 					if (msg.role === 'system') continue
 					ctx.runMgr.pushMessage(msg)
 
