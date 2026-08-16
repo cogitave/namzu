@@ -101,6 +101,19 @@ export interface CreateProjectParams {
 	 * workspaces is for.
 	 */
 	config?: ProjectConfigInput
+
+	/**
+	 * The directory this project's work happens in. Canonicalized through
+	 * `realpath` before storage, so a symlink or a trailing slash cannot
+	 * produce a second record for one directory.
+	 *
+	 * A second project for the same canonical directory is REFUSED, not
+	 * deduplicated into the first — a caller who wanted the existing one
+	 * should say so with {@link SessionStore.findProjectByRootPath}, and
+	 * silently returning it would hide that their `name` and `config` were
+	 * discarded.
+	 */
+	rootPath?: string
 }
 
 /**
@@ -131,6 +144,19 @@ export interface SessionStore {
 	createProject(params: CreateProjectParams, tenantId: TenantId): Promise<Project>
 
 	getProject(projectId: ProjectId, tenantId: TenantId): Promise<Project | null>
+
+	/**
+	 * The project bound to a directory, or `null`. OPTIONAL.
+	 *
+	 * Optional for the reason `updateProjectConfig` below gives: this
+	 * interface is implemented by hosts, and a required method stops them
+	 * compiling for a capability they never asked for.
+	 *
+	 * The argument is canonicalized here too, so a caller may pass whatever
+	 * they have — a relative path, a symlink, a trailing slash — and get the
+	 * same answer the writer got.
+	 */
+	findProjectByRootPath?(rootPath: string, tenantId: TenantId): Promise<Project | null>
 
 	/**
 	 * Change a Project's limits after it exists. OPTIONAL.

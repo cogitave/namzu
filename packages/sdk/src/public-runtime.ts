@@ -675,6 +675,7 @@ export {
 	// that take it seriously.
 	ProjectClosedError,
 	ProjectNotEmptyError,
+	ProjectRootPathTakenError,
 	StaleProjectError,
 	// Exported with the CAS it announces. A host that opts into
 	// `expectedOwnerVersion` has to be able to tell "somebody else took this

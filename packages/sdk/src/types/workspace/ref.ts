@@ -42,6 +42,13 @@ export type WorkspaceBackendMeta = GitWorktreeBackendMeta
  * Persisted ref to a provisioned workspace. Every {@link Session} with a
  * running Run persists a {@link WorkspaceRef} so recovery after process
  * restart is possible (session-hierarchy.md §7.1).
+ *
+ * NOT `Project.rootPath`. This is per-RUN provisioning — a git worktree cut
+ * for one run and discarded after it, which may be a different directory
+ * entirely. `Project.rootPath` is the durable binding a host uses to answer
+ * "which project is this directory" across sessions and process restarts.
+ * The two words are close enough that the distinction has been rediscovered
+ * more than once; it is written here so it does not have to be again.
  */
 export interface WorkspaceRef {
 	id: WorkspaceId

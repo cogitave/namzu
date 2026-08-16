@@ -23,7 +23,12 @@
 
 import { appendFile, mkdir, readFile, readdir, rm } from 'node:fs/promises'
 import { join } from 'node:path'
-import { StaleProjectError, StaleSessionError, TenantIsolationError } from '../../session/errors.js'
+import {
+	ProjectRootPathTakenError,
+	StaleProjectError,
+	StaleSessionError,
+	TenantIsolationError,
+} from '../../session/errors.js'
 import { SessionAlreadySummarizedError } from '../../session/summary/errors.js'
 import type { MessageId, SessionId, TenantId } from '../../types/ids/index.js'
 import type { Message } from '../../types/message/index.js'
@@ -54,6 +59,7 @@ import {
 	generateSubSessionId,
 } from '../../utils/id.js'
 import { defineSchema, migrate, stamp } from '../schema.js'
+import { canonicalizePath, rootPathIndexKey } from './canonical-path.js'
 import { getAncestry, getChildren, orderChildren } from './linkage.js'
 import type { LinkageView } from './linkage.js'
 
@@ -137,10 +143,12 @@ interface PersistedProject {
 	tenantId: TenantId
 	name: string
 	config: Project['config']
-	/** Absent in files written before the workspace gained a status. */
+	/** Absent in files written before the project gained a status. */
 	status?: ProjectStatus
-	/** Absent in files written before the workspace gained a CAS counter. */
+	/** Absent in files written before the project gained a CAS counter. */
 	ownerVersion?: number
+	/** Canonical, `realpath`-resolved. Absent for a project not on disk. */
+	rootPath?: string
 	createdAt: string
 	updatedAt: string
 }
@@ -249,6 +257,15 @@ export class DiskSessionStore implements SessionStore {
 				resource: `project(name=${params.name})`,
 			})
 		}
+		const rootPath =
+			params.rootPath === undefined ? undefined : await canonicalizePath(params.rootPath)
+		if (rootPath !== undefined) {
+			const existing = await this.findProjectByRootPath(rootPath, tenantId)
+			if (existing) {
+				throw new ProjectRootPathTakenError({ rootPath, existingProjectId: existing.id })
+			}
+		}
+
 		const now = new Date()
 		const project: Project = {
 			id: generateProjectId(),
@@ -261,6 +278,7 @@ export class DiskSessionStore implements SessionStore {
 			},
 			status: 'open',
 			ownerVersion: 0,
+			...(rootPath !== undefined ? { rootPath } : {}),
 			createdAt: now,
 			updatedAt: now,
 		}
@@ -268,7 +286,39 @@ export class DiskSessionStore implements SessionStore {
 		await mkdir(dir, { recursive: true })
 		await atomicWriteJson(join(dir, 'project.json'), serializeProject(project))
 		this.projectIndex.set(project.id, { projectId: project.id, path: dir })
+		if (rootPath !== undefined) await this.writeRootPathIndex(rootPath, tenantId, project.id)
 		return project
+	}
+
+	/**
+	 * Reads ONE index file. Not a scan of `projects/*` — that opens every
+	 * `project.json` on the machine to answer a question about one
+	 * directory, and gets slower with every project a host has ever made.
+	 */
+	async findProjectByRootPath(rootPath: string, tenantId: TenantId): Promise<Project | null> {
+		const canonical = await canonicalizePath(rootPath)
+		const index = await readJson<Record<string, ProjectId>>(this.rootPathIndexPath())
+		// Tenant is part of the KEY, not a filter applied after the lookup.
+		// Two tenants may bind projects to the same path on a shared machine,
+		// and a path-only key would hand one of them the other's project.
+		const projectId = index?.[rootPathIndexKey(canonical, tenantId)]
+		if (!projectId) return null
+		return await this.getProject(projectId, tenantId)
+	}
+
+	private rootPathIndexPath(): string {
+		return join(this.rootDir, 'projects', 'root-path-index.json')
+	}
+
+	private async writeRootPathIndex(
+		rootPath: string,
+		tenantId: TenantId,
+		projectId: ProjectId,
+	): Promise<void> {
+		const path = this.rootPathIndexPath()
+		const index = (await readJson<Record<string, ProjectId>>(path)) ?? {}
+		index[rootPathIndexKey(rootPath, tenantId)] = projectId
+		await atomicWriteJson(path, index)
 	}
 
 	async getProject(projectId: ProjectId, tenantId: TenantId): Promise<Project | null> {
@@ -1044,6 +1094,7 @@ function serializeProject(p: Project): PersistedProject {
 		config: p.config,
 		status: p.status,
 		ownerVersion: p.ownerVersion,
+		...(p.rootPath !== undefined ? { rootPath: p.rootPath } : {}),
 		createdAt: p.createdAt.toISOString(),
 		updatedAt: p.updatedAt.toISOString(),
 	}
@@ -1056,11 +1107,12 @@ function deserializeProject(p: PersistedProject): Project {
 		name: p.name,
 		config: p.config,
 		// A project.json written before these fields existed reads as an open
-		// workspace at version 0, which is what it was. Leaving `ownerVersion`
+		// project at version 0, which is what it was. Leaving `ownerVersion`
 		// undefined would be worse than a wrong default: every compare-and-set
 		// against it would fail, so an existing store could never be closed.
 		status: p.status ?? 'open',
 		ownerVersion: p.ownerVersion ?? 0,
+		...(p.rootPath !== undefined ? { rootPath: p.rootPath } : {}),
 		createdAt: new Date(p.createdAt),
 		updatedAt: new Date(p.updatedAt),
 	}

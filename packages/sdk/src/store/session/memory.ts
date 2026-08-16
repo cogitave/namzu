@@ -8,7 +8,12 @@
  * (Convention #5 deny-by-default, session-hierarchy.md §12.2).
  */
 
-import { StaleProjectError, StaleSessionError, TenantIsolationError } from '../../session/errors.js'
+import {
+	ProjectRootPathTakenError,
+	StaleProjectError,
+	StaleSessionError,
+	TenantIsolationError,
+} from '../../session/errors.js'
 import { SessionAlreadySummarizedError } from '../../session/summary/errors.js'
 import type { MessageId, SessionId, TenantId } from '../../types/ids/index.js'
 import type { Message } from '../../types/message/index.js'
@@ -32,6 +37,7 @@ import {
 	generateSessionId,
 	generateSubSessionId,
 } from '../../utils/id.js'
+import { canonicalizePath } from './canonical-path.js'
 import { getAncestry, getChildren, orderChildren } from './linkage.js'
 import type { LinkageView } from './linkage.js'
 
@@ -83,6 +89,18 @@ export class InMemorySessionStore implements SessionStore {
 				resource: `project(name=${params.name})`,
 			})
 		}
+		// Canonicalized BEFORE the uniqueness check, not after storage. A path
+		// stored as typed makes `/tmp/p`, `/tmp/p/` and a symlink to it three
+		// records for one directory, and the check would pass every time.
+		const rootPath =
+			params.rootPath === undefined ? undefined : await canonicalizePath(params.rootPath)
+		if (rootPath !== undefined) {
+			const existing = await this.findProjectByRootPath(rootPath, tenantId)
+			if (existing) {
+				throw new ProjectRootPathTakenError({ rootPath, existingProjectId: existing.id })
+			}
+		}
+
 		const now = new Date()
 		const project: Project = {
 			id: generateProjectId(),
@@ -95,11 +113,31 @@ export class InMemorySessionStore implements SessionStore {
 			},
 			status: 'open',
 			ownerVersion: 0,
+			...(rootPath !== undefined ? { rootPath } : {}),
 			createdAt: now,
 			updatedAt: now,
 		}
 		this.projects.set(project.id, { tenantId, project })
 		return project
+	}
+
+	/**
+	 * Scanned rather than indexed, and that is the right call HERE and only
+	 * here: this store's projects are already a `Map` in memory, so an index
+	 * would be a second copy of the same data with a consistency problem
+	 * attached. The disk store, where a scan means opening every
+	 * `project.json`, keeps a real index.
+	 */
+	async findProjectByRootPath(rootPath: string, tenantId: TenantId): Promise<Project | null> {
+		const canonical = await canonicalizePath(rootPath)
+		for (const record of this.projects.values()) {
+			// Tenant FIRST, not as a post-filter. Two tenants may legitimately
+			// bind projects to the same path on a shared machine, and matching
+			// on path alone would hand one tenant the other's project id.
+			if (record.tenantId !== tenantId) continue
+			if (record.project.rootPath === canonical) return record.project
+		}
+		return null
 	}
 
 	async getProject(projectId: ProjectId, tenantId: TenantId): Promise<Project | null> {

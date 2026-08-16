@@ -36,6 +36,29 @@ export class TenantIsolationError extends Error {
  * when walking parent sub-session links encounters a revisit. Indicates store
  * corruption — the write path enforces acyclicity (session-hierarchy.md §4.5).
  */
+/**
+ * A second project was asked for on a directory that already has one.
+ *
+ * Refused rather than deduplicated. Returning the existing project would
+ * be the friendlier-looking answer and would silently discard the `name`
+ * and `config` the caller passed — they asked to CREATE something, and
+ * getting a different thing back with their arguments dropped is worse
+ * than an error. A caller who wanted the existing one asks for it by name
+ * with `findProjectByRootPath`.
+ *
+ * Carries the existing id, so recovering is one call rather than a search.
+ */
+export class ProjectRootPathTakenError extends Error {
+	override readonly name = 'ProjectRootPathTakenError'
+
+	constructor(readonly details: { rootPath: string; existingProjectId: ProjectId }) {
+		super(
+			`A project already exists for ${details.rootPath}: ${details.existingProjectId}. ` +
+				'Use findProjectByRootPath to get it, or create this project without a rootPath.',
+		)
+	}
+}
+
 export class AncestryCycleError extends Error {
 	readonly details: {
 		sessionId: SessionId
