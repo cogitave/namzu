@@ -2,6 +2,7 @@
 // records — see redact.ts and caps.ts — so nothing here re-implements
 // either concern; a sink's only job is to render.
 
+import { applyTemplate, columnLabel, scopeColour } from './templates.js'
 import type { LogRecord, LogSink } from './types.js'
 
 /**
@@ -96,16 +97,88 @@ function escapeForDisplay(text: string): string {
 		.join('\\u2029')
 }
 
+/** Column width for the scope label. Long labels overflow rather than truncate. */
+const SCOPE_WIDTH = 12
+
 /**
- * Human-readable line, one record per line. This is the foundation later
- * work builds the boot-narrative renderer on top of (the elapsed-time
- * column, the hashed scope column, per-event templates) — deliberately not
- * attempted here, since nothing in this increment reads any of those
- * columns yet.
+ * The marker between the scope column and the body.
+ *
+ * A glyph rather than a `[WARN]` label, because at `info` the overwhelming
+ * majority of boot lines are ordinary and a label on each one is the wall
+ * this renderer exists to remove. The two that are not ordinary have to be
+ * findable by eye in a column, which a bracketed word at variable position
+ * is not.
+ */
+const MARKER: Record<LogRecord['severityText'], string> = {
+	debug: ' ',
+	info: ' ',
+	warn: '!',
+	error: '✗',
+}
+
+/** `+Nms`, left-padded so the numbers line up in a column. */
+function elapsedColumn(deltaMs: number): string {
+	return `+${deltaMs}ms`.padStart(7)
+}
+
+/**
+ * Human-readable line, one record per line — the boot narrative's renderer.
+ *
+ * Three things it does that a generic sink does not, each answering a
+ * specific half of "the logs tell me nothing":
+ *
+ * - **`+Nms` instead of an absolute timestamp.** Elapsed since the previous
+ *   record ON THIS SINK, so the column reads as which phase was slow. The
+ *   state is a closure variable rather than module-level: two sinks in one
+ *   process each measure their own stream, and a shared `lastTimestamp`
+ *   would make each one's deltas depend on the other's traffic.
+ * - **A fixed-width scope column, coloured by a stable hash.** A dozen
+ *   module initialisations read as structure rather than scroll.
+ * - **A template per boot event**, so `info` shows the two attributes that
+ *   matter rather than all forty as JSON.
+ *
+ * Colour is emitted only when the stream reports `isTTY`, so a redirected
+ * log has no escape bytes in it at all.
  */
 export function prettySink(stream: NodeJS.WritableStream): LogSink {
+	// Per-instance, deliberately. See the note above.
+	let previousTimestamp: number | undefined
+
+	// Read once. A stream does not become a TTY part-way through a process,
+	// and re-reading per record would let a mid-run reassignment change the
+	// shape of a file somebody is already tailing.
+	const colour = (stream as NodeJS.WriteStream).isTTY === true
+
 	return {
 		emit(record: LogRecord) {
+			// Seeded from the FIRST record rather than from sink construction,
+			// so the first line is `+0ms` and not however long the process
+			// spent before anything was logged — which is not a phase anybody
+			// can act on.
+			const delta = previousTimestamp === undefined ? 0 : record.timestamp - previousTimestamp
+			previousTimestamp = record.timestamp
+
+			const label = escapeForDisplay(columnLabel(record))
+			const templated = applyTemplate(record)
+			const marker = MARKER[record.severityText]
+
+			if (templated !== undefined) {
+				const painted = colour ? `\x1b[${scopeColour(label)}m${label}\x1b[0m` : label
+				// Padding is computed from the UNPAINTED label: the escape
+				// bytes have no width on screen but do have length in a string,
+				// so padding the painted form shortens every coloured column by
+				// exactly the length of its escape sequence.
+				const pad = ' '.repeat(Math.max(1, SCOPE_WIDTH - label.length))
+				stream.write(
+					`  ${elapsedColumn(delta)}  ${painted}${pad}${marker} ${escapeForDisplay(templated)}\n`,
+				)
+				return
+			}
+
+			// Everything that is not a boot event keeps the original shape.
+			// A record from a foreign vocabulary has no template to be right
+			// about, and inventing a column layout for it would drop the
+			// attributes it does carry.
 			const timestamp = new Date(record.timestamp).toISOString()
 			const level = SEVERITY_LABEL[record.severityText]
 			const scope = escapeForDisplay(record.scope.name)

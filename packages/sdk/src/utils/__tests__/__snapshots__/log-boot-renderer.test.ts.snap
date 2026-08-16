@@ -1,0 +1,13 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`the boot narrative renders as a readout > renders the whole boot sequence as the design sample reads 1`] = `
+"     +0ms  boot          starting
+    +12ms  config        resolved · 37 keys · default(29) user-file(3) project-file(4) env(1)
+     +2ms  sandbox       on (linux-namespace)  enforces=filesystem,network,process
+    +34ms  provider      chain resolved  chain=anthropic/claude-sonnet-4-6 → openai/gpt-5-mini constructed=2 of 3
+     +0ms  sandbox     ! on (basic), but this platform enforces none of filesystem, network, process — commands are not confined
+     +7ms  telemetry     not registered — trace export is off
+     +4ms  discovery     complete · plugins 2 · skills 7
+     +9ms  boot        ✗ refused  reason=\`sandbox.requireIsolation\` names \`network\`, which this host cannot enforce
+"
+`;
