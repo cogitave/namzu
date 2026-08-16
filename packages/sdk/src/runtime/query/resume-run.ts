@@ -1,5 +1,5 @@
 import type { PendingDecision } from '../../types/hitl/index.js'
-import type { CheckpointStore, ClaimFence } from '../../types/run/checkpoint-store.js'
+import type { CheckpointStore, FencingToken } from '../../types/run/checkpoint-store.js'
 import type { Run } from '../../types/run/entity.js'
 import type { RunEventReplay } from '../../types/run/event-cursor.js'
 import type { RunEventListener } from '../../types/run/events.js'
@@ -62,7 +62,7 @@ export interface ResumeRunParams
 	 * is what a queue reader does with a parked run — so this is the call that
 	 * most needs to carry one.
 	 */
-	readonly claimFence?: ClaimFence
+	readonly claimFence?: FencingToken
 	/**
 	 * Resume a specific checkpoint instead of the one the store would pick.
 	 * Absent means the parked checkpoint if there is one, else the newest.

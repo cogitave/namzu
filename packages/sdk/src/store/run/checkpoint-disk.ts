@@ -7,12 +7,12 @@ import type {
 	CheckpointListingScope,
 	CheckpointRunScope,
 	CheckpointStore,
-	ClaimFence,
 	ClaimRunOptions,
 	DurableRunEntry,
 	DurableRunPage,
+	FencingToken,
 	ListDurableRunsOptions,
-	RunClaim,
+	RunLease,
 } from '../../types/run/checkpoint-store.js'
 import type { RunStoreConfig } from '../../types/run/index.js'
 import type { ProjectId } from '../../types/session/ids.js'
@@ -97,7 +97,7 @@ export class DiskCheckpointStore implements CheckpointStore {
 	async writeCheckpoint(
 		scope: CheckpointRunScope,
 		checkpoint: IterationCheckpoint,
-		fence?: ClaimFence,
+		fence?: FencingToken,
 	): Promise<void> {
 		const store = await this.bind(scope)
 		if (fence !== undefined) {
@@ -113,11 +113,11 @@ export class DiskCheckpointStore implements CheckpointStore {
 		await store.writeCheckpoint(checkpoint)
 	}
 
-	async claimRun(scope: CheckpointRunScope, options: ClaimRunOptions): Promise<RunClaim | null> {
+	async claimRun(scope: CheckpointRunScope, options: ClaimRunOptions): Promise<RunLease | null> {
 		return acquireClaim(this.runDir(scope), options)
 	}
 
-	async releaseRun(scope: CheckpointRunScope, fence: ClaimFence): Promise<void> {
+	async releaseRun(scope: CheckpointRunScope, fence: FencingToken): Promise<void> {
 		await releaseClaim(this.runDir(scope), fence)
 	}
 

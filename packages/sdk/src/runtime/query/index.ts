@@ -62,7 +62,7 @@ import type { AgentPersona } from '../../types/persona/index.js'
 import type { LLMProvider } from '../../types/provider/index.js'
 import type { TaskRouterConfig } from '../../types/router/index.js'
 import type { ReviewAnswer } from '../../types/run/answer-review.js'
-import type { CheckpointStore, ClaimFence } from '../../types/run/checkpoint-store.js'
+import type { CheckpointStore, FencingToken } from '../../types/run/checkpoint-store.js'
 import type { RunEventCursor, RunEventReplay } from '../../types/run/event-cursor.js'
 import { resolveRunEventReplay } from '../../types/run/event-cursor.js'
 import type {
@@ -482,7 +482,7 @@ export interface QueryParams {
 	 * takes no fence, so two workers that both took one run still overwrite
 	 * each other's run record, transcript and report — see the changeset.
 	 */
-	claimFence?: ClaimFence
+	claimFence?: FencingToken
 
 	/**
 	 * Where this run records its own evidence — the run record, its messages,
@@ -1896,7 +1896,7 @@ async function* catchUpFromCursor(
 	runMgr: RunPersistence,
 	cursor: RunEventCursor,
 	onEventReplay: ((replay: RunEventReplay) => void) | undefined,
-	generation: ClaimFence | undefined,
+	generation: FencingToken | undefined,
 ): AsyncGenerator<RunEvent, void> {
 	const missed = await runMgr.getRunStore().readEvents({ sinceSeq: cursor.sinceSeq })
 	const replay = resolveRunEventReplay(

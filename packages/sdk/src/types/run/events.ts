@@ -16,7 +16,7 @@ import type { PlanStep } from '../plan/index.js'
 import type { PluginHookEvent, PluginHookResult } from '../plugin/index.js'
 import type { TaskStatus } from '../task/index.js'
 import type { CancelCause } from './cancel-cause.js'
-import type { ClaimFence } from './checkpoint-store.js'
+import type { FencingToken } from './checkpoint-store.js'
 import type { Lineage } from './lineage.js'
 import type { MessageStopReason, StopReason } from './stop-reason.js'
 import type {
@@ -95,7 +95,7 @@ interface RunEventEnvelope {
 	 * does, an in-memory store's does not, and `cursor_ahead` is the verdict
 	 * that catches the difference.
 	 */
-	generation?: ClaimFence
+	generation?: FencingToken
 }
 
 type CoreRunEvent =

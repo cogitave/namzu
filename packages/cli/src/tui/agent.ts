@@ -24,7 +24,7 @@
 import {
 	BOOT_EVENT_NAMES,
 	type CheckpointStore,
-	type ClaimFence,
+	type FencingToken,
 	type CostInfo,
 	DiskMemoryStore,
 	DiskTaskStore,
@@ -261,7 +261,7 @@ export interface ResumeDurableParams {
 	 * write the resumed run makes, so a worker that stalled past its lease
 	 * cannot overwrite the record of whoever took the run over.
 	 */
-	readonly claimFence?: ClaimFence
+	readonly claimFence?: FencingToken
 	readonly signal?: AbortSignal
 }
 

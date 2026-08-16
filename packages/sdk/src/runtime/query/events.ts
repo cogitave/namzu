@@ -5,7 +5,7 @@ import { probe as defaultProbeRegistry } from '../../probe/registry.js'
 import type { ProbeObservation } from '../../probe/registry.js'
 import type { ActivityEvent, ActivityStore } from '../../store/activity/memory.js'
 import type { RunId } from '../../types/ids/index.js'
-import type { ClaimFence } from '../../types/run/checkpoint-store.js'
+import type { FencingToken } from '../../types/run/checkpoint-store.js'
 import { isEphemeralEvent } from '../../types/run/events.js'
 import type { RunEvent } from '../../types/run/index.js'
 import type { TaskEvent, TaskStore } from '../../types/task/index.js'
@@ -51,12 +51,12 @@ export class EventTranslator {
 	 * cursor predates a takeover is told its sequence space changed instead of
 	 * being handed a splice from a different writer's log.
 	 */
-	private generation: ClaimFence | undefined
+	private generation: FencingToken | undefined
 
 	/** Serializes sequence assignment against the append. See {@link emitEvent}. */
 	private appendChain: Promise<void> = Promise.resolve()
 
-	setGeneration(fence: ClaimFence | undefined): void {
+	setGeneration(fence: FencingToken | undefined): void {
 		this.generation = fence
 	}
 

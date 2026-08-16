@@ -14,16 +14,16 @@ import type {
 	CheckpointListingScope,
 	CheckpointRunScope,
 	CheckpointStore,
-	ClaimFence,
 	ClaimRunOptions,
-	ClaimSummary,
 	DurableRunEntry,
 	DurableRunOrder,
 	DurableRunPage,
+	FencingToken,
+	LeaseSummary,
 	ListDurableRunsOptions,
 	ParkState,
 	ParkSummary,
-	RunClaim,
+	RunLease,
 } from '../../types/run/checkpoint-store.js'
 
 /** Page size when the caller names none. */
@@ -341,7 +341,7 @@ export async function claimRun(
 	store: CheckpointStore,
 	scope: CheckpointRunScope,
 	options: ClaimRunOptions,
-): Promise<RunClaim | null> {
+): Promise<RunLease | null> {
 	if (typeof store.claimRun !== 'function') {
 		throw new NamzuError({
 			code: 'capability_unavailable',
@@ -370,7 +370,7 @@ export async function claimRun(
 export async function releaseRun(
 	store: CheckpointStore,
 	scope: CheckpointRunScope,
-	fence: ClaimFence,
+	fence: FencingToken,
 ): Promise<void> {
 	if (typeof store.releaseRun !== 'function') {
 		throw new NamzuError({
@@ -409,7 +409,7 @@ export function fencedOut(
  * Whether a recorded claim still holds at `now`, and the summary a listing
  * reports for it.
  */
-export function toClaimSummary(claim: RunClaim, now: number): ClaimSummary {
+export function toClaimSummary(claim: RunLease, now: number): LeaseSummary {
 	return {
 		holder: claim.holder,
 		fence: claim.fence,

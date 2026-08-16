@@ -2,11 +2,17 @@ import { describe, expect, it } from 'vitest'
 
 import {
 	BaseRegistry,
+	type ClaimFence,
+	type ClaimSummary,
 	ContextCache,
 	type ContextCacheConfig,
+	type FencingToken,
+	type LeaseSummary,
 	PromptCache,
 	type PromptCacheConfig,
 	Registry,
+	type RunClaim,
+	type RunLease,
 	collect,
 	collectChatCompletion,
 } from '../index.js'
@@ -61,6 +67,13 @@ describe('the renamed exports keep their old spellings for one window', () => {
 		const _p: PromptCacheConfig = {} as ContextCacheConfig
 		const _cache: ContextCache = {} as PromptCache
 
-		expect([_r, _c, _p, _cache]).toHaveLength(4)
+		// The lease trio (NZ-SURF-06). Types only — there is no runtime value
+		// to compare, which is exactly why these three need a compiled
+		// assertion and cannot ride on the `toBe` checks above.
+		const _lease: RunClaim = {} as RunLease
+		const _fence: ClaimFence = 0 as FencingToken
+		const _summary: ClaimSummary = {} as LeaseSummary
+
+		expect([_r, _c, _p, _cache, _lease, _fence, _summary]).toHaveLength(7)
 	})
 })

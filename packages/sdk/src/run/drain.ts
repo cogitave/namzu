@@ -45,7 +45,7 @@ import type {
 	CheckpointStore,
 	DurableRunEntry,
 	ParkState,
-	RunClaim,
+	RunLease,
 } from '../types/run/checkpoint-store.js'
 
 /** Runs handled per pass when the caller names no page size. */
@@ -79,7 +79,7 @@ export const DEFAULT_DRAIN_PAGE_SIZE = 100
  * that died on the first bad run would leave the rest of the queue
  * untouched, which is the failure a queue exists to spread out.
  */
-export type DrainRun = (entry: DurableRunEntry, claim: RunClaim) => void | Promise<void>
+export type DrainRun = (entry: DurableRunEntry, claim: RunLease) => void | Promise<void>
 
 export interface DrainRunsParams {
 	/** Backend to list, claim and release against. Must support all three. */

@@ -102,6 +102,39 @@ describe('claim regressions', () => {
 		expect(seen[0]).toBeLessThan(seen[seen.length - 1] as number)
 	})
 
+	it('ignores a release presented with a superseded fence', async () => {
+		// Not one of the original four. Added while NZ-SURF-06 renamed these
+		// types, after deleting the `held.fence !== fence` guard in
+		// `releaseClaim` left all eleven tests green — and the property it
+		// looked like the only defence of turned out to be enforced twice.
+		//
+		// The guard is a fast path, NOT the safety property. A release
+		// publishes its tombstone at `fence + 1`, and a stale fence is by
+		// definition below the current one, so that name either already
+		// exists (the EEXIST is swallowed) or loses the highest-fence-wins
+		// read in `readClaim`. Deleting the guard is an EQUIVALENT mutation,
+		// not a missed test — recorded here so nobody re-derives that the
+		// hard way, and so nobody deletes the guard believing the docblock
+		// above it is unbacked.
+		//
+		// What the test pins is the behaviour, at the level a caller sees
+		// it: the stalled holder this mechanism exists to fence out calls
+		// `releaseRun()` in its `finally`, returns from a GC pause, and hands
+		// back a holding that is no longer its own. It must not land.
+		const first = await acquireClaim(runDir, { holder: 'w1', ttlMs: 1, now: 1_000 })
+		const second = await acquireClaim(runDir, { holder: 'w2', ttlMs: 60_000, now: 5_000 })
+
+		expect(second?.fence).toBeGreaterThan(first?.fence as number)
+
+		// The superseded holder's `finally` fires, late.
+		await releaseClaim(runDir, first?.fence as number)
+
+		// w2 still holds it, at its own fence.
+		const held = await readClaim(runDir)
+		expect(held?.holder).toBe('w2')
+		expect(held?.fence).toBe(second?.fence)
+	})
+
 	it('is still claimable when a holding body cannot be read', async () => {
 		// The defect: an unparseable claim made every future acquire return
 		// `null` forever — the reviewer verified it at +1 year — and the

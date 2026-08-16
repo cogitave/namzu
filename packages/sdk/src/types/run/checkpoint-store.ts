@@ -185,7 +185,7 @@ export interface DurableRunEntry extends CheckpointRunScope {
 	 * neither, or either, and the state a queue worker needs most is parked
 	 * AND unclaimed, which one union cannot say.
 	 */
-	readonly claim?: ClaimSummary
+	readonly claim?: LeaseSummary
 }
 
 /**
@@ -234,14 +234,14 @@ export type DurableRunOrder =
  * Not a random token, deliberately: randomness proves identity and cannot
  * establish *order*, and order is the entire mechanism.
  */
-export type ClaimFence = number
+export type FencingToken = number
 
 /** A holding of a run's claim, as issued to the process that took it. */
-export interface RunClaim {
+export interface RunLease {
 	/** Opaque caller-supplied identity — a worker id, a pod name. Evidence, not authority. */
 	readonly holder: string
-	/** See {@link ClaimFence}. Present it on every durable write. */
-	readonly fence: ClaimFence
+	/** See {@link FencingToken}. Present it on every durable write. */
+	readonly fence: FencingToken
 	/**
 	 * Absolute epoch ms after which the claim may be taken by somebody else.
 	 *
@@ -253,9 +253,9 @@ export interface RunClaim {
 }
 
 /** A run's claim as a listing reports it. */
-export interface ClaimSummary {
+export interface LeaseSummary {
 	readonly holder: string
-	readonly fence: ClaimFence
+	readonly fence: FencingToken
 	readonly expiresAt: number
 	/**
 	 * Whether the claim had expired at the instant the listing was taken.
@@ -267,6 +267,26 @@ export interface ClaimSummary {
 	 */
 	readonly expired: boolean
 }
+
+/**
+ * Old spellings of the three above, live for one deprecation window.
+ *
+ * These are types with no runtime value, so a plain `export type` carries
+ * the `@deprecated` tag fine — the `const`+`type` pair the SDK barrel uses
+ * for renamed CLASSES is not needed here and would not compile.
+ *
+ * The verbs did NOT move with them. `claimRun`, `releaseRun` and
+ * `toClaimSummary` keep their names: "claim a lease" is idiomatic, and
+ * renaming the methods would break every `CheckpointStore` implementor for
+ * no reading gain — the opposite of the point.
+ */
+
+/** @deprecated Renamed to {@link RunLease}. Removed in the next major. */
+export type RunClaim = RunLease
+/** @deprecated Renamed to {@link FencingToken}. Removed in the next major. */
+export type ClaimFence = FencingToken
+/** @deprecated Renamed to {@link LeaseSummary}. Removed in the next major. */
+export type ClaimSummary = LeaseSummary
 
 /** What a caller asks for when taking a run. */
 export interface ClaimRunOptions {
@@ -362,7 +382,7 @@ export interface CheckpointStore {
 	/**
 	 * Persist one checkpoint. Overwrites an existing checkpoint with the same id.
 	 *
-	 * @param fence the {@link ClaimFence} of the holding this write belongs
+	 * @param fence the {@link FencingToken} of the holding this write belongs
 	 *   to, when the run is claimed. A store that supports claims REFUSES a
 	 *   write whose fence is below the run's current one — that refusal is
 	 *   what makes a claim a lease rather than a suggestion, because a holder
@@ -378,7 +398,7 @@ export interface CheckpointStore {
 	writeCheckpoint(
 		scope: CheckpointRunScope,
 		checkpoint: IterationCheckpoint,
-		fence?: ClaimFence,
+		fence?: FencingToken,
 	): Promise<void>
 
 	/** Load a single checkpoint by id. Returns `null` when it does not exist. */
@@ -512,7 +532,7 @@ export interface CheckpointStore {
 	 *     claim from each other instantly. Use something per-process, not a
 	 *     per-deployment name.
 	 */
-	claimRun?(scope: CheckpointRunScope, options: ClaimRunOptions): Promise<RunClaim | null>
+	claimRun?(scope: CheckpointRunScope, options: ClaimRunOptions): Promise<RunLease | null>
 
 	/**
 	 * Give a claim up early. Idempotent: releasing a claim that already
@@ -528,5 +548,5 @@ export interface CheckpointStore {
 	 * difference, never a correctness one, which is the property that lets a
 	 * crashed worker be indistinguishable from a slow one.
 	 */
-	releaseRun?(scope: CheckpointRunScope, fence: ClaimFence): Promise<void>
+	releaseRun?(scope: CheckpointRunScope, fence: FencingToken): Promise<void>
 }

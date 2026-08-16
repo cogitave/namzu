@@ -9,7 +9,7 @@
  * subscription rather than to a capability.
  */
 
-import type { ClaimFence } from './checkpoint-store.js'
+import type { FencingToken } from './checkpoint-store.js'
 import type { PersistedRunEvent } from './events.js'
 
 /** What a consumer holds when it comes back. */
@@ -27,7 +27,7 @@ export interface RunEventCursor {
 	 * mismatch: it is an unfenced run, where the sequence is the only evidence
 	 * available and the log persisting is the assumption.
 	 */
-	readonly generation?: ClaimFence
+	readonly generation?: FencingToken
 }
 
 /** Why a cursor could not be honoured. */
@@ -68,7 +68,7 @@ export interface RunEventLogHead {
 	/** Highest sequence in the log; zero when it is empty. */
 	readonly lastSeq: number
 	/** The fence the run is being written under, when it holds a claim. */
-	readonly generation?: ClaimFence
+	readonly generation?: FencingToken
 }
 
 /**

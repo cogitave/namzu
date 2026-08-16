@@ -96,7 +96,7 @@
 import { link, mkdir, readFile, readdir, stat, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { NamzuError } from '../../types/errors/index.js'
-import type { ClaimFence, ClaimRunOptions, RunClaim } from '../../types/run/checkpoint-store.js'
+import type { ClaimRunOptions, FencingToken, RunLease } from '../../types/run/checkpoint-store.js'
 import { invariants } from '../../verification/invariants.js'
 
 /** Directory holding one file per holding, named for its fence. */
@@ -154,7 +154,7 @@ function isErrno(err: unknown, code: string): boolean {
  * could tell a clean release from a damaged record, and **nothing ever asked**
  * — the only reader was an exported `isReleased` with no caller anywhere, not
  * re-exported from the package and absent from the public surface baseline.
- * `ClaimSummary`, which is the type a listing row actually carries, never
+ * `LeaseSummary`, which is the type a listing row actually carries, never
  * gained a field for it, so the distinction the flag was written for was never
  * available at the place it was meant to serve.
  *
@@ -207,7 +207,7 @@ function isClaimBody(value: unknown): value is ClaimBody {
  */
 const NAME = /^([0-9]{1,15})\.json$/
 
-function nameFor(fence: ClaimFence): string {
+function nameFor(fence: FencingToken): string {
 	return `${fence}.json`
 }
 
@@ -252,7 +252,7 @@ let attempts = 0
  * acquisition the moment the store's base directory is a mount of its own.
  * That is a rule, not a preference.
  */
-function tempNameFor(fence: ClaimFence): string {
+function tempNameFor(fence: FencingToken): string {
 	attempts += 1
 	return `.tmp-${process.pid}-${attempts}-${Math.random().toString(36).slice(2, 10)}-${fence}`
 }
@@ -285,7 +285,7 @@ const NO_LINK = new Set(['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS', 'EXDEV', 'E
  * volume was available to measure; the error says so rather than implying a
  * diagnosis it did not make.
  */
-async function publish(claimsDir: string, fence: ClaimFence, body: ClaimBody): Promise<void> {
+async function publish(claimsDir: string, fence: FencingToken, body: ClaimBody): Promise<void> {
 	const tmp = join(claimsDir, tempNameFor(fence))
 
 	try {
@@ -355,7 +355,7 @@ async function publish(claimsDir: string, fence: ClaimFence, body: ClaimBody): P
  * deadline has to read the body, and {@link readClaim} is the only thing that
  * does.
  */
-async function listHoldings(runDir: string): Promise<{ name: string; fence: ClaimFence }[]> {
+async function listHoldings(runDir: string): Promise<{ name: string; fence: FencingToken }[]> {
 	let names: string[]
 	try {
 		names = await readdir(join(runDir, CLAIMS_DIR))
@@ -364,7 +364,7 @@ async function listHoldings(runDir: string): Promise<{ name: string; fence: Clai
 		throw err
 	}
 
-	const found: { name: string; fence: ClaimFence }[] = []
+	const found: { name: string; fence: FencingToken }[] = []
 	for (const name of names) {
 		const match = NAME.exec(name)
 		if (!match) continue
@@ -381,7 +381,7 @@ async function listHoldings(runDir: string): Promise<{ name: string; fence: Clai
  * asks, because a name cannot be half-written: a file either exists or does
  * not, where a body can be observed mid-write.
  */
-export async function currentFence(runDir: string): Promise<ClaimFence> {
+export async function currentFence(runDir: string): Promise<FencingToken> {
 	const holdings = await listHoldings(runDir)
 	return holdings[0]?.fence ?? 0
 }
@@ -398,7 +398,7 @@ export async function currentFence(runDir: string): Promise<ClaimFence> {
  * Failures are swallowed: pruning is housekeeping, and a run must not fail
  * because a tidy-up lost a race with another worker doing the same tidy-up.
  */
-async function prune(claimsDir: string, max: ClaimFence): Promise<void> {
+async function prune(claimsDir: string, max: FencingToken): Promise<void> {
 	let names: string[]
 	try {
 		names = await readdir(claimsDir)
@@ -455,7 +455,7 @@ async function prune(claimsDir: string, max: ClaimFence): Promise<void> {
  * details are unavailable", and the caller's response is to take the NEXT
  * number rather than to give up. Nothing is inferred from the absence.
  */
-export async function readClaim(runDir: string): Promise<RunClaim | null> {
+export async function readClaim(runDir: string): Promise<RunLease | null> {
 	const [top] = await listHoldings(runDir)
 	if (!top) return null
 
@@ -477,7 +477,7 @@ export async function readClaim(runDir: string): Promise<RunClaim | null> {
 	// leaves a run permanently unclaimable, which is the failure a lease
 	// exists to prevent — and the taker is safe regardless, because it takes
 	// the next fence and the write check compares numbers.
-	const claim: RunClaim = { holder: '', fence: top.fence, expiresAt: 0 }
+	const claim: RunLease = { holder: '', fence: top.fence, expiresAt: 0 }
 
 	let raw: string
 	try {
@@ -522,7 +522,7 @@ export async function readClaim(runDir: string): Promise<RunClaim | null> {
 export async function acquireClaim(
 	runDir: string,
 	options: ClaimRunOptions,
-): Promise<RunClaim | null> {
+): Promise<RunLease | null> {
 	const now = options.now ?? Date.now()
 	const claimsDir = join(runDir, CLAIMS_DIR)
 	await mkdir(claimsDir, { recursive: true })
@@ -572,7 +572,7 @@ export async function acquireClaim(
  * A stale fence releases nothing — a worker that stalled past its lease must
  * not be able to hand away a run somebody else now holds.
  */
-export async function releaseClaim(runDir: string, fence: ClaimFence): Promise<void> {
+export async function releaseClaim(runDir: string, fence: FencingToken): Promise<void> {
 	const held = await readClaim(runDir)
 	if (!held || held.fence !== fence) return
 
@@ -608,7 +608,7 @@ export async function releaseClaim(runDir: string, fence: ClaimFence): Promise<v
  */
 interface SingleOpenWriterContext {
 	readonly runDir: string
-	readonly presentedFence: ClaimFence
+	readonly presentedFence: FencingToken
 }
 
 invariants.register<SingleOpenWriterContext | undefined>(

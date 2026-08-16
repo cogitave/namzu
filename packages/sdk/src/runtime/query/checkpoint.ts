@@ -14,7 +14,7 @@ import type { AssistantMessage } from '../../types/message/index.js'
 import type {
 	CheckpointRunScope,
 	CheckpointStore,
-	ClaimFence,
+	FencingToken,
 } from '../../types/run/checkpoint-store.js'
 import type { EmergencySaveData } from '../../types/run/emergency.js'
 import type { CheckpointListEntry } from '../../types/run/replay.js'
@@ -193,7 +193,7 @@ export class CheckpointManager {
 	 * complete except for the wire between its halves reads exactly like a
 	 * working one.
 	 */
-	private claimFence?: ClaimFence
+	private claimFence?: FencingToken
 
 	/**
 	 * The run's attribution instant, stamped onto every checkpoint this
@@ -351,12 +351,12 @@ export class CheckpointManager {
 	 * takes the run, then builds the pipeline around it — and because a
 	 * renewal mints a NEW fence mid-run that has to replace the old one.
 	 */
-	setClaimFence(fence: ClaimFence | undefined): void {
+	setClaimFence(fence: FencingToken | undefined): void {
 		this.claimFence = fence
 	}
 
 	/** The claim currently presented on writes, if any. */
-	get presentedFence(): ClaimFence | undefined {
+	get presentedFence(): FencingToken | undefined {
 		return this.claimFence
 	}
 

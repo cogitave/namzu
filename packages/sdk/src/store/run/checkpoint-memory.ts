@@ -3,12 +3,12 @@ import type {
 	CheckpointListingScope,
 	CheckpointRunScope,
 	CheckpointStore,
-	ClaimFence,
 	ClaimRunOptions,
 	DurableRunEntry,
 	DurableRunPage,
+	FencingToken,
 	ListDurableRunsOptions,
-	RunClaim,
+	RunLease,
 } from '../../types/run/checkpoint-store.js'
 import {
 	assertContiguousListingScope,
@@ -45,7 +45,7 @@ export class InMemoryCheckpointStore implements CheckpointStore {
 	}
 
 	/** `tenant/project/session/run` → the run's current holding, if any. */
-	private readonly claims = new Map<string, RunClaim>()
+	private readonly claims = new Map<string, RunLease>()
 
 	/**
 	 * The highest fence ever issued per run, kept separately from the claim.
@@ -61,9 +61,9 @@ export class InMemoryCheckpointStore implements CheckpointStore {
 	 * must agree, because this class is what a host reads when writing a
 	 * backend of its own.
 	 */
-	private readonly highWater = new Map<string, ClaimFence>()
+	private readonly highWater = new Map<string, FencingToken>()
 
-	async claimRun(scope: CheckpointRunScope, options: ClaimRunOptions): Promise<RunClaim | null> {
+	async claimRun(scope: CheckpointRunScope, options: ClaimRunOptions): Promise<RunLease | null> {
 		const key = this.key(scope)
 		const now = options.now ?? Date.now()
 		const held = this.claims.get(key)
@@ -80,13 +80,13 @@ export class InMemoryCheckpointStore implements CheckpointStore {
 		// released run has no claim, and computing from that absence is what
 		// rewound the counter to 1 on every release.
 		const fence = (this.highWater.get(key) ?? 0) + 1
-		const claim: RunClaim = { holder: options.holder, fence, expiresAt: now + options.ttlMs }
+		const claim: RunLease = { holder: options.holder, fence, expiresAt: now + options.ttlMs }
 		this.highWater.set(key, fence)
 		this.claims.set(key, claim)
 		return claim
 	}
 
-	async releaseRun(scope: CheckpointRunScope, fence: ClaimFence): Promise<void> {
+	async releaseRun(scope: CheckpointRunScope, fence: FencingToken): Promise<void> {
 		const key = this.key(scope)
 		const held = this.claims.get(key)
 		// A stale fence releases nothing. A worker that stalled past its lease
@@ -112,7 +112,7 @@ export class InMemoryCheckpointStore implements CheckpointStore {
 	async writeCheckpoint(
 		scope: CheckpointRunScope,
 		checkpoint: IterationCheckpoint,
-		fence?: ClaimFence,
+		fence?: FencingToken,
 	): Promise<void> {
 		const key = this.key(scope)
 		// An unfenced write is allowed even on a claimed run: a host adopting
