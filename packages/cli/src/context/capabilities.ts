@@ -1,7 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
-import { createRequire } from 'node:module'
-import { dirname, join } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { dirname, isAbsolute, join } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 
 /**
  * The tri-state probe for an optional package: not installed, installed and
@@ -123,18 +122,58 @@ function readVersionNear(fromFile: string): string {
  * is what lets a test drive all three states without being able to
  * uninstall or break a real optional package inside a test run.
  */
-export async function probeOptionalPackage(specifier: string): Promise<CapabilityProbe> {
-	const require = createRequire(import.meta.url)
-	let resolved: string
-	try {
-		resolved = require.resolve(specifier)
-	} catch {
-		return { state: 'absent', specifier }
+/**
+ * Find a package's directory by walking `node_modules` upward, or null.
+ *
+ * This is the question the probe is actually asking — IS IT ON DISK — and
+ * neither module resolver answers it. `require.resolve` asks whether CJS may
+ * load the package's entry point, and every optional package here is
+ * ESM-only with an `exports` map that declares `import` and no `default`, so
+ * it throws `ERR_PACKAGE_PATH_NOT_EXPORTED` for a package that is installed
+ * and working. `import.meta.resolve` asks the right question but does not
+ * exist under the test runner's module transform, so a probe built on it
+ * cannot be exercised by the tests that are supposed to hold it.
+ *
+ * Walking for `<dir>/node_modules/<specifier>/package.json` is resolver-
+ * agnostic, works in both, and is what "installed" means. It follows pnpm's
+ * symlinked layout the same way Node does — `existsSync` resolves the link.
+ */
+function findPackageDir(specifier: string, fromFile: string): string | null {
+	let dir = dirname(fromFile)
+	for (;;) {
+		const candidate = join(dir, 'node_modules', specifier, 'package.json')
+		if (existsSync(candidate)) return dirname(candidate)
+		const parent = dirname(dir)
+		if (parent === dir) return null
+		dir = parent
 	}
+}
+
+export async function probeOptionalPackage(specifier: string): Promise<CapabilityProbe> {
+	// A test drives all three states with a fixture FILE, because there is no
+	// way to uninstall or break a real optional package inside a test run.
+	if (isAbsolute(specifier)) {
+		try {
+			await import(pathToFileURL(specifier).href)
+			return { state: 'present', specifier, version: readVersionNear(specifier) }
+		} catch (err) {
+			return {
+				state: 'broken',
+				specifier,
+				error: err instanceof Error ? err : new Error(String(err)),
+			}
+		}
+	}
+
+	const packageDir = findPackageDir(specifier, fileURLToPath(import.meta.url))
+	if (!packageDir) return { state: 'absent', specifier }
 	try {
-		await import(pathToFileURL(resolved).href)
-		return { state: 'present', specifier, version: readVersionNear(resolved) }
+		await import(specifier)
+		return { state: 'present', specifier, version: readVersionNear(join(packageDir, 'index.js')) }
 	} catch (err) {
+		// On disk and unusable. Kept apart from `absent` because the two send a
+		// reader to different places: "install it" is useless advice to
+		// somebody who already has.
 		return {
 			state: 'broken',
 			specifier,

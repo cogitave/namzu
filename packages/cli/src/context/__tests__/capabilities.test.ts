@@ -149,3 +149,39 @@ describe('capabilityCheckId', () => {
 		expect(new Set(ids).size).toBe(ids.length)
 	})
 })
+
+describe('an ESM-only package that IS installed', () => {
+	/**
+	 * The regression this file did not have, and the one that made every
+	 * fixture-driven test above pass against a probe that was wrong in
+	 * production.
+	 *
+	 * Every test above drives an absolute FIXTURE PATH, because there is no
+	 * way to uninstall a real package inside a test run. None of them touches
+	 * the branch that resolves a bare specifier — and that branch used
+	 * `require.resolve`, which throws `ERR_PACKAGE_PATH_NOT_EXPORTED` for a
+	 * package whose `exports` map declares `import` without `default`. Every
+	 * optional package here is exactly that shape, so `@namzu/files` and
+	 * `@namzu/telemetry` were reported "not installed (optional package)" on
+	 * machines where both were installed and working, and `namzu doctor` said
+	 * so out loud.
+	 *
+	 * `@namzu/sdk` is what hid it: its exports map carries a `default`
+	 * condition, so it was the one specifier that resolved, and anyone
+	 * spot-checking the probe against it saw the right answer.
+	 */
+	it('reports present, not absent', async () => {
+		const probe = await probeOptionalPackage('@namzu/files')
+
+		expect(probe.state).toBe('present')
+		if (probe.state === 'present') expect(probe.version).toMatch(/^\d+\./)
+	})
+
+	it('still reports absent for a specifier that really is not there', async () => {
+		// The other direction, so the test above cannot be satisfied by a probe
+		// that answers `present` unconditionally.
+		const probe = await probeOptionalPackage('@namzu/definitely-not-a-real-package')
+
+		expect(probe.state).toBe('absent')
+	})
+})
