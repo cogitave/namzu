@@ -1,4 +1,4 @@
-import { execSync } from 'node:child_process'
+import { spawnSync } from 'node:child_process'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -86,12 +86,40 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
  * tier `LocalSandboxProvider` can select.
  */
 function isRunning(token: string): boolean {
-	try {
-		execSync(`pgrep -f ${JSON.stringify(token)}`, { stdio: 'ignore' })
-		return true
-	} catch {
-		return false
-	}
+	return survivors(token).length > 0
+}
+
+/**
+ * The full command line of everything still matching `token`, so a failure
+ * NAMES what outlived the kill instead of asserting `true` was `false`.
+ *
+ * **`spawnSync`, not `execSync`, and that is the whole reason this suite
+ * ever went red.** `execSync` runs its argument through `/bin/sh -c`, which
+ * puts the token in that SHELL's own argv — and `pgrep -f` matches on the
+ * full command line, excluding only its own pid. Whether the shell is still
+ * there to be matched depends on the shell: `bash` exec-replaces itself with
+ * a lone simple command, so nothing is left and the probe answers honestly;
+ * `dash` (which is `/bin/sh` on ubuntu-latest, and so in CI) does not, so the
+ * probe matched ITSELF and every one of these three tests failed on a kill
+ * that had worked perfectly.
+ *
+ * `spawnSync` takes argv directly. There is no shell, so there is nothing
+ * holding the token but the processes this test is actually asking about.
+ * Verified both ways: under a `/bin/sh` that does not exec-optimize, the
+ * `execSync` form returns one phantom match and this form returns none.
+ *
+ * `-a` rather than a bare pid list: which process survived is the whole
+ * diagnosis. A wrapping shell left behind says the group signal never
+ * reached past the leader; the held `node` says it reached nothing at all.
+ */
+function survivors(token: string): string[] {
+	// pgrep exits 1 when nothing matched, which is the ordinary "all gone"
+	// answer — so the status is not read, only the output.
+	const found = spawnSync('pgrep', ['-af', token], { encoding: 'utf-8' })
+	return (found.stdout ?? '')
+		.split('\n')
+		.map((line) => line.trim())
+		.filter(Boolean)
 }
 
 describe.skipIf(process.platform === 'win32')('cancelling a sandboxed shell command', () => {
@@ -134,7 +162,7 @@ describe.skipIf(process.platform === 'win32')('cancelling a sandboxed shell comm
 		// did not finish the job.
 		await sleep(SANDBOX_KILL_GRACE_MS + 1_000)
 
-		expect(isRunning(token)).toBe(false)
+		expect(survivors(token)).toEqual([])
 
 		await sandbox.destroy()
 	}, 30_000)
@@ -179,7 +207,7 @@ describe.skipIf(process.platform === 'win32')('cancelling a sandboxed shell comm
 		}
 		const elapsed = Date.now() - abortedAt
 
-		expect(isRunning(token), 'the descendant outlived the SIGTERM').toBe(false)
+		expect(survivors(token), 'the descendant outlived the SIGTERM').toEqual([])
 		expect(elapsed, 'the tree only died once the grace period expired').toBeLessThan(
 			SANDBOX_KILL_GRACE_MS,
 		)
@@ -219,7 +247,7 @@ describe.skipIf(process.platform === 'win32')('cancelling a sandboxed shell comm
 		await running
 		await sleep(SANDBOX_KILL_GRACE_MS + 1_000)
 
-		expect(isRunning(token), 'a SIGTERM-ignoring descendant survived the kill').toBe(false)
+		expect(survivors(token), 'a SIGTERM-ignoring descendant survived the kill').toEqual([])
 
 		await sandbox.destroy()
 	}, 30_000)
