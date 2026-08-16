@@ -71,7 +71,17 @@ trap cleanup EXIT
 #
 # Applying the pending changesets first is what "pre-publish" was supposed to
 # mean. The manifests are restored on exit, including on failure.
-PENDING_CHANGESETS=$(find "$WORKSPACE_ROOT/.changeset" -maxdepth 1 -name '*.md' ! -name 'README.md' 2>/dev/null | head -1)
+#
+# `-quit` rather than `| head -1`, and this is a real defect that hid behind
+# a small `.changeset/`. Under `set -euo pipefail`, `head -1` closing the pipe
+# after one line sends `find` SIGPIPE; the pipeline reports 141 and `set -e`
+# kills the script before it does any of its work. With two or three
+# changesets `find` finishes before `head` exits and nothing happens — so the
+# gate passed for as long as nobody had a large batch pending, and started
+# exiting silently at 141 the moment somebody did.
+#
+# Exactly the shape of failure this gate exists to catch, in the gate itself.
+PENDING_CHANGESETS=$(find "$WORKSPACE_ROOT/.changeset" -maxdepth 1 -name '*.md' ! -name 'README.md' -print -quit 2>/dev/null)
 
 if [ -n "$PENDING_CHANGESETS" ]; then
   echo "=== Applying pending changesets to preview the shipping versions ==="
