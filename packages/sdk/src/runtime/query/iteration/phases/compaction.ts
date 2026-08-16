@@ -1,10 +1,10 @@
 import { resolveContextWindow } from '../../../../compaction/context-window.js'
-import { findDanglingMessages, findSafeTrimIndex } from '../../../../compaction/dangling.js'
+import { findDanglingMessages } from '../../../../compaction/dangling.js'
+import { planCompaction } from '../../../../compaction/plan.js'
 import type { ContextReducer, ContextReduction } from '../../../../compaction/reducer.js'
 import { createSlidingWindowReducer } from '../../../../compaction/reducer.js'
 import { findRetainedIndices } from '../../../../compaction/retention.js'
 import { serializeState } from '../../../../compaction/serializer.js'
-import { clearStaleToolResults } from '../../../../compaction/tool-result-editing.js'
 import { buildVerifiedSummary } from '../../../../compaction/verifier.js'
 import { CHARS_PER_TOKEN } from '../../../../constants/limits.js'
 import { invariants } from '../../../../invariants/index.js'
@@ -27,18 +27,6 @@ const COMPACTION_HEADER =
 export function isCompactionMessage(content: string | null | undefined): boolean {
 	return typeof content === 'string' && content.startsWith(COMPACTION_HEADER)
 }
-
-/**
- * Minimum number of compactable (older) messages required before a compaction
- * pass is worth running. When there is NOTHING between the never-trimmed
- * leading floor and the recent window, a pass would only replace nothing with a
- * `[COMPACTED CONTEXT]` summary that joins the floor — pure overhead that fires
- * again next iteration (the permanent-floor thrash, ses_055 D7). Set to the
- * literal EMPTY guard so any existing compaction consumer with ≥1 older message
- * stays byte-identical; the per-iteration Vandal path additionally defangs the
- * cost with `llmVerification:false`.
- */
-const MIN_OLDER_MESSAGES_TO_COMPACT = 1
 
 /**
  * How much a forced pass must shed before the turn is worth retrying.
@@ -70,40 +58,6 @@ function measureContentChars(content: unknown): number {
 		else if (block.type === 'image' && typeof block.data === 'string') total += block.data.length
 	}
 	return total
-}
-
-/**
- * The last index whose tail fits in `budgetTokens`, walking backwards.
- *
- * Replaces the naive count boundary and nothing else — the caller runs the
- * existing `findSafeTrimIndex` search downward from whatever this returns,
- * so the `tool_use` ↔ `tool_result` pairing guarantee is untouched by
- * construction rather than by care.
- *
- * Floored at one message. A single final message larger than the whole
- * budget still has to be kept: it is the live turn, and dropping it to
- * satisfy a size preference would delete the thing the run is answering.
- * The existing "did the pass reach reset threshold" report says so
- * afterwards, which is the honest outcome rather than a silent one.
- */
-export const __naiveKeepStartByTokensForTests = (
-	messages: readonly Message[],
-	budgetTokens: number,
-): number => naiveKeepStartByTokens(messages, budgetTokens)
-
-function naiveKeepStartByTokens(messages: readonly Message[], budgetTokens: number): number {
-	let tokens = 0
-	let start = messages.length
-	for (let index = messages.length - 1; index >= 0; index--) {
-		const cost = Math.ceil(measureContentChars(messages[index]?.content) / CHARS_PER_TOKEN)
-		// Checked BEFORE adding, so the boundary never includes a message
-		// that pushes the tail over. Adding first and trimming after would
-		// admit one oversized message on every run.
-		if (start < messages.length && tokens + cost > budgetTokens) break
-		tokens += cost
-		start = index
-	}
-	return start
 }
 
 function estimateMessageTokens(messages: readonly Message[]): number {
@@ -497,144 +451,100 @@ export async function runCompactionCheck(
 	// already read and moved past. Clearing those keeps every message
 	// verbatim, and keeps `tool_use` ↔ `tool_result` pairing intact by
 	// construction, because nothing moves.
-	if (config.clearToolResults !== false) {
-		const edit = clearStaleToolResults(ctx.runMgr.messages, {
-			...(config.keepRecentToolResults !== undefined
-				? { keepRecentToolResults: config.keepRecentToolResults }
-				: {}),
-			...(config.minToolResultCharsToClear !== undefined
-				? { minCharsToClear: config.minToolResultCharsToClear }
-				: {}),
-			...(config.preserveToolResultsFrom ? { preserveTools: config.preserveToolResultsFrom } : {}),
+	//
+	// The decision is `planCompaction`'s; installing it is this file's. The
+	// planner touches no `ctx` at all, which is what lets the boundary
+	// arithmetic be tested without a run.
+	const clearPlan = planCompaction({
+		messages: ctx.runMgr.messages,
+		config,
+		contextWindowTokens: budget,
+		estimatedTokens,
+		...(options?.force ? { force: true } : {}),
+	})
+
+	if (clearPlan.kind === 'cleared') {
+		// Element-wise, not a rebuild: the edit is length-preserving by
+		// construction (only `content` changes), so writing entries back
+		// keeps the live array identity the rest of the run holds.
+		const live = ctx.runMgr.messages
+		clearPlan.messages.forEach((msg, i) => {
+			live[i] = msg
 		})
 
-		if (edit.clearedCount > 0) {
-			// Element-wise, not a rebuild: the edit is length-preserving by
-			// construction (only `content` changes), so writing entries back
-			// keeps the live array identity the rest of the run holds.
-			const live = ctx.runMgr.messages
-			edit.messages.forEach((msg, i) => {
-				live[i] = msg
-			})
+		ctx.log.info('Cleared stale tool results instead of compacting', {
+			runId: ctx.runMgr.id,
+			cleared: clearPlan.clearedCount,
+			charsReclaimed: clearPlan.charsReclaimed,
+			reclaimedTokens: clearPlan.reclaimedTokens,
+		})
 
-			const reclaimedTokens = Math.ceil(edit.charsReclaimed / CHARS_PER_TOKEN)
-			ctx.log.info('Cleared stale tool results instead of compacting', {
-				runId: ctx.runMgr.id,
-				cleared: edit.clearedCount,
-				charsReclaimed: edit.charsReclaimed,
-				reclaimedTokens,
-			})
+		// Emitted BEFORE the return so the insufficient branch is not the
+		// silent one: a clear that fell through to summarization edited the
+		// history exactly as much as one that did not.
+		await ctx.emitEvent?.({
+			type: 'compaction_tool_results_cleared',
+			runId: ctx.runMgr.id,
+			iteration: ctx.runMgr.currentIteration,
+			clearedCount: clearPlan.clearedCount,
+			charsReclaimed: clearPlan.charsReclaimed,
+			reclaimedTokens: clearPlan.reclaimedTokens,
+			reliefWasEnough: clearPlan.reliefWasEnough,
+		})
 
-			// If that was enough, stop here and keep the history verbatim.
-			// The measurement is an estimate either way; the provider's own
-			// count for the NEXT turn will correct it, and an over-eager
-			// summarization is far more costly than one late pass.
-			//
-			// NOT on a forced pass. A forced pass runs because the provider
-			// REJECTED the prompt as too long, which is a measurement — and
-			// this branch would answer it with the same estimate the provider
-			// just refuted, declare success after clearing one result, and
-			// hand back a history that overflows again on the retry. The
-			// estimate is the thing that was proven wrong; it does not get to
-			// end the pass.
-			// Decided BEFORE the event so both branches carry the same fact,
-			// and emitted before the return so the insufficient branch is not
-			// the silent one. A clear that fell through to summarization edited
-			// the history exactly as much as one that did not.
-			const reliefWasEnough =
-				!options?.force && (estimatedTokens - reclaimedTokens) / budget < config.triggerThreshold
+		// If that was enough, stop here and keep the history verbatim. The
+		// measurement is an estimate either way; the provider's own count for
+		// the NEXT turn will correct it, and an over-eager summarization is
+		// far more costly than one late pass.
+		if (clearPlan.reliefWasEnough) return
+	}
 
-			await ctx.emitEvent?.({
-				type: 'compaction_tool_results_cleared',
-				runId: ctx.runMgr.id,
-				iteration: ctx.runMgr.currentIteration,
-				clearedCount: edit.clearedCount,
-				charsReclaimed: edit.charsReclaimed,
-				reclaimedTokens,
-				reliefWasEnough,
-			})
+	// Second call, over the history the clear above may have just edited.
+	// `skipToolResultClear` because that step already ran and installed its
+	// result; asking again would clear nothing and say so as a `cleared`
+	// with a zero count, which is a shape this branch would have to ignore.
+	const messages = ctx.runMgr.messages
+	const plan = planCompaction({
+		messages,
+		config,
+		contextWindowTokens: budget,
+		estimatedTokens,
+		skipToolResultClear: true,
+		...(options?.force ? { force: true } : {}),
+	})
 
-			// If that was enough, stop here and keep the history verbatim.
-			if (reliefWasEnough) {
-				return
+	if (plan.kind !== 'plan') {
+		// One log line per reason, with the fields each one was already
+		// reporting. The planner names the reason; what it means to an
+		// operator reading a run is this file's to say.
+		if (plan.kind === 'skip') {
+			switch (plan.reason) {
+				case 'too_few_messages':
+					ctx.log.debug('Not enough messages to compact', {
+						messageCount: messages.length,
+						keepRecentMessages: config.keepRecentMessages,
+					})
+					break
+				case 'no_safe_cut':
+					ctx.log.debug('Skipping compaction — no safe cut at or below the naive boundary', {
+						runId: ctx.runMgr.id,
+						systemMessages: messages.filter((m) => m.role === 'system').length,
+						messageCount: messages.length,
+					})
+					break
+				case 'too_few_older':
+					ctx.log.debug('Skipping compaction — too few older messages', {
+						runId: ctx.runMgr.id,
+					})
+					break
+				case 'no_system_floor':
+					break
 			}
 		}
-	}
-
-	const messages = ctx.runMgr.messages
-	if (messages.length < config.keepRecentMessages + 2) {
-		ctx.log.debug('Not enough messages to compact', {
-			messageCount: messages.length,
-			keepRecentMessages: config.keepRecentMessages,
-		})
 		return
 	}
 
-	const systemMessages: typeof messages = []
-	for (const msg of messages) {
-		if (msg.role !== 'system') break
-		systemMessages.push(msg)
-	}
-	if (systemMessages.length === 0) return
-
-	// Tool-pair atomicity guard. A naive cut at `length - keepRecentMessages`
-	// can land BETWEEN an assistant-with-toolCalls (which would be dropped into
-	// `olderMessages`) and its `tool` results (kept in `recentMessages`),
-	// leaving orphaned `tool_result` blocks at the head of the recent window.
-	// The provider then emits a `tool_result` with no matching
-	// `tool_use` and the API rejects the next turn with a 400 — so compaction,
-	// whose whole job is to keep a long run alive, instead kills it. Snap the
-	// boundary FORWARD to a safe point (existing `findSafeTrimIndex`, previously
-	// only wired to the unused ConversationManager strategy classes) so no pair
-	// is split. Any message this moves out of the recent window is already
-	// represented in the extracted WorkingState the summary is built from.
-	const naiveKeepStart =
-		config.keepRecentTokens === undefined
-			? messages.length - config.keepRecentMessages
-			: naiveKeepStartByTokens(messages, config.keepRecentTokens)
-	let keepStart = -1
-	for (let candidate = naiveKeepStart; candidate > systemMessages.length; candidate--) {
-		if (findSafeTrimIndex(messages, candidate) === candidate) {
-			keepStart = candidate
-			break
-		}
-	}
-
-	// No safe boundary at or below naive. Either every candidate splits a pair-set
-	// (one assistant fanning out more calls than the recent window holds), or naive
-	// itself sits inside the leading system prefix — which would otherwise
-	// duplicate those prompts into `recentMessages`. Skipping costs one iteration's
-	// worth of context headroom; cutting anyway costs the live turn. The condition
-	// is self-clearing: the next assistant message moves naive past the tool block.
-	if (keepStart < 0) {
-		ctx.log.debug('Skipping compaction — no safe cut at or below the naive boundary', {
-			runId: ctx.runMgr.id,
-			naiveKeepStart,
-			systemMessages: systemMessages.length,
-			messageCount: messages.length,
-		})
-		return
-	}
-
-	const recentMessages = messages.slice(keepStart)
-	const olderMessages = messages.slice(systemMessages.length, keepStart)
-
-	// D7: nothing meaningful to compact — skip instead of thrashing the
-	// permanent leading floor every iteration (and avoid an LLM verification
-	// call when there is no older history to summarize).
-	//
-	// This guard used to be gated on `contextWindowTokens != null` to keep
-	// the tokenBudget path byte-identical. That path's actual behavior was
-	// "never fires", so there is nothing left to preserve — and now that the
-	// trigger works, an ungated consumer would thrash. Same for the prior-
-	// summary replacement below.
-	if (olderMessages.length < MIN_OLDER_MESSAGES_TO_COMPACT) {
-		ctx.log.debug('Skipping compaction — too few older messages', {
-			runId: ctx.runMgr.id,
-			olderMessages: olderMessages.length,
-		})
-		return
-	}
+	const { systemMessages, olderMessages, recentMessages, keepStart } = plan
 
 	let compactedContent: string
 
@@ -647,7 +557,7 @@ export async function runCompactionCheck(
 		const compactionModel = resolveTaskModel('compaction', ctx.taskRouter, ctx.runConfig.model)
 		compactedContent = await buildVerifiedSummary(
 			manager,
-			olderMessages,
+			olderMessages as Message[],
 			ctx.provider,
 			config,
 			(usage) =>

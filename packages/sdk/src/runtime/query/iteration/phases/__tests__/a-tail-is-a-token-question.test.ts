@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
+import { naiveKeepStartByTokens as __naiveKeepStartByTokensForTests } from '../../../../../compaction/plan.js'
 import { CompactionConfigSchema } from '../../../../../config/runtime.js'
 import type { Message } from '../../../../../types/message/index.js'
-import { __naiveKeepStartByTokensForTests } from '../compaction.js'
 
 /**
  * `keepRecentMessages` cannot say what a tail costs.
