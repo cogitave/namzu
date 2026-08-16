@@ -21,6 +21,7 @@ import {
 	installProcessSink,
 } from '@namzu/sdk'
 
+import { acpCommand } from './commands/acp.js'
 import { doctorCommand } from './commands/doctor.js'
 import { drainCommand } from './commands/drain.js'
 import { evalCommand } from './commands/eval.js'
@@ -156,6 +157,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 	registerAll(
 		program,
 		[
+			acpCommand,
 			doctorCommand,
 			runCommand,
 			loginCommand,

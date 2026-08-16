@@ -634,6 +634,22 @@ export {
 	mapSessionToStreamEvent,
 } from './bridge/sse/index.js'
 
+export { ACPServer, toAcpSessionUpdate, toAcpStopReason } from './bridge/acp/index.js'
+export type { AcpAgentGateway, AcpServerOptions } from './bridge/acp/index.js'
+export type {
+	AcpClientCapabilities,
+	AcpInitializeParams,
+	AcpInitializeResult,
+	AcpSessionCancelParams,
+	AcpSessionNewParams,
+	AcpSessionNewResult,
+	AcpSessionPromptParams,
+	AcpSessionPromptResult,
+	AcpSessionUpdate,
+	AcpSessionUpdateNotification,
+	AcpStopReason,
+} from './types/acp/index.js'
+
 // ─── bus, verification ───────────────────────────────────────────────────
 
 export {
