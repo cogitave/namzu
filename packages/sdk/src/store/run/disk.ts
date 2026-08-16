@@ -110,7 +110,10 @@ export class RunDiskStore implements RunStore {
 				// the same reason: every whole line before it is still good,
 				// and refusing the whole trail over one incomplete tail entry
 				// would discard evidence the crash did not actually destroy.
-				continue
+				//
+				// Deliberately empty: the skip IS the handling. There was a
+				// `continue` here, which read as intent but sat last in the
+				// loop body and did nothing.
 			}
 		}
 		return events

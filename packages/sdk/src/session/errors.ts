@@ -53,8 +53,7 @@ export class ProjectRootPathTakenError extends Error {
 
 	constructor(readonly details: { rootPath: string; existingProjectId: ProjectId }) {
 		super(
-			`A project already exists for ${details.rootPath}: ${details.existingProjectId}. ` +
-				'Use findProjectByRootPath to get it, or create this project without a rootPath.',
+			`A project already exists for ${details.rootPath}: ${details.existingProjectId}. Use findProjectByRootPath to get it, or create this project without a rootPath.`,
 		)
 	}
 }
