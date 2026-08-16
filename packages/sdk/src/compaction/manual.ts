@@ -1,0 +1,177 @@
+import type { CompactionConfig } from '../config/runtime.js'
+import { NamzuError } from '../types/errors/index.js'
+import type { Message } from '../types/message/index.js'
+import type { LLMProvider } from '../types/provider/index.js'
+import { resolveContextWindow } from './context-window.js'
+import { findDanglingMessages, findSafeTrimIndex } from './dangling.js'
+import { WorkingStateManager } from './manager.js'
+import { planCompaction } from './plan.js'
+import { buildCompactionMessage, isCompactionMessage } from './summary.js'
+import { buildVerifiedSummary } from './verifier.js'
+
+/**
+ * Compaction a host can ask for, rather than one that only happens to it.
+ *
+ * `runCompactionCheck` was the only entry point in the kernel and it was
+ * exported from nowhere. So a host could not offer "compact this
+ * conversation", could not shrink an idle session sitting between turns,
+ * and could not collapse a span it had chosen — every compaction had to
+ * wait for the in-loop threshold or a provider overflow retry.
+ *
+ * These are that entry point, built on the planner rather than on a second
+ * copy of the boundary arithmetic. Nothing here touches an
+ * `IterationContext`: there is no run, which is the whole point.
+ */
+
+export interface CompactionResult {
+	/** The new history. A fresh array — the input is never edited. */
+	readonly messages: readonly Message[]
+	/** How many messages the pass removed. Always at least one. */
+	readonly shed: number
+	/** The summary that replaced them, as it appears in `messages`. */
+	readonly summary: Message
+}
+
+export interface CompactNowInput {
+	readonly messages: readonly Message[]
+	readonly config: CompactionConfig
+	readonly provider: LLMProvider
+	readonly model?: string
+	readonly contextWindowTokens?: number
+}
+
+/** Assembles the new history from a plan's partition plus its summary. */
+function splice(
+	systemMessages: readonly Message[],
+	summaryBody: string,
+	recentMessages: readonly Message[],
+): { messages: Message[]; summary: Message } {
+	const summary = buildCompactionMessage(summaryBody)
+	// Any PRIOR summary is dropped: the state a summary is built from is
+	// cumulative, so a new one supersedes it. Without this the never-trimmed
+	// floor accumulates one redundant block per pass, unbounded.
+	const preserved = systemMessages.filter(
+		(m) => !isCompactionMessage(typeof m.content === 'string' ? m.content : null),
+	)
+	return { messages: [...preserved, summary, ...recentMessages], summary }
+}
+
+/**
+ * Compact a history now, whatever its size.
+ *
+ * Returns `null` when there is nothing to shed — not a zero-shed result.
+ * A caller has to be able to tell "I compacted and it did nothing" from "I
+ * compacted", and an outcome object reporting zero is the shape that gets
+ * logged as a successful pass and shown to a user as work done.
+ */
+export async function compactNow(input: CompactNowInput): Promise<CompactionResult | null> {
+	const window = resolveContextWindow(
+		input.contextWindowTokens ?? input.config.contextWindowTokens,
+		input.model,
+	)
+
+	// `force` because a host asked. The threshold exists to decide whether an
+	// automatic pass is worth its model call; somebody clicking "compact"
+	// has already answered that question.
+	const plan = planCompaction({
+		messages: input.messages,
+		config: input.config,
+		contextWindowTokens: window.tokens,
+		estimatedTokens: window.tokens,
+		force: true,
+		skipToolResultClear: true,
+	})
+	if (plan.kind !== 'plan') return null
+
+	const manager = new WorkingStateManager(input.config)
+	const body = await buildVerifiedSummary(
+		manager,
+		[...plan.olderMessages],
+		input.provider,
+		input.config,
+		undefined,
+		input.model ?? '',
+	)
+
+	const { messages, summary } = splice(plan.systemMessages, body, plan.recentMessages)
+	return { messages, shed: input.messages.length - messages.length, summary }
+}
+
+export interface CompactRegionInput extends CompactNowInput {
+	/** First index to summarise, inclusive. */
+	readonly start: number
+	/** One past the last index to summarise. */
+	readonly end: number
+}
+
+/**
+ * Compact exactly the span a host chose, or refuse.
+ *
+ * REFUSES rather than repairing. Snapping a bad edge to the nearest safe
+ * one would return a different span than the one asked for, and the caller
+ * — who picked those indices from something they were looking at — has no
+ * way to notice: the result is a valid history that summarised the wrong
+ * messages. `refuse-do-not-degrade`, and the offending index is named so
+ * the caller can move it themselves.
+ */
+export async function compactRegion(input: CompactRegionInput): Promise<CompactionResult | null> {
+	const { messages, start, end } = input
+
+	if (!Number.isInteger(start) || !Number.isInteger(end) || start < 0 || end > messages.length) {
+		throw new NamzuError({
+			code: 'invalid_config',
+			message: `compactRegion: [${start}, ${end}) is not a range inside a history of ${messages.length} messages.`,
+			details: { start, end, length: messages.length },
+			retryable: false,
+		})
+	}
+	if (end - start < 1) return null
+
+	for (const [label, index] of [
+		['start', start],
+		['end', end],
+	] as const) {
+		// `findSafeTrimIndex` returns the nearest index that does NOT split a
+		// tool-call pair. Anything other than the index itself means this edge
+		// sits between an assistant's `tool_use` and its `tool_result`, and
+		// cutting there leaves the provider a result with no matching call —
+		// which it rejects on the next turn.
+		if (findSafeTrimIndex(messages as Message[], index) !== index) {
+			throw new NamzuError({
+				code: 'invalid_config',
+				message: `compactRegion: ${label} index ${index} splits a tool_use/tool_result pair. Move it to a boundary between turns.`,
+				details: { [label]: index, start, end },
+				retryable: false,
+			})
+		}
+	}
+
+	const manager = new WorkingStateManager(input.config)
+	const body = await buildVerifiedSummary(
+		manager,
+		messages.slice(start, end),
+		input.provider,
+		input.config,
+		undefined,
+		input.model ?? '',
+	)
+
+	const summary = buildCompactionMessage(body)
+	const out = [...messages.slice(0, start), summary, ...messages.slice(end)]
+
+	// Checked after the splice, not only before it. The edges being
+	// individually safe does not make the RESULT valid — a span whose
+	// interior held one half of a pair straddling `start` would pass both
+	// edge checks and produce an orphan.
+	const dangling = findDanglingMessages(out)
+	if (!dangling.isValid) {
+		throw new NamzuError({
+			code: 'invalid_config',
+			message: `compactRegion: summarising [${start}, ${end}) would leave an unmatched tool result. Widen the span to cover the whole exchange.`,
+			details: { start, end },
+			retryable: false,
+		})
+	}
+
+	return { messages: out, shed: messages.length - out.length, summary }
+}

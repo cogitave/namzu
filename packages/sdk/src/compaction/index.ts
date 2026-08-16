@@ -57,3 +57,9 @@ export {
 	DEFAULT_MIN_CHARS_TO_CLEAR,
 } from './tool-result-editing.js'
 export type { ToolResultEditConfig, ToolResultEditOutcome } from './tool-result-editing.js'
+
+// Host-callable compaction: "compact this conversation" as an action a host
+// can offer, rather than something that only happens when a threshold trips.
+export { compactNow, compactRegion } from './manual.js'
+export type { CompactionResult, CompactNowInput, CompactRegionInput } from './manual.js'
+export { COMPACTION_HEADER, buildCompactionMessage, isCompactionMessage } from './summary.js'

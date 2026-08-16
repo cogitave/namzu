@@ -5,28 +5,20 @@ import type { ContextReducer, ContextReduction } from '../../../../compaction/re
 import { createSlidingWindowReducer } from '../../../../compaction/reducer.js'
 import { findRetainedIndices } from '../../../../compaction/retention.js'
 import { serializeState } from '../../../../compaction/serializer.js'
+import { buildCompactionMessage, isCompactionMessage } from '../../../../compaction/summary.js'
 import { buildVerifiedSummary } from '../../../../compaction/verifier.js'
 import { CHARS_PER_TOKEN } from '../../../../constants/limits.js'
 import { invariants } from '../../../../invariants/index.js'
 import { resolveTaskModel } from '../../../../model-router/task-router.js'
 import type { Message } from '../../../../types/message/index.js'
-import { createSystemMessage } from '../../../../types/message/index.js'
 import type { IterationContext } from './context.js'
 import { isWorkingMemoryMessage } from './working-memory.js'
 
-const COMPACTION_HEADER =
-	'[COMPACTED CONTEXT] The following is a structured summary of the conversation so far.'
-
-/**
- * Identity check for a prior compaction summary in the leading floor. Used to
- * REPLACE one in place on the per-iteration (contextWindowTokens) path so at
- * most one `[COMPACTED CONTEXT]` block ever lives in the never-trimmed floor,
- * and by the checkpoint-restore path to PRESERVE the summary across a resume
- * (it is the only surviving record of the older history the run compacted away).
- */
-export function isCompactionMessage(content: string | null | undefined): boolean {
-	return typeof content === 'string' && content.startsWith(COMPACTION_HEADER)
-}
+// `isCompactionMessage` and the header moved to `compaction/summary.ts` —
+// this phase is a layer ABOVE that module, so nothing down there could
+// reach them, and a host-callable compaction needs both. Re-exported here
+// because `runtime/query/index.ts` already imports it from this path.
+export { isCompactionMessage } from '../../../../compaction/summary.js'
 
 /**
  * How much a forced pass must shed before the turn is worth retrying.
@@ -577,7 +569,7 @@ export async function runCompactionCheck(
 		compactedContent = serializeState(manager.getState())
 	}
 
-	const compactionMessage = createSystemMessage(`${COMPACTION_HEADER}\n\n${compactedContent}`)
+	const compactionMessage = buildCompactionMessage(compactedContent)
 
 	// Drop any PRIOR `[COMPACTED CONTEXT]` summary from the leading floor —
 	// `serializeState` is cumulative, so the new summary supersedes it.

@@ -796,6 +796,12 @@ export { assertTaskStatus, isTerminalTaskStatus } from './types/task/index.js'
 
 // ─── compaction runtime ──────────────────────────────────────────────────
 
+// Compaction a host can ASK for. `runCompactionCheck` was the only entry
+// point in the kernel and was exported from nowhere, so a host could not
+// offer "compact this conversation", could not shrink an idle session
+// between turns, and could not collapse a span it had chosen.
+export { compactNow, compactRegion } from './compaction/manual.js'
+
 export {
 	buildVerifiedSummary,
 	DEFAULT_ASSUMED_CONTEXT_WINDOW,
