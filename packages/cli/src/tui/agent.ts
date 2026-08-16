@@ -22,6 +22,7 @@
  */
 
 import {
+	type AuthorizationRule,
 	BOOT_EVENT_NAMES,
 	type CheckpointStore,
 	type CostInfo,
@@ -53,7 +54,6 @@ import {
 	type ToolCallSummary,
 	ToolRegistry,
 	type TopicId,
-	type VerificationRule,
 	buildMemoryTools,
 	createMemoryPromoter,
 	getBuiltinTools,
@@ -584,7 +584,7 @@ export interface AgentSessionOptions {
 	 * gate's whole existence: every mutating call fell through to the prompt.
 	 * That stays the behaviour for anyone who writes no config.
 	 */
-	readonly rules?: readonly VerificationRule[]
+	readonly rules?: readonly AuthorizationRule[]
 	/** How calls no rule decided are resolved. Defaults to prompt/auto by TTY. */
 	readonly permissionMode?: PermissionMode
 	/**
@@ -1397,7 +1397,7 @@ const VERIFICATION_GATE = {
 	allowReadOnlyTools: true,
 	denyDangerousPatterns: true,
 	logDecisions: false,
-	rules: [] as VerificationRule[],
+	rules: [] as AuthorizationRule[],
 }
 
 /**
@@ -1410,7 +1410,7 @@ const VERIFICATION_GATE = {
  * read-only allowance is now consulted AFTER the operator's rules, so
  * `read = "ask"` is reachable instead of silently unreachable.
  */
-function gateFor(rules: readonly VerificationRule[] | undefined) {
+function gateFor(rules: readonly AuthorizationRule[] | undefined) {
 	return { ...VERIFICATION_GATE, rules: [...(rules ?? [])] }
 }
 
@@ -1467,7 +1467,7 @@ interface RunTurnParams {
 	/** Directory every filesystem tool in this turn resolves against. */
 	readonly workingDirectory: string
 	/** Operator rules for this run, already compiled. */
-	readonly rules: readonly VerificationRule[] | undefined
+	readonly rules: readonly AuthorizationRule[] | undefined
 	readonly permissionMode: PermissionMode | undefined
 	/** Standing verdict on the answer this turn settles with. See {@link AgentSessionOptions}. */
 	readonly reviewAnswer: ReviewAnswer | undefined

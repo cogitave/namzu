@@ -18,7 +18,7 @@ import { describe, expect, it } from 'vitest'
 import type { ToolDefinition } from '../types/tool/index.js'
 import type { Logger } from '../utils/logger.js'
 
-import { VerificationGate } from './gate.js'
+import { AuthorizationGate } from './gate.js'
 import { defaultSandboxedGateConfig, defaultSandboxedShellGateConfig } from './presets.js'
 
 const silentLog: Logger = {
@@ -42,7 +42,7 @@ function fakeTool(overrides: Partial<ToolDefinition>): ToolDefinition {
 }
 
 describe('defaultSandboxedGateConfig', () => {
-	const gate = new VerificationGate(defaultSandboxedGateConfig(), silentLog)
+	const gate = new AuthorizationGate(defaultSandboxedGateConfig(), silentLog)
 
 	it('auto-allows tools that report read-only', () => {
 		const tool = fakeTool({ name: 'read_file', isReadOnly: () => true })
@@ -93,7 +93,7 @@ describe('defaultSandboxedGateConfig', () => {
 })
 
 describe('defaultSandboxedShellGateConfig', () => {
-	const gate = new VerificationGate(defaultSandboxedShellGateConfig(), silentLog)
+	const gate = new AuthorizationGate(defaultSandboxedShellGateConfig(), silentLog)
 
 	it('auto-allows safe bash inside the sandbox', () => {
 		const tool = fakeTool({ name: 'bash', category: 'shell' })

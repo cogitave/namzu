@@ -7,7 +7,7 @@
  * would look exactly like this change from the outside.
  */
 
-import { VerificationGate, configureLogger, getRootLogger } from '@namzu/sdk'
+import { AuthorizationGate, configureLogger, getRootLogger } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -151,7 +151,7 @@ describe('the rules actually decide a real call', () => {
 	// shape assertion. These drive the kernel's own gate instead.
 	function decide(config: Parameters<typeof compilePermissions>[0], tool: string, input: unknown) {
 		const { rules } = compilePermissions(config)
-		const gate = new VerificationGate(
+		const gate = new AuthorizationGate(
 			{
 				enabled: true,
 				rules: [...rules],
@@ -234,7 +234,7 @@ describe('the rules actually decide a real call', () => {
 			// Anyone reasoning "the floor would catch it" is reasoning about a
 			// check that does not cover this.
 			const { rules } = compilePermissions(ALLOW_GIT_STATUS)
-			const gate = new VerificationGate(
+			const gate = new AuthorizationGate(
 				{
 					enabled: true,
 					rules: [...rules],
@@ -327,7 +327,7 @@ describe('what a denial actually says to the model', () => {
 		input: unknown,
 	) {
 		const { rules } = compilePermissions(config)
-		const gate = new VerificationGate(
+		const gate = new AuthorizationGate(
 			{
 				enabled: true,
 				rules: [...rules],

@@ -52,7 +52,7 @@ export type * from './types/sandbox/index.js'
 export type * from './types/structured-output/index.js'
 export type * from './types/invocation/index.js'
 export type * from './types/computer-use/index.js'
-export type * from './types/verification/index.js'
+export type * from './types/authorization/index.js'
 export type * from './types/bus/index.js'
 export type * from './types/probe/index.js'
 export type * from './types/doctor/index.js'
@@ -179,7 +179,7 @@ export type { MappedStreamEvent } from './bridge/sse/index.js'
 
 export type { AgentBusConfig } from './bus/index.js'
 
-export type { ToolCallContext } from './verification/index.js'
+export type { ToolCallContext } from './authorization/index.js'
 
 export type { DiskSessionStoreConfig, LinkageView } from './store/session/index.js'
 

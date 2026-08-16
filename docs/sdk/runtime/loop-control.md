@@ -721,7 +721,7 @@ model accepts is the driver's to resolve, not the kernel's. See
 
 ## 8. Guardrails
 
-The three gates on tool calls — probe veto, `VerificationGate`, HITL review
+The three gates on tool calls — probe veto, `AuthorizationGate`, HITL review
 — all point the same way: they protect the world from the agent. Guardrails
 are the other direction.
 

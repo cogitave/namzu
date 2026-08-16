@@ -150,7 +150,7 @@ export interface IterationContext {
 
 	readonly agentBus?: AgentBus
 
-	readonly verificationGate?: import('../../../../verification/gate.js').VerificationGate
+	readonly verificationGate?: import('../../../../authorization/gate.js').AuthorizationGate
 
 	readonly pluginManager?: import('../../../../plugin/lifecycle.js').PluginLifecycleManager
 

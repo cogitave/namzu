@@ -176,7 +176,7 @@ export interface BaseAgentConfig {
 	 * however carefully its parent had been wired.
 	 *
 	 * What that cost is narrower than "no gate in children" and worth
-	 * stating exactly. A `VerificationGate` DENY still bites inside a
+	 * stating exactly. A `AuthorizationGate` DENY still bites inside a
 	 * child, because denials are threaded into the executor and no later
 	 * approval releases them. What was lost is the REVIEW tier: every call
 	 * the gate left undecided went to the resume handler, and for a child

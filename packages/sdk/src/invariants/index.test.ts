@@ -15,7 +15,7 @@ import {
 	ModuleInvariantError,
 	createInvariantRegistry,
 	invariants,
-} from './invariants.js'
+} from './index.js'
 
 /**
  * Importing `runCompactionCheck` and `acquireClaim` above is not only for

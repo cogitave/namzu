@@ -6,6 +6,7 @@ import {
 	TriggerEvaluator,
 	assertBudgetEnforceable,
 } from '../../advisory/index.js'
+import { AuthorizationGate } from '../../authorization/gate.js'
 import { findDanglingMessages, removeDanglingMessages } from '../../compaction/dangling.js'
 import { extractFromUserMessage } from '../../compaction/extractor.js'
 import { WorkingStateManager } from '../../compaction/manager.js'
@@ -47,6 +48,7 @@ import type { AdvisoryConfig } from '../../types/advisory/index.js'
 import type { AgentRuntimeContext, RuntimeToolOverrides } from '../../types/agent/base.js'
 import type { AgentContextLevel } from '../../types/agent/factory.js'
 import type { WorkingMemoryProvider } from '../../types/agent/working-memory.js'
+import type { AuthorizationGateConfig } from '../../types/authorization/index.js'
 import { NamzuError } from '../../types/errors/index.js'
 import type { InputGuardrailSpec, OutputGuardrailSpec } from '../../types/guardrail/index.js'
 import {
@@ -85,13 +87,11 @@ import type { StructuredOutputConfig } from '../../types/structured-output/index
 import type { TaskStore } from '../../types/task/index.js'
 import type { ToolRegistryContract } from '../../types/tool/index.js'
 import type { RepairToolCall } from '../../types/tool/repair.js'
-import type { VerificationGateConfig } from '../../types/verification/index.js'
 import type { BackoffPolicy } from '../../utils/backoff.js'
 import type { ModelPricing } from '../../utils/cost.js'
 import { generateRunId } from '../../utils/id.js'
 import { EVENT_NAME_ATTRIBUTE } from '../../utils/log/types.js'
 import { pickRenamed } from '../../utils/renamed-field.js'
-import { VerificationGate } from '../../verification/gate.js'
 import { CheckpointManager } from './checkpoint.js'
 import { RunContextFactory } from './context.js'
 import { EventTranslator } from './events.js'
@@ -606,7 +606,13 @@ export interface QueryParams {
 
 	agentBus?: import('../../bus/index.js').AgentBus
 
-	verificationGate?: VerificationGateConfig
+	/**
+	 * @deprecated Renamed to `authorizationGate`. Removed in the next major.
+	 * Setting both to different configs throws.
+	 */
+	verificationGate?: AuthorizationGateConfig
+
+	authorizationGate?: AuthorizationGateConfig
 
 	pluginManager?: import('../../plugin/lifecycle.js').PluginLifecycleManager
 
@@ -1194,8 +1200,20 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		}
 	}
 
-	const verificationGate = params.verificationGate?.enabled
-		? new VerificationGate(params.verificationGate, ctx.log)
+	// One resolve, one construction. Four sites read this field, and had
+	// each read `params.verificationGate` directly a host that set only the
+	// new name would get a gate on one path and none on another — which for
+	// an AUTHORIZATION gate means a tool call permitted somewhere it should
+	// have been refused. That is the failure this field's window has to not
+	// have.
+	const gateConfig = pickRenamed(
+		'verificationGate',
+		params.verificationGate,
+		'authorizationGate',
+		params.authorizationGate,
+	)
+	const verificationGate = gateConfig?.enabled
+		? new AuthorizationGate(gateConfig, ctx.log)
 		: undefined
 
 	const iterationOrchestrator = new IterationOrchestrator({

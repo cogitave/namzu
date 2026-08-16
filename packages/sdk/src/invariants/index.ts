@@ -1,3 +1,13 @@
+// Module self-checks: what a module says about its OWN live state, asked
+// at the moment somebody wants to know.
+//
+// This lived in `src/verification/` beside the tool-authorization gate, and
+// moved out when that directory became `src/authorization/` — because it is
+// the one thing in there that genuinely verifies a claim. Merging it into
+// `authorization/` would have put a registry of module invariants inside a
+// module named for deciding whether a tool call is permitted, which is a
+// worse home than the one it started in.
+
 import { ManagedRegistry } from '../registry/ManagedRegistry.js'
 
 /**

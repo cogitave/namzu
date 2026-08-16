@@ -23,6 +23,7 @@
  * the tests, and it silently empties the deprecated view.
  */
 
+import { AuthorizationGate } from './authorization/gate.js'
 import { collectChatCompletion } from './provider/collect-chat-completion.js'
 import { BaseRegistry } from './registry/BaseRegistry.js'
 import { PromptCache, type PromptCacheConfig } from './runtime/query/prompt-cache.js'
@@ -72,3 +73,14 @@ export const LocalTaskGateway = LocalTaskScheduler
  * @deprecated Renamed to {@link LocalTaskScheduler}. Removed in the next major.
  */
 export type LocalTaskGateway = LocalTaskScheduler
+
+/**
+ * @deprecated Renamed to {@link AuthorizationGate}. Removed in the next
+ * major. It decides whether a tool call is permitted before the call runs;
+ * it does not verify anything after the fact.
+ */
+export const VerificationGate = AuthorizationGate
+/**
+ * @deprecated Renamed to {@link AuthorizationGate}. Removed in the next major.
+ */
+export type VerificationGate = AuthorizationGate

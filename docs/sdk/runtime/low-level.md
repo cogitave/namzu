@@ -19,13 +19,13 @@ Use the low-level runtime when you need:
 - plugin manager, task router, agent bus, or compaction wiring
 - custom resume-handler behavior for HITL review or checkpoints
 
-If you only need messages, tools, provider, IDs, and a final result, stay with `ReactiveAgent.run()`. `verificationGate` is also accepted directly on `ReactiveAgentConfig` and `SupervisorAgentConfig`, so a policy gate alone does not require dropping below the high-level surface.
+If you only need messages, tools, provider, IDs, and a final result, stay with `ReactiveAgent.run()`. `authorizationGate` is also accepted directly on `ReactiveAgentConfig` and `SupervisorAgentConfig`, so a policy gate alone does not require dropping below the high-level surface.
 
 ## 2. `ReactiveAgent.run()` vs `drainQuery()`
 
 | Surface | Best for | Notable limits |
 | --- | --- | --- |
-| `ReactiveAgent.run()` | Standard app integrations and quickstarts | Does not expose the genuinely query-only runtime fields (`pluginManager`, `taskRouter`, `agentBus`, `contextCache`). `verificationGate`, `sandboxProvider` and `compactionConfig` ARE on `ReactiveAgentConfig` and forwarded into `drainQuery` |
+| `ReactiveAgent.run()` | Standard app integrations and quickstarts | Does not expose the genuinely query-only runtime fields (`pluginManager`, `taskRouter`, `agentBus`, `contextCache`). `authorizationGate`, `sandboxProvider` and `compactionConfig` ARE on `ReactiveAgentConfig` and forwarded into `drainQuery` |
 | `drainQuery()` | Low-level runtime control with a final `AgentRun` result | You supply more runtime wiring yourself |
 | `query()` | Full async-generator control over every emitted event | You manage iteration over the generator directly |
 
@@ -82,7 +82,7 @@ const run = await drainQuery(
     sessionId: generateSessionId(),
     tenantId: generateTenantId(),
     resumeHandler: autoApproveHandler,
-    verificationGate: {
+    authorizationGate: {
       enabled: true,
       allowReadOnlyTools: true,
       denyDangerousPatterns: true,
@@ -101,7 +101,7 @@ console.log(run.result)
 This example shows the main low-level boundary:
 
 - `runConfig` still carries model, budget, and permission settings
-- query-only fields such as `sandboxProvider`, `pluginManager`, and `agentBus` live beside that config; `verificationGate` is also accepted here but is *also* exposed on `ReactiveAgentConfig` and `SupervisorAgentConfig`, so dropping to `drainQuery` is not required just to enable a policy gate
+- query-only fields such as `sandboxProvider`, `pluginManager`, and `agentBus` live beside that config; `authorizationGate` is also accepted here but is *also* exposed on `ReactiveAgentConfig` and `SupervisorAgentConfig`, so dropping to `drainQuery` is not required just to enable a policy gate
 - `drainQuery()` still returns the same final `AgentRun` shape that high-level agent flows assemble
 
 ## 4. What `drainQuery()` Gives You
@@ -180,7 +180,7 @@ Use this pattern when a transport layer or UI needs every incremental event as i
 
 That is the main reason this page exists: these are real public runtime features, but they are lower-level than the first-run agent API.
 
-`verificationGate` is intentionally **not** in this table — it is exposed on both `ReactiveAgentConfig` and `SupervisorAgentConfig` and forwarded into `drainQuery` automatically. It still appears in the `drainQuery()` example above because the low-level surface accepts it too; just don't read that as "you have to drop here to use it."
+`authorizationGate` is intentionally **not** in this table — it is exposed on both `ReactiveAgentConfig` and `SupervisorAgentConfig` and forwarded into `drainQuery` automatically. It still appears in the `drainQuery()` example above because the low-level surface accepts it too; just don't read that as "you have to drop here to use it."
 
 ## 7. Resume Handlers and HITL
 
@@ -293,7 +293,7 @@ Two runtime fields are easy to confuse:
 
 | Field | Role | Where exposed |
 | --- | --- | --- |
-| `verificationGate` | Decide whether a tool call should proceed | `ReactiveAgentConfig`, `SupervisorAgentConfig`, and `QueryParams` |
+| `authorizationGate` | Decide whether a tool call should proceed | `ReactiveAgentConfig`, `SupervisorAgentConfig`, and `QueryParams` |
 | `sandboxProvider` | Constrain what sandbox-aware tools can do if the call proceeds | `QueryParams` only (low-level) |
 
 This separation matters operationally:
@@ -360,7 +360,7 @@ if (run.lastProviderError?.kind === 'bad_request') {
 
 | Mistake | Why it breaks |
 | --- | --- |
-| assuming `ReactiveAgent.run()` exposes every runtime field | query-only controls such as `sandboxProvider`, `pluginManager`, and `agentBus` are lower-level (note: `verificationGate` IS on `ReactiveAgentConfig`) |
+| assuming `ReactiveAgent.run()` exposes every runtime field | query-only controls such as `sandboxProvider`, `pluginManager`, and `agentBus` are lower-level (note: `authorizationGate` IS on `ReactiveAgentConfig`) |
 | forgetting `resumeHandler` when calling `query()` | `query()` requires it directly, unlike `drainQuery()` |
 | skipping `workingDirectory` | filesystem tools and path layout lose their stable base path |
 | treating `mapRunToStreamEvent()` as the final result channel | completion still comes from generator completion or `drainQuery()` |

@@ -4,8 +4,8 @@ import { z } from 'zod'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { ToolRegistry } from '../../../registry/index.js'
 import { defineTool } from '../../../tools/defineTool.js'
+import type { AuthorizationGateConfig } from '../../../types/authorization/index.js'
 import type { MockTurn } from '../../../types/provider/index.js'
-import type { VerificationGateConfig } from '../../../types/verification/index.js'
 import {
 	generateProjectId,
 	generateSessionId,
@@ -50,7 +50,7 @@ function tools() {
 }
 
 /** Operator policy: this one command is forbidden, whoever asks. */
-const gate: VerificationGateConfig = {
+const gate: AuthorizationGateConfig = {
 	enabled: true,
 	rules: [
 		{ type: 'custom_pattern', pattern: 'rm -rf', target: 'args', decision: 'deny' },

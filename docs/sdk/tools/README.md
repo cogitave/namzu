@@ -525,7 +525,7 @@ This keeps GUI automation inside the standard tool pipeline instead of creating 
 Tool execution is shaped by more than the tool function itself:
 
 - `permissionMode: 'plan'` blocks non-read-only tools
-- `VerificationGate` can allow, deny, or review a tool call
+- `AuthorizationGate` can allow, deny, or review a tool call
 - sandbox-aware tools can execute inside a constrained environment
 - destructive flags can feed HITL or other policy layers
 

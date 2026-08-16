@@ -7,7 +7,7 @@
  * `--permission-mode auto` able to run something the operator wrote `deny` for.
  */
 
-import { VerificationGate, configureLogger, getRootLogger } from '@namzu/sdk'
+import { AuthorizationGate, configureLogger, getRootLogger } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 
 import { makeResumeHandler } from '../../tui/agent.js'
@@ -52,7 +52,7 @@ describe('resolving the mode from flag, alias and terminal', () => {
 describe('a mode decides only what no rule decided', () => {
 	function gate(config: Parameters<typeof compilePermissions>[0]) {
 		const { rules } = compilePermissions(config)
-		return new VerificationGate(
+		return new AuthorizationGate(
 			{
 				enabled: true,
 				rules: [...rules],

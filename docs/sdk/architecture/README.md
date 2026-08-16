@@ -36,7 +36,7 @@ If you are new to the SDK internals, read these pages in order:
 3. [Folder Reference](./folder-reference.md) for the "why does this folder exist?" overview.
 4. [Foundation Folders](./foundation-folders.md) for `types/`, `contracts/`, `constants/`, `config/`, `utils/`, and `version.ts`.
 5. [Execution Folders](./execution-folders.md) for `agents/`, `runtime/`, `compaction/`, `manager/`, `registry/`, and routing.
-6. [Session and Store Folders](./session-and-store-folders.md) for `session/`, `store/`, and `gateway/`.
+6. [Session and Store Folders](./session-and-store-folders.md) for `session/`, `store/`, and `scheduler/`.
 7. [Integration Folders](./integration-folders.md) for `provider/`, `connector/`, `bridge/`, `tools/`, `plugin/`, `persona/`, `skills/`, `rag/`, and `advisory/`.
 8. [Runtime Pipeline](./runtime-pipeline.md) for the execution path of a run.
 9. [State and Persistence](./state-and-persistence.md) for sessions, stores, checkpoints, and disk layout.
@@ -55,13 +55,13 @@ Execution Core
   agents/ runtime/ compaction/ run/ execution/ manager/ registry/
 
 State and Durability
-  session/ store/ gateway/
+  session/ store/ scheduler/
 
 Extension Surfaces
   provider/ connector/ bridge/ plugin/ persona/ skills/ rag/ advisory/ tools/
 
 Safety and Operations
-  sandbox/ verification/ bus/ telemetry/ vault/
+  sandbox/ authorization/ bus/ telemetry/ vault/
 ```
 
 ## 4. What This Section Optimizes For

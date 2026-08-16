@@ -557,8 +557,8 @@ export {
 	defaultSandboxedShellGateConfig,
 	describeRule,
 	evaluateRule,
-	VerificationGate,
-} from './verification/index.js'
+	AuthorizationGate,
+} from './authorization/index.js'
 
 // NZ-BOOT-03: the module-attributed invariant registry. `compaction.ts` and
 // `claim-disk.ts` register themselves against the shared `invariants`
@@ -572,8 +572,8 @@ export {
 	invariants,
 	InvariantRegistry,
 	ModuleInvariantError,
-} from './verification/index.js'
-export type { InvariantCheck, InvariantOutcome } from './verification/index.js'
+} from './invariants/index.js'
+export type { InvariantCheck, InvariantOutcome } from './invariants/index.js'
 
 // ─── probe (typed observation AND enforcement over AgentBus + RunEvent) ──
 //
@@ -780,7 +780,7 @@ export {
 // one under the same name; `@namzu/sdk` root barrel exposes one symbol — the
 // config/runtime version is the canonical path. Keep it out of this block.
 export { assertTaskStatus, isTerminalTaskStatus } from './types/task/index.js'
-// NOTE: `VerificationRuleSchema` and `VerificationGateConfigSchema` are NOT
+// NOTE: `AuthorizationRuleSchema` and `AuthorizationGateConfigSchema` are NOT
 // re-exported — they were not part of the pre-ses_011 public surface.
 
 // ─── compaction runtime ──────────────────────────────────────────────────

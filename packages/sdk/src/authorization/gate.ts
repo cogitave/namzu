@@ -1,11 +1,11 @@
-import { MAX_CUSTOM_PATTERN_LENGTH } from '../constants/verification/index.js'
-import type { ToolDefinition } from '../types/tool/index.js'
+import { MAX_CUSTOM_PATTERN_LENGTH } from '../constants/authorization/index.js'
 import type {
+	AuthorizationGateConfig,
+	AuthorizationRule,
 	GateEvaluationResult,
-	VerificationGateConfig,
-	VerificationRule,
-} from '../types/verification/index.js'
-import { VerificationGateConfigSchema } from '../types/verification/index.js'
+} from '../types/authorization/index.js'
+import { AuthorizationGateConfigSchema } from '../types/authorization/index.js'
+import type { ToolDefinition } from '../types/tool/index.js'
 import type { Logger } from '../utils/logger.js'
 import { evaluateRule } from './rules.js'
 
@@ -30,7 +30,7 @@ export interface ToolCallContext {
  * cannot be reasoned about produces thrashing; one that can produces a route
  * around it.
  */
-export function describeRule(rule: VerificationRule): string {
+export function describeRule(rule: AuthorizationRule): string {
 	switch (rule.type) {
 		case 'deny_dangerous_patterns':
 			return 'this matches a pattern the operator refuses outright; rewording it will not help'
@@ -64,21 +64,21 @@ export function describeRule(rule: VerificationRule): string {
 	}
 }
 
-export class VerificationGate {
-	private readonly rules: VerificationRule[]
+export class AuthorizationGate {
+	private readonly rules: AuthorizationRule[]
 	private readonly compiledPatterns: Map<number, RegExp>
 	private readonly nameSets: Map<number, Set<string>>
 	private readonly log: Logger
 	private readonly logDecisions: boolean
 	private readonly enabled: boolean
 
-	constructor(config: VerificationGateConfig, log: Logger) {
-		const parsed = VerificationGateConfigSchema.parse(config)
-		this.log = log.child({ component: 'VerificationGate' })
+	constructor(config: AuthorizationGateConfig, log: Logger) {
+		const parsed = AuthorizationGateConfigSchema.parse(config)
+		this.log = log.child({ component: 'AuthorizationGate' })
 		this.logDecisions = parsed.logDecisions
 		this.enabled = parsed.enabled
 
-		const expandedRules: VerificationRule[] = []
+		const expandedRules: AuthorizationRule[] = []
 
 		// Order is the whole meaning of this list, because the first rule to
 		// match decides and nothing after it is consulted.

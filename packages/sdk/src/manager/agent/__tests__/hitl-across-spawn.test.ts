@@ -25,7 +25,7 @@ import { AgentManager } from '../lifecycle.js'
  * had been wired.
  *
  * The cost is narrower than "no gate in children", and worth stating
- * exactly. A `VerificationGate` DENY still bites inside a child, because
+ * exactly. A `AuthorizationGate` DENY still bites inside a child, because
  * denials are threaded into the executor and no later approval releases
  * them. What was lost is the REVIEW tier — every call the gate left
  * undecided reached the resume handler, and for a child that handler

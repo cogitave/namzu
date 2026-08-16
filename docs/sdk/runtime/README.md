@@ -99,7 +99,7 @@ If you are implementing against the SDK rather than only consuming the public AP
 | Telemetry startup and metrics | [SDK Observability](../observability/README.md) |
 | Foundation modules such as `types/` and `constants/` | [Foundation Folders](../architecture/foundation-folders.md) |
 | Agent execution, `runtime/`, `manager/`, and `compaction/` | [Execution Folders](../architecture/execution-folders.md) |
-| `session/`, `store/`, and `gateway/` boundaries | [Session and Store Folders](../architecture/session-and-store-folders.md) |
+| `session/`, `store/`, and `scheduler/` boundaries | [Session and Store Folders](../architecture/session-and-store-folders.md) |
 | Providers, connectors, bridges, tools, plugins, personas, and RAG | [Integration Folders](../architecture/integration-folders.md) |
 
 ## Related

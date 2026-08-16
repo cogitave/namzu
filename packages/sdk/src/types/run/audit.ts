@@ -6,7 +6,7 @@ import type { AuditEventId, RunId, TenantId } from '../ids/index.js'
  *
  * `'refused'` is a VALUE, not an absent record — the whole reason this type
  * exists rather than reusing whatever shape {@link import('./events.js').RunEvent}
- * already had. Before this, a permission denial (the `VerificationGate`) and
+ * already had. Before this, a permission denial (the `AuthorizationGate`) and
  * a guardrail block each produced nothing durable with cost/outcome/identity
  * attached — the one outcome an auditor most needs was the one absent from
  * the trail. See ses_020's logging design §5.

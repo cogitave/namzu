@@ -31,7 +31,7 @@ That is why the SDK keeps `types/`, `contracts/`, `constants/`, `config/`, `util
 | Core runtime | `agent/`, `run/`, `message/`, `decision/`, `task/`, `plan/` | Lets runtime, agents, managers, and stores share a common execution model |
 | Integration surfaces | `provider/`, `connector/`, `tool/`, `plugin/`, `skills/`, `persona/`, `computer-use/` | Keeps extension contracts stable even when implementations move outside the SDK |
 | State and memory | `session/`, `conversation/`, `memory/`, `activity/` | Makes persistence and lifecycle code depend on stable shapes |
-| Safety and operations | `permission/`, `verification/`, `sandbox/`, `telemetry/`, `bus/`, `invocation/` | Keeps guardrail code composable instead of embedding policy ad hoc |
+| Safety and operations | `permission/`, `authorization/`, `sandbox/`, `telemetry/`, `bus/`, `invocation/` | Keeps guardrail code composable instead of embedding policy ad hoc |
 | Protocol and compatibility | `a2a/`, `router/`, `structured-output/`, `common/`, `ids/` | Supports public or cross-cutting boundaries without leaking implementation details |
 
 ### 2.2 Why `types/` Is So Broad
@@ -76,7 +76,7 @@ Use this folder when the shape is about public exchange, protocol semantics, or 
 | `sandbox/` | Sandbox guardrail defaults |
 | `telemetry/` | Shared telemetry names and metric defaults |
 | `tools/` | Tool-level names and defaults |
-| `verification/` | Verification and review defaults |
+| `authorization/` | Authorization and review defaults |
 | `emergency.ts` | Emergency-save behavior constants |
 | `limits.ts` | Cross-runtime budget and limit constants |
 

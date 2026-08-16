@@ -1,18 +1,18 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { AuthorizationGate } from '../authorization/gate.js'
 import { findDanglingMessages } from '../compaction/dangling.js'
 import { MockLLMProvider } from '../provider/mock.js'
 import { ToolExecutor } from '../runtime/query/executor.js'
 import { IterationOrchestrator } from '../runtime/query/iteration/index.js'
 import { ActivityStore } from '../store/activity/memory.js'
+import type { AuthorizationGateConfig } from '../types/authorization/index.js'
 import type { HITLResumeDecision } from '../types/hitl/index.js'
 import type { RunId } from '../types/ids/index.js'
 import type { Message } from '../types/message/index.js'
 import type { RunEvent } from '../types/run/index.js'
 import type { ToolRegistryContract } from '../types/tool/index.js'
-import type { VerificationGateConfig } from '../types/verification/index.js'
 import type { Logger } from '../utils/logger.js'
-import { VerificationGate } from '../verification/gate.js'
 
 /**
  * The loop driven the way the SHIPPED CLI drives it, with a human who says
@@ -33,7 +33,7 @@ import { VerificationGate } from '../verification/gate.js'
 const RUN_ID = 'run_conformance' as RunId
 
 /** The CLI's gate, verbatim in shape: read-only allowed, dangerous denied. */
-const CLI_GATE: VerificationGateConfig = {
+const CLI_GATE: AuthorizationGateConfig = {
 	enabled: true,
 	rules: [],
 	allowReadOnlyTools: true,
@@ -150,7 +150,7 @@ function harness(opts: { decision: HITLResumeDecision; turns: unknown[] }) {
 		planManager: { active: undefined },
 		// The CLI's permission prompt resolves to exactly this.
 		resumeHandler: async () => opts.decision,
-		verificationGate: new VerificationGate(CLI_GATE, log),
+		verificationGate: new AuthorizationGate(CLI_GATE, log),
 		guard: {
 			beforeIteration: () => ({
 				shouldStop: iteration >= 4,

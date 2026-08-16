@@ -4,7 +4,7 @@
  * the React/Ink layer.
  */
 
-import type { VerificationRule } from '@namzu/sdk'
+import type { AuthorizationRule } from '@namzu/sdk'
 
 import type { SandboxConfig } from '../config/schema.js'
 import type { McpServersConfig } from '../integrations/mcp/servers.js'
@@ -65,7 +65,7 @@ export interface TuiContext {
 	 * even ask me", which is exactly what protects someone from approving by
 	 * reflex.
 	 */
-	readonly rules?: readonly VerificationRule[]
+	readonly rules?: readonly AuthorizationRule[]
 	/**
 	 * External tool servers from the operator's config, by the same reasoning as
 	 * `rules`: a config file belongs to the user, not to a command, and a server

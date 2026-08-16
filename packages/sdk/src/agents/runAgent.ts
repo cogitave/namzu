@@ -1,5 +1,6 @@
 import { ToolRegistry } from '../registry/tool/execute.js'
 import { drainQuery } from '../runtime/query/index.js'
+import type { AuthorizationGateConfig } from '../types/authorization/index.js'
 import type { ProjectId, SessionId, TenantId, TopicId } from '../types/ids/index.js'
 import type { Message } from '../types/message/index.js'
 import type { LLMProvider, ReasoningEffort, ThinkingConfig } from '../types/provider/index.js'
@@ -7,7 +8,6 @@ import type { Run, RunEventListener } from '../types/run/index.js'
 import type { Skill } from '../types/skills/index.js'
 import type { StructuredOutputConfig } from '../types/structured-output/index.js'
 import type { ToolRegistryContract } from '../types/tool/index.js'
-import type { VerificationGateConfig } from '../types/verification/index.js'
 import {
 	generateProjectId,
 	generateSessionId,
@@ -79,11 +79,17 @@ export interface RunAgentOptions extends AgentIdentity {
 	 *
 	 * Absent means every tool runs unreviewed, which is the right default for a
 	 * library front door and the wrong one for a host that hands this an agent
-	 * directory it did not write. The kernel builds a `VerificationGate` from
+	 * directory it did not write. The kernel builds a `AuthorizationGate` from
 	 * this and consults it on every call; without it there is nothing to
 	 * consult, so a front-door run is strictly less mediated than a kernel one.
 	 */
-	verificationGate?: VerificationGateConfig
+	/**
+	 * @deprecated Renamed to `authorizationGate`. Removed in the next major.
+	 * Setting both to different configs throws.
+	 */
+	verificationGate?: AuthorizationGateConfig
+
+	authorizationGate?: AuthorizationGateConfig
 
 	/** Defaults to the current working directory. */
 	workingDirectory?: string
@@ -248,6 +254,7 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
 			...(options.signal ? { signal: options.signal } : {}),
 			...(options.skills ? { skills: options.skills } : {}),
 			...(options.verificationGate ? { verificationGate: options.verificationGate } : {}),
+			...(options.authorizationGate ? { authorizationGate: options.authorizationGate } : {}),
 			...(options.structuredOutput ? { structuredOutput: options.structuredOutput } : {}),
 			...identity,
 		},

@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
+import type { AuthorizationGateConfig, AuthorizationRule } from '../../types/authorization/index.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
-import type { VerificationGateConfig, VerificationRule } from '../../types/verification/index.js'
 import { getRootLogger } from '../../utils/logger.js'
-import { VerificationGate } from '../gate.js'
+import { AuthorizationGate } from '../gate.js'
 
 /**
  * Every pattern rule an operator could write was one of two wrong things.
@@ -16,15 +16,15 @@ import { VerificationGate } from '../gate.js'
  * Pinning the tool cost the anchor; anchoring cost the tool scope.
  */
 
-function gate(rules: VerificationGateConfig['rules']): VerificationGate {
-	return new VerificationGate(
+function gate(rules: AuthorizationGateConfig['rules']): AuthorizationGate {
+	return new AuthorizationGate(
 		{
 			enabled: true,
 			rules,
 			allowReadOnlyTools: false,
 			denyDangerousPatterns: false,
 			logDecisions: false,
-		} as VerificationGateConfig,
+		} as AuthorizationGateConfig,
 		getRootLogger(),
 	)
 }
@@ -34,7 +34,7 @@ function toolDef(name: string): ToolDefinition {
 	return { name, isReadOnly: () => false } as unknown as ToolDefinition
 }
 
-const PUSH_RULE: VerificationRule = {
+const PUSH_RULE: AuthorizationRule = {
 	type: 'argument_pattern',
 	toolNames: ['bash'],
 	argument: 'command',
@@ -43,10 +43,10 @@ const PUSH_RULE: VerificationRule = {
 }
 
 function evaluate(
-	rules: VerificationGateConfig['rules'],
+	rules: AuthorizationGateConfig['rules'],
 	toolName: string,
 	toolInput: unknown,
-): ReturnType<VerificationGate['evaluate']> {
+): ReturnType<AuthorizationGate['evaluate']> {
 	return gate(rules).evaluate({ toolName, toolInput, toolDef: toolDef(toolName) })
 }
 
@@ -104,7 +104,7 @@ describe('what it deliberately does not decide', () => {
 		// and serialising it to try would put this rule back where
 		// `custom_pattern` already is. An operator who needs to refuse a tool
 		// over the SHAPE of its input wants deny_by_name.
-		const rule: VerificationRule = { ...PUSH_RULE, argument: 'env', pattern: 'PROD' }
+		const rule: AuthorizationRule = { ...PUSH_RULE, argument: 'env', pattern: 'PROD' }
 		const result = evaluate([rule], 'bash', { env: { NODE_ENV: 'PROD' } })
 
 		expect(result.decision).not.toBe('deny')
@@ -114,7 +114,7 @@ describe('what it deliberately does not decide', () => {
 		// These render unambiguously, so skipping them would be a fail-open
 		// with no upside: a rule about a numeric argument is a rule someone
 		// can reasonably write.
-		const rule: VerificationRule = {
+		const rule: AuthorizationRule = {
 			type: 'argument_pattern',
 			toolNames: ['sleep'],
 			argument: 'seconds',
@@ -139,7 +139,7 @@ describe('a rule that cannot be compiled decides nothing at all', () => {
 		// is defence in depth and NOT the mechanism: reversing those two lines
 		// fails nothing, which was measured rather than assumed. So this test
 		// pins the OUTCOME and the comment in the gate says which line to keep.
-		const broken: VerificationRule = { ...PUSH_RULE, pattern: '([unclosed' }
+		const broken: AuthorizationRule = { ...PUSH_RULE, pattern: '([unclosed' }
 		const result = evaluate([broken], 'bash', { command: 'ls' })
 
 		expect(result.decision).not.toBe('deny')
@@ -149,7 +149,7 @@ describe('a rule that cannot be compiled decides nothing at all', () => {
 		// The honest version of the mutation: remove the check that actually
 		// holds and this fails. A rule whose pattern never compiled has no
 		// pattern to test, so it must decide nothing even for a tool it names.
-		const broken: VerificationRule = { ...PUSH_RULE, pattern: '([unclosed' }
+		const broken: AuthorizationRule = { ...PUSH_RULE, pattern: '([unclosed' }
 
 		expect(evaluate([broken], 'bash', { command: 'git push origin main' }).decision).not.toBe(
 			'deny',

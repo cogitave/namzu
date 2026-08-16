@@ -63,7 +63,7 @@ That means `permissionMode: 'plan'` is not just a label. If a tool is not read-o
 
 ## 5. Verification Gate
 
-`VerificationGate` is the SDK's rule-based pre-execution decision layer.
+`AuthorizationGate` is the SDK's rule-based pre-execution decision layer.
 
 It evaluates a tool call into one of:
 
@@ -107,9 +107,9 @@ about, rather than an override of the rules they did.
 ## 6. Verification Gate Example
 
 ```ts
-import { VerificationGate, getRootLogger } from '@namzu/sdk'
+import { AuthorizationGate, getRootLogger } from '@namzu/sdk'
 
-const gate = new VerificationGate(
+const gate = new AuthorizationGate(
   {
     enabled: true,
     allowReadOnlyTools: true,
@@ -136,7 +136,7 @@ The important boundary is:
 - verification decides whether the call should proceed
 - sandboxing decides what the call can do if it proceeds
 
-High-level agent helpers (`ReactiveAgent.run()`, `SupervisorAgent.run()`) accept `verificationGate` directly via their config — both forward it through to `drainQuery`. Hosts that just need a sane default can pass the exported `defaultSandboxedGateConfig()` or `defaultSandboxedShellGateConfig()` preset.
+High-level agent helpers (`ReactiveAgent.run()`, `SupervisorAgent.run()`) accept `authorizationGate` directly via their config — both forward it through to `drainQuery`. Hosts that just need a sane default can pass the exported `defaultSandboxedGateConfig()` or `defaultSandboxedShellGateConfig()` preset.
 
 ### 6.1 Writing a pattern rule: which of the two
 
@@ -193,7 +193,7 @@ import { describeRule, evaluateRule } from '@namzu/sdk'
 ```
 
 A host driving the rule primitives directly — rather than through
-`VerificationGate` — was otherwise left holding a verdict with no words for it,
+`AuthorizationGate` — was otherwise left holding a verdict with no words for it,
 and the only way to say anything about a refusal was to switch on the rule's
 `type`. That names the *kind* of rule and nothing about what it said: not which
 tool, not which pattern, not whether a different input could ever help.
@@ -270,4 +270,4 @@ That pattern gives the model useful autonomy without treating every tool equally
 - [Run Configuration](../runtime/configuration.md)
 - [Low-Level Runtime](../runtime/low-level.md)
 - [Safety and Operations](../architecture/safety.md)
-- [VerificationGate Source](https://github.com/cogitave/namzu/blob/main/packages/sdk/src/verification/gate.ts)
+- [AuthorizationGate Source](https://github.com/cogitave/namzu/blob/main/packages/sdk/src/authorization/gate.ts)

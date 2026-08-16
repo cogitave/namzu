@@ -71,7 +71,7 @@ Why this matters:
 - session structure belongs in `session/`
 - task persistence belongs in `store/task/`
 - advisor logic belongs in `advisory/`
-- safety controls belong in `sandbox/`, `verification/`, and `bus/`
+- safety controls belong in `sandbox/`, `authorization/`, and `bus/`
 
 This keeps the runtime loop central without letting it absorb every neighboring concern.
 
@@ -101,7 +101,7 @@ That is why tool concerns are split across several folders:
 - `types/tool/` defines the shared contract
 - `registry/tool/` owns catalog and execution
 - `runtime/` decides when tools are exposed and how they are reviewed
-- `verification/` can gate them
+- `authorization/` can gate them
 - `sandbox/` can constrain them
 
 This design makes tools composable across many different runtime modes.
@@ -132,7 +132,7 @@ The safety model is intentionally spread across multiple folders:
 
 | Folder | Responsibility |
 | --- | --- |
-| `verification/` | Decide whether an action should be allowed, denied, or reviewed |
+| `authorization/` | Decide whether an action should be allowed, denied, or reviewed |
 | `sandbox/` | Constrain what an action can do if it runs |
 | `bus/` | Coordinate locks, edit ownership, and breaker state across runs |
 | `telemetry/` | Preserve visibility into what happened |

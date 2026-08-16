@@ -136,7 +136,7 @@ cover, passes. It raises the cost of the lazy attack. It is not a boundary.
 
 ## 3. Verification Gate
 
-`verification/gate.ts` is the rule-based pre-execution decision layer for tools:
+`authorization/gate.ts` is the rule-based pre-execution decision layer for tools:
 
 - it expands built-in rules such as read-only allow and dangerous-pattern deny
 - it compiles regex-based custom rules
@@ -208,4 +208,4 @@ That makes desktop automation fit into the same operational model as any other t
 - [Runtime Pipeline](./runtime-pipeline.md)
 - [Extensions and Integrations](./extensions.md)
 - [Sandbox Factory](https://github.com/cogitave/namzu/blob/main/packages/sdk/src/sandbox/factory.ts)
-- [Verification Gate](https://github.com/cogitave/namzu/blob/main/packages/sdk/src/verification/gate.ts)
+- [Verification Gate](https://github.com/cogitave/namzu/blob/main/packages/sdk/src/authorization/gate.ts)

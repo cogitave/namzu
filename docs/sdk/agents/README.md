@@ -90,7 +90,7 @@ console.log(result.result)
 
 Important boundary:
 
-- `ReactiveAgent.run()` is the high-level entrypoint and accepts `verificationGate` directly via `ReactiveAgentConfig` (mirrors `SupervisorAgentConfig`).
+- `ReactiveAgent.run()` is the high-level entrypoint and accepts `authorizationGate` directly via `ReactiveAgentConfig` (mirrors `SupervisorAgentConfig`).
 - If you need `sandboxProvider`, `pluginManager`, `agentBus`, custom event streaming, or other query-only fields, drop to [Low-Level Runtime](../runtime/low-level.md).
 
 ## 4. `PipelineAgent` Is for Deterministic Stages

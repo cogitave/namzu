@@ -90,9 +90,9 @@ Stores should not:
 - decide runtime policy
 - become the public definition surface for a domain
 
-## 5. `gateway/`
+## 5. `scheduler/`
 
-`gateway/` currently provides the local task gateway that hands work into manager-owned lifecycle.
+`scheduler/` currently provides the local task scheduler that hands work into manager-owned lifecycle.
 
 Why it is separate:
 
@@ -107,7 +107,7 @@ Use these rules when placing work:
 1. If you are defining lineage, retention, workspace, or handoff rules, it belongs in `session/`.
 2. If you are implementing disk or memory persistence, it belongs in `store/`.
 3. If you are coordinating runtime actions around those structures, it belongs in `manager/`.
-4. If you are exposing task ingress or handoff into the runtime, `gateway/` is the likely boundary.
+4. If you are exposing task ingress or handoff into the runtime, `scheduler/` is the likely boundary.
 
 ## Related
 

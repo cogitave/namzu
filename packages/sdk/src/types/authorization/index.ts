@@ -1,15 +1,15 @@
 import { z } from 'zod'
-import { MAX_CUSTOM_PATTERN_LENGTH } from '../../constants/verification/index.js'
+import { MAX_CUSTOM_PATTERN_LENGTH } from '../../constants/authorization/index.js'
 
 export type GateDecision = 'allow' | 'deny' | 'review'
 
 export interface GateEvaluationResult {
 	readonly decision: GateDecision
-	readonly matchedRule: VerificationRule | null
+	readonly matchedRule: AuthorizationRule | null
 	readonly reason: string
 }
 
-export type VerificationRule =
+export type AuthorizationRule =
 	| { type: 'allow_read_only' }
 	| { type: 'deny_dangerous_patterns' }
 	| { type: 'allow_by_category'; categories: string[] }
@@ -32,7 +32,7 @@ export type VerificationRule =
 			 * other tool's arguments.
 			 *
 			 * When you mean "this tool, this argument", use
-			 * {@link VerificationRule} `argument_pattern` instead. This one
+			 * {@link AuthorizationRule} `argument_pattern` instead. This one
 			 * stays for the case it is actually good at: matching anywhere in
 			 * the serialised input without caring where.
 			 */
@@ -108,7 +108,7 @@ const AllowByTierSchema = z.object({
 	tiers: z.array(z.string()),
 })
 
-export const VerificationRuleSchema = z.discriminatedUnion('type', [
+export const AuthorizationRuleSchema = z.discriminatedUnion('type', [
 	AllowReadOnlySchema,
 	DenyDangerousPatternsSchema,
 	AllowByCategorySchema,
@@ -119,12 +119,52 @@ export const VerificationRuleSchema = z.discriminatedUnion('type', [
 	AllowByTierSchema,
 ])
 
-export const VerificationGateConfigSchema = z.object({
+export const AuthorizationGateConfigSchema = z.object({
 	enabled: z.boolean().default(false),
-	rules: z.array(VerificationRuleSchema).default([]),
+	rules: z.array(AuthorizationRuleSchema).default([]),
 	allowReadOnlyTools: z.boolean().default(false),
 	denyDangerousPatterns: z.boolean().default(false),
 	logDecisions: z.boolean().default(true),
 })
 
-export type VerificationGateConfig = z.infer<typeof VerificationGateConfigSchema>
+export type AuthorizationGateConfig = z.infer<typeof AuthorizationGateConfigSchema>
+
+/**
+ * Old spellings, live for one deprecation window.
+ *
+ * A reader who saw `VerificationGate` expected something that verifies a
+ * claim — checks a signature, confirms an output matches a schema. This is
+ * a rule engine that decides, BEFORE a tool runs, whether the call is
+ * permitted: allow / deny / review, by name, category, tier or a pattern
+ * over the arguments. Every rule variant says so.
+ *
+ * The misreading was not academic. The module sat beside real guardrail and
+ * HITL neighbours, where "verification" actively suggests the post-hoc
+ * double-check the guardrails do.
+ */
+
+/**
+ * The two schemas below carry aliases too, and the task that specified this
+ * rename said they would not need any: `public-runtime.ts` records that they
+ * are deliberately not re-exported, so they looked unreachable.
+ *
+ * They were not. `public-types.ts` re-exports this module with
+ * `export type *`, which exports every name in TYPE position — including a
+ * `const`. So `import type { VerificationRuleSchema } from '@namzu/sdk'`
+ * compiled and `typeof VerificationRuleSchema` was a usable type, while
+ * importing it as a value failed with TS1362. Checked by compiling both
+ * forms against the built package rather than reading the barrel.
+ *
+ * Declared as `const` rather than `type` on purpose: a `type` alias would
+ * break `typeof`, which is the only way these were ever usable.
+ */
+
+/** @deprecated Renamed to {@link AuthorizationRuleSchema}. Removed in the next major. */
+export const VerificationRuleSchema = AuthorizationRuleSchema
+/** @deprecated Renamed to {@link AuthorizationGateConfigSchema}. Removed in the next major. */
+export const VerificationGateConfigSchema = AuthorizationGateConfigSchema
+
+/** @deprecated Renamed to {@link AuthorizationRule}. Removed in the next major. */
+export type VerificationRule = AuthorizationRule
+/** @deprecated Renamed to {@link AuthorizationGateConfig}. Removed in the next major. */
+export type VerificationGateConfig = AuthorizationGateConfig

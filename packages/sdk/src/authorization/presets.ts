@@ -1,4 +1,4 @@
-import type { VerificationGateConfig } from '../types/verification/index.js'
+import type { AuthorizationGateConfig } from '../types/authorization/index.js'
 
 /**
  * Sensible defaults for an agent that runs inside a host-provided
@@ -34,7 +34,7 @@ import type { VerificationGateConfig } from '../types/verification/index.js'
  *
  * Hosts override individual fields by spreading: `{ ...defaultSandboxedGateConfig(), logDecisions: false }`.
  */
-export function defaultSandboxedGateConfig(): VerificationGateConfig {
+export function defaultSandboxedGateConfig(): AuthorizationGateConfig {
 	return {
 		enabled: true,
 		allowReadOnlyTools: true,
@@ -62,7 +62,7 @@ export function defaultSandboxedGateConfig(): VerificationGateConfig {
  * other tenants, or when the working directory is the user's
  * actual home/repo without an extra isolation layer.
  */
-export function defaultSandboxedShellGateConfig(): VerificationGateConfig {
+export function defaultSandboxedShellGateConfig(): AuthorizationGateConfig {
 	return {
 		enabled: true,
 		allowReadOnlyTools: true,

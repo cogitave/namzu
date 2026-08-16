@@ -1,15 +1,15 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { AuthorizationGate } from '../../../../authorization/gate.js'
 import { findDanglingMessages } from '../../../../compaction/dangling.js'
 import { ActivityStore } from '../../../../store/activity/memory.js'
+import type { AuthorizationGateConfig } from '../../../../types/authorization/index.js'
 import type { HITLResumeDecision } from '../../../../types/hitl/index.js'
 import type { RunId } from '../../../../types/ids/index.js'
 import type { Message } from '../../../../types/message/index.js'
 import type { ChatCompletionResponse } from '../../../../types/provider/index.js'
 import type { ToolRegistryContract } from '../../../../types/tool/index.js'
-import type { VerificationGateConfig } from '../../../../types/verification/index.js'
 import type { Logger } from '../../../../utils/logger.js'
-import { VerificationGate } from '../../../../verification/gate.js'
 import { ToolExecutor } from '../../executor.js'
 import type { IterationContext } from './context.js'
 import { runToolReview } from './tool-review.js'
@@ -83,7 +83,7 @@ interface Harness {
 }
 
 /** The schema fills defaults; tests only state the rules they care about. */
-function gateConfig(partial: Partial<VerificationGateConfig>): VerificationGateConfig {
+function gateConfig(partial: Partial<AuthorizationGateConfig>): AuthorizationGateConfig {
 	return {
 		enabled: true,
 		rules: [],
@@ -95,7 +95,7 @@ function gateConfig(partial: Partial<VerificationGateConfig>): VerificationGateC
 }
 
 function harness(opts: {
-	gate?: VerificationGateConfig
+	gate?: AuthorizationGateConfig
 	decision?: HITLResumeDecision
 }): Harness {
 	const executed: string[] = []
@@ -164,7 +164,7 @@ function harness(opts: {
 		emitEvent: async () => {},
 		drainPending: async function* () {},
 		resumeHandler: async () => opts.decision ?? ({ action: 'approve_tools' } as HITLResumeDecision),
-		verificationGate: opts.gate ? new VerificationGate(opts.gate, log) : undefined,
+		verificationGate: opts.gate ? new AuthorizationGate(opts.gate, log) : undefined,
 	} as unknown as IterationContext
 
 	return { ctx, messages, executed, recordAudit }

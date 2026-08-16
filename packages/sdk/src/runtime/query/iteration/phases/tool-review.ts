@@ -1,13 +1,13 @@
+import type { AuthorizationGate } from '../../../../authorization/index.js'
 import type { ChatCompletionResponse } from '../../../../types/provider/index.js'
 import type { RunEvent } from '../../../../types/run/index.js'
-import type { VerificationGate } from '../../../../verification/index.js'
 import type { ToolCallDenials } from '../../executor.js'
 import { attachRepeatNotice } from '../../repeat-call.js'
 import { attachSteering } from '../../steering.js'
 import { type IterationContext, awaitDecisionDurably } from './context.js'
 
 interface VerificationAwareContext extends IterationContext {
-	readonly verificationGate?: VerificationGate
+	readonly verificationGate?: AuthorizationGate
 }
 
 export type ToolReviewDecision = 'executed' | 'rejected' | 'stop'

@@ -210,13 +210,13 @@ Why it is separate:
 - stores should not also become orchestration coordinators
 - disk and memory variants can coexist cleanly
 
-### 3.3 `gateway/`
+### 3.3 `scheduler/`
 
-`gateway/` currently holds the local task gateway used to hand work into the agent manager.
+`scheduler/` currently holds the local task scheduler used to hand work into the agent manager.
 
 Why it is separate:
 
-- task gateway behavior bridges higher-level orchestration and agent lifecycle
+- task scheduler behavior bridges higher-level orchestration and agent lifecycle
 - it is not a generic store and not a core runtime loop concern
 
 ## 4. Extension and Integration Folders
@@ -336,9 +336,9 @@ Why it is separate:
 - sandboxing is an operational boundary
 - the runtime should ask for a sandbox provider, not hardcode one-off execution logic everywhere
 
-### 5.2 `verification/`
+### 5.2 `authorization/`
 
-`verification/` owns the pre-execution decision layer for tool calls.
+`authorization/` owns the pre-execution decision layer for tool calls.
 
 Why it is separate:
 

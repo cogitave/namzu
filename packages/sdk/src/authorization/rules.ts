@@ -1,10 +1,10 @@
 import { DANGEROUS_PATTERNS } from '../constants/tools/index.js'
 import { isTrustedReadOnly } from '../tools/trusted-read-only.js'
+import type { AuthorizationRule, GateDecision } from '../types/authorization/index.js'
 import type { ToolDefinition } from '../types/tool/index.js'
-import type { GateDecision, VerificationRule } from '../types/verification/index.js'
 
 export function evaluateRule(
-	rule: VerificationRule,
+	rule: AuthorizationRule,
 	toolName: string,
 	toolInput: unknown,
 	toolDef: ToolDefinition | undefined,

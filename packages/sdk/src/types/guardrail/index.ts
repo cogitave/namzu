@@ -5,7 +5,7 @@ import type { ToolProvenance } from '../tool/index.js'
 /**
  * Guardrails inspect what goes INTO a run and what comes OUT of it.
  *
- * namzu had three good gates on tool calls — probe veto, `VerificationGate`,
+ * namzu had three good gates on tool calls — probe veto, `AuthorizationGate`,
  * HITL review — and they all point the same way: they protect the world
  * from the agent. Nothing protected the user from the agent's own output,
  * and nothing looked at the prompt before the run started.

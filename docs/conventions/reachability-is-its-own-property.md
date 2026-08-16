@@ -71,7 +71,7 @@ exactly this way — typecheck clean, 143 tests green, flag completely dead.
   directly, which is the fixture failure that lets this class ship.
 
 Also from the same class: `runAgent` dropped the `skills` it was given and had
-no `verificationGate` at all, both hidden behind an `as never` cast on the
+no `authorizationGate` at all, both hidden behind an `as never` cast on the
 kernel seam — and the cast was not load-bearing.
 
 ## The trap inside the reachability test

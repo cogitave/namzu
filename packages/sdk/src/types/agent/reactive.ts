@@ -1,6 +1,7 @@
 import type { CompactionConfig } from '../../config/runtime.js'
 import type { QueryParams } from '../../runtime/query/index.js'
 import type { AdvisoryConfig } from '../advisory/index.js'
+import type { AuthorizationGateConfig } from '../authorization/index.js'
 import type { InputGuardrailSpec, OutputGuardrailSpec } from '../guardrail/index.js'
 import type { ResumeHandler } from '../hitl/index.js'
 import type { AgentPersona } from '../persona/index.js'
@@ -12,7 +13,6 @@ import type { Skill } from '../skills/index.js'
 import type { StructuredOutputConfig } from '../structured-output/index.js'
 import type { ToolRegistryContract } from '../tool/index.js'
 import type { RepairToolCall } from '../tool/repair.js'
-import type { VerificationGateConfig } from '../verification/index.js'
 import type { BaseAgentConfig, BaseAgentResult } from './base.js'
 import type { WorkingMemoryProvider } from './working-memory.js'
 
@@ -39,7 +39,13 @@ export interface ReactiveAgentConfig extends BaseAgentConfig {
 	 * canonical brick patterns hard-deny instead of executing
 	 * silently.
 	 */
-	verificationGate?: VerificationGateConfig
+	/**
+	 * @deprecated Renamed to `authorizationGate`. Removed in the next major.
+	 * Setting both to different configs throws.
+	 */
+	verificationGate?: AuthorizationGateConfig
+
+	authorizationGate?: AuthorizationGateConfig
 
 	/**
 	 * Optional ephemeral sandbox provider. When set, drainQuery creates

@@ -18,6 +18,7 @@ import {
 	AgentManager,
 	AgentRegistry,
 	type AgentTaskContext,
+	type AuthorizationGateConfig,
 	type BaseAgentConfig,
 	type BaseAgentResult,
 	type Agent as CoreAgent,
@@ -38,7 +39,6 @@ import {
 	type ToolRegistryContract,
 	TopicManager,
 	type UserId,
-	type VerificationGateConfig,
 	WorkspaceBackendRegistry,
 	defineTool,
 	mcpJsonSchemaToZod,
@@ -65,7 +65,7 @@ export interface SubagentRuntimeOptions {
 	readonly buildProvider: () => LLMProvider
 	/** Build the sub-agent's tool registry (its own working set). */
 	readonly buildTools: () => ToolRegistryContract
-	readonly verificationGate?: VerificationGateConfig
+	readonly verificationGate?: AuthorizationGateConfig
 	/**
 	 * The project's own instruction block, already composed, or absent when the
 	 * working directory declares none.

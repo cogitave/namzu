@@ -15,13 +15,15 @@ The SDK source tree is broad, but it is not arbitrary. Each top-level folder has
 This is the practical map of `packages/sdk/src`:
 
 ```text
-advisory/    agents/      bridge/      bus/         compaction/
-config/      connector/   constants/   contracts/   execution/
-gateway/     manager/     persona/     plugin/      provider/
-rag/         registry/    model-router/ run/        runtime/
-sandbox/     session/     skills/      store/       telemetry/
-tools/       types/       utils/       vault/       verification/
-index.ts     version.ts
+advisory/       agents/         authorization/  bridge/         bus/
+compaction/     config/         connector/      constants/      contracts/
+directory/      eval/           execution/      invariants/     manager/
+model-router/   persona/        plugin/         pricing/        probe/
+provider/       rag/            registry/       run/            runtime/
+sandbox/        scheduler/      session/        skills/         store/
+streaming/      telemetry/      tools/          types/          utils/
+vault/
+index.ts        version.ts
 ```
 
 ## 2. Foundation Layer
@@ -70,7 +72,7 @@ These folders own mutable data and long-lived project state:
 | --- | --- |
 | `session/` | Tenant-project-session hierarchy, workspaces, handoff, summaries, migration, retention, and intervention rules |
 | `store/` | Run, task, conversation, memory, and activity storage implementations |
-| `gateway/` | Local task gateway integration points used by the runtime |
+| `scheduler/` | Local task scheduler integration points used by the runtime |
 
 This split matters:
 
@@ -101,7 +103,7 @@ These folders exist to keep runs safe, observable, and operationally coherent:
 | Folder | Responsibility |
 | --- | --- |
 | `sandbox/` | Sandbox provider factory and local sandbox implementation |
-| `verification/` | Verification gate and rule evaluation |
+| `authorization/` | Authorization gate and rule evaluation |
 | `bus/` | Locking, ownership tracking, and breaker-style coordination for concurrent runs |
 | `telemetry/` | Shared telemetry attribute and metric helpers |
 | `vault/` | Credential storage abstractions and in-memory implementation |
@@ -119,7 +121,7 @@ Use this as a practical ownership guide before adding a new file:
 | A new persisted mutable store | `store/<domain>/` | Store implementations stay separate from orchestration |
 | A new tool or tool factory | `tools/<domain>/` or `tools/builtins/` | Tool assembly belongs at the tool boundary |
 | A new protocol adapter | `bridge/<protocol>/` or `connector/mcp/` | Bridge modules translate between internal and external shapes |
-| A new safety control | `sandbox/`, `verification/`, or `bus/` | These folders own containment and coordination concerns |
+| A new safety control | `sandbox/`, `authorization/`, or `bus/` | These folders own containment and coordination concerns |
 
 ## 8. Barrel Strategy
 

@@ -364,6 +364,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 					// corrected for twice.
 					...(config.steering ? { steering: config.steering } : {}),
 					...(config.verificationGate ? { verificationGate: config.verificationGate } : {}),
+					...(config.authorizationGate ? { authorizationGate: config.authorizationGate } : {}),
 					// The one hop between the config and the tool. `drainQuery`
 					// registers `structured_output` from this and the loop
 					// captures it, so the kernel never cared which archetype it

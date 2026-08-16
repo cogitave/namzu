@@ -1,6 +1,7 @@
 import type { CompactionConfig } from '../../config/runtime.js'
 import type { SteeringChannel } from '../../runtime/query/steering.js'
 import type { AdvisoryConfig } from '../advisory/index.js'
+import type { AuthorizationGateConfig } from '../authorization/index.js'
 import type { ResumeHandler } from '../hitl/index.js'
 import type { LLMProvider } from '../provider/index.js'
 import type { TaskRouterConfig } from '../router/index.js'
@@ -8,7 +9,6 @@ import type { SandboxProvider } from '../sandbox/index.js'
 import type { Skill } from '../skills/index.js'
 import type { StructuredOutputConfig } from '../structured-output/index.js'
 import type { ToolRegistryContract } from '../tool/index.js'
-import type { VerificationGateConfig } from '../verification/index.js'
 import type { BaseAgentConfig, BaseAgentResult } from './base.js'
 import type { AgentFactoryOptions } from './factory.js'
 import type { AgentManagerContract } from './manager.js'
@@ -158,7 +158,13 @@ export interface SupervisorAgentConfig extends BaseAgentConfig {
 	 * review") so the resumeHandler only fires for the truly
 	 * non-deterministic cases.
 	 */
-	verificationGate?: VerificationGateConfig
+	/**
+	 * @deprecated Renamed to `authorizationGate`. Removed in the next major.
+	 * Setting both to different configs throws.
+	 */
+	verificationGate?: AuthorizationGateConfig
+
+	authorizationGate?: AuthorizationGateConfig
 
 	/**
 	 * Optional ephemeral sandbox provider. When set, drainQuery creates

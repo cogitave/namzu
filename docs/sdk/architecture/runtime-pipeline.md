@@ -92,7 +92,7 @@ Because providers implement the shared `LLMProvider` contract, the runtime does 
 Tool execution is a two-stage boundary:
 
 1. `tool-review.ts` inspects requested tool calls.
-2. If a `VerificationGate` exists, it evaluates allow, deny, or review decisions first.
+2. If a `AuthorizationGate` exists, it evaluates allow, deny, or review decisions first.
 3. If human review is required, the runtime asks the resume handler for a decision.
 4. Approved tool calls execute through the tool executor and append tool messages back into the run.
 

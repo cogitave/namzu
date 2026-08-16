@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
+import type { AuthorizationGateConfig } from '../../types/authorization/index.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
-import type { VerificationGateConfig } from '../../types/verification/index.js'
 import { getRootLogger } from '../../utils/logger.js'
-import { VerificationGate, describeRule } from '../gate.js'
+import { AuthorizationGate, describeRule } from '../gate.js'
 
 /**
  * Two things an operator has to be able to trust about a policy gate: that a
@@ -16,8 +16,8 @@ import { VerificationGate, describeRule } from '../gate.js'
  * matched and nothing whatever about what it said.
  */
 
-function gate(config: Partial<VerificationGateConfig>): VerificationGate {
-	return new VerificationGate(
+function gate(config: Partial<AuthorizationGateConfig>): AuthorizationGate {
+	return new AuthorizationGate(
 		{
 			enabled: true,
 			rules: [],
@@ -25,7 +25,7 @@ function gate(config: Partial<VerificationGateConfig>): VerificationGate {
 			denyDangerousPatterns: false,
 			logDecisions: false,
 			...config,
-		} as VerificationGateConfig,
+		} as AuthorizationGateConfig,
 		getRootLogger(),
 	)
 }

@@ -23,7 +23,7 @@
  * to "does block 4 exist" in two places at once.
  */
 
-import type { CostInfo, VerificationRule } from '@namzu/sdk'
+import type { AuthorizationRule, CostInfo } from '@namzu/sdk'
 
 import { type UserCommand, expandCommand } from '../user-commands/store.js'
 import { isCompletionArgument } from './login-prompt.js'
@@ -98,7 +98,7 @@ export interface SlashContext {
 	readonly permissions: {
 		/** `--yolo` / `--dangerously-skip-permissions`. */
 		readonly skipPermissions: boolean
-		readonly rules: readonly VerificationRule[]
+		readonly rules: readonly AuthorizationRule[]
 		/**
 		 * Whether "approve all" is in force, read at render time.
 		 *
@@ -573,7 +573,7 @@ export function renderPermissions(permissions: SlashContext['permissions']): str
  * different input will not change it"). This one is a table of standing policy
  * for a person. Same facts, different question.
  */
-function describeRule(rule: VerificationRule): string {
+function describeRule(rule: AuthorizationRule): string {
 	switch (rule.type) {
 		case 'deny_by_name':
 			return `deny   ${rule.toolNames.join(', ')}`

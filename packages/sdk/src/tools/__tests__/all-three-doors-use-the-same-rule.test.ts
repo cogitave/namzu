@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
+import { evaluateRule } from '../../authorization/rules.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
-import { evaluateRule } from '../../verification/rules.js'
 
 /**
  * The predicate being right is not the same as the gates using it.

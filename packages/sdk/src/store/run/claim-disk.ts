@@ -95,9 +95,9 @@
 
 import { link, mkdir, readFile, readdir, stat, unlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { invariants } from '../../invariants/index.js'
 import { NamzuError } from '../../types/errors/index.js'
 import type { ClaimRunOptions, FencingToken, RunLease } from '../../types/run/checkpoint-store.js'
-import { invariants } from '../../verification/invariants.js'
 
 /** Directory holding one file per holding, named for its fence. */
 const CLAIMS_DIR = 'claims'

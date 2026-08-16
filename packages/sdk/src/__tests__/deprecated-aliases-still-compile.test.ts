@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+	AuthorizationGate,
+	type AuthorizationGateConfig,
+	type AuthorizationRule,
 	BaseRegistry,
 	type ClaimFence,
 	type ClaimSummary,
@@ -17,6 +20,9 @@ import {
 	type RunLease,
 	type TaskGateway,
 	type TaskScheduler,
+	VerificationGate,
+	type VerificationGateConfig,
+	type VerificationRule,
 	collect,
 	collectChatCompletion,
 } from '../index.js'
@@ -51,6 +57,7 @@ describe('the renamed exports keep their old spellings for one window', () => {
 		expect(Registry).toBe(BaseRegistry)
 		expect(ContextCache).toBe(PromptCache)
 		expect(LocalTaskGateway).toBe(LocalTaskScheduler)
+		expect(VerificationGate).toBe(AuthorizationGate)
 	})
 
 	it('keeps the old spellings usable, not merely present', () => {
@@ -79,7 +86,11 @@ describe('the renamed exports keep their old spellings for one window', () => {
 		const _fence: ClaimFence = 0 as FencingToken
 		const _summary: ClaimSummary = {} as LeaseSummary
 
-		expect([_r, _c, _p, _cache, _lease, _fence, _summary]).toHaveLength(7)
+		// The authorization trio (NZ-SURF-08).
+		const _rule: VerificationRule = { type: 'allow_read_only' } satisfies AuthorizationRule
+		const _gate: VerificationGateConfig = {} as AuthorizationGateConfig
+
+		expect([_r, _c, _p, _cache, _lease, _fence, _summary, _rule, _gate]).toHaveLength(9)
 	})
 
 	it('still compiles an outside implementor written against the old interface', () => {

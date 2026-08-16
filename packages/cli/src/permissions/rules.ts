@@ -1,7 +1,7 @@
 /**
  * Operator-authored tool permissions, compiled to the kernel's rule vocabulary.
  *
- * The kernel already has the engine — `VerificationRule[]` with an
+ * The kernel already has the engine — `AuthorizationRule[]` with an
  * allow/deny/review decision, evaluated first-match-wins. What was missing was
  * any way for a person to author those rules: the CLI passed `rules: []`, so a
  * gate with seven rule types ran with none of them and every decision fell back
@@ -11,7 +11,7 @@
  * thing that decides anything, which is what keeps this testable without a run.
  */
 
-import type { VerificationRule } from '@namzu/sdk'
+import type { AuthorizationRule } from '@namzu/sdk'
 
 /** What the operator wants to happen when a rule matches. */
 export type PermissionEffect = 'allow' | 'ask' | 'deny'
@@ -41,7 +41,7 @@ export interface CompileDiagnostic {
 }
 
 export interface CompiledPermissions {
-	readonly rules: readonly VerificationRule[]
+	readonly rules: readonly AuthorizationRule[]
 	/**
 	 * What was wrong with the config, for the caller to print.
 	 *
@@ -196,7 +196,7 @@ export function bySpecificity(a: string, b: string): number {
  * to spell "allow everything by omission" — the only way to widen is to say so.
  */
 export function compilePermissions(config: PermissionsConfig | undefined): CompiledPermissions {
-	const rules: VerificationRule[] = []
+	const rules: AuthorizationRule[] = []
 	const diagnostics: CompileDiagnostic[] = []
 	if (!config) return { rules, diagnostics }
 
