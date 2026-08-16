@@ -30,22 +30,29 @@ export class DiskRecordStore<T> {
 	 * a real IO failure at every call site, and the copies that got it
 	 * right did so independently.
 	 */
-	async read(path: string): Promise<T | null> {
+	async read<U = T>(path: string): Promise<U | null> {
 		try {
 			const raw = await readFile(path, 'utf-8')
 			// Through the schema, never a bare cast: a record from an older
 			// build is brought forward, and one from a NEWER build is refused
 			// rather than read partially and written back with the difference
 			// silently gone.
-			return migrate<T>(this.schema, JSON.parse(raw))
+			return migrate<U>(this.schema, JSON.parse(raw))
 		} catch (err) {
 			if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null
 			throw err
 		}
 	}
 
-	/** Stamped with the current schema version, written atomically. */
-	async write(path: string, value: T): Promise<void> {
+	/**
+	 * Stamped with the current schema version, written atomically.
+	 *
+	 * `U` defaults to the store's own `T`, and widening it is what lets one
+	 * schema cover a tree that holds several record shapes — the session
+	 * store keeps projects, sessions, sub-sessions and a path index under
+	 * one `session-store` schema, and they version together on purpose.
+	 */
+	async write<U = T>(path: string, value: U): Promise<void> {
 		await atomicWriteFile(path, `${JSON.stringify(stamp(this.schema, value), null, 2)}\n`)
 	}
 

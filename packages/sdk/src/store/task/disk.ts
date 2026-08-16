@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, unlink } from 'node:fs/promises'
+import { mkdir, readdir, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { RunId, TaskId, TenantId } from '../../types/ids/index.js'
 import type {
@@ -10,10 +10,10 @@ import type {
 	TaskStore,
 	UpdateTaskParams,
 } from '../../types/task/index.js'
-import { atomicWriteFile } from '../../utils/atomic-write.js'
 import { generateTaskId } from '../../utils/id.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
-import { defineSchema, migrate, stamp } from '../schema.js'
+import { DiskRecordStore } from '../kv/record-store.js'
+import { defineSchema } from '../schema.js'
 
 /**
  * This store's on-disk format, versioned as a unit — which is how a
@@ -24,6 +24,24 @@ import { defineSchema, migrate, stamp } from '../schema.js'
  * the shape changes.
  */
 const SCHEMA = defineSchema({ kind: 'task-store', current: 1, migrations: {} })
+
+/**
+ * Read, write and list, through the one implementation.
+ *
+ * This file used to carry its own `readFile` + `JSON.parse` + `migrate`
+ * with ENOENT collapsed to null, its own `atomicWriteJson`, and three
+ * separate `readdir` scans — the same twenty lines four stores each kept a
+ * copy of. The properties are not obvious ones (a missing file is an empty
+ * read, a record from a NEWER build is refused rather than silently
+ * downgraded, a listing needs a stable order), and every one fixed here had
+ * to be remembered into the other three.
+ *
+ * The try/catch at each call site stays. The primitive THROWS on a
+ * corrupt record; this store logs and returns null, because a single
+ * unreadable task must not make the whole list unavailable. That is a
+ * policy of this store, not of the primitive, and it belongs here.
+ */
+const records = new DiskRecordStore<Task>(SCHEMA)
 
 export interface DiskTaskStoreConfig {
 	baseDir: string
@@ -165,7 +183,7 @@ export class DiskTaskStore implements TaskStore {
 
 		const blockers = params.blockedBy ?? []
 		if (blockers.length === 0) {
-			await atomicWriteJson(this.taskPath(runId, taskId), task)
+			await records.write(this.taskPath(runId, taskId), task)
 		} else {
 			// Hold locks on all blockers while establishing the bidirectional edge:
 			// update each blocker's `blocks` list AND write the new task together,
@@ -175,13 +193,13 @@ export class DiskTaskStore implements TaskStore {
 					const blocker = await this.readTask(runId, blockerId)
 					if (blocker && !blocker.blocks.includes(taskId)) {
 						blocker.blocks.push(taskId)
-						await atomicWriteJson(this.taskPath(runId, blockerId), blocker)
+						await records.write(this.taskPath(runId, blockerId), blocker)
 					}
 					// If blocker is missing, we still write the new task with its
 					// blockedBy reference; the dangling reference is visible to
 					// subsequent readers rather than silently pruned.
 				}
-				await atomicWriteJson(this.taskPath(runId, taskId), task)
+				await records.write(this.taskPath(runId, taskId), task)
 			})
 		}
 
@@ -228,7 +246,7 @@ export class DiskTaskStore implements TaskStore {
 				}
 			}
 
-			await atomicWriteJson(this.taskPath(task.runId, id), task)
+			await records.write(this.taskPath(task.runId, id), task)
 			this.emit({ type: 'task.updated', taskId: id, task, previousStatus, timestamp: Date.now() })
 			return task
 		})
@@ -264,14 +282,14 @@ export class DiskTaskStore implements TaskStore {
 				const blocker = await this.readTask(task.runId, blockerId)
 				if (blocker) {
 					blocker.blocks = blocker.blocks.filter((bid) => bid !== id)
-					await atomicWriteJson(this.taskPath(task.runId, blockerId), blocker)
+					await records.write(this.taskPath(task.runId, blockerId), blocker)
 				}
 			}
 			for (const blockedId of task.blocks) {
 				const blocked = await this.readTask(task.runId, blockedId)
 				if (blocked) {
 					blocked.blockedBy = blocked.blockedBy.filter((bid) => bid !== id)
-					await atomicWriteJson(this.taskPath(task.runId, blockedId), blocked)
+					await records.write(this.taskPath(task.runId, blockedId), blocked)
 				}
 			}
 
@@ -303,10 +321,8 @@ export class DiskTaskStore implements TaskStore {
 
 		let files: string[]
 		try {
-			files = await readdir(dir)
+			files = await records.scanNames(dir, '')
 		} catch (err) {
-			const code = (err as NodeJS.ErrnoException).code
-			if (code === 'ENOENT') return []
 			this.log.warn('Failed to list task directory', {
 				dir,
 				error: err instanceof Error ? err.message : String(err),
@@ -318,9 +334,8 @@ export class DiskTaskStore implements TaskStore {
 		for (const file of files) {
 			if (!file.endsWith('.json')) continue
 			try {
-				const raw = await readFile(join(dir, file), 'utf-8')
-				const task = migrate<Task>(SCHEMA, JSON.parse(raw))
-				tasks.push(task)
+				const task = await records.read(join(dir, file))
+				if (task !== null) tasks.push(task)
 			} catch (err) {
 				this.log.warn('Failed to read task file', {
 					file,
@@ -354,7 +369,7 @@ export class DiskTaskStore implements TaskStore {
 			task.status = 'in_progress'
 			task.startedAt = Date.now()
 
-			await atomicWriteJson(this.taskPath(task.runId, id), task)
+			await records.write(this.taskPath(task.runId, id), task)
 			this.emit({ type: 'task.claimed', taskId: id, task, timestamp: Date.now() })
 			return task
 		})
@@ -389,12 +404,12 @@ export class DiskTaskStore implements TaskStore {
 			let mutated = false
 			if (!blocker.blocks.includes(blockedId)) {
 				blocker.blocks.push(blockedId)
-				await atomicWriteJson(this.taskPath(blocker.runId, blockerId), blocker)
+				await records.write(this.taskPath(blocker.runId, blockerId), blocker)
 				mutated = true
 			}
 			if (!blocked.blockedBy.includes(blockerId)) {
 				blocked.blockedBy.push(blockerId)
-				await atomicWriteJson(this.taskPath(blocked.runId, blockedId), blocked)
+				await records.write(this.taskPath(blocked.runId, blockedId), blocked)
 				mutated = true
 			}
 			if (!mutated) {
@@ -414,12 +429,7 @@ export class DiskTaskStore implements TaskStore {
 
 	async reset(): Promise<void> {
 		const dir = this.taskDir(this.defaultRunId)
-		let files: string[]
-		try {
-			files = await readdir(dir)
-		} catch {
-			return
-		}
+		const files = await records.scanNames(dir, '')
 		for (const file of files) {
 			if (file.endsWith('.json')) {
 				await unlink(join(dir, file)).catch(() => undefined)
@@ -429,22 +439,8 @@ export class DiskTaskStore implements TaskStore {
 
 	private async readTask(runId: RunId, taskId: TaskId): Promise<Task | null> {
 		const path = this.taskPath(runId, taskId)
-		let raw: string
 		try {
-			raw = await readFile(path, 'utf-8')
-		} catch (err) {
-			const code = (err as NodeJS.ErrnoException).code
-			if (code === 'ENOENT') return null
-			this.log.warn('Failed to read task', {
-				taskId,
-				path,
-				error: err instanceof Error ? err.message : String(err),
-			})
-			return null
-		}
-
-		try {
-			return migrate<Task>(SCHEMA, JSON.parse(raw))
+			return await records.read(path)
 		} catch (err) {
 			this.log.error('Corrupt task JSON on disk', {
 				taskId,
@@ -502,8 +498,4 @@ export class DiskTaskStore implements TaskStore {
 			return []
 		}
 	}
-}
-
-async function atomicWriteJson(filePath: string, value: unknown): Promise<void> {
-	await atomicWriteFile(filePath, JSON.stringify(stamp(SCHEMA, value), null, 2))
 }

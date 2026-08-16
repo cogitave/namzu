@@ -21,7 +21,7 @@
  * path lives in Phase 7 of the overall roadmap.
  */
 
-import { appendFile, mkdir, readFile, readdir, rm } from 'node:fs/promises'
+import { appendFile, mkdir, readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
 	ProjectRootPathTakenError,
@@ -51,13 +51,23 @@ import type {
 	SessionSummaryOutcome,
 	SessionSummaryRef,
 } from '../../types/summary/ref.js'
-import { atomicWriteFile } from '../../utils/atomic-write.js'
 import {
 	generateMessageId,
 	generateProjectId,
 	generateSessionId,
 	generateSubSessionId,
 } from '../../utils/id.js'
+import { DiskRecordStore } from '../kv/record-store.js'
+//  and  directly, for the append-only `messages.jsonl` path
+// alone: each line there is a whole record carrying its own stamp, because a
+// log is written by many builds over its lifetime and its lines can
+// legitimately differ in version. Every RECORD read and write goes through
+// `records` above instead.
+// `migrate` and `stamp` are imported directly for the append-only
+// `messages.jsonl` path ALONE: each line there is a whole record carrying
+// its own stamp, because a log is written by many builds over its lifetime
+// and its lines can legitimately differ in version. Every RECORD read and
+// write goes through the `records` primitive below instead.
 import { defineSchema, migrate, stamp } from '../schema.js'
 import { canonicalizePath, rootPathIndexKey } from './canonical-path.js'
 import { getAncestry, getChildren, orderChildren } from './linkage.js'
@@ -79,6 +89,25 @@ const SCHEMA = defineSchema({
 		2: migrateSessionStoreTopicIdPrefix,
 	},
 })
+
+/**
+ * Read, write and list, through the one implementation.
+ *
+ * This file carried its own `readJson`, its own `atomicWriteJson` and
+ * thirteen `readdir` scans — the same twenty lines four stores each kept a
+ * private copy of. The properties are not obvious ones (a missing file is
+ * an empty read, a record from a NEWER build is refused rather than read
+ * partially and written back with the difference gone, a listing needs a
+ * stable order), and every one fixed here had to be remembered into the
+ * other three.
+ *
+ * Deliberately NOT converted: the append-only session event log and
+ * `messages.jsonl`. Those are log-shaped, not record-shaped — each line is
+ * a whole record and append IS the write-safety primitive — so forcing them
+ * through a record store would be a worse fit than the duplication it
+ * removes.
+ */
+const records = new DiskRecordStore<unknown>(SCHEMA)
 
 /**
  * v2 → v3: NZ-TOPIC-04 narrows the Topic id prefix from `thd_` to `top_`.
@@ -284,7 +313,7 @@ export class DiskSessionStore implements SessionStore {
 		}
 		const dir = join(this.rootDir, 'projects', project.id)
 		await mkdir(dir, { recursive: true })
-		await atomicWriteJson(join(dir, 'project.json'), serializeProject(project))
+		await records.write(join(dir, 'project.json'), serializeProject(project))
 		this.projectIndex.set(project.id, { projectId: project.id, path: dir })
 		if (rootPath !== undefined) await this.writeRootPathIndex(rootPath, tenantId, project.id)
 		return project
@@ -297,7 +326,7 @@ export class DiskSessionStore implements SessionStore {
 	 */
 	async findProjectByRootPath(rootPath: string, tenantId: TenantId): Promise<Project | null> {
 		const canonical = await canonicalizePath(rootPath)
-		const index = await readJson<Record<string, ProjectId>>(this.rootPathIndexPath())
+		const index = await records.read<Record<string, ProjectId>>(this.rootPathIndexPath())
 		// Tenant is part of the KEY, not a filter applied after the lookup.
 		// Two tenants may bind projects to the same path on a shared machine,
 		// and a path-only key would hand one of them the other's project.
@@ -316,14 +345,14 @@ export class DiskSessionStore implements SessionStore {
 		projectId: ProjectId,
 	): Promise<void> {
 		const path = this.rootPathIndexPath()
-		const index = (await readJson<Record<string, ProjectId>>(path)) ?? {}
+		const index = (await records.read<Record<string, ProjectId>>(path)) ?? {}
 		index[rootPathIndexKey(rootPath, tenantId)] = projectId
-		await atomicWriteJson(path, index)
+		await records.write(path, index)
 	}
 
 	async getProject(projectId: ProjectId, tenantId: TenantId): Promise<Project | null> {
 		const dir = this.projectDir(projectId)
-		const raw = await readJson<PersistedProject>(join(dir, 'project.json'))
+		const raw = await records.read<PersistedProject>(join(dir, 'project.json'))
 		if (!raw) return null
 		this.assertTenant(raw.tenantId, tenantId, `project(${projectId})`)
 		return deserializeProject(raw)
@@ -351,10 +380,7 @@ export class DiskSessionStore implements SessionStore {
 			},
 			updatedAt: new Date(),
 		}
-		await atomicWriteJson(
-			join(this.projectDir(projectId), 'project.json'),
-			serializeProject(project),
-		)
+		await records.write(join(this.projectDir(projectId), 'project.json'), serializeProject(project))
 		return project
 	}
 
@@ -380,10 +406,7 @@ export class DiskSessionStore implements SessionStore {
 			ownerVersion: existing.ownerVersion + 1,
 			updatedAt: new Date(),
 		}
-		await atomicWriteJson(
-			join(this.projectDir(projectId), 'project.json'),
-			serializeProject(project),
-		)
+		await records.write(join(this.projectDir(projectId), 'project.json'), serializeProject(project))
 		return project
 	}
 
@@ -394,16 +417,11 @@ export class DiskSessionStore implements SessionStore {
 		// process — which for a store whose whole point is durability is the
 		// wrong answer.
 		const projectsRoot = join(this.rootDir, 'projects')
-		let entries: string[]
-		try {
-			entries = await readdir(projectsRoot)
-		} catch {
-			return []
-		}
+		const entries = await records.scanNames(projectsRoot, '')
 
 		const found: Project[] = []
 		for (const entry of entries) {
-			const raw = await readJson<PersistedProject>(join(projectsRoot, entry, 'project.json'))
+			const raw = await records.read<PersistedProject>(join(projectsRoot, entry, 'project.json'))
 			if (!raw) continue
 			// Another tenant's project is absent, not an error — a listing is a
 			// question about what you own, and refusing would leak that
@@ -441,7 +459,7 @@ export class DiskSessionStore implements SessionStore {
 		}
 		const dir = join(this.projectDir(params.projectId), 'sessions', session.id)
 		await mkdir(dir, { recursive: true })
-		await atomicWriteJson(join(dir, 'session.json'), serializeSession(session))
+		await records.write(join(dir, 'session.json'), serializeSession(session))
 		this.sessionIndex.set(session.id, {
 			sessionId: session.id,
 			projectId: params.projectId,
@@ -453,7 +471,7 @@ export class DiskSessionStore implements SessionStore {
 	async getSession(sessionId: SessionId, tenantId: TenantId): Promise<Session | null> {
 		const located = await this.locateSession(sessionId)
 		if (!located) return null
-		const raw = await readJson<PersistedSession>(join(located.path, 'session.json'))
+		const raw = await records.read<PersistedSession>(join(located.path, 'session.json'))
 		if (!raw) return null
 		this.assertTenant(raw.tenantId, tenantId, `session(${sessionId})`)
 		return deserializeSession(raw)
@@ -479,29 +497,17 @@ export class DiskSessionStore implements SessionStore {
 		// TopicManager archive/delete today because those operations are
 		// admin-initiated and infrequent.
 		const projectsDir = join(this.rootDir, 'projects')
-		let projectDirs: string[]
-		try {
-			projectDirs = await readdir(projectsDir)
-		} catch (err) {
-			const code = (err as NodeJS.ErrnoException).code
-			if (code === 'ENOENT') return []
-			throw err
-		}
+		const projectDirs = await records.scanNames(projectsDir, '')
 
 		const results: Session[] = []
 		for (const rawProject of projectDirs) {
 			if (!rawProject.startsWith('prj_')) continue
 			const sessionsRoot = join(projectsDir, rawProject, 'sessions')
-			let sessionDirs: string[]
-			try {
-				sessionDirs = await readdir(sessionsRoot)
-			} catch {
-				continue
-			}
+			const sessionDirs = await records.scanNames(sessionsRoot, '')
 			for (const rawSessionId of sessionDirs) {
 				if (!rawSessionId.startsWith('ses_')) continue
 				const path = join(sessionsRoot, rawSessionId)
-				const raw = await readJson<PersistedSession>(join(path, 'session.json'))
+				const raw = await records.read<PersistedSession>(join(path, 'session.json'))
 				if (!raw) continue
 				if (raw.tenantId !== tenantId) continue
 				if (raw.topicId !== topicId) continue
@@ -526,20 +532,13 @@ export class DiskSessionStore implements SessionStore {
 		// every project precisely because `topicId` is denormalised onto the
 		// record rather than expressed in the layout.
 		const sessionsRoot = join(this.projectDir(projectId), 'sessions')
-		let sessionDirs: string[]
-		try {
-			sessionDirs = await readdir(sessionsRoot)
-		} catch (err) {
-			const code = (err as NodeJS.ErrnoException).code
-			if (code === 'ENOENT') return []
-			throw err
-		}
+		const sessionDirs = await records.scanNames(sessionsRoot, '')
 
 		const results: Session[] = []
 		for (const rawSessionId of sessionDirs) {
 			if (!rawSessionId.startsWith('ses_')) continue
 			const path = join(sessionsRoot, rawSessionId)
-			const raw = await readJson<PersistedSession>(join(path, 'session.json'))
+			const raw = await records.read<PersistedSession>(join(path, 'session.json'))
 			if (!raw) continue
 			if (raw.tenantId !== tenantId) continue
 			results.push(deserializeSession(raw))
@@ -566,7 +565,7 @@ export class DiskSessionStore implements SessionStore {
 				resource: `session(${session.id}) payload`,
 			})
 		}
-		const existing = await readJson<PersistedSession>(join(located.path, 'session.json'))
+		const existing = await records.read<PersistedSession>(join(located.path, 'session.json'))
 		if (existing) {
 			this.assertTenant(existing.tenantId, tenantId, `session(${session.id})`)
 		}
@@ -586,13 +585,13 @@ export class DiskSessionStore implements SessionStore {
 			})
 		}
 		const updated: Session = { ...session, updatedAt: new Date() }
-		await atomicWriteJson(join(located.path, 'session.json'), serializeSession(updated))
+		await records.write(join(located.path, 'session.json'), serializeSession(updated))
 	}
 
 	async deleteSession(sessionId: SessionId, tenantId: TenantId): Promise<void> {
 		const located = await this.locateSession(sessionId)
 		if (!located) return // Idempotent: missing = no-op.
-		const existing = await readJson<PersistedSession>(join(located.path, 'session.json'))
+		const existing = await records.read<PersistedSession>(join(located.path, 'session.json'))
 		if (!existing) return
 		this.assertTenant(existing.tenantId, tenantId, `session(${sessionId})`)
 
@@ -601,13 +600,7 @@ export class DiskSessionStore implements SessionStore {
 		// We check BOTH directions (this session as parent, or as child) to
 		// match the in-memory semantics.
 		const subsDir = join(located.path, 'subsessions')
-		let subEntries: string[] = []
-		try {
-			subEntries = await readdir(subsDir)
-		} catch (err) {
-			const code = (err as NodeJS.ErrnoException).code
-			if (code !== 'ENOENT') throw err
-		}
+		const subEntries = await records.scanNames(subsDir, '')
 		if (subEntries.some((e) => e.startsWith('sub_'))) {
 			throw new Error(
 				`Session ${sessionId} has attached sub-sessions; delete them before deleting the session`,
@@ -620,35 +613,18 @@ export class DiskSessionStore implements SessionStore {
 		// deleteSubSession + deleteSession call on the child (no orphans at
 		// steady state).
 		const projectsDir = join(this.rootDir, 'projects')
-		let projectDirs: string[]
-		try {
-			projectDirs = await readdir(projectsDir)
-		} catch (err) {
-			const code = (err as NodeJS.ErrnoException).code
-			if (code === 'ENOENT') projectDirs = []
-			else throw err
-		}
+		const projectDirs = await records.scanNames(projectsDir, '')
 		for (const rawProject of projectDirs) {
 			if (!rawProject.startsWith('prj_')) continue
 			const sessionsRoot = join(projectsDir, rawProject, 'sessions')
-			let siblingSessions: string[] = []
-			try {
-				siblingSessions = await readdir(sessionsRoot)
-			} catch {
-				continue
-			}
+			const siblingSessions = await records.scanNames(sessionsRoot, '')
 			for (const rawSib of siblingSessions) {
 				if (!rawSib.startsWith('ses_')) continue
 				const sibSubsDir = join(sessionsRoot, rawSib, 'subsessions')
-				let sibSubs: string[] = []
-				try {
-					sibSubs = await readdir(sibSubsDir)
-				} catch {
-					continue
-				}
+				const sibSubs = await records.scanNames(sibSubsDir, '')
 				for (const rawSub of sibSubs) {
 					if (!rawSub.startsWith('sub_')) continue
-					const subRaw = await readJson<PersistedSubSession>(
+					const subRaw = await records.read<PersistedSubSession>(
 						join(sibSubsDir, rawSub, 'subsession.json'),
 					)
 					if (!subRaw) continue
@@ -696,7 +672,7 @@ export class DiskSessionStore implements SessionStore {
 		}
 		const dir = join(parentLoc.path, 'subsessions', subSession.id)
 		await mkdir(dir, { recursive: true })
-		await atomicWriteJson(join(dir, 'subsession.json'), serializeSubSession(subSession, tenantId))
+		await records.write(join(dir, 'subsession.json'), serializeSubSession(subSession, tenantId))
 		this.subSessionIndex.set(subSession.id, {
 			subSessionId: subSession.id,
 			sessionId: params.parentSessionId,
@@ -709,7 +685,7 @@ export class DiskSessionStore implements SessionStore {
 	async getSubSession(subSessionId: SubSessionId, tenantId: TenantId): Promise<SubSession | null> {
 		const located = await this.locateSubSession(subSessionId)
 		if (!located) return null
-		const raw = await readJson<PersistedSubSession>(join(located.path, 'subsession.json'))
+		const raw = await records.read<PersistedSubSession>(join(located.path, 'subsession.json'))
 		if (!raw) return null
 		this.assertTenant(raw.tenantId, tenantId, `sub-session(${subSessionId})`)
 		return deserializeSubSession(raw)
@@ -720,12 +696,12 @@ export class DiskSessionStore implements SessionStore {
 		if (!located) {
 			throw new Error(`SubSession ${subSession.id} not found`)
 		}
-		const existing = await readJson<PersistedSubSession>(join(located.path, 'subsession.json'))
+		const existing = await records.read<PersistedSubSession>(join(located.path, 'subsession.json'))
 		if (existing) {
 			this.assertTenant(existing.tenantId, tenantId, `sub-session(${subSession.id})`)
 		}
 		const updated: SubSession = { ...subSession, updatedAt: new Date() }
-		await atomicWriteJson(
+		await records.write(
 			join(located.path, 'subsession.json'),
 			serializeSubSession(updated, tenantId),
 		)
@@ -734,7 +710,7 @@ export class DiskSessionStore implements SessionStore {
 	async deleteSubSession(subSessionId: SubSessionId, tenantId: TenantId): Promise<void> {
 		const located = await this.locateSubSession(subSessionId)
 		if (!located) return // Idempotent: missing = no-op.
-		const existing = await readJson<PersistedSubSession>(join(located.path, 'subsession.json'))
+		const existing = await records.read<PersistedSubSession>(join(located.path, 'subsession.json'))
 		if (!existing) {
 			// Record vanished between locate + read — treat as already deleted.
 			this.subSessionIndex.delete(subSessionId)
@@ -756,7 +732,7 @@ export class DiskSessionStore implements SessionStore {
 		const located = await this.locateSession(sessionId)
 		if (!located) throw new Error(`Session ${sessionId} not found`)
 
-		const session = await readJson<PersistedSession>(join(located.path, 'session.json'))
+		const session = await records.read<PersistedSession>(join(located.path, 'session.json'))
 		if (!session) throw new Error(`Session ${sessionId} not found on disk`)
 		this.assertTenant(session.tenantId, tenantId, `session(${sessionId})`)
 
@@ -791,7 +767,7 @@ export class DiskSessionStore implements SessionStore {
 		const located = await this.locateSession(sessionId)
 		if (!located) return []
 
-		const session = await readJson<PersistedSession>(join(located.path, 'session.json'))
+		const session = await records.read<PersistedSession>(join(located.path, 'session.json'))
 		if (!session) return []
 		this.assertTenant(session.tenantId, tenantId, `session(${sessionId})`)
 
@@ -874,14 +850,14 @@ export class DiskSessionStore implements SessionStore {
 		if (!located) {
 			throw new Error(`Session ${summary.sessionRef} not found`)
 		}
-		const sessionRaw = await readJson<PersistedSession>(join(located.path, 'session.json'))
+		const sessionRaw = await records.read<PersistedSession>(join(located.path, 'session.json'))
 		if (!sessionRaw) {
 			throw new Error(`Session ${summary.sessionRef} not found on disk`)
 		}
 		this.assertTenant(sessionRaw.tenantId, tenantId, `session(${summary.sessionRef})`)
 
 		const summaryPath = join(located.path, 'summary.json')
-		const existingRaw = await readJson<PersistedSummary>(summaryPath)
+		const existingRaw = await records.read<PersistedSummary>(summaryPath)
 		if (existingRaw) {
 			this.assertTenant(existingRaw.tenantId, tenantId, `summary(${existingRaw.id})`)
 			if (existingRaw.id !== summary.id) {
@@ -894,7 +870,7 @@ export class DiskSessionStore implements SessionStore {
 			// to the status flip so crash-between-writes is recovered.
 		} else {
 			// Step 1: persist summary.
-			await atomicWriteJson(summaryPath, serializeSummary(summary))
+			await records.write(summaryPath, serializeSummary(summary))
 		}
 
 		// Step 2: flip session status atomically if still non-terminal.
@@ -904,14 +880,14 @@ export class DiskSessionStore implements SessionStore {
 				status: 'idle',
 				updatedAt: new Date().toISOString(),
 			}
-			await atomicWriteJson(join(located.path, 'session.json'), flipped)
+			await records.write(join(located.path, 'session.json'), flipped)
 		}
 	}
 
 	async getSummary(sessionId: SessionId, tenantId: TenantId): Promise<SessionSummaryRef | null> {
 		const located = await this.locateSession(sessionId)
 		if (!located) return null
-		const raw = await readJson<PersistedSummary>(join(located.path, 'summary.json'))
+		const raw = await records.read<PersistedSummary>(join(located.path, 'summary.json'))
 		if (!raw) return null
 		this.assertTenant(raw.tenantId, tenantId, `summary(${raw.id})`)
 		return deserializeSummary(raw)
@@ -938,24 +914,14 @@ export class DiskSessionStore implements SessionStore {
 		if (cached) return cached
 
 		const projectsDir = join(this.rootDir, 'projects')
-		let projectDirs: string[]
-		try {
-			projectDirs = await readdir(projectsDir)
-		} catch (err) {
-			const code = (err as NodeJS.ErrnoException).code
-			if (code === 'ENOENT') return null
-			throw err
-		}
+		// ENOENT lists as empty; the loop below then falls through to the
+		// same `return null` the old catch took directly.
+		const projectDirs = await records.scanNames(projectsDir, '')
 		for (const rawId of projectDirs) {
 			if (!rawId.startsWith('prj_')) continue
 			const projectId = rawId as ProjectId
 			const sessionsRoot = join(projectsDir, projectId, 'sessions')
-			let sessionDirs: string[]
-			try {
-				sessionDirs = await readdir(sessionsRoot)
-			} catch {
-				continue
-			}
+			const sessionDirs = await records.scanNames(sessionsRoot, '')
 			for (const rawSessionId of sessionDirs) {
 				if (!rawSessionId.startsWith('ses_')) continue
 				if (rawSessionId === sessionId) {
@@ -982,34 +948,19 @@ export class DiskSessionStore implements SessionStore {
 		if (cached) return cached
 
 		const projectsDir = join(this.rootDir, 'projects')
-		let projectDirs: string[]
-		try {
-			projectDirs = await readdir(projectsDir)
-		} catch (err) {
-			const code = (err as NodeJS.ErrnoException).code
-			if (code === 'ENOENT') return null
-			throw err
-		}
+		// ENOENT lists as empty; the loop below then falls through to the
+		// same `return null` the old catch took directly.
+		const projectDirs = await records.scanNames(projectsDir, '')
 		for (const rawProject of projectDirs) {
 			if (!rawProject.startsWith('prj_')) continue
 			const projectId = rawProject as ProjectId
 			const sessionsRoot = join(projectsDir, projectId, 'sessions')
-			let sessionDirs: string[]
-			try {
-				sessionDirs = await readdir(sessionsRoot)
-			} catch {
-				continue
-			}
+			const sessionDirs = await records.scanNames(sessionsRoot, '')
 			for (const rawSession of sessionDirs) {
 				if (!rawSession.startsWith('ses_')) continue
 				const sessionId = rawSession as SessionId
 				const subsDir = join(sessionsRoot, sessionId, 'subsessions')
-				let subDirs: string[]
-				try {
-					subDirs = await readdir(subsDir)
-				} catch {
-					continue
-				}
+				const subDirs = await records.scanNames(subsDir, '')
 				for (const rawSub of subDirs) {
 					if (rawSub === subSessionId) {
 						const entry = {
@@ -1032,35 +983,22 @@ export class DiskSessionStore implements SessionStore {
 		// Acceptable for an MVP disk store; a production impl would cache.
 		const allSubs: SubSession[] = []
 		const projectsDir = join(this.rootDir, 'projects')
-		let projectDirs: string[]
-		try {
-			projectDirs = await readdir(projectsDir)
-		} catch (err) {
-			const code = (err as NodeJS.ErrnoException).code
-			if (code === 'ENOENT') return emptyLinkageView()
-			throw err
-		}
+		// ENOENT lists as empty, and a view over no sub-sessions IS the empty
+		// view the old catch returned directly.
+		const projectDirs = await records.scanNames(projectsDir, '')
 
 		for (const rawProject of projectDirs) {
 			if (!rawProject.startsWith('prj_')) continue
 			const sessionsRoot = join(projectsDir, rawProject, 'sessions')
-			let sessionDirs: string[]
-			try {
-				sessionDirs = await readdir(sessionsRoot)
-			} catch {
-				continue
-			}
+			const sessionDirs = await records.scanNames(sessionsRoot, '')
 			for (const rawSession of sessionDirs) {
 				if (!rawSession.startsWith('ses_')) continue
 				const subsRoot = join(sessionsRoot, rawSession, 'subsessions')
-				let subDirs: string[]
-				try {
-					subDirs = await readdir(subsRoot)
-				} catch {
-					continue
-				}
+				const subDirs = await records.scanNames(subsRoot, '')
 				for (const rawSub of subDirs) {
-					const raw = await readJson<PersistedSubSession>(join(subsRoot, rawSub, 'subsession.json'))
+					const raw = await records.read<PersistedSubSession>(
+						join(subsRoot, rawSub, 'subsession.json'),
+					)
 					if (!raw) continue
 					if (raw.tenantId !== tenantId) continue
 					allSubs.push(deserializeSubSession(raw))
@@ -1074,13 +1012,6 @@ export class DiskSessionStore implements SessionStore {
 			findParentSubSession: (childSessionId) =>
 				allSubs.find((s) => s.childSessionId === childSessionId) ?? null,
 		}
-	}
-}
-
-function emptyLinkageView(): LinkageView {
-	return {
-		findChildSubSessions: () => [],
-		findParentSubSession: () => null,
 	}
 }
 
@@ -1227,27 +1158,6 @@ function deserializeSummary(s: PersistedSummary): SessionSummaryRef {
 }
 
 // FS helpers -----------------------------------------------------------------
-
-async function readJson<T>(path: string): Promise<T | null> {
-	try {
-		const raw = await readFile(path, 'utf-8')
-		// Through the schema rather than a bare cast: a record from an older
-		// build is brought forward, and one from a NEWER build is refused
-		// instead of read partially and written back with the difference
-		// gone.
-		return migrate<T>(SCHEMA, JSON.parse(raw))
-	} catch (err) {
-		const code = (err as NodeJS.ErrnoException).code
-		if (code === 'ENOENT') return null
-		throw err
-	}
-}
-
-async function atomicWriteJson(filePath: string, value: unknown): Promise<void> {
-	// Through the shared writer: the sidecar name has to be private to this
-	// write, and a fixed `.tmp` is shared by every writer of the record.
-	await atomicWriteFile(filePath, JSON.stringify(stamp(SCHEMA, value), null, 2))
-}
 
 // Note: messages are append-only `messages.jsonl` (not write-tmp-rename).
 // Append is the write-safety primitive for log-structured files; each
