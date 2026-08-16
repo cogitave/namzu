@@ -8,6 +8,7 @@ import type { ResumeHandler, UserQuestionOption } from '../../types/hitl/index.j
 import type { RunId, TaskId } from '../../types/ids/index.js'
 import type { TaskStore } from '../../types/task/index.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
+import { toErrorMessage } from '../../utils/error.js'
 import { defineTool } from '../defineTool.js'
 import { wrapUntrusted } from '../untrusted-envelope.js'
 import { failureLabel, taskSucceeded } from './outcome.js'
@@ -947,6 +948,71 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 		},
 	})
 
+	const continueTaskTool = defineTool({
+		name: 'continue_task',
+		description:
+			"Send a further instruction to a running agent task you launched with create_task. Use it to redirect a background worker that is heading the wrong way, instead of cancelling it and losing everything it has done. Does not block: the worker's result still arrives the way it already would.",
+		inputSchema: z.object({
+			task_id: z.string().describe('Agent task ID from a previous create_task'),
+			message: z.string().describe('The instruction to hand the worker'),
+		}),
+		category: 'custom',
+		permissions: [],
+		readOnly: false,
+		destructive: false,
+		concurrencySafe: true,
+		async execute({ task_id, message }) {
+			// Same fencing as the listing and the wait — see `launchedHere`.
+			// Asked FIRST, so a task belonging to a sibling run on a shared
+			// gateway is refused before anything is delivered to it.
+			if (!launchedHere.has(task_id as TaskId)) {
+				// Does not distinguish "never existed" from "belongs to someone
+				// else", for the reason `wait_for_task` gives: the second answer
+				// confirms a task id this run was not supposed to know.
+				return {
+					success: false,
+					output: `No task ${task_id} was launched by this run. Call agent_task_list to see the tasks you can steer.`,
+					data: { task_id },
+				}
+			}
+
+			const known = gateway.getTask(task_id as TaskId)
+			if (!known) {
+				return {
+					success: false,
+					output: `Task ${task_id} is no longer tracked, so there is nothing to send it.`,
+					data: { task_id },
+				}
+			}
+
+			try {
+				await gateway.continueTask(task_id as TaskId, message)
+			} catch (err) {
+				// The manager refuses a terminal task by throwing, and a throw
+				// out of `execute` is a tool ERROR — which reads to the model as
+				// "the platform broke" rather than "that worker has finished".
+				// Named as a refusal with the state in it, so the next move is
+				// obvious: read its result instead of steering it.
+				return {
+					success: false,
+					output: `Could not send to task ${task_id} (state: ${known.state}): ${toErrorMessage(err)}`,
+					data: { task_id, state: known.state },
+				}
+			}
+
+			// Deliberately does not wait. The worker's result arrives the way it
+			// already would — as this call's `tool_result` for a blocking
+			// launch, or as a completion notification for a background one — and
+			// blocking here would turn a redirect into a second `wait_for_task`
+			// the supervisor did not ask for.
+			return {
+				success: true,
+				output: `Sent to task ${task_id}. It will see this at its next turn; its result still arrives the way it already would.`,
+				data: { task_id },
+			}
+		},
+	})
+
 	const agentTaskList = defineTool({
 		name: 'agent_task_list',
 		description: `Inspect the live state of the agent tasks YOU launched with create_task: returns each task's id, agent, state (pending/running/completed/failed/canceled), and timing. Tasks launched by another run are not listed, even when it shares this gateway. Distinct from the plan-task store's \`task_list\` (which lists planning tasks): this tool lists running/completed worker invocations. ${listingAdvice}`,
@@ -1047,32 +1113,27 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 		},
 	})
 
-	// `continue_task` is gone, and the reasoning is worth keeping because
-	// the obvious argument for bringing it back does not survive contact.
+	// `continue_task` is registered again, and the reasoning that dropped it
+	// is kept because it was correct and has expired rather than been wrong.
 	//
-	// It was dropped on the grounds that a blocking `create_task` leaves every
-	// worker terminal before a later turn learns its id, and the manager
-	// refuses `continue` on a terminal task. `background: true` reinstated that
-	// precondition — a live id is reachable now — so the question was reopened.
+	// It read: on a LIVE task the manager accepts the call and pushes onto
+	// `pendingMessages`, and NOTHING drains that queue during a run — so the
+	// tool had no state it worked in. Terminal tasks refused it; live ones
+	// accepted it into a queue nobody read. Registering it would have handed
+	// the model a call that silently does nothing, which is worse than an
+	// unregistered definition, because a tool that cannot be called at least
+	// cannot fail quietly.
 	//
-	// Measured rather than assumed, and it fails on the other side. On a LIVE
-	// task the manager accepts the call and pushes onto `pendingMessages`,
-	// and NOTHING drains that queue during a run. This codebase already
-	// knows: `runtime/query/steering.ts` says in as many words that
-	// `queueMessage`/`drainMessages` were never read by the iteration loop,
-	// and `SteeringChannel` exists BECAUSE of that — it delivers guidance on a
-	// tool result instead, since a `tool_use` must be answered by a
-	// `tool_result` with the same id and there is no legal slot for a user
-	// message mid-batch.
+	// The comment named its own expiry condition: "if follow-ups on a live
+	// worker are wanted, the work is a consumer for the queue". That consumer
+	// exists — `BaseAgentConfig.inboundMessages`, drained at the iteration
+	// boundary — so the precondition the tool needed is met and the argument
+	// against it no longer holds.
 	//
-	// So the tool had no state it worked in: terminal tasks refuse it, live
-	// tasks accept it into a queue nobody reads. Registering it would have
-	// handed the model a call that silently does nothing — worse than the
-	// unregistered definition it replaced, because a defined-but-unreachable
-	// tool at least cannot be called.
-	//
-	// If follow-ups on a live worker are wanted, the work is a consumer for
-	// the queue or a steering channel that reaches a child, not this tool.
+	// A supervisor whose background worker is heading the wrong way could
+	// previously only wait for it or kill it, and killing it throws away
+	// everything it has done.
+
 	// `cancel_task` is registered again, and the reasoning that dropped it is
 	// worth keeping because it was sound at the time and is not any more.
 	//
@@ -1128,7 +1189,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 	// behaviour exactly.
 	const canDelegate = agentIds.length > 0 && allowDelegation !== false
 	const tools: ToolDefinition[] = canDelegate
-		? [createTask, waitForTaskTool, cancelTask, agentTaskList]
+		? [createTask, waitForTaskTool, continueTaskTool, cancelTask, agentTaskList]
 		: [agentTaskList]
 
 	if (getPlanManager) {

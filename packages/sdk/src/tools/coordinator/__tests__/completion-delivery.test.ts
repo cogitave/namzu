@@ -494,6 +494,7 @@ describe('background launching is offered only when it can be delivered', () => 
 		expect(inboxlessTools().map((t) => t.name)).toEqual([
 			'create_task',
 			'wait_for_task',
+			'continue_task',
 			'cancel_task',
 			'agent_task_list',
 		])

@@ -48,6 +48,7 @@ describe('a run can decline to delegate while still naming who it would have cal
 
 		expect(names).not.toContain('create_task')
 		expect(names).not.toContain('wait_for_task')
+		expect(names).not.toContain('continue_task')
 		expect(names).not.toContain('cancel_task')
 	})
 
@@ -80,6 +81,9 @@ describe('an absent flag changes nothing', () => {
 
 		expect(names).toContain('create_task')
 		expect(names).toContain('wait_for_task')
+		// Steering a live worker is delegation too — a run that must not
+		// delegate must not be able to redirect one either.
+		expect(names).toContain('continue_task')
 		expect(names).toContain('cancel_task')
 		expect(names).toContain('agent_task_list')
 	})
