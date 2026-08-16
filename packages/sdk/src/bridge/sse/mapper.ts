@@ -96,6 +96,10 @@ const MAPPING: {
 		}),
 	},
 
+	// Declined, for the reason the a2a mapper gives: whole message bodies,
+	// tool output included. A subscribed browser must not receive a frame
+	// carrying the content a compaction just removed.
+	compaction_shed: null,
 	compaction_completed: {
 		wire: 'compaction.completed',
 		transform: (e, runId) => ({

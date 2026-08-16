@@ -386,6 +386,13 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				)
 				break
 
+			case 'compaction_shed':
+				// Deliberately silent. The report is what a human reads about a
+				// run; replaying every shed message into it would bury the
+				// summary line that says the pass happened, in exactly the
+				// content the pass existed to remove.
+				break
+
 			default: {
 				const _exhaustive: never = event
 				throw new Error(`Unhandled run event type: ${(_exhaustive as RunEvent).type}`)

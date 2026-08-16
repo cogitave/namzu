@@ -12,6 +12,7 @@ import type {
 	TaskId,
 	ToolUseId,
 } from '../ids/index.js'
+import type { Message } from '../message/index.js'
 import type { PlanStep } from '../plan/index.js'
 import type { PluginHookEvent, PluginHookResult } from '../plugin/index.js'
 import type { TaskStatus } from '../task/index.js'
@@ -147,6 +148,39 @@ type CoreRunEvent =
 	 * lost its middle. Every field here is measured, not estimated, where
 	 * the provider reported it (`measuredBy`).
 	 */
+	/**
+	 * What a compaction pass removed, recorded before it is gone.
+	 *
+	 * `compaction_completed` carries counts and nothing else, and both shed
+	 * sites REPLACE the live message array — which `persist()` then writes
+	 * over `messages.json` wholesale. So the shed content existed nowhere
+	 * afterwards: not in memory, not on disk, not in the transcript. "What
+	 * did the agent decide three compactions ago" was unanswerable, an undo
+	 * had no input, and a search index over run history could never see the
+	 * part that mattered most.
+	 *
+	 * Emitted BEFORE the array is replaced, and that ordering is the whole
+	 * mechanism: `transcript.jsonl` is append-only and `emitEvent` reaches it
+	 * synchronously with the pass, so the record is durable before the
+	 * deletion is. Emitted after, a crash between the two loses exactly what
+	 * this exists to keep.
+	 *
+	 * This does NOT make the transcript the source of truth for a live run —
+	 * the message array still is. It adds a parallel append-only record
+	 * beside it.
+	 *
+	 * Carries whole message bodies, tool output included, which is why both
+	 * external wire mappers decline it.
+	 */
+	| {
+			type: 'compaction_shed'
+			runId: RunId
+			iteration: number
+			/** Exactly the messages the pass removed, in their original order. */
+			messages: Message[]
+			/** Whether the pass ran on the threshold or on a provider rejection. */
+			reason: 'threshold' | 'overflow'
+	  }
 	| {
 			type: 'compaction_completed'
 			runId: RunId

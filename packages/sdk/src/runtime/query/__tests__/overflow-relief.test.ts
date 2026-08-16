@@ -89,6 +89,7 @@ async function run(provider: MockLLMProvider, compaction: boolean) {
 						resetThreshold: 0.4,
 						keepRecentMessages: 2,
 						clearToolResults: true,
+						recordShedHistory: true,
 						keepRecentToolResults: 3,
 						minToolResultCharsToClear: 1_000,
 						maxToolResults: 30,

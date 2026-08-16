@@ -79,6 +79,18 @@ export const CompactionConfigSchema = z.object({
 	 * summarization.
 	 */
 	clearToolResults: z.boolean().default(true),
+	/**
+	 * Record what each pass removes, as a `compaction_shed` event.
+	 *
+	 * On by default: without it the shed content exists nowhere afterwards
+	 * — not in memory, not in `messages.json`, not in the transcript — and
+	 * "what did the agent decide three compactions ago" is unanswerable.
+	 *
+	 * Off is for an operator with a transcript-size constraint, and it is a
+	 * real trade: the transcript grows by roughly what the compaction saved
+	 * in context, since the whole point is that the bodies are kept.
+	 */
+	recordShedHistory: z.boolean().default(true),
 	/** Most recent tool results left alone — the agent is likely still using them. */
 	keepRecentToolResults: z.number().min(0).default(3),
 	/**

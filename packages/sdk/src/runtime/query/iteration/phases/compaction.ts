@@ -331,6 +331,8 @@ async function applyReducer(
 		return
 	}
 
+	await recordShed(ctx, [...messages], next, reduction.reason)
+
 	messages.length = 0
 	for (const message of next) messages.push(message)
 
@@ -367,6 +369,44 @@ async function applyReducer(
 		measuredBy: measurement.measuredBy,
 		contextWindowTokens: reduction.contextWindowTokens,
 		windowSource: measurement.windowSource,
+	})
+}
+
+/**
+ * Record what a pass is about to remove, before it removes it.
+ *
+ * The ordering is the whole mechanism. `transcript.jsonl` is append-only
+ * and `emitEvent` reaches it synchronously with the pass, while `persist()`
+ * overwrites `messages.json` wholesale later in the loop — so emitting HERE
+ * makes the record durable before the deletion is. Emitted after the array
+ * install, a crash between the two loses exactly what this exists to keep.
+ *
+ * Diffed by identity, not by index. Both shed paths can retain messages
+ * from the middle of the history — the structured one keeps whatever the
+ * working-memory pass re-pinned — so "everything before the cut" would
+ * record messages that are still there.
+ */
+async function recordShed(
+	ctx: IterationContext,
+	before: readonly Message[],
+	after: readonly Message[],
+	reason: 'threshold' | 'overflow',
+): Promise<void> {
+	if (ctx.compactionConfig?.recordShedHistory === false) return
+
+	const kept = new Set<Message>(after)
+	const shed = before.filter((m) => !kept.has(m))
+	// Nothing shed, nothing to record. A pass that only rewrote the floor
+	// emits no event rather than an empty one nobody can distinguish from a
+	// real record of nothing.
+	if (shed.length === 0) return
+
+	await ctx.emitEvent?.({
+		type: 'compaction_shed',
+		runId: ctx.runMgr.id,
+		iteration: ctx.runMgr.currentIteration,
+		messages: shed,
+		reason,
 	})
 }
 
@@ -615,6 +655,8 @@ export async function runCompactionCheck(
 	}
 
 	const oldCount = messages.length
+	await recordShed(ctx, [...messages], newMessages, options?.force ? 'overflow' : 'threshold')
+
 	messages.length = 0
 	for (const msg of newMessages) {
 		messages.push(msg)

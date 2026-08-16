@@ -206,6 +206,10 @@ const MAPPING: {
 	// What THIS runtime asked its model is not a fact about the task a peer
 	// is tracking, and it is the largest single payload the kernel emits.
 	request_envelope: null,
+	// Declined. This carries whole message bodies including tool output, and
+	// a peer models a task lifecycle — shipping a run's deleted history over
+	// an external wire by default is a disclosure nobody asked for.
+	compaction_shed: null,
 	compaction_completed: null,
 	// Same reason as the two below: which of this runtime's context-relief
 	// strategies fired is a property of how it manages its own window, and a

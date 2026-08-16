@@ -85,6 +85,13 @@ export const RUN_EVENT_FIXTURES: Record<RunEvent['type'], () => RunEvent> = {
 		iteration: 1,
 		hasToolCalls: true,
 	}),
+	compaction_shed: () => ({
+		type: 'compaction_shed',
+		runId: FIXTURE_RUN_ID,
+		iteration: 1,
+		messages: [],
+		reason: 'threshold',
+	}),
 	compaction_completed: () => ({
 		type: 'compaction_completed',
 		runId: FIXTURE_RUN_ID,

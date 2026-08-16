@@ -1448,6 +1448,11 @@ function gateFor(rules: readonly AuthorizationRule[] | undefined) {
 // a number here would fix one window across every model the CLI can talk to.
 const COMPACTION_CONFIG = {
 	strategy: 'structured' as const,
+	// On, and this is the CLI making a choice rather than taking a default.
+	// A local session's transcript is the only record of what was compacted
+	// away, and `<cwd>/.namzu` is the operator's own disk — the size trade
+	// this costs is theirs to see and theirs to turn off.
+	recordShedHistory: true,
 	triggerThreshold: 0.7,
 	resetThreshold: 0.4,
 	keepRecentMessages: 6,

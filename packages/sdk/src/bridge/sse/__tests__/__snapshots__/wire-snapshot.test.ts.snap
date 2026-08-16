@@ -3,6 +3,7 @@
 exports[`every RunEvent has a decided place on the SSE wire > declines nothing by accident: every null is a decision with a name 1`] = `
 [
   "capability_warning",
+  "compaction_shed",
   "request_envelope",
   "run_completed",
   "run_failed",
@@ -98,6 +99,7 @@ exports[`every RunEvent has a decided place on the SSE wire > pins the wire name
     ],
     "wire": "compaction.failed",
   },
+  "compaction_shed": null,
   "compaction_tool_results_cleared": {
     "keys": [
       "chars_reclaimed",
