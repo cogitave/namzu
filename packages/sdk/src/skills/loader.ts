@@ -9,7 +9,7 @@ import type {
 import { type ParsedFrontmatter, parseFrontmatter } from '../utils/frontmatter.js'
 import { type Logger, resolveLogger } from '../utils/logger.js'
 
-const SKILL_FILENAME = 'SKILL.md'
+export const SKILL_FILENAME = 'SKILL.md'
 
 /**
  * How this file's errors name themselves. Passed to the shared reader so a
