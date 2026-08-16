@@ -9,6 +9,7 @@ import type { ProbeEnforcement } from '../../probe/registry.js'
 import { renderToolSchema } from '../../registry/tool/schema.js'
 import type { ActivityStore } from '../../store/activity/memory.js'
 import { fingerprintContent } from '../../tools/builtins/content-fingerprint.js'
+import { SKILL_TOOL_NAME } from '../../tools/builtins/skill.js'
 import type { RunId, ToolUseId } from '../../types/ids/index.js'
 import type { InvocationState } from '../../types/invocation/index.js'
 import {
@@ -25,6 +26,7 @@ import type { Sandbox } from '../../types/sandbox/index.js'
 import type {
 	FileReadTracker,
 	RequestToolPause,
+	SkillRegistryRef,
 	ToolContext,
 	ToolRegistryContract,
 	ToolResult,
@@ -145,6 +147,14 @@ export interface ToolExecutorConfig {
 	 * that fallback is a lie rather than a lesser version.
 	 */
 	backgroundJobs?: BackgroundJobRegistry
+
+	/**
+	 * Where the `skill` tool reads from.
+	 *
+	 * Structural (`SkillRegistryRef`) rather than `SkillRegistry`, because
+	 * this config is host-facing and a host may hold its skills anywhere.
+	 */
+	skills?: SkillRegistryRef
 	invocationState?: InvocationState
 	pluginManager?: PluginLifecycleManager
 	/** Run-level default deadline; per-tool `timeoutMs` overrides it. */
@@ -378,6 +388,57 @@ export class ToolExecutor {
 	 */
 	private batchMode?: PermissionMode
 
+	/**
+	 * The tool scope a loaded skill declared, and the batch it applies from.
+	 *
+	 * `allowed-tools` was parsed, stored and rendered into the prompt, and
+	 * read by nothing — advice phrased as a declaration. This is what makes
+	 * it a restriction, on the same line that already enforces the step's
+	 * list, because a narrowing the model can decline is not one.
+	 *
+	 * Two fields rather than one, and the second is the point: a skill
+	 * loaded MID-batch must not retroactively refuse the calls the model
+	 * issued alongside it. The model chose that batch under the old scope,
+	 * and refusing half of it teaches nothing except that tools fail at
+	 * random. `adoptedInBatch` is compared against the batch counter, so the
+	 * scope takes effect from the next one.
+	 *
+	 * **`adoptedInBatch` is redundant TODAY and kept deliberately**, the same
+	 * bargain `batchMode` above documents. `buildToolContext()` runs once per
+	 * batch, so every call in a batch already shares one `allowedTools` array
+	 * computed before any of them could adopt anything — remove this
+	 * comparison and no test changes, because the guarantee currently comes
+	 * from where the context happens to be built rather than from here.
+	 * Moving the context into the per-call spread is a plausible refactor,
+	 * and it would silently produce a batch whose second half is refused for
+	 * a scope its first half installed. That is precisely the incoherent
+	 * batch this line exists to make impossible.
+	 */
+	private skillScope?: { skill: string; allowedTools: readonly string[]; adoptedInBatch: number }
+	private batchCounter = 0
+
+	/**
+	 * The step's list, narrowed by any skill scope in force.
+	 *
+	 * An INTERSECTION, never a replacement: a skill cannot hand the model a
+	 * tool the step withheld. Widening has to be unexpressible rather than
+	 * discouraged — the same rule `CreateTaskOptions.toolScope` states for
+	 * delegation, and for the same reason: a skill file is content, and
+	 * content that can grant tools is a privilege-escalation surface wearing
+	 * the word "scope".
+	 *
+	 * The `skill` tool itself always survives. A skill that narrowed the
+	 * model out of reaching for another skill would be a one-way door, and
+	 * the tool reads instructions and changes nothing.
+	 */
+	private effectiveAllowedTools(): readonly string[] | undefined {
+		const base = this.stepAllowedTools ?? this.config.allowedTools
+		const scope = this.skillScope
+		if (!scope || scope.adoptedInBatch >= this.batchCounter) return base
+		const narrowed = new Set([...scope.allowedTools, SKILL_TOOL_NAME])
+		return base === undefined ? [...narrowed] : base.filter((name) => narrowed.has(name))
+	}
+
 	private resolvePermissionMode(): PermissionMode {
 		const configured = this.config.permissionMode
 		return typeof configured === 'function' ? configured() : configured
@@ -392,6 +453,8 @@ export class ToolExecutor {
 		if (!toolCalls) {
 			return { messages: [], results: [] }
 		}
+
+		this.batchCounter += 1
 
 		// Sampled here, once, and held for every call below. See the note on
 		// `permissionMode` in the config type.
@@ -561,7 +624,13 @@ export class ToolExecutor {
 			// The step's list wins where it has one; the run's is the default.
 			// Same precedence the request already uses when it decides which
 			// schemas to send, so the menu and the kitchen agree.
-			allowedTools: this.stepAllowedTools ?? this.config.allowedTools,
+			allowedTools: this.effectiveAllowedTools(),
+			// Recorded, not applied here: a skill loaded during this batch
+			// narrows the NEXT one. See `skillScope`.
+			adoptSkillScope: (scope) => {
+				this.skillScope = { ...scope, adoptedInBatch: this.batchCounter }
+			},
+			...(this.config.skills ? { skills: this.config.skills } : {}),
 			sandbox: this.config.sandbox,
 			fileReadTracker: this.fileReadTracker,
 			// Bound to this run, once. Binding here rather than passing the

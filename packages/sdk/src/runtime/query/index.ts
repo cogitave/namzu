@@ -258,6 +258,17 @@ export interface QueryParams {
 	promptContributions?: import('../../prompt/contributions.js').PromptContributionRegistry
 
 	/**
+	 * Where the `skill` tool loads from.
+	 *
+	 * Separate from `skills`, which is the LIST that goes in the prompt
+	 * manifest. A run can have the manifest without the tool — that is what
+	 * every run did before the tool existed — and the two are wired
+	 * independently on purpose: a host may want the guidance visible without
+	 * granting a way to pull bodies in mid-run.
+	 */
+	skillRegistry?: import('../../types/tool/index.js').SkillRegistryRef
+
+	/**
 	 * Wait between in-loop retries of a failed tool call, with full jitter.
 	 * Defaults to {@link DEFAULT_TOOL_RETRY_BACKOFF}.
 	 *
@@ -1242,6 +1253,10 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			invocationState: params.invocationState,
 			pluginManager: params.pluginManager,
 			...(params.backgroundJobs ? { backgroundJobs: params.backgroundJobs } : {}),
+			// The `skill` tool's registry. Threaded from the run rather than
+			// held by the tool, because a tool that reached for a module-level
+			// registry would answer about whatever the last run configured.
+			...(params.skillRegistry ? { skills: params.skillRegistry } : {}),
 			...(params.toolTimeoutMs !== undefined ? { toolTimeoutMs: params.toolTimeoutMs } : {}),
 			...(params.toolRetryBackoff !== undefined
 				? { toolRetryBackoff: params.toolRetryBackoff }

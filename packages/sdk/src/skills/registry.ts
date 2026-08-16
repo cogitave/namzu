@@ -100,6 +100,17 @@ export class SkillRegistry {
 		return [...this.skills.values()]
 	}
 
+	/**
+	 * Every registered name.
+	 *
+	 * So a lookup that misses can name what IS there. A bare "not found"
+	 * sends the model guessing at spellings, and it is guessing from a
+	 * manifest already in its own prompt.
+	 */
+	names(): readonly string[] {
+		return [...this.skills.keys()]
+	}
+
 	get size(): number {
 		return this.skills.size
 	}

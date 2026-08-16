@@ -27,6 +27,45 @@ export interface ToolRegistryRef {
  * the executor binds it to the run, so a tool cannot start a job that
  * outlives, or is billed to, somebody else's run.
  */
+/**
+ * The slice of the skills registry a tool is given.
+ *
+ * Structural for the reason `ToolRegistryRef` is: this file is imported by
+ * everything, and naming `SkillRegistry` here would drag the skill loader's
+ * filesystem imports into every consumer's type graph.
+ */
+export interface SkillRegistryRef {
+	/**
+	 * Load a skill's full body, or `undefined` for a name nobody registered.
+	 *
+	 * Full disclosure by design: a tool call asking for a skill is asking
+	 * for its instructions, and returning metadata the model already has in
+	 * its manifest would answer a question it did not ask.
+	 */
+	load(name: string): Promise<
+		| {
+				skill: {
+					metadata: {
+						name: string
+						description: string
+						allowedTools?: string
+						/**
+						 * The literal union, not `string`. Widening it here would
+						 * let a ref satisfy this interface while carrying a value
+						 * `isInvocableBy` cannot read, and the failure would be a
+						 * silent `both` — the fail-open answer.
+						 */
+						invocation?: 'model' | 'operator' | 'both'
+					}
+					body?: string
+				}
+		  }
+		| undefined
+	>
+	/** Every registered name, for a "did you mean" that names real options. */
+	names(): readonly string[]
+}
+
 export interface BackgroundJobRegistryRef {
 	start(params: { command: string; workingDirectory: string }): { id: string; status: string }
 	get(id: string): { id: string; status: string; exitCode?: number }
@@ -162,6 +201,25 @@ export interface ToolContext {
 	 * it worked, with the work already dead.
 	 */
 	backgroundJobs?: BackgroundJobRegistryRef
+
+	/**
+	 * Where the `skill` tool reads from.
+	 *
+	 * Absent means the run has no skills, and the tool says so rather than
+	 * reporting an empty list — "no skills here" and "no registry" are
+	 * different answers.
+	 */
+	skills?: SkillRegistryRef
+
+	/**
+	 * Adopt the tool scope a skill declared.
+	 *
+	 * Called by the `skill` tool when a loaded skill names `allowed-tools`.
+	 * The scope INTERSECTS what the turn already allows and takes effect from
+	 * the next batch — a skill loaded alongside other calls must not
+	 * retroactively refuse them.
+	 */
+	adoptSkillScope?: (scope: { skill: string; allowedTools: readonly string[] }) => void
 
 	/**
 	 * The `tool_use_id` of the assistant block that triggered this

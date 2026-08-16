@@ -35,6 +35,11 @@ export { GrepTool } from './tools/builtins/grep.js'
 // capability: an id with nothing that reads it is the unbacked suggestion
 // that was removed from bash's schema.
 export { JobTool } from './tools/builtins/job.js'
+// Loads a skill's instructions, and adopts the tool scope it declares.
+// NOT in the default builtin set: a run with no skills has nothing for it
+// to do, and offering a tool that can only refuse is worse than not
+// offering it. Hosts register it alongside a skills registry.
+export { SKILL_TOOL_NAME, SkillTool, parseAllowedTools } from './tools/builtins/skill.js'
 export { LsTool } from './tools/builtins/ls.js'
 export { SearchToolsTool } from './tools/builtins/search-tools.js'
 export { VerifyOutputsTool } from './tools/builtins/verify-outputs.js'
