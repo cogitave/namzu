@@ -540,6 +540,47 @@ describe('mapRunToStreamEvent — v3 message and tool-input lifecycle', () => {
 	})
 })
 
+describe('the compaction family on the wire', () => {
+	const cleared = {
+		type: 'compaction_tool_results_cleared' as const,
+		runId: RID,
+		iteration: 4,
+		clearedCount: 2,
+		charsReclaimed: 158_476,
+		reclaimedTokens: 39_619,
+		reliefWasEnough: false,
+	}
+
+	it('carries every field of a tool-result clear, snake-cased', () => {
+		// The transform was wired and nothing exercised it — the whole
+		// point of the event is that a host can render what was lost, and a
+		// field dropped in the mapping loses it just as surely as not
+		// emitting at all. Asserted field by field, not by shape, because
+		// `toMatchObject` on a subset would pass with the interesting half
+		// missing.
+		const r = mapRunToStreamEvent(cleared, RID)
+
+		expect(r?.wire).toBe('compaction.tool_results_cleared')
+		expect(r?.data).toEqual({
+			run_id: RID,
+			iteration: 4,
+			cleared_count: 2,
+			chars_reclaimed: 158_476,
+			reclaimed_tokens: 39_619,
+			relief_was_enough: false,
+		})
+	})
+
+	it('carries the relieved branch as a distinct value, not an omission', () => {
+		// `false` and absent read the same to a consumer doing a truthiness
+		// check, and they mean opposite things: one says a summarization
+		// followed, the other says nothing at all.
+		const r = mapRunToStreamEvent({ ...cleared, reliefWasEnough: true }, RID)
+
+		expect(r?.data).toMatchObject({ relief_was_enough: true })
+	})
+})
+
 describe('mapSessionToStreamEvent (deprecated alias)', () => {
 	it('is the same function reference as mapRunToStreamEvent', () => {
 		// Identity check is deterministic. toEqual on paired calls
