@@ -503,10 +503,25 @@ export async function runCompactionCheck(
 			// hand back a history that overflows again on the retry. The
 			// estimate is the thing that was proven wrong; it does not get to
 			// end the pass.
-			if (
-				!options?.force &&
-				(estimatedTokens - reclaimedTokens) / budget < config.triggerThreshold
-			) {
+			// Decided BEFORE the event so both branches carry the same fact,
+			// and emitted before the return so the insufficient branch is not
+			// the silent one. A clear that fell through to summarization edited
+			// the history exactly as much as one that did not.
+			const reliefWasEnough =
+				!options?.force && (estimatedTokens - reclaimedTokens) / budget < config.triggerThreshold
+
+			await ctx.emitEvent?.({
+				type: 'compaction_tool_results_cleared',
+				runId: ctx.runMgr.id,
+				iteration: ctx.runMgr.currentIteration,
+				clearedCount: edit.clearedCount,
+				charsReclaimed: edit.charsReclaimed,
+				reclaimedTokens,
+				reliefWasEnough,
+			})
+
+			// If that was enough, stop here and keep the history verbatim.
+			if (reliefWasEnough) {
 				return
 			}
 		}

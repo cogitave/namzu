@@ -138,6 +138,39 @@ type CoreRunEvent =
 			reachedResetThreshold?: boolean
 	  }
 	/**
+	 * Oversized tool results were emptied instead of the history being
+	 * summarized.
+	 *
+	 * This is the most common context-relief path and it was the only one
+	 * that emitted nothing. It edits the conversation the model sees —
+	 * `tool_result` bodies are replaced, irrecoverably — so a host reading
+	 * `transcript.jsonl` saw results it no longer has and no record of why.
+	 * The two summarization outcomes were both on the wire; the cheap one
+	 * that runs far more often was not.
+	 *
+	 * Emitted on BOTH branches. `reliefWasEnough: false` means the clear
+	 * happened and was insufficient, so a full summarization followed and a
+	 * `compaction_completed` is coming — the history took two edits, not
+	 * one, and a reader that only saw the second would misattribute the
+	 * first.
+	 */
+	| {
+			type: 'compaction_tool_results_cleared'
+			runId: RunId
+			iteration: number
+			/** How many `tool_result` bodies were emptied. */
+			clearedCount: number
+			/** Characters removed, summed across those results. */
+			charsReclaimed: number
+			/** `charsReclaimed` as tokens, by the same estimate the trigger uses. */
+			reclaimedTokens: number
+			/**
+			 * Whether the clear alone brought the context back under
+			 * `triggerThreshold`. `false` means summarization ran afterwards.
+			 */
+			reliefWasEnough: boolean
+	  }
+	/**
 	 * A compaction pass ran and shed nothing, so the history is unchanged.
 	 *
 	 * A shed that did not happen is exactly as consequential as one that did,

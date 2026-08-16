@@ -204,6 +204,10 @@ const MAPPING: {
 	// Context management is kernel-internal bookkeeping; A2A peers model a
 	// task lifecycle, not the host runtime's memory strategy.
 	compaction_completed: null,
+	// Same reason as the two below: which of this runtime's context-relief
+	// strategies fired is a property of how it manages its own window, and a
+	// peer modelling a task lifecycle can act on none of them.
+	compaction_tool_results_cleared: null,
 	// Compaction, succeeded or declined, is a property of how this runtime
 	// manages its own context. A peer models a task lifecycle and cannot act on
 	// either outcome.

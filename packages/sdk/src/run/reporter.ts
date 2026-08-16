@@ -272,6 +272,22 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				})
 				break
 
+			case 'compaction_tool_results_cleared':
+				// `info` on both branches. The relieved case is the run
+				// avoiding a summarization, which is good news worth stating;
+				// the unrelieved case is the history taking two edits in one
+				// pass, and a reader who saw only the `compaction_completed`
+				// below would attribute the whole loss to it.
+				log.info('Cleared oversized tool results', {
+					runId: event.runId,
+					iteration: event.iteration,
+					clearedCount: event.clearedCount,
+					charsReclaimed: event.charsReclaimed,
+					reclaimedTokens: event.reclaimedTokens,
+					reliefWasEnough: event.reliefWasEnough,
+				})
+				break
+
 			case 'compaction_failed':
 				// warn rather than info: the run is now continuing at a context
 				// size it had already decided was too large.

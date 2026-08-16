@@ -155,6 +155,8 @@ export type StreamEventType =
 	 * transcript needs to know its middle was dropped, not infer it.
 	 */
 	| 'compaction.completed'
+	/** Oversized tool results were emptied instead of the history summarized. */
+	| 'compaction.tool_results_cleared'
 	| 'compaction.failed'
 	/** A guardrail refused or corrected the run. */
 	| 'guardrail.triggered'

@@ -115,6 +115,18 @@ const MAPPING: {
 	// context was dropped must also be able to show them it was not, because a
 	// run continuing at full context is the state that ends in an opaque
 	// provider rejection later.
+	compaction_tool_results_cleared: {
+		wire: 'compaction.tool_results_cleared',
+		transform: (e, runId) => ({
+			run_id: runId,
+			iteration: e.iteration,
+			cleared_count: e.clearedCount,
+			chars_reclaimed: e.charsReclaimed,
+			reclaimed_tokens: e.reclaimedTokens,
+			relief_was_enough: e.reliefWasEnough,
+		}),
+	},
+
 	compaction_failed: {
 		wire: 'compaction.failed',
 		transform: (e, runId) => ({

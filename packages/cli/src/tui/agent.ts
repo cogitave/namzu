@@ -1819,6 +1819,19 @@ export function toAgentEvent(event: RunEvent): AgentEvent | null {
 			}
 		case 'compaction_completed':
 			return { kind: 'context', text: describeCompaction(event), shed: true }
+		case 'compaction_tool_results_cleared':
+			// `shed: true` on both branches: the tool-result bodies are gone
+			// either way. `reliefWasEnough: false` additionally means a
+			// summarization followed, and the reader will see its own line —
+			// so this one says what IT cost rather than claiming the total.
+			return {
+				kind: 'context',
+				text:
+					`cleared ${event.clearedCount} oversized tool result${event.clearedCount === 1 ? '' : 's'}` +
+					` (~${event.reclaimedTokens.toLocaleString()} tokens)` +
+					(event.reliefWasEnough ? '' : ' — not enough, compacting'),
+				shed: true,
+			}
 		case 'compaction_failed':
 			return { kind: 'context', text: describeCompactionFailure(event), shed: false }
 		default:
