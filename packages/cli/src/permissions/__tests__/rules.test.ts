@@ -7,7 +7,7 @@
  * would look exactly like this change from the outside.
  */
 
-import { AuthorizationGate, configureLogger, getRootLogger } from '@namzu/sdk'
+import { AuthorizationGate, NOOP_LOGGER } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -140,8 +140,6 @@ describe('compiling a permissions table', () => {
 	})
 })
 
-configureLogger({ level: 'silent' })
-
 describe('the rules actually decide a real call', () => {
 	// The compiler tests above assert the SHAPE of the emitted rules. Shape is
 	// not behaviour: the first version of this compiler emitted `target: 'args'`
@@ -159,7 +157,7 @@ describe('the rules actually decide a real call', () => {
 				denyDangerousPatterns: false,
 				logDecisions: false,
 			},
-			getRootLogger(),
+			NOOP_LOGGER,
 		)
 		return gate.evaluate({ toolName: tool, toolInput: input, toolDef: undefined })
 	}
@@ -242,7 +240,7 @@ describe('the rules actually decide a real call', () => {
 					denyDangerousPatterns: true,
 					logDecisions: false,
 				},
-				getRootLogger(),
+				NOOP_LOGGER,
 			)
 			const verdict = gate.evaluate({
 				toolName: 'bash',
@@ -335,7 +333,7 @@ describe('what a denial actually says to the model', () => {
 				denyDangerousPatterns: false,
 				logDecisions: false,
 			},
-			getRootLogger(),
+			NOOP_LOGGER,
 		)
 		return gate.evaluate({ toolName: tool, toolInput: input, toolDef: undefined }).reason
 	}

@@ -7,14 +7,12 @@
  * `--permission-mode auto` able to run something the operator wrote `deny` for.
  */
 
-import { AuthorizationGate, configureLogger, getRootLogger } from '@namzu/sdk'
+import { AuthorizationGate, NOOP_LOGGER } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 
 import { makeResumeHandler } from '../../tui/agent.js'
 import { PERMISSION_MODES, isPermissionMode, resolvePermissionMode } from '../mode.js'
 import { compilePermissions } from '../rules.js'
-
-configureLogger({ level: 'silent' })
 
 describe('resolving the mode from flag, alias and terminal', () => {
 	it('takes an explicit flag over everything else', () => {
@@ -60,7 +58,7 @@ describe('a mode decides only what no rule decided', () => {
 				denyDangerousPatterns: false,
 				logDecisions: false,
 			},
-			getRootLogger(),
+			NOOP_LOGGER,
 		)
 	}
 
