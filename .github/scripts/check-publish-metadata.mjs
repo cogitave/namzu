@@ -67,8 +67,11 @@ function packedPaths(dir) {
 		shell: process.platform === 'win32',
 		stdio: ['ignore', 'pipe', 'pipe'],
 	})
-	return JSON.parse(out)[0].files.map((f) => f.path)
+	return JSON.parse(out)[0].files
 }
+
+/** Just the paths, for the checks that only care what is present. */
+const pathsOf = (files) => files.map((f) => f.path)
 
 /** Every `packages/**\/package.json`, one level deep and under `providers/`. */
 function packageDirs() {
@@ -124,14 +127,37 @@ for (const dir of packageDirs()) {
 	// caught the error and continued, and reported every package clean while
 	// packing none of them — a verification that could not fail is worse than
 	// no verification, because it leaves you confident instead of uncertain.
-	let packed
+	let packedFiles
 	try {
-		packed = packedPaths(dir)
+		packedFiles = packedPaths(dir)
 	} catch (err) {
 		problems.push(
 			`${manifest.name} (${dir}) could not be packed, so its contents are unknown: ${err.message.split('\n')[0]}`,
 		)
 		continue
+	}
+
+	const packed = pathsOf(packedFiles)
+
+	// A module with no content in it.
+	//
+	// `@namzu/openai` shipped `src/strict-schema.ts` at zero bytes from PR #64
+	// onward, plus the four `dist/strict-schema.*` artifacts the compiler
+	// dutifully emitted for it. Nothing imported it and it exported nothing,
+	// so no typecheck, no test and no lint had anything to say — a filename
+	// promising logic, published, holding none.
+	//
+	// Checked in the TARBALL rather than the working tree, for the same reason
+	// the test-material check is: this asks what a consumer receives.
+	const empty = packedFiles.filter(
+		(f) => f.size === 0 && /\.(ts|tsx|mts|cts|js|mjs|cjs)$/.test(f.path),
+	)
+	if (empty.length > 0) {
+		problems.push(
+			`${manifest.name} (${dir}) would publish ${empty.length} empty source file(s): ${empty
+				.map((f) => f.path)
+				.join(', ')}. Delete them, or give them the contents their names promise.`,
+		)
 	}
 
 	const tests = packed.filter(isTestPath)
