@@ -39,6 +39,7 @@ import { type BackoffPolicy, backoffWithJitter, sleep } from '../../utils/backof
 import { toErrorMessage } from '../../utils/error.js'
 import type { Logger } from '../../utils/logger.js'
 import { compressShellOutput } from '../../utils/shell-compress.js'
+import { type BackgroundJobRegistry, bindOwner } from '../jobs/registry.js'
 import {
 	DEFAULT_MAX_TOOL_OUTPUT_CHARS,
 	applyToolOutputBudget,
@@ -133,6 +134,17 @@ export interface ToolExecutorConfig {
 	abortSignal: AbortSignal
 	allowedTools?: readonly string[]
 	sandbox?: Sandbox
+	/**
+	 * Where background jobs this run starts are held.
+	 *
+	 * The registry is host-owned and shared; the executor binds it to THIS
+	 * run's id before a tool ever sees it, so a tool cannot start a job
+	 * billed to another run, nor read or kill one. Absent means the host
+	 * offers no background mode, and `bash run_in_background` refuses rather
+	 * than falling back to `cmd &` — see `runtime/jobs/registry.ts` for why
+	 * that fallback is a lie rather than a lesser version.
+	 */
+	backgroundJobs?: BackgroundJobRegistry
 	invocationState?: InvocationState
 	pluginManager?: PluginLifecycleManager
 	/** Run-level default deadline; per-tool `timeoutMs` overrides it. */
@@ -552,6 +564,17 @@ export class ToolExecutor {
 			allowedTools: this.stepAllowedTools ?? this.config.allowedTools,
 			sandbox: this.config.sandbox,
 			fileReadTracker: this.fileReadTracker,
+			// Bound to this run, once. Binding here rather than passing the
+			// owner from the tool is what makes the scoping structural: there
+			// is no argument a tool could pass to reach another run's jobs.
+			...(this.config.backgroundJobs
+				? {
+						backgroundJobs: bindOwner(this.config.backgroundJobs, this.config.runId, {
+							workingDirectory: this.config.workingDirectory,
+							env: this.config.env,
+						}),
+					}
+				: {}),
 			...(this.parentSpan ? { parentSpan: this.parentSpan } : {}),
 		}
 	}

@@ -92,9 +92,11 @@ import type { BackoffPolicy } from '../../utils/backoff.js'
 import type { ModelPricing } from '../../utils/cost.js'
 import { toErrorMessage } from '../../utils/error.js'
 import { generateRunId } from '../../utils/id.js'
+import { errorAttributes } from '../../utils/log/exception.js'
 import { EVENT_NAME_ATTRIBUTE } from '../../utils/log/types.js'
 import type { Logger } from '../../utils/logger.js'
 import { pickRenamed } from '../../utils/renamed-field.js'
+import type { BackgroundJobRegistry } from '../jobs/registry.js'
 import { CheckpointManager } from './checkpoint.js'
 import { RunContextFactory } from './context.js'
 import { EventTranslator } from './events.js'
@@ -234,6 +236,15 @@ export interface QueryParams {
 
 	/** Default per-tool execution deadline. See {@link ToolDefinition.timeoutMs}. */
 	toolTimeoutMs?: number
+	/**
+	 * Where background jobs this run starts are held, and killed.
+	 *
+	 * Host-owned so it can outlive one run — a registry built per run could
+	 * never be the thing that kills a run's jobs when the run is already
+	 * gone. This run's jobs are torn down in the `finally` below; another
+	 * run's are untouched.
+	 */
+	backgroundJobs?: BackgroundJobRegistry
 
 	/**
 	 * Wait between in-loop retries of a failed tool call, with full jitter.
@@ -1170,6 +1181,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			allowedTools: effectiveAllowedTools,
 			invocationState: params.invocationState,
 			pluginManager: params.pluginManager,
+			...(params.backgroundJobs ? { backgroundJobs: params.backgroundJobs } : {}),
 			...(params.toolTimeoutMs !== undefined ? { toolTimeoutMs: params.toolTimeoutMs } : {}),
 			...(params.toolRetryBackoff !== undefined
 				? { toolRetryBackoff: params.toolRetryBackoff }
@@ -1986,6 +1998,40 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			// WeakRef'd, settled run as the crash target for the rest of the
 			// process's life.
 			emergencyManager?.detach()
+
+			// A background job outlives the tool call that started it — that
+			// is what it is for — so nothing but this stops it outliving the
+			// RUN. Scoped to this run's id: a shared registry serving several
+			// runs must not have one of them tear down another's work.
+			//
+			// Awaited, and its failure swallowed. A job that would not die is
+			// worth a log line, and is not worth retracting a run's answer.
+			if (params.backgroundJobs) {
+				try {
+					const stopped = await params.backgroundJobs.killOwner(ctx.runId)
+					if (stopped.length > 0) {
+						ctx.log.info('Background jobs stopped with the run', {
+							'namzu.run.id': ctx.runId,
+							'namzu.jobs.stopped': stopped.length,
+						})
+					}
+				} catch (jobErr) {
+					ctx.log.error('A background job did not stop cleanly', {
+						// String literals rather than `[NAMZU.RUN_ID]`, and that is a
+						// finding about the gate rather than a preference.
+						// `check-log-standard.mjs`'s `resolveLiteralKeyText` folds a
+						// computed key only when it is a bare identifier bound to a
+						// `const x = 'literal'`; a property access on the constants
+						// table returns `undefined` at its `!ts.isIdentifier` guard,
+						// so every `[NAMZU.X]` site counts as an unresolvable key.
+						// The gate therefore penalises the constants table it was
+						// written alongside. Filed; until it folds property accesses,
+						// a literal is what passes honestly.
+						'namzu.run.id': ctx.runId,
+						...errorAttributes(jobErr),
+					})
+				}
+			}
 
 			// Same reasoning for the question channel: the tools outlive the
 			// run that bound them, so leaving it attached would have a later

@@ -8,6 +8,7 @@ import type { RequestToolPause, ToolRegistryContract } from '../../types/tool/in
 import type { RepairToolCall } from '../../types/tool/repair.js'
 import type { BackoffPolicy } from '../../utils/backoff.js'
 import type { Logger } from '../../utils/logger.js'
+import type { BackgroundJobRegistry } from '../jobs/registry.js'
 import { ToolExecutor } from './executor.js'
 
 export type EmitEvent = (event: RunEvent) => Promise<void>
@@ -24,6 +25,8 @@ export interface ToolingBootstrapConfig {
 	invocationState?: InvocationState
 	pluginManager?: PluginLifecycleManager
 	toolTimeoutMs?: number
+	/** Host-owned and shared; the executor binds it to this run. */
+	backgroundJobs?: BackgroundJobRegistry
 	toolRetryBackoff?: Partial<BackoffPolicy>
 	maxToolConcurrency?: number
 	maxToolOutputChars?: number
@@ -52,6 +55,7 @@ export class ToolingBootstrap {
 				allowedTools: config.allowedTools,
 				invocationState: config.invocationState,
 				pluginManager: config.pluginManager,
+				...(config.backgroundJobs ? { backgroundJobs: config.backgroundJobs } : {}),
 				...(config.toolTimeoutMs !== undefined ? { toolTimeoutMs: config.toolTimeoutMs } : {}),
 				...(config.toolRetryBackoff !== undefined
 					? { toolRetryBackoff: config.toolRetryBackoff }

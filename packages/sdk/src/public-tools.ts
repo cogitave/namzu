@@ -30,6 +30,11 @@ export { EditTool } from './tools/builtins/edit.js'
 export { BashTool } from './tools/builtins/bash.js'
 export { GlobTool } from './tools/builtins/glob.js'
 export { GrepTool } from './tools/builtins/grep.js'
+// Reads, lists and stops what `bash run_in_background` starts. Ships in
+// the default builtin set alongside bash, because the two are one
+// capability: an id with nothing that reads it is the unbacked suggestion
+// that was removed from bash's schema.
+export { JobTool } from './tools/builtins/job.js'
 export { LsTool } from './tools/builtins/ls.js'
 export { SearchToolsTool } from './tools/builtins/search-tools.js'
 export { VerifyOutputsTool } from './tools/builtins/verify-outputs.js'

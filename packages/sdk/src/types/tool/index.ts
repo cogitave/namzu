@@ -18,6 +18,33 @@ export interface ToolRegistryRef {
 }
 
 /**
+ * The slice of the background job registry a tool is given.
+ *
+ * A structural reference rather than the class, for the reason
+ * `ToolRegistryRef` exists: this type file is imported by everything, and
+ * naming the implementation here would drag a `node:child_process` module
+ * into every consumer's type graph. `owner` is not on this surface at all —
+ * the executor binds it to the run, so a tool cannot start a job that
+ * outlives, or is billed to, somebody else's run.
+ */
+export interface BackgroundJobRegistryRef {
+	start(params: { command: string; workingDirectory: string }): { id: string; status: string }
+	get(id: string): { id: string; status: string; exitCode?: number }
+	read(
+		id: string,
+		opts?: { fromOffset?: number },
+	): {
+		chunk: string
+		nextOffset: number
+		droppedBytes: number
+		status: string
+		exitCode?: number
+	}
+	kill(id: string): Promise<{ id: string; status: string }>
+	list(): readonly { id: string; command: string; status: string }[]
+}
+
+/**
  * Tracks which files the agent has read in the current run.
  * Write tool consults this to enforce the "read before overwrite" invariant
  * an existing file must be read first or the write fails.
@@ -122,6 +149,19 @@ export interface ToolContext {
 	allowedTools?: readonly string[]
 	sandbox?: Sandbox
 	fileReadTracker?: FileReadTracker
+
+	/**
+	 * Where work that outlives this call is held.
+	 *
+	 * Absent means the host has provided nowhere to put a background job, and
+	 * a tool asked for one must REFUSE rather than fall back to `cmd &`. The
+	 * fallback is not a lesser version of this — under the local sandbox's
+	 * `linux-namespace` tier the wrapping `sh` is PID 1 of a fresh PID
+	 * namespace, so a backgrounded grandchild dies the moment that shell
+	 * exits, on the successful path. It returns in milliseconds looking like
+	 * it worked, with the work already dead.
+	 */
+	backgroundJobs?: BackgroundJobRegistryRef
 
 	/**
 	 * The `tool_use_id` of the assistant block that triggered this

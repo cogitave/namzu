@@ -55,7 +55,13 @@ const inputSchema = z.object({
 			z.number().positive().max(MAX_BASH_TIMEOUT_MS).default(DEFAULT_BASH_TIMEOUT_MS),
 		)
 		.describe(
-			`Command timeout in milliseconds. Default: ${DEFAULT_BASH_TIMEOUT_MS}, maximum: ${MAX_BASH_TIMEOUT_MS}. For work that legitimately runs longer than the maximum, start it in the background and poll, rather than holding the turn open.`,
+			`Command timeout in milliseconds. Default: ${DEFAULT_BASH_TIMEOUT_MS}, maximum: ${MAX_BASH_TIMEOUT_MS}. For work that legitimately runs longer than the maximum, set run_in_background and poll with the \`job\` tool, rather than holding the turn open.`,
+		),
+	run_in_background: z
+		.boolean()
+		.optional()
+		.describe(
+			'Start the command as a background job and return its id immediately, instead of waiting. The turn is not held open; read its output with the `job` tool. Use for watchers, dev servers and long builds. Do NOT write `cmd &` yourself — under the sandbox the shell that backgrounds it exits immediately and takes the job with it.',
 		),
 })
 
@@ -109,6 +115,43 @@ export const BashTool = defineTool({
 				success: false,
 				output: '',
 				error: `Dangerous command blocked: "${input.command}"`,
+			}
+		}
+
+		if (input.run_in_background) {
+			// Refused, not degraded to `cmd &`. The fallback is not a lesser
+			// version of this: under the local sandbox's `linux-namespace` tier
+			// the wrapping `sh` is PID 1 of a fresh PID namespace, so the
+			// backgrounded grandchild dies the moment that shell exits — on the
+			// successful path, in milliseconds, looking like it worked. Telling
+			// the model its watcher is running when it is already dead is worse
+			// than telling it backgrounding is unavailable here.
+			if (!context.backgroundJobs) {
+				return {
+					success: false,
+					output: '',
+					error:
+						'run_in_background was requested, but this host provides no background job registry. Run the command in the foreground, or raise `timeout` up to the tool maximum.',
+				}
+			}
+			try {
+				const job = context.backgroundJobs.start({
+					command: input.command,
+					workingDirectory: context.workingDirectory,
+				})
+				return {
+					success: true,
+					output: `Started background job ${job.id}. Read its output with the \`job\` tool: {"action":"read","id":"${job.id}"}.`,
+					data: { jobId: job.id, background: true },
+				}
+			} catch (err) {
+				// The per-owner cap, most likely. A refusal that names the limit
+				// is actionable; a generic failure sends the model round again.
+				return {
+					success: false,
+					output: '',
+					error: err instanceof Error ? err.message : String(err),
+				}
 			}
 		}
 

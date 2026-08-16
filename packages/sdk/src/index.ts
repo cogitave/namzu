@@ -9,3 +9,20 @@
 export type * from './public-types.js'
 export * from './public-runtime.js'
 export * from './public-tools.js'
+
+// Work that outlives a tool call, owned by whoever started it. The shell
+// cannot be trusted to background under the sandbox's PID namespace, so the
+// kernel holds the process itself. See `runtime/jobs/registry.ts`.
+export {
+	BackgroundJobLimitError,
+	BackgroundJobRegistry,
+	UnknownBackgroundJobError,
+	bindOwner,
+} from './runtime/jobs/registry.js'
+export type {
+	BackgroundJob,
+	BackgroundJobOutput,
+	BackgroundJobRegistryConfig,
+	BackgroundJobStatus,
+	StartJobParams,
+} from './runtime/jobs/registry.js'

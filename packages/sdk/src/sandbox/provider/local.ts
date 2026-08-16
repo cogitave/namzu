@@ -1,4 +1,4 @@
-import { execFileSync, execSync, spawn } from 'node:child_process'
+import { execSync, spawn } from 'node:child_process'
 import { realpathSync } from 'node:fs'
 import {
 	readFile as fsReadFile,
@@ -19,6 +19,10 @@ import {
 	SANDBOX_SAFE_ENV_KEYS,
 	SANDBOX_TEMP_DIR_PREFIX,
 } from '../../constants/sandbox/index.js'
+// The process-tree kill lives in its own leaf now: the background job
+// registry needs the same one, and a near-copy would reproduce in the copy
+// every bug the original's comment was written to record.
+import { killTree } from '../../process/kill-tree.js'
 import type { SandboxId } from '../../types/ids/index.js'
 import type {
 	Sandbox,
@@ -327,55 +331,6 @@ function buildSafeEnv(
 	}
 
 	return env
-}
-
-// ---------------------------------------------------------------------------
-// Process-tree termination
-// ---------------------------------------------------------------------------
-
-/**
- * Kill a spawned command and everything IT forked — not just the direct
- * child pid.
- *
- * Every caller here reaches `spawnProcess` through `/bin/sh -c "cmd"` (see
- * bash.ts), and under this class's own `linux-namespace`/`macos-seatbelt`
- * isolation tiers that shell is itself wrapped again (`unshare …/sandbox-exec
- * … -- /bin/sh -c "cmd"`, see `buildLimitedSpawn`). Either way, `child.pid`
- * names the OUTERMOST wrapper Node spawned, not `cmd` — signalling only that
- * pid, which is both what `child.kill()` does and what `spawn`'s own
- * `signal` option does internally on abort, reaps the wrapper and leaves
- * `cmd`, and anything it forked, running past both a cancel and a timeout.
- *
- * POSIX: `spawnProcess` spawns with `detached: true`, which makes the child
- * the leader of a new process group (pgid === pid) instead of joining this
- * Node process's own. A negative pid signals that whole group in one call.
- * Group membership is a host-kernel fact that a fork()'d descendant
- * inherits from its parent whether or not it — or an ancestor such as
- * `unshare --pid` — subsequently entered a new PID namespace, so this
- * reaches `cmd` and its descendants along with the wrapper itself even
- * under the namespaced isolation tiers.
- *
- * Windows has no process-group id to sign a kill with — `process.kill` with
- * a negative pid there either throws or silently does nothing, depending on
- * the signal — so there is no equivalent single call. The OS's own
- * tree-walk, `taskkill /T`, runs instead. Windows also has no soft-vs-forced
- * distinction the way SIGTERM/SIGKILL do: `child.kill()` there already
- * terminates unconditionally, so `/F` is passed every time this runs,
- * including the post-grace call that follows a POSIX SIGTERM — against an
- * already-dead tree that second call is a deliberate no-op, the same as the
- * POSIX SIGKILL that follows a SIGTERM which already worked.
- */
-function killTree(child: ReturnType<typeof spawn>, signal: NodeJS.Signals): void {
-	if (!child.pid) return
-	try {
-		if (process.platform === 'win32') {
-			execFileSync('taskkill', ['/pid', String(child.pid), '/t', '/f'], { stdio: 'ignore' })
-		} else {
-			process.kill(-child.pid, signal)
-		}
-	} catch {
-		// Group (or tree) already gone
-	}
 }
 
 // ---------------------------------------------------------------------------
