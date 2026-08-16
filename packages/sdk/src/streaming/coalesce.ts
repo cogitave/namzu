@@ -1,7 +1,12 @@
 import type { ToolUseId } from '../types/ids/index.js'
 import type { RunEvent } from '../types/run/events.js'
 
-interface CoalesceOptions {
+export interface CoalesceOptions {
+	/**
+	 * Sliding merge window. 16ms is roughly one animation frame at 60fps,
+	 * which is the point past which a human cannot see the difference and
+	 * below which the consumer pays for deltas nobody perceives.
+	 */
 	windowMs: number
 }
 
@@ -16,10 +21,19 @@ interface CoalesceOptions {
  * All other event types pass through immediately and flush any buffered
  * deltas first to preserve ordering.
  *
- * The orchestrator does NOT use this — it emits raw deltas. SSE adapters
- * and other slow consumers opt in. A 16ms window roughly aligns with one
- * UI animation frame at 60fps, which is the empirically derived default
- * for a live stream route.
+ * The orchestrator does NOT use this — it emits raw deltas, and nothing
+ * inside the kernel calls this function. That is deliberate and is why it
+ * is exported: the consumer this exists for is a host's HTTP route, and a
+ * kernel with no UI and no hosted service has no in-process caller to
+ * offer. `bridge/sse/` maps an event to the wire; deciding how OFTEN to
+ * write to a slow client is the host's policy, because only the host
+ * knows what is on the other end of its socket.
+ *
+ * `streaming/` owns coalescing and nothing else. SSE mapping lives in
+ * `bridge/sse/`, provider chunk assembly in the provider drivers, and the
+ * run event stream in `runtime/query/` — none of them belong here, and a
+ * second occupant of this directory should be another rate policy or
+ * nothing.
  *
  * Backpressure semantics: this helper does not drop events. If the
  * upstream produces faster than the consumer drains, the helper still

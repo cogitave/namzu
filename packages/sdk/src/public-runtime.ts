@@ -798,6 +798,12 @@ export {
 // Thrown by a tool-result screen that returned `halt`. Exported because a
 // host has to be able to tell it from an ordinary failure — that is the
 // entire difference between the two refusal outcomes.
+// Nothing in the kernel calls this: the consumer is a host's own HTTP
+// route, and a kernel with no UI and no hosted service has no in-process
+// caller to offer. Exported rather than deleted because the reader it was
+// written for is out of process by construction.
+export { coalesce } from './streaming/coalesce.js'
+
 export { ToolResultHalted } from './registry/tool/screen.js'
 
 // Error taxonomy. `toPlatformError` is the load-bearing one: it normalizes
