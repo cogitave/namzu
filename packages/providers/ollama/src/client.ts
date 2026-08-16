@@ -248,8 +248,6 @@ export class OllamaProvider implements LLMProvider {
 		return resp.models.map((m) => ({
 			id: m.name,
 			name: m.name,
-			contextWindow: 0,
-			maxOutputTokens: 0,
 			inputPrice: 0,
 			outputPrice: 0,
 			supportsToolUse: false,

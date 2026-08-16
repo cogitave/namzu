@@ -120,6 +120,26 @@ export function defineProviderDriverConformance(options: ProviderDriverConforman
 			expect(typeof provider.capabilities.supportsFunctionCalling).toBe('boolean')
 		})
 
+		// NOT A RULE HERE, and the reason is worth keeping.
+		//
+		// NZ-PROV-05 makes `contextWindow`/`maxOutputTokens` optional so a
+		// driver stops writing `0` for "I do not know" — zero is not a
+		// window, and it reads to every consumer as a measurement of a model
+		// that can hold nothing.
+		//
+		// The obvious place to enforce that is here, reading `listModels`.
+		// It was here, and it was worse than nothing twice over. For every
+		// in-tree driver `listModels` needs a live service, so the rule
+		// returned early and asserted NOTHING in CI — verified by putting a
+		// zero back and watching the driver's run stay green. And lmstudio's
+		// does not throw, it HANGS: the rule timed out that package's whole
+		// conformance run. A check that cannot fail, attached to a suite it
+		// can take down.
+		//
+		// The reintroduction of a literal zero is caught by a source scan in
+		// `provider/__tests__/conformance-fails-a-wrong-driver.test.ts`,
+		// which depends on reaching nothing.
+
 		it('builds a second instance independent of the first', async () => {
 			// The property the suite itself relies on, and one a driver can
 			// break by caching a client on the module. Every case above calls

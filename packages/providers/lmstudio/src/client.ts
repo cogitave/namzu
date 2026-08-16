@@ -266,8 +266,6 @@ export class LMStudioProvider implements LLMProvider {
 				return {
 					id: identifier,
 					name: identifier,
-					contextWindow: 0,
-					maxOutputTokens: 0,
 					inputPrice: 0,
 					outputPrice: 0,
 					supportsToolUse: true,

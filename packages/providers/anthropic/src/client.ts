@@ -1042,8 +1042,6 @@ export class AnthropicProvider implements LLMProvider {
 			return data.map((m) => ({
 				id: m.id ?? '',
 				name: m.display_name ?? m.id ?? '',
-				contextWindow: 0,
-				maxOutputTokens: 0,
 				inputPrice: 0,
 				outputPrice: 0,
 				supportsToolUse: true,

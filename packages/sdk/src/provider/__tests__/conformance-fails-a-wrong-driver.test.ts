@@ -120,6 +120,31 @@ describe('the suite ships no test framework', () => {
 	})
 })
 
+describe('no driver writes a zero it does not mean', () => {
+	it('finds no literal contextWindow: 0 or maxOutputTokens: 0 in any driver', () => {
+		// Scanned, not asserted through the suite, and the difference matters.
+		// The suite's own rule reads `listModels` — which for every in-tree
+		// driver needs a live service, so it returns early and asserts
+		// nothing in CI. Verified by putting a zero back and watching the
+		// driver's conformance run stay green.
+		//
+		// This scan does not depend on reaching anything, so it is the half
+		// that actually holds the line.
+		const providersDir = join(HERE, '..', '..', '..', '..', 'providers')
+		const offenders: string[] = []
+
+		for (const pkg of readdirSync(providersDir)) {
+			const client = join(providersDir, pkg, 'src', 'client.ts')
+			if (!existsSync(client)) continue
+			const raw = readFileSync(client, 'utf8')
+			const code = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+			if (/\b(contextWindow|maxOutputTokens):\s*0\b/.test(code)) offenders.push(pkg)
+		}
+
+		expect(offenders).toEqual([])
+	})
+})
+
 describe('every driver package runs the contract', () => {
 	it('leaves no provider package without a conformance test', () => {
 		// The seventh-driver hole, closed mechanically. Adding an eighth

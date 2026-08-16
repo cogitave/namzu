@@ -378,8 +378,6 @@ export class OpenAIProvider implements LLMProvider {
 		return page.data.map((m) => ({
 			id: m.id,
 			name: m.id,
-			contextWindow: 0,
-			maxOutputTokens: 0,
 			inputPrice: 0,
 			outputPrice: 0,
 			supportsToolUse: true,
