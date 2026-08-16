@@ -51,6 +51,31 @@ export class SkillRegistry {
 		return this.skills.get(name)
 	}
 
+	/**
+	 * Register a skill already loaded, under a name the caller chose.
+	 *
+	 * The plugin path needs this: it namespaces a plugin's skills so two
+	 * plugins shipping `reconcile` do not silently overwrite each other, and
+	 * the name a skill is filed under is then not the name in its own
+	 * frontmatter. `register(dirPath)` cannot express that.
+	 */
+	add(name: string, skill: Skill): void {
+		this.skills.set(name, skill)
+	}
+
+	/**
+	 * Forget one. Reports whether it was there.
+	 *
+	 * Needed by anything that can UNDO a registration — a plugin rollback,
+	 * a plugin disable. Without it a plugin that failed halfway through
+	 * enabling left its skills in the registry with nothing that could
+	 * remove them, so the model kept being offered skills from a plugin the
+	 * runtime had marked `error`.
+	 */
+	unregister(name: string): boolean {
+		return this.skills.delete(name)
+	}
+
 	async load(
 		name: string,
 		level: SkillDisclosureLevel = 'full',

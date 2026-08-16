@@ -5,7 +5,7 @@
 	"getRootLoggerCount": 1,
 	"unnamespacedBindingCount": 40,
 	"constantBodyViolationCount": 87,
-	"namespacedAttributeKeyViolationCount": 797,
+	"namespacedAttributeKeyViolationCount": 794,
 	"constantBodyExcludes": [],
 	"namespacedAttributeKeyExcludes": [],
 	"consoleAllowlist": [

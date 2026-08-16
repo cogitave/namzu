@@ -83,7 +83,18 @@ export async function loadPluginManifest(pluginDir: string): Promise<PluginManif
  * shipping four tools and one skill validated clean, installed clean, and
  * contributed zero tools. The refusal was right; its position was not.
  */
-const UNSUPPORTED_CONTRIBUTIONS = ['skills', 'connectors', 'personas'] as const
+/**
+ * Contribution types the runtime can enable only when the host supplies the
+ * registry they land in.
+ *
+ * `skills` moved here from the flat unsupported list once the manifest path
+ * into `SkillRegistry` existed. It is still refused when there is no
+ * registry — and refused rather than dropped, because a plugin whose skills
+ * silently vanished would report `enabled` and contribute nothing the
+ * author declared, which is the same lie the wholesale refusal was written
+ * to prevent.
+ */
+const REGISTRY_BACKED_CONTRIBUTIONS = ['skills'] as const
 
 /**
  * Refuse a manifest whose contributions can never be enabled.
@@ -99,9 +110,32 @@ const UNSUPPORTED_CONTRIBUTIONS = ['skills', 'connectors', 'personas'] as const
  * through host configuration; what does not exist is the manifest path
  * into them. Naming the types is what makes that actionable.
  */
-export function assertEnableable(manifest: PluginManifest): void {
+export interface EnableableOptions {
+	/**
+	 * Whether the host wired a `SkillRegistry`.
+	 *
+	 * Defaults to `false`, which keeps the previous behaviour for every
+	 * caller that has not been updated: a manifest declaring skills is
+	 * refused. The check cannot default the other way — a host that never
+	 * supplied a registry would then install a plugin whose skills go
+	 * nowhere.
+	 */
+	readonly skillsSupported?: boolean
+}
+
+export function assertEnableable(manifest: PluginManifest, opts: EnableableOptions = {}): void {
 	const record = manifest as unknown as Record<string, unknown[] | undefined>
-	const unsupported = UNSUPPORTED_CONTRIBUTIONS.filter((key) => record[key]?.length)
+	// One ordered pass over all three rather than two group filters
+	// concatenated, so the message keeps naming them in the order the
+	// manifest declares them. Two groups would list `connectors, personas,
+	// skills`, which reads as though the grouping were the point rather than
+	// an implementation detail of which registry each one needs.
+	const enableable = (key: string): boolean =>
+		opts.skillsSupported === true &&
+		(REGISTRY_BACKED_CONTRIBUTIONS as readonly string[]).includes(key)
+	const unsupported = ['skills', 'connectors', 'personas'].filter(
+		(key) => Boolean(record[key]?.length) && !enableable(key),
+	)
 	if (unsupported.length === 0) return
 
 	throw new Error(

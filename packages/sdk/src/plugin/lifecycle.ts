@@ -11,6 +11,8 @@ import {
 	PLUGIN_NAMESPACE_SEPARATOR,
 } from '../constants/plugin/index.js'
 import type { PluginRegistry } from '../registry/plugin/index.js'
+import { loadSkill } from '../skills/loader.js'
+import type { SkillRegistry } from '../skills/registry.js'
 import { resolveWithinReal } from '../tools/paths.js'
 import type { PluginId } from '../types/ids/index.js'
 import type {
@@ -34,11 +36,23 @@ import { assertEnableable, loadPluginManifest } from './loader.js'
 interface PluginContributionRecord {
 	toolNames: string[]
 	mcpClients: MCPClient[]
+	/** Namespaced skill names, so rollback and disable can take them back. */
+	skillNames: string[]
 }
 
 export interface PluginLifecycleManagerConfig {
 	pluginRegistry: PluginRegistry
 	toolRegistry: ToolRegistryContract
+	/**
+	 * Where a plugin's declared skills land.
+	 *
+	 * Optional, and its absence is enforced rather than tolerated: a
+	 * manifest that declares skills is REFUSED when this is missing, the
+	 * same way it was refused before the manifest path existed. Accepting it
+	 * and dropping the skills would produce a plugin reporting `enabled`
+	 * that contributes nothing its author declared.
+	 */
+	skillRegistry?: SkillRegistry
 	log: Logger
 	hookTimeoutMs?: number
 
@@ -101,9 +115,12 @@ export class PluginLifecycleManager {
 	 */
 	private mcpDiscovery: MCPToolDiscovery
 
+	private readonly skillRegistry: SkillRegistry | undefined
+
 	constructor(config: PluginLifecycleManagerConfig) {
 		this.pluginRegistry = config.pluginRegistry
 		this.toolRegistry = config.toolRegistry
+		this.skillRegistry = config.skillRegistry
 		this.hookTimeoutMs = config.hookTimeoutMs ?? HOOK_TIMEOUT_MS
 		this.log = config.log.child({ component: 'PluginLifecycleManager' })
 		this.mcpDiscovery = new MCPToolDiscovery([], {
@@ -206,13 +223,17 @@ export class PluginLifecycleManager {
 		// `installed`: a status that says the plugin is fine while it can
 		// never enable is how the next reader gets misled.
 		try {
-			assertEnableable(manifest)
+			assertEnableable(manifest, { skillsSupported: Boolean(this.skillRegistry) })
 		} catch (err) {
 			this.pluginRegistry.register({ ...plugin, status: 'error' })
 			throw err
 		}
 
-		const contributions: PluginContributionRecord = { toolNames: [], mcpClients: [] }
+		const contributions: PluginContributionRecord = {
+			toolNames: [],
+			mcpClients: [],
+			skillNames: [],
+		}
 
 		try {
 			// Load tools
@@ -234,6 +255,33 @@ export class PluginLifecycleManager {
 						this.toolRegistry.register(namespacedTool, 'deferred')
 						contributions.toolNames.push(namespacedName)
 					}
+				}
+			}
+
+			// Load skills. Namespaced like tools, and for the same reason: two
+			// plugins shipping `reconcile` would otherwise overwrite each
+			// other in a Map keyed by the frontmatter name, and the loser
+			// would vanish with nothing reporting it.
+			if (manifest.skills && manifest.skills.length > 0) {
+				const skillRegistry = this.skillRegistry
+				if (!skillRegistry) {
+					// Unreachable via `enable` — `assertEnableable` above refuses
+					// first — and kept because this method is also the one a
+					// future caller reaches directly. A silent skip here would
+					// be the exact failure that check exists to prevent.
+					throw new Error(
+						`Plugin "${manifest.name}" declares skills but no SkillRegistry is configured.`,
+					)
+				}
+				for (const skillPath of manifest.skills) {
+					const absolutePath = await resolveWithinReal(plugin.rootDir, skillPath)
+					const { skill } = await loadSkill(absolutePath, 'metadata', this.log)
+					const namespacedName = manifest.name + PLUGIN_NAMESPACE_SEPARATOR + skill.metadata.name
+					skillRegistry.add(namespacedName, {
+						...skill,
+						metadata: { ...skill.metadata, name: namespacedName },
+					})
+					contributions.skillNames.push(namespacedName)
 				}
 			}
 
@@ -283,9 +331,14 @@ export class PluginLifecycleManager {
 		})
 
 		this.log.info(`Plugin enabled: ${manifest.name}`, {
-			pluginId,
-			toolCount: contributions.toolNames.length,
-			mcpServerCount: contributions.mcpClients.length,
+			// All four namespaced, not just the new one. Adding a bare
+			// `skillCount` beside three bare neighbours would have moved the
+			// log-standard ratchet the wrong way for the sake of matching
+			// prose that is itself the debt.
+			'namzu.plugin.id': pluginId,
+			'namzu.plugin.tool_count': contributions.toolNames.length,
+			'namzu.plugin.skill_count': contributions.skillNames.length,
+			'namzu.plugin.mcp_server_count': contributions.mcpClients.length,
 		})
 	}
 
@@ -352,6 +405,11 @@ export class PluginLifecycleManager {
 				})
 			}
 		}
+		for (const name of contributions.skillNames) {
+			// No try/catch: `unregister` is a Map delete and cannot throw.
+			// Wrapping it would suggest a failure mode that does not exist.
+			this.skillRegistry?.unregister(name)
+		}
 		for (const client of contributions.mcpClients) {
 			try {
 				await client.disconnect()
@@ -384,6 +442,7 @@ export class PluginLifecycleManager {
 		const contributions = this.pluginContributions.get(pluginId) ?? {
 			toolNames: [],
 			mcpClients: [],
+			skillNames: [],
 		}
 
 		// Disconnect MCP clients first so no new tool calls can reach them mid-teardown.
@@ -401,6 +460,14 @@ export class PluginLifecycleManager {
 		// Unregister contributed tools (plugin tools + MCP-adapted tools)
 		for (const name of contributions.toolNames) {
 			this.toolRegistry.unregister(name)
+		}
+
+		// And its skills. A disabled plugin whose skills stayed registered
+		// would keep offering the model instructions from something the
+		// runtime has switched off, which is worse than a stale tool: a tool
+		// call would at least fail, and a skill is followed silently.
+		for (const name of contributions.skillNames) {
+			this.skillRegistry?.unregister(name)
 		}
 
 		// Remove hook handlers for this plugin
