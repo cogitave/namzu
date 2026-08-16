@@ -1,17 +1,127 @@
 ---
-title: Log Attributes and Log-Forging Protection
-description: The LogAttributes allowlist type — what its compile-time guarantee covers and does not — and how jsonLinesSink and prettySink defend against log forging (CWE-117). Also covers the audit trail's separation from the operational log.
-last_updated: 2026-08-16
-status: current
-related_packages: ["@namzu/sdk"]
+uid: namzu.sdk.observability.logging
+title: The log pipeline — sink seam, record shape, and the audit boundary
+description: Where a host plugs its own destination in, what a record carries and what the LogAttributes allowlist does and does not guarantee, how a record is defended against log forging, and why the audit trail is a separate pipeline rather than a log level.
+type: Guide
+diataxis: explanation
+owner: cogitave/namzu
+status: active
+timestamp: 2026-08-16T00:00:00Z
+lastReviewed: 2026-08-16
+resource: packages/sdk/src/utils/logger.ts
+tags: [logging, observability, sdk]
 ---
 
-# Log Attributes and Log-Forging Protection
+# The log pipeline
 
-`packages/sdk/src/utils/log/attributes.ts` exports `LogAttributes` — a
-compile-time allowlist for the attribute half of a structured log call.
-This page states what that type buys, and — just as importantly — what it
-does not.
+A host owns its log destination. The kernel builds records, redacts them,
+caps their size, and hands them to whatever sink the host installed — and
+when nobody installs one, it says so rather than pretending the records
+were fine.
+
+## The sink seam
+
+`installProcessSink(sink, level)` claims the process's destination. One
+call, one owner: a second call throws unless it passes `{ replace: true }`,
+because two callers each believing they own the destination is a defect,
+not something to merge silently — the second would win with neither party
+told.
+
+```ts
+import { installProcessSink, prettySink } from '@namzu/sdk'
+
+installProcessSink(prettySink(process.stderr), 'info')
+```
+
+Three properties are worth knowing before you write your own sink:
+
+- **The level is read per record**, off a mutable holder, never resolved
+  once at construction. A logger built before your sink was installed
+  still routes through it.
+- **Your `emit` is arbitrary code the kernel does not control**, so a
+  throw from it is caught. One bad record cannot fail a run — which means
+  a sink that throws on every record is invisible except in the counters.
+- **The counters are per destination.** `getLogCounters()` returns what
+  the pipeline did to this process's records: how many never reached the
+  sink, how many had a value redacted, how many were shed or truncated by
+  the caps. It returns `undefined` when no sink is installed — not five
+  zeros, which would read as "nothing was dropped" about a process where
+  nothing was measured. `namzu doctor` reports that row.
+
+## Correlation
+
+When telemetry is active, a record carries `traceId`, `spanId` and
+`traceFlags` from the span it happened inside, read per record. With no
+tracer registered the fields are absent rather than empty — the
+unconfigured case costs nothing and produces no fields.
+
+## Writing an adapter
+
+Namzu attribute keys are flat and dotted. That is what makes them
+collision-free across modules and greppable in an NDJSON stream, and it is
+also what a collector with a nested schema will not accept. The mapping
+has a real cost: `namzu.run.id` and `namzu.run.id.value` are both valid
+flat keys and cannot both exist as nested objects. An adapter either
+refuses the conflicting key set or silently loses one of the two fields,
+and which one it loses depends on iteration order.
+
+This adapter refuses. It is not typed into this page — it is
+`packages/sdk/src/__fixtures__/nested-attribute-sink.ts`, embedded
+verbatim, and
+`packages/sdk/src/utils/__tests__/a-documented-sink-adapter-compiles.test.ts`
+drives it through the real pipeline and asserts these bytes match that
+file. A sample a page hand-copies compiles on the day it is written and
+silently stops compiling afterwards while still reading as authoritative.
+
+```ts
+export interface CollectorPayload {
+	readonly timestamp: string
+	readonly severity: string
+	readonly message: string
+	readonly fields: Record<string, unknown>
+}
+
+export function nestedAttributeSink(send: (payload: CollectorPayload) => void): LogSink {
+	return {
+		emit(record: LogRecord): void {
+			send({
+				timestamp: new Date(record.timestamp).toISOString(),
+				severity: record.severityText,
+				message: record.body,
+				fields: nest(record.attributes),
+			})
+		},
+	}
+}
+
+/** `{'a.b': 1}` becomes `{a: {b: 1}}`. Throws where the two shapes disagree. */
+export function nest(flat: Readonly<Record<string, unknown>>): Record<string, unknown> {
+	const out: Record<string, unknown> = {}
+	for (const [key, value] of Object.entries(flat)) {
+		const parts = key.split('.')
+		let node = out
+		for (const [i, part] of parts.slice(0, -1).entries()) {
+			const existing = node[part]
+			if (existing !== undefined && !isPlainObject(existing)) {
+				// `refuse-do-not-degrade`: silently overwriting one of the two
+				// keys loses a field the caller logged, and which one it loses
+				// depends on `Object.entries` order.
+				throw new Error(
+					`cannot nest ${key}: ${parts.slice(0, i + 1).join('.')} is already a value, not an object`,
+				)
+			}
+			if (existing === undefined) node[part] = {}
+			node = node[part] as Record<string, unknown>
+		}
+		node[parts[parts.length - 1] as string] = value
+	}
+	return out
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+```
 
 ## What `LogAttributes` is
 
