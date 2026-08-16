@@ -1,5 +1,5 @@
 import type { Logger } from '../../utils/logger.js'
-import type { RunExecutionStatus, CostInfo, TokenUsage } from '../common/index.js'
+import type { CostInfo, RunExecutionStatus, TokenUsage } from '../common/index.js'
 import type { ResumeHandler } from '../hitl/index.js'
 import type { RunId, SessionId, TenantId } from '../ids/index.js'
 import type { InvocationState } from '../invocation/index.js'
@@ -23,6 +23,38 @@ export interface BaseAgentConfig {
 	maxResponseTokens?: number
 	costLimitUsd?: number
 	permissionMode?: PermissionMode
+
+	/**
+	 * The tools this run may use, narrowing whatever its registry holds.
+	 *
+	 * `allowedTools` existed on `QueryParams` and on `ToolContext` and
+	 * nowhere on the path a delegation takes — so a supervisor handing a
+	 * read-only research subtask to an agent whose definition also grants
+	 * `write` and `bash` had no way to say so. The child ran with
+	 * everything the agent had.
+	 *
+	 * `query()` binds this to BOTH the request tool list and the
+	 * `ToolExecutor`, which is what makes it enforced rather than
+	 * presentational: narrowing only the request showed the model fewer
+	 * tools and let it call any of them by name.
+	 */
+	allowedTools?: readonly string[]
+
+	/**
+	 * Tools this run may NOT use, subtracted from whatever it would
+	 * otherwise have.
+	 *
+	 * Separate from `allowedTools` because they answer different
+	 * questions and a delegation needs the second. `allowedTools` absent
+	 * means "everything the registry holds", so a caller narrowing a child
+	 * would otherwise have to enumerate the agent's whole tool set to
+	 * remove one from it — and would then silently pin that list against
+	 * an agent that later gains a tool.
+	 */
+	deniedTools?: readonly string[]
+
+	/** Persona for this run, overriding what the agent's definition supplies. */
+	persona?: import('../persona/index.js').AgentPersona
 
 	/**
 	 * Override the logger this run's `AbstractAgent.bindRun` uses instead of

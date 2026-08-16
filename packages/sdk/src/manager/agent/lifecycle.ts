@@ -369,6 +369,32 @@ export class AgentManager {
 			}
 		}
 
+		// Stamped AFTER the builder, for the fourth time and the same reason:
+		// a `configBuilder` is written by whoever registered the agent and
+		// cannot forward a field it was never told about. A scope applied
+		// before it would be silently discarded by every builder that returns
+		// a fixed config — which is most of them.
+		//
+		// OUTSIDE the branch, unlike the four stamps above, and that is the
+		// point. Written inside the `configBuilder` arm it read correctly and
+		// left the bare-config arm below ignoring `toolScope` entirely — a
+		// caller that asked for a narrower child got a wider one, silently,
+		// and in the only direction that matters. Every other field here is
+		// an inheritance, where missing it costs the child something; this
+		// one is a restriction, where missing it costs the CALLER something.
+		//
+		// Narrowing only: the deny list is SUBTRACTED from whatever the child
+		// would otherwise have. `allowedTools` absent means "every registered
+		// tool", so a deny with no existing allow-list has to be resolved
+		// against the registry at the run rather than here — which `query()`
+		// does, and which is why this appends to `deniedTools` rather than
+		// synthesising an allow-list.
+		const deny = options.toolScope?.deny
+		if (deny && deny.length > 0) {
+			childConfig.deniedTools = [...(childConfig.deniedTools ?? []), ...deny]
+		}
+		if (options.personaOverride) childConfig.persona = options.personaOverride
+
 		this.runChild(agentTask, options, childConfig, listener).catch((err) => {
 			this.markFailed(taskId, toErrorMessage(err))
 		})

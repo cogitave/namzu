@@ -1,4 +1,5 @@
 import type { TaskId } from '../ids/index.js'
+import type { AgentPersona } from '../persona/index.js'
 import type { AgentRuntimeContext, BaseAgentConfig, BaseAgentResult } from './base.js'
 import type { AgentTaskState } from './task.js'
 
@@ -33,6 +34,31 @@ export interface CreateTaskOptions {
 	readonly parentSpan?: import('@opentelemetry/api').Span
 
 	agentId: string
+
+	/**
+	 * Tools this ONE delegation may not use, on top of whatever the child
+	 * would otherwise have.
+	 *
+	 * Deny-only, and the shape is the point: a per-call scope that could
+	 * ADD a tool is a privilege-escalation surface wearing the word
+	 * "scope". Widening has to be unexpressible, not merely discouraged —
+	 * a caller who wants a child to have more tools changes the agent's
+	 * definition, where somebody can see it.
+	 *
+	 * Naming a tool the child never had is a no-op, not an error: the
+	 * result is still narrower, and refusing would make a caller's deny
+	 * list depend on which agent it happened to be talking to.
+	 */
+	readonly toolScope?: { readonly deny: readonly string[] }
+
+	/**
+	 * Replace the child's assembled persona for this delegation only.
+	 *
+	 * Scoped to the call rather than the agent, so a supervisor can hand
+	 * one subtask a narrower brief without redefining an agent every other
+	 * delegation shares.
+	 */
+	readonly personaOverride?: AgentPersona
 
 	prompt: string
 

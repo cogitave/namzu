@@ -130,6 +130,12 @@ export interface QueryParams {
 	 */
 	repeatCallAdvisory?: boolean
 
+	/**
+	 * Tool names this run may not use, subtracted from its effective list.
+	 * See {@link import('../../types/agent/base.js').BaseAgentConfig.deniedTools}.
+	 */
+	deniedTools?: readonly string[]
+
 	systemPrompt?: string
 	persona?: AgentPersona
 	skills?: Skill[]
@@ -953,9 +959,25 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		})
 	}
 
-	const effectiveAllowedTools = stripToolSurfaces
+	// Denied names are subtracted LAST, after the allow-list is resolved
+	// against the registry — so a deny reaches a run that named no
+	// allow-list at all, which is the ordinary case for a delegated child.
+	// Applied to `effectiveAllowedTools`, which `query()` binds to both the
+	// request tool list AND the `ToolExecutor`: narrowing only the request
+	// shows the model fewer tools and lets it call any of them by name.
+	const allowedBeforeDenial = stripToolSurfaces
 		? []
 		: withDeferredDiscoveryTool(params.tools, params.allowedTools)
+	const denied = new Set(params.deniedTools ?? [])
+	const effectiveAllowedTools: string[] | undefined =
+		denied.size === 0
+			? allowedBeforeDenial
+			: // An absent allow-list means "every registered tool", so a deny
+				// with no allow-list has to be resolved against the registry
+				// here — otherwise the subtraction would be from an empty list
+				// and would deny nothing, which is the shape a delegated child
+				// arrives in.
+				[...(allowedBeforeDenial ?? params.tools.listNames())].filter((name) => !denied.has(name))
 
 	// The two halves of a durable pause, owned by the RUN when the host
 	// does not own them.

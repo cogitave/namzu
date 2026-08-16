@@ -134,6 +134,11 @@ export interface AgentTask {
  * WorkspaceRef triple atomically on every spawn.
  */
 export interface SendMessageOptions {
+	/** See {@link import('./gateway.js').CreateTaskOptions.toolScope}. Deny-only. */
+	readonly toolScope?: { readonly deny: readonly string[] }
+	/** See {@link import('./gateway.js').CreateTaskOptions.personaOverride}. */
+	readonly personaOverride?: import('../persona/index.js').AgentPersona
+
 	agentId: string
 
 	input: AgentInput

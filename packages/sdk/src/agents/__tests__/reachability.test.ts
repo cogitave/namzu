@@ -239,4 +239,36 @@ describe('a provider is not handed the live run array', () => {
 		// entries had grown to the final length by now.
 		expect(retained[0]?.length).toBeLessThan(retained[1]?.length as number)
 	})
+
+	it('reaches a tool deny list, so a direct run can be narrowed too', async () => {
+		// `deniedTools` was added for delegation — a supervisor scoping a
+		// child — and lands on `BaseAgentConfig`, which means a host running
+		// an agent DIRECTLY has it too. Reachable there is not the same
+		// claim as reachable through `AgentManager`, and this file exists
+		// because that gap is where seams go missing: `query()` honouring a
+		// field the class never forwards is a field no consumer can use.
+		const provider = new MockLLMProvider({ turns: [{ text: 'done' }] })
+		const seen: string[][] = []
+		const original = provider.chatStream.bind(provider)
+		provider.chatStream = (params) => {
+			seen.push(
+				((params.tools ?? []) as { function: { name: string } }[])
+					.map((t) => t.function.name)
+					.sort(),
+			)
+			return original(params)
+		}
+
+		const tools = new ToolRegistry()
+		tools.register(fsTool('read_file'))
+		tools.register(fsTool('write_file'))
+		const { workingDirectory, config } = await baseConfig(provider, tools)
+
+		await agent().run({ messages: [createUserMessage('go')], workingDirectory }, {
+			...config,
+			deniedTools: ['write_file'],
+		} satisfies ReactiveAgentConfig)
+
+		expect(seen[0]).toEqual(['read_file'])
+	})
 })
