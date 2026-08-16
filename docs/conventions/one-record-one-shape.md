@@ -90,6 +90,19 @@ pre-existing gap the rules made visible for the first time, not a defect in
 the rules themselves; driving either number to zero was its own follow-up
 task, the shape `LOG-09` already was for `unnamespacedBindingCount`.
 
+**And `packages/*/src` did not mean what it says.** Read as code rather than
+as prose, it reached exactly one directory below `packages/`, so the seven
+driver packages under `packages/providers/<name>/src` were outside the gate
+entirely. The header said so, and said they had been "measured empty at seed
+time" — an honest note, but a dated measurement is not a check, and a driver
+is exactly where a stray `console.error` on a failed request is most
+tempting. The scan now finds every `src/` under `packages/` at both depths,
+bounded at two so it cannot wander into a nested `node_modules` or a fixture
+package. Widening found nothing, which is the only state in which widening a
+gate costs nothing — and the test that pins it asserts against **this** repo's
+provider list, not only a temp fixture, so a future re-narrowing fails here
+rather than going quiet.
+
 **Both rules are now at zero, and that changes what they are.** LOG-21
 rewrote all 87 non-constant message bodies; LOG-22 renamed all 794
 un-namespaced attribute keys. A ratchet at zero is no longer a budget being

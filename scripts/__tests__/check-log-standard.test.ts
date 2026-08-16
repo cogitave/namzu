@@ -20,10 +20,10 @@
 
 import { test, describe, after } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync, writeFileSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs'
+import { readFileSync, writeFileSync, mkdtempSync, mkdirSync, rmSync, symlinkSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, relative, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import ts from 'typescript'
 
@@ -35,6 +35,7 @@ import {
 	checkConstantBody,
 	checkNamespacedAttributeKeys,
 	namespacedAttributeKeyDetails,
+	packageSourceDirs,
 } from '../check-log-standard.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -472,3 +473,80 @@ test('node scripts/check-log-standard.mjs exits 0 against the tree as it stands'
 	const stdout = execFileSync(process.execPath, [scriptPath], { cwd: repoRoot, encoding: 'utf8' })
 	assert.match(stdout, /log standard gate passed/)
 })
+
+// ---------------------------------------------------------------------------
+// Which directories the gate looks at. Everything above tests what the rules
+// DECIDE; this tests where they are pointed, which is the other half of what
+// a gate is — and the half that was wrong for seven packages.
+// ---------------------------------------------------------------------------
+
+describe('packageSourceDirs', () => {
+	function tree(): string {
+		const root = mkdtempSync(join(tmpdir(), 'namzu-pkgdirs-'))
+		for (const p of [
+			'sdk/src',                        // the ordinary shape
+			'drivers/alpha/src',              // nested one level deeper
+			'drivers/beta/src',
+			'drivers/node_modules/evil/src',  // must not be reached
+			'node_modules/pkg/src',            // must not be reached
+			'deep/a/b/src',                    // beyond two levels
+			'no-src/lib',                      // has no src/ at all
+		]) {
+			mkdirSync(join(root, p), { recursive: true })
+		}
+		return root
+	}
+
+	const found = (root: string) =>
+		packageSourceDirs(root)
+			.map((d: string) => relative(root, d).split(sep).join('/'))
+			.sort()
+
+	test('finds a top-level package src AND a nested one (dies to: reading only one directory below packages/, which is what this used to do)', () => {
+		const root = tree()
+		try {
+			const dirs = found(root)
+			assert.ok(dirs.includes('sdk/src'), `top-level src missing from ${JSON.stringify(dirs)}`)
+			assert.ok(
+				dirs.includes('drivers/alpha/src') && dirs.includes('drivers/beta/src'),
+				`nested package src missing from ${JSON.stringify(dirs)}`,
+			)
+		} finally {
+			rmSync(root, { recursive: true, force: true })
+		}
+	})
+
+	test('skips node_modules at both levels (dies to: dropping either node_modules guard)', () => {
+		const root = tree()
+		try {
+			assert.deepEqual(
+				found(root).filter((d: string) => d.includes('node_modules')),
+				[],
+			)
+		} finally {
+			rmSync(root, { recursive: true, force: true })
+		}
+	})
+
+	test('stops at two levels rather than walking arbitrarily deep (dies to: a recursive descent, which would also collect a fixture package inside a package)', () => {
+		const root = tree()
+		try {
+			assert.ok(!found(root).includes('deep/a/b/src'), 'descended past two levels')
+		} finally {
+			rmSync(root, { recursive: true, force: true })
+		}
+	})
+
+	test('the real tree includes every provider package (dies to: any regression that re-narrows the scope on THIS repo, not just a fixture)', () => {
+		const dirs = packageSourceDirs(join(repoRoot, 'packages')).map((d: string) =>
+			relative(repoRoot, d).split(sep).join('/'),
+		)
+		for (const name of ['anthropic', 'bedrock', 'http', 'lmstudio', 'ollama', 'openai', 'openrouter']) {
+			assert.ok(
+				dirs.includes(`packages/providers/${name}/src`),
+				`packages/providers/${name}/src is not scanned by the log-standard gate`,
+			)
+		}
+	})
+})
+

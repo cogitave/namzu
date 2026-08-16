@@ -68,13 +68,19 @@
  *
  * ## Scope
  *
- * Rules run over `packages/*\/src/**\/*.ts{,x}`, excluding `__tests__`,
- * `__fixtures__` directories and `*.test.ts(x)` files. Read literally rather
- * than as a glob in prose: `packages/*\/src` reaches exactly one directory
- * below `packages/`, so `packages/providers/<name>/src` — nested one level
- * deeper — is NOT scanned. Measured empty of console/stream/logger hits at
- * seed time (2026-08-15); a provider package that starts writing to a stream
- * directly will not be caught here until this glob is revisited.
+ * Rules run over every `src/` under `packages/`, excluding `__tests__`,
+ * `__fixtures__` directories and `*.test.ts(x)` files.
+ *
+ * Both nesting depths, which was not always true. This originally read
+ * exactly one directory below `packages/`, leaving
+ * `packages/providers/<name>/src` — seven driver packages — outside the gate,
+ * with the header recording that they were "measured empty at seed time
+ * (2026-08-15)" and would stay uncaught "until this glob is revisited". A
+ * dated measurement is not a check, and that sentence carried its own expiry.
+ * Revisited on 2026-08-16: still empty, so the widening added no violations
+ * and cost nothing — which is the only condition under which widening a gate
+ * is free. See `packageSourceDirs`, which bounds the descent at two levels
+ * deliberately.
  *
  * `getRootLoggerCount` and `unnamespacedBindingCount` narrow further, to
  * `packages/sdk/src/` only — the `Logger`/`child()` API those two rules
@@ -136,24 +142,60 @@ function walkDir(dir, out) {
 }
 
 /**
- * `packages/*` in prose is not `packages/*` in code: this reads exactly one
- * directory below `packages/`, so `packages/providers/<name>/src` (nested one
- * level deeper) is out of scope — see the file header.
+ * Every `src/` under `packages/`, at either nesting depth.
+ *
+ * This used to read exactly one directory below `packages/`, which put
+ * `packages/providers/<name>/src` — nested one level deeper — outside the
+ * gate entirely. That was recorded honestly rather than hidden: the header
+ * said the provider tree was "measured empty of console/stream/logger hits at
+ * seed time (2026-08-15)" and would not be caught "until this glob is
+ * revisited". Which is a dated measurement standing in for a check, and the
+ * expiry was written into the sentence.
+ *
+ * Revisited, and still empty — so widening cost nothing at the time it was
+ * free, which is the only time widening a gate is ever free. A driver package
+ * is exactly where a stray `console.error` on a failed request is most
+ * tempting, and there are seven of them.
+ *
+ * Depth is bounded at two on purpose rather than walking `packages/`
+ * arbitrarily deep: `packages/<pkg>/src` and `packages/<group>/<pkg>/src` are
+ * the two shapes this repo has, and an unbounded walk would also descend into
+ * a nested `node_modules` or a fixture package's own `src`.
  */
 function collectSourceFiles() {
 	const packagesDir = join(repoRoot, 'packages')
 	const fullPaths = []
+	for (const dir of packageSourceDirs(packagesDir)) walkDir(dir, fullPaths)
+	return fullPaths.map((full) => ({ full, rel: relative(repoRoot, full).split(sep).join('/') }))
+}
+
+export function packageSourceDirs(packagesDir) {
+	const found = []
 	for (const name of readdirSync(packagesDir)) {
-		const srcDir = join(packagesDir, name, 'src')
-		let st
-		try {
-			st = statSync(srcDir)
-		} catch {
+		if (name === 'node_modules') continue
+		const child = join(packagesDir, name)
+		if (!isDirectory(child)) continue
+		if (isDirectory(join(child, 'src'))) {
+			found.push(join(child, 'src'))
 			continue
 		}
-		if (st.isDirectory()) walkDir(srcDir, fullPaths)
+		// No `src/` of its own — a grouping directory like `providers/`, so
+		// look one level further and no further.
+		for (const nested of readdirSync(child)) {
+			if (nested === 'node_modules') continue
+			const nestedSrc = join(child, nested, 'src')
+			if (isDirectory(nestedSrc)) found.push(nestedSrc)
+		}
 	}
-	return fullPaths.map((full) => ({ full, rel: relative(repoRoot, full).split(sep).join('/') }))
+	return found
+}
+
+function isDirectory(path) {
+	try {
+		return statSync(path).isDirectory()
+	} catch {
+		return false
+	}
 }
 
 function loadFileEntries() {
