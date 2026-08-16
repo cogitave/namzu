@@ -1,0 +1,455 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`every RunEvent has a decided place on the SSE wire > declines nothing by accident: every null is a decision with a name 1`] = `
+[
+  "capability_warning",
+  "run_completed",
+  "run_failed",
+  "subsession_idled",
+  "subsession_messaged",
+  "subsession_spawned",
+]
+`;
+
+exports[`every RunEvent has a decided place on the SSE wire > pins the wire name and payload keys of everything it maps 1`] = `
+{
+  "activity_created": {
+    "keys": [
+      "activity_id",
+      "activity_type",
+      "description",
+      "run_id",
+    ],
+    "wire": "activity.created",
+  },
+  "activity_updated": {
+    "keys": [
+      "activity_id",
+      "error",
+      "output",
+      "run_id",
+      "status",
+    ],
+    "wire": "activity.updated",
+  },
+  "agent_canceled": {
+    "keys": [
+      "run_id",
+      "task_id",
+    ],
+    "wire": "agent.canceled",
+  },
+  "agent_completed": {
+    "keys": [
+      "result",
+      "run_id",
+      "task_id",
+    ],
+    "wire": "agent.completed",
+  },
+  "agent_failed": {
+    "keys": [
+      "error",
+      "run_id",
+      "task_id",
+    ],
+    "wire": "agent.failed",
+  },
+  "agent_pending": {
+    "keys": [
+      "child_agent_id",
+      "depth",
+      "parent_agent_id",
+      "run_id",
+      "task_id",
+    ],
+    "wire": "agent.pending",
+  },
+  "capability_warning": null,
+  "checkpoint_created": {
+    "keys": [
+      "checkpoint_id",
+      "iteration",
+      "run_id",
+    ],
+    "wire": "checkpoint.created",
+  },
+  "compaction_completed": {
+    "keys": [
+      "context_window_tokens",
+      "iteration",
+      "measured_by",
+      "messages_after",
+      "messages_before",
+      "run_id",
+      "tokens_after",
+      "tokens_before",
+      "window_source",
+    ],
+    "wire": "compaction.completed",
+  },
+  "compaction_failed": {
+    "keys": [
+      "cause",
+      "iteration",
+      "messages",
+      "run_id",
+    ],
+    "wire": "compaction.failed",
+  },
+  "compaction_tool_results_cleared": {
+    "keys": [
+      "chars_reclaimed",
+      "cleared_count",
+      "iteration",
+      "reclaimed_tokens",
+      "relief_was_enough",
+      "run_id",
+    ],
+    "wire": "compaction.tool_results_cleared",
+  },
+  "guardrail_triggered": {
+    "keys": [
+      "action",
+      "guardrail",
+      "reason",
+      "run_id",
+      "stage",
+    ],
+    "wire": "guardrail.triggered",
+  },
+  "iteration_completed": {
+    "keys": [
+      "iteration",
+      "run_id",
+    ],
+    "wire": "iteration.completed",
+  },
+  "iteration_started": {
+    "keys": [
+      "iteration",
+      "run_id",
+    ],
+    "wire": "iteration.started",
+  },
+  "message_completed": {
+    "keys": [
+      "iteration",
+      "message_id",
+      "run_id",
+      "stop_reason",
+      "usage",
+    ],
+    "wire": "message.completed",
+  },
+  "message_started": {
+    "keys": [
+      "iteration",
+      "message_id",
+      "run_id",
+    ],
+    "wire": "message.created",
+  },
+  "plan_approved": {
+    "keys": [
+      "plan_id",
+      "run_id",
+    ],
+    "wire": "plan.approved",
+  },
+  "plan_completed": {
+    "keys": [
+      "plan_id",
+      "run_id",
+    ],
+    "wire": "plan.completed",
+  },
+  "plan_failed": {
+    "keys": [
+      "plan_id",
+      "reason",
+      "run_id",
+    ],
+    "wire": "plan.failed",
+  },
+  "plan_ready": {
+    "keys": [
+      "plan_id",
+      "run_id",
+      "steps",
+      "summary",
+      "title",
+    ],
+    "wire": "plan.ready",
+  },
+  "plan_rejected": {
+    "keys": [
+      "plan_id",
+      "reason",
+      "run_id",
+    ],
+    "wire": "plan.rejected",
+  },
+  "plan_step_updated": {
+    "keys": [
+      "plan_id",
+      "run_id",
+      "status",
+      "step_id",
+    ],
+    "wire": "plan.step_updated",
+  },
+  "plugin_hook_completed": {
+    "keys": [
+      "hook_event",
+      "plugin_id",
+      "result_action",
+      "run_id",
+    ],
+    "wire": "plugin.hook_completed",
+  },
+  "plugin_hook_executing": {
+    "keys": [
+      "hook_event",
+      "plugin_id",
+      "run_id",
+    ],
+    "wire": "plugin.hook_executing",
+  },
+  "provider_fallback": {
+    "keys": [
+      "code",
+      "from_index",
+      "from_model",
+      "from_provider_id",
+      "iteration",
+      "reason",
+      "run_id",
+      "status",
+      "to_index",
+      "to_model",
+      "to_provider_id",
+    ],
+    "wire": "provider.fallback",
+  },
+  "provider_retry": {
+    "keys": [
+      "attempt",
+      "code",
+      "delay_ms",
+      "iteration",
+      "max_retries",
+      "run_id",
+      "server_directed",
+      "status",
+    ],
+    "wire": "provider.retry",
+  },
+  "reasoning_completed": {
+    "keys": [
+      "block_index",
+      "iteration",
+      "message_id",
+      "run_id",
+      "signed",
+      "text",
+    ],
+    "wire": "reasoning.completed",
+  },
+  "reasoning_delta": {
+    "keys": [
+      "block_index",
+      "message_id",
+      "run_id",
+      "text",
+    ],
+    "wire": "reasoning.delta",
+  },
+  "reasoning_started": {
+    "keys": [
+      "block_index",
+      "iteration",
+      "message_id",
+      "reasoning_type",
+      "run_id",
+    ],
+    "wire": "reasoning.started",
+  },
+  "run_completed": null,
+  "run_failed": null,
+  "run_paused": {
+    "keys": [
+      "checkpoint_id",
+      "reason",
+      "run_id",
+    ],
+    "wire": "run.paused",
+  },
+  "run_resuming": {
+    "keys": [
+      "from_checkpoint_id",
+      "run_id",
+    ],
+    "wire": "run.resuming",
+  },
+  "run_started": {
+    "keys": [
+      "run_id",
+      "system_prompt",
+    ],
+    "wire": "run.started",
+  },
+  "sandbox_created": {
+    "keys": [
+      "environment",
+      "run_id",
+      "sandbox_id",
+    ],
+    "wire": "sandbox.created",
+  },
+  "sandbox_destroyed": {
+    "keys": [
+      "run_id",
+      "sandbox_id",
+    ],
+    "wire": "sandbox.destroyed",
+  },
+  "sandbox_exec": {
+    "keys": [
+      "command",
+      "duration_ms",
+      "exit_code",
+      "run_id",
+      "sandbox_id",
+    ],
+    "wire": "sandbox.exec",
+  },
+  "subsession_idled": null,
+  "subsession_messaged": null,
+  "subsession_spawned": null,
+  "task_created": {
+    "keys": [
+      "run_id",
+      "status",
+      "subject",
+      "task_id",
+    ],
+    "wire": "task.created",
+  },
+  "task_updated": {
+    "keys": [
+      "owner",
+      "run_id",
+      "status",
+      "subject",
+      "task_id",
+    ],
+    "wire": "task.updated",
+  },
+  "text_delta": {
+    "keys": [
+      "iteration",
+      "message_id",
+      "run_id",
+      "text",
+    ],
+    "wire": "message.delta",
+  },
+  "token_usage_updated": {
+    "keys": [
+      "cost",
+      "run_id",
+      "usage",
+    ],
+    "wire": "token.usage",
+  },
+  "tool_completed": {
+    "keys": [
+      "is_error",
+      "result",
+      "run_id",
+      "tool_name",
+      "tool_use_id",
+    ],
+    "wire": "tool.completed",
+  },
+  "tool_executing": {
+    "keys": [
+      "input",
+      "run_id",
+      "tool_name",
+      "tool_use_id",
+    ],
+    "wire": "tool.executing",
+  },
+  "tool_input_completed": {
+    "keys": [
+      "input",
+      "run_id",
+      "tool_use_id",
+    ],
+    "wire": "tool.input_completed",
+  },
+  "tool_input_delta": {
+    "keys": [
+      "partial_json",
+      "run_id",
+      "tool_use_id",
+    ],
+    "wire": "tool.input_delta",
+  },
+  "tool_input_started": {
+    "keys": [
+      "iteration",
+      "message_id",
+      "run_id",
+      "tool_name",
+      "tool_use_id",
+    ],
+    "wire": "tool.input_started",
+  },
+  "tool_progress": {
+    "keys": [
+      "fraction",
+      "message",
+      "run_id",
+      "tool_name",
+      "tool_use_id",
+    ],
+    "wire": "tool.progress",
+  },
+  "tool_review_completed": {
+    "keys": [
+      "decision",
+      "run_id",
+    ],
+    "wire": "review.completed",
+  },
+  "tool_review_requested": {
+    "keys": [
+      "iteration",
+      "run_id",
+      "tool_calls",
+    ],
+    "wire": "review.requested",
+  },
+  "user_question_answered": {
+    "keys": [
+      "answered",
+      "checkpoint_id",
+      "question_id",
+      "run_id",
+    ],
+    "wire": "question.answered",
+  },
+  "user_question_asked": {
+    "keys": [
+      "checkpoint_id",
+      "question",
+      "question_id",
+      "run_id",
+    ],
+    "wire": "question.asked",
+  },
+}
+`;
