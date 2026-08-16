@@ -270,3 +270,9 @@ export type {
 	StoredAttachment,
 	StoredBytes,
 } from './store/attachment/index.js'
+
+export type {
+	ReadModel,
+	RunStatusReadModelOptions,
+	RunStatusState,
+} from './read-model/index.js'

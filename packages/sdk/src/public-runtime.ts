@@ -1038,3 +1038,15 @@ export {
 	resolveAttachment,
 	resolveAttachments,
 } from './store/attachment/index.js'
+
+// Derived values, maintained from the run's own event log rather than
+// recomputed by whoever asks. See `read-model/registry.ts`.
+export {
+	DuplicateEventError,
+	EventGapError,
+	RUN_STATUS_READ_MODEL_ID,
+	ReadModelCollisionError,
+	ReadModelRegistry,
+	UnknownReadModelError,
+	createRunStatusReadModel,
+} from './read-model/index.js'
