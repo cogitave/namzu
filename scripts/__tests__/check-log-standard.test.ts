@@ -34,6 +34,7 @@ import {
 	checkUnnamespacedBindingRatchet,
 	checkConstantBody,
 	checkNamespacedAttributeKeys,
+	namespacedAttributeKeyDetails,
 } from '../check-log-standard.mjs'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -252,16 +253,26 @@ describe('checkNamespacedAttributeKeys', () => {
 	const FIXTURE = join(fixturesDir, 'attribute-key-violation.ts')
 	const program = buildFixtureProgram([FIXTURE])
 
-	test('passes when the stored count matches the five real violations', () => {
-		assert.deepEqual(checkNamespacedAttributeKeys(program, [FIXTURE], { namespacedAttributeKeyViolationCount: 5 }), [])
+	test('passes when the stored count matches the six real violations', () => {
+		assert.deepEqual(checkNamespacedAttributeKeys(program, [FIXTURE], { namespacedAttributeKeyViolationCount: 6 }), [])
 	})
 
-	test('fails in both directions around the five real violations (dies to: comparing with > instead of !==)', () => {
-		assert.equal(checkNamespacedAttributeKeys(program, [FIXTURE], { namespacedAttributeKeyViolationCount: 4 }).length, 1)
-		assert.equal(checkNamespacedAttributeKeys(program, [FIXTURE], { namespacedAttributeKeyViolationCount: 6 }).length, 1)
+	test('fails in both directions around the six real violations (dies to: comparing with > instead of !==)', () => {
+		assert.equal(checkNamespacedAttributeKeys(program, [FIXTURE], { namespacedAttributeKeyViolationCount: 5 }).length, 1)
+		assert.equal(checkNamespacedAttributeKeys(program, [FIXTURE], { namespacedAttributeKeyViolationCount: 7 }).length, 1)
 	})
 
-	// The fixture's five violations, named explicitly so the count of 5
+	// The property-access fold, both directions, as its own assertion
+	// rather than folded into the count: a count that moved from 5 to 6
+	// would be satisfied by the `as const` case regressing and the widened
+	// case being added, which is the opposite of what this proves.
+	test('a computed key reading an `as const` table folds; the same access on a widened table does not (dies to: folding by declaration instead of by type, which would accept both)', () => {
+		const keys = namespacedAttributeKeyDetails(program, [FIXTURE])
+		assert.equal(keys.filter((d) => d.includes('namzu.run.id')).length, 0)
+		assert.equal(keys.filter((d) => d.includes('computed attribute key')).length, 2)
+	})
+
+	// The fixture's six violations, named explicitly so the count of 6
 	// above is not the only place this suite states what it is proving:
 	//   - a literal un-namespaced key ('a' call: { requestId })
 	//   - a shorthand un-namespaced key ('b' call: { id })
@@ -274,6 +285,9 @@ describe('checkNamespacedAttributeKeys', () => {
 	//     assignability is what rejects it — see checkAttributeBag's own
 	//     comment in the script for the measured example.
 	//   - a spread of a plain, un-namespaced object ('j' call: `...untypedExtra`)
+	//   - a computed key reading a table that is NOT `as const` ('l' call:
+	//     `WIDENED.RUN_ID`, whose type is `string`) — the fold goes through
+	//     the TYPE so that a mutable property is refused
 	// and, NOT counted among the five, on purpose:
 	//   - a computed key that DOES fold to a literal ('c' call,
 	//     EVENT_NAME_ATTRIBUTE-shaped) — proves computed keys are resolved,
@@ -282,10 +296,14 @@ describe('checkNamespacedAttributeKeys', () => {
 	//   - an identifier and a function call, each explicitly typed/declared
 	//     to return LogAttributes ('f' and 'g' calls)
 	//   - a spread of a LogAttributes-typed value ('i' call)
+	//   - a computed key reading an `as const` table ('k' call:
+	//     `ATTRS.RUN_ID`) — the real constants-table shape, which the rule
+	//     used to count as unresolvable while rewarding the hand-typed
+	//     string that says the same thing
 	// A single count assertion cannot show its work per-case, so this
 	// comment is the record of what the number actually verifies.
-	test('the computed-key and structural-type paths are both exercised, not skipped (dies to: a literal-key-only walk, which would report 4 instead of 5 — silently passing the unresolvable computed key)', () => {
-		assert.deepEqual(checkNamespacedAttributeKeys(program, [FIXTURE], { namespacedAttributeKeyViolationCount: 5 }), [])
+	test('the computed-key and structural-type paths are both exercised, not skipped (dies to: a literal-key-only walk, which would report 4 instead of 6 — silently passing the unresolvable computed keys)', () => {
+		assert.deepEqual(checkNamespacedAttributeKeys(program, [FIXTURE], { namespacedAttributeKeyViolationCount: 6 }), [])
 	})
 
 	describe('receiver-type resolution', () => {

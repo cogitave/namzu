@@ -2011,23 +2011,13 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 					const stopped = await params.backgroundJobs.killOwner(ctx.runId)
 					if (stopped.length > 0) {
 						ctx.log.info('Background jobs stopped with the run', {
-							'namzu.run.id': ctx.runId,
+							[NAMZU.RUN_ID]: ctx.runId,
 							'namzu.jobs.stopped': stopped.length,
 						})
 					}
 				} catch (jobErr) {
 					ctx.log.error('A background job did not stop cleanly', {
-						// String literals rather than `[NAMZU.RUN_ID]`, and that is a
-						// finding about the gate rather than a preference.
-						// `check-log-standard.mjs`'s `resolveLiteralKeyText` folds a
-						// computed key only when it is a bare identifier bound to a
-						// `const x = 'literal'`; a property access on the constants
-						// table returns `undefined` at its `!ts.isIdentifier` guard,
-						// so every `[NAMZU.X]` site counts as an unresolvable key.
-						// The gate therefore penalises the constants table it was
-						// written alongside. Filed; until it folds property accesses,
-						// a literal is what passes honestly.
-						'namzu.run.id': ctx.runId,
+						[NAMZU.RUN_ID]: ctx.runId,
 						...errorAttributes(jobErr),
 					})
 				}
