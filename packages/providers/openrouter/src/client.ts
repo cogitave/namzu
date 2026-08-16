@@ -15,6 +15,7 @@ import {
 	providerHttpError,
 	providerVendorError,
 } from '@namzu/sdk'
+import { attributionHeaders } from '@namzu/sdk'
 import type { OpenRouterConfig } from './types.js'
 
 const OPENROUTER_BASE_URL = process.env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api/v1'
@@ -88,6 +89,10 @@ export class OpenRouterProvider implements LLMProvider {
 
 	private getHeaders(): Record<string, string> {
 		const headers: Record<string, string> = {
+			// First, so anything a host sets below still wins. Attribution is
+			// what this kernel says about itself; a host overriding it has a
+			// reason and is not to be argued with.
+			...attributionHeaders(),
 			Authorization: `Bearer ${this.config.apiKey}`,
 			'Content-Type': 'application/json',
 		}

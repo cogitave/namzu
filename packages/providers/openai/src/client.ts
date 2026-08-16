@@ -17,6 +17,7 @@ import {
 	isProviderRequestError,
 	providerVendorError,
 } from '@namzu/sdk'
+import { attributionHeaders } from '@namzu/sdk'
 import OpenAI from 'openai'
 import type {
 	ChatCompletionContentPart,
@@ -253,7 +254,10 @@ export class OpenAIProvider implements LLMProvider {
 		if (config.organization) clientOptions.organization = config.organization
 		if (config.project) clientOptions.project = config.project
 		if (config.timeout !== undefined) clientOptions.timeout = config.timeout
-		if (config.defaultHeaders) clientOptions.defaultHeaders = config.defaultHeaders
+		// Merged rather than replaced. Assigning `config.defaultHeaders`
+		// straight over would drop attribution for exactly the hosts that
+		// customise their transport.
+		clientOptions.defaultHeaders = { ...attributionHeaders(), ...(config.defaultHeaders ?? {}) }
 
 		this.client = new OpenAI(clientOptions)
 		this.defaultModel = config.model

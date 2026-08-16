@@ -77,6 +77,17 @@ export interface ProviderDriverConformanceOptions {
 	 * the difference between a decision and an omission.
 	 */
 	readonly retryDefaults: Partial<ProviderRetryConfig> | undefined
+	/**
+	 * Whether this driver identifies the kernel to its vendor, and if not
+	 * why not.
+	 *
+	 * REQUIRED for the same reason `retryDefaults` is: a package that never
+	 * decided should not typecheck. `'unsupported'` is a legitimate answer
+	 * — one vendor's client speaks a websocket protocol with no header seam
+	 * — but it has to carry a reason, so the next reader learns whether it
+	 * is impossible or merely undone.
+	 */
+	readonly attribution: { kind: 'header' } | { kind: 'unsupported'; reason: string }
 	/** Names the driver in test output. Defaults to `provider driver`. */
 	readonly label?: string
 }

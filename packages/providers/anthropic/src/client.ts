@@ -25,6 +25,7 @@ import {
 	toSchemaDialect,
 	toolResultToText,
 } from '@namzu/sdk'
+import { attributionHeaders } from '@namzu/sdk'
 import {
 	MODEL_ID_GRAMMAR,
 	resolveEffort,
@@ -661,7 +662,14 @@ export class AnthropicProvider implements LLMProvider {
 			clientOpts.defaultHeaders = headers
 		} else {
 			clientOpts.apiKey = config.apiKey
-			if (config.defaultHeaders) clientOpts.defaultHeaders = config.defaultHeaders
+			// This branch ONLY. The OAuth branch above sends a Claude Code
+			// user-agent because the token-exchange endpoint requires it —
+			// that is load-bearing impersonation, and merging attribution
+			// into it would break authentication, not improve labelling.
+			clientOpts.defaultHeaders = {
+				...attributionHeaders(),
+				...(config.defaultHeaders ?? {}),
+			}
 		}
 		if (config.baseURL) clientOpts.baseURL = config.baseURL
 

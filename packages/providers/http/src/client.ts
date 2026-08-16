@@ -21,6 +21,7 @@ import {
 	toSchemaDialect,
 	toolResultToText,
 } from '@namzu/sdk'
+import { attributionHeaders } from '@namzu/sdk'
 import { DialectMismatchError, type HttpConfig, type HttpDialect } from './types.js'
 
 const DEFAULT_TIMEOUT_MS = 60_000
@@ -386,6 +387,9 @@ export class HttpProvider implements LLMProvider {
 
 	private getHeaders(): Record<string, string> {
 		const headers: Record<string, string> = {
+			// First: `config.headers` is merged last below, so a host keeps
+			// the final word on every key including this one.
+			...attributionHeaders(),
 			'Content-Type': 'application/json',
 		}
 		if (this.dialect === 'anthropic') {

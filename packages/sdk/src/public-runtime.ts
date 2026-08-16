@@ -99,6 +99,12 @@ export type { ToolPresenter } from './registry/tool/presentation.js'
 // A stalled stream trips no request timeout — the request succeeded and
 // the bytes stopped. Composes with withProviderRetry/withProviderFallback:
 // the failure is classified `network`, which both already act on.
+// One header, so a vendor reading its own logs can tell a kernel's traffic
+// from a browser's — and so an abuse or rate-limit investigation lands on
+// the right party.
+export { NAMZU_APP_IDENTITY, attributionHeaders } from './provider/attribution.js'
+export type { AppIdentity } from './provider/attribution.js'
+
 export { withStreamIdleTimeout } from './provider/idle-timeout.js'
 export type { WithStreamIdleTimeoutOptions } from './provider/idle-timeout.js'
 

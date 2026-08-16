@@ -43,6 +43,7 @@ async function runSuite(makeProvider: () => LLMProvider, registryType = 'good'):
 		}),
 		label: 'under test',
 		retryDefaults: undefined,
+		attribution: { kind: 'header' },
 		registryType,
 		makeProvider,
 	})

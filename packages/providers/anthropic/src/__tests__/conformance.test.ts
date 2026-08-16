@@ -27,6 +27,7 @@ defineProviderDriverConformance({
 	// budget. Written down rather than omitted, because the suite requires
 	// the decision and an omission is not one.
 	retryDefaults: undefined,
+	attribution: { kind: 'header' },
 	// Constructed with credentials that are syntactically valid and reach
 	// nothing. The contract asserts declared shape, not behaviour against a
 	// live endpoint — a suite that needed a real key could not run in CI.

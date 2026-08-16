@@ -27,6 +27,12 @@ defineProviderDriverConformance({
 	// budget. Written down rather than omitted, because the suite requires
 	// the decision and an omission is not one.
 	retryDefaults: undefined,
+	attribution: {
+		kind: 'unsupported',
+		reason:
+			'the vendor client owns the transport and exposes no header seam; ' +
+			'attribution would have to go through a fetch wrapper it does not take',
+	},
 	// Constructed with credentials that are syntactically valid and reach
 	// nothing. The contract asserts declared shape, not behaviour against a
 	// live endpoint — a suite that needed a real key could not run in CI.
