@@ -85,6 +85,29 @@ export type AgentBusEvent =
 			durationMs: number
 			error: string
 	  }
+	/**
+	 * A credential was written, removed, or replaced.
+	 *
+	 * Rotation was invisible: a lapsed OAuth token was refreshed straight
+	 * into a host's file store, and this union carried a LOOKUP event and no
+	 * change event — so no probe subscriber could see a credential turn
+	 * over, and nothing could answer "when did this last rotate".
+	 *
+	 * Carries no secret and never will. The whole value of a change event is
+	 * that it can be logged, forwarded and retained, which is exactly what a
+	 * credential must not be. `source` names where it lives; the value stays
+	 * where it lives.
+	 */
+	| {
+			type: 'vault_credential_changed'
+			/** `rotated` is a set that REPLACED a value, not a first write. */
+			kind: 'set' | 'unset' | 'rotated'
+			/** Which backing store changed — `env`, a file path's label, a KMS id. */
+			source: string
+			ref: string
+			tenantId?: TenantId
+			runId?: RunId
+	  }
 	| {
 			type: 'vault_lookup'
 			vaultId: string

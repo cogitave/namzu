@@ -653,7 +653,10 @@ export { collectChatCompletion } from './provider/collect-chat-completion.js'
 // `@deprecated` tag, and the tag is what the public-surface gate reads.
 export * from './deprecated-aliases.js'
 
-export { wrapVaultWithProbes } from './vault/instrumentation.js'
+export {
+	wrapCredentialProviderWithProbes,
+	wrapVaultWithProbes,
+} from './vault/instrumentation.js'
 export type { VaultInstrumentationOptions } from './vault/instrumentation.js'
 
 // Doctor runtime moved to @namzu/cli in 0.5.0. SDK keeps only the

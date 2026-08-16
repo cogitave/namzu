@@ -211,3 +211,10 @@ export type {
 export type { TopicState } from './types/topic/state.js'
 
 export type { AgentHandle, AgentHandleOptions, AgentHandleStatus } from './agents/handle.js'
+
+export type {
+	CredentialDescription,
+	CredentialProvider,
+	CredentialRef as CredentialName,
+	ResolvedCredential,
+} from './vault/CredentialProvider.js'

@@ -30,7 +30,11 @@
  * real store holding a token that is refreshed again on every launch.
  */
 
+import { buildProbeContext, probe } from '@namzu/sdk'
+
+import { SUBSCRIPTION_CREDENTIAL_REF } from './credential-provider.js'
 import {
+	credentialsPath,
 	readStoredSubscriptionCredential,
 	writeStoredSubscriptionCredential,
 } from './credential-store.js'
@@ -102,6 +106,27 @@ export async function ensureFreshAnthropicToken(
  * the token is already in hand and usable for this session, so a store that
  * will not take it costs a re-refresh next launch, not the session.
  */
+/**
+ * Say that a credential turned over, without saying what it turned into.
+ *
+ * Through the probe registry that already carries `vault_lookup`, because a
+ * second bus means a subscriber that sees lookups and not rotations, or the
+ * reverse, depending on which one it happened to find.
+ */
+function announceRotation(replaced: boolean): void {
+	probe.dispatch(
+		{
+			type: 'vault_credential_changed',
+			kind: replaced ? 'rotated' : 'set',
+			source: credentialsPath(),
+			// The NAME. This event exists to be logged and retained, which is
+			// exactly what the value must not be.
+			ref: SUBSCRIPTION_CREDENTIAL_REF,
+		},
+		buildProbeContext(),
+	)
+}
+
 function persistRefreshed(cred: AgentOAuthCredential, origin: CredentialOrigin): void {
 	if (origin === 'keychain') {
 		writeAgentKeychainCredential(cred)
@@ -109,6 +134,10 @@ function persistRefreshed(cred: AgentOAuthCredential, origin: CredentialOrigin):
 	}
 	try {
 		writeStoredSubscriptionCredential(cred)
+		// Announced only after the store proved the file private. A rotation
+		// event for a write that refused would have a reader chasing a
+		// credential turn-over that never happened.
+		announceRotation(cred.accessToken !== undefined)
 	} catch {
 		// The store refused to prove the file private and therefore wrote
 		// nothing. Deliberately silent: the message would be about a file, on
