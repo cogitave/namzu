@@ -405,7 +405,22 @@ export class IterationOrchestrator {
 					// there is no length check here — a second guard for the same
 					// case is one more thing to keep in agreement with the first.
 					const stepSkills = step.skills ? renderSkillsSection([...step.skills]) : null
-					const stepPreamble = [step.system, stepSkills].filter(Boolean).join('\n\n')
+					// A supervision change rides the same ephemeral slot, and for
+					// the same reason: it applies to what happens next, not to the
+					// run's history. The model plans around how closely it is being
+					// watched — a run that silently stops asking a human leaves it
+					// batching destructive calls it expects to be reviewed, and one
+					// that silently starts leaves it waiting on permission nobody
+					// is left to give.
+					//
+					// Read-and-CLEAR, so it is said exactly once. Repeating it
+					// every iteration would read as supervision moving again on
+					// each turn.
+					const policyChange = this.ctx.takeApprovalPolicyChange?.()
+					const policyNotice = policyChange
+						? `Approval policy changed from "${policyChange.from}" to "${policyChange.to}" (${policyChange.reason}). Tool calls from here on are reviewed under the new policy.`
+						: null
+					const stepPreamble = [step.system, stepSkills, policyNotice].filter(Boolean).join('\n\n')
 					const messages = stepPreamble
 						? [...baseMessages, createSystemMessage(stepPreamble)]
 						: [...baseMessages]

@@ -95,6 +95,18 @@ export interface IterationContext {
 	readonly resumeHandler: ResumeHandler
 
 	/**
+	 * The policy change the model has not been told about, if there is one.
+	 *
+	 * Read-and-CLEAR: calling this marks the change announced, so the caller
+	 * must be the one that actually puts it in front of the model. Optional
+	 * because a host driving the phases directly may have no policy box, and
+	 * a run with no changes to report behaves identically either way.
+	 */
+	readonly takeApprovalPolicyChange?: () =>
+		| import('../../../../types/hitl/policy.js').ApprovalPolicyChange
+		| undefined
+
+	/**
 	 * Guidance a host may hand to the turn while it runs.
 	 *
 	 * Absent means the loop behaves exactly as it always has — nothing is

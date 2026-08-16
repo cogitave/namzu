@@ -156,3 +156,62 @@ describe('a change is recorded, and recorded first', () => {
 		expect(events.map((e) => (e as { from: string }).from)).toEqual(['a', 'b'])
 	})
 })
+
+describe('the model is told once, and only about the state it is now under', () => {
+	it('reports the change, then reports nothing', async () => {
+		// Told twice is worse than a plain notice: the second copy reads as a
+		// second change, and the model will believe supervision moved again.
+		const { policy: runPolicy } = box(policy('operator-tui'))
+		await runPolicy.set(policy('auto-approve'), 'operator stepped away')
+
+		const first = runPolicy.takeUnannouncedChange()
+		const second = runPolicy.takeUnannouncedChange()
+
+		expect(first).toMatchObject({
+			from: 'operator-tui',
+			to: 'auto-approve',
+			reason: 'operator stepped away',
+		})
+		expect(second).toBeUndefined()
+	})
+
+	it('has nothing to report before anything changed', async () => {
+		const { policy: runPolicy } = box(policy('operator-tui'))
+
+		expect(runPolicy.takeUnannouncedChange()).toBeUndefined()
+	})
+
+	it('collapses A→B→C into A→C', async () => {
+		// Three swaps between two model calls are ONE fact by the time the
+		// model can act on one. Replaying the intermediate ones describes a
+		// history where the model needs a state — and `from` staying at the
+		// original is what makes the statement true about what it planned
+		// under versus what it is under now.
+		const { policy: runPolicy } = box(policy('a'))
+		await runPolicy.set(policy('b'), 'one')
+		await runPolicy.set(policy('c'), 'two')
+
+		expect(runPolicy.takeUnannouncedChange()).toMatchObject({ from: 'a', to: 'c', reason: 'two' })
+	})
+
+	it('starts reporting again after a later change', async () => {
+		// Cleared, not disabled. A run whose policy moves twice with a model
+		// call between them owes the model two notices.
+		const { policy: runPolicy } = box(policy('a'))
+		await runPolicy.set(policy('b'), 'one')
+		runPolicy.takeUnannouncedChange()
+
+		await runPolicy.set(policy('c'), 'two')
+
+		expect(runPolicy.takeUnannouncedChange()).toMatchObject({ from: 'b', to: 'c' })
+	})
+
+	it('reports nothing for a no-op set', async () => {
+		const same = policy('a')
+		const { policy: runPolicy } = box(same)
+
+		await runPolicy.set(same, 'nothing really')
+
+		expect(runPolicy.takeUnannouncedChange()).toBeUndefined()
+	})
+})

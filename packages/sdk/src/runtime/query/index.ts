@@ -1423,6 +1423,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		// Read through the box on every call, so a swap lands on the next
 		// question rather than the next run.
 		resumeHandler: (request) => approvalPolicy.current.handler(request),
+		takeApprovalPolicyChange: () => approvalPolicy.takeUnannouncedChange(),
 		...(params.steering ? { steering: params.steering } : {}),
 		checkpointMgr,
 		planManager: ctx.planManager,

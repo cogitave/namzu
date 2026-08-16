@@ -241,6 +241,7 @@ export type {
 // captured at `query()` start. See `types/hitl/policy.ts`.
 export type {
 	ApprovalPolicy,
+	ApprovalPolicyChange,
 	ApprovalPolicyChangedEvent,
 	RunApprovalPolicy,
 } from './types/hitl/policy.js'

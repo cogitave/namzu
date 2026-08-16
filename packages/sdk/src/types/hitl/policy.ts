@@ -44,6 +44,33 @@ export interface RunApprovalPolicy {
 	 * expected.
 	 */
 	set(policy: ApprovalPolicy, reason: string): Promise<void>
+
+	/**
+	 * The change the model has not been told about yet — and reading it is
+	 * what marks it told.
+	 *
+	 * The model plans around how closely it is being watched. A run that
+	 * silently stops asking a human, or silently starts, leaves the model
+	 * working from a supervision assumption that is no longer true: it will
+	 * keep batching destructive calls it expects to be reviewed, or keep
+	 * asking permission nobody is left to give.
+	 *
+	 * Read-and-clear rather than a flag somebody must remember to reset.
+	 * Told twice is worse than a plain notice: the second copy reads as a
+	 * second change, and the model will believe supervision moved again.
+	 * Only the LAST unannounced change is kept — three swaps between two
+	 * model calls are one fact by the time the model can act on it, and
+	 * replaying the intermediate ones would describe a history rather than
+	 * a state.
+	 */
+	takeUnannouncedChange(): ApprovalPolicyChange | undefined
+}
+
+/** A change the model has not yet been told about. */
+export interface ApprovalPolicyChange {
+	readonly from: string
+	readonly to: string
+	readonly reason: string
 }
 
 /** The durable record of a policy change. */

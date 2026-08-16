@@ -827,6 +827,7 @@
     "ApiPermissionMode",
     "AppIdentity",
     "ApprovalPolicy",
+    "ApprovalPolicyChange",
     "ApprovalPolicyChangedEvent",
     "ArchivalManager",
     "ArchiveNotConfiguredError",

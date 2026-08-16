@@ -11,6 +11,7 @@ import { BashTool } from '../../../tools/builtins/bash.js'
 import type { RunApprovalPolicy } from '../../../types/hitl/policy.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
+import type { ChatCompletionParams, StreamChunk } from '../../../types/provider/index.js'
 import type { RunEvent } from '../../../types/run/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import { drainQuery } from '../index.js'
@@ -276,5 +277,113 @@ describe('the swap reaches PLAN approval too, which is the other place a human i
 		// handler that was current when it was wired.
 		expect(answeredBy).toEqual(['second'])
 		expect(response?.approved).toBe(true)
+	})
+})
+
+describe('the model is told, in the slot it already reads', () => {
+	it('carries the notice on the request AFTER the swap, and only that one', async () => {
+		// The model plans around how closely it is watched. A run that
+		// silently stops asking a human leaves it batching destructive calls
+		// it expects to be reviewed; one that silently starts leaves it
+		// waiting on permission nobody is left to give.
+		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-policy-notice-'))
+		dirs.push(workingDirectory)
+		const tools = new ToolRegistry()
+		tools.register(BashTool)
+		let policyBox: RunApprovalPolicy | undefined
+		let swapped = false
+
+		class Capturing extends MockLLMProvider {
+			readonly systemTexts: string[] = []
+			override async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
+				const messages = params.messages as { role: string; content: unknown }[]
+				this.systemTexts.push(
+					messages
+						.filter((m) => m.role === 'system' && typeof m.content === 'string')
+						.map((m) => m.content as string)
+						.join('\n'),
+				)
+				yield* super.chatStream(params)
+			}
+		}
+
+		const provider = new Capturing({
+			turns: [
+				{ toolCalls: [{ id: 't1', name: 'bash', args: { command: 'echo a', timeout: 1000 } }] },
+				{ toolCalls: [{ id: 't2', name: 'bash', args: { command: 'echo b', timeout: 1000 } }] },
+				{ text: 'done' },
+			] as never,
+		})
+
+		await drainQuery({
+			provider,
+			tools,
+			runConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 4 },
+			agentId: 'a',
+			agentName: 'A',
+			messages: [createUserMessage('go')],
+			workingDirectory,
+			sessionId: 'ses_notice' as SessionId,
+			topicId: 'top_notice' as TopicId,
+			projectId: 'prj_notice' as ProjectId,
+			tenantId: 'tnt_notice' as TenantId,
+			approvalPolicyName: 'operator-tui',
+			resumeHandler: async () => {
+				if (!swapped) {
+					swapped = true
+					await policyBox?.set(
+						{ name: 'auto-approve', handler: async () => ({ action: 'continue' }) },
+						'operator stepped away',
+					)
+				}
+				return { action: 'continue' }
+			},
+			onApprovalPolicy: (policy) => {
+				policyBox = policy
+			},
+		})
+
+		const mentions = provider.systemTexts.filter((text) => text.includes('Approval policy changed'))
+		// Exactly once. A notice repeated every iteration reads as
+		// supervision moving again on each turn.
+		expect(mentions).toHaveLength(1)
+		expect(mentions[0]).toContain('from "operator-tui" to "auto-approve"')
+		expect(mentions[0]).toContain('operator stepped away')
+	})
+
+	it('says nothing to a run whose policy never moved', async () => {
+		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-policy-quiet-'))
+		dirs.push(workingDirectory)
+		const systemTexts: string[] = []
+
+		class Capturing extends MockLLMProvider {
+			override async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
+				const messages = params.messages as { role: string; content: unknown }[]
+				systemTexts.push(
+					messages
+						.filter((m) => m.role === 'system' && typeof m.content === 'string')
+						.map((m) => m.content as string)
+						.join('\n'),
+				)
+				yield* super.chatStream(params)
+			}
+		}
+
+		await drainQuery({
+			provider: new Capturing({ turns: [{ text: 'done' }] as never }),
+			tools: new ToolRegistry(),
+			runConfig: { model: 'mock', timeoutMs: 20_000, tokenBudget: 200_000, maxIterations: 2 },
+			agentId: 'a',
+			agentName: 'A',
+			messages: [createUserMessage('go')],
+			workingDirectory,
+			sessionId: 'ses_quiet' as SessionId,
+			topicId: 'top_quiet' as TopicId,
+			projectId: 'prj_quiet' as ProjectId,
+			tenantId: 'tnt_quiet' as TenantId,
+			resumeHandler: async () => ({ action: 'continue' }),
+		})
+
+		expect(systemTexts.some((t) => t.includes('Approval policy changed'))).toBe(false)
 	})
 })

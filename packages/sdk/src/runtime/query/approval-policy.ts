@@ -1,4 +1,8 @@
-import type { ApprovalPolicy, RunApprovalPolicy } from '../../types/hitl/policy.js'
+import type {
+	ApprovalPolicy,
+	ApprovalPolicyChange,
+	RunApprovalPolicy,
+} from '../../types/hitl/policy.js'
 import type { RunId } from '../../types/ids/index.js'
 import type { RunEvent } from '../../types/run/index.js'
 
@@ -26,6 +30,7 @@ export function createRunApprovalPolicy(
 	options: CreateRunApprovalPolicyOptions,
 ): RunApprovalPolicy {
 	let current = options.initial
+	let unannounced: ApprovalPolicyChange | undefined
 	return {
 		get current(): ApprovalPolicy {
 			// A getter, not a field. A caller holding this object across a
@@ -55,6 +60,19 @@ export function createRunApprovalPolicy(
 				reason,
 			})
 			current = policy
+			// Overwritten, not queued. Three swaps between two model calls are
+			// one fact by the time the model can act on one — replaying the
+			// intermediate ones would describe a history where the model needs
+			// a state. The `from` is preserved from the ORIGINAL unannounced
+			// change, so a model told once about A→B→C hears A→C, which is the
+			// true statement about what it is under now versus what it planned
+			// under.
+			unannounced = { from: unannounced?.from ?? from, to: policy.name, reason }
+		},
+		takeUnannouncedChange(): ApprovalPolicyChange | undefined {
+			const change = unannounced
+			unannounced = undefined
+			return change
 		},
 	}
 }
