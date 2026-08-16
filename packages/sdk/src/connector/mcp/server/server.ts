@@ -1,4 +1,5 @@
 import { JSON_RPC_METHOD_NOT_FOUND } from '../../../constants/mcp/index.js'
+import { NAMZU } from '../../../constants/telemetry/index.js'
 import type {
 	MCPContentBlock,
 	MCPJsonRpcMessage,
@@ -14,6 +15,7 @@ import type { MCPPromptDefinition, MCPPromptMessage } from '../../../types/conne
 import type { MCPServerId } from '../../../types/ids/index.js'
 import { toErrorMessage } from '../../../utils/error.js'
 import { generateMCPServerId } from '../../../utils/id.js'
+import { SCOPE_ATTRIBUTE } from '../../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../../utils/logger.js'
 
 /**
@@ -80,7 +82,10 @@ export class MCPServer {
 		this.toolProvider = toolProvider
 		this.resourceProvider = resourceProvider
 		this.promptProvider = promptProvider
-		this.log = resolveLogger(log).child({ component: 'MCPServer', serverId: this.id })
+		this.log = resolveLogger(log).child({
+			[SCOPE_ATTRIBUTE]: 'connector/mcp/server',
+			[NAMZU.MCP_SERVER_ID]: this.id,
+		})
 	}
 
 	async start(transport: MCPTransport): Promise<void> {

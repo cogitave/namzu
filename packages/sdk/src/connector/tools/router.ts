@@ -1,6 +1,7 @@
 import type { ConnectorManager } from '../../manager/connector/lifecycle.js'
 import type { ToolDefinition, ToolRegistryContract } from '../../types/tool/index.js'
 import { toErrorMessage } from '../../utils/error.js'
+import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
 import { connectorInstanceToTools, createConnectorRouterTool } from './adapter.js'
 
@@ -20,7 +21,7 @@ export class ConnectorToolRouter {
 	constructor(config: ConnectorToolRouterConfig) {
 		this.manager = config.manager
 		this.strategy = config.strategy ?? 'per-method'
-		this.log = resolveLogger(config.log).child({ component: 'ConnectorToolRouter' })
+		this.log = resolveLogger(config.log).child({ [SCOPE_ATTRIBUTE]: 'connector/tools/router' })
 	}
 
 	getTools(): ToolDefinition[] {

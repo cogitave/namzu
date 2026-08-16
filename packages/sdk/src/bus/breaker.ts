@@ -8,6 +8,7 @@ import type {
 	CircuitBreakerState,
 } from '../types/bus/index.js'
 import type { RunId } from '../types/ids/index.js'
+import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
 import type { Logger } from '../utils/logger.js'
 
 interface MutableBreakerState {
@@ -34,7 +35,7 @@ export class CircuitBreaker {
 	) {
 		this.failureThreshold = failureThreshold
 		this.resetTimeoutMs = resetTimeoutMs
-		this.log = log.child({ component: 'CircuitBreaker' })
+		this.log = log.child({ [SCOPE_ATTRIBUTE]: 'bus/breaker' })
 		this.emit = emit
 	}
 

@@ -2,6 +2,7 @@ import { wrapUntrusted } from '../tools/untrusted-envelope.js'
 import type { TaskHandle, TaskScheduler } from '../types/agent/scheduler.js'
 import { isTerminalAgentTaskState } from '../types/agent/task.js'
 import type { TaskId } from '../types/ids/index.js'
+import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
 import { type Logger, resolveLogger } from '../utils/logger.js'
 
 /**
@@ -152,7 +153,7 @@ export class CompletionInbox {
 			if (!oldest.done) {
 				this.unowned.delete(oldest.value)
 				resolveLogger(this.log)
-					.child({ component: 'CompletionInbox' })
+					.child({ [SCOPE_ATTRIBUTE]: 'scheduler/completion-inbox' })
 					.warn(
 						"Unclaimed completion buffer is full — dropped the oldest. If that task was this run's, its result is now unreachable; raise UNOWNED_BUFFER_LIMIT or launch fewer tasks per turn.",
 						{

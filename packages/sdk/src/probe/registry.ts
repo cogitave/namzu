@@ -11,6 +11,7 @@ import type {
 	VetoOutcome,
 	VetoableEventKind,
 } from '../types/probe/index.js'
+import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
 import type { Logger } from '../utils/logger.js'
 
 import { ProbeNameCollisionError } from './errors.js'
@@ -123,7 +124,7 @@ export class ProbeRegistry implements ProbeObservation, ProbeEnforcement {
 	private log?: Logger
 
 	setLogger(log: Logger): void {
-		this.log = log.child({ component: 'ProbeRegistry' })
+		this.log = log.child({ [SCOPE_ATTRIBUTE]: 'probe/registry' })
 	}
 
 	on<K extends ProbeEventKind>(

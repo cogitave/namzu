@@ -12,6 +12,7 @@ import type {
 	UpdateTaskParams,
 } from '../../types/task/index.js'
 import { generateTaskId } from '../../utils/id.js'
+import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
 import { DiskRecordStore } from '../kv/record-store.js'
 import { defineSchema } from '../schema.js'
@@ -83,7 +84,7 @@ export class DiskTaskStore implements TaskStore {
 		this.baseDir = config.baseDir
 		this.defaultRunId = config.defaultRunId
 		this.tenantId = config.tenantId
-		this.log = resolveLogger(config.logger).child({ component: 'DiskTaskStore' })
+		this.log = resolveLogger(config.logger).child({ [SCOPE_ATTRIBUTE]: 'store/task/disk' })
 	}
 
 	private taskDir(runId: RunId): string {

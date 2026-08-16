@@ -33,6 +33,7 @@ import type { RunEvent } from '../types/run/index.js'
 import type { ToolDefinition, ToolRegistryContract } from '../types/tool/index.js'
 import { toErrorMessage } from '../utils/error.js'
 import { generatePluginId } from '../utils/id.js'
+import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
 import type { Logger } from '../utils/logger.js'
 import { assertEnableable, loadPluginManifest } from './loader.js'
 
@@ -147,7 +148,7 @@ export class PluginLifecycleManager {
 		this.skillRegistry = config.skillRegistry
 		this.hookTimeoutMs = config.hookTimeoutMs ?? HOOK_TIMEOUT_MS
 		this.configRegistry = config.configRegistry
-		this.log = config.log.child({ component: 'PluginLifecycleManager' })
+		this.log = config.log.child({ [SCOPE_ATTRIBUTE]: 'plugin/lifecycle' })
 		this.mcpDiscovery = new MCPToolDiscovery([], {
 			...(config.mcpToolPolicies ? { policies: config.mcpToolPolicies } : {}),
 			...(config.onMCPToolDrift ? { onDrift: config.onMCPToolDrift } : {}),

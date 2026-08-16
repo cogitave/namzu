@@ -4,6 +4,7 @@ import type {
 	MCPStdioTransportConfig,
 	MCPTransport,
 } from '../../types/connector/index.js'
+import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
 
 /**
@@ -133,7 +134,7 @@ export class StdioTransport implements MCPTransport {
 		private readonly config: MCPStdioTransportConfig,
 		log?: Logger,
 	) {
-		this.log = resolveLogger(log).child({ component: 'StdioTransport' })
+		this.log = resolveLogger(log).child({ [SCOPE_ATTRIBUTE]: 'connector/mcp/stdio' })
 	}
 
 	async connect(): Promise<void> {

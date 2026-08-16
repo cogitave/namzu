@@ -11,6 +11,8 @@ import {
 } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path'
+import { NAMZU } from '../../constants/telemetry/index.js'
+import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 
 import {
 	SANDBOX_DEFAULT_TIMEOUT_MS,
@@ -378,7 +380,7 @@ class LocalSandbox implements Sandbox {
 		this.environment = environment
 		this.config = config
 		this._status = 'ready'
-		this.log = log.child({ component: 'LocalSandbox', sandboxId: id })
+		this.log = log.child({ [SCOPE_ATTRIBUTE]: 'sandbox/provider/local', [NAMZU.SANDBOX_ID]: id })
 
 		this.log.info('Sandbox created', {
 			'namzu.sandbox.root_dir': rootDir,
@@ -665,7 +667,7 @@ export class LocalSandboxProvider implements SandboxProvider {
 	constructor(log: Logger, options: LocalSandboxProviderOptions = {}) {
 		this.ptyLoader = options.ptyLoader
 		this.environment = detectEnvironment()
-		this.log = log.child({ component: 'LocalSandboxProvider' })
+		this.log = log.child({ [SCOPE_ATTRIBUTE]: 'sandbox/provider/local' })
 
 		assertIsolation(this.environment, options.requireIsolation ?? [])
 

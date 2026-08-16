@@ -13,6 +13,7 @@ import type { TaskId } from '../types/ids/index.js'
 import { createUserMessage } from '../types/message/index.js'
 import type { RunEventListener } from '../types/run/events.js'
 import { toErrorMessage } from '../utils/error.js'
+import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
 import { type Logger, resolveLogger } from '../utils/logger.js'
 
 /**
@@ -178,7 +179,7 @@ export class LocalTaskScheduler implements TaskScheduler {
 			})
 			.catch((err) => {
 				resolveLogger(this.log)
-					.child({ component: 'LocalTaskScheduler' })
+					.child({ [SCOPE_ATTRIBUTE]: 'scheduler/local' })
 					.error('Task completion tracking failed', {
 						'namzu.task.id': task.taskId,
 						'exception.message': toErrorMessage(err),
@@ -221,7 +222,7 @@ export class LocalTaskScheduler implements TaskScheduler {
 
 		if (cancelled.length > 0) {
 			resolveLogger(this.log)
-				.child({ component: 'LocalTaskScheduler' })
+				.child({ [SCOPE_ATTRIBUTE]: 'scheduler/local' })
 				.info('Cancelled siblings after a child failed', {
 					'namzu.scheduler.failed': finished.taskId,
 					[GENAI.AGENT_ID]: finished.agentId,

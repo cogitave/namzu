@@ -10,6 +10,7 @@ import type { FencingToken } from '../../types/run/checkpoint-store.js'
 import { isEphemeralEvent } from '../../types/run/events.js'
 import type { RunEvent } from '../../types/run/index.js'
 import type { TaskEvent, TaskStore } from '../../types/task/index.js'
+import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
 
 export type EmitEvent = (event: RunEvent) => Promise<void>
@@ -42,7 +43,7 @@ export class EventTranslator {
 	) {
 		this.runMgr = runMgr
 		this.probes = probeRegistry
-		this.log = resolveLogger(log).child({ component: 'EventTranslator' })
+		this.log = resolveLogger(log).child({ [SCOPE_ATTRIBUTE]: 'runtime/query/events' })
 	}
 
 	/**

@@ -3,7 +3,7 @@
 	"$comment_type_aware": "constantBodyViolationCount (rule 3) and namespacedAttributeKeyViolationCount (rule 4), added in LOG-13, are ratchets exactly like the two above — NOT allowlists. constantBodyExcludes and namespacedAttributeKeyExcludes are permanently-empty guard fields: checkConstantBody/checkNamespacedAttributeKeys never read them, so populating either would not suppress anything — it would only make scripts/__tests__/check-log-standard.test.ts's excludes-guard test fail. That is deliberate: a path excluded from 'is this receiver a Logger' or 'is this key namespaced' is a path where neither guarantee holds.",
 	"$comment_scope": "getRootLoggerCount and unnamespacedBindingCount are scoped to packages/sdk/src (excluding __tests__, __fixtures__ and *.test.ts). consoleAllowlist and streamWriteAllowlist are scoped to packages/*/src across every package (one directory below packages/ — packages/providers/<name>/src is nested one level deeper and out of scope; see the script's file header).",
 	"getRootLoggerCount": 1,
-	"unnamespacedBindingCount": 40,
+	"unnamespacedBindingCount": 0,
 	"constantBodyViolationCount": 0,
 	"namespacedAttributeKeyViolationCount": 0,
 	"constantBodyExcludes": [],

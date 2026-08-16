@@ -9,6 +9,7 @@ import { buildProbeContext } from '../probe/context.js'
 import { type ProbeRegistry, probe as defaultProbeRegistry } from '../probe/registry.js'
 import type { AgentBusEvent, AgentBusEventListener } from '../types/bus/index.js'
 import type { RunId } from '../types/ids/index.js'
+import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
 import type { Logger } from '../utils/logger.js'
 
 import { NAMZU } from '../constants/telemetry/index.js'
@@ -50,7 +51,7 @@ export class AgentBus {
 		probeRegistry: ProbeRegistry = defaultProbeRegistry,
 	) {
 		this.config = { ...DEFAULT_AGENT_BUS_CONFIG, ...config }
-		this.log = log.child({ component: 'AgentBus' })
+		this.log = log.child({ [SCOPE_ATTRIBUTE]: 'bus' })
 		this.probes = probeRegistry
 		this.probes.setLogger(log)
 

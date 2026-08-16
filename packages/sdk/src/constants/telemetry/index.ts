@@ -100,6 +100,29 @@ export const NAMZU = {
 	// the two CREDENTIAL_* keys above.
 	SERVER_ID: 'namzu.connector.server.id',
 	SERVER_NAME: 'namzu.connector.server.name',
+
+	// The MCP server this process HOSTS (connector/mcp/server/server.ts), not
+	// one it dials. Deliberately not SERVER_ID above: that key is the client
+	// side's identifier for a remote, and a record carrying both concepts
+	// under one name is the collision the namespace rule exists to stop. The
+	// value is an `MCPServerId` minted here, so unlike SERVER_NAME it is not
+	// attacker-influenced.
+	MCP_SERVER_ID: 'namzu.mcp.server.id',
+
+	// The concrete subclass behind a base class that logs on its children's
+	// behalf — the same shape as REGISTRY_NAME above, and for the same
+	// reason: `scope.name` is the MODULE (`connector/base`, `execution/base`)
+	// because that is the file the record is emitted from, so the subclass
+	// identity every one of those records used to carry as `component:
+	// this.constructor.name` needs somewhere to go that is not the scope.
+	CONNECTOR_TYPE: 'namzu.connector.type',
+	EXECUTION_TYPE: 'namzu.execution.type',
+
+	// LocalSandbox (sandbox/provider/local.ts). The file hosts two logging
+	// classes — the sandbox and its provider — and both scope to
+	// `sandbox/provider/local`, so this id is what separates one sandbox's
+	// records from the provider's and from each other's.
+	SANDBOX_ID: 'namzu.sandbox.id',
 } as const
 
 /**

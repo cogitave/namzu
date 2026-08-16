@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
 
 import type { AgentBusEvent, FileOwnership, OwnershipClaimResult } from '../types/bus/index.js'
 import type { RunId } from '../types/ids/index.js'
@@ -10,7 +11,7 @@ export class EditOwnershipTracker {
 	private readonly emit: (event: AgentBusEvent) => void
 
 	constructor(log: Logger, emit: (event: AgentBusEvent) => void) {
-		this.log = log.child({ component: 'EditOwnershipTracker' })
+		this.log = log.child({ [SCOPE_ATTRIBUTE]: 'bus/ownership' })
 		this.emit = emit
 	}
 

@@ -2,6 +2,7 @@ import { CHARS_PER_TOKEN, ZERO_COST } from '../constants/limits.js'
 import { assembleSystemPrompt } from '../persona/assembler.js'
 import { resolveModelPricing } from '../pricing/index.js'
 import { collectChatCompletion } from '../provider/collect-chat-completion.js'
+import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
 
 import { GENAI } from '../constants/telemetry/index.js'
 import type { AdvisorDefinition, AdvisoryBudget } from '../types/advisory/config.js'
@@ -45,7 +46,7 @@ export class AdvisoryExecutor {
 	private readonly budget: AdvisoryBudget | undefined
 
 	constructor(logger?: Logger, budget?: AdvisoryBudget) {
-		this.logger = resolveLogger(logger).child({ component: 'AdvisoryExecutor' })
+		this.logger = resolveLogger(logger).child({ [SCOPE_ATTRIBUTE]: 'advisory/executor' })
 		this.budget = budget
 	}
 

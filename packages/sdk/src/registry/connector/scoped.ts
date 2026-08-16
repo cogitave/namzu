@@ -9,6 +9,7 @@ import type {
 } from '../../types/connector/index.js'
 import { CONNECTOR_SCOPE_ORDER } from '../../types/connector/index.js'
 import type { ConnectorId } from '../../types/ids/index.js'
+import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
 
 function scopeKey(scope: ConnectorScope, scopeId: string, connectorId: ConnectorId): string {
@@ -20,7 +21,7 @@ export class ScopedConnectorRegistry {
 	private log: Logger
 
 	constructor(log?: Logger) {
-		this.log = resolveLogger(log).child({ component: 'ScopedConnectorRegistry' })
+		this.log = resolveLogger(log).child({ [SCOPE_ATTRIBUTE]: 'registry/connector/scoped' })
 	}
 
 	set(config: ScopedConnectorConfig): void {

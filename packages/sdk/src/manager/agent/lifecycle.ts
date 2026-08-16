@@ -37,6 +37,7 @@ import { createChildAbortController } from '../../utils/abort.js'
 import { ZERO_COST } from '../../utils/cost.js'
 import { toErrorMessage } from '../../utils/error.js'
 import { generateTaskId } from '../../utils/id.js'
+import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
 import { requireOpenProject } from '../project/lifecycle.js'
 import type { TopicManager } from '../topic/lifecycle.js'
@@ -145,7 +146,7 @@ export class AgentManager {
 	) {
 		this.registry = registry
 		this.config = { ...AGENT_MANAGER_DEFAULTS, ...config }
-		this.log = resolveLogger(deps.log).child({ component: 'AgentManager' })
+		this.log = resolveLogger(deps.log).child({ [SCOPE_ATTRIBUTE]: 'manager/agent/lifecycle' })
 		this.deps = deps
 	}
 

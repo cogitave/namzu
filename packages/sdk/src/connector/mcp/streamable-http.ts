@@ -3,6 +3,7 @@ import type {
 	MCPStreamableHttpTransportConfig,
 	MCPTransport,
 } from '../../types/connector/index.js'
+import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
 
 const DEFAULT_TIMEOUT_MS = 30_000
@@ -19,7 +20,7 @@ export class StreamableHttpTransport implements MCPTransport {
 		private readonly config: MCPStreamableHttpTransportConfig,
 		log?: Logger,
 	) {
-		this.log = resolveLogger(log).child({ component: 'StreamableHttpTransport' })
+		this.log = resolveLogger(log).child({ [SCOPE_ATTRIBUTE]: 'connector/mcp/streamable-http' })
 	}
 
 	async connect(): Promise<void> {

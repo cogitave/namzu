@@ -3,6 +3,7 @@ import type {
 	MCPJsonRpcMessage,
 	MCPTransport,
 } from '../../types/connector/index.js'
+import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
 
 /**
@@ -37,7 +38,7 @@ export class HttpSseTransport implements MCPTransport {
 		const base = stripTrailingSlashes(config.url)
 		this.sseUrl = `${base}/sse`
 		this.postUrl = `${base}/message`
-		this.log = resolveLogger(log).child({ component: 'HttpSseTransport' })
+		this.log = resolveLogger(log).child({ [SCOPE_ATTRIBUTE]: 'connector/mcp/http-sse' })
 	}
 
 	async connect(): Promise<void> {

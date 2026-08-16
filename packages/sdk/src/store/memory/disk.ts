@@ -10,6 +10,7 @@ import type {
 	MemoryStore,
 } from '../../types/memory/index.js'
 import { generateMemoryId } from '../../utils/id.js'
+import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
 import { DiskRecordStore } from '../kv/record-store.js'
 import { defineSchema } from '../schema.js'
@@ -44,7 +45,7 @@ export class DiskMemoryStore implements MemoryStore {
 
 	constructor(config: DiskMemoryStoreConfig) {
 		this.baseDir = join(config.baseDir, 'memory')
-		this.log = resolveLogger(config.logger).child({ component: 'DiskMemoryStore' })
+		this.log = resolveLogger(config.logger).child({ [SCOPE_ATTRIBUTE]: 'store/memory/disk' })
 	}
 
 	private get indexPath(): string {

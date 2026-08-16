@@ -18,6 +18,7 @@ import type {
 } from '../../types/connector/index.js'
 import type { ConnectorId, EnvironmentId } from '../../types/ids/index.js'
 import { toErrorMessage } from '../../utils/error.js'
+import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
 import { ConnectorManager } from './lifecycle.js'
 
@@ -61,7 +62,9 @@ export class EnvironmentConnectorManager {
 		this.connectorRegistry = config.connectorRegistry
 		this.scopedRegistry = config.scopedRegistry
 		this.credentialVault = config.credentialVault
-		this.log = resolveLogger(config.log).child({ component: 'EnvironmentConnectorManager' })
+		this.log = resolveLogger(config.log).child({
+			[SCOPE_ATTRIBUTE]: 'manager/connector/environment',
+		})
 	}
 
 	registerEnvironment(setup: EnvironmentConnectorSetup): void {

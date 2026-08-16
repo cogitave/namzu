@@ -16,6 +16,7 @@ import { promisify } from 'node:util'
 import { NAMZU } from '../../constants/telemetry/index.js'
 import type { GitWorktreeBackendMeta, WorkspaceRef } from '../../types/workspace/ref.js'
 import { generateWorkspaceId } from '../../utils/id.js'
+import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import type { Logger } from '../../utils/logger.js'
 import { WorkspaceBackendError } from '../errors.js'
 import type {
@@ -72,7 +73,7 @@ export class GitWorktreeDriver implements WorkspaceBackendDriver {
 	constructor(config: GitWorktreeDriverConfig) {
 		this.repoRoot = config.repoRoot
 		this.worktreesDir = config.worktreesDir ?? join(config.repoRoot, '.namzu', 'worktrees')
-		this.log = config.logger.child({ component: 'GitWorktreeDriver' })
+		this.log = config.logger.child({ [SCOPE_ATTRIBUTE]: 'session/workspace/git-worktree' })
 		this.exec = config.execFile ?? defaultExecFile
 	}
 

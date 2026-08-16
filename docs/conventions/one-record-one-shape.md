@@ -96,6 +96,30 @@ un-namespaced attribute keys. A ratchet at zero is no longer a budget being
 spent down — it is a floor, and the *first* new template literal or bare key
 in a `Logger` call fails CI rather than the hundredth.
 
+**`unnamespacedBindingCount` is now at zero too, and it was never a style
+problem.** The 40 remaining sites all bound `component: '<ClassName>'` on a
+`child()`, and `component` is deliberately *inert* — `SCOPE_ATTRIBUTE`'s own
+doc comment says a call site that still binds it "gets an ordinary, inert
+attribute, not a scope change". So those 40 modules were not merely using an
+old spelling: every record they emitted carried the *default* `scope.name`
+plus a redundant attribute, and nothing in the tree failed while they did.
+The rename to `[SCOPE_ATTRIBUTE]` is what makes `scope.name` answer "which
+module emitted this" for the first time.
+
+Two things that migration settled, both of which a straight key rename would
+have got wrong:
+
+- **The value is the module, not the class.** `ManagedRegistry` fixed this
+  shape first: `scope.name` is the file a record is emitted from, so the
+  per-instance or per-subclass name moves to a `namzu.*` attribute
+  (`REGISTRY_NAME`, and now `CONNECTOR_TYPE` / `EXECUTION_TYPE` for the two
+  base classes that logged as `this.constructor.name`). A scope that varies
+  per instance is not a scope.
+- **Two classes in one file share a scope, and that is fine.**
+  `sandbox/provider/local.ts` hosts both the sandbox and its provider. Both
+  scope to `sandbox/provider/local`; what separates their records is
+  `SANDBOX_ID`, which the sandbox binds and the provider does not.
+
 Two things LOG-22 measured that are worth keeping:
 
 - **None of the 794 were the hard case.** Rule 4 also covers an attribute

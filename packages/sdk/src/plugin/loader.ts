@@ -7,6 +7,7 @@ import {
 	USER_PLUGIN_DIR,
 } from '../constants/plugin/index.js'
 import { type PluginManifest, PluginManifestSchema } from '../types/plugin/index.js'
+import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
 import { type Logger, resolveLogger } from '../utils/logger.js'
 
 /**
@@ -26,7 +27,7 @@ export async function discoverPlugins(parentDir: string, log?: Logger): Promise<
 	//
 	// `log`, when a caller has one, wins over the process default — LOG-10:
 	// this was the module's own remaining getRootLogger() call site.
-	const logger = resolveLogger(log).child({ component: 'PluginLoader' })
+	const logger = resolveLogger(log).child({ [SCOPE_ATTRIBUTE]: 'plugin/loader' })
 	const dirs: string[] = []
 
 	try {
@@ -193,7 +194,7 @@ export async function discoverAllPluginDirs(
 ): Promise<{ project: string[]; user: string[] }> {
 	// Resolved here too — see discoverPlugins above for why module scope
 	// froze this logger's level, and its very reference, at import time.
-	const logger = resolveLogger(options?.log).child({ component: 'PluginLoader' })
+	const logger = resolveLogger(options?.log).child({ [SCOPE_ATTRIBUTE]: 'plugin/loader' })
 	if (options?.enabled === false || options?.autoDiscovery === false) {
 		logger.debug('Plugin discovery skipped', {
 			'namzu.plugin.enabled': options.enabled,

@@ -7,6 +7,7 @@ import type {
 } from '../types/authorization/index.js'
 import { AuthorizationGateConfigSchema } from '../types/authorization/index.js'
 import type { ToolDefinition } from '../types/tool/index.js'
+import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
 import type { Logger } from '../utils/logger.js'
 import { evaluateRule } from './rules.js'
 
@@ -75,7 +76,7 @@ export class AuthorizationGate {
 
 	constructor(config: AuthorizationGateConfig, log: Logger) {
 		const parsed = AuthorizationGateConfigSchema.parse(config)
-		this.log = log.child({ component: 'AuthorizationGate' })
+		this.log = log.child({ [SCOPE_ATTRIBUTE]: 'authorization/gate' })
 		this.logDecisions = parsed.logDecisions
 		this.enabled = parsed.enabled
 

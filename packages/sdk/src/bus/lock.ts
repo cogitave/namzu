@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
 
 import {
 	DEFAULT_LOCK_ACQUIRE_TIMEOUT_MS,
@@ -36,7 +37,7 @@ export class FileLockManager {
 		config: Partial<FileLockManagerConfig> = {},
 	) {
 		this.config = { ...DEFAULT_CONFIG, ...config }
-		this.log = log.child({ component: 'FileLockManager' })
+		this.log = log.child({ [SCOPE_ATTRIBUTE]: 'bus/lock' })
 		this.emit = emit
 	}
 

@@ -1,5 +1,7 @@
+import { NAMZU } from '../constants/telemetry/index.js'
 import type { ExecutionContextLifecycle, ExecutionEnvironment } from '../types/execution/index.js'
 import { toErrorMessage } from '../utils/error.js'
+import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
 import { type Logger, resolveLogger } from '../utils/logger.js'
 
 export interface BaseExecutionEvent {
@@ -19,7 +21,10 @@ export abstract class BaseExecutionContext implements ExecutionContextLifecycle 
 	private listeners: ExecutionEventListener[] = []
 
 	constructor(log?: Logger) {
-		this.log = resolveLogger(log).child({ component: this.constructor.name })
+		this.log = resolveLogger(log).child({
+			[SCOPE_ATTRIBUTE]: 'execution/base',
+			[NAMZU.EXECUTION_TYPE]: this.constructor.name,
+		})
 	}
 
 	async initialize(): Promise<void> {

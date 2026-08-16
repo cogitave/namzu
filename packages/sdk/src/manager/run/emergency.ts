@@ -15,6 +15,7 @@ import {
 } from '../../constants/emergency.js'
 import { NAMZU } from '../../constants/telemetry/index.js'
 import type { EmergencySaveData } from '../../types/run/emergency.js'
+import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import type { Logger } from '../../utils/logger.js'
 import type { RunPersistence } from './persistence.js'
 
@@ -43,7 +44,7 @@ export class EmergencySaveManager {
 		this.detach()
 		this.runRef = new WeakRef(runMgr)
 		this.outputDir = outputDir
-		this.log = log.child({ component: 'EmergencySaveManager' })
+		this.log = log.child({ [SCOPE_ATTRIBUTE]: 'manager/run/emergency' })
 
 		// Attaching a listener for SIGINT/SIGTERM/uncaughtException suppresses
 		// Node's default termination behavior. After saving state we MUST

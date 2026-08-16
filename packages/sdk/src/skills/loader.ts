@@ -7,6 +7,7 @@ import type {
 	SkillMetadata,
 } from '../types/skills/index.js'
 import { type ParsedFrontmatter, parseFrontmatter } from '../utils/frontmatter.js'
+import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
 import { type Logger, resolveLogger } from '../utils/logger.js'
 
 export const SKILL_FILENAME = 'SKILL.md'
@@ -178,7 +179,7 @@ export async function loadSkill(
 	//
 	// `log`, when the caller has one (`SkillRegistry` now does), wins over
 	// the process default.
-	const logger = resolveLogger(log).child({ component: 'SkillLoader' })
+	const logger = resolveLogger(log).child({ [SCOPE_ATTRIBUTE]: 'skills/loader' })
 	logger.debug('Loaded skill', {
 		'namzu.skills.name': metadata.name,
 		'namzu.skills.level': level,
@@ -195,7 +196,7 @@ export async function loadSkill(
 export async function discoverSkills(parentDir: string, log?: Logger): Promise<string[]> {
 	// Resolved here too — see loadSkill above for why module scope froze
 	// this logger's level, and its very reference, at import time.
-	const logger = resolveLogger(log).child({ component: 'SkillLoader' })
+	const logger = resolveLogger(log).child({ [SCOPE_ATTRIBUTE]: 'skills/loader' })
 	const dirs: string[] = []
 
 	try {

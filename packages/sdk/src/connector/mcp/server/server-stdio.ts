@@ -1,4 +1,5 @@
 import type { Readable, Writable } from 'node:stream'
+import { SCOPE_ATTRIBUTE } from '../../../utils/log/types.js'
 
 import type { MCPJsonRpcMessage, MCPTransport } from '../../../types/connector/mcp.js'
 import { type Logger, resolveLogger } from '../../../utils/logger.js'
@@ -51,7 +52,7 @@ export class ServerStdioTransport implements MCPTransport {
 	constructor(streams?: { input?: Readable; output?: Writable }, log?: Logger) {
 		this.input = streams?.input ?? process.stdin
 		this.output = streams?.output ?? process.stdout
-		this.log = resolveLogger(log).child({ component: 'ServerStdioTransport' })
+		this.log = resolveLogger(log).child({ [SCOPE_ATTRIBUTE]: 'connector/mcp/server/stdio' })
 	}
 
 	async connect(): Promise<void> {

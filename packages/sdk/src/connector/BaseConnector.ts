@@ -1,4 +1,5 @@
 import type { z } from 'zod'
+import { NAMZU } from '../constants/telemetry/index.js'
 import type {
 	AuthConfig,
 	ConnectionType,
@@ -8,6 +9,7 @@ import type {
 	ConnectorMethod,
 } from '../types/connector/index.js'
 import type { ConnectorId } from '../types/ids/index.js'
+import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
 import { type Logger, resolveLogger } from '../utils/logger.js'
 
 export abstract class BaseConnector<TConfig = unknown> implements ConnectorLifecycle<TConfig> {
@@ -23,7 +25,10 @@ export abstract class BaseConnector<TConfig = unknown> implements ConnectorLifec
 	protected auth: AuthConfig | undefined
 
 	constructor(log?: Logger) {
-		this.log = resolveLogger(log).child({ component: this.constructor.name })
+		this.log = resolveLogger(log).child({
+			[SCOPE_ATTRIBUTE]: 'connector/base',
+			[NAMZU.CONNECTOR_TYPE]: this.constructor.name,
+		})
 	}
 
 	abstract connect(config: TConfig, auth?: AuthConfig): Promise<void>

@@ -1,3 +1,4 @@
+import { NAMZU } from '../../constants/telemetry/index.js'
 import type {
 	BidiConnectParams,
 	BidiProvider,
@@ -8,6 +9,7 @@ import type { RunId } from '../../types/ids/index.js'
 import type { ToolContext, ToolRegistryContract } from '../../types/tool/index.js'
 import { toErrorMessage } from '../../utils/error.js'
 import { generateRunId } from '../../utils/id.js'
+import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
 
 /**
@@ -53,7 +55,10 @@ export interface BidiRun {
 
 export async function startBidiRun(params: BidiRunParams): Promise<BidiRun> {
 	const runId = params.runId ?? generateRunId()
-	const log = resolveLogger(params.log).child({ component: 'BidiRun', runId })
+	const log = resolveLogger(params.log).child({
+		[SCOPE_ATTRIBUTE]: 'runtime/bidi/session',
+		[NAMZU.RUN_ID]: runId,
+	})
 	const session = await params.provider.connect({
 		...params.connect,
 		...(params.signal ? { signal: params.signal } : {}),

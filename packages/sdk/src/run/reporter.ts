@@ -1,6 +1,7 @@
 import { GENAI, NAMZU } from '../constants/telemetry/index.js'
 import type { Run, RunEvent, RunEventListener } from '../types/run/index.js'
 import { formatCost } from '../utils/cost.js'
+import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
 import { type Logger, resolveLogger } from '../utils/logger.js'
 
 function formatDuration(ms: number): string {
@@ -19,7 +20,7 @@ export interface RunReporter {
 
 export function createRunReporter(parentLogger?: Logger): RunReporter {
 	const log = resolveLogger(parentLogger).child({
-		component: 'RunReporter',
+		[SCOPE_ATTRIBUTE]: 'run/reporter',
 	})
 
 	const listener: RunEventListener = (event: RunEvent) => {

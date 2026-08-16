@@ -6,6 +6,7 @@ import type {
 	SkillDisclosureLevel,
 	SkillLoadResult,
 } from '../types/skills/index.js'
+import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
 import { type Logger, resolveLogger } from '../utils/logger.js'
 
 import { SKILL_FILENAME, discoverSkills, loadSkill } from './loader.js'
@@ -42,7 +43,7 @@ export class SkillRegistry {
 	 * passes `log` here once.
 	 */
 	constructor(log?: Logger) {
-		this.log = resolveLogger(log).child({ component: 'SkillRegistry' })
+		this.log = resolveLogger(log).child({ [SCOPE_ATTRIBUTE]: 'skills/registry' })
 	}
 
 	async register(dirPath: string, level: SkillDisclosureLevel = 'metadata'): Promise<Skill> {
@@ -253,7 +254,7 @@ export async function resolveSkillChain(
 	const resolved = [...resolvedMap.values()]
 
 	resolveLogger(log)
-		.child({ component: 'SkillRegistry' })
+		.child({ [SCOPE_ATTRIBUTE]: 'skills/registry' })
 		.debug('Resolved skill chain', {
 			'namzu.skills.inherited': inherited.map((s) => s.metadata.name),
 			'namzu.skills.own': own.map((s) => s.metadata.name),

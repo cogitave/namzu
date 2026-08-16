@@ -6,6 +6,7 @@ import type {
 } from '../../types/connector/index.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
 import { toErrorMessage } from '../../utils/error.js'
+import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
 import { mcpToolToToolDefinition } from './adapter.js'
 import type { MCPClient } from './client.js'
@@ -66,7 +67,7 @@ export class MCPToolDiscovery {
 		// `.child({component: ...})` binding never applied at all — a caller
 		// that injected a logger got NO scope stamp, silently. `resolveLogger`
 		// collapses the fallback so `.child()` always runs, for both paths.
-		this.log = resolveLogger(options.logger).child({ component: 'MCPToolDiscovery' })
+		this.log = resolveLogger(options.logger).child({ [SCOPE_ATTRIBUTE]: 'connector/mcp/discovery' })
 	}
 
 	addClient(client: MCPClient): void {
