@@ -568,6 +568,15 @@ export interface QueryParams {
 	taskScheduler?: import('../../types/agent/scheduler.js').TaskScheduler
 
 	/**
+	 * Text queued for this run since its last turn, drained at the boundary.
+	 *
+	 * A callback because the queue belongs to whoever accepts the messages,
+	 * and an array captured here would be whatever was queued before the run
+	 * started. See `BaseAgentConfig.inboundMessages` for what it closes.
+	 */
+	inboundMessages?: () => import('../../types/message/index.js').Message[]
+
+	/**
 	 * Where a worker completion goes when no tool call is waiting for it.
 	 *
 	 * Supplied by whoever built the coordinator tools, because the tools and
@@ -1300,6 +1309,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		// would leak exactly that way.
 		...(params.repeatCallAdvisory === false ? {} : { repeatCalls: new RepeatCallTracker() }),
 		compactionConfig: params.compactionConfig,
+		...(params.inboundMessages ? { inboundMessages: params.inboundMessages } : {}),
 		...(providerContextWindow !== undefined ? { providerContextWindow } : {}),
 		workingStateManager,
 		taskRouter: params.taskRouter,

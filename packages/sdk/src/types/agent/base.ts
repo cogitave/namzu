@@ -38,6 +38,25 @@ export interface BaseAgentConfig {
 	 * presentational: narrowing only the request showed the model fewer
 	 * tools and let it call any of them by name.
 	 */
+	/**
+	 * Text queued for this run since its last turn, drained at the boundary.
+	 *
+	 * A callback rather than an array, because the queue is owned by
+	 * whoever accepts the messages — `AgentManager` for a delegated child, a
+	 * host for a top-level run — and an array captured at config time would
+	 * be whatever was queued before the run started.
+	 *
+	 * It exists because two public APIs could accept text and silently never
+	 * deliver it. `AgentManager.continueTask` and `queueMessage` pushed onto
+	 * `pendingMessages` and nothing in the kernel ever drained it — the
+	 * manager interface's own docblock said so, and `continue_task` was
+	 * unmounted from the coordinator tools because of it. The steering
+	 * channel had the mirror-image hole: it can only ride on a tool result,
+	 * so guidance queued during a turn that called no tools stayed pending
+	 * until the run ended.
+	 */
+	inboundMessages?: () => import('../message/index.js').Message[]
+
 	allowedTools?: readonly string[]
 
 	/**

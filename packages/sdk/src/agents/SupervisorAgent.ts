@@ -363,6 +363,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 					// use — which is the shape of defect this file has already been
 					// corrected for twice.
 					...(config.steering ? { steering: config.steering } : {}),
+					...(config.inboundMessages ? { inboundMessages: config.inboundMessages } : {}),
 					...(config.verificationGate ? { verificationGate: config.verificationGate } : {}),
 					...(config.authorizationGate ? { authorizationGate: config.authorizationGate } : {}),
 					// The one hop between the config and the tool. `drainQuery`

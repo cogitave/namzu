@@ -87,8 +87,13 @@ describe('steering a running turn', () => {
 		const out = attachSteering([assistantMessage('just text')], channel)
 
 		expect(out[0]?.content).toBe('just text')
-		// Not dropped. A turn that called no tools has nothing in flight, so
-		// the guidance belongs to the next one.
+		// Not dropped, and no longer stranded either. This function's job is
+		// only to ride a settled tool result; a turn that called none has
+		// nothing to ride, so the guidance stays queued HERE and the loop
+		// delivers it at the next-turn boundary — see
+		// `queued-text-arrives-at-the-boundary.test.ts`, which asserts the
+		// run produces one more turn carrying it. This assertion used to be
+		// the end of the story, and the run settled with the channel full.
 		expect(channel.pending).toBe(true)
 	})
 

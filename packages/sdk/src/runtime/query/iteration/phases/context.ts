@@ -148,6 +148,15 @@ export interface IterationContext {
 	 */
 	readonly providerContextWindow?: number
 
+	/**
+	 * Text queued for this run since its last turn.
+	 *
+	 * Drained at the iteration boundary — the same seam `completionInbox`
+	 * uses, which is the established place for putting a user message in
+	 * after tool results and before the next turn.
+	 */
+	readonly inboundMessages?: () => readonly import('../../../../types/message/index.js').Message[]
+
 	readonly workingStateManager?: WorkingStateManager
 
 	/**

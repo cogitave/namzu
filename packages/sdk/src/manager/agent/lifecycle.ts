@@ -429,6 +429,20 @@ export class AgentManager {
 		}
 		if (options.personaOverride) childConfig.persona = options.personaOverride
 
+		// Outside the branch, like the scope above it and for the same reason:
+		// a `configBuilder` cannot forward a field it was never told about.
+		//
+		// Bound to the taskId rather than to the task object, so a drain after
+		// the task is gone throws where the caller is instead of returning an
+		// empty array from a closure over a corpse.
+		//
+		// This is the delivery point `pendingMessages` never had.
+		// `continueTask` and `queueMessage` pushed onto it and nothing in the
+		// kernel drained it — the manager interface's own docblock said "the
+		// runtime does not deliver it", and `continue_task` was unmounted from
+		// the coordinator tools because of that.
+		childConfig.inboundMessages = () => this.drainMessages(taskId)
+
 		this.runChild(agentTask, options, childConfig, listener).catch((err) => {
 			this.markFailed(taskId, toErrorMessage(err))
 		})
@@ -470,6 +484,14 @@ export class AgentManager {
 
 	queueMessage(taskId: TaskId, message: Message): void {
 		const agentTask = this.requireInstance(taskId)
+		// Refused on a settled task, like `continueTask` above. A silent push
+		// leaves the caller believing something is in flight when the only
+		// thing that would ever have drained it has finished.
+		if (isTerminalAgentTaskState(agentTask.state)) {
+			throw new Error(
+				`Cannot queue a message for terminal task: ${taskId} (state: ${agentTask.state})`,
+			)
+		}
 		agentTask.pendingMessages.push(message)
 	}
 

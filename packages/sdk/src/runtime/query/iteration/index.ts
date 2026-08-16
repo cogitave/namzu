@@ -45,6 +45,7 @@ import { stableDigest } from '../../../utils/hash.js'
 import { generateMessageId } from '../../../utils/id.js'
 import type { ToolCallOutcome } from '../executor.js'
 import { applyLifecycleHookResults } from '../plugin-hooks.js'
+import { formatSteeringNote } from '../steering.js'
 import { runAdvisoryPhase } from './phases/advisory.js'
 import { runIterationCheckpoint } from './phases/checkpoint.js'
 import { measureContext, relieveOverflow, runCompactionCheck } from './phases/compaction.js'
@@ -910,6 +911,26 @@ export class IterationOrchestrator {
 							continue
 						}
 
+						// Anything queued while this turn ran, on the path where
+						// there is no tool result to carry it. Without this the
+						// run settles with the channel still pending — which is
+						// the failure the steering channel's own test used to
+						// PIN as correct behaviour.
+						//
+						// After the outstanding-work hold above, so a delivery
+						// does not race a worker still finishing, and before the
+						// settle below, which is the last moment it can matter.
+						if (!forceFinalize && this.deliverInbound() > 0) {
+							await this.ctx.emitEvent({
+								type: 'iteration_completed',
+								runId: runMgr.id,
+								iteration: iterationNum,
+								hasToolCalls: false,
+							})
+							yield* this.ctx.drainPending()
+							continue
+						}
+
 						if (!hasContent && !forceFinalize) {
 							this.ctx.log.warn('Empty completion detected — requesting final summary', {
 								iteration: iterationNum,
@@ -1103,6 +1124,12 @@ export class IterationOrchestrator {
 						})
 						runMgr.pushMessage(createUserMessage(formatCompletionNotification(unheard)))
 					}
+
+					// The same seam, for the two channels that could accept text
+					// and never deliver it. Placed here rather than at the top of
+					// the next iteration so a message queued during THIS turn is
+					// in the history the next request is built from.
+					this.deliverInbound()
 
 					await runAdvisoryPhase(this.ctx, iterationNum, response)
 
@@ -1514,6 +1541,34 @@ export class IterationOrchestrator {
 	 * ITS usage rather than the run's running total, which is the number a
 	 * caller asking "what did this step cost" actually wants.
 	 */
+	/**
+	 * Take everything queued for this run since the last turn.
+	 *
+	 * Both channels drain here. `inboundMessages` is the manager's queue —
+	 * what `continueTask` and `queueMessage` push onto and nothing ever
+	 * collected. `steering` is the host's, and it could only ride on a tool
+	 * result, so guidance queued during a turn that called no tools stayed
+	 * pending until the run ended.
+	 *
+	 * Returns the count so a caller can decide whether a turn is owed. An
+	 * empty drain must change nothing at all: a `continue` on nothing queued
+	 * spends an iteration and a model call to say the same thing again.
+	 */
+	private deliverInbound(): number {
+		const queued = this.ctx.inboundMessages?.() ?? []
+		for (const message of queued) this.ctx.runMgr.pushMessage(message)
+
+		// The steering channel's remainder. `attachSteering` already took
+		// what it could carry on a tool result; anything still pending is
+		// guidance from a turn that had no result to attach it to.
+		const stranded = this.ctx.steering?.drain()
+		if (stranded) {
+			this.ctx.runMgr.pushMessage(createUserMessage(formatSteeringNote(stranded)))
+		}
+
+		return queued.length + (stranded ? 1 : 0)
+	}
+
 	private recordStep(input: {
 		stepNumber: number
 		model: string
