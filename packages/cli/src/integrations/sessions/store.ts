@@ -21,11 +21,16 @@ import {
 	type TenantId,
 	type TopicId,
 	UNKNOWN_TENANT_ID,
+	asProjectId,
+	asSessionId,
+	asTopicId,
 	requireOpenProject,
 } from '@namzu/sdk'
 
-const TENANT = UNKNOWN_TENANT_ID as TenantId
-const THREAD = 'top_namzu-cli' as TopicId
+// `UNKNOWN_TENANT_ID` is already a `TenantId`; the assertion this replaced
+// re-stated a type the constant carries.
+const TENANT: TenantId = UNKNOWN_TENANT_ID
+const THREAD = asTopicId('top_namzu-cli')
 
 export interface CliSessions {
 	readonly store: DiskSessionStore
@@ -56,7 +61,13 @@ export async function openSessions(cwd: string): Promise<CliSessions> {
 	let projectId: ProjectId | undefined
 	try {
 		const ptr = JSON.parse(readFileSync(pointerPath, 'utf8')) as { projectId?: string }
-		if (typeof ptr.projectId === 'string') projectId = ptr.projectId as ProjectId
+		// Prefix-checked, and a bad pointer is treated exactly like a stale one:
+		// the next lines already drop a projectId whose directory is gone, so a
+		// hand-edited `cli.json` takes the same path instead of carrying a
+		// non-id into a store lookup.
+		if (typeof ptr.projectId === 'string' && ptr.projectId.startsWith('prj_')) {
+			projectId = asProjectId(ptr.projectId)
+		}
 	} catch {
 		// no pointer yet
 	}
@@ -95,8 +106,12 @@ function readDesktopMap(root: string): Record<string, string> {
 export async function resolveConversation(s: CliSessions, key: string): Promise<SessionId> {
 	const map = readDesktopMap(s.root)
 	const existing = map[key]
-	if (existing && (await s.store.getSession(existing as SessionId, s.tenantId))) {
-		return existing as SessionId
+	// Same treatment as the project pointer above: a mapped id that is not an
+	// id is indistinguishable from one whose session was wiped, and this
+	// function already knows what to do about that — mint a fresh one.
+	if (existing?.startsWith('ses_')) {
+		const mapped = asSessionId(existing)
+		if (await s.store.getSession(mapped, s.tenantId)) return mapped
 	}
 	const id = await startConversation(s)
 	map[key] = id

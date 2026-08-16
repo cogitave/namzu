@@ -51,6 +51,7 @@ import type {
 	SandboxId,
 	SandboxStatus,
 } from '@namzu/sdk'
+import { asSandboxId } from '@namzu/sdk'
 
 import type { SandboxBackend, SandboxBackendOptions } from '../../index.js'
 
@@ -271,7 +272,7 @@ function generateSandboxId(): SandboxId {
 	const ts = Date.now().toString(36)
 	const rand = Math.random().toString(36).slice(2, 8)
 	_sandboxIdCounter += 1
-	return `sbx_${ts}_${rand}_${_sandboxIdCounter}` as SandboxId
+	return asSandboxId(`sbx_${ts}_${rand}_${_sandboxIdCounter}`)
 }
 
 async function armCall<T>(

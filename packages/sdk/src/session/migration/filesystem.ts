@@ -52,6 +52,7 @@ import type { TenantId } from '../../types/ids/index.js'
 import { UNKNOWN_TENANT_ID } from '../../types/ids/index.js'
 import type { ProjectId, SessionId } from '../../types/session/ids.js'
 import { atomicWriteFile } from '../../utils/atomic-write.js'
+import { asProjectId, asSessionId } from '../../utils/id.js'
 import { EVENT_NAME_ATTRIBUTE } from '../../utils/log/types.js'
 import type { Logger } from '../../utils/logger.js'
 import { FilesystemMigrationError } from './errors.js'
@@ -62,7 +63,7 @@ import { acquireMigrationLock, readMarker, releaseMigrationLock, writeMarker } f
  * Session entity. Every migrated thread collapses into this single session
  * so consumers can still address the runs through the new layout.
  */
-export const LEGACY_DEFAULT_SESSION_ID = 'ses_legacy_default' as SessionId
+export const LEGACY_DEFAULT_SESSION_ID = asSessionId('ses_legacy_default')
 
 /** Prefix for projects synthesised from legacy `thd_*` folders. */
 export const LEGACY_DEFAULT_PROJECT_PREFIX = 'prj_legacy_'
@@ -319,7 +320,7 @@ export class DefaultFilesystemMigrator implements FilesystemMigrator {
 					})
 				}
 
-				const newProjectId = `${LEGACY_DEFAULT_PROJECT_PREFIX}${suffix}` as ProjectId
+				const newProjectId = asProjectId(`${LEGACY_DEFAULT_PROJECT_PREFIX}${suffix}`)
 
 				const legacyRunsDir = join(threadsDir, legacyThreadId, 'runs')
 				const newProjectDir = join(projectsDir, newProjectId)

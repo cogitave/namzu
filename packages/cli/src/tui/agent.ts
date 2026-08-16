@@ -43,7 +43,6 @@ import {
 	type ResumeOutcome,
 	type ReviewAnswer,
 	type RunEvent,
-	type RunId,
 	type SandboxProvider,
 	SearchToolsTool,
 	type SessionId,
@@ -57,6 +56,7 @@ import {
 	ToolRegistry,
 	type TopicId,
 	asProjectId,
+	asRunId,
 	asSessionId,
 	asTenantId,
 	asTopicId,
@@ -949,7 +949,7 @@ export async function createAgentSession(
 	// changes is that asking again later gets a later answer.
 	const taskStore: TaskStore = new DiskTaskStore({
 		baseDir: join(cwd, '.namzu'),
-		defaultRunId: 'run_namzu-cli' as RunId,
+		defaultRunId: asRunId('run_namzu-cli'),
 		tenantId: scope.tenantId,
 	})
 	// Persists across turns: once the user picks "approve all", later tool

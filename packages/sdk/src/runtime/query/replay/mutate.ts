@@ -67,6 +67,12 @@ function applyOne(messages: Message[], mutation: Mutation): Message[] {
 			if (!match) {
 				throw new MutationNotApplicableError(
 					`No pending tool call ${mutation.toolCallId} at fork point`,
+					// `ToolCall.id` is a bare `string` — a provider chooses its own
+					// shape, which is what `ToolUseId` exists to say. This assertion
+					// satisfies `MutationNotApplicableError`'s parameter and is only
+					// ever read back as text in that message; it never becomes a
+					// key. Left as a cast because the honest fix is that parameter
+					// type, not this line.
 					pending.map((tc) => tc.id as ToolCallId),
 				)
 			}

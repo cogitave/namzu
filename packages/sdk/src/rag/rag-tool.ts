@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { defineTool } from '../tools/defineTool.js'
-import type { KnowledgeBaseId } from '../types/ids/index.js'
 import type { RAGToolConfig } from '../types/rag/index.js'
+import { asKnowledgeBaseId } from '../utils/id.js'
 import { assembleRAGContext } from './context-assembler.js'
 
 const ragInputSchema = z.object({
@@ -24,7 +24,9 @@ export function createRAGTool(config: RAGToolConfig) {
 
 		async execute(input) {
 			const kbId =
-				(input.knowledge_base_id as KnowledgeBaseId | undefined) ?? config.defaultKnowledgeBaseId
+				(input.knowledge_base_id === undefined
+					? undefined
+					: asKnowledgeBaseId(input.knowledge_base_id)) ?? config.defaultKnowledgeBaseId
 			const kb = kbId
 				? config.knowledgeBases.get(kbId)
 				: config.knowledgeBases.values().next().value

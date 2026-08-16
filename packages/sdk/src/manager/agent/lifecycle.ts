@@ -217,6 +217,17 @@ export class AgentManager {
 
 		const childParentActor: ActorRef = {
 			kind: 'agent',
+			// NOT `asAgentId`, and this is a defect being named rather than a style
+			// choice. `AgentId` is `` `agt_${string}` ``; the value here is an
+			// agent's REGISTRY KEY, which operators write themselves and which is
+			// `'worker'` or `'reviewer'` in every test and example in this repo.
+			// `asAgentId` would therefore throw on every spawn.
+			//
+			// So `ActorRef.agentId: AgentId` is a claim the tree does not meet,
+			// and the fix is one of two things a `major` has to choose between:
+			// widen `ActorRef.agentId` to `string` (honest — a registry key is not
+			// a minted id), or mint real `AgentId`s and map keys onto them. Both
+			// change an exported type, which is NZ-SURF-11's decision to make.
 			agentId: context.parentAgentId as AgentId,
 			tenantId: context.tenantId,
 			parentActor: context.parentActor,
@@ -730,6 +741,9 @@ export class AgentManager {
 
 		const childActor: ActorRef = {
 			kind: 'agent',
+			// A registry key wearing an `AgentId` — see the identical cast in
+			// `spawn` above for why this cannot be `asAgentId` and what the fix
+			// costs.
 			agentId: options.agentId as AgentId,
 			tenantId: context.tenantId,
 			parentActor: context.parentActor,

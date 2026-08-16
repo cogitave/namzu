@@ -30,16 +30,16 @@ import {
 	ReactiveAgent,
 	type ReactiveAgentConfig,
 	type RunEvent,
-	type RunId,
 	SessionSummaryMaterializer,
-	type SummaryId,
 	type TaskScheduler,
-	type TenantId,
 	type ToolDefinition,
 	type ToolRegistryContract,
 	TopicManager,
-	type UserId,
 	WorkspaceBackendRegistry,
+	asRunId,
+	asSummaryId,
+	asTenantId,
+	asUserId,
 	defineTool,
 	mcpJsonSchemaToZod,
 } from '@namzu/sdk'
@@ -104,11 +104,11 @@ export interface SubagentRuntime {
 export async function createSubagentRuntime(
 	opts: SubagentRuntimeOptions,
 ): Promise<SubagentRuntime> {
-	const tenantId = 'tnt_namzu-cli' as TenantId
+	const tenantId = asTenantId('tnt_namzu-cli')
 	const store = new InMemorySessionStore()
 	const topicStore = new InMemoryTopicStore()
 
-	const userActor: ActorRef = { kind: 'user', userId: 'usr_namzu' as UserId, tenantId }
+	const userActor: ActorRef = { kind: 'user', userId: asUserId('usr_namzu'), tenantId }
 	const project = await store.createProject({ tenantId, name: 'namzu-cli' }, tenantId)
 	const thread = await topicStore.createTopic(
 		{ projectId: project.id, title: 'namzu-cli' },
@@ -136,7 +136,7 @@ export async function createSubagentRuntime(
 	let summaryCounter = 0
 	const materializer = new SessionSummaryMaterializer({
 		store,
-		generateSummaryId: () => `sum_namzu_${++summaryCounter}` as SummaryId,
+		generateSummaryId: () => asSummaryId(`sum_namzu_${++summaryCounter}`),
 	})
 
 	const registry = new AgentRegistry()
@@ -159,7 +159,7 @@ export async function createSubagentRuntime(
 	})
 
 	const taskContext: AgentTaskContext = {
-		parentRunId: 'run_namzu-cli' as RunId,
+		parentRunId: asRunId('run_namzu-cli'),
 		parentAgentId: 'namzu',
 		parentAbortController: new AbortController(),
 		depth: 0,

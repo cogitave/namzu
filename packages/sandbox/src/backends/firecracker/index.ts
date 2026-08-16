@@ -358,6 +358,13 @@ async function spawnFirecrackerSandbox(
 		throw new Error('firecracker: orchestrator create returned no sandboxId / agent handle')
 	}
 
+	// Cast, not `asSandboxId`, and the reason is that this id is MINTED BY THE
+	// ORCHESTRATOR — a service outside this repo whose prefix nothing here can
+	// establish. `SandboxId` says `sbx_`; if the orchestrator mints anything
+	// else, a checked constructor turns a working deployment into a hard
+	// failure on the strength of a guess. The honest state is that this cast is
+	// unverified, and verifying it needs the orchestrator's contract, not a
+	// change here.
 	const id = created.sandboxId as SandboxId
 	const rootDir = created.rootDir
 	// Normalise the orchestrator handle: fill the contract vsock port when a

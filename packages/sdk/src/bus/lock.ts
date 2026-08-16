@@ -128,6 +128,12 @@ export class FileLockManager {
 		const holder = this.locks.get(filePath)
 		return {
 			acquired: false,
+			// An EMPTY STRING wearing a `RunId`, and it is a sentinel for "no
+			// holder" that the type has no way to express. `asRunId('')` throws,
+			// correctly — which is what makes this visible rather than fixable
+			// here: the fix is `holder?: RunId` on `LockAcquireResult`, and that
+			// narrows an exported type. Named here so NZ-SURF-11 inherits it with
+			// the reason attached instead of finding a bare cast.
 			holder: holder?.owner ?? ('' as RunId),
 			filePath,
 		}

@@ -247,7 +247,28 @@ export class DiskCheckpointStore implements CheckpointStore {
 	private async readRunDirs(dir: string): Promise<RunId[]> {
 		try {
 			const found = await readdir(dir, { withFileTypes: true })
-			return found.filter((e) => e.isDirectory()).map((e) => e.name as RunId)
+			// Filtered by prefix, not just by "is a directory", so the declared
+			// `RunId[]` is true of what comes back. An editor's scratch folder or
+			// a `tmp-` left by a crashed write is not a run, and the assertion
+			// below is what let it be returned as one.
+			//
+			// **Unobservable through `listDurableRuns` today, and kept
+			// deliberately.** Measured, not assumed: removing this filter, and
+			// separately weakening it to `startsWith('r')`, leaves every test in
+			// this package green. `toDurableRunEntry` returns undefined for a
+			// directory with no checkpoints in it, so a junk name is already
+			// dropped one layer down — the filter saves the `readdir` and the
+			// parse, not a wrong answer. It is here because `readRunDirs` is a
+			// private helper with two callers and a declared element type, and
+			// the next caller inherits the type rather than the accident that
+			// currently covers for it.
+			//
+			// Filtered rather than refused, whatever the reach: a scan that
+			// threw on one piece of junk could not list the runs that are fine,
+			// during exactly the incident this listing exists for.
+			return found
+				.filter((e) => e.isDirectory() && e.name.startsWith('run_'))
+				.map((e) => e.name as RunId)
 		} catch (err) {
 			if ((err as NodeJS.ErrnoException).code === 'ENOENT') return []
 			throw err

@@ -129,7 +129,10 @@ export class DiskTaskStore implements TaskStore {
 	 * Duplicates are removed; each ID is locked exactly once.
 	 */
 	private async withLocks<T>(taskIds: readonly TaskId[], fn: () => Promise<T>): Promise<T> {
-		const unique = [...new Set(taskIds)].sort() as TaskId[]
+		// `new Set(readonly TaskId[])` is a `Set<TaskId>`; spreading and sorting
+		// it keeps that. The `as TaskId[]` this replaced asserted a type the
+		// expression already had.
+		const unique = [...new Set(taskIds)].sort()
 		const acquire = async (i: number): Promise<T> => {
 			if (i >= unique.length) return fn()
 			const nextId = unique[i]
@@ -486,7 +489,13 @@ export class DiskTaskStore implements TaskStore {
 			: join(this.baseDir, 'tasks')
 		try {
 			const entries = await readdir(root, { withFileTypes: true })
-			return entries.filter((e) => e.isDirectory()).map((e) => e.name as RunId)
+			// Prefix-filtered for the reason `DiskCheckpointStore.readRunDirs`
+			// gives, including the honest half: a directory that is not a run must
+			// not be enumerated as one, this is not observable downstream today,
+			// and it is the declared return type that makes it worth keeping.
+			return entries
+				.filter((e) => e.isDirectory() && e.name.startsWith('run_'))
+				.map((e) => e.name as RunId)
 		} catch (err) {
 			const code = (err as NodeJS.ErrnoException).code
 			if (code !== 'ENOENT') {

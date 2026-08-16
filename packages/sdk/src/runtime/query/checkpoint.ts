@@ -20,7 +20,7 @@ import type { EmergencySaveData } from '../../types/run/emergency.js'
 import type { CheckpointListEntry } from '../../types/run/replay.js'
 import { ZERO_COST } from '../../utils/cost.js'
 import { buildToolResultHashes } from '../../utils/hash.js'
-import { generateCheckpointId } from '../../utils/id.js'
+import { asCheckpointId, generateCheckpointId } from '../../utils/id.js'
 
 /**
  * Projection from a full checkpoint payload to the public listing entry.
@@ -74,7 +74,7 @@ export function toCheckpointListEntry(cp: IterationCheckpoint): CheckpointListEn
 export function projectEmergencyToCheckpoint(dump: EmergencySaveData): IterationCheckpoint {
 	const emergencySuffix = dump.id.replace(/^esave_/, '')
 	return {
-		id: `cp_emergency_${emergencySuffix}` as CheckpointId,
+		id: asCheckpointId(`cp_emergency_${emergencySuffix}`),
 		runId: dump.runId,
 		// The dump records the run's start, so this projection carries the
 		// same stamp an ordinary checkpoint of that run would — a run whose

@@ -58,6 +58,56 @@ describe('migration marker I/O', () => {
 		expect(parsed.version).toBe('0.2.0')
 	})
 
+	// The envelope check (version / at / migratedThreads-is-an-array) never
+	// looked INSIDE the array. So a marker whose entries were junk parsed
+	// cleanly and produced `newProjectId: undefined` wearing a `ProjectId`
+	// annotation, which then reached a path join — a migration that "completed"
+	// against a directory named `undefined`. Corruption in an entry is
+	// corruption in the marker, and this function's contract for corruption is
+	// already `null`, so the caller re-runs rather than honouring it.
+	it.each([
+		['a null entry', [null]],
+		['an entry that is not an object', ['prj_a']],
+		['an entry missing legacyThreadId', [{ newProjectId: 'prj_a' }]],
+		['an entry missing newProjectId', [{ legacyThreadId: 'thd_a' }]],
+		['a newProjectId that is not a string', [{ legacyThreadId: 'thd_a', newProjectId: 7 }]],
+		['a newProjectId with the wrong prefix', [{ legacyThreadId: 'thd_a', newProjectId: 'ses_a' }]],
+		[
+			'one good entry and one bad',
+			[
+				{ legacyThreadId: 'thd_a', newProjectId: 'prj_a' },
+				{ legacyThreadId: 'thd_b', newProjectId: 'nope_b' },
+			],
+		],
+	])('readMarker returns null for %s', async (_name, migratedThreads) => {
+		const path = join(root, 'v0.2.0')
+		await writeFile(
+			path,
+			JSON.stringify({ version: '0.2.0', at: new Date().toISOString(), migratedThreads }),
+		)
+		expect(await readMarker(path)).toBeNull()
+	})
+
+	it('readMarker still accepts a marker whose entries are all well formed', async () => {
+		const path = join(root, 'v0.2.0')
+		await writeFile(
+			path,
+			JSON.stringify({
+				version: '0.2.0',
+				at: new Date().toISOString(),
+				migratedThreads: [
+					{ legacyThreadId: 'thd_a', newProjectId: 'prj_a' },
+					{ legacyThreadId: 'thd_b', newProjectId: 'prj_b' },
+				],
+			}),
+		)
+		const marker = await readMarker(path)
+		expect(marker?.migratedThreads).toEqual([
+			{ legacyThreadId: 'thd_a', newProjectId: 'prj_a' },
+			{ legacyThreadId: 'thd_b', newProjectId: 'prj_b' },
+		])
+	})
+
 	it('acquireMigrationLock succeeds on first call and throws EEXIST on the second', async () => {
 		const lockPath = join(root, 'v0.2.0.tmp')
 		await acquireMigrationLock(lockPath)

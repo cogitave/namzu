@@ -40,6 +40,7 @@ import {
 	type SandboxFileEntry,
 	type SandboxId,
 	type SandboxStatus,
+	asSandboxId,
 	withHint,
 } from '@namzu/sdk'
 import { EgressProxy } from '../../egress/index.js'
@@ -864,8 +865,18 @@ function detectEnvironment(): SandboxEnvironment {
 }
 
 function generateSandboxId(): SandboxId {
+	// `sbx_`, not `sandbox_`. `SandboxId` is `` `sbx_${string}` `` and this
+	// backend minted `sandbox_...` for it — the `as SandboxId` was the only
+	// reason that compiled, and every docker sandbox in the tree carried an id
+	// its own type says is impossible. The ACI backend already mints `sbx_`.
+	//
+	// The container name derives from this (`namzu-sandbox-${id}`), so a
+	// container started by an older build has a different name. Nothing
+	// matches on the old spelling — teardown computes the name from the id it
+	// just minted, in the same process — but it is a visible change in
+	// `docker ps`.
 	const random = Math.random().toString(36).slice(2, 10)
-	return `sandbox_${Date.now().toString(36)}_${random}` as SandboxId
+	return asSandboxId(`sbx_${Date.now().toString(36)}_${random}`)
 }
 
 async function waitForWorkerReady(

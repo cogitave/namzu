@@ -28,6 +28,7 @@
  */
 
 import type { ProjectId } from '../../types/session/ids.js'
+import { asProjectId } from '../../utils/id.js'
 
 /**
  * Structured event emitted when the reader accepts a legacy `thd_*` ID.
@@ -122,7 +123,7 @@ export function acceptLegacyContainerId(
 		if (!windowOpen) {
 			throw new StalePrefixError({ rawId: raw, kind: 'thd_rejected' })
 		}
-		const normalized = `prj_${raw.slice('thd_'.length)}` as ProjectId
+		const normalized = asProjectId(`prj_${raw.slice('thd_'.length)}`)
 		if (!seenLegacy.has(raw)) {
 			seenLegacy.add(raw)
 			sink.emit({

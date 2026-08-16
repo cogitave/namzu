@@ -22,7 +22,15 @@
  * one.
  */
 
-import { DiskCheckpointStore, drainRuns, installProcessSink } from '@namzu/sdk'
+import {
+	DiskCheckpointStore,
+	InvalidIdError,
+	asProjectId,
+	asSessionId,
+	asTenantId,
+	drainRuns,
+	installProcessSink,
+} from '@namzu/sdk'
 import type { DurableRunEntry, ProjectId, SessionId, TenantId } from '@namzu/sdk'
 
 import { EXIT_UNTRUSTED, EXIT_USAGE } from '../exit-codes.js'
@@ -127,9 +135,11 @@ export function parseDrainFlags(rawArgs: readonly string[]): DrainFlags {
 export function resolveDrainScope(flags: Pick<DrainFlags, 'tenant' | 'project' | 'session'>):
 	| { readonly error: string }
 	| {
+			// Not optional. Both are refused above when absent, so the caller
+			// was narrowing them back with a cast on every use.
 			readonly tenantId: TenantId
-			readonly projectId?: ProjectId
-			readonly sessionId?: SessionId
+			readonly projectId: ProjectId
+			readonly sessionId: SessionId
 	  } {
 	if (!flags.tenant) {
 		return {
@@ -146,10 +156,25 @@ export function resolveDrainScope(flags: Pick<DrainFlags, 'tenant' | 'project' |
 				'--project and --session are both required for a disk store: its layout carries no attribution, so it cannot say which project and session the runs it finds belong to.',
 		}
 	}
-	return {
-		tenantId: flags.tenant as TenantId,
-		projectId: flags.project as ProjectId,
-		sessionId: flags.session as SessionId,
+	// Prefix-checked, and refused in THIS function's shape rather than by
+	// throwing. Every other bad flag here produces an operator-readable
+	// sentence; an `InvalidIdError` escaping to the top level would be the one
+	// that arrives as a stack trace. A typo'd `--tenant prj_x` previously
+	// reached the store as a TenantId and listed nothing, which reads as "no
+	// runs" rather than "wrong flag".
+	try {
+		return {
+			tenantId: asTenantId(flags.tenant),
+			projectId: asProjectId(flags.project),
+			sessionId: asSessionId(flags.session),
+		}
+	} catch (err) {
+		if (err instanceof InvalidIdError) {
+			return {
+				error: `${err.message} Check --tenant, --project and --session.`,
+			}
+		}
+		throw err
 	}
 }
 
@@ -270,8 +295,8 @@ export const drainCommand: CommandDef = {
 			{ baseDir: flags.store },
 			{
 				tenantId: scope.tenantId,
-				projectId: scope.projectId as ProjectId,
-				sessionId: scope.sessionId as SessionId,
+				projectId: scope.projectId,
+				sessionId: scope.sessionId,
 			},
 		)
 		const holder = flags.holder ?? defaultHolder()

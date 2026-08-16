@@ -3,8 +3,8 @@ import type { Delegate, DelegateRequest, DelegateResult } from '../types/agent/d
 import type { CreateTaskOptions, TaskHandle, TaskScheduler } from '../types/agent/scheduler.js'
 import type { AgentTaskState } from '../types/agent/task.js'
 import type { RunExecutionStatus } from '../types/common/index.js'
-import type { RunId, TaskId } from '../types/ids/index.js'
-import { generateTaskId } from '../utils/id.js'
+import type { TaskId } from '../types/ids/index.js'
+import { asRunId, generateTaskId } from '../utils/id.js'
 
 /**
  * Presents a set of foreign delegates as a `TaskScheduler`.
@@ -205,7 +205,7 @@ export class DelegatingTaskScheduler implements TaskScheduler {
 				// borrowing a run id that does not exist: a foreign delegate has
 				// no run in this kernel, and minting a plausible-looking `run_`
 				// would put an id in the transcript that nothing can resolve.
-				runId: `run_delegate_${handle.taskId}` as RunId,
+				runId: asRunId(`run_delegate_${handle.taskId}`),
 				status: outcome.status,
 				// Zero, and honestly so: this kernel did not spend these tokens
 				// and has no way to learn what the delegate spent. `ZERO_COST`

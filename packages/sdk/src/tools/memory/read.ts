@@ -1,7 +1,7 @@
 import { z } from 'zod'
-import type { MemoryId } from '../../types/ids/index.js'
 import type { MemoryStore } from '../../types/memory/index.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
+import { asMemoryId } from '../../utils/id.js'
 import { defineTool } from '../defineTool.js'
 
 export function buildReadMemoryTool(store: MemoryStore): ToolDefinition {
@@ -17,7 +17,10 @@ export function buildReadMemoryTool(store: MemoryStore): ToolDefinition {
 		destructive: false,
 		concurrencySafe: true,
 		async execute({ id }) {
-			const memoryId = id as MemoryId
+			// Checked, not cast. `id` is model-authored and becomes a store key
+			// on the next line; nothing downstream re-examines it, so this is
+			// the only place a `ses_`-shaped value can be stopped.
+			const memoryId = asMemoryId(id)
 			const content = await store.get(memoryId)
 
 			if (!content) {

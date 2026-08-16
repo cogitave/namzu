@@ -1,7 +1,7 @@
 import { z } from 'zod'
-import type { TaskId } from '../../types/ids/index.js'
 import type { TaskStore } from '../../types/task/index.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
+import { asTaskId } from '../../utils/id.js'
 import { defineTool } from '../defineTool.js'
 
 export function buildTaskUpdateTool(taskStore: TaskStore): ToolDefinition {
@@ -45,7 +45,10 @@ export function buildTaskUpdateTool(taskStore: TaskStore): ToolDefinition {
 			addBlockedBy,
 			metadata,
 		}) {
-			const taskId = id as TaskId
+			// Checked. Without it a malformed id reads as "Task not found",
+			// which tells the model its task disappeared rather than that it
+			// named the wrong thing.
+			const taskId = asTaskId(id)
 
 			if (status === 'deleted') {
 				const deleted = await taskStore.delete(taskId)
@@ -57,12 +60,12 @@ export function buildTaskUpdateTool(taskStore: TaskStore): ToolDefinition {
 
 			if (addBlocks) {
 				for (const blockedId of addBlocks) {
-					await taskStore.block(taskId, blockedId as TaskId)
+					await taskStore.block(taskId, asTaskId(blockedId))
 				}
 			}
 			if (addBlockedBy) {
 				for (const blockerId of addBlockedBy) {
-					await taskStore.block(blockerId as TaskId, taskId)
+					await taskStore.block(asTaskId(blockerId), taskId)
 				}
 			}
 

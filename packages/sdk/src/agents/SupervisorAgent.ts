@@ -123,6 +123,9 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 
 		const parentActor: ActorRef = {
 			kind: 'agent',
+			// See `manager/agent/lifecycle.ts` for why this is a cast and not
+			// `asAgentId`: `metadata.id` is a registry key, not a minted id, and
+			// `ActorRef.agentId: AgentId` is a claim the tree does not meet.
 			agentId: this.metadata.id as AgentId,
 			tenantId,
 		}

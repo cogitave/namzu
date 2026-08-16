@@ -108,4 +108,6 @@ export type DeliverableId = `del_${string}`
  * real tenant is assigned — the kernel surfaces the sentinel but does not
  * prescribe policy (Convention #17).
  */
+// A cast rather than `asTenantId`, and it has to be: `utils/id.ts` imports
+// this file, so reaching for its constructor here would close a cycle.
 export const UNKNOWN_TENANT_ID = 'tnt_unknown_legacy' as TenantId

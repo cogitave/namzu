@@ -70,13 +70,28 @@ export async function readMarker(path: string): Promise<MigrationMarker | null> 
 		return null
 	}
 
+	// The shape check above validates the ENVELOPE — version, at, and that
+	// migratedThreads is an array — and never looked inside the array. So
+	// `{"migratedThreads":[null]}` passed it and produced an entry whose
+	// `newProjectId` was `undefined` wearing a `ProjectId` annotation, which
+	// then reached a path join. Each element is checked here, and a bad one
+	// is corruption in exactly the sense this function's own contract names:
+	// return null, and let the caller re-run the migration.
+	const migratedThreads: { legacyThreadId: string; newProjectId: ProjectId }[] = []
+	for (const m of parsed.migratedThreads) {
+		if (typeof m !== 'object' || m === null) return null
+		if (typeof m.legacyThreadId !== 'string') return null
+		if (typeof m.newProjectId !== 'string' || !m.newProjectId.startsWith('prj_')) return null
+		migratedThreads.push({
+			legacyThreadId: m.legacyThreadId,
+			newProjectId: m.newProjectId as ProjectId,
+		})
+	}
+
 	return {
 		version: parsed.version,
 		at: new Date(parsed.at),
-		migratedThreads: parsed.migratedThreads.map((m) => ({
-			legacyThreadId: m.legacyThreadId,
-			newProjectId: m.newProjectId as ProjectId,
-		})),
+		migratedThreads,
 	}
 }
 

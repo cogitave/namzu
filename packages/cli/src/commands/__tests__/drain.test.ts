@@ -141,6 +141,23 @@ describe('refusing a pass whose scope nobody named', () => {
 		})
 	})
 
+	// Present but MISTYPED, which is the case the two refusals above cannot
+	// reach and the one an operator actually hits. `--tenant prj_a` used to be
+	// asserted straight into a `TenantId` and handed to the store, which then
+	// listed nothing — and "no runs" is the same output as a scope that really
+	// is empty, so the typo was invisible.
+	it.each([
+		['tenant', { tenant: 'prj_a', project: 'prj_a', session: 'ses_a' }, 'tnt_'],
+		['project', { tenant: 'tnt_a', project: 'ses_a', session: 'ses_a' }, 'prj_'],
+		['session', { tenant: 'tnt_a', project: 'prj_a', session: 'tnt_a' }, 'ses_'],
+	])('refuses a --%s that is not one, naming the prefix it wanted', (_flag, flags, prefix) => {
+		const result = resolveDrainScope(flags)
+		expect(result).toMatchObject({ error: expect.stringContaining(prefix) })
+		expect(result).toMatchObject({
+			error: expect.stringContaining('--tenant, --project and --session'),
+		})
+	})
+
 	it('takes the full prefix when it is given', () => {
 		expect(resolveDrainScope({ tenant: 'tnt_a', project: 'prj_a', session: 'ses_a' })).toEqual({
 			tenantId: 'tnt_a',

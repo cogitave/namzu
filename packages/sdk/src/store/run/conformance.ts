@@ -60,8 +60,9 @@
 
 import type { CostInfo } from '../../types/common/index.js'
 import type { IterationCheckpoint } from '../../types/hitl/index.js'
-import type { CheckpointId, ProjectId, RunId, SessionId, TenantId } from '../../types/ids/index.js'
+import type { ProjectId, SessionId, TenantId } from '../../types/ids/index.js'
 import type { CheckpointStore } from '../../types/run/checkpoint-store.js'
+import { asCheckpointId, asProjectId, asRunId, asSessionId, asTenantId } from '../../utils/id.js'
 import { claimRun, listDurableRuns, releaseRun } from './listing.js'
 
 /**
@@ -166,13 +167,13 @@ export interface CheckpointStoreConformanceOptions {
 
 /** The tenant/project/session every case addresses unless it needs a second. */
 const BINDING: CheckpointStoreBinding = {
-	tenantId: 'tnt_conformance' as TenantId,
-	projectId: 'prj_conformance' as ProjectId,
-	sessionId: 'ses_conformance' as SessionId,
+	tenantId: asTenantId('tnt_conformance'),
+	projectId: asProjectId('prj_conformance'),
+	sessionId: asSessionId('ses_conformance'),
 }
 
 /** A tenant no backend under test holds runs for. */
-const FOREIGN_TENANT = 'tnt_conformance_other' as TenantId
+const FOREIGN_TENANT = asTenantId('tnt_conformance_other')
 
 /** Fixed instant, so every expiry in a case is judged against one clock. */
 const NOW = 5_000_000
@@ -195,8 +196,8 @@ let checkpointSeq = 0
 function checkpoint(runId: string): IterationCheckpoint {
 	checkpointSeq += 1
 	return {
-		id: `cp_conformance_${checkpointSeq}` as CheckpointId,
-		runId: runId as RunId,
+		id: asCheckpointId(`cp_conformance_${checkpointSeq}`),
+		runId: asRunId(runId),
 		iteration: 1,
 		messages: [],
 		tokenUsage: {
@@ -213,7 +214,7 @@ function checkpoint(runId: string): IterationCheckpoint {
 }
 
 function runScope(binding: CheckpointStoreBinding, runId = 'run_conformance_a') {
-	return { ...binding, runId: runId as RunId }
+	return { ...binding, runId: asRunId(runId) }
 }
 
 /**
@@ -580,7 +581,7 @@ export function defineCheckpointStoreConformance(options: CheckpointStoreConform
 
 						const foreign = await listDurableRuns(store, {
 							tenantId: BINDING.tenantId,
-							projectId: 'prj_conformance_other' as ProjectId,
+							projectId: asProjectId('prj_conformance_other'),
 						})
 						expect(foreign.entries.map((e) => e.runId)).toEqual([])
 					}),
@@ -648,7 +649,7 @@ export function defineCheckpointStoreConformance(options: CheckpointStoreConform
 									tenantId: FOREIGN_TENANT,
 									projectId: BINDING.projectId,
 									sessionId: BINDING.sessionId,
-									runId: 'run_conformance_z' as RunId,
+									runId: asRunId('run_conformance_z'),
 								},
 								checkpoint('run_conformance_z'),
 							)

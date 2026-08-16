@@ -862,10 +862,17 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 		// waiting. Same bound as the launch it is waiting on.
 		timeoutMs: DELEGATION_TIMEOUT_MS,
 		async execute({ task_id }, _context) {
+			// ONE cast, hoisted, and deliberately not `asTaskId`. The membership
+			// gate below is a strictly stronger check than the prefix: a
+			// `task_` spelling proves nothing about ownership, and
+			// `launchedHere` proves both that the id is real and that this run
+			// owns it. A prefix check in front of it would be a check whose
+			// every failure the next line already catches.
+			const taskId = task_id as TaskId
 			// Same scope as the listing — see `launchedHere`. Asked FIRST, so a
 			// task belonging to a sibling run on a shared gateway is refused
 			// here rather than waited on and then read.
-			if (!launchedHere.has(task_id as TaskId)) {
+			if (!launchedHere.has(taskId)) {
 				// Deliberately does not distinguish "never existed" from
 				// "belongs to someone else". The second answer is itself the
 				// leak in miniature: it confirms a task id a run was not
@@ -877,7 +884,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 				}
 			}
 
-			const known = gateway.getTask(task_id as TaskId)
+			const known = gateway.getTask(taskId)
 			if (!known) {
 				return {
 					success: false,
@@ -886,7 +893,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 				}
 			}
 
-			const outcome = await waitForTaskWithBounds(gateway, task_id as TaskId, {
+			const outcome = await waitForTaskWithBounds(gateway, taskId, {
 				runMs: DELEGATION_TIMEOUT_MS,
 				idleMs: DELEGATION_IDLE_MS,
 			})
@@ -901,11 +908,11 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 			if (_context.abortSignal?.aborted) {
 				return {
 					success: false,
-					output: `This wait was abandoned before task ${task_id} finished; ${whereTheResultWillTurnUp(task_id as TaskId)}`,
+					output: `This wait was abandoned before task ${task_id} finished; ${whereTheResultWillTurnUp(taskId)}`,
 					data: { task_id, abandoned: true },
 				}
 			}
-			completionInbox?.claim(task_id as TaskId)
+			completionInbox?.claim(taskId)
 
 			const success = completed.state === 'completed'
 			const resultText =
@@ -945,13 +952,17 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 		destructive: false,
 		concurrencySafe: true,
 		async execute({ task_id }) {
-			gateway.cancelTask(task_id as TaskId)
+			// One cast at the boundary. `cancelTask` is idempotent on an id it
+			// does not know, so a malformed one is a no-op rather than a fault —
+			// which is why this is a cast and not a throwing constructor.
+			const taskId = task_id as TaskId
+			gateway.cancelTask(taskId)
 			// Stop holding the run open for it. `expect` put this task on the
 			// inbox's outstanding list at launch and only a completion takes it
 			// off — so without this a cancelled worker kept `hasPendingWork`
 			// true and every attempt to settle paid the full grace period
 			// waiting for a result that had just been called off.
-			completionInbox?.forget(task_id as TaskId)
+			completionInbox?.forget(taskId)
 			return {
 				success: true,
 				output: `Task ${task_id} cancelled`,
@@ -974,10 +985,17 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 		destructive: false,
 		concurrencySafe: true,
 		async execute({ task_id, message }) {
+			// ONE cast, hoisted, and deliberately not `asTaskId`. The membership
+			// gate below is a strictly stronger check than the prefix: a
+			// `task_` spelling proves nothing about ownership, and
+			// `launchedHere` proves both that the id is real and that this run
+			// owns it. A prefix check in front of it would be a check whose
+			// every failure the next line already catches.
+			const taskId = task_id as TaskId
 			// Same fencing as the listing and the wait — see `launchedHere`.
 			// Asked FIRST, so a task belonging to a sibling run on a shared
 			// gateway is refused before anything is delivered to it.
-			if (!launchedHere.has(task_id as TaskId)) {
+			if (!launchedHere.has(taskId)) {
 				// Does not distinguish "never existed" from "belongs to someone
 				// else", for the reason `wait_for_task` gives: the second answer
 				// confirms a task id this run was not supposed to know.
@@ -988,7 +1006,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 				}
 			}
 
-			const known = gateway.getTask(task_id as TaskId)
+			const known = gateway.getTask(taskId)
 			if (!known) {
 				return {
 					success: false,
@@ -998,7 +1016,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 			}
 
 			try {
-				await gateway.continueTask(task_id as TaskId, message)
+				await gateway.continueTask(taskId, message)
 			} catch (err) {
 				// The manager refuses a terminal task by throwing, and a throw
 				// out of `execute` is a tool ERROR — which reads to the model as
