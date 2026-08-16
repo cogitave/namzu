@@ -403,3 +403,130 @@ describe('the peer reaches the delegation predicates, through the scheduler', ()
 		expect(settled.result?.lastError).toMatch(/ECONNREFUSED/)
 	})
 })
+
+describe('the transport’s own failures are answers, not surprises', () => {
+	it('reports an HTTP error on an RPC call, naming the status', async () => {
+		// Distinct from the card fetch: a peer whose card reads fine can still
+		// answer 503 to `message/send`, and "the peer is down" is a different
+		// next move from "the peer refused".
+		const fetch: FetchLike = async () => ({
+			ok: false,
+			status: 503,
+			json: async () => ({}),
+			text: async () => '',
+		})
+
+		await expect(delegate(fetch).dispatch(request, {})).rejects.toThrow(/HTTP 503/)
+	})
+
+	it('surfaces a JSON-RPC error that carries no code', async () => {
+		// The A2A error object's `code` is optional, and an error with only a
+		// message must not be swallowed for lacking one.
+		const fetch: FetchLike = async () =>
+			ok({ jsonrpc: '2.0', id: '1', error: { message: 'something went wrong' } })
+
+		await expect(delegate(fetch).dispatch(request, {})).rejects.toThrow(/something went wrong/)
+	})
+
+	it('names the method when a JSON-RPC error carries neither code nor message', async () => {
+		const fetch: FetchLike = async () => ok({ jsonrpc: '2.0', id: '1', error: {} })
+
+		await expect(delegate(fetch).dispatch(request, {})).rejects.toThrow(/message\/send/)
+	})
+
+	it('refuses a card whose body is not JSON at all', async () => {
+		const fetch: FetchLike = async () => ({
+			ok: true,
+			status: 200,
+			json: async () => {
+				throw new SyntaxError('Unexpected token < in JSON')
+			},
+			text: async () => '<html>',
+		})
+
+		await expect(fetchAgentCard('https://peer.example', { fetch })).rejects.toThrow(
+			/Unexpected token/,
+		)
+	})
+
+	it('refuses a card fetch that rejected with a non-Error', async () => {
+		// A `fetch` implementation that throws a string is not hypothetical in
+		// a polyfilled environment, and the message must still say something.
+		const fetch: FetchLike = async () => ({
+			ok: true,
+			status: 200,
+			json: async () => {
+				throw 'not an error object'
+			},
+			text: async () => '',
+		})
+
+		await expect(fetchAgentCard('https://peer.example', { fetch })).rejects.toThrow(/not usable/)
+	})
+
+	it('forwards an abort signal to the card fetch', async () => {
+		let seen: AbortSignal | undefined
+		await fetchAgentCard('https://peer.example', {
+			fetch: async (_url, init) => {
+				seen = init?.signal
+				return ok(CARD)
+			},
+			signal: new AbortController().signal,
+		})
+
+		expect(seen).toBeDefined()
+	})
+
+	it('reports a delegation aborted before it began as cancelled', async () => {
+		// The peer is still told, because `message/send` has already created a
+		// task on its side by the time the loop notices.
+		const { fetch, calls } = peer([task('running', { status: { state: 'running' } })])
+
+		const result = await delegate(fetch).dispatch(request, { signal: AbortSignal.abort() })
+
+		expect(result.status).toBe('cancelled')
+		expect(calls.some((c) => c.method === 'tasks/cancel')).toBe(true)
+	})
+
+	it('uses its own defaults when none are configured', async () => {
+		// The `??` fallbacks, exercised rather than assumed: a delegate built
+		// with only the required fields must still work.
+		const { fetch } = peer([task('completed', { status: { state: 'completed' } })])
+		const bare = new A2ADelegate({ id: 'analyst', card: CARD, fetch })
+
+		await expect(bare.dispatch(request, {})).resolves.toMatchObject({ status: 'completed' })
+	})
+
+	it('reports a terminal state with no message at all', async () => {
+		// `rejected` with an empty status: the fallback sentence is what a
+		// reader gets, and it must name the state rather than say nothing.
+		const { fetch } = peer([task('rejected', { status: { state: 'rejected' } })])
+
+		const result = await delegate(fetch).dispatch(request, {})
+
+		expect(result).toMatchObject({ status: 'failed' })
+		expect(result.error).toMatch(/rejected/)
+		expect(result.output).toBeUndefined()
+	})
+
+	it('ignores a non-text part when reading the answer', async () => {
+		const { fetch } = peer([
+			task('completed', {
+				status: { state: 'completed' },
+				artifacts: [
+					{
+						artifactId: 'a1',
+						parts: [
+							{ kind: 'data', data: { rows: 3 } },
+							{ kind: 'text', text: 'three rows' },
+						],
+					},
+				],
+			}),
+		])
+
+		const result = await delegate(fetch).dispatch(request, {})
+
+		expect(result.output).toBe('three rows')
+	})
+})
