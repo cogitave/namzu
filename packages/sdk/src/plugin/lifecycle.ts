@@ -5,6 +5,7 @@ import { MCPToolDiscovery } from '../connector/mcp/discovery.js'
 import type { MCPToolDiscoveryOptions } from '../connector/mcp/discovery.js'
 import type { MCPToolPolicy } from '../connector/mcp/policy.js'
 import { mcpPromptToToolDefinition } from '../connector/mcp/prompt-adapter.js'
+import { MCPReconnectSupervisor } from '../connector/mcp/reconnect.js'
 import {
 	DEFAULT_HOOK_PRIORITY,
 	HOOK_TIMEOUT_MS,
@@ -39,6 +40,16 @@ interface PluginContributionRecord {
 	mcpClients: MCPClient[]
 	/** Namespaced skill names, so rollback and disable can take them back. */
 	skillNames: string[]
+	/**
+	 * One per client, held so teardown can stop them.
+	 *
+	 * A supervisor still attached when `disconnect()` runs reads the teardown
+	 * as a fault and reconnects what was just closed — the lifecycle event
+	 * cannot tell a deliberate disconnect from a dropped transport. Keeping
+	 * them here is what makes the required stop-then-disconnect ordering
+	 * possible at all.
+	 */
+	mcpSupervisors: MCPReconnectSupervisor[]
 }
 
 export interface PluginLifecycleManagerConfig {
@@ -235,6 +246,7 @@ export class PluginLifecycleManager {
 			toolNames: [],
 			mcpClients: [],
 			skillNames: [],
+			mcpSupervisors: [],
 		}
 
 		try {
@@ -364,6 +376,15 @@ export class PluginLifecycleManager {
 		await client.connect()
 		contributions.mcpClients.push(client)
 
+		// Watched from here on. `connect()` above is the only attempt anything
+		// made: `transport.onClose` marked the client disconnected and rejected
+		// its pending calls, and nothing scheduled another try — so one blip
+		// took this plugin's tools out for the life of the process while the
+		// plugin went on reporting as enabled.
+		const supervisor = new MCPReconnectSupervisor(client)
+		supervisor.start()
+		contributions.mcpSupervisors.push(supervisor)
+
 		// Through the boundary, not around it. This used to call
 		// `client.listTools()` and register everything the server answered
 		// with, so the remote side decided what entered the agent's registry
@@ -413,6 +434,11 @@ export class PluginLifecycleManager {
 			// Wrapping it would suggest a failure mode that does not exist.
 			this.skillRegistry?.unregister(name)
 		}
+		// Stop supervising BEFORE disconnecting. The lifecycle event a
+		// deliberate disconnect emits is the same one a dropped transport
+		// emits, so a still-attached supervisor would reconnect what this
+		// rollback just closed.
+		for (const supervisor of contributions.mcpSupervisors) supervisor.stop()
 		for (const client of contributions.mcpClients) {
 			try {
 				await client.disconnect()
@@ -446,8 +472,12 @@ export class PluginLifecycleManager {
 			toolNames: [],
 			mcpClients: [],
 			skillNames: [],
+			mcpSupervisors: [],
 		}
 
+		// Stop supervising first, for the same reason as the rollback path: the
+		// disconnect below emits the event the supervisor treats as a fault.
+		for (const supervisor of contributions.mcpSupervisors) supervisor.stop()
 		// Disconnect MCP clients first so no new tool calls can reach them mid-teardown.
 		for (const client of contributions.mcpClients) {
 			try {

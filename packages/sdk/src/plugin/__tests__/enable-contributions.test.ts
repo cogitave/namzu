@@ -20,6 +20,11 @@ vi.mock('../../connector/mcp/client.js', () => ({
 		// unnoticed while nothing on this path asked the client which server
 		// it was talking to. Admission does — a policy is per server name.
 		getState: () => ({ serverName: config.serverName }),
+		// Same shape of omission as `getState` above, one layer later: the
+		// reconnect supervisor subscribes through this, so a mock without it
+		// is a fixture unlike production and the wiring fails only at runtime.
+		isConnected: () => true,
+		onLifecycle: () => () => {},
 	})),
 }))
 

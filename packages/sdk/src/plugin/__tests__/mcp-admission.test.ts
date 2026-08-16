@@ -36,6 +36,11 @@ vi.mock('../../connector/mcp/client.js', () => ({
 		}
 		async connect(): Promise<void> {}
 		async disconnect(): Promise<void> {}
+		// The reconnect supervisor subscribes through this. A mock without it
+		// is a fixture unlike production, and the wiring fails only at runtime.
+		onLifecycle(): () => void {
+			return () => {}
+		}
 		isConnected(): boolean {
 			return true
 		}
