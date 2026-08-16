@@ -1,4 +1,4 @@
-import { JSON_RPC_METHOD_NOT_FOUND } from '../../constants/mcp/index.js'
+import { JSON_RPC_METHOD_NOT_FOUND } from '../../../constants/mcp/index.js'
 import type {
 	MCPContentBlock,
 	MCPJsonRpcMessage,
@@ -9,12 +9,12 @@ import type {
 	MCPToolDefinition,
 	MCPToolResult,
 	MCPTransport,
-} from '../../types/connector/index.js'
-import type { MCPPromptDefinition, MCPPromptMessage } from '../../types/connector/index.js'
-import type { MCPServerId } from '../../types/ids/index.js'
-import { toErrorMessage } from '../../utils/error.js'
-import { generateMCPServerId } from '../../utils/id.js'
-import { type Logger, resolveLogger } from '../../utils/logger.js'
+} from '../../../types/connector/index.js'
+import type { MCPPromptDefinition, MCPPromptMessage } from '../../../types/connector/index.js'
+import type { MCPServerId } from '../../../types/ids/index.js'
+import { toErrorMessage } from '../../../utils/error.js'
+import { generateMCPServerId } from '../../../utils/id.js'
+import { type Logger, resolveLogger } from '../../../utils/logger.js'
 
 /**
  * A method this server does not implement.

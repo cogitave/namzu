@@ -1,7 +1,7 @@
 import type { Readable, Writable } from 'node:stream'
 
-import type { MCPJsonRpcMessage, MCPTransport } from '../../types/connector/mcp.js'
-import { type Logger, resolveLogger } from '../../utils/logger.js'
+import type { MCPJsonRpcMessage, MCPTransport } from '../../../types/connector/mcp.js'
+import { type Logger, resolveLogger } from '../../../utils/logger.js'
 
 /**
  * The server half of stdio, so `MCPServer` has something to run on.

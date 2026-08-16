@@ -8,8 +8,8 @@ import type {
 	MCPTransport,
 } from '../../../types/connector/index.js'
 import { MCPClient } from '../client.js'
-import { MCPServer } from '../server.js'
-import type { MCPServerPromptProvider, MCPServerToolProvider } from '../server.js'
+import { MCPServer } from '../server/server.js'
+import type { MCPServerPromptProvider, MCPServerToolProvider } from '../server/server.js'
 
 /**
  * The half of MCP that is not tools.

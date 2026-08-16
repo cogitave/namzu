@@ -52,9 +52,9 @@ export { mcpPromptToToolDefinition, renderPromptMessages } from './mcp/prompt-ad
 
 export { MCPConnectorBridge } from '../bridge/mcp/connector/adapter.js'
 
-export { MCPServer, MCPMethodNotFound } from './mcp/server.js'
+export { MCPServer, MCPMethodNotFound } from './mcp/server/index.js'
 export type {
 	MCPServerToolProvider,
 	MCPServerResourceProvider,
 	MCPServerPromptProvider,
-} from './mcp/server.js'
+} from './mcp/server/index.js'

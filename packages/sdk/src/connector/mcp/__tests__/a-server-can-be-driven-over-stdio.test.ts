@@ -2,8 +2,8 @@ import { PassThrough } from 'node:stream'
 import { describe, expect, it } from 'vitest'
 
 import type { MCPJsonRpcMessage } from '../../../types/connector/mcp.js'
-import { ServerStdioTransport } from '../server-stdio.js'
-import { MCPServer } from '../server.js'
+import { ServerStdioTransport } from '../server/server-stdio.js'
+import { MCPServer } from '../server/server.js'
 
 /**
  * `MCPServer` was a complete protocol implementation with no caller,
