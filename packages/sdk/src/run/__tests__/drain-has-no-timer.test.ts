@@ -81,7 +81,7 @@ describe('drainRuns makes one pass and arms nothing', () => {
 				scope: { tenantId: TENANT, projectId: PROJECT, sessionId: SESSION },
 				holder: 'worker-1',
 				ttlMs: 60_000,
-				onRun: async () => ({ outcome: 'resumed' }),
+				onRun: async () => {},
 			})
 
 			// The pass must actually have done something, or a `drainRuns`

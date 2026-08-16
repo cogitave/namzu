@@ -453,6 +453,10 @@ export {
 	EnvironmentConnectorManager,
 	ExecutionContextFactory,
 	HttpConnector,
+	applyNamePolicy,
+	applyToolPolicy,
+	diffTools,
+	hasDrift,
 	HttpSseTransport,
 	HybridExecutionContext,
 	LocalExecutionContext,
@@ -468,13 +472,24 @@ export {
 	mcpToolToToolDefinition,
 	RemoteExecutionContext,
 	ScopedConnectorRegistry,
+	// The only transport in the tree that can RUN an `MCPServer`. It reached
+	// `connector/mcp/index.ts` and stopped there, so the server was public
+	// with no public way to serve it.
+	ServerStdioTransport,
 	StdioTransport,
 	StreamableHttpTransport,
 	TenantConnectorManager,
 	toolDefinitionToMCPTool,
 	toolResultToMCPToolResult,
+	toolsHash,
 	WebhookConnector,
 	zodToMCPJsonSchema,
+} from './connector/index.js'
+export type {
+	MCPToolDiscoveryOptions,
+	MCPToolDrift,
+	MCPToolPolicy,
+	MCPToolPolicyDecision,
 } from './connector/index.js'
 
 // ─── bridges (a2a + sse) ─────────────────────────────────────────────────

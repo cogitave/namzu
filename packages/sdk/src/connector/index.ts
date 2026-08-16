@@ -32,29 +32,42 @@ export type {
 	HybridExecutionContextOptions,
 } from './execution/index.js'
 
-export { StdioTransport } from './mcp/stdio.js'
-export { HttpSseTransport } from './mcp/http-sse.js'
-export { StreamableHttpTransport } from './mcp/streamable-http.js'
-
-export { MCPClient } from './mcp/client.js'
-
+// One seam, not two. This block used to hand-list names from the mcp LEAF
+// modules while `mcp/index.ts` listed its own set, and the two diverged:
+// `ServerStdioTransport` reached that barrel and stopped here, so
+// `MCPServer` was public with no public way to serve it — a consumer could
+// construct the thing and not run it. Sourcing from the barrel means a name
+// added there cannot be silently dropped on the way out.
 export {
-	mcpToolToToolDefinition,
-	toolDefinitionToMCPTool,
+	applyNamePolicy,
+	applyToolPolicy,
+	diffTools,
+	hasDrift,
+	HttpSseTransport,
+	MCPClient,
+	MCPConnectorBridge,
+	MCPMethodNotFound,
+	MCPServer,
+	MCPToolDiscovery,
 	mcpJsonSchemaToZod,
-	zodToMCPJsonSchema,
+	mcpPromptToToolDefinition,
 	mcpToolResultToToolResult,
+	mcpToolToToolDefinition,
+	renderPromptMessages,
+	ServerStdioTransport,
+	StdioTransport,
+	StreamableHttpTransport,
+	toolDefinitionToMCPTool,
 	toolResultToMCPToolResult,
-} from './mcp/adapter.js'
-
-export { MCPToolDiscovery } from './mcp/discovery.js'
-export { mcpPromptToToolDefinition, renderPromptMessages } from './mcp/prompt-adapter.js'
-
-export { MCPConnectorBridge } from '../bridge/mcp/connector/adapter.js'
-
-export { MCPServer, MCPMethodNotFound } from './mcp/server/index.js'
+	toolsHash,
+	zodToMCPJsonSchema,
+} from './mcp/index.js'
 export type {
-	MCPServerToolProvider,
-	MCPServerResourceProvider,
 	MCPServerPromptProvider,
-} from './mcp/server/index.js'
+	MCPServerResourceProvider,
+	MCPServerToolProvider,
+	MCPToolDiscoveryOptions,
+	MCPToolDrift,
+	MCPToolPolicy,
+	MCPToolPolicyDecision,
+} from './mcp/index.js'
