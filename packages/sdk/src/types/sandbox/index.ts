@@ -454,6 +454,27 @@ export const SandboxConfigSchema = z.object({
 	 * quiet downgrade.
 	 */
 	requireIsolation: z.array(z.enum(['filesystem', 'network', 'process'])).default([]),
+	/**
+	 * What the sandbox is rooted at.
+	 *
+	 * `'ephemeral'` (the default, and the previous and only behaviour) gives
+	 * the run a fresh temp directory. Nothing the agent writes touches the
+	 * caller's files, and nothing the caller has is visible to it.
+	 *
+	 * `'working-directory'` roots it at the run's own `workingDirectory`, so
+	 * a sandboxed `bash` acts on the project the agent was asked about
+	 * instead of on an empty directory. That is the case the sandbox was
+	 * wanted for and the one it could not do: the field existed on
+	 * `SandboxCreateConfig` and the kernel never set it, so configuring a
+	 * sandbox through `runConfig.sandbox` always got a temp directory
+	 * whatever the run's own cwd was.
+	 *
+	 * The trade is the point of naming it rather than inferring it. Rooted
+	 * at the working directory, confinement still bounds the agent to that
+	 * subtree — but the subtree is now the caller's real files, and a
+	 * destructive command inside it is destructive for real.
+	 */
+	workspace: z.enum(['ephemeral', 'working-directory']).default('ephemeral'),
 })
 
 export type SandboxConfig = z.infer<typeof SandboxConfigSchema>

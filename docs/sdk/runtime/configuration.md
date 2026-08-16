@@ -97,6 +97,30 @@ These settings shape the runtime loop, not only the provider call.
 - `auto` is the normal runtime mode
 - `plan` blocks non-read-only tools at execution time in the tool registry
 
+### What a sandbox is rooted at
+
+`runConfig.sandbox.workspace` decides which directory a sandboxed tool call
+acts on, and the two answers protect different things.
+
+| | `'ephemeral'` (default) | `'working-directory'` |
+| --- | --- | --- |
+| Root | a fresh temp directory | the run's own `workingDirectory` |
+| Your files | invisible to the agent | the subtree the agent operates on |
+| A destructive command | destroys a temp directory | destroys your files |
+| Good for | untrusted work, evaluation, anything you would not hand a shell | an agent asked to change the project it is looking at |
+
+Confinement is the same in both: the agent is bounded to one subtree either
+way. What changes is whose subtree. `'ephemeral'` is the default and stays
+the default — every sandboxed run before this option existed got a temp
+directory, and changing that silently would point them all at real files.
+
+`'working-directory'` with no `workingDirectory` on the run is **refused**,
+before the sandbox is created. It does not fall back to ephemeral. The
+kernel could reach for `process.cwd()` there and will not: that confines
+whatever directory the host process happens to be in, which is not the tree
+you named, and a caller told "your files are protected" by something not
+looking at them is worse off than one who got an error.
+
 `env` is useful when tools need controlled environment data such as:
 
 - API base URLs

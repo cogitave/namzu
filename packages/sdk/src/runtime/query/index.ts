@@ -1546,7 +1546,27 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 
 			// --- Sandbox lifecycle: create before iteration loop ---
 			if (params.sandboxProvider) {
+				const rootAtCwd = params.runConfig.sandbox?.workspace === 'working-directory'
+				// Checked against what the CALLER passed, not against `ctx.cwd`.
+				// `ctx.cwd` falls back to `process.cwd()`, so reading it here
+				// would silently root the sandbox at whatever directory the
+				// host process happens to be in — which is not the directory
+				// anybody asked to confine, and is worse than the temp dir the
+				// caller declined. Refused before the sandbox exists, and not
+				// downgraded to ephemeral: a caller who asked for confinement
+				// of a specific tree and quietly got an empty one has been
+				// told their files are protected by something that is not
+				// looking at them.
+				if (rootAtCwd && params.workingDirectory === undefined) {
+					throw new NamzuError({
+						code: 'invalid_config',
+						message:
+							"sandbox.workspace is 'working-directory' but this run has no workingDirectory. Pass one, or use the default 'ephemeral' — the kernel will not fall back to a temp directory, because that would confine a directory you did not name.",
+						details: { workspace: 'working-directory' },
+					})
+				}
 				sandbox = await params.sandboxProvider.create({
+					...(rootAtCwd ? { workingDirectory: ctx.cwd } : {}),
 					timeoutMs: params.runConfig.sandbox?.timeoutMs,
 					memoryLimitMb: params.runConfig.sandbox?.memoryLimitMb,
 					maxProcesses: params.runConfig.sandbox?.maxProcesses,
