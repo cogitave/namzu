@@ -21,6 +21,16 @@
  * per-platform supervisor is the same trade the deployment-adapter matrix
  * was rejected for: one seam beats N adapters.
  *
+ * Read the scope of that narrowly. This paragraph has been cited as the
+ * kernel's refusal of a model-facing "remind me tomorrow" capability, and
+ * it is not one: it says a HOST brings the timer, which presumes the host
+ * has one rather than ruling the capability out. Whether such a capability
+ * should exist -- and if so, as a store plus a host-driven sweep rather
+ * than a daemon here -- is open. `directory/types.ts` records the adjacent
+ * decision that cut a declarative `schedules/` slot, on grounds of
+ * double-fire and timezone; that is a different question from a runtime
+ * tool, and neither text settles the other.
+ *
  * The unit of work is a callback, so this module never needs a provider, a
  * tool registry or a sandbox — the half of a run that cannot be serialized
  * stays with the caller, exactly as `resumeRun` already splits it.

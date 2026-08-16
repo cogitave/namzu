@@ -1,3 +1,31 @@
+/**
+ * A developer-authored step list, and deliberately not a model-authored
+ * one.
+ *
+ * This distinction has been attributed to a `packages/sdk/src/agents/
+ * AGENTS.md` that does not exist, so it is written here instead. The
+ * proposal it answers is a model that emits an orchestration SCRIPT --
+ * `agent()`, `parallel()`, `pipeline()` as globals -- executed in an
+ * isolate, so that control flow between steps costs no model turns.
+ *
+ * The saving is real and this class already realises most of it: the steps
+ * below run with zero model turns between them, and `SupervisorAgent`
+ * delegates without one. What a script would add is orchestration a
+ * developer did not anticipate, invented at runtime -- which is also the
+ * case where a wrong one is hardest to review before it runs.
+ *
+ * The blocking question is the trust boundary, not the value. `bash` from
+ * a model is mediated by `packages/sandbox` because code from a model is
+ * untrusted; a model-authored script is the same input through another
+ * door, and a strictly more powerful one, since it can call back into the
+ * agent surface. Running it in-process would leave the kernel's one clear
+ * confinement boundary covering the weaker case and not the stronger. So
+ * an isolate is mandatory rather than an optimisation, and the capability
+ * costs a second execution surface to secure, audit and version.
+ *
+ * That is the bar a reopen has to clear.
+ */
+
 import { EMPTY_TOKEN_USAGE } from '../constants/limits.js'
 import type {
 	AgentInput,
