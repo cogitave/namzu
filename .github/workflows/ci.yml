@@ -275,22 +275,35 @@ jobs:
         run: bash .github/scripts/verify-consumer-install.sh
 
       # Public-surface regression guard (ses_011-sdk-public-surface).
-      # Compares `Object.keys(@namzu/sdk)` against a committed baseline.
-      # Catches silent drops that .d.ts diffs miss (runtime-only symbols,
-      # error classes, zod schemas). Intentional widenings update the
-      # baseline in the same commit.
+      # Compares the runtime and declared exports of every publishable
+      # package's every entry point against a committed baseline. Catches
+      # silent drops that .d.ts diffs miss (runtime-only symbols, error
+      # classes, zod schemas). Intentional widenings update the baseline in
+      # the same commit. Reads the BUILT output, so the Build step above is a
+      # prerequisite, not an ordering coincidence.
       - name: Public-surface regression check
         if: matrix.gates
         run: node .github/scripts/verify-public-surface.mjs
 
+      # Derived from the workspace, never hand-listed. The list used to be
+      # eleven literal package names, and four publishable packages were not
+      # on it — `cli`, `files`, `lsp` and `evals`, one of which was added
+      # after the list was written. A new package joins the loop by existing,
+      # which is the only way a per-package gate stays honest.
+      # `private !== true` is the same signal `pnpm publish` reads.
       - name: publint (package.json shape)
         if: matrix.gates
         run: |
-          for pkg in sdk sandbox telemetry computer-use providers/anthropic providers/bedrock providers/http providers/lmstudio providers/ollama providers/openai providers/openrouter; do
-            echo "::group::publint packages/$pkg"
-            npx -y publint@latest packages/$pkg
+          pnpm list -r --depth -1 --json \
+            | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{for(const r of JSON.parse(s))if(r.name&&r.path&&r.private!==true&&r.name!=='namzu')console.log(require('path').relative(process.cwd(),r.path))})" \
+            | sort > /tmp/publint-targets.txt
+          test -s /tmp/publint-targets.txt || { echo "no publishable packages found — the enumeration broke, which would pass this step by checking nothing"; exit 1; }
+          echo "publint targets:"; cat /tmp/publint-targets.txt
+          while read -r pkg; do
+            echo "::group::publint $pkg"
+            npx -y publint@latest "$pkg"
             echo "::endgroup::"
-          done
+          done < /tmp/publint-targets.txt
 
   # Documentation gate. Separate from Build & Test for one reason: its drift
   # check compares a document's last commit against its `resource:`'s last
