@@ -41,6 +41,7 @@ import type {
 import type { Skill } from '../../../types/skills/index.js'
 import type { LLMToolSchema, ToolRegistryContract } from '../../../types/tool/index.js'
 import { toErrorMessage } from '../../../utils/error.js'
+import { stableDigest } from '../../../utils/hash.js'
 import { generateMessageId } from '../../../utils/id.js'
 import type { ToolCallOutcome } from '../executor.js'
 import { applyLifecycleHookResults } from '../plugin-hooks.js'
@@ -133,6 +134,12 @@ export class IterationOrchestrator {
 	private ctx: IterationContext
 	/** Rejections so far. See {@link DEFAULT_ANSWER_REVIEW_LIMIT}. */
 	private answerReviewAttempts = 0
+	/**
+	 * The last request envelope this run recorded, so an unchanged one
+	 * costs a hash and no event. Per RUNNER, not module-level: two runs in
+	 * one process must not suppress each other's first envelope.
+	 */
+	private lastEnvelopeKey: string | undefined
 	/**
 	 * The previous iteration held a `stopWhen` decision open for a worker.
 	 *
@@ -401,6 +408,49 @@ export class IterationOrchestrator {
 					const messages = stepPreamble
 						? [...baseMessages, createSystemMessage(stepPreamble)]
 						: [...baseMessages]
+
+					// What the model is about to be ASKED, recorded when it
+					// changed. `run_started` carries one system prompt and tool
+					// schemas never reached the transcript at all — while
+					// `prepareStep` rewrites the system text, narrows the tool
+					// list or swaps the model, and a step's skills ride the
+					// ephemeral preamble above. So a transcript showed one
+					// question for a run that had asked several.
+					//
+					// Emitted only on a change: the digest is compared against
+					// the last one this run recorded, so the common case costs
+					// one hash and nothing else. Copying an unchanged system
+					// prompt every iteration is the fastest way to make a
+					// durable log too large to read.
+					const envelope = {
+						model: stepModel,
+						// Read off `messages`, which is what the request is actually
+						// built from — including the ephemeral preamble. Recomputing
+						// it from the run's history would describe a request nobody
+						// sent the moment the two diverge.
+						systemPrompt: messages
+							.filter((m) => m.role === 'system')
+							.map((m) => String(m.content))
+							.join('\n\n'),
+						toolNames: llmTools.map((t) => t.function.name),
+						// Over the SCHEMAS, sorted. A name list cannot see a tool
+						// whose schema body changed while its name did not, which
+						// is the change most likely to alter what the model does.
+						toolSchemaDigest: stableDigest(
+							[...llmTools].sort((a, b) => (a.function.name < b.function.name ? -1 : 1)),
+						),
+					}
+					const envelopeKey = stableDigest(envelope)
+					if (envelopeKey !== this.lastEnvelopeKey) {
+						this.lastEnvelopeKey = envelopeKey
+						await this.ctx.emitEvent?.({
+							type: 'request_envelope',
+							runId: runMgr.id,
+							iteration: iterationNum,
+							...envelope,
+							toolNames: Object.freeze([...envelope.toolNames]),
+						})
+					}
 
 					if (this.ctx.pluginManager) {
 						const hookResults = await this.ctx.pluginManager.executeHooks(

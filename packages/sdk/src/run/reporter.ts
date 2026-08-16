@@ -272,6 +272,20 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				})
 				break
 
+			case 'request_envelope':
+				// `debug`, not `info`. It fires only when something changed, so
+				// it is never noise — but it carries a whole system prompt, and
+				// a default-level start that printed one would bury everything
+				// else the way the registry's `info` registrations did.
+				log.debug('Request envelope changed', {
+					'namzu.run.id': event.runId,
+					'namzu.iteration': event.iteration,
+					'namzu.request.model': event.model,
+					'namzu.request.tool_count': event.toolNames.length,
+					'namzu.request.tool_schema_digest': event.toolSchemaDigest,
+				})
+				break
+
 			case 'compaction_tool_results_cleared':
 				// `info` on both branches. The relieved case is the run
 				// avoiding a summarization, which is good news worth stating;

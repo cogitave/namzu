@@ -203,6 +203,9 @@ const MAPPING: {
 	iteration_completed: null,
 	// Context management is kernel-internal bookkeeping; A2A peers model a
 	// task lifecycle, not the host runtime's memory strategy.
+	// What THIS runtime asked its model is not a fact about the task a peer
+	// is tracking, and it is the largest single payload the kernel emits.
+	request_envelope: null,
 	compaction_completed: null,
 	// Same reason as the two below: which of this runtime's context-relief
 	// strategies fired is a property of how it manages its own window, and a

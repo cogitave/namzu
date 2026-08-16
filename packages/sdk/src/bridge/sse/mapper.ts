@@ -115,6 +115,12 @@ const MAPPING: {
 	// context was dropped must also be able to show them it was not, because a
 	// run continuing at full context is the state that ends in an opaque
 	// provider rejection later.
+	// Declined: it duplicates content already on the wire — the prompt a
+	// consumer can read from the transcript — and a system prompt plus a
+	// tool catalogue is large enough that streaming it per change would
+	// dominate the stream it rides on.
+	request_envelope: null,
+
 	compaction_tool_results_cleared: {
 		wire: 'compaction.tool_results_cleared',
 		transform: (e, runId) => ({

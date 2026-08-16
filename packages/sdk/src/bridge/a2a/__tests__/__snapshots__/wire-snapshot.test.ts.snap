@@ -27,6 +27,7 @@ exports[`every RunEvent has a decided place on the A2A wire > lists what it decl
   "reasoning_completed",
   "reasoning_delta",
   "reasoning_started",
+  "request_envelope",
   "run_resuming",
   "sandbox_created",
   "sandbox_destroyed",
@@ -99,6 +100,7 @@ exports[`every RunEvent has a decided place on the A2A wire > pins the shape of 
   "reasoning_completed": null,
   "reasoning_delta": null,
   "reasoning_started": null,
+  "request_envelope": null,
   "run_completed": [
     "contextId",
     "final",

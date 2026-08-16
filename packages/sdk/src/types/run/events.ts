@@ -101,6 +101,37 @@ interface RunEventEnvelope {
 type CoreRunEvent =
 	| { type: 'run_started'; runId: RunId; systemPrompt?: string }
 	| { type: 'iteration_started'; runId: RunId; iteration: number }
+	/**
+	 * What the model was actually asked, when it changed.
+	 *
+	 * `run_started` records a system prompt once, and tool schemas never
+	 * reached the transcript at all — yet the effective envelope changes
+	 * mid-run: `prepareStep` rewrites the system text, narrows the tool
+	 * list, or swaps the model, and a step's skills ride an ephemeral
+	 * trailing system message. So a transcript showed one prompt and a run
+	 * that had asked several different questions.
+	 *
+	 * Emitted only when the tuple DIFFERS from the last one recorded. The
+	 * common case — nothing changed — costs one hash and no event, because
+	 * a per-iteration copy of an unchanged system prompt is the fastest way
+	 * to make a durable log too large to read.
+	 */
+	| {
+			type: 'request_envelope'
+			runId: RunId
+			iteration: number
+			model: string
+			/** Leading system messages plus this step's preamble, concatenated. */
+			systemPrompt: string
+			toolNames: readonly string[]
+			/**
+			 * Stable hash over the sorted tool schemas. A name list cannot see
+			 * a tool whose SCHEMA changed while its name did not — which is
+			 * the change most likely to alter what the model does and least
+			 * likely to be noticed.
+			 */
+			toolSchemaDigest: string
+	  }
 	| {
 			type: 'iteration_completed'
 			runId: RunId

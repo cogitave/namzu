@@ -70,6 +70,15 @@ const AGENT_RESULT = {
 export const RUN_EVENT_FIXTURES: Record<RunEvent['type'], () => RunEvent> = {
 	run_started: () => ({ type: 'run_started', runId: FIXTURE_RUN_ID }),
 	iteration_started: () => ({ type: 'iteration_started', runId: FIXTURE_RUN_ID, iteration: 1 }),
+	request_envelope: () => ({
+		type: 'request_envelope',
+		runId: FIXTURE_RUN_ID,
+		iteration: 1,
+		model: 'x',
+		systemPrompt: 'x',
+		toolNames: [],
+		toolSchemaDigest: 'x',
+	}),
 	iteration_completed: () => ({
 		type: 'iteration_completed',
 		runId: FIXTURE_RUN_ID,
