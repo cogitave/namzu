@@ -1,8 +1,8 @@
-import type { TaskGateway, TaskHandle } from '../types/agent/gateway.js'
+import type { TaskHandle, TaskScheduler } from '../types/agent/scheduler.js'
 import type { TaskId } from '../types/ids/index.js'
 
 /**
- * A `TaskGateway` a test can hand to the runtime without implementing the
+ * A `TaskScheduler` a test can hand to the runtime without implementing the
  * five methods it does not exercise.
  *
  * The tests that needed this were passing two-method object literals through
@@ -18,9 +18,9 @@ import type { TaskId } from '../types/ids/index.js'
  * that then holds is about the stub, not about the kernel. Throwing turns
  * that same event into a failure naming the method.
  */
-export function stubTaskGateway(overrides: Partial<TaskGateway>): TaskGateway {
+export function stubTaskScheduler(overrides: Partial<TaskScheduler>): TaskScheduler {
 	const unsupported = (method: string): never => {
-		throw new Error(`stubTaskGateway: this test did not supply ${method}()`)
+		throw new Error(`stubTaskScheduler: this test did not supply ${method}()`)
 	}
 
 	return {

@@ -380,11 +380,11 @@ export {
 	InMemoryTopicStore as InMemoryThreadStore,
 } from './store/topic/memory.js'
 
-export { LocalTaskGateway } from './gateway/local.js'
+export { LocalTaskScheduler } from './scheduler/local.js'
 // Exported because `buildCoordinatorTools` is: a host that builds the
 // coordinator surface itself needs the same inbox the loop drains, or its
 // abandoned completions go unheard exactly as they did before.
-export { CompletionInbox, formatCompletionNotification } from './gateway/completion-inbox.js'
+export { CompletionInbox, formatCompletionNotification } from './scheduler/completion-inbox.js'
 
 // ─── providers, sandbox, vault ───────────────────────────────────────────
 

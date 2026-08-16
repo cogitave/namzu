@@ -1,4 +1,4 @@
-import type { TaskGateway, TaskHandle } from '../../types/agent/gateway.js'
+import type { TaskHandle, TaskScheduler } from '../../types/agent/scheduler.js'
 import type { TaskId } from '../../types/ids/index.js'
 
 /**
@@ -22,7 +22,7 @@ import type { TaskId } from '../../types/ids/index.js'
  *
  * The idle bound is only armed when the gateway can report progress.
  * `onTaskProgress` is optional on the contract, because hosts implement
- * `TaskGateway` and not all of them can observe their children — so a gateway
+ * `TaskScheduler` and not all of them can observe their children — so a gateway
  * without it is bounded by the wall clock alone, exactly as before. That is a
  * real degradation and it is deliberately visible in the result rather than
  * silent: `idleBoundArmed` says whether the quieter half was ever watching.
@@ -61,7 +61,7 @@ export interface WaitBounds {
  * been unpicking.
  */
 export async function waitForTaskWithBounds(
-	gateway: TaskGateway,
+	gateway: TaskScheduler,
 	taskId: TaskId,
 	bounds: WaitBounds,
 	now: () => number = Date.now,

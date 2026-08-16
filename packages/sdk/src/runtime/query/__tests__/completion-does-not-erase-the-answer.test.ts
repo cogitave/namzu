@@ -4,13 +4,13 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { z } from 'zod'
-import { stubTaskGateway } from '../../../__fixtures__/task-gateway.js'
+import { stubTaskScheduler } from '../../../__fixtures__/task-scheduler.js'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 
-import { CompletionInbox } from '../../../gateway/completion-inbox.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { CompletionInbox } from '../../../scheduler/completion-inbox.js'
 import { defineTool } from '../../../tools/defineTool.js'
-import type { TaskHandle } from '../../../types/agent/gateway.js'
+import type { TaskHandle } from '../../../types/agent/scheduler.js'
 import type { SessionId, TaskId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { LLMProvider, StreamChunk } from '../../../types/provider/index.js'
@@ -85,7 +85,7 @@ describe('a completion delivered on the way out leaves the answer readable', () 
 		let announce: ((h: TaskHandle) => void) | undefined
 		inbox.launched('tsk_bg' as TaskId)
 		inbox.attach(
-			stubTaskGateway({
+			stubTaskScheduler({
 				onTaskCompleted: (cb: (h: TaskHandle) => void) => {
 					announce = cb
 					return () => {

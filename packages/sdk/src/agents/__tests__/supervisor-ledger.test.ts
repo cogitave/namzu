@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { TaskHandle } from '../../types/agent/gateway.js'
 import type { AgentTaskResult, BaseAgentResult } from '../../types/agent/index.js'
+import type { TaskHandle } from '../../types/agent/scheduler.js'
 import type { RunId, TaskId } from '../../types/ids/index.js'
 import { countCompletedTasks, synthesizeTaskResults } from '../SupervisorAgent.js'
 

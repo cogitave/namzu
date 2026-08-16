@@ -1,4 +1,4 @@
-import type { TaskHandle } from '../../types/agent/gateway.js'
+import type { TaskHandle } from '../../types/agent/scheduler.js'
 
 /**
  * Did this worker actually succeed?
@@ -48,7 +48,7 @@ export function taskSucceeded(handle: Pick<TaskHandle, 'state' | 'result'>): boo
  * the gateway state would never see it fail.
  *
  * Third copy of this knowledge, now in the one place `taskSucceeded` already
- * lives — it was written independently in `LocalTaskGateway`, which got it
+ * lives — it was written independently in `LocalTaskScheduler`, which got it
  * right, but a rule that each caller has to remember is a rule one of them
  * eventually forgets. That has already happened once with `taskSucceeded`.
  */

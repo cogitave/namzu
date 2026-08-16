@@ -24,12 +24,12 @@
 import {
 	BOOT_EVENT_NAMES,
 	type CheckpointStore,
-	type FencingToken,
 	type CostInfo,
 	DiskMemoryStore,
 	DiskTaskStore,
 	type DurableRunEntry,
 	EVENT_NAME_ATTRIBUTE,
+	type FencingToken,
 	type HITLResumeDecision,
 	type LLMProvider,
 	type LogAttributes,
@@ -47,7 +47,7 @@ import {
 	SearchToolsTool,
 	type SessionId,
 	type StopReason,
-	type TaskGateway,
+	type TaskScheduler,
 	type TaskStore,
 	type TenantId,
 	type ToolCallSummary,
@@ -839,7 +839,7 @@ export async function createAgentSession(
 	// Native sub-agents: register the canonical `Agent` tool so the model can
 	// delegate a self-contained task to a fresh sub-agent (own context window).
 	// Best-effort — if the runtime can't stand up, the chat still works.
-	let subagentGateway: TaskGateway | undefined
+	let subagentGateway: TaskScheduler | undefined
 	// Buffer of the in-flight sub-agent's tool steps. The gateway streams the
 	// child's events here while the parent's `Agent` tool call blocks; runTurn
 	// drains it onto the `Agent` result as a `├─/└─` tree. Scoped per `Agent`
@@ -1479,7 +1479,7 @@ interface RunTurnParams {
 	readonly systemPrompt: string | undefined
 	readonly messages: readonly Message[]
 	readonly opts: SendOptions | undefined
-	readonly taskGateway: TaskGateway | undefined
+	readonly taskGateway: TaskScheduler | undefined
 	readonly childSteps: string[]
 	/**
 	 * Where this turn's commands run. Absent means the host process, which

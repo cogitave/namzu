@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { getRootLogger } from '../../utils/logger.js'
 
-import type { TaskGateway, TaskHandle } from '../../types/agent/gateway.js'
+import type { TaskHandle, TaskScheduler } from '../../types/agent/scheduler.js'
 import type { TaskId } from '../../types/ids/index.js'
 import { CompletionInbox, formatCompletionNotification } from '../completion-inbox.js'
 
@@ -44,7 +44,7 @@ function handleFor(taskId: string, result?: string): TaskHandle {
  * methods and pretending otherwise would hide which.
  */
 function fakeGateway(): {
-	gateway: TaskGateway
+	gateway: TaskScheduler
 	settle: (h: TaskHandle) => void
 	/** Make the gateway KNOW about a task without announcing it. */
 	record: (h: TaskHandle) => void
@@ -63,7 +63,7 @@ function fakeGateway(): {
 		getTask(taskId: string) {
 			return known.get(taskId)
 		},
-	} as unknown as TaskGateway
+	} as unknown as TaskScheduler
 	return {
 		gateway,
 		record,
@@ -492,13 +492,13 @@ describe('a worker cannot end the boundary it is inside', () => {
 describe('the inbox does not require anything of a host gateway', () => {
 	it('uses only onTaskCompleted', () => {
 		// The whole point of attaching through the existing subscription: a
-		// host that implements TaskGateway keeps working untouched, and one
+		// host that implements TaskScheduler keeps working untouched, and one
 		// that was already firing completions into an empty listener set now
 		// has a listener.
 		const onTaskCompleted = vi.fn(() => () => {})
 		const inbox = new CompletionInbox()
 
-		inbox.attach({ onTaskCompleted } as unknown as TaskGateway)
+		inbox.attach({ onTaskCompleted } as unknown as TaskScheduler)
 
 		expect(onTaskCompleted).toHaveBeenCalledTimes(1)
 	})
@@ -546,7 +546,7 @@ describe('an inbox hears only about the tasks its own run launched', () => {
 		// The ordering the ownership check would otherwise turn from a stale
 		// flag into a LOST RESULT: `gateway.createTask` resolves one microtask
 		// before its caller can say who owns the task, and a fast worker is
-		// announced inside that window. `LocalTaskGateway` attaches its
+		// announced inside that window. `LocalTaskScheduler` attaches its
 		// completion continuation before returning the handle, so this is
 		// guaranteed to be reachable rather than merely possible.
 		const { gateway, settle } = fakeGateway()
@@ -573,7 +573,7 @@ describe('an inbox hears only about the tasks its own run launched', () => {
 				return () => {}
 			},
 			getTask: () => undefined,
-		} as unknown as TaskGateway
+		} as unknown as TaskScheduler
 		const inbox = new CompletionInbox()
 		inbox.attach(forgetful)
 
@@ -624,7 +624,7 @@ describe('an inbox hears only about the tasks its own run launched', () => {
 	it('loses an evicted entry only when the gateway has forgotten it too, and never silently', () => {
 		// Both layers defeated at once: a burst past the cap AND a gateway
 		// that forgets a task the instant it settles. This is the case the
-		// `TaskGateway.getTask` docs now name as the host's to pay for, and
+		// `TaskScheduler.getTask` docs now name as the host's to pay for, and
 		// the warning is what makes it diagnosable rather than an absence.
 		const warnings = captureWarnings()
 		let announce: ((h: TaskHandle) => void) | undefined
@@ -634,7 +634,7 @@ describe('an inbox hears only about the tasks its own run launched', () => {
 				return () => {}
 			},
 			getTask: () => undefined,
-		} as unknown as TaskGateway
+		} as unknown as TaskScheduler
 		const inbox = new CompletionInbox()
 		inbox.attach(forgetful)
 

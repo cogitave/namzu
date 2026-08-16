@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { PlanManager } from '../../../manager/plan/lifecycle.js'
-import type { TaskGateway } from '../../../types/agent/gateway.js'
+import type { TaskScheduler } from '../../../types/agent/scheduler.js'
 import type { RunId } from '../../../types/ids/index.js'
 import type { PlanApprovalRequest } from '../../../types/plan/index.js'
 import type { ToolContext } from '../../../types/tool/index.js'
@@ -24,7 +24,7 @@ import { buildCoordinatorTools } from '../index.js'
 
 const RUN = 'run_plan_approval' as RunId
 
-function unusedGateway(): TaskGateway {
+function unusedGateway(): TaskScheduler {
 	return {
 		async createTask() {
 			throw new Error('this test never launches')

@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 import type { AgentRuntimeContext } from '../../types/agent/base.js'
-import type { TaskGateway } from '../../types/agent/gateway.js'
+import type { TaskScheduler } from '../../types/agent/scheduler.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
 import { wrapUntrusted } from '../untrusted-envelope.js'
@@ -44,7 +44,7 @@ import type { TaskLaunchedCallback } from './index.js'
  * Neither is legacy. Pick by how much of the coordinator surface you want.
  */
 export interface AgentToolOptions {
-	gateway: TaskGateway
+	gateway: TaskScheduler
 	workingDirectory: string
 	runtimeContext?: AgentRuntimeContext
 	allowedAgentIds: string[]

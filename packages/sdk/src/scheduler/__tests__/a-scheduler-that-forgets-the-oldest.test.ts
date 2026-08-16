@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { AgentManagerContract } from '../../types/agent/manager.js'
 import type { AgentTask, AgentTaskContext } from '../../types/agent/task.js'
 import type { AgentId, TaskId } from '../../types/ids/index.js'
-import { LocalTaskGateway } from '../local.js'
+import { LocalTaskScheduler } from '../local.js'
 
 /**
  * The gateway's two ledgers — `trackedTaskIds` and `settledHandles` — had `add`
@@ -48,15 +48,15 @@ function context(): AgentTaskContext {
 	} as unknown as AgentTaskContext
 }
 
-function tracked(gateway: LocalTaskGateway): Set<TaskId> {
+function tracked(gateway: LocalTaskScheduler): Set<TaskId> {
 	return (gateway as unknown as { trackedTaskIds: Set<TaskId> }).trackedTaskIds
 }
 
-function settled(gateway: LocalTaskGateway): Map<TaskId, unknown> {
+function settled(gateway: LocalTaskScheduler): Map<TaskId, unknown> {
 	return (gateway as unknown as { settledHandles: Map<TaskId, unknown> }).settledHandles
 }
 
-async function launch(gateway: LocalTaskGateway, count: number): Promise<void> {
+async function launch(gateway: LocalTaskScheduler, count: number): Promise<void> {
 	for (let i = 0; i < count; i++) {
 		await gateway.createTask({
 			agentId: 'w' as AgentId,
@@ -70,7 +70,7 @@ describe('a gateway that outlives its run forgets the oldest', () => {
 	it('keeps every task of a run that never reaches the cap', async () => {
 		// The control, and the case that must not change: a supervisor reading
 		// its listing at the end of a run sees everything it launched.
-		const gateway = new LocalTaskGateway(
+		const gateway = new LocalTaskScheduler(
 			new CountingManager() as unknown as AgentManagerContract,
 			context(),
 		)
@@ -81,7 +81,7 @@ describe('a gateway that outlives its run forgets the oldest', () => {
 	})
 
 	it('stops growing once the cap is passed', async () => {
-		const gateway = new LocalTaskGateway(
+		const gateway = new LocalTaskScheduler(
 			new CountingManager() as unknown as AgentManagerContract,
 			context(),
 		)
@@ -94,7 +94,7 @@ describe('a gateway that outlives its run forgets the oldest', () => {
 	it('drops the oldest, not the newest', async () => {
 		// A cap that evicted the most recent would keep the ledger small and
 		// answer every question wrongly.
-		const gateway = new LocalTaskGateway(
+		const gateway = new LocalTaskScheduler(
 			new CountingManager() as unknown as AgentManagerContract,
 			context(),
 		)
@@ -112,7 +112,7 @@ describe('a gateway that outlives its run forgets the oldest', () => {
 		// unreachable through `listTasks`, which walks the ids — so it would be
 		// retained memory serving nothing, and the leak would survive its own
 		// fix.
-		const gateway = new LocalTaskGateway(
+		const gateway = new LocalTaskScheduler(
 			new CountingManager() as unknown as AgentManagerContract,
 			context(),
 		)

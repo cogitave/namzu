@@ -557,7 +557,13 @@ export interface QueryParams {
 
 	runtimeContext?: AgentRuntimeContext
 
-	taskGateway?: import('../../types/agent/gateway.js').TaskGateway
+	/**
+	 * @deprecated Renamed to {@link QueryParams.taskScheduler}. Removed in
+	 * the next major. Setting both to different instances throws.
+	 */
+	taskGateway?: import('../../types/agent/scheduler.js').TaskScheduler
+
+	taskScheduler?: import('../../types/agent/scheduler.js').TaskScheduler
 
 	/**
 	 * Where a worker completion goes when no tool call is waiting for it.
@@ -567,7 +573,7 @@ export interface QueryParams {
 	 * and the loop delivers what is left. Omitted, the loop drains nothing and
 	 * the behaviour is exactly what it was before the inbox existed.
 	 */
-	completionInbox?: import('../../gateway/completion-inbox.js').CompletionInbox
+	completionInbox?: import('../../scheduler/completion-inbox.js').CompletionInbox
 
 	onContextCreated?: (ctx: {
 		planManager: import('../../manager/plan/lifecycle.js').PlanManager
@@ -712,6 +718,12 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		params.contextCache,
 		'promptCache',
 		params.promptCache,
+	)
+	const taskScheduler = pickRenamed(
+		'taskGateway',
+		params.taskGateway,
+		'taskScheduler',
+		params.taskScheduler,
 	)
 
 	// The run's one correlated logger, built before anything below needs
@@ -1214,7 +1226,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		...(params.steering ? { steering: params.steering } : {}),
 		checkpointMgr,
 		planManager: ctx.planManager,
-		taskGateway: params.taskGateway,
+		taskGateway: taskScheduler,
 		completionInbox: params.completionInbox,
 		taskStore: params.taskStore,
 		// Run-scoped. An approval is a statement about this run's work;

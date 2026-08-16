@@ -4,13 +4,13 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { z } from 'zod'
-import { stubTaskGateway } from '../../../__fixtures__/task-gateway.js'
+import { stubTaskScheduler } from '../../../__fixtures__/task-scheduler.js'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 
-import { CompletionInbox } from '../../../gateway/completion-inbox.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { CompletionInbox } from '../../../scheduler/completion-inbox.js'
 import { defineTool } from '../../../tools/defineTool.js'
-import type { TaskHandle } from '../../../types/agent/gateway.js'
+import type { TaskHandle } from '../../../types/agent/scheduler.js'
 import type { SessionId, TaskId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { Message } from '../../../types/message/index.js'
@@ -204,7 +204,7 @@ function inboxHolding(taskId: string, result: string): CompletionInbox {
 	// gateway shared between two supervisors cannot cross-deliver.
 	inbox.launched(taskId as TaskId)
 	inbox.attach(
-		stubTaskGateway({
+		stubTaskScheduler({
 			onTaskCompleted: (cb: (h: TaskHandle) => void) => {
 				cb(completed(taskId, result))
 				return () => {}
@@ -307,7 +307,7 @@ describe('a run that ends some other way still hands over what finished', () => 
 		inbox.launched('tsk_bg' as TaskId)
 		let announce: ((h: TaskHandle) => void) | undefined
 		inbox.attach(
-			stubTaskGateway({
+			stubTaskScheduler({
 				onTaskCompleted: (cb: (h: TaskHandle) => void) => {
 					announce = cb
 					return () => {
@@ -402,7 +402,7 @@ describe('a run that ends some other way still hands over what finished', () => 
 		const inbox = new CompletionInbox()
 		let announce: ((h: TaskHandle) => void) | undefined
 		inbox.attach(
-			stubTaskGateway({
+			stubTaskScheduler({
 				onTaskCompleted: (cb: (h: TaskHandle) => void) => {
 					announce = cb
 					return () => {
@@ -491,7 +491,7 @@ describe('a run that ends some other way still hands over what finished', () => 
 		const inbox = new CompletionInbox()
 		let announce: ((h: TaskHandle) => void) | undefined
 		inbox.attach(
-			stubTaskGateway({
+			stubTaskScheduler({
 				onTaskCompleted: (cb: (h: TaskHandle) => void) => {
 					announce = cb
 					return () => {
@@ -589,7 +589,7 @@ describe('a run that ends some other way still hands over what finished', () => 
 		workdirs.push(workingDirectory)
 
 		const inbox = new CompletionInbox()
-		inbox.attach(stubTaskGateway({ onTaskCompleted: () => () => {}, getTask: () => undefined }))
+		inbox.attach(stubTaskScheduler({ onTaskCompleted: () => () => {}, getTask: () => undefined }))
 		// Launched, never settles, and the terminal tool ends the run over it.
 		inbox.expect('tsk_still_running' as TaskId)
 

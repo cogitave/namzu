@@ -6,9 +6,9 @@ import {
 	DEFAULT_STRUCTURED_OUTPUT_RETRIES,
 	STRUCTURED_OUTPUT_REPROMPT,
 } from '../../../constants/tools/index.js'
-import { formatCompletionNotification } from '../../../gateway/completion-inbox.js'
 import { renderSkillsSection } from '../../../persona/assembler.js'
 import { collectChatCompletion } from '../../../provider/collect-chat-completion.js'
+import { formatCompletionNotification } from '../../../scheduler/completion-inbox.js'
 import {
 	GENAI,
 	NAMZU,

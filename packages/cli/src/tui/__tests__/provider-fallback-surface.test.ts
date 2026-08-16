@@ -15,7 +15,7 @@ import {
 	type AgentDefinition,
 	AgentRegistry,
 	type LLMProvider,
-	LocalTaskGateway,
+	LocalTaskScheduler,
 	type RunEvent,
 } from '@namzu/sdk'
 
@@ -82,7 +82,7 @@ describe('a sub-agent resolves its provider independently', () => {
 		vi.spyOn(AgentRegistry.prototype, 'register').mockImplementation((def) => {
 			for (const d of Array.isArray(def) ? def : [def]) registered.push(d)
 		})
-		vi.spyOn(LocalTaskGateway.prototype, 'createTask').mockResolvedValue({
+		vi.spyOn(LocalTaskScheduler.prototype, 'createTask').mockResolvedValue({
 			taskId: 'tsk_1',
 		} as never)
 

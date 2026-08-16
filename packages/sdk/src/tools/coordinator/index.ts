@@ -1,9 +1,9 @@
 import { z } from 'zod'
-import type { CompletionInbox } from '../../gateway/completion-inbox.js'
 import type { PlanManager } from '../../manager/plan/lifecycle.js'
 import type { PendingAnswers, QuestionParkRecorder } from '../../runtime/query/question-park.js'
+import type { CompletionInbox } from '../../scheduler/completion-inbox.js'
 import type { AgentRuntimeContext } from '../../types/agent/base.js'
-import type { TaskGateway } from '../../types/agent/gateway.js'
+import type { TaskScheduler } from '../../types/agent/scheduler.js'
 import type { ResumeHandler, UserQuestionOption } from '../../types/hitl/index.js'
 import type { RunId, TaskId } from '../../types/ids/index.js'
 import type { TaskStore } from '../../types/task/index.js'
@@ -31,7 +31,7 @@ export type TaskLaunchedCallback = (
 ) => void
 
 export interface CoordinatorToolsOptions {
-	gateway: TaskGateway
+	gateway: TaskScheduler
 	workingDirectory: string
 	runtimeContext?: AgentRuntimeContext
 	allowedAgentIds: string[]
@@ -409,7 +409,7 @@ export const DELEGATION_TIMEOUT_MS = 60 * 60 * 1000
  * `NAMZU_DELEGATION_IDLE_MS` to change it.
  *
  * Only armed when the gateway can report progress at all; see
- * `TaskGateway.onTaskProgress`.
+ * `TaskScheduler.onTaskProgress`.
  */
 export const DELEGATION_IDLE_MS = readPositiveIntEnv('NAMZU_DELEGATION_IDLE_MS', 5 * 60 * 1000)
 
@@ -464,7 +464,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 	/**
 	 * The tasks THIS surface launched — the scope of everything it will read back.
 	 *
-	 * A `TaskGateway` is shared on purpose: `SupervisorAgentConfig.gateway`
+	 * A `TaskScheduler` is shared on purpose: `SupervisorAgentConfig.scheduler`
 	 * exists so a host can hand the same one to several runs. `listTasks()` is
 	 * therefore gateway-wide by design, and `agent_task_list` used to hand that
 	 * straight to the model — so a supervisor could read a sibling run's worker

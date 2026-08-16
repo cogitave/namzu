@@ -11,8 +11,8 @@ import type { ToolRegistryContract } from '../tool/index.js'
 import type { VerificationGateConfig } from '../verification/index.js'
 import type { BaseAgentConfig, BaseAgentResult } from './base.js'
 import type { AgentFactoryOptions } from './factory.js'
-import type { SiblingFailurePolicy, TaskGateway } from './gateway.js'
 import type { AgentManagerContract } from './manager.js'
+import type { SiblingFailurePolicy, TaskScheduler } from './scheduler.js'
 import type { WorkingMemoryProvider } from './working-memory.js'
 
 export interface SupervisorAgentConfig extends BaseAgentConfig {
@@ -48,7 +48,13 @@ export interface SupervisorAgentConfig extends BaseAgentConfig {
 	 */
 	allowDelegation?: boolean
 
-	gateway?: TaskGateway
+	/**
+	 * @deprecated Renamed to {@link SupervisorAgentConfig.scheduler}. Removed
+	 * in the next major. Setting both to different instances throws.
+	 */
+	gateway?: TaskScheduler
+
+	scheduler?: TaskScheduler
 	agentManager?: AgentManagerContract
 	tools?: ToolRegistryContract
 
@@ -94,7 +100,7 @@ export interface SupervisorAgentConfig extends BaseAgentConfig {
 	 * What a failed child means for the siblings still running. Defaults to
 	 * `'continue'`.
 	 *
-	 * `LocalTaskGateway` has honoured this since it was written, and the
+	 * `LocalTaskScheduler` has honoured this since it was written, and the
 	 * cancellation machinery behind `'cancel-siblings'` is complete — but the
 	 * policy was a constructor argument on a gateway the supervisor builds
 	 * itself, and the supervisor passed nothing. So every host in existence

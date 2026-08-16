@@ -26,6 +26,7 @@
 import { collectChatCompletion } from './provider/collect-chat-completion.js'
 import { BaseRegistry } from './registry/BaseRegistry.js'
 import { PromptCache, type PromptCacheConfig } from './runtime/query/prompt-cache.js'
+import { LocalTaskScheduler } from './scheduler/local.js'
 
 /**
  * @deprecated Renamed to {@link collectChatCompletion}. Removed in the next
@@ -60,3 +61,14 @@ export type ContextCache = PromptCache
  * @deprecated Renamed to {@link PromptCacheConfig}. Removed in the next major.
  */
 export type ContextCacheConfig = PromptCacheConfig
+
+/**
+ * @deprecated Renamed to {@link LocalTaskScheduler}. Removed in the next
+ * major. It schedules in-process agent tasks; it is not a facade over
+ * anything external, which is what "gateway" told a reader to expect.
+ */
+export const LocalTaskGateway = LocalTaskScheduler
+/**
+ * @deprecated Renamed to {@link LocalTaskScheduler}. Removed in the next major.
+ */
+export type LocalTaskGateway = LocalTaskScheduler

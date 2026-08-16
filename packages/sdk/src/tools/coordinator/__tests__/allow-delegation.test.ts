@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { TaskGateway } from '../../../types/agent/gateway.js'
+import type { TaskScheduler } from '../../../types/agent/scheduler.js'
 import { buildCoordinatorTools } from '../index.js'
 
 /**
@@ -24,7 +24,7 @@ import { buildCoordinatorTools } from '../index.js'
 const gateway = {
 	listTasks: () => [],
 	onTaskCompleted: () => () => {},
-} as unknown as TaskGateway
+} as unknown as TaskScheduler
 
 function namesFor(opts: {
 	agentIds: string[]

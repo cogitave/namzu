@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { PlanManager } from '../../../manager/plan/lifecycle.js'
-import type { TaskGateway, TaskHandle } from '../../../types/agent/gateway.js'
+import type { TaskHandle, TaskScheduler } from '../../../types/agent/scheduler.js'
 import type { RunId, TaskId } from '../../../types/ids/index.js'
 import type { ToolContext, ToolDefinition } from '../../../types/tool/index.js'
 import { buildCoordinatorTools } from '../index.js'
@@ -23,7 +23,7 @@ import { buildCoordinatorTools } from '../index.js'
 
 const RUN = 'run_step_binding' as RunId
 
-function gatewayReturning(outcome: 'ok' | 'failed'): TaskGateway {
+function gatewayReturning(outcome: 'ok' | 'failed'): TaskScheduler {
 	const handle = (taskId: TaskId): TaskHandle => ({
 		taskId,
 		agentId: 'worker',
@@ -83,7 +83,7 @@ function approvedPlan(): PlanManager {
 	return pm
 }
 
-function toolsOver(pm: PlanManager, gateway: TaskGateway): (name: string) => ToolDefinition {
+function toolsOver(pm: PlanManager, gateway: TaskScheduler): (name: string) => ToolDefinition {
 	const tools = buildCoordinatorTools({
 		gateway,
 		workingDirectory: '/tmp/test',

@@ -3,12 +3,12 @@ import type { AgentBus } from '../../../../bus/index.js'
 import type { WorkingStateManager } from '../../../../compaction/manager.js'
 import type { ContextReducer } from '../../../../compaction/reducer.js'
 import type { CompactionConfig } from '../../../../config/runtime.js'
-import type { CompletionInbox } from '../../../../gateway/completion-inbox.js'
 import type { PlanManager } from '../../../../manager/plan/lifecycle.js'
 import type { RunPersistence } from '../../../../manager/run/persistence.js'
 import type { ServingMember } from '../../../../provider/fallback.js'
+import type { CompletionInbox } from '../../../../scheduler/completion-inbox.js'
 import type { ActivityStore } from '../../../../store/activity/memory.js'
-import type { TaskGateway } from '../../../../types/agent/gateway.js'
+import type { TaskScheduler } from '../../../../types/agent/scheduler.js'
 import type { WorkingMemoryProvider } from '../../../../types/agent/working-memory.js'
 import type {
 	HITLResumeDecision,
@@ -104,7 +104,7 @@ export interface IterationContext {
 	readonly checkpointMgr: CheckpointManager
 	readonly planManager: PlanManager
 
-	readonly taskGateway?: TaskGateway
+	readonly taskGateway?: TaskScheduler
 
 	/**
 	 * Completions no call is waiting for, on their way to the transcript.

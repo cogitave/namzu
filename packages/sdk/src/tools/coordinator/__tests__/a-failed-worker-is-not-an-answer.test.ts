@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { TaskGateway, TaskHandle } from '../../../types/agent/gateway.js'
+import type { TaskHandle, TaskScheduler } from '../../../types/agent/scheduler.js'
 import type { TaskId } from '../../../types/ids/index.js'
 import type { ToolDefinition } from '../../../types/tool/index.js'
 import { buildCoordinatorTools } from '../index.js'
@@ -88,7 +88,7 @@ describe('create_task itself reaches the predicate', () => {
 			cancelTask: () => undefined,
 			continueTask: async () => undefined,
 			onTaskCompleted: () => () => undefined,
-		} as unknown as TaskGateway
+		} as unknown as TaskScheduler
 
 		const tools = buildCoordinatorTools({
 			gateway,

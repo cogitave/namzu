@@ -6,7 +6,7 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
-import type { TaskGateway, TaskHandle } from '../../../types/agent/gateway.js'
+import type { TaskHandle, TaskScheduler } from '../../../types/agent/scheduler.js'
 import type { SessionId, TaskId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { RunEvent } from '../../../types/run/index.js'
@@ -21,7 +21,7 @@ import { drainQuery } from '../index.js'
  * result (the listener was removed in dc16d58). The run must NOT
  * busy-wait on it.
  */
-function orphanTaskGateway(): TaskGateway {
+function orphanTaskGateway(): TaskScheduler {
 	const handle: TaskHandle = {
 		taskId: 'task_orphan' as TaskId,
 		agentId: 'agent_worker',

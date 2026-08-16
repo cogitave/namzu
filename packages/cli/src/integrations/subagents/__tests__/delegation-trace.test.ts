@@ -4,7 +4,7 @@ import {
 	type AgentDefinition,
 	AgentRegistry,
 	type LLMProvider,
-	LocalTaskGateway,
+	LocalTaskScheduler,
 	type ToolContext,
 } from '@namzu/sdk'
 
@@ -39,11 +39,11 @@ async function buildAgentTool(extra: { projectInstructions?: string } = {}) {
 	vi.spyOn(AgentRegistry.prototype, 'register').mockImplementation((def) => {
 		for (const d of Array.isArray(def) ? def : [def]) registered.push(d)
 	})
-	vi.spyOn(LocalTaskGateway.prototype, 'createTask').mockImplementation(async (options) => {
+	vi.spyOn(LocalTaskScheduler.prototype, 'createTask').mockImplementation(async (options) => {
 		created.push(options as unknown as Record<string, unknown>)
 		return { taskId: 'tsk_1' } as never
 	})
-	vi.spyOn(LocalTaskGateway.prototype, 'waitForTask').mockResolvedValue({
+	vi.spyOn(LocalTaskScheduler.prototype, 'waitForTask').mockResolvedValue({
 		state: 'completed',
 		result: { status: 'completed', result: 'done' },
 	} as never)

@@ -11,7 +11,7 @@ import type {
 import type { AgentId, RunId, SessionId, TaskId, TenantId } from '../../types/ids/index.js'
 import type { RunEventListener } from '../../types/run/events.js'
 import type { ProjectId, ThreadId } from '../../types/session/ids.js'
-import { LocalTaskGateway } from '../local.js'
+import { LocalTaskScheduler } from '../local.js'
 
 /**
  * A child that spoke before its own spawn resolved killed the launch.
@@ -109,7 +109,7 @@ function context(): AgentTaskContext {
 
 describe('a launch survives a child that speaks before the spawn resolves', () => {
 	it('does not throw when an event arrives mid-spawn', async () => {
-		const gateway = new LocalTaskGateway(new TalksDuringSpawn(3), context())
+		const gateway = new LocalTaskScheduler(new TalksDuringSpawn(3), context())
 		// The listener is what makes this reproduce, and its absence is what
 		// made the bug invisible for so long: with no progress subscriber the
 		// loop body never runs, so `task.taskId` is never evaluated and the
@@ -127,7 +127,7 @@ describe('a launch survives a child that speaks before the spawn resolves', () =
 		// The tee is what broke, not the forwarding. A host watching the child
 		// must not lose its early events to this fix.
 		const seen: string[] = []
-		const gateway = new LocalTaskGateway(new TalksDuringSpawn(3), context(), (e) => {
+		const gateway = new LocalTaskScheduler(new TalksDuringSpawn(3), context(), (e) => {
 			seen.push(e.type)
 		})
 
@@ -141,7 +141,7 @@ describe('a launch survives a child that speaks before the spawn resolves', () =
 		// not hold the handle yet — so silence there is correct. What must work
 		// is everything after.
 		const manager = new TalksDuringSpawn(1)
-		const gateway = new LocalTaskGateway(manager, context())
+		const gateway = new LocalTaskScheduler(manager, context())
 		const progressed: TaskId[] = []
 		gateway.onTaskProgress?.((id) => progressed.push(id))
 
@@ -157,7 +157,7 @@ describe('a launch survives a child that speaks before the spawn resolves', () =
 	})
 
 	it('survives a concurrent fan-out, which is how this was found', async () => {
-		const gateway = new LocalTaskGateway(new TalksDuringSpawn(2), context())
+		const gateway = new LocalTaskScheduler(new TalksDuringSpawn(2), context())
 		// Same reason as above: the live failure came through the idle bound's
 		// subscriber, so a fan-out test without one would not reproduce the
 		// thing it is named after.

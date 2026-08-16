@@ -7,7 +7,7 @@ import { z } from 'zod'
 import { MockLLMProvider } from '../../provider/mock.js'
 import { ToolNameCollisionError, ToolRegistry } from '../../registry/tool/execute.js'
 import { defineTool } from '../../tools/defineTool.js'
-import type { TaskGateway, TaskHandle } from '../../types/agent/gateway.js'
+import type { TaskHandle, TaskScheduler } from '../../types/agent/scheduler.js'
 import type { TaskId } from '../../types/ids/index.js'
 import { SupervisorAgent } from '../SupervisorAgent.js'
 
@@ -21,7 +21,7 @@ import { SupervisorAgent } from '../SupervisorAgent.js'
  * live listeners, each still holding its own run's handles and each still
  * being handed every other run's completions.
  */
-class HostGateway implements TaskGateway {
+class HostGateway implements TaskScheduler {
 	readonly listeners = new Set<(h: TaskHandle) => void>()
 
 	async createTask(): Promise<TaskHandle> {
@@ -60,7 +60,7 @@ const collidingTool = defineTool({
 })
 
 async function runOnce(
-	gateway: TaskGateway,
+	gateway: TaskScheduler,
 	id: string,
 	options: { collide?: boolean } = {},
 ): Promise<void> {

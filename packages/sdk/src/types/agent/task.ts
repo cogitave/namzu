@@ -46,7 +46,7 @@ export interface AgentTaskContext {
 	 * alone, handed down so a child asks the same person.
 	 *
 	 * Passed as the function itself, which works because delegation is
-	 * in-process: `LocalTaskGateway` is the only `TaskGateway` in the tree.
+	 * in-process: `LocalTaskScheduler` is the only `TaskScheduler` in the tree.
 	 * A gateway that dispatched across a process boundary could not carry a
 	 * closure and would have to proxy the request onto the parent's event
 	 * stream and route the answer back by request id — the upward half of
@@ -134,9 +134,9 @@ export interface AgentTask {
  * WorkspaceRef triple atomically on every spawn.
  */
 export interface SendMessageOptions {
-	/** See {@link import('./gateway.js').CreateTaskOptions.toolScope}. Deny-only. */
+	/** See {@link import('./scheduler.js').CreateTaskOptions.toolScope}. Deny-only. */
 	readonly toolScope?: { readonly deny: readonly string[] }
-	/** See {@link import('./gateway.js').CreateTaskOptions.personaOverride}. */
+	/** See {@link import('./scheduler.js').CreateTaskOptions.personaOverride}. */
 	readonly personaOverride?: import('../persona/index.js').AgentPersona
 
 	agentId: string

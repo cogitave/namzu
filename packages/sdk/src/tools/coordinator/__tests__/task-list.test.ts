@@ -12,7 +12,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import type { TaskGateway, TaskHandle } from '../../../types/agent/gateway.js'
+import type { TaskHandle, TaskScheduler } from '../../../types/agent/scheduler.js'
 import type { TaskId } from '../../../types/ids/index.js'
 import type { ToolContext } from '../../../types/tool/index.js'
 import { buildCoordinatorTools } from '../index.js'
@@ -36,7 +36,7 @@ function makeContext(): ToolContext {
  * scope exists to refuse. So the tests launch through the front door and the
  * fixture plays along.
  */
-function gatewayWith(handles: TaskHandle[]): TaskGateway {
+function gatewayWith(handles: TaskHandle[]): TaskScheduler {
 	let nextLaunch = 0
 	return {
 		async createTask() {

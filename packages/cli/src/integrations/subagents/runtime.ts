@@ -25,14 +25,14 @@ import {
 	InMemorySessionStore,
 	InMemoryTopicStore,
 	type LLMProvider,
-	LocalTaskGateway,
+	LocalTaskScheduler,
 	ReactiveAgent,
 	type ReactiveAgentConfig,
 	type RunEvent,
 	type RunId,
 	SessionSummaryMaterializer,
 	type SummaryId,
-	type TaskGateway,
+	type TaskScheduler,
 	type TenantId,
 	type ToolDefinition,
 	type ToolRegistryContract,
@@ -92,7 +92,7 @@ export interface SubagentRuntimeOptions {
 }
 
 export interface SubagentRuntime {
-	readonly gateway: TaskGateway
+	readonly gateway: TaskScheduler
 	readonly agentTool: ToolDefinition
 	readonly allowedAgentIds: readonly string[]
 }
@@ -171,7 +171,7 @@ export async function createSubagentRuntime(
 		parentActor: userActor,
 	}
 
-	const gateway = new LocalTaskGateway(manager, taskContext, opts.onEvent)
+	const gateway = new LocalTaskScheduler(manager, taskContext, opts.onEvent)
 
 	// Dynamic `Agent` tool: the model passes an optional `role` (the persona /
 	// system prompt) and we register + spawn a fresh specialist for it at call

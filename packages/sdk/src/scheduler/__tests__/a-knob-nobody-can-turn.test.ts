@@ -11,7 +11,7 @@ import type {
 } from '../../types/agent/task.js'
 import type { AgentId, RunId, SessionId, TaskId, TenantId } from '../../types/ids/index.js'
 import type { ProjectId, ThreadId } from '../../types/session/ids.js'
-import { LocalTaskGateway } from '../local.js'
+import { LocalTaskScheduler } from '../local.js'
 
 /**
  * `CreateTaskOptions.configOverrides` was declared, typed, and never read.
@@ -89,7 +89,7 @@ function context(): AgentTaskContext {
 describe('a delegated run is built with the config its caller asked for', () => {
 	it('forwards configOverrides to the spawn', async () => {
 		const manager = new RecordingManager()
-		const gateway = new LocalTaskGateway(manager, context())
+		const gateway = new LocalTaskScheduler(manager, context())
 
 		await gateway.createTask({
 			agentId: 'worker',
@@ -108,7 +108,7 @@ describe('a delegated run is built with the config its caller asked for', () => 
 		// A caller who sets both is saying the same thing twice, and the named
 		// field is the specific one for the job — so it is applied last.
 		const manager = new RecordingManager()
-		const gateway = new LocalTaskGateway(manager, context())
+		const gateway = new LocalTaskScheduler(manager, context())
 		const named = { spanContext: () => ({ traceId: 'named' }) } as unknown as Span
 		const buried = { spanContext: () => ({ traceId: 'buried' }) } as unknown as Span
 
@@ -130,7 +130,7 @@ describe('a delegated run is built with the config its caller asked for', () => 
 		// `configOverrides: {}` on every spawn and override nothing, which is
 		// harmless until something starts reading its presence as intent.
 		const manager = new RecordingManager()
-		const gateway = new LocalTaskGateway(manager, context())
+		const gateway = new LocalTaskScheduler(manager, context())
 
 		await gateway.createTask({ agentId: 'worker', prompt: 'work', workingDirectory: '/tmp' })
 

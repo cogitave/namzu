@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { TaskGateway } from '../../../types/agent/gateway.js'
+import type { TaskScheduler } from '../../../types/agent/scheduler.js'
 import { buildCoordinatorTools } from '../index.js'
 
 /**
@@ -24,7 +24,7 @@ const SERIALIZED_AS_XML = `<steps>
 </step>
 </steps>`
 
-function unusedGateway(): TaskGateway {
+function unusedGateway(): TaskScheduler {
 	return {
 		async createTask() {
 			throw new Error('not used')

@@ -1,5 +1,5 @@
 import { wrapUntrusted } from '../tools/untrusted-envelope.js'
-import type { TaskGateway, TaskHandle } from '../types/agent/gateway.js'
+import type { TaskHandle, TaskScheduler } from '../types/agent/scheduler.js'
 import { isTerminalAgentTaskState } from '../types/agent/task.js'
 import type { TaskId } from '../types/ids/index.js'
 import { type Logger, resolveLogger } from '../utils/logger.js'
@@ -52,7 +52,7 @@ const UNOWNED_BUFFER_LIMIT = 32
  * Claiming is what tells the two apart: a tool that delivers a completion
  * says so, and only unclaimed completions become envelopes.
  *
- * It attaches through `onTaskCompleted`, which every `TaskGateway` already
+ * It attaches through `onTaskCompleted`, which every `TaskScheduler` already
  * has, so a host gateway needs no change to take part — a host that was
  * firing completions into a listener set with no listeners now has one.
  */
@@ -81,7 +81,7 @@ export class CompletionInbox {
 	 *
 	 * `gateway.createTask` resolves one microtask before its caller can name
 	 * the task, and a worker that finishes inside that window is announced
-	 * first — `LocalTaskGateway` attaches its completion continuation before
+	 * first — `LocalTaskScheduler` attaches its completion continuation before
 	 * it returns the handle, so the ordering is guaranteed to be reachable
 	 * rather than merely possible. Dropping an unowned announcement outright
 	 * would therefore turn the leak fix into a LOST RESULT for exactly the
@@ -96,11 +96,11 @@ export class CompletionInbox {
 	private readonly arrivals = new Set<() => void>()
 	private detach?: () => void
 	/** Kept for {@link launched}: the source of truth about a task's state. */
-	private gateway?: TaskGateway
+	private gateway?: TaskScheduler
 
 	/**
 	 * `log` is optional and unresolved until it is actually needed (the
-	 * eviction-warning path in `hold()`), same reason as `LocalTaskGateway`.
+	 * eviction-warning path in `hold()`), same reason as `LocalTaskScheduler`.
 	 */
 	constructor(private readonly log?: Logger) {}
 
@@ -112,7 +112,7 @@ export class CompletionInbox {
 	 * queue every completion twice and reproduce the exact duplicate this
 	 * class exists to prevent.
 	 */
-	attach(gateway: TaskGateway): () => void {
+	attach(gateway: TaskScheduler): () => void {
 		if (this.detach) return this.detach
 		this.gateway = gateway
 		this.detach = gateway.onTaskCompleted((handle) => {
@@ -182,7 +182,7 @@ export class CompletionInbox {
 	 * announcement it already made. Asking `getTask` covers the case the
 	 * buffer cannot — an announcement evicted under load — but it rests on a
 	 * gateway still knowing about a task it has just settled, which is a
-	 * property of the implementations here rather than of the `TaskGateway`
+	 * property of the implementations here rather than of the `TaskScheduler`
 	 * contract, and `getTask`'s own docs now say so.
 	 */
 	launched(taskId: TaskId): void {

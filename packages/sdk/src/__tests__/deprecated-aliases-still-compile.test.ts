@@ -8,11 +8,15 @@ import {
 	type ContextCacheConfig,
 	type FencingToken,
 	type LeaseSummary,
+	LocalTaskGateway,
+	LocalTaskScheduler,
 	PromptCache,
 	type PromptCacheConfig,
 	Registry,
 	type RunClaim,
 	type RunLease,
+	type TaskGateway,
+	type TaskScheduler,
 	collect,
 	collectChatCompletion,
 } from '../index.js'
@@ -46,6 +50,7 @@ describe('the renamed exports keep their old spellings for one window', () => {
 		expect(collect).toBe(collectChatCompletion)
 		expect(Registry).toBe(BaseRegistry)
 		expect(ContextCache).toBe(PromptCache)
+		expect(LocalTaskGateway).toBe(LocalTaskScheduler)
 	})
 
 	it('keeps the old spellings usable, not merely present', () => {
@@ -75,5 +80,39 @@ describe('the renamed exports keep their old spellings for one window', () => {
 		const _summary: ClaimSummary = {} as LeaseSummary
 
 		expect([_r, _c, _p, _cache, _lease, _fence, _summary]).toHaveLength(7)
+	})
+
+	it('still compiles an outside implementor written against the old interface', () => {
+		// An `implements` clause, not a type assignment, and the difference
+		// is the whole point. `const x: TaskGateway = y` proves the alias
+		// resolves; it does not prove the interface is still SATISFIABLE from
+		// the outside. The CLI's own subagent runtime implements this, and so
+		// does every host that wrote one — a window that type-checks
+		// assignments but breaks `implements` is not a window.
+		class Host implements TaskGateway {
+			async createTask() {
+				return {} as never
+			}
+			async waitForTask() {
+				return {} as never
+			}
+			async continueTask() {}
+			cancelTask() {}
+			getTask() {
+				return undefined
+			}
+			listTasks() {
+				return []
+			}
+			onTaskCompleted() {
+				return () => {}
+			}
+		}
+
+		// And the new name accepts it, so the two are one interface rather
+		// than two that happen to look alike.
+		const asNew: TaskScheduler = new Host()
+
+		expect(asNew.listTasks()).toEqual([])
 	})
 })

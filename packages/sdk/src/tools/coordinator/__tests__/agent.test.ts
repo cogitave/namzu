@@ -14,7 +14,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import type { TaskGateway, TaskHandle } from '../../../types/agent/gateway.js'
+import type { TaskHandle, TaskScheduler } from '../../../types/agent/scheduler.js'
 import type { TaskId } from '../../../types/ids/index.js'
 import type { ToolContext } from '../../../types/tool/index.js'
 import { buildAgentTool } from '../agent.js'
@@ -29,7 +29,7 @@ function makeContext(): ToolContext {
 	}
 }
 
-function fakeGateway(handle: TaskHandle, completed: TaskHandle): TaskGateway {
+function fakeGateway(handle: TaskHandle, completed: TaskHandle): TaskScheduler {
 	return {
 		async createTask() {
 			return handle

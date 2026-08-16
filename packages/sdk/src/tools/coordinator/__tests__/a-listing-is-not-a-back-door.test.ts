@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import type { TaskGateway, TaskHandle } from '../../../types/agent/gateway.js'
+import type { TaskHandle, TaskScheduler } from '../../../types/agent/scheduler.js'
 import type { TaskId } from '../../../types/ids/index.js'
 import type { ToolContext } from '../../../types/tool/index.js'
 import { buildCoordinatorTools } from '../index.js'
@@ -62,13 +62,13 @@ function sharedGateway() {
 		cancelTask: () => undefined,
 		continueTask: async () => undefined,
 		onTaskCompleted: () => () => {},
-	} as unknown as TaskGateway
+	} as unknown as TaskScheduler
 
 	return gateway
 }
 
 /** A run's own coordinator surface over a gateway it may be sharing. */
-function runOver(gateway: TaskGateway) {
+function runOver(gateway: TaskScheduler) {
 	const tools = buildCoordinatorTools({
 		gateway,
 		workingDirectory: '/tmp/test',

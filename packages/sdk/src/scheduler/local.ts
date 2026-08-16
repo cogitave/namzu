@@ -1,12 +1,12 @@
 import { taskFailed } from '../tools/coordinator/outcome.js'
 import type { AgentInput } from '../types/agent/base.js'
+import type { AgentManagerContract } from '../types/agent/manager.js'
 import type {
 	CreateTaskOptions,
 	SiblingFailurePolicy,
-	TaskGateway,
 	TaskHandle,
-} from '../types/agent/gateway.js'
-import type { AgentManagerContract } from '../types/agent/manager.js'
+	TaskScheduler,
+} from '../types/agent/scheduler.js'
 import type { AgentTaskContext } from '../types/agent/task.js'
 import type { TaskId } from '../types/ids/index.js'
 import { createUserMessage } from '../types/message/index.js'
@@ -25,7 +25,7 @@ import { type Logger, resolveLogger } from '../utils/logger.js'
  */
 const GATEWAY_TASK_LEDGER_CAP = 1_000
 
-export class LocalTaskGateway implements TaskGateway {
+export class LocalTaskScheduler implements TaskScheduler {
 	private agentManager: AgentManagerContract
 	private taskContext: AgentTaskContext
 	private listener: RunEventListener | undefined
@@ -177,7 +177,7 @@ export class LocalTaskGateway implements TaskGateway {
 			})
 			.catch((err) => {
 				resolveLogger(this.log)
-					.child({ component: 'LocalTaskGateway' })
+					.child({ component: 'LocalTaskScheduler' })
 					.error('Task completion tracking failed', {
 						taskId: task.taskId,
 						error: toErrorMessage(err),
@@ -220,7 +220,7 @@ export class LocalTaskGateway implements TaskGateway {
 
 		if (cancelled.length > 0) {
 			resolveLogger(this.log)
-				.child({ component: 'LocalTaskGateway' })
+				.child({ component: 'LocalTaskScheduler' })
 				.info('Cancelled siblings after a child failed', {
 					failed: finished.taskId,
 					agentId: finished.agentId,

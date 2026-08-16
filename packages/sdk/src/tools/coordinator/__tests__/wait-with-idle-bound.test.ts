@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import type { TaskGateway, TaskHandle } from '../../../types/agent/gateway.js'
+import type { TaskHandle, TaskScheduler } from '../../../types/agent/scheduler.js'
 import type { TaskId } from '../../../types/ids/index.js'
 import { describeWaitTimeout, waitForTaskWithBounds } from '../wait-with-idle-bound.js'
 
@@ -22,7 +22,7 @@ function gatewayFor(opts: {
 	/** Resolve the wait when this is called. */
 	settle?: (resolve: (h: TaskHandle) => void) => void
 	withProgress?: boolean
-}): { gateway: TaskGateway; progress: () => void; finish: () => void } {
+}): { gateway: TaskScheduler; progress: () => void; finish: () => void } {
 	let resolveWait: ((h: TaskHandle) => void) | undefined
 	const listeners = new Set<(id: TaskId) => void>()
 
@@ -48,7 +48,7 @@ function gatewayFor(opts: {
 						return () => listeners.delete(cb)
 					},
 				}),
-	} as unknown as TaskGateway
+	} as unknown as TaskScheduler
 
 	return {
 		gateway,

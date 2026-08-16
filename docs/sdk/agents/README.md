@@ -17,7 +17,7 @@ Think about the public agent surfaces in two layers:
 | Layer | Owns | Main exports |
 | --- | --- | --- |
 | Agent class | how one run is executed | `ReactiveAgent`, `PipelineAgent`, `RouterAgent`, `SupervisorAgent`, `defineAgent()` |
-| Orchestration runtime | how child work is provisioned, tracked, and persisted | `AgentManager`, `LocalTaskGateway`, invocation state, session hierarchy |
+| Orchestration runtime | how child work is provisioned, tracked, and persisted | `AgentManager`, `LocalTaskScheduler`, invocation state, session hierarchy |
 
 The classes are intentionally different:
 
@@ -33,7 +33,7 @@ The classes are intentionally different:
 | `ReactiveAgent` | most apps, tool use, model-driven iteration | provider, tools, model, runtime IDs |
 | `PipelineAgent` | deterministic stages, validation, rollback | step functions, optional provider |
 | `RouterAgent` | one input must be routed to one target agent | provider, routes, compatible child-agent config shape |
-| `SupervisorAgent` | multi-agent task launch and coordination | provider plus either `gateway` or `agentManager` |
+| `SupervisorAgent` | multi-agent task launch and coordination | provider plus either `scheduler` or `agentManager` |
 | `defineAgent()` | custom wrappers around the SDK result contract | you own the entire `run()` implementation |
 
 If you are unsure, start with `ReactiveAgent`. Move up only when the runtime has a real routing or task-delegation requirement.
@@ -201,7 +201,7 @@ That last step matters. From the current implementation, `RouterAgent` forwards 
 `SupervisorAgent` coordination flow:
 
 1. create coordinator tools
-2. launch child tasks through a `gateway` or `agentManager`
+2. launch child tasks through a `scheduler` or `agentManager`
 3. keep task handles
 4. run the parent loop through `drainQuery()`
 5. collect child task results into the final supervisor result
@@ -217,7 +217,7 @@ That last step matters. From the current implementation, `RouterAgent` forwards 
 Current hard requirements:
 
 - `SupervisorAgent` requires `sessionId`, `projectId`, and `tenantId`
-- it also requires either `gateway` or `agentManager`
+- it also requires either `scheduler` or `agentManager`
 - if you want managed child spawning, pass `agentManager`
 - `ask_user_question` is registered only when both `resumeHandler` and `runId`
   are available. Its model contract requires `options` to be a JSON array of
@@ -247,7 +247,7 @@ only mean something together — if one leg of a comparison dies, the others are
 spending budget on an answer nobody can use. The choice is now expressible; the
 answer has not changed.
 
-`siblingFailurePolicy` is **ignored when you supply your own `gateway`**, which
+`siblingFailurePolicy` is **ignored when you supply your own `scheduler`**, which
 owns its own policy.
 
 ### Pinning a delegated run's config
@@ -391,19 +391,19 @@ per check.
 > **Changed in `@namzu/sdk` 11.0.0.** `agent_task_list` and `wait_for_task`
 > now see only the tasks their own run launched.
 
-A `TaskGateway` is shared on purpose — `SupervisorAgentConfig.gateway` exists so
+A `TaskScheduler` is shared on purpose — `SupervisorAgentConfig.scheduler` exists so
 a host can hand the same one to several runs — which makes
-`TaskGateway.listTasks()` gateway-wide by design. `agent_task_list` used to hand
+`TaskScheduler.listTasks()` scheduler-wide by design. `agent_task_list` used to hand
 that straight to the model, including each task's `result`, so a supervisor
 could read a sibling run's worker output by listing. `wait_for_task` had the
 same reach.
 
 The scope lives in the coordinator tools rather than in `listTasks()` because
 the two answer different questions. **A host calling `listTasks()` is the
-operator** and may legitimately want everything on its gateway; a model calling
-`agent_task_list` is one run asking about its own work. Narrowing the gateway
+operator** and may legitimately want everything on its scheduler; a model calling
+`agent_task_list` is one run asking about its own work. Narrowing the scheduler
 method would take the operator's view away in order to fix the model's — so if
-you want the wide view, call `TaskGateway.listTasks()` yourself. It is
+you want the wide view, call `TaskScheduler.listTasks()` yourself. It is
 unchanged.
 
 `wait_for_task` gives the same answer for a sibling's task as for one that never
@@ -411,9 +411,9 @@ existed. Distinguishing them would confirm a task id to a run that was not
 supposed to know it — the leak in miniature.
 
 **Also worth knowing:** a task launched through a *different* surface on the
-same gateway — `buildAgentTool`, or the host directly — is not listed by these
+same scheduler — `buildAgentTool`, or the host directly — is not listed by these
 tools either. That is the same rule rather than an exception to it, but it is a
-behaviour change if you mixed surfaces on one gateway and listed through the
+behaviour change if you mixed surfaces on one scheduler and listed through the
 coordinator.
 
 #### Reporting a plan step from a delegated launch
@@ -451,12 +451,12 @@ Giving up on the wait does not cancel the worker. The child keeps going and its
 completion still arrives as a task notification, because a wait that ran out is
 a statement about the waiter, not about the work.
 
-The idle bound needs a signal that a task did something, and only a gateway can
-see it: `TaskGateway.onTaskProgress` is **optional**, because not every host can
-observe its children. A gateway without it is bounded by the wall clock alone,
+The idle bound needs a signal that a task did something, and only a scheduler can
+see it: `TaskScheduler.onTaskProgress` is **optional**, because not every host can
+observe its children. A scheduler without it is bounded by the wall clock alone,
 exactly as before — and that degradation is visible rather than silent, because
 the timeout result carries `idleBoundArmed` and the message says outright that
-this gateway cannot tell a busy worker from a stuck one.
+this scheduler cannot tell a busy worker from a stuck one.
 
 #### The inbox, and what depends on it
 
@@ -474,16 +474,16 @@ owns it.
   than quietly made blocking, and the messages a tool returns when a wait is
   abandoned stop promising a notification that cannot come.
 - **An inbox hears only about the tasks its own run launched.**
-  `onTaskCompleted` is a broadcast and a gateway can be shared between runs, so
+  `onTaskCompleted` is a broadcast and a scheduler can be shared between runs, so
   `create_task` tells the inbox about every launch it makes. If you launch
   tasks by some other route and want notifications for them, call
   `inbox.launched(taskId)` after the launch — ownership may be claimed after
   the completion has already been announced, so the order does not matter.
-- **A host gateway should still know about a task it has just settled.**
+- **A host scheduler should still know about a task it has just settled.**
   `getTask` is asked about a completion announced before its owner could be
   recorded, in the rare case the inbox's own buffer could not hold it. A
-  gateway that forgets immediately still works; see the note on
-  `TaskGateway.getTask`.
+  scheduler that forgets immediately still works; see the note on
+  `TaskScheduler.getTask`.
 
 #### Holding the run open
 
@@ -604,7 +604,7 @@ rather than only the refusal.
 
 | Mistake | Why it hurts |
 | --- | --- |
-| reaching for `SupervisorAgent` too early | you inherit manager, gateway, and child-task concerns before you need them |
+| reaching for `SupervisorAgent` too early | you inherit manager, scheduler, and child-task concerns before you need them |
 | assuming `RouterAgent` builds child config for you | it routes; it does not magically normalize incompatible child-agent configs |
 | putting hidden runtime data into the prompt | use `InvocationState` for internal runtime context instead |
 | expecting `ReactiveAgent.run()` to expose every kernel feature | query-only controls live in [Low-Level Runtime](../runtime/low-level.md) |

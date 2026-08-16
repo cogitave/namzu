@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import type { AgentTask } from '../../types/agent/task.js'
 import type { TaskId } from '../../types/ids/index.js'
-import { LocalTaskGateway } from '../local.js'
+import { LocalTaskScheduler } from '../local.js'
 
 /**
  * `listTasks` skipped every task the manager had evicted.
@@ -47,7 +47,7 @@ function managerWith(tasks: Map<string, AgentTask>) {
 }
 
 function gatewayOver(manager: ReturnType<typeof managerWith>, trackedIds: string[]) {
-	const gateway = Object.create(LocalTaskGateway.prototype) as LocalTaskGateway
+	const gateway = Object.create(LocalTaskScheduler.prototype) as LocalTaskScheduler
 	Object.assign(gateway, {
 		agentManager: manager,
 		trackedTaskIds: new Set(trackedIds as TaskId[]),

@@ -6,8 +6,8 @@ import { describe, expect, it } from 'vitest'
 import { MockLLMProvider, registerMock } from '../../provider/index.js'
 import { ToolRegistry } from '../../registry/index.js'
 import type { Agent } from '../../types/agent/core.js'
-import type { SiblingFailurePolicy } from '../../types/agent/gateway.js'
 import type { AgentManagerContract } from '../../types/agent/manager.js'
+import type { SiblingFailurePolicy } from '../../types/agent/scheduler.js'
 import type {
 	AgentTask,
 	AgentTaskContext,
@@ -20,7 +20,7 @@ import { SupervisorAgent } from '../SupervisorAgent.js'
 /**
  * `'cancel-siblings'` was unreachable from every entry point.
  *
- * `LocalTaskGateway` has honoured the policy since it was written and the
+ * `LocalTaskScheduler` has honoured the policy since it was written and the
  * cancellation machinery behind it is complete — but the policy was the fifth
  * constructor argument of a gateway the supervisor builds itself, and the
  * supervisor passed four. So every host in existence ran `'continue'`, and the

@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { AGENT_MANAGER_DEFAULTS } from '../../../constants/agent/index.js'
 import { EMPTY_TOKEN_USAGE } from '../../../constants/limits.js'
-import { LocalTaskGateway } from '../../../gateway/local.js'
 import { AgentRegistry } from '../../../registry/agent/definitions.js'
+import { LocalTaskScheduler } from '../../../scheduler/local.js'
 import {
 	DefaultCapacityValidator,
 	DelegationCapacityExceeded,
@@ -608,7 +608,7 @@ describe('AgentManager.sendMessage — budget and deadline arithmetic', () => {
 		// Go through the GATEWAY, which is where the clone was: calling
 		// `manager.sendMessage` directly always shared the tracker, so a test
 		// at that level proves nothing about the defect.
-		const gateway = new LocalTaskGateway(harness.manager, context)
+		const gateway = new LocalTaskScheduler(harness.manager, context)
 
 		for (let i = 0; i < 3; i++) {
 			const handle = await gateway.createTask({
@@ -649,7 +649,7 @@ describe('AgentManager.sendMessage — budget and deadline arithmetic', () => {
 		const context = buildContext(harness.parentSession.id, harness.projectId, harness.topicId)
 		context.budgetTracker = { total: 100_000, remaining: 100_000 }
 
-		const gateway = new LocalTaskGateway(harness.manager, context)
+		const gateway = new LocalTaskScheduler(harness.manager, context)
 		const handle = await gateway.createTask({
 			agentId: 'child-thrifty',
 			prompt: 'work',
@@ -677,7 +677,7 @@ describe('AgentManager.sendMessage — budget and deadline arithmetic', () => {
 		const context = buildContext(harness.parentSession.id, harness.projectId, harness.topicId)
 		context.budgetTracker = { total: 100_000, remaining: 100_000 }
 
-		const gateway = new LocalTaskGateway(harness.manager, context)
+		const gateway = new LocalTaskScheduler(harness.manager, context)
 		const first = await gateway.createTask({
 			agentId: 'child-slow',
 			prompt: 'work',
@@ -698,7 +698,7 @@ describe('AgentManager.sendMessage — budget and deadline arithmetic', () => {
  * every child holds an abort controller chained to the parent's — but
  * nothing connected a failure to it.
  */
-describe('LocalTaskGateway — what a failed child means for its siblings', () => {
+describe('LocalTaskScheduler — what a failed child means for its siblings', () => {
 	async function fanOut(policy?: 'continue' | 'cancel-siblings') {
 		// One agent that fails, one that would run long enough to be worth
 		// cancelling.
@@ -729,7 +729,7 @@ describe('LocalTaskGateway — what a failed child means for its siblings', () =
 		})
 
 		const context = buildContext(harness.parentSession.id, harness.projectId, harness.topicId)
-		const gateway = new LocalTaskGateway(
+		const gateway = new LocalTaskScheduler(
 			manager,
 			context,
 			undefined,

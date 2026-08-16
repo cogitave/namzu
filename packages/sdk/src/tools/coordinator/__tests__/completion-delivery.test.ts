@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
-import { CompletionInbox } from '../../../gateway/completion-inbox.js'
 import { renderToolSchema } from '../../../registry/tool/schema.js'
-import type { TaskGateway, TaskHandle } from '../../../types/agent/gateway.js'
+import { CompletionInbox } from '../../../scheduler/completion-inbox.js'
+import type { TaskHandle, TaskScheduler } from '../../../types/agent/scheduler.js'
 import type { TaskId } from '../../../types/ids/index.js'
 import type { ToolDefinition } from '../../../types/tool/index.js'
 import { DELEGATION_TIMEOUT_MS, buildCoordinatorTools } from '../index.js'
@@ -78,7 +78,7 @@ function harness(opts: { autoFinish?: boolean } = {}): Harness {
 			listeners.add(cb)
 			return () => listeners.delete(cb)
 		},
-	} as unknown as TaskGateway
+	} as unknown as TaskScheduler
 
 	const inbox = new CompletionInbox()
 	inbox.attach(gateway)
@@ -144,7 +144,7 @@ describe('the supervisor has a tool for every move it needs', () => {
 
 	it('mounts none of them when there is no roster to delegate to', () => {
 		const tools = buildCoordinatorTools({
-			gateway: { onTaskCompleted: () => () => {} } as unknown as TaskGateway,
+			gateway: { onTaskCompleted: () => () => {} } as unknown as TaskScheduler,
 			workingDirectory: '/tmp/test',
 			allowedAgentIds: [],
 		})
@@ -385,7 +385,7 @@ describe('background launching is offered only when it can be delivered', () => 
 				cancelTask: () => undefined,
 				continueTask: async () => undefined,
 				onTaskCompleted: () => () => {},
-			} as unknown as TaskGateway,
+			} as unknown as TaskScheduler,
 			workingDirectory: '/tmp/test',
 			allowedAgentIds: ['reviewer'],
 			// deliberately no completionInbox

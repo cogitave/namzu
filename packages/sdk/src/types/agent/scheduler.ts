@@ -71,7 +71,7 @@ export interface CreateTaskOptions {
 	 * agent's own definition supplies — the model it runs on, its iteration
 	 * ceiling, its thinking or effort settings.
 	 *
-	 * **This was accepted and dropped.** `LocalTaskGateway.createTask` built
+	 * **This was accepted and dropped.** `LocalTaskScheduler.createTask` built
 	 * its own `configOverrides` object out of `parentSpan` alone and never
 	 * read this field, so a caller pinning a delegated run to a cheaper model
 	 * got the agent's default model and no indication otherwise. It is
@@ -86,7 +86,7 @@ export interface CreateTaskOptions {
 	configOverrides?: Partial<BaseAgentConfig>
 }
 
-export interface TaskGateway {
+export interface TaskScheduler {
 	createTask(options: CreateTaskOptions): Promise<TaskHandle>
 
 	waitForTask(taskId: TaskId): Promise<TaskHandle>
@@ -110,7 +110,7 @@ export interface TaskGateway {
 	 * This is a request, not a requirement, and the cost of not meeting it is
 	 * yours: a gateway that forgets a task the instant it completes still
 	 * works, but under a burst large enough to overflow the buffer a fast
-	 * worker's result can go unannounced. `LocalTaskGateway` meets it for as
+	 * worker's result can go unannounced. `LocalTaskScheduler` meets it for as
 	 * long as the manager holds the record.
 	 */
 	getTask(taskId: TaskId): TaskHandle | undefined
@@ -132,7 +132,7 @@ export interface TaskGateway {
 	 * OPTIONAL, and the absence is meaningful rather than an oversight: a
 	 * gateway that cannot observe its children still works, and its waits
 	 * are bounded by the wall clock alone — which is exactly the behaviour
-	 * before this existed. It is optional because `TaskGateway` is
+	 * before this existed. It is optional because `TaskScheduler` is
 	 * implemented by hosts, and a required method would break every one of
 	 * them for a capability not all of them can provide.
 	 *
@@ -143,3 +143,14 @@ export interface TaskGateway {
 	 */
 	onTaskProgress?(callback: (taskId: TaskId) => void): () => void
 }
+
+/**
+ * @deprecated Renamed to {@link TaskScheduler}. Removed in the next major.
+ *
+ * "Gateway" names an object that sits at a system boundary and faces
+ * outward — Fowler's POEAA Gateway, an API gateway, a payment gateway. This
+ * one faces inward: it creates, waits on, continues, cancels and lists
+ * in-process agent tasks. A reader who trusted the name expected a facade
+ * over something external and found a scheduler.
+ */
+export type TaskGateway = TaskScheduler

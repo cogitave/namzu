@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { ToolRegistry } from '../../../registry/tool/execute.js'
-import type { TaskGateway } from '../../../types/agent/gateway.js'
+import type { TaskScheduler } from '../../../types/agent/scheduler.js'
 import type {
 	HITLDecisionRequest,
 	HITLResumeDecision,
@@ -17,7 +17,7 @@ const TOOL_USE_ID = 'toolu_question_1'
 const NO_ANSWER_SENTINEL =
 	'The user did not answer this question. Do not assume a choice or consent; proceed on your best judgment or continue without this information.'
 
-function unusedGateway(): TaskGateway {
+function unusedGateway(): TaskScheduler {
 	return {
 		async createTask() {
 			throw new Error('not used')

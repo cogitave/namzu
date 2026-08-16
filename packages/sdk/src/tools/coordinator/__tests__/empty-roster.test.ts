@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { TaskGateway } from '../../../types/agent/gateway.js'
+import type { TaskScheduler } from '../../../types/agent/scheduler.js'
 import { buildAgentTool } from '../agent.js'
 import { buildCoordinatorTools } from '../index.js'
 
@@ -29,7 +29,7 @@ const gateway = {
 	},
 	listTasks: () => [],
 	cancel: () => undefined,
-} as unknown as TaskGateway
+} as unknown as TaskScheduler
 
 function toolsFor(allowedAgentIds: string[], resumeHandler?: unknown) {
 	return buildCoordinatorTools({

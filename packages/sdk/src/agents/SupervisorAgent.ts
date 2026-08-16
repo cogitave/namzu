@@ -1,11 +1,10 @@
 import { EMPTY_TOKEN_USAGE } from '../constants/limits.js'
-import { CompletionInbox } from '../gateway/completion-inbox.js'
-import { LocalTaskGateway } from '../gateway/local.js'
 import { ToolNameCollisionError, ToolRegistry } from '../registry/tool/execute.js'
 import { drainQuery } from '../runtime/query/index.js'
 import { PendingAnswers, QuestionParkBinding } from '../runtime/query/question-park.js'
+import { CompletionInbox } from '../scheduler/completion-inbox.js'
+import { LocalTaskScheduler } from '../scheduler/local.js'
 import { buildCoordinatorTools } from '../tools/coordinator/index.js'
-import type { TaskGateway, TaskHandle } from '../types/agent/gateway.js'
 import type {
 	AgentInput,
 	AgentMetadata,
@@ -13,6 +12,7 @@ import type {
 	SupervisorAgentConfig,
 	SupervisorAgentResult,
 } from '../types/agent/index.js'
+import type { TaskHandle, TaskScheduler } from '../types/agent/scheduler.js'
 import type { AgentTaskContext } from '../types/agent/task.js'
 import type { AgentId, RunId } from '../types/ids/index.js'
 import { deriveChildState } from '../types/invocation/index.js'
@@ -20,6 +20,7 @@ import type { RunEventListener } from '../types/run/index.js'
 import type { ActorRef } from '../types/session/actor.js'
 import { ZERO_COST } from '../utils/cost.js'
 import type { Logger } from '../utils/logger.js'
+import { pickRenamed } from '../utils/renamed-field.js'
 import { AbstractAgent } from './AbstractAgent.js'
 
 /**
@@ -126,9 +127,20 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 			tenantId,
 		}
 
-		let gateway: TaskGateway
-		if (config.gateway) {
-			gateway = config.gateway
+		// One resolve for the two spellings. Read at each of the three sites
+		// instead, a host that set only `scheduler` would get a working one
+		// on one path and `undefined` on another — a half-migration that
+		// fails silently, which is worse than not renaming the field.
+		const configuredScheduler = pickRenamed(
+			'gateway',
+			config.gateway,
+			'scheduler',
+			config.scheduler,
+		)
+
+		let gateway: TaskScheduler
+		if (configuredScheduler) {
+			gateway = configuredScheduler
 		} else if (config.agentManager) {
 			const mergedFactoryOptions = config.factoryOptions
 				? {
@@ -166,14 +178,17 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 			// The only hop between the config and the gateway's policy. Omit it
 			// and the field is settable, documented, and read by nothing —
 			// which is exactly the state it was in before.
-			gateway = new LocalTaskGateway(config.agentManager, taskContext, listener, input, {
+			gateway = new LocalTaskScheduler(config.agentManager, taskContext, listener, input, {
 				...(config.siblingFailurePolicy
 					? { siblingFailurePolicy: config.siblingFailurePolicy }
 					: {}),
 				log: this.log,
 			})
 		} else {
-			throw new Error("SupervisorAgentConfig requires either 'gateway' or 'agentManager'")
+			// Names `scheduler`, not `gateway`. An error message is a piece of
+			// documentation delivered at the worst moment, and one that names
+			// a field being retired teaches the name on its way out.
+			throw new Error("SupervisorAgentConfig requires either 'scheduler' or 'agentManager'")
 		}
 
 		let planManagerRef: import('../manager/plan/lifecycle.js').PlanManager | undefined
