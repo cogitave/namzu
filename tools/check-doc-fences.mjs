@@ -41,6 +41,9 @@ const root = resolve(process.argv[2] ?? join(import.meta.dirname, ".."));
 const distDir = join(root, "packages", "sdk", "dist");
 const rel = (p) => relative(root, p).split("\\").join("/");
 
+/** Publishable packages whose built types are missing — see `fencePaths`. */
+const unbuilt = [];
+
 /**
  * What a fence is allowed to import, mapped to the artifact a reader would
  * actually get.
@@ -87,10 +90,18 @@ function fencePaths() {
 			const types =
 				typeof condition === "object" ? condition.types : undefined;
 			if (typeof types !== "string") continue;
-			const target = join(dir, types);
-			if (!existsSync(target)) continue;
 			const specifier =
 				subpath === "." ? manifest.name : `${manifest.name}${subpath.slice(1)}`;
+			const target = join(dir, types);
+			// An unbuilt sibling is NOT "this package has no types". Skipping it
+			// silently turns a missing build step into TS2307 on the reader's
+			// import line, which is a wrong diagnosis of a right complaint — the
+			// exact failure this gate produced in CI the first time it ran with
+			// more than one package in the map.
+			if (!existsSync(target)) {
+				unbuilt.push(specifier);
+				continue;
+			}
 			paths[specifier] = [toPosix(target)];
 		}
 	}
@@ -98,6 +109,8 @@ function fencePaths() {
 	if (existsSync(zod)) paths.zod = [toPosix(zod)];
 	return paths;
 }
+
+const FENCE_PATHS = fencePaths();
 
 let problems = 0;
 const fail = (...lines) => {
@@ -225,7 +238,7 @@ function compileFences(units) {
 			// The specifiers a READER writes. Mapped to the built packages, so a
 			// fence that names an internal symbol a package does not export
 			// fails here rather than passing against `src/`. See `fencePaths`.
-			paths: fencePaths(),
+			paths: FENCE_PATHS,
 			strict: true,
 			noEmit: true,
 			skipLibCheck: true,
@@ -255,6 +268,22 @@ function compileFences(units) {
 }
 
 // ---------------------------------------------------------------------------
+
+if (unbuilt.length > 0) {
+	console.log(
+		`doc-fence gate: ${unbuilt.length} publishable entry point(s) are not built:`,
+	);
+	for (const specifier of unbuilt) console.log(`  - ${specifier}`);
+	console.log("  Run: pnpm -r build");
+	console.log(
+		"  Refusing rather than compiling without them: an unmapped specifier fails as",
+	);
+	console.log(
+		"  TS2307 on the reader's import line, which blames the documentation for a",
+	);
+	console.log("  missing build step.");
+	process.exit(1);
+}
 
 if (!existsSync(join(distDir, "index.d.ts"))) {
 	console.log("doc-fence gate: packages/sdk/dist is missing.");

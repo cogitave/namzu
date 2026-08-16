@@ -334,8 +334,12 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Build the SDK the fences compile against
-        run: pnpm --filter @namzu/sdk build
+      # Every publishable package, not only the SDK. A fence documenting an
+      # optional package (`@namzu/lsp`, `@namzu/computer-use`) resolves that
+      # import against the package's BUILT types, so an unbuilt sibling reads
+      # as "cannot find module" — a wrong diagnosis of a missing build step.
+      - name: Build the packages the fences compile against
+        run: pnpm -r build
 
       - name: Docs standard gate
         run: node tools/check-docs.mjs
