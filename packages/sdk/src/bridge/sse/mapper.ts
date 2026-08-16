@@ -47,6 +47,14 @@ const MAPPING: {
 		transform: (e, runId) => ({ run_id: runId, iteration: e.iteration }),
 	},
 
+	// Named policies only, never the handler: the wire cannot carry a
+	// function, and the names are what an operator watching a live run
+	// needs in order to see supervision loosen.
+	approval_policy_changed: {
+		wire: 'approval_policy.changed',
+		transform: (e, runId) => ({ run_id: runId, from: e.from, to: e.to, reason: e.reason }),
+	},
+
 	iteration_completed: {
 		wire: 'iteration.completed',
 		transform: (e, runId) => ({ run_id: runId, iteration: e.iteration }),

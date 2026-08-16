@@ -150,6 +150,15 @@ export type StreamEventType =
 	| 'iteration.started'
 	| 'iteration.completed'
 	/**
+	 * Who answers when this run asks a human, changed mid-run.
+	 *
+	 * Wire-visible for the same reason `compaction.completed` is: an
+	 * operator watching a live run needs to see supervision loosen, not
+	 * infer it from approvals that stopped arriving. Names only — the wire
+	 * cannot carry a handler.
+	 */
+	| 'approval_policy.changed'
+	/**
 	 * A compaction pass replaced a span of history with a summary. Wire-
 	 * visible because the operation is destructive: a client rendering the
 	 * transcript needs to know its middle was dropped, not infer it.

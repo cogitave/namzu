@@ -236,3 +236,11 @@ export type {
 	CredentialRef as CredentialName,
 	ResolvedCredential,
 } from './vault/CredentialProvider.js'
+
+// Who answers when a run asks a human, as a value rather than a closure
+// captured at `query()` start. See `types/hitl/policy.ts`.
+export type {
+	ApprovalPolicy,
+	ApprovalPolicyChangedEvent,
+	RunApprovalPolicy,
+} from './types/hitl/policy.js'

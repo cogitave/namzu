@@ -97,6 +97,7 @@ import { EVENT_NAME_ATTRIBUTE } from '../../utils/log/types.js'
 import type { Logger } from '../../utils/logger.js'
 import { pickRenamed } from '../../utils/renamed-field.js'
 import type { BackgroundJobRegistry } from '../jobs/registry.js'
+import { AUTO_APPROVE_POLICY_NAME, createRunApprovalPolicy } from './approval-policy.js'
 import { CheckpointManager } from './checkpoint.js'
 import { RunContextFactory } from './context.js'
 import { EventTranslator } from './events.js'
@@ -607,6 +608,26 @@ export interface QueryParams {
 	permissionModeRef?: { current: import('../../types/permission/index.js').PermissionMode }
 
 	/**
+	 * A name for the policy `resumeHandler` implements.
+	 *
+	 * Only ever written to the durable log and shown to an operator, so it
+	 * costs nothing to omit — but omitting it means every entry about who
+	 * approved something says `host`, which is the answer that helps least.
+	 */
+	approvalPolicyName?: string
+
+	/**
+	 * Receive this run's approval-policy box, so it can be swapped mid-run.
+	 *
+	 * The box is built HERE rather than passed in, unlike
+	 * {@link permissionModeRef}, because changing the policy emits a durable
+	 * event and only the run holds the emitter. A host that constructed its
+	 * own box would be able to change the policy without recording it, which
+	 * is the one thing this must not allow.
+	 */
+	onApprovalPolicy?: (policy: import('../../types/hitl/policy.js').RunApprovalPolicy) => void
+
+	/**
 	 * Where a worker completion goes when no tool call is waiting for it.
 	 *
 	 * Supplied by whoever built the coordinator tools, because the tools and
@@ -987,8 +1008,37 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		log,
 	})
 
+	// Built here because the plan-approval closure below captures it, and
+	// its `emit` resolves `eventTranslator` at CALL time — the translator is
+	// a `const` some lines further down.
+	//
+	// The HANDOUT is therefore deliberately NOT here. A host given the box
+	// at this point can call `set` synchronously, `emit` reaches
+	// `eventTranslator` inside its temporal dead zone, and the run dies
+	// before it starts. That is not hypothetical: it is what the first
+	// version of this did, and the test that hands out the box and
+	// immediately swaps the policy is the one that found it.
+	const approvalPolicy = createRunApprovalPolicy({
+		runId: ctx.runId,
+		initial: {
+			// By identity against the default, not by presence. `resumeHandler`
+			// is REQUIRED on `QueryParams` — `drainQuery` substitutes
+			// `autoApproveHandler` before calling here — so "is it set" is
+			// always yes and would name every run `host`, including the ones
+			// approving everything unattended. Identity is what actually
+			// separates the two.
+			name:
+				params.approvalPolicyName ??
+				(params.resumeHandler === autoApproveHandler ? AUTO_APPROVE_POLICY_NAME : 'host'),
+			handler: params.resumeHandler,
+		},
+		emit: (event) => eventTranslator.emitEvent(event),
+	})
+
 	ctx.planManager.setApprovalHandler(async (request) => {
-		const decision = await params.resumeHandler({
+		// `.current.handler`, never a captured `params.resumeHandler`. That
+		// capture is what made changing the policy mean ending the run.
+		const decision = await approvalPolicy.current.handler({
 			type: 'plan_approval',
 			runId: ctx.runId,
 			checkpointId: `cp_plan_${request.planId}` as import('../../types/ids/index.js').CheckpointId,
@@ -1209,7 +1259,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				createToolPause({
 					runId: ctx.runId,
 					toolUseId,
-					parkHandler: params.resumeHandler,
+					parkHandler: (request) => approvalPolicy.current.handler(request),
 					recorder: questionParks,
 					pendingAnswers,
 				}),
@@ -1370,7 +1420,9 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		drainPending: () => eventTranslator.drainPending(),
 		abortController: ctx.abortController,
 		log: ctx.log,
-		resumeHandler: params.resumeHandler,
+		// Read through the box on every call, so a swap lands on the next
+		// question rather than the next run.
+		resumeHandler: (request) => approvalPolicy.current.handler(request),
 		...(params.steering ? { steering: params.steering } : {}),
 		checkpointMgr,
 		planManager: ctx.planManager,
@@ -1745,6 +1797,23 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				systemPrompt: assembledPrompt,
 			})
 			yield* eventTranslator.drainPending()
+
+			// The box is handed out HERE, after `run_started`, and the position
+			// is load-bearing rather than tidy. It moved twice:
+			//
+			//  1. Beside the box's construction — a host that called `set`
+			//     synchronously reached `eventTranslator` inside its temporal
+			//     dead zone and killed the run before it started.
+			//  2. Beside the translator's construction — the translator existed,
+			//     but the run directory did not, so the durable append hit
+			//     ENOENT on `transcript.jsonl`.
+			//
+			// Both were found by the test that takes the box and immediately
+			// swaps the policy, which is not an exotic host: it is the shape of
+			// "start unattended" wiring. A policy change is durably recorded
+			// before it takes effect, so the handout cannot precede the run
+			// being writable.
+			params.onApprovalPolicy?.(approvalPolicy)
 
 			// Surface capability degradation to the host as run events —
 			// explicit, not silent (the log.warn above fires at setup time;

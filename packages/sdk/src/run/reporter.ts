@@ -1,3 +1,4 @@
+import { NAMZU } from '../constants/telemetry/index.js'
 import type { Run, RunEvent, RunEventListener } from '../types/run/index.js'
 import { formatCost } from '../utils/cost.js'
 import { type Logger, resolveLogger } from '../utils/logger.js'
@@ -28,6 +29,18 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 					runId: event.runId,
 					hasSystemPrompt: !!event.systemPrompt,
 					systemPromptLength: event.systemPrompt?.length ?? 0,
+				})
+				break
+
+			case 'approval_policy_changed':
+				// `warn`, not `info`. Every change here is a change in how
+				// closely this run is supervised, and the one worth seeing in a
+				// scrolling log is the loosening nobody meant to leave on.
+				log.warn('Approval policy changed', {
+					[NAMZU.RUN_ID]: event.runId,
+					'namzu.approval.policy.from': event.from,
+					'namzu.approval.policy.to': event.to,
+					'namzu.approval.policy.reason': event.reason,
 				})
 				break
 

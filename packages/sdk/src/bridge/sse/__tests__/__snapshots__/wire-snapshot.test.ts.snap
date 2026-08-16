@@ -67,6 +67,15 @@ exports[`every RunEvent has a decided place on the SSE wire > pins the wire name
     ],
     "wire": "agent.pending",
   },
+  "approval_policy_changed": {
+    "keys": [
+      "from",
+      "reason",
+      "run_id",
+      "to",
+    ],
+    "wire": "approval_policy.changed",
+  },
   "capability_warning": null,
   "checkpoint_created": {
     "keys": [

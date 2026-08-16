@@ -103,6 +103,25 @@ type CoreRunEvent =
 	| { type: 'run_started'; runId: RunId; systemPrompt?: string }
 	| { type: 'iteration_started'; runId: RunId; iteration: number }
 	/**
+	 * Who answers when this run asks a human, changed mid-run.
+	 *
+	 * The policy used to be a closure captured at `query()` start, so
+	 * changing it meant ending the run. Now it is a value a host can swap —
+	 * and a swap that left no trace would be the worst version of that: an
+	 * incident review would see approvals with no way to tell which rule
+	 * granted them.
+	 *
+	 * Names, not handlers. A durable log cannot hold a function, and
+	 * `[Function (anonymous)]` is what a log says when somebody tries.
+	 */
+	| {
+			type: 'approval_policy_changed'
+			runId: RunId
+			from: string
+			to: string
+			reason: string
+	  }
+	/**
 	 * What the model was actually asked, when it changed.
 	 *
 	 * `run_started` records a system prompt once, and tool schemas never

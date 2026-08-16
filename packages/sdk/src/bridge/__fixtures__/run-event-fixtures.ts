@@ -70,6 +70,13 @@ const AGENT_RESULT = {
 export const RUN_EVENT_FIXTURES: Record<RunEvent['type'], () => RunEvent> = {
 	run_started: () => ({ type: 'run_started', runId: FIXTURE_RUN_ID }),
 	iteration_started: () => ({ type: 'iteration_started', runId: FIXTURE_RUN_ID, iteration: 1 }),
+	approval_policy_changed: () => ({
+		type: 'approval_policy_changed',
+		runId: FIXTURE_RUN_ID,
+		from: 'operator-tui',
+		to: 'auto-approve',
+		reason: 'operator stepped away',
+	}),
 	request_envelope: () => ({
 		type: 'request_envelope',
 		runId: FIXTURE_RUN_ID,

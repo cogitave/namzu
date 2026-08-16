@@ -983,3 +983,9 @@ export {
 	withHint,
 } from './types/errors/catalog.js'
 export type { ErrorCatalogRule, ErrorExplanation, ErrorFacts } from './types/errors/catalog.js'
+
+// The box itself is built by `query` — a host receives it through
+// `onApprovalPolicy` rather than constructing one, because changing the
+// policy emits a durable event and only the run holds the emitter. The name
+// constant is exported so a host can recognise the unattended default.
+export { AUTO_APPROVE_POLICY_NAME } from './runtime/query/approval-policy.js'

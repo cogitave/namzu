@@ -82,6 +82,12 @@ const MAPPING: {
 	// Capability degradation is host-facing diagnostics, not A2A task state.
 	capability_warning: null,
 
+	// Who approves on THIS side is an operator fact about this host, not a
+	// transition in the task the peer is watching. Forwarding it would also
+	// tell a remote caller how loosely its work is being supervised, which
+	// is not the peer's business.
+	approval_policy_changed: null,
+
 	iteration_started: (e, ctx) =>
 		statusEvent(e.runId, 'running', false, ctx, {
 			role: 'agent',
