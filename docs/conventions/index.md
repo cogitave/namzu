@@ -95,6 +95,12 @@ from reading as permission.
   loose matcher: `toContain(old)` cannot see a change that only adds around it.
   And the check that was never asked: a suite excluded from its own runner,
   reported as a pass. A separated suite announces its absence to nobody.
+- [A gate must say where it looks, and derive it](a-gate-must-say-where-it-looks.md)
+  — a green run is a claim about the files it opened, and silence over the rest
+  reads as approval. Five gates here claimed a scope wider than their code; the
+  two that printed what they skipped were legitimate and the three that said
+  nothing were not. Four kept the scope in a hand-written list, one of which was
+  already wrong by the hand of the person reading it.
 
 ### Reading the evidence
 
