@@ -537,7 +537,14 @@ export {
 } from './verification/index.js'
 export type { InvariantCheck, InvariantOutcome } from './verification/index.js'
 
-// ─── probe (typed observation over AgentBus + RunEvent stream) ───────────
+// ─── probe (typed observation AND enforcement over AgentBus + RunEvent) ──
+//
+// This said "typed observation", which was true of `on`/`onAny`/`dispatch`
+// and false of `veto`/`queryVeto`: a registered veto handler can deny a
+// tool call, and `runtime/query/executor.ts` turns that denial into a
+// failed `tool_result` — the third of the three gates on a tool call.
+// `ProbeObservation` and `ProbeEnforcement` let a signature say which half
+// it needs; `ProbeRegistry` implements both.
 
 export {
 	buildProbeContext,
@@ -547,6 +554,7 @@ export {
 	ProbeRegistry,
 	ProbeVetoError,
 } from './probe/index.js'
+export type { ProbeEnforcement, ProbeObservation } from './probe/index.js'
 
 export { wrapProviderWithProbes } from './provider/instrumentation.js'
 export type { ProviderInstrumentationOptions } from './provider/instrumentation.js'

@@ -79,7 +79,42 @@ function removeEntry(list: ProbeEntry[], entry: ProbeEntry): void {
 	if (idx >= 0) list.splice(idx, 1)
 }
 
-export class ProbeRegistry {
+/**
+ * The observation half: watch, and record what you saw.
+ *
+ * Split from the enforcement half because `ProbeRegistry` was described,
+ * in the SDK's own barrel, as "typed observation" — which is true of these
+ * four methods and false of the two below. A registered veto handler can
+ * DENY a tool call, and `runtime/query/executor.ts` turns that denial into
+ * a failed `tool_result`. That is the third of the three gates on a tool
+ * call, not telemetry.
+ *
+ * A consumer that wants telemetry had no way to say so: `ProbeRegistry`
+ * was the only export, so accepting one meant accepting the power to
+ * refuse. These two interfaces are what let a signature say which half it
+ * needs, and the class implements both unchanged.
+ */
+export interface ProbeObservation {
+	setLogger(log: Logger): void
+	on: ProbeRegistry['on']
+	onAny: ProbeRegistry['onAny']
+	dispatch: ProbeRegistry['dispatch']
+}
+
+/**
+ * The enforcement half: refuse, and make the refusal the outcome.
+ *
+ * `veto` registers a handler that can deny; `queryVeto` asks the
+ * registered handlers and returns their verdict. A caller holding only
+ * this cannot observe, and a caller holding only {@link ProbeObservation}
+ * cannot refuse.
+ */
+export interface ProbeEnforcement {
+	veto: ProbeRegistry['veto']
+	queryVeto: ProbeRegistry['queryVeto']
+}
+
+export class ProbeRegistry implements ProbeObservation, ProbeEnforcement {
 	private readonly typedByKind: Map<ProbeEventKind, ProbeEntry[]> = new Map()
 	private readonly vetoByKind: Map<VetoableEventKind, VetoEntry[]> = new Map()
 	private readonly catchAll: ProbeEntry[] = []

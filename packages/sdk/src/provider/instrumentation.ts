@@ -1,5 +1,6 @@
 import { buildProbeContext } from '../probe/context.js'
-import { type ProbeRegistry, probe as defaultProbeRegistry } from '../probe/registry.js'
+import { probe as defaultProbeRegistry } from '../probe/registry.js'
+import type { ProbeObservation } from '../probe/registry.js'
 import type { ProviderCallId, ProviderCallUsage } from '../types/bus/index.js'
 import type { TokenUsage } from '../types/common/index.js'
 import type { RunId } from '../types/ids/index.js'
@@ -8,7 +9,8 @@ import type { LLMProvider } from '../types/provider/interface.js'
 import type { StreamChunk } from '../types/provider/stream.js'
 
 export interface ProviderInstrumentationOptions {
-	readonly probes?: ProbeRegistry
+	/** Observation only — a provider wrapper records, it never refuses. */
+	readonly probes?: ProbeObservation
 	readonly runId?: RunId
 }
 

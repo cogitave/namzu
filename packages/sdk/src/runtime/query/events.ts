@@ -1,7 +1,8 @@
 import type { PlanEvent, PlanManager } from '../../manager/plan/lifecycle.js'
 import type { RunPersistence } from '../../manager/run/persistence.js'
 import { buildProbeContext } from '../../probe/context.js'
-import { type ProbeRegistry, probe as defaultProbeRegistry } from '../../probe/registry.js'
+import { probe as defaultProbeRegistry } from '../../probe/registry.js'
+import type { ProbeObservation } from '../../probe/registry.js'
 import type { ActivityEvent, ActivityStore } from '../../store/activity/memory.js'
 import type { RunId } from '../../types/ids/index.js'
 import type { ClaimFence } from '../../types/run/checkpoint-store.js'
@@ -29,13 +30,13 @@ const PENDING_EVENT_SOFT_CAP = 1000
 export class EventTranslator {
 	private pendingEvents: RunEvent[] = []
 	private runMgr: RunPersistence
-	private probes: ProbeRegistry
+	private probes: ProbeObservation
 	private droppedDeltaCount = 0
 	private readonly log: Logger
 
 	constructor(
 		runMgr: RunPersistence,
-		probeRegistry: ProbeRegistry = defaultProbeRegistry,
+		probeRegistry: ProbeObservation = defaultProbeRegistry,
 		log?: Logger,
 	) {
 		this.runMgr = runMgr

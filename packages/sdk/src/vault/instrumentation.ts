@@ -1,10 +1,12 @@
 import { buildProbeContext } from '../probe/context.js'
-import { type ProbeRegistry, probe as defaultProbeRegistry } from '../probe/registry.js'
+import { probe as defaultProbeRegistry } from '../probe/registry.js'
+import type { ProbeObservation } from '../probe/registry.js'
 import type { AuthConfig, CredentialRef, CredentialVault } from '../types/connector/index.js'
 import type { ConnectorId, CredentialId, RunId, TenantId } from '../types/ids/index.js'
 
 export interface VaultInstrumentationOptions {
-	readonly probes?: ProbeRegistry
+	/** Observation only — a vault wrapper records, it never refuses. */
+	readonly probes?: ProbeObservation
 	readonly runId?: RunId
 	readonly vaultId?: string
 	readonly tenantId?: TenantId

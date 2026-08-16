@@ -4,7 +4,8 @@ import type { WorkingStateManager } from '../../compaction/manager.js'
 import type { PluginLifecycleManager } from '../../plugin/lifecycle.js'
 import { buildProbeContext } from '../../probe/context.js'
 import { ProbeVetoError } from '../../probe/errors.js'
-import { type ProbeRegistry, probe as defaultProbeRegistry } from '../../probe/registry.js'
+import { probe as defaultProbeRegistry } from '../../probe/registry.js'
+import type { ProbeEnforcement } from '../../probe/registry.js'
 import { renderToolSchema } from '../../registry/tool/schema.js'
 import type { ActivityStore } from '../../store/activity/memory.js'
 import { fingerprintContent } from '../../tools/builtins/content-fingerprint.js'
@@ -256,7 +257,7 @@ export class ToolExecutor {
 	private emitEvent: EmitEvent
 	private log: Logger
 	private workingStateManager?: WorkingStateManager
-	private probes: ProbeRegistry
+	private probes: ProbeEnforcement
 	private parentSpan?: Span
 	/** Set per turn by the orchestrator; see {@link setStepAllowedTools}. */
 	private stepAllowedTools?: readonly string[]
@@ -280,7 +281,7 @@ export class ToolExecutor {
 		activityStore: ActivityStore,
 		emitEvent: EmitEvent,
 		log: Logger,
-		probes: ProbeRegistry = defaultProbeRegistry,
+		probes: ProbeEnforcement = defaultProbeRegistry,
 	) {
 		this.config = config
 		this.activityStore = activityStore
