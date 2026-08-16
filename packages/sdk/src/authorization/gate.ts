@@ -103,7 +103,12 @@ export class AuthorizationGate {
 		expandedRules.push(...parsed.rules)
 
 		if (parsed.allowReadOnlyTools) {
-			expandedRules.push({ type: 'allow_read_only' })
+			expandedRules.push({
+				type: 'allow_read_only',
+				...(parsed.allowReadOnlyExcludeCategories
+					? { excludeCategories: parsed.allowReadOnlyExcludeCategories }
+					: {}),
+			})
 		}
 		this.rules = expandedRules
 

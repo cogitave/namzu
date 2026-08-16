@@ -38,6 +38,10 @@ export function defaultSandboxedGateConfig(): AuthorizationGateConfig {
 	return {
 		enabled: true,
 		allowReadOnlyTools: true,
+		// See the shell preset below for what this closes: the read-only
+		// allowance asks whether a claim is trustworthy, never what channel
+		// the call travels over.
+		allowReadOnlyExcludeCategories: ['network'],
 		denyDangerousPatterns: true,
 		logDecisions: false,
 		rules: [{ type: 'allow_by_category', categories: ['filesystem', 'analysis', 'custom'] }],
@@ -66,6 +70,14 @@ export function defaultSandboxedShellGateConfig(): AuthorizationGateConfig {
 	return {
 		enabled: true,
 		allowReadOnlyTools: true,
+		// The docblock above says a `network` tool goes to review, and without
+		// this it did not: `allow_read_only` is appended last as a default for
+		// tools nobody wrote a rule about, and it resolved purely through
+		// `isTrustedReadOnly` — which asks whether the read-only CLAIM is
+		// trustworthy and never what the tool reaches. A read-only network
+		// call matched the default and was approved without review, in the
+		// preset whose own documentation said it would not be.
+		allowReadOnlyExcludeCategories: ['network'],
 		denyDangerousPatterns: true,
 		logDecisions: false,
 		rules: [

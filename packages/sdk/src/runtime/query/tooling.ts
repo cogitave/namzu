@@ -33,6 +33,8 @@ export interface ToolingBootstrapConfig {
 	backgroundJobs?: BackgroundJobRegistry
 	/** Where the `skill` tool reads from. */
 	skills?: SkillRegistryRef
+	/** How this run reaches the web. */
+	web?: import('../../types/tool/index.js').ToolContext['web']
 	toolRetryBackoff?: Partial<BackoffPolicy>
 	maxToolConcurrency?: number
 	maxToolOutputChars?: number
@@ -63,6 +65,7 @@ export class ToolingBootstrap {
 				pluginManager: config.pluginManager,
 				...(config.backgroundJobs ? { backgroundJobs: config.backgroundJobs } : {}),
 				...(config.skills ? { skills: config.skills } : {}),
+				...(config.web ? { web: config.web } : {}),
 				...(config.toolTimeoutMs !== undefined ? { toolTimeoutMs: config.toolTimeoutMs } : {}),
 				...(config.toolRetryBackoff !== undefined
 					? { toolRetryBackoff: config.toolRetryBackoff }

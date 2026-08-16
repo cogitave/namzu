@@ -155,6 +155,8 @@ export interface ToolExecutorConfig {
 	 * this config is host-facing and a host may hold its skills anywhere.
 	 */
 	skills?: SkillRegistryRef
+	/** How this run reaches the web. See `ToolContext.web`. */
+	web?: ToolContext['web']
 	invocationState?: InvocationState
 	pluginManager?: PluginLifecycleManager
 	/** Run-level default deadline; per-tool `timeoutMs` overrides it. */
@@ -631,6 +633,7 @@ export class ToolExecutor {
 				this.skillScope = { ...scope, adoptedInBatch: this.batchCounter }
 			},
 			...(this.config.skills ? { skills: this.config.skills } : {}),
+			...(this.config.web ? { web: this.config.web } : {}),
 			sandbox: this.config.sandbox,
 			fileReadTracker: this.fileReadTracker,
 			// Bound to this run, once. Binding here rather than passing the

@@ -6,6 +6,12 @@ export { GlobTool } from './glob.js'
 export { GrepTool } from './grep.js'
 export { JobTool } from './job.js'
 export { SKILL_TOOL_NAME, SkillTool, parseAllowedTools } from './skill.js'
+export {
+	WEB_FETCH_TOOL_NAME,
+	WEB_SEARCH_TOOL_NAME,
+	WebFetchTool,
+	WebSearchTool,
+} from './web.js'
 export { LsTool } from './ls.js'
 export { SearchToolsTool } from './search-tools.js'
 export { VerifyOutputsTool } from './verify-outputs.js'

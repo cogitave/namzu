@@ -212,6 +212,33 @@ export interface ToolContext {
 	skills?: SkillRegistryRef
 
 	/**
+	 * How this run reaches the web.
+	 *
+	 * Two independent halves, and either may be absent. This kernel ships a
+	 * guarded fetch provider and NO search backend, so `search` missing is
+	 * the ordinary case rather than a failure — the tools say which piece is
+	 * missing so an operator can tell a wiring decision from a fault.
+	 */
+	web?: {
+		readonly fetch?: {
+			fetch(request: { url: string; signal?: AbortSignal }): Promise<{
+				url: string
+				status: number
+				contentType?: string
+				body: string
+				truncated: boolean
+				redirects: readonly string[]
+			}>
+		}
+		readonly search?: {
+			search(request: { query: string; limit?: number; signal?: AbortSignal }): Promise<{
+				query: string
+				hits: readonly { title: string; url: string; snippet?: string }[]
+			}>
+		}
+	}
+
+	/**
 	 * Adopt the tool scope a skill declared.
 	 *
 	 * Called by the `skill` tool when a loaded skill names `allowed-tools`.

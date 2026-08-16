@@ -40,6 +40,17 @@ export { JobTool } from './tools/builtins/job.js'
 // to do, and offering a tool that can only refuse is worse than not
 // offering it. Hosts register it alongside a skills registry.
 export { SKILL_TOOL_NAME, SkillTool, parseAllowedTools } from './tools/builtins/skill.js'
+// Both declare `category: 'network'`, which is what the authorization
+// presets branch on. NOT in the default builtin set: a run with no web
+// provider has nothing for them to do, and only the `unattended` preset --
+// the one requiring the sandbox to confine the network -- auto-approves
+// them.
+export {
+	WEB_FETCH_TOOL_NAME,
+	WEB_SEARCH_TOOL_NAME,
+	WebFetchTool,
+	WebSearchTool,
+} from './tools/builtins/web.js'
 export { LsTool } from './tools/builtins/ls.js'
 export { SearchToolsTool } from './tools/builtins/search-tools.js'
 export { VerifyOutputsTool } from './tools/builtins/verify-outputs.js'

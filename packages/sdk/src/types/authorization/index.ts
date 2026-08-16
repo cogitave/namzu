@@ -10,7 +10,18 @@ export interface GateEvaluationResult {
 }
 
 export type AuthorizationRule =
-	| { type: 'allow_read_only' }
+	| {
+			/**
+			 * Categories this allowance does not reach, even when
+			 * `isTrustedReadOnly` says the read-only CLAIM is trustworthy.
+			 * `isTrustedReadOnly` has no notion of category — it answers
+			 * whether the claim can be believed, never what channel the call
+			 * travelled over. See `evaluateRule`'s `allow_read_only` case for
+			 * the category that actually needs this.
+			 */
+			type: 'allow_read_only'
+			excludeCategories?: string[]
+	  }
 	| { type: 'deny_dangerous_patterns' }
 	| { type: 'allow_by_category'; categories: string[] }
 	| { type: 'allow_by_name'; toolNames: string[] }
@@ -74,7 +85,16 @@ export type AuthorizationRule =
 	  }
 	| { type: 'allow_by_tier'; tiers: string[] }
 
-const AllowReadOnlySchema = z.object({ type: z.literal('allow_read_only') })
+const AllowReadOnlySchema = z.object({
+	type: z.literal('allow_read_only'),
+	// Optional, no default: a rule written before this field existed still
+	// parses and still means what it always meant. `.default([])` would make
+	// `AuthorizationGateConfig` — which is `z.infer` of the schema below, i.e.
+	// the zod OUTPUT type — require the field on every hand-authored literal
+	// in this repo and in every consumer, for no behavioural gain: `undefined`
+	// and `[]` are read identically.
+	excludeCategories: z.array(z.string()).optional(),
+})
 const DenyDangerousPatternsSchema = z.object({ type: z.literal('deny_dangerous_patterns') })
 const AllowByCategorySchema = z.object({
 	type: z.literal('allow_by_category'),
@@ -123,6 +143,15 @@ export const AuthorizationGateConfigSchema = z.object({
 	enabled: z.boolean().default(false),
 	rules: z.array(AuthorizationRuleSchema).default([]),
 	allowReadOnlyTools: z.boolean().default(false),
+	/**
+	 * Narrows the LAST-resort `allow_read_only` rule the gate appends for
+	 * {@link allowReadOnlyTools}. A category listed here falls through to
+	 * whatever comes next — another rule, or review — even for a call
+	 * `isTrustedReadOnly` would otherwise allow.
+	 *
+	 * `.optional()` for the reason `AllowReadOnlySchema.excludeCategories` is.
+	 */
+	allowReadOnlyExcludeCategories: z.array(z.string()).optional(),
 	denyDangerousPatterns: z.boolean().default(false),
 	logDecisions: z.boolean().default(true),
 })

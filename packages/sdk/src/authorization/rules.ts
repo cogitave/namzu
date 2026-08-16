@@ -16,7 +16,20 @@ export function evaluateRule(
 			// A server's own claim about its own tool cannot settle this. See
 			// `isTrustedReadOnly`: a self-declaration may raise the requirement
 			// and never lower it.
-			return isTrustedReadOnly(toolDef, toolInput) ? 'allow' : null
+			if (!isTrustedReadOnly(toolDef, toolInput)) return null
+
+			// Read-only is a claim about the DATA a call returns, not about the
+			// CHANNEL it travels over. A tool can be `readOnlyHint: true` AND
+			// `provenance.readOnlyHintTrusted: true` — a claim this rule would
+			// otherwise take at face value — and still cross the one boundary
+			// the gate exists to police, because `isTrustedReadOnly` only ever
+			// asks whether the CLAIM is trustworthy. `excludeCategories` lets a
+			// rule say "not this channel, however trusted the claim", falling
+			// through exactly as if nothing had matched.
+			const category = toolDef?.category
+			if (category && rule.excludeCategories?.includes(category)) return null
+
+			return 'allow'
 		}
 
 		case 'deny_dangerous_patterns': {

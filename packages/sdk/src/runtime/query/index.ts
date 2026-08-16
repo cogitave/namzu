@@ -269,6 +269,15 @@ export interface QueryParams {
 	skillRegistry?: import('../../types/tool/index.js').SkillRegistryRef
 
 	/**
+	 * How this run reaches the web.
+	 *
+	 * `fetch` and `search` are independent, and this kernel ships only the
+	 * first — see `connector/web` for why choosing a search backend here
+	 * would choose it for every consumer.
+	 */
+	web?: import('../../types/tool/index.js').ToolContext['web']
+
+	/**
 	 * Wait between in-loop retries of a failed tool call, with full jitter.
 	 * Defaults to {@link DEFAULT_TOOL_RETRY_BACKOFF}.
 	 *
@@ -1257,6 +1266,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			// held by the tool, because a tool that reached for a module-level
 			// registry would answer about whatever the last run configured.
 			...(params.skillRegistry ? { skills: params.skillRegistry } : {}),
+			...(params.web ? { web: params.web } : {}),
 			...(params.toolTimeoutMs !== undefined ? { toolTimeoutMs: params.toolTimeoutMs } : {}),
 			...(params.toolRetryBackoff !== undefined
 				? { toolRetryBackoff: params.toolRetryBackoff }
