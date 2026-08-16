@@ -1,5 +1,3 @@
-import { BaseExecutionContext } from './base.js'
-import { LocalExecutionContext } from './local.js'
 import type {
 	CommandExecutor,
 	CommandOptions,
@@ -11,6 +9,8 @@ import type {
 	RemoteTarget,
 } from '../types/connector/index.js'
 import type { Logger } from '../utils/logger.js'
+import { BaseExecutionContext } from './base.js'
+import { LocalExecutionContext } from './local.js'
 import { RemoteExecutionContext } from './remote.js'
 
 export interface HybridExecutionContextOptions {

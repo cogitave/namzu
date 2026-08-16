@@ -1,6 +1,6 @@
 import type { BaseConnector } from '../../connector/BaseConnector.js'
-import { ExecutionContextFactory } from '../../execution/factory.js'
 import type { BaseExecutionContext } from '../../execution/base.js'
+import { ExecutionContextFactory } from '../../execution/factory.js'
 import type { ConnectorRegistry } from '../../registry/connector/definitions.js'
 import type { ScopedConnectorRegistry } from '../../registry/connector/scoped.js'
 import type {

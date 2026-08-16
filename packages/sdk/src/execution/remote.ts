@@ -1,4 +1,3 @@
-import { BaseExecutionContext } from './base.js'
 import type {
 	CommandOptions,
 	CommandResult,
@@ -9,6 +8,7 @@ import type {
 	RemoteTarget,
 } from '../types/connector/index.js'
 import type { Logger } from '../utils/logger.js'
+import { BaseExecutionContext } from './base.js'
 
 export interface RemoteExecutionContextOptions {
 	id: string

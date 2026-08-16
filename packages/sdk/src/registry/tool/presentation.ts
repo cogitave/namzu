@@ -1,8 +1,8 @@
 import type { ToolRegistryContract, ToolResult } from '../../types/tool/index.js'
 import type { ToolCallView, ToolResultView } from '../../types/tool/presentation.js'
 import { toErrorMessage } from '../../utils/error.js'
-import type { Logger } from '../../utils/logger.js'
 import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
+import type { Logger } from '../../utils/logger.js'
 import { resolveLogger } from '../../utils/logger.js'
 
 /**
