@@ -4,8 +4,10 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { removeTempDirAsync } from '../../../__fixtures__/temp-dir.js'
 import { BOOT_EVENT_NAMES } from '../../../constants/telemetry/index.js'
+import { unchecked } from '../../../test-support/ids.js'
 import { IS_WINDOWS } from '../../../test-support/paths.js'
 import { UNKNOWN_TENANT_ID } from '../../../types/ids/index.js'
+import type { ProjectId } from '../../../types/ids/index.js'
 import { EVENT_NAME_ATTRIBUTE } from '../../../utils/log/types.js'
 import type { Logger } from '../../../utils/logger.js'
 import { FilesystemMigrationError } from '../errors.js'
@@ -76,7 +78,10 @@ describe('DefaultFilesystemMigrator.migrate', () => {
 
 		expect(result.kind).toBe('migrated')
 		expect(result.migratedThreads).toEqual([
-			{ legacyThreadId: 'thd_abc', newProjectId: `${LEGACY_DEFAULT_PROJECT_PREFIX}abc` },
+			{
+				legacyThreadId: 'thd_abc',
+				newProjectId: unchecked<ProjectId>(`${LEGACY_DEFAULT_PROJECT_PREFIX}abc`),
+			},
 		])
 
 		// New layout exists.
@@ -151,7 +156,10 @@ describe('DefaultFilesystemMigrator.migrate', () => {
 			version: MIGRATION_VERSION,
 			at: new Date(),
 			migratedThreads: [
-				{ legacyThreadId: 'thd_abc', newProjectId: `${LEGACY_DEFAULT_PROJECT_PREFIX}abc` },
+				{
+					legacyThreadId: 'thd_abc',
+					newProjectId: unchecked<ProjectId>(`${LEGACY_DEFAULT_PROJECT_PREFIX}abc`),
+				},
 			],
 		})
 
@@ -298,8 +306,14 @@ describe('DefaultFilesystemMigrator.migrate', () => {
 				result: {
 					kind: 'migrated',
 					migratedThreads: [
-						{ legacyThreadId: 'thd_a', newProjectId: `${LEGACY_DEFAULT_PROJECT_PREFIX}a` },
-						{ legacyThreadId: 'thd_b', newProjectId: `${LEGACY_DEFAULT_PROJECT_PREFIX}b` },
+						{
+							legacyThreadId: 'thd_a',
+							newProjectId: unchecked<ProjectId>(`${LEGACY_DEFAULT_PROJECT_PREFIX}a`),
+						},
+						{
+							legacyThreadId: 'thd_b',
+							newProjectId: unchecked<ProjectId>(`${LEGACY_DEFAULT_PROJECT_PREFIX}b`),
+						},
 					],
 					markerPath: '/root/.migration/v0.2.0',
 					at: new Date(),

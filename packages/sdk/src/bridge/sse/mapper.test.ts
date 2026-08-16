@@ -26,6 +26,7 @@
 
 import { describe, expect, it } from 'vitest'
 
+import { fixtureId } from '../../test-support/ids.js'
 import type {
 	ActivityId,
 	CheckpointId,
@@ -417,7 +418,7 @@ describe('mapRunToStreamEvent — explicit null set', () => {
 })
 
 describe('mapRunToStreamEvent — v3 message and tool-input lifecycle', () => {
-	const MID = 'msg_1' as `msg_${string}`
+	const MID = fixtureId.message('1')
 	const TUID = 'toolu_a'
 
 	it('message_started → message.created', () => {

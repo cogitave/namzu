@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { WireRun } from '../../../contracts/api.js'
+import { fixtureId } from '../../../test-support/ids.js'
 import { a2aMessageToCreateRun, runToA2ATask } from '../task.js'
 
 /**
@@ -47,7 +48,9 @@ describe('a2a contextId is the project, in both directions', () => {
 	it('round-trips, so a peer context names a project namzu can run under', () => {
 		// The property an interoperating peer actually depends on: the context
 		// it was handed is the context it can send back.
-		const task = runToA2ATask(wireRun({ project_id: 'prj_gamma' } as Partial<WireRun>))
+		const task = runToA2ATask(
+			wireRun({ project_id: fixtureId.project('gamma') } as Partial<WireRun>),
+		)
 		const request = a2aMessageToCreateRun('worker', {
 			contextId: task.contextId,
 			message: { role: 'user', parts: [{ kind: 'text', text: 'again' }] },

@@ -6,6 +6,7 @@ import { removeTempDirs } from '../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../provider/mock.js'
 import { ToolRegistry } from '../../registry/tool/execute.js'
 import { drainQuery } from '../../runtime/query/index.js'
+import { fixtureId } from '../../test-support/ids.js'
 import { createUserMessage } from '../../types/message/index.js'
 
 /**
@@ -119,10 +120,10 @@ async function runOnce(turns: { text?: string }[]): Promise<void> {
 		agentId: 'agent_cs',
 		agentName: 'Chat Span Agent',
 		workingDirectory: dir,
-		sessionId: 'ses_cs',
-		topicId: 'top_cs',
-		projectId: 'prj_cs',
-		tenantId: 'tnt_cs',
+		sessionId: fixtureId.session('cs'),
+		topicId: fixtureId.topic('cs'),
+		projectId: fixtureId.project('cs'),
+		tenantId: fixtureId.tenant('cs'),
 		messages: [createUserMessage('go')],
 	})
 }

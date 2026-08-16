@@ -12,6 +12,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { InMemoryCheckpointStore } from '../../store/run/checkpoint-memory.js'
+import { fixtureId } from '../../test-support/ids.js'
 import type { IterationCheckpoint } from '../../types/hitl/index.js'
 import type { CheckpointId, ProjectId, RunId, SessionId, TenantId } from '../../types/ids/index.js'
 import type {
@@ -257,7 +258,7 @@ describe('one pass over the queue', () => {
 			holder,
 			ttlMs,
 			onRun: (entry) => {
-				if (entry.runId === 'run_a') throw new Error('the work blew up')
+				if (entry.runId === fixtureId.run('a')) throw new Error('the work blew up')
 			},
 		})
 
@@ -277,7 +278,7 @@ describe('one pass over the queue', () => {
 		// The race the `null` return exists for: listed as free, gone by the
 		// time this drainer asked.
 		const raced = facade(store, {
-			claimRun: async (s, o) => (s.runId === 'run_a' ? null : store.claimRun(s, o)),
+			claimRun: async (s, o) => (s.runId === fixtureId.run('a') ? null : store.claimRun(s, o)),
 		})
 		const onRun = vi.fn()
 
@@ -380,7 +381,7 @@ describe('one pass over the queue', () => {
 		const raced = facade(store, {
 			claimRun: async (s, o) => {
 				const claim = await store.claimRun(s, o)
-				if (claim && s.runId === 'run_a') {
+				if (claim && s.runId === fixtureId.run('a')) {
 					const [seed] = await store.listCheckpoints(s)
 					await store.writeCheckpoint(
 						s,

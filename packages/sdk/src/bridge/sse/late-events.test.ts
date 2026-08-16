@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { fixtureId } from '../../test-support/ids.js'
 import type { RunId } from '../../types/ids/index.js'
 import type { RunEvent } from '../../types/run/events.js'
 import { mapRunToStreamEvent } from './mapper.js'
@@ -24,7 +25,7 @@ describe('the events the original mapper test predates', () => {
 			type: 'reasoning_started',
 			runId: RID,
 			iteration: 1,
-			messageId: 'msg_1',
+			messageId: fixtureId.message('1'),
 			blockIndex: 0,
 			reasoningType: 'thinking',
 		} as RunEvent)
@@ -32,7 +33,7 @@ describe('the events the original mapper test predates', () => {
 			type: 'reasoning_delta',
 			runId: RID,
 			iteration: 1,
-			messageId: 'msg_1',
+			messageId: fixtureId.message('1'),
 			blockIndex: 0,
 			text: 'weighing it up',
 		} as RunEvent)
@@ -40,7 +41,7 @@ describe('the events the original mapper test predates', () => {
 			type: 'reasoning_completed',
 			runId: RID,
 			iteration: 1,
-			messageId: 'msg_1',
+			messageId: fixtureId.message('1'),
 			blockIndex: 0,
 			signed: true,
 		} as RunEvent)
@@ -141,14 +142,14 @@ describe('the events the original mapper test predates', () => {
 		const asked = map({
 			type: 'user_question_asked',
 			runId: RID,
-			checkpointId: 'cp_1',
+			checkpointId: fixtureId.checkpoint('1'),
 			questionId: 'call_1:env',
 			question: 'which environment?',
 		} as RunEvent)
 		const answered = map({
 			type: 'user_question_answered',
 			runId: RID,
-			checkpointId: 'cp_1',
+			checkpointId: fixtureId.checkpoint('1'),
 			questionId: 'call_1:env',
 			answered: true,
 		} as RunEvent)

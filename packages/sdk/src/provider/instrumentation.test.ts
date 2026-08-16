@@ -18,6 +18,7 @@ import { describe, expect, it, vi } from 'vitest'
 
 import { buildProbeContext } from '../probe/context.js'
 import { createProbeRegistry } from '../probe/registry.js'
+import { fixtureId } from '../test-support/ids.js'
 import type { AgentBusEvent } from '../types/bus/index.js'
 import type { TokenUsage } from '../types/common/index.js'
 import type { ChatCompletionParams } from '../types/provider/chat.js'
@@ -155,7 +156,7 @@ describe('wrapProviderWithProbes — chatStream', () => {
 
 	it('uses the configured probe context (runId)', async () => {
 		const reg = createProbeRegistry()
-		const ctx = buildProbeContext({ runId: 'run_42' as `run_${string}` })
+		const ctx = buildProbeContext({ runId: fixtureId.run('42') })
 		const seen: AgentBusEvent[] = []
 		reg.onAny((event, c) => {
 			seen.push(event as AgentBusEvent)

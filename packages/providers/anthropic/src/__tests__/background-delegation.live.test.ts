@@ -1,6 +1,10 @@
 import {
 	CompletionInbox,
 	ToolRegistry,
+	asProjectId,
+	asSessionId,
+	asTenantId,
+	asTopicId,
 	buildCoordinatorTools,
 	drainQuery,
 	runAgent,
@@ -155,10 +159,10 @@ describe.skipIf(!KEY)('a background worker reaches a real supervisor', () => {
 				maxIterations: 6,
 				maxResponseTokens: 1_024,
 			},
-			sessionId: 'ses_live_delegation',
-			topicId: 'top_live_delegation',
-			projectId: 'prj_live_delegation',
-			tenantId: 'tnt_live_delegation',
+			sessionId: asSessionId('ses_live_delegation'),
+			topicId: asTopicId('top_live_delegation'),
+			projectId: asProjectId('prj_live_delegation'),
+			tenantId: asTenantId('tnt_live_delegation'),
 		})
 
 		const transcript = run.messages
@@ -222,10 +226,10 @@ describe.skipIf(!KEY)('a background worker reaches a real supervisor', () => {
 				maxIterations: 6,
 				maxResponseTokens: 1_024,
 			},
-			sessionId: 'ses_live_delegation',
-			topicId: 'top_live_delegation',
-			projectId: 'prj_live_delegation',
-			tenantId: 'tnt_live_delegation',
+			sessionId: asSessionId('ses_live_delegation'),
+			topicId: asTopicId('top_live_delegation'),
+			projectId: asProjectId('prj_live_delegation'),
+			tenantId: asTenantId('tnt_live_delegation'),
 		})
 
 		expect(run.result ?? '').toContain(SECRET)

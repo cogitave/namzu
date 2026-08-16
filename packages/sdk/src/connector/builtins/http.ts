@@ -8,6 +8,7 @@ import type {
 	HttpRequestInput,
 	HttpResponseOutput,
 } from '../../types/connector/index.js'
+import { asConnectorId } from '../../utils/id.js'
 import { BaseConnector } from '../BaseConnector.js'
 
 const HttpConnectorConfigSchema = z.object({
@@ -38,8 +39,17 @@ function stripTrailingSlashes(value: string): string {
 	return value.slice(0, end)
 }
 
+/**
+ * Checked once at module load, not per instance.
+ *
+ * `'conn_http' as const` typed this as its own literal, which satisfied
+ * `ConnectorId` only because the id types are still structural. The
+ * constructor is what makes the prefix a fact rather than a spelling.
+ */
+const HTTP_CONNECTOR_ID = asConnectorId('conn_http')
+
 export class HttpConnector extends BaseConnector<HttpConnectorConfig> {
-	readonly id = 'conn_http' as const
+	readonly id = HTTP_CONNECTOR_ID
 	readonly name = 'HTTP Connector'
 	readonly description = 'Generic HTTP/REST API connector for making HTTP requests'
 	readonly connectionType: ConnectionType = 'http'

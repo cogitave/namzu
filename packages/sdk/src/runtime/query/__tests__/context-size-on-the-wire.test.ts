@@ -6,6 +6,7 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { type CompactionConfig, CompactionConfigSchema } from '../../../config/runtime.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { fixtureId } from '../../../test-support/ids.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { RunEvent } from '../../../types/run/index.js'
 import { drainQuery } from '../index.js'
@@ -51,10 +52,10 @@ async function run(
 			agentId: 'agent_ctx',
 			agentName: 'Context Agent',
 			workingDirectory: dir,
-			sessionId: 'ses_ctx',
-			topicId: 'top_ctx',
-			projectId: 'prj_ctx',
-			tenantId: 'tnt_ctx',
+			sessionId: fixtureId.session('ctx'),
+			topicId: fixtureId.topic('ctx'),
+			projectId: fixtureId.project('ctx'),
+			tenantId: fixtureId.tenant('ctx'),
 			messages: [createUserMessage('go')],
 		},
 		(event: RunEvent) => {

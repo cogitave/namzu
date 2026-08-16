@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { fixtureId } from '../../../test-support/ids.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { AgentRunConfig } from '../../../types/run/index.js'
 import { drainQuery } from '../index.js'
@@ -47,10 +48,10 @@ async function run(overrides: Partial<AgentRunConfig>, turns: unknown[]): Promis
 		agentId: 'agent_effort',
 		agentName: 'Effort Agent',
 		workingDirectory: dir,
-		sessionId: 'ses_effort',
-		topicId: 'top_effort',
-		projectId: 'prj_effort',
-		tenantId: 'tnt_effort',
+		sessionId: fixtureId.session('effort'),
+		topicId: fixtureId.topic('effort'),
+		projectId: fixtureId.project('effort'),
+		tenantId: fixtureId.tenant('effort'),
 		messages: [createUserMessage('go')],
 	})
 

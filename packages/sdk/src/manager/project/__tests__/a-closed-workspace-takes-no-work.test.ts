@@ -17,6 +17,7 @@ import { WorkspaceBackendRegistry } from '../../../session/workspace/registry.js
 import { DiskSessionStore } from '../../../store/session/disk.js'
 import { InMemorySessionStore } from '../../../store/session/memory.js'
 import { InMemoryTopicStore as InMemoryThreadStore } from '../../../store/topic/memory.js'
+import { fixtureId } from '../../../test-support/ids.js'
 import type { BaseAgentConfig, BaseAgentResult } from '../../../types/agent/base.js'
 import type { Agent } from '../../../types/agent/core.js'
 import type { AgentDefinition } from '../../../types/agent/factory.js'
@@ -59,7 +60,7 @@ function silentAgent(): Agent<BaseAgentConfig, BaseAgentResult> {
 		},
 		async run(): Promise<BaseAgentResult> {
 			return {
-				runId: 'run_child',
+				runId: fixtureId.run('child'),
 				status: 'completed',
 				result: 'ok',
 				usage: { ...EMPTY_TOKEN_USAGE },

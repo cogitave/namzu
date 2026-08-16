@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { fixtureId } from '../../../../test-support/ids.js'
 import { type HITLResumeDecision, autoApproveHandler } from '../../../../types/hitl/index.js'
 import type { CheckpointId, RunId } from '../../../../types/ids/index.js'
 import type { ChatCompletionResponse } from '../../../../types/provider/index.js'
@@ -56,7 +57,7 @@ describe('handleHITLDecision answer_question case', () => {
 			handleHITLDecision(
 				ctx,
 				{ action: 'answer_question', selectedOptionIds: ['opt_1'] },
-				'cp_checkpoint_1',
+				fixtureId.checkpoint('checkpoint_1'),
 				'iteration checkpoint',
 			),
 		)

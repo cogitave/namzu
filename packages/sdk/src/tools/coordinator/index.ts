@@ -9,6 +9,7 @@ import type { RunId, TaskId } from '../../types/ids/index.js'
 import type { TaskStore } from '../../types/task/index.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
 import { toErrorMessage } from '../../utils/error.js'
+import { asCheckpointId, asTaskId } from '../../utils/id.js'
 import { defineTool } from '../defineTool.js'
 import { wrapUntrusted } from '../untrusted-envelope.js'
 import { failureLabel, taskSucceeded } from './outcome.js'
@@ -624,7 +625,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 
 			if (taskStore) {
 				if (resolvedPlanTaskId) {
-					await taskStore.update(resolvedPlanTaskId as `task_${string}`, {
+					await taskStore.update(asTaskId(resolvedPlanTaskId), {
 						status: 'in_progress',
 						owner: agent_id,
 					})
@@ -685,7 +686,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 				// worker behind it — indefinitely, since nothing later will
 				// close a task whose launch never happened.
 				if (resolvedPlanTaskId && taskStore) {
-					await taskStore.update(resolvedPlanTaskId as `task_${string}`, {
+					await taskStore.update(asTaskId(resolvedPlanTaskId), {
 						status: 'failed',
 						description: 'Failed: the launch was refused before any worker started',
 					})
@@ -788,7 +789,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 				// statuses saw work that had been done; only a reader of every
 				// description saw otherwise — and a dependent unit had no way
 				// to tell at all.
-				await taskStore.update(resolvedPlanTaskId as `task_${string}`, {
+				await taskStore.update(asTaskId(resolvedPlanTaskId), {
 					status: success ? 'completed' : 'failed',
 					description: success ? undefined : `Failed: ${resultText.substring(0, 200)}`,
 				})
@@ -1565,7 +1566,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 					(await parkHandler({
 						type: 'user_question',
 						runId: parkRunId,
-						checkpointId: parkedAt ?? `cp_question_${toolUseId}`,
+						checkpointId: parkedAt ?? asCheckpointId(`cp_question_${toolUseId}`),
 						question: questionData,
 					}))
 

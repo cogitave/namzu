@@ -28,6 +28,7 @@
 
 import { describe, expect, it } from 'vitest'
 
+import { fixtureId } from '../../test-support/ids.js'
 import type { CheckpointId, PlanId, RunId, TaskId } from '../../types/ids/index.js'
 import type { RunEvent } from '../../types/run/events.js'
 
@@ -101,7 +102,7 @@ describe('mapRunToA2AEvent — mapped variants', () => {
 			type: 'message_completed',
 			runId: RID,
 			iteration: 0,
-			messageId: 'msg_a' as `msg_${string}`,
+			messageId: fixtureId.message('a'),
 			stopReason: 'end_turn',
 			content: 'hi',
 		}
@@ -118,7 +119,7 @@ describe('mapRunToA2AEvent — mapped variants', () => {
 			type: 'message_completed',
 			runId: RID,
 			iteration: 0,
-			messageId: 'msg_b' as `msg_${string}`,
+			messageId: fixtureId.message('b'),
 			stopReason: 'tool_use',
 		}
 		expect(mapRunToA2AEvent(event)).toBeNull()
@@ -129,7 +130,7 @@ describe('mapRunToA2AEvent — mapped variants', () => {
 			type: 'message_completed',
 			runId: RID,
 			iteration: 0,
-			messageId: 'msg_c' as `msg_${string}`,
+			messageId: fixtureId.message('c'),
 			stopReason: 'end_turn',
 			content: '',
 		}

@@ -9,6 +9,7 @@ import type {
 	WebhookSendInput,
 	WebhookSendOutput,
 } from '../../types/connector/index.js'
+import { asConnectorId } from '../../utils/id.js'
 import { BaseConnector } from '../BaseConnector.js'
 
 const WebhookConnectorConfigSchema = z.object({
@@ -24,8 +25,11 @@ const WebhookSendInputSchema = z.object({
 	url: z.string().url().optional(),
 })
 
+/** Checked once at module load — see `HttpConnector`'s own constant. */
+const WEBHOOK_CONNECTOR_ID = asConnectorId('conn_webhook')
+
 export class WebhookConnector extends BaseConnector<WebhookConnectorConfig> {
-	readonly id = 'conn_webhook' as const
+	readonly id = WEBHOOK_CONNECTOR_ID
 	readonly name = 'Webhook Connector'
 	readonly description = 'Send webhook payloads to configured endpoints with optional HMAC signing'
 	readonly connectionType: ConnectionType = 'webhook'

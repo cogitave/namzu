@@ -13,6 +13,7 @@ import type {
 import {
 	DiskMemoryStore,
 	ToolRegistry,
+	asPlanId,
 	buildMemoryTools,
 	createToolPresenter,
 	getBuiltinTools,
@@ -388,7 +389,7 @@ describe('makeResumeHandler', () => {
 				type: 'plan_approval',
 				runId,
 				checkpointId,
-				plan: { planId: 'plan_x', title: 't', steps: [] },
+				plan: { planId: asPlanId('plan_x'), title: 't', steps: [] },
 			} as HITLDecisionRequest),
 		).toEqual({ action: 'approve_plan' })
 		expect(

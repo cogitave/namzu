@@ -9,6 +9,7 @@ import { RunPersistence } from '../../../manager/run/persistence.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { InMemoryRunStore } from '../../../store/run/memory.js'
+import { fixtureId } from '../../../test-support/ids.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { RunEvent } from '../../../types/run/events.js'
 import { isEphemeralEvent } from '../../../types/run/events.js'
@@ -190,7 +191,7 @@ describe('the number is a claim that the event is recoverable', () => {
 
 		vi.spyOn(store, 'appendEvent').mockRejectedValueOnce(new Error('disk full'))
 		await expect(
-			emitter.emitEvent({ type: 'run_started', runId: 'run_fail' } as RunEvent),
+			emitter.emitEvent({ type: 'run_started', runId: fixtureId.run('fail') } as RunEvent),
 		).rejects.toThrow('disk full')
 		// The next event must take the number the failed one did NOT consume.
 		await emitter.emitEvent({ type: 'iteration_started', runId: 'run_fail', iteration: 1 } as never)
@@ -244,7 +245,7 @@ describe('the sequence survives the process that was writing it', () => {
 		await store.appendEvent({ type: 'run_started', runId: 'run_restart', seq: 1 } as never)
 		await store.appendEvent({
 			type: 'iteration_started',
-			runId: 'run_restart',
+			runId: fixtureId.run('restart'),
 			iteration: 1,
 			seq: 2,
 		})

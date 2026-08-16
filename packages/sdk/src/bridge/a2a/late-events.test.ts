@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { fixtureId } from '../../test-support/ids.js'
 import type { RunId } from '../../types/ids/index.js'
 import type { RunEvent } from '../../types/run/events.js'
 import { mapRunToA2AEvent } from './mapper.js'
@@ -43,7 +44,7 @@ describe('what a remote peer is told', () => {
 		const mapped = map({
 			type: 'user_question_asked',
 			runId: RID,
-			checkpointId: 'cp_1',
+			checkpointId: fixtureId.checkpoint('1'),
 			questionId: 'call_1:env',
 			question: 'which environment?',
 		} as RunEvent)

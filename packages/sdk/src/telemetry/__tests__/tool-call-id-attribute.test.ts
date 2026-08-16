@@ -9,6 +9,7 @@ import { GENAI } from '../../constants/telemetry/index.js'
 import { MockLLMProvider } from '../../provider/mock.js'
 import { ToolRegistry } from '../../registry/tool/execute.js'
 import { drainQuery } from '../../runtime/query/index.js'
+import { fixtureId } from '../../test-support/ids.js'
 import type { RunId } from '../../types/ids/index.js'
 import { createUserMessage } from '../../types/message/index.js'
 import type { ToolContext } from '../../types/tool/index.js'
@@ -174,10 +175,10 @@ describe('the tool span carries the id of the call it is about', () => {
 			agentId: 'agent_callid',
 			agentName: 'Call Id Agent',
 			workingDirectory: dir,
-			sessionId: 'ses_callid',
-			topicId: 'top_callid',
-			projectId: 'prj_callid',
-			tenantId: 'tnt_callid',
+			sessionId: fixtureId.session('callid'),
+			topicId: fixtureId.topic('callid'),
+			projectId: fixtureId.project('callid'),
+			tenantId: fixtureId.tenant('callid'),
 			messages: [createUserMessage('go')],
 		})
 

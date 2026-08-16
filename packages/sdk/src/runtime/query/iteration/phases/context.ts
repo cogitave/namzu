@@ -16,6 +16,7 @@ import type {
 	IterationCheckpoint,
 	ResumeHandler,
 } from '../../../../types/hitl/index.js'
+import type { CheckpointId } from '../../../../types/ids/index.js'
 import type { LLMProvider } from '../../../../types/provider/index.js'
 import type { TaskRouterConfig } from '../../../../types/router/index.js'
 import type { ReviewAnswer } from '../../../../types/run/answer-review.js'
@@ -388,7 +389,12 @@ export async function awaitDecisionOrAbort(
 export async function* handleHITLDecision(
 	ctx: IterationContext,
 	decision: HITLResumeDecision,
-	checkpointId: string,
+	// `CheckpointId`, not `string`. Both callers already hold one — they pass
+	// `IterationCheckpoint.id` — so the parameter was widened for nothing and
+	// the widening is what forced the `as \`cp_${string}\`` cast below. A
+	// narrower parameter costs no caller anything and makes the cast
+	// unnecessary rather than merely shorter.
+	checkpointId: CheckpointId,
 	context: string,
 ): AsyncGenerator<RunEvent, PhaseSignal> {
 	switch (decision.action) {
@@ -396,7 +402,7 @@ export async function* handleHITLDecision(
 			await ctx.emitEvent({
 				type: 'run_paused',
 				runId: ctx.runMgr.id,
-				checkpointId: checkpointId as `cp_${string}`,
+				checkpointId,
 				reason: decision.reason,
 			})
 			yield* ctx.drainPending()

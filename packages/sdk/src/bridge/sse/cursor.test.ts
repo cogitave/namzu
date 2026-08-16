@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { fixtureId } from '../../test-support/ids.js'
 import type { RunId } from '../../types/ids/index.js'
 import type { RunEvent } from '../../types/run/events.js'
 import { mapRunToStreamEvent } from './mapper.js'
@@ -60,7 +61,12 @@ describe('the wire carries the cursor', () => {
 		// Same envelope shape as an ephemeral one, and the same meaning: no seq,
 		// no cursor.
 		const mapped = mapRunToStreamEvent(
-			{ type: 'run_paused', runId: RID, checkpointId: 'cp_1', reason: 'review' } as RunEvent,
+			{
+				type: 'run_paused',
+				runId: RID,
+				checkpointId: fixtureId.checkpoint('1'),
+				reason: 'review',
+			} as RunEvent,
 			RID,
 		)
 

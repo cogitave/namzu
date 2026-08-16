@@ -2,6 +2,7 @@ import { z } from 'zod'
 import type { RunId } from '../../types/ids/index.js'
 import type { TaskStore } from '../../types/task/index.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
+import { asTaskId } from '../../utils/id.js'
 import { defineTool } from '../defineTool.js'
 
 export function buildTaskCreateTool(taskStore: TaskStore, runId: RunId): ToolDefinition {
@@ -38,7 +39,7 @@ export function buildTaskCreateTool(taskStore: TaskStore, runId: RunId): ToolDef
 				description,
 				activeForm,
 				owner,
-				blockedBy: blockedBy as `task_${string}`[] | undefined,
+				blockedBy: blockedBy?.map(asTaskId),
 				metadata,
 			})
 

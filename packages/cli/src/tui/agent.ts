@@ -56,6 +56,10 @@ import {
 	type ToolPresenter,
 	ToolRegistry,
 	type TopicId,
+	asProjectId,
+	asSessionId,
+	asTenantId,
+	asTopicId,
 	buildMemoryTools,
 	createMemoryPromoter,
 	createToolPresenter,
@@ -1401,11 +1405,15 @@ export interface RunScope {
 /** One scope per launched TUI session; runId is minted fresh per turn by the SDK. */
 function mintScope(): RunScope {
 	const suffix = `tui-${Date.now().toString(36)}`
+	// Through the constructors rather than as four bare template literals.
+	// One suffix shared by four ids is exactly the shape a typo hides in —
+	// `top_` and `tnt_` differ by two characters, and the types accept either
+	// spelling for either field while they are still structural.
 	return {
-		sessionId: `ses_${suffix}`,
-		topicId: `top_${suffix}`,
-		projectId: `prj_${suffix}`,
-		tenantId: `tnt_${suffix}`,
+		sessionId: asSessionId(`ses_${suffix}`),
+		topicId: asTopicId(`top_${suffix}`),
+		projectId: asProjectId(`prj_${suffix}`),
+		tenantId: asTenantId(`tnt_${suffix}`),
 	}
 }
 

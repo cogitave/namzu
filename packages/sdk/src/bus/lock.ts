@@ -8,6 +8,7 @@ import {
 } from '../constants/bus/index.js'
 import type { AgentBusEvent, FileLock, LockAcquireResult, LockId } from '../types/bus/index.js'
 import type { RunId } from '../types/ids/index.js'
+import { asLockId } from '../utils/id.js'
 import type { Logger } from '../utils/logger.js'
 
 export interface FileLockManagerConfig {
@@ -40,7 +41,16 @@ export class FileLockManager {
 	}
 
 	private generateLockId(): LockId {
-		return `lock_${randomUUID()}`
+		// Through `asLockId` rather than returning the template directly: the
+		// return TYPE alone accepts any `lock_`-shaped string today, and will
+		// stop accepting one the moment the id types go nominal (NZ-SURF-11).
+		//
+		// The UUID stays, and `utils/id.ts` deliberately does not gain a
+		// `generateLockId`. Every generator there mints 12 base-36 characters;
+		// moving this one would change the shape of a value `FileLockManager`
+		// writes to disk, which is a behaviour change wearing a refactor's
+		// clothes. What this task is about is the constructor, not the entropy.
+		return asLockId(`lock_${randomUUID()}`)
 	}
 
 	private getAgentLockSet(owner: RunId): Set<string> {

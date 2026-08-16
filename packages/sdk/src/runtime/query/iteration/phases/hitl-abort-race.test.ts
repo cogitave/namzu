@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { fixtureId } from '../../../../test-support/ids.js'
 import type { HITLResumeDecision } from '../../../../types/hitl/index.js'
 import type { RunId } from '../../../../types/ids/index.js'
 import { type IterationContext, awaitDecisionOrAbort } from './context.js'
@@ -25,7 +26,7 @@ function ctxWith(opts: {
 const REVIEW_REQUEST = {
 	type: 'tool_review' as const,
 	runId: 'run_abort_test' as RunId,
-	checkpointId: 'cp_1' as `cp_${string}`,
+	checkpointId: fixtureId.checkpoint('1'),
 	toolCalls: [],
 }
 

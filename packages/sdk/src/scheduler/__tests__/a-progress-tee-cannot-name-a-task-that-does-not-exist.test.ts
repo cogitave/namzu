@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { fixtureId } from '../../test-support/ids.js'
 import type { Agent } from '../../types/agent/core.js'
 import type { AgentManagerContract } from '../../types/agent/manager.js'
 import type {
@@ -170,6 +171,6 @@ describe('a launch survives a child that speaks before the spawn resolves', () =
 		)
 
 		expect(launched).toHaveLength(4)
-		expect(launched.every((h) => h.taskId === 'task_spoke_early')).toBe(true)
+		expect(launched.every((h) => h.taskId === fixtureId.task('spoke_early'))).toBe(true)
 	})
 })

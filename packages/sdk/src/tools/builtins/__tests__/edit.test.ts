@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { fixtureId } from '../../../test-support/ids.js'
 import type { Sandbox } from '../../../types/sandbox/index.js'
 import type { ToolContext } from '../../../types/tool/index.js'
 import { atomicWriteFile } from '../atomic-write-file.js'
@@ -271,7 +272,7 @@ describe('EditTool', () => {
 			releaseFirstWrite = resolve
 		})
 		const sandbox = {
-			id: 'sbx_edit_lock',
+			id: fixtureId.sandbox('edit_lock'),
 			status: 'ready',
 			rootDir: '/workspace',
 			environment: 'basic',

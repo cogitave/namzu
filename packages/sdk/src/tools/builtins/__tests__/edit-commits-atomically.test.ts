@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 
+import { fixtureId } from '../../../test-support/ids.js'
 import type { ToolContext } from '../../../types/tool/index.js'
 
 /**
@@ -72,7 +73,7 @@ describe('the file-mutating tools commit through the atomic writer', () => {
 
 		let body = 'alpha\nbeta\n'
 		const sandbox = {
-			id: 'sbx',
+			id: fixtureId.sandbox('commits_atomically'),
 			status: 'ready',
 			rootDir: '/workspace',
 			environment: 'basic',
