@@ -150,9 +150,9 @@ When the parent is cancelled — by HITL, by a limit breach, or by an external s
 
 `manager/connector/` manages the lifecycle of external connectors (MCP servers, HTTP connectors). `manager/plan/lifecycle.ts` coordinates HITL plan review. `manager/run/persistence.ts` is the run-level persistence surface, and `manager/run/emergency.ts` is the emergency-save subsystem (see §9 below).
 
-### 4. Scheduling: Router (`router/`), Execution (`execution/`), Limit Checker (`run/LimitChecker.ts`)
+### 4. Scheduling: Router (`model-router/`), Execution (`execution/`), Limit Checker (`run/LimitChecker.ts`)
 
-The router policy (`router/task-router.ts`) decides which model a task should go to. Compaction and summarization go to cheap models; coding and complex reasoning stay on expensive ones. Tiering is user-defined — you decide which models belong in which tier and what guidance the LLM gets about preferring tier-1 tools first.
+The router policy (`model-router/task-router.ts`) decides which model a task should go to. Compaction and summarization go to cheap models; coding and complex reasoning stay on expensive ones. Tiering is user-defined — you decide which models belong in which tier and what guidance the LLM gets about preferring tier-1 tools first.
 
 The execution layer (`execution/base.ts`, `execution/local.ts`) is the concrete executor that invokes the provider, dispatches tool calls, and produces iteration results. Execution is pluggable; you could swap in a remote executor without touching the agent patterns above.
 

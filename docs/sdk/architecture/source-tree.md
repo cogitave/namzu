@@ -18,7 +18,7 @@ This is the practical map of `packages/sdk/src`:
 advisory/    agents/      bridge/      bus/         compaction/
 config/      connector/   constants/   contracts/   execution/
 gateway/     manager/     persona/     plugin/      provider/
-rag/         registry/    router/      run/         runtime/
+rag/         registry/    model-router/ run/        runtime/
 sandbox/     session/     skills/      store/       telemetry/
 tools/       types/       utils/       vault/       verification/
 index.ts     version.ts
@@ -52,7 +52,7 @@ These folders own the active behavior of an agent run:
 | `execution/` | Execution-context abstractions used by connector and runtime flows |
 | `manager/` | Lifecycle orchestration for runs, plans, agents, and connectors |
 | `registry/` | Static catalogs such as tools, agents, connectors, and plugins |
-| `router/` | Task-model routing helpers such as `resolveTaskModel()` |
+| `model-router/` | Task-model routing helpers such as `resolveTaskModel()`. Named for what it routes: `types/router/` next to it holds `TaskRouterConfig`/`TaskType`, the config shape, and stays put. |
 
 The usual dependency direction here is:
 

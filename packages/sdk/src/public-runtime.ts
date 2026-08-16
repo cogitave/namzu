@@ -97,7 +97,7 @@ export { extractFinalResponse } from './utils/conversation.js'
 
 // ─── router, runtime, run ────────────────────────────────────────────────
 
-export { resolveTaskModel } from './router/task-router.js'
+export { resolveTaskModel } from './model-router/task-router.js'
 // Every driver accepts `thinking`; one that does not implement it must
 // refuse rather than drop it. Shared so a new driver inherits the rule.
 export { assertThinkingUnsupported } from './provider/thinking-support.js'

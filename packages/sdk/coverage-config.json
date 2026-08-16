@@ -30,7 +30,7 @@
 			"execution",
 			"gateway",
 			"persona",
-			"router",
+			"model-router",
 			"run",
 			"sandbox",
 			"skills",
