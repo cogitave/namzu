@@ -1,4 +1,4 @@
-import type { AgentStatus, CostInfo, TokenUsage } from '../common/index.js'
+import type { RunExecutionStatus, CostInfo, TokenUsage } from '../common/index.js'
 import type { CheckpointId, PendingDecision } from '../hitl/index.js'
 import type { RunId, SessionId, TenantId } from '../ids/index.js'
 import type { Message } from '../message/index.js'
@@ -47,7 +47,7 @@ export interface RunState {
 	readonly agentId?: string
 	readonly agentName?: string
 
-	readonly status: AgentStatus
+	readonly status: RunExecutionStatus
 	readonly stopReason?: StopReason
 	readonly lastError?: string
 

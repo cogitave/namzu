@@ -1351,6 +1351,7 @@
     "RunEventReplay",
     "RunEventReplayRefusal",
     "RunEventSchemaVersion",
+    "RunExecutionStatus",
     "RunHierarchyNode",
     "RunId",
     "RunIdSchema",
@@ -1933,6 +1934,7 @@
   "deprecated": [
     "AgentRun",
     "AgentSession",
+    "AgentStatus",
     "ConversationManager",
     "HOOK_MAX_CONCURRENT",
     "InMemoryThreadStore",

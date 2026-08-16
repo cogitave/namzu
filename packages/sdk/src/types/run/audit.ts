@@ -1,4 +1,4 @@
-import type { AgentStatus, CostInfo } from '../common/index.js'
+import type { RunExecutionStatus, CostInfo } from '../common/index.js'
 import type { AuditEventId, RunId, TenantId } from '../ids/index.js'
 
 /**
@@ -124,7 +124,7 @@ export interface AuditEventInput {
 /** What {@link replayRun} reconstructs from the trail alone. */
 export interface RunSummary {
 	readonly costInfo: CostInfo
-	readonly status: Extract<AgentStatus, 'completed' | 'failed'>
+	readonly status: Extract<RunExecutionStatus, 'completed' | 'failed'>
 }
 
 /**

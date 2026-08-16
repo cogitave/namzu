@@ -1,4 +1,4 @@
-import type { AgentStatus, CostInfo, TokenUsage } from '../common/index.js'
+import type { RunExecutionStatus, CostInfo, TokenUsage } from '../common/index.js'
 import type { RunId } from '../ids/index.js'
 import type { Message } from '../message/index.js'
 import type { ProviderErrorInfo } from '../provider/index.js'
@@ -65,7 +65,7 @@ export interface RunStateMetadata {
  */
 export interface Run {
 	id: RunId
-	status: AgentStatus
+	status: RunExecutionStatus
 	metadata: RunStateMetadata
 	messages: Message[]
 	tokenUsage: TokenUsage

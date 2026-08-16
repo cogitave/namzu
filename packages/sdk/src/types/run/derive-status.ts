@@ -1,4 +1,4 @@
-import type { AgentStatus } from '../common/index.js'
+import type { RunExecutionStatus } from '../common/index.js'
 import type { PendingDecision } from '../hitl/index.js'
 import type { RunStatus } from './status.js'
 
@@ -6,7 +6,7 @@ import type { RunStatus } from './status.js'
  * Project what the SDK records about a run onto the session-layer
  * {@link RunStatus}.
  *
- * `Run.status` is an {@link AgentStatus} — six values, none of which can
+ * `Run.status` is an {@link RunExecutionStatus} — six values, none of which can
  * say "a human owes this run an answer". `RunStatus` has the vocabulary for
  * that and is consumed by session-status derivation and by handoff gating,
  * but nothing in the repo ever produced it: a host implementing a resolver
@@ -21,7 +21,7 @@ import type { RunStatus } from './status.js'
  */
 export function deriveRunStatus(input: {
 	/** What the run itself recorded. */
-	readonly status: AgentStatus
+	readonly status: RunExecutionStatus
 	/** The run's outstanding park, if it has one. */
 	readonly park?: PendingDecision
 	/** Injectable for tests; defaults to now. */

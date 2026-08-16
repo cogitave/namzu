@@ -1,6 +1,30 @@
-export type AgentStatus = 'idle' | 'pending' | 'running' | 'completed' | 'failed' | 'cancelled'
+/**
+ * The lifecycle of one RUN.
+ *
+ * Named for what it types. Every one of its uses in this package is a
+ * run's status, a run's audit outcome, or the status field of a run's
+ * result -- none of them describe an `AbstractAgent` or a
+ * `ReactiveAgent`, which have no status of their own. The old name sent a
+ * reader looking for an agent's lifecycle to the type that governs a run.
+ */
+export type RunExecutionStatus =
+	| 'idle'
+	| 'pending'
+	| 'running'
+	| 'completed'
+	| 'failed'
+	| 'cancelled'
 
-export function isTerminalStatus(status: AgentStatus): boolean {
+/**
+ * @deprecated Use {@link RunExecutionStatus}. Removal is a later major.
+ *
+ * The union is unchanged -- this is a rename, and the alias is here so
+ * code written against the old name still compiles and warns for one
+ * release, per SemVer's deprecate-before-remove.
+ */
+export type AgentStatus = RunExecutionStatus
+
+export function isTerminalStatus(status: RunExecutionStatus): boolean {
 	return status === 'completed' || status === 'failed' || status === 'cancelled'
 }
 

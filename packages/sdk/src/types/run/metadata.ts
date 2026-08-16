@@ -1,4 +1,4 @@
-import type { AgentStatus, CostInfo, TokenUsage } from '../common/index.js'
+import type { RunExecutionStatus, CostInfo, TokenUsage } from '../common/index.js'
 import type { RunId, TaskId, TenantId } from '../ids/index.js'
 import type { ProjectId } from '../session/ids.js'
 import type { StopReason } from './stop-reason.js'
@@ -17,7 +17,7 @@ export interface RunMetadata {
 	tenantId: TenantId
 	agentId: string
 	agentName: string
-	status: AgentStatus
+	status: RunExecutionStatus
 	config: RunConfigSnapshot
 	provider: string
 

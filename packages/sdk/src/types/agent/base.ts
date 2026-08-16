@@ -1,5 +1,5 @@
 import type { Logger } from '../../utils/logger.js'
-import type { AgentStatus, CostInfo, TokenUsage } from '../common/index.js'
+import type { RunExecutionStatus, CostInfo, TokenUsage } from '../common/index.js'
 import type { ResumeHandler } from '../hitl/index.js'
 import type { RunId, SessionId, TenantId } from '../ids/index.js'
 import type { InvocationState } from '../invocation/index.js'
@@ -189,7 +189,7 @@ export interface AgentInput {
 
 export interface BaseAgentResult {
 	runId: RunId
-	status: AgentStatus
+	status: RunExecutionStatus
 	stopReason?: StopReason
 	usage: TokenUsage
 	cost: CostInfo
