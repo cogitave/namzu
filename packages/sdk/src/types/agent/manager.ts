@@ -1,5 +1,6 @@
 import type { RunId, TaskId } from '../ids/index.js'
 import type { Message } from '../message/index.js'
+import type { CancelCause } from '../run/cancel-cause.js'
 import type { RunEventListener } from '../run/events.js'
 import type { AgentLifecycleListener } from './lifecycle-event.js'
 import type { AgentTask, AgentTaskContext, AgentTaskState, SendMessageOptions } from './task.js'
@@ -16,7 +17,12 @@ export interface AgentManagerContract {
 	): Promise<AgentTask>
 
 	cancel(taskId: TaskId): void
-	cancelAll(parentRunId: RunId): void
+	/**
+	 * Defaults to `'parent'` when a caller names nothing, because this call
+	 * site IS a parent abandoning its children — unlike `AbstractAgent.cancel`,
+	 * where the caller could be anyone.
+	 */
+	cancelAll(parentRunId: RunId, cause?: CancelCause): void
 
 	/**
 	 * Queue a message for a running task.

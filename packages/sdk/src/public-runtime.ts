@@ -85,6 +85,11 @@ export {
 	Severity,
 } from './utils/log/index.js'
 
+// A cancellation carries its origin now; these are what a host reads it
+// with.  is exported alongside the class because a host
+// implementing its own gateway holds an abort REASON, not a RunCancelled.
+export { cancelCauseOf, RunCancelled } from './types/run/cancel-cause.js'
+
 export { isTrustedReadOnly } from './tools/trusted-read-only.js'
 export { buildToolResultHashes, hashToolResult } from './utils/hash.js'
 export {

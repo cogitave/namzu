@@ -15,6 +15,7 @@ import type {
 import type { PlanStep } from '../plan/index.js'
 import type { PluginHookEvent, PluginHookResult } from '../plugin/index.js'
 import type { TaskStatus } from '../task/index.js'
+import type { CancelCause } from './cancel-cause.js'
 import type { ClaimFence } from './checkpoint-store.js'
 import type { Lineage } from './lineage.js'
 import type { MessageStopReason, StopReason } from './stop-reason.js'
@@ -421,7 +422,19 @@ type CoreRunEvent =
 	 * `stopReason` is what separates them, and it is on the event because the
 	 * alternative is asking every consumer to hold the `Run` as well.
 	 */
-	| { type: 'run_completed'; runId: RunId; result: string; stopReason?: StopReason }
+	| {
+			type: 'run_completed'
+			runId: RunId
+			result: string
+			stopReason?: StopReason
+			/**
+			 * Present only on a cancellation whose origin was recorded. Absent
+			 * is a real answer: a cancellation nobody attributed is not a user
+			 * cancellation, and defaulting to one would put a confident wrong
+			 * value where an honest gap belongs.
+			 */
+			cancelCause?: CancelCause
+	  }
 	/**
 	 * The run failed.
 	 *
@@ -592,7 +605,15 @@ type CoreRunEvent =
 			taskId: TaskId
 			error: string
 	  }
-	| { type: 'agent_canceled'; runId: RunId; taskId: TaskId }
+	| {
+			type: 'agent_canceled'
+			runId: RunId
+			taskId: TaskId
+			/** Same value the child's own `run_completed` carries, so the two
+			 *  sides of one cancellation agree rather than being correlated
+			 *  by timing. */
+			cancelCause?: CancelCause
+	  }
 	| {
 			type: 'task_created'
 			runId: RunId

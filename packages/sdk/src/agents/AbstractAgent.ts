@@ -11,6 +11,7 @@ import type {
 } from '../types/agent/index.js'
 import type { AgentManagerContract } from '../types/agent/manager.js'
 import type { RunId } from '../types/ids/index.js'
+import { type CancelCause, RunCancelled } from '../types/run/cancel-cause.js'
 import type { RunEvent, RunEventListener } from '../types/run/index.js'
 import { ZERO_COST } from '../utils/cost.js'
 import { toErrorMessage } from '../utils/error.js'
@@ -196,8 +197,17 @@ export abstract class AbstractAgent<
 		}
 	}
 
-	async cancel(): Promise<void> {
-		this.abortController.abort()
+	/**
+	 * `cause` is optional and has no default, deliberately. An operator
+	 * calling this IS the `'user'` case, but a library calling it on the
+	 * operator's behalf is not — and a default would attribute every
+	 * unlabelled cancellation to a person who did not press anything.
+	 *
+	 * Children get `'parent'` regardless of what stopped this run: from a
+	 * child's side, the fact is that its parent went away.
+	 */
+	async cancel(cause?: CancelCause): Promise<void> {
+		this.abortController.abort(cause ? new RunCancelled(cause) : undefined)
 
 		if (this.agentManager && this.currentRunId) {
 			this.agentManager.cancelAll(this.currentRunId)

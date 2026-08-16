@@ -23,6 +23,7 @@ import { isTerminalAgentTaskState } from '../../types/agent/task.js'
 import { NamzuError } from '../../types/errors/index.js'
 import type { AgentId, RunId, SessionId, TaskId, TenantId } from '../../types/ids/index.js'
 import type { Message } from '../../types/message/index.js'
+import { type CancelCause, RunCancelled } from '../../types/run/cancel-cause.js'
 import type { RunEvent, RunEventListener } from '../../types/run/events.js'
 import type { Lineage } from '../../types/run/lineage.js'
 import { RUN_EVENT_SCHEMA_VERSION } from '../../types/run/schema-version.js'
@@ -375,17 +376,23 @@ export class AgentManager {
 		return agentTask
 	}
 
-	cancel(taskId: TaskId): void {
+	cancel(taskId: TaskId, cause?: CancelCause): void {
 		const agentTask = this.instances.get(taskId)
 		if (!agentTask || isTerminalAgentTaskState(agentTask.state)) return
 
-		agentTask.childAbortController.abort('canceled')
-		this.markCanceled(taskId)
+		// Was the bare string `'canceled'`, which `abortReasonText` suppresses
+		// by name — its docblock cites this exact call site — so the child's
+		// run saw a cancellation with no attributable origin at all.
+		agentTask.childAbortController.abort(cause ? new RunCancelled(cause) : undefined)
+		this.markCanceled(taskId, cause)
 	}
 
-	cancelAll(parentRunId: RunId): void {
+	cancelAll(parentRunId: RunId, cause: CancelCause = 'parent'): void {
+		// `'parent'` by default, because this call site IS a parent
+		// abandoning its children. `AbstractAgent.cancel` takes no default
+		// for the opposite reason: its caller could be anyone.
 		for (const agentTask of this.listByParent(parentRunId)) {
-			this.cancel(agentTask.taskId)
+			this.cancel(agentTask.taskId, cause)
 		}
 	}
 
@@ -1042,7 +1049,7 @@ export class AgentManager {
 			})
 	}
 
-	private markCanceled(taskId: TaskId): void {
+	private markCanceled(taskId: TaskId, cause?: CancelCause): void {
 		const agentTask = this.instances.get(taskId)
 		if (!agentTask || isTerminalAgentTaskState(agentTask.state)) return
 
@@ -1053,6 +1060,7 @@ export class AgentManager {
 			type: 'agent_canceled',
 			runId: agentTask.context.parentRunId,
 			taskId,
+			...(cause ? { cancelCause: cause } : {}),
 		})
 		this.log.info(`Agent task canceled: ${taskId}`)
 		this.scheduleEviction(taskId)

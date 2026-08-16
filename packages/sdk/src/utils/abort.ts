@@ -27,7 +27,22 @@ import { toErrorMessage } from './error.js'
  */
 export function abortReasonText(reason: unknown): string | undefined {
 	if (!(reason instanceof Error)) return undefined
-	if (reason.name === 'AbortError' || reason.name === 'TimeoutError') return undefined
+	// `RunCancelled` carries a machine-readable CAUSE ('user' | 'parent' |
+	// 'budget' | 'hook'), and rendering it here would print "was cancelled:
+	// run cancelled by parent" — the same noise the two names above are
+	// suppressed for. A reader wanting the cause asks `cancelCauseOf`.
+	//
+	// By name, not by class, for the reason this whole function is: a reason
+	// crosses a package boundary where `instanceof` stops holding across
+	// duplicate copies. Importing the class here would also close a cycle
+	// between `utils/` and `types/run/`.
+	if (
+		reason.name === 'AbortError' ||
+		reason.name === 'TimeoutError' ||
+		reason.name === 'RunCancelled'
+	) {
+		return undefined
+	}
 	const text = toErrorMessage(reason).trim()
 	return text.length > 0 ? text : undefined
 }

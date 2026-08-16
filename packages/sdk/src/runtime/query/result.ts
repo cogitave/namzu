@@ -7,6 +7,7 @@ import { GENAI, NAMZU } from '../../telemetry/attributes.js'
 import { explainError } from '../../types/errors/catalog.js'
 import { toPlatformError } from '../../types/errors/index.js'
 import type { CheckpointId } from '../../types/hitl/index.js'
+import { cancelCauseOf } from '../../types/run/cancel-cause.js'
 import type { Run, RunEvent } from '../../types/run/index.js'
 import { toErrorMessage } from '../../utils/error.js'
 import type { Logger } from '../../utils/logger.js'
@@ -27,6 +28,13 @@ export interface ResultAssemblerConfig {
 	 * construction would pin the first one forever.
 	 */
 	resumeCheckpointId?: () => CheckpointId | undefined
+	/**
+	 * The run's abort signal, read only to recover WHY a cancellation
+	 * happened. Optional so a caller that never cancels needs no extra
+	 * wiring, and absent simply means the cause is unknown — which is the
+	 * same answer an unattributed cancellation gives.
+	 */
+	signal?: AbortSignal
 }
 
 export class ResultAssembler {
@@ -38,6 +46,7 @@ export class ResultAssembler {
 
 	async *completeRun(rootSpan: Span): AsyncGenerator<RunEvent> {
 		const { runMgr, planManager, activityStore, log, emitEvent, drainPending } = this.config
+		const cancelCause = cancelCauseOf(this.config.signal?.reason)
 
 		if (runMgr.status === 'running') {
 			runMgr.markCompleted(runMgr.stopReason)
@@ -83,6 +92,11 @@ export class ResultAssembler {
 			// consumer can tell "answered" from "ran out of budget" without
 			// holding the `Run`.
 			...(runMgr.getRun().stopReason ? { stopReason: runMgr.getRun().stopReason } : {}),
+			// Only on a cancellation, and only when one was recorded. Absent is
+			// a real answer: a cancellation nobody attributed is not a user
+			// cancellation, and defaulting would put a confident wrong value
+			// where an honest gap belongs.
+			...(cancelCause !== undefined ? { cancelCause } : {}),
 		})
 		yield* drainPending()
 

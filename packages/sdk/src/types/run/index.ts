@@ -1,4 +1,5 @@
 export * from './step.js'
+export * from './cancel-cause.js'
 export * from './prepare-step.js'
 export * from './stop-reason.js'
 export * from './config.js'

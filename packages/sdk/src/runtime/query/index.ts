@@ -1077,6 +1077,10 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		// Read at settle time, not now: checkpoints are written per
 		// iteration, so the answer changes as the run proceeds.
 		resumeCheckpointId: () => checkpointMgr.lastCheckpointId,
+		// Read only to recover WHY a cancellation happened. The run loop
+		// already knows THAT it was cancelled; the origin lives on the abort
+		// reason and nothing else carries it this far.
+		signal: ctx.abortController.signal,
 	})
 
 	let advisoryCtx: AdvisoryContext | undefined

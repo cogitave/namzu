@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
+import { cancelCauseOf } from '../../../types/run/cancel-cause.js'
+
 import { AgentRegistry } from '../../../registry/agent/definitions.js'
 import { DefaultCapacityValidator } from '../../../session/handoff/capacity.js'
 import { SessionSummaryMaterializer } from '../../../session/summary/materialize.js'
@@ -89,6 +91,33 @@ describe('disposing the manager stops the work it was holding', () => {
 
 		manager.dispose()
 		expect(() => manager.dispose()).not.toThrow()
+	})
+
+	it("stamps a parent's abandonment on the child's own abort reason", () => {
+		// The gap NZ-TIME-01 closes. This used to abort with the bare string
+		// `'canceled'`, which `abortReasonText` suppresses by name — its
+		// docblock cites this exact call site — so a child could not tell an
+		// operator's cancel from its parent going away.
+		//
+		// `'parent'` is the DEFAULT here and has no default on
+		// `AbstractAgent.cancel`, because this call site IS a parent
+		// abandoning its children while that one's caller could be anyone.
+		const manager = makeManager()
+		const child = addLiveTask(manager, 'task_a', 'run_1')
+
+		manager.cancelAll('run_1' as RunId)
+
+		expect(child.signal.aborted).toBe(true)
+		expect(cancelCauseOf(child.signal.reason)).toBe('parent')
+	})
+
+	it('carries a named cause through instead of overriding it with the default', () => {
+		const manager = makeManager()
+		const child = addLiveTask(manager, 'task_a', 'run_1')
+
+		manager.cancelAll('run_1' as RunId, 'budget')
+
+		expect(cancelCauseOf(child.signal.reason)).toBe('budget')
 	})
 
 	it('leaves cancelAll scoped to one parent, which is its whole job', () => {
