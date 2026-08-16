@@ -71,10 +71,7 @@ export class RepeatCallTracker {
 				toolName,
 				count,
 				level: 'escalated',
-				text:
-					`You have now called \`${toolName}\` with identical arguments ${count} times in this run. ` +
-					'Repeating it again will produce the same result. Change the arguments, use a different tool, ' +
-					'or tell the user what is blocking you and stop.',
+				text: `You have now called \`${toolName}\` with identical arguments ${count} times in this run. Repeating it again will produce the same result. Change the arguments, use a different tool, or tell the user what is blocking you and stop.`,
 			}
 		}
 		if (count >= this.thresholds.notifyAfter && already === undefined) {
@@ -83,9 +80,7 @@ export class RepeatCallTracker {
 				toolName,
 				count,
 				level: 'notice',
-				text:
-					`Note: this is call ${count} of \`${toolName}\` with identical arguments in this run. ` +
-					'If the previous results were not what you needed, changing the arguments is more likely to help than repeating them.',
+				text: `Note: this is call ${count} of \`${toolName}\` with identical arguments in this run. If the previous results were not what you needed, changing the arguments is more likely to help than repeating them.`,
 			}
 		}
 		return undefined
