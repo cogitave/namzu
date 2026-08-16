@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import {
 	CLI_LOCAL_COMMANDS,
 	CommandNameCollisionError,
+	HOST_OWNED_COMMAND_NAMES,
 	hostCommandNames,
 	kernelCommandDescriptors,
 	matchSlashCommands,
@@ -99,5 +100,46 @@ describe('an outcome is drawn by the host, not the kernel', () => {
 		const outcome = await registry.dispatch('/agents')
 
 		expect(outcome && renderOutcome(outcome)).toBe('Agents: none.')
+	})
+})
+
+describe('a name this host implements itself', () => {
+	it('declines the kernel’s version rather than colliding with it', () => {
+		// `/skills` is the case that made this necessary. The kernel's lists
+		// what a registry holds; this host's discovers from disk, marks which
+		// are active, and shows a refused one with its reason. Both are right
+		// for their audience — so the kernel keeps offering it and this host
+		// declines, in writing.
+		const merged = mergeHostCommands(kernelCommandDescriptors())
+
+		expect(merged.filter((c) => c.name === 'skills')).toHaveLength(1)
+		expect(HOST_OWNED_COMMAND_NAMES).toContain('skills')
+	})
+
+	it('keeps the LOCAL implementation, not the kernel’s', () => {
+		// Detected by what it does: the local one produces a `list-skills`
+		// action, the kernel's would produce a `host-command`.
+		const merged = mergeHostCommands(kernelCommandDescriptors())
+		const skills = merged.find((c) => c.name === 'skills')
+
+		expect(skills?.action({} as never, [])).toMatchObject({ kind: 'list-skills' })
+	})
+
+	it('still REFUSES a collision nobody decided about', () => {
+		// The filter is a list of deliberate exceptions, not a precedence
+		// rule. First-wins or last-wins would make an accidental collision
+		// silent, which is what the refusal exists to prevent.
+		expect(() =>
+			mergeHostCommands([
+				{ name: 'clear', description: 'a kernel command that shadows a local one' },
+			]),
+		).toThrow(CommandNameCollisionError)
+	})
+
+	it('still takes every kernel command this host does NOT own', () => {
+		const merged = mergeHostCommands(kernelCommandDescriptors())
+
+		expect(merged.map((c) => c.name)).toContain('agents')
+		expect(merged.map((c) => c.name)).toContain('tasks')
 	})
 })

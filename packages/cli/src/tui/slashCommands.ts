@@ -253,18 +253,38 @@ export class CommandNameCollisionError extends Error {
  * nor the host author would ever see it — the same reasoning the registry
  * itself uses for its own duplicate names.
  */
+/**
+ * Names this host implements itself, and knowingly does not take from the
+ * kernel.
+ *
+ * `/skills` is the case that made this list necessary. The kernel's version
+ * lists what a registry holds; this host's DISCOVERS skills from disk, marks
+ * which are active, and shows a refused one with its reason rather than
+ * hiding it. Both are correct for their audience, and a host with no skills
+ * UI should get the kernel's — so the kernel keeps offering it and this one
+ * declines, in writing.
+ *
+ * Deliberately not a general precedence rule. First-wins or last-wins would
+ * make an ACCIDENTAL collision silent, which is what
+ * {@link CommandNameCollisionError} exists to prevent; naming each one here
+ * keeps the refusal for every collision nobody decided about.
+ */
+export const HOST_OWNED_COMMAND_NAMES: readonly string[] = ['skills']
+
 export function mergeHostCommands(
 	descriptors: readonly SerializableHostCommand[],
 	locals: readonly SlashCommand[] = CLI_LOCAL_COMMANDS,
 ): readonly SlashCommand[] {
 	const localNames = new Set(locals.map((c) => c.name))
-	for (const descriptor of descriptors) {
+	const owned = new Set(HOST_OWNED_COMMAND_NAMES)
+	const fromKernel = descriptors.filter((descriptor) => !owned.has(descriptor.name))
+	for (const descriptor of fromKernel) {
 		if (localNames.has(descriptor.name)) throw new CommandNameCollisionError(descriptor.name)
 	}
 
 	return [
 		...locals,
-		...descriptors.map(
+		...fromKernel.map(
 			(descriptor): SlashCommand => ({
 				name: descriptor.name,
 				description: descriptor.description,

@@ -32,6 +32,9 @@ importers:
       '@namzu/anthropic':
         specifier: workspace:*
         version: link:../providers/anthropic
+      '@namzu/files':
+        specifier: workspace:*
+        version: link:../files
       '@namzu/ollama':
         specifier: workspace:*
         version: link:../providers/ollama

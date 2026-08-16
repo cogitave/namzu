@@ -48,6 +48,7 @@
 	},
 	"dependencies": {
 		"@namzu/anthropic": "workspace:*",
+		"@namzu/files": "workspace:*",
 		"@namzu/ollama": "workspace:*",
 		"@namzu/openai": "workspace:*",
 		"@namzu/openrouter": "workspace:*",
