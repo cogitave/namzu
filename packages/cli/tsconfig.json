@@ -12,6 +12,10 @@
 	},
 	"references": [
 		{ "path": "../sdk" },
+		{ "path": "../telemetry"
+		},
+		{
+			"path": "../files" },
 		{ "path": "../providers/anthropic" },
 		{ "path": "../providers/openai" },
 		{ "path": "../providers/openrouter" },
