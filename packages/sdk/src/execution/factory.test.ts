@@ -15,7 +15,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import { LocalExecutionContext } from '../../execution/local.js'
+import { LocalExecutionContext } from './local.js'
 import { ExecutionContextFactory } from './factory.js'
 import { HybridExecutionContext } from './hybrid.js'
 import { RemoteExecutionContext } from './remote.js'

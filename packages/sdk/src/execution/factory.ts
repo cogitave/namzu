@@ -1,6 +1,6 @@
-import type { BaseExecutionContext } from '../../execution/base.js'
-import { LocalExecutionContext, type LocalExecutionContextOptions } from '../../execution/local.js'
-import type { ExecutionContextConfig } from '../../types/connector/index.js'
+import type { BaseExecutionContext } from './base.js'
+import { LocalExecutionContext, type LocalExecutionContextOptions } from './local.js'
+import type { ExecutionContextConfig } from '../types/connector/index.js'
 import { HybridExecutionContext, type HybridExecutionContextOptions } from './hybrid.js'
 import { RemoteExecutionContext, type RemoteExecutionContextOptions } from './remote.js'
 

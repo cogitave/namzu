@@ -15,7 +15,7 @@
 
 import { describe, expect, it } from 'vitest'
 
-import type { RemoteTarget } from '../../types/connector/index.js'
+import type { RemoteTarget } from '../types/connector/index.js'
 
 import { RemoteExecutionContext } from './remote.js'
 

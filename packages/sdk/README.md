@@ -282,7 +282,7 @@ An LLM provider implements a narrow interface: given a typed request, return a t
 
 ### 16. Connectors (`connector/`)
 
-A connector is how an agent reaches external systems. `connector/BaseConnector.ts` is the abstract base; `connector/mcp/` implements MCP connectors in both `stdio` and `http` transports with a `client.ts` and an `adapter.ts` that turns MCP tools into Namzu `ToolDefinition`s; `connector/builtins/` ships the built-in connectors (HTTP, shell, etc.); `connector/execution/` handles connector-level execution concerns. Plugin contributions can register connectors at runtime.
+A connector is how an agent reaches external systems. `connector/BaseConnector.ts` is the abstract base; `connector/mcp/` implements MCP connectors in both `stdio` and `http` transports with a `client.ts` and an `adapter.ts` that turns MCP tools into Namzu `ToolDefinition`s; `connector/builtins/` ships the built-in connectors (HTTP, shell, etc.). WHERE a call runs is not a connector concern and does not live here: all five execution backends are in `execution/`, and a connector is one caller of one. Plugin contributions can register connectors at runtime.
 
 ### 17. Prompt Cache Integration
 

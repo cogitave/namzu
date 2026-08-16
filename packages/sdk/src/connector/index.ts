@@ -18,19 +18,22 @@ export type {
 export { HttpConnector } from './builtins/http.js'
 export { WebhookConnector } from './builtins/webhook.js'
 
-export { BaseExecutionContext } from '../execution/base.js'
-export { LocalExecutionContext } from '../execution/local.js'
-export type { LocalExecutionContextOptions } from '../execution/local.js'
-
+// All five backends live in `execution/`. This block reached into two
+// directories to reassemble one group, which is what let the concept sit in
+// two places — a connector is one CALLER of an execution context, not the
+// thing that defines one.
 export {
-	RemoteExecutionContext,
-	HybridExecutionContext,
+	BaseExecutionContext,
 	ExecutionContextFactory,
-} from './execution/index.js'
+	HybridExecutionContext,
+	LocalExecutionContext,
+	RemoteExecutionContext,
+} from '../execution/index.js'
 export type {
-	RemoteExecutionContextOptions,
 	HybridExecutionContextOptions,
-} from './execution/index.js'
+	LocalExecutionContextOptions,
+	RemoteExecutionContextOptions,
+} from '../execution/index.js'
 
 // One seam, not two. This block used to hand-list names from the mcp LEAF
 // modules while `mcp/index.ts` listed its own set, and the two diverged:
