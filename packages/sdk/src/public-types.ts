@@ -209,6 +209,24 @@ export type {
 } from './types/command/index.js'
 
 export type { TopicState } from './types/topic/state.js'
+export type {
+	ObjectiveAdvance,
+	ObjectiveAdvanceResult,
+	ObjectiveBlock,
+	ObjectivePhase,
+	ObjectiveRefusal,
+	ObjectiveRoundVerdict,
+	TopicObjective,
+} from './types/topic/objective.js'
+export type {
+	CreateObjectiveParams,
+	DiskTopicObjectiveStoreConfig,
+	TopicObjectiveStore,
+} from './store/topic/objective.js'
+export type {
+	AdvanceObjectiveParams,
+	DriveObjectiveParams,
+} from './manager/topic/objective.js'
 
 export type { AgentHandle, AgentHandleOptions, AgentHandleStatus } from './agents/handle.js'
 

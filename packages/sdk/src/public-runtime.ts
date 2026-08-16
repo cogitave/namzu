@@ -111,6 +111,26 @@ export {
 } from './store/topic/state.js'
 export { StaleTopicStateError } from './types/topic/state.js'
 
+// Work that outlives one run. Named explicitly here rather than reached
+// through the sub-barrels, because this file re-exports SELECTED names from
+// `./manager/index.js` and friends rather than star-exporting them — so a
+// name added to a sub-barrel alone never reaches the package entry at all.
+// That is exactly what happened to this API when it landed: fully exported
+// from its module, fully invisible to a consumer, and the public-surface
+// gate said nothing because it reads the built entry point.
+export {
+	DiskTopicObjectiveStore,
+	InMemoryTopicObjectiveStore,
+	ObjectiveExhaustedError,
+	ObjectiveExistsError,
+} from './store/topic/objective.js'
+export {
+	ObjectiveNotProgressingError,
+	advanceObjective,
+	driveObjective,
+} from './manager/topic/objective.js'
+export { StaleObjectiveError } from './types/topic/objective.js'
+
 export {
 	EnvCredentialProvider,
 	ReadOnlyCredentialProviderError,
@@ -429,6 +449,25 @@ export {
 } from './store/topic/memory.js'
 
 export { LocalTaskScheduler } from './scheduler/local.js'
+
+// A delegate need not be an in-process Namzu agent. `DelegatingTaskScheduler`
+// presents any set of `Delegate`s as the `TaskScheduler` the delegation
+// tools already speak, so a specialist can move out of process without a
+// caller learning that it did.
+export {
+	DelegateCapabilityError,
+	DelegateCapabilityMismatchError,
+	DelegateIdCollisionError,
+	DelegatingTaskScheduler,
+	NoDelegateError,
+} from './scheduler/delegating.js'
+export type { DelegatingTaskSchedulerConfig } from './scheduler/delegating.js'
+export type {
+	Delegate,
+	DelegateCapabilities,
+	DelegateRequest,
+	DelegateResult,
+} from './types/agent/delegate.js'
 // Exported because `buildCoordinatorTools` is: a host that builds the
 // coordinator surface itself needs the same inbox the loop drains, or its
 // abandoned completions go unheard exactly as they did before.
