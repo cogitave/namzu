@@ -122,8 +122,15 @@ export async function runCommandOrThrow(
 }
 
 /**
- * Probe for presence of an executable on PATH. Uses `/usr/bin/env -- name --help`
- * or plain `which`. Returns true on success, false otherwise. Never throws.
+ * Probe for presence of an executable on PATH, with `which` (`where` on
+ * Windows). Returns true on success, false otherwise, and never throws — a
+ * caller probing five optional tools should not have to wrap each one.
+ *
+ * The `stdout.length > 0` half of the success test has no reachable case
+ * that anything here can construct: both probes print the resolved path when
+ * they exit 0, so a mutation removing it survives the whole suite. Kept as a
+ * cheap guard against a `which` that answers differently, and recorded as
+ * undriven rather than left to look tested.
  */
 export async function hasExecutable(name: string): Promise<boolean> {
 	try {
