@@ -41,50 +41,16 @@
  * is scrubbed rather than merely policed.
  */
 
-/**
- * Key-name patterns that mark an inherited variable as credential-shaped.
- *
- * Matched case-insensitively against the whole key. Deliberately broad: a
- * false positive costs a command one variable it can be handed back
- * explicitly, while a false negative costs a leaked secret that cannot be
- * recalled from a transcript.
- */
-const CREDENTIAL_KEY_PATTERNS: readonly RegExp[] = [
-	/KEY/i,
-	/SECRET/i,
-	/TOKEN/i,
-	/PASSWORD/i,
-	/PASSWD/i,
-	/CREDENTIAL/i,
-	/(^|_)AUTH(_|$)/i,
-	/PRIVATE/i,
-	/SESSION_ID/i,
-	/COOKIE/i,
-	/SIGNATURE/i,
-	/(^|_)PAT(_|$)/i,
-]
+import { isCredentialEnvKey } from '../constants/credential-env-keys.js'
 
-/**
- * Keys that are credential-bearing but whose names match none of the patterns
- * above. Kept as an explicit list so each entry is a decision somebody can
- * read, rather than a pattern nobody can evaluate.
- */
-const CREDENTIAL_KEY_EXACT: ReadonlySet<string> = new Set([
-	'AWS_SESSION_TOKEN',
-	'AWS_SECURITY_TOKEN',
-	'GOOGLE_APPLICATION_CREDENTIALS',
-	'NPM_CONFIG__AUTH',
-	'GH_ENTERPRISE_TOKEN',
-	'DOCKER_AUTH_CONFIG',
-	'KUBECONFIG',
-	'NETRC',
-])
+// Re-exported from its historical home: this module's importers already
+// name it here, and the predicate did not change — only where it lives.
+export { isCredentialEnvKey }
 
-/** True when an inherited variable's name marks it as credential-shaped. */
-export function isCredentialEnvKey(key: string): boolean {
-	if (CREDENTIAL_KEY_EXACT.has(key.toUpperCase())) return true
-	return CREDENTIAL_KEY_PATTERNS.some((pattern) => pattern.test(key))
-}
+// The key-name vocabulary moved to `constants/credential-env-keys.ts`, a
+// leaf with no imports, so `EnvCredentialProvider` can read the SAME table.
+// Two copies would mean a name in one and not the other — a variable the
+// credential seam reads a secret from and this scrub hands to a shell.
 
 /** Outcome of a scrub — the surviving environment and what was withheld. */
 export interface ScrubbedEnv {

@@ -25,7 +25,8 @@
 			"session",
 			"store",
 			"streaming",
-			"tools"
+			"tools",
+			"vault"
 		],
 		"baselineExempt": [
 			"config",
@@ -37,8 +38,7 @@
 			"sandbox",
 			"skills",
 			"telemetry",
-			"utils",
-			"vault"
+			"utils"
 		],
 		"exempt": [
 			"__tests__",

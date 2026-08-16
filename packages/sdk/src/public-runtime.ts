@@ -93,6 +93,19 @@ export { cancelCauseOf, RunCancelled } from './types/run/cancel-cause.js'
 // A tool authors how it is shown; a host resolves through this rather than
 // switching on a lowercased tool name, which is what left every MCP and
 // plugin tool with a truncated string no matter what it did.
+// Credential resolution as a seam. All provider credential discovery lived
+// in the CLI, so a host embedding the SDK alone had no way to plug in an
+// env- or file-backed source without reimplementing an interface that asks
+// a different question.
+export {
+	EnvCredentialProvider,
+	ReadOnlyCredentialProviderError,
+} from './vault/CredentialProvider.js'
+// The key-name vocabulary itself, so a host with its own provider registry
+// can assert its variables are ones the host-bash scrub will withhold —
+// the check that stops the two tables drifting apart.
+export { isCredentialEnvKey } from './constants/credential-env-keys.js'
+
 export { createToolPresenter, genericLabel } from './registry/tool/presentation.js'
 export type { ToolPresenter } from './registry/tool/presentation.js'
 

@@ -61,6 +61,8 @@
  * picker can render immediately and refine if discovery completes later.
  */
 
+import { EnvCredentialProvider } from '@namzu/sdk'
+
 import { credentialsPath, readStoredSubscriptionCredential } from './credential-store.js'
 import { KEYCHAIN_SERVICE, readAgentKeychainCredential } from './keychain.js'
 import type { CredentialOrigin } from './oauth.js'
@@ -136,6 +138,12 @@ export async function discoverProviders(
 	opts: DiscoverOptions = {},
 ): Promise<readonly DetectedProvider[]> {
 	const env = opts.env ?? process.env
+	// `anyKey`, because the registry's `envVars` are credential names BY
+	// CONSTRUCTION — the seam's own name filter would be a second opinion on
+	// a list that is already the answer, and a provider whose variable did
+	// not look credential-shaped would silently stop being discovered.
+	// The vocabulary agreement is asserted instead, where it can fail loudly.
+	const credentials = new EnvCredentialProvider({ env, anyKey: true })
 	const detected: DetectedProvider[] = []
 
 	// Read both credential sources once, up front, so the loop body stays
@@ -177,9 +185,14 @@ export async function discoverProviders(
 		let apiKey: string | undefined
 		let oauth: DetectedProvider['oauth']
 		for (const envName of entry.envVars) {
-			const v = env[envName]
-			if (v && v.length > 0) {
-				if (apiKey === undefined) apiKey = v
+			// Through the SDK's seam rather than a direct `env[envName]`. The
+			// read is identical; what changes is that a host embedding the SDK
+			// without this CLI can now answer the same question with its own
+			// provider, and that the "is this a credential" vocabulary is the
+			// one the host-bash scrub uses rather than a third table beside it.
+			const resolved = await credentials.resolve(envName)
+			if (resolved) {
+				if (apiKey === undefined) apiKey = resolved.value
 				sources.push({ kind: 'env', envName })
 			}
 		}
