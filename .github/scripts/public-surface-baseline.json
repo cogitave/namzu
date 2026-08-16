@@ -1424,7 +1424,6 @@
     "SessionAlreadySummarizedError",
     "SessionId",
     "SessionMessage",
-    "SessionMetadata",
     "SessionStatus",
     "SessionStore",
     "SessionSummaryMaterializer",

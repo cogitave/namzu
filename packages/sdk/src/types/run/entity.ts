@@ -52,8 +52,6 @@ export interface RunStateMetadata {
 	servingProvider?: string
 }
 
-export type SessionMetadata = RunStateMetadata
-
 /**
  * Domain Run entity — the persistence record for a single agent invocation
  * under a {@link import('../session/entity.js').Session}. Renamed from
