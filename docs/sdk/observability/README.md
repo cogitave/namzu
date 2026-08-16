@@ -44,7 +44,7 @@ Attribute constants (`GENAI`, `NAMZU`) and span-name helpers
 (`agentRunSpanName`, `agentIterationSpanName`, `chatSpanName`,
 `toolSpanName`) ship under the subpath:
 
-```ts
+```ts sketch
 import { GENAI, NAMZU, toolSpanName } from '@namzu/telemetry/attributes'
 ```
 
@@ -77,7 +77,7 @@ cannot be joined.
 Node SDK attaches its exporters asynchronously. Firing-and-forgetting
 would detach startup failures into an unhandled rejection.
 
-```ts
+```ts sketch
 import { registerTelemetry, createPlatformMetrics } from '@namzu/telemetry'
 
 const telemetry = await registerTelemetry({
@@ -112,7 +112,7 @@ Safe application pattern:
 
 OTLP:
 
-```ts
+```ts sketch
 const telemetry = await registerTelemetry({
   serviceName: 'docs-runtime',
   exporterType: 'otlp',
@@ -152,7 +152,7 @@ call order is not under your control.
 
 ## 7. Built-In Platform Metrics
 
-```ts
+```ts sketch
 const metrics = createPlatformMetrics()
 
 metrics.recordTokenUsage('gpt-4o-mini', 1200, 240)
@@ -166,7 +166,7 @@ run duration, LLM latency.
 
 ## 8. Add Custom Spans
 
-```ts
+```ts sketch
 import { getTracer } from '@namzu/telemetry'
 
 const tracer = getTracer()

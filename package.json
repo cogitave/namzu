@@ -13,6 +13,7 @@
     "test": "pnpm -r test",
     "test:scripts": "node --import tsx --test scripts/__tests__/check-log-standard.test.ts",
     "docs:check": "node tools/check-docs.mjs",
+    "docs:fences": "node tools/check-doc-fences.mjs",
     "sandbox:smoke": "pnpm --filter @namzu/sandbox test:smoke",
     "typecheck": "tsc --build",
     "namzu": "tsx packages/cli/src/bin.ts",

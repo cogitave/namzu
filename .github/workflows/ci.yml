@@ -299,8 +299,12 @@ jobs:
   # shallow clone -- so it gets its own job with full history instead of a
   # `fetch-depth: 0` on four matrix entries that do not need it.
   #
-  # No dependency install: the gate is stdlib-only node by design, so it runs
-  # on the bare tree in seconds and cannot be broken by a lockfile change.
+  # The standard gate is stdlib-only node by design. The FENCE gate is not:
+  # it typechecks documentation against `packages/sdk/dist`, which is the
+  # point -- a fence must build against the artifact a reader installs, not
+  # against `src/`, or it can pass while naming an internal symbol the
+  # package does not export. So this job installs and builds the SDK, and
+  # only the SDK.
   docs:
     name: Docs
     runs-on: ubuntu-latest
@@ -313,5 +317,15 @@ jobs:
         with:
           node-version: 24
 
+      - uses: pnpm/action-setup@v5
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Build the SDK the fences compile against
+        run: pnpm --filter @namzu/sdk build
+
       - name: Docs standard gate
         run: node tools/check-docs.mjs
+
+      - name: Docs fence gate
+        run: node tools/check-doc-fences.mjs

@@ -65,7 +65,16 @@ Those four are a **subset**. The `Build & Test` job in `.github/workflows/ci.yml
 
 Eight of those carry `if: matrix.gates` and so run on one matrix leg only. Locally there is no leg, so run all seventeen.
 
-A **second job**, `Docs`, runs `node tools/check-docs.mjs` (= `pnpm docs:check`) on a full-history checkout. Its drift check compares a document's last commit against its `resource:`'s, which `git log` cannot answer on a shallow clone, so the gate refuses one rather than passing.
+A **second job**, `Docs`, runs **two** gates on a full-history checkout:
+
+| Docs step | Run it locally |
+|---|---|
+| Docs standard gate | `node tools/check-docs.mjs` (= `pnpm docs:check`) |
+| Docs fence gate | `pnpm --filter @namzu/sdk build && node tools/check-doc-fences.mjs` |
+
+Full history because the standard gate's drift check compares a document's last commit against its `resource:`'s, which `git log` cannot answer on a shallow clone — it refuses one rather than passing.
+
+The fence gate compiles the ```ts in `docs/` against `packages/sdk/dist`, so this job installs and builds the SDK. Every other gate in this repository checks a document's METADATA; this is the only one that reads its content, and it exists because a rename can otherwise pass everything here while leaving documentation that does not build. Fences opt out by declaring themselves — ```ts sketch is not compiled and is counted out loud, ```ts verbatim is asserted to appear byte-for-byte in the file its `// from:` marker names.
 
 **Why the short list is not enough.** A job stops at its first failing step, and every step after it is reported `skipped`, not `failure`. A red run therefore shows one red entry and a column of grey — and grey is not "these passed", it is "these were never asked". The four commands at the top of this section are the first four rows of that table: green on them establishes four of the seventeen steps and nothing whatsoever about the other thirteen.
 </ci_gates>

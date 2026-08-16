@@ -73,7 +73,8 @@ drives it through the real pipeline and asserts these bytes match that
 file. A sample a page hand-copies compiles on the day it is written and
 silently stops compiling afterwards while still reading as authoritative.
 
-```ts
+```ts verbatim
+// from: packages/sdk/src/__fixtures__/nested-attribute-sink.ts
 export interface CollectorPayload {
 	readonly timestamp: string
 	readonly severity: string
@@ -125,7 +126,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
 
 ## What `LogAttributes` is
 
-```ts
+```ts sketch
 export type LogAttributes = Readonly<Record<AttributeKey, AttributeValue>>
 ```
 
@@ -146,7 +147,7 @@ export type LogAttributes = Readonly<Record<AttributeKey, AttributeValue>>
 what a *string* value contains. This compiles cleanly and carries a secret
 straight through:
 
-```ts
+```ts sketch
 const attrs: LogAttributes = {
   // a namespaced key, a string value — legal, and still a secret.
   'namzu.connector.auth': JSON.stringify(auth),
@@ -179,7 +180,7 @@ already implemented `Logger` correctly. Build the variable half of a call
 as `LogAttributes` and pass the result where `LogContext` is expected —
 every `LogAttributes` value is a valid `LogContext` value:
 
-```ts
+```ts sketch
 const attributes: LogAttributes = {
   'namzu.connector.server.name': result.serverInfo.name,
 }
