@@ -1,5 +1,10 @@
 import { FILESYSTEM_TOOLS } from '../../constants/tools/index.js'
 import { assembleSystemPrompt, renderSkillsSection } from '../../persona/assembler.js'
+import {
+	type PromptContributionContext,
+	type PromptContributionRegistry,
+	SKILLS_CONTRIBUTION_ID,
+} from '../../prompt/contributions.js'
 import type { AgentRuntimeContext } from '../../types/agent/base.js'
 import type { AgentContextLevel } from '../../types/agent/factory.js'
 import type { AgentPersona } from '../../types/persona/index.js'
@@ -25,6 +30,15 @@ export interface PromptBuilderConfig {
 	tools: ToolRegistryContract
 	allowedTools?: string[]
 	runtimeContext?: AgentRuntimeContext
+	/**
+	 * What else goes in the prompt, beyond what this builder knows about.
+	 *
+	 * Absent means exactly what it meant before this existed: the fixed
+	 * list. A capability that needs the model to know something registers
+	 * here instead of arguing for a branch or splicing into `systemPrompt`
+	 * and losing whatever was there.
+	 */
+	contributions?: PromptContributionRegistry
 }
 
 function buildEnvContext(workingDirectory: string, runtimeContext?: AgentRuntimeContext): string {
@@ -97,6 +111,72 @@ export class PromptBuilder {
 		this.config = config
 	}
 
+	/**
+	 * The context every contribution is rendered against.
+	 *
+	 * `workingDirectory` is a call argument rather than config, so it is
+	 * threaded rather than read off `this`.
+	 */
+	private contributionContext(workingDirectory?: string): PromptContributionContext {
+		return {
+			...(workingDirectory === undefined ? {} : { workingDirectory }),
+			...(this.config.runtimeContext ? { runtimeContext: this.config.runtimeContext } : {}),
+			...(this.config.skills ? { skills: this.config.skills } : {}),
+			...(this.config.allowedTools ? { allowedTools: this.config.allowedTools } : {}),
+		}
+	}
+
+	/**
+	 * Skills, once, in the slot they were always in.
+	 *
+	 * The registry renders at the END of the prompt, and skills belong where
+	 * they have always been: immediately after the persona or system prompt.
+	 * So the built-in contribution is rendered IN PLACE here rather than
+	 * being left to the tail — a host that registers it gets the seam, not a
+	 * reordered prompt.
+	 *
+	 * This is also what makes it a real contributor rather than a decorative
+	 * one. Written first as "the builder renders skills, and the registry
+	 * skips its own copy", which a mutation caught immediately: the
+	 * contribution could be deleted with no observable effect, because the
+	 * builder's own branch rendered skills either way. A seam whose first
+	 * consumer is inert proves nothing about the seam.
+	 *
+	 * The persona branch is the exception and stays one:
+	 * `assembleSystemPrompt(persona, skills)` places skills inside the
+	 * persona's own section ordering, relative to constraints and output
+	 * discipline. Routing it through here would silently reorder every
+	 * persona-driven prompt in the estate.
+	 */
+	private renderSkillsInPlace(): string | null {
+		const contribution = this.config.contributions
+			?.list()
+			.find((c) => c.id === SKILLS_CONTRIBUTION_ID)
+		if (contribution) return contribution.render(this.contributionContext())
+		return renderSkillsSection(this.config.skills)
+	}
+
+	private renderContributions(
+		placement: 'static' | 'dynamic',
+		workingDirectory?: string,
+	): readonly string[] {
+		const registry = this.config.contributions
+		if (!registry) return []
+		const context = this.contributionContext(workingDirectory)
+		return (
+			registry
+				.list()
+				.filter((contribution) => contribution.placement === placement)
+				// Skills is rendered IN PLACE by `renderSkillsInPlace`, so the tail
+				// must not render it again. Unconditional, not branch-dependent:
+				// under a persona it is already inside the persona section, and
+				// otherwise it is already in its own slot above.
+				.filter((contribution) => contribution.id !== SKILLS_CONTRIBUTION_ID)
+				.map((contribution) => contribution.render(context))
+				.filter((text): text is string => typeof text === 'string' && text.trim().length > 0)
+		)
+	}
+
 	build(contextLevel: AgentContextLevel = 'full', workingDirectory?: string): string {
 		const parts: string[] = []
 
@@ -109,12 +189,12 @@ export class PromptBuilder {
 		} else if (this.config.persona) {
 			parts.push(assembleSystemPrompt(this.config.persona, this.config.skills))
 		} else {
-			const skillSection = renderSkillsSection(this.config.skills)
+			const skillSection = this.renderSkillsInPlace()
 			if (skillSection) parts.push(skillSection)
 		}
 
 		if (this.config.systemPrompt) {
-			const skillSection = renderSkillsSection(this.config.skills)
+			const skillSection = this.renderSkillsInPlace()
 			if (skillSection) parts.push(skillSection)
 		}
 
@@ -138,6 +218,14 @@ export class PromptBuilder {
 				parts.push(buildEnvContext(workingDirectory, this.config.runtimeContext))
 			}
 		}
+
+		// Static then dynamic, in that order and nothing between them,
+		// because that is exactly how `buildSegmented` is rejoined upstream:
+		// `${static}\n\n---\n\n${dynamic}`. The two methods produce the same
+		// prompt for the same input, and a run that hits the prompt cache
+		// must not be asking a different question from one that misses it.
+		parts.push(...this.renderContributions('static', workingDirectory))
+		parts.push(...this.renderContributions('dynamic', workingDirectory))
 
 		return parts.join('\n\n---\n\n')
 	}
@@ -167,12 +255,12 @@ export class PromptBuilder {
 				dynamicParts.push(`## Session Context\n${this.config.persona.sessionContext.trim()}`)
 			}
 		} else {
-			const skillSection = renderSkillsSection(this.config.skills)
+			const skillSection = this.renderSkillsInPlace()
 			if (skillSection) staticParts.push(skillSection)
 		}
 
 		if (this.config.systemPrompt) {
-			const skillSection = renderSkillsSection(this.config.skills)
+			const skillSection = this.renderSkillsInPlace()
 			if (skillSection) staticParts.push(skillSection)
 		}
 
@@ -196,6 +284,9 @@ export class PromptBuilder {
 				dynamicParts.push(buildEnvContext(workingDirectory, this.config.runtimeContext))
 			}
 		}
+
+		staticParts.push(...this.renderContributions('static', workingDirectory))
+		dynamicParts.push(...this.renderContributions('dynamic', workingDirectory))
 
 		return {
 			static: staticParts.join(separator),

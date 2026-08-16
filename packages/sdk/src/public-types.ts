@@ -246,3 +246,9 @@ export type {
 	ApprovalPolicyChangedEvent,
 	RunApprovalPolicy,
 } from './types/hitl/policy.js'
+
+export type {
+	PromptContribution,
+	PromptContributionContext,
+	PromptPlacement,
+} from './prompt/index.js'

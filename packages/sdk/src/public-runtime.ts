@@ -998,3 +998,12 @@ export type { ErrorCatalogRule, ErrorExplanation, ErrorFacts } from './types/err
 // policy emits a durable event and only the run holds the emitter. The name
 // constant is exported so a host can recognise the unattended default.
 export { AUTO_APPROVE_POLICY_NAME } from './runtime/query/approval-policy.js'
+
+// The system prompt is open: a contribution registry the assembler
+// consumes, with skills as its first contributor. See `prompt/contributions.ts`.
+export {
+	PromptContributionCollisionError,
+	PromptContributionRegistry,
+	SKILLS_CONTRIBUTION_ID,
+	skillsContribution,
+} from './prompt/index.js'
