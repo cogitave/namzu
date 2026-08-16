@@ -1,9 +1,14 @@
 ---
+uid: namzu.sdk.tools.safety
 title: Tool Safety
 description: Layered tool safety in @namzu/sdk, including tool metadata, availability states, the verification rule vocabulary and its evaluation order, plan mode, and sandbox boundaries.
-last_updated: 2026-08-05
-status: current
-related_packages: ["@namzu/sdk", "@namzu/computer-use"]
+type: Guide
+diataxis: explanation
+owner: cogitave/namzu
+status: active
+timestamp: 2026-08-05T00:00:00Z
+lastReviewed: 2026-08-05
+tags: [computer-use, sdk]
 ---
 
 # Tool Safety

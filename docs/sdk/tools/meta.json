@@ -1,4 +1,9 @@
 {
   "title": "Tools",
-  "pages": ["index", "built-in", "safety"]
+  "pages": [
+    "index",
+    "built-in",
+    "safety",
+    "code-navigation"
+  ]
 }

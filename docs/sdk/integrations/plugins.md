@@ -1,9 +1,14 @@
 ---
+uid: namzu.sdk.integrations.plugins
 title: Plugins and MCP Servers
 description: Load project or user plugins in @namzu/sdk, register namespaced tools, execute hooks, and mount plugin-managed stdio MCP servers.
-last_updated: 2026-08-04
-status: current
-related_packages: ["@namzu/sdk"]
+type: Guide
+diataxis: how-to
+owner: cogitave/namzu
+status: active
+timestamp: 2026-08-04T00:00:00Z
+lastReviewed: 2026-08-04
+tags: [sdk]
 ---
 
 # Plugins and MCP Servers

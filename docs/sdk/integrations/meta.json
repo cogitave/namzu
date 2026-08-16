@@ -1,4 +1,10 @@
 {
   "title": "Connectors & Plugins",
-  "pages": ["index", "connectors-and-mcp", "plugins", "event-bridges"]
+  "pages": [
+    "index",
+    "connectors-and-mcp",
+    "plugins",
+    "event-bridges",
+    "agent-client-protocol"
+  ]
 }

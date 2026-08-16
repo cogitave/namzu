@@ -1,9 +1,14 @@
 ---
+uid: namzu.sdk.integrations.connectors-and-mcp
 title: Connectors and MCP
 description: Build connector catalogs, expose connector instances as tools, consume remote MCP servers, and bridge connected integrations back out through MCP in @namzu/sdk.
-last_updated: 2026-08-05
-status: current
-related_packages: ["@namzu/sdk"]
+type: Guide
+diataxis: how-to
+owner: cogitave/namzu
+status: active
+timestamp: 2026-08-05T00:00:00Z
+lastReviewed: 2026-08-05
+tags: [sdk]
 ---
 
 # Connectors and MCP

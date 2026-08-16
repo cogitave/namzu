@@ -1,9 +1,14 @@
 ---
+uid: namzu.sdk.tools.built-in
 title: Built-In Tools
 description: Reference for the built-in tools exported by @namzu/sdk, including their purpose, safety shape, deadlines, and common usage patterns.
-last_updated: 2026-08-10
-status: current
-related_packages: ["@namzu/sdk", "@namzu/computer-use"]
+type: Reference
+diataxis: reference
+owner: cogitave/namzu
+status: active
+timestamp: 2026-08-10T00:00:00Z
+lastReviewed: 2026-08-10
+tags: [computer-use, sdk]
 ---
 
 # Built-In Tools

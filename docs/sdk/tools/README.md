@@ -1,9 +1,14 @@
 ---
+uid: namzu.sdk.tools.readme
 title: SDK Tools
 description: Define tools, register them in ToolRegistry, and understand built-in tool behavior in @namzu/sdk.
-last_updated: 2026-08-10
-status: current
-related_packages: ["@namzu/sdk", "@namzu/computer-use"]
+type: Guide
+diataxis: explanation
+owner: cogitave/namzu
+status: active
+timestamp: 2026-08-10T00:00:00Z
+lastReviewed: 2026-08-10
+tags: [computer-use, sdk]
 ---
 
 # SDK Tools

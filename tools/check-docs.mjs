@@ -58,7 +58,17 @@ import { join, relative, resolve } from 'node:path'
  * before: an entry whose pages do not yet conform turns this gate red for
  * everyone, and an entry added "ready for later" is a check that cannot fail.
  */
-const CONFORMING = ['docs/conventions', 'docs/sdk/directory', 'docs/sdk/observability']
+const CONFORMING = [
+	'docs/conventions',
+	'docs/sdk/directory',
+	'docs/sdk/observability',
+	// Added with the change that migrated their pages, never before. Both
+	// gained a page for a surface that shipped in this session, and a new
+	// page written to the standard in a directory the gate is silent about
+	// gets none of what the standard is for.
+	'docs/sdk/integrations',
+	'docs/sdk/tools',
+]
 
 /**
  * Front-matter keys every conforming document declares.

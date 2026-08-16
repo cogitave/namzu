@@ -1,9 +1,14 @@
 ---
+uid: namzu.sdk.integrations.readme
 title: Integrations
 description: Overview of connector, MCP, plugin, and bridge surfaces in @namzu/sdk.
-last_updated: 2026-04-18
-status: current
-related_packages: ["@namzu/sdk"]
+type: Guide
+diataxis: explanation
+owner: cogitave/namzu
+status: active
+timestamp: 2026-04-18T00:00:00Z
+lastReviewed: 2026-04-18
+tags: [sdk]
 ---
 
 # Integrations

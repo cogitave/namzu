@@ -1,9 +1,14 @@
 ---
+uid: namzu.sdk.integrations.event-bridges
 title: Event Bridges
 description: Bridge internal Namzu runtime events to SSE and A2A wire formats, and convert messages, runs, and agent metadata into protocol-friendly shapes.
-last_updated: 2026-08-09
-status: current
-related_packages: ["@namzu/sdk"]
+type: Guide
+diataxis: explanation
+owner: cogitave/namzu
+status: active
+timestamp: 2026-08-09T00:00:00Z
+lastReviewed: 2026-08-09
+tags: [sdk]
 ---
 
 # Event Bridges
