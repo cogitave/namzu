@@ -18,6 +18,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
+import { failingStream } from '../../../__fixtures__/failing-stream.js'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { NAMZU } from '../../../constants/telemetry/index.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
@@ -41,14 +42,9 @@ function failing(id: string, status: number): LLMProvider & { calls: number } {
 	return {
 		id,
 		name: id,
-		// eslint-disable-next-line require-yield
 		chatStream: (_params: ChatCompletionParams): AsyncIterable<StreamChunk> => {
 			calls++
-			return (async function* () {
-				throw Object.assign(new Error(`HTTP ${status}`), { status })
-				// biome-ignore lint/correctness/noUnreachable: the generator must be one
-				yield { id: '', delta: {} } as StreamChunk
-			})()
+			return failingStream(Object.assign(new Error(`HTTP ${status}`), { status }))
 		},
 		get calls() {
 			return calls

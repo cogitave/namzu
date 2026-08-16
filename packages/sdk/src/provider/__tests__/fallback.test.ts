@@ -10,6 +10,7 @@
 
 import { describe, expect, it } from 'vitest'
 
+import { failingStream } from '../../__fixtures__/failing-stream.js'
 import { classifyProviderError } from '../../types/provider/errors.js'
 import type { ChatCompletionParams, LLMProvider, StreamChunk } from '../../types/provider/index.js'
 import { providerHttpError } from '../errors.js'
@@ -338,14 +339,7 @@ describe('withProviderFallback', () => {
 	 */
 	describe('onSwap', () => {
 		it('announces the replacement when it is asked', async () => {
-			const primary = member('primary', [
-				() =>
-					(async function* () {
-						throw httpError(401)
-						// biome-ignore lint/correctness/noUnreachable: the generator must be one
-						yield chunk('')
-					})(),
-			])
+			const primary = member('primary', [() => failingStream(httpError(401))])
 			const fallback = member('fallback', [
 				() =>
 					(async function* () {
@@ -376,14 +370,7 @@ describe('withProviderFallback', () => {
 		 * received.
 		 */
 		it('says nothing when the consumer leaves at the notice and the replacement is never asked', async () => {
-			const primary = member('primary', [
-				() =>
-					(async function* () {
-						throw httpError(401)
-						// biome-ignore lint/correctness/noUnreachable: the generator must be one
-						yield chunk('')
-					})(),
-			])
+			const primary = member('primary', [() => failingStream(httpError(401))])
 			const fallback = member('fallback', [
 				() =>
 					(async function* () {
@@ -407,14 +394,7 @@ describe('withProviderFallback', () => {
 		})
 
 		it('announces once per swap, not once per request to the same member', async () => {
-			const failOnce = member('primary', [
-				() =>
-					(async function* () {
-						throw httpError(401)
-						// biome-ignore lint/correctness/noUnreachable: the generator must be one
-						yield chunk('')
-					})(),
-			])
+			const failOnce = member('primary', [() => failingStream(httpError(401))])
 			const fallback = member('fallback', [
 				() =>
 					(async function* () {

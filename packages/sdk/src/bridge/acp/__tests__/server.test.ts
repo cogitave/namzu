@@ -537,7 +537,6 @@ describe('a handler that throws something that is not a protocol error', () => {
 		const fixture = build({
 			gateway: {
 				prompt: async () => {
-					// eslint-disable-next-line no-throw-literal
 					throw 'a string, which is legal to throw and easy to drop'
 				},
 			},

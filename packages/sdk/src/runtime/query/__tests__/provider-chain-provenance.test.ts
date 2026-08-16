@@ -29,6 +29,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
+import { failingStream } from '../../../__fixtures__/failing-stream.js'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
@@ -48,11 +49,7 @@ function failing(id: string, status: number): LLMProvider {
 		id,
 		name: id,
 		chatStream: (_params: ChatCompletionParams): AsyncIterable<StreamChunk> =>
-			(async function* () {
-				throw Object.assign(new Error(`HTTP ${status}`), { status })
-				// biome-ignore lint/correctness/noUnreachable: the generator must be one
-				yield { id: '', delta: {} } as StreamChunk
-			})(),
+			failingStream(Object.assign(new Error(`HTTP ${status}`), { status })),
 	} as unknown as LLMProvider
 }
 
