@@ -248,6 +248,16 @@ export interface QueryParams {
 	backgroundJobs?: BackgroundJobRegistry
 
 	/**
+	 * What else goes in this run's prompt.
+	 *
+	 * `static` and `dynamic` contributions reach the system prompt through
+	 * `PromptBuilder`; `turn` contributions reach the ephemeral trailing
+	 * message once per iteration. A host registers once and the placement
+	 * decides where it lands.
+	 */
+	promptContributions?: import('../../prompt/contributions.js').PromptContributionRegistry
+
+	/**
 	 * Wait between in-loop retries of a failed tool call, with full jitter.
 	 * Defaults to {@link DEFAULT_TOOL_RETRY_BACKOFF}.
 	 *
@@ -1283,6 +1293,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		tools: params.tools,
 		allowedTools: effectiveAllowedTools,
 		runtimeContext: params.runtimeContext,
+		...(params.promptContributions ? { contributions: params.promptContributions } : {}),
 	})
 
 	const guard = new GuardCoordinator({
@@ -1424,6 +1435,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		// question rather than the next run.
 		resumeHandler: (request) => approvalPolicy.current.handler(request),
 		takeApprovalPolicyChange: () => approvalPolicy.takeUnannouncedChange(),
+		...(params.promptContributions ? { promptContributions: params.promptContributions } : {}),
 		...(params.steering ? { steering: params.steering } : {}),
 		checkpointMgr,
 		planManager: ctx.planManager,
@@ -1620,6 +1632,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				tools: params.tools,
 				allowedTools: effectiveAllowedTools,
 				runtimeContext: params.runtimeContext,
+				...(params.promptContributions ? { contributions: params.promptContributions } : {}),
 			}
 
 			const segments: PromptSegments = promptCache

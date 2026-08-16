@@ -156,6 +156,15 @@ export class PromptBuilder {
 		return renderSkillsSection(this.config.skills)
 	}
 
+	/**
+	 * `static` and `dynamic` only, and the signature says so.
+	 *
+	 * A `turn` contribution rendered here would land in the system prompt —
+	 * cached for the run under `static`, or read as a standing instruction
+	 * under `dynamic`. Either way the state it exists to report goes stale
+	 * silently, which is the exact failure `turn` was added to avoid. The
+	 * iteration loop renders those, into the ephemeral message.
+	 */
 	private renderContributions(
 		placement: 'static' | 'dynamic',
 		workingDirectory?: string,

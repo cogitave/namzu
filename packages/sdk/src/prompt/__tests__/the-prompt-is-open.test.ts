@@ -1,13 +1,16 @@
 import { describe, expect, it } from 'vitest'
 
 import { ToolRegistry } from '../../registry/index.js'
+import { PromptCache } from '../../runtime/query/prompt-cache.js'
 import { PromptBuilder } from '../../runtime/query/prompt.js'
 import type { AgentPersona } from '../../types/persona/index.js'
+import type { ProjectId } from '../../types/session/ids.js'
 import type { Skill } from '../../types/skills/index.js'
 import {
 	type PromptContribution,
 	PromptContributionCollisionError,
 	PromptContributionRegistry,
+	type PromptPlacement,
 	SKILLS_CONTRIBUTION_ID,
 	skillsContribution,
 } from '../contributions.js'
@@ -33,7 +36,7 @@ const SKILL: Skill = {
 const contribution = (
 	id: string,
 	text: string | null,
-	placement: 'static' | 'dynamic' = 'static',
+	placement: PromptPlacement = 'static',
 ): PromptContribution => ({ id, placement, render: () => text })
 
 const builder = (over: Partial<ConstructorParameters<typeof PromptBuilder>[0]> = {}) =>
@@ -354,5 +357,138 @@ describe('a caller that never heard of the registry is unaffected', () => {
 		const segments = builder({ systemPrompt: 'be brief', skills: [SKILL] }).buildSegmented()
 
 		expect(segments.static).toContain('## Available Skills')
+	})
+})
+
+describe('a turn contribution never reaches the system prompt', () => {
+	it('is absent from both segments', () => {
+		// The refusal that makes the placement mean something. In `static` it
+		// is cached for the run; in `dynamic` it is read as a standing
+		// instruction. Either way the state it reports goes stale silently.
+		const contributions = new PromptContributionRegistry()
+		contributions.register(contribution('turnly', 'TURN TEXT', 'turn'))
+
+		const built = builder({ persona: PERSONA, contributions })
+		const segments = built.buildSegmented()
+
+		expect(segments.static).not.toContain('TURN TEXT')
+		expect(segments.dynamic).not.toContain('TURN TEXT')
+		expect(built.build()).not.toContain('TURN TEXT')
+	})
+
+	it('does not disturb the static and dynamic ones around it', () => {
+		const contributions = new PromptContributionRegistry()
+		contributions.register(contribution('s', 'STATIC TEXT', 'static'))
+		contributions.register(contribution('t', 'TURN TEXT', 'turn'))
+		contributions.register(contribution('d', 'DYNAMIC TEXT', 'dynamic'))
+
+		const segments = builder({ persona: PERSONA, contributions }).buildSegmented()
+
+		expect(segments.static).toContain('STATIC TEXT')
+		expect(segments.dynamic).toContain('DYNAMIC TEXT')
+	})
+
+	it('is carried by the registry’s own render for whoever asks', () => {
+		const contributions = new PromptContributionRegistry()
+		contributions.register(contribution('turnly', 'TURN TEXT', 'turn'))
+
+		expect(contributions.render('turn', { iteration: 3 })).toEqual(['TURN TEXT'])
+	})
+})
+
+describe('the prompt cache notices when the contributors change', () => {
+	const cacheInput = (contributions?: PromptContributionRegistry) => ({
+		systemPrompt: 'be brief',
+		tools: new ToolRegistry(),
+		...(contributions ? { contributions } : {}),
+	})
+
+	const cache = () => new PromptCache({ projectId: 'prj_c' as ProjectId, agentId: 'agent-1' })
+
+	it('rebuilds when a contribution is added', () => {
+		// The cache would otherwise serve a prompt assembled before the
+		// contributor existed, for the rest of the run, with nothing saying
+		// so — which is the whole class of bug a hash exists to prevent.
+		const c = cache()
+		const before = c.getSystemPrompt(cacheInput())
+
+		const contributions = new PromptContributionRegistry()
+		contributions.register(contribution('web', 'CITE THINGS'))
+		const after = c.getSystemPrompt(cacheInput(contributions))
+
+		expect(before).not.toContain('CITE THINGS')
+		expect(after).toContain('CITE THINGS')
+	})
+
+	it('rebuilds when a contribution changes PLACEMENT', () => {
+		// Same id, different half of the prompt. Hashing ids alone would
+		// call this unchanged and serve the old arrangement.
+		const c = cache()
+		const asStatic = new PromptContributionRegistry()
+		asStatic.register(contribution('x', 'MOVED TEXT', 'static'))
+		const asDynamic = new PromptContributionRegistry()
+		asDynamic.register(contribution('x', 'MOVED TEXT', 'dynamic'))
+
+		c.getSystemPrompt(cacheInput(asStatic))
+
+		expect(c.needsRebuild(cacheInput(asDynamic))).toBe(true)
+	})
+
+	it('does not rebuild when nothing about them changed', () => {
+		// The other half: a cache that rebuilds on every call is not a cache,
+		// and this hash must not be accidentally unstable.
+		const c = cache()
+		const contributions = new PromptContributionRegistry()
+		contributions.register(contribution('web', 'CITE THINGS'))
+		c.getSystemPrompt(cacheInput(contributions))
+
+		expect(c.needsRebuild(cacheInput(contributions))).toBe(false)
+	})
+
+	it('keeps the STATIC segment when only a turn contributor arrives', () => {
+		// A `turn` contributor coming or going does not change the cached
+		// prefix, so folding it into the static hash would throw away a
+		// prefix for a change it does not describe.
+		//
+		// Observed through a static contributor whose render CHANGES between
+		// the two calls, because a cache hit and a rebuild produce the same
+		// text otherwise — the mutant that folds every placement into this
+		// hash is invisible to any assertion on identical output. Serving the
+		// first render is also the honest contract: `static` means the output
+		// cannot change inside one run, and the cache takes that at its word.
+		let rendered = 'FIRST RENDER'
+		const shifting = (): PromptContribution => ({
+			id: 's',
+			placement: 'static',
+			render: () => rendered,
+		})
+
+		const c = cache()
+		const base = new PromptContributionRegistry()
+		base.register(shifting())
+		const first = c.getSystemPromptSegmented(cacheInput(base))
+
+		rendered = 'SECOND RENDER'
+		const withTurn = new PromptContributionRegistry()
+		withTurn.register(shifting())
+		withTurn.register(contribution('t', 'TURN TEXT', 'turn'))
+		const second = c.getSystemPromptSegmented(cacheInput(withTurn))
+
+		expect(first.static).toContain('FIRST RENDER')
+		// Still the cached prefix: the turn contributor did not touch it.
+		expect(second.static).toContain('FIRST RENDER')
+		expect(second.static).not.toContain('SECOND RENDER')
+	})
+
+	it('DOES rebuild the static segment when a static contributor arrives', () => {
+		const c = cache()
+		const first = c.getSystemPromptSegmented(cacheInput())
+
+		const contributions = new PromptContributionRegistry()
+		contributions.register(contribution('s', 'STATIC TEXT', 'static'))
+		const second = c.getSystemPromptSegmented(cacheInput(contributions))
+
+		expect(first.static).not.toContain('STATIC TEXT')
+		expect(second.static).toContain('STATIC TEXT')
 	})
 })

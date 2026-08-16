@@ -420,7 +420,17 @@ export class IterationOrchestrator {
 					const policyNotice = policyChange
 						? `Approval policy changed from "${policyChange.from}" to "${policyChange.to}" (${policyChange.reason}). Tool calls from here on are reviewed under the new policy.`
 						: null
-					const stepPreamble = [step.system, stepSkills, policyNotice].filter(Boolean).join('\n\n')
+					// State that changed during the run, reported once per turn.
+					// `turn` contributions land HERE and nowhere else: in the
+					// system prompt they would be cached for the run or read as
+					// a standing instruction, and either way the state they
+					// exist to report goes stale silently.
+					const turnSections =
+						this.ctx.promptContributions?.render('turn', { iteration: iterationNum }) ?? []
+
+					const stepPreamble = [step.system, stepSkills, policyNotice, ...turnSections]
+						.filter(Boolean)
+						.join('\n\n')
 					const messages = stepPreamble
 						? [...baseMessages, createSystemMessage(stepPreamble)]
 						: [...baseMessages]

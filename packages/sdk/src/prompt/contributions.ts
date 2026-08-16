@@ -25,6 +25,15 @@ export interface PromptContributionContext {
 	readonly skills?: readonly Skill[]
 	/** The tools this turn may call, if the turn was narrowed. */
 	readonly allowedTools?: readonly string[]
+	/**
+	 * Which iteration this is, 1-based — present only for `turn`.
+	 *
+	 * Absent for `static` and `dynamic`, and that absence is the type
+	 * saying what the placement means: a contribution that needs to know
+	 * which turn it is cannot be part of a prompt assembled once and
+	 * cached.
+	 */
+	readonly iteration?: number
 }
 
 /**
@@ -40,7 +49,30 @@ export interface PromptContributionContext {
  * The rule: `static` iff the output depends only on things that cannot
  * change inside one run.
  */
-export type PromptPlacement = 'static' | 'dynamic'
+export type PromptPlacement = 'static' | 'dynamic' | 'turn'
+
+/**
+ * `turn` is a third thing, not a looser `dynamic`.
+ *
+ * `static` and `dynamic` are both parts of the SYSTEM PROMPT: assembled
+ * once per request, sent as system messages, and — for `static` — cached by
+ * the provider across turns. `turn` is not in the system prompt at all. It
+ * rides the ephemeral trailing message that a step's guidance, its skills
+ * and the approval-policy notice already use: appended to the request,
+ * never pushed onto the run's history, and gone the moment the request is
+ * sent.
+ *
+ * That is the placement for state that changes DURING a run — a budget
+ * running down, a queue draining, a policy that just moved. Putting such a
+ * thing in `static` serves the first iteration's value forever; putting it
+ * in `dynamic` re-sends it in a position the model reads as part of its
+ * standing instructions rather than as a status.
+ *
+ * The cost of `turn` is real and worth stating: every iteration pays for it
+ * in tokens, and it lands after the cached prefix so it cannot be cached.
+ * The approval-policy notice is the shape to copy — it returns text only
+ * when something actually changed, and `null` on every other turn.
+ */
 
 export interface PromptContribution {
 	/**

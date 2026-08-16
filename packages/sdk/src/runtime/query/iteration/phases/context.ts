@@ -5,6 +5,7 @@ import type { ContextReducer } from '../../../../compaction/reducer.js'
 import type { CompactionConfig } from '../../../../config/runtime.js'
 import type { PlanManager } from '../../../../manager/plan/lifecycle.js'
 import type { RunPersistence } from '../../../../manager/run/persistence.js'
+import type { PromptContributionRegistry } from '../../../../prompt/contributions.js'
 import type { ServingMember } from '../../../../provider/fallback.js'
 import type { CompletionInbox } from '../../../../scheduler/completion-inbox.js'
 import type { ActivityStore } from '../../../../store/activity/memory.js'
@@ -105,6 +106,15 @@ export interface IterationContext {
 	readonly takeApprovalPolicyChange?: () =>
 		| import('../../../../types/hitl/policy.js').ApprovalPolicyChange
 		| undefined
+
+	/**
+	 * Contributions that report state changing DURING the run.
+	 *
+	 * Rendered into the ephemeral trailing message once per iteration, never
+	 * into the system prompt — see `PromptPlacement`'s note on why `turn` is
+	 * a third thing rather than a looser `dynamic`.
+	 */
+	readonly promptContributions?: PromptContributionRegistry
 
 	/**
 	 * Guidance a host may hand to the turn while it runs.
