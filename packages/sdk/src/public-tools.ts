@@ -51,6 +51,14 @@ export {
 	WebFetchTool,
 	WebSearchTool,
 } from './tools/builtins/web.js'
+// The paragraph neither tool owns: how to use the two together, and what a
+// fetched page is. Registered with the prompt contribution registry only
+// when the tools are — guidance about tools a run does not have spends the
+// cached prefix telling the model to cite a search it cannot run.
+export {
+	WEB_GUIDANCE_CONTRIBUTION_ID,
+	webGuidanceContribution,
+} from './tools/builtins/web-guidance.js'
 export { LsTool } from './tools/builtins/ls.js'
 export { SearchToolsTool } from './tools/builtins/search-tools.js'
 export { VerifyOutputsTool } from './tools/builtins/verify-outputs.js'

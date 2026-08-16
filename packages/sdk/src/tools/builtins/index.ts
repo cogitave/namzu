@@ -12,6 +12,7 @@ export {
 	WebFetchTool,
 	WebSearchTool,
 } from './web.js'
+export { WEB_GUIDANCE_CONTRIBUTION_ID, webGuidanceContribution } from './web-guidance.js'
 export { LsTool } from './ls.js'
 export { SearchToolsTool } from './search-tools.js'
 export { VerifyOutputsTool } from './verify-outputs.js'
