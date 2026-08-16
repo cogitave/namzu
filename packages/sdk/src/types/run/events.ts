@@ -195,7 +195,7 @@ type CoreRunEvent =
 			measuredBy: 'provider' | 'estimate'
 			/** The window the trigger measured against, and where it came from. */
 			contextWindowTokens: number
-			windowSource: 'config' | 'model-table' | 'default'
+			windowSource: 'config' | 'provider' | 'model-table' | 'default'
 			/**
 			 * False when the pass could not get the context below
 			 * `resetThreshold` — the trigger is still armed, and a host may
@@ -587,7 +587,7 @@ type CoreRunEvent =
 			contextTokens?: number
 			contextMeasuredBy?: 'provider' | 'estimate'
 			contextWindowTokens?: number
-			windowSource?: 'config' | 'model-table' | 'default'
+			windowSource?: 'config' | 'provider' | 'model-table' | 'default'
 	  }
 	| {
 			type: 'activity_created'

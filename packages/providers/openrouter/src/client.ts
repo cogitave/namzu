@@ -322,6 +322,56 @@ export class OpenRouterProvider implements LLMProvider {
 		}
 	}
 
+	/**
+	 * The vendor's own `context_length` for this model.
+	 *
+	 * This driver already parsed the number and threw it away: `listModels`
+	 * maps it into `contextWindow` and nothing downstream ever asked. The
+	 * kernel meanwhile fell back to a hand-maintained prefix table whose own
+	 * header records what that costs — every Claude entry carried 200k
+	 * including the 1M-window models, so those runs compacted at roughly 14%
+	 * full. OpenRouter fronts hundreds of models from a dozen vendors, so it
+	 * is the driver where a static table drifts fastest.
+	 *
+	 * `undefined` for a model the listing does not contain, rather than a
+	 * guess: "I asked and it is not there" leaves the table exactly as
+	 * authoritative as it was, while a substituted number would present a
+	 * guess as a vendor answer.
+	 *
+	 * Cached for the process, because a listing of several hundred models is
+	 * a real payload and a model's window does not change under a running
+	 * run. A failure is NOT cached — the next run asks again rather than
+	 * inheriting one bad minute forever.
+	 */
+	async resolveContextWindow(model: string, signal?: AbortSignal): Promise<number | undefined> {
+		const pending =
+			this.contextWindows ??
+			(async () => {
+				const models = await this.listModels()
+				return new Map<string, number>(
+					models
+						.filter(
+							(m): m is typeof m & { contextWindow: number } => typeof m.contextWindow === 'number',
+						)
+						.map((m) => [m.id, m.contextWindow]),
+				)
+			})().catch((err: unknown) => {
+				// Not cached. A listing endpoint that was down for a minute must
+				// not leave every later run answering from that minute.
+				this.contextWindows = undefined
+				throw err
+			})
+		this.contextWindows = pending
+
+		const windows = await pending
+		if (signal?.aborted) return undefined
+		const reported = windows.get(model)
+		return typeof reported === 'number' && reported > 0 ? reported : undefined
+	}
+
+	/** Resolved once per process; see the note on `resolveContextWindow`. */
+	private contextWindows?: Promise<Map<string, number>>
+
 	async listModels(): Promise<ModelInfo[]> {
 		const response = await fetch(`${this.baseUrl}/models`, {
 			headers: this.getHeaders(),

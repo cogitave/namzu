@@ -107,7 +107,15 @@ export function lookupContextWindow(model: string | undefined): number | undefin
 
 export interface ResolvedContextWindow {
 	readonly tokens: number
-	readonly source: 'config' | 'model-table' | 'default'
+	/**
+	 * Where the number came from, ranked in that order.
+	 *
+	 * `'provider'` sits between the two for a reason: a host that set a
+	 * number said what they want and outranks any discovery, while the
+	 * table is a guess maintained by hand and the vendor's own answer is
+	 * not.
+	 */
+	readonly source: 'config' | 'provider' | 'model-table' | 'default'
 }
 
 /**
@@ -120,10 +128,24 @@ export interface ResolvedContextWindow {
 export function resolveContextWindow(
 	configured: number | undefined,
 	model: string | undefined,
+	/**
+	 * What the driver said, already resolved.
+	 *
+	 * A plain number rather than a promise, because both call sites are
+	 * synchronous and sit in the hot loop. Resolving happens once at the
+	 * start of a run; this parameter is that answer being carried in.
+	 */
+	providerReported?: number,
 ): ResolvedContextWindow {
 	if (configured !== undefined && configured > 0) {
 		return { tokens: configured, source: 'config' }
 	}
+	if (providerReported !== undefined && providerReported > 0) {
+		return { tokens: providerReported, source: 'provider' }
+	}
+	// A driver that resolved `undefined` falls through to HERE, not to the
+	// default. "I asked and it does not know" leaves the table exactly as
+	// authoritative as it was before anyone asked.
 	const known = lookupContextWindow(model)
 	if (known !== undefined) {
 		return { tokens: known, source: 'model-table' }

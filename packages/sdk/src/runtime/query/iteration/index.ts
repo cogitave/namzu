@@ -635,6 +635,7 @@ export class IterationOrchestrator {
 								const window = resolveContextWindow(
 									this.ctx.compactionConfig?.contextWindowTokens,
 									runConfig.model,
+									this.ctx.providerContextWindow,
 								)
 								return {
 									contextTokens: measured.tokens,

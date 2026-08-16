@@ -182,7 +182,7 @@ export type AgentEvent =
 			readonly contextTokens?: number
 			readonly contextMeasuredBy?: 'provider' | 'estimate'
 			readonly contextWindowTokens?: number
-			readonly windowSource?: 'config' | 'model-table' | 'default'
+			readonly windowSource?: 'config' | 'provider' | 'model-table' | 'default'
 	  }
 	/**
 	 * Context was discarded, or an attempt to discard it declined.

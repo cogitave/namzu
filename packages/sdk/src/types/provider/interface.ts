@@ -160,4 +160,31 @@ export interface LLMProvider {
 		model: string,
 		thinking?: import('./chat.js').ThinkingConfig,
 	): readonly import('./chat.js').ReasoningEffort[]
+
+	/**
+	 * How large a context this model actually has, if the vendor says.
+	 *
+	 * The kernel's only source below an explicit host config is a
+	 * hand-maintained prefix table, and its own header records what that
+	 * costs: one vendor family's entries all carried 200k including the
+	 * models whose window is 1M, so those runs compacted at roughly 14% full
+	 * and threw away the prompt-cache prefix to do it. Every model release drifts the table
+	 * again until somebody edits it. Meanwhile at least one driver already
+	 * parses a real per-model `context_length` off the vendor listing and
+	 * throws it away, because there was no member to return it through.
+	 *
+	 * Three states, exactly like {@link LLMProvider.effortLevelsFor}: the
+	 * member ABSENT means this driver cannot answer at all; a resolved
+	 * `undefined` means it asked and does not know; a number is the answer.
+	 * The three are different facts and collapsing any two of them turns
+	 * "I do not know" into a confident wrong number, which is the failure
+	 * the table already made once.
+	 *
+	 * Resolved ONCE per run, not per iteration — the two consumers are
+	 * synchronous and in the hot loop, so this must never become an await
+	 * inside it. A rejection or a hang here is not a run failure: the table
+	 * is still there, and a driver that cannot answer must not take down a
+	 * run that would otherwise work.
+	 */
+	resolveContextWindow?(model: string, signal?: AbortSignal): Promise<number | undefined>
 }

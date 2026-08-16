@@ -390,5 +390,26 @@ export function withProviderFallback(
 		...(first.provider.doctorCheck
 			? { doctorCheck: (model?: string) => first.provider.doctorCheck?.(model) }
 			: {}),
+		// The HEAD's answer, like every other member here, and that is the
+		// right reading rather than a limitation: the window is resolved once
+		// at the start of a run, when the head is what is serving. A chain
+		// that swaps mid-run has bigger differences between its members than
+		// a context size, and re-resolving on every swap would put a network
+		// call on the recovery path — which is the last place that can afford
+		// one.
+		...(first.provider.effortLevelsFor
+			? {
+					effortLevelsFor: (
+						model: string,
+						thinking?: Parameters<NonNullable<LLMProvider['effortLevelsFor']>>[1],
+					) => first.provider.effortLevelsFor?.(model, thinking) ?? [],
+				}
+			: {}),
+		...(first.provider.resolveContextWindow
+			? {
+					resolveContextWindow: (model: string, signal?: AbortSignal) =>
+						first.provider.resolveContextWindow?.(model, signal) ?? Promise.resolve(undefined),
+				}
+			: {}),
 	} as LLMProvider
 }

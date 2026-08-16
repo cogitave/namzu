@@ -286,7 +286,7 @@ async function applyReducer(
 	reduction: ContextReduction,
 	measurement: {
 		measuredBy: 'provider' | 'estimate'
-		windowSource: 'config' | 'model-table' | 'default'
+		windowSource: 'config' | 'provider' | 'model-table' | 'default'
 	},
 ): Promise<void> {
 	const messages = ctx.runMgr.messages
@@ -428,7 +428,11 @@ export async function runCompactionCheck(
 	// number. Nothing in the estate ever set `contextWindowTokens`, so the
 	// fallback WAS the behavior, and the shipped CLI's 1M budget put the
 	// trigger at ~700k. See `compaction/context-window.ts`.
-	const window = resolveContextWindow(config.contextWindowTokens, ctx.runConfig.model)
+	const window = resolveContextWindow(
+		config.contextWindowTokens,
+		ctx.runConfig.model,
+		ctx.providerContextWindow,
+	)
 	const budget = window.tokens
 
 	const usage = estimatedTokens / budget

@@ -258,5 +258,28 @@ export function withProviderRetry(
 		...(provider.doctorCheck
 			? { doctorCheck: (model?: string) => provider.doctorCheck?.(model) }
 			: {}),
+		// Forwarded for the same reason `healthCheck` is, and both were
+		// missing until something consumed them. A member this wrapper drops
+		// does not fail — it reads as "this driver cannot answer", which is a
+		// legitimate state and therefore a silent one. Retry is on by
+		// default, so a dropped member is dropped on essentially every run.
+		//
+		// `effortLevelsFor` was in that position and had no consumer at all,
+		// which is exactly why nobody noticed: a driver's declared effort
+		// levels became invisible the moment its provider was wrapped.
+		...(provider.effortLevelsFor
+			? {
+					effortLevelsFor: (
+						model: string,
+						thinking?: Parameters<NonNullable<LLMProvider['effortLevelsFor']>>[1],
+					) => provider.effortLevelsFor?.(model, thinking) ?? [],
+				}
+			: {}),
+		...(provider.resolveContextWindow
+			? {
+					resolveContextWindow: (model: string, signal?: AbortSignal) =>
+						provider.resolveContextWindow?.(model, signal) ?? Promise.resolve(undefined),
+				}
+			: {}),
 	} as LLMProvider
 }

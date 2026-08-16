@@ -89,8 +89,10 @@ import type { ToolRegistryContract } from '../../types/tool/index.js'
 import type { RepairToolCall } from '../../types/tool/repair.js'
 import type { BackoffPolicy } from '../../utils/backoff.js'
 import type { ModelPricing } from '../../utils/cost.js'
+import { toErrorMessage } from '../../utils/error.js'
 import { generateRunId } from '../../utils/id.js'
 import { EVENT_NAME_ATTRIBUTE } from '../../utils/log/types.js'
+import type { Logger } from '../../utils/logger.js'
 import { pickRenamed } from '../../utils/renamed-field.js'
 import { CheckpointManager } from './checkpoint.js'
 import { RunContextFactory } from './context.js'
@@ -713,6 +715,36 @@ function assertBudgetIsMeasurable(params: QueryParams): void {
 	})
 }
 
+/**
+ * Ask the driver what this model's window is, and never let the answer
+ * cost the run.
+ *
+ * Three outcomes collapse to two here on purpose. No member and a resolved
+ * `undefined` both mean "no answer" — the distinction matters to a driver
+ * author, not to a caller about to fall through to the table. A rejection
+ * is the third, and it is logged rather than propagated: a run that would
+ * have worked on the table must not fail because a listing endpoint was
+ * down.
+ */
+async function resolveProviderContextWindow(
+	provider: LLMProvider,
+	model: string | undefined,
+	signal: AbortSignal | undefined,
+	log: Logger,
+): Promise<number | undefined> {
+	if (!provider.resolveContextWindow || !model) return undefined
+	try {
+		const reported = await provider.resolveContextWindow(model, signal)
+		return typeof reported === 'number' && reported > 0 ? reported : undefined
+	} catch (err) {
+		log.debug('Provider could not report a context window; using the table', {
+			'namzu.model.id': model,
+			'namzu.error.message': toErrorMessage(err),
+		})
+		return undefined
+	}
+}
+
 export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run> {
 	// Resolved at the DOOR, before a run id exists or a logger is built.
 	// A caller who set both spellings of a renamed field has a config bug,
@@ -833,6 +865,19 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				ctx.runMgr.setServingProvider(to.providerId)
 			},
 		},
+	)
+
+	// Asked ONCE, here, before the loop exists. Both readers are synchronous
+	// and hot, so this can never move inside the iteration — and a driver
+	// that rejects, or one that hangs until the run is cancelled, must not
+	// take down a run the table could have served perfectly well. That is
+	// why the failure path is a swallow with a log rather than a throw: the
+	// window is an optimisation over a working default, not a prerequisite.
+	const providerContextWindow = await resolveProviderContextWindow(
+		resilientProvider,
+		params.runConfig.model,
+		params.signal,
+		log,
 	)
 
 	const ctx = RunContextFactory.build({
@@ -1255,6 +1300,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		// would leak exactly that way.
 		...(params.repeatCallAdvisory === false ? {} : { repeatCalls: new RepeatCallTracker() }),
 		compactionConfig: params.compactionConfig,
+		...(providerContextWindow !== undefined ? { providerContextWindow } : {}),
 		workingStateManager,
 		taskRouter: params.taskRouter,
 		contextReducer: params.contextReducer,

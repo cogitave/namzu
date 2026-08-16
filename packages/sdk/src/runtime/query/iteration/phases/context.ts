@@ -136,6 +136,18 @@ export interface IterationContext {
 
 	readonly compactionConfig?: CompactionConfig
 
+	/**
+	 * What the driver said this model's context window is, resolved once.
+	 *
+	 * Carried rather than asked for, because both readers are synchronous
+	 * and in the hot loop — turning either into an await would put a network
+	 * round trip on every iteration of every run. `undefined` covers both
+	 * "the driver has no such member" and "it asked and does not know",
+	 * which are different facts to the DRIVER and the same fact here: fall
+	 * through to the table.
+	 */
+	readonly providerContextWindow?: number
+
 	readonly workingStateManager?: WorkingStateManager
 
 	/**

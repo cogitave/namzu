@@ -22,7 +22,7 @@ export interface ContextFill {
 	readonly tokens?: number
 	readonly windowTokens?: number
 	readonly measuredBy?: 'provider' | 'estimate'
-	readonly windowSource?: 'config' | 'model-table' | 'default'
+	readonly windowSource?: 'config' | 'provider' | 'model-table' | 'default'
 }
 
 export interface StatusBarProps {
