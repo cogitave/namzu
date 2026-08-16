@@ -47,6 +47,13 @@ export interface AcpInitializeResult {
 	readonly commands: readonly SerializableHostCommand[]
 	/** Which capabilities this agent needs the client to have. */
 	readonly requiredClientCapabilities: readonly string[]
+	/**
+	 * Capabilities that change what this agent can do without being required.
+	 *
+	 * Kept apart from `required` because demanding a filesystem of a peer that
+	 * is not an editor would refuse a session that is perfectly able to run.
+	 */
+	readonly optionalClientCapabilities: readonly string[]
 }
 
 export interface AcpSessionNewParams {
@@ -56,6 +63,51 @@ export interface AcpSessionNewParams {
 
 export interface AcpSessionNewResult {
 	readonly sessionId: string
+}
+
+export interface AcpSessionLoadParams {
+	/** The session to resume. Answered with the SAME id, never a new one. */
+	readonly sessionId: string
+	readonly cwd?: string
+}
+
+/** What the agent asks the client before running a tool batch. */
+export interface AcpRequestPermissionParams {
+	readonly sessionId: string
+	readonly toolCalls: readonly {
+		readonly id: string
+		readonly name: string
+		readonly input: unknown
+		readonly isDestructive: boolean
+	}[]
+}
+
+/**
+ * The client's answer.
+ *
+ * `approve_all` is a distinct outcome rather than `approve` plus a flag,
+ * because the two mean different things to the human who chose one and a
+ * boolean beside an enum invites a client to send `approve` with the flag on.
+ */
+export interface AcpRequestPermissionResult {
+	readonly outcome: 'approve' | 'approve_all' | 'reject'
+	/** Why, for a rejection. Reaches the MODEL, so it is worth writing. */
+	readonly feedback?: string
+}
+
+export interface AcpFsReadParams {
+	readonly sessionId: string
+	readonly path: string
+}
+
+export interface AcpFsReadResult {
+	readonly content: string
+}
+
+export interface AcpFsWriteParams {
+	readonly sessionId: string
+	readonly path: string
+	readonly content: string
 }
 
 export interface AcpSessionPromptParams {

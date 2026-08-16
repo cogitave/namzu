@@ -35,6 +35,7 @@ export const ACP_METHODS = {
 	SESSION_NEW: 'session/new',
 	SESSION_PROMPT: 'session/prompt',
 	SESSION_CANCEL: 'session/cancel',
+	SESSION_LOAD: 'session/load',
 } as const
 
 export type AcpMethod = (typeof ACP_METHODS)[keyof typeof ACP_METHODS]
@@ -48,6 +49,20 @@ export type AcpMethod = (typeof ACP_METHODS)[keyof typeof ACP_METHODS]
  */
 export const ACP_CLIENT_NOTIFICATIONS = {
 	SESSION_UPDATE: 'session/update',
+} as const
+
+/**
+ * REQUESTS this agent makes of the client, which it answers.
+ *
+ * Distinct from a notification: each carries an id and this side waits for
+ * the response. That direction is what makes a permission prompt possible at
+ * all — the agent has a question and cannot proceed until the human behind
+ * the client answers it.
+ */
+export const ACP_CLIENT_REQUESTS = {
+	REQUEST_PERMISSION: 'session/request_permission',
+	FS_READ: 'fs/read_text_file',
+	FS_WRITE: 'fs/write_text_file',
 } as const
 
 /**
@@ -75,3 +90,15 @@ export const ACP_ERROR_CODES = {
  * what to send.
  */
 export const ACP_PERMISSION_CAPABILITY = 'permission'
+
+/**
+ * The capability that lets the EDITOR's buffers be the source of truth.
+ *
+ * Optional, unlike `permission`. A client that does not declare it gets an
+ * agent reading and writing the disk, which is correct and is what every
+ * non-editor peer wants. A client that DOES declare it is telling this
+ * agent that the file on disk may be stale — the user has unsaved changes —
+ * and that reading disk anyway would show the model a version of the file
+ * nobody is looking at.
+ */
+export const ACP_FILESYSTEM_CAPABILITY = 'fs'

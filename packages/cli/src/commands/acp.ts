@@ -2,6 +2,7 @@ import {
 	ACPServer,
 	type AcpAgentGateway,
 	HostCommandRegistry,
+	type Message,
 	type RunEvent,
 	ServerStdioTransport,
 	ToolRegistry,
@@ -99,12 +100,48 @@ export async function runAcpCommand(cwd: string): Promise<number> {
 	}
 
 	const gateway: AcpAgentGateway = {
-		prompt: async ({ prompt, onEvent, signal }) => {
+		prompt: async ({ prompt, onEvent, signal, ask, history }) => {
 			const live = await ensureSession()
 			route = onEvent
 			try {
 				let stopReason: string | undefined
-				for await (const event of live.send([createUserMessage(prompt)], { signal })) {
+				// The client's human, adapted to this session's own permission
+				// shape. The mapping is a rename, and it is written out rather
+				// than cast so a third outcome added on either side stops
+				// compiling here instead of silently becoming an approval.
+				const onPermission = async (request: {
+					toolCalls: readonly {
+						id: string
+						name: string
+						summary: string
+						isDestructive: boolean
+					}[]
+				}) => {
+					const outcome = await ask({
+						sessionId: 'acp',
+						toolCalls: request.toolCalls.map((call) => ({
+							id: call.id,
+							name: call.name,
+							input: call.summary,
+							isDestructive: call.isDestructive,
+						})),
+					})
+					switch (outcome.kind) {
+						case 'approve':
+							return { kind: 'approve' as const }
+						case 'approve_all':
+							return { kind: 'approve-all' as const }
+						case 'reject':
+							return {
+								kind: 'reject' as const,
+								...(outcome.feedback ? { feedback: outcome.feedback } : {}),
+							}
+					}
+				}
+				// Prior turns first, so a resumed session answers with the
+				// conversation it actually had rather than as if it were new.
+				const messages = [...(history as Message[]), createUserMessage(prompt)]
+				for await (const event of live.send(messages, { signal, onPermission })) {
 					if (event.kind === 'done') stopReason = event.stopReason
 					// An `error` event is a run that FAILED, and the protocol's word
 					// for that is a stop reason rather than a JSON-RPC error: the

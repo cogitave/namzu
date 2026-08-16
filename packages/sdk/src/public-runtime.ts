@@ -634,9 +634,29 @@ export {
 	mapSessionToStreamEvent,
 } from './bridge/sse/index.js'
 
-export { ACPServer, toAcpSessionUpdate, toAcpStopReason } from './bridge/acp/index.js'
-export type { AcpAgentGateway, AcpServerOptions } from './bridge/acp/index.js'
+export {
+	ACP_DEFAULT_REJECTION,
+	ACPServer,
+	clientBackedSandbox,
+	toAcpSessionUpdate,
+	toAcpStopReason,
+	toResumeDecision,
+} from './bridge/acp/index.js'
 export type {
+	AcpAgentGateway,
+	AcpClientFilesystem,
+	AcpPermissionAsker,
+	AcpPermissionOutcome,
+	AcpPermissionRequest,
+	AcpServerOptions,
+} from './bridge/acp/index.js'
+export type {
+	AcpFsReadParams,
+	AcpFsReadResult,
+	AcpFsWriteParams,
+	AcpRequestPermissionParams,
+	AcpRequestPermissionResult,
+	AcpSessionLoadParams,
 	AcpClientCapabilities,
 	AcpInitializeParams,
 	AcpInitializeResult,

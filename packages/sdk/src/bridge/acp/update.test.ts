@@ -105,6 +105,21 @@ describe('what this protocol has a word for', () => {
 		expect(JSON.stringify(update)).toContain('42')
 	})
 
+	it('renders a tool result of undefined as empty rather than the string "undefined"', () => {
+		// A tool that returned nothing. `String(undefined)` puts the literal
+		// word in front of the user, which reads as output the tool produced.
+		const update = toAcpSessionUpdate(
+			{
+				type: 'tool_completed',
+				runId: RID,
+				toolUseId: 'toolu_x',
+				toolName: 'noop',
+			} as unknown as RunEvent,
+			presenter,
+		)
+		expect(JSON.stringify(update)).not.toContain('undefined')
+	})
+
 	it('maps a completed run to a turn boundary carrying the reason', () => {
 		expect(
 			toAcpSessionUpdate(
