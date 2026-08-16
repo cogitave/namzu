@@ -38,3 +38,8 @@ export { InMemoryMemoryIndex } from './memory/index.js'
 export { InMemoryMemoryStore } from './memory/memory.js'
 export { DiskMemoryStore } from './memory/disk.js'
 export type { DiskMemoryStoreConfig } from './memory/disk.js'
+
+// Was that answer any good — recorded per message, durably, with
+// compare-and-set. Every consumer used to invent its own side table for the
+// most basic feedback loop there is.
+export * from './feedback/index.js'

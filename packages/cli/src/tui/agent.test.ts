@@ -64,7 +64,15 @@ describe('toAgentEvent', () => {
 			text: 'hello',
 			...env,
 		} as unknown as RunEvent
-		expect(toAgentEvent(ev, presenter)).toEqual({ kind: 'delta', text: 'hello' })
+		// `messageId` and `runId` travel with the text now: `/feedback` rates a
+		// MESSAGE, and the id is the only thing tying a rating to what was
+		// actually said. The mapper used to drop both.
+		expect(toAgentEvent(ev, presenter)).toEqual({
+			kind: 'delta',
+			text: 'hello',
+			messageId: 'msg_1',
+			runId,
+		})
 	})
 
 	it('maps tool_executing to tool-start with a command summary', () => {

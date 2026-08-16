@@ -11,9 +11,16 @@
  *      empty-state mode (explains where to put credentials).
  */
 
-import type { CostInfo, ImageAttachment, Message } from '@namzu/sdk'
+import {
+	DiskMessageFeedbackStore,
+	type CostInfo,
+	type ImageAttachment,
+	type Message,
+	type MessageId,
+	type RunId,
+} from '@namzu/sdk'
 import { Box, Text, useApp, useInput } from 'ink'
-import { relative } from 'node:path'
+import { join, relative } from 'node:path'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import {
@@ -119,6 +126,14 @@ const LIVE_FURNITURE_ROWS = 10
 
 export function App({ ctx }: AppProps) {
 	const { exit } = useApp()
+	/**
+	 * The last assistant message id the run reported, for `/feedback`.
+	 *
+	 * A ref rather than state: nothing renders it, and making it state would
+	 * re-render the transcript on every delta — the exact cost the `pending`
+	 * buffering two hundred lines down exists to avoid.
+	 */
+	const lastAssistantMessage = useRef<{ runId: string; messageId: string } | null>(null)
 	const [messages, setMessages] = useState<readonly TranscriptMessage[]>([])
 	const [history, setHistory] = useState<readonly string[]>([])
 	const [state, setState] = useState<'idle' | 'thinking' | 'tool' | 'awaiting-permission'>('idle')
@@ -676,6 +691,7 @@ export function App({ ctx }: AppProps) {
 			: 0
 
 	const slashCtx: SlashContext = {
+		lastAssistantMessageId: () => lastAssistantMessage.current?.messageId ?? null,
 		// Called when `/tools` renders, not read here — the same shape, and the
 		// same reason, as `neverPrompted` below.
 		availableTools: () => session?.toolNames() ?? [],
@@ -897,6 +913,9 @@ export function App({ ctx }: AppProps) {
 			switch (event.kind) {
 				case 'delta': {
 					setState('thinking')
+					if (event.messageId && event.runId) {
+						lastAssistantMessage.current = { runId: event.runId, messageId: event.messageId }
+					}
 					st.text += event.text
 					// Held, not appended. Appending each delta is what produced text
 					// that types itself out — nothing animates it, but a few
@@ -1355,6 +1374,50 @@ export function App({ ctx }: AppProps) {
 						break
 					case 'none':
 						return
+					case 'feedback': {
+						const target = lastAssistantMessage.current
+						// Written under the same `<cwd>/.namzu` root the runs live
+						// in, so a rating and the transcript it judges are one
+						// directory apart and travel together.
+						if (!target) {
+							pushMessage('system', 'Nothing to rate yet.')
+							return
+						}
+						const store = new DiskMessageFeedbackStore({
+							rootDir: join(ctx.cwd, '.namzu', 'feedback'),
+							runsDir: join(ctx.cwd, '.namzu', 'runs'),
+						})
+						const runId = target.runId as RunId
+						const messageId = slash.messageId as MessageId
+						// Fire-and-forget: this switch is synchronous, and the
+						// transcript reports the outcome either way rather than
+						// blocking a keystroke on a disk write.
+						void (async () => {
+							try {
+								// A first rating expects nothing; a second replaces the
+								// first, which is what a rater changing their mind does.
+								// Read-then-write rather than blind overwrite, so two
+								// raters on one message still collide loudly.
+								const current = (await store.listMessageFeedback({ runId })).find(
+									(r) => r.messageId === messageId,
+								)
+								const record = await store.putMessageFeedback({
+									runId,
+									messageId,
+									rating: slash.rating,
+									...(slash.note ? { note: slash.note } : {}),
+									expectedVersion: current?.ownerVersion ?? 0,
+								})
+								pushMessage('system', `Recorded ${record.rating} for ${record.messageId}.`)
+							} catch (err) {
+								pushMessage(
+									'system',
+									`Could not record feedback: ${err instanceof Error ? err.message : String(err)}`,
+								)
+							}
+						})()
+						return
+					}
 					default: {
 						// Exhaustive on purpose. Without it a `SlashAction` kind added
 						// and not handled here falls out of the switch into the send

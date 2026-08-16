@@ -39,6 +39,14 @@ export type SlashAction =
 	| { kind: 'load-skill'; name: string }
 	| { kind: 'resume' }
 	/**
+	 * Record a judgment on the run's last assistant message.
+	 *
+	 * Carries the id rather than leaving App to re-derive it: the command
+	 * has already decided there IS one, and re-deriving would open a window
+	 * where the answer moved between the check and the write.
+	 */
+	| { kind: 'feedback'; rating: 'good' | 'bad'; messageId: string; note?: string }
+	/**
 	 * Print a collapsed tool body in full, as a NEW transcript row.
 	 *
 	 * `which` is the number the collapse hint printed, or `'last'` for the most
@@ -146,6 +154,17 @@ export interface SlashContext {
 	 * already answers to. Empty is the normal case.
 	 */
 	readonly userCommands: readonly UserCommand[]
+	/**
+	 * The last assistant message this run produced, or `null` before there
+	 * is one.
+	 *
+	 * A function, like every other field here that moves while namzu runs —
+	 * this context is assembled during a render and read later from a
+	 * callback that captured it, so a captured string would name whatever
+	 * was last when the object was built. For `/feedback` that is not a
+	 * stale readout, it is a rating attached to the wrong answer.
+	 */
+	readonly lastAssistantMessageId: () => string | null
 }
 
 export interface SlashCommand {
@@ -217,6 +236,36 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
 						? `${builtin.join('\n')}\n\nYour commands:\n${own.join('\n')}`
 						: builtin.join('\n'),
 			}
+		},
+	},
+	{
+		name: 'feedback',
+		description: 'Rate the last answer: /feedback good|bad [note].',
+		action: (ctx, args) => {
+			const [rating, ...rest] = args
+			if (rating !== 'good' && rating !== 'bad') {
+				return {
+					kind: 'message',
+					role: 'system',
+					content: 'Usage: /feedback good|bad [note]',
+				}
+			}
+
+			// Refused rather than recorded against something invented. A
+			// feedback row is read later to answer "which answers were bad";
+			// one pointing at a message that does not exist cannot be traced
+			// back to what was said, and is indistinguishable from a real one.
+			const messageId = ctx.lastAssistantMessageId()
+			if (!messageId) {
+				return {
+					kind: 'message',
+					role: 'system',
+					content: 'Nothing to rate yet — /feedback applies to the last answer in this run.',
+				}
+			}
+
+			const note = rest.join(' ').trim()
+			return { kind: 'feedback', rating, messageId, ...(note ? { note } : {}) }
 		},
 	},
 	{

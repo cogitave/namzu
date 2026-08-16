@@ -45,6 +45,7 @@ function permissions(over: Partial<SlashContext['permissions']> = {}): SlashCont
 function context(over: Partial<SlashContext> = {}): SlashContext {
 	return {
 		availableTools: () => [],
+		lastAssistantMessageId: () => null,
 		providerSummary: null,
 		modelSummary: null,
 		usage: null,
@@ -623,5 +624,54 @@ describe('/login and /logout', () => {
 		expect(matchSlashCommands('/log').map((c) => c.name)).toEqual(
 			expect.arrayContaining(['login', 'logout']),
 		)
+	})
+})
+
+describe('/feedback', () => {
+	const run = (args: string[], last: string | null) =>
+		SLASH_COMMANDS.find((c) => c.name === 'feedback')?.action(
+			context({ lastAssistantMessageId: () => last }),
+			args,
+		)
+
+	it('names the message it is rating', () => {
+		// The id comes from the command, not from App re-deriving it later.
+		// Re-deriving would open a window where the answer moved between the
+		// check and the write — a rating landing on the wrong message.
+		expect(run(['good'], 'msg_42')).toEqual({
+			kind: 'feedback',
+			rating: 'good',
+			messageId: 'msg_42',
+		})
+	})
+
+	it('carries a note when one is given', () => {
+		expect(run(['bad', 'wrong', 'file'], 'msg_42')).toEqual({
+			kind: 'feedback',
+			rating: 'bad',
+			messageId: 'msg_42',
+			note: 'wrong file',
+		})
+	})
+
+	it('refuses rather than inventing a message id when there is no answer yet', () => {
+		// The case that matters. A feedback row is read later to answer "which
+		// answers were bad"; one pointing at a synthesized id cannot be traced
+		// back to what was said and is indistinguishable from a real one.
+		const result = run(['good'], null)
+
+		expect(result?.kind).toBe('message')
+		expect((result as { content: string }).content).toMatch(/Nothing to rate/)
+	})
+
+	it('refuses a rating that is not one of the two', () => {
+		const result = run(['meh'], 'msg_42')
+
+		expect(result?.kind).toBe('message')
+		expect((result as { content: string }).content).toMatch(/good\|bad/)
+	})
+
+	it('refuses an empty argument list', () => {
+		expect(run([], 'msg_42')?.kind).toBe('message')
 	})
 })

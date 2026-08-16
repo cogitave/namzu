@@ -334,6 +334,12 @@ export { claimRun, fencedOut, releaseRun, toClaimSummary } from './store/index.j
 // building a second parent registry beside it.
 export { actorChain, isDescendantOfActor, MAX_ACTOR_CHAIN_DEPTH } from './session/actor-scope.js'
 export { readRunEventsIn } from './store/index.js'
+export {
+	DiskMessageFeedbackStore,
+	InMemoryMessageFeedbackStore,
+	StaleFeedbackError,
+	UnknownMessageError,
+} from './store/feedback/index.js'
 export { resolveRunEventReplay } from './types/run/event-cursor.js'
 
 export {

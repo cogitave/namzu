@@ -112,7 +112,22 @@ import { composeMemoryPrompt, readMemory } from '../memory/store.js'
 import type { PermissionMode } from '../permissions/mode.js'
 
 export type AgentEvent =
-	| { readonly kind: 'delta'; readonly text: string }
+	| {
+			readonly kind: 'delta'
+			readonly text: string
+			/**
+			 * The assistant message this text belongs to.
+			 *
+			 * Carried across the seam because `/feedback` rates a MESSAGE, and
+			 * the id is the only thing that ties a rating to what was actually
+			 * said. It was dropped here — the kernel emits it on every
+			 * `text_delta` and this mapper threw it away — so the host had no
+			 * way to name the answer it was looking at.
+			 */
+			readonly messageId?: string
+			/** The run that produced it — a rating names both. */
+			readonly runId?: string
+	  }
 	| {
 			readonly kind: 'tool-start'
 			/** SDK tool-use id — stable across this call's start/end (for tracking). */
@@ -1775,7 +1790,12 @@ export function batchNeedsPrompt(
 export function toAgentEvent(event: RunEvent, presenter: ToolPresenter): AgentEvent | null {
 	switch (event.type) {
 		case 'text_delta':
-			return { kind: 'delta', text: event.text }
+			return {
+				kind: 'delta',
+				text: event.text,
+				...(event.messageId ? { messageId: event.messageId } : {}),
+				...(event.runId ? { runId: event.runId } : {}),
+			}
 		case 'tool_executing':
 			return {
 				kind: 'tool-start',
