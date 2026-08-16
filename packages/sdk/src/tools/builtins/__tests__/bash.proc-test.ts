@@ -157,6 +157,7 @@ describe('what the command inherits from the host', () => {
 			)
 			expect(result.output).toContain('UNSET')
 		} finally {
+			// biome-ignore lint/performance/noDelete: `process.env` is not an ordinary object — assigning `undefined` stores the STRING "undefined" and the variable stays set, which is the opposite of what this cleanup is for.
 			delete process.env.NAMZU_PROC_FAKE_API_KEY
 		}
 	})
@@ -171,6 +172,7 @@ describe('what the command inherits from the host', () => {
 
 			expect(result.output).toContain('inherited-ok')
 		} finally {
+			// biome-ignore lint/performance/noDelete: `process.env` is not an ordinary object — assigning `undefined` stores the STRING "undefined" and the variable stays set, which is the opposite of what this cleanup is for.
 			delete process.env.NAMZU_PROC_PLAIN_VAR
 		}
 	})
@@ -207,6 +209,7 @@ describe('what the command inherits from the host', () => {
 			expect(failing.output, 'the withheld value was printed').not.toContain('nope')
 			expect(succeeding.output, 'a successful command was made noisy').not.toContain('withheld')
 		} finally {
+			// biome-ignore lint/performance/noDelete: `process.env` is not an ordinary object — assigning `undefined` stores the STRING "undefined" and the variable stays set, which is the opposite of what this cleanup is for.
 			delete process.env.NAMZU_PROC_WITHHELD_TOKEN
 		}
 	})

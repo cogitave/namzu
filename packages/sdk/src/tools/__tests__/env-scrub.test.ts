@@ -104,6 +104,7 @@ describe('scrubbing an inherited environment', () => {
 			expect(env.NAMZU_ENV_SCRUB_PROBE_TOKEN).toBeUndefined()
 			expect(dropped).toContain('NAMZU_ENV_SCRUB_PROBE_TOKEN')
 		} finally {
+			// biome-ignore lint/performance/noDelete: `process.env` is not an ordinary object — assigning `undefined` stores the STRING "undefined" and the variable stays set, which is the opposite of what this cleanup is for.
 			delete process.env.NAMZU_ENV_SCRUB_PROBE_TOKEN
 		}
 	})
