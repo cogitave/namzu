@@ -1,4 +1,4 @@
-import type { RunExecutionStatus, CostInfo } from '../common/index.js'
+import type { CostInfo, RunExecutionStatus } from '../common/index.js'
 import type { AuditEventId, RunId, TenantId } from '../ids/index.js'
 
 /**

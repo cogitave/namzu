@@ -1,4 +1,4 @@
-import type { RunExecutionStatus, CostInfo, TokenUsage } from '../common/index.js'
+import type { CostInfo, RunExecutionStatus, TokenUsage } from '../common/index.js'
 import type { RunId, TaskId, TenantId } from '../ids/index.js'
 import type { ProjectId } from '../session/ids.js'
 import type { StopReason } from './stop-reason.js'

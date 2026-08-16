@@ -1,4 +1,4 @@
-import type { RunExecutionStatus, CostInfo, TokenUsage } from '../common/index.js'
+import type { CostInfo, RunExecutionStatus, TokenUsage } from '../common/index.js'
 import type { CheckpointId, PendingDecision } from '../hitl/index.js'
 import type { RunId, SessionId, TenantId } from '../ids/index.js'
 import type { Message } from '../message/index.js'
