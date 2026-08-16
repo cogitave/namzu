@@ -1,4 +1,4 @@
-import { mkdir, readFile, unlink } from 'node:fs/promises'
+import { mkdir, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { MemoryId } from '../../types/ids/index.js'
 import type {
@@ -9,10 +9,10 @@ import type {
 	MemorySearchResult,
 	MemoryStore,
 } from '../../types/memory/index.js'
-import { atomicWriteFile } from '../../utils/atomic-write.js'
 import { generateMemoryId } from '../../utils/id.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
-import { defineSchema, migrate, stamp } from '../schema.js'
+import { DiskRecordStore } from '../kv/record-store.js'
+import { defineSchema } from '../schema.js'
 import { InMemoryMemoryIndex } from './index.js'
 
 /**
@@ -35,6 +35,12 @@ export class DiskMemoryStore implements MemoryStore {
 	private log: Logger
 	private index = new InMemoryMemoryIndex()
 	private initialized = false
+	// Two instances of one primitive rather than two copies of its body.
+	// Typed separately because the index file holds an ARRAY and a content
+	// file holds one record, and a single `DiskRecordStore<unknown>` would
+	// have put the cast back at every call site.
+	private readonly records = new DiskRecordStore<MemoryContent>(SCHEMA)
+	private readonly indexRecords = new DiskRecordStore<readonly MemoryIndexEntry[]>(SCHEMA)
 
 	constructor(config: DiskMemoryStoreConfig) {
 		this.baseDir = join(config.baseDir, 'memory')
@@ -59,18 +65,19 @@ export class DiskMemoryStore implements MemoryStore {
 		await mkdir(this.contentDir, { recursive: true })
 
 		try {
-			const raw = await readFile(this.indexPath, 'utf-8')
-			const entries = migrate<MemoryIndexEntry[]>(SCHEMA, JSON.parse(raw))
-			this.index.rebuild(entries)
-			this.log.info('Memory index loaded', { count: entries.length })
-		} catch (err) {
-			const isNotFound =
-				typeof err === 'object' && err !== null && (err as NodeJS.ErrnoException).code === 'ENOENT'
-			if (!isNotFound) {
-				this.log.warn('Failed to read memory index — starting fresh', {
-					error: String(err),
-				})
+			// `null` for "no index yet", which is an ordinary first-run state
+			// and not something to warn about. The catch below is now only
+			// for a real IO or parse failure — the distinction this method
+			// used to draw by hand with an ENOENT comparison.
+			const entries = await this.indexRecords.read(this.indexPath)
+			if (entries !== null) {
+				this.index.rebuild([...entries])
+				this.log.info('Memory index loaded', { count: entries.length })
 			}
+		} catch (err) {
+			this.log.warn('Failed to read memory index — starting fresh', {
+				error: String(err),
+			})
 		}
 
 		this.initialized = true
@@ -103,7 +110,7 @@ export class DiskMemoryStore implements MemoryStore {
 
 		this.index.set(entry)
 		await this.persistIndex()
-		await atomicWriteJson(this.contentPath(id), memoryContent)
+		await this.records.write(this.contentPath(id), memoryContent)
 
 		this.log.info('Memory created', { memoryId: id, title: params.title })
 
@@ -116,8 +123,7 @@ export class DiskMemoryStore implements MemoryStore {
 		if (!this.index.getEntry(id)) return undefined
 
 		try {
-			const raw = await readFile(this.contentPath(id), 'utf-8')
-			return migrate<MemoryContent>(SCHEMA, JSON.parse(raw))
+			return (await this.records.read(this.contentPath(id))) ?? undefined
 		} catch {
 			this.log.warn('Failed to read memory content', { memoryId: id })
 			return undefined
@@ -152,8 +158,8 @@ export class DiskMemoryStore implements MemoryStore {
 			updates.metadata !== undefined
 		) {
 			try {
-				const raw = await readFile(this.contentPath(id), 'utf-8')
-				const existingContent = migrate<MemoryContent>(SCHEMA, JSON.parse(raw))
+				const existingContent = await this.records.read(this.contentPath(id))
+				if (existingContent === null) throw new Error('memory content is missing')
 
 				const updatedContent: MemoryContent = {
 					...existingContent,
@@ -163,7 +169,7 @@ export class DiskMemoryStore implements MemoryStore {
 						updates.metadata !== undefined ? { ...updates.metadata } : existingContent.metadata,
 				}
 
-				await atomicWriteJson(this.contentPath(id), updatedContent)
+				await this.records.write(this.contentPath(id), updatedContent)
 			} catch {
 				this.log.warn('Failed to update memory content', { memoryId: id })
 			}
@@ -197,10 +203,6 @@ export class DiskMemoryStore implements MemoryStore {
 
 	private async persistIndex(): Promise<void> {
 		const entries = this.index.allEntries()
-		await atomicWriteJson(this.indexPath, entries)
+		await this.indexRecords.write(this.indexPath, entries)
 	}
-}
-
-async function atomicWriteJson(filePath: string, value: unknown): Promise<void> {
-	await atomicWriteFile(filePath, JSON.stringify(stamp(SCHEMA, value), null, 2))
 }
