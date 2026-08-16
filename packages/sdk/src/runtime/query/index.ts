@@ -577,6 +577,24 @@ export interface QueryParams {
 	inboundMessages?: () => import('../../types/message/index.js').Message[]
 
 	/**
+	 * Where this conversation's durable state lives.
+	 *
+	 * Supplies the permission mode when `runConfig.permissionMode` names
+	 * none, and receives the flip when a plan is approved. Absent is the
+	 * ordinary case: a run with no topic state behaves exactly as it did.
+	 */
+	topicStateStore?: import('../../store/topic/state.js').TopicStateStore
+
+	/**
+	 * The live permission-mode box, when the caller holds one too.
+	 *
+	 * Whoever builds the coordinator tools needs to flip this from the
+	 * approval hook, and that is not this function. Sharing the object is
+	 * what lets an approved plan leave plan mode in the SAME run.
+	 */
+	permissionModeRef?: { current: import('../../types/permission/index.js').PermissionMode }
+
+	/**
 	 * Where a worker completion goes when no tool call is waiting for it.
 	 *
 	 * Supplied by whoever built the coordinator tools, because the tools and
@@ -889,7 +907,27 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		log,
 	)
 
+	// The mode this conversation was left in, when the run config names none.
+	// Read once, before the loop exists, for the same reason the context
+	// window is: the executor's resolver is synchronous and hot.
+	//
+	// A store that throws is not a run failure — the run falls back to the
+	// config's answer, which is exactly what it did before this existed.
+	const topicState = params.topicStateStore
+		? await params.topicStateStore
+				.getState(params.topicId, params.tenantId)
+				.catch((err: unknown) => {
+					log.debug('Could not read the topic state; using the run config', {
+						'namzu.topic.id': params.topicId,
+						'namzu.error.message': toErrorMessage(err),
+					})
+					return null
+				})
+		: null
+
 	const ctx = RunContextFactory.build({
+		...(topicState ? { topicPermissionMode: topicState.permissionMode } : {}),
+		...(params.permissionModeRef ? { permissionModeRef: params.permissionModeRef } : {}),
 		agentId: params.agentId,
 		agentName: params.agentName,
 		runConfig: params.runConfig,
@@ -1100,7 +1138,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			tools: params.tools,
 			runId: ctx.runId,
 			workingDirectory: ctx.cwd,
-			permissionMode: ctx.permissionMode,
+			permissionMode: () => ctx.permissionMode.current,
 			env: params.runConfig.env ?? {},
 			abortSignal: ctx.abortController.signal,
 			allowedTools: effectiveAllowedTools,
@@ -1478,7 +1516,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				model: params.runConfig.model,
 				tokenBudget: params.runConfig.tokenBudget,
 				activityTracking: ctx.activityStore.enabled,
-				permissionMode: ctx.permissionMode,
+				permissionMode: ctx.permissionMode.current,
 				resumeFromCheckpoint: params.resumeFromCheckpoint ?? null,
 			})
 

@@ -236,6 +236,7 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 				...(config.resumeHandler ? { resumeHandler: config.resumeHandler } : {}),
 				questionParks,
 				pendingAnswers,
+				...(config.onPlanApproved ? { onPlanApproved: config.onPlanApproved } : {}),
 			})
 
 			const tools = new ToolRegistry()

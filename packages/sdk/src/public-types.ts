@@ -207,3 +207,5 @@ export type {
 	HostCommandRow,
 	SerializableHostCommand,
 } from './types/command/index.js'
+
+export type { TopicState } from './types/topic/state.js'

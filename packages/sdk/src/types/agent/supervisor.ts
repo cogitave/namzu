@@ -55,6 +55,15 @@ export interface SupervisorAgentConfig extends BaseAgentConfig {
 	gateway?: TaskScheduler
 
 	scheduler?: TaskScheduler
+
+	/**
+	 * Called when the operator approves a plan.
+	 *
+	 * The hook a host uses to leave plan mode without ending the run — which
+	 * is what the mode's per-run lifetime used to force, discarding the
+	 * in-flight step and the tool-schema context to change one enum.
+	 */
+	onPlanApproved?: () => Promise<void> | void
 	agentManager?: AgentManagerContract
 	tools?: ToolRegistryContract
 

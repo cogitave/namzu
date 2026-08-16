@@ -11,3 +11,9 @@
 // that needs one, a caller, and a test.
 
 export { InMemoryTopicStore } from './memory.js'
+
+// Where a conversation's mutable state lives between runs — its own record
+// beside the Topic, because the Topic is identity and this is session state
+// that changes several times inside one conversation.
+export { DiskTopicStateStore, InMemoryTopicStateStore } from './state.js'
+export type { DiskTopicStateStoreConfig, TopicStateStore } from './state.js'

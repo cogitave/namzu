@@ -47,6 +47,27 @@ import { type Logger, resolveLogger } from '../../utils/logger.js'
  * for a follow-up rather than folded into that change.
  */
 export interface RunContextConfig {
+	/**
+	 * The mode this conversation was left in, when the run config names none.
+	 *
+	 * Read from the Topic's state record by `query()`. An explicit
+	 * `RunConfig.permissionMode` outranks it, which is what keeps every
+	 * existing caller byte-identical.
+	 */
+	topicPermissionMode?: PermissionMode
+
+	/**
+	 * The live mode box, when the caller wants to hold it too.
+	 *
+	 * Supplied rather than created here so whoever builds the coordinator
+	 * tools — which is not this function — can flip the mode from an
+	 * approval hook and have the executor see it. Without a shared handle
+	 * the approval could persist the change and the RUNNING run would go on
+	 * refusing writes, which is the confusing half-state this whole task
+	 * exists to remove.
+	 */
+	permissionModeRef?: { current: PermissionMode }
+
 	agentId: string
 	agentName: string
 	runConfig: AgentRunConfig
@@ -104,7 +125,15 @@ export interface RunContext {
 	abortController: AbortController
 	cwd: string
 	outputDir: string
-	permissionMode: PermissionMode
+	/**
+	 * The mode RIGHT NOW, not the one this run started in.
+	 *
+	 * A box rather than a value, because an approval inside a run can change
+	 * it and the executor reads through the same box — see
+	 * `ToolExecutorConfig.permissionMode`. The run used to freeze it at
+	 * start, so leaving plan mode meant ending the run.
+	 */
+	permissionMode: { current: PermissionMode }
 	log: Logger
 	trackingConfig: ActivityTrackingConfig
 }
@@ -212,7 +241,16 @@ export class RunContextFactory {
 		}
 
 		const cwd = config.workingDirectory ?? process.cwd()
-		const permissionMode = config.runConfig.permissionMode ?? 'auto'
+		// An explicit `RunConfig.permissionMode` still wins — this is the
+		// no-behaviour-change guarantee for every existing caller. The topic
+		// record supplies the mode only when the run config names none, and
+		// `resolveTopicPermissionMode` in `query()` is what reads it.
+		const seeded = config.runConfig.permissionMode ?? config.topicPermissionMode ?? 'auto'
+		const permissionMode = config.permissionModeRef ?? { current: seeded }
+		// Seeded even when supplied: the caller creates the box before it can
+		// know what the run config or the topic record say, so leaving its
+		// initial value in place would ignore both.
+		permissionMode.current = seeded
 		const runId = config.runId ?? generateRunId()
 
 		const pathBuilder = config.pathBuilder ?? new DefaultPathBuilder(join(cwd, '.namzu'))
@@ -240,7 +278,10 @@ export class RunContextFactory {
 			runStore: config.runStore,
 		})
 
-		const trackingConfig = resolveActivityTracking(permissionMode, config.enableActivityTracking)
+		const trackingConfig = resolveActivityTracking(
+			permissionMode.current,
+			config.enableActivityTracking,
+		)
 		const activityStore = new ActivityStore(runId, trackingConfig)
 		const planManager = new PlanManager(runId)
 

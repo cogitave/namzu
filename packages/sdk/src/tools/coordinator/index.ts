@@ -49,6 +49,16 @@ export interface CoordinatorToolsOptions {
 
 	taskStore?: TaskStore
 
+	/**
+	 * Called when a plan is APPROVED, so the run can leave plan mode.
+	 *
+	 * A callback rather than a store handle, because what "leaving plan
+	 * mode" means belongs to whoever owns the mode — a run flipping its own
+	 * box, a host persisting to a topic record, both, or neither. This file
+	 * knows only that approval happened.
+	 */
+	onPlanApproved?: () => Promise<void> | void
+
 	runId?: RunId
 
 	getPlanManager?: () => PlanManager | undefined
@@ -447,6 +457,7 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 		allowedAgentIds: agentIds,
 		allowDelegation,
 		taskStore,
+		onPlanApproved,
 		runId,
 		getPlanManager,
 		resumeHandler,
@@ -1326,6 +1337,19 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 					const output = response.feedback
 						? `Plan approved by user with required edits — apply them during execution:\n${response.feedback}\nProceed with execution — launch workers via create_task.${howToReport}`
 						: `Plan approved by user. Proceed with execution — launch workers via create_task.${howToReport}`
+					// An approved plan LEAVES plan mode, in this conversation and
+					// durably. That flow — look around under plan mode, propose,
+					// get approval, continue in the SAME run — is what the mode's
+					// per-run lifetime made impossible: leaving it meant ending
+					// the run and discarding the step and tool-schema context.
+					//
+					// Failures are swallowed with a log rather than turning an
+					// approval into a refusal. The user said yes; a state store
+					// that cannot record it is an operator's problem to see in the
+					// logs, not a reason to tell the model its approved plan was
+					// rejected.
+					await onPlanApproved?.()
+
 					return {
 						success: true,
 						output,

@@ -97,6 +97,15 @@ export { cancelCauseOf, RunCancelled } from './types/run/cancel-cause.js'
 // in the CLI, so a host embedding the SDK alone had no way to plug in an
 // env- or file-backed source without reimplementing an interface that asks
 // a different question.
+// The collaboration mode, durable per Topic. It was resolved once per run
+// and copied into the executor, so leaving plan mode meant ending the run
+// and discarding the in-flight step to change one enum.
+export {
+	DiskTopicStateStore,
+	InMemoryTopicStateStore,
+} from './store/topic/state.js'
+export { StaleTopicStateError } from './types/topic/state.js'
+
 export {
 	EnvCredentialProvider,
 	ReadOnlyCredentialProviderError,

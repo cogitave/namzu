@@ -115,7 +115,20 @@ export interface ToolExecutorConfig {
 	tools: ToolRegistryContract
 	runId: RunId
 	workingDirectory: string
-	permissionMode: PermissionMode
+	/**
+	 * Read LIVE, not frozen at run start.
+	 *
+	 * The mode used to be resolved once per run and copied in here, so
+	 * leaving plan mode meant ending the run — discarding the in-flight step
+	 * and the tool-schema context to change one enum. A function lets an
+	 * approval flip it inside the same conversation.
+	 *
+	 * Sampled ONCE per batch and held for it: a toggle landing between two
+	 * calls the model issued together would half-apply, and a batch where
+	 * the first write is refused and the second succeeds is not a state
+	 * anyone can reason about.
+	 */
+	permissionMode: PermissionMode | (() => PermissionMode)
 	env: Record<string, string>
 	abortSignal: AbortSignal
 	allowedTools?: readonly string[]
@@ -337,6 +350,27 @@ export class ToolExecutor {
 	 * the universal contract across providers: an unanswered `tool_use`
 	 * is a protocol violation, not a decline.
 	 */
+	/**
+	 * The mode sampled for the batch currently running, if one is.
+	 *
+	 * Belt-and-braces, and worth saying so. The per-batch property is
+	 * ALREADY structural: `buildToolContext()` runs once per batch and every
+	 * per-call context spreads its result, so the mode is read once whether
+	 * or not this field exists — removing it is an equivalent mutation
+	 * today, measured.
+	 *
+	 * Kept because that guarantee is incidental to where the context happens
+	 * to be built. Moving `permissionContext` into the per-call spread is a
+	 * plausible refactor and would silently make the read per-call, which is
+	 * a batch where the first write is refused and the second succeeds.
+	 */
+	private batchMode?: PermissionMode
+
+	private resolvePermissionMode(): PermissionMode {
+		const configured = this.config.permissionMode
+		return typeof configured === 'function' ? configured() : configured
+	}
+
 	async executeBatch(
 		response: ChatCompletionResponse,
 		denials?: ToolCallDenials,
@@ -347,6 +381,23 @@ export class ToolExecutor {
 			return { messages: [], results: [] }
 		}
 
+		// Sampled here, once, and held for every call below. See the note on
+		// `permissionMode` in the config type.
+		this.batchMode = this.resolvePermissionMode()
+		try {
+			return await this.runBatch(toolCalls, denials, prior)
+		} finally {
+			// Cleared so a later single execution outside a batch resolves
+			// live rather than inheriting the last batch's sample.
+			this.batchMode = undefined
+		}
+	}
+
+	private async runBatch(
+		toolCalls: readonly ToolCall[],
+		denials?: ToolCallDenials,
+		prior?: PriorToolResults,
+	): Promise<ToolExecutionBatch> {
 		this.log.debug('Executing tool batch', {
 			runId: this.config.runId,
 			toolCount: toolCalls.length,
@@ -489,7 +540,7 @@ export class ToolExecutor {
 			env: this.config.env,
 			log: (level, message) => this.log[level](message),
 			permissionContext: {
-				mode: this.config.permissionMode,
+				mode: this.batchMode ?? this.resolvePermissionMode(),
 				runId: this.config.runId,
 				workingDirectory: this.config.workingDirectory,
 			},

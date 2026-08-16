@@ -16,7 +16,8 @@ export interface ToolingBootstrapConfig {
 	tools: ToolRegistryContract
 	runId: RunId
 	workingDirectory: string
-	permissionMode: PermissionMode
+	/** A resolver, so an approval inside a run can change it. See the executor. */
+	permissionMode: PermissionMode | (() => PermissionMode)
 	env: Record<string, string>
 	abortSignal: AbortSignal
 	allowedTools?: readonly string[]
