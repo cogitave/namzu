@@ -249,6 +249,24 @@ export interface ToolContext {
 	adoptSkillScope?: (scope: { skill: string; allowedTools: readonly string[] }) => void
 
 	/**
+	 * Run another tool through the same dispatch this call came through.
+	 *
+	 * For `run_code`, whose whole purpose is calling tools in a loop. NOT
+	 * added to {@link ToolRegistryRef}: that ref is about discovering and
+	 * activating tools, and putting `execute` on it would make "can dispatch"
+	 * a property of holding a registry reference rather than a capability a
+	 * host wired deliberately.
+	 *
+	 * Available to every tool, which is worth being explicit about rather
+	 * than quietly true. Tools are host-installed code — the model cannot add
+	 * one — so the trust boundary this protects is the MODEL's reach, and
+	 * that is bounded where it has always been: `allowedTools` is enforced at
+	 * dispatch, so a tool calling through here reaches exactly what a
+	 * `tool_use` block would have.
+	 */
+	dispatchTool?: (name: string, input: unknown) => Promise<ToolResult>
+
+	/**
 	 * The `tool_use_id` of the assistant block that triggered this
 	 * execution. Tools that spawn background work (e.g. coordinator
 	 * `create_task`) thread this id into their tracking metadata so

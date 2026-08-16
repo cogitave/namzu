@@ -219,3 +219,35 @@ describe('a program that throws is a failure, not a crash', () => {
 		expect(result.outcome).toEqual({ status: 'completed', result: { rows: [1, 2, 3] } })
 	})
 })
+
+describe('output is kept as it happens, not batched until the end', () => {
+	it('keeps what a program printed before it TIMED OUT', async () => {
+		// The regression this pins: output was collected in the worker and
+		// shipped with the `done` message, so a program that hung never sent
+		// one and its progress was lost — exactly the output a timeout most
+		// needs to explain itself.
+		const result = await run('print("reached step 1"); while (true) {}', { timeoutMs: 250 })
+
+		expect(result.outcome).toEqual({ status: 'timed-out' })
+		expect(result.output).toContain('reached step 1')
+	})
+
+	it('keeps what it printed before it was CANCELLED', async () => {
+		const controller = new AbortController()
+		const running = run('print("started"); await new Promise(() => {})', {
+			timeoutMs: 10_000,
+			signal: controller.signal,
+		})
+		setTimeout(() => controller.abort(), 80)
+		const result = await running
+
+		expect(result.outcome).toEqual({ status: 'cancelled' })
+		expect(result.output).toContain('started')
+	})
+
+	it('keeps the order it was printed in', async () => {
+		const result = await run('print("one"); print("two"); print("three"); return 1')
+
+		expect(result.output).toBe('one\ntwo\nthree')
+	})
+})

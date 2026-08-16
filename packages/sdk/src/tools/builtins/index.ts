@@ -13,6 +13,7 @@ export {
 	WebSearchTool,
 } from './web.js'
 export { WEB_GUIDANCE_CONTRIBUTION_ID, webGuidanceContribution } from './web-guidance.js'
+export { RUN_CODE_TOOL_NAME, buildRunCodeTool } from './run-code.js'
 export { LsTool } from './ls.js'
 export { SearchToolsTool } from './search-tools.js'
 export { VerifyOutputsTool } from './verify-outputs.js'

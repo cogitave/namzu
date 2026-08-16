@@ -59,6 +59,16 @@ export {
 	WEB_GUIDANCE_CONTRIBUTION_ID,
 	webGuidanceContribution,
 } from './tools/builtins/web-guidance.js'
+// A program the model wrote, calling this run's own tools in a loop. Opt-in
+// and NOT in the default builtin set: a run that does not need
+// model-authored control flow should not have a way to execute
+// model-authored text, and "the tool was there so it got used" is not a
+// threat model.
+export {
+	RUN_CODE_TOOL_NAME,
+	buildRunCodeTool,
+} from './tools/builtins/run-code.js'
+export type { RunCodeToolOptions } from './tools/builtins/run-code.js'
 export { LsTool } from './tools/builtins/ls.js'
 export { SearchToolsTool } from './tools/builtins/search-tools.js'
 export { VerifyOutputsTool } from './tools/builtins/verify-outputs.js'

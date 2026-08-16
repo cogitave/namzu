@@ -58,9 +58,15 @@ function hostCall(name, input) {
 	})
 }
 
-const output = []
+// Posted as it happens, NOT batched until the end. A program that printed
+// its progress and then hung has told the host where it got to, and a
+// buffer that only ships on completion loses exactly the output a timeout
+// most needs to explain itself.
 function print(...parts) {
-	output.push(parts.map((p) => (typeof p === 'string' ? p : JSON.stringify(p))).join(' '))
+	parentPort.postMessage({
+		kind: 'print',
+		line: parts.map((p) => (typeof p === 'string' ? p : JSON.stringify(p))).join(' '),
+	})
 }
 
 parentPort.on('message', (message) => {
@@ -85,8 +91,8 @@ async function main() {
 }
 
 main().then(
-	(result) => parentPort.postMessage({ kind: 'done', result, output }),
-	(error) => parentPort.postMessage({ kind: 'error', error: String(error && error.message || error), output }),
+	(result) => parentPort.postMessage({ kind: 'done', result }),
+	(error) => parentPort.postMessage({ kind: 'error', error: String(error && error.message || error) }),
 )
 `
 
@@ -207,8 +213,12 @@ export class WorkerCodeRuntime implements CodeRuntime {
 					return
 				}
 
+				if (message.kind === 'print') {
+					appendOutput([String(message.line)])
+					return
+				}
+
 				if (message.kind === 'done') {
-					appendOutput((message.output as string[]) ?? [])
 					finish({
 						outcome: { status: 'completed', result: message.result },
 						output,
@@ -219,7 +229,6 @@ export class WorkerCodeRuntime implements CodeRuntime {
 				}
 
 				if (message.kind === 'error') {
-					appendOutput((message.output as string[]) ?? [])
 					finish({
 						outcome: { status: 'failed', error: String(message.error) },
 						output,

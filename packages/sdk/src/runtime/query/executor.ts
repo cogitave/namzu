@@ -610,7 +610,7 @@ export class ToolExecutor {
 	}
 
 	private buildToolContext(): ToolContext {
-		return {
+		const context: ToolContext = {
 			runId: this.config.runId,
 			workingDirectory: this.config.workingDirectory,
 			abortSignal: this.config.abortSignal,
@@ -634,6 +634,11 @@ export class ToolExecutor {
 			},
 			...(this.config.skills ? { skills: this.config.skills } : {}),
 			...(this.config.web ? { web: this.config.web } : {}),
+			// The SAME registry and the SAME context a model-issued call
+			// takes. Not a parallel path: a second dispatch is a second place
+			// for the permission gate to be forgotten, and the one that forgot
+			// it would be the one a model reached through a program.
+			dispatchTool: (name, input) => this.config.tools.execute(name, input, context),
 			sandbox: this.config.sandbox,
 			fileReadTracker: this.fileReadTracker,
 			// Bound to this run, once. Binding here rather than passing the
@@ -649,6 +654,7 @@ export class ToolExecutor {
 				: {}),
 			...(this.parentSpan ? { parentSpan: this.parentSpan } : {}),
 		}
+		return context
 	}
 
 	private async executeSingle(
