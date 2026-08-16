@@ -42,8 +42,8 @@ export interface LLMProvider {
 	 *
 	 * Consumers that need an aggregated response (legacy
 	 * `ChatCompletionResponse` shape) call
-	 * `collect(provider.chatStream(params))` from
-	 * `@namzu/sdk/provider/collect`. The kernel's iteration
+	 * `collectChatCompletion(provider.chatStream(params))` from
+	 * `@namzu/sdk/provider/collect-chat-completion`. The kernel's iteration
 	 * orchestrator consumes the stream directly so it can emit
 	 * per-delta `RunEvent`s.
 	 *

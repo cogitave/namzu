@@ -1,5 +1,5 @@
 import type { CompactionConfig } from '../config/runtime.js'
-import { collect } from '../provider/collect.js'
+import { collectChatCompletion } from '../provider/collect-chat-completion.js'
 import type { TokenUsage } from '../types/common/index.js'
 import type { Message } from '../types/message/index.js'
 import type { LLMProvider } from '../types/provider/interface.js'
@@ -96,7 +96,7 @@ export async function buildVerifiedSummary(
 		},
 	]
 
-	const response = await collect(
+	const response = await collectChatCompletion(
 		provider.chatStream({
 			model: model ?? '',
 			messages: verificationMessages,

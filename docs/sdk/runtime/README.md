@@ -46,7 +46,7 @@ If you are starting fresh, begin with `ReactiveAgent` unless you already know yo
 
 Every provider package plugs into the same `LLMProvider` contract:
 
-- `chatStream(params)` yields normalized stream chunks. It is the single entry point — `chat()` was removed. Use `collect(provider.chatStream(...))` when you want an aggregated response.
+- `chatStream(params)` yields normalized stream chunks. It is the single entry point — `chat()` was removed. Use `collectChatCompletion(provider.chatStream(...))` when you want an aggregated response.
 - `listModels()`, `healthCheck()` and `doctorCheck()` are optional.
 - `capabilities` declares what the *driver* does with a request (tools mapped? attachments mapped?), so the runtime degrades loudly instead of silently.
 

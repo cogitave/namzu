@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { collect } from '../../provider/collect.js'
+import { collectChatCompletion } from '../../provider/collect-chat-completion.js'
 import type { ChatCompletionParams } from '../../types/provider/index.js'
 import { MOCK_CAPABILITIES } from '../mock-register.js'
 import { MockLLMProvider } from '../mock.js'
@@ -33,7 +33,7 @@ describe('MockLLMProvider — scripted tool calls', () => {
 			turns: [{ toolCalls: [{ name: 'read', args: { path: 'a.txt' } }] }],
 		})
 
-		const response = await collect(provider.chatStream(PARAMS))
+		const response = await collectChatCompletion(provider.chatStream(PARAMS))
 
 		expect(response.finishReason).toBe('tool_calls')
 		expect(response.message.toolCalls).toHaveLength(1)
@@ -78,7 +78,7 @@ describe('MockLLMProvider — scripted tool calls', () => {
 		const provider = new MockLLMProvider({
 			turns: [{ toolCalls: [{ name: 'a' }, { name: 'b' }, { name: 'c' }] }],
 		})
-		const response = await collect(provider.chatStream(PARAMS))
+		const response = await collectChatCompletion(provider.chatStream(PARAMS))
 		expect(response.message.toolCalls?.map((t) => t.function.name)).toEqual(['a', 'b', 'c'])
 	})
 
@@ -102,8 +102,8 @@ describe('MockLLMProvider — multi-turn scripts', () => {
 			turns: [{ toolCalls: [{ name: 'read' }] }, { text: 'all done' }],
 		})
 
-		const first = await collect(provider.chatStream(PARAMS))
-		const second = await collect(provider.chatStream(PARAMS))
+		const first = await collectChatCompletion(provider.chatStream(PARAMS))
+		const second = await collectChatCompletion(provider.chatStream(PARAMS))
 
 		expect(first.message.toolCalls).toHaveLength(1)
 		expect(second.message.content).toBe('all done')
@@ -112,8 +112,8 @@ describe('MockLLMProvider — multi-turn scripts', () => {
 
 	it('repeats the last turn rather than exhausting, so a loop bug reads as repetition', async () => {
 		const provider = new MockLLMProvider({ turns: [{ text: 'only' }] })
-		await collect(provider.chatStream(PARAMS))
-		const third = await collect(provider.chatStream(PARAMS))
+		await collectChatCompletion(provider.chatStream(PARAMS))
+		const third = await collectChatCompletion(provider.chatStream(PARAMS))
 		expect(third.message.content).toBe('only')
 	})
 
@@ -122,15 +122,19 @@ describe('MockLLMProvider — multi-turn scripts', () => {
 			nextTurn: (_params, i) =>
 				i === 0 ? { toolCalls: [{ name: 'read' }] } : { text: `turn ${i}` },
 		})
-		expect((await collect(provider.chatStream(PARAMS))).message.toolCalls).toHaveLength(1)
-		expect((await collect(provider.chatStream(PARAMS))).message.content).toBe('turn 1')
+		expect(
+			(await collectChatCompletion(provider.chatStream(PARAMS))).message.toolCalls,
+		).toHaveLength(1)
+		expect((await collectChatCompletion(provider.chatStream(PARAMS))).message.content).toBe(
+			'turn 1',
+		)
 	})
 
 	it('captures requests so a test can assert on tools / toolChoice / cacheControl', async () => {
 		const onRequest = vi.fn()
 		const provider = new MockLLMProvider({ turns: [{ text: 'hi' }], onRequest })
 
-		await collect(provider.chatStream({ ...PARAMS, toolChoice: 'none' }))
+		await collectChatCompletion(provider.chatStream({ ...PARAMS, toolChoice: 'none' }))
 
 		expect(onRequest).toHaveBeenCalledTimes(1)
 		expect(provider.requests[0]?.toolChoice).toBe('none')
@@ -138,9 +142,9 @@ describe('MockLLMProvider — multi-turn scripts', () => {
 
 	it('reset() rewinds the script and clears captured requests', async () => {
 		const provider = new MockLLMProvider({ turns: [{ text: 'first' }, { text: 'second' }] })
-		await collect(provider.chatStream(PARAMS))
+		await collectChatCompletion(provider.chatStream(PARAMS))
 		provider.reset()
-		expect((await collect(provider.chatStream(PARAMS))).message.content).toBe('first')
+		expect((await collectChatCompletion(provider.chatStream(PARAMS))).message.content).toBe('first')
 		expect(provider.requests).toHaveLength(1)
 	})
 })
@@ -150,7 +154,9 @@ describe('MockLLMProvider — failure injection', () => {
 		const provider = new MockLLMProvider({
 			turns: [{ error: { message: 'rate limited', status: 429 } }],
 		})
-		await expect(collect(provider.chatStream(PARAMS))).rejects.toMatchObject({ status: 429 })
+		await expect(collectChatCompletion(provider.chatStream(PARAMS))).rejects.toMatchObject({
+			status: 429,
+		})
 	})
 
 	it('can fail mid-stream after N chunks, for recovery tests', async () => {
@@ -174,6 +180,8 @@ describe('MockLLMProvider — failure injection', () => {
 describe('MockLLMProvider — back-compat', () => {
 	it('still accepts the old responseText shorthand', async () => {
 		const provider = new MockLLMProvider({ responseText: 'legacy' })
-		expect((await collect(provider.chatStream(PARAMS))).message.content).toBe('legacy')
+		expect((await collectChatCompletion(provider.chatStream(PARAMS))).message.content).toBe(
+			'legacy',
+		)
 	})
 })

@@ -1,7 +1,7 @@
-import { Registry } from '../registry/Registry.js'
+import { BaseRegistry } from '../registry/BaseRegistry.js'
 import type { AdvisorDefinition } from '../types/advisory/index.js'
 
-export class AdvisorRegistry extends Registry<AdvisorDefinition> {
+export class AdvisorRegistry extends BaseRegistry<AdvisorDefinition> {
 	private readonly defaultId: string | undefined
 
 	constructor(advisors: AdvisorDefinition[], defaultId?: string) {

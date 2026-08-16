@@ -1,4 +1,4 @@
-import { collect } from '../provider/collect.js'
+import { collectChatCompletion } from '../provider/collect-chat-completion.js'
 import type { LLMProvider } from '../types/provider/interface.js'
 import type { EvalCase, EvalRun, Score, Scorer } from './types.js'
 
@@ -210,7 +210,7 @@ export function judgeScorer(config: JudgeScorerConfig): Scorer {
 	return {
 		name: config.name ?? 'judge',
 		async score(run: EvalRun, evalCase: EvalCase): Promise<Score> {
-			const response = await collect(
+			const response = await collectChatCompletion(
 				config.provider.chatStream({
 					model: config.model,
 					messages: [{ role: 'user', content: buildPrompt(config, run, evalCase, scale) }],

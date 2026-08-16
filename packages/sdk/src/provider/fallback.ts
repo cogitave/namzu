@@ -80,7 +80,7 @@ export interface WithProviderFallbackOptions {
 	 *
 	 *  - the cursor outlives the request, so a swap on the turn at step 3
 	 *    still describes steps 4..N, which emit no further chunk;
-	 *  - a side call that aggregates the stream through `collect()` — the
+	 *  - a side call that aggregates the stream through `collectChatCompletion()` — the
 	 *    compaction verifier and the forced-final summary both do — drops the
 	 *    `fallback` chunk on the floor, so a swap inside one is invisible to
 	 *    every chunk consumer. (The advisory executor calls its OWN advisor's

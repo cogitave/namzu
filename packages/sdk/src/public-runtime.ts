@@ -147,7 +147,7 @@ export { drainQuery, query } from './runtime/query/index.js'
 export { SteeringBinding, attachSteering, formatSteeringNote } from './runtime/query/steering.js'
 export type { SteeringChannel } from './runtime/query/steering.js'
 export { createMockBidiProvider, startBidiRun } from './runtime/bidi/index.js'
-export { ContextCache } from './runtime/query/context-cache.js'
+export { PromptCache } from './runtime/query/prompt-cache.js'
 export {
 	CheckpointManager,
 	findPendingCheckpoint,
@@ -333,9 +333,9 @@ export { resolveRunEventReplay } from './types/run/event-cursor.js'
 
 export {
 	AgentRegistry,
+	BaseRegistry,
 	ManagedRegistry,
 	PluginRegistry,
-	Registry,
 	ToolCatalog,
 	ToolNameCollisionError,
 	ToolRegistry,
@@ -597,7 +597,13 @@ export type { ProbeEnforcement, ProbeObservation } from './probe/index.js'
 export { wrapProviderWithProbes } from './provider/instrumentation.js'
 export type { ProviderInstrumentationOptions } from './provider/instrumentation.js'
 export type { ResolvedProviderCapabilities } from './provider/capabilities.js'
-export { collect } from './provider/collect.js'
+export { collectChatCompletion } from './provider/collect-chat-completion.js'
+
+// Old spellings of renamed exports, still live for one deprecation window.
+// The file explains why each is a `const`+`type` pair rather than a
+// re-export alias; the short version is that a re-export cannot carry the
+// `@deprecated` tag, and the tag is what the public-surface gate reads.
+export * from './deprecated-aliases.js'
 
 export { wrapVaultWithProbes } from './vault/instrumentation.js'
 export type { VaultInstrumentationOptions } from './vault/instrumentation.js'

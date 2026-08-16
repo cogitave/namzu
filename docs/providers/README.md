@@ -29,7 +29,7 @@ Every provider page follows the same runtime shape:
 1. install `@namzu/sdk` and one provider package
 2. call the provider package's `register...()` helper once at startup
 3. create the provider through `ProviderRegistry.create({ type: ..., ... })`
-4. pass the returned `provider` into an agent config, or call `collect(provider.chatStream(params))` directly
+4. pass the returned `provider` into an agent config, or call `collectChatCompletion(provider.chatStream(params))` directly
 
 ## 3. Capability Snapshot
 

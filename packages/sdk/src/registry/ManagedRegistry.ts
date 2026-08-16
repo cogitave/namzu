@@ -1,7 +1,7 @@
 import { NAMZU } from '../constants/telemetry/index.js'
 import { SCOPE_ATTRIBUTE } from '../utils/log/types.js'
 import { type Logger, resolveLogger } from '../utils/logger.js'
-import { Registry } from './Registry.js'
+import { BaseRegistry } from './BaseRegistry.js'
 
 export interface ManagedRegistryConfig<TDefinition> {
 	componentName: string
@@ -14,7 +14,7 @@ export interface ManagedRegistryConfig<TDefinition> {
 	logger?: Logger
 }
 
-export class ManagedRegistry<TDefinition> extends Registry<TDefinition> {
+export class ManagedRegistry<TDefinition> extends BaseRegistry<TDefinition> {
 	protected log: Logger
 	private idField?: keyof TDefinition & string
 	private computeId?: (item: TDefinition) => string

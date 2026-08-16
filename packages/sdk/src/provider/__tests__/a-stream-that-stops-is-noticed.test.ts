@@ -47,7 +47,7 @@ function finishingDriver(count: number): LLMProvider {
 	} as unknown as LLMProvider
 }
 
-async function collect(provider: LLMProvider): Promise<StreamChunk[]> {
+async function drainChunks(provider: LLMProvider): Promise<StreamChunk[]> {
 	const out: StreamChunk[] = []
 	for await (const c of provider.chatStream({} as ChatCompletionParams)) out.push(c)
 	return out
@@ -61,7 +61,7 @@ describe('a stalled stream is surfaced', () => {
 		vi.useFakeTimers()
 		let caught: unknown
 		try {
-			const settled = collect(
+			const settled = drainChunks(
 				withStreamIdleTimeout(stallingDriver(0), { idleTimeoutMs: 30_000 }),
 			).catch((err: unknown) => {
 				caught = err
@@ -84,7 +84,7 @@ describe('a stalled stream is surfaced', () => {
 		vi.useFakeTimers()
 		try {
 			const wrapped = withStreamIdleTimeout(finishingDriver(5), { idleTimeoutMs: 1_000 })
-			const settled = collect(wrapped)
+			const settled = drainChunks(wrapped)
 			await vi.advanceTimersByTimeAsync(0)
 
 			expect((await settled).length).toBe(5)
@@ -107,7 +107,7 @@ describe('a stalled stream is surfaced', () => {
 					return clearTimeout(t as ReturnType<typeof setTimeout>)
 				}) as typeof clearTimeout,
 			})
-			const settled = collect(wrapped)
+			const settled = drainChunks(wrapped)
 			await vi.advanceTimersByTimeAsync(0)
 			await settled
 
@@ -126,7 +126,7 @@ describe('a stalled stream is surfaced', () => {
 		vi.useFakeTimers()
 		const cleared: unknown[] = []
 		try {
-			const settled = collect(
+			const settled = drainChunks(
 				withStreamIdleTimeout(stallingDriver(0), {
 					idleTimeoutMs: 1_000,
 					clearTimeoutFn: ((t: unknown) => {

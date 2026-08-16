@@ -90,9 +90,9 @@ import type { BackoffPolicy } from '../../utils/backoff.js'
 import type { ModelPricing } from '../../utils/cost.js'
 import { generateRunId } from '../../utils/id.js'
 import { EVENT_NAME_ATTRIBUTE } from '../../utils/log/types.js'
+import { pickRenamed } from '../../utils/renamed-field.js'
 import { VerificationGate } from '../../verification/gate.js'
 import { CheckpointManager } from './checkpoint.js'
-import type { ContextCache } from './context-cache.js'
 import { RunContextFactory } from './context.js'
 import { EventTranslator } from './events.js'
 import { GuardCoordinator } from './guard.js'
@@ -101,6 +101,7 @@ import { IterationOrchestrator } from './iteration/index.js'
 import { isCompactionMessage } from './iteration/phases/compaction.js'
 import { isWorkingMemoryMessage } from './iteration/phases/working-memory.js'
 import { applyLifecycleHookResults } from './plugin-hooks.js'
+import type { PromptCache } from './prompt-cache.js'
 import { PromptBuilder } from './prompt.js'
 import type { PromptSegments } from './prompt.js'
 import { PendingAnswers, QuestionParkBinding } from './question-park.js'
@@ -537,7 +538,14 @@ export interface QueryParams {
 
 	depth?: number
 
-	contextCache?: ContextCache
+	/**
+	 * @deprecated Renamed to {@link QueryParams.promptCache}. Removed in the
+	 * next major. Setting both to different instances throws rather than
+	 * picking one.
+	 */
+	contextCache?: PromptCache
+
+	promptCache?: PromptCache
 
 	contextLevel?: AgentContextLevel
 
@@ -694,6 +702,18 @@ function assertBudgetIsMeasurable(params: QueryParams): void {
 }
 
 export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run> {
+	// Resolved at the DOOR, before a run id exists or a logger is built.
+	// A caller who set both spellings of a renamed field has a config bug,
+	// and refusing it here costs them nothing; refusing it at the read site
+	// deep in the loop turns the same bug into a mid-run failure, after a
+	// provider call has been paid for and a partial transcript written.
+	const promptCache = pickRenamed(
+		'contextCache',
+		params.contextCache,
+		'promptCache',
+		params.promptCache,
+	)
+
 	// The run's one correlated logger, built before anything below needs
 	// one — the migration check, the retry/fallback wrappers and `ctx`
 	// itself all read this SAME object, so a retry warning and the run
@@ -1387,12 +1407,8 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				runtimeContext: params.runtimeContext,
 			}
 
-			const segments: PromptSegments = params.contextCache
-				? params.contextCache.getSystemPromptSegmented(
-						cacheInput,
-						contextLevel,
-						params.workingDirectory,
-					)
+			const segments: PromptSegments = promptCache
+				? promptCache.getSystemPromptSegmented(cacheInput, contextLevel, params.workingDirectory)
 				: promptBuilder.buildSegmented(contextLevel, params.workingDirectory)
 
 			ctx.log.info('Prompt segments assembled', {

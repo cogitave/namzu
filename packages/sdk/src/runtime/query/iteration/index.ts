@@ -8,7 +8,7 @@ import {
 } from '../../../constants/tools/index.js'
 import { formatCompletionNotification } from '../../../gateway/completion-inbox.js'
 import { renderSkillsSection } from '../../../persona/assembler.js'
-import { collect } from '../../../provider/collect.js'
+import { collectChatCompletion } from '../../../provider/collect-chat-completion.js'
 import {
 	GENAI,
 	NAMZU,
@@ -1825,7 +1825,7 @@ export class IterationOrchestrator {
 			// no 400 on tool blocks in history) and forbid use via tool_choice.
 			const finalTools = this.ctx.tools.toLLMTools(this.ctx.allowedTools)
 			const finalEnforced = enforcedModelInputToolNames(this.ctx.tools, finalTools)
-			const response = await collect(
+			const response = await collectChatCompletion(
 				this.ctx.provider.chatStream({
 					model,
 					messages: finalMessages,

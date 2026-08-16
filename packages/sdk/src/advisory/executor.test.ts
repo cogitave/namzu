@@ -54,7 +54,7 @@ import { ADVISORY_RESPONSE_CONTRACT } from './parse.js'
  * Builds a minimal mock provider for advisory tests. Phase 2 of
  * ses_001-tool-stream-events removed `chat()` from `LLMProvider`, so
  * the test stubs `chatStream` and `AdvisoryExecutor` consumes via
- * `collect()`. The mock returns a single chunk with the legacy text +
+ * `collectChatCompletion()`. The mock returns a single chunk with the legacy text +
  * usage so the aggregated response shape matches what `chat()` would
  * have returned.
  */

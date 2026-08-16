@@ -1,7 +1,7 @@
 import { CHARS_PER_TOKEN, ZERO_COST } from '../constants/limits.js'
 import { assembleSystemPrompt } from '../persona/assembler.js'
 import { resolveModelPricing } from '../pricing/index.js'
-import { collect } from '../provider/collect.js'
+import { collectChatCompletion } from '../provider/collect-chat-completion.js'
 
 import type { AdvisorDefinition, AdvisoryBudget } from '../types/advisory/config.js'
 import type { AdvisoryRequest, AdvisoryResult } from '../types/advisory/result.js'
@@ -83,7 +83,7 @@ export class AdvisoryExecutor {
 			urgency: request.urgency,
 		})
 
-		const response = await collect(
+		const response = await collectChatCompletion(
 			advisor.provider.chatStream({
 				model: advisor.model,
 				messages,

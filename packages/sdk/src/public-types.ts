@@ -115,7 +115,7 @@ export type {
 export type { ShellCompressOptions, ShellCompressResult } from './utils/shell-compress.js'
 
 export type { QueryParams } from './runtime/query/index.js'
-export type { ContextCacheConfig, PromptCacheInput } from './runtime/query/context-cache.js'
+export type { PromptCacheConfig, PromptCacheInput } from './runtime/query/prompt-cache.js'
 
 export type { LimitCheckResult, LimitCheckerState, RunReporter } from './run/index.js'
 

@@ -41,7 +41,7 @@ function open(gate?: Promise<void>) {
 	return { tools, provider }
 }
 
-const collect = async (run: { events(): AsyncIterable<BidiRunEvent> }, until: number) => {
+const collectEvents = async (run: { events(): AsyncIterable<BidiRunEvent> }, until: number) => {
 	const seen: BidiRunEvent[] = []
 	for await (const event of run.events()) {
 		seen.push(event)
@@ -61,7 +61,7 @@ describe('a session with no turn boundary', () => {
 		})
 
 		provider.session()?.push({ type: 'text', text: 'hello there' })
-		const seen = await collect(run, 1)
+		const seen = await collectEvents(run, 1)
 
 		expect(seen[0]).toMatchObject({ type: 'text', text: 'hello there' })
 		await run.close()
@@ -77,7 +77,7 @@ describe('a session with no turn boundary', () => {
 		})
 
 		provider.session()?.push({ type: 'tool_call', id: 't1', name: 'lookup', arguments: '{}' })
-		const seen = await collect(run, 2)
+		const seen = await collectEvents(run, 2)
 
 		expect(seen.map((e) => e.type)).toEqual(['tool_started', 'tool_completed'])
 		expect(provider.session()?.sent).toContainEqual({
@@ -106,7 +106,7 @@ describe('a session with no turn boundary', () => {
 		provider.session()?.push({ type: 'tool_call', id: 't1', name: 'lookup', arguments: '{}' })
 		provider.session()?.push({ type: 'text', text: 'still talking' })
 
-		const seen = await collect(run, 2)
+		const seen = await collectEvents(run, 2)
 		expect(seen.map((e) => e.type)).toEqual(['tool_started', 'text'])
 
 		release?.()
@@ -132,7 +132,7 @@ describe('a session with no turn boundary', () => {
 		provider.session()?.push({ type: 'interrupted' })
 		release?.()
 
-		const seen = await collect(run, 3)
+		const seen = await collectEvents(run, 3)
 		expect(seen.map((e) => e.type)).toEqual(['tool_started', 'interrupted', 'tool_abandoned'])
 		// Nothing was sent back for it.
 		expect(provider.session()?.sent).toEqual([])
@@ -149,7 +149,7 @@ describe('a session with no turn boundary', () => {
 		})
 
 		provider.session()?.push({ type: 'tool_call', id: 't1', name: 'lookup', arguments: '{}' })
-		const seen = await collect(run, 2)
+		const seen = await collectEvents(run, 2)
 		provider.session()?.push({ type: 'interrupted' })
 
 		expect(seen.map((e) => e.type)).toEqual(['tool_started', 'tool_completed'])
@@ -181,7 +181,7 @@ describe('a session with no turn boundary', () => {
 		})
 
 		provider.session()?.push({ type: 'tool_call', id: 't1', name: 'lookup', arguments: '{}' })
-		const seen = await collect(run, 2)
+		const seen = await collectEvents(run, 2)
 
 		expect(seen[1]).toMatchObject({ type: 'tool_completed', isError: true })
 		expect(provider.session()?.sent).toContainEqual({

@@ -47,7 +47,7 @@ function flakyProvider(failures: number, error?: unknown): LLMProvider {
 	} as unknown as LLMProvider
 }
 
-async function collect(provider: LLMProvider): Promise<StreamChunk[]> {
+async function drainChunks(provider: LLMProvider): Promise<StreamChunk[]> {
 	const chunks: StreamChunk[] = []
 	for await (const chunk of provider.chatStream({ model: 'm', messages: [] } as never)) {
 		chunks.push(chunk)
@@ -60,7 +60,7 @@ describe('a retry announces itself', () => {
 
 	it('yields a notice before each backoff', async () => {
 		const wrapped = withProviderRetry(flakyProvider(2), { sleepFn, random: () => 0.5 })
-		const chunks = await collect(wrapped)
+		const chunks = await drainChunks(wrapped)
 
 		const notices = chunks.filter((c) => c.retry)
 		expect(notices).toHaveLength(2)
@@ -70,7 +70,7 @@ describe('a retry announces itself', () => {
 
 	it('carries the classification, not just the fact', async () => {
 		const wrapped = withProviderRetry(flakyProvider(1), { sleepFn, random: () => 0.5 })
-		const notice = (await collect(wrapped)).find((c) => c.retry)?.retry
+		const notice = (await drainChunks(wrapped)).find((c) => c.retry)?.retry
 
 		// A host deciding whether to keep waiting needs to know what went
 		// wrong and for how long, which is what a bare "retrying" cannot say.
@@ -86,7 +86,7 @@ describe('a retry announces itself', () => {
 			headers: { 'retry-after': '2' },
 		})
 		const wrapped = withProviderRetry(flakyProvider(1, directed), { sleepFn, random: () => 0.5 })
-		const notice = (await collect(wrapped)).find((c) => c.retry)?.retry
+		const notice = (await drainChunks(wrapped)).find((c) => c.retry)?.retry
 
 		expect(notice?.serverDirected).toBe(true)
 		expect(notice?.delayMs).toBe(2000)
@@ -94,7 +94,7 @@ describe('a retry announces itself', () => {
 
 	it('carries no delta, so it is never mistaken for output', async () => {
 		const wrapped = withProviderRetry(flakyProvider(1), { sleepFn, random: () => 0.5 })
-		const notice = (await collect(wrapped)).find((c) => c.retry)
+		const notice = (await drainChunks(wrapped)).find((c) => c.retry)
 
 		expect(notice?.delta).toEqual({})
 		expect(notice?.finishReason).toBeUndefined()
@@ -119,7 +119,7 @@ describe('a retry announces itself', () => {
 
 	it('says nothing when the call succeeds first time', async () => {
 		const wrapped = withProviderRetry(flakyProvider(0), { sleepFn })
-		expect((await collect(wrapped)).some((c) => c.retry)).toBe(false)
+		expect((await drainChunks(wrapped)).some((c) => c.retry)).toBe(false)
 	})
 
 	it('says nothing more once it gives up', async () => {
@@ -153,7 +153,7 @@ describe('the logger the sole production call site never passed', () => {
 			random: () => 0.5,
 			log,
 		})
-		await collect(wrapped)
+		await drainChunks(wrapped)
 
 		expect(log.warns.some(([message]) => String(message).includes('retrying'))).toBe(true)
 	})

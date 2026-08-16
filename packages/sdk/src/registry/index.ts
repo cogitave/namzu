@@ -1,4 +1,4 @@
-export { Registry } from './Registry.js'
+export { BaseRegistry } from './BaseRegistry.js'
 export { ManagedRegistry } from './ManagedRegistry.js'
 export type { ManagedRegistryConfig } from './ManagedRegistry.js'
 

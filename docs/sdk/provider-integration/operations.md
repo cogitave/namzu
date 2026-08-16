@@ -341,7 +341,7 @@ OCR, citations — and pays the text cost instead.
 
 | If you need... | Use |
 | --- | --- |
-| One request and one normalized answer | `collect(provider.chatStream(params))` |
+| One request and one normalized answer | `collectChatCompletion(provider.chatStream(params))` |
 | Incremental output | `provider.chatStream()` |
 | Health or model discovery | `healthCheck()` / `listModels()` |
 | Tool execution loop, safety policy, and final run assembly | `ReactiveAgent.run()` or `drainQuery()` |
