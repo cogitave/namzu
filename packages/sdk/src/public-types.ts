@@ -252,3 +252,15 @@ export type {
 	PromptContributionContext,
 	PromptPlacement,
 } from './prompt/index.js'
+
+export type {
+	GuardedFetchConfig,
+	WebFetchProvider,
+	WebFetchRefusalReason,
+	WebFetchRequest,
+	WebFetchResult,
+	WebSearchHit,
+	WebSearchProvider,
+	WebSearchRequest,
+	WebSearchResult,
+} from './connector/web/index.js'

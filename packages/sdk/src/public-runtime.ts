@@ -1017,3 +1017,12 @@ export {
 	isInvocableBy,
 	skillInvocation,
 } from './types/skills/index.js'
+
+// Reaching the web. Fetching ships guarded because its rules are about the
+// network and the same everywhere; searching ships with no vendor, because
+// choosing one here would choose it for every consumer.
+export {
+	GuardedFetchProvider,
+	WebFetchRefusedError,
+	isPrivateAddress,
+} from './connector/web/index.js'
